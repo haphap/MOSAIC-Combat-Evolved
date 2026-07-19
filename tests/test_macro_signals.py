@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.scorecard import expand_state_to_macro_signals, expand_state_to_recommendations
-from mosaic.scorecard.macro_aggregation import aggregate_macro_transmissions
+from mosaic.scorecard.macro_aggregation import MACRO_AGENTS
 from mosaic.scorecard.macro_labels import (
     BENCHMARK_FALLBACK_LABEL,
     list_macro_label_inventory,
@@ -27,7 +27,8 @@ def _state(outputs: dict, date: str = "2024-01-02", cohort: str = "cohort_defaul
         "as_of_date": date,
         "day_outcome_status": "accepted",
         "layer1_outputs": outputs,
-        "layer1_consensus": {"stance": "BULLISH", "confidence": 0.6},
+        # Historical input is deliberately ignored by the v2 direct-consumption path.
+        "legacy_layer1_consensus": {"stance": "BULLISH", "confidence": 0.6},
     }
 
 
@@ -66,20 +67,23 @@ class TestExpand(unittest.TestCase):
             _state(
                 {
                     "central_bank": _macro("central_bank", "SUPPORTIVE", 0.8),
-                    "yield_curve": _macro("yield_curve", "ADVERSE", 0.5),
-                    "volatility": _macro("volatility", "NEUTRAL", 0.4),
+                    "us_financial_conditions": _macro(
+                        "us_financial_conditions", "ADVERSE", 0.5
+                    ),
+                    "eu_economy": _macro("eu_economy", "NEUTRAL", 0.4),
                     "institutional_flow": _macro("institutional_flow", "SUPPORTIVE", 0.6),
                 }
             )
         )
         by = {r["agent"]: r for r in rows}
         self.assertEqual(by["central_bank"]["vote"], 1)
-        self.assertEqual(by["yield_curve"]["vote"], -1)
-        self.assertEqual(by["volatility"]["vote"], 0)
+        self.assertEqual(by["us_financial_conditions"]["vote"], -1)
+        self.assertEqual(by["eu_economy"]["vote"], 0)
         self.assertEqual(by["institutional_flow"]["vote"], 1)
         self.assertEqual(by["central_bank"]["signal"], 1.0)
-        self.assertEqual(by["yield_curve"]["signal"], -1.0)
-        self.assertEqual(by["central_bank"]["consensus_stance"], "BULLISH")
+        self.assertEqual(by["us_financial_conditions"]["signal"], -1.0)
+        self.assertIsNone(by["central_bank"]["consensus_stance"])
+        self.assertIsNone(by["central_bank"]["consensus_score"])
 
     def test_signal_scales_direction_by_strength(self):
         rows = expand_state_to_macro_signals(
@@ -104,7 +108,13 @@ class TestIngestIdempotent(unittest.TestCase):
         import os
         with tempfile.TemporaryDirectory() as d:
             store = ScorecardStore(db_path=os.path.join(d, "t.db"))
-            st = _state({"dollar": _macro("dollar", "SUPPORTIVE", 0.5)})
+            st = _state(
+                {
+                    "us_financial_conditions": _macro(
+                        "us_financial_conditions", "SUPPORTIVE", 0.5
+                    )
+                }
+            )
             self.assertEqual(store.append_macro_signals_from_state(st), 1)
             store.append_macro_signals_from_state(st)  # re-ingest
             with store._connect() as conn:
@@ -150,7 +160,7 @@ class TestMacroScorer(unittest.TestCase):
 
     def test_bullish_vote_benchmark_up_hits_positive(self):
         out, row = self._run(
-            {"volatility": _macro("volatility", "SUPPORTIVE", 0.8)},
+            {"geopolitical": _macro("geopolitical", "SUPPORTIVE", 0.8)},
             bench_ret=0.03,
         )
         self.assertEqual(out["macro_scored"], 1)
@@ -161,7 +171,7 @@ class TestMacroScorer(unittest.TestCase):
 
     def test_bearish_vote_benchmark_down_hits_positive(self):
         _, row = self._run(
-            {"yield_curve": _macro("yield_curve", "ADVERSE", 0.7)},
+            {"us_financial_conditions": _macro("us_financial_conditions", "ADVERSE", 0.7)},
             bench_ret=-0.03,
         )
         self.assertEqual(row["vote"], -1)
@@ -171,20 +181,20 @@ class TestMacroScorer(unittest.TestCase):
 
     def test_neutral_small_move_positive_big_move_negative(self):
         _, small = self._run(
-            {"volatility": _macro("volatility", "NEUTRAL", 0.6)},
+            {"geopolitical": _macro("geopolitical", "NEUTRAL", 0.6)},
             bench_ret=0.001,  # within band
         )
         self.assertEqual(small["realized_label"], 0)
         self.assertGreater(small["raw_macro_score_5d"], 0)
         _, big = self._run(
-            {"volatility": _macro("volatility", "NEUTRAL", 0.6)},
+            {"geopolitical": _macro("geopolitical", "NEUTRAL", 0.6)},
             bench_ret=0.05,  # big move
         )
         self.assertLess(big["raw_macro_score_5d"], 0)
 
     def test_neutral_band_override_controls_realized_label(self):
         _, row = self._run(
-            {"volatility": _macro("volatility", "SUPPORTIVE", 0.8)},
+            {"geopolitical": _macro("geopolitical", "SUPPORTIVE", 0.8)},
             bench_ret=0.01,
             neutral_band=0.02,
         )
@@ -214,7 +224,14 @@ class TestMacroScorer(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         store = ScorecardStore(db_path=os.path.join(tmp.name, "t.db"))
         store.append_macro_signals_from_state(
-            _state({"dollar": _macro("dollar", "SUPPORTIVE", 0.5)}, date=d0)
+            _state(
+                {
+                    "us_financial_conditions": _macro(
+                        "us_financial_conditions", "SUPPORTIVE", 0.5
+                    )
+                },
+                date=d0,
+            )
         )
         with _cal_patch(), \
              patch("mosaic.scorecard.scorer._fetch_close", lambda ts, date: None), \
@@ -236,14 +253,21 @@ class TestMacroSkill(unittest.TestCase):
         store = ScorecardStore(db_path=os.path.join(tmp.name, "t.db"))
         # two scored rows for one agent
         store.append_macro_signals_from_state(
-            _state({"dollar": _macro("dollar", "SUPPORTIVE", 0.5)}, date="2024-01-02")
+            _state(
+                {
+                    "us_financial_conditions": _macro(
+                        "us_financial_conditions", "SUPPORTIVE", 0.5
+                    )
+                },
+                date="2024-01-02",
+            )
         )
         with store._connect() as conn:
             rid = conn.execute("SELECT id FROM macro_signals").fetchone()[0]
         store.update_macro_scoring(rid, {"hit_5d": 1, "raw_macro_score_5d": 0.02, "scored_at": "2024-02-01"})
         rows = store.list_macro_skill("cohort_default")
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["agent"], "dollar")
+        self.assertEqual(rows[0]["agent"], "us_financial_conditions")
         self.assertAlmostEqual(rows[0]["mean_raw_macro_score_5d"], 0.02)
         self.assertEqual(rows[0]["hit_rate_5d"], 1.0)
         self.assertIsNone(rows[0]["sharpe_window"])  # n_obs < 5
@@ -259,13 +283,18 @@ class TestMacroSkill(unittest.TestCase):
             date = f"2024-01-0{i}"
             store.append_macro_signals_from_state(
                 _state(
-                    {"dollar": _macro("dollar", "SUPPORTIVE", 0.5)},
+                    {
+                        "us_financial_conditions": _macro(
+                            "us_financial_conditions", "SUPPORTIVE", 0.5
+                        )
+                    },
                     date=date,
                 )
             )
             with store._connect() as conn:
                 rid = conn.execute(
-                    "SELECT id FROM macro_signals WHERE agent='dollar' AND date=?",
+                    "SELECT id FROM macro_signals "
+                    "WHERE agent='us_financial_conditions' AND date=?",
                     (date,),
                 ).fetchone()[0]
             store.update_macro_scoring(
@@ -283,19 +312,21 @@ class TestMacroSkill(unittest.TestCase):
 class TestMacroAgentSpecificLabels(unittest.TestCase):
     def test_inventory_exposes_sources_and_primary_gate(self):
         rows = list_macro_label_inventory()
-        self.assertGreaterEqual(len(rows), 20)
+        self.assertEqual(len(rows), 10)
         by_key = {(r["agent"], r["label_type"]): r for r in rows}
         expected_primary = {
-            "central_bank": "rate_sensitive_path_5d",
-            "china": "china_growth_proxy_path_5d",
-            "us_economy": "us_demand_transmission_path_5d",
-            "geopolitical": "risk_off_path_5d",
-            "dollar": "cny_pressure_path_5d",
-            "yield_curve": "curve_sensitive_path_5d",
-            "commodities": "commodity_basket_path_5d",
-            "volatility": "volatility_shock_path_5d",
+            "central_bank": "pboc_rate_liquidity_a_share_path_5d",
+            "china": "china_macro_transmission_a_share_path_5d",
+            "us_economy": "us_economic_cycle_a_share_path_5d",
+            "eu_economy": "eu_economic_cycle_a_share_path_5d",
+            "us_financial_conditions": "us_financial_conditions_a_share_path_5d",
+            "euro_area_financial_conditions": (
+                "euro_area_financial_conditions_a_share_path_5d"
+            ),
+            "geopolitical": "geopolitical_transmission_a_share_path_5d",
+            "commodities": "commodity_a_share_transmission_path_5d",
             "market_breadth": "market_breadth_confirmation_5d",
-            "institutional_flow": "flow_followthrough_path_5d",
+            "institutional_flow": "institutional_flow_followthrough_5d",
         }
         for agent, label_type in expected_primary.items():
             self.assertTrue(by_key[(agent, label_type)]["available_now"])
@@ -304,12 +335,8 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
                 "implemented",
             )
             self.assertEqual(primary_label_for_agent(agent).label_type, label_type)
-        self.assertTrue(by_key[("volatility", "max_drawdown_5d")]["available_now"])
-        self.assertEqual(
-            by_key[("institutional_flow", "flow_continuation_5d")]["implementation_status"],
-            "deferred",
-        )
-        self.assertIn("主力资金流", by_key[("institutional_flow", "flow_continuation_5d")]["data_source"])
+        self.assertEqual(set(expected_primary), set(MACRO_AGENTS))
+        self.assertTrue(all(row["fallback_label"] is None for row in rows))
 
     def test_available_agent_specific_label_is_primary(self):
         import os
@@ -322,8 +349,8 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
         store.append_macro_signals_from_state(
             _state(
                 {
-                    "volatility": {
-                        **_macro("volatility", "ADVERSE", 0.8),
+                    "geopolitical": {
+                        **_macro("geopolitical", "ADVERSE", 0.8),
                     }
                 },
                 date=d0,
@@ -348,7 +375,7 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
                 "max_drawdown_5d, path_metric_5d, source_series_id, realized_label, "
                 "hit_5d, raw_macro_score_5d FROM macro_signals"
             ).fetchone()
-        self.assertEqual(row["label_type"], "volatility_shock_path_5d")
+        self.assertEqual(row["label_type"], "geopolitical_transmission_a_share_path_5d")
         self.assertEqual(row["label_source_status"], "primary")
         self.assertIsNotNone(row["source_series_id"])
         self.assertLess(row["max_drawdown_5d"], -0.005)
@@ -359,7 +386,7 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
         self.assertEqual(row["hit_5d"], 1)
         self.assertGreater(row["raw_macro_score_5d"], 0)
 
-    def test_max_drawdown_endpoint_only_series_is_marked_fallback(self):
+    def test_insufficient_primary_path_is_marked_missing_without_fallback(self):
         import os
         import tempfile
 
@@ -370,7 +397,7 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
         store.append_macro_signals_from_state(
             _state(
                 {
-                    "volatility": _macro("volatility", "ADVERSE", 0.8)
+                    "geopolitical": _macro("geopolitical", "ADVERSE", 0.8)
                 },
                 date=d0,
             )
@@ -389,10 +416,10 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
             row = conn.execute(
                 "SELECT label_type, label_source_status FROM macro_signals"
             ).fetchone()
-        self.assertEqual(row["label_type"], "volatility_shock_path_5d")
-        self.assertEqual(row["label_source_status"], "fallback")
+        self.assertEqual(row["label_type"], "geopolitical_transmission_a_share_path_5d")
+        self.assertEqual(row["label_source_status"], "missing")
 
-    def test_unavailable_agent_label_records_primary_label_with_fallback_status(self):
+    def test_unavailable_agent_label_records_primary_label_with_missing_status(self):
         import os
         import tempfile
 
@@ -402,7 +429,11 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
         store = ScorecardStore(db_path=os.path.join(tmp.name, "t.db"))
         store.append_macro_signals_from_state(
             _state(
-                {"dollar": _macro("dollar", "SUPPORTIVE", 0.5)},
+                {
+                    "us_financial_conditions": _macro(
+                        "us_financial_conditions", "SUPPORTIVE", 0.5
+                    )
+                },
                 date=d0,
             )
         )
@@ -421,8 +452,8 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
             row = conn.execute(
                 "SELECT label_type, label_source_status FROM macro_signals"
             ).fetchone()
-        self.assertEqual(row["label_type"], "cny_pressure_path_5d")
-        self.assertEqual(row["label_source_status"], "fallback")
+        self.assertEqual(row["label_type"], "us_financial_conditions_a_share_path_5d")
+        self.assertEqual(row["label_source_status"], "missing")
 
     def test_missing_breadth_label_is_not_replaced_by_benchmark(self):
         import os
@@ -478,30 +509,21 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
         d0 = "2024-01-02"
         outputs = {
             agent: _macro(agent, "SUPPORTIVE", 0.7)
-            for agent in (
-                "china",
-                "us_economy",
-                "central_bank",
-                "dollar",
-                "yield_curve",
-                "commodities",
-                "geopolitical",
-                "volatility",
-                "market_breadth",
-                "institutional_flow",
-            )
+            for agent in MACRO_AGENTS
         }
         expected_labels = {
-            "central_bank": "rate_sensitive_path_5d",
-            "china": "china_growth_proxy_path_5d",
-            "us_economy": "us_demand_transmission_path_5d",
-            "geopolitical": "risk_off_path_5d",
-            "dollar": "cny_pressure_path_5d",
-            "yield_curve": "curve_sensitive_path_5d",
-            "commodities": "commodity_basket_path_5d",
-            "volatility": "volatility_shock_path_5d",
+            "central_bank": "pboc_rate_liquidity_a_share_path_5d",
+            "china": "china_macro_transmission_a_share_path_5d",
+            "us_economy": "us_economic_cycle_a_share_path_5d",
+            "eu_economy": "eu_economic_cycle_a_share_path_5d",
+            "us_financial_conditions": "us_financial_conditions_a_share_path_5d",
+            "euro_area_financial_conditions": (
+                "euro_area_financial_conditions_a_share_path_5d"
+            ),
+            "geopolitical": "geopolitical_transmission_a_share_path_5d",
+            "commodities": "commodity_a_share_transmission_path_5d",
             "market_breadth": "market_breadth_confirmation_5d",
-            "institutional_flow": "flow_followthrough_path_5d",
+            "institutional_flow": "institutional_flow_followthrough_5d",
         }
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -540,7 +562,7 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
         for row in rows:
             self.assertEqual(row["label_type"], expected_labels[row["agent"]])
             self.assertNotEqual(row["label_type"], BENCHMARK_FALLBACK_LABEL)
-            self.assertIn(row["label_source_status"], {"primary", "fallback"})
+            self.assertEqual(row["label_source_status"], "primary")
             self.assertIsNotNone(row["path_metric_5d"])
             self.assertIsNotNone(row["source_series_id"])
 
@@ -553,44 +575,29 @@ class TestMacroInfluenceDiagnostics(unittest.TestCase):
                     "central_bank": {
                         **_macro("central_bank", "SUPPORTIVE", 1.0),
                     },
-                    "yield_curve": {
-                        **_macro("yield_curve", "ADVERSE", 1.0),
+                    "us_financial_conditions": {
+                        **_macro("us_financial_conditions", "ADVERSE", 1.0),
                     },
                 }
             )
         )
         by = {r["agent"]: r for r in rows}
         self.assertIsNone(by["central_bank"]["influence_weight_equal"])
-        self.assertIsNone(by["yield_curve"]["influence_weight_equal"])
+        self.assertIsNone(by["us_financial_conditions"]["influence_weight_equal"])
 
-    def test_complete_role_set_influence_matches_six_group_aggregation(self):
+    def test_complete_role_set_has_no_formal_aggregation_influence(self):
         outputs = {
             agent: _macro(agent, "SUPPORTIVE", 0.8, strength=(index % 5) + 1)
-            for index, agent in enumerate(
-                (
-                    "china",
-                    "us_economy",
-                    "central_bank",
-                    "dollar",
-                    "yield_curve",
-                    "commodities",
-                    "geopolitical",
-                    "volatility",
-                    "market_breadth",
-                    "institutional_flow",
-                )
-            )
+            for index, agent in enumerate(MACRO_AGENTS)
         }
         outputs["central_bank"] = _macro("central_bank", "ADVERSE", 0.8, strength=4)
         rows = expand_state_to_macro_signals(_state(outputs))
-        baseline = aggregate_macro_transmissions(outputs)["score"]
         for row in rows:
-            without = {agent: dict(output) for agent, output in outputs.items()}
-            without[row["agent"]]["confidence"] = 0.0
-            expected = abs(baseline - aggregate_macro_transmissions(without)["score"])
-            self.assertAlmostEqual(row["influence_weight_equal"], expected)
+            self.assertIsNone(row["influence_weight_equal"])
+            self.assertIsNone(row["consensus_stance"])
+            self.assertIsNone(row["consensus_score"])
 
-    def test_effective_macro_score_is_influence_scaled_diagnostic(self):
+    def test_effective_macro_score_remains_empty_without_retired_influence(self):
         import os
         import tempfile
 
@@ -600,18 +607,7 @@ class TestMacroInfluenceDiagnostics(unittest.TestCase):
         store = ScorecardStore(db_path=os.path.join(tmp.name, "t.db"))
         outputs = {
             agent: _macro(agent, "SUPPORTIVE", 1.0)
-            for agent in (
-                "china",
-                "us_economy",
-                "central_bank",
-                "dollar",
-                "yield_curve",
-                "commodities",
-                "geopolitical",
-                "volatility",
-                "market_breadth",
-                "institutional_flow",
-            )
+            for agent in MACRO_AGENTS
         }
         outputs["central_bank"] = _macro("central_bank", "ADVERSE", 1.0)
         store.append_macro_signals_from_state(_state(outputs, date=d0))
@@ -635,12 +631,11 @@ class TestMacroInfluenceDiagnostics(unittest.TestCase):
                 "effective_macro_score_5d FROM macro_signals ORDER BY agent"
             ).fetchall()
         for row in rows:
-            self.assertAlmostEqual(
-                row["effective_macro_score_5d"],
-                row["raw_macro_score_5d"] * row["influence_weight_equal"],
-            )
+            self.assertIsNotNone(row["raw_macro_score_5d"])
+            self.assertIsNone(row["influence_weight_equal"])
+            self.assertIsNone(row["effective_macro_score_5d"])
         skill = {r["agent"]: r for r in store.list_macro_skill("cohort_default")}
-        self.assertIsNotNone(skill["central_bank"]["mean_effective_macro_score_5d"])
+        self.assertIsNone(skill["central_bank"]["mean_effective_macro_score_5d"])
 
 
 if __name__ == "__main__":  # pragma: no cover

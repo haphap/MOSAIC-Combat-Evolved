@@ -129,8 +129,8 @@ def validate_prompt_tool_compatibility(
     (only positive baseline evidence triggers a finding).
     """
     from mosaic.bridge.handlers.prompts import _LANGS, _rel_path
-    from mosaic.bridge.handlers.tools import tools_list
     from mosaic.autoresearch.git_ops import GitError
+    from mosaic.bridge.tool_capabilities import TOOL_DESCRIPTIONS
 
     ref = version.get("modification_commit_hash")
     if not isinstance(ref, str) or not ref:
@@ -140,7 +140,7 @@ def validate_prompt_tool_compatibility(
     base_commit = version.get("base_commit_hash")
 
     if available_tools is None:
-        available_tools = {tool["name"] for tool in tools_list({})}
+        available_tools = set(TOOL_DESCRIPTIONS)
 
     def _baseline_had_section(rel: str) -> bool:
         if baseline_git is None or not base_commit:

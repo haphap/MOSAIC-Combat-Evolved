@@ -256,6 +256,7 @@ def compute_market_breadth_snapshot(
         "concentration_q80_252d": round(concentration_q80, 10),
         "breadth_state": state,
         "concentration_state": concentration_state,
+        "direct_data_quality": 1.0,
         "methodology": {
             "universe": "PIT listed/not-delisted, >=60 observations, known suspensions excluded",
             "adjustment": "only adjustment factors dated on/before as_of",

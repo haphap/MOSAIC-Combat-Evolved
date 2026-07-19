@@ -11,6 +11,7 @@ license = "Apache-2.0"
 requires-python = ">=3.10"
 dependencies = [
     # Phase 0 Day 1 — bridge skeleton only needs these
+    "jsonschema>=4.23",
     "langchain-core>=0.3.81",
     "python-dotenv>=1.0.0",
     # Phase 0 Day 2+ will add: pandas, requests, tushare, akshare, stockstats, ...

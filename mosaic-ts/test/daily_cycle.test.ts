@@ -4,8 +4,8 @@
  * Three test groups:
  *   1. ``buildDailyCycleGraph`` compiles successfully (validates the
  *      LangGraph topology is well-formed).
- *   2. End-to-end smoke: 25 mocked agents run across 26 runtime stages,
- *      portfolio_actions populated, llm_calls = 26 (no duplication
+ *   2. End-to-end smoke: 28 mocked agents run across 29 runtime stages,
+ *      portfolio_actions populated, llm_calls = 29 (no duplication
  *      from subgraph composition — Plan §11.2 design decision #7).
  *   3. Heavy CRO rejection remains in the single canonical chain; there is
  *      no asymmetric replay that can bypass a second CRO review.
@@ -16,35 +16,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage, type SystemMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AcceptedAgentOutputStore } from "../src/agents/accepted_output.js";
+import {
+  MACRO_AGENT_CONTRACT_VERSION,
+  MACRO_AGENT_IDS,
+  MACRO_COMPONENT_WEIGHT_CONTRACT_VERSION,
+  MACRO_EXECUTION_BEHAVIOR_VERSION,
+  MACRO_PROMPT_BEHAVIOR_VERSION,
+  MACRO_ROLE_CONTRACTS,
+} from "../src/agents/macro/_contracts.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
+import { STANDARD_SECTOR_AGENT_IDS } from "../src/agents/sector/_contracts.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
-import type {
-  AlphaDiscoveryOutput,
-  AutoExecOutput,
-  BiotechOutput,
-  CentralBankOutput,
-  ChinaOutput,
-  CioOutput,
-  CommoditiesOutput,
-  ConsumerOutput,
-  CroOutput,
-  CurrentPositionsSnapshot,
-  DollarOutput,
-  EnergyOutput,
-  FinancialsOutput,
-  GeopoliticalOutput,
-  IndustrialsOutput,
-  InstitutionalFlowOutput,
-  MarketBreadthOutput,
-  PortfolioAction,
-  RegimeSignal,
-  RelationshipMapperOutput,
-  SemiconductorOutput,
-  SuperinvestorOutput,
-  UsEconomyOutput,
-  VolatilityOutput,
-  YieldCurveOutput,
-} from "../src/agents/types.js";
+import type { CurrentPositionsSnapshot, PortfolioAction } from "../src/agents/types.js";
 import type { JsonSchemaObject, ToolMetadata } from "../src/bridge/index.js";
 import type { BridgeApi, MosaicConfig } from "../src/bridge/types.js";
 import { applyBacktestPortfolioActionsToPositions } from "../src/cli/_backtest_helpers.js";
@@ -52,7 +36,6 @@ import { submitPaperTargetDeltaOrders } from "../src/cli/commands/daily-cycle.js
 import { fakeAgentStructuredOutput, fakeSchemaValue } from "../src/cli/fake_agent_output.js";
 import { buildDailyCycleGraph, DAILY_CYCLE_LAYER_NODES } from "../src/graph/daily_cycle.js";
 import type { LlmHandle } from "../src/llm/factory.js";
-import { macroOutput } from "./helpers/macro.js";
 
 // ============================================================ helpers / shared
 
@@ -435,14 +418,22 @@ const FAKE_TOOLS: ToolMetadata[] = [
   "get_rke_research_context",
   "get_china_macro_snapshot",
   "get_us_macro_snapshot",
+  "get_eu_macro_snapshot",
   "get_central_bank_snapshot",
-  "get_rates_credit_snapshot",
-  "get_fx_conditions_snapshot",
+  "get_us_financial_conditions_snapshot",
+  "get_euro_area_financial_conditions_snapshot",
   "get_commodity_conditions_snapshot",
   "get_geopolitical_events_snapshot",
-  "get_volatility_snapshot",
   "get_market_breadth_snapshot",
   "get_market_positioning_snapshot",
+  "get_sector_research_snapshot",
+  "get_relationship_graph_snapshot",
+  "get_superinvestor_candidate_snapshot",
+  "get_cro_risk_snapshot",
+  "get_alpha_candidate_snapshot",
+  "get_execution_snapshot",
+  "get_cio_decision_snapshot",
+  "get_role_event_snapshot",
   "get_pboc_ops",
   "get_fred_series",
   "get_yield_curve_cn",
@@ -486,7 +477,7 @@ const fakeApi: BridgeApi = {
     return {
       text: JSON.stringify({
         schema_version:
-          role === "market_breadth" ? "market_breadth_snapshot_v1" : "macro_role_snapshot_v1",
+          role === "market_breadth" ? "market_breadth_snapshot_v1" : "macro_role_snapshot_v2",
         ...(role !== "market_breadth" ? { role } : {}),
         as_of_date: "2024-06-24",
       }),
@@ -497,12 +488,12 @@ const fakeApi: BridgeApi = {
 const MACRO_SNAPSHOT_ROLE_BY_TOOL: Record<string, string> = {
   get_china_macro_snapshot: "china",
   get_us_macro_snapshot: "us_economy",
+  get_eu_macro_snapshot: "eu_economy",
   get_central_bank_snapshot: "central_bank",
-  get_rates_credit_snapshot: "yield_curve",
-  get_fx_conditions_snapshot: "dollar",
+  get_us_financial_conditions_snapshot: "us_financial_conditions",
+  get_euro_area_financial_conditions_snapshot: "euro_area_financial_conditions",
   get_commodity_conditions_snapshot: "commodities",
   get_geopolitical_events_snapshot: "geopolitical",
-  get_volatility_snapshot: "volatility",
   get_market_breadth_snapshot: "market_breadth",
   get_market_positioning_snapshot: "institutional_flow",
 };
@@ -536,13 +527,19 @@ function emptyState(): DailyCycleStateType {
     as_of_date: "2024-06-24",
     mode: "live",
     trace_id: "test",
+    darwinian_runtime_binding: null,
+    darwinian_weight_snapshot: null,
+    component_weight_snapshot: null,
+    component_calibration_inputs: {},
+    outcome_schedule_plan: null,
+    outcome_stage_skips: {},
+    accepted_output_refs: {},
     continuity_context: {},
     lesson_context: {},
     method_context: {},
     layer1_outputs: {},
-    layer1_consensus: null,
+    macro_input_gate: null,
     layer2_outputs: {},
-    layer2_consensus: null,
     layer3_outputs: {},
     layer4_outputs: {
       cro: null,
@@ -580,256 +577,28 @@ function emptyState(): DailyCycleStateType {
   };
 }
 
-// ============================================================ canned outputs for 25 agents
-
-interface CannedOutputs {
-  // L1 macro (10)
-  china: ChinaOutput;
-  us_economy: UsEconomyOutput;
-  central_bank: CentralBankOutput;
-  dollar: DollarOutput;
-  yield_curve: YieldCurveOutput;
-  commodities: CommoditiesOutput;
-  geopolitical: GeopoliticalOutput;
-  volatility: VolatilityOutput;
-  market_breadth: MarketBreadthOutput;
-  institutional_flow: InstitutionalFlowOutput;
-  // L2 sector (7)
-  semiconductor: SemiconductorOutput;
-  energy: EnergyOutput;
-  biotech: BiotechOutput;
-  consumer: ConsumerOutput;
-  industrials: IndustrialsOutput;
-  financials: FinancialsOutput;
-  relationship_mapper: RelationshipMapperOutput;
-  // L3 superinvestor (4)
-  druckenmiller: SuperinvestorOutput;
-  munger: SuperinvestorOutput;
-  burry: SuperinvestorOutput;
-  ackman: SuperinvestorOutput;
-  // L4 decision (4)
-  cro: CroOutput;
-  alpha_discovery: AlphaDiscoveryOutput;
-  autonomous_execution: AutoExecOutput;
-  cio: CioOutput;
-}
-
-function makeCannedOutputs(opts?: { croRejected?: number }): CannedOutputs {
-  const rejectedTickers = ["688981.SH", "600519.SH"].slice(0, opts?.croRejected ?? 0);
-  // Deterministic outputs that should let the L1 aggregator emit BULLISH and
-  // produce a non-empty portfolio.
-  const sectorLong = (ticker: string, conv = 0.5) => ({
-    ticker,
-    thesis: "x",
-    conviction: conv,
-  });
-  const superPick = (ticker: string, conv = 0.5) => ({
-    ticker,
-    thesis: "x",
-    conviction: conv,
-    holding_period: "3M" as const,
-  });
-  return {
-    // ---- L1 ----
-    china: macroOutput("china", { direction: "SUPPORTIVE", strength: 5 }),
-    us_economy: macroOutput("us_economy", { direction: "SUPPORTIVE", strength: 5 }),
-    central_bank: macroOutput("central_bank", { direction: "SUPPORTIVE", strength: 5 }),
-    dollar: macroOutput("dollar", { direction: "SUPPORTIVE", strength: 5 }),
-    yield_curve: macroOutput("yield_curve", { direction: "SUPPORTIVE", strength: 5 }),
-    commodities: macroOutput("commodities", { direction: "SUPPORTIVE", strength: 5 }),
-    geopolitical: macroOutput("geopolitical", { direction: "SUPPORTIVE", strength: 5 }),
-    volatility: macroOutput("volatility", { direction: "SUPPORTIVE", strength: 5 }),
-    market_breadth: macroOutput("market_breadth", { direction: "SUPPORTIVE", strength: 5 }),
-    institutional_flow: macroOutput("institutional_flow", {
-      direction: "SUPPORTIVE",
-      strength: 5,
-    }),
-    // ---- L2 ----
-    semiconductor: {
-      agent: "semiconductor",
-      longs: [sectorLong("688981.SH"), sectorLong("002371.SZ")],
-      shorts: [],
-      sector_score: 0.6,
-      key_drivers: ["d-semi"],
-      confidence: 0.5,
-    },
-    energy: {
-      agent: "energy",
-      longs: [sectorLong("601857.SH")],
-      shorts: [],
-      sector_score: 0.4,
-      key_drivers: ["d-en"],
-      confidence: 0.4,
-    },
-    biotech: {
-      agent: "biotech",
-      longs: [sectorLong("600276.SH")],
-      shorts: [],
-      sector_score: 0.5,
-      key_drivers: ["d-bio"],
-      confidence: 0.4,
-    },
-    consumer: {
-      agent: "consumer",
-      longs: [sectorLong("600519.SH")],
-      shorts: [],
-      sector_score: 0.5,
-      key_drivers: ["d-cons"],
-      confidence: 0.5,
-    },
-    industrials: {
-      agent: "industrials",
-      longs: [sectorLong("600031.SH")],
-      shorts: [],
-      sector_score: 0.4,
-      key_drivers: ["d-ind"],
-      confidence: 0.4,
-    },
-    financials: {
-      agent: "financials",
-      longs: [sectorLong("601318.SH")],
-      shorts: [],
-      sector_score: 0.4,
-      key_drivers: ["d-fin"],
-      confidence: 0.4,
-    },
-    relationship_mapper: {
-      agent: "relationship_mapper",
-      supply_chains: [{ name: "semi", tickers: ["688981.SH", "002371.SZ"], risk: "export" }],
-      ownership_clusters: [],
-      contagion_risks: ["spillover"],
-      key_drivers: ["d-rm"],
-      confidence: 0.4,
-    },
-    // ---- L3 ----
-    druckenmiller: {
-      agent: "druckenmiller",
-      picks: [superPick("688981.SH", 0.7), superPick("600519.SH", 0.6)],
-      philosophy_note: "macro / momentum",
-      key_drivers: ["d-druck"],
-      confidence: 0.6,
-    },
-    munger: {
-      agent: "munger",
-      picks: [superPick("688981.SH", 0.8), superPick("002371.SZ", 0.7)],
-      philosophy_note: "quality moat",
-      key_drivers: ["d-munger"],
-      confidence: 0.6,
-    },
-    burry: {
-      agent: "burry",
-      picks: [superPick("600276.SH", 0.7)],
-      philosophy_note: "deep value",
-      key_drivers: ["d-burry"],
-      confidence: 0.5,
-    },
-    ackman: {
-      agent: "ackman",
-      picks: [superPick("600519.SH", 0.8), superPick("601318.SH", 0.5)],
-      philosophy_note: "quality compounder",
-      key_drivers: ["d-ackman"],
-      confidence: 0.6,
-    },
-    // ---- L4 ----
-    cro: {
-      agent: "cro",
-      rejected_picks: rejectedTickers.map((ticker, index) => ({
-        ticker,
-        reason: `risk-${index}`,
-      })),
-      required_adjustments: rejectedTickers.map((ticker, index) => ({
-        ticker,
-        adjustment: "VETO" as const,
-        max_target_weight: 0,
-        reason: `risk-${index}`,
-      })),
-      correlated_risks: [],
-      black_swan_scenarios: ["fed pivot"],
-      confidence: 0.5,
-    },
-    alpha_discovery: {
-      agent: "alpha_discovery",
-      novel_picks: [],
-      confidence: 0.3,
-    },
-    autonomous_execution: {
-      agent: "autonomous_execution",
-      trades: [
-        {
-          ticker: "688981.SH",
-          action: "BUY",
-          size_pct: 0.4,
-          delta_weight: 0.4,
-          conviction: 0.7,
-        },
-        {
-          ticker: "600519.SH",
-          action: "BUY",
-          size_pct: 0.4,
-          delta_weight: 0.4,
-          conviction: 0.6,
-        },
-      ],
-      execution_checks: [
-        {
-          ticker: "688981.SH",
-          status: "feasible",
-          estimated_cost_bps: 5,
-          reason: "liquid",
-        },
-        {
-          ticker: "600519.SH",
-          status: "feasible",
-          estimated_cost_bps: 5,
-          reason: "liquid",
-        },
-      ],
-      confidence: 0.6,
-    },
-    cio: {
-      agent: "cio",
-      portfolio_actions: [
-        {
-          ticker: "688981.SH",
-          sector: "semiconductor",
-          action: "BUY",
-          target_weight: 0.1,
-          holding_period: "3M",
-          dissent_notes: "",
-        },
-        {
-          ticker: "600519.SH",
-          sector: "consumer",
-          action: "BUY",
-          target_weight: 0.1,
-          holding_period: "3M",
-          dissent_notes: "",
-        },
-      ],
-      confidence: 0.55,
-    },
-  };
-}
-
 const ALL_AGENT_IDS = [
   // L1
   "china",
   "us_economy",
+  "eu_economy",
   "central_bank",
-  "dollar",
-  "yield_curve",
+  "us_financial_conditions",
+  "euro_area_financial_conditions",
   "commodities",
   "geopolitical",
-  "volatility",
   "market_breadth",
   "institutional_flow",
   // L2
   "semiconductor",
+  "technology",
   "energy",
   "biotech",
   "consumer",
   "industrials",
+  "real_estate_construction",
   "financials",
+  "agriculture",
   "relationship_mapper",
   // L3
   "druckenmiller",
@@ -843,24 +612,200 @@ const ALL_AGENT_IDS = [
   "cio",
 ] as const;
 
+function formalState(): DailyCycleStateType {
+  const base = emptyState();
+  const asOf = "2024-06-24T15:00:00+08:00";
+  const rosterId = "production-variant-roster:fixture";
+  const revisionId = "production-variant-roster-revision:fixture";
+  const releaseId = "execution-behavior-release:fixture";
+  const hash = (index: number) => `sha256:${index.toString(16).padStart(64, "0")}`;
+  const macroIds = new Set<string>(MACRO_AGENT_IDS);
+  const componentIds = new Set(
+    Object.entries(MACRO_ROLE_CONTRACTS)
+      .filter(([, contract]) => contract.mode === "COMPONENTS")
+      .map(([agentId]) => agentId),
+  );
+  const behaviorBindings = Object.fromEntries(
+    ALL_AGENT_IDS.map((agentId) => [
+      agentId,
+      {
+        agent_contract_version: macroIds.has(agentId)
+          ? MACRO_AGENT_CONTRACT_VERSION
+          : `${agentId}_agent_contract_fixture_v2`,
+        prompt_behavior_version: macroIds.has(agentId)
+          ? MACRO_PROMPT_BEHAVIOR_VERSION
+          : `${agentId}_prompt_fixture_v2`,
+        execution_behavior_version: macroIds.has(agentId)
+          ? MACRO_EXECUTION_BEHAVIOR_VERSION
+          : `${agentId}_execution_fixture_v2`,
+        component_weight_contract_version: componentIds.has(agentId)
+          ? MACRO_COMPONENT_WEIGHT_CONTRACT_VERSION
+          : null,
+        reliability_adapter_contract_version: `${agentId}_reliability_fixture_v2`,
+        confidence_semantics_contract_version: `${agentId}_confidence_fixture_v2`,
+      },
+    ]),
+  );
+  const weightedAgents = ALL_AGENT_IDS.filter(
+    (agentId) => !["cro", "alpha_discovery", "autonomous_execution", "cio"].includes(agentId),
+  );
+  const weights = weightedAgents.map((agentId, index) => ({
+    agent_id: agentId,
+    usage_track_key_hash: hash(100 + index),
+    weight_record_id: `weight:${agentId}`,
+    weight_record_hash: hash(200 + index),
+    record_kind: "COLD_START_INITIALIZATION" as const,
+    darwin_weight: 1,
+    previous_weight_record_id: null,
+    n_eligible_scores: 0,
+    scoring_window_hash: hash(300 + index),
+    update_event_id: null,
+    effective_at: asOf,
+    reliability_record_id: `reliability:${agentId}`,
+    reliability_record_hash: hash(400 + index),
+    operational_reliability: 1,
+    operational_reliability_if_accepted: 1,
+    reliability_state: "COLD_START" as const,
+    accountable_count: 0,
+    accepted_count: 0,
+  }));
+  const stageSkippedAgents = new Set(["cro", "autonomous_execution"]);
+  const slots = ALL_AGENT_IDS.map((agentId, index) => {
+    const scheduled = stageSkippedAgents.has(agentId);
+    return {
+      schema_version: "outcome_schedule_slot_v2",
+      outcome_schedule_slot_id: `outcome-slot:${agentId}`,
+      outcome_schedule_slot_hash: hash(500 + index),
+      outcome_schedule_plan_id: "outcome-plan:fixture",
+      graph_run_id: "formal-graph-run",
+      agent_id: agentId,
+      track_key_hash: hash(600 + index),
+      run_slot_id: `run-slot:${agentId}`,
+      run_slot_kind: scheduled ? ("OUTCOME_SCHEDULED" as const) : ("DOWNSTREAM_ONLY" as const),
+      scheduled_sample_id: scheduled ? `scheduled-sample:${agentId}` : null,
+    };
+  });
+  const outcomeStageSkips = Object.fromEntries(
+    [...stageSkippedAgents].map((agentId, index) => {
+      const slot = slots.find((row) => row.agent_id === agentId);
+      if (!slot?.scheduled_sample_id) throw new Error(`missing fixture slot: ${agentId}`);
+      return [
+        agentId,
+        {
+          stage_skip_id: `stage-skip:${agentId}`,
+          stage_skip_hash: hash(800 + index),
+          schema_version: "no_evaluation_object_stage_skip_v2" as const,
+          graph_run_id: "formal-graph-run",
+          outcome_schedule_plan_id: "outcome-plan:fixture",
+          outcome_schedule_slot_id: slot.outcome_schedule_slot_id,
+          scheduled_sample_id: slot.scheduled_sample_id,
+          track_key_hash: slot.track_key_hash,
+          agent_id: agentId as "cro" | "autonomous_execution",
+          skip_reason: "NO_EVALUATION_OBJECT" as const,
+          frozen_object_set_id: `frozen-empty-set:${agentId}`,
+          frozen_object_set_hash: hash(810 + index),
+          member_count: 0 as const,
+          model_invoked: false as const,
+          eligibility_audit_id: `eligibility-audit:${agentId}`,
+          eligibility_audit_revision_id: `eligibility-revision:${agentId}`,
+          eligibility_audit_revision_hash: hash(820 + index),
+          evidence_ids: [`evidence:empty-set:${agentId}`],
+          causal_dedupe_key: hash(830 + index),
+          recorded_at: asOf,
+        },
+      ];
+    }),
+  );
+  const resolutions = Object.entries(MACRO_ROLE_CONTRACTS).flatMap(([agentId, contract]) => {
+    if (contract.mode !== "COMPONENTS") return [];
+    const componentIds = Object.keys(contract.components);
+    const weight = 1 / componentIds.length;
+    return [
+      {
+        agent_id: agentId,
+        component_weight_contract_version: MACRO_COMPONENT_WEIGHT_CONTRACT_VERSION,
+        component_weights: Object.fromEntries(
+          componentIds.map((componentId) => [componentId, weight]),
+        ),
+        release_revision_id: null,
+        release_revision_hash: null,
+        effective_at: null,
+      },
+    ];
+  });
+  return {
+    ...base,
+    trace_id: "formal-graph-run",
+    outcome_stage_skips: outcomeStageSkips,
+    darwinian_runtime_binding: {
+      schema_version: "darwinian_runtime_binding_v2",
+      production_variant_roster_id: rosterId,
+      cohort_id: "cohort_default",
+      language: "zh",
+      execution_behavior_release_id: releaseId,
+      prompt_repo_id: "private-prompts",
+      prompt_repo_revision: "a".repeat(40),
+      effective_at: asOf,
+      agent_behavior_bindings: behaviorBindings,
+      binding_hash: hash(700),
+    },
+    darwinian_weight_snapshot: {
+      darwinian_snapshot_id: "darwinian-snapshot:fixture",
+      darwinian_snapshot_hash: hash(701),
+      schema_version: "darwinian_usage_weight_snapshot_v2",
+      production_variant_roster_id: rosterId,
+      production_variant_roster_revision_id: revisionId,
+      execution_behavior_release_id: releaseId,
+      cohort_id: "cohort_default",
+      language: "zh",
+      as_of: asOf,
+      weights,
+    },
+    component_weight_snapshot: {
+      component_weight_snapshot_id: "component-weight-snapshot:fixture",
+      component_weight_snapshot_hash: hash(702),
+      schema_version: "component_weight_runtime_snapshot_v2",
+      as_of: asOf,
+      resolutions,
+    },
+    outcome_schedule_plan: {
+      outcome_schedule_plan_id: "outcome-plan:fixture",
+      outcome_schedule_plan_hash: hash(703),
+      schema_version: "outcome_schedule_plan_v2",
+      graph_run_id: "formal-graph-run",
+      production_variant_roster_id: rosterId,
+      production_variant_roster_revision_id: revisionId,
+      execution_behavior_release_id: releaseId,
+      cohort_id: "cohort_default",
+      language: "zh",
+      as_of: asOf,
+      prepared_at: asOf,
+      slots,
+    },
+  };
+}
+
 // L4 layer subdir mapping
 const AGENT_SUBDIR: Record<string, string> = {
   china: "macro",
   us_economy: "macro",
+  eu_economy: "macro",
   central_bank: "macro",
-  dollar: "macro",
-  yield_curve: "macro",
+  us_financial_conditions: "macro",
+  euro_area_financial_conditions: "macro",
   commodities: "macro",
   geopolitical: "macro",
-  volatility: "macro",
   market_breadth: "macro",
   institutional_flow: "macro",
   semiconductor: "sector",
+  technology: "sector",
   energy: "sector",
   biotech: "sector",
   consumer: "sector",
   industrials: "sector",
+  real_estate_construction: "sector",
   financials: "sector",
+  agriculture: "sector",
   relationship_mapper: "sector",
   druckenmiller: "superinvestor",
   munger: "superinvestor",
@@ -872,25 +817,23 @@ const AGENT_SUBDIR: Record<string, string> = {
   cio: "decision",
 };
 
-// ============================================================ scripted LLM (25 agents)
+// ============================================================ scripted LLM (28 agents)
 
-class ScriptedLlm25 {
+class ScriptedLlm28 {
   invokeCalls = 0;
   bindToolsCalls = 0;
   structuredCalls = 0;
   perAgentStructuredCount: Record<string, number> = {};
-  readonly canned: CannedOutputs;
   // Sorted by descending name length so e.g. "alpha_discovery" matches before
   // "alpha" (no current overlaps but defensive).
   readonly sortedAgentIds: string[];
   private tools: Array<{ name: string; schema?: unknown }> = [];
 
-  constructor(canned: CannedOutputs) {
-    this.canned = canned;
+  constructor() {
     this.sortedAgentIds = [...ALL_AGENT_IDS].sort((a, b) => b.length - a.length);
   }
 
-  bindTools(tools: unknown): ScriptedLlm25 {
+  bindTools(tools: unknown): ScriptedLlm28 {
     this.bindToolsCalls++;
     this.tools = Array.isArray(tools) ? tools : [];
     return this;
@@ -903,17 +846,17 @@ class ScriptedLlm25 {
         const msgs = input as BaseMessage[];
         const sys = msgs[0] as SystemMessage | undefined;
         const sysContent = typeof sys?.content === "string" ? sys.content : "";
-        for (const agent of this.sortedAgentIds) {
-          // Match unique marker `the ${agent} ` (with trailing space) so e.g.
-          // "the cro " doesn't match "the macro " (no such substring exists)
-          // and "alpha_discovery" beats "alpha" by descending-length sort.
-          if (sysContent.includes(`the ${agent} `)) {
+        const runtimeMarkerAgent = this.sortedAgentIds.find((agent) =>
+          sysContent.includes(`Runtime agent id: ${agent}\n`),
+        );
+        for (const agent of runtimeMarkerAgent ? [runtimeMarkerAgent] : this.sortedAgentIds) {
+          if (runtimeMarkerAgent === agent || sysContent.includes(`the ${agent} `)) {
             this.perAgentStructuredCount[agent] = (this.perAgentStructuredCount[agent] ?? 0) + 1;
             return fakeAgentStructuredOutput(schema, agent, input);
           }
         }
         throw new Error(
-          `ScriptedLlm25: no canned response matched system: ${sysContent.slice(0, 120)}`,
+          `ScriptedLlm28: no fake response matched system: ${sysContent.slice(0, 120)}`,
         );
       },
     };
@@ -944,7 +887,7 @@ describe("buildDailyCycleGraph (compile-only)", () => {
   it("compiles without throwing and exposes the canonical layer node names", () => {
     expect([...DAILY_CYCLE_LAYER_NODES]).toEqual(["layer1", "layer2", "layer3", "layer4"]);
     const handle: LlmHandle = {
-      llm: new ScriptedLlm25(makeCannedOutputs()) as unknown as LlmHandle["llm"],
+      llm: new ScriptedLlm28() as unknown as LlmHandle["llm"],
       provider: "fake",
       model: "fake-model",
       baseUrl: undefined,
@@ -980,8 +923,8 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     clearPromptCache();
   });
 
-  it("runs all 25 agents through 26 stages and publishes a validated final target", async () => {
-    const llm = new ScriptedLlm25(makeCannedOutputs({ croRejected: 0 }));
+  it("runs all 28 agents through 29 stages and publishes a validated final target", async () => {
+    const llm = new ScriptedLlm28();
     const logs: string[] = [];
     const handle: LlmHandle = {
       llm: llm as unknown as LlmHandle["llm"],
@@ -1000,14 +943,12 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
 
     const final = (await graph.invoke(emptyState())) as DailyCycleStateType;
 
-    // L1 — 10 agents + consensus
+    // L1 — ten accepted transmissions plus the deterministic completeness gate.
     expect(Object.keys(final.layer1_outputs)).toHaveLength(10);
-    const consensus = final.layer1_consensus as RegimeSignal | null;
-    expect(consensus).not.toBeNull();
-    expect(consensus?.stance).toBe("NEUTRAL");
+    expect(final.macro_input_gate?.accepted_agent_ids).toHaveLength(10);
 
-    // L2 — 7 sector outputs
-    expect(Object.keys(final.layer2_outputs)).toHaveLength(7);
+    // L2 — nine standard sectors plus relationship mapper.
+    expect(Object.keys(final.layer2_outputs)).toHaveLength(10);
 
     // L3 — 4 superinvestor outputs
     expect(Object.keys(final.layer3_outputs)).toHaveLength(4);
@@ -1022,14 +963,21 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     expect(final.portfolio_actions).toEqual([]);
     expect(final.layer4_outputs.cio?.decision_disposition).toBe("ALL_CASH");
 
-    // 26 stage calls: all agents once, plus CIO proposal + CIO final.
-    expect(llm.structuredCalls).toBe(26);
-    expect(Object.keys(llm.perAgentStructuredCount).length).toBe(25);
+    // Empty frozen CRO/execution object sets are deterministic stage skips;
+    // standard Sector agents still use research + final and CIO runs twice.
+    expect(llm.structuredCalls).toBe(36);
+    expect(Object.keys(llm.perAgentStructuredCount).length).toBe(26);
     for (const agent of ALL_AGENT_IDS) {
-      expect(llm.perAgentStructuredCount[agent]).toBe(agent === "cio" ? 2 : 1);
+      if (agent === "cro" || agent === "autonomous_execution") {
+        expect(llm.perAgentStructuredCount[agent]).toBeUndefined();
+        continue;
+      }
+      expect(llm.perAgentStructuredCount[agent]).toBe(
+        agent === "cio" || STANDARD_SECTOR_AGENT_IDS.includes(agent as never) ? 2 : 1,
+      );
     }
 
-    expect(final.llm_calls).toHaveLength(26);
+    expect(final.llm_calls).toHaveLength(27);
     expect(
       final.llm_calls.every((call) =>
         ["accepted", "accepted_empty"].includes(call.agent_run_audit?.status ?? ""),
@@ -1045,8 +993,8 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     expect(runtime?.l4_run_snapshot_bundle?.bundle_hash).toMatch(/^sha256:/);
     for (const snapshot of runtime?.l4_run_snapshot_bundle?.prompt_snapshots ?? []) {
       expect(snapshot.prompt_source_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
-      if (snapshot.knob_snapshot_hash) {
-        expect(snapshot.knob_snapshot_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+      if (snapshot.private_knot_snapshot_hash) {
+        expect(snapshot.private_knot_snapshot_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
       }
     }
     expect(runtime?.l4_run_snapshot_bundle?.position_snapshot_hash).toMatch(
@@ -1093,13 +1041,7 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
       runtime?.stage_trace
         .filter((entry) => entry.operation === "agent_run")
         .map((entry) => entry.stage),
-    ).toEqual([
-      "alpha_discovery",
-      "cio_proposal",
-      "cro_review",
-      "execution_feasibility",
-      "cio_final",
-    ]);
+    ).toEqual(["alpha_discovery", "cio_proposal", "cio_final"]);
     expect(runtime?.stage_trace.at(-1)?.stage).toBe("shared_validation");
     expect(runtime?.stage_trace[0]).toMatchObject({
       stage: "l4_snapshot_freeze",
@@ -1111,6 +1053,52 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     );
     expect(logs).toContainEqual(expect.stringContaining("[agent:done] L4 cio"));
     expect(logs).toContainEqual(expect.stringContaining("actions=0"));
+  });
+
+  it("transports formal cross-layer outputs only through accepted record refs", async () => {
+    const llm = new ScriptedLlm28();
+    const acceptedOutputStore = new AcceptedAgentOutputStore();
+    const graph = buildDailyCycleGraph({
+      llmHandle: {
+        llm: llm as unknown as LlmHandle["llm"],
+        provider: "fake",
+        model: "fake-model",
+        baseUrl: undefined,
+      },
+      api: fakeApi,
+      config: BASE_CONFIG,
+      acceptedOutputStore,
+      agentTimeoutSeconds: 0,
+    });
+
+    const final = (await graph.invoke(formalState())) as DailyCycleStateType;
+    const records = acceptedOutputStore.records();
+
+    expect(Object.keys(final.layer1_outputs)).toHaveLength(0);
+    expect(Object.keys(final.layer2_outputs)).toHaveLength(0);
+    expect(Object.keys(final.layer3_outputs)).toHaveLength(0);
+    expect(Object.keys(final.accepted_output_refs)).toHaveLength(27);
+    expect(records).toHaveLength(27);
+    expect(Object.keys(final.outcome_stage_skips).sort()).toEqual(["autonomous_execution", "cro"]);
+    expect(records.filter((record) => record.agent_id === "cio")).toHaveLength(2);
+    expect(records.every((record) => record.graph_run_id === "formal-graph-run")).toBe(true);
+    expect(
+      records.every(
+        (record) =>
+          "component_weight_contract_version" in record &&
+          "reliability_adapter_contract_version" in record &&
+          "confidence_semantics_contract_version" in record,
+      ),
+    ).toBe(true);
+    expect(
+      records.every(
+        (record) =>
+          !("verified_claim_graph" in (record.output.payload as Record<string, unknown>)) &&
+          !("verified_claim_audit" in (record.output.payload as Record<string, unknown>)),
+      ),
+    ).toBe(true);
+    expect(final.macro_input_gate?.accepted_count).toBe(10);
+    expect(final.layer4_outputs.runtime?.final_target_state?.frozen).toBe(true);
   });
 });
 
@@ -1137,7 +1125,7 @@ describe("buildDailyCycleGraph (heavy CRO rejection)", () => {
   });
 
   it("keeps one hash-bound canonical pass when CRO rejects most candidates", async () => {
-    const llm = new ScriptedLlm25(makeCannedOutputs({ croRejected: 4 }));
+    const llm = new ScriptedLlm28();
     const handle: LlmHandle = {
       llm: llm as unknown as LlmHandle["llm"],
       provider: "fake",
@@ -1153,12 +1141,12 @@ describe("buildDailyCycleGraph (heavy CRO rejection)", () => {
 
     const final = (await graph.invoke(emptyState())) as DailyCycleStateType;
 
-    expect(llm.structuredCalls).toBe(26);
-    expect(llm.perAgentStructuredCount.cro).toBe(1);
+    expect(llm.structuredCalls).toBe(36);
+    expect(llm.perAgentStructuredCount.cro).toBeUndefined();
     expect(llm.perAgentStructuredCount.alpha_discovery).toBe(1);
-    expect(llm.perAgentStructuredCount.autonomous_execution).toBe(1);
+    expect(llm.perAgentStructuredCount.autonomous_execution).toBeUndefined();
     expect(llm.perAgentStructuredCount.cio).toBe(2);
-    expect(final.llm_calls).toHaveLength(26);
+    expect(final.llm_calls).toHaveLength(27);
     expect(final.portfolio_actions).toEqual([]);
     expect(final.replay_triggered).toBe(false);
     expect(final.layer4_outputs.runtime?.cro_review_state?.output).toMatchObject({
@@ -1182,7 +1170,7 @@ describe("buildDailyCycleGraph (heavy CRO rejection)", () => {
   });
 
   it("end branch (no replay) when cro rejects 0 picks even with full L3 pool", async () => {
-    const llm = new ScriptedLlm25(makeCannedOutputs({ croRejected: 0 }));
+    const llm = new ScriptedLlm28();
     const handle: LlmHandle = {
       llm: llm as unknown as LlmHandle["llm"],
       provider: "fake",
@@ -1196,6 +1184,6 @@ describe("buildDailyCycleGraph (heavy CRO rejection)", () => {
       config: BASE_CONFIG,
     });
     await graph.invoke(emptyState());
-    expect(llm.structuredCalls).toBe(26);
+    expect(llm.structuredCalls).toBe(36);
   });
 });

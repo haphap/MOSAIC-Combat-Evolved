@@ -1,0 +1,4159 @@
+{
+  "schema_version": "geopolitical_initial_source_manifest_v2",
+  "source_registry_version": "geopolitical_source_registry_v2",
+  "coverage_scope_version": "geopolitical_coverage_scope_v2",
+  "source_coverage_contract_version": "geopolitical_source_coverage_v2",
+  "active_event_types": [
+    "SANCTION",
+    "EXPORT_CONTROL",
+    "TARIFF_TRADE_RESTRICTION",
+    "ARMED_CONFLICT",
+    "SHIPPING_DISRUPTION",
+    "DIPLOMATIC_ESCALATION",
+    "DIPLOMATIC_DEESCALATION"
+  ],
+  "watchlist_actor_ids": [
+    "CN",
+    "US",
+    "EU",
+    "RU",
+    "UA",
+    "IR",
+    "IL",
+    "KP",
+    "KR"
+  ],
+  "watchlist_region_ids": [
+    "TAIWAN_STRAIT",
+    "SOUTH_CHINA_SEA",
+    "RED_SEA_BAB_EL_MANDEB",
+    "STRAIT_OF_HORMUZ",
+    "BLACK_SEA",
+    "KOREAN_PENINSULA"
+  ],
+  "registrations": [
+    {
+      "source_id": "bis_federal_register",
+      "provider_kind": "OFFICIAL_PRIMARY",
+      "registration_status": "PREFLIGHT_REQUIRED",
+      "source_contract_version": "geopolitical_source_registration_v2",
+      "adapter_contract_id": "geo_adapter:bis_federal_register:v2",
+      "adapter_contract_hash": "sha256:fa1cbb59316d60b299cd88e7042a52d8bc5c05107b43501a3105651f247fb504",
+      "required": true,
+      "required_for_event_types": [
+        "EXPORT_CONTROL"
+      ],
+      "publisher_organization_id": "US_COMMERCE_BIS",
+      "upstream_origin_family": "US_COMMERCE_BIS",
+      "source_backend": "DIRECT",
+      "tushare_endpoint_id": null,
+      "preflight": {
+        "status": "PREFLIGHT_REQUIRED",
+        "required_continuous_days": 30,
+        "observed_continuous_days": 0,
+        "window_started_at": null,
+        "window_completed_at": null,
+        "availability_ratio": null,
+        "p95_capture_lag_minutes": null,
+        "schema_verified": false,
+        "pagination_verified": false,
+        "publication_time_verified": false,
+        "license_verified": false,
+        "evidence_id": "geo-preflight:bis_federal_register:not-started"
+      }
+    },
+    {
+      "source_id": "cn_mfa_releases",
+      "provider_kind": "OFFICIAL_PRIMARY",
+      "registration_status": "PREFLIGHT_REQUIRED",
+      "source_contract_version": "geopolitical_source_registration_v2",
+      "adapter_contract_id": "geo_adapter:cn_mfa_releases:v2",
+      "adapter_contract_hash": "sha256:1af198017d66d4aa8850eeed48738817345311e639bc3f5a72a71fac2761b833",
+      "required": true,
+      "required_for_event_types": [
+        "SANCTION",
+        "EXPORT_CONTROL",
+        "TARIFF_TRADE_RESTRICTION",
+        "ARMED_CONFLICT",
+        "DIPLOMATIC_ESCALATION",
+        "DIPLOMATIC_DEESCALATION"
+      ],
+      "publisher_organization_id": "CN_MFA",
+      "upstream_origin_family": "CN_MFA",
+      "source_backend": "DIRECT",
+      "tushare_endpoint_id": null,
+      "preflight": {
+        "status": "PREFLIGHT_REQUIRED",
+        "required_continuous_days": 30,
+        "observed_continuous_days": 0,
+        "window_started_at": null,
+        "window_completed_at": null,
+        "availability_ratio": null,
+        "p95_capture_lag_minutes": null,
+        "schema_verified": false,
+        "pagination_verified": false,
+        "publication_time_verified": false,
+        "license_verified": false,
+        "evidence_id": "geo-preflight:cn_mfa_releases:not-started"
+      }
+    },
+    {
+      "source_id": "cn_mofcom_export_control",
+      "provider_kind": "OFFICIAL_PRIMARY",
+      "registration_status": "PREFLIGHT_REQUIRED",
+      "source_contract_version": "geopolitical_source_registration_v2",
+      "adapter_contract_id": "geo_adapter:cn_mofcom_export_control:v2",
+      "adapter_contract_hash": "sha256:3e1fa87095bbd1f124c953666dd9f95c9fb39dafa659b827ff885cac94f193c1",
+      "required": true,
+      "required_for_event_types": [
+        "SANCTION",
+        "EXPORT_CONTROL",
+        "TARIFF_TRADE_RESTRICTION"
+      ],
+      "publisher_organization_id": "CN_MOFCOM",
+      "upstream_origin_family": "CN_MOFCOM",
+      "source_backend": "DIRECT",
+      "tushare_endpoint_id": null,
+      "preflight": {
+        "status": "PREFLIGHT_REQUIRED",
+        "required_continuous_days": 30,
+        "observed_continuous_days": 0,
+        "window_started_at": null,
+        "window_completed_at": null,
+        "availability_ratio": null,
+        "p95_capture_lag_minutes": null,
+        "schema_verified": false,
+        "pagination_verified": false,
+        "publication_time_verified": false,
+        "license_verified": false,
+        "evidence_id": "geo-preflight:cn_mofcom_export_control:not-started"
+      }
+    },
+    {
+      "source_id": "eeas_releases",
+      "provider_kind": "OFFICIAL_PRIMARY",
+      "registration_status": "PREFLIGHT_REQUIRED",
+      "source_contract_version": "geopolitical_source_registration_v2",
+      "adapter_contract_id": "geo_adapter:eeas_releases:v2",
+      "adapter_contract_hash": "sha256:1d3aaf0aed9d560f7d2f027e48d008ab2f23fb708ff0f266d43971d9f4fbc61f",
+      "required": true,
+      "required_for_event_types": [
+        "ARMED_CONFLICT",
+        "DIPLOMATIC_ESCALATION",
+        "DIPLOMATIC_DEESCALATION"
+      ],
+      "publisher_organization_id": "EEAS",
+      "upstream_origin_family": "EEAS",
+      "source_backend": "DIRECT",
+      "tushare_endpoint_id": null,
+      "preflight": {
+        "status": "PREFLIGHT_REQUIRED",
+        "required_continuous_days": 30,
+        "observed_continuous_days": 0,
+        "window_started_at": null,
+        "window_completed_at": null,
+        "availability_ratio": null,
+        "p95_capture_lag_minutes": null,
+        "schema_verified": false,
+        "pagination_verified": false,
+        "publication_time_verified": false,
+        "license_verified": false,
+        "evidence_id": "geo-preflight:eeas_releases:not-started"
+      }
+    },
+    {
+      "source_id": "eu_council_sanctions",
+      "provider_kind": "OFFICIAL_PRIMARY",
+      "registration_status": "PREFLIGHT_REQUIRED",
+      "source_contract_version": "geopolitical_source_registration_v2",
+      "adapter_contract_id": "geo_adapter:eu_council_sanctions:v2",
+      "adapter_contract_hash": "sha256:5ee8a07af74165a60f0aad95de50f4667375fbbe42aa5776c2478990318a2921",
+      "required": true,
+      "required_for_event_types": [
+        "SANCTION",
+        "EXPORT_CONTROL",
+        "TARIFF_TRADE_RESTRICTION"
+      ],
+      "publisher_organization_id": "EU_COUNCIL",
+      "upstream_origin_family": "EU_COUNCIL",
+      "source_backend": "DIRECT",
+      "tushare_endpoint_id": null,
+      "preflight": {
+        "status": "PREFLIGHT_REQUIRED",
+        "required_continuous_days": 30,
+        "observed_continuous_days": 0,
+        "window_started_at": null,
+        "window_completed_at": null,
+        "availability_ratio": null,
+        "p95_capture_lag_minutes": null,
+        "schema_verified": false,
+        "pagination_verified": false,
+        "publication_time_verified": false,
+        "license_verified": false,
+        "evidence_id": "geo-preflight:eu_council_sanctions:not-started"
+      }
+    },
+    {
+      "source_id": "eurlex_official_journal",
+      "provider_kind": "OFFICIAL_PRIMARY",
+      "registration_status": "PREFLIGHT_REQUIRED",
+      "source_contract_version": "geopolitical_source_registration_v2",
+      "adapter_contract_id": "geo_adapter:eurlex_official_journal:v2",
+      "adapter_contract_hash": "sha256:5245e7b745f5886719ef0ef46f0e26937ace6be9f3a33da7d5410f7ea84b3d07",
+      "required": true,
+      "required_for_event_types": [
+        "SANCTION",
+        "EXPORT_CONTROL",
+        "TARIFF_TRADE_RESTRICTION"
+      ],
+      "publisher_organization_id": "EU_PUBLICATIONS_OFFICE",
+      "upstream_origin_family": "EUR_LEX",
+      "source_backend": "DIRECT",
+      "tushare_endpoint_id": null,
+      "preflight": {
+        "status": "PREFLIGHT_REQUIRED",
+        "required_continuous_days": 30,
+        "observed_continuous_days": 0,
+        "window_started_at": null,
+        "window_completed_at": null,
+        "availability_ratio": null,
+        "p95_capture_lag_minutes": null,
+        "schema_verified": false,
+        "pagination_verified": false,
+        "publication_time_verified": false,
+        "license_verified": false,
+        "evidence_id": "geo-preflight:eurlex_official_journal:not-started"
+      }
+    },
+    {
+      "source_id": "gdelt_event_gkg",
+      "provider_kind": "STRUCTURED_DISCOVERY",
+      "registration_status": "PREFLIGHT_REQUIRED",
+      "source_contract_version": "geopolitical_source_registration_v2",
+      "adapter_contract_id": "geo_adapter:gdelt_event_gkg:v2",
+      "adapter_contract_hash": "sha256:c91c1da506b4ee8b96c3fcb64aa176e393c54f1ebb81ba201a80ea35da16fefe",
+      "required": true,
+      "required_for_event_types": [
+        "SANCTION",
+        "EXPORT_CONTROL",
+        "TARIFF_TRADE_RESTRICTION",
+        "ARMED_CONFLICT",
+        "SHIPPING_DISRUPTION",
+        "DIPLOMATIC_ESCALATION",
+        "DIPLOMATIC_DEESCALATION"
+      ],
+      "publisher_organization_id": "GDELT_PROJECT",
+      "upstream_origin_family": "GDELT",
+      "source_backend": "DIRECT",
+      "tushare_endpoint_id": null,
+      "preflight": {
+        "status": "PREFLIGHT_REQUIRED",
+        "required_continuous_days": 30,
+        "observed_continuous_days": 0,
+        "window_started_at": null,
+        "window_completed_at": null,
+        "availability_ratio": null,
+        "p95_capture_lag_minutes": null,
+        "schema_verified": false,
+        "pagination_verified": false,
+        "publication_time_verified": false,
+        "license_verified": false,
+        "evidence_id": "geo-preflight:gdelt_event_gkg:not-started"
+      }
+    },
+    {
+      "source_id": "marad_msci",
+      "provider_kind": "OFFICIAL_PRIMARY",
+      "registration_status": "PREFLIGHT_REQUIRED",
+      "source_contract_version": "geopolitical_source_registration_v2",
+      "adapter_contract_id": "geo_adapter:marad_msci:v2",
+      "adapter_contract_hash": "sha256:6f3e5c421ad97f393c777c4e2e2bc833b7c9f0db053487c6fa2db78b9a57af52",
+      "required": true,
+      "required_for_event_types": [
+        "SHIPPING_DISRUPTION"
+      ],
+      "publisher_organization_id": "US_MARAD",
+      "upstream_origin_family": "US_MARAD",
+      "source_backend": "DIRECT",
+      "tushare_endpoint_id": null,
+      "preflight": {
+        "status": "PREFLIGHT_REQUIRED",
+        "required_continuous_days": 30,
+        "observed_continuous_days": 0,
+        "window_started_at": null,
+        "window_completed_at": null,
+        "availability_ratio": null,
+        "p95_capture_lag_minutes": null,
+        "schema_verified": false,
+        "pagination_verified": false,
+        "publication_time_verified": false,
+        "license_verified": false,
+        "evidence_id": "geo-preflight:marad_msci:not-started"
+      }
+    },
+    {
+      "source_id": "ocha_reliefweb",
+      "provider_kind": "OPTIONAL_CONTEXT",
+      "registration_status": "PREFLIGHT_REQUIRED",
+      "source_contract_version": "geopolitical_source_registration_v2",
+      "adapter_contract_id": "geo_adapter:ocha_reliefweb:v2",
+      "adapter_contract_hash": "sha256:352696fc15df56305de9e866f68709b986cb473d06477e74d6d9c6e041b1dd66",
+      "required": false,
+      "required_for_event_types": [],
+      "publisher_organization_id": "UN_OCHA",
+      "upstream_origin_family": "RELIEFWEB_PARTNER_NETWORK",
+      "source_backend": "DIRECT",
+      "tushare_endpoint_id": null,
+      "preflight": {
+        "status": "PREFLIGHT_REQUIRED",
+        "required_continuous_days": 30,
+        "observed_continuous_days": 0,
+        "window_started_at": null,
+        "window_completed_at": null,
+        "availability_ratio": null,
+        "p95_capture_lag_minutes": null,
+        "schema_verified": false,
+        "pagination_verified": false,
+        "publication_time_verified": false,
+        "license_verified": false,
+        "evidence_id": "geo-preflight:ocha_reliefweb:not-started"
+      }
+    },
+    {
+      "source_id": "ofac_recent_actions",
+      "provider_kind": "OFFICIAL_PRIMARY",
+      "registration_status": "PREFLIGHT_REQUIRED",
+      "source_contract_version": "geopolitical_source_registration_v2",
+      "adapter_contract_id": "geo_adapter:ofac_recent_actions:v2",
+      "adapter_contract_hash": "sha256:0b7e0c80819a0103ca976f436f371e670f6cfc36a6ac554e51429bb2eb1d6268",
+      "required": true,
+      "required_for_event_types": [
+        "SANCTION"
+      ],
+      "publisher_organization_id": "US_TREASURY_OFAC",
+      "upstream_origin_family": "US_TREASURY_OFAC",
+      "source_backend": "DIRECT",
+      "tushare_endpoint_id": null,
+      "preflight": {
+        "status": "PREFLIGHT_REQUIRED",
+        "required_continuous_days": 30,
+        "observed_continuous_days": 0,
+        "window_started_at": null,
+        "window_completed_at": null,
+        "availability_ratio": null,
+        "p95_capture_lag_minutes": null,
+        "schema_verified": false,
+        "pagination_verified": false,
+        "publication_time_verified": false,
+        "license_verified": false,
+        "evidence_id": "geo-preflight:ofac_recent_actions:not-started"
+      }
+    },
+    {
+      "source_id": "ukmto_advisories",
+      "provider_kind": "OFFICIAL_PRIMARY",
+      "registration_status": "PREFLIGHT_REQUIRED",
+      "source_contract_version": "geopolitical_source_registration_v2",
+      "adapter_contract_id": "geo_adapter:ukmto_advisories:v2",
+      "adapter_contract_hash": "sha256:6f34d5c5eb1f4cce864f3ff1d941fc3b1552c1afafe6137bb3197df3a16963b7",
+      "required": true,
+      "required_for_event_types": [
+        "SHIPPING_DISRUPTION"
+      ],
+      "publisher_organization_id": "UKMTO",
+      "upstream_origin_family": "UKMTO",
+      "source_backend": "DIRECT",
+      "tushare_endpoint_id": null,
+      "preflight": {
+        "status": "PREFLIGHT_REQUIRED",
+        "required_continuous_days": 30,
+        "observed_continuous_days": 0,
+        "window_started_at": null,
+        "window_completed_at": null,
+        "availability_ratio": null,
+        "p95_capture_lag_minutes": null,
+        "schema_verified": false,
+        "pagination_verified": false,
+        "publication_time_verified": false,
+        "license_verified": false,
+        "evidence_id": "geo-preflight:ukmto_advisories:not-started"
+      }
+    },
+    {
+      "source_id": "un_conflict_releases",
+      "provider_kind": "OFFICIAL_PRIMARY",
+      "registration_status": "PREFLIGHT_REQUIRED",
+      "source_contract_version": "geopolitical_source_registration_v2",
+      "adapter_contract_id": "geo_adapter:un_conflict_releases:v2",
+      "adapter_contract_hash": "sha256:a1f04c3d78010999386ad4d62da081959b46fdda431e9386908a62a5ea6bc16c",
+      "required": true,
+      "required_for_event_types": [
+        "ARMED_CONFLICT"
+      ],
+      "publisher_organization_id": "UN",
+      "upstream_origin_family": "UN_NEWS_CONFLICT",
+      "source_backend": "DIRECT",
+      "tushare_endpoint_id": null,
+      "preflight": {
+        "status": "PREFLIGHT_REQUIRED",
+        "required_continuous_days": 30,
+        "observed_continuous_days": 0,
+        "window_started_at": null,
+        "window_completed_at": null,
+        "availability_ratio": null,
+        "p95_capture_lag_minutes": null,
+        "schema_verified": false,
+        "pagination_verified": false,
+        "publication_time_verified": false,
+        "license_verified": false,
+        "evidence_id": "geo-preflight:un_conflict_releases:not-started"
+      }
+    },
+    {
+      "source_id": "un_sc_sanctions",
+      "provider_kind": "OFFICIAL_PRIMARY",
+      "registration_status": "PREFLIGHT_REQUIRED",
+      "source_contract_version": "geopolitical_source_registration_v2",
+      "adapter_contract_id": "geo_adapter:un_sc_sanctions:v2",
+      "adapter_contract_hash": "sha256:4d8062b7d7bc15b4d0e1749486978eec03fefd8a5405fdc2db09643527ab6912",
+      "required": true,
+      "required_for_event_types": [
+        "SANCTION"
+      ],
+      "publisher_organization_id": "UN",
+      "upstream_origin_family": "UN_SECURITY_COUNCIL",
+      "source_backend": "DIRECT",
+      "tushare_endpoint_id": null,
+      "preflight": {
+        "status": "PREFLIGHT_REQUIRED",
+        "required_continuous_days": 30,
+        "observed_continuous_days": 0,
+        "window_started_at": null,
+        "window_completed_at": null,
+        "availability_ratio": null,
+        "p95_capture_lag_minutes": null,
+        "schema_verified": false,
+        "pagination_verified": false,
+        "publication_time_verified": false,
+        "license_verified": false,
+        "evidence_id": "geo-preflight:un_sc_sanctions:not-started"
+      }
+    },
+    {
+      "source_id": "us_state_releases",
+      "provider_kind": "OFFICIAL_PRIMARY",
+      "registration_status": "PREFLIGHT_REQUIRED",
+      "source_contract_version": "geopolitical_source_registration_v2",
+      "adapter_contract_id": "geo_adapter:us_state_releases:v2",
+      "adapter_contract_hash": "sha256:3cedff79d3f770418440293cba171d49967f65ea4fee38cd3dedd0f7aacaf089",
+      "required": true,
+      "required_for_event_types": [
+        "ARMED_CONFLICT",
+        "DIPLOMATIC_ESCALATION",
+        "DIPLOMATIC_DEESCALATION"
+      ],
+      "publisher_organization_id": "US_STATE",
+      "upstream_origin_family": "US_STATE",
+      "source_backend": "DIRECT",
+      "tushare_endpoint_id": null,
+      "preflight": {
+        "status": "PREFLIGHT_REQUIRED",
+        "required_continuous_days": 30,
+        "observed_continuous_days": 0,
+        "window_started_at": null,
+        "window_completed_at": null,
+        "availability_ratio": null,
+        "p95_capture_lag_minutes": null,
+        "schema_verified": false,
+        "pagination_verified": false,
+        "publication_time_verified": false,
+        "license_verified": false,
+        "evidence_id": "geo-preflight:us_state_releases:not-started"
+      }
+    },
+    {
+      "source_id": "ustr_actions",
+      "provider_kind": "OFFICIAL_PRIMARY",
+      "registration_status": "PREFLIGHT_REQUIRED",
+      "source_contract_version": "geopolitical_source_registration_v2",
+      "adapter_contract_id": "geo_adapter:ustr_actions:v2",
+      "adapter_contract_hash": "sha256:bb40e9effd2807e55f4861281767528520a31870c42251c880746188b73456dc",
+      "required": true,
+      "required_for_event_types": [
+        "TARIFF_TRADE_RESTRICTION"
+      ],
+      "publisher_organization_id": "USTR",
+      "upstream_origin_family": "USTR",
+      "source_backend": "DIRECT",
+      "tushare_endpoint_id": null,
+      "preflight": {
+        "status": "PREFLIGHT_REQUIRED",
+        "required_continuous_days": 30,
+        "observed_continuous_days": 0,
+        "window_started_at": null,
+        "window_completed_at": null,
+        "availability_ratio": null,
+        "p95_capture_lag_minutes": null,
+        "schema_verified": false,
+        "pagination_verified": false,
+        "publication_time_verified": false,
+        "license_verified": false,
+        "evidence_id": "geo-preflight:ustr_actions:not-started"
+      }
+    }
+  ],
+  "adapter_contracts": [
+    {
+      "adapter_contract_id": "geo_adapter:bis_federal_register:v2",
+      "adapter_contract_version": "geopolitical_source_adapter_v2",
+      "source_id": "bis_federal_register",
+      "canonical_url_or_api": "https://www.bis.gov/regulations/federal-register-notices",
+      "retrieval_mode": "HTML_DIRECTORY",
+      "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
+      "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
+      "covered_actor_ids": [
+        "CN",
+        "US",
+        "EU",
+        "RU",
+        "UA",
+        "IR",
+        "IL",
+        "KP",
+        "KR"
+      ],
+      "covered_region_ids": [
+        "TAIWAN_STRAIT",
+        "SOUTH_CHINA_SEA",
+        "RED_SEA_BAB_EL_MANDEB",
+        "STRAIT_OF_HORMUZ",
+        "BLACK_SEA",
+        "KOREAN_PENINSULA"
+      ],
+      "global_scope_capable": true,
+      "covered_event_types": [
+        "EXPORT_CONTROL"
+      ],
+      "source_time_zone": "UTC",
+      "published_at_field": "source_published_at_or_verified_first_seen_at",
+      "license_classification": "public_metadata_and_hash_only",
+      "expected_poll_interval_minutes": 240,
+      "max_capture_age_minutes": 720,
+      "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
+      "no_event_claim_capable": true,
+      "expected_response_schema_hash": "sha256:ff96c3ef50070201f6f522517918aa86679ebe1e55e86b9f195bd8f5aa309710",
+      "adapter_contract_hash": "sha256:fa1cbb59316d60b299cd88e7042a52d8bc5c05107b43501a3105651f247fb504"
+    },
+    {
+      "adapter_contract_id": "geo_adapter:cn_mfa_releases:v2",
+      "adapter_contract_version": "geopolitical_source_adapter_v2",
+      "source_id": "cn_mfa_releases",
+      "canonical_url_or_api": "https://www.mfa.gov.cn/web/zyxw/",
+      "retrieval_mode": "HTML_DIRECTORY",
+      "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
+      "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
+      "covered_actor_ids": [
+        "CN",
+        "US",
+        "EU",
+        "RU",
+        "UA",
+        "IR",
+        "IL",
+        "KP",
+        "KR"
+      ],
+      "covered_region_ids": [
+        "TAIWAN_STRAIT",
+        "SOUTH_CHINA_SEA",
+        "RED_SEA_BAB_EL_MANDEB",
+        "STRAIT_OF_HORMUZ",
+        "BLACK_SEA",
+        "KOREAN_PENINSULA"
+      ],
+      "global_scope_capable": true,
+      "covered_event_types": [
+        "SANCTION",
+        "EXPORT_CONTROL",
+        "TARIFF_TRADE_RESTRICTION",
+        "ARMED_CONFLICT",
+        "DIPLOMATIC_ESCALATION",
+        "DIPLOMATIC_DEESCALATION"
+      ],
+      "source_time_zone": "UTC",
+      "published_at_field": "source_published_at_or_verified_first_seen_at",
+      "license_classification": "public_metadata_and_hash_only",
+      "expected_poll_interval_minutes": 240,
+      "max_capture_age_minutes": 720,
+      "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
+      "no_event_claim_capable": true,
+      "expected_response_schema_hash": "sha256:ea24e91d3f45f8e3e606164bcb4c5a72e438b2f51fdd9f3524ee7b51e2a9be76",
+      "adapter_contract_hash": "sha256:1af198017d66d4aa8850eeed48738817345311e639bc3f5a72a71fac2761b833"
+    },
+    {
+      "adapter_contract_id": "geo_adapter:cn_mofcom_export_control:v2",
+      "adapter_contract_version": "geopolitical_source_adapter_v2",
+      "source_id": "cn_mofcom_export_control",
+      "canonical_url_or_api": "https://aqygzj.mofcom.gov.cn/",
+      "retrieval_mode": "HTML_DIRECTORY",
+      "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
+      "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
+      "covered_actor_ids": [
+        "CN",
+        "US",
+        "EU",
+        "RU",
+        "UA",
+        "IR",
+        "IL",
+        "KP",
+        "KR"
+      ],
+      "covered_region_ids": [
+        "TAIWAN_STRAIT",
+        "SOUTH_CHINA_SEA",
+        "RED_SEA_BAB_EL_MANDEB",
+        "STRAIT_OF_HORMUZ",
+        "BLACK_SEA",
+        "KOREAN_PENINSULA"
+      ],
+      "global_scope_capable": true,
+      "covered_event_types": [
+        "SANCTION",
+        "EXPORT_CONTROL",
+        "TARIFF_TRADE_RESTRICTION"
+      ],
+      "source_time_zone": "UTC",
+      "published_at_field": "source_published_at_or_verified_first_seen_at",
+      "license_classification": "public_metadata_and_hash_only",
+      "expected_poll_interval_minutes": 240,
+      "max_capture_age_minutes": 720,
+      "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
+      "no_event_claim_capable": true,
+      "expected_response_schema_hash": "sha256:372bd9868fa3849144a7505ac9c9b25f4c394953a6ac54f3e64735865eda6774",
+      "adapter_contract_hash": "sha256:3e1fa87095bbd1f124c953666dd9f95c9fb39dafa659b827ff885cac94f193c1"
+    },
+    {
+      "adapter_contract_id": "geo_adapter:eeas_releases:v2",
+      "adapter_contract_version": "geopolitical_source_adapter_v2",
+      "source_id": "eeas_releases",
+      "canonical_url_or_api": "https://www.eeas.europa.eu/eeas/press-material_en",
+      "retrieval_mode": "HTML_DIRECTORY",
+      "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
+      "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
+      "covered_actor_ids": [
+        "CN",
+        "US",
+        "EU",
+        "RU",
+        "UA",
+        "IR",
+        "IL",
+        "KP",
+        "KR"
+      ],
+      "covered_region_ids": [
+        "TAIWAN_STRAIT",
+        "SOUTH_CHINA_SEA",
+        "RED_SEA_BAB_EL_MANDEB",
+        "STRAIT_OF_HORMUZ",
+        "BLACK_SEA",
+        "KOREAN_PENINSULA"
+      ],
+      "global_scope_capable": true,
+      "covered_event_types": [
+        "ARMED_CONFLICT",
+        "DIPLOMATIC_ESCALATION",
+        "DIPLOMATIC_DEESCALATION"
+      ],
+      "source_time_zone": "UTC",
+      "published_at_field": "source_published_at_or_verified_first_seen_at",
+      "license_classification": "public_metadata_and_hash_only",
+      "expected_poll_interval_minutes": 240,
+      "max_capture_age_minutes": 720,
+      "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
+      "no_event_claim_capable": true,
+      "expected_response_schema_hash": "sha256:ea9380deb2cffd7c7ad6a8867eeb368ede45794825fb28eba509fafd3419c17f",
+      "adapter_contract_hash": "sha256:1d3aaf0aed9d560f7d2f027e48d008ab2f23fb708ff0f266d43971d9f4fbc61f"
+    },
+    {
+      "adapter_contract_id": "geo_adapter:eu_council_sanctions:v2",
+      "adapter_contract_version": "geopolitical_source_adapter_v2",
+      "source_id": "eu_council_sanctions",
+      "canonical_url_or_api": "https://www.consilium.europa.eu/en/policies/sanctions/",
+      "retrieval_mode": "HTML_DIRECTORY",
+      "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
+      "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
+      "covered_actor_ids": [
+        "CN",
+        "US",
+        "EU",
+        "RU",
+        "UA",
+        "IR",
+        "IL",
+        "KP",
+        "KR"
+      ],
+      "covered_region_ids": [
+        "TAIWAN_STRAIT",
+        "SOUTH_CHINA_SEA",
+        "RED_SEA_BAB_EL_MANDEB",
+        "STRAIT_OF_HORMUZ",
+        "BLACK_SEA",
+        "KOREAN_PENINSULA"
+      ],
+      "global_scope_capable": true,
+      "covered_event_types": [
+        "SANCTION",
+        "EXPORT_CONTROL",
+        "TARIFF_TRADE_RESTRICTION"
+      ],
+      "source_time_zone": "UTC",
+      "published_at_field": "source_published_at_or_verified_first_seen_at",
+      "license_classification": "public_metadata_and_hash_only",
+      "expected_poll_interval_minutes": 240,
+      "max_capture_age_minutes": 720,
+      "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
+      "no_event_claim_capable": true,
+      "expected_response_schema_hash": "sha256:ce5d3adb56350f5ff06401eac2dba6087326f6a7fd0e4e02a4d3459065938ee8",
+      "adapter_contract_hash": "sha256:5ee8a07af74165a60f0aad95de50f4667375fbbe42aa5776c2478990318a2921"
+    },
+    {
+      "adapter_contract_id": "geo_adapter:eurlex_official_journal:v2",
+      "adapter_contract_version": "geopolitical_source_adapter_v2",
+      "source_id": "eurlex_official_journal",
+      "canonical_url_or_api": "https://eur-lex.europa.eu/oj/direct-access.html",
+      "retrieval_mode": "HTML_DIRECTORY",
+      "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
+      "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
+      "covered_actor_ids": [
+        "CN",
+        "US",
+        "EU",
+        "RU",
+        "UA",
+        "IR",
+        "IL",
+        "KP",
+        "KR"
+      ],
+      "covered_region_ids": [
+        "TAIWAN_STRAIT",
+        "SOUTH_CHINA_SEA",
+        "RED_SEA_BAB_EL_MANDEB",
+        "STRAIT_OF_HORMUZ",
+        "BLACK_SEA",
+        "KOREAN_PENINSULA"
+      ],
+      "global_scope_capable": true,
+      "covered_event_types": [
+        "SANCTION",
+        "EXPORT_CONTROL",
+        "TARIFF_TRADE_RESTRICTION"
+      ],
+      "source_time_zone": "UTC",
+      "published_at_field": "source_published_at_or_verified_first_seen_at",
+      "license_classification": "public_metadata_and_hash_only",
+      "expected_poll_interval_minutes": 240,
+      "max_capture_age_minutes": 720,
+      "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
+      "no_event_claim_capable": true,
+      "expected_response_schema_hash": "sha256:ac9f0b5abc8129d0a902083e08bcb30ba299f0f34e94398cb756d2ed344340f3",
+      "adapter_contract_hash": "sha256:5245e7b745f5886719ef0ef46f0e26937ace6be9f3a33da7d5410f7ea84b3d07"
+    },
+    {
+      "adapter_contract_id": "geo_adapter:gdelt_event_gkg:v2",
+      "adapter_contract_version": "geopolitical_source_adapter_v2",
+      "source_id": "gdelt_event_gkg",
+      "canonical_url_or_api": "https://data.gdeltproject.org/gdeltv2/lastupdate.txt",
+      "retrieval_mode": "FILE_FEED",
+      "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
+      "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
+      "covered_actor_ids": [
+        "CN",
+        "US",
+        "EU",
+        "RU",
+        "UA",
+        "IR",
+        "IL",
+        "KP",
+        "KR"
+      ],
+      "covered_region_ids": [
+        "TAIWAN_STRAIT",
+        "SOUTH_CHINA_SEA",
+        "RED_SEA_BAB_EL_MANDEB",
+        "STRAIT_OF_HORMUZ",
+        "BLACK_SEA",
+        "KOREAN_PENINSULA"
+      ],
+      "global_scope_capable": true,
+      "covered_event_types": [
+        "SANCTION",
+        "EXPORT_CONTROL",
+        "TARIFF_TRADE_RESTRICTION",
+        "ARMED_CONFLICT",
+        "SHIPPING_DISRUPTION",
+        "DIPLOMATIC_ESCALATION",
+        "DIPLOMATIC_DEESCALATION"
+      ],
+      "source_time_zone": "UTC",
+      "published_at_field": "source_published_at_or_verified_first_seen_at",
+      "license_classification": "public_metadata_and_hash_only",
+      "expected_poll_interval_minutes": 15,
+      "max_capture_age_minutes": 45,
+      "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
+      "no_event_claim_capable": true,
+      "expected_response_schema_hash": "sha256:b9c0d1128db5983e60bce511918ababb26af13be3378ea2297add240e9560cd5",
+      "adapter_contract_hash": "sha256:c91c1da506b4ee8b96c3fcb64aa176e393c54f1ebb81ba201a80ea35da16fefe"
+    },
+    {
+      "adapter_contract_id": "geo_adapter:marad_msci:v2",
+      "adapter_contract_version": "geopolitical_source_adapter_v2",
+      "source_id": "marad_msci",
+      "canonical_url_or_api": "https://www.maritime.dot.gov/msci-advisories",
+      "retrieval_mode": "HTML_DIRECTORY",
+      "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
+      "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
+      "covered_actor_ids": [
+        "CN",
+        "US",
+        "EU",
+        "RU",
+        "UA",
+        "IR",
+        "IL",
+        "KP",
+        "KR"
+      ],
+      "covered_region_ids": [
+        "TAIWAN_STRAIT",
+        "SOUTH_CHINA_SEA",
+        "RED_SEA_BAB_EL_MANDEB",
+        "STRAIT_OF_HORMUZ",
+        "BLACK_SEA",
+        "KOREAN_PENINSULA"
+      ],
+      "global_scope_capable": true,
+      "covered_event_types": [
+        "SHIPPING_DISRUPTION"
+      ],
+      "source_time_zone": "UTC",
+      "published_at_field": "source_published_at_or_verified_first_seen_at",
+      "license_classification": "public_metadata_and_hash_only",
+      "expected_poll_interval_minutes": 240,
+      "max_capture_age_minutes": 720,
+      "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
+      "no_event_claim_capable": true,
+      "expected_response_schema_hash": "sha256:28c4558d31f469745717f36f77f9743b6e06cef03d51180901bd081c7a8a6ed8",
+      "adapter_contract_hash": "sha256:6f3e5c421ad97f393c777c4e2e2bc833b7c9f0db053487c6fa2db78b9a57af52"
+    },
+    {
+      "adapter_contract_id": "geo_adapter:ocha_reliefweb:v2",
+      "adapter_contract_version": "geopolitical_source_adapter_v2",
+      "source_id": "ocha_reliefweb",
+      "canonical_url_or_api": "https://api.reliefweb.int/v2/reports",
+      "retrieval_mode": "API",
+      "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
+      "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
+      "covered_actor_ids": [
+        "CN",
+        "US",
+        "EU",
+        "RU",
+        "UA",
+        "IR",
+        "IL",
+        "KP",
+        "KR"
+      ],
+      "covered_region_ids": [
+        "TAIWAN_STRAIT",
+        "SOUTH_CHINA_SEA",
+        "RED_SEA_BAB_EL_MANDEB",
+        "STRAIT_OF_HORMUZ",
+        "BLACK_SEA",
+        "KOREAN_PENINSULA"
+      ],
+      "global_scope_capable": true,
+      "covered_event_types": [
+        "ARMED_CONFLICT"
+      ],
+      "source_time_zone": "UTC",
+      "published_at_field": "source_published_at_or_verified_first_seen_at",
+      "license_classification": "public_metadata_and_hash_only",
+      "expected_poll_interval_minutes": 240,
+      "max_capture_age_minutes": 720,
+      "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
+      "no_event_claim_capable": false,
+      "expected_response_schema_hash": "sha256:697fbfe80cd6ef1489a844f538101accd3e7802e5961711498c81614909f5dde",
+      "adapter_contract_hash": "sha256:352696fc15df56305de9e866f68709b986cb473d06477e74d6d9c6e041b1dd66"
+    },
+    {
+      "adapter_contract_id": "geo_adapter:ofac_recent_actions:v2",
+      "adapter_contract_version": "geopolitical_source_adapter_v2",
+      "source_id": "ofac_recent_actions",
+      "canonical_url_or_api": "https://ofac.treasury.gov/recent-actions",
+      "retrieval_mode": "HTML_DIRECTORY",
+      "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
+      "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
+      "covered_actor_ids": [
+        "CN",
+        "US",
+        "EU",
+        "RU",
+        "UA",
+        "IR",
+        "IL",
+        "KP",
+        "KR"
+      ],
+      "covered_region_ids": [
+        "TAIWAN_STRAIT",
+        "SOUTH_CHINA_SEA",
+        "RED_SEA_BAB_EL_MANDEB",
+        "STRAIT_OF_HORMUZ",
+        "BLACK_SEA",
+        "KOREAN_PENINSULA"
+      ],
+      "global_scope_capable": true,
+      "covered_event_types": [
+        "SANCTION"
+      ],
+      "source_time_zone": "UTC",
+      "published_at_field": "source_published_at_or_verified_first_seen_at",
+      "license_classification": "public_metadata_and_hash_only",
+      "expected_poll_interval_minutes": 240,
+      "max_capture_age_minutes": 720,
+      "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
+      "no_event_claim_capable": true,
+      "expected_response_schema_hash": "sha256:0f34eb2e23f2a8f9892f3948d0ac9f55132bf24d29606f896c27d86ffc861e62",
+      "adapter_contract_hash": "sha256:0b7e0c80819a0103ca976f436f371e670f6cfc36a6ac554e51429bb2eb1d6268"
+    },
+    {
+      "adapter_contract_id": "geo_adapter:ukmto_advisories:v2",
+      "adapter_contract_version": "geopolitical_source_adapter_v2",
+      "source_id": "ukmto_advisories",
+      "canonical_url_or_api": "https://www.ukmto.org/indian-ocean/recent-incidents",
+      "retrieval_mode": "HTML_DIRECTORY",
+      "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
+      "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
+      "covered_actor_ids": [
+        "CN",
+        "US",
+        "EU",
+        "RU",
+        "UA",
+        "IR",
+        "IL",
+        "KP",
+        "KR"
+      ],
+      "covered_region_ids": [
+        "TAIWAN_STRAIT",
+        "SOUTH_CHINA_SEA",
+        "RED_SEA_BAB_EL_MANDEB",
+        "STRAIT_OF_HORMUZ",
+        "BLACK_SEA",
+        "KOREAN_PENINSULA"
+      ],
+      "global_scope_capable": true,
+      "covered_event_types": [
+        "SHIPPING_DISRUPTION"
+      ],
+      "source_time_zone": "UTC",
+      "published_at_field": "source_published_at_or_verified_first_seen_at",
+      "license_classification": "public_metadata_and_hash_only",
+      "expected_poll_interval_minutes": 240,
+      "max_capture_age_minutes": 720,
+      "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
+      "no_event_claim_capable": true,
+      "expected_response_schema_hash": "sha256:9f96cee5212b33a09780a31ec2a060067f0f867de00b0d79a297ab7efacb463c",
+      "adapter_contract_hash": "sha256:6f34d5c5eb1f4cce864f3ff1d941fc3b1552c1afafe6137bb3197df3a16963b7"
+    },
+    {
+      "adapter_contract_id": "geo_adapter:un_conflict_releases:v2",
+      "adapter_contract_version": "geopolitical_source_adapter_v2",
+      "source_id": "un_conflict_releases",
+      "canonical_url_or_api": "https://press.un.org/en/content/security-council/press-release",
+      "retrieval_mode": "HTML_DIRECTORY",
+      "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
+      "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
+      "covered_actor_ids": [
+        "CN",
+        "US",
+        "EU",
+        "RU",
+        "UA",
+        "IR",
+        "IL",
+        "KP",
+        "KR"
+      ],
+      "covered_region_ids": [
+        "TAIWAN_STRAIT",
+        "SOUTH_CHINA_SEA",
+        "RED_SEA_BAB_EL_MANDEB",
+        "STRAIT_OF_HORMUZ",
+        "BLACK_SEA",
+        "KOREAN_PENINSULA"
+      ],
+      "global_scope_capable": true,
+      "covered_event_types": [
+        "ARMED_CONFLICT"
+      ],
+      "source_time_zone": "UTC",
+      "published_at_field": "source_published_at_or_verified_first_seen_at",
+      "license_classification": "public_metadata_and_hash_only",
+      "expected_poll_interval_minutes": 240,
+      "max_capture_age_minutes": 720,
+      "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
+      "no_event_claim_capable": true,
+      "expected_response_schema_hash": "sha256:427fe80a92aad6a10e507ad1af490b005cee68d5ad1ed345b9cef06ff28c69f3",
+      "adapter_contract_hash": "sha256:a1f04c3d78010999386ad4d62da081959b46fdda431e9386908a62a5ea6bc16c"
+    },
+    {
+      "adapter_contract_id": "geo_adapter:un_sc_sanctions:v2",
+      "adapter_contract_version": "geopolitical_source_adapter_v2",
+      "source_id": "un_sc_sanctions",
+      "canonical_url_or_api": "https://main.un.org/securitycouncil/en/content/un-sc-consolidated-list",
+      "retrieval_mode": "FILE_FEED",
+      "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
+      "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
+      "covered_actor_ids": [
+        "CN",
+        "US",
+        "EU",
+        "RU",
+        "UA",
+        "IR",
+        "IL",
+        "KP",
+        "KR"
+      ],
+      "covered_region_ids": [
+        "TAIWAN_STRAIT",
+        "SOUTH_CHINA_SEA",
+        "RED_SEA_BAB_EL_MANDEB",
+        "STRAIT_OF_HORMUZ",
+        "BLACK_SEA",
+        "KOREAN_PENINSULA"
+      ],
+      "global_scope_capable": true,
+      "covered_event_types": [
+        "SANCTION"
+      ],
+      "source_time_zone": "UTC",
+      "published_at_field": "source_published_at_or_verified_first_seen_at",
+      "license_classification": "public_metadata_and_hash_only",
+      "expected_poll_interval_minutes": 240,
+      "max_capture_age_minutes": 720,
+      "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
+      "no_event_claim_capable": true,
+      "expected_response_schema_hash": "sha256:07168d3516230fe027aabf12b6a4bd309868004e8f0acb1065cb584541696757",
+      "adapter_contract_hash": "sha256:4d8062b7d7bc15b4d0e1749486978eec03fefd8a5405fdc2db09643527ab6912"
+    },
+    {
+      "adapter_contract_id": "geo_adapter:us_state_releases:v2",
+      "adapter_contract_version": "geopolitical_source_adapter_v2",
+      "source_id": "us_state_releases",
+      "canonical_url_or_api": "https://www.state.gov/press-releases/",
+      "retrieval_mode": "HTML_DIRECTORY",
+      "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
+      "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
+      "covered_actor_ids": [
+        "CN",
+        "US",
+        "EU",
+        "RU",
+        "UA",
+        "IR",
+        "IL",
+        "KP",
+        "KR"
+      ],
+      "covered_region_ids": [
+        "TAIWAN_STRAIT",
+        "SOUTH_CHINA_SEA",
+        "RED_SEA_BAB_EL_MANDEB",
+        "STRAIT_OF_HORMUZ",
+        "BLACK_SEA",
+        "KOREAN_PENINSULA"
+      ],
+      "global_scope_capable": true,
+      "covered_event_types": [
+        "ARMED_CONFLICT",
+        "DIPLOMATIC_ESCALATION",
+        "DIPLOMATIC_DEESCALATION"
+      ],
+      "source_time_zone": "UTC",
+      "published_at_field": "source_published_at_or_verified_first_seen_at",
+      "license_classification": "public_metadata_and_hash_only",
+      "expected_poll_interval_minutes": 240,
+      "max_capture_age_minutes": 720,
+      "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
+      "no_event_claim_capable": true,
+      "expected_response_schema_hash": "sha256:cf5665dd2bd19f0880e8e6ac45a7258589a58d249084ad4fbe9d3eb3d654daf1",
+      "adapter_contract_hash": "sha256:3cedff79d3f770418440293cba171d49967f65ea4fee38cd3dedd0f7aacaf089"
+    },
+    {
+      "adapter_contract_id": "geo_adapter:ustr_actions:v2",
+      "adapter_contract_version": "geopolitical_source_adapter_v2",
+      "source_id": "ustr_actions",
+      "canonical_url_or_api": "https://ustr.gov/issue-areas/enforcement/section-301-investigations",
+      "retrieval_mode": "HTML_DIRECTORY",
+      "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
+      "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
+      "covered_actor_ids": [
+        "CN",
+        "US",
+        "EU",
+        "RU",
+        "UA",
+        "IR",
+        "IL",
+        "KP",
+        "KR"
+      ],
+      "covered_region_ids": [
+        "TAIWAN_STRAIT",
+        "SOUTH_CHINA_SEA",
+        "RED_SEA_BAB_EL_MANDEB",
+        "STRAIT_OF_HORMUZ",
+        "BLACK_SEA",
+        "KOREAN_PENINSULA"
+      ],
+      "global_scope_capable": true,
+      "covered_event_types": [
+        "TARIFF_TRADE_RESTRICTION"
+      ],
+      "source_time_zone": "UTC",
+      "published_at_field": "source_published_at_or_verified_first_seen_at",
+      "license_classification": "public_metadata_and_hash_only",
+      "expected_poll_interval_minutes": 240,
+      "max_capture_age_minutes": 720,
+      "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
+      "no_event_claim_capable": true,
+      "expected_response_schema_hash": "sha256:5ec47c238a3ca8974f83fd11815c1e12e9c1594c9ac74e4f73e666a2966ccc69",
+      "adapter_contract_hash": "sha256:bb40e9effd2807e55f4861281767528520a31870c42251c880746188b73456dc"
+    }
+  ],
+  "approved_publishers": [
+    {
+      "domain": "bis.gov",
+      "publisher_organization_id": "US_COMMERCE_BIS",
+      "allowed_event_types": [
+        "EXPORT_CONTROL"
+      ],
+      "upstream_origin_family": "US_COMMERCE_BIS",
+      "independence_rule": "organization_and_upstream_origin_must_both_differ"
+    },
+    {
+      "domain": "mfa.gov.cn",
+      "publisher_organization_id": "CN_MFA",
+      "allowed_event_types": [
+        "SANCTION",
+        "EXPORT_CONTROL",
+        "TARIFF_TRADE_RESTRICTION",
+        "ARMED_CONFLICT",
+        "DIPLOMATIC_ESCALATION",
+        "DIPLOMATIC_DEESCALATION"
+      ],
+      "upstream_origin_family": "CN_MFA",
+      "independence_rule": "organization_and_upstream_origin_must_both_differ"
+    },
+    {
+      "domain": "mofcom.gov.cn",
+      "publisher_organization_id": "CN_MOFCOM",
+      "allowed_event_types": [
+        "SANCTION",
+        "EXPORT_CONTROL",
+        "TARIFF_TRADE_RESTRICTION"
+      ],
+      "upstream_origin_family": "CN_MOFCOM",
+      "independence_rule": "organization_and_upstream_origin_must_both_differ"
+    },
+    {
+      "domain": "eeas.europa.eu",
+      "publisher_organization_id": "EEAS",
+      "allowed_event_types": [
+        "ARMED_CONFLICT",
+        "DIPLOMATIC_ESCALATION",
+        "DIPLOMATIC_DEESCALATION"
+      ],
+      "upstream_origin_family": "EEAS",
+      "independence_rule": "organization_and_upstream_origin_must_both_differ"
+    },
+    {
+      "domain": "consilium.europa.eu",
+      "publisher_organization_id": "EU_COUNCIL",
+      "allowed_event_types": [
+        "SANCTION",
+        "EXPORT_CONTROL",
+        "TARIFF_TRADE_RESTRICTION"
+      ],
+      "upstream_origin_family": "EU_COUNCIL",
+      "independence_rule": "organization_and_upstream_origin_must_both_differ"
+    },
+    {
+      "domain": "eur-lex.europa.eu",
+      "publisher_organization_id": "EU_PUBLICATIONS_OFFICE",
+      "allowed_event_types": [
+        "SANCTION",
+        "EXPORT_CONTROL",
+        "TARIFF_TRADE_RESTRICTION"
+      ],
+      "upstream_origin_family": "EUR_LEX",
+      "independence_rule": "organization_and_upstream_origin_must_both_differ"
+    },
+    {
+      "domain": "gdeltproject.org",
+      "publisher_organization_id": "GDELT_PROJECT",
+      "allowed_event_types": [
+        "SANCTION",
+        "EXPORT_CONTROL",
+        "TARIFF_TRADE_RESTRICTION",
+        "ARMED_CONFLICT",
+        "SHIPPING_DISRUPTION",
+        "DIPLOMATIC_ESCALATION",
+        "DIPLOMATIC_DEESCALATION"
+      ],
+      "upstream_origin_family": "GDELT",
+      "independence_rule": "organization_and_upstream_origin_must_both_differ"
+    },
+    {
+      "domain": "maritime.dot.gov",
+      "publisher_organization_id": "US_MARAD",
+      "allowed_event_types": [
+        "SHIPPING_DISRUPTION"
+      ],
+      "upstream_origin_family": "US_MARAD",
+      "independence_rule": "organization_and_upstream_origin_must_both_differ"
+    },
+    {
+      "domain": "reliefweb.int",
+      "publisher_organization_id": "UN_OCHA",
+      "allowed_event_types": [
+        "ARMED_CONFLICT"
+      ],
+      "upstream_origin_family": "RELIEFWEB_PARTNER_NETWORK",
+      "independence_rule": "organization_and_upstream_origin_must_both_differ"
+    },
+    {
+      "domain": "ofac.treasury.gov",
+      "publisher_organization_id": "US_TREASURY_OFAC",
+      "allowed_event_types": [
+        "SANCTION"
+      ],
+      "upstream_origin_family": "US_TREASURY_OFAC",
+      "independence_rule": "organization_and_upstream_origin_must_both_differ"
+    },
+    {
+      "domain": "ukmto.org",
+      "publisher_organization_id": "UKMTO",
+      "allowed_event_types": [
+        "SHIPPING_DISRUPTION"
+      ],
+      "upstream_origin_family": "UKMTO",
+      "independence_rule": "organization_and_upstream_origin_must_both_differ"
+    },
+    {
+      "domain": "un.org",
+      "publisher_organization_id": "UN",
+      "allowed_event_types": [
+        "ARMED_CONFLICT"
+      ],
+      "upstream_origin_family": "UN_NEWS_CONFLICT",
+      "independence_rule": "organization_and_upstream_origin_must_both_differ"
+    },
+    {
+      "domain": "un.org",
+      "publisher_organization_id": "UN",
+      "allowed_event_types": [
+        "SANCTION"
+      ],
+      "upstream_origin_family": "UN_SECURITY_COUNCIL",
+      "independence_rule": "organization_and_upstream_origin_must_both_differ"
+    },
+    {
+      "domain": "state.gov",
+      "publisher_organization_id": "US_STATE",
+      "allowed_event_types": [
+        "ARMED_CONFLICT",
+        "DIPLOMATIC_ESCALATION",
+        "DIPLOMATIC_DEESCALATION"
+      ],
+      "upstream_origin_family": "US_STATE",
+      "independence_rule": "organization_and_upstream_origin_must_both_differ"
+    },
+    {
+      "domain": "ustr.gov",
+      "publisher_organization_id": "USTR",
+      "allowed_event_types": [
+        "TARIFF_TRADE_RESTRICTION"
+      ],
+      "upstream_origin_family": "USTR",
+      "independence_rule": "organization_and_upstream_origin_must_both_differ"
+    }
+  ],
+  "coverage_routes": [
+    {
+      "coverage_route_id": "geo-route:e9f55aa555c9e57c1eaf46e3",
+      "event_type": "SANCTION",
+      "subject_type": "ACTOR",
+      "actor_id": "CN",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:0d2a1b8b12c6f6d038430f1a6803f6619f51d0f75b136b63d11b89c449c5f8c6"
+    },
+    {
+      "coverage_route_id": "geo-route:77bf9b738441709c296b9d45",
+      "event_type": "SANCTION",
+      "subject_type": "ACTOR",
+      "actor_id": "US",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:12a2a943f96bbc35d7fa2e0ec9ad44c52d2cf17c4902fc1a68640ded73e48a57"
+    },
+    {
+      "coverage_route_id": "geo-route:31415ef2640b8d05788570c9",
+      "event_type": "SANCTION",
+      "subject_type": "ACTOR",
+      "actor_id": "EU",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:b41b38fb5a4a915910691654fa4e43d240bd0ac90def50c3846f6f42274e2332"
+    },
+    {
+      "coverage_route_id": "geo-route:6eedaa9ab06d82a2229670c9",
+      "event_type": "SANCTION",
+      "subject_type": "ACTOR",
+      "actor_id": "RU",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:27bd62a3c4a6e651f1f77c3b71d7b8f03cc08714e64920a6cffc33a0590e68c3"
+    },
+    {
+      "coverage_route_id": "geo-route:3453338d1a422a343f0d58b6",
+      "event_type": "SANCTION",
+      "subject_type": "ACTOR",
+      "actor_id": "UA",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:59f5e07c1e967d23ed2f91026feeb8ebc8db4bc77c3fdbd1c61ea3aa4d43aa4d"
+    },
+    {
+      "coverage_route_id": "geo-route:2ed4dc41c06b379ec6ea3eb0",
+      "event_type": "SANCTION",
+      "subject_type": "ACTOR",
+      "actor_id": "IR",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:06ceb1e698e063a3bca0f7593cf6aedb5b6d636ad7b61735036119a55d05fc1f"
+    },
+    {
+      "coverage_route_id": "geo-route:e29550d08882a2f46ed80aad",
+      "event_type": "SANCTION",
+      "subject_type": "ACTOR",
+      "actor_id": "IL",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:dc4eaba8819c9d8cd5b44c1f43e25c3592528dc29bf029ca15cfc837075a6875"
+    },
+    {
+      "coverage_route_id": "geo-route:b12e7bf8f7a5fcffb26823f8",
+      "event_type": "SANCTION",
+      "subject_type": "ACTOR",
+      "actor_id": "KP",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:b47e813e464feb27cfc8148fb4bdeccb05b76a818d4406a54157453833343553"
+    },
+    {
+      "coverage_route_id": "geo-route:70ce34fb63b060969081c288",
+      "event_type": "SANCTION",
+      "subject_type": "ACTOR",
+      "actor_id": "KR",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:7ae96ad2744eb777d0d9855eac8435b0a17b98c056a0922263eb8de538d64384"
+    },
+    {
+      "coverage_route_id": "geo-route:322c319abfa3823ce3112113",
+      "event_type": "SANCTION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "TAIWAN_STRAIT",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:cded70417413d0985b00665a6abe428907ca4e05eaad58cbbf64164f023f3121"
+    },
+    {
+      "coverage_route_id": "geo-route:2a86c1228d2f06027cb46bb6",
+      "event_type": "SANCTION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "SOUTH_CHINA_SEA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:3e0369b57eb69360ff18f288c27eafd82fbc4a86ca0bdf2690e0382657fd39e2"
+    },
+    {
+      "coverage_route_id": "geo-route:53aa9368081c1efe342345c8",
+      "event_type": "SANCTION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "RED_SEA_BAB_EL_MANDEB",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:b4d59ed817a8d1f96f9645bc2dcab0f67570d2d96ff2134d7b3142968d04ac69"
+    },
+    {
+      "coverage_route_id": "geo-route:282b16f2dbffcf90882c654e",
+      "event_type": "SANCTION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "STRAIT_OF_HORMUZ",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:cede90147c5cc8a586d5c28be49b7295acbaa1b217b6cb06e22591bb0ffc065e"
+    },
+    {
+      "coverage_route_id": "geo-route:02df2b93f77160497acadc29",
+      "event_type": "SANCTION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "BLACK_SEA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:3902a577cd6a2eab3c67c2024005eefd86c7d05d254c4ab2c70f8620dc689536"
+    },
+    {
+      "coverage_route_id": "geo-route:ec3ad1566037441bd116a1cd",
+      "event_type": "SANCTION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "KOREAN_PENINSULA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:9291bca70850aa640b4c2db638bebe5cf73bf8197216a8c9ebbfad51ba1c336a"
+    },
+    {
+      "coverage_route_id": "geo-route:d88f0fe41dc7c299db37d991",
+      "event_type": "SANCTION",
+      "subject_type": "GLOBAL",
+      "actor_id": null,
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "MATERIAL_A_SHARE_TRANSMISSION_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "un_sc_sanctions",
+        "ofac_recent_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:12a8f4363027825c4c38ed8679eced4a5b7c27535c4c12106744a752796ff87e"
+    },
+    {
+      "coverage_route_id": "geo-route:ae965b4b8691293f075b2abb",
+      "event_type": "EXPORT_CONTROL",
+      "subject_type": "ACTOR",
+      "actor_id": "CN",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:3e01b4784849724bde65ecaf7c6fc39c8823ac41cc381c4ac778cf8ea2f1c580"
+    },
+    {
+      "coverage_route_id": "geo-route:4c943a88fd47cdb04d7e219b",
+      "event_type": "EXPORT_CONTROL",
+      "subject_type": "ACTOR",
+      "actor_id": "US",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:739127b41dee5d333751987cc5e5f302364231c8b5d76ce77e9a29ed1746878a"
+    },
+    {
+      "coverage_route_id": "geo-route:d9387eff4a71aae28027b53f",
+      "event_type": "EXPORT_CONTROL",
+      "subject_type": "ACTOR",
+      "actor_id": "EU",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:780a2d3e0c149761af0441d9e4d05bdf40c9b234ac9a477e733e153ec17e6408"
+    },
+    {
+      "coverage_route_id": "geo-route:f45647b9e1891979306a8fda",
+      "event_type": "EXPORT_CONTROL",
+      "subject_type": "ACTOR",
+      "actor_id": "RU",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:ebeb7b96309dae506369fcabb81a36bc6a442a3ada45fb76af08b1d2ac5cc71f"
+    },
+    {
+      "coverage_route_id": "geo-route:bd6ead9fd3cb854137e86cdd",
+      "event_type": "EXPORT_CONTROL",
+      "subject_type": "ACTOR",
+      "actor_id": "UA",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:04237e4031645972103f5beb686ca1eb26320c2bba9d7283f5dd5ef3a359c8f4"
+    },
+    {
+      "coverage_route_id": "geo-route:bc61ae876adafe4ddb33f0f4",
+      "event_type": "EXPORT_CONTROL",
+      "subject_type": "ACTOR",
+      "actor_id": "IR",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:60b41c4283122e83e1fa5a88ef49b634849e4e598bf2e89d4305f1672afca1b5"
+    },
+    {
+      "coverage_route_id": "geo-route:2ce81c148d357cff1ffcee61",
+      "event_type": "EXPORT_CONTROL",
+      "subject_type": "ACTOR",
+      "actor_id": "IL",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:1f8245af2fa189a35618e303916719cd492a69e66b1a4871850c11d6f9187f76"
+    },
+    {
+      "coverage_route_id": "geo-route:add30eddb0a8652f27be4860",
+      "event_type": "EXPORT_CONTROL",
+      "subject_type": "ACTOR",
+      "actor_id": "KP",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:df828f423eaf7adae93c60c65421d50987ecda7ac3d37a3228b29ba017c61ff4"
+    },
+    {
+      "coverage_route_id": "geo-route:1bb262b6050933b3894ff176",
+      "event_type": "EXPORT_CONTROL",
+      "subject_type": "ACTOR",
+      "actor_id": "KR",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:834f8d14f4d33b23908244c285526df2999dc6a7ee8165c36c4cfa86d5bfbac5"
+    },
+    {
+      "coverage_route_id": "geo-route:b75fcdcc612e465c1d698c21",
+      "event_type": "EXPORT_CONTROL",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "TAIWAN_STRAIT",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:addb6c58e9467f190af923d78d0961a885e14a9e242268310fb0177884908430"
+    },
+    {
+      "coverage_route_id": "geo-route:c0c6ce04cd69284c59e03b7e",
+      "event_type": "EXPORT_CONTROL",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "SOUTH_CHINA_SEA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:fde8a4da811f3b095ea28e21aabd45a91d4b8d92966566bb258938990f59265e"
+    },
+    {
+      "coverage_route_id": "geo-route:590a7ff761c9e0380b1f06d1",
+      "event_type": "EXPORT_CONTROL",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "RED_SEA_BAB_EL_MANDEB",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:d818201f6f69dcf6100eb9f02b50b73af20d51b3acd07a95f954b730716ed0fa"
+    },
+    {
+      "coverage_route_id": "geo-route:40990aed6332791b0517ffb0",
+      "event_type": "EXPORT_CONTROL",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "STRAIT_OF_HORMUZ",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:9990bed26cb1c7332e1d1171294621caf68cb253c06ab192d15f5b6df39b3a08"
+    },
+    {
+      "coverage_route_id": "geo-route:278379ba2af0eb78d416ff4d",
+      "event_type": "EXPORT_CONTROL",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "BLACK_SEA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:56ced70edbd71bd3b82e1071ca320b2290c088bfe90ac3fb9245826ac33ee298"
+    },
+    {
+      "coverage_route_id": "geo-route:0b5d5a78673f7c223e22ba10",
+      "event_type": "EXPORT_CONTROL",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "KOREAN_PENINSULA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:17595f983b2bcd61d95fc73e0f2c01106286d35816fab2b6791cefe856710a21"
+    },
+    {
+      "coverage_route_id": "geo-route:5d1989f216eac5af7df0b5b3",
+      "event_type": "EXPORT_CONTROL",
+      "subject_type": "GLOBAL",
+      "actor_id": null,
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "MATERIAL_A_SHARE_TRANSMISSION_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "bis_federal_register",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:98c2fdfb3f6cf1ddc301345cbb3a02cd9adee5b5c15f3a94b56ded871b082030"
+    },
+    {
+      "coverage_route_id": "geo-route:1730f4832b03cb731a8c6748",
+      "event_type": "TARIFF_TRADE_RESTRICTION",
+      "subject_type": "ACTOR",
+      "actor_id": "CN",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:ce68afb05abe878450fc367735b5fc32acff86121398c46a1a26720179556f65"
+    },
+    {
+      "coverage_route_id": "geo-route:734320abd116de052fd1456c",
+      "event_type": "TARIFF_TRADE_RESTRICTION",
+      "subject_type": "ACTOR",
+      "actor_id": "US",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:c6e4cdec3254135597dddbc1266efafeffc25efcddbb97abd32cd8ee8fb7dcac"
+    },
+    {
+      "coverage_route_id": "geo-route:057a74a531b1bd0acf11c7bf",
+      "event_type": "TARIFF_TRADE_RESTRICTION",
+      "subject_type": "ACTOR",
+      "actor_id": "EU",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:b48fec7575fed8b0fecb12e9419f6d6f4a6a7c6f04a175dae476cfadcffa3aac"
+    },
+    {
+      "coverage_route_id": "geo-route:a5c75425272f1e573fe30dd9",
+      "event_type": "TARIFF_TRADE_RESTRICTION",
+      "subject_type": "ACTOR",
+      "actor_id": "RU",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:38ff2dc578ab5aeca915ac29f3abf3557cd9c0eb58d2e8a62b8a1dc7ca1e2537"
+    },
+    {
+      "coverage_route_id": "geo-route:cf7fc11c29d86b34afbad075",
+      "event_type": "TARIFF_TRADE_RESTRICTION",
+      "subject_type": "ACTOR",
+      "actor_id": "UA",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:8705ef6c8d4c5efc1deb81f30fcc0874ce79ce13d5cf57343449efe6fd346dbb"
+    },
+    {
+      "coverage_route_id": "geo-route:6ebbf2605a152320419c92d8",
+      "event_type": "TARIFF_TRADE_RESTRICTION",
+      "subject_type": "ACTOR",
+      "actor_id": "IR",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:665d5dfb17310e83b666d07261c6ded0e94d9402c6928699bf3e451fd1300765"
+    },
+    {
+      "coverage_route_id": "geo-route:b9407abc2ce155c9b89cfe7a",
+      "event_type": "TARIFF_TRADE_RESTRICTION",
+      "subject_type": "ACTOR",
+      "actor_id": "IL",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:a4ff4523b3be85d8140809ebafa863bed5f441a19cf0ee238c470abb8e4b5a62"
+    },
+    {
+      "coverage_route_id": "geo-route:1ab9710ed9c61cf06492f845",
+      "event_type": "TARIFF_TRADE_RESTRICTION",
+      "subject_type": "ACTOR",
+      "actor_id": "KP",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:25ed7c0175cc1c60b5b86ffbf5416c4c42240e81f15af7978c471675b7e4e6f8"
+    },
+    {
+      "coverage_route_id": "geo-route:0925d642addcbc842e3c68bd",
+      "event_type": "TARIFF_TRADE_RESTRICTION",
+      "subject_type": "ACTOR",
+      "actor_id": "KR",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:cb72482942d55d7e17fb306984df0b1e0c5fb87f2e1e13057b29d4982dc7648d"
+    },
+    {
+      "coverage_route_id": "geo-route:e71d4565d943f0332fe23761",
+      "event_type": "TARIFF_TRADE_RESTRICTION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "TAIWAN_STRAIT",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:9424b3eef97fdd962dae325d4582179600e5caaafe5bc5ae00a0165f8ae307f3"
+    },
+    {
+      "coverage_route_id": "geo-route:edde4b7f07ee645a9cdad9e8",
+      "event_type": "TARIFF_TRADE_RESTRICTION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "SOUTH_CHINA_SEA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:0ae0b0df7eb84d4795384424f3f43c255ed0c317b91e16e7101b8f3903d210ad"
+    },
+    {
+      "coverage_route_id": "geo-route:4ee1064ef4394ff45bbf3d1d",
+      "event_type": "TARIFF_TRADE_RESTRICTION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "RED_SEA_BAB_EL_MANDEB",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:d695af34d7684137f09e9b47cd3e5f60f5b8e8caedb273d0a29ad069bef7614d"
+    },
+    {
+      "coverage_route_id": "geo-route:701cd676d762d1b032b95756",
+      "event_type": "TARIFF_TRADE_RESTRICTION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "STRAIT_OF_HORMUZ",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:c41abec9ee9db93968c6942e232e16815d0933760d7360af2cd5937f63dba904"
+    },
+    {
+      "coverage_route_id": "geo-route:b7189873d38c9f8aebe262ff",
+      "event_type": "TARIFF_TRADE_RESTRICTION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "BLACK_SEA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:1d1b90a7aa709e28405f6e5bab14204107f05fc37f9f39156a3e16cc8c7ec547"
+    },
+    {
+      "coverage_route_id": "geo-route:f704428204e844090469632b",
+      "event_type": "TARIFF_TRADE_RESTRICTION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "KOREAN_PENINSULA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:7b911517da0f111c5d4d7b9dd96551389c4314f25345eb15e755cb89daca2dd6"
+    },
+    {
+      "coverage_route_id": "geo-route:e14c0ecfa5071b472c7ebfc1",
+      "event_type": "TARIFF_TRADE_RESTRICTION",
+      "subject_type": "GLOBAL",
+      "actor_id": null,
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "MATERIAL_A_SHARE_TRANSMISSION_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "cn_mofcom_export_control",
+        "ustr_actions",
+        "eu_council_sanctions",
+        "eurlex_official_journal",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:f2ffd10689ca29b47c276d98aae2bd0770bfc9d559e030885dd391f598986e89"
+    },
+    {
+      "coverage_route_id": "geo-route:fab6cf53f867097e99b30a1e",
+      "event_type": "ARMED_CONFLICT",
+      "subject_type": "ACTOR",
+      "actor_id": "CN",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "no_event_evidence_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:bb8934680f4cde373125f350fdd8544ea051954b9c14066486af6406774b8aef"
+    },
+    {
+      "coverage_route_id": "geo-route:de19f1b4a1e6a72869422826",
+      "event_type": "ARMED_CONFLICT",
+      "subject_type": "ACTOR",
+      "actor_id": "US",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "no_event_evidence_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:cd1e44e60890f31b78215e8f2ec018d74792a2bf85f355d94a78d238aaf96f2a"
+    },
+    {
+      "coverage_route_id": "geo-route:37dd98810807a63f9c1234ab",
+      "event_type": "ARMED_CONFLICT",
+      "subject_type": "ACTOR",
+      "actor_id": "EU",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "no_event_evidence_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:8593bc78e7a2d3f90d4bef8cb5dfc9e77fe0fd4f81a1e265be68ed9d257cab1c"
+    },
+    {
+      "coverage_route_id": "geo-route:ca169028f804f39be1d0ab44",
+      "event_type": "ARMED_CONFLICT",
+      "subject_type": "ACTOR",
+      "actor_id": "RU",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "no_event_evidence_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:4ab422c8b563b417df8d203a22d0142ab709d7c9e23acc6f2bc9abbfcaeca67d"
+    },
+    {
+      "coverage_route_id": "geo-route:2650742aa9b900b595914f56",
+      "event_type": "ARMED_CONFLICT",
+      "subject_type": "ACTOR",
+      "actor_id": "UA",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "no_event_evidence_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:308fe70c3b8ad5fe7e319f46f7b4626e403fe0767c18abb2f544ac7655866b91"
+    },
+    {
+      "coverage_route_id": "geo-route:6da6485538bb67a72002cf89",
+      "event_type": "ARMED_CONFLICT",
+      "subject_type": "ACTOR",
+      "actor_id": "IR",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "no_event_evidence_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:a1593df74c3ec7be7ce35537e8e239b8f8164d5e27f2f0a53d9713e0ff8131b8"
+    },
+    {
+      "coverage_route_id": "geo-route:203b72aa5aa07bdb6afb3713",
+      "event_type": "ARMED_CONFLICT",
+      "subject_type": "ACTOR",
+      "actor_id": "IL",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "no_event_evidence_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:eb676b5d02816eb4848a451ae0ef31bab6fa79b97252aa849b73c31ed57f5ec2"
+    },
+    {
+      "coverage_route_id": "geo-route:7cb31f500997173dfd67a8d6",
+      "event_type": "ARMED_CONFLICT",
+      "subject_type": "ACTOR",
+      "actor_id": "KP",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "no_event_evidence_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:d94c544622083aed1df3223a6a753a2fc39fa663a05c8050ec8e795ab0b357bb"
+    },
+    {
+      "coverage_route_id": "geo-route:1c87d28f0700c637aad09965",
+      "event_type": "ARMED_CONFLICT",
+      "subject_type": "ACTOR",
+      "actor_id": "KR",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "no_event_evidence_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:bb6486842766bac8fc3b73c1886a6c6643759aad7e9b1d924f749da9a1ae3c76"
+    },
+    {
+      "coverage_route_id": "geo-route:04b384164a6696bf1a7071c7",
+      "event_type": "ARMED_CONFLICT",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "TAIWAN_STRAIT",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "no_event_evidence_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:15d99dbb5e21c2f863fc20a8c120504f3cf75c02fb356de8b214792c0bbf4358"
+    },
+    {
+      "coverage_route_id": "geo-route:5fd3a1514d4fb1de4c53b9b9",
+      "event_type": "ARMED_CONFLICT",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "SOUTH_CHINA_SEA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "no_event_evidence_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:0faf4edee166eb6e2a2838b4cb4f45d667e1f78309618e3e8726e37e8cfb37c9"
+    },
+    {
+      "coverage_route_id": "geo-route:a22e56bb43e7ed8060efa06e",
+      "event_type": "ARMED_CONFLICT",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "RED_SEA_BAB_EL_MANDEB",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "no_event_evidence_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:6c9724ff2219c05045b2c9efc1cff194ca5694fdbe8218416f4805ba64368019"
+    },
+    {
+      "coverage_route_id": "geo-route:a6a984522494432c5017dcd6",
+      "event_type": "ARMED_CONFLICT",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "STRAIT_OF_HORMUZ",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "no_event_evidence_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:fcedb521ed6dcdd853a617870734d1a768d05ca9bd4036c91727244f57d45303"
+    },
+    {
+      "coverage_route_id": "geo-route:b9b306036cc1d406325b958d",
+      "event_type": "ARMED_CONFLICT",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "BLACK_SEA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "no_event_evidence_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:bba819f57c477a23f82ccb3c36809e559d6d81ea6107ceae67106f4f9386b9c3"
+    },
+    {
+      "coverage_route_id": "geo-route:181c32985dbc93a166d4f40a",
+      "event_type": "ARMED_CONFLICT",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "KOREAN_PENINSULA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "no_event_evidence_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:a5a7ff2922de256a624fc325d797fb51f0e8e43c399298f5bad45e32edf57a1f"
+    },
+    {
+      "coverage_route_id": "geo-route:b9795623f8fcc77f09baaffd",
+      "event_type": "ARMED_CONFLICT",
+      "subject_type": "GLOBAL",
+      "actor_id": null,
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "MATERIAL_A_SHARE_TRANSMISSION_SCOPE",
+      "required_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "no_event_evidence_source_ids": [
+        "gdelt_event_gkg",
+        "un_conflict_releases",
+        "us_state_releases",
+        "eeas_releases"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:5f9a926596ae4b4aaad2ac0a88153ebc98cddf289605c4a1ed20400108c96742"
+    },
+    {
+      "coverage_route_id": "geo-route:f505046d50b97533fd36f4d5",
+      "event_type": "SHIPPING_DISRUPTION",
+      "subject_type": "ACTOR",
+      "actor_id": "CN",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "NOT_APPLICABLE",
+      "applicability_reason_code": "NO_REGISTERED_MATERIAL_LINK",
+      "required_source_ids": [],
+      "no_event_evidence_source_ids": [],
+      "route_status": "NOT_APPLICABLE",
+      "coverage_route_hash": "sha256:975facea94cf0081e664a54d35826857fa2204422f012b06d2df4ce38cedb76d"
+    },
+    {
+      "coverage_route_id": "geo-route:69bddda900c9f5c5c9cabeed",
+      "event_type": "SHIPPING_DISRUPTION",
+      "subject_type": "ACTOR",
+      "actor_id": "US",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "NOT_APPLICABLE",
+      "applicability_reason_code": "NO_REGISTERED_MATERIAL_LINK",
+      "required_source_ids": [],
+      "no_event_evidence_source_ids": [],
+      "route_status": "NOT_APPLICABLE",
+      "coverage_route_hash": "sha256:3caa05598e0c118b06db3afb0c30b876558fc42e686d1566479f1bffefaa8e08"
+    },
+    {
+      "coverage_route_id": "geo-route:b8d02b1d749f429f28537307",
+      "event_type": "SHIPPING_DISRUPTION",
+      "subject_type": "ACTOR",
+      "actor_id": "EU",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "NOT_APPLICABLE",
+      "applicability_reason_code": "NO_REGISTERED_MATERIAL_LINK",
+      "required_source_ids": [],
+      "no_event_evidence_source_ids": [],
+      "route_status": "NOT_APPLICABLE",
+      "coverage_route_hash": "sha256:128c74adeef3e12a37f2e14416aec460935c4e1690d9a10fe549b97dafbed3df"
+    },
+    {
+      "coverage_route_id": "geo-route:9504d43f7afd8b31d8c7e84a",
+      "event_type": "SHIPPING_DISRUPTION",
+      "subject_type": "ACTOR",
+      "actor_id": "RU",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "NOT_APPLICABLE",
+      "applicability_reason_code": "NO_REGISTERED_MATERIAL_LINK",
+      "required_source_ids": [],
+      "no_event_evidence_source_ids": [],
+      "route_status": "NOT_APPLICABLE",
+      "coverage_route_hash": "sha256:837ba0e61b5f46d069f1f4c08be1d9485da04d30baf9f0d18884787492dc36f1"
+    },
+    {
+      "coverage_route_id": "geo-route:fea378bf88f5623a41ce9bb9",
+      "event_type": "SHIPPING_DISRUPTION",
+      "subject_type": "ACTOR",
+      "actor_id": "UA",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "NOT_APPLICABLE",
+      "applicability_reason_code": "NO_REGISTERED_MATERIAL_LINK",
+      "required_source_ids": [],
+      "no_event_evidence_source_ids": [],
+      "route_status": "NOT_APPLICABLE",
+      "coverage_route_hash": "sha256:be853d6f4d7fda9f30f5d1d6c15f0c31af3ee67785ef52c87a26fa6d7398dcde"
+    },
+    {
+      "coverage_route_id": "geo-route:d3d4415b5d23cc9db5e87896",
+      "event_type": "SHIPPING_DISRUPTION",
+      "subject_type": "ACTOR",
+      "actor_id": "IR",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "NOT_APPLICABLE",
+      "applicability_reason_code": "NO_REGISTERED_MATERIAL_LINK",
+      "required_source_ids": [],
+      "no_event_evidence_source_ids": [],
+      "route_status": "NOT_APPLICABLE",
+      "coverage_route_hash": "sha256:e64f5a71b48e4aee54eadfd319b47c28d37ab9a9a50432af8947efaa7990aadb"
+    },
+    {
+      "coverage_route_id": "geo-route:87aea46fdc894f93768db5d3",
+      "event_type": "SHIPPING_DISRUPTION",
+      "subject_type": "ACTOR",
+      "actor_id": "IL",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "NOT_APPLICABLE",
+      "applicability_reason_code": "NO_REGISTERED_MATERIAL_LINK",
+      "required_source_ids": [],
+      "no_event_evidence_source_ids": [],
+      "route_status": "NOT_APPLICABLE",
+      "coverage_route_hash": "sha256:de49a0c9041b01e7142ffbedccad08a9122444d310e39e828a5a53f4e4893d2f"
+    },
+    {
+      "coverage_route_id": "geo-route:e87dcc3d6e83d7c7fbc55130",
+      "event_type": "SHIPPING_DISRUPTION",
+      "subject_type": "ACTOR",
+      "actor_id": "KP",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "NOT_APPLICABLE",
+      "applicability_reason_code": "NO_REGISTERED_MATERIAL_LINK",
+      "required_source_ids": [],
+      "no_event_evidence_source_ids": [],
+      "route_status": "NOT_APPLICABLE",
+      "coverage_route_hash": "sha256:098dddd95d47422efea6a9a84c38a535bbe11c175b229c39d049d37993799769"
+    },
+    {
+      "coverage_route_id": "geo-route:2c2b57e2fe1bf215e17ac6d6",
+      "event_type": "SHIPPING_DISRUPTION",
+      "subject_type": "ACTOR",
+      "actor_id": "KR",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "NOT_APPLICABLE",
+      "applicability_reason_code": "NO_REGISTERED_MATERIAL_LINK",
+      "required_source_ids": [],
+      "no_event_evidence_source_ids": [],
+      "route_status": "NOT_APPLICABLE",
+      "coverage_route_hash": "sha256:cffc1ca93be8436c1a464e99dc51589e5eb796bd0c9550f117d121f405c16103"
+    },
+    {
+      "coverage_route_id": "geo-route:5d791f4b3c967767efcf59af",
+      "event_type": "SHIPPING_DISRUPTION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "TAIWAN_STRAIT",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "marad_msci",
+        "ukmto_advisories",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "marad_msci",
+        "ukmto_advisories",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:54089360ff1f49450a0c86edbe5daa53cd6a3abf7c757ad229e05d105a2d101b"
+    },
+    {
+      "coverage_route_id": "geo-route:e37d24909e12f661d96b8aa3",
+      "event_type": "SHIPPING_DISRUPTION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "SOUTH_CHINA_SEA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "marad_msci",
+        "ukmto_advisories",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "marad_msci",
+        "ukmto_advisories",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:b8c37e9ff7addcee27cebcf65406fff01a9b2a15b6bbe50af0b7e871c752f74c"
+    },
+    {
+      "coverage_route_id": "geo-route:625ba552267e3fd9ce02d537",
+      "event_type": "SHIPPING_DISRUPTION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "RED_SEA_BAB_EL_MANDEB",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "marad_msci",
+        "ukmto_advisories",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "marad_msci",
+        "ukmto_advisories",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:6709257168058136387ee32745a6cd6e8c5de510e6bbd2496c9aa54de9001c43"
+    },
+    {
+      "coverage_route_id": "geo-route:0743d6c150f12fd723c99e8c",
+      "event_type": "SHIPPING_DISRUPTION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "STRAIT_OF_HORMUZ",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "marad_msci",
+        "ukmto_advisories",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "marad_msci",
+        "ukmto_advisories",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:60d60e72e7d038a78b0d37efefcada35cec2e71744105f86ad2481e7f4355358"
+    },
+    {
+      "coverage_route_id": "geo-route:4bc433fe4a3e2be6b971baf7",
+      "event_type": "SHIPPING_DISRUPTION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "BLACK_SEA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "marad_msci",
+        "ukmto_advisories",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "marad_msci",
+        "ukmto_advisories",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:5b2061627eeb72c48c3b042b6db6daec35bc91e26ee06a1ac152afb06fd3a9ae"
+    },
+    {
+      "coverage_route_id": "geo-route:0a3c530a5083c5373a1db8b6",
+      "event_type": "SHIPPING_DISRUPTION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "KOREAN_PENINSULA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "marad_msci",
+        "ukmto_advisories",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "marad_msci",
+        "ukmto_advisories",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:14177e55806ee5263121cda115074787bb42215ba334778878a9e43d4b713fd2"
+    },
+    {
+      "coverage_route_id": "geo-route:f85832caf89a53733160a6bd",
+      "event_type": "SHIPPING_DISRUPTION",
+      "subject_type": "GLOBAL",
+      "actor_id": null,
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "MATERIAL_A_SHARE_TRANSMISSION_SCOPE",
+      "required_source_ids": [
+        "marad_msci",
+        "ukmto_advisories",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "marad_msci",
+        "ukmto_advisories",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:61ecdfa13a51504ee89c284f6b9c2c9305adfbad1408cb50adca7e5d8ab6bb1b"
+    },
+    {
+      "coverage_route_id": "geo-route:2b92cd50506bbd7ddf098f86",
+      "event_type": "DIPLOMATIC_ESCALATION",
+      "subject_type": "ACTOR",
+      "actor_id": "CN",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:2849e0dab05e8213f14e02c19e3b716e6302f740484cd663201ffb5574484c7e"
+    },
+    {
+      "coverage_route_id": "geo-route:75477e2ac2acf20876a7a06b",
+      "event_type": "DIPLOMATIC_ESCALATION",
+      "subject_type": "ACTOR",
+      "actor_id": "US",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:f182505f836e7f427afbfc306b1f99c1e145a2e77c194b52313b072bb468f0f9"
+    },
+    {
+      "coverage_route_id": "geo-route:4ce090dc0bfd908a89410034",
+      "event_type": "DIPLOMATIC_ESCALATION",
+      "subject_type": "ACTOR",
+      "actor_id": "EU",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:2d6d7415665cca254fec96de6dc6a6f7909b0e800082efc6df44e046da3d781e"
+    },
+    {
+      "coverage_route_id": "geo-route:254c770e8484b4f9b8dfa4d4",
+      "event_type": "DIPLOMATIC_ESCALATION",
+      "subject_type": "ACTOR",
+      "actor_id": "RU",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:0ff2ccdf6e5e6fc08e9ec4a2afe443d8c041c93393c834808cc90cc030bb80e1"
+    },
+    {
+      "coverage_route_id": "geo-route:14ab82635843d06dfb0a605f",
+      "event_type": "DIPLOMATIC_ESCALATION",
+      "subject_type": "ACTOR",
+      "actor_id": "UA",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:c4cc45f6d578e5d5b6e512080e626b5752ad6967c26d79fdff2f6446e7d7d662"
+    },
+    {
+      "coverage_route_id": "geo-route:bf83057fc1a34f864f534fe5",
+      "event_type": "DIPLOMATIC_ESCALATION",
+      "subject_type": "ACTOR",
+      "actor_id": "IR",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:00e1ed3586244ce3f1d9494cfceb16ce3b6f211fcd5b70b05f5fa986374b8c2a"
+    },
+    {
+      "coverage_route_id": "geo-route:17a010ac8a5e2c66816c47c9",
+      "event_type": "DIPLOMATIC_ESCALATION",
+      "subject_type": "ACTOR",
+      "actor_id": "IL",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:0e722fa4659721ef4a09a4d29114d52d7f5afbc9b23e9d098798fab19e532528"
+    },
+    {
+      "coverage_route_id": "geo-route:32ac808e573d243f74b4f630",
+      "event_type": "DIPLOMATIC_ESCALATION",
+      "subject_type": "ACTOR",
+      "actor_id": "KP",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:8c2b3b98dbe14746ac9e7135db785eacb2650d21f51072bd24e80b16014561a4"
+    },
+    {
+      "coverage_route_id": "geo-route:a8343c239f3f4428c1a4cd3c",
+      "event_type": "DIPLOMATIC_ESCALATION",
+      "subject_type": "ACTOR",
+      "actor_id": "KR",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:06ed8937a15569ea2dffed90401ebc9f7df74319f931fa08242c4bcce81d30fb"
+    },
+    {
+      "coverage_route_id": "geo-route:b961e9c55c73913c8b1144f0",
+      "event_type": "DIPLOMATIC_ESCALATION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "TAIWAN_STRAIT",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:ec31b1c9a34a9f3752c68b2977069d5739a1364cd624a9e875fd6da70b9463d1"
+    },
+    {
+      "coverage_route_id": "geo-route:f4ed083ab0d7616f06e56d15",
+      "event_type": "DIPLOMATIC_ESCALATION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "SOUTH_CHINA_SEA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:793f91f8c7443fe6387ddcc17f605ea61869f91ebf42f9335560e75d2cd352fb"
+    },
+    {
+      "coverage_route_id": "geo-route:ff4dd43ceebbbecce8b695ba",
+      "event_type": "DIPLOMATIC_ESCALATION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "RED_SEA_BAB_EL_MANDEB",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:157341934d67bb43dd9e8dd24b442122e2bc9ee2509d90eeaf36e8bd3542f686"
+    },
+    {
+      "coverage_route_id": "geo-route:99d77581c81c59e012f26085",
+      "event_type": "DIPLOMATIC_ESCALATION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "STRAIT_OF_HORMUZ",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:165a4535a51569387394ac9ca3e05cdcec8fafb890ccfd060aa1cfa504bdaa8a"
+    },
+    {
+      "coverage_route_id": "geo-route:9cdcdf6f6db73ae0fe916d15",
+      "event_type": "DIPLOMATIC_ESCALATION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "BLACK_SEA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:51585c743ef3bef1a6722e676b40da922dc198af4ca28c7a6ec768c443e13560"
+    },
+    {
+      "coverage_route_id": "geo-route:0b7fe70456ad697f84cd7f00",
+      "event_type": "DIPLOMATIC_ESCALATION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "KOREAN_PENINSULA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:3503f9ba3f08bd911807e963ee54a0afea137fadc58929c9c09c468e30344e31"
+    },
+    {
+      "coverage_route_id": "geo-route:057369adca35bb4ce0a7eb24",
+      "event_type": "DIPLOMATIC_ESCALATION",
+      "subject_type": "GLOBAL",
+      "actor_id": null,
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "MATERIAL_A_SHARE_TRANSMISSION_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:a027d4e4e3f20a89e4612cdf6fa36bb6d944e64ab1e3c934bb4129413b5ab104"
+    },
+    {
+      "coverage_route_id": "geo-route:b7465f02fa3498f10a5cab14",
+      "event_type": "DIPLOMATIC_DEESCALATION",
+      "subject_type": "ACTOR",
+      "actor_id": "CN",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:b960bc2d75734bb540a98e9071a01caa516cf2cb6e0bb6624c07a2192bd3a9f1"
+    },
+    {
+      "coverage_route_id": "geo-route:1ba91476bb1d6c9046570e26",
+      "event_type": "DIPLOMATIC_DEESCALATION",
+      "subject_type": "ACTOR",
+      "actor_id": "US",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:5014e4a13871f366dd2f7d9337ef3f6497d751cc4c5e0a07c0f6d499a71994e1"
+    },
+    {
+      "coverage_route_id": "geo-route:5e104429a99bd0dddcc379af",
+      "event_type": "DIPLOMATIC_DEESCALATION",
+      "subject_type": "ACTOR",
+      "actor_id": "EU",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:26e5df1f0da4fbff29649289650c51933318ef2c3d0bef139bef79c00ba23f4f"
+    },
+    {
+      "coverage_route_id": "geo-route:42208c72602c929f261764f7",
+      "event_type": "DIPLOMATIC_DEESCALATION",
+      "subject_type": "ACTOR",
+      "actor_id": "RU",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:c017ea4143724e29b920d9e44a3677036724cd97f12a1c360186c208f8da79ab"
+    },
+    {
+      "coverage_route_id": "geo-route:2d872c194d6bfdf7d46e8b24",
+      "event_type": "DIPLOMATIC_DEESCALATION",
+      "subject_type": "ACTOR",
+      "actor_id": "UA",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:52dbce404de4911c197003328f02e33e7bd317a73e1607b197b47f724d3ac5c6"
+    },
+    {
+      "coverage_route_id": "geo-route:221d3378498865dd6b7a4d89",
+      "event_type": "DIPLOMATIC_DEESCALATION",
+      "subject_type": "ACTOR",
+      "actor_id": "IR",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:df5aa6cdf62c3de0cda25715f493454765dbbff84a2ea6a683bd2e7ab335a4f2"
+    },
+    {
+      "coverage_route_id": "geo-route:b80150bc4d915cb92eaee4d1",
+      "event_type": "DIPLOMATIC_DEESCALATION",
+      "subject_type": "ACTOR",
+      "actor_id": "IL",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:dba4d1e7472a950cc7b6a0830876cd64c77a4b40796fcb815d459a6743fd6e0f"
+    },
+    {
+      "coverage_route_id": "geo-route:f94e01a089b1200179386910",
+      "event_type": "DIPLOMATIC_DEESCALATION",
+      "subject_type": "ACTOR",
+      "actor_id": "KP",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:e46495b631df30f8156d435fff4c0e54f6d0d70cbd7c723e8dcf562ff0e50944"
+    },
+    {
+      "coverage_route_id": "geo-route:4ff1c7e18b51691990d445d2",
+      "event_type": "DIPLOMATIC_DEESCALATION",
+      "subject_type": "ACTOR",
+      "actor_id": "KR",
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:6b7339cd3a77d57a08399b0e9fcc510fd5104a963739edcad3b74854c5ca385d"
+    },
+    {
+      "coverage_route_id": "geo-route:90c9046c9ad8babe5d87cd72",
+      "event_type": "DIPLOMATIC_DEESCALATION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "TAIWAN_STRAIT",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:b772504359eeb5e8930e7653eaf6730213314ccb9c863f47c21fd879bbe78a67"
+    },
+    {
+      "coverage_route_id": "geo-route:3f8e4c77dbc926be794a56a2",
+      "event_type": "DIPLOMATIC_DEESCALATION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "SOUTH_CHINA_SEA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:3c9282523dc183c37f5341c7f2660de4e965ea14c3b8ed786f606e70e70cee0e"
+    },
+    {
+      "coverage_route_id": "geo-route:ca921b70cb61d41fb3e43dea",
+      "event_type": "DIPLOMATIC_DEESCALATION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "RED_SEA_BAB_EL_MANDEB",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:a7adecdcf9f3b74419491cbf62e878ee165258572ed5aa0950d26cde3afd1cfb"
+    },
+    {
+      "coverage_route_id": "geo-route:d3dd6b9392dfceb49df4a37f",
+      "event_type": "DIPLOMATIC_DEESCALATION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "STRAIT_OF_HORMUZ",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:b8ab0b6f23dba6ae42efe85d404e9b8ee2c4a3bc579d0824e76d9b09d2d1ce23"
+    },
+    {
+      "coverage_route_id": "geo-route:375f20f5b7c9c853dc4b661c",
+      "event_type": "DIPLOMATIC_DEESCALATION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "BLACK_SEA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:7fdeeb81e9e3b511e93fadcace3949945b04bb1dffc7634c0e5dbcee21553378"
+    },
+    {
+      "coverage_route_id": "geo-route:357851835d15c35b85d1d59e",
+      "event_type": "DIPLOMATIC_DEESCALATION",
+      "subject_type": "REGION",
+      "actor_id": null,
+      "region_id": "KOREAN_PENINSULA",
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "REGION_WATCHLIST_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:2c90b8fef15bbf4cbf435596ab03d633b8182fbc9ebcb64a441f8082b63eee26"
+    },
+    {
+      "coverage_route_id": "geo-route:95697f503aaf37554e780760",
+      "event_type": "DIPLOMATIC_DEESCALATION",
+      "subject_type": "GLOBAL",
+      "actor_id": null,
+      "region_id": null,
+      "actor_official_source_id": null,
+      "applicability": "APPLICABLE",
+      "applicability_reason_code": "MATERIAL_A_SHARE_TRANSMISSION_SCOPE",
+      "required_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "no_event_evidence_source_ids": [
+        "cn_mfa_releases",
+        "us_state_releases",
+        "eeas_releases",
+        "gdelt_event_gkg"
+      ],
+      "route_status": "PREFLIGHT_REQUIRED",
+      "coverage_route_hash": "sha256:1bf7a4a5e9357ef32a39e717ac8939fa2623f3ed458e64a4e57146005affa8d2"
+    }
+  ],
+  "manifest_readiness": "PREFLIGHT_REQUIRED",
+  "readiness_blockers": [
+    "bis_federal_register:30_day_preflight_required",
+    "bis_federal_register:source_specific_parser_missing",
+    "bis_federal_register:continuous_preflight_receipt_verifier_missing",
+    "cn_mfa_releases:30_day_preflight_required",
+    "cn_mfa_releases:source_specific_parser_missing",
+    "cn_mfa_releases:continuous_preflight_receipt_verifier_missing",
+    "cn_mofcom_export_control:30_day_preflight_required",
+    "cn_mofcom_export_control:source_specific_parser_missing",
+    "cn_mofcom_export_control:continuous_preflight_receipt_verifier_missing",
+    "eeas_releases:30_day_preflight_required",
+    "eeas_releases:source_specific_parser_missing",
+    "eeas_releases:continuous_preflight_receipt_verifier_missing",
+    "eu_council_sanctions:30_day_preflight_required",
+    "eu_council_sanctions:source_specific_parser_missing",
+    "eu_council_sanctions:continuous_preflight_receipt_verifier_missing",
+    "eurlex_official_journal:30_day_preflight_required",
+    "eurlex_official_journal:source_specific_parser_missing",
+    "eurlex_official_journal:continuous_preflight_receipt_verifier_missing",
+    "gdelt_event_gkg:30_day_preflight_required",
+    "gdelt_event_gkg:source_specific_parser_missing",
+    "gdelt_event_gkg:continuous_preflight_receipt_verifier_missing",
+    "marad_msci:30_day_preflight_required",
+    "marad_msci:source_specific_parser_missing",
+    "marad_msci:continuous_preflight_receipt_verifier_missing",
+    "ofac_recent_actions:30_day_preflight_required",
+    "ofac_recent_actions:source_specific_parser_missing",
+    "ofac_recent_actions:continuous_preflight_receipt_verifier_missing",
+    "ukmto_advisories:30_day_preflight_required",
+    "ukmto_advisories:source_specific_parser_missing",
+    "ukmto_advisories:continuous_preflight_receipt_verifier_missing",
+    "un_conflict_releases:30_day_preflight_required",
+    "un_conflict_releases:source_specific_parser_missing",
+    "un_conflict_releases:continuous_preflight_receipt_verifier_missing",
+    "un_sc_sanctions:30_day_preflight_required",
+    "un_sc_sanctions:source_specific_parser_missing",
+    "un_sc_sanctions:continuous_preflight_receipt_verifier_missing",
+    "us_state_releases:30_day_preflight_required",
+    "us_state_releases:source_specific_parser_missing",
+    "us_state_releases:continuous_preflight_receipt_verifier_missing",
+    "ustr_actions:30_day_preflight_required",
+    "ustr_actions:source_specific_parser_missing",
+    "ustr_actions:continuous_preflight_receipt_verifier_missing"
+  ],
+  "raw_source_content_committed": false,
+  "coverage_scope_hash": "sha256:8b2aea0f17449e29a74146bcef03711a013b57989c091e088eb2ebcd670be142",
+  "manifest_hash": "sha256:9bdd7cc14641920a23455bc1bd43e5c87ee02bba6dbbae23932e8244b69287b5"
+}

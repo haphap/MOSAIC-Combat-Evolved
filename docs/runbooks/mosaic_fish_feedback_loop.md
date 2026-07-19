@@ -55,7 +55,13 @@ rtk pnpm --dir mosaic-ts dev mirofish generate \
 冻结给三个 L4 agent：
 
 ```bash
-rtk pnpm --dir mosaic-ts dev daily-cycle --cohort cohort_default --fake-llm
+mkdir -p .mosaic/tmp
+SMOKE_DATE="$(date +%F)"
+SMOKE_ROOT="$(mktemp -d .mosaic/tmp/structured-smoke.XXXXXX)"
+eval "$(uv run python scripts/build_structured_smoke_fixtures.py \
+  --root "$SMOKE_ROOT" --date "$SMOKE_DATE" --shell-exports)"
+rtk pnpm --dir mosaic-ts dev daily-cycle \
+  --cohort cohort_default --date "$SMOKE_DATE" --fake-llm
 ```
 
 运行日志/数据状态应显示 `mirofish_context` 为 `loaded`，而不是 `missing`；L4 runtime

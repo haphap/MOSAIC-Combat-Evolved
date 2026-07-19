@@ -16,17 +16,23 @@ describe("stage-aware runtime agent manifest", () => {
   it("covers all runtime agents and the canonical L4 invocation stages", () => {
     const artifact = buildRuntimeAgentManifestArtifact();
 
-    expect(artifact.runtime_agent_count).toBe(25);
-    expect(artifact.runtime_stage_count).toBe(26);
+    expect(artifact.runtime_agent_count).toBe(28);
+    expect(artifact.runtime_stage_count).toBe(29);
     expect(artifact.default_cohort).toBe("cohort_default");
-    expect(artifact.research_knobs_cohort_enablement).toEqual([
-      {
-        cohort: "cohort_default",
-        enabled_agent_stages: expect.any(Array),
-        legacy_agent_stages: [],
-      },
+    expect(artifact.private_knot_cohort_enablement.map((row) => row.cohort)).toEqual([
+      "cohort_bull_2007",
+      "cohort_bull_2016",
+      "cohort_crisis_2008",
+      "cohort_crisis_covid",
+      "cohort_default",
+      "cohort_euphoria_2021",
+      "cohort_rate_tightening",
+      "cohort_recovery_2020",
     ]);
-    expect(artifact.research_knobs_cohort_enablement[0]?.enabled_agent_stages).toHaveLength(26);
+    for (const cohort of artifact.private_knot_cohort_enablement) {
+      expect(cohort.enabled_agent_stages).toHaveLength(29);
+      expect(cohort.bundled_fallback_agent_stages).toEqual([]);
+    }
     expect(artifact.canonical_l4_sequence).toEqual(CANONICAL_L4_STAGE_SEQUENCE);
     expect(validateRuntimeAgentManifestArtifact(artifact)).toEqual([]);
     expect(
@@ -55,6 +61,34 @@ describe("stage-aware runtime agent manifest", () => {
       ]),
     );
     expect(proposal?.outputSchemaRef).not.toBe(final?.outputSchemaRef);
+    expect(proposal?.outputSchemaFields).toEqual([
+      "agent_id",
+      "decision_stage",
+      "decision_disposition",
+      "target_positions",
+      "cash_weight",
+      "decision_reason",
+      "confidence",
+      "claims",
+      "claim_refs",
+      "macro_input_attributions",
+    ]);
+    expect(proposal?.outputSchemaFields).not.toContain("cro_control_resolutions");
+    expect(proposal?.outputSchemaFields).not.toContain("execution_control_resolutions");
+    expect(final?.outputSchemaFields).toEqual([
+      "agent_id",
+      "decision_stage",
+      "decision_disposition",
+      "target_positions",
+      "cash_weight",
+      "decision_reason",
+      "cro_control_resolutions",
+      "execution_control_resolutions",
+      "confidence",
+      "claims",
+      "claim_refs",
+      "macro_input_attributions",
+    ]);
     for (const key of [
       ["alpha_discovery", "alpha_discovery"],
       ["cio", "cio_proposal"],
@@ -77,6 +111,18 @@ describe("stage-aware runtime agent manifest", () => {
     }
   });
 
+  it("records exact output fields on every runtime stage", () => {
+    const artifact = buildRuntimeAgentManifestArtifact();
+    for (const agent of artifact.agents) {
+      const runtime = RUNTIME_AGENT_SPECS.find((spec) => spec.agent === agent.agent);
+      expect(runtime).toBeTruthy();
+      for (const stage of agent.stages) {
+        const expected = runtime?.stages.find((row) => row.stage === stage.stage);
+        expect(stage.output_schema_fields).toEqual(expected?.outputSchemaFields);
+      }
+    }
+  });
+
   it("renders deterministic JSON", () => {
     const artifact = buildRuntimeAgentManifestArtifact();
     expect(JSON.parse(renderRuntimeAgentManifestArtifact(artifact))).toEqual(artifact);
@@ -86,7 +132,7 @@ describe("stage-aware runtime agent manifest", () => {
     const artifact = buildRuntimeAgentManifestArtifact();
     const committed = JSON.parse(
       readFileSync(
-        join(process.cwd(), "..", "registry", "prompt_checks", "runtime_agent_manifest_v2.json"),
+        join(process.cwd(), "..", "registry", "prompt_checks", "runtime_agent_manifest_v4.json"),
         "utf-8",
       ),
     );

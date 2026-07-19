@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "manifest": {
+      "type": "object",
+      "properties": {
+        "capability_contract_version": {
+          "type": "string",
+          "const": "agent_tool_capability_v1"
+        },
+        "capability_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "graph_run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "run_slot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "run_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "agent_id": {
+          "type": "string",
+          "enum": [
+            "china",
+            "us_economy",
+            "eu_economy",
+            "central_bank",
+            "us_financial_conditions",
+            "euro_area_financial_conditions",
+            "commodities",
+            "geopolitical",
+            "market_breadth",
+            "institutional_flow",
+            "semiconductor",
+            "technology",
+            "energy",
+            "biotech",
+            "consumer",
+            "industrials",
+            "real_estate_construction",
+            "financials",
+            "agriculture",
+            "relationship_mapper",
+            "druckenmiller",
+            "munger",
+            "burry",
+            "ackman",
+            "cro",
+            "alpha_discovery",
+            "autonomous_execution",
+            "cio"
+          ]
+        },
+        "stage": {
+          "type": "string",
+          "enum": [
+            "china",
+            "us_economy",
+            "eu_economy",
+            "central_bank",
+            "us_financial_conditions",
+            "euro_area_financial_conditions",
+            "commodities",
+            "geopolitical",
+            "market_breadth",
+            "institutional_flow",
+            "semiconductor",
+            "technology",
+            "energy",
+            "biotech",
+            "consumer",
+            "industrials",
+            "real_estate_construction",
+            "financials",
+            "agriculture",
+            "relationship_mapper",
+            "druckenmiller",
+            "munger",
+            "burry",
+            "ackman",
+            "cro",
+            "alpha_discovery",
+            "autonomous_execution",
+            "cio_proposal",
+            "cio_final"
+          ]
+        },
+        "allowed_tools": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "get_china_macro_snapshot",
+              "get_us_macro_snapshot",
+              "get_eu_macro_snapshot",
+              "get_central_bank_snapshot",
+              "get_us_financial_conditions_snapshot",
+              "get_euro_area_financial_conditions_snapshot",
+              "get_commodity_conditions_snapshot",
+              "get_geopolitical_events_snapshot",
+              "get_market_breadth_snapshot",
+              "get_market_positioning_snapshot",
+              "get_sector_research_snapshot",
+              "get_role_event_snapshot",
+              "get_relationship_graph_snapshot",
+              "get_superinvestor_candidate_snapshot",
+              "get_cro_risk_snapshot",
+              "get_alpha_candidate_snapshot",
+              "get_execution_snapshot",
+              "get_cio_decision_snapshot"
+            ]
+          }
+        },
+        "as_of": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "candidate_scope_hash": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "snapshot_bundle_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "snapshot_bundle_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "nonce": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "capability_contract_version",
+        "capability_id",
+        "graph_run_id",
+        "run_slot_id",
+        "run_id",
+        "node_id",
+        "agent_id",
+        "stage",
+        "allowed_tools",
+        "as_of",
+        "candidate_scope_hash",
+        "snapshot_bundle_id",
+        "snapshot_bundle_hash",
+        "issued_at",
+        "expires_at",
+        "nonce"
+      ],
+      "additionalProperties": false
+    },
+    "signing_key_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "signature": {
+      "type": "string",
+      "pattern": "^hmac-sha256:[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "manifest",
+    "signing_key_id",
+    "signature"
+  ],
+  "additionalProperties": false
+}
+

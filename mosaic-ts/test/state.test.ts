@@ -15,9 +15,8 @@ import type {
   CroOutput,
   Layer4Outputs,
   LlmCallRecord,
-  RegimeSignal,
 } from "../src/agents/types.js";
-import { macroOutput } from "./helpers/macro.js";
+import { macroSubmission } from "./helpers/macro.js";
 
 /** Reducer functions are exported for direct unit testing — see Plan §11.2. */
 
@@ -104,9 +103,13 @@ describe("state reducers", () => {
         cost_usd: 0.0078,
       };
       const c2 = { ...c1, agent: "china" };
-      const c3 = { ...c1, agent: "dollar" };
+      const c3 = { ...c1, agent: "us_financial_conditions" };
       const after = appendReducer(appendReducer([], [c1]), [c2, c3]);
-      expect(after.map((r) => r.agent)).toEqual(["central_bank", "china", "dollar"]);
+      expect(after.map((r) => r.agent)).toEqual([
+        "central_bank",
+        "china",
+        "us_financial_conditions",
+      ]);
     });
 
     it("does not mutate the previous array", () => {
@@ -153,19 +156,8 @@ describe("state reducers", () => {
 
 describe("DailyCycleState integration via reducer composition", () => {
   it("simulates a full Layer-1 fan-out with two parallel writers", () => {
-    const cb: CentralBankOutput = macroOutput("central_bank", {
-      direction: "SUPPORTIVE",
-      strength: 4,
-      key_drivers: ["MLF rolled at lower rate"],
-      confidence: 0.78,
-    });
-    const cn: ChinaOutput = macroOutput("china", {
-      direction: "SUPPORTIVE",
-      strength: 3,
-      channels: ["semiconductor"],
-      key_drivers: ["新质生产力 keyword"],
-      confidence: 0.65,
-    });
+    const cb: CentralBankOutput = macroSubmission("central_bank");
+    const cn: ChinaOutput = macroSubmission("china");
     // Two concurrent agent nodes both produce a 1-key update — the reducer
     // composes them into a single map.
     const after = dictMergeReducer<CentralBankOutput | ChinaOutput>(
@@ -175,7 +167,7 @@ describe("DailyCycleState integration via reducer composition", () => {
     expect(Object.keys(after)).toEqual(["central_bank", "china"]);
   });
 
-  it("Annotation root carries our 20 channels (sanity check)", () => {
+  it("Annotation root carries the 19 current channels", () => {
     // Spot-check that the named channels exist on the Annotation root.
     // We do NOT poke at internal reducer/default APIs (private LangGraph shape);
     // instead we rely on the named-export reducer tests above + the typecheck
@@ -191,9 +183,8 @@ describe("DailyCycleState integration via reducer composition", () => {
       "lesson_context",
       "method_context",
       "layer1_outputs",
-      "layer1_consensus",
+      "macro_input_gate",
       "layer2_outputs",
-      "layer2_consensus",
       "layer3_outputs",
       "layer4_outputs",
       "current_positions",
@@ -203,7 +194,7 @@ describe("DailyCycleState integration via reducer composition", () => {
       "replay_triggered",
       "llm_calls",
     ];
-    expect(channels).toHaveLength(20);
+    expect(channels).toHaveLength(19);
   });
 
   it("layer-4 partial update via the canonical reducer chain", () => {
@@ -216,14 +207,8 @@ describe("DailyCycleState integration via reducer composition", () => {
     };
     const start = emptyLayer4();
     const stage1 = layer4Reducer(start, { cro });
-    const final: RegimeSignal = {
-      stance: "BULLISH",
-      confidence: 0.6,
-      key_drivers: [],
-      layer_1_consensus_score: 0.55,
-    };
-    // unrelated layer-1 consensus replace happens independently
-    expect(replaceReducer<RegimeSignal | null>(null, final)).toEqual(final);
+    const gate = { gate_status: "ACCEPTED" as const };
+    expect(replaceReducer<{ gate_status: "ACCEPTED" } | null>(null, gate)).toEqual(gate);
     expect(stage1.cro).toEqual(cro);
   });
 });

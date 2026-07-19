@@ -2,8 +2,8 @@
  * `pnpm dev prompts` — prompt asset operations.
  *
  * The private prompt repo is intentionally separate from the project repo.
- * Autoresearch will later write optimized prompts there instead of committing
- * them under the project `prompts/mosaic/**` tree.
+ * Private evolution writes optimized prompts there instead of committing them
+ * under the project `prompts/mosaic/**` tree.
  */
 
 import { execFileSync } from "node:child_process";
@@ -11,7 +11,6 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Command } from "commander";
 import pc from "picocolors";
-import { parseResearchKnobsPrompt } from "../../agents/helpers/research_knobs.js";
 import {
   MACRO_AGENT_IDS,
   MACRO_PROMPT_COHORT_IDS,
@@ -23,52 +22,13 @@ import {
   findPrivatePromptsRoot,
   promptPath,
 } from "../../agents/prompts/cohorts.js";
-import {
-  buildDomainKnobCatalogArtifact,
-  buildDomainKnobEvaluationContractArtifact,
-  renderDomainKnobCatalogArtifact,
-  renderDomainKnobEvaluationContractArtifact,
-  validateDomainKnobCatalogArtifact,
-  validateDomainKnobEvaluationContractArtifact,
-} from "../../agents/prompts/domain_knob_catalog.js";
-import {
-  buildDomainKnobValueRegistry,
-  type DomainKnobValueRegistry,
-  domainKnobValueRegistryPath,
-  readDomainKnobValueRegistryFile,
-  renderDomainKnobValueRegistry,
-  validateDomainKnobValueRegistry,
-  writeDomainKnobValueRegistryFile,
-} from "../../agents/prompts/domain_knob_registry.js";
-import {
-  buildPromptGovernanceValueRegistry,
-  type PromptGovernanceValueRegistry,
-  promptGovernanceValueRegistryPath,
-  readPromptGovernanceValueRegistryFile,
-  renderPromptGovernanceValueRegistry,
-  updatePromptGovernanceRegistryFromProjection,
-  validatePromptGovernanceValueRegistry,
-  writePromptGovernanceValueRegistryFile,
-} from "../../agents/prompts/prompt_governance_registry.js";
-import {
-  buildPromptIrContract,
-  promptIrPathForSpec,
-  readPromptIrContractFile,
-  renderPromptIrContract,
-  validatePromptIrContractForSpec,
-  writePromptIrContractFile,
-} from "../../agents/prompts/prompt_ir_registry.js";
+import { checkPrivateKnotPromptBoundary } from "../../agents/prompts/private_knot_prompt_checker.js";
 import {
   buildPromptTokenBudgetManifest,
   PromptTokenBudgetManifestSchema,
   renderPromptTokenBudgetManifest,
 } from "../../agents/prompts/prompt_token_budget.js";
-import { checkResearchKnobsPrompts } from "../../agents/prompts/research_knobs_checker.js";
-import {
-  buildRuntimeResearchKnobs,
-  upsertResearchKnobsFence,
-  upsertRuntimeEvidenceContract,
-} from "../../agents/prompts/research_knobs_projection.js";
+import { assertPublicBundledCohorts } from "../../agents/prompts/public_prompt_cohort.js";
 import {
   buildRuntimeAgentManifestArtifact,
   RUNTIME_AGENT_SPECS,
@@ -76,11 +36,10 @@ import {
   validateRuntimeAgentManifestArtifact,
 } from "../../agents/prompts/runtime_agent_spec.js";
 import {
-  appendKnobMutationMetadataLog,
-  applyKnobPatchesToPromptPair,
-  buildKnobMutationMetadata,
-  type KnobMutation,
-} from "../../autoresearch/mutator.js";
+  stripLegacyPrivatePolicyBlock,
+  upsertRuntimeEvidenceContract,
+} from "../../agents/prompts/runtime_evidence_contract.js";
+import { initializePrivateKnotRuntime } from "../../autoresearch/private_knot_runtime.js";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { redactSensitiveText } from "../../security/redaction.js";
 
@@ -105,7 +64,7 @@ interface GcWorktreesOpts {
   maxAgeHours?: string;
 }
 
-interface CheckResearchKnobsOpts {
+interface CheckPrivateKnotOpts {
   cohort?: string;
   promptsRoot?: string;
   privatePromptsRoot?: string;
@@ -114,7 +73,9 @@ interface CheckResearchKnobsOpts {
   json?: boolean;
 }
 
-interface SyncResearchKnobsOpts {
+type CheckBundledPromptOpts = Omit<CheckPrivateKnotOpts, "privatePromptsRoot">;
+
+interface StripPrivateKnotBlocksOpts {
   cohort?: string;
   privatePromptsRoot?: string;
   promptsRoot?: string;
@@ -130,21 +91,10 @@ interface SyncMacroPromptsOpts {
 }
 
 interface SyncPromptIrOpts {
-  cohortScope?: string;
   privatePromptsRoot: string;
-  agents?: string;
-  write?: boolean;
 }
 
-interface DryRunKnobPatchOpts {
-  cohort?: string;
-  privatePromptsRoot: string;
-  agent: string;
-  metadataLog?: string;
-  writeMetadata?: boolean;
-}
-
-interface ExportDomainKnobCatalogOpts {
+interface ExportRuntimeManifestOpts {
   out?: string;
   json?: boolean;
 }
@@ -278,34 +228,11 @@ export function registerPrompts(program: Command): void {
     });
 
   prompts
-    .command("export-domain-knob-catalog")
-    .description("Render the machine-readable domain knob catalog and runtime registries.")
-    .option("--out <path>", "Write catalog JSON to a file")
-    .option("--json", "Print catalog JSON to stdout")
-    .action(async (opts: ExportDomainKnobCatalogOpts) => {
-      const artifact = buildDomainKnobCatalogArtifact();
-      const reasons = validateDomainKnobCatalogArtifact(artifact);
-      if (reasons.length > 0) {
-        throw new Error(`domain knob catalog failed self-check: ${reasons.join("; ")}`);
-      }
-      const rendered = renderDomainKnobCatalogArtifact(artifact);
-      if (opts.out) {
-        await mkdir(dirname(opts.out), { recursive: true });
-        await writeFile(opts.out, rendered, "utf-8");
-      }
-      if (opts.json || !opts.out) {
-        console.log(rendered.trimEnd());
-      } else {
-        console.log(`domain_knob_catalog: ${redactSensitiveText(opts.out).slice(0, 220)}`);
-      }
-    });
-
-  prompts
     .command("export-runtime-agent-manifest")
     .description("Render the stage-aware runtime agent manifest.")
     .option("--out <path>", "Write manifest JSON to a file")
     .option("--json", "Print manifest JSON to stdout")
-    .action(async (opts: ExportDomainKnobCatalogOpts) => {
+    .action(async (opts: ExportRuntimeManifestOpts) => {
       const artifact = buildRuntimeAgentManifestArtifact();
       const reasons = validateRuntimeAgentManifestArtifact(artifact);
       if (reasons.length > 0) {
@@ -320,32 +247,6 @@ export function registerPrompts(program: Command): void {
         console.log(rendered.trimEnd());
       } else {
         console.log(`runtime_agent_manifest: ${redactSensitiveText(opts.out).slice(0, 220)}`);
-      }
-    });
-
-  prompts
-    .command("export-domain-knob-evaluation-contract")
-    .description("Render the language-neutral domain knob evaluation contract.")
-    .option("--out <path>", "Write evaluation contract JSON to a file")
-    .option("--json", "Print evaluation contract JSON to stdout")
-    .action(async (opts: ExportDomainKnobCatalogOpts) => {
-      const catalog = buildDomainKnobCatalogArtifact();
-      const artifact = buildDomainKnobEvaluationContractArtifact(catalog);
-      const reasons = validateDomainKnobEvaluationContractArtifact(artifact, catalog);
-      if (reasons.length > 0) {
-        throw new Error(`domain knob evaluation contract failed self-check: ${reasons.join("; ")}`);
-      }
-      const rendered = renderDomainKnobEvaluationContractArtifact(artifact);
-      if (opts.out) {
-        await mkdir(dirname(opts.out), { recursive: true });
-        await writeFile(opts.out, rendered, "utf-8");
-      }
-      if (opts.json || !opts.out) {
-        console.log(rendered.trimEnd());
-      } else {
-        console.log(
-          `domain_knob_evaluation_contract: ${redactSensitiveText(opts.out).slice(0, 220)}`,
-        );
       }
     });
 
@@ -407,42 +308,82 @@ export function registerPrompts(program: Command): void {
     });
 
   prompts
-    .command("check-research-knobs")
-    .description("Validate research-knobs fences for enabled runtime agents.")
+    .command("check-bundled-contract")
+    .description(
+      "Validate public bundled prompt privacy and runtime coverage without private KNOT.",
+    )
+    .option("--cohort <name>", "Cohort to check (default cohort_default)")
+    .option("--prompts-root <path>", "Bundled/baseline prompts root override")
+    .option("--enabled-agents <list>", "Comma-separated agent ids; '*' checks all 28")
+    .option(
+      "--enabled-stages <list>",
+      "Comma-separated agent:stage ids; '*' checks all declared runtime stages.",
+    )
+    .option("--json", "Print the full machine-readable report")
+    .action(async (opts: CheckBundledPromptOpts) => {
+      const enabledAgents = parseSelection(opts.enabledAgents);
+      const enabledAgentStages = parseSelection(opts.enabledStages);
+      try {
+        const result = await checkPrivateKnotPromptBoundary({
+          cohort: opts.cohort ?? "cohort_default",
+          ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
+          ...(enabledAgents ? { enabledAgents } : {}),
+          ...(enabledAgentStages ? { enabledAgentStages } : {}),
+        });
+        if (opts.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          const color = result.ready ? pc.green : pc.red;
+          console.log(
+            color(
+              `bundled-prompts ${result.ready ? "ready" : "blocked"} ` +
+                `stages=${result.total_runtime_stages}`,
+            ),
+          );
+          for (const row of result.rows.filter((item) => item.status === "failed")) {
+            for (const reason of row.reasons) {
+              console.log(
+                pc.dim(
+                  `  ${row.layer}/${row.agent}:${row.stage} ` +
+                    redactSensitiveText(reason).slice(0, 220),
+                ),
+              );
+            }
+          }
+        }
+        if (!result.ready) process.exitCode = 1;
+      } catch (err) {
+        console.error(pc.red(`error: ${redactSensitiveText((err as Error).message)}`));
+        process.exitCode = 1;
+      }
+    });
+
+  prompts
+    .command("check-private-knot")
+    .description("Validate prompt privacy and the opaque private KNOT adapter.")
     .option("--cohort <name>", "Cohort to check (default cohort_default)")
     .option("--prompts-root <path>", "Bundled/baseline prompts root override")
     .option("--private-prompts-root <path>", "Private prompts root override")
     .option(
       "--enabled-agents <list>",
-      "Comma-separated agent ids to fail-closed check; '*' checks all 25. Defaults to the cohort rollout manifest.",
+      "Comma-separated agent ids to fail-closed check; '*' checks all 28. Defaults to the cohort rollout manifest.",
     )
     .option(
       "--enabled-stages <list>",
       "Comma-separated agent:stage ids; '*' checks all declared runtime stages.",
     )
     .option("--json", "Print the full machine-readable report")
-    .action(async (opts: CheckResearchKnobsOpts) => {
-      const enabledAgents =
-        opts.enabledAgents !== undefined
-          ? new Set(
-              opts.enabledAgents
-                .split(",")
-                .map((item) => item.trim())
-                .filter(Boolean),
-            )
-          : undefined;
-      const enabledAgentStages =
-        opts.enabledStages !== undefined
-          ? new Set(
-              opts.enabledStages
-                .split(",")
-                .map((item) => item.trim())
-                .filter(Boolean),
-            )
-          : undefined;
+    .action(async (opts: CheckPrivateKnotOpts) => {
+      const enabledAgents = parseSelection(opts.enabledAgents);
+      const enabledAgentStages = parseSelection(opts.enabledStages);
       try {
-        const result = await checkResearchKnobsPrompts({
+        await initializePrivateKnotRuntime({
+          required: true,
+          ...(opts.privatePromptsRoot ? { privateRoot: opts.privatePromptsRoot } : {}),
+        });
+        const result = await checkPrivateKnotPromptBoundary({
           cohort: opts.cohort ?? "cohort_default",
+          requirePrivateKnot: true,
           ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
           ...(opts.privatePromptsRoot ? { privatePromptsRoot: opts.privatePromptsRoot } : {}),
           ...(enabledAgents ? { enabledAgents } : {}),
@@ -454,14 +395,13 @@ export function registerPrompts(program: Command): void {
           const color = result.ready ? pc.green : pc.red;
           console.log(
             color(
-              `research-knobs ${result.ready ? "ready" : "blocked"} ` +
+              `private-knot ${result.ready ? "ready" : "blocked"} ` +
                 `enabled_stages=${result.enabled_agent_stages.length} ` +
-                `legacy_stages=${result.legacy_agent_stages.length}`,
+                `fallback_stages=${result.bundled_fallback_agent_stages.length} ` +
+                `unavailable_stages=${result.unavailable_agent_stages.length}`,
             ),
           );
-          for (const row of result.rows.filter(
-            (item) => item.enabled || item.status === "failed",
-          )) {
+          for (const row of result.rows.filter((item) => item.enabled || !item.ready)) {
             const marker = row.ready ? pc.green("ok") : row.enabled ? pc.red("no") : pc.dim("--");
             console.log(
               `  ${marker} ${row.layer}/${row.agent}:${row.stage} ${row.status}` +
@@ -507,6 +447,7 @@ export function registerPrompts(program: Command): void {
         (cohort) => !MACRO_PROMPT_COHORT_IDS.includes(cohort as MacroPromptCohortId),
       );
       if (unknown.length > 0) throw new Error(`unknown macro prompt cohorts: ${unknown.join(",")}`);
+      assertPublicBundledCohorts(requested);
       const cohorts = requested as MacroPromptCohortId[];
       const specs = RUNTIME_AGENT_SPECS.filter((spec) =>
         MACRO_AGENT_IDS.includes(spec.agent as (typeof MACRO_AGENT_IDS)[number]),
@@ -527,12 +468,7 @@ export function registerPrompts(program: Command): void {
               language,
               cohort,
             );
-            if (opts.privatePromptsRoot) {
-              next = upsertResearchKnobsFence(next, buildRuntimeResearchKnobs(spec));
-            }
-            next = upsertRuntimeEvidenceContract(next, spec, language, {
-              includeResearchKnobDetails: Boolean(opts.privatePromptsRoot),
-            });
+            next = upsertRuntimeEvidenceContract(next, spec, language);
             const current = await readFile(path, "utf-8").catch(() => "");
             if (next === current) continue;
             changed.push(path);
@@ -552,14 +488,14 @@ export function registerPrompts(program: Command): void {
     });
 
   prompts
-    .command("sync-research-knobs")
-    .description("Generate/update research-knobs fences and runtime evidence contracts.")
-    .option("--private-prompts-root <path>", "Private prompts root and value registries to update")
+    .command("strip-private-knot-blocks")
+    .description("Remove legacy embedded policy blocks and refresh evidence contracts.")
+    .option("--private-prompts-root <path>", "Private prompts root to sanitize")
     .option("--prompts-root <path>", "Bundled prompts root to update from code defaults")
     .option("--cohort <name>", "Cohort to update (default cohort_default)")
     .option("--agents <list>", "Comma-separated agent ids; defaults to all runtime agents")
     .option("--write", "Write changes. Without this, only reports pending updates.", false)
-    .action(async (opts: SyncResearchKnobsOpts) => {
+    .action(async (opts: StripPrivateKnotBlocksOpts) => {
       const cohort = opts.cohort ?? "cohort_default";
       if (Boolean(opts.privatePromptsRoot) === Boolean(opts.promptsRoot)) {
         throw new Error("exactly one of --private-prompts-root or --prompts-root is required");
@@ -577,62 +513,6 @@ export function registerPrompts(program: Command): void {
       const specs = RUNTIME_AGENT_SPECS.filter((spec) => !selected || selected.has(spec.agent));
       const changed: string[] = [];
       for (const spec of specs) {
-        let registry: DomainKnobValueRegistry | null = null;
-        let governanceRegistry: PromptGovernanceValueRegistry | null = null;
-        if (opts.privatePromptsRoot) {
-          const registryPath = domainKnobValueRegistryPath({
-            privatePromptsRoot: opts.privatePromptsRoot,
-            cohort,
-            agent: spec.agent,
-          });
-          const existingRegistry = await readDomainKnobValueRegistryFile(registryPath);
-          registry = buildDomainKnobValueRegistry(spec, cohort, { existing: existingRegistry });
-          const registryReasons = validateDomainKnobValueRegistry(spec, registry, cohort);
-          if (registryReasons.length > 0) {
-            throw new Error(`${spec.agent}: ${registryReasons.join("; ")}`);
-          }
-          const renderedRegistry = renderDomainKnobValueRegistry(registry);
-          const currentRegistry = existingRegistry
-            ? renderDomainKnobValueRegistry(existingRegistry)
-            : "";
-          if (renderedRegistry !== currentRegistry) {
-            changed.push(registryPath);
-            if (opts.write) {
-              await writeDomainKnobValueRegistryFile(registryPath, registry);
-            }
-          }
-          const governancePath = promptGovernanceValueRegistryPath({
-            privatePromptsRoot: opts.privatePromptsRoot,
-            cohort,
-            agent: spec.agent,
-          });
-          const existingGovernance = await readPromptGovernanceValueRegistryFile(governancePath);
-          governanceRegistry = buildPromptGovernanceValueRegistry(spec, cohort, {
-            existing: existingGovernance,
-          });
-          const governanceReasons = validatePromptGovernanceValueRegistry(
-            spec,
-            governanceRegistry,
-            cohort,
-          );
-          if (governanceReasons.length > 0) {
-            throw new Error(`${spec.agent}: ${governanceReasons.join("; ")}`);
-          }
-          const renderedGovernance = renderPromptGovernanceValueRegistry(governanceRegistry);
-          const currentGovernance = existingGovernance
-            ? renderPromptGovernanceValueRegistry(existingGovernance)
-            : "";
-          if (renderedGovernance !== currentGovernance) {
-            changed.push(governancePath);
-            if (opts.write) {
-              await writePromptGovernanceValueRegistryFile(governancePath, governanceRegistry);
-            }
-          }
-        }
-        const knobs = buildRuntimeResearchKnobs(spec, {
-          domainRegistry: registry,
-          governanceRegistry,
-        });
         for (const language of ["zh", "en"] as const) {
           const path = promptPath({
             agent: spec.agent,
@@ -643,7 +523,7 @@ export function registerPrompts(program: Command): void {
           });
           const current = await readFile(path, "utf-8");
           const next = upsertRuntimeEvidenceContract(
-            upsertResearchKnobsFence(current, knobs),
+            stripLegacyPrivatePolicyBlock(current),
             spec,
             language,
           );
@@ -656,7 +536,7 @@ export function registerPrompts(program: Command): void {
         }
       }
       const label = opts.write ? "updated" : "pending";
-      console.log(`${label} research-knobs files: ${changed.length}`);
+      console.log(`${label} prompt-contract files: ${changed.length}`);
       for (const path of changed.slice(0, 50)) {
         console.log(`  ${redactSensitiveText(path).slice(0, 220)}`);
       }
@@ -665,152 +545,13 @@ export function registerPrompts(program: Command): void {
 
   prompts
     .command("sync-prompt-ir")
-    .description("Generate/update Prompt IR contracts from runtime agent specs.")
-    .requiredOption("--private-prompts-root <path>", "Private prompts root to update")
-    .option("--cohort-scope <scope>", "Prompt IR cohort scope; v1 requires *", "*")
-    .option("--agents <list>", "Comma-separated agent ids; defaults to all runtime agents")
-    .option("--write", "Write changes. Without this, only reports pending updates.", false)
-    .action(async (opts: SyncPromptIrOpts) => {
-      if (opts.cohortScope !== "*") {
-        throw new Error("prompt IR v1 only supports --cohort-scope '*'");
-      }
-      const selected = opts.agents
-        ? new Set(
-            opts.agents
-              .split(",")
-              .map((item) => item.trim())
-              .filter(Boolean),
-          )
-        : null;
-      const specs = RUNTIME_AGENT_SPECS.filter((spec) => !selected || selected.has(spec.agent));
-      const changed: string[] = [];
-      for (const spec of specs) {
-        const path = promptIrPathForSpec({ privatePromptsRoot: opts.privatePromptsRoot, spec });
-        const existing = await readPromptIrContractFile(path).catch(() => null);
-        const contract = buildPromptIrContract(spec);
-        const reasons = validatePromptIrContractForSpec(contract, spec);
-        if (reasons.length > 0) {
-          throw new Error(`${spec.agent}: ${reasons.join("; ")}`);
-        }
-        const rendered = renderPromptIrContract(contract);
-        const current = existing ? renderPromptIrContract(existing) : "";
-        if (rendered !== current) {
-          changed.push(path);
-          if (opts.write) {
-            await writePromptIrContractFile(path, contract);
-          }
-        }
-      }
-      const label = opts.write ? "updated" : "pending";
-      console.log(`${label} prompt-ir files: ${changed.length}`);
-      for (const path of changed.slice(0, 50)) {
-        console.log(`  ${redactSensitiveText(path).slice(0, 220)}`);
-      }
-      if (changed.length > 50) console.log(`  ... ${changed.length - 50} more`);
-    });
-
-  prompts
-    .command("dry-run-knob-patch")
-    .description("Generate a legal parameter-level knob patch and assemble prompt projections.")
-    .requiredOption("--private-prompts-root <path>", "Private prompts root")
-    .requiredOption("--agent <name>", "Agent id to mutate")
-    .option("--cohort <name>", "Cohort to read (default cohort_default)")
-    .option("--metadata-log <path>", "JSONL mutation metadata log path")
-    .option("--write-metadata", "Append dry-run metadata to the mutation log", false)
-    .action(async (opts: DryRunKnobPatchOpts) => {
-      const cohort = opts.cohort ?? "cohort_default";
-      const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === opts.agent);
-      if (!spec) throw new Error(`unknown runtime agent: ${opts.agent}`);
-      const zhPath = promptPath({
-        agent: spec.agent,
-        layer: spec.layer,
-        cohort,
-        language: "zh",
-        promptsRoot: opts.privatePromptsRoot,
-      });
-      const enPath = promptPath({
-        agent: spec.agent,
-        layer: spec.layer,
-        cohort,
-        language: "en",
-        promptsRoot: opts.privatePromptsRoot,
-      });
-      const [zhPrompt, enPrompt] = await Promise.all([
-        readFile(zhPath, "utf-8"),
-        readFile(enPath, "utf-8"),
-      ]);
-      const baseKnobs = parseResearchKnobsPrompt(zhPrompt).knobs;
-      const target = baseKnobs.mutation_targets.find((item) =>
-        item.path.includes("/confidence_policy/missing_current_data/cap"),
-      );
-      if (!target) throw new Error(`${opts.agent}: missing confidence cap mutation target`);
-      const oldValue = baseKnobs.confidence_caps.missing_current_data?.cap;
-      if (typeof oldValue !== "number") {
-        throw new Error(`${opts.agent}: missing_current_data cap is not numeric`);
-      }
-      const step = target.step ?? 0.05;
-      const min = target.min ?? 0;
-      const newValue = Math.max(min, Number((oldValue - step).toFixed(10)));
-      const mutation: KnobMutation = {
-        prediction_target: baseKnobs.prediction_targets[0]?.id ?? "primary",
-        evaluation_metric: "confidence_calibration_error",
-        horizon: "5d",
-        rollback_condition: {
-          metric: "confidence_calibration_error",
-          worse_by: 0.03,
-          unit: "ratio",
-        },
-        knob_patches: [
-          {
-            path: target.path,
-            old_value: oldValue,
-            new_value: newValue,
-            rationale: "Dry-run cap tightening to test parameter-level mutation plumbing.",
-            expected_effect: "Reduce overconfident outputs when required current data is missing.",
-          },
-        ],
-        renormalization: [],
-        risk: "May understate confidence when missing-data flags are noisy.",
-      };
-      const assembled = applyKnobPatchesToPromptPair(zhPrompt, enPrompt, mutation);
-      const mutationId = `KM-${Date.now()}`;
-      const governancePath = promptGovernanceValueRegistryPath({
-        privatePromptsRoot: opts.privatePromptsRoot,
-        cohort,
-        agent: spec.agent,
-      });
-      const governanceRegistry = await readPromptGovernanceValueRegistryFile(governancePath);
-      if (!governanceRegistry) {
-        throw new Error(`${opts.agent}: prompt governance registry is missing`);
-      }
-      updatePromptGovernanceRegistryFromProjection({
-        registry: governanceRegistry,
-        spec,
-        baseKnobs,
-        newKnobs: assembled.knobs,
-        mutation,
-        mutationId,
-      });
-      const metadata = buildKnobMutationMetadata({
-        mutationId,
-        agent: opts.agent,
-        cohort,
-        baseKnobs,
-        newKnobs: assembled.knobs,
-        mutation,
-        decision: "dry_run",
-      });
-      if (opts.writeMetadata) {
-        const logPath =
-          opts.metadataLog ??
-          `${dirname(dirname(opts.privatePromptsRoot))}/mutation_patches/knob_mutations.jsonl`;
-        await appendKnobMutationMetadataLog({ logPath, metadata });
-        console.log(`metadata_log: ${redactSensitiveText(logPath).slice(0, 220)}`);
-      }
-      console.log(
-        `dry-run knob patch ${opts.agent}: ${oldValue.toFixed(2)} -> ${newValue.toFixed(2)} ` +
-          `prompt_chars=${assembled.zh_prompt.length + assembled.en_prompt.length} ` +
-          `metadata=${metadata.mutation_id}`,
+    .description(
+      "Deprecated: Prompt IR is generated in the public runtime contract, not the prompt repo.",
+    )
+    .requiredOption("--private-prompts-root <path>", "Private prompts root (read-only)")
+    .action((opts: SyncPromptIrOpts) => {
+      throw new Error(
+        `sync-prompt-ir is disabled; KNOT registries are generated in the private runtime: ${redactSensitiveText(opts.privatePromptsRoot)}`,
       );
     });
 
@@ -845,6 +586,16 @@ export function registerPrompts(program: Command): void {
         await client.close();
       }
     });
+}
+
+function parseSelection(value: string | undefined): ReadonlySet<string> | undefined {
+  if (value === undefined) return undefined;
+  return new Set(
+    value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean),
+  );
 }
 
 function reportError(err: unknown, client: BridgeClient): void {

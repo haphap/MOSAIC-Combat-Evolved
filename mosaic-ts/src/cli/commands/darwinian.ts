@@ -1,13 +1,14 @@
 /**
- * Phase 3E CLI: ``pnpm dev darwinian``.
+ * Legacy audit CLI: ``pnpm dev darwinian``.
  *
  * Reads ``darwinian.get_weights`` from the bridge and prints a per-agent
- * weight table sorted by weight descending (so top performers float to
+ * legacy-unverified weight table sorted by weight descending (so top performers float to
  * the top, bottom-of-table at risk of low conviction). Quartile colouring
  * matches ``pnpm dev scorecard``.
  *
- * Use ``--compute`` to run ``darwinian.compute`` first, then read back
- * the just-written table — convenient one-liner for the daily cron.
+ * Use ``--compute`` to run the explicit audit-only ``darwinian.compute`` path
+ * first, then read back the just-written audit table. Production uses a frozen
+ * Darwinian-v2 production-variant binding and never falls back to this table.
  */
 
 import type { Command } from "commander";
@@ -26,10 +27,10 @@ interface DarwinianOptions {
 export function registerDarwinian(program: Command): void {
   program
     .command("darwinian")
-    .description("Per-agent Darwinian weight table (rolling Sharpe → weight in [0.3, 2.5]).")
+    .description("Legacy audit-only Darwinian-v1 weight table (not used by production).")
     .option("--cohort <name>", "Cohort id (default cohort_default)")
     .option("--date <YYYY-MM-DD>", "Look at a specific historical date (default: latest)")
-    .option("--compute", "Run darwinian.compute first (uses today's date as as-of)")
+    .option("--compute", "Run audit-only darwinian.compute first (today as as-of)")
     .option("--out <path>", "Write JSON to <path> instead of pretty-printing")
     .action(async (opts: DarwinianOptions) => {
       const client = new BridgeClient();
@@ -44,7 +45,8 @@ export function registerDarwinian(program: Command): void {
           console.log(
             pc.dim(
               `compute(${cohort}, ${today}) → written=${outcome.written} ` +
-                `(uniform_fallback=${outcome.agents_uniform_fallback})`,
+                `(status=${outcome.status}, audit_only=${outcome.audit_only}, ` +
+                `uniform_fallback=${outcome.agents_uniform_fallback})`,
             ),
           );
         }
@@ -56,7 +58,17 @@ export function registerDarwinian(program: Command): void {
           const { writeFileSync } = await import("node:fs");
           writeFileSync(
             opts.out,
-            JSON.stringify({ cohort, date: opts.date ?? null, weights }, null, 2),
+            JSON.stringify(
+              {
+                status: result.status,
+                audit_only: result.audit_only,
+                cohort,
+                date: opts.date ?? null,
+                weights,
+              },
+              null,
+              2,
+            ),
             "utf-8",
           );
           console.log(pc.dim(`written to ${opts.out}`));
@@ -92,7 +104,9 @@ function printDarwinianTable(
   weights: DarwinianWeightTable,
 ): void {
   console.log(
-    pc.bold(`Darwinian weights — cohort=${cohort}${date ? ` date=${date}` : " (latest)"}`),
+    pc.bold(
+      `Legacy Darwinian-v1 audit weights — cohort=${cohort}${date ? ` date=${date}` : " (latest)"}`,
+    ),
   );
 
   const entries = Object.entries(weights);

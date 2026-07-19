@@ -34,7 +34,6 @@ import { registerRkePromptProvenanceEvidence } from "./commands/rke-prompt-prove
 import { registerRkeRollbackRehearsalEvidence } from "./commands/rke-rollback-rehearsal-evidence.js";
 import { registerRkeShadowReplay } from "./commands/rke-shadow-replay.js";
 import { registerScorecard } from "./commands/scorecard.js";
-import { registerToolCall } from "./commands/tool-call.js";
 import { registerToolLoop } from "./commands/tool-loop.js";
 import { loadProjectEnv } from "./env.js";
 
@@ -48,7 +47,6 @@ program
   .version("0.1.0");
 
 registerBridgePing(program);
-registerToolCall(program);
 registerToolLoop(program);
 registerDailyCycle(program);
 registerScorecard(program);

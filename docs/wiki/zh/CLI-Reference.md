@@ -9,15 +9,25 @@
 | 命令 | 用途 |
 | --- | --- |
 | `bridge-ping` | spawn Python sidecar 并验证 `tools.list` / `config.get`。 |
-| `tool-call <name> [argsJson]` | 调用单个 sidecar 工具。 |
 | `tool-loop` | 运行 tool-report 循环。 |
 
 ## 日循环
 
 ```bash
-pnpm dev daily-cycle --cohort cohort_default --fake-llm
+cd ..
+mkdir -p .mosaic/tmp
+SMOKE_DATE="$(date +%F)"
+SMOKE_ROOT="$(mktemp -d .mosaic/tmp/structured-smoke.XXXXXX)"
+eval "$(uv run python scripts/build_structured_smoke_fixtures.py \
+  --root "$SMOKE_ROOT" --date "$SMOKE_DATE" --shell-exports)"
+pnpm --dir mosaic-ts dev daily-cycle \
+  --cohort cohort_default --date "$SMOKE_DATE" --fake-llm
 ```
-选项:`--cohort <name>`、`--date <YYYY-MM-DD>`、`--fake-llm`、`--llm-provider <name>`、`--model <name>`、`--base-url <url>`、`--prompts-repo <path>`、`--prompts-root <path>`、`--current-positions-json <json>`、`--current-positions-file <path>`、`--paper-positions`、`--paper-execute-deltas`、`--out <path>`。跑全部 25 agents,CIO 写出 `portfolio_actions`(落库 `recommendations` 表)。
+选项:`--cohort <name>`、`--date <YYYY-MM-DD>`、`--fake-llm`、`--structured-smoke`、`--llm-provider <name>`、`--model <name>`、`--base-url <url>`、`--max-tokens <count>`、`--prompts-repo <path>`、`--prompts-root <path>`、`--current-positions-json <json>`、`--current-positions-file <path>`、`--paper-positions`、`--paper-execute-deltas`、`--out <path>`。跑全部 28 个逻辑 Agent、29 个执行阶段。两种 smoke 都使用 bundled prompt 和显式标记的 synthetic PIT bundle；`--fake-llm` 使用 canned model，`--structured-smoke` 使用真实 structured-output provider、固定 temperature 0，并默认每次 completion 最多 8192 tokens。两者都关闭 production release、scorecard、outcome、RKE 与纸单写入。
+
+同一个 fresh bundle 也可用于不含许可数据正文的真实模型合同 smoke：把 `--fake-llm` 替换为 `--structured-smoke` 并添加所需 provider 选项。生成器拒绝非空 root，且绝不会删除既有数据。
+
+CLI 只会为这两个 flag 启用对应的非生产 gate，进入生产时会清除它。该 hash-bound bundle 标记为 `SYNTHETIC_NON_PRODUCTION`，不含供应商正文，只验证图、schema 与工具接线；它不能替代独立的 Tushare 实时权限/schema probe 或数据源 readiness 审计。
 
 current-position fixture 文件可以是 JSON 数组,也可以是包含 `current_positions` 的对象;每行必须包含 ticker、当前权重、成本、市场价格、未实现盈亏、持有天数、建仓日期、来源 agent、entry thesis id 和最近复盘日期。`sector` 可选,但用于测试 `max_sector_weight` 时必须提供。CIO 校验会拒绝 action 或 target/current/delta 权重与 `ADD`/`REDUCE`/`EXIT` 语义矛盾的 `position_decision` 行。
 输出的 `position_audit` 会带 `tool_status_summary`,记录持仓来源与市场价格 evidence scope 状态。
@@ -26,7 +36,7 @@ missing,并把无法解析的行情 scope 标成
 `current_market_data:ticker_scope:unknown`;确认空仓仍使用空行情 scope,不会触发
 missing-data cap。
 
-Prompt 来源:默认使用 `MOSAIC-Combat-Evolved/prompts/mosaic` 内置 prompts。在 `.env` 中设置 `MOSAIC_PROMPTS_REPO=/path/to/MOSAIC-Prompts` 后,后续 agent 运行会优先使用 private prompt repo;也可以用 `daily-cycle --prompts-repo <path>` / `--prompts-root <path>` 对单次运行覆盖。
+Prompt 来源：`--fake-llm` 与 `--structured-smoke` 显式使用 bundled prompt。正式 paper/backtest/live 必须使用 hash 固定的私有 prompt repo；私库缺失或漂移时直接拒绝，绝不回退到 bundled prompt。通过 `MOSAIC_PROMPTS_REPO=/path/to/MOSAIC-Prompts` 或 `daily-cycle --prompts-repo <path>` 配置；`--prompts-root` 仅限非生产 smoke/authoring。
 
 ## 评分 / Darwinian
 
@@ -36,17 +46,22 @@ pnpm dev darwinian --cohort cohort_default
 ```
 - `scorecard` 选项:`--cohort <name>`、`--since <date>`(YYYY-MM-DD)、`--out <path>`。`scorecard` 是单一视图命令(无子命令)。
 - `darwinian` 选项:`--cohort <name>`、`--date <YYYY-MM-DD>`、`--compute`、`--out <path>`。
+  该命令只展示 `legacy_unverified`、仅审计的 v1 表；生产权重来自冻结的
+  Darwinian-v2 production variant。
 
 > forward-return 回填是 `scorecard.score_pending` **RPC**(`BridgeApi.scorecardScorePending`),由程序/日常流水线调用 —— 目前不是独立 CLI 子命令。见[评分与纸上交易](Scorecard-and-Paper-Trading.md)。
 
-## Autoresearch(提示词自进化)
+## 旧 Autoresearch 诊断
 
 ```bash
-pnpm dev autoresearch trigger --cohort crisis_2008 --fake-llm --eval-days 5
-pnpm dev autoresearch trigger --cohort cohort_default --agent cio --dry-run --fake-llm --mutation-mode knob_patch --eval-days 5
+pnpm dev autoresearch trigger --cohort crisis_2008 --dry-run --fake-llm --eval-days 5
+pnpm dev autoresearch evaluate --cohort crisis_2008
 pnpm dev autoresearch log --cohort crisis_2008
 ```
-子命令:`trigger`、`evaluate`、`log`、`branches`、`revert`。`trigger` 选项含 `--cohort`、`--agent`、`--max <n>`、`--dry-run`、`--fake-llm`、`--mutation-mode <auto|knob_patch|prompt_rewrite>`、`--eval-days <n>`、`--llm-provider/--model/--base-url`。`knob_patch` 模式改动 Prompt IR / domain-knob 路径,包括持仓与 MiroFish 卡片,不改写提示词正文。
+子命令:`trigger`、`evaluate`、`log`、`branches`、`revert`、`review-domain`。
+该接口只供审计：评价终态为 `legacy_unverified`，`review-domain` 只接受
+`--decision revert`，任何子命令都不能发布生产行为。生产演化只能走 KNOT 配对研究与
+受治理的 release RPC 流程。
 
 ## Prompt 运维
 
@@ -64,8 +79,8 @@ pnpm dev prompts gc-worktrees --repo-target all --max-age-hours 24
 - `init-private-repo` 创建 sparse private prompt repo。`--seed-baseline` 仅用于迁移,会制造大面积 override shadowing。
 - `audit-versions` 只打印 metadata: id、hash、repo id、状态、指标和分支,不展示 prompt 正文。
 - `verify-release` 检查 pinned release tuple(`code_commit_hash`、`prompt_repo_id`、`prompt_commit_hash`、`prompt_sha256`),在 commit 上重算 prompt SHA,并运行工具兼容性 gate。
-- `prompts export-domain-knob-catalog` 会渲染可执行 domain-card catalog,并校验 in-run dependency scope、数值边界/step、code-enforced validator/audit 字段等 schema 条件。
-- `prompt-token-budget` 使用固定 tokenizer 测量 104 条
+- Domain/research-knob catalog 只在私有 KNOT 仓库中生成和校验；公开 CLI 不导出其内容。
+- `prompt-token-budget` 使用固定 tokenizer 测量 116 条
   private/bundled stage-language 记录,校验语义 parity、绝对上限及相对已提交
   baseline 的 1.25x 增长门槛。
 - release 前还要在 private operator 环境运行 `pnpm prompt:drift -- --base-ref origin/main` 或 scheduled drift check。
@@ -156,7 +171,7 @@ pnpm dev data validate --kind stock|etf [--gap-threshold 0.01]
 ```bash
 pnpm dev dashboard --cohort cohort_default [--user <name>]
 ```
-见 [TUI](TUI.md)。
+见 [TUI](TUI.md)。键 8 展示每个 Agent 最新的 UI-only 人可读决策说明,用 `j/k` 在 28 个 Agent 间切换。
 
 ## 日常运维
 
@@ -164,7 +179,7 @@ pnpm dev dashboard --cohort cohort_default [--user <name>]
 
 ```bash
 cd mosaic-ts
-pnpm dev daily-cycle --cohort cohort_default     # 25 agents → CIO 组合(recommendations 表)
+pnpm dev daily-cycle --cohort cohort_default     # 28 agents / 29 stages → CIO 组合
 # forward_return 回填:调用 scorecard.score_pending RPC(T+5 后成熟)
 pnpm dev darwinian --cohort cohort_default
 pnpm dev janus run

@@ -1,7 +1,7 @@
 /**
  * MOSAIC daily-cycle state for LangGraph.js (Plan §5 + §11.2 Phase 2A design).
  *
- * Why per-layer maps instead of ETFAgents' flat-30-keys: 25 agents flat would
+ * Why per-layer maps instead of ETFAgents' flat-30-keys: 28 agents flat would
  * blow the state up to 40+ fields; aggregating per layer + dict-merge reducer
  * lets multiple agents inside one layer write concurrently without conflict
  * (LangGraph.js merges parallel branch updates via the channel reducer).
@@ -21,20 +21,43 @@
  */
 
 import { Annotation, MessagesAnnotation } from "@langchain/langgraph";
+import type {
+  NoEvaluationObjectStageSkipAgentId,
+  NoEvaluationObjectStageSkipRecord,
+} from "../autoresearch/outcome_stage_skip.js";
+import type {
+  ComponentWeightRuntimeSnapshot,
+  DarwinianRuntimeBinding,
+  DarwinianUsageWeightSnapshot,
+} from "../autoresearch/production_variant.js";
+import type { AcceptedOutputRecordRef } from "./accepted_output.js";
 import { buildPositionAuditToolStatusSummary } from "./helpers/position_audit.js";
 import type {
+  ComponentCalibrationRuntimeInput,
   CurrentPositionsSnapshot,
   Layer4Outputs,
   LlmCallRecord,
   MacroAgentOutput,
+  MacroInputGateReceipt,
   PortfolioAction,
   PositionAudit,
   PositionReview,
-  RegimeSignal,
   SectorAgentOutput,
-  SectorConsensus,
   SuperinvestorOutput,
 } from "./types.js";
+
+export interface OutcomeRunSlot {
+  schema_version: string;
+  outcome_schedule_slot_id: string;
+  outcome_schedule_slot_hash: string;
+  outcome_schedule_plan_id: string;
+  graph_run_id: string;
+  agent_id: string;
+  track_key_hash: string;
+  run_slot_id: string;
+  run_slot_kind: "OUTCOME_SCHEDULED" | "DOWNSTREAM_ONLY";
+  scheduled_sample_id: string | null;
+}
 
 // ============================================================ Reducer functions
 
@@ -134,10 +157,49 @@ export const DailyCycleState = Annotation.Root({
     reducer: replaceReducer,
     default: () => "live",
   }),
-  /** Opaque correlation id for log/tracing across the 25-agent fan-out. */
+  /** Opaque correlation id for log/tracing across the 28-agent fan-out. */
   trace_id: Annotation<string>({
     reducer: replaceReducer,
     default: () => "",
+  }),
+  darwinian_runtime_binding: Annotation<DarwinianRuntimeBinding | null>({
+    reducer: replaceReducer,
+    default: () => null,
+  }),
+  darwinian_weight_snapshot: Annotation<DarwinianUsageWeightSnapshot | null>({
+    reducer: replaceReducer,
+    default: () => null,
+  }),
+  component_weight_snapshot: Annotation<ComponentWeightRuntimeSnapshot | null>({
+    reducer: replaceReducer,
+    default: () => null,
+  }),
+  outcome_schedule_plan: Annotation<{
+    outcome_schedule_plan_id: string;
+    outcome_schedule_plan_hash: string;
+    schema_version: string;
+    graph_run_id: string;
+    production_variant_roster_id: string;
+    production_variant_roster_revision_id: string;
+    execution_behavior_release_id: string;
+    cohort_id: string;
+    language: "en" | "zh";
+    as_of: string;
+    prepared_at: string;
+    slots: OutcomeRunSlot[];
+  } | null>({
+    reducer: replaceReducer,
+    default: () => null,
+  }),
+  outcome_stage_skips: Annotation<
+    Partial<Record<NoEvaluationObjectStageSkipAgentId, NoEvaluationObjectStageSkipRecord>>
+  >({
+    reducer: dictMergeReducer,
+    default: () => ({}),
+  }),
+  accepted_output_refs: Annotation<Record<string, AcceptedOutputRecordRef>>({
+    reducer: dictMergeReducer,
+    default: () => ({}),
   }),
 
   // ----- Memory contexts (sourced from Python AnalysisMemoryStore in 2D+). -----
@@ -159,21 +221,20 @@ export const DailyCycleState = Annotation.Root({
     reducer: dictMergeReducer,
     default: () => ({}),
   }),
-  layer1_consensus: Annotation<RegimeSignal | null>({
+  component_calibration_inputs: Annotation<Record<string, ComponentCalibrationRuntimeInput>>({
+    reducer: dictMergeReducer,
+    default: () => ({}),
+  }),
+  macro_input_gate: Annotation<MacroInputGateReceipt | null>({
     reducer: replaceReducer,
     default: () => null,
   }),
 
-  // ----- Layer 2 — 7 sector agents (Plan §5.2). -----
+  // ----- Layer 2 — 10 sector agents (Plan v2 §2.2). -----
   layer2_outputs: Annotation<Record<string, SectorAgentOutput>>({
     reducer: dictMergeReducer,
     default: () => ({}),
   }),
-  layer2_consensus: Annotation<SectorConsensus | null>({
-    reducer: replaceReducer,
-    default: () => null,
-  }),
-
   // ----- Layer 3 — 4 superinvestor agents (Plan §5.3). -----
   layer3_outputs: Annotation<Record<string, SuperinvestorOutput>>({
     reducer: dictMergeReducer,

@@ -1,93 +1,100 @@
 import { describe, expect, it } from "vitest";
+import type { CioProposalSubmission } from "../src/agents/decision/accepted.js";
 import {
   buildAgentInvocationId,
   buildRuntimeEvidenceSnapshot,
   selectOutputByClaimEvidence,
 } from "../src/agents/helpers/evidence_runtime.js";
-import type { ResearchKnobsSnapshot } from "../src/agents/helpers/research_knobs.js";
+import type { PrivateKnotSnapshot } from "../src/agents/helpers/private_knot_boundary.js";
+import { resolveRuntimeSourceStatusesForAgent } from "../src/agents/helpers/runtime_sources.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
+import { fallbackSuperinvestorOutput } from "../src/agents/superinvestor/_factory.js";
 import type {
   CentralBankOutput,
   CioOutput,
   MungerOutput,
   SemiconductorOutput,
 } from "../src/agents/types.js";
-import { macroOutput } from "./helpers/macro.js";
+import { macroSubmission } from "./helpers/macro.js";
+import { sectorOutput } from "./helpers/sector.js";
 
 const HASH = `sha256:${"1".repeat(64)}`;
 const MARKET_HASH = `sha256:${"2".repeat(64)}`;
 const TOOL_HASH = `sha256:${"3".repeat(64)}`;
 
-function knobSnapshot(): ResearchKnobsSnapshot {
+function invocationBinding(
+  agent = "cio",
+  stage: PrivateKnotSnapshot["stage"] = "cio_proposal",
+  graphRunId = "run-1",
+) {
+  const asOf = "2026-07-09";
   return {
-    agent: "cio",
+    invocation_mode: "NON_PRODUCTION_TEST" as const,
+    graph_run_id: graphRunId,
+    agent_invocation_id: buildAgentInvocationId({
+      runId: graphRunId,
+      agent,
+      stage,
+      cohort: "cohort_default",
+      asOf,
+      promptReleaseHash: HASH,
+    }),
+    as_of: asOf,
+    execution_behavior_release_id: "non-production-test",
+    prompt_release_id: "non-production-test",
+    prompt_release_hash: HASH,
+    prompt_pair_hash: HASH,
+    prompt_commit: "non-production",
+  };
+}
+
+function knobSnapshot(
+  agent = "cio",
+  stage: PrivateKnotSnapshot["stage"] = "cio_proposal",
+  graphRunId = "run-1",
+): PrivateKnotSnapshot {
+  return {
+    snapshot_id: "private-session:test",
+    snapshot_hash: HASH,
+    agent,
+    stage,
     cohort: "cohort_default",
-    stage: "cio_proposal",
-    hash: HASH,
-    knobs: {
-      schema_version: "research_knobs_v1",
-      layer: "decision",
-      agent: "decision.cio",
-      research_scope: { must_cover: [], must_not_cover: [] },
-      prediction_targets: [],
-      evidence_registry: {
-        current_position_snapshot: {
-          source: "daily_cycle_state",
-          metric: "current_position_snapshot",
-          current_data: true,
-          primary: true,
-        },
-        current_market_data: {
-          source: "daily_cycle_state",
-          metric: "current_market_data",
-          current_data: true,
-          primary: true,
-        },
-        rke_prior: {
-          tool: "get_rke_research_context",
-          metric: "research_prior",
-          current_data: false,
-          primary: false,
-        },
+    ...invocationBinding(agent, stage, graphRunId),
+    evidence_bindings: [
+      {
+        evidence_key: "current_position_snapshot",
+        source: "current_position_snapshot",
+        metric: "current_position_snapshot",
       },
-      evidence_weights: {
-        current_position_snapshot: 0.5,
-        current_market_data: 0.5,
+      {
+        evidence_key: "current_market_data",
+        source: "current_market_data",
+        metric: "current_market_data",
       },
-      lookbacks: {},
-      thresholds: {},
-      confidence_caps: {},
-      tie_breaks: [],
-      mutation_targets: [
-        {
-          path: "/rule_packs/decision.cio.runtime.v1/rules/decision.cio.policy.001/learnable_parameters/x/value",
-          type: "number",
-          min: 0,
-          max: 1,
-        },
-      ],
-    },
-    consumptionSnapshot: {
-      active_knobs: [],
-      disabled_knobs: [],
-      runtimeSourceStatuses: [
-        {
-          source_id: "current_position_snapshot",
-          scope: "account:default|run:run-1",
-          status: "loaded",
-          as_of: "2026-07-09",
-          snapshot_hash: HASH,
-        },
-        {
-          source_id: "current_market_data",
-          scope: "ticker:600519.SH",
-          status: "loaded",
-          as_of: "2026-07-09",
-          snapshot_hash: MARKET_HASH,
-        },
-      ],
-    },
-    visibleContract: "",
+      {
+        evidence_key: "rke_prior",
+        tool: "get_rke_research_context",
+        metric: "research_prior",
+      },
+    ],
+    allowed_research_rule_ids: ["decision.cio.policy.001"],
+    runtime_source_statuses: [
+      {
+        source_id: "current_position_snapshot",
+        scope: "account:default|run:run-1",
+        status: "loaded",
+        as_of: "2026-07-09",
+        snapshot_hash: HASH,
+      },
+      {
+        source_id: "current_market_data",
+        scope: "ticker:600519.SH",
+        status: "loaded",
+        as_of: "2026-07-09",
+        snapshot_hash: MARKET_HASH,
+        adapter_id: "market.scoped_snapshot_adapter.v1",
+      },
+    ],
   };
 }
 
@@ -193,9 +200,11 @@ describe("runtime evidence snapshots", () => {
     expect(result.allowedResearchRuleIds).toEqual(new Set(["decision.cio.policy.001"]));
     expect(result.visibleCatalog).toContain(result.evidenceLedger[0]?.evidence_id ?? "missing");
     expect(result.visibleCatalog).toContain("decision.cio.policy.001");
+    expect(result.visibleCatalog).toContain("allowed_citation_ids");
+    expect(result.visibleCatalog).not.toContain("allowed_research_rule_ids");
   });
 
-  it("changes invocation and evidence ids across runs", () => {
+  it("rejects cross-run snapshot reuse and changes ids with a newly bound snapshot", () => {
     const first = buildRuntimeEvidenceSnapshot({
       state: state(),
       agent: "cio",
@@ -204,11 +213,19 @@ describe("runtime evidence snapshots", () => {
     });
     const changedState = state();
     changedState.trace_id = "run-2";
+    expect(() =>
+      buildRuntimeEvidenceSnapshot({
+        state: changedState,
+        agent: "cio",
+        stage: "cio_proposal",
+        knobSnapshot: knobSnapshot(),
+      }),
+    ).toThrow(/private_knot_snapshot_graph_run_id_mismatch/);
     const second = buildRuntimeEvidenceSnapshot({
       state: changedState,
       agent: "cio",
       stage: "cio_proposal",
-      knobSnapshot: knobSnapshot(),
+      knobSnapshot: knobSnapshot("cio", "cio_proposal", "run-2"),
     });
 
     expect(second.agentInvocationId).not.toBe(first.agentInvocationId);
@@ -220,9 +237,215 @@ describe("runtime evidence snapshots", () => {
         stage: "cio_proposal",
         cohort: "cohort_default",
         asOf: "2026-07-09",
-        snapshotHash: HASH,
+        promptReleaseHash: HASH,
       }),
     ).toBe(first.agentInvocationId);
+  });
+
+  it.each([
+    ["source_fingerprint", HASH],
+    ["as_of", "2026-07-08"],
+    ["freshness", "stale"],
+    ["adapter_id", "market.other_adapter.v1"],
+    ["metric", "other_metric"],
+  ] as const)("rejects a runtime observation with mismatched %s", (field, value) => {
+    const inputState = state();
+    const observation = inputState.layer4_outputs.runtime?.source_evidence_observations?.[0];
+    if (!observation) throw new Error("test observation missing");
+    Object.assign(observation, { [field]: value });
+
+    expect(() =>
+      buildRuntimeEvidenceSnapshot({
+        state: inputState,
+        agent: "cio",
+        stage: "cio_proposal",
+        knobSnapshot: knobSnapshot(),
+      }),
+    ).toThrow(
+      `runtime_source_observation_status_mismatch:current_market_data:ticker:600519.SH:${field}`,
+    );
+  });
+
+  it("extracts a loaded position thesis from the exact ticker scope", () => {
+    const inputState = state();
+    const status = resolveRuntimeSourceStatusesForAgent(inputState, "cio", "cio_proposal").find(
+      (item) => item.source_id === "position_thesis_state",
+    );
+    if (!status) throw new Error("position thesis status missing");
+    const snapshot: PrivateKnotSnapshot = {
+      snapshot_id: "private-session:position-thesis",
+      snapshot_hash: HASH,
+      agent: "cio",
+      stage: "cio_proposal",
+      cohort: "cohort_default",
+      ...invocationBinding(),
+      evidence_bindings: [
+        {
+          evidence_key: "position_thesis_state",
+          source: "position_thesis_state",
+          metric: "position_thesis_state",
+        },
+      ],
+      allowed_research_rule_ids: [],
+      runtime_source_statuses: [status],
+    };
+
+    const result = buildRuntimeEvidenceSnapshot({
+      state: inputState,
+      agent: "cio",
+      stage: "cio_proposal",
+      knobSnapshot: snapshot,
+    });
+
+    expect(result.evidenceLedger).toHaveLength(1);
+    expect(result.evidenceLedger[0]).toEqual(
+      expect.objectContaining({
+        tool_or_source: "position_thesis_state",
+        source_fingerprint: status.snapshot_hash,
+        value: {
+          entry_thesis_id: "thesis-1",
+          last_review_date: "2026-07-08",
+          ticker: "600519.SH",
+        },
+      }),
+    );
+  });
+
+  it("keeps a missing position thesis content-free", () => {
+    const inputState = state();
+    inputState.current_positions = {
+      ...inputState.current_positions,
+      snapshot_status: "empty_confirmed",
+      position_source: "empty_confirmed",
+      positions: [],
+    };
+    const status = {
+      source_id: "position_thesis_state",
+      scope: "ticker:600519.SH",
+      status: "missing" as const,
+      as_of: inputState.as_of_date,
+      error_code: "position_thesis_missing",
+      adapter_id: "portfolio.position_thesis_adapter.v1",
+    };
+    const snapshot: PrivateKnotSnapshot = {
+      snapshot_id: "private-session:position-thesis-missing",
+      snapshot_hash: HASH,
+      agent: "cio",
+      stage: "cio_proposal",
+      cohort: "cohort_default",
+      ...invocationBinding(),
+      evidence_bindings: [
+        {
+          evidence_key: "position_thesis_state",
+          source: "position_thesis_state",
+          metric: "position_thesis_state",
+        },
+      ],
+      allowed_research_rule_ids: [],
+      runtime_source_statuses: [status],
+    };
+
+    const result = buildRuntimeEvidenceSnapshot({
+      state: inputState,
+      agent: "cio",
+      stage: "cio_proposal",
+      knobSnapshot: snapshot,
+    });
+
+    expect(result.evidenceLedger[0]?.value).toEqual({
+      scope: "ticker:600519.SH",
+      status: "missing",
+      snapshot_hash: null,
+      error_code: "position_thesis_missing",
+    });
+  });
+
+  it.each([
+    ["source_fingerprint", { snapshot_hash: HASH }],
+    ["adapter_id", { adapter_id: "portfolio.other_adapter.v1" }],
+    ["as_of", { as_of: "2026-07-08" }],
+    ["status", { status: "missing" as const }],
+  ] as const)("rejects a position thesis with mismatched %s", (field, patch) => {
+    const inputState = state();
+    const status = resolveRuntimeSourceStatusesForAgent(inputState, "cio", "cio_proposal").find(
+      (item) => item.source_id === "position_thesis_state",
+    );
+    if (!status) throw new Error("position thesis status missing");
+    const snapshot: PrivateKnotSnapshot = {
+      snapshot_id: "private-session:position-thesis-tamper",
+      snapshot_hash: HASH,
+      agent: "cio",
+      stage: "cio_proposal",
+      cohort: "cohort_default",
+      ...invocationBinding(),
+      evidence_bindings: [
+        {
+          evidence_key: "position_thesis_state",
+          source: "position_thesis_state",
+          metric: "position_thesis_state",
+        },
+      ],
+      allowed_research_rule_ids: [],
+      runtime_source_statuses: [{ ...status, ...patch }],
+    };
+
+    expect(() =>
+      buildRuntimeEvidenceSnapshot({
+        state: inputState,
+        agent: "cio",
+        stage: "cio_proposal",
+        knobSnapshot: snapshot,
+      }),
+    ).toThrow(
+      `runtime_source_observation_status_mismatch:position_thesis_state:ticker:600519.SH:${field}`,
+    );
+  });
+
+  it.each([
+    "current_market_data",
+    "execution_liquidity_state",
+  ] as const)("rejects loaded %s status without its exact observation", (sourceId) => {
+    const inputState = state();
+    const runtime = inputState.layer4_outputs.runtime;
+    if (!runtime) throw new Error("layer-4 runtime missing");
+    runtime.source_evidence_observations = [];
+    const snapshot: PrivateKnotSnapshot = {
+      snapshot_id: `private-session:${sourceId}`,
+      snapshot_hash: HASH,
+      agent: "cio",
+      stage: "cio_proposal",
+      cohort: "cohort_default",
+      ...invocationBinding(),
+      evidence_bindings: [
+        {
+          evidence_key: sourceId,
+          source: sourceId,
+          metric: sourceId,
+        },
+      ],
+      allowed_research_rule_ids: [],
+      runtime_source_statuses: [
+        {
+          source_id: sourceId,
+          scope: "ticker:600519.SH",
+          status: "loaded",
+          as_of: "2026-07-09",
+          snapshot_hash: MARKET_HASH,
+          adapter_id: `${sourceId}.adapter.v1`,
+        },
+      ],
+    };
+
+    expect(() =>
+      buildRuntimeEvidenceSnapshot({
+        state: inputState,
+        agent: "cio",
+        stage: "cio_proposal",
+        knobSnapshot: snapshot,
+      }),
+    ).toThrow(
+      `runtime_source_observation_status_mismatch:${sourceId}:ticker:600519.SH:observation`,
+    );
   });
 
   it("accepts an action only when its claim graph closes over runtime evidence", () => {
@@ -236,27 +459,34 @@ describe("runtime evidence snapshots", () => {
       (entry) => entry.tool_or_source === "current_market_data",
     )?.evidence_id;
     expect(evidenceId).toBeDefined();
-    const raw: CioOutput = {
-      agent: "cio",
-      decision_claim_refs: ["claim-1"],
-      portfolio_actions: [
+    const raw: CioProposalSubmission = {
+      agent_id: "cio",
+      decision_stage: "PROPOSAL",
+      decision_disposition: "TARGET_PORTFOLIO",
+      claim_refs: ["claim-1"],
+      target_positions: [
         {
-          ticker: "600519.SH",
-          action: "HOLD",
+          position_local_id: "position-1",
+          ts_code: "600519.SH",
           target_weight: 0.1,
-          holding_period: "1M",
-          dissent_notes: "",
+          position_decision: "HOLD",
+          holding_period: "MONTHS",
+          thesis_status: "INTACT",
+          risk_flags: [],
           claim_refs: ["claim-1"],
         },
       ],
+      cash_weight: 0.9,
+      decision_reason: "The existing position remains supported.",
       confidence: 0.6,
+      macro_input_attributions: [],
       claims: [
         {
           claim_id: "claim-1",
-          claim_type: "inference",
+          claim_kind: "INTERPRETATION",
           statement: "Current evidence supports holding the existing position.",
           structured_conclusion: { decision: "HOLD" },
-          evidence_refs: [evidenceId ?? "missing"],
+          evidence_ids: [evidenceId ?? "missing"],
           research_rule_refs: ["decision.cio.policy.001"],
         },
       ],
@@ -264,7 +494,18 @@ describe("runtime evidence snapshots", () => {
 
     const selected = selectOutputByClaimEvidence(
       raw,
-      (): CioOutput => ({ agent: "cio", portfolio_actions: [], confidence: 0 }),
+      (): CioProposalSubmission => ({
+        agent_id: "cio",
+        decision_stage: "PROPOSAL",
+        decision_disposition: "ALL_CASH",
+        target_positions: [],
+        cash_weight: 1,
+        decision_reason: "Fallback to cash.",
+        confidence: 0,
+        macro_input_attributions: [],
+        claims: raw.claims,
+        claim_refs: raw.claim_refs,
+      }),
       runtime,
     );
 
@@ -276,7 +517,7 @@ describe("runtime evidence snapshots", () => {
         claim_refs: ["claim-1"],
       },
       {
-        output_id: "portfolio_action:0:600519.SH",
+        output_id: "target_position:0:600519.SH",
         output_type: "portfolio_action",
         claim_refs: ["claim-1"],
       },
@@ -289,32 +530,34 @@ describe("runtime evidence snapshots", () => {
       state: state(),
       agent: "central_bank",
       stage: "agent_run",
-      knobSnapshot: knobSnapshot(),
+      knobSnapshot: knobSnapshot("central_bank", "agent_run"),
     });
     const evidenceId = runtime.evidenceLedger.find(
       (entry) => entry.tool_or_source === "current_market_data",
     )?.evidence_id;
-    const raw: CentralBankOutput = {
-      ...macroOutput("central_bank", {
-        key_drivers: ["Current market evidence is neutral"],
-        confidence: 0.4,
-      }),
-      claim_refs: ["claim-macro-1"],
+    const baseSubmission = macroSubmission("central_bank");
+    if (baseSubmission.mode !== "COMPONENTS") throw new Error("central_bank is component mode");
+    const raw: CentralBankOutput = macroSubmission("central_bank", {
+      key_drivers: ["Current market evidence is neutral"],
       claims: [
         {
           claim_id: "claim-macro-1",
-          claim_type: "inference",
+          claim_kind: "INTERPRETATION",
           statement: "Current evidence supports a neutral policy stance.",
           structured_conclusion: { direction: "NEUTRAL", strength: 0 },
-          evidence_refs: [evidenceId ?? "missing"],
+          evidence_ids: [evidenceId ?? "missing"],
           research_rule_refs: ["decision.cio.policy.001"],
         },
       ],
-    };
+      components: baseSubmission.components.map((component) => ({
+        ...component,
+        claim_refs: ["claim-macro-1"],
+      })),
+    });
 
     const selected = selectOutputByClaimEvidence(
       raw,
-      (): CentralBankOutput => macroOutput("central_bank", { confidence: 0 }),
+      (): CentralBankOutput => macroSubmission("central_bank"),
       runtime,
     );
 
@@ -333,48 +576,41 @@ describe("runtime evidence snapshots", () => {
       state: state(),
       agent: "semiconductor",
       stage: "agent_run",
-      knobSnapshot: knobSnapshot(),
+      knobSnapshot: knobSnapshot("semiconductor", "agent_run"),
     });
     const evidenceId = runtime.evidenceLedger.find(
       (entry) => entry.tool_or_source === "current_market_data",
     )?.evidence_id;
-    const raw: SemiconductorOutput = {
-      agent: "semiconductor",
-      longs: [
+    const raw: SemiconductorOutput = sectorOutput("semiconductor", {
+      preferred_security_status: "PICKS_PRESENT",
+      preferred_security_abstention_confidence: null,
+      long_picks: [
         {
-          ticker: "600519.SH",
+          pick_local_id: "pick-sector-1",
+          ts_code: "600519.SH",
+          direction_local_id: "semiconductor-preferred",
+          position_action: "LONG",
           thesis: "verified candidate",
           conviction: 0.5,
           claim_refs: ["claim-sector-1"],
         },
       ],
-      shorts: [],
-      sector_score: 0.2,
-      key_drivers: ["Current evidence"],
-      confidence: 0.5,
       claim_refs: ["claim-sector-1"],
       claims: [
         {
           claim_id: "claim-sector-1",
-          claim_type: "inference",
+          claim_kind: "INTERPRETATION",
           statement: "Current evidence supports the candidate and sector tilt.",
-          structured_conclusion: { sector_score: 0.2 },
-          evidence_refs: [evidenceId ?? "missing"],
+          structured_conclusion: { selection_status: "SELECTED" },
+          evidence_ids: [evidenceId ?? "missing"],
           research_rule_refs: ["decision.cio.policy.001"],
         },
       ],
-    };
+    });
 
     const selected = selectOutputByClaimEvidence(
       raw,
-      (): SemiconductorOutput => ({
-        agent: "semiconductor",
-        longs: [],
-        shorts: [],
-        sector_score: 0,
-        key_drivers: ["fallback"],
-        confidence: 0,
-      }),
+      (): SemiconductorOutput => sectorOutput("semiconductor"),
       runtime,
     );
 
@@ -398,33 +634,49 @@ describe("runtime evidence snapshots", () => {
       state: state(),
       agent: "munger",
       stage: "agent_run",
-      knobSnapshot: knobSnapshot(),
+      knobSnapshot: knobSnapshot("munger", "agent_run"),
     });
     const evidenceId = runtime.evidenceLedger.find(
       (entry) => entry.tool_or_source === "current_market_data",
     )?.evidence_id;
     const raw: MungerOutput = {
+      ...fallbackSuperinvestorOutput("munger", "Current evidence"),
       agent: "munger",
+      selection_status: "SELECTED",
       picks: [
         {
-          ticker: "600519.SH",
+          pick_local_id: "munger-pick-1",
+          ts_code: "600519.SH",
+          position_action: "LONG",
           thesis: "verified quality",
           conviction: 0.5,
-          holding_period: "1Y",
           claim_refs: ["claim-pick-1"],
         },
       ],
-      philosophy_note: "Current evidence supports quality exposure.",
-      key_drivers: ["Current evidence"],
+      holding_period: "YEARS",
+      key_drivers: [
+        {
+          driver_local_id: "munger-driver-1",
+          summary: "Current evidence",
+          claim_refs: ["claim-pick-1"],
+        },
+      ],
+      risks: [
+        {
+          risk_local_id: "munger-risk-1",
+          summary: "Quality evidence may weaken.",
+          claim_refs: ["claim-pick-1"],
+        },
+      ],
       confidence: 0.5,
       claim_refs: ["claim-pick-1"],
       claims: [
         {
           claim_id: "claim-pick-1",
-          claim_type: "inference",
+          claim_kind: "INTERPRETATION",
           statement: "Current evidence supports the philosophy-filtered pick.",
           structured_conclusion: { philosophy: "quality" },
-          evidence_refs: [evidenceId ?? "missing"],
+          evidence_ids: [evidenceId ?? "missing"],
           research_rule_refs: ["decision.cio.policy.001"],
         },
       ],
@@ -432,13 +684,7 @@ describe("runtime evidence snapshots", () => {
 
     const selected = selectOutputByClaimEvidence(
       raw,
-      (): MungerOutput => ({
-        agent: "munger",
-        picks: [],
-        philosophy_note: "fallback",
-        key_drivers: ["fallback"],
-        confidence: 0,
-      }),
+      (): MungerOutput => fallbackSuperinvestorOutput("munger", "fallback") as MungerOutput,
       runtime,
     );
 
@@ -481,10 +727,10 @@ describe("runtime evidence snapshots", () => {
       claims: [
         {
           claim_id: "claim-1",
-          claim_type: "inference",
+          claim_kind: "INTERPRETATION",
           statement: "Unsupported buy.",
           structured_conclusion: { decision: "BUY" },
-          evidence_refs: ["invented-evidence"],
+          evidence_ids: ["invented-evidence"],
           research_rule_refs: ["decision.cio.policy.001"],
         },
       ],
@@ -507,8 +753,6 @@ describe("runtime evidence snapshots", () => {
         ]),
       }),
     );
-    expect(selected.graph.claims).toEqual([
-      expect.objectContaining({ claim_type: "uncertainty", evidence_refs: [] }),
-    ]);
+    expect(selected.graph.claims).toEqual([expect.objectContaining({ claim_kind: "RISK_FLAG" })]);
   });
 });

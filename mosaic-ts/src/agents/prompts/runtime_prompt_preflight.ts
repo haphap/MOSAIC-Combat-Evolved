@@ -1,7 +1,8 @@
+import { initializePrivateKnotRuntime } from "../../autoresearch/private_knot_runtime.js";
 import {
-  checkResearchKnobsPrompts,
-  type ResearchKnobsCheckReport,
-} from "./research_knobs_checker.js";
+  checkPrivateKnotPromptBoundary,
+  type PrivateKnotPromptCheckReport,
+} from "./private_knot_prompt_checker.js";
 import {
   buildRuntimeAgentManifestArtifact,
   validateRuntimeAgentManifestArtifact,
@@ -11,19 +12,37 @@ export async function assertRuntimePromptPreflight(opts: {
   cohort: string;
   promptsRoot?: string;
   privatePromptsRoot?: string;
-}): Promise<ResearchKnobsCheckReport> {
-  const manifestReasons = validateRuntimeAgentManifestArtifact(buildRuntimeAgentManifestArtifact());
+  requirePrivateKnot?: boolean;
+}): Promise<PrivateKnotPromptCheckReport> {
+  const manifest = buildRuntimeAgentManifestArtifact();
+  const manifestReasons = validateRuntimeAgentManifestArtifact(manifest);
   if (manifestReasons.length > 0) {
     throw new Error(`runtime manifest preflight failed: ${manifestReasons.join(",")}`);
   }
-  const report = await checkResearchKnobsPrompts({
+  const requirePrivateKnot = opts.requirePrivateKnot ?? false;
+  if (requirePrivateKnot) {
+    await initializePrivateKnotRuntime({
+      required: true,
+      ...(opts.privatePromptsRoot ? { privateRoot: opts.privatePromptsRoot } : {}),
+    });
+  } else {
+    const { clearPrivateKnotRuntime } = await import("../helpers/private_knot_boundary.js");
+    clearPrivateKnotRuntime();
+    const { clearPromptCache } = await import("./loader.js");
+    clearPromptCache();
+  }
+  const report = await checkPrivateKnotPromptBoundary({
     cohort: opts.cohort,
-    enabledAgentStages: new Set(["*"]),
+    requirePrivateKnot,
     ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
     ...(opts.privatePromptsRoot ? { privatePromptsRoot: opts.privatePromptsRoot } : {}),
   });
   const failed = report.rows.filter((row) => !row.ready);
-  if (!report.ready || report.total_runtime_agents !== 25 || report.total_runtime_stages !== 26) {
+  if (
+    !report.ready ||
+    report.total_runtime_agents !== manifest.runtime_agent_count ||
+    report.total_runtime_stages !== manifest.runtime_stage_count
+  ) {
     const reasons = failed.flatMap((row) =>
       row.reasons.map((reason) => `${row.agent}:${row.stage}:${reason}`),
     );

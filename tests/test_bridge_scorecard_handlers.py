@@ -60,7 +60,7 @@ def _sample_state(date: str = "2024-06-24") -> dict:
                 "stage": "primary",
                 "status": "accepted",
             }
-            for index in range(26)
+            for index in range(29)
         ],
         "layer1_outputs": {},
         "layer2_outputs": {},
@@ -120,6 +120,39 @@ class TestScorecardAppend:
             count = conn.execute("SELECT COUNT(*) FROM recommendations").fetchone()[0]
         assert count == 2  # not 4
 
+    def test_ui_narratives_are_stripped_from_evaluation_writers(
+        self, tmp_store, monkeypatch
+    ):
+        state = _sample_state()
+        state["trace_id"] = "trace-1"
+        state["agent_display_narratives"] = {"ui_only": True}
+        evaluation_states = []
+        narrative_states = []
+
+        monkeypatch.setattr(
+            tmp_store,
+            "append_from_state",
+            lambda payload: evaluation_states.append(payload) or 2,
+        )
+        monkeypatch.setattr(
+            tmp_store,
+            "append_macro_signals_from_state",
+            lambda payload: evaluation_states.append(payload) or 0,
+        )
+        monkeypatch.setattr(
+            tmp_store,
+            "append_agent_display_narratives_from_state",
+            lambda payload: narrative_states.append(payload) or 28,
+        )
+
+        result = dispatch("scorecard.append", {"state": state})
+        assert result["agent_narratives_ingested"] == 28
+        assert all(
+            "agent_display_narratives" not in payload
+            for payload in evaluation_states
+        )
+        assert narrative_states[0]["agent_display_narratives"] == {"ui_only": True}
+
     def test_missing_state_object(self, tmp_store):
         with pytest.raises(RpcError) as excinfo:
             dispatch("scorecard.append", {})
@@ -140,7 +173,7 @@ class TestScorecardAppend:
         with pytest.raises(RpcError) as excinfo:
             dispatch("scorecard.append", {"state": state})
         assert excinfo.value.code == -32602
-        assert "26 unique accepted" in excinfo.value.message
+        assert "29 unique accepted" in excinfo.value.message
 
     def test_backtest_requires_matching_accepted_day(self, tmp_store):
         state = _sample_state()
@@ -207,15 +240,14 @@ class TestScorecardScorePending:
                 "as_of_date": d0,
                 "day_outcome_status": "accepted",
                 "layer1_outputs": {
-                    "dollar": {
-                        "agent": "dollar",
+                    "us_financial_conditions": {
+                        "agent": "us_financial_conditions",
                         "direction": "SUPPORTIVE",
                         "strength": 5,
-                        "dxy_trend": "WEAKENING",
                         "confidence": 0.6,
                     }
                 },
-                "layer1_consensus": {"stance": "BULLISH", "confidence": 0.6},
+                "legacy_layer1_consensus": {"stance": "BULLISH", "confidence": 0.6},
             }
         )
 
@@ -253,7 +285,7 @@ class TestScorecardScorePending:
         assert result["macro_scored"] == 1
         with tmp_store._connect() as conn:
             row = conn.execute("SELECT label_type FROM macro_signals").fetchone()
-        assert row["label_type"] == "cny_pressure_path_5d"
+        assert row["label_type"] == "us_financial_conditions_a_share_path_5d"
 
 
 # ===========================================================================
@@ -407,13 +439,25 @@ class TestDarwinianCompute:
     def test_empty_store_returns_zero(self, tmp_store):
         result = dispatch(
             "darwinian.compute",
-            {"cohort": "cohort_default", "today": "2024-07-31"},
+            {
+                "cohort": "cohort_default",
+                "today": "2024-07-31",
+                "audit_only": True,
+            },
         )
-        assert result == {"written": 0, "agents_uniform_fallback": 0}
+        assert result == {
+            "status": "legacy_unverified",
+            "audit_only": True,
+            "written": 0,
+            "agents_uniform_fallback": 0,
+        }
 
     def test_missing_cohort_param(self, tmp_store):
         with pytest.raises(RpcError):
-            dispatch("darwinian.compute", {"today": "2024-07-31"})
+            dispatch(
+                "darwinian.compute",
+                {"today": "2024-07-31", "audit_only": True},
+            )
 
     def test_uses_runtime_config_for_weight_rewrite(self, tmp_store):
         from mosaic.dataflows.config import set_config
@@ -444,7 +488,11 @@ class TestDarwinianCompute:
         try:
             result = dispatch(
                 "darwinian.compute",
-                {"cohort": "cohort_default", "today": "2024-07-31"},
+                {
+                    "cohort": "cohort_default",
+                    "today": "2024-07-31",
+                    "audit_only": True,
+                },
             )
         finally:
             set_config({})
@@ -452,7 +500,11 @@ class TestDarwinianCompute:
         assert result["written"] == 8
         row = dispatch(
             "darwinian.get_weights",
-            {"cohort": "cohort_default", "date": "2024-07-31"},
+            {
+                "cohort": "cohort_default",
+                "date": "2024-07-31",
+                "audit_only": True,
+            },
         )["weights"]["semiconductor"]
         assert row["update_action"] == "up"
         assert row["performance_metric"] == "alpha_5d_mean_30d"
@@ -466,8 +518,15 @@ class TestDarwinianCompute:
 
 class TestDarwinianGetWeights:
     def test_empty_returns_empty_dict(self, tmp_store):
-        result = dispatch("darwinian.get_weights", {"cohort": "cohort_default"})
-        assert result == {"weights": {}}
+        result = dispatch(
+            "darwinian.get_weights",
+            {"cohort": "cohort_default", "audit_only": True},
+        )
+        assert result == {
+            "status": "legacy_unverified",
+            "audit_only": True,
+            "weights": {},
+        }
 
     def test_returns_seeded_weights(self, tmp_store):
         tmp_store.upsert_darwinian_weights(
@@ -485,7 +544,11 @@ class TestDarwinianGetWeights:
         )
         result = dispatch(
             "darwinian.get_weights",
-            {"cohort": "cohort_default", "date": "2024-07-31"},
+            {
+                "cohort": "cohort_default",
+                "date": "2024-07-31",
+                "audit_only": True,
+            },
         )
         assert "ackman" in result["weights"]
         assert result["weights"]["ackman"]["weight"] == pytest.approx(1.5)
@@ -496,7 +559,7 @@ class TestDarwinianGetWeights:
             [
                 {
                     "cohort": "cohort_default",
-                    "agent": "volatility",
+                    "agent": "us_financial_conditions",
                     "layer": "macro",
                     "date": "2024-07-31",
                     "weight": 1.05,
@@ -515,9 +578,13 @@ class TestDarwinianGetWeights:
         )
         result = dispatch(
             "darwinian.get_weights",
-            {"cohort": "cohort_default", "date": "2024-07-31"},
+            {
+                "cohort": "cohort_default",
+                "date": "2024-07-31",
+                "audit_only": True,
+            },
         )
-        row = result["weights"]["volatility"]
+        row = result["weights"]["us_financial_conditions"]
         assert row["layer"] == "macro"
         assert row["performance_metric"] == "raw_macro_score_5d"
         assert row["rank_scope"] == "macro"
@@ -527,8 +594,20 @@ class TestDarwinianGetWeights:
         with pytest.raises(RpcError):
             dispatch(
                 "darwinian.get_weights",
-                {"cohort": "cohort_default", "date": 12345},
+                {
+                    "cohort": "cohort_default",
+                    "date": 12345,
+                    "audit_only": True,
+                },
             )
+
+    @pytest.mark.parametrize("method", ["darwinian.compute", "darwinian.get_weights"])
+    def test_legacy_surface_requires_explicit_audit_only(self, tmp_store, method):
+        params = {"cohort": "cohort_default"}
+        if method == "darwinian.compute":
+            params["today"] = "2024-07-31"
+        with pytest.raises(RpcError, match="legacy_unverified/audit_only"):
+            dispatch(method, params)
 
 
 # ===========================================================================
@@ -545,9 +624,23 @@ def test_all_5_methods_registered():
         "scorecard.score_pending",
         "scorecard.list_skill",
         "scorecard.latest_cio_actions",
+        "scorecard.latest_agent_narratives",
         "scorecard.win_rate",
         "darwinian.compute",
         "darwinian.get_weights",
+        "darwinian.knot_nominate",
+        "darwinian.knot_register_track",
+        "darwinian.knot_preregister_pair_assignment",
+        "darwinian.knot_freeze_pair",
+        "darwinian.knot_append_score",
+        "darwinian.knot_append_pair_side_result",
+        "darwinian.knot_append_sector_cost_audit",
+        "darwinian.knot_append_control_dependency",
+        "darwinian.knot_append_cio_dependency_blocked",
+        "darwinian.knot_finalize_pair",
+        "darwinian.knot_publish_promotion",
+        "darwinian.knot_publish_promotion_batch",
+        "darwinian.knot_publish_rollback",
     }
     assert expected.issubset(methods)
 
@@ -572,6 +665,13 @@ class TestSignalsRpc:
         assert out["date"] == "2024-06-25"
         assert out["actions"][0]["ticker"] == "510300.SH"
 
+    def test_latest_agent_narratives_rpc_empty(self, tmp_store):
+        out = dispatch(
+            "scorecard.latest_agent_narratives", {"cohort": "cohort_default"}
+        )
+        assert out["date"] is None
+        assert out["narratives"] == []
+
     def test_win_rate_rpc(self, tmp_store):
         self._seed(tmp_store)
         rows = dispatch("scorecard.win_rate", {"cohort": "cohort_default"})["rows"]
@@ -582,6 +682,10 @@ class TestSignalsRpc:
     def test_latest_cio_actions_requires_cohort(self):
         with pytest.raises(RpcError):
             dispatch("scorecard.latest_cio_actions", {})
+
+    def test_latest_agent_narratives_requires_cohort(self):
+        with pytest.raises(RpcError):
+            dispatch("scorecard.latest_agent_narratives", {})
 
     def test_win_rate_rejects_bad_since(self, tmp_store):
         with pytest.raises(RpcError):

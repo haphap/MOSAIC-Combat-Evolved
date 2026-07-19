@@ -9,7 +9,7 @@ describe("rke-darwinian-compute helpers", () => {
     const weights = computeAgentSkillWeights(
       [
         {
-          agent: "dollar",
+          agent: "us_financial_conditions",
           layer: "macro",
           rke_context_hash: "a".repeat(64),
           rke_prior_usage_quality: "used_ranked_prior",
@@ -57,8 +57,8 @@ describe("rke-darwinian-compute helpers", () => {
       },
     );
 
-    expect(weights).toHaveLength(25);
-    expect(weights.find((row) => row.agent === "dollar")?.weight).toBeGreaterThan(
+    expect(weights).toHaveLength(28);
+    expect(weights.find((row) => row.agent === "us_financial_conditions")?.weight).toBeGreaterThan(
       weights.find((row) => row.agent === "central_bank")?.weight ?? 0,
     );
     expect(weights.find((row) => row.agent === "central_bank")).toMatchObject({
@@ -70,7 +70,9 @@ describe("rke-darwinian-compute helpers", () => {
     expect(weights.find((row) => row.agent === "burry")?.schema_contract_skill).toBe(0);
     expect(weights.find((row) => row.agent === "ackman")?.schema_contract_skill).toBe(0);
     expect(weights.find((row) => row.agent === "munger")?.safety_capped).toBe(false);
-    expect(weights.find((row) => row.agent === "dollar")?.safety_capped).toBe(false);
+    expect(weights.find((row) => row.agent === "us_financial_conditions")?.safety_capped).toBe(
+      false,
+    );
     for (const layer of ["macro", "sector", "superinvestor", "decision"]) {
       const sum = weights
         .filter((row) => row.layer === layer)
@@ -85,14 +87,14 @@ describe("rke-darwinian-compute helpers", () => {
       "bench-1",
       "replay-1",
       "rke-darwinian:bench-1:x",
-      25,
+      28,
       3,
     );
 
     expect(evidence).toMatchObject({
       benchmark_run_id: "bench-1",
       replay_run_id: "replay-1",
-      agent_weight_count: 25,
+      agent_weight_count: 28,
       non_stub_weight_count: 3,
       layer_weight_sum_ready: true,
       darwinian_consumed: true,
@@ -108,7 +110,7 @@ describe("rke-darwinian-compute helpers", () => {
     const weights = computeAgentSkillWeights(
       [
         { agent: "central_bank", layer: "macro" },
-        { agent: "volatility", layer: "macro" },
+        { agent: "us_financial_conditions", layer: "macro" },
       ],
       {
         risk_adjusted_return: 0.01,
@@ -119,16 +121,23 @@ describe("rke-darwinian-compute helpers", () => {
       },
       [
         { agent: "central_bank", status: "done", toolCalls: 10, toolFailureCount: 0 },
-        { agent: "volatility", status: "done", toolCalls: 10, toolFailureCount: 5 },
+        {
+          agent: "us_financial_conditions",
+          status: "done",
+          toolCalls: 10,
+          toolFailureCount: 5,
+        },
       ],
     );
 
     expect(weights.find((row) => row.agent === "central_bank")?.weight).toBeGreaterThan(
-      weights.find((row) => row.agent === "volatility")?.weight ?? 0,
+      weights.find((row) => row.agent === "us_financial_conditions")?.weight ?? 0,
     );
     expect(weights.find((row) => row.agent === "central_bank")?.runtime_metric_skill).toBeCloseTo(
       1,
     );
-    expect(weights.find((row) => row.agent === "volatility")?.runtime_metric_skill).toBeLessThan(1);
+    expect(
+      weights.find((row) => row.agent === "us_financial_conditions")?.runtime_metric_skill,
+    ).toBeLessThan(1);
   });
 });

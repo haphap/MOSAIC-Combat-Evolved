@@ -1,0 +1,16 @@
+{
+  "knot_runtime_contract_manifest_id": "knot-runtime-contract",
+  "knot_runtime_contract_manifest_version": "knot_runtime_contract_manifest_v2",
+  "knot_runtime_contract_manifest_hash": "sha256:a8f5b1108df82be7e05d036593c4bd0826193025bfbffbb1b56824097aaa9076",
+  "private_runtime_manifest_hash": "sha256:91f368293da03a2db31dbb83557ef14c537ccb98aa5524aac57731ec245ce5cd",
+  "research_score_contract_ref": {
+    "research_score_contract_id": "knot-research-score",
+    "research_score_contract_version": "knot_research_score_v2",
+    "research_score_contract_hash": "sha256:2ff2cdedb25b0208323190eed716498bfad6c8c18631f3bc5a1c6a01ae3843ec"
+  },
+  "scheduler_contract_ref": {
+    "scheduler_contract_id": "knot-scheduler",
+    "scheduler_contract_version": "knot_scheduler_v2",
+    "scheduler_contract_hash": "sha256:5630393210fdf098049f9f9b93eadada90e00e2f96a5747efb6ce47169f2b6b0"
+  }
+}

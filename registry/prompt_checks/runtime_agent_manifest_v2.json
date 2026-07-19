@@ -1,9 +1,12 @@
 {
   "schema_version": "runtime_agent_manifest_v2",
+  "lifecycle_status": "legacy_unverified",
+  "production_selectable": false,
+  "superseded_by": "runtime_agent_manifest_v4",
   "runtime_agent_count": 25,
   "runtime_stage_count": 26,
   "default_cohort": "cohort_default",
-  "research_knobs_cohort_enablement": [
+  "private_knot_cohort_enablement": [
     {
       "cohort": "cohort_default",
       "enabled_agent_stages": [

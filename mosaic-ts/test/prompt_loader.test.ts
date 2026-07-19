@@ -15,9 +15,17 @@ import {
 import {
   clearPromptCache,
   loadPrompt,
-  loadPromptWithKnobs,
+  loadPromptWithPrivateKnot,
   PromptNotFoundError,
 } from "../src/agents/prompts/loader.js";
+import { installTestPrivateKnotRuntime } from "./helpers/private_knot.js";
+
+const TEST_KNOT_INVOCATION = {
+  invocation_mode: "NON_PRODUCTION_TEST",
+  graph_run_id: "prompt-loader-test-run",
+  as_of: "2026-07-09",
+  execution_behavior_release_id: "non-production-test",
+} as const;
 
 interface FakeRoot {
   root: string;
@@ -63,54 +71,14 @@ function makeFakePromptRepo(): FakeRoot {
   };
 }
 
-function researchKnobsFence(extra = ""): string {
-  return `\`\`\`research-knobs
-research-knobs:
-  schema_version: research_knobs_v1
-  layer: macro
-  agent: macro.central_bank
-  research_scope:
-    must_cover: [liquidity_regime]
-    must_not_cover: [final_portfolio_sizing]
-  prediction_targets:
-    - id: liquidity_regime_20d
-      target_variable: liquidity_regime
-      horizon: 20d
-      allowed_outputs: [positive, neutral, negative]
-  evidence_registry:
-    pboc_liquidity:
-      tool: get_pboc_ops
-      metric: pboc_net_injection_7d
-      current_data: true
-      primary: true
-  evidence_weights:
-    pboc_liquidity: 1.0
-  lookbacks:
-    net_injection_window_days: 7
-  thresholds: {}
-  confidence_caps:
-    missing_current_data:
-      cap: 0.55
-      trigger: missing_required_evidence
-      enforcement: code
-      required_evidence: [pboc_liquidity]
-  tie_breaks: []
-  mutation_targets:
-    - path: /rule_packs/macro.central_bank.liquidity.v1/rules/macro.central_bank.soft.001/learnable_parameters/pboc_liquidity_weight/value
-      type: number
-      min: 0
-      max: 1
-${extra}\`\`\``;
-}
-
 describe("AGENTS_BY_LAYER + LAYER_BY_AGENT (Plan §5)", () => {
-  it("covers exactly the 25 agents from Plan §5", () => {
+  it("covers exactly the 28 v2 agents", () => {
     expect(AGENTS_BY_LAYER.macro).toHaveLength(10);
-    expect(AGENTS_BY_LAYER.sector).toHaveLength(7);
+    expect(AGENTS_BY_LAYER.sector).toHaveLength(10);
     expect(AGENTS_BY_LAYER.superinvestor).toHaveLength(4);
     expect(AGENTS_BY_LAYER.decision).toHaveLength(4);
-    expect(ALL_AGENTS).toHaveLength(25);
-    expect(new Set(ALL_AGENTS).size).toBe(25);
+    expect(ALL_AGENTS).toHaveLength(28);
+    expect(new Set(ALL_AGENTS).size).toBe(28);
   });
 
   it("LAYER_BY_AGENT inverse map is consistent", () => {
@@ -160,6 +128,7 @@ describe("resolvePromptPath fallback chain", () => {
     delete process.env.MOSAIC_PROMPTS_ROOT;
     fake = makeFakePromptsRoot();
     privateFake = makeFakePromptsRoot();
+    installTestPrivateKnotRuntime();
     clearPromptCache();
   });
   afterEach(() => {
@@ -547,140 +516,49 @@ describe("loadPrompt", () => {
     expect(overlay).toBe("private");
   });
 
-  it("loadPromptWithKnobs injects a parity-checked runtime contract", async () => {
+  it("binds a fence-free prompt pair to an opaque private snapshot", async () => {
     fake.putPrompt({
       cohort: "cohort_default",
       layer: "macro",
       agent: "central_bank",
       language: "zh",
-      body: `${researchKnobsFence()}\n\nZH body`,
+      body: "ZH body",
     });
     fake.putPrompt({
       cohort: "cohort_default",
       layer: "macro",
       agent: "central_bank",
       language: "en",
-      body: `${researchKnobsFence()}\n\nEN body`,
+      body: "EN body",
     });
 
-    const out = await loadPromptWithKnobs({
+    const out = await loadPromptWithPrivateKnot({
+      invocationContext: TEST_KNOT_INVOCATION,
       agent: "central_bank",
       cohort: "cohort_default",
       stage: "agent_run",
       promptsRoot: fake.root,
     });
 
-    expect(out.prompt).toContain("## Runtime Research Knobs Contract");
     expect(out.prompt).toContain("ZH body");
     expect(out.prompt).toContain("EN body");
     expect(out.prompt).not.toContain("```research-knobs");
-    expect(out.snapshot.knobs.evidence_weights.pboc_liquidity).toBe(1);
-    expect(out.snapshot.stage).toBe("agent_run");
-    expect(out.prompt).toContain('"runtime_stage": "agent_run"');
-    expect(out.snapshot.hash).toMatch(/^sha256:/);
+    expect(out.snapshot.snapshot_hash).toMatch(/^sha256:/);
+    expect(out.snapshot).not.toHaveProperty("knobs");
   });
 
-  it("synthesizes runtime defaults for fence-free bundled prompts", async () => {
-    const promptsRoot = findBundledPromptsRoot();
-    expect(promptsRoot).not.toBeNull();
-    if (!promptsRoot) throw new Error("bundled prompts root missing");
-    const out = await loadPromptWithKnobs({
-      agent: "central_bank",
-      cohort: "cohort_default",
-      stage: "agent_run",
-      promptsRoot,
-      noCache: true,
-    });
-    const tools = Object.values(out.snapshot.knobs.evidence_registry).flatMap((entry) =>
-      entry.tool ? [entry.tool] : [],
-    );
-    expect(tools).toContain("get_central_bank_snapshot");
-    expect(out.prompt).not.toContain("```research-knobs");
-    expect(out.prompt).toContain("## Runtime Research Knobs Contract");
-  });
-
-  it("still rejects fence-free private prompt overlays", async () => {
-    for (const language of ["zh", "en"] as const) {
-      privateFake.putPrompt({
-        cohort: "cohort_default",
-        layer: "macro",
-        agent: "central_bank",
-        language,
-        body: `${language} private body without contract`,
-      });
-    }
-    await expect(
-      loadPromptWithKnobs({
-        agent: "central_bank",
-        cohort: "cohort_default",
-        stage: "agent_run",
-        privatePromptsRoot: privateFake.root,
-        noCache: true,
-      }),
-    ).rejects.toThrow("expected exactly one research-knobs fence");
-  });
-
-  it("freezes the parsed prompt pair across stage-specific snapshot builds", async () => {
-    for (const language of ["zh", "en"] as const) {
-      fake.putPrompt({
-        cohort: "cohort_default",
-        layer: "macro",
-        agent: "central_bank",
-        language,
-        body: `${researchKnobsFence()}\n\n${language.toUpperCase()} source-v1`,
-      });
-    }
-    const first = await loadPromptWithKnobs({
-      agent: "central_bank",
-      cohort: "cohort_default",
-      stage: "agent_run",
-      promptsRoot: fake.root,
-    });
-
-    for (const language of ["zh", "en"] as const) {
-      fake.putPrompt({
-        cohort: "cohort_default",
-        layer: "macro",
-        agent: "central_bank",
-        language,
-        body: `${researchKnobsFence()}\n\n${language.toUpperCase()} source-v2`,
-      });
-    }
-    const sameRun = await loadPromptWithKnobs({
-      agent: "central_bank",
-      cohort: "cohort_default",
-      stage: "agent_run",
-      promptsRoot: fake.root,
-      runtimeSourceStatuses: [
-        { source_id: "current_market_data", scope: "ticker:test", status: "missing" },
-      ],
-    });
-
-    expect(first.prompt).toContain("source-v1");
-    expect(sameRun.prompt).toContain("source-v1");
-    expect(sameRun.prompt).not.toContain("source-v2");
-
-    clearPromptCache();
-    const nextRun = await loadPromptWithKnobs({
-      agent: "central_bank",
-      cohort: "cohort_default",
-      stage: "agent_run",
-      promptsRoot: fake.root,
-    });
-    expect(nextRun.prompt).toContain("source-v2");
-  });
-
-  it("loadPromptWithKnobs fails closed when one language is missing", async () => {
+  it("fails closed when one language is missing", async () => {
     fake.putPrompt({
       cohort: "cohort_default",
       layer: "macro",
       agent: "central_bank",
       language: "zh",
-      body: `${researchKnobsFence()}\n\nZH body`,
+      body: "ZH body",
     });
 
     await expect(
-      loadPromptWithKnobs({
+      loadPromptWithPrivateKnot({
+        invocationContext: TEST_KNOT_INVOCATION,
         agent: "central_bank",
         cohort: "cohort_default",
         promptsRoot: fake.root,
@@ -688,28 +566,90 @@ describe("loadPrompt", () => {
     ).rejects.toBeInstanceOf(PromptNotFoundError);
   });
 
-  it("loadPromptWithKnobs rejects zh/en knob value drift", async () => {
-    fake.putPrompt({
+  it("never fills a missing private KNOT prompt leg from the bundled root", async () => {
+    privateFake.putPrompt({
       cohort: "cohort_default",
       layer: "macro",
       agent: "central_bank",
       language: "zh",
-      body: `${researchKnobsFence()}\n\nZH body`,
+      body: "private ZH",
     });
     fake.putPrompt({
       cohort: "cohort_default",
       layer: "macro",
       agent: "central_bank",
       language: "en",
-      body: `${researchKnobsFence().replace("pboc_liquidity: 1.0", "pboc_liquidity: 0.9")}\n\nEN body`,
+      body: "bundled EN",
     });
 
     await expect(
-      loadPromptWithKnobs({
+      loadPromptWithPrivateKnot({
+        invocationContext: TEST_KNOT_INVOCATION,
+        agent: "central_bank",
+        cohort: "cohort_default",
+        promptsRoot: fake.root,
+        privatePromptsRoot: privateFake.root,
+      }),
+    ).rejects.toBeInstanceOf(PromptNotFoundError);
+  });
+
+  it("requires a pinned private release for formal KNOT traffic", async () => {
+    for (const language of ["zh", "en"] as const) {
+      fake.putPrompt({
+        cohort: "cohort_default",
+        layer: "macro",
+        agent: "central_bank",
+        language,
+        body: `${language} body`,
+      });
+    }
+    await expect(
+      loadPromptWithPrivateKnot({
+        invocationContext: TEST_KNOT_INVOCATION,
+        agent: "central_bank",
+        cohort: "cohort_default",
+        promptsRoot: fake.root,
+        requirePinnedPrivateRelease: true,
+      }),
+    ).rejects.toThrow("private_knot_prompt_release_required");
+  });
+
+  it.each([
+    "```research-knobs\nprivate: true\n```",
+    "confidence cap",
+    "evidence_weights",
+    "Darwinian",
+    "darwin",
+    "knot",
+    "mutation target",
+    "champion behavior",
+    "研究旋钮",
+    "研究规则 ID",
+    "证据权重",
+    "晋级门槛",
+  ])("rejects embedded private policy content: %s", async (marker) => {
+    fake.putPrompt({
+      cohort: "cohort_default",
+      layer: "macro",
+      agent: "central_bank",
+      language: "zh",
+      body: `${marker}\nZH body`,
+    });
+    fake.putPrompt({
+      cohort: "cohort_default",
+      layer: "macro",
+      agent: "central_bank",
+      language: "en",
+      body: "EN body",
+    });
+
+    await expect(
+      loadPromptWithPrivateKnot({
+        invocationContext: TEST_KNOT_INVOCATION,
         agent: "central_bank",
         cohort: "cohort_default",
         promptsRoot: fake.root,
       }),
-    ).rejects.toThrow(/evidence_weights must sum to 1.0|parity mismatch/);
+    ).rejects.toThrow(/private_knot_content_embedded/);
   });
 });

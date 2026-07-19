@@ -45,7 +45,7 @@ beforeEach(() => {
 });
 
 describe("runCohortTraining", () => {
-  it("trains all 25 agents across the 4 layers in order", async () => {
+  it("trains all 28 agents across the 4 layers in order", async () => {
     const result = await runCohortTraining({ cohort: "crisis_2008", fakeLlm: true, deps });
 
     expect(result.layers.map((l) => l.layer)).toEqual([...LAYER_ORDER]);
@@ -53,8 +53,8 @@ describe("runCohortTraining", () => {
       expect(l.agents.length).toBe(AGENTS_BY_LAYER[l.layer].length);
     }
     const total = result.layers.reduce((n, l) => n + l.agents.length, 0);
-    expect(total).toBe(25);
-    expect(mockedCycle).toHaveBeenCalledTimes(25);
+    expect(total).toBe(28);
+    expect(mockedCycle).toHaveBeenCalledTimes(28);
   });
 
   it("forces each agent and threads cohort/fakeLlm/maxMutations", async () => {
@@ -64,11 +64,11 @@ describe("runCohortTraining", () => {
       maxMutationsPerAgent: 1,
       deps,
     });
-    const call = mockedCycle.mock.calls.find((c) => c[0].forceAgent === "volatility");
+    const call = mockedCycle.mock.calls.find((c) => c[0].forceAgent === "us_financial_conditions");
     expect(call).toBeDefined();
     expect(call?.[0]).toMatchObject({
       cohort: "crisis_2008",
-      forceAgent: "volatility",
+      forceAgent: "us_financial_conditions",
       maxMutations: 1,
       fakeLlm: true,
     });

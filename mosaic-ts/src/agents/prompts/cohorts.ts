@@ -1,5 +1,5 @@
 /**
- * Cohort + prompt-path conventions for the 25 agents (Plan §10).
+ * Cohort + prompt-path conventions for the 28 agents.
  *
  * Disk layout:
  *   prompts/mosaic/
@@ -12,10 +12,10 @@
  *       macro/<agent>.{zh,en}.md
  *       ...
  *
- * Resolution rule: bundled project prompts are the default. When an external
- * prompt repo/root is explicitly configured, its cohort/default files are
- * preferred, with bundled prompts remaining as fallback. For non-default
- * cohorts, ``cohort_default`` is the cohort fallback inside each root.
+ * Resolution rule: bundled project prompts serve explicit non-production
+ * smoke and authoring paths. Formal runtime releases are pinned to the private
+ * prompt repository and fail closed; bundled files are never their fallback.
+ * For non-default cohorts, ``cohort_default`` is the fallback inside one root.
  */
 
 import { existsSync } from "node:fs";
@@ -30,22 +30,25 @@ export const AGENTS_BY_LAYER = {
   macro: [
     "china",
     "us_economy",
+    "eu_economy",
     "central_bank",
-    "dollar",
-    "yield_curve",
+    "us_financial_conditions",
+    "euro_area_financial_conditions",
     "commodities",
     "geopolitical",
-    "volatility",
     "market_breadth",
     "institutional_flow",
   ],
   sector: [
     "semiconductor",
+    "technology",
     "energy",
     "biotech",
     "consumer",
     "industrials",
+    "real_estate_construction",
     "financials",
+    "agriculture",
     "relationship_mapper",
   ],
   superinvestor: ["druckenmiller", "munger", "burry", "ackman"],
@@ -63,7 +66,7 @@ export const LAYER_BY_AGENT: Record<string, Layer> = (() => {
   return out;
 })();
 
-/** All 25 agent IDs in a flat list (display order = layer order). */
+/** All 28 agent IDs in a flat list (display order = layer order). */
 export const ALL_AGENTS: ReadonlyArray<string> = [
   ...AGENTS_BY_LAYER.macro,
   ...AGENTS_BY_LAYER.sector,
@@ -112,7 +115,7 @@ export function formatPromptSourceLabel(source = getConfiguredPromptSource()): s
   return `private-repo:${source.repo}`;
 }
 
-/** Find the default prompt root for all cohorts: the bundled project prompts. */
+/** Find the public cohort_default fake/offline prompt root. */
 export function findPromptsRoot(): string {
   return findBundledPromptsRoot();
 }

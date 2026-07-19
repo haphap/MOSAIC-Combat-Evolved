@@ -124,8 +124,8 @@ JSON_SCHEMA_TARGETS = (
     ),
     ("schemas/production_patch.schema.json", "registry/patches/central_bank_paper_trading_patch.json", "json"),
     (
-        "schemas/domain_knob_catalog_v1.schema.json",
-        "registry/prompt_checks/domain_knob_catalog_v1.json",
+        "schemas/private_knot_assets_ref_v1.schema.json",
+        "registry/prompt_checks/private_knot_assets_ref_v1.json",
         "json",
     ),
     (
@@ -134,8 +134,78 @@ JSON_SCHEMA_TARGETS = (
         "json",
     ),
     (
-        "schemas/domain_knob_evaluation_contract_v1.schema.json",
-        "registry/prompt_checks/domain_knob_evaluation_contract_v1.json",
+        "schemas/runtime_agent_manifest_v2.schema.json",
+        "registry/prompt_checks/runtime_agent_manifest_v2.json",
+        "json",
+    ),
+    (
+        "schemas/runtime_agent_manifest_v3.schema.json",
+        "registry/prompt_checks/runtime_agent_manifest_v3.json",
+        "json",
+    ),
+    (
+        "schemas/runtime_agent_manifest_v4.schema.json",
+        "registry/prompt_checks/runtime_agent_manifest_v4.json",
+        "json",
+    ),
+    (
+        "schemas/agent_tool_contract_manifest_v1.schema.json",
+        "registry/prompt_checks/agent_tool_contract_manifest_v1.json",
+        "json",
+    ),
+    (
+        "schemas/agent_prompt_role_contract_manifest_v2.schema.json",
+        "registry/prompt_checks/agent_prompt_role_contract_manifest_v2.json",
+        "json",
+    ),
+    (
+        "schemas/macro_prompt_role_contract_manifest_v1.schema.json",
+        "registry/prompt_checks/macro_prompt_role_contract_manifest_v1.json",
+        "json",
+    ),
+    (
+        "schemas/sector_universe_manifest_v1.schema.json",
+        "registry/prompt_checks/sector_universe_manifest_v1.json",
+        "json",
+    ),
+    (
+        "schemas/agent_outcome_contract_manifest_v2.schema.json",
+        "registry/prompt_checks/agent_outcome_contract_manifest_v2.json",
+        "json",
+    ),
+    (
+        "schemas/knot_runtime_contract_ref_v2.schema.json",
+        "registry/prompt_checks/knot_runtime_contract_ref_v2.json",
+        "json",
+    ),
+    (
+        "schemas/execution_behavior_release_manifest_v1.schema.json",
+        "registry/prompt_checks/execution_behavior_release_manifest_v1.json",
+        "json",
+    ),
+    (
+        "schemas/rke_shadow_agent_migration_manifest_v1.schema.json",
+        "registry/prompt_checks/rke_shadow_agent_migration_manifest_v1.json",
+        "json",
+    ),
+    (
+        "schemas/tushare_endpoint_preflight_v2.schema.json",
+        "registry/data_sources/tushare_endpoint_preflight_v2.json",
+        "json",
+    ),
+    (
+        "schemas/official_macro_source_preflight_v1.schema.json",
+        "registry/data_sources/official_macro_source_preflight_v1.json",
+        "json",
+    ),
+    (
+        "schemas/geopolitical_initial_source_manifest_v2.schema.json",
+        "registry/data_sources/geopolitical_initial_source_manifest_v2.json",
+        "json",
+    ),
+    (
+        "schemas/geopolitical_source_transport_preflight_v1.schema.json",
+        "registry/data_sources/geopolitical_source_transport_preflight_v1.json",
         "json",
     ),
 )

@@ -1,4 +1,8 @@
-"""Darwinian weights compute (Plan §11.3 sub-step 3C).
+"""Legacy-unverified Darwinian-v1 audit/replay weight computation.
+
+This module writes only the legacy ``darwinian_weights`` table. Production
+consumption uses frozen Darwinian-v2 production-variant snapshots and never
+falls back to these rows.
 
 Reads scored rows from ``ScorecardStore.list_scored``, computes per-agent
 rolling Sharpe over 30 / 90 **calendar-day** windows, projects to a
@@ -23,7 +27,7 @@ Empty / insufficient data fallback (plan §11.3 design decision #7):
     n_obs < MIN_OBS_FOR_SHARPE → weight = 1.0 uniform across all agents
     in the cohort. Matches Phase 2 stub behaviour exactly so the first
     30 days of a cohort don't have Phase 3 weights perturbing the
-    portfolio.
+    legacy audit table.
 
 Macro ranking uses role-matched, non-overlapping five-day outcomes. Daily
 macro rows are ordered per role and sampled every fifth observation before the
@@ -149,9 +153,9 @@ def compute_weights(
 
     Returns ``{"written": int, "agents_uniform_fallback": int}``.
 
-    ``today`` (YYYY-MM-DD) is the as-of date written into the
-    darwinian_weights rows. Caller decides when to invoke (typically end
-    of trading day after Scorer has run).
+    ``today`` (YYYY-MM-DD) is the as-of date written into the legacy
+    ``darwinian_weights`` rows. Only explicit audit/replay callers may invoke
+    this function.
     """
     dcfg = _darwinian_cfg(config)
     if bool(dcfg.get("weight_rewrite_enabled", True)):

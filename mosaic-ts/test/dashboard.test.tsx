@@ -22,27 +22,22 @@ function fakeApi() {
             "stop_loss_breached",
             "stale_thesis",
           ]),
-          declared_knob_influence_ids_json: JSON.stringify(["mirofish_portfolio_stress_weight"]),
-          declared_influence_rationale: "scenario stress tempered add size",
           verified_knob_audit_json: JSON.stringify({
-            fired_cap_ids: ["fallback_primary_tool"],
-            unsupported_knob_influence_ids: [],
+            accepted: true,
+            reason_codes: [],
           }),
           decision_agent_audits_json: JSON.stringify({
             cro: {
-              fired_cap_ids: ["missing_current_data"],
-              declared_knob_influence_ids: ["stop_loss_pct"],
-              unsupported_knob_influence_ids: [],
+              accepted: true,
+              reason_codes: [],
             },
             autonomous_execution: {
-              fired_cap_ids: [],
-              declared_knob_influence_ids: ["mirofish_path_sizing_weight"],
-              unsupported_knob_influence_ids: [],
+              accepted: true,
+              reason_codes: [],
             },
             cio: {
-              fired_cap_ids: ["fallback_primary_tool"],
-              declared_knob_influence_ids: ["mirofish_portfolio_stress_weight"],
-              unsupported_knob_influence_ids: [],
+              accepted: true,
+              reason_codes: [],
             },
           }),
           override_reason: "CRO reviewed current data",
@@ -50,6 +45,40 @@ function fakeApi() {
           rationale_snapshot: "券商β",
           forward_return_5d: null,
           scored_at: null,
+        },
+      ],
+    }),
+    scorecardLatestAgentNarratives: vi.fn().mockResolvedValue({
+      schema_version: "agent_display_narrative_bundle_v1",
+      cohort: "cohort_default",
+      date: "2026-05-30",
+      trace_id: "trace-1",
+      bundle_hash: `sha256:${"a".repeat(64)}`,
+      language: "zh",
+      narratives: [
+        {
+          schema_version: "agent_display_narrative_v1",
+          narrative_id: `agent-display:${"b".repeat(64)}`,
+          agent_id: "china",
+          layer: "macro",
+          language: "zh",
+          source: "ACCEPTED_OUTPUT",
+          source_output_id: "accepted:china",
+          source_output_hash: `sha256:${"c".repeat(64)}`,
+          narrative_text: "结论：SUPPORTIVE，强度 4/5。\n主要驱动：中国需求改善。",
+          ui_only: true,
+        },
+        {
+          schema_version: "agent_display_narrative_v1",
+          narrative_id: `agent-display:${"d".repeat(64)}`,
+          agent_id: "us_economy",
+          layer: "macro",
+          language: "zh",
+          source: "ACCEPTED_OUTPUT",
+          source_output_id: "accepted:us_economy",
+          source_output_hash: `sha256:${"e".repeat(64)}`,
+          narrative_text: "结论：ADVERSE，强度 2/5。\n主要驱动：外需走弱。",
+          ui_only: true,
         },
       ],
     }),
@@ -231,9 +260,7 @@ describe("Dashboard", () => {
     expect(lastFrame()).toContain("ADD");
     expect(lastFrame()).toContain("intact");
     expect(lastFrame()).toContain("target_current_drift");
-    expect(lastFrame()).toContain("caps=fallback_primary_tool");
-    expect(lastFrame()).toContain("influence=mirofish_portfolio_stress_weight");
-    expect(lastFrame()).toContain("agent detail cro caps=missing_current_data");
+    expect(lastFrame()).toContain("agent detail cro accepted reasons=-");
     expect(lastFrame()).toContain("CRO reviewed current data");
     expect(lastFrame()).toContain("512880.SH");
   });
@@ -313,6 +340,27 @@ describe("Dashboard", () => {
     stdin.write("6");
     await flush();
     expect(lastFrame()).toContain("no scenario context");
+  });
+
+  it("shows UI-only Agent explanations on tab 8 and navigates with j/k", async () => {
+    const api = fakeApi();
+    const { stdin, lastFrame } = mount(api);
+    await flush();
+    stdin.write("8");
+    await flush();
+    expect(api.scorecardLatestAgentNarratives).toHaveBeenCalledWith("cohort_default");
+    expect(lastFrame()).toContain("Agent decision explanations (2026-05-30) [1/2]");
+    expect(lastFrame()).toContain("中国需求改善");
+    expect(lastFrame()).toContain("not consumed downstream");
+
+    stdin.write("j");
+    await flush();
+    expect(lastFrame()).toContain("us_economy");
+    expect(lastFrame()).toContain("外需走弱");
+
+    stdin.write("k");
+    await flush();
+    expect(lastFrame()).toContain("china");
   });
 
   it("refetches on key 'r'", async () => {

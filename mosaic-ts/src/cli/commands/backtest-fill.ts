@@ -206,6 +206,7 @@ export function registerBacktestFill(program: Command): void {
         }
         await assertRuntimePromptPreflight({
           cohort,
+          requirePrivateKnot: true,
           ...(effectivePromptsRoot ? { promptsRoot: effectivePromptsRoot } : {}),
         });
 

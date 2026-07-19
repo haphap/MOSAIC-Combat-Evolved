@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KNOT Runtime Contract Private Reference v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "knot_runtime_contract_manifest_id",
+    "knot_runtime_contract_manifest_version",
+    "knot_runtime_contract_manifest_hash",
+    "private_runtime_manifest_hash",
+    "research_score_contract_ref",
+    "scheduler_contract_ref"
+  ],
+  "properties": {
+    "knot_runtime_contract_manifest_id": { "type": "string", "minLength": 1 },
+    "knot_runtime_contract_manifest_version": { "type": "string", "minLength": 1 },
+    "knot_runtime_contract_manifest_hash": { "$ref": "#/$defs/sha256" },
+    "private_runtime_manifest_hash": { "$ref": "#/$defs/sha256" },
+    "research_score_contract_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "research_score_contract_id",
+        "research_score_contract_version",
+        "research_score_contract_hash"
+      ],
+      "properties": {
+        "research_score_contract_id": { "type": "string", "minLength": 1 },
+        "research_score_contract_version": { "type": "string", "minLength": 1 },
+        "research_score_contract_hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "scheduler_contract_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scheduler_contract_id",
+        "scheduler_contract_version",
+        "scheduler_contract_hash"
+      ],
+      "properties": {
+        "scheduler_contract_id": { "type": "string", "minLength": 1 },
+        "scheduler_contract_version": { "type": "string", "minLength": 1 },
+        "scheduler_contract_hash": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

@@ -19,7 +19,7 @@ from mosaic.scorecard.store import ScorecardStore
 def _complete_accepted_run(store: ScorecardStore, run_id: int) -> None:
     audits = [
         {"agent": f"agent_{index}", "stage": "primary", "status": "accepted"}
-        for index in range(26)
+        for index in range(29)
     ]
     store.append_backtest_actions(
         run_id,
@@ -172,7 +172,7 @@ class TestPromptToolCompatibility(unittest.TestCase):
         result = validate_prompt_tool_compatibility(
             {
                 "cohort": "euphoria_2021",
-                "agent": "volatility",
+                "agent": "us_financial_conditions",
                 "modification_commit_hash": "b" * 40,
             },
             FakeGit(),
@@ -190,7 +190,7 @@ class TestPromptToolCompatibility(unittest.TestCase):
         result = validate_prompt_tool_compatibility(
             {
                 "cohort": "euphoria_2021",
-                "agent": "volatility",
+                "agent": "us_financial_conditions",
                 "modification_commit_hash": "b" * 40,
             },
             FakeGit(),
@@ -212,7 +212,7 @@ class TestPromptToolCompatibility(unittest.TestCase):
         result = validate_prompt_tool_compatibility(
             {
                 "cohort": "euphoria_2021",
-                "agent": "volatility",
+                "agent": "us_financial_conditions",
                 "modification_commit_hash": "b" * 40,
                 "base_commit_hash": "a" * 40,
             },
@@ -235,7 +235,7 @@ class TestPromptToolCompatibility(unittest.TestCase):
         result = validate_prompt_tool_compatibility(
             {
                 "cohort": "euphoria_2021",
-                "agent": "volatility",
+                "agent": "us_financial_conditions",
                 "modification_commit_hash": "b" * 40,
                 "base_commit_hash": "a" * 40,
             },
@@ -274,8 +274,10 @@ class TestComputeDelta(unittest.TestCase):
     def test_raises_when_no_modification_commit(self):
         version_id = self.store.create_prompt_version(
             cohort="euphoria_2021",
-            agent="volatility",
-            branch_name="cohort/euphoria_2021/auto/volatility/2021-01-01",
+            agent="us_financial_conditions",
+            branch_name=(
+                "cohort/euphoria_2021/auto/us_financial_conditions/2021-01-01"
+            ),
             base_commit_hash="a" * 40,
         )
         with self.assertRaises(ValueError) as ctx:
@@ -287,8 +289,10 @@ class TestComputeDelta(unittest.TestCase):
         mod_commit = "b" * 40
         version_id = self.store.create_prompt_version(
             cohort="euphoria_2021",
-            agent="volatility",
-            branch_name="cohort/euphoria_2021/auto/volatility/2021-01-01",
+            agent="us_financial_conditions",
+            branch_name=(
+                "cohort/euphoria_2021/auto/us_financial_conditions/2021-01-01"
+            ),
             base_commit_hash=base_commit,
         )
         self.store.set_version_mutation(version_id, mod_commit, "test mutation")
@@ -302,8 +306,10 @@ class TestComputeDelta(unittest.TestCase):
         mod_commit = "b" * 40
         version_id = self.store.create_prompt_version(
             cohort="euphoria_2021",
-            agent="volatility",
-            branch_name="cohort/euphoria_2021/auto/volatility/2021-01-01",
+            agent="us_financial_conditions",
+            branch_name=(
+                "cohort/euphoria_2021/auto/us_financial_conditions/2021-01-01"
+            ),
             base_commit_hash=base_commit,
         )
         self.store.set_version_mutation(version_id, mod_commit, "test mutation")

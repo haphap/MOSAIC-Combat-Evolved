@@ -1,0 +1,287 @@
+{
+  "covered_modules": [
+    "mosaic/rke/agent_research_context.py",
+    "mosaic/rke/report_intelligence.py",
+    "mosaic/rke/macro_expansion.py",
+    "mosaic/rke/phase_minus1.py"
+  ],
+  "data_field_routes": [
+    {
+      "field_id": "china_nominal_yield_curve",
+      "identity_alias": false,
+      "owner_agent_id": "macro.central_bank",
+      "route_hash": "sha256:d7a5dd0362855db6d8bbc383b0670189756a29672685379d0ea8d828b8d13d39",
+      "source_legacy_fields": [
+        "yield_curve.cn_nominal"
+      ]
+    },
+    {
+      "field_id": "china_money_market",
+      "identity_alias": false,
+      "owner_agent_id": "macro.central_bank",
+      "route_hash": "sha256:ed02e84fae5b53ed33ca2c0d6f30e0097ce99d279f7142559a2be7704c8cddc3",
+      "source_legacy_fields": [
+        "yield_curve.cn_money_market"
+      ]
+    },
+    {
+      "field_id": "china_credit_price_access",
+      "identity_alias": false,
+      "owner_agent_id": "macro.central_bank",
+      "route_hash": "sha256:81e863d0bf04e5039547f829f1543165020dffca0d69f2a940d2e34740e344f2",
+      "source_legacy_fields": [
+        "yield_curve.cn_credit"
+      ]
+    },
+    {
+      "field_id": "fed_policy",
+      "identity_alias": false,
+      "owner_agent_id": "macro.us_financial_conditions",
+      "route_hash": "sha256:ae98318e133bb6540734eb55bcaa2cadeaaa7a545269cdc0f48373bb378627ff",
+      "source_legacy_fields": [
+        "yield_curve.fed",
+        "dollar.fed"
+      ]
+    },
+    {
+      "field_id": "us_nominal_yield_curve",
+      "identity_alias": false,
+      "owner_agent_id": "macro.us_financial_conditions",
+      "route_hash": "sha256:b6b8b3e07abbcfb2507a713a869951ab985573d5e42afe7d509c196bd80e7e59",
+      "source_legacy_fields": [
+        "yield_curve.us_nominal"
+      ]
+    },
+    {
+      "field_id": "us_real_yield_curve",
+      "identity_alias": false,
+      "owner_agent_id": "macro.us_financial_conditions",
+      "route_hash": "sha256:85d8f392e3af7e43396ded58d6ad247f4d6ab06af400ece3cafe1015215ae503",
+      "source_legacy_fields": [
+        "yield_curve.us_real"
+      ]
+    },
+    {
+      "field_id": "us_money_market",
+      "identity_alias": false,
+      "owner_agent_id": "macro.us_financial_conditions",
+      "route_hash": "sha256:51543ebd24172fa5365c4fb7bff827325cf3c8c3669e6b960db5d94c95d1432a",
+      "source_legacy_fields": [
+        "yield_curve.us_money_market"
+      ]
+    },
+    {
+      "field_id": "us_credit_spreads",
+      "identity_alias": false,
+      "owner_agent_id": "macro.us_financial_conditions",
+      "route_hash": "sha256:5fdf4ca5eab85e36cf59f4426f70a9012c5ce25d2239b2544e6491eb408ff52b",
+      "source_legacy_fields": [
+        "yield_curve.us_credit"
+      ]
+    },
+    {
+      "field_id": "broad_us_dollar",
+      "identity_alias": false,
+      "owner_agent_id": "macro.us_financial_conditions",
+      "route_hash": "sha256:eff775ec4bcb5e24ab2ea15bc169a9af3599411091622d4c3034bda3c62282a3",
+      "source_legacy_fields": [
+        "dollar.broad_usd"
+      ]
+    },
+    {
+      "field_id": "usd_cny",
+      "identity_alias": false,
+      "owner_agent_id": "macro.us_financial_conditions",
+      "route_hash": "sha256:b442748140e551a39e47111c7ac11a2f213d8385b05ed13c9b5ee6743651fbd5",
+      "source_legacy_fields": [
+        "dollar.usd_cny"
+      ]
+    },
+    {
+      "field_id": "us_financial_stress",
+      "identity_alias": false,
+      "owner_agent_id": "macro.us_financial_conditions",
+      "route_hash": "sha256:1270083339559ed676c948390f79aa157b0b3b6bda8163111c387382402ae6ac",
+      "source_legacy_fields": [
+        "volatility.us_stress"
+      ]
+    },
+    {
+      "field_id": "vix",
+      "identity_alias": false,
+      "owner_agent_id": "macro.us_financial_conditions",
+      "route_hash": "sha256:acd4fe2458b5c6940ebfd7ce9b651eeb6dae9a3a7b53803dcd87182fdc028501",
+      "source_legacy_fields": [
+        "volatility.vix"
+      ]
+    },
+    {
+      "field_id": "ecb_policy",
+      "identity_alias": false,
+      "owner_agent_id": "macro.euro_area_financial_conditions",
+      "route_hash": "sha256:d7666c264b0a86106e8c6cd35f9917eed70bbf5bbed63e599dd7e6c6d9f8caf6",
+      "source_legacy_fields": [
+        "yield_curve.ecb"
+      ]
+    },
+    {
+      "field_id": "euro_area_yield_curve",
+      "identity_alias": false,
+      "owner_agent_id": "macro.euro_area_financial_conditions",
+      "route_hash": "sha256:2be0b2e8243b9dff416187fd61f07e196126013e8c17b5b363979990e5e8e215",
+      "source_legacy_fields": [
+        "yield_curve.euro_area"
+      ]
+    },
+    {
+      "field_id": "euro_area_credit_money",
+      "identity_alias": false,
+      "owner_agent_id": "macro.euro_area_financial_conditions",
+      "route_hash": "sha256:c45856ffd249b658332db6bd416e7846ea80e928d3015af01002230756faf1ad",
+      "source_legacy_fields": [
+        "yield_curve.euro_credit"
+      ]
+    },
+    {
+      "field_id": "euro_fx",
+      "identity_alias": false,
+      "owner_agent_id": "macro.euro_area_financial_conditions",
+      "route_hash": "sha256:51355a235fac4d4162fcee4c04dfc37c6593267abcfaaf958b463868f6d43d70",
+      "source_legacy_fields": [
+        "dollar.euro_fx"
+      ]
+    },
+    {
+      "field_id": "euro_area_ciss",
+      "identity_alias": false,
+      "owner_agent_id": "macro.euro_area_financial_conditions",
+      "route_hash": "sha256:b6aea6509b9644841439607066f89fa7a6cb3410a8bf2197df6e93f9ec3830d0",
+      "source_legacy_fields": [
+        "volatility.ciss"
+      ]
+    },
+    {
+      "field_id": "china_realized_volatility",
+      "identity_alias": false,
+      "owner_agent_id": "decision.cro",
+      "route_hash": "sha256:5ca56906c4bca63afb95d3fee4a25133b0a6ace5351f2e7b72a03a7852d3068a",
+      "source_legacy_fields": [
+        "volatility.china_realized"
+      ]
+    }
+  ],
+  "execution_mode": "RKE_SHADOW",
+  "identity_aliases": [],
+  "isolation_policy": {
+    "darwinian_update_allowed": false,
+    "decision_input_allowed": false,
+    "production_graph_allowed": false,
+    "production_tool_manifest_allowed": false
+  },
+  "legacy_reference_inventory": [
+    {
+      "current_routing_policy": "DATA_FIELD_ROUTES_ONLY_NO_IDENTITY_ALIAS",
+      "legacy_agent_ids": [
+        "macro.dollar",
+        "macro.yield_curve",
+        "macro.volatility",
+        "macro.emerging_markets",
+        "macro.news_sentiment"
+      ],
+      "legacy_artifact_status": "legacy_unverified",
+      "module_path": "mosaic/rke/agent_research_context.py"
+    },
+    {
+      "current_routing_policy": "DATA_FIELD_ROUTES_ONLY_NO_IDENTITY_ALIAS",
+      "legacy_agent_ids": [
+        "macro.dollar",
+        "macro.yield_curve",
+        "macro.volatility"
+      ],
+      "legacy_artifact_status": "legacy_unverified",
+      "module_path": "mosaic/rke/report_intelligence.py"
+    },
+    {
+      "current_routing_policy": "DATA_FIELD_ROUTES_ONLY_NO_IDENTITY_ALIAS",
+      "legacy_agent_ids": [
+        "macro.dollar",
+        "macro.yield_curve",
+        "macro.volatility"
+      ],
+      "legacy_artifact_status": "legacy_unverified",
+      "module_path": "mosaic/rke/macro_expansion.py"
+    },
+    {
+      "current_routing_policy": "DATA_FIELD_ROUTES_ONLY_NO_IDENTITY_ALIAS",
+      "legacy_agent_ids": [
+        "macro.dollar",
+        "macro.volatility"
+      ],
+      "legacy_artifact_status": "legacy_unverified",
+      "module_path": "mosaic/rke/phase_minus1.py"
+    }
+  ],
+  "manifest_hash": "sha256:6e99c486cbbdfcb7862ba6eb85c23f92c2fe67eebd5ccc169b817180ec6b6121",
+  "new_agent_ids": [
+    {
+      "agent_id": "macro.eu_economy",
+      "identity_alias_from": null,
+      "inherits_legacy_samples": false,
+      "inherits_legacy_weight": false
+    },
+    {
+      "agent_id": "macro.us_financial_conditions",
+      "identity_alias_from": null,
+      "inherits_legacy_samples": false,
+      "inherits_legacy_weight": false
+    },
+    {
+      "agent_id": "macro.euro_area_financial_conditions",
+      "identity_alias_from": null,
+      "inherits_legacy_samples": false,
+      "inherits_legacy_weight": false
+    },
+    {
+      "agent_id": "sector.technology",
+      "identity_alias_from": null,
+      "inherits_legacy_samples": false,
+      "inherits_legacy_weight": false
+    },
+    {
+      "agent_id": "sector.real_estate_construction",
+      "identity_alias_from": null,
+      "inherits_legacy_samples": false,
+      "inherits_legacy_weight": false
+    },
+    {
+      "agent_id": "sector.agriculture",
+      "identity_alias_from": null,
+      "inherits_legacy_samples": false,
+      "inherits_legacy_weight": false
+    }
+  ],
+  "production_signal_allowed": false,
+  "schema_version": "rke_shadow_agent_migration_manifest_v1",
+  "tombstoned_agent_ids": [
+    {
+      "agent_id": "macro.dollar",
+      "status": "legacy_unverified"
+    },
+    {
+      "agent_id": "macro.yield_curve",
+      "status": "legacy_unverified"
+    },
+    {
+      "agent_id": "macro.volatility",
+      "status": "legacy_unverified"
+    },
+    {
+      "agent_id": "macro.emerging_markets",
+      "status": "legacy_unverified"
+    },
+    {
+      "agent_id": "macro.news_sentiment",
+      "status": "legacy_unverified"
+    }
+  ]
+}

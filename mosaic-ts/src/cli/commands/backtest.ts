@@ -210,7 +210,7 @@ async function fillStage1(
       `prompt source preflight failed: ${promptSource.source_status.blocked_reason || "unknown"}`,
     );
   }
-  await assertRuntimePromptPreflight({ cohort });
+  await assertRuntimePromptPreflight({ cohort, requirePrivateKnot: true });
 
   const tradeDays = await enumerateTradingDays(api, opts.start, opts.end);
   const vetoThreshold = opts.vetoThreshold ? Number(opts.vetoThreshold) : 0.5;
@@ -223,7 +223,7 @@ async function fillStage1(
     vetoThreshold,
   });
 
-  console.log(pc.dim(`stage-1: ${tradeDays.length} trade days × 25 agents`));
+  console.log(pc.dim(`stage-1: ${tradeDays.length} trade days × 28 agents / 29 stages`));
 
   let completed = 0;
   let totalActions = 0;

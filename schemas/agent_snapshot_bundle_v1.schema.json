@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "snapshot_bundle_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "snapshot_bundle_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "snapshot_bundle_contract_version": {
+      "type": "string",
+      "const": "agent_snapshot_bundle_v1"
+    },
+    "materialization_request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agent_id": {
+      "type": "string",
+      "enum": [
+        "china",
+        "us_economy",
+        "eu_economy",
+        "central_bank",
+        "us_financial_conditions",
+        "euro_area_financial_conditions",
+        "commodities",
+        "geopolitical",
+        "market_breadth",
+        "institutional_flow",
+        "semiconductor",
+        "technology",
+        "energy",
+        "biotech",
+        "consumer",
+        "industrials",
+        "real_estate_construction",
+        "financials",
+        "agriculture",
+        "relationship_mapper",
+        "druckenmiller",
+        "munger",
+        "burry",
+        "ackman",
+        "cro",
+        "alpha_discovery",
+        "autonomous_execution",
+        "cio"
+      ]
+    },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "china",
+        "us_economy",
+        "eu_economy",
+        "central_bank",
+        "us_financial_conditions",
+        "euro_area_financial_conditions",
+        "commodities",
+        "geopolitical",
+        "market_breadth",
+        "institutional_flow",
+        "semiconductor",
+        "technology",
+        "energy",
+        "biotech",
+        "consumer",
+        "industrials",
+        "real_estate_construction",
+        "financials",
+        "agriculture",
+        "relationship_mapper",
+        "druckenmiller",
+        "munger",
+        "burry",
+        "ackman",
+        "cro",
+        "alpha_discovery",
+        "autonomous_execution",
+        "cio_proposal",
+        "cio_final"
+      ]
+    },
+    "as_of": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "candidate_scope_hash": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "runtime_input_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "tool_payload_hashes": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "enum": [
+          "get_china_macro_snapshot",
+          "get_us_macro_snapshot",
+          "get_eu_macro_snapshot",
+          "get_central_bank_snapshot",
+          "get_us_financial_conditions_snapshot",
+          "get_euro_area_financial_conditions_snapshot",
+          "get_commodity_conditions_snapshot",
+          "get_geopolitical_events_snapshot",
+          "get_market_breadth_snapshot",
+          "get_market_positioning_snapshot",
+          "get_sector_research_snapshot",
+          "get_role_event_snapshot",
+          "get_relationship_graph_snapshot",
+          "get_superinvestor_candidate_snapshot",
+          "get_cro_risk_snapshot",
+          "get_alpha_candidate_snapshot",
+          "get_execution_snapshot",
+          "get_cio_decision_snapshot"
+        ]
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "materialized_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    }
+  },
+  "required": [
+    "snapshot_bundle_id",
+    "snapshot_bundle_hash",
+    "snapshot_bundle_contract_version",
+    "materialization_request_id",
+    "agent_id",
+    "stage",
+    "as_of",
+    "candidate_scope_hash",
+    "runtime_input_hash",
+    "tool_payload_hashes",
+    "materialized_at"
+  ],
+  "additionalProperties": false
+}
+

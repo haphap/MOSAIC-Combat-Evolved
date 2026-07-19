@@ -1,14 +1,13 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { renderResearchKnobsFence } from "../src/agents/helpers/research_knobs.js";
 import { LAYER_BY_AGENT } from "../src/agents/prompts/cohorts.js";
 import {
   buildPromptTokenBudgetManifest,
   PromptTokenBudgetManifestSchema,
 } from "../src/agents/prompts/prompt_token_budget.js";
-import { buildRuntimeResearchKnobs } from "../src/agents/prompts/research_knobs_projection.js";
 import { RUNTIME_AGENT_SPECS } from "../src/agents/prompts/runtime_agent_spec.js";
 
 const roots: string[] = [];
@@ -17,7 +16,14 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-function fixtureRoots(): { privateRoot: string; bundledRoot: string } {
+interface FixtureRoots {
+  privateRoot: string;
+  bundledRoot: string;
+  privateCommit: string;
+  bundledCommit: string;
+}
+
+function fixtureRoots(): FixtureRoots {
   const root = mkdtempSync(join(tmpdir(), "mosaic-prompt-budget-"));
   roots.push(root);
   const privateRoot = join(root, "private", "prompts", "mosaic");
@@ -28,42 +34,43 @@ function fixtureRoots(): { privateRoot: string; bundledRoot: string } {
       if (!layer) throw new Error(`missing layer for ${spec.agent}`);
       const directory = join(promptsRoot, "cohort_default", layer);
       mkdirSync(directory, { recursive: true });
-      const fence = renderResearchKnobsFence(buildRuntimeResearchKnobs(spec));
       for (const language of ["zh", "en"] as const) {
         writeFileSync(
           join(directory, `${spec.agent}.${language}.md`),
-          `${fence}\n\n# ${spec.agent} ${language}\nRuntime contract body.\n`,
+          `# ${spec.agent} ${language}\nRuntime contract body.\n`,
           "utf-8",
         );
       }
     }
   }
-  return { privateRoot, bundledRoot };
+  const privateCommit = initializeRepository(join(root, "private"));
+  const bundledCommit = initializeRepository(join(root, "bundled"));
+  return { privateRoot, bundledRoot, privateCommit, bundledCommit };
 }
 
 async function build(
-  roots: { privateRoot: string; bundledRoot: string },
+  roots: FixtureRoots,
   baseline: Awaited<ReturnType<typeof buildPromptTokenBudgetManifest>> | null = null,
 ) {
   return buildPromptTokenBudgetManifest({
     cohort: "cohort_default",
     privatePromptsRoot: roots.privateRoot,
     bundledPromptsRoot: roots.bundledRoot,
-    privateCommit: "a".repeat(40),
-    bundledCommit: "b".repeat(40),
+    privateCommit: roots.privateCommit,
+    bundledCommit: roots.bundledCommit,
     generatedAt: "2026-07-10T00:00:00.000Z",
     baseline,
   });
 }
 
 describe("prompt token budget manifest", () => {
-  it("measures both sources for all 26 runtime stages and both languages", async () => {
+  it("measures both sources for all 29 runtime stages and both languages", async () => {
     const artifact = await build(fixtureRoots());
 
     expect(artifact.summary).toEqual({
-      expected_row_count: 104,
-      row_count: 104,
-      passed_row_count: 104,
+      expected_row_count: 116,
+      row_count: 116,
+      passed_row_count: 116,
       failed_row_count: 0,
       semantic_parity_passed: true,
       ready: true,
@@ -77,8 +84,14 @@ describe("prompt token budget manifest", () => {
   it("fails when a runtime prompt grows beyond the committed 1.25x baseline", async () => {
     const roots = fixtureRoots();
     const baseline = await build(roots);
-    const path = join(roots.privateRoot, "cohort_default", "macro", "volatility.zh.md");
+    const path = join(
+      roots.privateRoot,
+      "cohort_default",
+      "macro",
+      "us_financial_conditions.zh.md",
+    );
     writeFileSync(path, `${readFileSync(path, "utf-8")}\n${"expanded contract ".repeat(8_000)}`);
+    roots.privateCommit = commitRepository(join(roots.privateRoot, "..", ".."), "grow prompt");
 
     const current = await build(roots, baseline);
 
@@ -88,47 +101,28 @@ describe("prompt token budget manifest", () => {
     expect(failed.some((row) => !row.checks.baseline_growth_within_limit)).toBe(true);
   });
 
-  it("fails source semantic parity when private knobs drift", async () => {
+  it("rejects source content that does not match the attributed commits", async () => {
     const roots = fixtureRoots();
-    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "volatility");
-    if (!spec) throw new Error("volatility spec missing");
-    const knobs = structuredClone(buildRuntimeResearchKnobs(spec));
-    const missing = knobs.confidence_caps.missing_current_data;
-    if (!missing) throw new Error("missing current-data cap missing");
-    missing.cap = 0.5;
-    const fence = renderResearchKnobsFence(knobs);
-    for (const language of ["zh", "en"] as const) {
-      writeFileSync(
-        join(roots.privateRoot, "cohort_default", "macro", `volatility.${language}.md`),
-        `${fence}\n\n# volatility ${language}\nRuntime contract body.\n`,
-      );
-    }
+    const path = join(roots.bundledRoot, "cohort_default", "macro", "china.en.md");
+    writeFileSync(path, `${readFileSync(path, "utf-8")}\nuncommitted change\n`, "utf-8");
 
-    const artifact = await build(roots);
-
-    expect(artifact.summary.semantic_parity_passed).toBe(false);
-    expect(artifact.summary.ready).toBe(false);
-  });
-
-  it("keeps independently evolved non-macro knobs outside the macro parity gate", async () => {
-    const roots = fixtureRoots();
-    const spec = RUNTIME_AGENT_SPECS.find((item) => item.agent === "semiconductor");
-    if (!spec) throw new Error("semiconductor spec missing");
-    const knobs = structuredClone(buildRuntimeResearchKnobs(spec));
-    const missing = knobs.confidence_caps.missing_current_data;
-    if (!missing) throw new Error("missing current-data cap missing");
-    missing.cap = 0.5;
-    const fence = renderResearchKnobsFence(knobs);
-    for (const language of ["zh", "en"] as const) {
-      writeFileSync(
-        join(roots.privateRoot, "cohort_default", "sector", `semiconductor.${language}.md`),
-        `${fence}\n\n# semiconductor ${language}\nRuntime contract body.\n`,
-      );
-    }
-
-    const artifact = await build(roots);
-
-    expect(artifact.summary.semantic_parity_passed).toBe(true);
-    expect(artifact.summary.ready).toBe(true);
+    await expect(build(roots)).rejects.toThrow("prompt_source_tree_drift:bundled");
   });
 });
+
+function initializeRepository(root: string): string {
+  git(root, "init", "-b", "main");
+  git(root, "config", "user.name", "Test");
+  git(root, "config", "user.email", "test@example.com");
+  return commitRepository(root, "seed prompts");
+}
+
+function commitRepository(root: string, message: string): string {
+  git(root, "add", "prompts/mosaic");
+  git(root, "commit", "-m", message);
+  return git(root, "rev-parse", "HEAD");
+}
+
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
+}

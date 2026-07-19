@@ -23,23 +23,34 @@ describe("RKE footprint capture helpers", () => {
   it("builds redacted rows and calls only the RKE context tool", async () => {
     const called: string[] = [];
     const api = {
-      toolsCall: async (name: string) => {
-        called.push(name);
+      rkeAgentResearchContext: async () => {
+        called.push("rke.agentResearchContext");
         return {
-          text: [
-            "Runtime preflight: runtime_preflight_status=ready; ranking_policy_id=rke_agent_research_context_rank_v1; context_hash=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; display_sort_policy=preserve_part1_retrieval_rank",
-            "Runtime ranking audit: retrieval_ranks=1; priority_buckets=high; truncated_item_count=0; current_data_required=true",
-            "",
-            "### Prior forecast_claim:macro-dollar-001",
-          ].join("\n"),
+          schema_version: "rke_agent_research_context_v1",
+          agent_id: "macro.us_financial_conditions",
+          layer: "macro",
+          as_of_date: "2026-06-18",
+          ranking_policy_id: "rke_agent_research_context_rank_v1",
+          research_only: true,
+          production_signal_allowed: false,
+          actionability: "research_only",
+          summary: { truncated_item_count: 0 },
+          context_items: [
+            {
+              retrieval_rank: 1,
+              priority_bucket: "high",
+              redacted_claim_id: "forecast_claim:macro-us-financial-conditions-001",
+            },
+          ],
+          no_prior_reasons: [],
         };
       },
     } as unknown as BridgeApi;
     const state = {
       as_of_date: "2026-06-18",
       layer1_outputs: {
-        dollar: {
-          agent: "dollar",
+        us_financial_conditions: {
+          agent: "us_financial_conditions",
           confidence: 0.7,
           key_drivers: [],
           dxy_trend: "STABLE",
@@ -54,12 +65,12 @@ describe("RKE footprint capture helpers", () => {
 
     const rows = await buildDailyCycleRkeFootprintRows(api, state);
 
-    expect(called).toEqual(["get_rke_research_context"]);
+    expect(called).toEqual(["rke.agentResearchContext"]);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
-      agent: "dollar",
+      agent: "us_financial_conditions",
       claim_type: "macro_regime_claim",
-      rke_context_hash: "b".repeat(64),
+      rke_context_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
       ranking_policy_id: "rke_agent_research_context_rank_v1",
       current_data_confirmed: false,
     });
@@ -68,20 +79,31 @@ describe("RKE footprint capture helpers", () => {
 
   it("marks current data confirmed only when the producer opts in", async () => {
     const api = {
-      toolsCall: async () => ({
-        text: [
-          "Runtime preflight: runtime_preflight_status=ready; ranking_policy_id=rke_agent_research_context_rank_v1; context_hash=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc; display_sort_policy=preserve_part1_retrieval_rank",
-          "Runtime ranking audit: retrieval_ranks=1; priority_buckets=high; truncated_item_count=0; current_data_required=true",
-          "",
-          "### Prior forecast_claim:macro-dollar-002",
-        ].join("\n"),
+      rkeAgentResearchContext: async () => ({
+        schema_version: "rke_agent_research_context_v1",
+        agent_id: "macro.us_financial_conditions",
+        layer: "macro",
+        as_of_date: "2026-06-18",
+        ranking_policy_id: "rke_agent_research_context_rank_v1",
+        research_only: true,
+        production_signal_allowed: false,
+        actionability: "research_only",
+        summary: { truncated_item_count: 0 },
+        context_items: [
+          {
+            retrieval_rank: 1,
+            priority_bucket: "high",
+            redacted_claim_id: "forecast_claim:macro-us-financial-conditions-002",
+          },
+        ],
+        no_prior_reasons: [],
       }),
     } as unknown as BridgeApi;
     const state = {
       as_of_date: "2026-06-18",
       layer1_outputs: {
-        dollar: {
-          agent: "dollar",
+        us_financial_conditions: {
+          agent: "us_financial_conditions",
           confidence: 0.7,
           key_drivers: [],
           dxy_trend: "STABLE",

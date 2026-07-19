@@ -7,7 +7,7 @@ TypeScript front-end (mosaic-ts/)      JSON-RPC / stdio       Python sidecar (mo
 ──────────────────────────────        ───────────────        ────────────────────────────
 CLI (commander) + TUI (Ink)                                   bridge/    JSON-RPC server + handlers/
 LangGraph.js 4-layer orchestration  ⇄  line-delimited JSON ⇄  dataflows/ Tushare/akshare/FRED/qlib
-  L1 macro(10) · L2 sector(7)                                 scorecard/ · autoresearch/ · prism/
+  L1 macro(10) · L2 sector(10)                                scorecard/ · autoresearch/ · prism/
   L3 superinvestor(4) · L4 decision(4)                        janus/ · mirofish/ · backtest/ · paper_trading/
 LLM clients · Scorecard views                                 persistence: SQLite + a git repo
 ```
@@ -34,7 +34,7 @@ MOSAIC-Combat-Evolved/
 │   ├── dataflows/              #   Tushare / akshare / yfinance / FRED + qlib local reader + ingest
 │   │   └── collectors/         #   vendored qlib + tushare/ETF collectors (see Data Layer)
 │   ├── scorecard/              #   SQLite store · forward-return scoring · Darwinian weights
-│   ├── autoresearch/           #   git_ops · constraints · evaluator · keep/revert decider
+│   ├── autoresearch/           #   legacy diagnostic/replay only; no production promotion edge
 │   ├── prism/                  #   7-cohort training orchestration
 │   ├── janus/                  #   cross-cohort meta-weighting
 │   ├── mirofish/               #   reflexive scenario simulation (swarm engine · path-aware scorer)
@@ -49,7 +49,7 @@ MOSAIC-Combat-Evolved/
 │       ├── autoresearch/ · prism/ · mirofish/
 │       ├── cli/commands/       #   CLI subcommands
 │       └── tui/                #   Ink dashboard
-├── prompts/mosaic/             # 📝 bilingual prompt repo (cohort_default + 7 cohorts)
+├── prompts/mosaic/             # 📝 minimal bundled/fake prompts; production prompts are private
 ├── tests/                      # ✅ Python tests (pytest / unittest)
 ├── pyproject.toml · docs/plans/mosaic-tsplan.md · .github/workflows/ci.yml
 ```
@@ -62,5 +62,5 @@ MOSAIC-Combat-Evolved/
 ## Persistence
 
 - **SQLite** — scorecard recommendations + scoring, autoresearch metadata, backtest run cache, paper-trading DB (`~/.mosaic/paper_trading.db`).
-- **git repo** — Autoresearch versions prompt mutations on feature branches; keep = merge to main, revert = delete branch (see [Self-Improvement](Self-Improvement.md)).
+- **prompt repositories** — production loads a pinned private 448-prompt release. KNOT is the only production behavior promoter and publishes an atomic execution-behavior release; the old Delta-Sharpe branch path is diagnostic/historical only (see [Self-Improvement](Self-Improvement.md)).
 - **Config file** — `~/.mosaic/config.json` (optional; see [Configuration](Configuration.md)).

@@ -1,19 +1,14 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { upsertRuntimeEvidenceContract } from "../src/agents/prompts/research_knobs_projection.js";
 import { RUNTIME_AGENT_SPECS } from "../src/agents/prompts/runtime_agent_spec.js";
+import { upsertRuntimeEvidenceContract } from "../src/agents/prompts/runtime_evidence_contract.js";
 
 const roots = process.argv.slice(2);
 if (roots.length === 0) throw new Error("provide at least one prompts/mosaic root");
 for (const root of roots) {
   for (const spec of RUNTIME_AGENT_SPECS) {
     for (const language of ["zh", "en"] as const) {
-      const path = resolve(
-        root,
-        "cohort_default",
-        spec.layer,
-        `${spec.agent}.${language}.md`,
-      );
+      const path = resolve(root, "cohort_default", spec.layer, `${spec.agent}.${language}.md`);
       if (!existsSync(path)) throw new Error(`prompt missing: ${path}`);
       const current = readFileSync(path, "utf8");
       let updated = upsertRuntimeEvidenceContract(current, spec, language);

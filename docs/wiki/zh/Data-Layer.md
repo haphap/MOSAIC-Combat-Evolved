@@ -2,12 +2,52 @@
 
 `mosaic/dataflows/` 向 agent 提供行情 + 宏观数据,以及 qlib 历史数据底座与 ingest 工具链。
 
-## 数据源
+## 生产数据源与工具边界
 
-- **Tushare**(`tushare.py`)—— 主要 A 股个股 + ETF 数据(`pro.daily`、`pro.fund_daily`、`pro.index_daily`、财务),以及**研究报告**(`pro.research_report`):`get_broker_reports`(行业研报,行业级)和 `get_stock_reports`(个股研报,个股级)。LangChain `@tool` 封装 `get_broker_research` / `get_stock_research` 在 `mosaic/agents/utils/research_report_tools.py`,挂载到行业 + 投资哲学 agent(见[智能体](Agents.md))。
-- **china-policy-db**、**gov.cn**、**央行官网**、**akshare**、**yfinance**、**FRED**(`macro_data.py`、`gov_policy.py`、`pboc_ops.py`、`fred.py`)、雪球热度 等 —— 宏观/全球/情绪工具。`get_industry_policy` 与 `get_pboc_ops` 优先读取本地 `haphap/china-policy-db` clone/cache,本地数据过期时先增量刷新,若 clone/pull/refresh 不可用再回退到现有 gov.cn/央行官网 crawler。另含 `get_property_data`(akshare `macro_china_real_estate` —— 月度国房景气指数,按 `curr_date` 点对点裁剪)、`get_policy_uncertainty`(akshare `article_epu_index` / EPU)、`get_realized_volatility`(akshare `article_oman_rv` / `article_rlab_rv`)、`get_stock_moneyflow` / `get_industry_moneyflow`(A 股资金流向,同花顺数据),由 `china`、`volatility` 与行业 agent 使用。macro 层共 **20 个工具**(全 5 模块共 32 个 —— 见 [Bridge RPC](Bridge-RPC.md) 的模块拆分)。
-- **工具模块** —— `mosaic/agents/utils/` 下所有 LangChain `@tool` 装饰函数注册为 `tools.list` / `tools.call` RPC。五个模块:`macro_tools`(20 个)、`etf_tools`(4 个:信息/净值/持仓/全市场)、`financial_tools`(4 个:基本面/资产负债表/利润表/现金流)、`research_report_tools`(2 个:行业/个股)、`technical_tools`(2 个:行情/技术指标)。每个 agent 使用限定子集 —— 见[智能体](Agents.md)逐层分配。
-- 工具选择由配置驱动(`MosaicConfig` 的 `data_vendors` / `tool_vendors`)。
+- **Tushare** 是 A 股/ETF 行情、PIT 成分、财务报表、基金份额、资金流、期货、外汇和
+  全球财经日历 `eco_cal` 的注册主来源，但每个 endpoint 必须先通过权限与 schema
+  preflight。`major_news`、`news`、`npr`、`monetary_policy` 已明确无权限，不存在生产
+  client 或 fallback。
+- **中国/PBOC** 实体与政策观测来自已注册的国家统计局、海关总署、财政部和 PBOC
+  官方目录及通过验证的 Tushare series。**美国**实体历史 vintage 使用预注册的
+  ALFRED/官方 series，Fed/纽约联储数据进入美国金融条件。**欧盟/欧元区**实体与金融
+  数据使用冻结的 Eurostat/ECB key。World Bank 只作 `CONTEXT_ONLY`。
+- 原始响应只保存在私有缓存。运行时 collector 在 Agent 启动前物化并签名
+  `AgentSnapshotBundle`；模型只能调用零参数的职责快照。bridge 校验 Agent、stage、日期和
+  scope，消费一次性 capability，且 `tools.call` 期间不重新采集。
+- 行业、关系、Superinvestor 和 Decision 节点同样只读取冻结的角色快照。通用 ticker
+  搜索、OpenCLI/财新搜索、雪球关注度、研究报告工具和 `get_rke_research_context` 均不在
+  production tool manifest；RKE 始终为 shadow-only。
+- endpoint 状态、source mapping 和精确 Agent/tool 分配提交在 `registry/data_sources/`
+  与 `registry/prompt_checks/`。required coverage 缺失时失败关闭，不得静默切换数据源。
+
+### 欧盟官方 API adapter
+
+`official_macro_adapters.py` 为冻结的 Eurostat、ECB 与 World Bank series 提供封闭、
+host 白名单和响应大小受限的 URL builder/parser。可运行
+`uv run python scripts/probe_official_macro_sources.py` 刷新仅含 metadata 的 transport
+preflight；公开 artifact 只记录 URL、content hash、行数和 readiness，不保存 provider
+观测值。实时 API 可用只证明 transport/schema 可用，并不证明 PIT 安全；在观测值能够连接到
+append-only release/vintage ledger，且满足 `released_at/vintage_at <= as_of` 前，欧盟/欧元区
+production snapshot 必须继续失败关闭。
+该规则不限于 EU/ECB：中国、ALFRED、PBOC、美国金融条件、商品和机构资金的已注册名称
+只表示身份映射，不是生产 receipt。所有尚未证明的 required branch 都必须形成显式
+source gap，因此正式 builder 会拒绝当前未完成 adapter 与 PIT/release-vintage 归档证明的
+角色快照；只有明确标记的非生产 smoke fixture 可以绕过。
+
+### 地缘数据源 preflight
+
+`geopolitical_source_adapters.py` 只探测封闭 source manifest 中的 15 个精确 root，执行
+HTTPS/domain 白名单、响应大小限制、redirect 校验和宽泛响应结构校验。可运行
+`uv run python scripts/probe_geopolitical_sources.py` 刷新仅含 metadata 的 artifact。
+root 可访问不等于事件证据，也不能激活 coverage route；production 仍要求各 source 的
+pagination、发布时间解析、完整 route polling，以及连续 30 天 availability/latency 证据。
+任何 required source 缺失时，`get_geopolitical_events_snapshot` 必须失败关闭。
+当前 checkout 尚无内置的逐 source parser，也没有经过验证的连续 preflight receipt
+读取器。callback parser 仅是非生产测试入口，其 poll 记录不能满足正式覆盖；root transport
+成功或手工重算 readiness manifest 的 hash 都不能完成生产晋级。
+私有审计保留 route/query 粒度明细；模型只接收包含事件及各事件族精确覆盖计数/hash 的
+有界角色投影。
 
 ## qlib 本地读取 (`qlib_local.py`)
 

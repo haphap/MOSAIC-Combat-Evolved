@@ -1,0 +1,269 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Active point-in-time Macro role snapshot v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "role",
+    "as_of_date",
+    "observations",
+    "events",
+    "source_policy",
+    "snapshot_hash"
+  ],
+  "properties": {
+    "schema_version": { "const": "macro_role_snapshot_v2" },
+    "role": {
+      "enum": [
+        "china",
+        "us_economy",
+        "eu_economy",
+        "central_bank",
+        "us_financial_conditions",
+        "euro_area_financial_conditions",
+        "commodities",
+        "institutional_flow"
+      ]
+    },
+    "as_of_date": { "type": "string", "format": "date" },
+    "observations": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/observation" }
+    },
+    "events": { "type": "array", "maxItems": 0 },
+    "source_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "registered_sources",
+        "us_revision_source",
+        "implicit_fallback"
+      ],
+      "properties": {
+        "registered_sources": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "us_revision_source": { "const": "ALFRED/official fixed map" },
+        "implicit_fallback": { "const": false }
+      }
+    },
+    "component_data_quality": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      }
+    },
+    "direct_data_quality": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "component_coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "market_wide_flow",
+        "sector_rotation",
+        "etf_share",
+        "crowding"
+      ],
+      "properties": {
+        "market_wide_flow": { "$ref": "#/$defs/coverage" },
+        "sector_rotation": { "$ref": "#/$defs/coverage" },
+        "etf_share": { "$ref": "#/$defs/coverage" },
+        "crowding": { "$ref": "#/$defs/coverage" }
+      }
+    },
+    "context_only_projection": { "$ref": "#/$defs/context_projection" },
+    "role_event_snapshot": { "$ref": "role_event_snapshot_v2.schema.json" },
+    "snapshot_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "role": { "const": "institutional_flow" } },
+        "required": ["role"]
+      },
+      "then": {
+        "required": ["direct_data_quality", "component_coverage"],
+        "not": {
+          "anyOf": [
+            { "required": ["component_data_quality"] },
+            { "required": ["context_only_projection"] },
+            { "required": ["role_event_snapshot"] }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "not": {
+          "properties": { "role": { "const": "institutional_flow" } },
+          "required": ["role"]
+        }
+      },
+      "then": {
+        "required": ["component_data_quality", "role_event_snapshot"],
+        "not": {
+          "anyOf": [
+            { "required": ["direct_data_quality"] },
+            { "required": ["component_coverage"] }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "role": {
+            "enum": [
+              "us_financial_conditions",
+              "euro_area_financial_conditions"
+            ]
+          }
+        },
+        "required": ["role"]
+      },
+      "then": { "required": ["context_only_projection"] }
+    },
+    {
+      "if": {
+        "properties": {
+          "role": {
+            "enum": [
+              "china",
+              "us_economy",
+              "eu_economy",
+              "central_bank",
+              "commodities",
+              "institutional_flow"
+            ]
+          }
+        },
+        "required": ["role"]
+      },
+      "then": { "not": { "required": ["context_only_projection"] } }
+    }
+  ],
+  "$defs": {
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "series_id",
+        "period_start",
+        "period_end",
+        "released_at",
+        "vintage_at",
+        "actual",
+        "previous",
+        "expected",
+        "unit",
+        "source",
+        "pit_status",
+        "evidence_id"
+      ],
+      "properties": {
+        "series_id": { "type": "string", "minLength": 1 },
+        "period_start": { "type": "string", "format": "date" },
+        "period_end": { "type": "string", "format": "date" },
+        "released_at": { "type": "string", "format": "date-time" },
+        "vintage_at": { "type": "string", "format": "date-time" },
+        "actual": { "type": "number" },
+        "previous": { "type": ["number", "null"] },
+        "expected": { "type": ["number", "null"] },
+        "unit": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "source": { "type": "string", "minLength": 1 },
+        "pit_status": { "const": "AVAILABLE_AS_OF" },
+        "evidence_id": { "type": "string", "minLength": 1, "maxLength": 256 }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eligible_count", "observed_count", "coverage_ratio"],
+      "properties": {
+        "eligible_count": { "type": "integer", "minimum": 1 },
+        "observed_count": { "type": "integer", "minimum": 0 },
+        "coverage_ratio": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "context_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "component",
+        "source_role",
+        "usage_mode",
+        "contributes_to_required_components",
+        "observation_count",
+        "latest_period_end",
+        "actual_vs_expected_balance",
+        "actual_vs_previous_balance",
+        "evidence_ids"
+      ],
+      "properties": {
+        "component": {
+          "enum": ["growth_production", "prices", "employment", "demand_trade"]
+        },
+        "source_role": { "enum": ["us_economy", "eu_economy"] },
+        "usage_mode": { "const": "CONTEXT_ONLY" },
+        "contributes_to_required_components": { "const": false },
+        "observation_count": { "type": "integer", "minimum": 1 },
+        "latest_period_end": { "type": "string", "format": "date" },
+        "actual_vs_expected_balance": { "type": "integer" },
+        "actual_vs_previous_balance": { "type": "integer" },
+        "evidence_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "context_projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "usage_mode",
+        "source_role",
+        "contributes_to_required_components",
+        "component_summaries",
+        "projection_hash"
+      ],
+      "properties": {
+        "schema_version": { "const": "macro_real_economy_context_projection_v1" },
+        "usage_mode": { "const": "CONTEXT_ONLY" },
+        "source_role": { "enum": ["us_economy", "eu_economy"] },
+        "contributes_to_required_components": { "const": false },
+        "component_summaries": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["growth_production", "prices", "employment", "demand_trade"],
+          "properties": {
+            "growth_production": { "$ref": "#/$defs/context_summary" },
+            "prices": { "$ref": "#/$defs/context_summary" },
+            "employment": { "$ref": "#/$defs/context_summary" },
+            "demand_trade": { "$ref": "#/$defs/context_summary" }
+          }
+        },
+        "projection_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

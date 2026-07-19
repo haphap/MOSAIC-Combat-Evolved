@@ -110,6 +110,24 @@ describe("strict agent-run contract", () => {
     expect(JSON.stringify(llm.calls[2])).toContain("complete_json_schema");
   });
 
+  it("places exact runtime evidence and opaque citation ids in every repair request", async () => {
+    const llm = new SequenceLlm([
+      { disposition: "ITEMS", items: [], claim_refs: ["claim-1"] },
+      { disposition: "ITEMS", items: ["fixed"], claim_refs: ["claim-1"] },
+    ]);
+    await run(llm, {
+      evidenceSnapshot: {
+        evidenceLedger: [{ evidence_id: "evidence:allowed" }],
+        allowedResearchRuleIds: new Set(["rule.allowed"]),
+      },
+    });
+    const repairPayload = JSON.parse(
+      String((llm.calls[1] as [SystemMessage, HumanMessage])[1].content),
+    );
+    expect(repairPayload.allowed_evidence_ids).toEqual(["evidence:allowed"]);
+    expect(repairPayload.allowed_citation_ids).toEqual(["rule.allowed"]);
+  });
+
   it("uses at most three repairs and revalidates new errors", async () => {
     const llm = new SequenceLlm([
       { disposition: "ITEMS", items: ["bad-1"], claim_refs: ["claim-1"] },
@@ -176,6 +194,36 @@ describe("strict agent-run contract", () => {
     }
   });
 
+  it("terminates a private policy failure without replaying a consumed capability", async () => {
+    const llm = new SequenceLlm([
+      { disposition: "ITEMS", items: ["x"], claim_refs: ["claim-1"] },
+      { disposition: "ITEMS", items: ["retry"], claim_refs: ["claim-1"] },
+    ]);
+    await expect(
+      run(llm, {
+        validate: (output: z.infer<typeof Schema>) => ({
+          output,
+          issues: [
+            {
+              validator: "private_knot_runtime_v1",
+              reason_code: "PRIVATE_KNOT_POLICY_REJECTED",
+              json_path: "$",
+              message: "one-use private policy rejected the candidate",
+            },
+          ],
+        }),
+      }),
+    ).rejects.toMatchObject({
+      audit: {
+        status: "error",
+        stop_reason: "private_policy_failure",
+        attempt_count: 1,
+        reason_codes: ["PRIVATE_KNOT_POLICY_REJECTED"],
+      },
+    });
+    expect(llm.calls).toHaveLength(1);
+  });
+
   it("fails preflight when structured output is unsupported", async () => {
     const llm = new SequenceLlm([], new Error("unsupported"));
     await expect(run(llm)).rejects.toMatchObject({
@@ -208,5 +256,94 @@ describe("strict agent-run contract", () => {
     expect(JSON.stringify(llm.schemas[0])).toContain("additionalProperties");
     expect(result.audit.repair_count).toBe(1);
     expect(result.output).toEqual({ values: { "/score": 1 } });
+  });
+
+  it("bounds high-volume extraction arrays without narrowing the domain schema", async () => {
+    const CompactSchema = z.object({
+      selection_status: z.literal("NO_QUALIFIED_GENERIC"),
+      claims: z.array(z.string()).max(8),
+      key_drivers: z.array(z.string()).max(5),
+      picks: z.array(z.string()).max(10),
+      candidate_actions: z.array(z.string()).max(10),
+      free_text: z.string(),
+      conclusion: z.record(z.string(), z.string()),
+      empty_tuple: z.tuple([]),
+      pair_tuple: z.tuple([z.string(), z.number()]),
+    });
+    const llm = new SequenceLlm([
+      {
+        selection_status: "NO_QUALIFIED_GENERIC",
+        claims: [],
+        key_drivers: [],
+        picks: [],
+        candidate_actions: [],
+        free_text: "bounded provider text",
+        conclusion: { state: "mixed" },
+        empty_tuple: [],
+        pair_tuple: ["pair", 1],
+      },
+    ]);
+    await invokeStrictStructured({
+      llm: llm as never,
+      schema: CompactSchema,
+      messages: messages(),
+      agent: "compact_agent",
+      stage: "agent_run",
+      runId: "run-compact",
+      evidenceSnapshot: {},
+    });
+    const properties = (llm.schemas[0] as { properties: Record<string, Record<string, unknown>> })
+      .properties;
+    expect(properties.claims?.maxItems).toBe(1);
+    expect(properties.key_drivers?.maxItems).toBe(1);
+    expect(properties.picks?.maxItems).toBe(2);
+    expect(properties.candidate_actions?.maxItems).toBe(10);
+    expect(properties.free_text?.maxLength).toBe(320);
+    expect(properties.conclusion?.maxProperties).toBe(12);
+    expect(properties.empty_tuple).toMatchObject({
+      items: false,
+      minItems: 0,
+      maxItems: 0,
+    });
+    expect(properties.pair_tuple).toMatchObject({
+      items: false,
+      minItems: 2,
+      maxItems: 2,
+    });
+    expect(
+      CompactSchema.safeParse({
+        selection_status: "NO_QUALIFIED_GENERIC",
+        claims: Array(8).fill("claim"),
+        key_drivers: Array(5).fill("driver"),
+        picks: Array(10).fill("pick"),
+        candidate_actions: Array(10).fill("action"),
+        free_text: "x".repeat(500),
+        conclusion: Object.fromEntries(
+          Array.from({ length: 13 }, (_, index) => [`field_${index}`, "value"]),
+        ),
+        empty_tuple: [],
+        pair_tuple: ["pair", 1],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("retains the claim capacity required by exact component rosters", async () => {
+    const ComponentSchema = z.object({
+      components: z.array(z.string()).length(5),
+      claims: z.array(z.string()).min(1).max(8),
+    });
+    const llm = new SequenceLlm([{ components: ["a", "b", "c", "d", "e"], claims: ["shared"] }]);
+    await invokeStrictStructured({
+      llm: llm as never,
+      schema: ComponentSchema,
+      messages: messages(),
+      agent: "component_agent",
+      stage: "agent_run",
+      runId: "run-components",
+      evidenceSnapshot: {},
+    });
+    const properties = (llm.schemas[0] as { properties: Record<string, Record<string, unknown>> })
+      .properties;
+    expect(properties.claims?.maxItems).toBe(8);
   });
 });

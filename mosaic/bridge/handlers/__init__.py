@@ -28,4 +28,5 @@ from . import prompts  # noqa: F401
 from . import rke  # noqa: F401
 from . import scorecard  # noqa: F401
 from . import rke_benchmark  # noqa: F401
+from . import runtime_data  # noqa: F401
 from . import tools  # noqa: F401

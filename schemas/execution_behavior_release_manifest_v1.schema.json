@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "execution_behavior_release_manifest_v1"
+    },
+    "execution_behavior_release_id": {
+      "type": "string",
+      "pattern": "^execution-behavior-release:[0-9a-f]{64}$"
+    },
+    "execution_behavior_release_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "private_prompt_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "provider_binding": {
+      "type": "object",
+      "properties": {
+        "provider": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "base_url_mode": {
+          "type": "string",
+          "enum": [
+            "PROVIDER_DEFAULT",
+            "CONFIGURED_PRIVATE_ENDPOINT"
+          ]
+        },
+        "structured_output_mode": {
+          "type": "string",
+          "const": "JSON_SCHEMA_STRICT"
+        },
+        "repair_policy": {
+          "type": "string",
+          "const": "BOUNDED_SCHEMA_REPAIR_V1"
+        }
+      },
+      "required": [
+        "provider",
+        "model",
+        "base_url_mode",
+        "structured_output_mode",
+        "repair_policy"
+      ],
+      "additionalProperties": false
+    },
+    "active_production_variants": {
+      "minItems": 16,
+      "maxItems": 16,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "production_variant_roster_id": {
+            "type": "string",
+            "pattern": "^production-variant-roster:[0-9a-f]{64}$"
+          },
+          "cohort_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "language": {
+            "type": "string",
+            "enum": [
+              "en",
+              "zh"
+            ]
+          }
+        },
+        "required": [
+          "production_variant_roster_id",
+          "cohort_id",
+          "language"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "variants": {
+      "minItems": 448,
+      "maxItems": 448,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "variant_path": {
+            "type": "string",
+            "pattern": "^cohort_[a-z0-9_]+\\/(?:macro|sector|superinvestor|decision)\\/[a-z0-9_]+\\.(?:en|zh)\\.md$"
+          },
+          "agent_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "cohort_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "language": {
+            "type": "string",
+            "enum": [
+              "en",
+              "zh"
+            ]
+          },
+          "prompt_content_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "immutable_contract_block_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "prompt_behavior_version": {
+            "type": "string",
+            "pattern": "^(?:prompt-behavior|execution-behavior):[0-9a-f]{64}$"
+          },
+          "execution_behavior_version": {
+            "type": "string",
+            "pattern": "^(?:prompt-behavior|execution-behavior):[0-9a-f]{64}$"
+          },
+          "structured_output_schema_bindings": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "phase": {
+                  "type": "string",
+                  "enum": [
+                    "DEFAULT",
+                    "DIRECTION_RESEARCH",
+                    "CONFLICT_REVIEW",
+                    "FINAL_SELECTION",
+                    "CIO_PROPOSAL",
+                    "CIO_FINAL"
+                  ]
+                },
+                "schema_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "schema_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "immutable_phase_instruction_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "phase",
+                "schema_id",
+                "schema_hash",
+                "immutable_phase_instruction_hash"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "structured_output_schema_set_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "structured_provider_contract_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "runtime_tool_manifest_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "knot_champion_baseline_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "variant_path",
+          "agent_id",
+          "cohort_id",
+          "language",
+          "prompt_content_hash",
+          "immutable_contract_block_hash",
+          "prompt_behavior_version",
+          "execution_behavior_version",
+          "structured_output_schema_bindings",
+          "structured_output_schema_set_hash",
+          "structured_provider_contract_hash",
+          "runtime_tool_manifest_hash",
+          "knot_champion_baseline_hash"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "execution_behavior_release_id",
+    "execution_behavior_release_hash",
+    "private_prompt_commit",
+    "provider_binding",
+    "active_production_variants",
+    "variants"
+  ],
+  "additionalProperties": false
+}

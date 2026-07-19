@@ -1,179 +1,75 @@
-/**
- * Tests for the Layer-1 LangGraph subgraph (Plan §11.2 sub-step 2C.3).
- *
- * The subgraph topology is fixed (10 macro nodes serially, then aggregator),
- * so we focus on:
- *   - All 10 agent nodes + the aggregator are registered
- *   - Compiled graph runs end-to-end with mocked agent outputs
- *   - layer1_consensus is populated correctly after aggregation
- *
- * Each agent node's internal flow is already covered by central_bank /
- * china / macro_layer1_agents tests; here we only need to know that the
- * graph wires them in the right order.
- */
-
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AIMessage, type BaseMessage } from "@langchain/core/messages";
+import { AIMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { MACRO_AGENT_IDS, MACRO_ROLE_CONTRACTS } from "../src/agents/macro/_contracts.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
-import type { MacroAgentOutput, RegimeSignal } from "../src/agents/types.js";
+import { emptyCurrentPositions, emptyLayer4, emptyPositionAudit } from "../src/agents/state.js";
 import type { JsonSchemaObject, ToolMetadata } from "../src/bridge/index.js";
 import type { BridgeApi, MosaicConfig } from "../src/bridge/types.js";
-import { fakeAgentStructuredOutput, fakeSchemaValue } from "../src/cli/fake_agent_output.js";
+import { fakeAgentStructuredOutput } from "../src/cli/fake_agent_output.js";
 import {
   buildLayer1Graph,
   LAYER1_AGENT_NODES,
-  LAYER1_AGGREGATOR_NODE,
+  LAYER1_INPUT_GATE_NODE,
 } from "../src/graph/layer1.js";
 import type { LlmHandle } from "../src/llm/factory.js";
-import { macroOutput } from "./helpers/macro.js";
 
-// ============================================================ shape
-
-describe("LAYER1_AGENT_NODES + LAYER1_AGGREGATOR_NODE constants", () => {
-  it("declares the canonical 10 macro nodes", () => {
-    expect([...LAYER1_AGENT_NODES]).toEqual([
-      "china",
-      "us_economy",
-      "central_bank",
-      "dollar",
-      "yield_curve",
-      "commodities",
-      "geopolitical",
-      "volatility",
-      "market_breadth",
-      "institutional_flow",
-    ]);
-  });
-
-  it("aggregator node id is stable", () => {
-    expect(LAYER1_AGGREGATOR_NODE).toBe("aggregate_l1");
+describe("Layer-1 v2 topology", () => {
+  it("contains ten target agents and a non-semantic gate", () => {
+    expect(LAYER1_AGENT_NODES).toEqual(MACRO_AGENT_IDS);
+    expect(LAYER1_INPUT_GATE_NODE).toBe("macro_input_gate_node");
+    expect(LAYER1_AGENT_NODES).not.toEqual(
+      expect.arrayContaining([
+        "us_financial_conditions",
+        "euro_area_financial_conditions",
+        "macro_input_gate_node",
+      ]),
+    );
   });
 });
 
-// ============================================================ end-to-end mock serial graph
-
 const TOOL_SCHEMA: JsonSchemaObject = {
   type: "object",
-  properties: { x: { type: "string" } },
-  required: ["x"],
+  properties: { as_of_date: { type: "string" } },
+  required: ["as_of_date"],
 };
-
-const FAKE_TOOLS: ToolMetadata[] = [
-  "get_china_macro_snapshot",
-  "get_us_macro_snapshot",
-  "get_central_bank_snapshot",
-  "get_fx_conditions_snapshot",
-  "get_rates_credit_snapshot",
-  "get_commodity_conditions_snapshot",
-  "get_geopolitical_events_snapshot",
-  "get_volatility_snapshot",
-  "get_market_breadth_snapshot",
-  "get_market_positioning_snapshot",
-].map((name) => ({ name, description: name, args_schema: TOOL_SCHEMA }));
-
-/**
- * Per-agent canned structured outputs. Tweak the stance fields here to
- * exercise different aggregator outcomes.
- */
-function cannedOutputs(): Record<string, MacroAgentOutput> {
-  return Object.fromEntries(
-    LAYER1_AGENT_NODES.map((agent) => [
-      agent,
-      macroOutput(agent, { direction: "SUPPORTIVE", strength: 5 }),
-    ]),
-  ) as Record<string, MacroAgentOutput>;
-}
+const FAKE_TOOLS: ToolMetadata[] = MACRO_AGENT_IDS.map((agent) => ({
+  name: MACRO_ROLE_CONTRACTS[agent].requiredTools[0],
+  description: agent,
+  args_schema: TOOL_SCHEMA,
+}));
 
 class ScriptedLlm {
-  invokeCalls = 0;
-  bindToolsCalls = 0;
   structuredCalls = 0;
-  readonly perAgentResponse: Record<string, MacroAgentOutput>;
-  readonly textBetweenInvokes: string;
-  invokeIndex = 0;
-  private tools: Array<{ name: string; schema?: unknown }> = [];
-
-  constructor(perAgentResponse: Record<string, MacroAgentOutput>, textBetween = "analysis") {
-    this.perAgentResponse = perAgentResponse;
-    this.textBetweenInvokes = textBetween;
+  async invoke(): Promise<AIMessage> {
+    return new AIMessage("analysis text");
   }
-
-  bindTools(tools: unknown): ScriptedLlm {
-    this.bindToolsCalls++;
-    this.tools = Array.isArray(tools) ? tools : [];
-    return this;
-  }
-
-  withStructuredOutput(schema: unknown): { invoke: (input: unknown) => Promise<unknown> } {
+  withStructuredOutput(
+    schema: unknown,
+    options?: { name?: string },
+  ): { invoke: (input: unknown) => Promise<unknown> } {
     return {
-      invoke: async (input: unknown) => {
+      invoke: async (input) => {
         this.structuredCalls++;
-        // Pull the agent name from the system message in the input messages
-        // array. invokeStructuredOrFreetext passes BaseMessage[] when used.
-        const msgs = input as BaseMessage[];
-        const sys = msgs[0];
-        const sysContent = typeof sys?.content === "string" ? sys.content : "";
-        for (const agent of Object.keys(this.perAgentResponse)) {
-          if (sysContent.includes(agent)) {
-            return fakeAgentStructuredOutput(schema, agent, input);
-          }
-        }
-        throw new Error(
-          `ScriptedLlm.withStructuredOutput: no canned response matched system: ${sysContent.slice(0, 80)}`,
+        const agent = MACRO_AGENT_IDS.find(
+          (candidate) => options?.name === `${candidate}_agent_run`,
         );
+        if (!agent) throw new Error("macro agent missing from structured prompt");
+        return fakeAgentStructuredOutput(schema, agent, input);
       },
     };
-  }
-
-  async invoke(messages: BaseMessage[]): Promise<AIMessage> {
-    this.invokeCalls++;
-    if (this.tools.length > 0 && !messages.some((message) => message._getType() === "tool")) {
-      return new AIMessage({
-        content: "",
-        tool_calls: this.tools.map((tool, index) => ({
-          id: `fake-tool-${index}`,
-          name: tool.name,
-          args: fakeSchemaValue(tool.schema),
-        })),
-      });
-    }
-    return new AIMessage(this.textBetweenInvokes);
   }
 }
 
 const fakeApi: BridgeApi = {
   toolsList: async () => FAKE_TOOLS,
-  toolsCall: async (name: string) => ({ text: fakeSnapshot(name, "2024-06-24") }),
+  toolsCall: async () => ({ text: "unused by fake provider" }),
 } as unknown as BridgeApi;
 
-function fakeSnapshot(name: string, asOfDate: string): string {
-  const agent = LAYER1_AGENT_NODES.find((candidate) => MACRO_TOOL_BY_AGENT[candidate] === name);
-  return JSON.stringify({
-    schema_version:
-      agent === "market_breadth" ? "market_breadth_snapshot_v1" : "macro_role_snapshot_v1",
-    ...(agent !== "market_breadth" ? { role: agent } : {}),
-    as_of_date: asOfDate,
-  });
-}
-
-const MACRO_TOOL_BY_AGENT: Record<(typeof LAYER1_AGENT_NODES)[number], string> = {
-  china: "get_china_macro_snapshot",
-  us_economy: "get_us_macro_snapshot",
-  central_bank: "get_central_bank_snapshot",
-  dollar: "get_fx_conditions_snapshot",
-  yield_curve: "get_rates_credit_snapshot",
-  commodities: "get_commodity_conditions_snapshot",
-  geopolitical: "get_geopolitical_events_snapshot",
-  volatility: "get_volatility_snapshot",
-  market_breadth: "get_market_breadth_snapshot",
-  institutional_flow: "get_market_positioning_snapshot",
-};
-
-const BASE_CONFIG: MosaicConfig = {
+const config: MosaicConfig = {
   llm_provider: "fake",
   deep_think_llm: "fake",
   quick_think_llm: "fake",
@@ -195,106 +91,73 @@ const BASE_CONFIG: MosaicConfig = {
   tool_vendors: {},
 };
 
-describe("buildLayer1Graph (end-to-end serial / aggregate)", () => {
+describe("buildLayer1Graph", () => {
   let promptDir: string;
-
   beforeEach(() => {
-    promptDir = mkdtempSync(join(tmpdir(), "mosaic-l1-graph-"));
+    promptDir = mkdtempSync(join(tmpdir(), "mosaic-l1-v2-"));
     const dir = join(promptDir, "cohort_default", "macro");
     mkdirSync(dir, { recursive: true });
-    for (const name of LAYER1_AGENT_NODES) {
-      writeFileSync(join(dir, `${name}.zh.md`), "FAKE", "utf-8");
-      writeFileSync(join(dir, `${name}.en.md`), "FAKE", "utf-8");
+    for (const agent of MACRO_AGENT_IDS) {
+      writeFileSync(join(dir, `${agent}.zh.md`), "FAKE", "utf8");
+      writeFileSync(join(dir, `${agent}.en.md`), "FAKE", "utf8");
     }
     clearPromptCache();
   });
-
   afterEach(() => {
     rmSync(promptDir, { recursive: true, force: true });
     clearPromptCache();
   });
 
-  it("compiled graph runs all 10 macro nodes + aggregator with strict outputs", async () => {
-    const llm = new ScriptedLlm(cannedOutputs());
+  it("runs all ten agents, composes accepted outputs, and closes the gate", async () => {
+    const llm = new ScriptedLlm();
     const handle: LlmHandle = {
       llm: llm as unknown as LlmHandle["llm"],
       provider: "fake",
       model: "fake-model",
       baseUrl: undefined,
     };
-
-    const graph = buildLayer1Graph({
-      llmHandle: handle,
-      api: fakeApi,
-      config: BASE_CONFIG,
-    });
-
-    const initialState: DailyCycleStateType = {
+    const initial: DailyCycleStateType = {
       messages: [],
       active_cohort: "cohort_default",
-      as_of_date: "2024-06-24",
+      as_of_date: "2026-07-17",
       mode: "live",
-      trace_id: "test",
+      trace_id: "macro-v2-smoke",
+      darwinian_runtime_binding: null,
+      darwinian_weight_snapshot: null,
+      component_weight_snapshot: null,
+      component_calibration_inputs: {},
+      outcome_schedule_plan: null,
+      outcome_stage_skips: {},
+      accepted_output_refs: {},
       continuity_context: {},
       lesson_context: {},
       method_context: {},
       layer1_outputs: {},
-      layer1_consensus: null,
+      macro_input_gate: null,
       layer2_outputs: {},
-      layer2_consensus: null,
       layer3_outputs: {},
-      layer4_outputs: {
-        cro: null,
-        alpha_discovery: null,
-        autonomous_execution: null,
-        cio: null,
-      },
-      current_positions: {
-        snapshot_status: "empty_confirmed",
-        position_source: "empty_confirmed",
-        source_error_code: null,
-        position_snapshot_hash: "sha256:empty_positions",
-        positions: [],
-      },
+      layer4_outputs: emptyLayer4(),
+      current_positions: emptyCurrentPositions(),
       position_reviews: [],
-      position_audit: {
-        position_snapshot_hash: "sha256:empty_positions",
-        snapshot_status: "empty_confirmed",
-        position_source: "empty_confirmed",
-        source_error_code: null,
-        positions_loaded: 0,
-        positions_reviewed: 0,
-        positions_unreviewed: 0,
-        hold_count: 0,
-        add_count: 0,
-        reduce_count: 0,
-        exit_count: 0,
-        stale_thesis_count: 0,
-        stop_loss_override_count: 0,
-        target_current_drift_count: 0,
-      },
+      position_audit: emptyPositionAudit(),
       portfolio_actions: [],
       replay_triggered: false,
       llm_calls: [],
     };
-
-    const final = (await graph.invoke(initialState)) as DailyCycleStateType;
-
-    // All 10 agent outputs present in the merged state.
-    expect(Object.keys(final.layer1_outputs).sort()).toEqual([...LAYER1_AGENT_NODES].sort());
-
-    // Aggregator wrote consensus.
-    const consensus = final.layer1_consensus as RegimeSignal | null;
-    expect(consensus).not.toBeNull();
-    expect(consensus?.stance).toBe("NEUTRAL");
-    expect(consensus?.layer_1_consensus_score).toBe(0);
-
-    // Each agent receives its deterministic role snapshot before one analysis turn.
-    expect(llm.invokeCalls).toBe(10);
+    const graph = buildLayer1Graph({
+      llmHandle: handle,
+      api: fakeApi,
+      config,
+      promptsRoot: promptDir,
+    });
+    const final = (await graph.invoke(initial)) as DailyCycleStateType;
+    expect(Object.keys(final.layer1_outputs).sort()).toEqual([...MACRO_AGENT_IDS].sort());
+    expect(final.macro_input_gate).toMatchObject({ accepted_count: 10 });
+    expect(final.macro_input_gate?.input_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(
+      Object.values(final.layer1_outputs).every((output) => output.direction === "NEUTRAL"),
+    ).toBe(true);
     expect(llm.structuredCalls).toBe(10);
-    expect(llm.bindToolsCalls).toBe(0);
-
-    // 10 LlmCallRecord entries appended.
     expect(final.llm_calls).toHaveLength(10);
   });
 });

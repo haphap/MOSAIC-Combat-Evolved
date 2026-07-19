@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "agent_tool_contract_manifest_v1"
+    },
+    "agent_count": {
+      "type": "number",
+      "const": 28
+    },
+    "execution_stage_count": {
+      "type": "number",
+      "const": 29
+    },
+    "tool_count": {
+      "type": "number",
+      "const": 18
+    },
+    "agents": {
+      "minItems": 28,
+      "maxItems": 28,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "enum": [
+              "china",
+              "us_economy",
+              "eu_economy",
+              "central_bank",
+              "us_financial_conditions",
+              "euro_area_financial_conditions",
+              "commodities",
+              "geopolitical",
+              "market_breadth",
+              "institutional_flow",
+              "semiconductor",
+              "technology",
+              "energy",
+              "biotech",
+              "consumer",
+              "industrials",
+              "real_estate_construction",
+              "financials",
+              "agriculture",
+              "relationship_mapper",
+              "druckenmiller",
+              "munger",
+              "burry",
+              "ackman",
+              "cro",
+              "alpha_discovery",
+              "autonomous_execution",
+              "cio"
+            ]
+          },
+          "layer": {
+            "type": "string",
+            "enum": [
+              "macro",
+              "sector",
+              "superinvestor",
+              "decision"
+            ]
+          },
+          "execution_stages": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "china",
+                "us_economy",
+                "eu_economy",
+                "central_bank",
+                "us_financial_conditions",
+                "euro_area_financial_conditions",
+                "commodities",
+                "geopolitical",
+                "market_breadth",
+                "institutional_flow",
+                "semiconductor",
+                "technology",
+                "energy",
+                "biotech",
+                "consumer",
+                "industrials",
+                "real_estate_construction",
+                "financials",
+                "agriculture",
+                "relationship_mapper",
+                "druckenmiller",
+                "munger",
+                "burry",
+                "ackman",
+                "cro",
+                "alpha_discovery",
+                "autonomous_execution",
+                "cio_proposal",
+                "cio_final"
+              ]
+            }
+          },
+          "allowed_tools": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "get_china_macro_snapshot",
+                "get_us_macro_snapshot",
+                "get_eu_macro_snapshot",
+                "get_central_bank_snapshot",
+                "get_us_financial_conditions_snapshot",
+                "get_euro_area_financial_conditions_snapshot",
+                "get_commodity_conditions_snapshot",
+                "get_geopolitical_events_snapshot",
+                "get_market_breadth_snapshot",
+                "get_market_positioning_snapshot",
+                "get_sector_research_snapshot",
+                "get_role_event_snapshot",
+                "get_relationship_graph_snapshot",
+                "get_superinvestor_candidate_snapshot",
+                "get_cro_risk_snapshot",
+                "get_alpha_candidate_snapshot",
+                "get_execution_snapshot",
+                "get_cio_decision_snapshot"
+              ]
+            }
+          }
+        },
+        "required": [
+          "agent_id",
+          "layer",
+          "execution_stages",
+          "allowed_tools"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "agent_count",
+    "execution_stage_count",
+    "tool_count",
+    "agents"
+  ],
+  "additionalProperties": false
+}
+

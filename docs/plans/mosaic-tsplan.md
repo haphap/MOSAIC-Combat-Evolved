@@ -3,8 +3,9 @@
 > **历史归档，不是当前执行计划。** 本文保留 2026-05 初始实现过程和当时的
 > checkpoint；其中 provider、agent roster、发布流程和完成状态可能已被后续实现
 > 取代。当前 agent roster 以
-> `registry/prompt_checks/runtime_agent_manifest_v1.json` 为准；prompt 演化与发布治理以
-> `docs/plans/rke_all_agent_evolution_plan.md` 和
+> `registry/prompt_checks/runtime_agent_manifest_v4.json` 为准；当前角色、数据、Darwinian
+> 与 prompt 演化/发布治理以
+> `docs/plans/macro-agent-role-contracts-v2-plan.md` 和
 > `docs/runbooks/position_aware_prompt_evolution.md` 为准。不要根据本文的旧 checkbox
 > 判断当前 readiness。
 >

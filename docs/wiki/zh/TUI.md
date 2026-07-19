@@ -2,7 +2,7 @@
 
 `pnpm dev dashboard` 渲染一个 Ink(终端内 React)仪表盘,把现有只读 RPC 聚合到一屏,外加一个可编辑的设置页。组件:`mosaic-ts/src/tui/Dashboard.tsx`;命令:`mosaic-ts/src/cli/commands/dashboard.ts`。选项:`--cohort <name>`、`--user <name>`。
 
-导航:**1–7** 切换标签,**r** 刷新(手动;无自动轮询),**q** 退出。`BridgeApi` 被注入,因此组件用 fake 做单测。
+导航:**1–8** 切换标签,**r** 刷新(手动;无自动轮询),**q** 退出。在 Agents 标签中用 **j/↓**、**k/↑** 切换 Agent。`BridgeApi` 被注入,因此组件用 fake 做单测。
 
 ## 标签页
 
@@ -15,6 +15,13 @@
 | 5 | cohorts | 逐 cohort run 数 / 分支 / 最近运行日。 |
 | 6 | mirofish | 最新 simulation-only 情景上下文、context hash/as-of 元数据、逐持仓压力和近期前向训练 run。 |
 | 7 | settings | 可编辑、持久化的配置(见下)。 |
+| 8 | agents | 每个逻辑 Agent 的人可读决策说明及 accepted-output 血缘状态。 |
+
+## Agent 决策说明(键 8)
+
+每次 live daily cycle 都从各 Agent 已接受的结构化输出中确定性生成精简说明,按角色展示结论、适用时的置信度/周期、驱动、风险、标的或组合动作以及证据结论。若某阶段因不存在评价对象而跳过,界面会明确说明,不会把它展示成中性判断。
+
+说明文本作为独立持久化的 **UI-only sidecar**:它不是模型生成的思维链,不会形成第二条未经校验的事实通道,也不会进入下游 Agent 输入、accepted-output payload、Darwinian 评价或 KNOT 演化。`daily-cycle --out` 会附带该 sidecar 供人工审计,交易和评价消费者仍只读取结构化合同。
 
 ## 设置页(键 7)
 

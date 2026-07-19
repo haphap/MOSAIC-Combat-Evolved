@@ -7,6 +7,6 @@ const output = resolve(
   "..",
   "registry",
   "prompt_checks",
-  "runtime_agent_manifest_v2.json",
+  "runtime_agent_manifest_v4.json",
 );
 writeFileSync(output, renderRuntimeAgentManifestArtifact(), "utf8");

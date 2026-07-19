@@ -39,7 +39,7 @@ def _add_scored_macro(store, agent, raw, date="2024-02-01", effective=None, infl
                     "confidence": 0.5,
                 }
             },
-            "layer1_consensus": {},
+            "legacy_layer1_consensus": {},
         }
     )
     with store._connect() as conn:
@@ -68,17 +68,21 @@ class TestLayerAwareSelect(unittest.TestCase):
     def test_macro_due_picks_worst_macro(self):
         store, d = _store()
         self.addCleanup(d.cleanup)
-        _add_scored_macro(store, "volatility", -0.05)   # worst
-        _add_scored_macro(store, "dollar", +0.05)
+        _add_scored_macro(store, "us_financial_conditions", -0.05)  # worst
+        _add_scored_macro(store, "central_bank", +0.05)
         chosen = _select_agent(store, _COHORT, None, DEFAULT_CONFIG, _NOW)
-        self.assertEqual(chosen, "volatility")
+        self.assertEqual(chosen, "us_financial_conditions")
 
     def test_macro_not_due_picks_nonmacro(self):
         store, d = _store()
         self.addCleanup(d.cleanup)
-        _add_scored_macro(store, "volatility", -0.05)
+        _add_scored_macro(store, "us_financial_conditions", -0.05)
         # a macro mutation 1h ago → macro not due (interval 5d)
-        _add_version(store, "volatility", (_NOW - timedelta(hours=1)).isoformat())
+        _add_version(
+            store,
+            "us_financial_conditions",
+            (_NOW - timedelta(hours=1)).isoformat(),
+        )
         chosen = _select_agent(store, _COHORT, None, DEFAULT_CONFIG, _NOW)
         self.assertNotEqual(_LAYER_BY_AGENT[chosen], "macro")
 
@@ -91,7 +95,7 @@ class TestLayerAwareSelect(unittest.TestCase):
     def test_macro_quota_zero_disables_macro_auto_selection(self):
         store, d = _store()
         self.addCleanup(d.cleanup)
-        _add_scored_macro(store, "volatility", -0.05)
+        _add_scored_macro(store, "us_financial_conditions", -0.05)
         cfg = {
             **DEFAULT_CONFIG,
             "autoresearch": {
@@ -105,15 +109,20 @@ class TestLayerAwareSelect(unittest.TestCase):
     def test_recent_revert_penalty_skips_agent(self):
         store, d = _store()
         self.addCleanup(d.cleanup)
-        _add_scored_macro(store, "volatility", -0.05)   # worst, but penalized
-        _add_scored_macro(store, "dollar", -0.01)       # next worst
-        # volatility reverted 7d ago: past cooldown + interval, but within penalty window
+        _add_scored_macro(
+            store, "us_financial_conditions", -0.05
+        )  # worst, but penalized
+        _add_scored_macro(store, "central_bank", -0.01)  # next worst
+        # The worst role reverted 7d ago: past cooldown + interval, but within penalty window.
         _add_version(
-            store, "volatility", (_NOW - timedelta(days=7)).isoformat(),
-            status="revert", decided_at=(_NOW - timedelta(days=7)).isoformat(),
+            store,
+            "us_financial_conditions",
+            (_NOW - timedelta(days=7)).isoformat(),
+            status="revert",
+            decided_at=(_NOW - timedelta(days=7)).isoformat(),
         )
         chosen = _select_agent(store, _COHORT, None, DEFAULT_CONFIG, _NOW)
-        self.assertEqual(chosen, "dollar")
+        self.assertEqual(chosen, "central_bank")
 
     def test_force_agent_honored(self):
         store, d = _store()
@@ -127,20 +136,20 @@ class TestLayerAwareSelect(unittest.TestCase):
         self.addCleanup(d.cleanup)
         _add_scored_macro(
             store,
-            "volatility",
+            "us_financial_conditions",
             raw=-0.20,
             effective=-0.001,
             influence=0.005,
         )
         _add_scored_macro(
             store,
-            "dollar",
+            "central_bank",
             raw=-0.05,
             effective=-0.05,
             influence=1.0,
         )
         chosen = _select_agent(store, _COHORT, None, DEFAULT_CONFIG, _NOW)
-        self.assertEqual(chosen, "volatility")
+        self.assertEqual(chosen, "us_financial_conditions")
 
 
 if __name__ == "__main__":  # pragma: no cover

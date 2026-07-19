@@ -1,5 +1,11 @@
 # Part 2: RKE All-Agent Evolution Plan
 
+> **Scope note (2026-07):** This document remains historical design context for
+> shadow-only RKE research. Its Agent roster, runtime prompt consumption, and
+> production evolution/promotion sections are superseded by
+> `docs/plans/macro-agent-role-contracts-v2-plan.md`. RKE has no production
+> prompt or trading promotion edge in the v2 runtime.
+
 ## Purpose
 
 This plan owns the follow-up work that starts after the stock, industry, and

@@ -79,24 +79,30 @@ MACRO_AGENTS = frozenset(
         "central_bank",
         "china",
         "commodities",
-        "dollar",
+        "eu_economy",
+        "euro_area_financial_conditions",
         "geopolitical",
         "institutional_flow",
         "market_breadth",
         "us_economy",
-        "volatility",
-        "yield_curve",
+        "us_financial_conditions",
     }
+)
+LEGACY_MACRO_AGENTS = frozenset(
+    {"dollar", "yield_curve", "volatility", "emerging_markets", "news_sentiment"}
 )
 SECTOR_AGENTS = frozenset(
     {
+        "agriculture",
         "biotech",
         "consumer",
         "energy",
         "financials",
         "industrials",
+        "real_estate_construction",
         "relationship_mapper",
         "semiconductor",
+        "technology",
     }
 )
 SUPERINVESTOR_AGENTS = frozenset({"ackman", "burry", "druckenmiller", "munger"})
@@ -107,20 +113,66 @@ DECISION_AGENTS = frozenset(
 MACRO_AGENT_BY_METRIC_FAMILY: Mapping[str, tuple[str, ...]] = {
     "policy_rate_level": ("macro.central_bank",),
     "money_market_rate": ("macro.central_bank",),
-    "bond_yield_level": ("macro.yield_curve", "macro.central_bank"),
-    "yield_curve_slope": ("macro.yield_curve",),
-    "cross_market_yield_spread": ("macro.yield_curve", "macro.dollar"),
-    "fx_rate": ("macro.dollar",),
-    "equity_index_forward_return": ("macro.china", "macro.us_economy"),
-    "bond_etf_forward_return": ("macro.central_bank", "macro.yield_curve"),
-    "macro_asset_forward_return": ("macro.china", "macro.us_economy"),
+    "bond_yield_level": (
+        "macro.central_bank",
+        "macro.us_financial_conditions",
+        "macro.euro_area_financial_conditions",
+    ),
+    "yield_curve_slope": (
+        "macro.central_bank",
+        "macro.us_financial_conditions",
+        "macro.euro_area_financial_conditions",
+    ),
+    "cross_market_yield_spread": ("macro.us_financial_conditions",),
+    "fx_rate": (
+        "macro.us_financial_conditions",
+        "macro.euro_area_financial_conditions",
+    ),
+    "equity_index_forward_return": (
+        "macro.china",
+        "macro.us_economy",
+        "macro.eu_economy",
+    ),
+    "bond_etf_forward_return": (
+        "macro.central_bank",
+        "macro.us_financial_conditions",
+        "macro.euro_area_financial_conditions",
+    ),
+    "macro_asset_forward_return": (
+        "macro.china",
+        "macro.us_economy",
+        "macro.eu_economy",
+    ),
     "commodity_price": ("macro.commodities",),
     "commodity_price_cycle": ("macro.commodities",),
     "gold_etf_forward_return": ("macro.commodities", "macro.geopolitical"),
+    "volatility_index": ("macro.us_financial_conditions",),
+    "risk_off_asset_path": (
+        "macro.geopolitical",
+        "macro.us_financial_conditions",
+    ),
+    "growth_inflation_release": (
+        "macro.china",
+        "macro.us_economy",
+        "macro.eu_economy",
+        "macro.commodities",
+    ),
+    "liquidity_credit_condition": (
+        "macro.central_bank",
+        "macro.us_financial_conditions",
+        "macro.euro_area_financial_conditions",
+    ),
+}
+# Read-only compatibility for pre-v2 RKE rows that predate explicit Agent
+# traces. These candidates expose the original audit view only; legacy Agent
+# IDs remain tombstoned and never become current routing or Darwinian aliases.
+LEGACY_MACRO_AGENT_BY_METRIC_FAMILY: Mapping[str, tuple[str, ...]] = {
+    "bond_yield_level": ("macro.yield_curve",),
+    "cross_market_yield_spread": ("macro.yield_curve", "macro.dollar"),
+    "fx_rate": ("macro.dollar",),
+    "money_market_rate": ("macro.yield_curve",),
     "volatility_index": ("macro.volatility",),
-    "risk_off_asset_path": ("macro.geopolitical", "macro.volatility"),
-    "growth_inflation_release": ("macro.china", "macro.us_economy", "macro.commodities"),
-    "liquidity_credit_condition": ("macro.central_bank", "macro.yield_curve"),
+    "yield_curve_slope": ("macro.yield_curve",),
 }
 MACRO_AGENT_BY_ASSET_TARGET: Mapping[str, tuple[str, ...]] = {
     "CN_A_SHARE_BROAD": ("macro.china",),
@@ -128,43 +180,59 @@ MACRO_AGENT_BY_ASSET_TARGET: Mapping[str, tuple[str, ...]] = {
     "CN_A_SHARE_MID_SMALL": ("macro.china",),
     "CN_A_SHARE_GROWTH": ("macro.china",),
     "HK_EQUITY": ("macro.china",),
-    "US_EQUITY_NASDAQ": ("macro.us_economy",),
-    "US_EQUITY_SP500": ("macro.us_economy",),
-    "CN_BOND": ("macro.central_bank", "macro.yield_curve"),
-    "CN_CREDIT_BOND": ("macro.central_bank", "macro.yield_curve"),
-    "CN_POLICY_BANK_BOND": ("macro.central_bank", "macro.yield_curve"),
+    "US_EQUITY_NASDAQ": ("macro.us_economy", "macro.us_financial_conditions"),
+    "US_EQUITY_SP500": ("macro.us_economy", "macro.us_financial_conditions"),
+    "EU_EQUITY": ("macro.eu_economy", "macro.euro_area_financial_conditions"),
+    "CN_BOND": ("macro.central_bank",),
+    "CN_CREDIT_BOND": ("macro.central_bank",),
+    "CN_POLICY_BANK_BOND": ("macro.central_bank",),
     "GOLD": ("macro.commodities", "macro.geopolitical"),
 }
 MACRO_AGENT_BY_REGIME: Mapping[str, tuple[str, ...]] = {
-    "us_rate_cut_cycle": ("macro.central_bank", "macro.yield_curve"),
+    "us_rate_cut_cycle": ("macro.us_financial_conditions",),
     "china_countercyclical_policy": ("macro.china", "macro.central_bank"),
     "monetary_liquidity_condition": ("macro.central_bank", "macro.china"),
     "china_monetary_easing_cycle": ("macro.central_bank", "macro.china"),
-    "credit_cycle": ("macro.central_bank", "macro.yield_curve"),
-    "fx_usd_cycle": ("macro.dollar",),
+    "credit_cycle": (
+        "macro.central_bank",
+        "macro.us_financial_conditions",
+        "macro.euro_area_financial_conditions",
+    ),
+    "fx_usd_cycle": ("macro.us_financial_conditions",),
     "rmb_fx_stability_window": (
-        "macro.dollar",
+        "macro.us_financial_conditions",
         "macro.china",
         "macro.us_economy",
     ),
-    "global_growth_inflation": ("macro.commodities", "macro.yield_curve"),
+    "global_growth_inflation": (
+        "macro.commodities",
+        "macro.us_economy",
+        "macro.eu_economy",
+    ),
     "fiscal_policy": ("macro.china", "macro.central_bank"),
     "regulatory_policy": ("macro.china",),
     "trade_friction_intensity": (
         "macro.geopolitical",
-        "macro.dollar",
+        "macro.us_financial_conditions",
         "macro.us_economy",
+        "macro.eu_economy",
     ),
     "commodity_price_cycle": ("macro.commodities",),
-    "volatility_shock": ("macro.volatility",),
-    "market_volatility_regime": ("macro.volatility",),
+    "volatility_shock": ("macro.us_financial_conditions", "macro.geopolitical"),
+    "market_volatility_regime": ("macro.us_financial_conditions",),
 }
 
 SECTOR_AGENT_KEYWORDS: Mapping[str, tuple[str, ...]] = {
     "sector.semiconductor": (
         "半导体",
         "芯片",
-        "电子元件",
+        "集成电路",
+        "晶圆",
+        "封测",
+    ),
+    "sector.technology": (
+        "计算机",
+        "软件",
         "通信设备",
         "ai",
         "人工智能",
@@ -179,6 +247,10 @@ SECTOR_AGENT_KEYWORDS: Mapping[str, tuple[str, ...]] = {
         "电力",
         "公用事业",
         "油气",
+        "光伏",
+        "风电",
+        "电池",
+        "储能",
     ),
     "sector.biotech": (
         "医药",
@@ -198,20 +270,42 @@ SECTOR_AGENT_KEYWORDS: Mapping[str, tuple[str, ...]] = {
         "造纸",
         "包装印刷",
         "教育",
+        "汽车",
+        "乘用车",
+        "商用车",
     ),
     "sector.industrials": (
         "机械",
         "军工",
         "交运",
         "设备",
-        "汽车",
         "材料",
         "有色",
+        "黑色金属",
+        "钢铁",
+        "化工",
+        "基础化工",
         "稀土",
         "小金属",
         "新材料",
     ),
+    "sector.real_estate_construction": (
+        "房地产",
+        "建筑",
+        "建材",
+        "装修",
+        "物业",
+    ),
     "sector.financials": ("银行", "证券", "保险", "金融", "非银"),
+    "sector.agriculture": (
+        "农业",
+        "种植",
+        "养殖",
+        "饲料",
+        "农产品",
+        "林业",
+        "渔业",
+    ),
 }
 
 SUPERINVESTOR_STYLE_KEYWORDS: Mapping[str, tuple[str, ...]] = {
@@ -302,7 +396,7 @@ def normalize_agent_id(agent_id: str, layer: str = "") -> str:
     if raw.startswith(("macro.", "sector.", "superinvestor.")):
         return raw
     layer_slug = _slug(layer)
-    if layer_slug == "macro" or raw in MACRO_AGENTS:
+    if layer_slug == "macro" or raw in MACRO_AGENTS or raw in LEGACY_MACRO_AGENTS:
         return f"macro.{raw}"
     if layer_slug == "sector" or raw in SECTOR_AGENTS:
         return f"sector.{raw}"
@@ -435,12 +529,18 @@ def build_rke_agent_research_context_from_rows(
 
     context = {
         "schema_version": SCHEMA_VERSION,
+        "execution_mode": "RKE_SHADOW",
         "agent_id": normalized_agent,
         "requested_agent_id": str(agent_id or ""),
         "layer": normalized_agent.split(".", 1)[0] if "." in normalized_agent else "",
         "as_of_date": as_of_date,
         "research_only": True,
         "production_signal_allowed": False,
+        "legacy_status": (
+            "legacy_unverified"
+            if normalized_agent.removeprefix("macro.") in LEGACY_MACRO_AGENTS
+            else None
+        ),
         "actionability": SAFE_ACTIONABILITY,
         "ranking_policy_id": RANKING_POLICY_ID,
         "context_items": visible_items,
@@ -887,8 +987,17 @@ def _macro_agent_candidates(claim: Mapping[str, Any]) -> tuple[str, ...]:
         text = str(value or "").strip()
         if text.startswith("macro."):
             agents.append(text)
+    # Historical RKE rows may carry an explicit trace for a tombstoned Agent.
+    # Keep that identity readable for legacy audit; current v2 routing below is
+    # additive and does not alias the old Agent or inherit its evaluation state.
+    trace = _ensure_mapping(claim.get("claim_regime_trace"))
+    for trace_agent_id in _ensure_mapping(trace.get("macro")):
+        text = str(trace_agent_id or "").strip()
+        if text.startswith("macro."):
+            agents.append(text)
     for family in _claim_metric_families(claim):
         agents.extend(MACRO_AGENT_BY_METRIC_FAMILY.get(family, ()))
+        agents.extend(LEGACY_MACRO_AGENT_BY_METRIC_FAMILY.get(family, ()))
     target_id = str(target.get("target_id") or target.get("target_name") or "")
     agents.extend(MACRO_AGENT_BY_ASSET_TARGET.get(target_id, ()))
     if agents:

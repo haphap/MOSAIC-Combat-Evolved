@@ -36,7 +36,11 @@ Win-rate is the directional hit rate of **this system's own CIO history** (over 
 
 ## Darwinian weights
 
-`darwinian.compute` / `darwinian.get_weights` (`mosaic/scorecard/weights.py`) turn agent skill into evolutionary weights used downstream (e.g. by `autonomous_execution`).
+`darwinian.compute` / `darwinian.get_weights` (`mosaic/scorecard/weights.py`) are
+explicit `legacy_unverified`, audit-only replay surfaces. They cannot supply a
+production fallback. Production downstream consumption uses the accepted-output
+adapter with the exact weight snapshot frozen in a Darwinian-v2 production
+variant; window refresh and publication are revision-bound and server-owned.
 
 ## Paper trading (`mosaic/paper_trading/`)
 

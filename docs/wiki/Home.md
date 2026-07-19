@@ -12,7 +12,7 @@
 - [Getting Started](Getting-Started.md) — install (uv + pnpm), optional extras, `.env`, first run.
 - [CLI Reference](CLI-Reference.md) — every `pnpm dev <command>` and its subcommands.
 - [Bridge RPC](Bridge-RPC.md) — the full `@method` surface by namespace.
-- [Agents](Agents.md) — the 4-layer, 25-agent decision graph.
+- [Agents](Agents.md) — the 4-layer, 28-agent / 29-stage decision graph.
 - [Data Layer](Data-Layer.md) — qlib local reader, ingest, vendored collectors, ETF routing.
 - [Self-Improvement](Self-Improvement.md) — Autoresearch / PRISM / JANUS / MiroFish.
 - [Scorecard & Paper Trading](Scorecard-and-Paper-Trading.md) — scoring, win-rate, Darwinian weights, the paper engine.
@@ -24,9 +24,9 @@
 
 | Aspect | Summary |
 | --- | --- |
-| Decision graph | 4 layers, 25 agents (10 macro → 7 sector → 4 superinvestor → 4 decision), orchestrated by LangGraph.js as one daily cycle |
-| Self-improvement | Autoresearch rewrites prompts on git branches and keeps/reverts by ΔSharpe |
-| Multi-regime | PRISM trains across 7 market-regime cohorts; JANUS meta-weights across them |
+| Decision graph | 4 layers, 28 logical agents (10 macro → 10 sector → 4 superinvestor → 4 decision) across 29 execution stages, orchestrated by LangGraph.js as one daily cycle |
+| Self-improvement | KNOT evolves private prompt behavior with paired shadow outcomes and atomic promotion; legacy ΔSharpe is audit-only |
+| Multi-regime | PRISM covers 8 cohorts (default plus 7 market regimes); JANUS meta-weights across them |
 | Reflexive sim | Real MOSAIC-Fish/OASIS by default, with explicit local Monte-Carlo and swarm engines |
 | Backtest / paper | qlib two-stage vectorized backtest + a bespoke paper-trading engine (T+1, commission) |
 | Languages | Python `≥3.10` sidecar · Node `≥22` + TypeScript front-end |
