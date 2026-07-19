@@ -59,7 +59,8 @@ pnpm --dir mosaic-ts dev bridge-ping
 
 # 生成 fresh、hash-bound 的 synthetic PIT bundle，再跑通全部 29 个阶段。
 mkdir -p .mosaic/tmp
-SMOKE_DATE="$(date +%F)"
+# 必须使用 A 股交易日；默认值为已验证交易日。
+SMOKE_DATE="${SMOKE_DATE:-2026-07-17}"
 SMOKE_ROOT="$(mktemp -d .mosaic/tmp/structured-smoke.XXXXXX)"
 eval "$(uv run python scripts/build_structured_smoke_fixtures.py \
   --root "$SMOKE_ROOT" --date "$SMOKE_DATE" --shell-exports)"

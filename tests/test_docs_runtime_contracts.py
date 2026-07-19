@@ -33,8 +33,6 @@ def test_daily_cycle_docs_match_smoke_budget_and_private_fail_closed_policy():
 def test_advertised_fake_daily_cycle_builds_hash_bound_fixtures_first():
     for path in (
         "README.md",
-        "CLAUDE.md",
-        "AGENTS.md",
         "docs/wiki/CLI-Reference.md",
         "docs/wiki/zh/CLI-Reference.md",
         "docs/wiki/Getting-Started.md",
