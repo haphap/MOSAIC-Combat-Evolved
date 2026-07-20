@@ -1,8 +1,8 @@
 # 2009 起 Agents 历史滚动进化 Runbook
 
-本 runbook 用于在隔离历史沙箱内，从 2009 年开始顺序运行完整 25-Agent 图，使用
-Qwen 3.6 35B NVFP4 生成月度 Prompt 候选，并通过未来验证和一次性锁箱决定是否在
-后续历史日期启用候选。
+本 runbook 用于在隔离历史沙箱内，从 2009 年开始顺序运行完整 28-Agent 逻辑图的
+29 个执行阶段，使用 Qwen 3.6 35B NVFP4 生成月度 Prompt 候选，并通过未来验证和
+一次性锁箱决定是否在后续历史日期启用候选。
 
 该流程不会修改 RKE 的 shadow-only 边界，不注入 Fish 历史上下文，不会合并或推送
 MOSAIC-Prompts 的默认分支，也不会触发 paper/live promotion。

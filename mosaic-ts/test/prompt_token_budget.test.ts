@@ -7,6 +7,7 @@ import { LAYER_BY_AGENT } from "../src/agents/prompts/cohorts.js";
 import {
   buildPromptTokenBudgetManifest,
   PromptTokenBudgetManifestSchema,
+  promptTokenBudgetManifestHash,
 } from "../src/agents/prompts/prompt_token_budget.js";
 import { RUNTIME_AGENT_SPECS } from "../src/agents/prompts/runtime_agent_spec.js";
 
@@ -99,6 +100,42 @@ describe("prompt token budget manifest", () => {
     expect(current.summary.ready).toBe(false);
     expect(failed.length).toBeGreaterThan(0);
     expect(failed.some((row) => !row.checks.baseline_growth_within_limit)).toBe(true);
+  });
+
+  it("keeps a complete prompt-topology baseline across opaque runtime pin rotation", async () => {
+    const roots = fixtureRoots();
+    const baseline = await build(roots);
+    const rotated = {
+      ...baseline,
+      runtime_manifest_hash: `sha256:${"f".repeat(64)}`,
+    };
+    rotated.manifest_hash = promptTokenBudgetManifestHash(rotated);
+
+    const current = await build(roots, PromptTokenBudgetManifestSchema.parse(rotated));
+
+    expect(current.baseline_manifest_hash).toBe(rotated.manifest_hash);
+    expect(current.rows.every((row) => row.baseline_growth_ratio === 1)).toBe(true);
+  });
+
+  it("rejects a baseline with an incomplete prompt topology", async () => {
+    const roots = fixtureRoots();
+    const baseline = await build(roots);
+    const rows = baseline.rows.slice(1);
+    const incomplete = {
+      ...baseline,
+      rows,
+      summary: {
+        ...baseline.summary,
+        row_count: rows.length,
+        passed_row_count: rows.length,
+        ready: false,
+      },
+    };
+    incomplete.manifest_hash = promptTokenBudgetManifestHash(incomplete);
+
+    await expect(build(roots, PromptTokenBudgetManifestSchema.parse(incomplete))).rejects.toThrow(
+      "prompt_token_budget_baseline_configuration_mismatch",
+    );
   });
 
   it("rejects source content that does not match the attributed commits", async () => {

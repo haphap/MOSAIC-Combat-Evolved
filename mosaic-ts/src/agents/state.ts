@@ -2,13 +2,12 @@
  * MOSAIC daily-cycle state for LangGraph.js (Plan §5 + §11.2 Phase 2A design).
  *
  * Why per-layer maps instead of ETFAgents' flat-30-keys: 28 agents flat would
- * blow the state up to 40+ fields; aggregating per layer + dict-merge reducer
- * lets multiple agents inside one layer write concurrently without conflict
- * (LangGraph.js merges parallel branch updates via the channel reducer).
+ * blow the state up to 40+ fields; grouping outputs per layer with a dict-merge
+ * reducer lets multiple agents inside one layer write concurrently without
+ * conflict (LangGraph.js merges parallel branch updates via the channel reducer).
  *
  * Reducer choices:
  *   * ``layer<N>_outputs``     dict-merge ``{...prev, ...next}`` — many writers
- *   * ``layer<N>_consensus``   replace — single aggregator writer
  *   * ``llm_calls``            append — concurrent writers, order is best-effort
  *   * scalar fields            replace — last-write-wins
  *

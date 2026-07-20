@@ -14,7 +14,7 @@ prompt。
 私有规范位于 `MOSAIC-Prompts` 的同名文件。公开代码固定以下私有规范文本的 opaque 审计
 hash：
 
-`sha256:974eeab60fde565efa4cd99f63f614792b190094af2671b103464b6e6e65e551`
+`sha256:13cef0580cea951eeb2bf08fa917b79b147ada27bf80b80490e5c5853c6eb7cd`
 
 该 hash 只闭合跨仓规范审计，不是 runtime source of truth。生产权威仍是
 `registry/prompt_checks/knot_runtime_contract_ref_v2.json` 与
