@@ -40,3 +40,23 @@ export function validateCohortBehaviorContent(content: string): string {
   }
   return normalized;
 }
+
+export function validateCohortBehaviorLanguage(content: string, language: "en" | "zh"): string {
+  const normalized = validateCohortBehaviorContent(content);
+  const characters = [...normalized];
+  const hanCount = characters.filter((character) => /\p{Script=Han}/u.test(character)).length;
+  const latinCount = characters.filter((character) => /\p{Script=Latin}/u.test(character)).length;
+  const letterCount = characters.filter((character) => /\p{Letter}/u.test(character)).length;
+
+  if (language === "en") {
+    if (latinCount < 8 || letterCount === 0 || latinCount / letterCount < 0.8) {
+      throw new Error("English cohort behavior must contain meaningful English prose");
+    }
+    return normalized;
+  }
+
+  if (hanCount < 4 || letterCount === 0 || hanCount / letterCount < 0.5) {
+    throw new Error("Chinese cohort behavior must contain meaningful Chinese prose");
+  }
+  return normalized;
+}

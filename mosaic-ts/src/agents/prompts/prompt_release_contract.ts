@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import { z } from "zod";
+import { canonicalJsonHash } from "../helpers/canonical_json.js";
 
 const Sha256Schema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const CommitRefSchema = z.string().min(7);
@@ -34,22 +34,8 @@ export const ReleasePromptPairSchema = z
 
 export type ReleasePromptPair = z.infer<typeof ReleasePromptPairSchema>;
 
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, entry]) => [key, canonicalize(entry)]),
-    );
-  }
-  return value === undefined ? null : value;
-}
-
 function canonicalHash(value: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(JSON.stringify(canonicalize(value)))
-    .digest("hex")}`;
+  return canonicalJsonHash(value);
 }
 
 export function releasePromptPairHash(pair: Omit<ReleasePromptPair, "pair_hash">): string {

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
-from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema import Draft202012Validator, FormatChecker, ValidationError
 from referencing import Registry, Resource
 
 from mosaic.dataflows.exceptions import DataVendorUnavailable
@@ -17,6 +18,7 @@ from mosaic.dataflows.macro_snapshots import (
     validate_role_snapshot,
     write_registered_role_snapshot,
 )
+from scripts.build_structured_smoke_fixtures import _synthetic_commodity_conditions
 
 
 ROLE_SERIES = {
@@ -61,6 +63,7 @@ INSTITUTIONAL_FLOW_COVERAGE = {
     for component in ("market_wide_flow", "sector_rotation", "etf_share", "crowding")
 }
 FINANCIAL_CONTEXT_ROLE = {
+    "central_bank": "china",
     "us_financial_conditions": "us_economy",
     "euro_area_financial_conditions": "eu_economy",
 }
@@ -104,9 +107,21 @@ def _assert_active_snapshot_schema(snapshot: dict[str, object]) -> None:
             encoding="utf-8"
         )
     )
-    registry = Registry().with_resource(
-        "role_event_snapshot_v2.schema.json",
-        Resource.from_contents(role_event_schema),
+    commodity_schema = json.loads(
+        (_SCHEMA_ROOT / "commodity_conditions_v1.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    registry = (
+        Registry()
+        .with_resource(
+            "role_event_snapshot_v2.schema.json",
+            Resource.from_contents(role_event_schema),
+        )
+        .with_resource(
+            "commodity_conditions_v1.schema.json",
+            Resource.from_contents(commodity_schema),
+        )
     )
     Draft202012Validator(
         schema,
@@ -174,19 +189,19 @@ def observation(**overrides):
         "series_id": "cn_cpi",
         "period_start": "2024-05-01",
         "period_end": "2024-05-31",
-        "released_at": "2024-06-12T01:30:00Z",
-        "vintage_at": "2024-06-12T01:30:00Z",
+        "released_at": "2024-06-28T01:30:00Z",
+        "vintage_at": "2024-06-28T01:30:00Z",
         "actual": 0.3,
         "previous": 0.3,
         "expected": 0.4,
         "unit": "percent_yoy",
         "source": "tushare.cn_cpi",
         "pit_status": "AVAILABLE_AS_OF",
-        "evidence_id": "macro:cn_cpi:2024-05:20240612",
+        "evidence_id": "macro:cn_cpi:2024-05:20240628",
     }
     row.update(overrides)
     if "evidence_id" not in overrides:
-        row["evidence_id"] = f"macro:{row['series_id']}:2024-05:20240612"
+        row["evidence_id"] = f"macro:{row['series_id']}:2024-05:20240628"
     return row
 
 
@@ -208,6 +223,11 @@ def payload(role="china", **overrides):
         "observations": observations,
         "events": [],
         **(
+            {"commodity_conditions": _synthetic_commodity_conditions(date(2024, 6, 30))}
+            if role == "commodities"
+            else {}
+        ),
+        **(
             {"component_coverage": INSTITUTIONAL_FLOW_COVERAGE}
             if role == "institutional_flow"
             else {}
@@ -224,9 +244,11 @@ def payload(role="china", **overrides):
                                 FINANCIAL_CONTEXT_ROLE[role], series_id
                             ),
                         )
-                        for series_id in ROLE_SERIES[
-                            FINANCIAL_CONTEXT_ROLE[role]
-                        ]
+                        for series_id in (
+                            ROLE_SERIES["china"][:3]
+                            if role == "central_bank"
+                            else ROLE_SERIES[FINANCIAL_CONTEXT_ROLE[role]]
+                        )
                     ]
                 )
             }
@@ -271,7 +293,7 @@ def test_active_snapshot_schema_accepts_institutional_flow_tool_payload():
 
 @pytest.mark.parametrize(
     "role",
-    ["central_bank", "us_financial_conditions"],
+    ["central_bank", "us_financial_conditions", "commodities"],
 )
 def test_active_snapshot_schema_accepts_loaded_event_bound_tool_payload(
     tmp_path: Path,
@@ -292,6 +314,32 @@ def test_active_snapshot_schema_accepts_loaded_event_bound_tool_payload(
     snapshot = load_role_snapshot(role, "2024-06-30", root=tmp_path)
 
     _assert_active_snapshot_schema(snapshot)
+
+
+def test_commodities_snapshot_requires_deterministic_curve_and_inventory_inputs():
+    missing = payload(role="commodities")
+    del missing["commodity_conditions"]
+    with pytest.raises(DataVendorUnavailable, match="top-level fields mismatch"):
+        validate_role_snapshot(missing, "commodities", "2024-06-30")
+
+    accepted = validate_role_snapshot(
+        payload(role="commodities"), "commodities", "2024-06-30"
+    )
+    assert set(accepted["commodity_conditions"]["families"]) == {
+        "SC@INE",
+        "CU@SHFE",
+        "AU@SHFE",
+        "C@DCE",
+        "M@DCE",
+    }
+    assert all(
+        family["term_structure"]["state"] in {
+            "CONTANGO",
+            "BACKWARDATION",
+            "FLAT",
+        }
+        for family in accepted["commodity_conditions"]["families"].values()
+    )
 
 
 @pytest.mark.parametrize("field", ["released_at", "vintage_at"])
@@ -416,9 +464,22 @@ def test_complete_snapshot_rejects_extra_series_owned_by_another_role(
 
 def test_central_bank_snapshot_is_pboc_and_domestic_liquidity_only():
     accepted = payload(role="central_bank")
-    assert validate_role_snapshot(accepted, "central_bank", "2024-06-30")[
-        "observations"
-    ]
+    snapshot = validate_role_snapshot(accepted, "central_bank", "2024-06-30")
+    assert snapshot["observations"]
+    context = snapshot["context_only_projection"]
+    assert context["source_role"] == "china"
+    assert context["contributes_to_required_components"] is False
+    assert set(context["component_summaries"]) == {
+        "growth_production",
+        "prices",
+        "credit",
+    }
+    assert set(snapshot["component_data_quality"]) == {
+        "pboc_policy_bias",
+        "liquidity_money_market",
+        "china_curve",
+        "credit_conditions",
+    }
 
     for forbidden in ("fed_policy_rate", "policy_divergence_index", "us_price_summary"):
         bad = payload(
@@ -432,6 +493,16 @@ def test_central_bank_snapshot_is_pboc_and_domestic_liquidity_only():
         )
         with pytest.raises(DataVendorUnavailable, match="outside|does not map"):
             validate_role_snapshot(bad, "central_bank", "2024-06-30")
+
+
+def test_stale_required_macro_components_cannot_become_current_or_neutral():
+    stale_china = payload(as_of_date="2026-07-20")
+    with pytest.raises(DataVendorUnavailable, match="no fresh registered release"):
+        validate_role_snapshot(stale_china, "china", "2026-07-20")
+
+    stale_pboc = payload(role="central_bank", as_of_date="2024-07-05")
+    with pytest.raises(DataVendorUnavailable, match="no fresh registered release"):
+        validate_role_snapshot(stale_pboc, "central_bank", "2024-07-05")
 
 
 def test_alfred_series_use_exact_role_ownership_without_cross_role_fallback():
@@ -488,6 +559,24 @@ def test_financial_snapshots_expose_complete_real_economy_context_only(
         assert summary["usage_mode"] == "CONTEXT_ONLY"
         assert summary["contributes_to_required_components"] is False
     assert projection["projection_hash"].startswith("sha256:")
+
+
+@pytest.mark.parametrize(
+    ("role", "forged_source_role"),
+    [
+        ("central_bank", "us_economy"),
+        ("us_financial_conditions", "china"),
+    ],
+)
+def test_context_projection_schema_rejects_source_family_component_mismatch(
+    role, forged_source_role
+):
+    snapshot = validate_role_snapshot(payload(role=role), role, "2024-06-30")
+    snapshot["role_event_snapshot"] = _role_event_snapshot(role)
+    snapshot["context_only_projection"]["source_role"] = forged_source_role
+
+    with pytest.raises(ValidationError):
+        _assert_active_snapshot_schema(snapshot)
 
 
 @pytest.mark.parametrize(

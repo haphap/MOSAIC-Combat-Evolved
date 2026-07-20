@@ -1,7 +1,8 @@
-import { createHash } from "node:crypto";
 import type { ClaimEvidenceGraph } from "./evidence_contract.js";
+import { canonicalJsonHash } from "./helpers/canonical_json.js";
 import type { EvidenceLineageEnvelope } from "./helpers/causal_evidence_resolution.js";
-import type { DailyCycleStateType } from "./state.js";
+import { MACRO_CONTEXT_SOURCE_ROLES } from "./macro/_contracts.js";
+import type { DailyCycleStateType, OutcomeRuntimeAuthorityBinding } from "./state.js";
 import type { AgentId } from "./tool_contract.js";
 import type { MacroComponentCompositionAudit } from "./types.js";
 
@@ -128,10 +129,41 @@ export interface AcceptedAgentOutputRecordBase {
   confidence_semantics_contract_version: string | null;
   as_of: string;
   accepted_at: string;
+  evaluation_opportunity_set_id: string | null;
+  evaluation_opportunity_set_hash: string | null;
+  frozen_object_set_id: string | null;
+  frozen_object_set_hash: string | null;
+  adapter_lineage: AcceptedOutputAdapterLineage;
+  runtime_opportunity_authority?: OutcomeRuntimeAuthorityBinding;
   /** Runtime-owned audit material. Consumers must read only output.payload. */
   runtime_audit?: {
     macro_component_composition: MacroComponentCompositionAudit;
   };
+}
+
+export interface AcceptedClaimGraphLineage {
+  schema_version: "accepted_claim_graph_lineage_v1";
+  run_id: string;
+  snapshot_hash: string;
+  evidence: Array<{ evidence_id: string; source_fingerprint: string }>;
+  claims: Array<{ claim_id: string; evidence_ids: string[] }>;
+  claim_graph_lineage_hash: string;
+}
+
+export interface AcceptedOutputAdapterLineage {
+  schema_version: "accepted_output_adapter_lineage_v1";
+  adapter_contract_version: "accepted_output_adapter_v1";
+  agent_id: AgentId;
+  accepted_output_kind: AcceptedOutputKind;
+  source_agent_output_hash: string;
+  accepted_payload_hash: string;
+  claim_graph_lineage_hash: string;
+  adapter_lineage_hash: string;
+}
+
+export interface AcceptedEvidenceLineageEnvelope<TPayload>
+  extends EvidenceLineageEnvelope<TPayload> {
+  claim_graph_lineage: AcceptedClaimGraphLineage;
 }
 
 export type AcceptedOutputRunBinding =
@@ -163,7 +195,7 @@ export type AcceptedAgentOutputRecord<
   AcceptedOutputRunBinding & {
     accepted_output_kind: K;
     agent_id: AcceptedOutputAgentByKind[K];
-    output: EvidenceLineageEnvelope<TPayload>;
+    output: AcceptedEvidenceLineageEnvelope<TPayload>;
   };
 
 export interface AcceptedOutputBuildContext {
@@ -186,12 +218,20 @@ export interface AcceptedOutputBuildContext {
   as_of: string;
   accepted_at: string;
   run_binding: AcceptedOutputRunBinding;
+  evaluation_binding?: {
+    evaluation_opportunity_set_id: string;
+    evaluation_opportunity_set_hash: string;
+    frozen_object_set_id: string | null;
+    frozen_object_set_hash: string | null;
+    runtime_authority_binding?: OutcomeRuntimeAuthorityBinding;
+  } | null;
 }
 
 export function acceptedOutputBuildContextFromState(input: {
   state: DailyCycleStateType;
   agentId: AgentId;
   sourceAgentRunId: string;
+  acceptedOutputKind: AcceptedOutputKind;
 }): AcceptedOutputBuildContext {
   const binding = input.state.darwinian_runtime_binding;
   const weightSnapshot = input.state.darwinian_weight_snapshot;
@@ -231,6 +271,19 @@ export function acceptedOutputBuildContextFromState(input: {
           run_slot_kind: "DOWNSTREAM_ONLY",
           scheduled_sample_id: null,
         };
+  const isEvaluationObject = input.acceptedOutputKind !== "CIO_PROPOSAL";
+  const opportunityBinding = input.state.outcome_opportunity_bindings[input.agentId];
+  const evaluationBinding =
+    slot.run_slot_kind === "OUTCOME_SCHEDULED" && isEvaluationObject ? opportunityBinding : null;
+  if (
+    slot.run_slot_kind === "OUTCOME_SCHEDULED" &&
+    isEvaluationObject &&
+    (!evaluationBinding ||
+      evaluationBinding.agent_id !== input.agentId ||
+      evaluationBinding.scheduled_sample_id !== slot.scheduled_sample_id)
+  ) {
+    throw new Error(`${input.agentId}: accepted output opportunity binding is unavailable`);
+  }
   return {
     graph_run_id: schedule.graph_run_id,
     run_id: requiredText(input.sourceAgentRunId, "sourceAgentRunId"),
@@ -255,6 +308,17 @@ export function acceptedOutputBuildContextFromState(input: {
     as_of: schedule.as_of,
     accepted_at: binding.effective_at,
     run_binding: runBinding,
+    evaluation_binding: evaluationBinding
+      ? {
+          evaluation_opportunity_set_id: evaluationBinding.evaluation_opportunity_set_id,
+          evaluation_opportunity_set_hash: evaluationBinding.evaluation_opportunity_set_hash,
+          frozen_object_set_id: evaluationBinding.frozen_object_set_id,
+          frozen_object_set_hash: evaluationBinding.frozen_object_set_hash,
+          ...(evaluationBinding.runtime_authority_binding
+            ? { runtime_authority_binding: evaluationBinding.runtime_authority_binding }
+            : {}),
+        }
+      : null,
   };
 }
 
@@ -264,6 +328,8 @@ export function buildAcceptedAgentOutputRecord<K extends AcceptedOutputKind, TPa
   payload: TPayload;
   evidenceBundleIds: readonly [string, ...string[]];
   causalDedupeKeys: readonly [string, ...string[]];
+  claimGraph: ClaimEvidenceGraph;
+  sourceAgentOutputHash: string;
   context: AcceptedOutputBuildContext;
   runtimeAudit?: {
     macro_component_composition: MacroComponentCompositionAudit;
@@ -273,6 +339,21 @@ export function buildAcceptedAgentOutputRecord<K extends AcceptedOutputKind, TPa
   validateBuildContext(input.context);
   const evidenceBundleIds = sortedNonEmptyUnique(input.evidenceBundleIds, "evidence bundle");
   const causalDedupeKeys = sortedNonEmptyUnique(input.causalDedupeKeys, "causal dedupe key");
+  const sourceAgentOutputHash = requiredSha256(
+    input.sourceAgentOutputHash,
+    "source_agent_output_hash",
+  );
+  const claimGraphLineage = acceptedClaimGraphLineage(input.claimGraph);
+  const acceptedPayloadHash = canonicalHash(input.payload);
+  const adapterLineageBody = {
+    schema_version: "accepted_output_adapter_lineage_v1" as const,
+    adapter_contract_version: "accepted_output_adapter_v1" as const,
+    agent_id: input.agentId,
+    accepted_output_kind: input.kind,
+    source_agent_output_hash: sourceAgentOutputHash,
+    accepted_payload_hash: acceptedPayloadHash,
+    claim_graph_lineage_hash: claimGraphLineage.claim_graph_lineage_hash,
+  };
   const acceptedOutputId = deterministicId("accepted-output", {
     graph_run_id: input.context.graph_run_id,
     run_slot_id: input.context.run_slot_id,
@@ -331,10 +412,26 @@ export function buildAcceptedAgentOutputRecord<K extends AcceptedOutputKind, TPa
     ),
     as_of: requiredText(input.context.as_of, "as_of"),
     accepted_at: requiredText(input.context.accepted_at, "accepted_at"),
+    evaluation_opportunity_set_id:
+      input.context.evaluation_binding?.evaluation_opportunity_set_id ?? null,
+    evaluation_opportunity_set_hash:
+      input.context.evaluation_binding?.evaluation_opportunity_set_hash ?? null,
+    frozen_object_set_id: input.context.evaluation_binding?.frozen_object_set_id ?? null,
+    frozen_object_set_hash: input.context.evaluation_binding?.frozen_object_set_hash ?? null,
+    adapter_lineage: {
+      ...adapterLineageBody,
+      adapter_lineage_hash: canonicalHash(adapterLineageBody),
+    },
+    ...(input.context.evaluation_binding?.runtime_authority_binding
+      ? {
+          runtime_opportunity_authority: input.context.evaluation_binding.runtime_authority_binding,
+        }
+      : {}),
     output: {
       payload: input.payload,
       evidence_bundle_ids: evidenceBundleIds,
       causal_dedupe_keys: causalDedupeKeys,
+      claim_graph_lineage: claimGraphLineage,
     },
     ...(input.runtimeAudit ? { runtime_audit: structuredClone(input.runtimeAudit) } : {}),
   };
@@ -421,6 +518,12 @@ function validateAcceptedOutputClaimGraph(
       `accepted output claim lineage graph-run mismatch: ${record.accepted_output_id}`,
     );
   }
+  const expectedLineage = acceptedClaimGraphLineage(graph);
+  if (canonicalHash(expectedLineage) !== canonicalHash(record.output.claim_graph_lineage)) {
+    throw new Error(
+      `accepted output claim graph projection mismatch: ${record.accepted_output_id}`,
+    );
+  }
   const expectedBundleId = `evidence-bundle:${graph.run_id}:${graph.snapshot_hash.slice(7)}`;
   if (!record.output.evidence_bundle_ids.includes(expectedBundleId)) {
     throw new Error(`accepted output claim lineage bundle mismatch: ${record.accepted_output_id}`);
@@ -441,6 +544,7 @@ function validateAcceptedOutputClaimGraph(
 export function validateAcceptedAgentOutputRecord(record: AcceptedAgentOutputRecord): void {
   validateOwner(record.accepted_output_kind, record.agent_id);
   validateRunBinding(record);
+  validateEvaluationBinding(record);
   const { accepted_output_hash: suppliedHash, ...withoutHash } = record;
   if (canonicalHash(withoutHash) !== suppliedHash) {
     throw new Error(`accepted output hash mismatch: ${record.accepted_output_id}`);
@@ -455,7 +559,205 @@ export function validateAcceptedAgentOutputRecord(record: AcceptedAgentOutputRec
   }
   sortedNonEmptyUnique(record.output.evidence_bundle_ids, "evidence bundle");
   sortedNonEmptyUnique(record.output.causal_dedupe_keys, "causal dedupe key");
+  validateAdapterLineage(record);
   validateRuntimeAudit(record);
+}
+
+function validateAdapterLineage(record: AcceptedAgentOutputRecord): void {
+  const lineage = record.adapter_lineage;
+  const expectedFields = [
+    "accepted_output_kind",
+    "accepted_payload_hash",
+    "adapter_contract_version",
+    "adapter_lineage_hash",
+    "agent_id",
+    "claim_graph_lineage_hash",
+    "schema_version",
+    "source_agent_output_hash",
+  ];
+  if (Object.keys(lineage).sort().join("\0") !== expectedFields.join("\0")) {
+    throw new Error(
+      `accepted output adapter lineage fields mismatch: ${record.accepted_output_id}`,
+    );
+  }
+  const { adapter_lineage_hash: suppliedHash, ...body } = lineage;
+  if (
+    lineage.schema_version !== "accepted_output_adapter_lineage_v1" ||
+    lineage.adapter_contract_version !== "accepted_output_adapter_v1" ||
+    lineage.agent_id !== record.agent_id ||
+    lineage.accepted_output_kind !== record.accepted_output_kind ||
+    requiredSha256(lineage.source_agent_output_hash, "source_agent_output_hash") !==
+      lineage.source_agent_output_hash ||
+    lineage.accepted_payload_hash !== canonicalHash(record.output.payload) ||
+    lineage.claim_graph_lineage_hash !==
+      record.output.claim_graph_lineage.claim_graph_lineage_hash ||
+    suppliedHash !== canonicalHash(body)
+  ) {
+    throw new Error(`accepted output adapter lineage mismatch: ${record.accepted_output_id}`);
+  }
+}
+
+function acceptedClaimGraphLineage(graph: ClaimEvidenceGraph): AcceptedClaimGraphLineage {
+  const evidence = [...graph.evidence_ledger]
+    .map((entry) => ({
+      evidence_id: requiredText(entry.evidence_id, "evidence_id"),
+      source_fingerprint: requiredSha256(entry.source_fingerprint, "source_fingerprint"),
+    }))
+    .sort((left, right) => left.evidence_id.localeCompare(right.evidence_id));
+  const claims = [...graph.claims]
+    .map((claim) => ({
+      claim_id: requiredText(claim.claim_id, "claim_id"),
+      evidence_ids: sortedClaimEvidenceIds(claim.evidence_ids),
+    }))
+    .sort((left, right) => left.claim_id.localeCompare(right.claim_id));
+  if (new Set(evidence.map((entry) => entry.evidence_id)).size !== evidence.length) {
+    throw new Error("accepted claim graph lineage has duplicate evidence IDs");
+  }
+  if (new Set(claims.map((claim) => claim.claim_id)).size !== claims.length) {
+    throw new Error("accepted claim graph lineage has duplicate claim IDs");
+  }
+  const body = {
+    schema_version: "accepted_claim_graph_lineage_v1" as const,
+    run_id: requiredText(graph.run_id, "claim_graph.run_id"),
+    snapshot_hash: requiredSha256(graph.snapshot_hash, "claim_graph.snapshot_hash"),
+    evidence,
+    claims,
+  };
+  return { ...body, claim_graph_lineage_hash: canonicalHash(body) };
+}
+
+function sortedClaimEvidenceIds(values: readonly string[]): string[] {
+  const first = values[0];
+  if (first === undefined) throw new Error("claim evidence id must not be empty");
+  return sortedNonEmptyUnique([first, ...values.slice(1)], "claim evidence id");
+}
+
+function validateEvaluationBinding(record: AcceptedAgentOutputRecord): void {
+  const fields = [
+    record.evaluation_opportunity_set_id,
+    record.evaluation_opportunity_set_hash,
+    record.frozen_object_set_id,
+    record.frozen_object_set_hash,
+  ] as const;
+  if (
+    record.run_slot_kind !== "OUTCOME_SCHEDULED" ||
+    record.accepted_output_kind === "CIO_PROPOSAL" ||
+    record.sample_origin !== "PRODUCTION_ACTIVE"
+  ) {
+    if (
+      fields.some((value) => value !== null) ||
+      record.runtime_opportunity_authority !== undefined
+    ) {
+      throw new Error(
+        `accepted output has an unexpected opportunity binding: ${record.accepted_output_id}`,
+      );
+    }
+    return;
+  }
+  const decision = [
+    "ALPHA_DISCOVERY",
+    "CRO_RISK_REVIEW",
+    "EXECUTION_ASSESSMENT",
+    "CIO_FINAL",
+  ].includes(record.accepted_output_kind);
+  if (fields.every((value) => value === null)) {
+    if (decision) {
+      throw new Error(
+        `Decision accepted output lacks an opportunity binding: ${record.accepted_output_id}`,
+      );
+    }
+    return;
+  }
+  requiredText(record.evaluation_opportunity_set_id ?? "", "evaluation_opportunity_set_id");
+  requiredSha256(record.evaluation_opportunity_set_hash, "evaluation_opportunity_set_hash");
+  if (decision) {
+    requiredText(record.frozen_object_set_id ?? "", "frozen_object_set_id");
+    requiredSha256(record.frozen_object_set_hash, "frozen_object_set_hash");
+    validateRuntimeOpportunityAuthority(record.runtime_opportunity_authority);
+  } else {
+    if (record.frozen_object_set_id !== null || record.frozen_object_set_hash !== null) {
+      throw new Error(
+        `non-Decision accepted output has a frozen stage object: ${record.accepted_output_id}`,
+      );
+    }
+    validateLiveRuntimeOpportunityAuthority(record.runtime_opportunity_authority, record.agent_id);
+  }
+}
+
+function validateRuntimeOpportunityAuthority(
+  authority: OutcomeRuntimeAuthorityBinding | undefined,
+): void {
+  if (!authority) throw new Error("Decision accepted output lacks runtime opportunity authority");
+  const fields = [
+    "candidate_scope_hash",
+    "candidate_universe_hash",
+    "source_snapshot_hash",
+    "source_tool_id",
+    "upstream_accepted_output_refs_hash",
+  ];
+  if (Object.keys(authority).sort().join("\0") !== fields.join("\0")) {
+    throw new Error("Decision runtime opportunity authority fields mismatch");
+  }
+  if (!("candidate_scope_hash" in authority)) {
+    throw new Error("Decision runtime opportunity authority shape mismatch");
+  }
+  if (
+    ![
+      "get_alpha_candidate_snapshot",
+      "get_cro_risk_snapshot",
+      "get_execution_snapshot",
+      "get_cio_decision_snapshot",
+    ].includes(authority.source_tool_id)
+  ) {
+    throw new Error("Decision runtime opportunity authority tool mismatch");
+  }
+  requiredSha256(authority.source_snapshot_hash, "source_snapshot_hash");
+  requiredSha256(authority.candidate_scope_hash, "candidate_scope_hash");
+  requiredSha256(authority.candidate_universe_hash, "candidate_universe_hash");
+  requiredSha256(
+    authority.upstream_accepted_output_refs_hash,
+    "upstream_accepted_output_refs_hash",
+  );
+}
+
+function validateLiveRuntimeOpportunityAuthority(
+  authority: OutcomeRuntimeAuthorityBinding | undefined,
+  agentId: string,
+): void {
+  if (!authority || !("domain_hash" in authority)) {
+    throw new Error(`${agentId}: accepted output lacks live source authority`);
+  }
+  const fields = ["domain_hash", "source_snapshot_hash", "source_tool_id"];
+  if (Object.keys(authority).sort().join("\0") !== fields.join("\0")) {
+    throw new Error(`${agentId}: live source authority fields mismatch`);
+  }
+  const expectedTool = {
+    china: "get_china_macro_snapshot",
+    us_economy: "get_us_macro_snapshot",
+    eu_economy: "get_eu_macro_snapshot",
+    central_bank: "get_central_bank_snapshot",
+    us_financial_conditions: "get_us_financial_conditions_snapshot",
+    euro_area_financial_conditions: "get_euro_area_financial_conditions_snapshot",
+    commodities: "get_commodity_conditions_snapshot",
+    geopolitical: "get_geopolitical_events_snapshot",
+    market_breadth: "get_market_breadth_snapshot",
+    institutional_flow: "get_market_positioning_snapshot",
+    semiconductor: "get_sector_research_snapshot",
+    technology: "get_sector_research_snapshot",
+    energy: "get_sector_research_snapshot",
+    biotech: "get_sector_research_snapshot",
+    consumer: "get_sector_research_snapshot",
+    industrials: "get_sector_research_snapshot",
+    real_estate_construction: "get_sector_research_snapshot",
+    financials: "get_sector_research_snapshot",
+    agriculture: "get_sector_research_snapshot",
+    relationship_mapper: "get_relationship_graph_snapshot",
+  }[agentId];
+  if (!expectedTool || authority.source_tool_id !== expectedTool) {
+    throw new Error(`${agentId}: live source authority tool mismatch`);
+  }
+  requiredSha256(authority.source_snapshot_hash, "source_snapshot_hash");
+  requiredSha256(authority.domain_hash, "domain_hash");
 }
 
 function validateRuntimeAudit(record: AcceptedAgentOutputRecord): void {
@@ -490,18 +792,16 @@ function validateRuntimeAudit(record: AcceptedAgentOutputRecord): void {
     "schema_version",
     "source_snapshot_hash",
   ].sort();
-  const financialContextRole =
-    record.agent_id === "us_financial_conditions" ||
-    record.agent_id === "euro_area_financial_conditions";
+  const requiresContextProjection = record.agent_id in MACRO_CONTEXT_SOURCE_ROLES;
   if (
     Object.keys(composition).sort().join("\0") !== expectedCompositionFields.join("\0") ||
     composition.schema_version !== "macro_component_composition_audit_v1" ||
     composition.agent_id !== record.agent_id ||
     composition.component_weight_contract_version !== record.component_weight_contract_version ||
     !/^sha256:[0-9a-f]{64}$/.test(composition.source_snapshot_hash) ||
-    (financialContextRole &&
+    (requiresContextProjection &&
       !/^sha256:[0-9a-f]{64}$/.test(composition.context_only_projection_hash ?? "")) ||
-    (!financialContextRole && composition.context_only_projection_hash !== null) ||
+    (!requiresContextProjection && composition.context_only_projection_hash !== null) ||
     !/^sha256:[0-9a-f]{64}$/.test(composition.composed_payload_hash) ||
     !/^sha256:[0-9a-f]{64}$/.test(composition.component_composition_hash)
   ) {
@@ -628,6 +928,13 @@ function requiredText(value: string, label: string): string {
   return value.trim();
 }
 
+function requiredSha256(value: string | null, label: string): string {
+  if (!value || !/^sha256:[0-9a-f]{64}$/.test(value)) {
+    throw new Error(`${label} must be a sha256 hash`);
+  }
+  return value;
+}
+
 function deterministicId(namespace: string, value: unknown): string {
   return `${namespace}:${canonicalHash(value).slice("sha256:".length)}`;
 }
@@ -637,19 +944,5 @@ export function canonicalAcceptedOutputHash(value: unknown): string {
 }
 
 function canonicalHash(value: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(JSON.stringify(canonicalize(value)))
-    .digest("hex")}`;
-}
-
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, item]) => [key, canonicalize(item)]),
-    );
-  }
-  return value;
+  return canonicalJsonHash(value);
 }

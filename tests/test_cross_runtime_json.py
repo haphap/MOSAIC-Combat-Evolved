@@ -33,6 +33,9 @@ def test_canonical_json_rejects_nonfinite_numbers(value: float) -> None:
         canonical_json({"value": value})
 
 
-def test_canonical_json_rejects_integer_outside_safe_range() -> None:
-    with pytest.raises(ValueError, match="safe range"):
-        canonical_json({"value": 2**53})
+def test_canonical_json_accepts_exact_and_rejects_inexact_large_integers() -> None:
+    assert canonical_json({"value": 10**20}) == (
+        '{"value":100000000000000000000}'
+    )
+    with pytest.raises(ValueError, match="not exactly representable"):
+        canonical_json({"value": 2**53 + 1})

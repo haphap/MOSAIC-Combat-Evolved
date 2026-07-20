@@ -102,6 +102,7 @@ PROBES: dict[str, dict[str, Any]] = {
         "start_date": "20260701",
         "end_date": "20260717",
     },
+    "fut_wsr": {"trade_date": "20260717"},
     "fx_obasic": {},
     "fx_daily": {"start_date": "20260701", "end_date": "20260717"},
     "moneyflow": {"trade_date": "20260716"},

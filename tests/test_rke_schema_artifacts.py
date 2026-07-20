@@ -58,8 +58,14 @@ REQUIRED_SCHEMA_FILES = {
     "agent_prompt_role_contract_manifest_v2.schema.json",
     "macro_prompt_role_contract_manifest_v1.schema.json",
     "macro_role_snapshot_v2.schema.json",
+    "commodity_conditions_v1.schema.json",
     "verified_event_coverage_snapshot_v2.schema.json",
     "evaluation_opportunity_projection_v2.schema.json",
+    "realized_outcome_projection_v2.schema.json",
+    "outcome_normalization_registry_v1.schema.json",
+    "outcome_source_authority_registry_v1.schema.json",
+    "outcome_source_receipt_v1.schema.json",
+    "outcome_source_batch_v1.schema.json",
     "tushare_endpoint_preflight_v2.schema.json",
     "official_macro_source_preflight_v1.schema.json",
     "geopolitical_initial_source_manifest_v2.schema.json",
@@ -6035,7 +6041,7 @@ def test_production_promotion_gate_contract_accepts_current_public_artifact(
     assert record.failures == ()
 
 
-def test_production_promotion_gate_contract_accepts_completed_state(
+def test_production_promotion_gate_contract_rejects_completed_production_state(
     tmp_path: Path,
 ):
     registry = _copy_registry_for_manual_progress(tmp_path)
@@ -6048,9 +6054,11 @@ def test_production_promotion_gate_contract_accepts_completed_state(
         {
             "blockers": [],
             "direct_production_forbidden": False,
+            "execution_mode": "PRODUCTION",
             "next_state": "production",
             "paper_trading_allowed": True,
             "production_allowed": True,
+            "production_signal_allowed": True,
             "staged_production_allowed": True,
         }
     )
@@ -6061,9 +6069,18 @@ def test_production_promotion_gate_contract_accepts_completed_state(
 
     record = _production_promotion_gate_record(tmp_path)
 
-    assert record.accepted
+    assert not record.accepted
     assert record.item_count == 10
-    assert record.failures == ()
+    assert any("execution_mode: must remain RKE_SHADOW" in item for item in record.failures)
+    assert any(
+        "production_signal_allowed: must remain false" in item
+        for item in record.failures
+    )
+    assert any("RKE must remain shadow-only" in item for item in record.failures)
+    assert any(
+        "direct_production_forbidden: must remain true" in item
+        for item in record.failures
+    )
 
 
 def test_production_promotion_gate_contract_rejects_missing_criterion(

@@ -3,7 +3,7 @@
   "contract_count": 28,
   "usage_track_count": 24,
   "evolution_only_track_count": 4,
-  "registry_hash": "sha256:00375bdb487067157b08afcc2c4db9423e2071aacdc9d7c95629522f0064fb71",
+  "registry_hash": "sha256:998b4f36d48633e346ee7dd43a92339409ba2665d8fbb6e5df5e7387ae329fa5",
   "metric_schema_count": 8,
   "metric_schemas_hash": "sha256:20c3b1a33c125e82da8e54d8252f55bfcd037629f2c827d5d1a13e7b73d74e68",
   "metric_schemas": {
@@ -2499,6 +2499,446 @@
       "additionalProperties": false
     }
   },
+  "realized_metric_schema_count": 8,
+  "realized_metric_schemas_hash": "sha256:47658d605a5b58373b5cc8a07108384e5f79c474174e78971b05fad1c7d0656e",
+  "realized_metric_schemas": {
+    "macro_transmission_realized_metrics_v1": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "role_path_metric": {
+          "type": "number"
+        },
+        "pit_volatility_scale": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "required": [
+        "role_path_metric",
+        "pit_volatility_scale"
+      ],
+      "additionalProperties": false
+    },
+    "standard_sector_realized_metrics_v1": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "direction_paths": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "direction_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "realized_return_5d": {
+                "type": "number"
+              },
+              "parent_sector_return_5d": {
+                "type": "number"
+              },
+              "realized_scaled_path": {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "direction_id",
+              "realized_return_5d",
+              "parent_sector_return_5d",
+              "realized_scaled_path"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "security_paths": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "side": {
+                "type": "string",
+                "enum": [
+                  "PREFERRED",
+                  "LEAST_PREFERRED"
+                ]
+              },
+              "direction_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ts_code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "net_alpha_5d": {
+                "type": "number"
+              },
+              "realized_scaled_alpha": {
+                "type": "number",
+                "minimum": -1,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "side",
+              "direction_id",
+              "ts_code",
+              "net_alpha_5d",
+              "realized_scaled_alpha"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "direction_paths",
+        "security_paths"
+      ],
+      "additionalProperties": false
+    },
+    "relationship_realized_metrics_v1": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "edge_paths": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "edge_candidate_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "realized_edge_state": {
+                "type": "string",
+                "enum": [
+                  "NO_ACTIVATION",
+                  "POSITIVE",
+                  "NEGATIVE",
+                  "MIXED"
+                ]
+              },
+              "matched_non_edge_lift": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "edge_candidate_id",
+              "realized_edge_state",
+              "matched_non_edge_lift"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "edge_paths"
+      ],
+      "additionalProperties": false
+    },
+    "superinvestor_realized_metrics_v1": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "candidate_paths": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "candidate_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ts_code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "realized_net_excess_return_21d": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "candidate_ref",
+              "ts_code",
+              "realized_net_excess_return_21d"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "candidate_paths"
+      ],
+      "additionalProperties": false
+    },
+    "cro_realized_metrics_v1": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "candidate_states": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "candidate_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ts_code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "realized_risk_state": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "const": 0
+                  },
+                  {
+                    "type": "number",
+                    "const": 1
+                  }
+                ]
+              },
+              "realized_risk_evidence_ids": {
+                "type": "array",
+                "items": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                ],
+                "additionalItems": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "required": [
+              "candidate_ref",
+              "ts_code",
+              "realized_risk_state",
+              "realized_risk_evidence_ids"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "candidate_states"
+      ],
+      "additionalProperties": false
+    },
+    "alpha_realized_metrics_v1": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "candidate_paths": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "candidate_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ts_code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "realized_net_excess_return_5d": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "candidate_ref",
+              "ts_code",
+              "realized_net_excess_return_5d"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "candidate_paths"
+      ],
+      "additionalProperties": false
+    },
+    "execution_realized_metrics_v1": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "order_paths": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "order_intent_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "ts_code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "realized_feasibility": {
+                "type": "string",
+                "enum": [
+                  "FEASIBLE",
+                  "PARTIAL",
+                  "BLOCKED"
+                ]
+              },
+              "realized_cost_bps": {
+                "type": "number",
+                "minimum": 0
+              },
+              "pit_cost_scale_bps": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "realized_delta_weight": {
+                "type": "number"
+              },
+              "realized_policy_compliance": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "const": 0
+                  },
+                  {
+                    "type": "number",
+                    "const": 1
+                  }
+                ]
+              },
+              "outcome_evidence_ids": {
+                "type": "array",
+                "items": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                ],
+                "additionalItems": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "required": [
+              "order_intent_ref",
+              "ts_code",
+              "realized_feasibility",
+              "realized_cost_bps",
+              "pit_cost_scale_bps",
+              "realized_delta_weight",
+              "realized_policy_compliance",
+              "outcome_evidence_ids"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "order_paths"
+      ],
+      "additionalProperties": false
+    },
+    "cio_realized_metrics_v1": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "position_paths": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ts_code": {
+                "type": "string",
+                "minLength": 1
+              },
+              "realized_weight": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "realized_net_return_5d": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "ts_code",
+              "realized_weight",
+              "realized_net_return_5d"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "realized_cash_weight": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "accepted_portfolio_net_return_5d": {
+          "type": "number"
+        },
+        "baseline_portfolio_net_return_5d": {
+          "type": "number"
+        },
+        "accepted_portfolio_max_drawdown_5d": {
+          "type": "number",
+          "maximum": 0
+        },
+        "baseline_portfolio_max_drawdown_5d": {
+          "type": "number",
+          "maximum": 0
+        },
+        "accepted_portfolio_turnover_cost": {
+          "type": "number",
+          "minimum": 0
+        },
+        "baseline_portfolio_turnover_cost": {
+          "type": "number",
+          "minimum": 0
+        },
+        "realized_constraint_compliance": {
+          "anyOf": [
+            {
+              "type": "number",
+              "const": 0
+            },
+            {
+              "type": "number",
+              "const": 1
+            }
+          ]
+        }
+      },
+      "required": [
+        "position_paths",
+        "realized_cash_weight",
+        "accepted_portfolio_net_return_5d",
+        "baseline_portfolio_net_return_5d",
+        "accepted_portfolio_max_drawdown_5d",
+        "baseline_portfolio_max_drawdown_5d",
+        "accepted_portfolio_turnover_cost",
+        "baseline_portfolio_turnover_cost",
+        "realized_constraint_compliance"
+      ],
+      "additionalProperties": false
+    }
+  },
   "contracts": [
     {
       "agent_id": "ackman",
@@ -2509,6 +2949,7 @@
       "accepted_output_kind": "SUPERINVESTOR_SELECTION",
       "primary_label_id": "ackman_pick_utility_21d",
       "metric_schema_id": "superinvestor_pick_utility_metrics_v2",
+      "realized_metric_schema_id": "superinvestor_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_21",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -2552,6 +2993,7 @@
       "accepted_output_kind": "STANDARD_SECTOR_SELECTION",
       "primary_label_id": "agriculture_direction_pick_alpha_5d",
       "metric_schema_id": "standard_sector_direction_pick_metrics_v3",
+      "realized_metric_schema_id": "standard_sector_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -2596,6 +3038,7 @@
       "accepted_output_kind": "ALPHA_DISCOVERY",
       "primary_label_id": "alpha_discovery_incremental_alpha_5d",
       "metric_schema_id": "alpha_discovery_incremental_metrics_v2",
+      "realized_metric_schema_id": "alpha_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -2639,6 +3082,7 @@
       "accepted_output_kind": "EXECUTION_ASSESSMENT",
       "primary_label_id": "execution_feasibility_cost_t1",
       "metric_schema_id": "execution_feasibility_cost_metrics_v2",
+      "realized_metric_schema_id": "execution_realized_metrics_v1",
       "maturity_horizon": "T1_CLOSE",
       "maturity": {
         "entry_semantics": "NEXT_SESSION_EXECUTION",
@@ -2682,6 +3126,7 @@
       "accepted_output_kind": "STANDARD_SECTOR_SELECTION",
       "primary_label_id": "biotech_direction_pick_alpha_5d",
       "metric_schema_id": "standard_sector_direction_pick_metrics_v3",
+      "realized_metric_schema_id": "standard_sector_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -2726,6 +3171,7 @@
       "accepted_output_kind": "SUPERINVESTOR_SELECTION",
       "primary_label_id": "burry_pick_utility_21d",
       "metric_schema_id": "superinvestor_pick_utility_metrics_v2",
+      "realized_metric_schema_id": "superinvestor_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_21",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -2769,6 +3215,7 @@
       "accepted_output_kind": "MACRO_TRANSMISSION",
       "primary_label_id": "pboc_rate_liquidity_a_share_path_5d",
       "metric_schema_id": "macro_transmission_metrics_v2",
+      "realized_metric_schema_id": "macro_transmission_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -2852,6 +3299,7 @@
       "accepted_output_kind": "MACRO_TRANSMISSION",
       "primary_label_id": "china_macro_transmission_a_share_path_5d",
       "metric_schema_id": "macro_transmission_metrics_v2",
+      "realized_metric_schema_id": "macro_transmission_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -2936,6 +3384,7 @@
       "accepted_output_kind": "CIO_FINAL",
       "primary_label_id": "cio_portfolio_utility_5d",
       "metric_schema_id": "cio_portfolio_utility_metrics_v2",
+      "realized_metric_schema_id": "cio_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -2979,6 +3428,7 @@
       "accepted_output_kind": "MACRO_TRANSMISSION",
       "primary_label_id": "commodity_a_share_transmission_path_5d",
       "metric_schema_id": "macro_transmission_metrics_v2",
+      "realized_metric_schema_id": "macro_transmission_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -3062,6 +3512,7 @@
       "accepted_output_kind": "STANDARD_SECTOR_SELECTION",
       "primary_label_id": "consumer_direction_pick_alpha_5d",
       "metric_schema_id": "standard_sector_direction_pick_metrics_v3",
+      "realized_metric_schema_id": "standard_sector_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -3106,6 +3557,7 @@
       "accepted_output_kind": "CRO_RISK_REVIEW",
       "primary_label_id": "cro_risk_control_calibration_5d",
       "metric_schema_id": "cro_risk_control_metrics_v2",
+      "realized_metric_schema_id": "cro_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -3149,6 +3601,7 @@
       "accepted_output_kind": "SUPERINVESTOR_SELECTION",
       "primary_label_id": "druckenmiller_pick_utility_21d",
       "metric_schema_id": "superinvestor_pick_utility_metrics_v2",
+      "realized_metric_schema_id": "superinvestor_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_21",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -3192,6 +3645,7 @@
       "accepted_output_kind": "STANDARD_SECTOR_SELECTION",
       "primary_label_id": "energy_direction_pick_alpha_5d",
       "metric_schema_id": "standard_sector_direction_pick_metrics_v3",
+      "realized_metric_schema_id": "standard_sector_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -3236,6 +3690,7 @@
       "accepted_output_kind": "MACRO_TRANSMISSION",
       "primary_label_id": "eu_economic_cycle_a_share_path_5d",
       "metric_schema_id": "macro_transmission_metrics_v2",
+      "realized_metric_schema_id": "macro_transmission_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -3319,6 +3774,7 @@
       "accepted_output_kind": "MACRO_TRANSMISSION",
       "primary_label_id": "euro_area_financial_conditions_a_share_path_5d",
       "metric_schema_id": "macro_transmission_metrics_v2",
+      "realized_metric_schema_id": "macro_transmission_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -3402,6 +3858,7 @@
       "accepted_output_kind": "STANDARD_SECTOR_SELECTION",
       "primary_label_id": "financials_direction_pick_alpha_5d",
       "metric_schema_id": "standard_sector_direction_pick_metrics_v3",
+      "realized_metric_schema_id": "standard_sector_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -3446,6 +3903,7 @@
       "accepted_output_kind": "MACRO_TRANSMISSION",
       "primary_label_id": "geopolitical_transmission_a_share_path_5d",
       "metric_schema_id": "macro_transmission_metrics_v2",
+      "realized_metric_schema_id": "macro_transmission_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -3490,6 +3948,7 @@
       "accepted_output_kind": "STANDARD_SECTOR_SELECTION",
       "primary_label_id": "industrials_direction_pick_alpha_5d",
       "metric_schema_id": "standard_sector_direction_pick_metrics_v3",
+      "realized_metric_schema_id": "standard_sector_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -3534,6 +3993,7 @@
       "accepted_output_kind": "MACRO_TRANSMISSION",
       "primary_label_id": "institutional_flow_followthrough_5d",
       "metric_schema_id": "macro_transmission_metrics_v2",
+      "realized_metric_schema_id": "macro_transmission_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -3578,6 +4038,7 @@
       "accepted_output_kind": "MACRO_TRANSMISSION",
       "primary_label_id": "market_breadth_confirmation_5d",
       "metric_schema_id": "macro_transmission_metrics_v2",
+      "realized_metric_schema_id": "macro_transmission_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -3622,6 +4083,7 @@
       "accepted_output_kind": "SUPERINVESTOR_SELECTION",
       "primary_label_id": "munger_pick_utility_21d",
       "metric_schema_id": "superinvestor_pick_utility_metrics_v2",
+      "realized_metric_schema_id": "superinvestor_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_21",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -3665,6 +4127,7 @@
       "accepted_output_kind": "STANDARD_SECTOR_SELECTION",
       "primary_label_id": "real_estate_construction_direction_pick_alpha_5d",
       "metric_schema_id": "standard_sector_direction_pick_metrics_v3",
+      "realized_metric_schema_id": "standard_sector_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -3709,6 +4172,7 @@
       "accepted_output_kind": "RELATIONSHIP_GRAPH",
       "primary_label_id": "relationship_graph_validation_20d",
       "metric_schema_id": "relationship_graph_validation_metrics_v2",
+      "realized_metric_schema_id": "relationship_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_20",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -3753,6 +4217,7 @@
       "accepted_output_kind": "STANDARD_SECTOR_SELECTION",
       "primary_label_id": "semiconductor_direction_pick_alpha_5d",
       "metric_schema_id": "standard_sector_direction_pick_metrics_v3",
+      "realized_metric_schema_id": "standard_sector_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -3797,6 +4262,7 @@
       "accepted_output_kind": "STANDARD_SECTOR_SELECTION",
       "primary_label_id": "technology_direction_pick_alpha_5d",
       "metric_schema_id": "standard_sector_direction_pick_metrics_v3",
+      "realized_metric_schema_id": "standard_sector_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -3841,6 +4307,7 @@
       "accepted_output_kind": "MACRO_TRANSMISSION",
       "primary_label_id": "us_economic_cycle_a_share_path_5d",
       "metric_schema_id": "macro_transmission_metrics_v2",
+      "realized_metric_schema_id": "macro_transmission_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",
@@ -3924,6 +4391,7 @@
       "accepted_output_kind": "MACRO_TRANSMISSION",
       "primary_label_id": "us_financial_conditions_a_share_path_5d",
       "metric_schema_id": "macro_transmission_metrics_v2",
+      "realized_metric_schema_id": "macro_transmission_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
         "entry_semantics": "T_PLUS_1_OPEN",

@@ -87,6 +87,7 @@ function state(): DailyCycleStateType {
     component_calibration_inputs: {},
     outcome_schedule_plan: null,
     outcome_stage_skips: {},
+    outcome_opportunity_bindings: {},
     accepted_output_refs: {},
     continuity_context: {},
     lesson_context: {},
@@ -152,6 +153,8 @@ function productionAcceptedState(): {
         causalDedupeKeys: [
           ...new Set(claimGraph.evidence_ledger.map((entry) => entry.source_fingerprint)),
         ] as [string, ...string[]],
+        claimGraph,
+        sourceAgentOutputHash: `sha256:${"f".repeat(64)}`,
         context,
       });
       return [

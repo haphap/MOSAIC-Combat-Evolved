@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
 
+from .cross_runtime_json import canonical_hash, canonical_json
 from .exceptions import DataVendorUnavailable
 from .geopolitical_events import (
     BUILTIN_GEOPOLITICAL_PARSER_SOURCE_IDS,
@@ -90,11 +91,11 @@ def _sha256_bytes(value: bytes) -> str:
 
 
 def _canonical_json(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return canonical_json(value)
 
 
 def _canonical_hash(value: object) -> str:
-    return _sha256_bytes(_canonical_json(value).encode("utf-8"))
+    return canonical_hash(value)
 
 
 def _parse_utc(value: str, field: str) -> datetime:

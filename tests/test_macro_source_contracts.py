@@ -8,17 +8,20 @@ import pytest
 from mosaic.dataflows.macro_source_contracts import (
     CHINA_MACRO_SERIES_MAP,
     COMMODITY_CONTRACT_MAP,
+    COMMODITY_FAMILY_CONTRACTS,
     EURO_AREA_FINANCIAL_SERIES_MAP,
     EU_SERIES_MAP,
     FINANCIAL_REAL_ECONOMY_CONTEXT_MAP,
     FX_PAIR_ROLE_MAP,
     MACRO_ROLE_SOURCE_GAPS,
+    MACRO_OBSERVATION_FRESHNESS_CONTRACTS,
     PBOC_SERIES_MAP,
     US_ECONOMY_SERIES_MAP,
     US_FINANCIAL_CONDITIONS_SERIES_MAP,
     WORLD_BANK_CONTEXT_MAP,
     assert_macro_role_sources_ready,
     macro_role_source_readiness,
+    macro_observation_max_age_calendar_days,
     validate_macro_source_contracts,
 )
 
@@ -132,6 +135,33 @@ def test_all_macro_roles_fail_closed_without_operational_pit_proof():
         macro_role_source_readiness("not_a_role")
 
 
+def test_freshness_contracts_are_closed_and_pboc_hard_caps_are_executable():
+    assert set(MACRO_OBSERVATION_FRESHNESS_CONTRACTS) == set(
+        MACRO_ROLE_SOURCE_GAPS
+    )
+    assert macro_observation_max_age_calendar_days(
+        "central_bank",
+        source="official.pboc_omo_catalog",
+        series_id="pboc_omo_net_injection",
+    ) == 4
+    assert macro_observation_max_age_calendar_days(
+        "central_bank",
+        source="official.pboc_lpr_catalog",
+        series_id="pboc_lpr_1y",
+    ) == 40
+    assert macro_observation_max_age_calendar_days(
+        "eu_economy",
+        source="world_bank.eu_gdp_growth_context",
+        series_id="world_bank_eu_gdp_growth",
+    ) == 800
+    with pytest.raises(ValueError, match="unregistered macro freshness contract"):
+        macro_observation_max_age_calendar_days(
+            "china",
+            source="adjacent.current_feed",
+            series_id="cn_gdp",
+        )
+
+
 def test_operational_gaps_match_committed_preflight_evidence():
     root = Path(__file__).resolve().parents[1]
     official = json.loads(
@@ -159,13 +189,27 @@ def test_operational_gaps_match_committed_preflight_evidence():
         "shibor",
         "us_tycr",
         "fx_daily",
+        "fut_basic",
         "fut_daily",
+        "fut_wsr",
         "moneyflow_ind_ths",
         "fund_share",
         "daily_basic",
     ):
         assert checks[endpoint]["status"] == "PRECHECK_REQUIRED"
         assert checks[endpoint]["pit_assessment"] == "LOCAL_CAPTURE_ONLY"
+    assert set(checks["fut_wsr"]["expected_columns"]) == {
+        "fut_name",
+        "pre_vol",
+        "symbol",
+        "trade_date",
+        "unit",
+        "vol",
+        "vol_chg",
+        "warehouse",
+    }
+    assert checks["fut_wsr"]["observed_row_count"] > 0
+    assert checks["fut_wsr"]["raw_payload_committed"] is False
     assert checks["yc_cb"]["status"] == "DISABLED_PERMISSION_DENIED"
     assert "moneyflow_hsgt" not in checks
 
@@ -180,6 +224,36 @@ def test_commodity_families_are_closed_and_world_bank_is_context_only():
         "C@DCE",
         "M@DCE",
     )
+    all_families = {
+        family
+        for component in COMMODITY_CONTRACT_MAP.values()
+        for family in (
+            *component["required_families"],
+            *component["optional_families"],
+        )
+    }
+    assert set(COMMODITY_FAMILY_CONTRACTS) == all_families
+    for family_id, contract in COMMODITY_FAMILY_CONTRACTS.items():
+        assert contract["contract_metadata_endpoint"] == "fut_basic"
+        assert contract["contract_metadata_source"] == (
+            f"tushare.fut_basic.{family_id}"
+        )
+        assert contract["daily_settlement_endpoint"] == "fut_daily"
+        assert contract["daily_settlement_source"] == (
+            f"tushare.fut_daily.{family_id}"
+        )
+        assert contract["inventory_endpoint"] == "fut_wsr"
+        assert contract["inventory_source"] == f"tushare.fut_wsr.{family_id}"
+        assert contract["inventory_source_status"] == (
+            "PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING"
+        )
+        assert contract["roll_rule"] == {
+            "rule_id": "first_two_roll_eligible_by_delist_date_v1",
+            "minimum_days_to_delist": 5,
+            "minimum_tradable_contracts": 2,
+            "price_field": "settle",
+            "liquidity_fields": ("volume", "open_interest"),
+        }
     assert all(
         row["required"] is False and row["usage_mode"] == "CONTEXT_ONLY"
         for row in WORLD_BANK_CONTEXT_MAP.values()

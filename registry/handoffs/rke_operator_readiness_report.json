@@ -89,7 +89,7 @@
     {
       "blocker": "",
       "check_id": "blank_bundle_dry_run_does_not_promote",
-      "evidence": "accepted=False, before_next_state=production, after_next_state=paper_trading",
+      "evidence": "accepted=False, before_next_state=paper_trading, after_next_state=paper_trading",
       "passed": true
     },
     {
@@ -101,7 +101,7 @@
     {
       "blocker": "",
       "check_id": "promotion_gate_state_consistent",
-      "evidence": "next_state=production, expected_next_state=production, staged=True/True, production=True/True, direct_forbidden=False/False, blockers=0, missing=0",
+      "evidence": "execution_mode=RKE_SHADOW, production_signal_allowed=False, next_state=paper_trading, expected_next_state=paper_trading, staged=False/False, production=False/False, direct_forbidden=True/True, blockers=0, missing=0",
       "passed": true
     },
     {

@@ -41,10 +41,13 @@ runtime evidence catalog.
 
 There is no six-factor bundle, Macro stance, `layer1_consensus`, or ±0.3
 aggregate. `macro_input_gate` accepts a cycle only when all ten named Macro
-outputs pass their contracts. Sector, Superinvestor, and Decision consumers
-receive the ten transmissions independently, with one authoritative
-`usage_share` per eligible upstream Agent and deterministic causal-evidence
-resolution. Consumers may not compare, sum, or maximize upstream confidence.
+outputs pass their contracts. Sector, Relationship, Superinvestor, Alpha, CRO,
+and CIO consumers receive the ten transmissions independently, with one
+authoritative `usage_share` per eligible upstream Agent and deterministic
+causal-evidence resolution. Consumers may not compare, sum, or maximize
+upstream confidence. Execution is the deliberate exception: it consumes only
+the frozen CIO proposal, CRO controls, order intents, and execution evidence.
+It may not directly receive or attribute the Macro gate or ten Macro outputs.
 
 Darwinian usage weights are applied at the consumer boundary, not by collapsing
 the ten views. The atomic production release has 28 evaluation tracks and 24
@@ -53,6 +56,39 @@ sources have usage weights; CRO, Alpha, Execution, and CIO are
 `EVOLUTION_ONLY` and have no weight row. Outcome labels are owned by each
 Agent's registered evaluation object; CIO portfolio PnL never updates upstream
 Agents.
+
+For scheduled samples, the server also appends monotonic authority events for
+the live opportunity freeze and accepted-output persistence. A formal accepted
+record requires an earlier freeze sequence; idempotent retries retain the first
+event, while server wall-clock metadata stays outside deterministic opportunity
+IDs and hashes.
+
+Realized outcomes use a public, versioned 26-source authority registry. Each
+source owns an exact set of realized-schema top-level fields and signs a
+sample-bound attestation with Ed25519; the public store re-verifies signatures
+and assembles one immutable exact-source batch. The same write transaction
+stores the exact validated registry snapshot in append-only history; later key
+rotation therefore does not invalidate a historical batch, and historical reads
+never substitute the current registry. Projection files carry only that
+server-selected batch ID/hash plus its four authority/schema pins. Formal
+append/read APIs do not accept caller-selected registry paths, and signing-key
+windows are evaluated against server-owned ingestion time. The committed registry is deliberately
+`PROVISIONING_REQUIRED`: its fail-closed enrollment public keys have no
+corresponding repository private keys. Production remains pending until source
+owners enroll externally held keys and publish an `ACTIVE` registry revision.
+Only the public server clock supplies ingestion and seal times. Batch sealing
+owns a fresh `BEGIN IMMEDIATE` transaction, revalidates the current pending
+revision under that write lock, and rejects caller-owned transactions so lock
+wait cannot backdate either timestamp.
+The SQLite mirrors, hashes, and append-only triggers defend against ordinary
+application writers, not a privileged database administrator who can rewrite
+the schema and whole database. Deployments with that stronger threat model must
+publish a server-signed seal to an external append-only audit ledger.
+
+All authority IDs and hashes that cross the Python/TypeScript boundary use the
+versioned `rfc8785_jcs_v1` canonical JSON contract. A shared golden corpus fixes
+ECMAScript number boundaries, negative zero, and UTF-16 property ordering; both
+runtimes reject non-finite numbers and invalid Unicode.
 
 For the seven composed Macro contracts, the initial/current component weights
 are a versioned runtime contract rather than permanent constants. An
@@ -97,6 +133,26 @@ rows are not committed. A successful live request proves transport/schema
 compatibility only. Until an append-only release/vintage ledger can prove
 `released_at` and `vintage_at` at the requested `as_of`, EU/euro-area production
 snapshots remain fail-closed.
+
+Commodity curve evidence has an additional deterministic contract. For each
+required family (`SC@INE`, `CU@SHFE`, `AU@SHFE`, `C@DCE`, and `M@DCE`), contract
+identity and expiry metadata come only from the preregistered Tushare
+`fut_basic` branch and same-day settlement/liquidity fields come only from
+Tushare `fut_daily`. The fixed roll rule rejects contracts inside five days of
+delisting, then orders the remaining real dated contracts by delisting date
+and uses the first two. Both contracts must belong to the same product and
+exchange, have positive settlement, volume, and open interest, and carry
+release/vintage evidence no later than `as_of`. Continuous/main-contract codes
+cannot establish contango or backwardation.
+
+The registered inventory identity is Tushare `fut_wsr`, scoped to the same
+family. Its live permission/schema probe is recorded in the closed endpoint
+registry, but a one-shot response is not archived PIT coverage and does not
+activate production use. Consequently formal commodity snapshots currently
+reject before inference. A later release must add an audited normalized
+inventory adapter and archived PIT receipts; missing inventory, a single
+contract, invalid metadata, or future evidence is an error and is never
+translated into a neutral commodity view.
 
 The same operational gate applies to every required China, US, PBOC, US
 financial-conditions, commodity, and institutional-flow branch. Public source

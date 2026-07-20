@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { canonicalJsonHash } from "../agents/helpers/canonical_json.js";
 import {
   MACRO_AGENT_CONTRACT_VERSION,
   MACRO_COMPONENT_WEIGHT_CONTRACT_VERSION,
@@ -339,19 +339,5 @@ function deterministicId(namespace: string, value: unknown): string {
 }
 
 function canonicalHash(value: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(JSON.stringify(canonicalize(value)))
-    .digest("hex")}`;
-}
-
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, item]) => [key, canonicalize(item)]),
-    );
-  }
-  return value;
+  return canonicalJsonHash(value);
 }

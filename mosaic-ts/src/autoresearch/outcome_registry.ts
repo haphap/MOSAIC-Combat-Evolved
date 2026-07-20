@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import { z } from "zod";
+import { canonicalJsonHash } from "../agents/helpers/canonical_json.js";
 import {
   MACRO_COMPONENT_WEIGHT_CONTRACT_VERSION,
   MACRO_ROLE_CONTRACTS,
@@ -545,6 +545,174 @@ export const CioOutcomeRawMetricsSchema = z
   })
   .strict();
 
+const MacroTransmissionRealizedMetricsSchema = z
+  .object({
+    role_path_metric: FiniteNumber,
+    pit_volatility_scale: PositiveFinite,
+  })
+  .strict();
+
+const StandardSectorRealizedMetricsSchema = z
+  .object({
+    direction_paths: z
+      .array(
+        z
+          .object({
+            direction_id: NonEmptyId,
+            realized_return_5d: FiniteNumber,
+            parent_sector_return_5d: FiniteNumber,
+            realized_scaled_path: FiniteNumber.min(-1).max(1),
+          })
+          .strict(),
+      )
+      .min(1),
+    security_paths: z.array(
+      z
+        .object({
+          side: z.enum(["PREFERRED", "LEAST_PREFERRED"]),
+          direction_id: NonEmptyId,
+          ts_code: NonEmptyId,
+          net_alpha_5d: FiniteNumber,
+          realized_scaled_alpha: FiniteNumber.min(-1).max(1),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
+const RelationshipRealizedMetricsSchema = z
+  .object({
+    edge_paths: z
+      .array(
+        z
+          .object({
+            edge_candidate_id: NonEmptyId,
+            realized_edge_state: z.enum(["NO_ACTIVATION", "POSITIVE", "NEGATIVE", "MIXED"]),
+            matched_non_edge_lift: FiniteNumber,
+          })
+          .strict(),
+      )
+      .min(1),
+  })
+  .strict();
+
+const SuperinvestorRealizedMetricsSchema = z
+  .object({
+    candidate_paths: z
+      .array(
+        z
+          .object({
+            candidate_ref: NonEmptyId,
+            ts_code: NonEmptyId,
+            realized_net_excess_return_21d: FiniteNumber,
+          })
+          .strict(),
+      )
+      .min(1),
+  })
+  .strict();
+
+const CroRealizedMetricsSchema = z
+  .object({
+    candidate_states: z
+      .array(
+        z
+          .object({
+            candidate_ref: NonEmptyId,
+            ts_code: NonEmptyId,
+            realized_risk_state: z.union([z.literal(0), z.literal(1)]),
+            realized_risk_evidence_ids: z.tuple([NonEmptyId], NonEmptyId),
+          })
+          .strict(),
+      )
+      .min(1),
+  })
+  .strict();
+
+const AlphaRealizedMetricsSchema = z
+  .object({
+    candidate_paths: z
+      .array(
+        z
+          .object({
+            candidate_ref: NonEmptyId,
+            ts_code: NonEmptyId,
+            realized_net_excess_return_5d: FiniteNumber,
+          })
+          .strict(),
+      )
+      .min(1),
+  })
+  .strict();
+
+const ExecutionRealizedMetricsSchema = z
+  .object({
+    order_paths: z
+      .array(
+        z
+          .object({
+            order_intent_ref: NonEmptyId,
+            ts_code: NonEmptyId,
+            realized_feasibility: z.enum(["FEASIBLE", "PARTIAL", "BLOCKED"]),
+            realized_cost_bps: NonNegativeFinite,
+            pit_cost_scale_bps: PositiveFinite,
+            realized_delta_weight: FiniteNumber,
+            realized_policy_compliance: z.union([z.literal(0), z.literal(1)]),
+            outcome_evidence_ids: z.tuple([NonEmptyId], NonEmptyId),
+          })
+          .strict(),
+      )
+      .min(1),
+  })
+  .strict();
+
+const CioRealizedMetricsSchema = z
+  .object({
+    position_paths: z.array(
+      z
+        .object({
+          ts_code: NonEmptyId,
+          realized_weight: Probability,
+          realized_net_return_5d: FiniteNumber,
+        })
+        .strict(),
+    ),
+    realized_cash_weight: Probability,
+    accepted_portfolio_net_return_5d: FiniteNumber,
+    baseline_portfolio_net_return_5d: FiniteNumber,
+    accepted_portfolio_max_drawdown_5d: FiniteNumber.max(0),
+    baseline_portfolio_max_drawdown_5d: FiniteNumber.max(0),
+    accepted_portfolio_turnover_cost: NonNegativeFinite,
+    baseline_portfolio_turnover_cost: NonNegativeFinite,
+    realized_constraint_compliance: z.union([z.literal(0), z.literal(1)]),
+  })
+  .strict();
+
+export const OUTCOME_REALIZED_METRIC_SCHEMA_REGISTRY = Object.freeze({
+  macro_transmission_realized_metrics_v1: MacroTransmissionRealizedMetricsSchema,
+  standard_sector_realized_metrics_v1: StandardSectorRealizedMetricsSchema,
+  relationship_realized_metrics_v1: RelationshipRealizedMetricsSchema,
+  superinvestor_realized_metrics_v1: SuperinvestorRealizedMetricsSchema,
+  cro_realized_metrics_v1: CroRealizedMetricsSchema,
+  alpha_realized_metrics_v1: AlphaRealizedMetricsSchema,
+  execution_realized_metrics_v1: ExecutionRealizedMetricsSchema,
+  cio_realized_metrics_v1: CioRealizedMetricsSchema,
+});
+
+export type OutcomeRealizedMetricSchemaId = keyof typeof OUTCOME_REALIZED_METRIC_SCHEMA_REGISTRY;
+
+export function parseOutcomeRealizedMetrics(
+  realizedMetricSchemaId: string,
+  value: unknown,
+): unknown {
+  const schema =
+    OUTCOME_REALIZED_METRIC_SCHEMA_REGISTRY[
+      realizedMetricSchemaId as OutcomeRealizedMetricSchemaId
+    ];
+  if (!schema) throw new Error(`unknown_outcome_realized_metric_schema:${realizedMetricSchemaId}`);
+  return schema.parse(value);
+}
+
 export const OUTCOME_METRIC_SCHEMA_REGISTRY = Object.freeze({
   macro_transmission_metrics_v2: MacroTransmissionOutcomeRawMetricsSchema,
   standard_sector_direction_pick_metrics_v3: StandardSectorOutcomeRawMetricsSchema,
@@ -596,6 +764,7 @@ export const OutcomeContractSchema = z
     accepted_output_kind: AcceptedEvaluationOutputKindSchema,
     primary_label_id: z.string().min(1),
     metric_schema_id: z.string().min(1),
+    realized_metric_schema_id: z.string().min(1),
     maturity_horizon: z.enum(["T1_CLOSE", "TRADING_DAYS_5", "TRADING_DAYS_20", "TRADING_DAYS_21"]),
     maturity: z
       .object({
@@ -700,6 +869,7 @@ const macro = (
     accepted_output_kind: "MACRO_TRANSMISSION",
     primary_label_id,
     metric_schema_id: "macro_transmission_metrics_v2",
+    realized_metric_schema_id: "macro_transmission_realized_metrics_v1",
     maturity_horizon: "TRADING_DAYS_5",
     maturity: {
       entry_semantics: "T_PLUS_1_OPEN",
@@ -753,6 +923,7 @@ const sector = (agent_id: string): OutcomeContract => ({
   accepted_output_kind: "STANDARD_SECTOR_SELECTION",
   primary_label_id: `${agent_id}_direction_pick_alpha_5d`,
   metric_schema_id: "standard_sector_direction_pick_metrics_v3",
+  realized_metric_schema_id: "standard_sector_realized_metrics_v1",
   maturity_horizon: "TRADING_DAYS_5",
   maturity: {
     entry_semantics: "T_PLUS_1_OPEN",
@@ -793,6 +964,7 @@ const superinvestor = (agent_id: string): OutcomeContract => ({
   accepted_output_kind: "SUPERINVESTOR_SELECTION",
   primary_label_id: `${agent_id}_pick_utility_21d`,
   metric_schema_id: "superinvestor_pick_utility_metrics_v2",
+  realized_metric_schema_id: "superinvestor_realized_metrics_v1",
   maturity_horizon: "TRADING_DAYS_21",
   maturity: {
     entry_semantics: "T_PLUS_1_OPEN",
@@ -899,6 +1071,7 @@ export const OUTCOME_LABEL_REGISTRY: Readonly<Record<string, OutcomeContract>> =
     accepted_output_kind: "RELATIONSHIP_GRAPH",
     primary_label_id: "relationship_graph_validation_20d",
     metric_schema_id: "relationship_graph_validation_metrics_v2",
+    realized_metric_schema_id: "relationship_realized_metrics_v1",
     maturity_horizon: "TRADING_DAYS_20",
     maturity: {
       entry_semantics: "T_PLUS_1_OPEN",
@@ -942,6 +1115,7 @@ export const OUTCOME_LABEL_REGISTRY: Readonly<Record<string, OutcomeContract>> =
     accepted_output_kind: "CRO_RISK_REVIEW",
     primary_label_id: "cro_risk_control_calibration_5d",
     metric_schema_id: "cro_risk_control_metrics_v2",
+    realized_metric_schema_id: "cro_realized_metrics_v1",
     maturity_horizon: "TRADING_DAYS_5",
     maturity: {
       entry_semantics: "T_PLUS_1_OPEN",
@@ -977,6 +1151,7 @@ export const OUTCOME_LABEL_REGISTRY: Readonly<Record<string, OutcomeContract>> =
     accepted_output_kind: "ALPHA_DISCOVERY",
     primary_label_id: "alpha_discovery_incremental_alpha_5d",
     metric_schema_id: "alpha_discovery_incremental_metrics_v2",
+    realized_metric_schema_id: "alpha_realized_metrics_v1",
     maturity_horizon: "TRADING_DAYS_5",
     maturity: {
       entry_semantics: "T_PLUS_1_OPEN",
@@ -1015,6 +1190,7 @@ export const OUTCOME_LABEL_REGISTRY: Readonly<Record<string, OutcomeContract>> =
     accepted_output_kind: "EXECUTION_ASSESSMENT",
     primary_label_id: "execution_feasibility_cost_t1",
     metric_schema_id: "execution_feasibility_cost_metrics_v2",
+    realized_metric_schema_id: "execution_realized_metrics_v1",
     maturity_horizon: "T1_CLOSE",
     maturity: {
       entry_semantics: "NEXT_SESSION_EXECUTION",
@@ -1050,6 +1226,7 @@ export const OUTCOME_LABEL_REGISTRY: Readonly<Record<string, OutcomeContract>> =
     accepted_output_kind: "CIO_FINAL",
     primary_label_id: "cio_portfolio_utility_5d",
     metric_schema_id: "cio_portfolio_utility_metrics_v2",
+    realized_metric_schema_id: "cio_realized_metrics_v1",
     maturity_horizon: "TRADING_DAYS_5",
     maturity: {
       entry_semantics: "T_PLUS_1_OPEN",
@@ -1103,17 +1280,21 @@ export function validateOutcomeRegistry(): void {
     if (!(contract.metric_schema_id in OUTCOME_METRIC_SCHEMA_REGISTRY)) {
       throw new Error(`unknown_metric_schema:${agent}:${contract.metric_schema_id}`);
     }
+    if (!(contract.realized_metric_schema_id in OUTCOME_REALIZED_METRIC_SCHEMA_REGISTRY)) {
+      throw new Error(
+        `unknown_realized_metric_schema:${agent}:${contract.realized_metric_schema_id}`,
+      );
+    }
   }
 }
 
 export function outcomeRegistryHash(): string {
   validateOutcomeRegistry();
-  const canonical = JSON.stringify(
+  return canonicalJsonHash(
     Object.fromEntries(
       Object.entries(OUTCOME_LABEL_REGISTRY).sort(([a], [b]) => a.localeCompare(b)),
     ),
   );
-  return `sha256:${createHash("sha256").update(canonical).digest("hex")}`;
 }
 
 export function renderOutcomeContractManifestArtifact(): string {
@@ -1123,6 +1304,12 @@ export function renderOutcomeContractManifestArtifact(): string {
   );
   const metricSchemas = Object.fromEntries(
     Object.entries(OUTCOME_METRIC_SCHEMA_REGISTRY).map(([schemaId, schema]) => [
+      schemaId,
+      z.toJSONSchema(schema, { target: "draft-7" }),
+    ]),
+  );
+  const realizedMetricSchemas = Object.fromEntries(
+    Object.entries(OUTCOME_REALIZED_METRIC_SCHEMA_REGISTRY).map(([schemaId, schema]) => [
       schemaId,
       z.toJSONSchema(schema, { target: "draft-7" }),
     ]),
@@ -1139,31 +1326,16 @@ export function renderOutcomeContractManifestArtifact(): string {
       ).length,
       registry_hash: outcomeRegistryHash(),
       metric_schema_count: Object.keys(metricSchemas).length,
-      metric_schemas_hash: canonicalHash(metricSchemas),
+      metric_schemas_hash: canonicalJsonHash(metricSchemas),
       metric_schemas: metricSchemas,
+      realized_metric_schema_count: Object.keys(realizedMetricSchemas).length,
+      realized_metric_schemas_hash: canonicalJsonHash(realizedMetricSchemas),
+      realized_metric_schemas: realizedMetricSchemas,
       contracts,
     },
     null,
     2,
   )}\n`;
-}
-
-function canonicalHash(value: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(JSON.stringify(canonicalize(value)))
-    .digest("hex")}`;
-}
-
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, item]) => [key, canonicalize(item)]),
-    );
-  }
-  return value;
 }
 
 validateOutcomeRegistry();

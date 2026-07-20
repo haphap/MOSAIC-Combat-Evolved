@@ -1,7 +1,7 @@
 {
   "schema_version": "tushare_endpoint_preflight_v2",
   "registry_version": "tushare_endpoint_registry_v2",
-  "generated_at": "2026-07-19T12:22:49+00:00",
+  "generated_at": "2026-07-20T00:29:51+00:00",
   "checks": [
     {
       "endpoint": "eco_cal",
@@ -1292,6 +1292,42 @@
       }
     },
     {
+      "endpoint": "fut_wsr",
+      "status": "PRECHECK_REQUIRED",
+      "permission_checked_at": "2026-07-20T00:29:51+00:00",
+      "permission_evidence_id": "tushare-live-probe:fut_wsr:2026-07-20T00:29:51+00:00",
+      "schema_contract_version": "tushare_fut_wsr_observed_schema_v1",
+      "request_contract": {
+        "trade_date": "20260717"
+      },
+      "expected_columns": [
+        "trade_date",
+        "symbol",
+        "fut_name",
+        "warehouse",
+        "pre_vol",
+        "vol",
+        "vol_chg",
+        "unit"
+      ],
+      "observed_row_count": 1162,
+      "permission_result": "NON_EMPTY_RESPONSE",
+      "pit_assessment": "LOCAL_CAPTURE_ONLY",
+      "raw_payload_committed": false,
+      "response_content_hash": "sha256:fee577055af6959d429ceeb04a82dcdf7454e8c93532860f22eda8abaef494bc",
+      "permission_error_class": null,
+      "coverage_smoke": {
+        "scope_kind": "PERMISSION_SCHEMA_SAMPLE",
+        "date": "2026-07-20",
+        "registered_currency_count": 0,
+        "query_count": 1,
+        "raw_row_count": 1162,
+        "deduplicated_row_count": 1162,
+        "truncated_leaf_count": 0,
+        "status": "PERMISSION_SCHEMA_ONLY"
+      }
+    },
+    {
       "endpoint": "fx_obasic",
       "status": "PRECHECK_REQUIRED",
       "permission_checked_at": "2026-07-17T08:18:03+00:00",
@@ -2474,5 +2510,5 @@
       }
     }
   ],
-  "artifact_hash": "sha256:a97ac06cb10980cc3435d14bb6750f84166a4c7d67bdb5940e9cea96d2c9a4c0"
+  "artifact_hash": "sha256:617d0744dbd7c1d5d88207f6534c97cd5cbd9cacab2a5a2312f748013bffe0b5"
 }

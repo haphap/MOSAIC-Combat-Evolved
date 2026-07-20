@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence, TypeVar
 
 from mosaic.scorecard.darwinian_updates import (
     EMPTY_OPPORTUNITY_ALLOWED,
@@ -17,20 +17,17 @@ from mosaic.scorecard.darwinian_v2 import (
     canonical_json,
     deterministic_id,
 )
-from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
+from mosaic.scorecard.outcome_contracts import (
+    OPPORTUNITY_GENERATION_FAILURE_CODES,
+    OPPORTUNITY_GENERATOR_CONTRACT_VERSION,
+    OUTCOME_CONTRACTS,
+)
 
 
 _CALENDAR_SCHEMA_VERSION = "verified_trading_calendar_snapshot_v1"
 _PLAN_SCHEMA_VERSION = "outcome_schedule_plan_v2"
 _SLOT_SCHEMA_VERSION = "outcome_schedule_slot_v2"
-_GENERATOR_CONTRACT_VERSION = "evaluation_opportunity_generator_v2"
-_FAILURE_ERROR_CODES = {
-    "CONTRACT_MISMATCH",
-    "EMPTY_REQUIRED_OPPORTUNITY_SET",
-    "PIT_UNVERIFIED",
-    "REQUIRED_DATA_UNAVAILABLE",
-    "SOURCE_COVERAGE_UNHEALTHY",
-}
+_T = TypeVar("_T")
 
 
 def _required_text(value: Any, label: str) -> str:
@@ -63,6 +60,25 @@ def _insert_immutable(
     if row is None or row[0] != record_json:
         raise ValueError(f"immutable record collision in {table}: {record_id}")
     return False
+
+
+def _run_terminal_write(
+    conn: sqlite3.Connection,
+    operation: Callable[[], _T],
+) -> _T:
+    """Serialize one terminal read/write when this function owns the transaction."""
+    owns_transaction = not conn.in_transaction
+    if owns_transaction:
+        conn.execute("BEGIN IMMEDIATE")
+    try:
+        result = operation()
+        if owns_transaction:
+            conn.commit()
+        return result
+    except Exception:
+        if owns_transaction and conn.in_transaction:
+            conn.rollback()
+        raise
 
 
 def _verified_calendar(
@@ -268,8 +284,10 @@ def prepare_outcome_schedule_plan(
     graph_run_id = _required_text(graph_run_id, "graph_run_id")
     as_of = _required_text(as_of, "as_of")
     prepared_at = _required_text(prepared_at, "prepared_at")
-    _parse_timestamp(as_of, "as_of")
-    _parse_timestamp(prepared_at, "prepared_at")
+    as_of_timestamp = _parse_timestamp(as_of, "as_of")
+    prepared_timestamp = _parse_timestamp(prepared_at, "prepared_at")
+    if prepared_timestamp < as_of_timestamp or prepared_at[:10] != as_of[:10]:
+        raise ValueError("prepared_at must be on the as_of date and not precede as_of")
     dates, calendar_id, calendar_hash = _verified_calendar(
         trading_calendar_snapshot,
         as_of=as_of,
@@ -642,7 +660,7 @@ def _source_evidence(
     return sorted(evidence)
 
 
-def freeze_scheduled_opportunity(
+def _freeze_scheduled_opportunity_locked(
     conn: sqlite3.Connection,
     *,
     outcome_schedule_plan_id: str,
@@ -651,6 +669,9 @@ def freeze_scheduled_opportunity(
     member_refs: Sequence[Mapping[str, Any]],
     source_evidence_by_required_source_id: Mapping[str, Sequence[str]],
     projection_snapshot_hash: str,
+    frozen_object_set_id: str | None = None,
+    frozen_object_set_hash: str | None = None,
+    runtime_authority_binding: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Freeze an AVAILABLE denominator immediately before one Agent call."""
     plan, slot = _slot(
@@ -694,6 +715,9 @@ def freeze_scheduled_opportunity(
             "qualification_predicate_version",
         ),
         generator_input_snapshot_hash=projection_snapshot_hash,
+        frozen_object_set_id=frozen_object_set_id,
+        frozen_object_set_hash=frozen_object_set_hash,
+        runtime_authority_binding=runtime_authority_binding,
     )
     return {
         "run_allowed": True,
@@ -703,9 +727,45 @@ def freeze_scheduled_opportunity(
         "scheduled_sample_id": slot["scheduled_sample_id"],
         "evaluation_opportunity_set_id": record["evaluation_opportunity_set_id"],
         "evaluation_opportunity_set_hash": record["evaluation_opportunity_set_hash"],
+        "frozen_object_set_id": record["frozen_object_set_id"],
+        "frozen_object_set_hash": record["frozen_object_set_hash"],
+        "runtime_authority_binding": record.get("runtime_authority_binding"),
         "generation_attempt_id": None,
         "generation_attempt_hash": None,
     }
+
+
+def freeze_scheduled_opportunity(
+    conn: sqlite3.Connection,
+    *,
+    outcome_schedule_plan_id: str,
+    agent_id: str,
+    qualification_predicate_version: str,
+    member_refs: Sequence[Mapping[str, Any]],
+    source_evidence_by_required_source_id: Mapping[str, Sequence[str]],
+    projection_snapshot_hash: str,
+    frozen_object_set_id: str | None = None,
+    frozen_object_set_hash: str | None = None,
+    runtime_authority_binding: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Atomically commit the AVAILABLE terminal for one scheduled slot."""
+    return _run_terminal_write(
+        conn,
+        lambda: _freeze_scheduled_opportunity_locked(
+            conn,
+            outcome_schedule_plan_id=outcome_schedule_plan_id,
+            agent_id=agent_id,
+            qualification_predicate_version=qualification_predicate_version,
+            member_refs=member_refs,
+            source_evidence_by_required_source_id=(
+                source_evidence_by_required_source_id
+            ),
+            projection_snapshot_hash=projection_snapshot_hash,
+            frozen_object_set_id=frozen_object_set_id,
+            frozen_object_set_hash=frozen_object_set_hash,
+            runtime_authority_binding=runtime_authority_binding,
+        ),
+    )
 
 
 def create_no_evaluation_object_stage_skip(
@@ -745,6 +805,8 @@ def create_no_evaluation_object_stage_skip(
             raise ValueError(f"stage skip opportunity {field} mismatch")
     recorded_at = _required_text(recorded_at, "recorded_at")
     _parse_timestamp(recorded_at, "recorded_at")
+    if recorded_at != plan["prepared_at"]:
+        raise ValueError("stage skip recorded_at must equal the frozen plan prepared_at")
     eligibility = append_outcome_eligibility_revision(
         conn,
         track_key_hash=slot["track_key_hash"],
@@ -773,8 +835,10 @@ def create_no_evaluation_object_stage_skip(
         "track_key_hash": slot["track_key_hash"],
         "agent_id": agent_id,
         "skip_reason": "NO_EVALUATION_OBJECT",
-        "frozen_object_set_id": opportunity["evaluation_opportunity_set_id"],
-        "frozen_object_set_hash": opportunity["evaluation_opportunity_set_hash"],
+        "frozen_object_set_id": opportunity.get("frozen_object_set_id")
+        or opportunity["evaluation_opportunity_set_id"],
+        "frozen_object_set_hash": opportunity.get("frozen_object_set_hash")
+        or opportunity["evaluation_opportunity_set_hash"],
         "member_count": 0,
         "model_invoked": False,
         "eligibility_audit_id": eligibility["audit_id"],
@@ -982,7 +1046,7 @@ def _append_stage_skip_operational_audit(
     return record
 
 
-def record_scheduled_opportunity_failure(
+def _record_scheduled_opportunity_failure_locked(
     conn: sqlite3.Connection,
     *,
     outcome_schedule_plan_id: str,
@@ -1007,15 +1071,23 @@ def record_scheduled_opportunity_failure(
     if existing_set is not None:
         raise ValueError("scheduled opportunity is already AVAILABLE")
     errors = sorted(set(error_codes))
-    if not errors or any(code not in _FAILURE_ERROR_CODES for code in errors):
+    if not errors or any(
+        code not in OPPORTUNITY_GENERATION_FAILURE_CODES for code in errors
+    ):
         raise ValueError("generation failure requires registered error_codes")
     attempted_at = _required_text(attempted_at, "attempted_at")
     _parse_timestamp(attempted_at, "attempted_at")
+    if attempted_at != plan["prepared_at"]:
+        raise ValueError(
+            "generation failure attempted_at must equal the frozen plan prepared_at"
+        )
     predicate_version = _required_text(
         qualification_predicate_version,
         "qualification_predicate_version",
     )
     contract = OUTCOME_CONTRACTS[agent_id]
+    if predicate_version != contract["opportunity_set_contract_version"]:
+        raise ValueError("generation failure qualification predicate version drift")
     evidence_ids = _source_evidence(
         contract,
         source_evidence_by_required_source_id,
@@ -1037,7 +1109,7 @@ def record_scheduled_opportunity_failure(
         "opportunity_set_contract_version": contract[
             "opportunity_set_contract_version"
         ],
-        "generator_contract_version": _GENERATOR_CONTRACT_VERSION,
+        "generator_contract_version": OPPORTUNITY_GENERATOR_CONTRACT_VERSION,
         "qualification_predicate_version": predicate_version,
         "attempted_at": attempted_at,
         "required_source_ids": list(contract["required_source_ids"]),
@@ -1113,6 +1185,33 @@ def record_scheduled_opportunity_failure(
             "operational_opportunity_audit_hash"
         ],
     }
+
+
+def record_scheduled_opportunity_failure(
+    conn: sqlite3.Connection,
+    *,
+    outcome_schedule_plan_id: str,
+    agent_id: str,
+    qualification_predicate_version: str,
+    source_evidence_by_required_source_id: Mapping[str, Sequence[str]],
+    error_codes: Sequence[str],
+    attempted_at: str,
+) -> dict[str, Any]:
+    """Atomically commit the GENERATION_FAILURE terminal for one scheduled slot."""
+    return _run_terminal_write(
+        conn,
+        lambda: _record_scheduled_opportunity_failure_locked(
+            conn,
+            outcome_schedule_plan_id=outcome_schedule_plan_id,
+            agent_id=agent_id,
+            qualification_predicate_version=qualification_predicate_version,
+            source_evidence_by_required_source_id=(
+                source_evidence_by_required_source_id
+            ),
+            error_codes=error_codes,
+            attempted_at=attempted_at,
+        ),
+    )
 
 
 def _append_generation_failure_operational_audit(

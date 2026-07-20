@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "outcome_source_receipt_v1"
+    },
+    "source_receipt_id": { "type": "string", "minLength": 1 },
+    "source_receipt_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "authority_registry_version": {
+      "type": "string",
+      "const": "outcome_source_authority_registry_v1"
+    },
+    "authority_registry_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "authority_registry_schema_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "authority_entry_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "attestation_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "signed_attestation": { "$ref": "#/$defs/attestation" },
+    "detached_signature_base64url": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{86}$"
+    },
+    "ingested_at": { "type": "string", "format": "date-time" }
+  },
+  "required": [
+    "schema_version",
+    "source_receipt_id",
+    "source_receipt_hash",
+    "authority_registry_version",
+    "authority_registry_hash",
+    "authority_registry_schema_hash",
+    "authority_entry_hash",
+    "attestation_hash",
+    "signed_attestation",
+    "detached_signature_base64url",
+    "ingested_at"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "attestation": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "outcome_source_attestation_v1"
+        },
+        "signature_domain": {
+          "type": "string",
+          "const": "MOSAIC_OUTCOME_SOURCE_ATTESTATION_V1"
+        },
+        "scheduled_sample_id": { "type": "string", "minLength": 1 },
+        "outcome_schedule_slot_id": { "type": "string", "minLength": 1 },
+        "outcome_schedule_slot_hash": { "$ref": "#/$defs/sha256" },
+        "evaluation_opportunity_set_id": { "type": "string", "minLength": 1 },
+        "evaluation_opportunity_set_hash": { "$ref": "#/$defs/sha256" },
+        "accepted_output_id": { "type": "string", "minLength": 1 },
+        "accepted_output_hash": { "$ref": "#/$defs/sha256" },
+        "track_key_hash": { "$ref": "#/$defs/sha256" },
+        "agent_id": { "type": "string", "minLength": 1 },
+        "required_source_id": { "type": "string", "minLength": 1 },
+        "source_owner": { "type": "string", "minLength": 1 },
+        "adapter_contract_id": { "type": "string", "minLength": 1 },
+        "adapter_contract_version": { "type": "string", "minLength": 1 },
+        "verifier_id": { "type": "string", "minLength": 1 },
+        "signing_key_id": { "type": "string", "minLength": 1 },
+        "opportunity_as_of": { "type": "string", "format": "date-time" },
+        "outcome_due_at": { "type": "string", "format": "date-time" },
+        "projection_status": {
+          "type": "string",
+          "enum": ["SCORE", "ABSTAIN"]
+        },
+        "realized_metric_schema_id": { "type": "string", "minLength": 1 },
+        "source_observation": { "type": "object" },
+        "evidence_artifact_hashes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/sha256" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "observed_through_at": { "type": "string", "format": "date-time" },
+        "released_at": { "type": "string", "format": "date-time" },
+        "vintage_at": { "type": "string", "format": "date-time" },
+        "verified_at": { "type": "string", "format": "date-time" },
+        "abstain_reason": {
+          "type": ["string", "null"],
+          "enum": [
+            null,
+            "EXOGENOUS_MARKET_DISRUPTION",
+            "OUTCOME_NOT_OBSERVABLE"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "signature_domain",
+        "scheduled_sample_id",
+        "outcome_schedule_slot_id",
+        "outcome_schedule_slot_hash",
+        "evaluation_opportunity_set_id",
+        "evaluation_opportunity_set_hash",
+        "accepted_output_id",
+        "accepted_output_hash",
+        "track_key_hash",
+        "agent_id",
+        "required_source_id",
+        "source_owner",
+        "adapter_contract_id",
+        "adapter_contract_version",
+        "verifier_id",
+        "signing_key_id",
+        "opportunity_as_of",
+        "outcome_due_at",
+        "projection_status",
+        "realized_metric_schema_id",
+        "source_observation",
+        "evidence_artifact_hashes",
+        "observed_through_at",
+        "released_at",
+        "vintage_at",
+        "verified_at",
+        "abstain_reason"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

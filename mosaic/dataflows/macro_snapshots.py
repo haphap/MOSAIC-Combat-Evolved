@@ -7,20 +7,23 @@ cache directory and never enter the repository.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 from typing import Any
+
+from mosaic.dataflows.cross_runtime_json import canonical_hash
 from zoneinfo import ZoneInfo
 
+from .commodity_conditions import validate_commodity_conditions_input
 from .exceptions import DataVendorUnavailable
 from .geopolitical_events import ALL_SOURCE_IDS, build_geopolitical_role_snapshot
 from .macro_source_contracts import (
     MACRO_OBSERVATION_SOURCE_COMPONENTS,
     assert_macro_role_sources_ready,
+    macro_observation_max_age_calendar_days,
 )
 from .role_events import build_role_event_snapshot
 
@@ -315,6 +318,25 @@ FINANCIAL_CONTEXT_SOURCE_ROLES: dict[str, str] = {
     "us_financial_conditions": "us_economy",
     "euro_area_financial_conditions": "eu_economy",
 }
+DETERMINISTIC_CONTEXT_SOURCE_ROLES: dict[str, str] = {
+    "central_bank": "china",
+    **FINANCIAL_CONTEXT_SOURCE_ROLES,
+}
+CONTEXT_REQUIRED_COMPONENTS: dict[str, tuple[str, ...]] = {
+    "central_bank": ("growth_production", "prices", "credit"),
+    "us_financial_conditions": (
+        "growth_production",
+        "prices",
+        "employment",
+        "demand_trade",
+    ),
+    "euro_area_financial_conditions": (
+        "growth_production",
+        "prices",
+        "employment",
+        "demand_trade",
+    ),
+}
 MACRO_EVENT_ROLES = frozenset(
     {
         "china",
@@ -494,6 +516,44 @@ def _validate_observation(role: str, row: Any, cutoff: datetime) -> dict[str, An
     return {field: row[field] for field in sorted(_OBSERVATION_FIELDS)}
 
 
+def _validate_component_freshness(
+    *,
+    role: str,
+    observations: list[dict[str, Any]],
+    cutoff: datetime,
+    required_components: set[str],
+    consumer_role: str,
+) -> None:
+    fresh_components: set[str] = set()
+    for row in observations:
+        try:
+            maximum_age = macro_observation_max_age_calendar_days(
+                role,
+                source=str(row["source"]),
+                series_id=str(row["series_id"]),
+            )
+        except ValueError as exc:
+            raise DataVendorUnavailable(str(exc)) from exc
+        release_age_days = (
+            cutoff - _parse_datetime(row["released_at"], "released_at")
+        ).total_seconds() / 86_400
+        component = _component_for_observation(role, row)
+        if str(row["source"]).startswith("world_bank."):
+            if release_age_days > maximum_age:
+                raise DataVendorUnavailable(
+                    f"{consumer_role} structural World Bank context is stale"
+                )
+            continue
+        if component in required_components and release_age_days <= maximum_age:
+            fresh_components.add(component)
+    stale_or_missing = sorted(required_components - fresh_components)
+    if stale_or_missing:
+        raise DataVendorUnavailable(
+            f"{consumer_role} snapshot has no fresh registered release for components: "
+            + ", ".join(stale_or_missing)
+        )
+
+
 def _validate_institutional_flow_coverage(
     payload: dict[str, Any], observations: list[dict[str, Any]]
 ) -> tuple[dict[str, dict[str, float | int]], float]:
@@ -561,19 +621,26 @@ def _validate_institutional_flow_coverage(
 
 def _build_real_economy_context_projection(
     *,
-    financial_role: str,
+    consumer_role: str,
     context_observations: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    source_role = FINANCIAL_CONTEXT_SOURCE_ROLES[financial_role]
-    component_contract = ROLE_COMPONENT_PREFIXES[source_role]
+    source_role = DETERMINISTIC_CONTEXT_SOURCE_ROLES[consumer_role]
+    required_components = CONTEXT_REQUIRED_COMPONENTS[consumer_role]
     rows_by_component: dict[str, list[dict[str, Any]]] = {
-        component: [] for component in component_contract
+        component: [] for component in required_components
     }
     for row in context_observations:
         component = _component_for_observation(source_role, row)
+        if component is None and str(row["source"]).startswith("world_bank."):
+            continue
         if component is None:
             raise DataVendorUnavailable(
-                f"{financial_role} context observation has no {source_role} component"
+                f"{consumer_role} context observation has no {source_role} component"
+            )
+        if component not in rows_by_component:
+            raise DataVendorUnavailable(
+                f"{consumer_role} context observation component is outside its "
+                "deterministic reaction-function context"
             )
         rows_by_component[component].append(row)
     missing = sorted(
@@ -581,7 +648,7 @@ def _build_real_economy_context_projection(
     )
     if missing:
         raise DataVendorUnavailable(
-            f"{financial_role} context-only projection missing components: "
+            f"{consumer_role} context-only projection missing components: "
             + ", ".join(missing)
         )
 
@@ -617,15 +684,7 @@ def _build_real_economy_context_projection(
     }
     return {
         **body,
-        "projection_hash": "sha256:"
-        + hashlib.sha256(
-            json.dumps(
-                body,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest(),
+        "projection_hash": canonical_hash(body),
     }
 
 
@@ -644,7 +703,9 @@ def validate_role_snapshot(payload: Any, role: str, as_of_date: str) -> dict[str
     }
     if role == "institutional_flow":
         allowed_top_level.add("component_coverage")
-    if role in FINANCIAL_CONTEXT_SOURCE_ROLES:
+    if role == "commodities":
+        allowed_top_level.add("commodity_conditions")
+    if role in DETERMINISTIC_CONTEXT_SOURCE_ROLES:
         allowed_top_level.add("context_observations")
     required_top_level = allowed_top_level - {"fixture_class"}
     if not required_top_level.issubset(payload) or not set(payload).issubset(
@@ -666,18 +727,31 @@ def validate_role_snapshot(payload: Any, role: str, as_of_date: str) -> dict[str
     ]
     context_projection: dict[str, Any] | None = None
     context_observations: list[dict[str, Any]] = []
-    if role in FINANCIAL_CONTEXT_SOURCE_ROLES:
+    commodity_conditions: dict[str, Any] | None = None
+    if role == "commodities":
+        commodity_conditions = validate_commodity_conditions_input(
+            payload.get("commodity_conditions"),
+            as_of_date=as_of_date,
+        )
+    if role in DETERMINISTIC_CONTEXT_SOURCE_ROLES:
         raw_context = payload.get("context_observations")
         if not isinstance(raw_context, list) or not raw_context:
             raise DataVendorUnavailable(
                 f"{role} requires a non-empty deterministic context-only projection"
             )
-        context_role = FINANCIAL_CONTEXT_SOURCE_ROLES[role]
+        context_role = DETERMINISTIC_CONTEXT_SOURCE_ROLES[role]
         context_observations = [
             _validate_observation(context_role, row, cutoff) for row in raw_context
         ]
+        _validate_component_freshness(
+            role=context_role,
+            observations=context_observations,
+            cutoff=cutoff,
+            required_components=set(CONTEXT_REQUIRED_COMPONENTS[role]),
+            consumer_role=role,
+        )
         context_projection = _build_real_economy_context_projection(
-            financial_role=role,
+            consumer_role=role,
             context_observations=context_observations,
         )
     events = payload.get("events", [])
@@ -704,6 +778,13 @@ def validate_role_snapshot(payload: Any, role: str, as_of_date: str) -> dict[str
         institutional_flow_coverage, direct_data_quality = (
             _validate_institutional_flow_coverage(payload, observations)
         )
+        _validate_component_freshness(
+            role=role,
+            observations=observations,
+            cutoff=cutoff,
+            required_components=set(ROLE_COMPONENT_PREFIXES[role]),
+            consumer_role=role,
+        )
     elif component_contract is not None:
         routed_components = {
             component
@@ -715,9 +796,25 @@ def validate_role_snapshot(payload: Any, role: str, as_of_date: str) -> dict[str
             raise DataVendorUnavailable(
                 f"{role} snapshot missing required components: {', '.join(missing_components)}"
             )
+        _validate_component_freshness(
+            role=role,
+            observations=observations,
+            cutoff=cutoff,
+            required_components=set(component_contract),
+            consumer_role=role,
+        )
         component_data_quality = {component: 1.0 for component in component_contract}
     elif role in DIRECT_MACRO_ROLES:
         direct_data_quality = 1.0
+    registered_sources = {
+        row["source"] for row in observations + context_observations
+    }
+    if commodity_conditions is not None:
+        registered_sources.update(
+            source
+            for family in commodity_conditions["families"].values()
+            for source in family["source_identity"].values()
+        )
     canonical = {
         "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
         "role": role,
@@ -725,7 +822,7 @@ def validate_role_snapshot(payload: Any, role: str, as_of_date: str) -> dict[str
         "observations": observations,
         "events": [],
         "source_policy": {
-            "registered_sources": sorted({row["source"] for row in observations}),
+            "registered_sources": sorted(registered_sources),
             "us_revision_source": "ALFRED/official fixed map",
             "implicit_fallback": False,
         },
@@ -738,11 +835,9 @@ def validate_role_snapshot(payload: Any, role: str, as_of_date: str) -> dict[str
         canonical["component_coverage"] = institutional_flow_coverage
     if context_projection is not None:
         canonical["context_only_projection"] = context_projection
-    canonical["snapshot_hash"] = "sha256:" + hashlib.sha256(
-        json.dumps(
-            canonical, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-        ).encode("utf-8")
-    ).hexdigest()
+    if commodity_conditions is not None:
+        canonical["commodity_conditions"] = commodity_conditions
+    canonical["snapshot_hash"] = canonical_hash(canonical)
     return canonical
 
 
@@ -760,14 +855,7 @@ def load_role_snapshot(
         without_hash = {
             key: value for key, value in snapshot.items() if key != "snapshot_hash"
         }
-        snapshot["snapshot_hash"] = (
-            "sha256:"
-            + hashlib.sha256(
-                json.dumps(without_hash, ensure_ascii=False, sort_keys=True).encode(
-                    "utf-8"
-                )
-            ).hexdigest()
-        )
+        snapshot["snapshot_hash"] = canonical_hash(without_hash)
         return snapshot
     cache_root = root or snapshot_cache_root()
     path = next(
@@ -796,9 +884,9 @@ def load_role_snapshot(
     if not synthetic_source_gap_bypass:
         try:
             assert_macro_role_sources_ready(role)
-            if role in FINANCIAL_CONTEXT_SOURCE_ROLES:
+            if role in DETERMINISTIC_CONTEXT_SOURCE_ROLES:
                 assert_macro_role_sources_ready(
-                    FINANCIAL_CONTEXT_SOURCE_ROLES[role]
+                    DETERMINISTIC_CONTEXT_SOURCE_ROLES[role]
                 )
         except RuntimeError as exc:
             raise DataVendorUnavailable(str(exc)) from exc
@@ -813,14 +901,7 @@ def load_role_snapshot(
         without_hash = {
             key: value for key, value in snapshot.items() if key != "snapshot_hash"
         }
-        snapshot["snapshot_hash"] = "sha256:" + hashlib.sha256(
-            json.dumps(
-                without_hash,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
+        snapshot["snapshot_hash"] = canonical_hash(without_hash)
     return snapshot
 
 
@@ -839,6 +920,7 @@ def write_registered_role_snapshot(
     as_of_date: str,
     observations: list[dict[str, Any]],
     context_observations: list[dict[str, Any]] | None = None,
+    commodity_conditions: dict[str, Any] | None = None,
     component_coverage: dict[str, Any] | None = None,
     root: Path | None = None,
 ) -> dict[str, Any]:
@@ -854,8 +936,8 @@ def write_registered_role_snapshot(
         )
     try:
         assert_macro_role_sources_ready(role)
-        if role in FINANCIAL_CONTEXT_SOURCE_ROLES:
-            assert_macro_role_sources_ready(FINANCIAL_CONTEXT_SOURCE_ROLES[role])
+        if role in DETERMINISTIC_CONTEXT_SOURCE_ROLES:
+            assert_macro_role_sources_ready(DETERMINISTIC_CONTEXT_SOURCE_ROLES[role])
     except RuntimeError as exc:
         raise DataVendorUnavailable(str(exc)) from exc
     raw: dict[str, Any] = {
@@ -867,7 +949,13 @@ def write_registered_role_snapshot(
     }
     if component_coverage is not None:
         raw["component_coverage"] = component_coverage
-    if role in FINANCIAL_CONTEXT_SOURCE_ROLES:
+    if role == "commodities":
+        if commodity_conditions is None:
+            raise DataVendorUnavailable(
+                "commodities requires deterministic term-structure and inventory inputs"
+            )
+        raw["commodity_conditions"] = commodity_conditions
+    if role in DETERMINISTIC_CONTEXT_SOURCE_ROLES:
         if context_observations is None:
             raise DataVendorUnavailable(
                 f"{role} requires deterministic real-economy context observations"
@@ -917,6 +1005,7 @@ __all__ = [
     "MACRO_SNAPSHOT_SCHEMA_VERSION",
     "MACRO_EVENT_ROLES",
     "FINANCIAL_CONTEXT_SOURCE_ROLES",
+    "DETERMINISTIC_CONTEXT_SOURCE_ROLES",
     "ROLE_SNAPSHOT_NAMES",
     "ROLE_EXACT_SERIES_IDS",
     "ROLE_SERIES_PREFIXES",

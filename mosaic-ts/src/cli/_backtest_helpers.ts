@@ -108,6 +108,7 @@ export function makeInitialState(cohort: string, asOfDate: string): DailyCycleSt
     component_calibration_inputs: {},
     outcome_schedule_plan: null,
     outcome_stage_skips: {},
+    outcome_opportunity_bindings: {},
     accepted_output_refs: {},
     continuity_context: {},
     lesson_context: {},

@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import type { NoEvaluationObjectStageSkipRecord } from "../../autoresearch/outcome_stage_skip.js";
+import { canonicalJsonHash } from "../helpers/canonical_json.js";
 import type { RuntimeSourceStatus } from "../helpers/private_knot_boundary.js";
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType } from "../state.js";
@@ -24,6 +24,15 @@ import type {
   PositionReviewState,
   PreviousTargetState,
 } from "../types.js";
+import {
+  assertCioHoldCurrentTargetSet,
+  assertExactExecutionResolutionSet,
+} from "./decision_semantics.js";
+import {
+  assertMatchesFrozenOrderIntents,
+  expectedFrozenOrderIntents,
+  type FrozenOrderIntentPlan,
+} from "./frozen_order_intents.js";
 
 export class Layer4RuntimeContractError extends Error {}
 
@@ -260,6 +269,17 @@ export function freezeCioProposal(
     state.current_positions.positions.map((position) => [position.ticker, position]),
   );
   const selectedProposal = proposal;
+  assertCioHoldCurrentTargetSet({
+    decisionDisposition: selectedProposal.decision_disposition,
+    targets: selectedProposal.portfolio_actions.map((action) => ({
+      ticker: action.ticker,
+      target_weight: action.target_weight,
+      position_decision: action.position_decision,
+    })),
+    currentSnapshotStatus: state.current_positions.snapshot_status,
+    currentPositions: state.current_positions.positions,
+    context: "CIO proposal runtime",
+  });
   const explicitReviews = isCioProposalOutput(selectedProposal)
     ? selectedProposal.position_reviews
     : [];
@@ -412,7 +432,8 @@ export function freezeExecutionFeasibility(
     throw new Layer4RuntimeContractError("execution_feasibility L4 snapshot hash mismatch");
   }
   const frozenOutput = output;
-  validateExecutionOutput(candidate, frozenOutput);
+  const intentPlan = expectedFrozenOrderIntents(candidate, croReview);
+  validateExecutionOutput(intentPlan, frozenOutput);
   const payload = {
     run_id: runId,
     candidate_target_hash: candidate.candidate_target_hash,
@@ -424,9 +445,7 @@ export function freezeExecutionFeasibility(
     liquidity_vintage_hash: runtimeSourceVintageHash(
       sourceStatuses,
       "execution_liquidity_state",
-      candidate.portfolio_actions
-        .filter((action) => action.action !== "HOLD" || (action.delta_weight ?? 0) !== 0)
-        .map((action) => action.ticker),
+      intentPlan.order_intents.map((intent) => intent.ts_code),
       asOfDate,
     ),
     output: frozenOutput,
@@ -463,10 +482,8 @@ export function freezeExecutionStageSkip(
   ) {
     throw new Layer4RuntimeContractError("execution stage skip contract mismatch");
   }
-  const actionable = candidate.portfolio_actions.filter(
-    (action) => action.action !== "HOLD" || Math.abs(action.delta_weight ?? 0) > 1e-9,
-  );
-  if (actionable.length !== 0) {
+  const intentPlan = expectedFrozenOrderIntents(candidate, croReview);
+  if (intentPlan.order_intents.length !== 0) {
     throw new Layer4RuntimeContractError(
       "execution stage skip cannot bypass non-empty order intents",
     );
@@ -636,6 +653,22 @@ export function validateFinalTargetEnvelope(state: DailyCycleStateType, output: 
 
   assertUniqueTickers(candidate.portfolio_actions, "candidate portfolio action");
   assertUniqueTickers(output.portfolio_actions, "final portfolio action");
+  assertCioHoldCurrentTargetSet({
+    decisionDisposition: output.decision_disposition,
+    targets: output.portfolio_actions.map((action) => ({
+      ticker: action.ticker,
+      target_weight: action.target_weight,
+      position_decision: action.position_decision,
+    })),
+    currentSnapshotStatus: state.current_positions.snapshot_status,
+    currentPositions: state.current_positions.positions,
+    context: "CIO final runtime",
+  });
+  assertExactExecutionResolutionSet({
+    resolutions: output.execution_control_resolutions ?? [],
+    assessments: execution.output.execution_checks ?? [],
+    context: "CIO final runtime",
+  });
   const candidateByTicker = new Map(
     candidate.portfolio_actions.map((action) => [action.ticker, action]),
   );
@@ -679,46 +712,85 @@ export function validateFinalTargetEnvelope(state: DailyCycleStateType, output: 
 
   const adjustments = croReview.output.required_adjustments ?? [];
   const adjustmentByTicker = new Map(adjustments.map((item) => [item.ticker, item]));
+  const intentPlan = expectedFrozenOrderIntents(candidate, croReview);
+  validateExecutionOutput(intentPlan, execution.output);
   const executionChecks = execution.output.execution_checks ?? [];
   const executionCheckByTicker = new Map(executionChecks.map((item) => [item.ticker, item]));
-  for (const candidateAction of candidate.portfolio_actions) {
-    const finalAction = finalByTicker.get(candidateAction.ticker);
+  const croResolutionByLocalId = runtimeCroResolutions(output, adjustments);
+  for (const controlledTarget of intentPlan.controlled_targets) {
+    const finalAction = finalByTicker.get(controlledTarget.ts_code);
     const finalWeight = finalAction?.target_weight ?? 0;
-    const currentWeight = candidateAction.current_weight ?? 0;
-    const requestedDelta = candidateAction.target_weight - currentWeight;
-    const finalDelta = finalWeight - currentWeight;
-    const executionCheck = executionCheckByTicker.get(candidateAction.ticker);
+    const finalDelta = finalWeight - controlledTarget.current_weight;
+    const adjustment = adjustmentByTicker.get(controlledTarget.ts_code);
+    if (adjustment) {
+      assertFinalTargetHonorsCroAdjustment(
+        finalWeight,
+        controlledTarget.current_weight,
+        adjustment,
+      );
+    }
+    const executionCheck = executionCheckByTicker.get(controlledTarget.ts_code);
     const executionConstrains = assertFinalTargetHonorsExecutionAssessment({
-      ticker: candidateAction.ticker,
-      requestedDelta,
+      ticker: controlledTarget.ts_code,
+      requestedDelta: controlledTarget.requested_delta_weight,
       finalDelta,
       executionCheck,
     });
-    const adjustment = adjustmentByTicker.get(candidateAction.ticker);
-    if (adjustment) assertFinalTargetHonorsCroAdjustment(finalWeight, adjustment);
-    if (Math.abs(finalWeight - candidateAction.target_weight) <= 1e-9) {
+    if (adjustment?.adjustment === "REQUIRE_REVIEW") {
+      const localId = adjustment.action_local_id;
+      if (!localId || croResolutionByLocalId.get(localId)?.resolution !== "COMPLIED") {
+        throw new Layer4RuntimeContractError(
+          `${controlledTarget.ts_code}: REQUIRE_REVIEW resolution must be COMPLIED`,
+        );
+      }
+    }
+    if (Math.abs(finalWeight - controlledTarget.proposal_target_weight) <= 1e-9) {
       continue;
     }
-    const croAuthorizesChange = Boolean(adjustment && adjustment.adjustment !== "REQUIRE_REVIEW");
-    if (!croAuthorizesChange && !executionConstrains) {
+    const croConstrains = Boolean(adjustment);
+    if (!croConstrains && !executionConstrains) {
       throw new Layer4RuntimeContractError(
-        `${candidateAction.ticker}: final target changed without a binding control`,
+        `${controlledTarget.ts_code}: final target changed without a binding control`,
       );
     }
-    if (croAuthorizesChange && !dissentKeys.has(`${candidateAction.ticker}:cro_review`)) {
+    if (croConstrains && !dissentKeys.has(`${controlledTarget.ts_code}:cro_review`)) {
       throw new Layer4RuntimeContractError(
-        `${candidateAction.ticker}: CRO-adjusted final target lacks frozen CRO dissent reference`,
+        `${controlledTarget.ts_code}: CRO-adjusted final target lacks frozen CRO dissent reference`,
       );
     }
     if (
       executionConstrains &&
-      !dissentKeys.has(`${candidateAction.ticker}:execution_feasibility`)
+      !dissentKeys.has(`${controlledTarget.ts_code}:execution_feasibility`)
     ) {
       throw new Layer4RuntimeContractError(
-        `${candidateAction.ticker}: execution-adjusted final target lacks frozen execution dissent reference`,
+        `${controlledTarget.ts_code}: execution-adjusted final target lacks frozen execution dissent reference`,
       );
     }
   }
+}
+
+function runtimeCroResolutions(
+  output: CioOutput,
+  adjustments: ReadonlyArray<CroAdjustment>,
+): Map<string, NonNullable<CioOutput["cro_control_resolutions"]>[number]> {
+  const knownLocalIds = new Set(
+    adjustments.flatMap((adjustment) =>
+      adjustment.action_local_id ? [adjustment.action_local_id] : [],
+    ),
+  );
+  const byLocalId = new Map<string, NonNullable<CioOutput["cro_control_resolutions"]>[number]>();
+  for (const resolution of output.cro_control_resolutions ?? []) {
+    if (
+      !knownLocalIds.has(resolution.cro_action_local_ref) ||
+      byLocalId.has(resolution.cro_action_local_ref)
+    ) {
+      throw new Layer4RuntimeContractError(
+        `CIO final CRO resolution ${resolution.cro_action_local_ref} is not uniquely bound`,
+      );
+    }
+    byLocalId.set(resolution.cro_action_local_ref, resolution);
+  }
+  return byLocalId;
 }
 
 function assertFinalTargetHonorsExecutionAssessment(input: {
@@ -945,6 +1017,16 @@ function validateCroOutput(candidate: CandidateTargetState, output: CroOutput): 
   assertUniqueTickers(output.rejected_picks, "CRO rejected pick");
   const adjustments = output.required_adjustments ?? [];
   assertUniqueTickers(adjustments, "CRO required adjustment");
+  const adjustmentLocalIds = new Set<string>();
+  for (const adjustment of adjustments) {
+    if (!adjustment.action_local_id) continue;
+    if (adjustmentLocalIds.has(adjustment.action_local_id)) {
+      throw new Layer4RuntimeContractError(
+        `duplicate CRO action_local_id: ${adjustment.action_local_id}`,
+      );
+    }
+    adjustmentLocalIds.add(adjustment.action_local_id);
+  }
   const vetoedTickers = new Set(
     adjustments
       .filter((adjustment) => adjustment.adjustment === "VETO")
@@ -1005,6 +1087,11 @@ function validateCroOutput(candidate: CandidateTargetState, output: CroOutput): 
         }
         break;
       case "REQUIRE_REVIEW":
+        if (!adjustment.action_local_id) {
+          throw new Layer4RuntimeContractError(
+            `${adjustment.ticker}: REQUIRE_REVIEW requires action_local_id`,
+          );
+        }
         if (adjustment.max_target_weight !== undefined) {
           throw new Layer4RuntimeContractError(
             `${adjustment.ticker}: REQUIRE_REVIEW must not set max_target_weight`,
@@ -1015,65 +1102,52 @@ function validateCroOutput(candidate: CandidateTargetState, output: CroOutput): 
   }
 }
 
-function validateExecutionOutput(candidate: CandidateTargetState, output: AutoExecOutput): void {
-  const candidateByTicker = new Map(
-    candidate.portfolio_actions.map((action) => [action.ticker, action]),
-  );
+function validateExecutionOutput(plan: FrozenOrderIntentPlan, output: AutoExecOutput): void {
   assertUniqueTickers(output.trades, "execution trade");
   const checks = output.execution_checks ?? [];
   assertUniqueTickers(checks, "execution check");
-  const tradeByTicker = new Map(output.trades.map((trade) => [trade.ticker, trade]));
-  const checkByTicker = new Map(checks.map((check) => [check.ticker, check]));
+  try {
+    assertMatchesFrozenOrderIntents(checks, plan.order_intents, "Execution check");
+  } catch (error) {
+    throw new Layer4RuntimeContractError(
+      error instanceof Error
+        ? error.message
+        : "Execution check does not match a frozen order intent",
+    );
+  }
+  const intentByRef = new Map(
+    plan.order_intents.map((intent) => [intent.order_intent_ref, intent]),
+  );
+  const tradeByRef = new Map<string, AutoExecOutput["trades"][number]>();
   for (const trade of output.trades) {
-    const candidateAction = candidateByTicker.get(trade.ticker);
-    if (!candidateAction) {
+    const ref = trade.order_intent_ref;
+    const intent = ref ? intentByRef.get(ref) : undefined;
+    if (!ref || !intent || tradeByRef.has(ref) || trade.ticker !== intent.ts_code) {
       throw new Layer4RuntimeContractError(
-        `execution trade ticker outside frozen candidate: ${trade.ticker}`,
+        `${trade.ticker}: execution trade does not match a frozen order intent`,
       );
     }
-    const candidateDelta = candidateAction.delta_weight ?? 0;
-    const tradeDelta = trade.delta_weight ?? (trade.action === "HOLD" ? 0 : trade.size_pct);
-    if (Math.abs(candidateDelta) <= 1e-9 && Math.abs(tradeDelta) > 1e-9) {
+    tradeByRef.set(ref, trade);
+    if (trade.action !== intent.action) {
       throw new Layer4RuntimeContractError(
-        `${trade.ticker}: execution trade exists without candidate delta`,
-      );
-    }
-    const expectedAction =
-      candidateDelta > 1e-9
-        ? "BUY"
-        : candidateAction.target_weight <= 1e-9
-          ? "SELL"
-          : candidateDelta < -1e-9
-            ? "REDUCE"
-            : "HOLD";
-    if (trade.action !== expectedAction) {
-      throw new Layer4RuntimeContractError(
-        `${trade.ticker}: execution action ${trade.action} does not match ${expectedAction}`,
+        `${trade.ticker}: execution action ${trade.action} does not match ${intent.action}`,
       );
     }
   }
-  for (const check of checks) {
-    if (!candidateByTicker.has(check.ticker)) {
-      throw new Layer4RuntimeContractError(
-        `execution check ticker outside frozen candidate: ${check.ticker}`,
-      );
-    }
-  }
-  for (const [ticker, candidateAction] of candidateByTicker.entries()) {
-    const candidateDelta = candidateAction.delta_weight ?? 0;
-    if (Math.abs(candidateDelta) <= 1e-9) continue;
-    const check = checkByTicker.get(ticker);
-    if (!check) {
-      throw new Layer4RuntimeContractError(`${ticker}: target delta lacks execution check`);
-    }
-    const trade = tradeByTicker.get(ticker);
+  const checkByRef = new Map(checks.map((check) => [check.order_intent_ref, check]));
+  for (const intent of plan.order_intents) {
+    const ticker = intent.ts_code;
+    const candidateDelta = intent.requested_delta_weight;
+    const check = checkByRef.get(intent.order_intent_ref);
+    if (!check) throw new Layer4RuntimeContractError(`${ticker}: frozen order intent lacks check`);
+    const trade = tradeByRef.get(intent.order_intent_ref);
     if (check.status === "blocked") {
       if ((check.max_executable_delta_weight ?? 0) > 1e-9) {
         throw new Layer4RuntimeContractError(
           `${ticker}: blocked execution check must have zero executable delta`,
         );
       }
-      if (trade && Math.abs(trade.delta_weight ?? trade.size_pct) > 1e-9) {
+      if (trade) {
         throw new Layer4RuntimeContractError(`${ticker}: blocked execution cannot carry a trade`);
       }
       continue;
@@ -1113,6 +1187,7 @@ function validateExecutionOutput(candidate: CandidateTargetState, output: AutoEx
 
 function assertFinalTargetHonorsCroAdjustment(
   finalWeight: number,
+  currentWeight: number,
   adjustment: CroAdjustment,
 ): void {
   if (adjustment.adjustment === "VETO" && finalWeight > 1e-9) {
@@ -1125,6 +1200,11 @@ function assertFinalTargetHonorsCroAdjustment(
   ) {
     throw new Layer4RuntimeContractError(
       `${adjustment.ticker}: final target exceeds CRO ${adjustment.adjustment} limit`,
+    );
+  }
+  if (adjustment.adjustment === "REQUIRE_REVIEW" && Math.abs(finalWeight - currentWeight) > 1e-9) {
+    throw new Layer4RuntimeContractError(
+      `${adjustment.ticker}: REQUIRE_REVIEW final target must remain at current weight`,
     );
   }
 }
@@ -1229,9 +1309,7 @@ function inferPositionDecision(action: PortfolioAction): PositionReview["decisio
 }
 
 function stableHash(value: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(JSON.stringify(sortJson(value)))
-    .digest("hex")}`;
+  return canonicalJsonHash(sortJson(value));
 }
 
 function sortJson(value: unknown): unknown {

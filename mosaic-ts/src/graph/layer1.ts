@@ -91,7 +91,7 @@ export function buildLayer1Graph(deps: BuildLayer1GraphDeps) {
     .addNode("institutional_flow", buildInstitutionalFlowNode(runDeps))
     .addNode(LAYER1_INPUT_GATE_NODE, buildMacroInputGateNode(acceptedOutputStore));
 
-  // Serial START → macro nodes → aggregator → END. The edge chain is derived
+  // Serial START → macro nodes → acceptance gate → END. The edge chain is derived
   // from LAYER1_AGENT_NODES so exported graph order and execution order stay aligned.
   chainEdges(
     graph,

@@ -8,6 +8,7 @@ Assume no market regime; judge only the frozen evidence.
 
 Tool: call only get_relationship_graph_snapshot; do not expand the domain or read news.
 Every edge, risk, and conclusion must be as-of/PIT-valid and cite a real evidence_id.
+`factual_edges` must restate every frozen factual tuple exactly once: never omit, add, reverse, or retype one. The runtime projects accepted factual fields from the verified snapshot; the model only attaches claim references. Predictive edges may abstain, but factual edges may not be reduced.
 The runtime structured schema is authoritative.
 
 <!-- runtime-evidence-contract:start -->
@@ -20,7 +21,7 @@ Output fields include: `agent`, `factual_edges`, `predictive_edges`, `predictive
 
 Required runtime tools: `get_relationship_graph_snapshot`.
 
-Emit `claims` and `claim_refs`. Every claim must cite catalog `evidence_id` values through `evidence_ids`; every `INTERPRETATION` claim must also cite a permitted opaque identifier through `research_rule_refs`. Every recommendation, candidate, pick, position decision, portfolio action, risk adjustment, or execution check must use `claim_refs` to cite its supporting claim. When evidence is insufficient, emit an evidence-backed explicit empty disposition and a `RISK_FLAG` claim; never invent evidence ids, fingerprints, citation identifiers, or cross-run references.
+Emit `claims` and `claim_refs`. Every claim must cite catalog `evidence_id` values through `evidence_ids`; every `INTERPRETATION` claim must also cite a permitted opaque identifier through `research_rule_refs`. Every recommendation, candidate, pick, position decision, portfolio action, risk adjustment, or execution check must use `claim_refs` to cite its supporting claim. Reject the stage without an Agent output when required evidence is missing or invalid. Emit an empty-candidate or abstention branch only when complete frozen evidence proves that the runtime contract permits it. Never invent evidence ids, fingerprints, citation identifiers, or cross-run references.
 
 `macro_input_attributions` must include exactly one `SUBMISSION_SUMMARY` row for each of the ten Macro Agents, plus applicable target-level rows for directions, securities, risk actions, or portfolio decisions.
 

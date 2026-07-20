@@ -164,12 +164,10 @@ export interface CacheStats {
 export type CacheCategory = "api" | "agent_data" | "signals" | "snapshots" | "checkpoints";
 
 /**
- * MOSAIC config — the canonical Phase 0 fields are typed below; the bridge
- * exposes other keys (e.g. tool_vendors, role_brief_specs, memory_log_path)
- * that vary by phase, so the index signature keeps the shape open.
- *
- * Phase 2+ will tighten further (cohort state, agent debate budgets, etc.) —
- * follow up in plan §14 #7 when those land.
+ * MOSAIC config — fields consumed by the TypeScript runtime are typed below.
+ * The bridge also exposes deployment-specific keys, so the index signature
+ * keeps only this configuration DTO open. Agent tools themselves are closed
+ * by the current signed capability and runtime manifest contracts.
  */
 export interface MosaicConfig {
   // ----- LLM (Plan §1, §13.3) -----
@@ -549,6 +547,58 @@ export interface DarwinianAgentWeight {
 
 /** ``{ <agent>: DarwinianAgentWeight }``; empty object means no weights computed yet. */
 export type DarwinianWeightTable = Record<string, DarwinianAgentWeight>;
+
+export interface DarwinianOutcomeMaturationResult {
+  agent_id: string;
+  scheduled_sample_id: string;
+  outcome_schedule_slot_id: string;
+  outcome_schedule_slot_hash: string;
+  outcome_due_at: string;
+  maturation_status:
+    | "SCORE"
+    | "ABSTAIN"
+    | "PENDING_INPUT_UNAVAILABLE"
+    | "PENDING_ELIGIBILITY_AUDIT_MISSING"
+    | "PENDING_PREPARATION_UNAVAILABLE"
+    | "PENDING_TERMINAL_COMPANION_UNAVAILABLE";
+  matured_at?: string;
+  failure_code?:
+    | "REQUIRED_OUTCOME_PROJECTION_UNAVAILABLE"
+    | "REQUIRED_ELIGIBILITY_AUDIT_UNAVAILABLE"
+    | "REQUIRED_OUTCOME_PREPARATION_UNAVAILABLE"
+    | "REQUIRED_TERMINAL_OUTCOME_COMPANION_UNAVAILABLE";
+  audit_revision_id?: string;
+  realized_outcome_observation_id?: string;
+  outcome_label_id?: string | null;
+  darwin_application_mode?: "DOWNSTREAM_USAGE_WEIGHT" | "EVOLUTION_ONLY";
+}
+
+export interface DarwinianOutcomeMaturationBatch {
+  schema_version: "outcome_maturation_batch_v2";
+  production_variant_roster_revision_id: string;
+  production_variant_roster_id: string;
+  cutoff_at: string;
+  due_pending_count: number;
+  scored_count: number;
+  abstained_count: number;
+  unresolved_count: number;
+  not_due_count: number;
+  results: DarwinianOutcomeMaturationResult[];
+  maturation_batch_hash: string;
+}
+
+export interface DarwinianMaterializeDueOutcomesResult {
+  outcome_maturation: DarwinianOutcomeMaturationBatch;
+}
+
+export interface DarwinianRefreshV2WindowsResult extends DarwinianMaterializeDueOutcomesResult {
+  evaluation_windows: Array<Record<string, unknown>>;
+}
+
+export interface DarwinianPublishV2UpdatesResult extends DarwinianMaterializeDueOutcomesResult {
+  published_batches: Array<Record<string, unknown>>;
+  publication_status: "PUBLISHED" | "BLOCKED_UNRESOLVED_DUE_OUTCOMES";
+}
 
 // --------------------------------------------------------- prompts (Phase 4B)
 
@@ -2116,22 +2166,99 @@ export class BridgeApi {
     run_blockers: Array<{ agent_id: string; reason: string }>;
     trading_calendar_snapshot_hash: string;
     event_candidate_input_hash: string;
+    deferred_opportunity_agent_ids: string[];
   }> {
     return this.client.call("darwinian.prepare_daily_cycle_outcomes", params);
+  }
+
+  darwinianFreezeOutcomeOpportunity(params: {
+    outcome_schedule_plan_id: string;
+    scheduled_sample_id: string;
+    agent_id: AgentId;
+  }): Promise<{
+    run_allowed: boolean;
+    blocker_reason?: string;
+    scheduled_sample_id: string;
+    evaluation_opportunity_set_id?: string;
+    evaluation_opportunity_set_hash?: string;
+    frozen_object_set_id?: null;
+    frozen_object_set_hash?: null;
+    runtime_authority_binding?: import("../agents/state.js").OutcomeLiveSourceAuthorityBinding;
+  }> {
+    return this.client.call("darwinian.freeze_outcome_opportunity", params);
+  }
+
+  darwinianFreezeStageOutcomeOpportunity(params: {
+    outcome_schedule_plan_id: string;
+    scheduled_sample_id: string;
+    agent_id: "alpha_discovery" | "cro" | "autonomous_execution" | "cio";
+    recorded_at: string;
+    frozen_object?: Record<string, unknown>;
+  }): Promise<{
+    run_allowed: boolean;
+    blocker_reason?: string;
+    scheduled_sample_id: string;
+    evaluation_opportunity_set_id?: string;
+    evaluation_opportunity_set_hash?: string;
+    frozen_object_set_id?: string;
+    frozen_object_set_hash?: string;
+    runtime_authority_binding?: import("../agents/state.js").OutcomeRuntimeAuthorityBinding;
+    frozen_object?: Record<string, unknown>;
+    stage_skip?: Record<string, unknown>;
+  }> {
+    return this.client.call("darwinian.freeze_stage_outcome_opportunity", params);
+  }
+
+  darwinianFreezeSuperinvestorOutcomeOpportunity(params: {
+    outcome_schedule_plan_id: string;
+    scheduled_sample_id: string;
+    agent_id: "druckenmiller" | "munger" | "burry" | "ackman";
+    recorded_at: string;
+    accepted_output_refs: Array<Record<string, unknown>>;
+  }): Promise<{
+    run_allowed: boolean;
+    blocker_reason?: string;
+    scheduled_sample_id: string;
+    evaluation_opportunity_set_id?: string;
+    evaluation_opportunity_set_hash?: string;
+    frozen_object_set_id?: string;
+    frozen_object_set_hash?: string;
+    runtime_candidate_scope_hash?: string;
+    runtime_candidate_universe_hash?: string;
+    runtime_source_snapshot_hash?: string;
+    stage_skip?: Record<string, unknown>;
+  }> {
+    return this.client.call("darwinian.freeze_superinvestor_outcome_opportunity", params);
   }
 
   darwinianRefreshV2Windows(params: {
     production_variant_roster_revision_id: string;
     cutoff_at: string;
-  }): Promise<{ evaluation_windows: Array<Record<string, unknown>> }> {
-    return this.client.call("darwinian.refresh_v2_windows", params);
+  }): Promise<DarwinianRefreshV2WindowsResult> {
+    return this.client.call<DarwinianRefreshV2WindowsResult>(
+      "darwinian.refresh_v2_windows",
+      params,
+    );
+  }
+
+  darwinianMaterializeDueOutcomes(params: {
+    production_variant_roster_revision_id: string;
+    cutoff_at: string;
+  }): Promise<DarwinianMaterializeDueOutcomesResult> {
+    return this.client.call<DarwinianMaterializeDueOutcomesResult>(
+      "darwinian.materialize_due_outcomes",
+      params,
+    );
   }
 
   darwinianPublishV2Updates(params: {
     production_variant_roster_revision_id: string;
     cutoff_at: string;
-  }): Promise<{ published_batches: Array<Record<string, unknown>> }> {
-    return this.client.call("darwinian.publish_v2_updates", params);
+  }): Promise<DarwinianPublishV2UpdatesResult> {
+    return this.client.call<DarwinianPublishV2UpdatesResult>(
+      "darwinian.publish_v2_updates",
+      params,
+    );
   }
 
   darwinianKnotRegisterTrack(params: {

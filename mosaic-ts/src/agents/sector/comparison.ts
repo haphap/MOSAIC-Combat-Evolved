@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import { ClaimSchemaV2 } from "../evidence_contract.js";
+import { canonicalJsonHash } from "../helpers/canonical_json.js";
 import {
   SECTOR_DIRECTION_COMPARISON_CONTRACT,
   SECTOR_DIRECTION_CONFLICT_RESOLVER_CONTRACT,
@@ -21,6 +21,9 @@ export const SECTOR_DIRECTION_COMPARISON_CONTRACT_VERSION =
   SECTOR_DIRECTION_COMPARISON_CONTRACT.comparison_contract_version;
 export const SECTOR_DIRECTION_REDUCER_CONTRACT_VERSION =
   SECTOR_DIRECTION_CONFLICT_RESOLVER_CONTRACT.resolver_contract_version;
+
+export const MAX_SECTOR_COMPARISON_CLAIM_REFS = 8;
+export const MAX_SECTOR_COVERAGE_EVIDENCE_IDS = 32;
 
 export type SectorComparisonCriterion = (typeof SECTOR_COMPARISON_CRITERIA)[number];
 export type ResolvedDirectionPairVerdict = "A" | "B" | "NO_CLEAR_WINNER";
@@ -43,8 +46,9 @@ export interface SectorCoverageDirective {
   };
 }
 
-const Id = z.string().trim().min(1);
-const ClaimRefs = z.array(Id).min(1);
+const Id = z.string().trim().min(1).max(256);
+const ClaimRefs = z.array(Id).min(1).max(MAX_SECTOR_COMPARISON_CLAIM_REFS);
+const CoverageEvidenceIds = z.array(Id).min(1).max(MAX_SECTOR_COVERAGE_EVIDENCE_IDS);
 const ComparableVerdict = z.enum(["FAVORS_A", "FAVORS_B", "NEUTRAL"]);
 
 const CoreCriterionResultSchema = z
@@ -64,7 +68,7 @@ const MacroEventCriterionResultSchema = z.discriminatedUnion("coverage_state", [
       comparison_status: z.literal("COMPARABLE"),
       verdict: ComparableVerdict,
       claim_refs: ClaimRefs,
-      coverage_evidence_ids: ClaimRefs,
+      coverage_evidence_ids: CoverageEvidenceIds,
     })
     .strict(),
   z
@@ -74,7 +78,7 @@ const MacroEventCriterionResultSchema = z.discriminatedUnion("coverage_state", [
       comparison_status: z.literal("COMPARABLE"),
       verdict: z.literal("NEUTRAL"),
       claim_refs: ClaimRefs,
-      coverage_evidence_ids: ClaimRefs,
+      coverage_evidence_ids: CoverageEvidenceIds,
     })
     .strict(),
   z
@@ -84,7 +88,7 @@ const MacroEventCriterionResultSchema = z.discriminatedUnion("coverage_state", [
       comparison_status: z.literal("UNAVAILABLE"),
       verdict: z.literal("NO_VOTE"),
       claim_refs: z.tuple([]),
-      coverage_evidence_ids: ClaimRefs,
+      coverage_evidence_ids: CoverageEvidenceIds,
     })
     .strict(),
 ]);
@@ -97,7 +101,7 @@ const CatalystCriterionResultSchema = z.discriminatedUnion("coverage_state", [
       comparison_status: z.literal("COMPARABLE"),
       verdict: ComparableVerdict,
       claim_refs: ClaimRefs,
-      coverage_evidence_ids: ClaimRefs,
+      coverage_evidence_ids: CoverageEvidenceIds,
     })
     .strict(),
   z
@@ -107,7 +111,7 @@ const CatalystCriterionResultSchema = z.discriminatedUnion("coverage_state", [
       comparison_status: z.literal("COMPARABLE"),
       verdict: z.literal("NEUTRAL"),
       claim_refs: ClaimRefs,
-      coverage_evidence_ids: ClaimRefs,
+      coverage_evidence_ids: CoverageEvidenceIds,
     })
     .strict(),
   z
@@ -117,7 +121,7 @@ const CatalystCriterionResultSchema = z.discriminatedUnion("coverage_state", [
       comparison_status: z.literal("UNAVAILABLE"),
       verdict: z.literal("NO_VOTE"),
       claim_refs: z.tuple([]),
-      coverage_evidence_ids: ClaimRefs,
+      coverage_evidence_ids: CoverageEvidenceIds,
     })
     .strict(),
 ]);
@@ -182,6 +186,9 @@ const DirectionCriterionResultsSchema = z.tuple([
 ]);
 
 function exactCoverageEvidenceIds(ids: readonly [string, ...string[]]) {
+  if (ids.length > MAX_SECTOR_COVERAGE_EVIDENCE_IDS) {
+    throw new Error(`sector coverage evidence ids exceed ${MAX_SECTOR_COVERAGE_EVIDENCE_IDS}`);
+  }
   return z.tuple(
     ids.map((evidenceId) => z.literal(evidenceId)) as [
       z.ZodLiteral<string>,
@@ -329,10 +336,10 @@ export function buildSectorDirectionResearchSchema(
   if (eligibleDirectionIds.length < 3) {
     throw new Error("standard Sector direction research requires at least three directions");
   }
-  const base = {
-    comparison_claims: z.array(ClaimSchemaV2).min(1),
-  };
   const expectedPairs = expectedOrderedPairs(eligibleDirectionIds);
+  const base = {
+    comparison_claims: z.array(ClaimSchemaV2).min(1).max(expectedPairs.length),
+  };
   const pairwiseMatrixSchema = z.tuple(
     expectedPairs.map(([directionA, directionB]) =>
       exactDirectionPairSchema(directionA, directionB, coverageDirective),
@@ -433,7 +440,7 @@ export function buildSectorConflictReviewSchema(
   return z
     .object({
       review_round: z.literal(1),
-      comparison_claims: z.array(ClaimSchemaV2).min(1),
+      comparison_claims: z.array(ClaimSchemaV2).min(1).max(expectedPairs.length),
       revised_comparisons: revisedMatrixSchema,
     })
     .strict()
@@ -789,19 +796,5 @@ function sortedUnique(values: readonly string[]): string[] {
 }
 
 function canonicalHash(value: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(JSON.stringify(canonicalize(value)))
-    .digest("hex")}`;
-}
-
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, entry]) => [key, canonicalize(entry)]),
-    );
-  }
-  return value;
+  return canonicalJsonHash(value);
 }

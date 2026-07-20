@@ -76,16 +76,18 @@
     {
       "blocker": "",
       "criterion_id": "PG10",
-      "description": "Direct production remains forbidden until all staged gates and lockbox pass.",
+      "description": "The RKE shadow line has not activated a production patch.",
       "evidence": "promotion_state=paper_trading",
       "evidence_path": "registry/patches/central_bank_paper_trading_patch.json",
       "passed": true
     }
   ],
-  "direct_production_forbidden": false,
-  "next_state": "production",
+  "direct_production_forbidden": true,
+  "execution_mode": "RKE_SHADOW",
+  "next_state": "paper_trading",
   "paper_trading_allowed": true,
-  "production_allowed": true,
+  "production_allowed": false,
+  "production_signal_allowed": false,
   "report_id": "RKE-PRODUCTION-PROMOTION-GATE-20260606",
-  "staged_production_allowed": true
+  "staged_production_allowed": false
 }

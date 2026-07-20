@@ -23,7 +23,7 @@
 
 必需运行时工具：`get_cio_decision_snapshot`。
 
-必须输出 `claims` 与顶层 `claim_refs`。每个声明必须通过 `evidence_ids` 引用证据目录中的 `evidence_id`；每个 `INTERPRETATION` 声明还必须通过 `research_rule_refs` 引用允许的不透明标识。所有仓位决定和控制解析都必须用 `claim_refs` 引用支持它的声明。证据不足时，按当前阶段 schema 输出有证据支持的显式空处置和 `RISK_FLAG` 声明；不得伪造证据 ID、指纹、引用标识或跨运行引用。
+必须输出 `claims` 与顶层 `claim_refs`。每个声明必须通过 `evidence_ids` 引用证据目录中的 `evidence_id`；每个 `INTERPRETATION` 声明还必须通过 `research_rule_refs` 引用允许的不透明标识。所有仓位决定和控制解析都必须用 `claim_refs` 引用支持它的声明。必需证据缺失或无效时拒绝本阶段，不得生成 CIO 输出；只有完整冻结证据支持合法的空仓、保持当前或其他保守处置时，才按当前阶段 schema 输出该处置。不得伪造证据 ID、指纹、引用标识或跨运行引用。
 
 `macro_input_attributions` 必须对十个 Macro Agent 各输出且只输出一条 `SUBMISSION_SUMMARY`，并按适用的方向、证券、风险动作或组合决策追加目标级归因。
 

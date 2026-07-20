@@ -10,13 +10,17 @@ import {
   extractCohortBehavior,
   immutablePromptContractText,
   replaceCohortBehavior,
+  validateCohortBehaviorLanguage,
 } from "../agents/prompts/cohort_behavior.js";
 import { loadPrompt } from "../agents/prompts/loader.js";
+import { containsPrivateKnotPromptContent } from "../agents/prompts/private_knot_prompt_markers.js";
 import type { BridgeApi } from "../bridge/types.js";
 
 const MACRO_AGENT_SET: ReadonlySet<string> = new Set(MACRO_AGENT_IDS);
 
 export const MAX_LENGTH_DELTA = 0.4;
+export const MAX_MUTATED_PROMPT_CHARACTERS = 16_384;
+export const MAX_MUTATION_METADATA_CHARACTERS = 512;
 
 export const PROMPT_CONTRACT_REQUIRED_SECTION_CATEGORIES = [
   "role_boundary",
@@ -74,13 +78,36 @@ const REQUIRED_SECTIONS: ReadonlyArray<{
   },
 ];
 
-export const MutationSchema = z.object({
-  zh_prompt: z.string().min(1),
-  en_prompt: z.string().min(1),
-  modification_summary: z.string().min(1),
-  rationale: z.string().min(1),
-});
+export const MutationSchema = z
+  .object({
+    zh_prompt: z.string().min(1).max(MAX_MUTATED_PROMPT_CHARACTERS),
+    en_prompt: z.string().min(1).max(MAX_MUTATED_PROMPT_CHARACTERS),
+    modification_summary: z.string().min(1).max(MAX_MUTATION_METADATA_CHARACTERS),
+    rationale: z.string().min(1).max(MAX_MUTATION_METADATA_CHARACTERS),
+  })
+  .strict();
 export type Mutation = z.infer<typeof MutationSchema>;
+
+export function buildMutationSchema(zhPrompt: string, enPrompt: string) {
+  const promptBounds = (original: string) => {
+    const minimum = Math.ceil(original.length * (1 - MAX_LENGTH_DELTA));
+    const maximum = Math.min(
+      MAX_MUTATED_PROMPT_CHARACTERS,
+      Math.floor(original.length * (1 + MAX_LENGTH_DELTA)),
+    );
+    if (minimum > maximum) {
+      throw new PromptInvariantError(
+        `source prompt has no valid rewrite length within the mutation cap ` +
+          `${MAX_MUTATED_PROMPT_CHARACTERS}`,
+      );
+    }
+    return z.string().min(Math.max(1, minimum)).max(maximum);
+  };
+  return MutationSchema.safeExtend({
+    zh_prompt: promptBounds(zhPrompt),
+    en_prompt: promptBounds(enPrompt),
+  });
+}
 
 export class PromptInvariantError extends Error {
   override readonly name = "PromptInvariantError";
@@ -119,6 +146,9 @@ function assertV2PromptBehaviorInvariants(original: string, rewritten: string): 
   }
   if (normalize(originalBehavior) === normalize(rewrittenBehavior)) {
     throw new PromptInvariantError("rewrite is a no-op (cohort behavior did not change)");
+  }
+  if (containsPrivateKnotPromptContent(rewrittenBehavior)) {
+    throw new PromptInvariantError("rewrite exposed private KNOT policy content");
   }
   assertLength(original, rewritten);
 }
@@ -223,7 +253,8 @@ async function invokeMutationModel(
   en: string,
   performance: string,
 ): Promise<Mutation> {
-  const bound = bindStructured(opts.deps.llm, MutationSchema, `mutator:${opts.agent}`);
+  const mutationSchema = buildMutationSchema(zh, en);
+  const bound = bindStructured(opts.deps.llm, mutationSchema, `mutator:${opts.agent}`);
   if (!bound) throw new Error(`mutator:${opts.agent}: provider does not support structured output`);
   const raw = await bound.invoke([
     new SystemMessage(META_SYSTEM),
@@ -240,7 +271,7 @@ async function invokeMutationModel(
       ].join("\n"),
     ),
   ]);
-  return MutationSchema.parse(raw);
+  return mutationSchema.parse(raw);
 }
 
 function sectionPresence(prompt: string): Record<string, boolean> {
@@ -254,6 +285,17 @@ function sectionPresence(prompt: string): Record<string, boolean> {
 }
 
 export function assertPromptPairInvariants(zhPrompt: string, enPrompt: string): void {
+  if (zhPrompt.includes(COHORT_BEHAVIOR_START) || enPrompt.includes(COHORT_BEHAVIOR_START)) {
+    if (!zhPrompt.includes(COHORT_BEHAVIOR_START) || !enPrompt.includes(COHORT_BEHAVIOR_START)) {
+      throw new PromptInvariantError("rewrite desynchronized cohort behavior markers");
+    }
+    try {
+      validateCohortBehaviorLanguage(extractCohortBehavior(zhPrompt), "zh");
+      validateCohortBehaviorLanguage(extractCohortBehavior(enPrompt), "en");
+    } catch (error) {
+      throw new PromptInvariantError((error as Error).message);
+    }
+  }
   const zh = sectionPresence(zhPrompt);
   const en = sectionPresence(enPrompt);
   for (const category of PROMPT_CONTRACT_REQUIRED_SECTION_CATEGORIES) {

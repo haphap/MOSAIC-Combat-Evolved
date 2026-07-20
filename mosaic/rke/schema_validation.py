@@ -17,6 +17,7 @@ from .p0 import (
     MIN_CLAIM_GOLD_SET_CLAIMS,
     MIN_CLAIM_GOLD_SET_DOCUMENTS,
 )
+from .promotion_gate import RKE_EXECUTION_MODE
 from .required_data import normalize_required_data_items
 from .temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
 
@@ -9303,6 +9304,24 @@ def _validate_production_promotion_gate_contract(
     paper_allowed = gate.get("paper_trading_allowed") is True
     staged_allowed = gate.get("staged_production_allowed") is True
     production_allowed = gate.get("production_allowed") is True
+    if gate.get("execution_mode") != RKE_EXECUTION_MODE:
+        failures.append(
+            "production_promotion_gate.execution_mode: must remain "
+            + RKE_EXECUTION_MODE
+        )
+    if gate.get("production_signal_allowed") is not False:
+        failures.append(
+            "production_promotion_gate.production_signal_allowed: must remain false"
+        )
+    if staged_allowed:
+        failures.append(
+            "production_promotion_gate.staged_production_allowed: "
+            "RKE must remain shadow-only"
+        )
+    if production_allowed:
+        failures.append(
+            "production_promotion_gate.production_allowed: RKE must remain shadow-only"
+        )
     expected_next_state = (
         "production"
         if production_allowed
@@ -9316,9 +9335,9 @@ def _validate_production_promotion_gate_contract(
         failures.append(
             "production_promotion_gate.next_state: expected " + expected_next_state
         )
-    if gate.get("direct_production_forbidden") is not (not production_allowed):
+    if gate.get("direct_production_forbidden") is not True:
         failures.append(
-            "production_promotion_gate.direct_production_forbidden mismatch"
+            "production_promotion_gate.direct_production_forbidden: must remain true"
         )
     if not paper_allowed:
         failures.append(

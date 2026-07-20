@@ -7,6 +7,47 @@ import {
   buildAcceptedAgentOutputRecord,
   validateAcceptedAgentOutputRecord,
 } from "../src/agents/accepted_output.js";
+import type { ClaimEvidenceGraph } from "../src/agents/evidence_contract.js";
+
+const SOURCE_OUTPUT_HASH = `sha256:${"a".repeat(64)}`;
+
+function claimGraph(): ClaimEvidenceGraph {
+  return {
+    schema_version: "evidence_claim_graph_v1",
+    run_id: "graph-run-1",
+    snapshot_hash: `sha256:${"b".repeat(64)}`,
+    evidence_ledger: [
+      {
+        evidence_id: "evidence:1",
+        run_id: "graph-run-1",
+        snapshot_hash: `sha256:${"b".repeat(64)}`,
+        source_kind: "tool",
+        tool_or_source: "fixture",
+        metric: "fixture",
+        value: 1,
+        unit: "index",
+        as_of: "2026-07-17",
+        lookback: "current",
+        freshness: "current",
+        fallback: false,
+        source_fingerprint: `sha256:${"c".repeat(64)}`,
+        direction: "positive",
+        privacy_class: "public_structured",
+      },
+    ],
+    claims: [
+      {
+        claim_id: "claim:1",
+        claim_kind: "FACT",
+        statement: "Fixture claim.",
+        structured_conclusion: { value: 1 },
+        evidence_ids: ["evidence:1"],
+        research_rule_refs: [],
+      },
+    ],
+    recommendation_claim_refs: [],
+  };
+}
 
 function context(
   runBinding: AcceptedOutputBuildContext["run_binding"] = {
@@ -45,6 +86,8 @@ function macroRecord() {
     payload: { agent_id: "china", direction: "SUPPORTIVE" },
     evidenceBundleIds: ["bundle:2", "bundle:1"],
     causalDedupeKeys: ["cause:2", "cause:1"],
+    claimGraph: claimGraph(),
+    sourceAgentOutputHash: SOURCE_OUTPUT_HASH,
     context: context(),
   });
 }
@@ -68,6 +111,56 @@ describe("AcceptedAgentOutputRecord", () => {
     );
   });
 
+  it("carries and strictly validates the scheduled L1/L2 live source authority", () => {
+    const liveContext = context();
+    liveContext.evaluation_binding = {
+      evaluation_opportunity_set_id: "opportunity:china",
+      evaluation_opportunity_set_hash: `sha256:${"4".repeat(64)}`,
+      frozen_object_set_id: null,
+      frozen_object_set_hash: null,
+      runtime_authority_binding: {
+        source_tool_id: "get_china_macro_snapshot",
+        source_snapshot_hash: `sha256:${"5".repeat(64)}`,
+        domain_hash: `sha256:${"6".repeat(64)}`,
+      },
+    };
+    const record = buildAcceptedAgentOutputRecord({
+      kind: "MACRO_TRANSMISSION",
+      agentId: "china",
+      payload: { agent_id: "china", direction: "SUPPORTIVE" },
+      evidenceBundleIds: ["bundle:1"],
+      causalDedupeKeys: ["cause:1"],
+      claimGraph: claimGraph(),
+      sourceAgentOutputHash: SOURCE_OUTPUT_HASH,
+      context: liveContext,
+    });
+
+    validateAcceptedAgentOutputRecord(record);
+    expect(record.runtime_opportunity_authority).toEqual(
+      liveContext.evaluation_binding.runtime_authority_binding,
+    );
+    const wrongToolContext = structuredClone(liveContext);
+    if (!wrongToolContext.evaluation_binding) throw new Error("fixture binding required");
+    wrongToolContext.evaluation_binding.runtime_authority_binding = {
+      source_tool_id: "get_us_macro_snapshot",
+      source_snapshot_hash: `sha256:${"5".repeat(64)}`,
+      domain_hash: `sha256:${"6".repeat(64)}`,
+    };
+    const wrongToolRecord = buildAcceptedAgentOutputRecord({
+      kind: "MACRO_TRANSMISSION",
+      agentId: "china",
+      payload: { agent_id: "china", direction: "SUPPORTIVE" },
+      evidenceBundleIds: ["bundle:1"],
+      causalDedupeKeys: ["cause:1"],
+      claimGraph: claimGraph(),
+      sourceAgentOutputHash: SOURCE_OUTPUT_HASH,
+      context: wrongToolContext,
+    });
+    expect(() => validateAcceptedAgentOutputRecord(wrongToolRecord)).toThrow(
+      "china: live source authority tool mismatch",
+    );
+  });
+
   it("rejects owner, hash and namespace mismatches", () => {
     expect(() =>
       buildAcceptedAgentOutputRecord({
@@ -76,6 +169,8 @@ describe("AcceptedAgentOutputRecord", () => {
         payload: {},
         evidenceBundleIds: ["bundle:1"],
         causalDedupeKeys: ["cause:1"],
+        claimGraph: claimGraph(),
+        sourceAgentOutputHash: SOURCE_OUTPUT_HASH,
         context: context(),
       }),
     ).toThrow(/cannot be owned/);
@@ -103,6 +198,8 @@ describe("AcceptedAgentOutputRecord", () => {
         payload: {},
         evidenceBundleIds: ["bundle:1"],
         causalDedupeKeys: ["cause:1"],
+        claimGraph: claimGraph(),
+        sourceAgentOutputHash: SOURCE_OUTPUT_HASH,
         context: context({
           sample_origin: "KNOT_RESEARCH_SHADOW",
           run_slot_kind: "DOWNSTREAM_ONLY" as never,

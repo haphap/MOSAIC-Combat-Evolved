@@ -16,16 +16,21 @@ import {
   CioProposalSchema,
   CroSchema,
 } from "../agents/decision/_schemas.js";
+import { STRICT_PROVIDER_EXTRACTION_DESCRIPTOR } from "../agents/helpers/agent_run_contract.js";
+import { canonicalJson, canonicalJsonHash } from "../agents/helpers/canonical_json.js";
+import { STRUCTURED_PROVIDER_ADAPTER_DESCRIPTOR } from "../agents/helpers/structured_provider_adapters.js";
 import {
   createMacroSubmissionSchema,
   MACRO_AGENT_IDS,
   MACRO_PROMPT_COHORT_IDS,
+  MACRO_ROLE_CONTRACTS,
   renderMacroPromptBody,
 } from "../agents/macro/_contracts.js";
 import { renderBundledPrompt } from "../agents/prompts/bundled_prompt_renderer.js";
 import {
   extractCohortBehavior,
   immutablePromptContractText,
+  validateCohortBehaviorLanguage,
 } from "../agents/prompts/cohort_behavior.js";
 import {
   ALL_AGENTS,
@@ -33,6 +38,7 @@ import {
   type Language,
   promptPath,
 } from "../agents/prompts/cohorts.js";
+import { containsPrivateKnotPromptContent } from "../agents/prompts/private_knot_prompt_markers.js";
 import {
   readVerifiedPromptSourceFile,
   type VerifiedPromptSourceCommit,
@@ -71,7 +77,7 @@ import { KNOT_RUNTIME_CONTRACT_REF } from "./knot_contract.js";
 
 export const EXECUTION_BEHAVIOR_RELEASE_SCHEMA_VERSION = "execution_behavior_release_manifest_v1";
 export const EXECUTION_BEHAVIOR_RELEASE_CONTRACT_VERSION = "execution_behavior_release_v1";
-export const STRUCTURED_PROVIDER_CONTRACT_VERSION = "structured_provider_contract_v1";
+export const STRUCTURED_PROVIDER_CONTRACT_VERSION = "structured_provider_contract_v2";
 
 export const STRUCTURED_OUTPUT_SCHEMA_PHASES = [
   "DEFAULT",
@@ -284,6 +290,7 @@ export function validateExecutionBehaviorReleaseManifest(
 
   const variantPaths = new Set<string>();
   const agentsByProductionKey = new Map<string, string[]>();
+  const promptHashesByAgentLanguage = new Map<string, Set<string>>();
   for (const variant of manifest.variants) {
     if (variantPaths.has(variant.variant_path))
       throw new Error(`duplicate variant path ${variant.variant_path}`);
@@ -293,6 +300,10 @@ export function validateExecutionBehaviorReleaseManifest(
       throw new Error(`variant path mismatch: ${variant.variant_path}`);
     const key = `${variant.cohort_id}:${variant.language}`;
     agentsByProductionKey.set(key, [...(agentsByProductionKey.get(key) ?? []), variant.agent_id]);
+    const behaviorKey = `${variant.agent_id}:${variant.language}`;
+    const promptHashes = promptHashesByAgentLanguage.get(behaviorKey) ?? new Set<string>();
+    promptHashes.add(variant.prompt_content_hash);
+    promptHashesByAgentLanguage.set(behaviorKey, promptHashes);
     validateSchemaBindings(variant.agent_id, variant.structured_output_schema_bindings);
     if (
       variant.structured_output_schema_set_hash !==
@@ -301,7 +312,9 @@ export function validateExecutionBehaviorReleaseManifest(
       throw new Error(`${variant.variant_path}: schema binding set hash mismatch`);
     }
     const currentBindings = structuredSchemaBindings(variant.agent_id, variant.language);
-    if (stableJson(variant.structured_output_schema_bindings) !== stableJson(currentBindings)) {
+    if (
+      canonicalJson(variant.structured_output_schema_bindings) !== canonicalJson(currentBindings)
+    ) {
       throw new Error(`${variant.variant_path}: structured output contract drift`);
     }
     const currentToolManifestHash = computeRuntimeToolManifestHash(variant.agent_id);
@@ -337,6 +350,16 @@ export function validateExecutionBehaviorReleaseManifest(
     const agents = (agentsByProductionKey.get(key) ?? []).sort();
     if (agents.join("\0") !== expectedAgents.join("\0")) {
       throw new Error(`${key}: production variant must resolve exactly 28 Agents`);
+    }
+  }
+  for (const agent of expectedAgents) {
+    for (const language of ["en", "zh"] as const) {
+      const hashes = promptHashesByAgentLanguage.get(`${agent}:${language}`);
+      if (hashes?.size !== MACRO_PROMPT_COHORT_IDS.length) {
+        throw new Error(
+          `${agent}:${language}: every production cohort must have distinct cohort behavior`,
+        );
+      }
     }
   }
 
@@ -492,19 +515,16 @@ function buildVariant(
   });
   const prompt = readVerifiedPromptSourceFile(input.privatePromptSource, path);
   const expected = expectedPrompt(input.agent, input.language);
-  extractCohortBehavior(prompt);
-  if (/research[-_ ]knobs?/i.test(prompt)) {
+  const cohortBehavior = extractCohortBehavior(prompt);
+  if (containsPrivateKnotPromptContent(prompt)) {
     throw new Error(
-      `${relative(input.privatePromptsRoot, path)}: research knobs must remain hidden`,
+      `${relative(input.privatePromptsRoot, path)}: private KNOT policy must remain hidden`,
     );
   }
-  if (input.language === "zh" && !/[\u3400-\u9fff]/u.test(prompt)) {
-    throw new Error(`${relative(input.privatePromptsRoot, path)}: zh prompt has no Chinese prose`);
-  }
-  if (input.language === "en" && /[\u3400-\u9fff]/u.test(prompt)) {
-    throw new Error(
-      `${relative(input.privatePromptsRoot, path)}: en prompt contains Chinese prose`,
-    );
+  try {
+    validateCohortBehaviorLanguage(cohortBehavior, input.language);
+  } catch (error) {
+    throw new Error(`${relative(input.privatePromptsRoot, path)}: ${(error as Error).message}`);
   }
   const bundledPath = promptPath({
     agent: input.agent,
@@ -764,49 +784,53 @@ function knotChampionBaselineHash(
 }
 
 function computeStructuredProviderContractHash(agent: string): string {
-  const runtimeDomainContract = STANDARD_SECTOR_IDS.includes(agent)
+  const runtimeDomainContract = MACRO_AGENT_IDS.includes(agent as (typeof MACRO_AGENT_IDS)[number])
     ? {
-        schema_domain: "STANDARD_SECTOR_RUNTIME_DIRECTIVE_V1",
-        direction_research: "EXACT_COMPLETE_PAIRWISE_DOMAIN_V1",
-        conflict_review: "FROZEN_CONFLICT_PAIR_DOMAIN_V1",
-        final_selection: "EXACT_DIRECTIVE_AND_SECURITY_ENUM_DOMAIN_V1",
+        schema_domain: "MACRO_RUNTIME_COMPACT_DOMAIN_V1",
+        mode: MACRO_ROLE_CONTRACTS[agent as (typeof MACRO_AGENT_IDS)[number]].mode,
+        components: Object.keys(
+          MACRO_ROLE_CONTRACTS[agent as (typeof MACRO_AGENT_IDS)[number]].components,
+        ).sort(),
+        claim_materialization: "ONE_CLAIM_PER_JUDGMENT_V1",
       }
-    : agent === "relationship_mapper"
+    : STANDARD_SECTOR_IDS.includes(agent)
       ? {
-          schema_domain: "RELATIONSHIP_RUNTIME_OPPORTUNITY_DOMAIN_V1",
-          factual_edges: "FROZEN_FACTUAL_EDGE_ENUM_V1",
-          predictive_edges: "FROZEN_NONEMPTY_OPPORTUNITY_ENUM_V1",
+          schema_domain: "STANDARD_SECTOR_RUNTIME_DIRECTIVE_V1",
+          direction_research: "EXACT_COMPLETE_PAIRWISE_DOMAIN_V1",
+          conflict_review: "FROZEN_CONFLICT_PAIR_DOMAIN_V1",
+          final_selection: "EXACT_DIRECTIVE_AND_SECURITY_ENUM_DOMAIN_V1",
         }
-      : ["druckenmiller", "munger", "burry", "ackman"].includes(agent)
+      : agent === "relationship_mapper"
         ? {
-            schema_domain: "SUPERINVESTOR_RUNTIME_CANDIDATE_DOMAIN_V1",
-            nonempty: "EXACT_A_SHARE_CANDIDATE_ENUM_V1",
-            empty: "ABSTENTION_ONLY_V1",
+            schema_domain: "RELATIONSHIP_RUNTIME_OPPORTUNITY_DOMAIN_V1",
+            factual_edges: "FROZEN_FACTUAL_EDGE_ENUM_V1",
+            predictive_edges: "FROZEN_NONEMPTY_OPPORTUNITY_ENUM_V1",
           }
-        : agent === "alpha_discovery"
+        : ["druckenmiller", "munger", "burry", "ackman"].includes(agent)
           ? {
-              schema_domain: "ALPHA_RUNTIME_NOVEL_CANDIDATE_DOMAIN_V1",
-              nonempty: "EXACT_CANDIDATE_REF_TS_CODE_PAIR_ENUM_V1",
-              empty: "NONE_FOUND_ONLY_V1",
+              schema_domain: "SUPERINVESTOR_RUNTIME_CANDIDATE_DOMAIN_V1",
+              nonempty: "EXACT_A_SHARE_CANDIDATE_ENUM_V1",
+              empty: "ABSTENTION_ONLY_V1",
             }
-          : agent === "cio"
+          : agent === "alpha_discovery"
             ? {
-                schema_domain: "CIO_RUNTIME_PORTFOLIO_DOMAIN_V1",
-                empty_positions: "NO_HOLD_ENUM_V1",
-                no_investable_candidate: "ALL_CASH_ONLY_V1",
+                schema_domain: "ALPHA_RUNTIME_NOVEL_CANDIDATE_DOMAIN_V1",
+                nonempty: "EXACT_CANDIDATE_REF_TS_CODE_PAIR_ENUM_V1",
+                empty: "NONE_FOUND_ONLY_V1",
               }
-            : { schema_domain: "STATIC_AGENT_SUBMISSION_DOMAIN_V1" };
+            : agent === "cio"
+              ? {
+                  schema_domain: "CIO_RUNTIME_PORTFOLIO_DOMAIN_V1",
+                  empty_positions: "NO_HOLD_ENUM_V1",
+                  no_investable_candidate: "ALL_CASH_ONLY_V1",
+                }
+              : { schema_domain: "STATIC_AGENT_SUBMISSION_DOMAIN_V1" };
   return canonicalHash({
     contract_version: STRUCTURED_PROVIDER_CONTRACT_VERSION,
     zod_json_schema_projection: "ZOD_TO_JSON_SCHEMA_V1",
     unsupported_keyword_projection: "STRICT_PROVIDER_KEYWORD_OMISSION_V1",
-    extraction_bounds: "STRICT_PROVIDER_EXTRACTION_BOUNDS_V1",
-    adapter_pipeline: [
-      "SECTOR_DIRECTION_PROVIDER_ADAPTER_V1",
-      "SECTOR_FINAL_PROVIDER_ADAPTER_V1",
-      "MACRO_ATTRIBUTION_PROVIDER_ADAPTER_V1",
-      "STRICT_PROVIDER_PAYLOAD_NORMALIZATION_V1",
-    ],
+    extraction_descriptor: STRICT_PROVIDER_EXTRACTION_DESCRIPTOR,
+    adapter_descriptor: STRUCTURED_PROVIDER_ADAPTER_DESCRIPTOR,
     runtime_domain_contract: runtimeDomainContract,
   });
 }
@@ -850,15 +874,5 @@ function stripSha(value: string): string {
 }
 
 function canonicalHash(value: unknown): string {
-  return `sha256:${createHash("sha256").update(stableJson(value)).digest("hex")}`;
-}
-
-function stableJson(value: unknown): string {
-  if (value === undefined) return "null";
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  return `{${Object.entries(value as Record<string, unknown>)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`)
-    .join(",")}}`;
+  return canonicalJsonHash(value);
 }

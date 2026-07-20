@@ -1,11 +1,10 @@
 /**
- * Phase 1 Exit: drive a minimal tool-calling loop with one bridge tool.
+ * Drive a minimal capability-bound tool-calling loop with the China Macro snapshot.
  *
  * Flow:
  *   1. Resolve config from the bridge.
- *   2. Build a chat model from that config + env API key (Anthropic by default
- *      per Plan §1; switch via `--provider lemonade` for zero-cost local dev).
- *   3. Wrap one bridge tool (default: get_fred_series) as a LangChain tool.
+ *   2. Prepare a signed China Agent capability for the requested as-of date.
+ *   3. Expose only get_china_macro_snapshot through that capability.
  *   4. Loop: invoke LLM → if tool_calls, dispatch → feed back → repeat.
  *   5. Print the final assistant message.
  */
@@ -25,13 +24,12 @@ import {
 } from "../../bridge/index.js";
 import { createLlmFromConfig } from "../../llm/factory.js";
 
-const DEFAULT_TOOL = "get_china_macro_snapshot";
+const CHINA_SNAPSHOT_TOOL = "get_china_macro_snapshot";
 const DEFAULT_QUESTION =
   "请调用零参数 get_china_macro_snapshot 工具，并仅依据冻结快照概括中国宏观环境。";
 const MAX_LOOPS = 6;
 
 interface LoopOptions {
-  tool?: string;
   model?: string;
   provider?: string;
   question?: string;
@@ -41,8 +39,7 @@ interface LoopOptions {
 export function registerToolLoop(program: Command): void {
   program
     .command("tool-loop")
-    .description("Capability-bound demo: one chat model + one frozen role snapshot.")
-    .option("--tool <name>", `Bridge tool to expose to the LLM (default: ${DEFAULT_TOOL})`)
+    .description("Capability-bound demo for the frozen China Macro snapshot.")
     .option("--model <name>", "Override LLM model from bridge config")
     .option("--provider <name>", "Override LLM provider from bridge config")
     .option("--question <text>", "Override the user question")
@@ -59,7 +56,7 @@ export function registerToolLoop(program: Command): void {
           ...(opts.model ? { model: opts.model } : {}),
           ...(opts.provider ? { provider: opts.provider } : {}),
         });
-        const toolName = opts.tool ?? DEFAULT_TOOL;
+        const toolName = CHINA_SNAPSHOT_TOOL;
         const asOf = opts.asOfDate ?? new Date().toISOString().slice(0, 10);
         const runId = `tool-loop:${randomUUID()}`;
         const prepared = await api.toolsPrepareCapability({

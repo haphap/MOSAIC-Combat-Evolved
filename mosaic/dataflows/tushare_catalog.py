@@ -61,6 +61,7 @@ TUSHARE_ENDPOINT_IDS: tuple[str, ...] = (
     "fund_portfolio",
     "fut_basic",
     "fut_daily",
+    "fut_wsr",
     "fx_obasic",
     "fx_daily",
     "moneyflow",

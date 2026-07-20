@@ -33,6 +33,7 @@ from mosaic.dataflows.sector_snapshots import (
     render_relationship_snapshot,
     render_sector_snapshot,
 )
+from mosaic.scorecard.canonical_json import canonical_hash, canonical_json
 
 AgentToolId = Literal[
     "get_china_macro_snapshot",
@@ -213,11 +214,11 @@ SECTOR_INFERENCE_BUDGET_CONTRACT_FIELDS: Final[frozenset[str]] = frozenset(
 
 
 def _canonical_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return canonical_json(value)
 
 
 def _sha256(value: Any) -> str:
-    return "sha256:" + hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
+    return canonical_hash(value)
 
 
 def _sha256_text(value: str) -> str:
@@ -1439,6 +1440,14 @@ def _assert_control_source_closure(
     refs: Sequence[Mapping[str, Any]],
 ) -> None:
     if source["source_status"] == "NO_EVALUATION_OBJECT":
+        if any(
+            ref["accepted_output_kind"] == source["accepted_output_kind"]
+            and ref["agent_id"] == source["agent_id"]
+            for ref in refs
+        ):
+            raise DataVendorUnavailable(
+                "runtime control stage skip masks an upstream accepted output"
+            )
         return
     if not any(
         _accepted_ref_matches(
@@ -1882,6 +1891,51 @@ def _validate_bound_request_closure(
         )
 
 
+def _validate_live_outcome_authority(
+    *,
+    agent_id: str,
+    runtime_inputs: Mapping[str, Any],
+    payloads: Mapping[AgentToolId, str],
+) -> None:
+    authority = runtime_inputs.get("outcome_opportunity_authority")
+    if authority is None:
+        return
+    if not isinstance(authority, Mapping) or set(authority) != {
+        "source_tool_id",
+        "source_snapshot_hash",
+        "domain_hash",
+    }:
+        raise DataVendorUnavailable("live outcome authority fields mismatch")
+    if agent_id in MACRO_AGENT_TO_TOOL:
+        expected_tool = MACRO_AGENT_TO_TOOL[agent_id]
+    elif agent_id in STANDARD_SECTOR_AGENTS:
+        expected_tool = "get_sector_research_snapshot"
+    elif agent_id == "relationship_mapper":
+        expected_tool = "get_relationship_graph_snapshot"
+    else:
+        raise DataVendorUnavailable(
+            "live outcome authority is restricted to L1/L2 Agents"
+        )
+    if authority.get("source_tool_id") != expected_tool:
+        raise DataVendorUnavailable("live outcome authority tool mismatch")
+    source_hash = authority.get("source_snapshot_hash")
+    if not _is_sha256(source_hash) or not _is_sha256(authority.get("domain_hash")):
+        raise DataVendorUnavailable("live outcome authority hash is invalid")
+    try:
+        source_payload = json.loads(payloads[expected_tool])
+    except (KeyError, json.JSONDecodeError) as exc:
+        raise DataVendorUnavailable(
+            "live outcome authority source payload is unavailable"
+        ) from exc
+    if (
+        not isinstance(source_payload, Mapping)
+        or source_payload.get("snapshot_hash") != source_hash
+    ):
+        raise DataVendorUnavailable(
+            "live outcome source changed after opportunity freeze"
+        )
+
+
 def _load_bound_snapshot(
     *,
     tool_id: AgentToolId,
@@ -2122,6 +2176,7 @@ _SYNTHETIC_FIXTURE_ARTIFACT_ROOTS: Final = (
     "geopolitical_events",
     "macro_snapshots",
     "market_breadth",
+    "outcome_runtime",
     "runtime_snapshots",
     "sector_snapshots",
 )
@@ -2615,6 +2670,11 @@ class AgentToolCapabilityStore:
             raise ValueError("materialized payload keys do not match allowed tools")
         if any(not isinstance(payload, str) or not payload for payload in payloads.values()):
             raise ValueError("every materialized tool payload must be a non-empty string")
+        _validate_live_outcome_authority(
+            agent_id=agent_id,
+            runtime_inputs=runtime_inputs,
+            payloads=payloads,
+        )
 
         authoritative_scope_hashes: set[str] = set()
         for tool_id, rendered in payloads.items():

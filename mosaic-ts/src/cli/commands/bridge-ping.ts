@@ -19,7 +19,7 @@ export function registerBridgePing(program: Command): void {
         const config = await api.configGet();
         console.log(
           pc.green(
-            `\nbridge ok: capability-bound tools enabled, llm_provider=${String(config.llm_provider)}, ` +
+            `\nbridge ok: tool_access=capability_bound, llm_provider=${String(config.llm_provider)}, ` +
               `deep=${String(config.deep_think_llm)}, output_language=${String(config.output_language)}, ` +
               `active_cohort=${String(config.active_cohort)}`,
           ),

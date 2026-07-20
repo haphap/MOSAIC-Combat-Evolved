@@ -1,8 +1,8 @@
 /**
  * autonomous_execution Layer-4.
  *
- * Reads L3 picks + L4 cro / alpha (peer L4 outputs); produces concrete
- * trade actions with size_pct + conviction.
+ * Reads the frozen CIO proposal, CRO controls, order intents, and execution
+ * evidence; it does not directly consume Macro outputs or re-attribute them.
  *
  * Darwinian weights are applied before Layer 4 by the accepted-output usage
  * adapter. This decision role never receives raw weights, ranks, or records.

@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { ComponentWeightRuntimeResolution } from "../../autoresearch/production_variant.js";
 import { ClaimSchemaV2 } from "../evidence_contract.js";
+import { canonicalJsonHash } from "../helpers/canonical_json.js";
 import { renderCohortBehavior } from "../prompts/cohort_behavior.js";
 import { assertPublicBundledCohort } from "../prompts/public_prompt_cohort.js";
 import type {
@@ -43,6 +43,12 @@ export const TOMBSTONED_MACRO_AGENT_IDS = [
   "emerging_markets",
   "news_sentiment",
 ] as const;
+
+export const MACRO_CONTEXT_SOURCE_ROLES = {
+  central_bank: "china",
+  us_financial_conditions: "us_economy",
+  euro_area_financial_conditions: "eu_economy",
+} as const satisfies Partial<Record<MacroAgentId, MacroAgentId>>;
 
 export const MACRO_PROMPT_COHORT_IDS = [
   "cohort_default",
@@ -273,6 +279,46 @@ const ActiveStrengthSchema = z.union([
   z.literal(5),
 ]);
 
+const EnglishNumericWordPattern =
+  /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion|trillion|decimal|percent|percentage|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth)\b/iu;
+const ChineseNumericExpressionPattern =
+  /(?:[零〇一二两三四五六七八九][零〇一二两三四五六七八九十百千万亿兆]+|十[零〇一二两三四五六七八九]|[零〇一二两三四五六七八九十百千万亿兆]+点[零〇一二两三四五六七八九十百千万亿兆]+|[零〇一二两三四五六七八九十百千万亿兆]+年期|(?:百分之|千分之|万分之)[零〇一二两三四五六七八九十百千万亿兆]+|第[零〇一二两三四五六七八九十百千万亿兆]+(?:期|阶段|轮|次)|[零〇一二两三四五六七八九十百千万亿兆]+(?:个百分点|个基点|基点|倍|成|季度|月份|交易日))/u;
+const NarrativePlaceholderSet = new Set([
+  "NEUTRAL",
+  "SUPPORTIVE",
+  "ADVERSE",
+  "UNKNOWN",
+  "N/A",
+  "NA",
+  "NONE",
+  "NULL",
+  "中性",
+  "未知",
+  "无",
+]);
+
+export function macroNarrativeIssue(
+  value: string,
+  maxLength: number,
+): "NUMERIC_EXPRESSION" | "PLACEHOLDER" | "TRUNCATED" | null {
+  if (EnglishNumericWordPattern.test(value) || ChineseNumericExpressionPattern.test(value)) {
+    return "NUMERIC_EXPRESSION";
+  }
+  const normalized = value
+    .trim()
+    .replace(/[\s.,;:!?，。；：！？、]+/gu, "")
+    .toUpperCase();
+  if (NarrativePlaceholderSet.has(normalized)) return "PLACEHOLDER";
+  if (
+    /[,;:，；：]$/u.test(value) ||
+    /\b(?:a|an|the|and|or|but|with|via|to|for|of|supporting)\s*$/iu.test(value) ||
+    (value.length >= maxLength - 1 && !/[.!?。！？]$/u.test(value))
+  ) {
+    return "TRUNCATED";
+  }
+  return null;
+}
+
 const MacroNarrativeTextSchema = (maxLength: number) =>
   z
     .string()
@@ -282,14 +328,34 @@ const MacroNarrativeTextSchema = (maxLength: number) =>
     .regex(
       /^[^0-9０-９%％]*$/u,
       "numeric literals belong only in the structured snapshot echo fields",
-    );
+    )
+    .superRefine((value, ctx) => {
+      const issue = macroNarrativeIssue(value, maxLength);
+      if (issue === "NUMERIC_EXPRESSION") {
+        ctx.addIssue({
+          code: "custom",
+          message:
+            "numeric facts must be omitted entirely; spelling a number in Chinese or English is forbidden",
+        });
+      } else if (issue === "PLACEHOLDER") {
+        ctx.addIssue({
+          code: "custom",
+          message: "narrative fields require an actual state or transmission description",
+        });
+      } else if (issue === "TRUNCATED") {
+        ctx.addIssue({
+          code: "custom",
+          message: "narrative text appears truncated or ends with a dangling fragment",
+        });
+      }
+    });
 
 const signalTailFields = {
   persistence_horizon: z.enum(["DAYS", "WEEKS", "MONTHS"]),
   evaluation_horizon_trading_days: z.literal(5),
   confidence: z.number().min(0).max(1),
-  channels: z.array(MacroNarrativeTextSchema(160)).min(1).max(8),
-  claim_refs: z.array(z.string().trim().min(1)).min(1),
+  channels: z.array(MacroNarrativeTextSchema(96)).min(1).max(8),
+  claim_refs: z.array(z.string().trim().min(1)).min(1).max(8),
 };
 
 const DirectMacroSignalSchema = z.union([
@@ -345,13 +411,13 @@ function exactMacroComponentSignalSchema(component: string) {
 }
 
 const MacroClaimSchema = ClaimSchemaV2.safeExtend({
-  statement: MacroNarrativeTextSchema(320),
+  statement: MacroNarrativeTextSchema(160),
   structured_conclusion: z
     .object({
       conclusion_type: z.enum(["MACRO_FACT", "MACRO_EVENT", "MACRO_INTERPRETATION", "MACRO_RISK"]),
-      subject: MacroNarrativeTextSchema(128),
-      state: MacroNarrativeTextSchema(256),
-      a_share_transmission: MacroNarrativeTextSchema(320),
+      subject: MacroNarrativeTextSchema(96),
+      state: MacroNarrativeTextSchema(128),
+      a_share_transmission: MacroNarrativeTextSchema(160),
       snapshot_echo_id: z.string().trim().min(1).max(256).nullable(),
       snapshot_metric: z.string().trim().min(1).max(96).nullable(),
       snapshot_value: z.number().finite().nullable(),
@@ -415,8 +481,8 @@ export function createMacroSubmissionSchema(agent: MacroAgentId): z.ZodType<Macr
         >)
       : z.tuple([]);
   const common = {
-    claims: z.array(MacroClaimSchema).min(1).max(8),
-    key_drivers: z.array(MacroNarrativeTextSchema(256)).min(1).max(8),
+    claims: z.array(MacroClaimSchema).min(Math.max(1, expectedComponents.length)).max(8),
+    key_drivers: z.array(MacroNarrativeTextSchema(160)).min(1).max(8),
   };
   const schema =
     contract.mode === "DIRECT"
@@ -429,21 +495,68 @@ export function createMacroSubmissionSchema(agent: MacroAgentId): z.ZodType<Macr
           })
           .strict();
   return schema.superRefine((submission, ctx) => {
-    const claimIds = new Set(submission.claims.map((claim) => claim.claim_id));
-    const refs =
-      submission.mode === "DIRECT"
-        ? submission.signal.claim_refs
-        : submission.components.flatMap((component) => component.claim_refs);
-    for (const ref of refs) {
-      if (!claimIds.has(ref)) {
+    const seenClaimIds = new Set<string>();
+    submission.claims.forEach((claim, index) => {
+      if (seenClaimIds.has(claim.claim_id)) {
         ctx.addIssue({
           code: "custom",
-          path: ["claim_refs"],
-          message: `unknown claim_ref: ${ref}`,
+          path: ["claims", index, "claim_id"],
+          message: `duplicate claim_id: ${claim.claim_id}`,
         });
       }
+      seenClaimIds.add(claim.claim_id);
+    });
+    const claimIds = new Set(submission.claims.map((claim) => claim.claim_id));
+    const refGroups =
+      submission.mode === "DIRECT"
+        ? [{ path: ["signal", "claim_refs"] as PropertyKey[], refs: submission.signal.claim_refs }]
+        : submission.components.map((component, index) => ({
+            path: ["components", index, "claim_refs"] as PropertyKey[],
+            refs: component.claim_refs,
+          }));
+    for (const group of refGroups) {
+      const seenRefs = new Set<string>();
+      group.refs.forEach((ref, index) => {
+        if (seenRefs.has(ref)) {
+          ctx.addIssue({
+            code: "custom",
+            path: [...group.path, index],
+            message: `duplicate claim_ref: ${ref}`,
+          });
+        }
+        seenRefs.add(ref);
+        if (!claimIds.has(ref)) {
+          ctx.addIssue({
+            code: "custom",
+            path: [...group.path, index],
+            message: `unknown claim_ref: ${ref}`,
+          });
+        }
+      });
     }
     if (submission.mode === "COMPONENTS") {
+      const claimById = new Map(submission.claims.map((claim) => [claim.claim_id, claim]));
+      const usedComponentRefs = new Set<string>();
+      submission.components.forEach((component, componentIndex) => {
+        component.claim_refs.forEach((ref, refIndex) => {
+          if (usedComponentRefs.has(ref)) {
+            ctx.addIssue({
+              code: "custom",
+              path: ["components", componentIndex, "claim_refs", refIndex],
+              message: `component claim_ref must be independently owned: ${ref}`,
+            });
+          }
+          usedComponentRefs.add(ref);
+          const claim = claimById.get(ref);
+          if (claim && claim.structured_conclusion.subject !== component.component) {
+            ctx.addIssue({
+              code: "custom",
+              path: ["components", componentIndex, "claim_refs", refIndex],
+              message: `claim_ref ${ref} subject must equal component ${component.component}`,
+            });
+          }
+        });
+      });
       const expected = expectedComponents;
       const actual = submission.components.map((component) => component.component).sort();
       if (actual.length !== new Set(actual).size || actual.join("\0") !== expected.join("\0")) {
@@ -616,13 +729,12 @@ export function buildMacroComponentCompositionAudit(
   if (activeComponentWeights && activeComponentWeights.agent_id !== agent) {
     throw new Error(`${agent}: component weight resolution owner mismatch`);
   }
-  const isFinancialContextRole =
-    agent === "us_financial_conditions" || agent === "euro_area_financial_conditions";
+  const requiresContextProjection = agent in MACRO_CONTEXT_SOURCE_ROLES;
   if (
     !/^sha256:[0-9a-f]{64}$/.test(sourceBinding.sourceSnapshotHash) ||
-    (isFinancialContextRole &&
+    (requiresContextProjection &&
       !/^sha256:[0-9a-f]{64}$/.test(sourceBinding.contextOnlyProjectionHash ?? "")) ||
-    (!isFinancialContextRole && sourceBinding.contextOnlyProjectionHash !== null)
+    (!requiresContextProjection && sourceBinding.contextOnlyProjectionHash !== null)
   ) {
     throw new Error(`${agent}: invalid source snapshot/context projection binding`);
   }
@@ -668,21 +780,7 @@ export function buildMacroComponentCompositionAudit(
 }
 
 function canonicalHash(value: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(JSON.stringify(canonicalize(value)))
-    .digest("hex")}`;
-}
-
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, nested]) => [key, canonicalize(nested)]),
-    );
-  }
-  return value;
+  return canonicalJsonHash(value);
 }
 
 export function renderMacroRuntimeContract(agent: MacroAgentId, language: "zh" | "en"): string {

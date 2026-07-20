@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 from typing import Any, Mapping
 
+from mosaic.scorecard.canonical_json import canonical_hash
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PROMPT_CHECKS = ROOT / "registry" / "prompt_checks"
@@ -85,24 +87,12 @@ def _sha256(path: Path) -> str:
 
 
 def _canonical_hash(value: Any) -> str:
-    payload = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+    return canonical_hash(value)
 
 
 def _ordered_json_hash(value: Any) -> str:
-    """Match the private TS artifact generator's JSON.stringify hash."""
-    payload = json.dumps(
-        value,
-        ensure_ascii=False,
-        allow_nan=False,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+    """Verify private JSON authorities with the shared cross-runtime JCS hash."""
+    return canonical_hash(value)
 
 
 def _mapping(value: Any, label: str) -> Mapping[str, Any]:

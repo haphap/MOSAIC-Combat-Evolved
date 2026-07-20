@@ -33,7 +33,7 @@ export function upsertRuntimeEvidenceContract(
     const conclusionRefs =
       macroSubmissionMode === "DIRECT"
         ? "提交 `mode=DIRECT`，只输出 `signal` 并省略 `components`；结论引用只放在 `signal.claim_refs`。"
-        : "提交 `mode=COMPONENTS`，只输出 `components` 并省略 `signal`；每个组件分别在 `components[].claim_refs` 中提交结论引用。";
+        : "提交 `mode=COMPONENTS`，只输出 `components` 并省略 `signal`；每个组件必须在 `components[].claim_refs` 中至少引用一个不与其他组件共享的 claim，且该 claim 的 `structured_conclusion.subject` 必须精确等于组件的 `component` id。";
     body = [
       "## 运行时证据输出合同",
       "运行时提供本次调用唯一有效的证据目录与不透明引用标识。",
@@ -50,7 +50,7 @@ export function upsertRuntimeEvidenceContract(
     const conclusionRefs =
       macroSubmissionMode === "DIRECT"
         ? "Submit `mode=DIRECT`, emit only `signal`, and omit `components`; place conclusion references only in `signal.claim_refs`."
-        : "Submit `mode=COMPONENTS`, emit only `components`, and omit `signal`; place conclusion references separately in each `components[].claim_refs`.";
+        : "Submit `mode=COMPONENTS`, emit only `components`, and omit `signal`; each component must cite at least one claim in `components[].claim_refs` that no other component cites, and that claim's `structured_conclusion.subject` must exactly equal the component's `component` id.";
     body = [
       "## Runtime Evidence Output Contract",
       "Runtime supplies the only valid evidence catalog and opaque permitted citation identifiers for this invocation.",
@@ -74,8 +74,9 @@ export function upsertRuntimeEvidenceContract(
       `必需运行时工具：${requiredTools || "（无）"}。`,
       "必须输出 `claims` 与顶层 `claim_refs`。每个声明必须通过 `evidence_ids` 引用证据目录中的 " +
         "`evidence_id`；每个 `INTERPRETATION` 声明还必须通过 `research_rule_refs` 引用允许的不透明标识。" +
-        "所有仓位决定和控制解析都必须用 `claim_refs` 引用支持它的声明。证据不足时，按当前阶段 schema " +
-        "输出有证据支持的显式空处置和 `RISK_FLAG` 声明；不得伪造证据 ID、指纹、引用标识或跨运行引用。",
+        "所有仓位决定和控制解析都必须用 `claim_refs` 引用支持它的声明。必需证据缺失或无效时拒绝本阶段，" +
+        "不得生成 CIO 输出；只有完整冻结证据支持合法的空仓、保持当前或其他保守处置时，才按当前阶段 " +
+        "schema 输出该处置。不得伪造证据 ID、指纹、引用标识或跨运行引用。",
     ];
   } else if (cioStageFields) {
     body = [
@@ -89,9 +90,10 @@ export function upsertRuntimeEvidenceContract(
       "Emit `claims` and top-level `claim_refs`. Every claim must cite catalog `evidence_id` values through " +
         "`evidence_ids`; every `INTERPRETATION` claim must also cite a permitted opaque identifier through " +
         "`research_rule_refs`. Every position decision and control resolution must cite supporting claims through " +
-        "`claim_refs`. When evidence is insufficient, use the current stage schema to emit an evidence-backed " +
-        "explicit empty disposition and a `RISK_FLAG` claim. Never invent evidence ids, fingerprints, citation " +
-        "identifiers, or cross-run references.",
+        "`claim_refs`. Reject the stage without a CIO output when required evidence is missing or invalid. Only " +
+        "complete frozen evidence may support an all-cash, hold-current, or other conservative disposition under " +
+        "the current stage schema. Never invent evidence ids, fingerprints, citation identifiers, or cross-run " +
+        "references.",
     ];
   } else if (spec.layer === "sector" && spec.agent !== "relationship_mapper" && language === "zh") {
     body = [
@@ -130,8 +132,8 @@ export function upsertRuntimeEvidenceContract(
       "必须输出 `claims` 与 `claim_refs`。每个声明必须通过 `evidence_ids` 引用证据目录中的 " +
         "`evidence_id`；每个 `INTERPRETATION` 声明还必须通过 `research_rule_refs` 引用允许的不透明标识。" +
         "所有建议、候选、标的选择、仓位决定、组合操作、风险调整或执行检查，都必须用 `claim_refs` " +
-        "引用支持它的声明。证据不足时，输出有证据支持的显式空处置和不确定性 `RISK_FLAG` 声明；" +
-        "不得伪造证据 ID、指纹、引用标识或跨运行引用。",
+        "引用支持它的声明。必需证据缺失或无效时拒绝本阶段，不得生成 Agent 输出；只有运行时以完整冻结证据" +
+        "证明合同允许的空候选或弃权分支时，才可输出该分支。不得伪造证据 ID、指纹、引用标识或跨运行引用。",
     ];
   } else {
     body = [
@@ -143,9 +145,10 @@ export function upsertRuntimeEvidenceContract(
         "`evidence_id` values through `evidence_ids`; every `INTERPRETATION` claim must also cite a " +
         "permitted opaque identifier through `research_rule_refs`. Every recommendation, candidate, pick, " +
         "position decision, portfolio action, risk adjustment, or execution check must use " +
-        "`claim_refs` to cite its supporting claim. When evidence is insufficient, emit an " +
-        "evidence-backed explicit empty disposition and a `RISK_FLAG` claim; never invent evidence ids, " +
-        "fingerprints, citation identifiers, or cross-run references.",
+        "`claim_refs` to cite its supporting claim. Reject the stage without an Agent output when required " +
+        "evidence is missing or invalid. Emit an empty-candidate or abstention branch only when complete frozen " +
+        "evidence proves that the runtime contract permits it. Never invent evidence ids, fingerprints, citation " +
+        "identifiers, or cross-run references.",
     ];
   }
   if (spec.fieldNames.includes("macro_input_attributions")) {

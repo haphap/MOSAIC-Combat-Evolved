@@ -8,6 +8,7 @@ provided by ``tests/test_bridge_protocol.py`` separately.
 from __future__ import annotations
 
 import importlib
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -101,6 +102,131 @@ def _sample_state(date: str = "2024-06-24") -> dict:
     }
 
 
+def _formal_scorecard_state(
+    store: ScorecardStore,
+    *,
+    trace_id: str,
+    as_of_date: str,
+) -> dict:
+    from mosaic.bridge.tool_capabilities import AGENTS_BY_LAYER, ALL_AGENT_IDS
+    from mosaic.scorecard.darwinian_v2 import canonical_hash
+    from mosaic.scorecard.store import render_agent_display_narrative_text
+    from tests.test_darwinian_v2_accepted_cycle import (
+        _accepted_macro_attributions,
+        _attach_accepted_records,
+        _attach_schedule,
+        _reseal_cio_final_record,
+        _state,
+    )
+
+    state = _state()
+    state["trace_id"] = trace_id
+    state["as_of_date"] = as_of_date
+    state["day_outcome_status"] = "accepted"
+    state["portfolio_actions"] = [
+        {
+            "ticker": "510300.SH",
+            "current_weight": 0.2,
+            "delta_weight": 0.2,
+        }
+    ]
+    for audit in state["agent_run_audits"]:
+        audit["run_id"] = trace_id
+    _attach_schedule(store, state)
+    _attach_accepted_records(state)
+
+    for record in state["accepted_output_records"]:
+        if record["accepted_output_kind"] != "CIO_FINAL":
+            continue
+        payload = record["output"]["payload"]
+        decision = payload["decision"]
+        claim_ref = decision["claims"][0]["claim_id"]
+        decision.update(
+            {
+                "decision_disposition": "TARGET_PORTFOLIO",
+                "target_positions": [
+                    {
+                        "position_local_id": "position:510300.SH",
+                        "ts_code": "510300.SH",
+                        "target_weight": 0.4,
+                        "position_decision": "ADD",
+                        "holding_period": "MONTHS",
+                        "thesis_status": "INTACT",
+                        "risk_flags": [],
+                        "claim_refs": [claim_ref],
+                    }
+                ],
+                "cash_weight": 0.6,
+                "decision_reason": f"accepted {trace_id}",
+            }
+        )
+        payload["accepted_macro_input_attributions"] = _accepted_macro_attributions(
+            decision
+        )
+        _reseal_cio_final_record(state, record)
+
+    layer_by_agent = {
+        agent: layer
+        for layer, agents in AGENTS_BY_LAYER.items()
+        for agent in agents
+    }
+    records_by_id = {
+        record["accepted_output_id"]: record
+        for record in state["accepted_output_records"]
+    }
+    narratives = []
+    for agent in ALL_AGENT_IDS:
+        ref = state["accepted_output_refs"].get(f"CIO_FINAL:{agent}")
+        if ref is None:
+            ref = next(
+                item
+                for item in state["accepted_output_refs"].values()
+                if item["agent_id"] == agent
+                and item["accepted_output_kind"] != "CIO_PROPOSAL"
+            )
+        record = records_by_id[ref["accepted_output_id"]]
+        body = {
+            "schema_version": "agent_display_narrative_v1",
+            "agent_id": agent,
+            "layer": layer_by_agent[agent],
+            "language": "zh",
+            "source": "ACCEPTED_OUTPUT",
+            "source_output_id": ref["accepted_output_id"],
+            "source_output_hash": ref["accepted_output_hash"],
+            "narrative_text": render_agent_display_narrative_text(
+                layer=layer_by_agent[agent],
+                agent_id=agent,
+                output=record["output"]["payload"],
+                language="zh",
+                accepted_output_kind=record["accepted_output_kind"],
+            ),
+            "ui_only": True,
+        }
+        narratives.append(
+            {
+                **body,
+                "narrative_id": (
+                    "agent-display:"
+                    + canonical_hash(body).removeprefix("sha256:")
+                ),
+            }
+        )
+    bundle_body = {
+        "schema_version": "agent_display_narrative_bundle_v1",
+        "trace_id": trace_id,
+        "cohort": "cohort_default",
+        "as_of_date": as_of_date,
+        "language": "zh",
+        "narrative_count": len(narratives),
+        "narratives": narratives,
+    }
+    state["agent_display_narratives"] = {
+        **bundle_body,
+        "bundle_hash": canonical_hash(bundle_body),
+    }
+    return state
+
+
 # ===========================================================================
 # scorecard.append
 # ===========================================================================
@@ -132,17 +258,17 @@ class TestScorecardAppend:
         monkeypatch.setattr(
             tmp_store,
             "append_from_state",
-            lambda payload: evaluation_states.append(payload) or 2,
+            lambda payload, **_kwargs: evaluation_states.append(payload) or 2,
         )
         monkeypatch.setattr(
             tmp_store,
             "append_macro_signals_from_state",
-            lambda payload: evaluation_states.append(payload) or 0,
+            lambda payload, **_kwargs: evaluation_states.append(payload) or 0,
         )
         monkeypatch.setattr(
             tmp_store,
             "append_agent_display_narratives_from_state",
-            lambda payload: narrative_states.append(payload) or 28,
+            lambda payload, **_kwargs: narrative_states.append(payload) or 28,
         )
 
         result = dispatch("scorecard.append", {"state": state})
@@ -201,6 +327,189 @@ class TestScorecardAppend:
             decision_disposition="TARGET_PORTFOLIO",
         )
         assert dispatch("scorecard.append", {"state": state})["ingested"] == 2
+
+    def test_formal_append_is_atomic_idempotent_and_latest_is_sealed(
+        self,
+        tmp_store,
+        monkeypatch,
+    ):
+        accepted = _formal_scorecard_state(
+            tmp_store,
+            trace_id="graph-run-atomic-accepted",
+            as_of_date="2026-07-17",
+        )
+        missing_narratives = dict(accepted)
+        missing_narratives.pop("agent_display_narratives")
+        with pytest.raises(RpcError, match="requires agent_display_narratives"):
+            dispatch("scorecard.append", {"state": missing_narratives})
+        with tmp_store._connect() as conn:
+            assert conn.execute("SELECT COUNT(*) FROM recommendations").fetchone()[0] == 0
+            assert conn.execute("SELECT COUNT(*) FROM macro_signals").fetchone()[0] == 0
+            assert conn.execute(
+                "SELECT COUNT(*) FROM accepted_agent_outputs_v2"
+            ).fetchone()[0] == 0
+        result = dispatch("scorecard.append", {"state": accepted})
+        assert result["ingested"] >= 1
+        assert result["macro_ingested"] == 10
+        assert result["agent_narratives_ingested"] == 28
+        retry = dispatch("scorecard.append", {"state": accepted})
+        assert retry["ingested"] == result["ingested"]
+        assert retry["macro_ingested"] == result["macro_ingested"]
+        assert retry["agent_narratives_ingested"] == result[
+            "agent_narratives_ingested"
+        ]
+
+        latest_cio = dispatch(
+            "scorecard.latest_cio_actions",
+            {"cohort": "cohort_default"},
+        )
+        assert latest_cio["date"] == "2026-07-17"
+        latest_action = latest_cio["actions"][0]
+        assert latest_action["ticker"] == "510300.SH"
+        assert latest_action["current_weight_pct"] == pytest.approx(20.0)
+        assert latest_action["delta_weight_pct"] == pytest.approx(20.0)
+        assert latest_action["position_decision"] == "ADD"
+        assert latest_action["position_decision_reason"] == (
+            "accepted graph-run-atomic-accepted"
+        )
+        assert latest_action["thesis_status"] == "INTACT"
+        assert latest_action["risk_flags_json"] == "[]"
+        latest_narratives = dispatch(
+            "scorecard.latest_agent_narratives",
+            {"cohort": "cohort_default"},
+        )
+        assert latest_narratives["trace_id"] == "graph-run-atomic-accepted"
+
+        with pytest.raises(RpcError, match="recommendations are sealed"):
+            dispatch(
+                "scorecard.append",
+                {"state": _sample_state(date="2026-07-17")},
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="recommendations are sealed"):
+            with tmp_store._connect() as conn:
+                conn.execute(
+                    "UPDATE recommendations SET graph_run_id = ? "
+                    "WHERE graph_run_id = ?",
+                    ("graph-run-same-day-conflict", accepted["trace_id"]),
+                )
+        with pytest.raises(sqlite3.IntegrityError, match="macro signals are sealed"):
+            with tmp_store._connect() as conn:
+                conn.execute(
+                    "UPDATE macro_signals SET graph_run_id = ? "
+                    "WHERE graph_run_id = ?",
+                    ("graph-run-same-day-conflict", accepted["trace_id"]),
+                )
+        with pytest.raises(sqlite3.IntegrityError, match="narratives are sealed"):
+            with tmp_store._connect() as conn:
+                conn.execute(
+                    "INSERT INTO agent_display_narratives ("
+                    "cohort, date, trace_id, bundle_hash, agent, layer, language, "
+                    "source, source_output_id, source_output_hash, narrative_id, "
+                    "narrative_text, ui_only, created_at"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
+                    (
+                        "cohort_default",
+                        "2026-07-17",
+                        "graph-run-same-day-conflict",
+                        f"sha256:{'1' * 64}",
+                        "china",
+                        "macro",
+                        "zh",
+                        "NO_EVALUATION_OBJECT",
+                        None,
+                        f"sha256:{'2' * 64}",
+                        "agent-display:conflict",
+                        "conflict",
+                        "2026-07-17T09:00:00+08:00",
+                    ),
+                )
+        with tmp_store._connect() as conn:
+            assert conn.execute(
+                "SELECT COUNT(*) FROM recommendations "
+                "WHERE graph_run_id = ?",
+                ("graph-run-same-day-conflict",),
+            ).fetchone()[0] == 0
+            assert conn.execute(
+                "SELECT COUNT(*) FROM recommendations "
+                "WHERE cohort = ? AND date = ? AND ticker = ?",
+                ("cohort_default", "2026-07-17", "600519.SH"),
+            ).fetchone()[0] == 0
+            assert conn.execute(
+                "SELECT COUNT(*) FROM macro_signals "
+                "WHERE graph_run_id = ?",
+                ("graph-run-same-day-conflict",),
+            ).fetchone()[0] == 0
+            assert conn.execute(
+                "SELECT COUNT(*) FROM agent_display_narratives "
+                "WHERE trace_id = ?",
+                ("graph-run-same-day-conflict",),
+            ).fetchone()[0] == 0
+
+        rejected = _formal_scorecard_state(
+            tmp_store,
+            trace_id="graph-run-atomic-rejected",
+            as_of_date="2026-07-20",
+        )
+        darwinian = importlib.import_module("mosaic.scorecard.darwinian_v2")
+        original_append = darwinian.append_accepted_cycle
+
+        def fail_after_darwin_writes(conn, *, state):
+            original_append(conn, state=state)
+            assert conn.execute(
+                "SELECT COUNT(*) FROM accepted_agent_outputs_v2 "
+                "WHERE graph_run_id = ?",
+                (state["trace_id"],),
+            ).fetchone()[0] == 29
+            raise ValueError("injected post-Darwin validation failure")
+
+        monkeypatch.setattr(
+            darwinian,
+            "append_accepted_cycle",
+            fail_after_darwin_writes,
+        )
+        with pytest.raises(RpcError, match="injected post-Darwin"):
+            dispatch("scorecard.append", {"state": rejected})
+
+        with tmp_store._connect() as conn:
+            assert conn.execute(
+                "SELECT COUNT(*) FROM recommendations WHERE graph_run_id = ?",
+                (rejected["trace_id"],),
+            ).fetchone()[0] == 0
+            assert conn.execute(
+                "SELECT COUNT(*) FROM macro_signals WHERE graph_run_id = ?",
+                (rejected["trace_id"],),
+            ).fetchone()[0] == 0
+            assert conn.execute(
+                "SELECT COUNT(*) FROM agent_display_narratives WHERE trace_id = ?",
+                (rejected["trace_id"],),
+            ).fetchone()[0] == 0
+            assert conn.execute(
+                "SELECT COUNT(*) FROM accepted_agent_outputs_v2 "
+                "WHERE graph_run_id = ?",
+                (rejected["trace_id"],),
+            ).fetchone()[0] == 0
+            assert conn.execute(
+                "SELECT COUNT(*) FROM operational_opportunity_audits_v2 "
+                "WHERE graph_run_id = ?",
+                (rejected["trace_id"],),
+            ).fetchone()[0] == 0
+            assert conn.execute(
+                "SELECT COUNT(*) FROM scorecard_accepted_runs "
+                "WHERE graph_run_id = ?",
+                (rejected["trace_id"],),
+            ).fetchone()[0] == 0
+            assert conn.execute(
+                "SELECT COUNT(*) FROM scorecard_accepted_runs"
+            ).fetchone()[0] == 1
+
+        assert dispatch(
+            "scorecard.latest_cio_actions",
+            {"cohort": "cohort_default"},
+        )["date"] == "2026-07-17"
+        assert dispatch(
+            "scorecard.latest_agent_narratives",
+            {"cohort": "cohort_default"},
+        )["trace_id"] == "graph-run-atomic-accepted"
 
 
 # ===========================================================================
@@ -659,11 +968,14 @@ class TestSignalsRpc:
                 ],
             )
 
-    def test_latest_cio_actions_rpc(self, tmp_store):
+    def test_latest_cio_actions_hides_unsealed_rows(self, tmp_store):
         self._seed(tmp_store)
         out = dispatch("scorecard.latest_cio_actions", {"cohort": "cohort_default"})
-        assert out["date"] == "2024-06-25"
-        assert out["actions"][0]["ticker"] == "510300.SH"
+        assert out == {
+            "cohort": "cohort_default",
+            "date": None,
+            "actions": [],
+        }
 
     def test_latest_agent_narratives_rpc_empty(self, tmp_store):
         out = dispatch(

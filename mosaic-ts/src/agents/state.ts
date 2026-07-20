@@ -59,6 +59,54 @@ export interface OutcomeRunSlot {
   scheduled_sample_id: string | null;
 }
 
+export interface OutcomeOpportunityBinding {
+  agent_id: string;
+  scheduled_sample_id: string;
+  evaluation_opportunity_set_id: string;
+  evaluation_opportunity_set_hash: string;
+  frozen_object_set_id: string | null;
+  frozen_object_set_hash: string | null;
+  runtime_authority_binding?: OutcomeRuntimeAuthorityBinding;
+  /** Runtime authority pins used to reject a changed candidate snapshot before extraction. */
+  runtime_candidate_scope_hash?: string;
+  runtime_candidate_universe_hash?: string;
+  runtime_source_snapshot_hash?: string;
+}
+
+export interface OutcomeLiveSourceAuthorityBinding {
+  source_tool_id:
+    | "get_china_macro_snapshot"
+    | "get_us_macro_snapshot"
+    | "get_eu_macro_snapshot"
+    | "get_central_bank_snapshot"
+    | "get_us_financial_conditions_snapshot"
+    | "get_euro_area_financial_conditions_snapshot"
+    | "get_commodity_conditions_snapshot"
+    | "get_geopolitical_events_snapshot"
+    | "get_market_breadth_snapshot"
+    | "get_market_positioning_snapshot"
+    | "get_sector_research_snapshot"
+    | "get_relationship_graph_snapshot";
+  source_snapshot_hash: string;
+  domain_hash: string;
+}
+
+export interface OutcomeDecisionRuntimeAuthorityBinding {
+  source_tool_id:
+    | "get_alpha_candidate_snapshot"
+    | "get_cro_risk_snapshot"
+    | "get_execution_snapshot"
+    | "get_cio_decision_snapshot";
+  source_snapshot_hash: string;
+  candidate_scope_hash: string;
+  candidate_universe_hash: string;
+  upstream_accepted_output_refs_hash: string;
+}
+
+export type OutcomeRuntimeAuthorityBinding =
+  | OutcomeLiveSourceAuthorityBinding
+  | OutcomeDecisionRuntimeAuthorityBinding;
+
 // ============================================================ Reducer functions
 
 /** Generic last-write-wins reducer for scalar / nullable fields. */
@@ -194,6 +242,10 @@ export const DailyCycleState = Annotation.Root({
   outcome_stage_skips: Annotation<
     Partial<Record<NoEvaluationObjectStageSkipAgentId, NoEvaluationObjectStageSkipRecord>>
   >({
+    reducer: dictMergeReducer,
+    default: () => ({}),
+  }),
+  outcome_opportunity_bindings: Annotation<Record<string, OutcomeOpportunityBinding>>({
     reducer: dictMergeReducer,
     default: () => ({}),
   }),

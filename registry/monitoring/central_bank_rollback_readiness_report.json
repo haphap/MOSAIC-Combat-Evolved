@@ -39,13 +39,13 @@
       "trigger": "source production blockers=0"
     },
     {
-      "action": "keep rule in paper_trading",
+      "action": "forbid production signal consumption",
       "blocker": "",
       "check_id": "promotion_gate_respects_rollback_blocks",
       "evidence_path": "registry/promotion/rke_production_promotion_gate.json",
       "passed": true,
       "rollback_type": "promotion",
-      "trigger": "manual or compliance rollback blockers remain active"
+      "trigger": "RKE execution mode remains shadow-only"
     }
   ],
   "failure_count": 0,

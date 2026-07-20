@@ -6,14 +6,14 @@ import type {
   MacroDirection,
 } from "../../src/agents/types.js";
 
-function claim(agent: MacroAgentId) {
+function claim(agent: MacroAgentId, component?: string) {
   return {
-    claim_id: `${agent}-claim`,
+    claim_id: component ? `${agent}-${component}-claim` : `${agent}-claim`,
     claim_kind: "RISK_FLAG" as const,
     statement: "fixture risk flag",
     structured_conclusion: {
       conclusion_type: "MACRO_RISK",
-      subject: agent,
+      subject: component ?? agent,
       state: "fixture neutral state",
       a_share_transmission: "fixture A-share transmission",
       snapshot_echo_id: null,
@@ -30,6 +30,7 @@ export function macroSubmission(
   overrides: Record<string, unknown> = {},
 ): MacroAgentSubmission {
   const contract = MACRO_ROLE_CONTRACTS[agent];
+  const components = Object.keys(contract.components).sort();
   const base =
     contract.mode === "DIRECT"
       ? {
@@ -48,20 +49,18 @@ export function macroSubmission(
         }
       : {
           mode: "COMPONENTS" as const,
-          claims: [claim(agent)],
+          claims: components.map((component) => claim(agent, component)),
           key_drivers: ["fixture evidence"],
-          components: Object.keys(contract.components)
-            .sort()
-            .map((component) => ({
-              component,
-              direction: "NEUTRAL" as const,
-              strength: 0 as const,
-              persistence_horizon: "WEEKS" as const,
-              evaluation_horizon_trading_days: 5 as const,
-              confidence: 0.7,
-              channels: ["A-share risk premium"],
-              claim_refs: [`${agent}-claim`],
-            })),
+          components: components.map((component) => ({
+            component,
+            direction: "NEUTRAL" as const,
+            strength: 0 as const,
+            persistence_horizon: "WEEKS" as const,
+            evaluation_horizon_trading_days: 5 as const,
+            confidence: 0.7,
+            channels: ["A-share risk premium"],
+            claim_refs: [`${agent}-${component}-claim`],
+          })),
         };
   return { ...base, ...overrides } as MacroAgentSubmission;
 }

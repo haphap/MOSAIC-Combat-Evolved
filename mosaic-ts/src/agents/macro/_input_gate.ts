@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type {
   DarwinianAgentBehaviorBinding,
   DarwinianUsageWeightSnapshot,
@@ -8,6 +7,7 @@ import {
   type AcceptedOutputRecordRef,
   acceptedOutputRefKey,
 } from "../accepted_output.js";
+import { canonicalJsonHash } from "../helpers/canonical_json.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type { AcceptedMacroTransmission, MacroInputGateReceipt } from "../types.js";
 import {
@@ -174,9 +174,7 @@ export function validateMacroInputs(
     darwinian_snapshot_id: weightSnapshot?.darwinian_snapshot_id ?? null,
     darwinian_snapshot_hash: weightSnapshot?.darwinian_snapshot_hash ?? null,
   };
-  const sourceLayerSnapshotHash = `sha256:${createHash("sha256")
-    .update(canonicalJson(sourceLayerBody))
-    .digest("hex")}`;
+  const sourceLayerSnapshotHash = canonicalJsonHash(sourceLayerBody);
   const sourceLayerSnapshotId = `macro-source-layer:${sourceLayerSnapshotHash.slice("sha256:".length)}`;
   return {
     schema_version: "macro_input_gate_receipt_v1",
@@ -189,20 +187,4 @@ export function validateMacroInputs(
     darwinian_snapshot_hash: weightSnapshot?.darwinian_snapshot_hash ?? null,
     reliability_by_agent: effective,
   };
-}
-
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(sortJson(value));
-}
-
-function sortJson(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortJson);
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, item]) => [key, sortJson(item)]),
-    );
-  }
-  return value;
 }

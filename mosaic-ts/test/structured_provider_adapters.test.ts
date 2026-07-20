@@ -4,7 +4,7 @@ import {
   adaptStrictProviderJsonSchema,
   normalizeStrictProviderPayload,
 } from "../src/agents/helpers/structured_provider_adapters.js";
-import { MACRO_AGENT_IDS } from "../src/agents/macro/_contracts.js";
+import { createMacroSubmissionSchema, MACRO_AGENT_IDS } from "../src/agents/macro/_contracts.js";
 import {
   buildRelationshipMapperSchema,
   buildStandardSectorSchema,
@@ -17,6 +17,7 @@ import {
   BurrySchema,
   buildRuntimeSuperinvestorSchema,
 } from "../src/agents/superinvestor/_schemas.js";
+import { macroSubmission } from "./helpers/macro.js";
 
 const sectorCoverageDirective = {
   contract_version: "sector_role_event_coverage_directive_v1" as const,
@@ -83,7 +84,7 @@ describe("strict structured provider adapters", () => {
       },
     });
     const parsed = selected.parse(normalized);
-    expect(parsed.final_selection.claims).toHaveLength(1);
+    expect(parsed.final_selection.claims).toHaveLength(4);
     expect(
       "direction_id" in parsed.final_selection.preferred_direction &&
         parsed.final_selection.preferred_direction.direction_id,
@@ -93,6 +94,129 @@ describe("strict structured provider adapters", () => {
         parsed.final_selection.least_preferred_direction.direction_id,
     ).toBe("oil_gas");
     expect(parsed.final_selection.macro_input_attributions).toHaveLength(MACRO_AGENT_IDS.length);
+    expect(parsed.final_selection.preferred_direction.claim_refs).not.toEqual(
+      parsed.final_selection.least_preferred_direction.claim_refs,
+    );
+  });
+
+  it("keeps SHORT reachable and closes every compact Sector judgment to its own claim", () => {
+    const preferredTickers = ["600001.SH", "600002.SH", "600003.SH", "600004.SH", "600005.SH"];
+    const leastTickers = ["600006.SH", "600007.SH", "600008.SH", "600009.SH", "600010.SH"];
+    const selected = z
+      .object({
+        final_selection: buildStandardSectorSchema("energy", "SELECTED", {
+          selection_status: "SELECTED",
+          preferred_direction_id: "coal",
+          least_preferred_direction_id: "oil_gas",
+          allowed_preferred_security_ids: preferredTickers,
+          allowed_least_preferred_security_ids: leastTickers,
+        }),
+      })
+      .strict();
+    const providerSchema = adaptStrictProviderJsonSchema(z.toJSONSchema(selected)) as {
+      properties: {
+        final_selection: {
+          properties: {
+            preferred_security: {
+              properties: { picks: { items: { properties: Record<string, unknown> } } };
+            };
+            least_preferred_security: {
+              properties: { picks: { items: { properties: Record<string, unknown> } } };
+            };
+          };
+        };
+      };
+    };
+    const finalProperties = providerSchema.properties.final_selection.properties;
+    expect(
+      finalProperties.preferred_security.properties.picks.items.properties.position_action,
+    ).toEqual({ type: "string", const: "LONG" });
+    expect(
+      finalProperties.least_preferred_security.properties.picks.items.properties.position_action,
+    ).toEqual({ type: "string", enum: ["SHORT", "AVOID"] });
+
+    const payload = {
+      final_selection: {
+        provider_contract: "SECTOR_SELECTED_COMPACT_V1",
+        agent: "energy",
+        preferred_direction_id: "coal",
+        preferred_direction_local_id: "coal",
+        preferred_strength: 3,
+        preferred_thesis: "Coal has the strongest relative evidence.",
+        least_preferred_direction_id: "oil_gas",
+        least_preferred_direction_local_id: "oil_gas",
+        least_preferred_strength: 2,
+        least_preferred_thesis: "Oil and gas has the weakest relative evidence.",
+        persistence_horizon: "WEEKS",
+        confidence: 0.7,
+        driver_summary: "Relative fundamentals and technicals favor coal.",
+        risk_summary: "The relative ranking can reverse as inputs change.",
+        evidence_id: "evidence-1",
+        research_rule_ref: "sector.energy.soft.001",
+        preferred_security: {
+          status: "PICKS_PRESENT",
+          picks: preferredTickers.map((ts_code) => ({
+            ts_code,
+            position_action: "LONG",
+            conviction: 0.2,
+            thesis: "The preferred security confirms the coal direction.",
+          })),
+        },
+        least_preferred_security: {
+          status: "PICKS_PRESENT",
+          picks: leastTickers.map((ts_code, index) => ({
+            ts_code,
+            position_action: index % 2 === 0 ? "SHORT" : "AVOID",
+            conviction: 0.2,
+            thesis: "The least-preferred security confirms the weak direction.",
+          })),
+        },
+        macro_input_attributions: compactMacroAttributions(),
+      },
+    };
+    const normalized = normalizeStrictProviderPayload(payload);
+    const parsed = selected.parse(normalized).final_selection;
+    expect(parsed.short_or_avoid_picks[0]?.position_action).toBe("SHORT");
+    expect(parsed.long_picks.map((pick) => pick.position_action)).toEqual(Array(5).fill("LONG"));
+    expect(parsed.short_or_avoid_picks.map((pick) => pick.position_action)).toEqual([
+      "SHORT",
+      "AVOID",
+      "SHORT",
+      "AVOID",
+      "SHORT",
+    ]);
+    expect(parsed.claims).toHaveLength(14);
+    const claims = new Map(parsed.claims.map((claim) => [claim.claim_id, claim]));
+    for (const target of [
+      parsed.preferred_direction,
+      parsed.least_preferred_direction,
+      ...parsed.key_drivers,
+      ...parsed.risks,
+      ...parsed.long_picks,
+      ...parsed.short_or_avoid_picks,
+    ]) {
+      expect(target.claim_refs).toHaveLength(1);
+      const claim = claims.get(target.claim_refs[0] as string);
+      expect(claim).toBeDefined();
+      const targetLocalRef =
+        "pick_local_id" in target
+          ? target.pick_local_id
+          : "direction_local_id" in target
+            ? target.direction_local_id
+            : "driver_local_id" in target
+              ? target.driver_local_id
+              : target.risk_local_id;
+      expect(claim?.structured_conclusion.target_local_ref).toBe(targetLocalRef);
+    }
+    expect(new Set(parsed.claim_refs)).toEqual(
+      new Set(parsed.claims.map((claim) => claim.claim_id)),
+    );
+
+    const illegal = structuredClone(payload);
+    const illegalLeastPick = illegal.final_selection.least_preferred_security.picks[0];
+    if (!illegalLeastPick) throw new Error("least-preferred pick fixture required");
+    illegalLeastPick.position_action = "LONG";
+    expect(selected.safeParse(normalizeStrictProviderPayload(illegal)).success).toBe(false);
   });
 
   it("compacts pairwise Sector research and restores the exact domain matrix", () => {
@@ -143,7 +267,7 @@ describe("strict structured provider adapters", () => {
 
   it("compacts Relationship Mapper output and binds predictive edges to frozen candidates", () => {
     const domainSchema = buildRelationshipMapperSchema({
-      maxFactualEdges: 1,
+      maxFactualEdges: 2,
       maxPredictiveEdges: 1,
       factualRelationships: [
         {
@@ -162,13 +286,20 @@ describe("strict structured provider adapters", () => {
       ],
     });
     const providerSchema = adaptStrictProviderJsonSchema(z.toJSONSchema(domainSchema)) as {
-      properties: { provider_contract: { const: string } };
+      properties: {
+        provider_contract: { const: string };
+        factual_edges: { maxItems: number; uniqueItems: boolean };
+      };
     };
     expect(providerSchema.properties.provider_contract.const).toBe(
       "RELATIONSHIP_MAPPER_COMPACT_V1",
     );
+    expect(providerSchema.properties.factual_edges).toMatchObject({
+      maxItems: 1,
+      uniqueItems: true,
+    });
 
-    const normalized = normalizeStrictProviderPayload({
+    const compactPayload = {
       provider_contract: "RELATIONSHIP_MAPPER_COMPACT_V1",
       agent: "relationship_mapper",
       factual_edges: [
@@ -197,10 +328,25 @@ describe("strict structured provider adapters", () => {
       evidence_id: "evidence-1",
       research_rule_ref: "sector.relationship_mapper.soft.001",
       macro_input_attributions: compactMacroAttributions(),
-    });
+    };
+    const normalized = normalizeStrictProviderPayload(compactPayload);
     const parsed = domainSchema.parse(normalized);
     expect(parsed.claims).toHaveLength(1);
     expect(parsed.predictive_edges[0]?.edge_candidate_id).toBe("frozen-edge-1");
+
+    const duplicateFactualProviderPayload = structuredClone(compactPayload);
+    duplicateFactualProviderPayload.factual_edges.push({
+      source_entity: "energy",
+      target_entity: "industrials",
+      edge_type: "INPUT_COST",
+    });
+    const duplicateNormalized = normalizeStrictProviderPayload(duplicateFactualProviderPayload);
+    const duplicateResult = domainSchema.safeParse(duplicateNormalized);
+    expect(duplicateResult.success).toBe(false);
+    if (duplicateResult.success) throw new Error("duplicate factual provider payload was accepted");
+    expect(duplicateResult.error.issues.map((issue) => issue.message)).toContain(
+      "duplicate factual relationship tuple first used at factual_edges[0]",
+    );
 
     const wrongCandidate = structuredClone(normalized) as {
       predictive_edges: Array<{ edge_candidate_id: string }>;
@@ -274,6 +420,191 @@ describe("strict structured provider adapters", () => {
       state: "40% MIXED",
       a_share_transmission: "40% breadth with -0.08125 change",
     });
+  });
+
+  it("compacts COMPONENTS Macro extraction and materializes independent canonical claims", () => {
+    const domainSchema = createMacroSubmissionSchema("us_economy");
+    const providerSchema = adaptStrictProviderJsonSchema(z.toJSONSchema(domainSchema)) as {
+      properties: {
+        provider_contract: { const: string };
+        components: {
+          prefixItems: Array<{
+            properties: {
+              component: { const: string };
+              statement: { maxLength: number; pattern: string; description: string };
+            };
+          }>;
+        };
+      };
+    };
+    expect(providerSchema.properties.provider_contract.const).toBe("MACRO_COMPONENTS_COMPACT_V1");
+    expect(providerSchema.properties).not.toHaveProperty("claims");
+    const components = providerSchema.properties.components.prefixItems.map(
+      (item) => item.properties.component.const,
+    );
+    expect(components).toEqual(["demand_trade", "employment", "growth_production", "prices"]);
+    expect(providerSchema.properties.components.prefixItems[0]?.properties.statement).toMatchObject(
+      {
+        maxLength: 160,
+        pattern: "^[^0-9０-９%％\\r\\n]{1,160}$",
+        description: expect.stringContaining("do not spell numbers in Chinese or English"),
+      },
+    );
+    const kinds = ["FACT", "EVENT", "INTERPRETATION", "RISK_FLAG"] as const;
+    const normalized = normalizeStrictProviderPayload({
+      provider_contract: "MACRO_COMPONENTS_COMPACT_V1",
+      mode: "COMPONENTS",
+      components: components.map((component, index) => ({
+        component,
+        signal: { direction: "NEUTRAL", strength: 0 },
+        persistence_horizon: "WEEKS",
+        confidence: 0.6,
+        channel: "A-share earnings transmission",
+        claim_kind: kinds[index],
+        statement: "The component evidence supports a cautious assessment",
+        state: "The component state is mixed",
+        a_share_transmission: "The component has a balanced A-share transmission",
+        evidence_id: `evidence:${String(index + 1).repeat(64)}`,
+        research_rule_ref: index === 2 ? "macro.us_economy.soft.001" : null,
+        snapshot_echo: null,
+      })),
+    });
+    const parsed = domainSchema.parse(normalized);
+    if (parsed.mode !== "COMPONENTS") throw new Error("component output required");
+    expect(parsed.claims).toHaveLength(components.length);
+    expect(parsed.key_drivers).toHaveLength(components.length);
+    expect(new Set(parsed.components.flatMap((component) => component.claim_refs)).size).toBe(
+      components.length,
+    );
+    const claims = new Map(parsed.claims.map((claim) => [claim.claim_id, claim]));
+    for (const component of parsed.components) {
+      expect(component.claim_refs).toHaveLength(1);
+      expect(claims.get(component.claim_refs[0] as string)?.structured_conclusion.subject).toBe(
+        component.component,
+      );
+    }
+    expect(parsed.claims.map((claim) => claim.structured_conclusion.conclusion_type)).toEqual([
+      "MACRO_FACT",
+      "MACRO_EVENT",
+      "MACRO_INTERPRETATION",
+      "MACRO_RISK",
+    ]);
+    expect(parsed.claims.map((claim) => claim.research_rule_refs)).toEqual([
+      [],
+      [],
+      ["macro.us_economy.soft.001"],
+      [],
+    ]);
+    expect(
+      parsed.claims.every((claim) => claim.structured_conclusion.snapshot_echo_id === null),
+    ).toBe(true);
+  });
+
+  it("compacts DIRECT Macro extraction without losing its authored judgment", () => {
+    const domainSchema = createMacroSubmissionSchema("geopolitical");
+    const providerSchema = adaptStrictProviderJsonSchema(z.toJSONSchema(domainSchema)) as {
+      properties: { provider_contract: { const: string }; judgment: unknown };
+    };
+    expect(providerSchema.properties.provider_contract.const).toBe("MACRO_DIRECT_COMPACT_V1");
+    expect(providerSchema.properties).not.toHaveProperty("claims");
+    const normalized = normalizeStrictProviderPayload({
+      provider_contract: "MACRO_DIRECT_COMPACT_V1",
+      mode: "DIRECT",
+      judgment: {
+        signal: { direction: "ADVERSE", strength: 3 },
+        persistence_horizon: "WEEKS",
+        confidence: 0.7,
+        channel: "A-share risk premium",
+        claim_kind: "EVENT",
+        statement: "The registered event remains active",
+        subject: "registered geopolitical event",
+        state: "The event is escalating",
+        a_share_transmission: "Risk appetite faces an adverse external shock",
+        evidence_id: `evidence:${"a".repeat(64)}`,
+        research_rule_ref: null,
+        snapshot_echo: null,
+      },
+    });
+    const parsed = domainSchema.parse(normalized);
+    if (parsed.mode !== "DIRECT") throw new Error("direct output required");
+    expect(parsed.signal).toMatchObject({
+      direction: "ADVERSE",
+      strength: 3,
+      persistence_horizon: "WEEKS",
+      confidence: 0.7,
+      channels: ["A-share risk premium"],
+    });
+    expect(parsed.claims[0]).toMatchObject({
+      claim_kind: "EVENT",
+      statement: "The registered event remains active",
+      structured_conclusion: {
+        conclusion_type: "MACRO_EVENT",
+        subject: "registered geopolitical event",
+        state: "The event is escalating",
+        a_share_transmission: "Risk appetite faces an adverse external shock",
+      },
+      evidence_ids: [`evidence:${"a".repeat(64)}`],
+      research_rule_refs: [],
+    });
+    expect(parsed.signal.claim_refs).toEqual([parsed.claims[0]?.claim_id]);
+    expect(parsed.key_drivers).toEqual([parsed.claims[0]?.statement]);
+  });
+
+  it("rejects numeric-word and placeholder prose materialized from compact Macro payloads", () => {
+    const domainSchema = createMacroSubmissionSchema("geopolitical");
+    const judgment = {
+      signal: { direction: "ADVERSE", strength: 2 },
+      persistence_horizon: "WEEKS",
+      confidence: 0.6,
+      channel: "A-share risk appetite",
+      claim_kind: "EVENT",
+      statement: "The registered event remains active",
+      subject: "registered geopolitical event",
+      state: "The event remains unresolved",
+      a_share_transmission: "Risk appetite faces an adverse external shock",
+      evidence_id: `evidence:${"b".repeat(64)}`,
+      research_rule_ref: null,
+      snapshot_echo: null,
+    };
+    for (const invalidJudgment of [
+      { ...judgment, statement: "事件影响扩大至一百零二点一" },
+      { ...judgment, state: "UNKNOWN" },
+      { ...judgment, a_share_transmission: "Risk appetite weakens and" },
+    ]) {
+      const normalized = normalizeStrictProviderPayload({
+        provider_contract: "MACRO_DIRECT_COMPACT_V1",
+        mode: "DIRECT",
+        judgment: invalidJudgment,
+      });
+      expect(domainSchema.safeParse(normalized).success).toBe(false);
+    }
+  });
+
+  it("round-trips four independently cited Macro components through the provider normalizer", () => {
+    const base = macroSubmission("us_economy");
+    if (base.mode !== "COMPONENTS") throw new Error("component fixture required");
+    const templateClaim = base.claims[0];
+    if (!templateClaim) throw new Error("claim fixture required");
+    const claims = base.components.map((component) => ({
+      ...templateClaim,
+      claim_id: `us-economy-${component.component}-claim`,
+      structured_conclusion: {
+        ...templateClaim.structured_conclusion,
+        subject: component.component,
+      },
+      evidence_ids: [`fixture:us_economy:${component.component}`],
+    }));
+    const providerPayload = {
+      ...base,
+      claims,
+      components: base.components.map((component) => ({
+        ...component,
+        claim_refs: [`us-economy-${component.component}-claim`],
+      })),
+    };
+    const normalized = normalizeStrictProviderPayload(structuredClone(providerPayload));
+    expect(normalized).toEqual(providerPayload);
+    expect(createMacroSubmissionSchema("us_economy").parse(normalized)).toEqual(providerPayload);
   });
 });
 

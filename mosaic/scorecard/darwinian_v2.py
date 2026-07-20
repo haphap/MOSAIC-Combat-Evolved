@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import sqlite3
 from datetime import datetime
 from typing import Any, Mapping
 
+from mosaic.scorecard.canonical_json import canonical_hash, canonical_json
+from mosaic.scorecard.accepted_output_contracts import (
+    validate_accepted_output_record_schema,
+)
 from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
 
 
@@ -22,14 +25,22 @@ _NULLABLE_TRACK_DIMENSIONS = {
     "reliability_adapter_contract_version": "reliability_adapter_contract",
     "confidence_semantics_contract_version": "confidence_semantics_contract",
 }
-
-
-def canonical_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-
-
-def canonical_hash(value: Any) -> str:
-    return f"sha256:{hashlib.sha256(canonical_json(value).encode('utf-8')).hexdigest()}"
+_MACRO_AGENT_IDS = tuple(
+    agent_id
+    for agent_id, contract in OUTCOME_CONTRACTS.items()
+    if contract["layer"] == "MACRO"
+)
+_MACRO_ATTRIBUTION_REQUIRED_ACCEPTED_KINDS = frozenset(
+    {
+        "STANDARD_SECTOR_SELECTION",
+        "RELATIONSHIP_GRAPH",
+        "SUPERINVESTOR_SELECTION",
+        "ALPHA_DISCOVERY",
+        "CRO_RISK_REVIEW",
+        "CIO_PROPOSAL",
+        "CIO_FINAL",
+    }
+)
 
 
 def deterministic_id(namespace: str, value: Any) -> str:
@@ -513,17 +524,22 @@ def get_production_weight_snapshot(
               ON w.usage_track_key_hash = u.usage_track_key_hash
             WHERE u.usage_track_key_hash = ? AND w.effective_at <= ?
               AND (
-                w.update_event_id IS NULL OR (
-                  SELECT b.status
+                w.update_event_id IS NULL OR EXISTS (
+                  SELECT 1
                   FROM darwinian_v2_usage_weight_batch_revisions b
+                  JOIN darwinian_v2_usage_weight_batch_publications p
+                    ON p.update_event_id = b.update_event_id
+                   AND p.published_batch_revision_id = b.batch_revision_id
+                   AND p.published_batch_revision_hash = b.batch_revision_hash
                   WHERE b.update_event_id = w.update_event_id
-                  ORDER BY b.rowid DESC LIMIT 1
-                ) = 'PUBLISHED'
+                    AND b.status = 'PUBLISHED'
+                    AND julianday(p.published_at) <= julianday(?)
+                )
               )
             ORDER BY w.effective_at DESC, w.rowid DESC
             LIMIT 1
             """,
-            (usage_hash, as_of),
+            (usage_hash, as_of, as_of),
         ).fetchone()
         if row is None:
             raise ValueError(f"missing published Darwinian weight for {usage_hash}")
@@ -575,6 +591,148 @@ def get_production_weight_snapshot(
     snapshot_id = deterministic_id("darwinian-snapshot", snapshot_without_hash)
     with_id = {"darwinian_snapshot_id": snapshot_id, **snapshot_without_hash}
     return {**with_id, "darwinian_snapshot_hash": canonical_hash(with_id)}
+
+
+def _authoritative_macro_input_gate(
+    accepted_records: list[Mapping[str, Any]],
+    *,
+    weight_snapshot: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, set[str]]]:
+    """Rebuild the production Macro gate from server-validated inputs."""
+    macro_records: dict[str, Mapping[str, Any]] = {}
+    claim_ids_by_agent: dict[str, set[str]] = {}
+    for record in accepted_records:
+        if record.get("accepted_output_kind") != "MACRO_TRANSMISSION":
+            continue
+        agent_id = str(record.get("agent_id") or "")
+        if agent_id not in _MACRO_AGENT_IDS or agent_id in macro_records:
+            raise ValueError("accepted cycle has invalid duplicate Macro output ownership")
+        payload = record["output"]["payload"]
+        claims = payload["claims"]
+        macro_records[agent_id] = record
+        claim_ids_by_agent[agent_id] = {str(claim["claim_id"]) for claim in claims}
+    if tuple(agent_id for agent_id in _MACRO_AGENT_IDS if agent_id in macro_records) != (
+        _MACRO_AGENT_IDS
+    ) or len(macro_records) != len(_MACRO_AGENT_IDS):
+        raise ValueError("accepted cycle requires the exact accepted Macro roster")
+
+    weights = weight_snapshot.get("weights")
+    if not isinstance(weights, list):
+        raise ValueError("authoritative Darwinian snapshot lacks weights")
+    weight_by_agent = {
+        str(row.get("agent_id") or ""): row
+        for row in weights
+        if isinstance(row, Mapping)
+    }
+    if len(weights) != 24 or len(weight_by_agent) != 24:
+        raise ValueError("authoritative Darwinian snapshot must contain 24 Agents")
+
+    reliability_by_agent: dict[str, dict[str, Any]] = {}
+    for agent_id in _MACRO_AGENT_IDS:
+        row = weight_by_agent.get(agent_id)
+        if row is None:
+            raise ValueError(f"authoritative Darwinian weight is missing for {agent_id}")
+        payload = macro_records[agent_id]["output"]["payload"]
+        confidence = float(payload["confidence"])
+        darwin_weight = float(row["darwin_weight"])
+        operational_reliability = float(row["operational_reliability_if_accepted"])
+        effective_reliability = confidence * darwin_weight * operational_reliability
+        if not math.isfinite(effective_reliability) or effective_reliability < 0:
+            raise ValueError(f"invalid effective Macro reliability for {agent_id}")
+        reliability_by_agent[agent_id] = {
+            "effective_reliability": effective_reliability,
+            "usage_share": 0.0,
+            "weight_record_id": row["weight_record_id"],
+            "reliability_record_id": row["reliability_record_id"],
+        }
+    denominator = sum(
+        row["effective_reliability"] for row in reliability_by_agent.values()
+    )
+    if not math.isfinite(denominator) or denominator <= 0:
+        raise ValueError("authoritative Macro gate has zero effective reliability")
+    for agent_id in _MACRO_AGENT_IDS:
+        reliability_by_agent[agent_id]["usage_share"] = (
+            reliability_by_agent[agent_id]["effective_reliability"] / denominator
+        )
+
+    accepted_refs = [
+        {
+            "accepted_output_kind": "MACRO_TRANSMISSION",
+            "agent_id": agent_id,
+            "accepted_output_id": macro_records[agent_id]["accepted_output_id"],
+            "accepted_output_hash": macro_records[agent_id]["accepted_output_hash"],
+        }
+        for agent_id in _MACRO_AGENT_IDS
+    ]
+    source_layer_body = {
+        "accepted_outputs": accepted_refs,
+        "usage_shares": {
+            agent_id: reliability_by_agent[agent_id]["usage_share"]
+            for agent_id in _MACRO_AGENT_IDS
+        },
+        "darwinian_snapshot_id": weight_snapshot["darwinian_snapshot_id"],
+        "darwinian_snapshot_hash": weight_snapshot["darwinian_snapshot_hash"],
+    }
+    source_layer_hash = canonical_hash(source_layer_body)
+    return (
+        {
+            "schema_version": "macro_input_gate_receipt_v1",
+            "accepted_agent_ids": list(_MACRO_AGENT_IDS),
+            "accepted_count": len(_MACRO_AGENT_IDS),
+            "input_hash": source_layer_hash,
+            "source_layer_snapshot_id": (
+                f"macro-source-layer:{source_layer_hash.removeprefix('sha256:')}"
+            ),
+            "source_layer_snapshot_hash": source_layer_hash,
+            "darwinian_snapshot_id": weight_snapshot["darwinian_snapshot_id"],
+            "darwinian_snapshot_hash": weight_snapshot["darwinian_snapshot_hash"],
+            "reliability_by_agent": reliability_by_agent,
+        },
+        claim_ids_by_agent,
+    )
+
+
+def _validate_macro_attribution_authority(
+    accepted_records: list[Mapping[str, Any]],
+    *,
+    macro_gate: Mapping[str, Any],
+    claim_ids_by_agent: Mapping[str, set[str]],
+) -> None:
+    reliability = macro_gate["reliability_by_agent"]
+    for record in accepted_records:
+        payload = record["output"]["payload"]
+        accepted_kind = record["accepted_output_kind"]
+        requires_attributions = (
+            accepted_kind in _MACRO_ATTRIBUTION_REQUIRED_ACCEPTED_KINDS
+        )
+        has_attributions = "accepted_macro_input_attributions" in payload
+        if has_attributions != requires_attributions:
+            requirement = "requires" if requires_attributions else "forbids"
+            raise ValueError(
+                f"{accepted_kind} {requirement} accepted Macro input attributions"
+            )
+        if not requires_attributions:
+            continue
+        rows = payload["accepted_macro_input_attributions"]
+        for row in rows:
+            agent_id = row["agent_id"]
+            expected_share = reliability[agent_id]["usage_share"]
+            if not math.isclose(
+                float(row["usage_share"]),
+                float(expected_share),
+                rel_tol=0.0,
+                abs_tol=1e-12,
+            ):
+                raise ValueError(
+                    f"{agent_id} attribution usage_share does not match "
+                    "the authoritative Macro gate"
+                )
+            unknown_claims = set(row["claim_refs_used"]) - claim_ids_by_agent[agent_id]
+            if unknown_claims:
+                raise ValueError(
+                    f"{agent_id} attribution uses unowned accepted Macro claims: "
+                    f"{sorted(unknown_claims)}"
+                )
 
 
 def prepare_production_variant(
@@ -847,6 +1005,22 @@ def append_accepted_cycle(
             raise ValueError(f"outcome schedule plan {field} mismatch")
     if str(schedule_plan.get("as_of", ""))[:10] != as_of[:10]:
         raise ValueError("outcome schedule plan as_of mismatch")
+    authoritative_weight_snapshot = get_production_weight_snapshot(
+        conn,
+        production_variant_roster_revision_id=registration[
+            "production_variant_roster_revision_id"
+        ],
+        as_of=schedule_plan["as_of"],
+    )
+    supplied_weight_snapshot = state.get("darwinian_weight_snapshot")
+    if not isinstance(supplied_weight_snapshot, Mapping):
+        raise ValueError("accepted v2 cycle requires darwinian_weight_snapshot")
+    if canonical_json(supplied_weight_snapshot) != canonical_json(
+        authoritative_weight_snapshot
+    ):
+        raise ValueError(
+            "state Darwinian weight snapshot does not match server authority"
+        )
     slot_rows = conn.execute(
         "SELECT agent_id, record_json FROM outcome_schedule_slots_v2 "
         "WHERE outcome_schedule_plan_id = ?",
@@ -911,6 +1085,7 @@ def append_accepted_cycle(
             raise ValueError(f"outcome schedule track mismatch for {agent_id}")
         run_slot_kind = schedule_slot.get("run_slot_kind")
         scheduled_sample_id = schedule_slot.get("scheduled_sample_id")
+        opportunity: dict[str, Any] | None = None
         if run_slot_kind == "OUTCOME_SCHEDULED":
             failure = conn.execute(
                 "SELECT 1 FROM evaluation_opportunity_set_generation_failures_v2 "
@@ -947,6 +1122,10 @@ def append_accepted_cycle(
                 raise ValueError(
                     f"scheduled empty opportunity requires a pre-run stage skip: {agent_id}"
                 )
+            if opportunity.get("generator_input_snapshot_hash") is None:
+                raise ValueError(
+                    f"scheduled Agent opportunity lacks generator input binding: {agent_id}"
+                )
         elif run_slot_kind == "DOWNSTREAM_ONLY":
             if scheduled_sample_id is not None:
                 raise ValueError(f"DOWNSTREAM_ONLY slot has a sample ID: {agent_id}")
@@ -959,7 +1138,8 @@ def append_accepted_cycle(
         matching_audits = [audit for audit in run_audits if audit.get("stage") == stage]
         if len(matching_audits) != 1:
             raise ValueError(f"missing unique accepted audit for {agent_id}:{stage}")
-        run_id = _required_text(matching_audits[0].get("run_id"), f"{agent_id}.run_id")
+        matching_audit = matching_audits[0]
+        run_id = _required_text(matching_audit.get("run_id"), f"{agent_id}.run_id")
         run_slot_id = schedule_slot["run_slot_id"]
         operational_id = operational_ids.setdefault(
             agent_id,
@@ -1002,17 +1182,138 @@ def append_accepted_cycle(
             **behavior,
             "as_of": schedule_plan["as_of"],
             "accepted_at": binding["effective_at"],
+            "evaluation_opportunity_set_id": (
+                opportunity.get("evaluation_opportunity_set_id")
+                if opportunity is not None
+                and accepted_kind == track_record["outcome_contract"]["accepted_output_kind"]
+                else None
+            ),
+            "evaluation_opportunity_set_hash": (
+                opportunity.get("evaluation_opportunity_set_hash")
+                if opportunity is not None
+                and accepted_kind == track_record["outcome_contract"]["accepted_output_kind"]
+                else None
+            ),
+            "frozen_object_set_id": (
+                opportunity.get("frozen_object_set_id")
+                if opportunity is not None
+                and accepted_kind == track_record["outcome_contract"]["accepted_output_kind"]
+                else None
+            ),
+            "frozen_object_set_hash": (
+                opportunity.get("frozen_object_set_hash")
+                if opportunity is not None
+                and accepted_kind == track_record["outcome_contract"]["accepted_output_kind"]
+                else None
+            ),
         }
         for field, expected in expected_fields.items():
             if supplied_record.get(field) != expected:
                 raise ValueError(
                     f"accepted output {field} mismatch for {agent_id}:{accepted_kind}"
                 )
+        requires_runtime_audit = (
+            accepted_kind == "MACRO_TRANSMISSION"
+            and isinstance(
+                OUTCOME_CONTRACTS[agent_id].get("component_composition_contract"),
+                Mapping,
+            )
+        )
+        allow_runtime_authority = (
+            opportunity is not None
+            and accepted_kind
+            == track_record["outcome_contract"]["accepted_output_kind"]
+            and isinstance(opportunity.get("runtime_authority_binding"), Mapping)
+        )
+        validate_accepted_output_record_schema(
+            supplied_record,
+            agent_id=agent_id,
+            accepted_kind=accepted_kind,
+            allow_runtime_authority=allow_runtime_authority,
+            require_runtime_audit=requires_runtime_audit,
+        )
+        source_output_hash = supplied_record["adapter_lineage"][
+            "source_agent_output_hash"
+        ]
+        if matching_audit.get("output_hash") != source_output_hash:
+            raise ValueError(
+                f"accepted output/audit adapter lineage mismatch for "
+                f"{agent_id}:{accepted_kind}"
+            )
+        payload = supplied_record["output"]["payload"]
+        for field in _VERSION_FIELDS:
+            if payload.get(field) != supplied_record.get(field):
+                raise ValueError(
+                    f"accepted payload {field} mismatch for {agent_id}:{accepted_kind}"
+                )
+        if (
+            accepted_kind == "MACRO_TRANSMISSION"
+            and payload.get("component_weight_contract_version")
+            != supplied_record.get("component_weight_contract_version")
+        ):
+            raise ValueError(
+                f"accepted payload component contract mismatch for {agent_id}"
+            )
         _validate_evidence_lineage_envelope(
             supplied_record.get("output"),
             agent_id=agent_id,
             accepted_kind=accepted_kind,
         )
+        if opportunity is not None and isinstance(
+            opportunity.get("runtime_authority_binding"), Mapping
+        ) and (
+            accepted_kind == track_record["outcome_contract"]["accepted_output_kind"]
+        ):
+            authority = opportunity.get("runtime_authority_binding")
+            if supplied_record.get("runtime_opportunity_authority") != authority:
+                raise ValueError(
+                    f"accepted output runtime authority mismatch for {agent_id}"
+                )
+        if opportunity is not None and agent_id in {
+            "alpha_discovery",
+            "cro",
+            "autonomous_execution",
+            "cio",
+        } and (
+            accepted_kind == track_record["outcome_contract"]["accepted_output_kind"]
+        ):
+            if not isinstance(
+                opportunity.get("runtime_authority_binding"), Mapping
+            ):
+                raise ValueError(
+                    f"Decision opportunity lacks runtime authority: {agent_id}"
+                )
+            frozen_id = opportunity.get("frozen_object_set_id")
+            frozen_hash = opportunity.get("frozen_object_set_hash")
+            if not isinstance(frozen_id, str) or not isinstance(frozen_hash, str):
+                raise ValueError(
+                    f"Decision opportunity lacks a frozen stage object: {agent_id}"
+                )
+            payload_fields = {
+                "alpha_discovery": (
+                    "frozen_novel_candidate_universe_id",
+                    "frozen_novel_candidate_universe_hash",
+                ),
+                "cro": (
+                    "frozen_candidate_universe_id",
+                    "frozen_candidate_universe_hash",
+                ),
+                "autonomous_execution": (
+                    "frozen_order_intent_set_id",
+                    "frozen_order_intent_set_hash",
+                ),
+                "cio": (
+                    "frozen_controlled_target_set_id",
+                    "frozen_controlled_target_set_hash",
+                ),
+            }[agent_id]
+            if (
+                payload.get(payload_fields[0]) != frozen_id
+                or payload.get(payload_fields[1]) != frozen_hash
+            ):
+                raise ValueError(
+                    f"Decision accepted output frozen object mismatch for {agent_id}"
+                )
         without_hash = {
             key: value
             for key, value in supplied_record.items()
@@ -1039,6 +1340,28 @@ def append_accepted_cycle(
                     f"direct Macro accepted output has unexpected runtime audit: {agent_id}"
                 )
         accepted_records.append(record)
+
+    authoritative_macro_gate, macro_claim_ids = _authoritative_macro_input_gate(
+        accepted_records,
+        weight_snapshot=authoritative_weight_snapshot,
+    )
+    supplied_macro_gate = state.get("macro_input_gate")
+    if not isinstance(supplied_macro_gate, Mapping):
+        raise ValueError("accepted v2 cycle requires macro_input_gate")
+    if canonical_json(supplied_macro_gate) != canonical_json(
+        authoritative_macro_gate
+    ):
+        raise ValueError("state Macro input gate does not match server authority")
+    _validate_macro_attribution_authority(
+        accepted_records,
+        macro_gate=authoritative_macro_gate,
+        claim_ids_by_agent=macro_claim_ids,
+    )
+
+    _validate_decision_control_source_closure(
+        accepted_records,
+        stage_skips=stage_skips,
+    )
 
     inserted_accepted = 0
     for record in accepted_records:
@@ -1441,6 +1764,160 @@ def _validate_evidence_lineage_envelope(
     }
     if forbidden.intersection(payload):
         raise ValueError(f"accepted output payload leaks runtime audit fields for {agent_id}")
+
+
+def _validate_decision_control_source_closure(
+    records: list[dict[str, Any]],
+    *,
+    stage_skips: Mapping[str, Mapping[str, Any]],
+) -> None:
+    """Close every Decision-internal source against this immutable cycle."""
+    payloads: dict[tuple[str, str], Mapping[str, Any]] = {}
+    records_by_key: dict[tuple[str, str], Mapping[str, Any]] = {}
+    for record in records:
+        key = (str(record["agent_id"]), str(record["accepted_output_kind"]))
+        if key in payloads:
+            raise ValueError(f"duplicate accepted Decision source: {key[0]}:{key[1]}")
+        payloads[key] = record["output"]["payload"]
+        records_by_key[key] = record
+
+    def identity(owner: str, kind: str) -> tuple[str, str] | None:
+        record = records_by_key.get((owner, kind))
+        if record is None:
+            return None
+        return str(record["accepted_output_id"]), str(record["accepted_output_hash"])
+
+    def assert_source(source: Any, *, owner: str, kind: str) -> None:
+        if not isinstance(source, Mapping):
+            raise ValueError(f"{owner} Decision control source must be an object")
+        accepted = identity(owner, kind)
+        skipped = stage_skips.get(owner)
+        if source.get("source_status") == "ACCEPTED_OUTPUT":
+            if accepted is None or skipped is not None:
+                raise ValueError(f"{owner} Decision accepted control source is unavailable")
+            expected = {
+                "source_status": "ACCEPTED_OUTPUT",
+                "agent_id": owner,
+                "accepted_output_id": accepted[0],
+                "accepted_output_hash": accepted[1],
+                "stage_skip_id": None,
+                "stage_skip_hash": None,
+            }
+        elif source.get("source_status") == "NO_EVALUATION_OBJECT":
+            if skipped is None or accepted is not None:
+                raise ValueError(f"{owner} Decision stage-skip control source is unavailable")
+            expected = {
+                "source_status": "NO_EVALUATION_OBJECT",
+                "agent_id": owner,
+                "accepted_output_id": None,
+                "accepted_output_hash": None,
+                "stage_skip_id": skipped["stage_skip_id"],
+                "stage_skip_hash": skipped["stage_skip_hash"],
+            }
+        else:
+            raise ValueError(f"{owner} Decision control source status is invalid")
+        if dict(source) != expected:
+            raise ValueError(f"{owner} Decision control source closure mismatch")
+
+    proposal = payloads.get(("cio", "CIO_PROPOSAL"))
+    if proposal is None:
+        raise ValueError("Decision control closure requires the accepted CIO proposal")
+    proposal_identity = (str(proposal["proposal_id"]), str(proposal["proposal_hash"]))
+    for owner, kind in (
+        ("cro", "CRO_RISK_REVIEW"),
+        ("autonomous_execution", "EXECUTION_ASSESSMENT"),
+        ("cio", "CIO_FINAL"),
+    ):
+        payload = payloads.get((owner, kind))
+        if payload is None:
+            if owner in stage_skips:
+                continue
+            raise ValueError(f"Decision control output is unavailable: {owner}:{kind}")
+        if (
+            payload.get("frozen_proposal_id") != proposal_identity[0]
+            or payload.get("frozen_proposal_hash") != proposal_identity[1]
+        ):
+            raise ValueError(f"{owner} frozen CIO proposal source mismatch")
+
+    assert_source(
+        proposal.get("alpha_source"),
+        owner="alpha_discovery",
+        kind="ALPHA_DISCOVERY",
+    )
+    execution = payloads.get(("autonomous_execution", "EXECUTION_ASSESSMENT"))
+    if execution is not None:
+        assert_source(
+            execution.get("cro_control_source"),
+            owner="cro",
+            kind="CRO_RISK_REVIEW",
+        )
+    final = payloads[("cio", "CIO_FINAL")]
+    assert_source(
+        final.get("cro_control_source"),
+        owner="cro",
+        kind="CRO_RISK_REVIEW",
+    )
+    assert_source(
+        final.get("execution_control_source"),
+        owner="autonomous_execution",
+        kind="EXECUTION_ASSESSMENT",
+    )
+
+    alpha = payloads.get(("alpha_discovery", "ALPHA_DISCOVERY"))
+    expected_alpha = sorted(
+        (
+            str(pick["pick_local_id"]),
+            str(pick["ts_code"]),
+        )
+        for pick in (
+            alpha.get("selection", {}).get("novel_picks", []) if alpha is not None else []
+        )
+    )
+    actual_alpha = sorted(
+        (
+            str(row["alpha_pick_local_ref"]),
+            str(row["ts_code"]),
+        )
+        for row in proposal.get("alpha_pick_resolutions", [])
+    )
+    if actual_alpha != expected_alpha:
+        raise ValueError("CIO proposal Alpha resolution source closure mismatch")
+
+    cro = payloads.get(("cro", "CRO_RISK_REVIEW"))
+    expected_cro = sorted(
+        (str(action["cro_action_ref"]), str(action["cro_action_hash"]))
+        for action in (
+            cro.get("review", {}).get("candidate_actions", []) if cro is not None else []
+        )
+        if action.get("action") != "NO_OBJECTION"
+    )
+    actual_cro = sorted(
+        (str(row["cro_action_ref"]), str(row["cro_action_hash"]))
+        for row in final.get("cro_control_resolutions", [])
+    )
+    if actual_cro != expected_cro:
+        raise ValueError("CIO final CRO resolution source closure mismatch")
+
+    expected_execution = sorted(
+        (
+            str(row["execution_assessment_ref"]),
+            str(row["execution_assessment_hash"]),
+        )
+        for row in (
+            execution.get("assessment", {}).get("order_assessments", [])
+            if execution is not None
+            else []
+        )
+    )
+    actual_execution = sorted(
+        (
+            str(row["execution_assessment_ref"]),
+            str(row["execution_assessment_hash"]),
+        )
+        for row in final.get("execution_control_resolutions", [])
+    )
+    if actual_execution != expected_execution:
+        raise ValueError("CIO final execution resolution source closure mismatch")
 
 
 def _accepted_stage_skips(

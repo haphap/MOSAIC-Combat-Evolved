@@ -6,6 +6,7 @@ import type {
   PositionAudit,
   PositionReview,
 } from "../types.js";
+import { assertCioHoldCurrentTargetSet } from "./decision_semantics.js";
 
 export interface PositionValidationResult {
   output: CioOutput;
@@ -38,6 +39,17 @@ export function validateCioPositionActions(opts: {
   const actions = output.portfolio_actions.map((action) =>
     normalizeAction(action, currentPositions, staleThesisDays, stopLossPct),
   );
+  assertCioHoldCurrentTargetSet({
+    decisionDisposition: output.decision_disposition,
+    targets: actions.map((action) => ({
+      ticker: action.ticker,
+      target_weight: action.target_weight,
+      position_decision: action.position_decision,
+    })),
+    currentSnapshotStatus: currentPositions.snapshot_status,
+    currentPositions: currentPositions.positions,
+    context: "CIO position validation",
+  });
   const reviews = positionReviewsFromActions(actions, currentPositions, output.confidence);
   if (currentPositions.snapshot_status === "loaded") {
     assertEveryCurrentPositionReviewed(currentPositions, actions, reviews);

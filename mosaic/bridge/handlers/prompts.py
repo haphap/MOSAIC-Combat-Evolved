@@ -36,6 +36,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Optional
 
+from mosaic.scorecard.canonical_json import canonical_hash
+
 from ..protocol import INTERNAL_ERROR, INVALID_PARAMS, RpcError
 from ..registry import method
 
@@ -401,14 +403,7 @@ def _safe_str(value: Any) -> str:
 
 
 def _canonical_json_hash(value: Any) -> str:
-    payload = json.dumps(
-        value,
-        ensure_ascii=False,
-        allow_nan=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+    return canonical_hash(value)
 
 
 def _git_run(cwd: Path, *args: str) -> str:

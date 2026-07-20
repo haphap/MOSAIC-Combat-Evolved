@@ -68,36 +68,33 @@
   },
   "manual_review_gates": {
     "gold_candidate_claims": {
-      "candidate_available_count": 314,
-      "candidate_claim_count": 314,
+      "candidate_available_count": 500,
+      "candidate_claim_count": 500,
       "manual_fields_preserved": true,
-      "missing_variable_mapping_count": 20,
-      "review_rows_with_candidate_fields": 125
+      "missing_variable_mapping_count": 0,
+      "review_rows_with_candidate_fields": 500
     },
     "gold_review_packet": {
-      "candidate_span_ref_count": 228,
+      "candidate_span_ref_count": 102,
       "document_count": 50,
       "pending_review_rows": 0,
       "risk_flag_counts": {
-        "canonical_variable_mapping_needed": 4,
-        "manual_review_required": 50,
-        "no_mechanism_sentence_detected": 1,
-        "span_preview_truncated": 44
+        "manual_review_required": 50
       },
       "status": "manual_review_passed"
     },
     "gold_set": {
       "passed": true,
       "pending_claims": 0,
-      "reviewed_claims": 125,
-      "total_claims": 125
+      "reviewed_claims": 500,
+      "total_claims": 500
     },
     "license_review_packet": {
-      "approved_for_derived_claim_storage": 17529,
-      "approved_for_production_runtime": 17529,
+      "approved_for_derived_claim_storage": 51,
+      "approved_for_production_runtime": 51,
       "pending_sources": 0,
       "policy_reason_counts": {},
-      "source_count": 17529,
+      "source_count": 51,
       "status": "manual_review_complete"
     },
     "review_batches": {
@@ -115,17 +112,17 @@
       "source_license_review_workbook": "registry/review_batches/source_license_review_workbook.md"
     },
     "review_progress": {
-      "blocker_count": 0,
+      "blocker_count": 10,
       "gate_count": 4,
-      "ready_for_promotion_dry_run": true,
+      "ready_for_promotion_dry_run": false,
       "runbook_path": "registry/review_batches/manual_review_runbook.md"
     },
     "source_license": {
-      "approved_for_production_runtime": 17529,
+      "approved_for_production_runtime": 51,
       "passed": true,
       "pending_sources": 0,
-      "reviewed_sources": 17529,
-      "total_sources": 17529
+      "reviewed_sources": 51,
+      "total_sources": 51
     }
   },
   "master_plan_coverage": {
@@ -162,9 +159,9 @@
   },
   "operator_handoff": {
     "gate_count": 4,
-    "next_state": "production",
+    "next_state": "paper_trading",
     "ready_for_operator_review": true,
-    "remaining_blocker_count": 0,
+    "remaining_blocker_count": 1,
     "run_order": [
       "review-progress-preflight",
       "prepare-gold-review",
@@ -220,11 +217,13 @@
   },
   "promotion_gate": {
     "blocker_count": 0,
-    "direct_production_forbidden": false,
-    "next_state": "production",
+    "direct_production_forbidden": true,
+    "execution_mode": "RKE_SHADOW",
+    "next_state": "paper_trading",
     "paper_trading_allowed": true,
-    "production_allowed": true,
-    "staged_production_allowed": true
+    "production_allowed": false,
+    "production_signal_allowed": false,
+    "staged_production_allowed": false
   },
   "prompt_evolution": {
     "asset_validation_accepted": true,
@@ -301,7 +300,7 @@
     "duplicate_reference_count": 1,
     "failure_count": 0,
     "production_blocker_count": 0,
-    "unique_source_count": 17530
+    "unique_source_count": 52
   },
   "validation_hardening": {
     "ablation_accepted": true,

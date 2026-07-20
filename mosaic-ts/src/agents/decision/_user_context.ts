@@ -239,10 +239,13 @@ export function renderLayer4RuntimeContext(state: DailyCycleStateType): string {
       );
     }
   }
-  if (runtime?.cro_review_state) {
+  if (runtime?.cro_review_state && runtime.candidate_target_state) {
     lines.push(`* cro_review_hash: ${runtime.cro_review_state.review_hash}`);
     lines.push(`* cro_control_source_status: ${runtime.cro_review_state.source_status}`);
-    for (const intent of expectedFrozenOrderIntents(state)) {
+    for (const intent of expectedFrozenOrderIntents(
+      runtime.candidate_target_state,
+      runtime.cro_review_state,
+    ).order_intents) {
       lines.push(
         `  - order_intent_ref=${intent.order_intent_ref}, ts_code=${intent.ts_code}, ` +
           `requested_delta_weight=${intent.requested_delta_weight.toFixed(6)}`,

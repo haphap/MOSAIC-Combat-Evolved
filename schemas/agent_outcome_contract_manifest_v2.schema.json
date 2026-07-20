@@ -12,6 +12,9 @@
     "metric_schema_count",
     "metric_schemas_hash",
     "metric_schemas",
+    "realized_metric_schema_count",
+    "realized_metric_schemas_hash",
+    "realized_metric_schemas",
     "contracts"
   ],
   "properties": {
@@ -23,6 +26,13 @@
     "metric_schema_count": { "const": 8 },
     "metric_schemas_hash": { "$ref": "#/$defs/hash" },
     "metric_schemas": {
+      "type": "object",
+      "minProperties": 8,
+      "additionalProperties": { "type": "object" }
+    },
+    "realized_metric_schema_count": { "const": 8 },
+    "realized_metric_schemas_hash": { "$ref": "#/$defs/hash" },
+    "realized_metric_schemas": {
       "type": "object",
       "minProperties": 8,
       "additionalProperties": { "type": "object" }
@@ -158,6 +168,7 @@
         "accepted_output_kind",
         "primary_label_id",
         "metric_schema_id",
+        "realized_metric_schema_id",
         "maturity_horizon",
         "maturity",
         "sample_schedule",
@@ -207,6 +218,7 @@
         },
         "primary_label_id": { "type": "string", "minLength": 1 },
         "metric_schema_id": { "type": "string", "minLength": 1 },
+        "realized_metric_schema_id": { "type": "string", "minLength": 1 },
         "maturity_horizon": {
           "enum": ["T1_CLOSE", "TRADING_DAYS_5", "TRADING_DAYS_20", "TRADING_DAYS_21"]
         },

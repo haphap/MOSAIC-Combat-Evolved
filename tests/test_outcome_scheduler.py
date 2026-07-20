@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 from pathlib import Path
+from threading import Barrier
 
 import pytest
 
+from mosaic.dataflows.outcome_runtime_inputs import (
+    expected_qualification_predicate_version,
+)
 from mosaic.scorecard.darwinian_v2 import canonical_hash, deterministic_id
 from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
 from mosaic.scorecard.store import ScorecardStore
@@ -101,6 +106,65 @@ def _source_evidence(agent_id: str) -> dict[str, list[str]]:
 
 def _projection_hash(agent_id: str) -> str:
     return canonical_hash({"projection_agent": agent_id})
+
+
+def _execution_freeze_kwargs(plan: dict) -> dict:
+    return {
+        "outcome_schedule_plan_id": plan["outcome_schedule_plan_id"],
+        "agent_id": "autonomous_execution",
+        "qualification_predicate_version": (
+            expected_qualification_predicate_version("autonomous_execution")
+        ),
+        "member_refs": [
+            {
+                "order_intent_id": "intent-concurrent",
+                "ts_code": "600006.SH",
+                "action": "BUY",
+                "requested_delta_weight": 0.1,
+            }
+        ],
+        "source_evidence_by_required_source_id": _source_evidence(
+            "autonomous_execution"
+        ),
+        "projection_snapshot_hash": _projection_hash("autonomous_execution"),
+        "runtime_authority_binding": _runtime_authority_binding(
+            "autonomous_execution"
+        ),
+    }
+
+
+def _execution_failure_kwargs(plan: dict, as_of: str) -> dict:
+    return {
+        "outcome_schedule_plan_id": plan["outcome_schedule_plan_id"],
+        "agent_id": "autonomous_execution",
+        "qualification_predicate_version": (
+            expected_qualification_predicate_version("autonomous_execution")
+        ),
+        "source_evidence_by_required_source_id": _source_evidence(
+            "autonomous_execution"
+        ),
+        "error_codes": ["REQUIRED_DATA_UNAVAILABLE"],
+        "attempted_at": as_of,
+    }
+
+
+def _runtime_authority_binding(agent_id: str) -> dict[str, str]:
+    return {
+        "source_tool_id": {
+            "alpha_discovery": "get_alpha_candidate_snapshot",
+            "cro": "get_cro_risk_snapshot",
+            "autonomous_execution": "get_execution_snapshot",
+            "cio": "get_cio_decision_snapshot",
+        }[agent_id],
+        "source_snapshot_hash": canonical_hash({"agent_id": agent_id, "kind": "source"}),
+        "candidate_scope_hash": canonical_hash({"agent_id": agent_id, "kind": "scope"}),
+        "candidate_universe_hash": canonical_hash(
+            {"agent_id": agent_id, "kind": "universe"}
+        ),
+        "upstream_accepted_output_refs_hash": canonical_hash(
+            {"agent_id": agent_id, "kind": "upstream"}
+        ),
+    }
 
 
 def _event(event_id: str, causal_key: str, priority_rank: int) -> dict:
@@ -223,10 +287,38 @@ def test_scheduled_opportunity_failure_is_audited_and_blocks_freeze(
     )
     assert execution["run_slot_kind"] == "OUTCOME_SCHEDULED"
 
+    with pytest.raises(ValueError, match="frozen plan prepared_at"):
+        store.record_scheduled_outcome_opportunity_failure(
+            outcome_schedule_plan_id=plan["outcome_schedule_plan_id"],
+            agent_id="autonomous_execution",
+            qualification_predicate_version=expected_qualification_predicate_version(
+                "autonomous_execution"
+            ),
+            source_evidence_by_required_source_id=_source_evidence(
+                "autonomous_execution"
+            ),
+            error_codes=["REQUIRED_DATA_UNAVAILABLE"],
+            attempted_at="2026-07-17T10:00:00+08:00",
+        )
+
+    with pytest.raises(ValueError, match="qualification predicate version drift"):
+        store.record_scheduled_outcome_opportunity_failure(
+            outcome_schedule_plan_id=plan["outcome_schedule_plan_id"],
+            agent_id="autonomous_execution",
+            qualification_predicate_version="forged-predicate-v1",
+            source_evidence_by_required_source_id=_source_evidence(
+                "autonomous_execution"
+            ),
+            error_codes=["REQUIRED_DATA_UNAVAILABLE"],
+            attempted_at=as_of,
+        )
+
     failure = store.record_scheduled_outcome_opportunity_failure(
         outcome_schedule_plan_id=plan["outcome_schedule_plan_id"],
         agent_id="autonomous_execution",
-        qualification_predicate_version="execution_intent_qualification_v2",
+        qualification_predicate_version=expected_qualification_predicate_version(
+            "autonomous_execution"
+        ),
         source_evidence_by_required_source_id=_source_evidence(
             "autonomous_execution"
         ),
@@ -238,7 +330,9 @@ def test_scheduled_opportunity_failure_is_audited_and_blocks_freeze(
     retry = store.record_scheduled_outcome_opportunity_failure(
         outcome_schedule_plan_id=plan["outcome_schedule_plan_id"],
         agent_id="autonomous_execution",
-        qualification_predicate_version="execution_intent_qualification_v2",
+        qualification_predicate_version=expected_qualification_predicate_version(
+            "autonomous_execution"
+        ),
         source_evidence_by_required_source_id=_source_evidence(
             "autonomous_execution"
         ),
@@ -250,12 +344,24 @@ def test_scheduled_opportunity_failure_is_audited_and_blocks_freeze(
         store.freeze_scheduled_outcome_opportunity(
             outcome_schedule_plan_id=plan["outcome_schedule_plan_id"],
             agent_id="autonomous_execution",
-            qualification_predicate_version="execution_intent_qualification_v2",
-            member_refs=[{"order_intent_id": "intent-1"}],
+            qualification_predicate_version=expected_qualification_predicate_version(
+                "autonomous_execution"
+            ),
+            member_refs=[
+                {
+                    "order_intent_id": "intent-1",
+                    "ts_code": "600006.SH",
+                    "action": "BUY",
+                    "requested_delta_weight": 0.1,
+                }
+            ],
             source_evidence_by_required_source_id=_source_evidence(
                 "autonomous_execution"
             ),
             projection_snapshot_hash=_projection_hash("autonomous_execution"),
+            runtime_authority_binding=_runtime_authority_binding(
+                "autonomous_execution"
+            ),
         )
 
     with store._connect() as conn:
@@ -279,6 +385,134 @@ def test_scheduled_opportunity_failure_is_audited_and_blocks_freeze(
     ]
 
 
+def test_concurrent_identical_available_terminal_retries_are_idempotent(
+    tmp_path: Path,
+) -> None:
+    store, _, revision_id = _registered(tmp_path)
+    as_of = "2026-07-17T09:00:00+08:00"
+    plan = store.prepare_outcome_schedule_plan(
+        production_variant_roster_revision_id=revision_id,
+        graph_run_id="graph-concurrent-available",
+        as_of=as_of,
+        prepared_at=as_of,
+        trading_calendar_snapshot=_calendar_snapshot(as_of),
+        verified_event_candidates=_event_coverage(),
+    )
+    barrier = Barrier(2)
+
+    def freeze() -> dict:
+        barrier.wait(timeout=5)
+        return store.freeze_scheduled_outcome_opportunity(
+            **_execution_freeze_kwargs(plan)
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: freeze(), range(2)))
+
+    assert results[0] == results[1]
+    with store._connect() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM evaluation_opportunity_sets_v2 "
+            "WHERE scheduled_sample_id = ?",
+            (results[0]["scheduled_sample_id"],),
+        ).fetchone()[0] == 1
+        assert conn.execute(
+            "SELECT COUNT(*) FROM evaluation_authority_events_v2 "
+            "WHERE event_kind = 'OPPORTUNITY_FROZEN' "
+            "AND scheduled_sample_id = ?",
+            (results[0]["scheduled_sample_id"],),
+        ).fetchone()[0] == 1
+        slot = conn.execute(
+            "SELECT outcome_schedule_plan_id, track_key_hash, agent_id "
+            "FROM outcome_schedule_slots_v2 WHERE outcome_schedule_slot_id = ?",
+            (results[0]["outcome_schedule_slot_id"],),
+        ).fetchone()
+        with pytest.raises(
+            sqlite3.IntegrityError,
+            match="scheduled_opportunity_terminal_conflict",
+        ):
+            conn.execute(
+                "INSERT INTO evaluation_opportunity_set_generation_failures_v2 ("
+                "generation_attempt_id, generation_attempt_hash, "
+                "outcome_schedule_plan_id, outcome_schedule_slot_id, "
+                "scheduled_sample_id, track_key_hash, agent_id, attempted_at, "
+                "record_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "forged-opposite-terminal",
+                    "sha256:" + "0" * 64,
+                    slot[0],
+                    results[0]["outcome_schedule_slot_id"],
+                    results[0]["scheduled_sample_id"],
+                    slot[1],
+                    slot[2],
+                    as_of,
+                    "{}",
+                ),
+            )
+
+
+def test_concurrent_opposite_terminals_commit_exactly_one_outcome(
+    tmp_path: Path,
+) -> None:
+    store, _, revision_id = _registered(tmp_path)
+    as_of = "2026-07-17T09:00:00+08:00"
+    plan = store.prepare_outcome_schedule_plan(
+        production_variant_roster_revision_id=revision_id,
+        graph_run_id="graph-concurrent-opposite",
+        as_of=as_of,
+        prepared_at=as_of,
+        trading_calendar_snapshot=_calendar_snapshot(as_of),
+        verified_event_candidates=_event_coverage(),
+    )
+    barrier = Barrier(2)
+
+    def terminate(kind: str) -> tuple[str, str, dict | None]:
+        barrier.wait(timeout=5)
+        try:
+            if kind == "AVAILABLE":
+                result = store.freeze_scheduled_outcome_opportunity(
+                    **_execution_freeze_kwargs(plan)
+                )
+            else:
+                result = store.record_scheduled_outcome_opportunity_failure(
+                    **_execution_failure_kwargs(plan, as_of)
+                )
+            return "COMMITTED", kind, result
+        except ValueError as exc:
+            return "CONFLICT", kind, {"message": str(exc)}
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(terminate, ("AVAILABLE", "GENERATION_FAILURE")))
+
+    assert [result[0] for result in results].count("COMMITTED") == 1
+    assert [result[0] for result in results].count("CONFLICT") == 1
+    conflict = next(result for result in results if result[0] == "CONFLICT")
+    assert (
+        "already AVAILABLE" in conflict[2]["message"]
+        or "already ended as UNAVAILABLE" in conflict[2]["message"]
+    )
+    with store._connect() as conn:
+        available_count = conn.execute(
+            "SELECT COUNT(*) FROM evaluation_opportunity_sets_v2 "
+            "WHERE agent_id = 'autonomous_execution'"
+        ).fetchone()[0]
+        failure_count = conn.execute(
+            "SELECT COUNT(*) FROM evaluation_opportunity_set_generation_failures_v2 "
+            "WHERE agent_id = 'autonomous_execution'"
+        ).fetchone()[0]
+        trigger_names = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'"
+            )
+        }
+    assert available_count + failure_count == 1
+    assert {
+        "opportunity_available_excludes_generation_failure_v2",
+        "generation_failure_excludes_opportunity_available_v2",
+    } <= trigger_names
+
+
 def test_allowed_empty_opportunity_creates_unique_stage_skip_without_output(
     tmp_path: Path,
 ) -> None:
@@ -295,12 +529,17 @@ def test_allowed_empty_opportunity_creates_unique_stage_skip_without_output(
     frozen = store.freeze_scheduled_outcome_opportunity(
         outcome_schedule_plan_id=plan["outcome_schedule_plan_id"],
         agent_id="autonomous_execution",
-        qualification_predicate_version="execution_intent_qualification_v2",
+        qualification_predicate_version=expected_qualification_predicate_version(
+            "autonomous_execution"
+        ),
         member_refs=[],
         source_evidence_by_required_source_id=_source_evidence(
             "autonomous_execution"
         ),
         projection_snapshot_hash=_projection_hash("autonomous_execution"),
+        runtime_authority_binding=_runtime_authority_binding(
+            "autonomous_execution"
+        ),
     )
     assert frozen["run_allowed"] is True
     with store._connect() as conn:
@@ -314,6 +553,13 @@ def test_allowed_empty_opportunity_creates_unique_stage_skip_without_output(
     assert frozen_record["generator_input_snapshot_hash"] == _projection_hash(
         "autonomous_execution"
     )
+
+    with pytest.raises(ValueError, match="frozen plan prepared_at"):
+        store.create_no_evaluation_object_stage_skip(
+            outcome_schedule_plan_id=plan["outcome_schedule_plan_id"],
+            agent_id="autonomous_execution",
+            recorded_at="2026-07-17T10:00:00+08:00",
+        )
 
     skipped = store.create_no_evaluation_object_stage_skip(
         outcome_schedule_plan_id=plan["outcome_schedule_plan_id"],
@@ -370,15 +616,41 @@ def test_nonempty_or_unapproved_agent_cannot_stage_skip(tmp_path: Path) -> None:
         trading_calendar_snapshot=_calendar_snapshot(as_of),
         verified_event_candidates=_event_coverage(),
     )
+    execution_member = [
+        {
+            "order_intent_id": "intent-1",
+            "ts_code": "600006.SH",
+            "action": "BUY",
+            "requested_delta_weight": 0.1,
+        }
+    ]
+    with pytest.raises(ValueError, match="server-owned runtime authority"):
+        store.freeze_scheduled_outcome_opportunity(
+            outcome_schedule_plan_id=plan["outcome_schedule_plan_id"],
+            agent_id="autonomous_execution",
+            qualification_predicate_version=expected_qualification_predicate_version(
+                "autonomous_execution"
+            ),
+            member_refs=execution_member,
+            source_evidence_by_required_source_id=_source_evidence(
+                "autonomous_execution"
+            ),
+            projection_snapshot_hash=_projection_hash("autonomous_execution"),
+        )
     store.freeze_scheduled_outcome_opportunity(
         outcome_schedule_plan_id=plan["outcome_schedule_plan_id"],
         agent_id="autonomous_execution",
-        qualification_predicate_version="execution_intent_qualification_v2",
-        member_refs=[{"order_intent_id": "intent-1"}],
+        qualification_predicate_version=expected_qualification_predicate_version(
+            "autonomous_execution"
+        ),
+        member_refs=execution_member,
         source_evidence_by_required_source_id=_source_evidence(
             "autonomous_execution"
         ),
         projection_snapshot_hash=_projection_hash("autonomous_execution"),
+        runtime_authority_binding=_runtime_authority_binding(
+            "autonomous_execution"
+        ),
     )
     with pytest.raises(ValueError, match="to be EMPTY"):
         store.create_no_evaluation_object_stage_skip(
@@ -408,3 +680,23 @@ def test_calendar_snapshot_is_hash_and_pit_checked(tmp_path: Path) -> None:
             trading_calendar_snapshot=snapshot,
             verified_event_candidates=_event_coverage(),
         )
+
+
+def test_schedule_plan_preparation_is_bound_to_the_as_of_session(
+    tmp_path: Path,
+) -> None:
+    store, _, revision_id = _registered(tmp_path)
+    as_of = "2026-07-17T09:00:00+08:00"
+    for prepared_at in (
+        "2026-07-17T08:59:59+08:00",
+        "2026-07-18T09:00:00+08:00",
+    ):
+        with pytest.raises(ValueError, match="on the as_of date"):
+            store.prepare_outcome_schedule_plan(
+                production_variant_roster_revision_id=revision_id,
+                graph_run_id=f"graph-invalid-preparation:{prepared_at}",
+                as_of=as_of,
+                prepared_at=prepared_at,
+                trading_calendar_snapshot=_calendar_snapshot(as_of),
+                verified_event_candidates=_event_coverage(),
+            )

@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import { z } from "zod";
+import { canonicalJsonHash } from "../helpers/canonical_json.js";
 import type { StandardSectorAgentId } from "../types.js";
 
 export const SECTOR_UNIVERSE_MANIFEST_VERSION = "sector_universe_manifest_v1";
@@ -1111,19 +1111,5 @@ function deepFreeze<T>(value: T): T {
 }
 
 function canonicalHash(value: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(JSON.stringify(canonicalize(value)))
-    .digest("hex")}`;
-}
-
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, entry]) => [key, canonicalize(entry)]),
-    );
-  }
-  return value;
+  return canonicalJsonHash(value);
 }

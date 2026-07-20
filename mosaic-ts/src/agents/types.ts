@@ -402,6 +402,8 @@ export interface CroOutput extends RuntimeOutputAuditFields {
   rejected_picks: Array<{ ticker: string; reason: string; claim_refs?: string[] | undefined }>;
   required_adjustments?:
     | Array<{
+        action_local_id?: string | undefined;
+        candidate_ref?: string | undefined;
         ticker: string;
         adjustment: "VETO" | "CAP_WEIGHT" | "REDUCE_WEIGHT" | "REQUIRE_REVIEW";
         max_target_weight?: number | undefined;
@@ -431,6 +433,8 @@ export interface AutoExecOutput extends RuntimeOutputAuditFields {
   agent: "autonomous_execution";
   execution_disposition?: "TRADES" | "NO_DELTA" | "BLOCKED" | undefined;
   trades: Array<{
+    assessment_local_id?: string | undefined;
+    order_intent_ref?: string | undefined;
     ticker: string;
     action: "BUY" | "SELL" | "HOLD" | "REDUCE";
     size_pct: number;
@@ -443,7 +447,10 @@ export interface AutoExecOutput extends RuntimeOutputAuditFields {
   }>;
   execution_checks?:
     | Array<{
+        assessment_local_id?: string | undefined;
+        order_intent_ref?: string | undefined;
         ticker: string;
+        requested_delta_weight?: number | undefined;
         status: "feasible" | "partial" | "blocked";
         estimated_cost_bps: number;
         max_executable_delta_weight?: number | undefined;
@@ -493,6 +500,22 @@ export interface CioOutput extends RuntimeOutputAuditFields {
   portfolio_actions: PortfolioAction[];
   position_reviews?: PositionReview[] | undefined;
   dissent_refs?: CioDissentReference[] | undefined;
+  cro_control_resolutions?:
+    | Array<{
+        cro_action_local_ref: string;
+        resolution: "COMPLIED" | "MORE_CONSERVATIVE";
+        reason: string;
+        claim_refs?: string[] | undefined;
+      }>
+    | undefined;
+  execution_control_resolutions?:
+    | Array<{
+        execution_assessment_local_ref: string;
+        resolution: "COMPLIED" | "MORE_CONSERVATIVE";
+        reason: string;
+        claim_refs?: string[] | undefined;
+      }>
+    | undefined;
   /** Self-rated confidence in [0, 1]. */
   confidence: number;
 }

@@ -7,9 +7,10 @@
 
 import { AIMessage, type BaseMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { tool } from "@langchain/core/tools";
+import { Command } from "commander";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { runToolLoop } from "../src/cli/commands/tool-loop.js";
+import { registerToolLoop, runToolLoop } from "../src/cli/commands/tool-loop.js";
 
 interface FakeLlm {
   calls: number;
@@ -52,6 +53,17 @@ const noopTool = tool(async ({ n }) => `tool result ${n}`, {
 });
 
 describe("runToolLoop", () => {
+  it("exposes only the frozen China capability and no arbitrary tool option", () => {
+    const program = new Command();
+    registerToolLoop(program);
+    const command = program.commands.find((candidate) => candidate.name() === "tool-loop");
+    if (!command) throw new Error("tool-loop command was not registered");
+    const optionNames = command.options.map((option) => option.long);
+    expect(optionNames).not.toContain("--tool");
+    expect(optionNames).toContain("--as-of-date");
+    expect(command.description()).toContain("frozen China Macro snapshot");
+  });
+
   it("returns the AI message immediately when no tool_calls are emitted", async () => {
     const messages: BaseMessage[] = [new SystemMessage("system"), new HumanMessage("hi")];
     const direct = makePlainAnswerLlm("hello!");

@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { z } from "zod";
+import { adaptStrictProviderJsonSchema } from "../src/agents/helpers/structured_provider_adapters.js";
 import { MACRO_AGENT_IDS } from "../src/agents/macro/_contracts.js";
 import { renderBundledPrompt } from "../src/agents/prompts/bundled_prompt_renderer.js";
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
@@ -19,10 +21,16 @@ import {
   renderSectorDirectionResearchPayloads,
 } from "../src/agents/sector/_factory.js";
 import {
+  buildRelationshipMapperSchema,
   buildStandardSectorSchema,
+  RELATIONSHIP_MAPPER_MAX_CLAIMS,
+  RELATIONSHIP_MAPPER_MAX_FACTUAL_EDGES,
+  RELATIONSHIP_MAPPER_MAX_PREDICTIVE_EDGES,
   RelationshipMapperSchema,
+  STANDARD_SECTOR_MAX_CLAIMS,
 } from "../src/agents/sector/_schemas.js";
 import { standardSectorSpec } from "../src/agents/sector/_spec.js";
+import { MAX_SECTOR_COVERAGE_EVIDENCE_IDS } from "../src/agents/sector/comparison.js";
 import { buildEnergyNode } from "../src/agents/sector/energy.js";
 import { SECTOR_DIRECTION_CONFLICT_RESOLVER_CONTRACT } from "../src/agents/sector/registry.js";
 import { relationshipMapperSpec } from "../src/agents/sector/relationship_mapper.js";
@@ -166,6 +174,19 @@ describe("Layer-2 roster and role contracts", () => {
         "2026-07-19",
       ),
     ).toThrow("material-event coverage binding is invalid");
+
+    const oversizedEvidence = JSON.parse(roleEventSnapshot()) as Record<string, unknown>;
+    (oversizedEvidence.coverage as Record<string, unknown>).coverage_evidence_ids = Array.from(
+      { length: MAX_SECTOR_COVERAGE_EVIDENCE_IDS + 1 },
+      (_, index) => `coverage-${String(index + 1).padStart(3, "0")}`,
+    );
+    expect(() =>
+      buildSectorCoverageDirective(
+        new Map([["get_role_event_snapshot", rehashRoleEventSnapshot(oversizedEvidence)]]),
+        "energy",
+        "2026-07-19",
+      ),
+    ).toThrow(`coverage_evidence_ids exceed ${MAX_SECTOR_COVERAGE_EVIDENCE_IDS}`);
   });
 });
 
@@ -184,6 +205,71 @@ describe("standard sector output contracts", () => {
   it("rejects research rows submitted during final selection", () => {
     const output = { ...sectorOutput("energy"), direction_comparisons: [] };
     expect(buildStandardSectorSchema("energy").safeParse(output).success).toBe(false);
+  });
+
+  it("accepts the fourteen-claim worst case and rejects a fifteenth claim", () => {
+    const output = sectorOutput("energy");
+    const claimIds = Array.from(
+      { length: STANDARD_SECTOR_MAX_CLAIMS },
+      (_, index) => `energy-claim-${index + 1}`,
+    );
+    const makeClaim = (claimId: string, index: number) => ({
+      claim_id: claimId,
+      claim_kind: "RISK_FLAG" as const,
+      statement: `fixture sector conclusion ${index + 1}`,
+      structured_conclusion: {
+        conclusion_type: "SECTOR_RISK" as const,
+        target_local_ref: null,
+        selection_status: null,
+        direction_id: null,
+        position_action: null,
+        summary: `Fixture sector conclusion ${index + 1}.`,
+      },
+      evidence_ids: ["fixture:energy"],
+      research_rule_refs: [],
+    });
+    output.claims = claimIds.map(makeClaim);
+    output.claim_refs = [...claimIds];
+    output.preferred_direction.claim_refs = [claimIds[0] as string];
+    output.least_preferred_direction.claim_refs = [claimIds[1] as string];
+    const firstDriver = output.key_drivers[0];
+    const firstRisk = output.risks[0];
+    if (!firstDriver || !firstRisk) throw new Error("sector fixture requires one driver and risk");
+    firstDriver.claim_refs = [claimIds[2] as string];
+    firstRisk.claim_refs = [claimIds[3] as string];
+    output.preferred_security_status = "PICKS_PRESENT";
+    output.preferred_security_abstention_confidence = null;
+    output.least_preferred_security_status = "PICKS_PRESENT";
+    output.least_preferred_security_abstention_confidence = null;
+    output.long_picks = Array.from({ length: 5 }, (_, index) => ({
+      pick_local_id: `energy-long-${index + 1}`,
+      ts_code: `${String(index + 1).padStart(6, "0")}.SZ`,
+      direction_local_id: output.preferred_direction.direction_local_id,
+      position_action: "LONG" as const,
+      conviction: 0.2,
+      thesis: `fixture long pick ${index + 1}`,
+      claim_refs: [claimIds[index + 4] as string],
+    }));
+    output.short_or_avoid_picks = Array.from({ length: 5 }, (_, index) => ({
+      pick_local_id: `energy-avoid-${index + 1}`,
+      ts_code: `${String(index + 101).padStart(6, "0")}.SH`,
+      direction_local_id: output.least_preferred_direction.direction_local_id,
+      position_action: "AVOID" as const,
+      conviction: 0.2,
+      thesis: `fixture avoid pick ${index + 1}`,
+      claim_refs: [claimIds[index + 9] as string],
+    }));
+    const schema = buildStandardSectorSchema("energy");
+    expect(schema.safeParse(output).success).toBe(true);
+
+    const fifteenthClaimId = "energy-claim-15";
+    expect(
+      schema.safeParse({
+        ...output,
+        claims: [...output.claims, makeClaim(fifteenthClaimId, 14)],
+        claim_refs: [...output.claim_refs, fifteenthClaimId],
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects duplicate or incomplete Macro attribution", () => {
@@ -339,55 +425,304 @@ describe("relationship mapper", () => {
   });
 
   it("requires structured relationships, risks, evidence, and claims", () => {
+    const valid = {
+      agent: "relationship_mapper",
+      factual_edges: [
+        {
+          edge_local_id: "edge-1",
+          source_entity: "300750.SZ",
+          target_entity: "battery_storage",
+          edge_type: "supply_chain",
+          claim_refs: ["relationship-claim"],
+        },
+      ],
+      predictive_graph_status: "NO_QUALIFIED_PREDICTIVE_EDGE",
+      predictive_edges: [],
+      predictive_graph_abstention_confidence: 0.5,
+      key_drivers: [
+        {
+          driver_local_id: "driver-1",
+          summary: "frozen accepted direction domain",
+          claim_refs: ["relationship-claim"],
+        },
+      ],
+      risks: [
+        {
+          risk_local_id: "risk-1",
+          summary: "shared supplier",
+          claim_refs: ["relationship-claim"],
+        },
+      ],
+      claims: [
+        {
+          claim_id: "relationship-claim",
+          claim_kind: "FACT",
+          statement: "A frozen-domain relationship is observed.",
+          structured_conclusion: { relationship: "supply_chain" },
+          evidence_ids: ["sector:relationship"],
+          research_rule_refs: [],
+        },
+      ],
+      claim_refs: ["relationship-claim"],
+      macro_input_attributions: MACRO_AGENT_IDS.map((macroAgentId) => ({
+        agent_id: macroAgentId,
+        target_type: "SUBMISSION_SUMMARY",
+        target_local_ref: "$SUBMISSION",
+        claim_refs_used: [],
+        effect: "NOT_MATERIAL",
+      })),
+    } as const;
+    expect(RelationshipMapperSchema.parse(valid).agent).toBe("relationship_mapper");
+    const frozenExactSchema = buildRelationshipMapperSchema({
+      maxFactualEdges: 1,
+      maxPredictiveEdges: 1,
+      factualRelationships: [
+        {
+          source_entity: "300750.SZ",
+          target_entity: "battery_storage",
+          edge_type: "supply_chain",
+        },
+      ],
+    });
     expect(
-      RelationshipMapperSchema.parse({
-        agent: "relationship_mapper",
+      frozenExactSchema.safeParse({
+        ...valid,
+        factual_edges: [],
+      }).success,
+    ).toBe(false);
+    expect(
+      RelationshipMapperSchema.safeParse({
+        ...valid,
+        factual_edges: [
+          valid.factual_edges[0],
+          {
+            ...valid.factual_edges[0],
+            target_entity: "battery_recycling",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      RelationshipMapperSchema.safeParse({
+        ...valid,
+        factual_edges: [
+          valid.factual_edges[0],
+          {
+            ...valid.factual_edges[0],
+            edge_local_id: "edge-2",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    const maximumClaimIds = Array.from(
+      { length: RELATIONSHIP_MAPPER_MAX_CLAIMS },
+      (_, index) => `relationship-claim-${index + 1}`,
+    );
+    expect(
+      RelationshipMapperSchema.safeParse({
+        ...valid,
         factual_edges: [
           {
-            edge_local_id: "edge-1",
+            ...valid.factual_edges[0],
+            claim_refs: maximumClaimIds,
+          },
+        ],
+        key_drivers: [{ ...valid.key_drivers[0], claim_refs: maximumClaimIds }],
+        risks: [{ ...valid.risks[0], claim_refs: maximumClaimIds }],
+        claims: maximumClaimIds.map((claimId, index) => ({
+          ...valid.claims[0],
+          claim_id: claimId,
+          statement: `Relationship conclusion ${index + 1}.`,
+        })),
+        claim_refs: maximumClaimIds,
+      }).success,
+    ).toBe(true);
+    expect(
+      RelationshipMapperSchema.safeParse({
+        ...valid,
+        factual_edges: [
+          {
+            ...valid.factual_edges[0],
+            source_entity: "x".repeat(129),
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(() =>
+      buildRelationshipMapperSchema({
+        maxFactualEdges: 1,
+        maxPredictiveEdges: 1,
+        factualRelationships: [
+          {
+            source_entity: "x".repeat(129),
+            target_entity: "battery_storage",
+            edge_type: "supply_chain",
+          },
+        ],
+      }),
+    ).toThrow();
+    expect(() =>
+      buildRelationshipMapperSchema({
+        maxFactualEdges: 1,
+        maxPredictiveEdges: 1,
+        factualRelationships: [
+          {
+            source_entity: " 300750.SZ",
+            target_entity: "battery_storage",
+            edge_type: "supply_chain",
+          },
+        ],
+      }),
+    ).toThrow("must already be trimmed");
+    expect(() =>
+      buildRelationshipMapperSchema({
+        maxFactualEdges: 2,
+        maxPredictiveEdges: 1,
+        factualRelationships: [
+          {
             source_entity: "300750.SZ",
             target_entity: "battery_storage",
             edge_type: "supply_chain",
-            claim_refs: ["relationship-claim"],
           },
-        ],
-        predictive_graph_status: "NO_QUALIFIED_PREDICTIVE_EDGE",
-        predictive_edges: [],
-        predictive_graph_abstention_confidence: 0.5,
-        key_drivers: [
           {
-            driver_local_id: "driver-1",
-            summary: "frozen accepted direction domain",
-            claim_refs: ["relationship-claim"],
+            source_entity: "300750.SZ",
+            target_entity: "battery_storage",
+            edge_type: "supply_chain",
           },
         ],
-        risks: [
-          {
-            risk_local_id: "risk-1",
-            summary: "shared supplier",
-            claim_refs: ["relationship-claim"],
-          },
-        ],
-        claims: [
-          {
-            claim_id: "relationship-claim",
-            claim_kind: "FACT",
-            statement: "A frozen-domain relationship is observed.",
-            structured_conclusion: { relationship: "supply_chain" },
-            evidence_ids: ["sector:relationship"],
-            research_rule_refs: [],
-          },
-        ],
-        claim_refs: ["relationship-claim"],
-        macro_input_attributions: MACRO_AGENT_IDS.map((macroAgentId) => ({
-          agent_id: macroAgentId,
-          target_type: "SUBMISSION_SUMMARY",
-          target_local_ref: "$SUBMISSION",
-          claim_refs_used: [],
-          effect: "NOT_MATERIAL",
+      }),
+    ).toThrow("frozen factual relationship tuples must be unique");
+    expect(() =>
+      buildRelationshipMapperSchema({
+        maxFactualEdges: RELATIONSHIP_MAPPER_MAX_FACTUAL_EDGES + 1,
+        maxPredictiveEdges: 1,
+      }),
+    ).toThrow("factual domain must contain at most 32 rows");
+    expect(() =>
+      buildRelationshipMapperSchema({
+        maxFactualEdges: 1,
+        maxPredictiveEdges: RELATIONSHIP_MAPPER_MAX_PREDICTIVE_EDGES + 1,
+      }),
+    ).toThrow("predictive domain must contain between 1 and 32 rows");
+    expect(() =>
+      buildRelationshipMapperSchema({
+        maxFactualEdges: RELATIONSHIP_MAPPER_MAX_FACTUAL_EDGES,
+        maxPredictiveEdges: 1,
+        factualRelationships: Array.from(
+          { length: RELATIONSHIP_MAPPER_MAX_FACTUAL_EDGES + 1 },
+          (_, index) => ({
+            source_entity: `source-${index + 1}`,
+            target_entity: `target-${index + 1}`,
+            edge_type: "supply_chain",
+          }),
+        ),
+      }),
+    ).toThrow("factual domain exceeds its frozen bound");
+    expect(
+      RelationshipMapperSchema.safeParse({
+        ...valid,
+        factual_edges: Array.from(
+          { length: RELATIONSHIP_MAPPER_MAX_FACTUAL_EDGES + 1 },
+          (_, index) => ({
+            ...valid.factual_edges[0],
+            edge_local_id: `edge-${index + 1}`,
+          }),
+        ),
+      }).success,
+    ).toBe(false);
+    expect(
+      RelationshipMapperSchema.safeParse({
+        ...valid,
+        claims: Array.from({ length: RELATIONSHIP_MAPPER_MAX_CLAIMS + 1 }, (_, index) => ({
+          ...valid.claims[0],
+          claim_id: `relationship-claim-${index + 1}`,
         })),
-      }).agent,
-    ).toBe("relationship_mapper");
+      }).success,
+    ).toBe(false);
+    expect(
+      RelationshipMapperSchema.safeParse({
+        ...valid,
+        predictive_graph_status: "EDGES_PRESENT",
+        predictive_graph_abstention_confidence: null,
+        predictive_edges: Array.from(
+          { length: RELATIONSHIP_MAPPER_MAX_PREDICTIVE_EDGES + 1 },
+          (_, index) => ({
+            edge_local_id: `predictive-edge-${index + 1}`,
+            edge_candidate_id: `candidate-${index + 1}`,
+            source_entity: "energy",
+            target_entity: "industrials",
+            edge_type: "input_cost",
+            transmission_direction: "NEGATIVE",
+            activation_trigger: "Input costs rise materially.",
+            evaluation_horizon_trading_days: 20,
+            model_confidence: 0.6,
+            claim_refs: ["relationship-claim"],
+          }),
+        ),
+      }).success,
+    ).toBe(false);
+    expect(
+      RelationshipMapperSchema.safeParse({
+        ...valid,
+        predictive_graph_status: "EDGES_PRESENT",
+        predictive_graph_abstention_confidence: null,
+        predictive_edges: [
+          {
+            edge_local_id: "predictive-edge-1",
+            edge_candidate_id: "candidate-1",
+            source_entity: "energy",
+            target_entity: "industrials",
+            edge_type: "input_cost",
+            transmission_direction: "NEGATIVE",
+            activation_trigger: "x".repeat(321),
+            evaluation_horizon_trading_days: 20,
+            model_confidence: 0.6,
+            claim_refs: ["relationship-claim"],
+          },
+        ],
+      }).success,
+    ).toBe(false);
+
+    const jsonSchema = z.toJSONSchema(RelationshipMapperSchema) as unknown as {
+      oneOf: Array<{
+        properties: {
+          factual_edges: { maxItems: number };
+          predictive_edges: { maxItems?: number; items?: false };
+          claims: { maxItems: number };
+        };
+      }>;
+    };
+    expect(jsonSchema.oneOf[0]?.properties.factual_edges.maxItems).toBe(
+      RELATIONSHIP_MAPPER_MAX_FACTUAL_EDGES,
+    );
+    expect(jsonSchema.oneOf[0]?.properties.predictive_edges.maxItems).toBe(
+      RELATIONSHIP_MAPPER_MAX_PREDICTIVE_EDGES,
+    );
+    expect(jsonSchema.oneOf[0]?.properties.claims.maxItems).toBe(RELATIONSHIP_MAPPER_MAX_CLAIMS);
+    const providerSchema = adaptStrictProviderJsonSchema(jsonSchema) as {
+      properties: {
+        factual_edges: {
+          maxItems: number;
+          items: { properties: { source_entity: { maxLength: number } } };
+        };
+        predictive_edges: {
+          maxItems: number;
+          items: { properties: { activation_trigger: { maxLength: number } } };
+        };
+      };
+    };
+    expect(providerSchema.properties.factual_edges.maxItems).toBe(
+      RELATIONSHIP_MAPPER_MAX_FACTUAL_EDGES,
+    );
+    expect(providerSchema.properties.predictive_edges.maxItems).toBe(
+      RELATIONSHIP_MAPPER_MAX_PREDICTIVE_EDGES,
+    );
+    expect(providerSchema.properties.factual_edges.items.properties.source_entity.maxLength).toBe(
+      128,
+    );
+    expect(
+      providerSchema.properties.predictive_edges.items.properties.activation_trigger.maxLength,
+    ).toBe(320);
   });
 });
 
@@ -862,6 +1197,7 @@ function sectorPipelineState(): DailyCycleStateType {
     component_calibration_inputs: {},
     outcome_schedule_plan: null,
     outcome_stage_skips: {},
+    outcome_opportunity_bindings: {},
     accepted_output_refs: {},
     continuity_context: {},
     lesson_context: {},

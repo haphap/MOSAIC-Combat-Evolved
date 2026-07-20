@@ -97,6 +97,11 @@ describe("generated bundled macro prompts", () => {
       } else {
         expect(fieldLine).toContain("`components`");
         expect(block).toContain("`components[].claim_refs`");
+        expect(block).toContain(
+          language === "zh" ? "不与其他组件共享的 claim" : "that no other component cites",
+        );
+        expect(block).toContain("`structured_conclusion.subject`");
+        expect(block).toContain("`component` id");
         expect(fieldLine).not.toContain("`signal`");
       }
       expect(text).not.toMatch(
@@ -141,6 +146,24 @@ describe("generated bundled macro prompts", () => {
         expect(text).not.toContain("## Runtime Evidence Output Contract");
       } else {
         expect(text).toContain("## Runtime Evidence Output Contract");
+      }
+    }
+  });
+
+  it("fails closed instead of turning missing evidence into an empty non-Macro output", () => {
+    const bundledRoot = resolve(process.cwd(), "..", "prompts", "mosaic", "cohort_default");
+    const macroAgents = new Set<string>(MACRO_AGENT_IDS);
+    for (const agent of ALL_AGENTS.filter((candidate) => !macroAgents.has(candidate))) {
+      const layer = LAYER_BY_AGENT[agent];
+      const zh = readFileSync(join(bundledRoot, String(layer), `${agent}.zh.md`), "utf8");
+      const en = readFileSync(join(bundledRoot, String(layer), `${agent}.en.md`), "utf8");
+      expect(zh).not.toContain("证据不足时，输出");
+      expect(en).not.toContain("When evidence is insufficient, emit");
+      if (layer === "decision") {
+        expect(zh).toContain("必需证据缺失或无效时拒绝本阶段");
+        expect(en).toMatch(
+          /Reject the stage without (?:a CIO|an Agent) output when required evidence/,
+        );
       }
     }
   });

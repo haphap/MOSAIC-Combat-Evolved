@@ -27,13 +27,142 @@ import logging
 import math
 import os
 import sqlite3
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
 from mosaic.scorecard.macro_aggregation import MACRO_AGENTS as MACRO_AGENT_ORDER
+
+_SCORECARD_SEAL_GUARDS_SQL = """
+CREATE TRIGGER IF NOT EXISTS sealed_recommendations_no_new_rows
+    BEFORE INSERT ON recommendations
+    WHEN EXISTS (
+        SELECT 1 FROM scorecard_accepted_runs runs
+        WHERE runs.cohort = NEW.cohort AND runs.date = NEW.date
+    ) AND NOT EXISTS (
+        SELECT 1 FROM recommendations existing
+        JOIN scorecard_accepted_runs runs
+          ON runs.graph_run_id = existing.graph_run_id
+        WHERE existing.cohort = NEW.cohort
+          AND existing.agent = NEW.agent
+          AND existing.ticker = NEW.ticker
+          AND existing.date = NEW.date
+    ) BEGIN
+        SELECT RAISE(ABORT, 'accepted scorecard recommendations are sealed');
+    END;
+
+CREATE TRIGGER IF NOT EXISTS sealed_recommendations_no_payload_update
+    BEFORE UPDATE ON recommendations
+    WHEN EXISTS (
+        SELECT 1 FROM scorecard_accepted_runs runs
+        WHERE runs.graph_run_id = OLD.graph_run_id
+    ) AND (
+        NEW.cohort IS NOT OLD.cohort
+        OR NEW.agent IS NOT OLD.agent
+        OR NEW.ticker IS NOT OLD.ticker
+        OR NEW.date IS NOT OLD.date
+        OR NEW.action IS NOT OLD.action
+        OR NEW.conviction IS NOT OLD.conviction
+        OR NEW.target_weight_pct IS NOT OLD.target_weight_pct
+        OR NEW.current_weight_pct IS NOT OLD.current_weight_pct
+        OR NEW.delta_weight_pct IS NOT OLD.delta_weight_pct
+        OR NEW.position_decision IS NOT OLD.position_decision
+        OR NEW.position_decision_reason IS NOT OLD.position_decision_reason
+        OR NEW.override_reason IS NOT OLD.override_reason
+        OR NEW.thesis_status IS NOT OLD.thesis_status
+        OR NEW.risk_flags_json IS NOT OLD.risk_flags_json
+        OR NEW.declared_knob_influence_ids_json IS NOT OLD.declared_knob_influence_ids_json
+        OR NEW.declared_influence_rationale IS NOT OLD.declared_influence_rationale
+        OR NEW.verified_knob_audit_json IS NOT OLD.verified_knob_audit_json
+        OR NEW.decision_agent_audits_json IS NOT OLD.decision_agent_audits_json
+        OR NEW.dissent_notes IS NOT OLD.dissent_notes
+        OR NEW.rationale_snapshot IS NOT OLD.rationale_snapshot
+        OR NEW.replay_triggered IS NOT OLD.replay_triggered
+        OR NEW.day_outcome_status IS NOT OLD.day_outcome_status
+        OR NEW.backtest_run_id IS NOT OLD.backtest_run_id
+        OR NEW.graph_run_id IS NOT OLD.graph_run_id
+    ) BEGIN
+        SELECT RAISE(ABORT, 'accepted scorecard recommendations are sealed');
+    END;
+
+CREATE TRIGGER IF NOT EXISTS sealed_recommendations_no_delete
+    BEFORE DELETE ON recommendations
+    WHEN EXISTS (
+        SELECT 1 FROM scorecard_accepted_runs runs
+        WHERE runs.graph_run_id = OLD.graph_run_id
+    ) BEGIN
+        SELECT RAISE(ABORT, 'accepted scorecard recommendations are sealed');
+    END;
+
+CREATE TRIGGER IF NOT EXISTS sealed_narratives_no_new_rows
+    BEFORE INSERT ON agent_display_narratives
+    WHEN EXISTS (
+        SELECT 1 FROM scorecard_accepted_runs runs
+        WHERE runs.cohort = NEW.cohort AND runs.date = NEW.date
+    ) AND NOT EXISTS (
+        SELECT 1 FROM agent_display_narratives existing
+        JOIN scorecard_accepted_runs runs
+          ON runs.graph_run_id = existing.trace_id
+        WHERE existing.cohort = NEW.cohort
+          AND existing.date = NEW.date
+          AND existing.trace_id = NEW.trace_id
+          AND existing.agent = NEW.agent
+    ) BEGIN
+        SELECT RAISE(ABORT, 'accepted scorecard narratives are sealed');
+    END;
+
+CREATE TRIGGER IF NOT EXISTS sealed_macro_signals_no_new_rows
+    BEFORE INSERT ON macro_signals
+    WHEN EXISTS (
+        SELECT 1 FROM scorecard_accepted_runs runs
+        WHERE runs.cohort = NEW.cohort AND runs.date = NEW.date
+    ) AND NOT EXISTS (
+        SELECT 1 FROM macro_signals existing
+        JOIN scorecard_accepted_runs runs
+          ON runs.graph_run_id = existing.graph_run_id
+        WHERE existing.cohort = NEW.cohort
+          AND existing.agent = NEW.agent
+          AND existing.date = NEW.date
+    ) BEGIN
+        SELECT RAISE(ABORT, 'accepted scorecard macro signals are sealed');
+    END;
+
+CREATE TRIGGER IF NOT EXISTS sealed_macro_signals_no_payload_update
+    BEFORE UPDATE ON macro_signals
+    WHEN EXISTS (
+        SELECT 1 FROM scorecard_accepted_runs runs
+        WHERE runs.graph_run_id = OLD.graph_run_id
+    ) AND (
+        NEW.cohort IS NOT OLD.cohort
+        OR NEW.agent IS NOT OLD.agent
+        OR NEW.date IS NOT OLD.date
+        OR NEW.vote IS NOT OLD.vote
+        OR NEW.signal IS NOT OLD.signal
+        OR NEW.confidence IS NOT OLD.confidence
+        OR NEW.raw_output_json IS NOT OLD.raw_output_json
+        OR NEW.consensus_stance IS NOT OLD.consensus_stance
+        OR NEW.consensus_score IS NOT OLD.consensus_score
+        OR NEW.influence_weight_equal IS NOT OLD.influence_weight_equal
+        OR NEW.prompt_repo_id IS NOT OLD.prompt_repo_id
+        OR NEW.prompt_sha256 IS NOT OLD.prompt_sha256
+        OR NEW.day_outcome_status IS NOT OLD.day_outcome_status
+        OR NEW.backtest_run_id IS NOT OLD.backtest_run_id
+        OR NEW.graph_run_id IS NOT OLD.graph_run_id
+    ) BEGIN
+        SELECT RAISE(ABORT, 'accepted scorecard macro signals are sealed');
+    END;
+
+CREATE TRIGGER IF NOT EXISTS sealed_macro_signals_no_delete
+    BEFORE DELETE ON macro_signals
+    WHEN EXISTS (
+        SELECT 1 FROM scorecard_accepted_runs runs
+        WHERE runs.graph_run_id = OLD.graph_run_id
+    ) BEGIN
+        SELECT RAISE(ABORT, 'accepted scorecard macro signals are sealed');
+    END;
+"""
 
 logger = logging.getLogger(__name__)
 
@@ -58,10 +187,14 @@ def _display_clean(value: str) -> str:
         for character in value
     )
     normalized = " ".join(printable.split())
+    return _display_truncate(normalized, 320)
+
+
+def _display_truncate(value: str, maximum: int) -> str:
     return (
-        normalized
-        if len(normalized) <= 320
-        else normalized[:319].rstrip() + "…"
+        value
+        if len(value) <= maximum
+        else value[: max(0, maximum - 1)].rstrip() + "…"
     )
 
 
@@ -84,7 +217,13 @@ def _display_pct(value: Any) -> str:
         or not math.isfinite(float(value))
     ):
         return "-"
-    return f"{math.floor(float(value) * 100 + 0.5)}%"
+    scaled = float(value) * 100
+    rounded = (
+        math.floor(scaled + 0.5)
+        if scaled >= 0
+        else math.ceil(scaled - 0.5)
+    )
+    return f"{rounded}%"
 
 
 def _display_objects(value: Any) -> list[Mapping[str, Any]]:
@@ -400,7 +539,7 @@ def render_agent_display_narrative_text(
     if claims:
         parts.append(_display_section(language, "Evidence", "证据结论", claims))
     text = "\n".join(part for part in parts if part)
-    return text if len(text) <= 2_000 else text[:1_999].rstrip() + "…"
+    return _display_truncate(text, 2_000)
 
 
 def _render_decision_display_parts(
@@ -717,6 +856,7 @@ CREATE TABLE IF NOT EXISTS recommendations (
     replay_triggered INTEGER NOT NULL DEFAULT 0,  -- 1 = produced by a CRO-veto replay cycle (R-A1)
     day_outcome_status TEXT NOT NULL DEFAULT 'legacy_unverified',
     backtest_run_id INTEGER,
+    graph_run_id TEXT,
     forward_return_5d REAL,                     -- NULL until scored
     forward_return_21d REAL,
     alpha_5d REAL,
@@ -764,6 +904,37 @@ CREATE TRIGGER IF NOT EXISTS agent_display_narratives_no_update
 CREATE TRIGGER IF NOT EXISTS agent_display_narratives_no_delete
     BEFORE DELETE ON agent_display_narratives BEGIN
         SELECT RAISE(ABORT, 'agent_display_narratives is append-only');
+    END;
+
+-- Commit seal for a scorecard append that completed all sidecar writes and the
+-- authoritative Darwinian accepted-cycle write in one SQLite transaction.
+CREATE TABLE IF NOT EXISTS scorecard_accepted_runs (
+    graph_run_id TEXT PRIMARY KEY,
+    scorecard_accepted_run_hash TEXT NOT NULL UNIQUE,
+    cohort TEXT NOT NULL,
+    date TEXT NOT NULL,
+    cio_final_accepted_output_id TEXT NOT NULL
+        REFERENCES accepted_agent_outputs_v2(accepted_output_id),
+    cio_final_accepted_output_hash TEXT NOT NULL,
+    sealed_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    UNIQUE(cohort, date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_scorecard_accepted_runs_latest
+    ON scorecard_accepted_runs(cohort, date DESC, sealed_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scorecard_accepted_runs_cohort_date
+    ON scorecard_accepted_runs(cohort, date);
+
+CREATE TRIGGER IF NOT EXISTS scorecard_accepted_runs_no_update
+    BEFORE UPDATE ON scorecard_accepted_runs BEGIN
+        SELECT RAISE(ABORT, 'scorecard_accepted_runs is append-only');
+    END;
+
+CREATE TRIGGER IF NOT EXISTS scorecard_accepted_runs_no_delete
+    BEFORE DELETE ON scorecard_accepted_runs BEGIN
+        SELECT RAISE(ABORT, 'scorecard_accepted_runs is append-only');
     END;
 
 CREATE TABLE IF NOT EXISTS darwinian_weights (
@@ -1008,6 +1179,7 @@ CREATE TABLE IF NOT EXISTS macro_signals (
     prompt_sha256 TEXT,
     day_outcome_status TEXT NOT NULL DEFAULT 'legacy_unverified',
     backtest_run_id INTEGER,
+    graph_run_id TEXT,
     scored_at TEXT,                              -- NULL until the 5d window matures
     UNIQUE(cohort, agent, date)
 );
@@ -1314,6 +1486,27 @@ CREATE TABLE IF NOT EXISTS evaluation_opportunity_sets_v2 (
     record_json TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS evaluation_authority_events_v2 (
+    authority_event_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    authority_event_id TEXT NOT NULL UNIQUE,
+    event_kind TEXT NOT NULL CHECK(event_kind IN (
+        'OPPORTUNITY_FROZEN', 'ACCEPTED_OUTPUT_PERSISTED'
+    )),
+    scheduled_sample_id TEXT NOT NULL,
+    evaluation_opportunity_set_id TEXT NOT NULL
+        REFERENCES evaluation_opportunity_sets_v2(evaluation_opportunity_set_id),
+    evaluation_opportunity_set_hash TEXT NOT NULL,
+    accepted_output_id TEXT REFERENCES accepted_agent_outputs_v2(accepted_output_id),
+    authority_recorded_at TEXT NOT NULL DEFAULT (
+        strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+    ),
+    CHECK(
+        (event_kind = 'OPPORTUNITY_FROZEN' AND accepted_output_id IS NULL)
+        OR
+        (event_kind = 'ACCEPTED_OUTPUT_PERSISTED' AND accepted_output_id IS NOT NULL)
+    )
+);
+
 CREATE TABLE IF NOT EXISTS outcome_schedule_plans_v2 (
     outcome_schedule_plan_id TEXT PRIMARY KEY,
     outcome_schedule_plan_hash TEXT NOT NULL UNIQUE,
@@ -1388,6 +1581,63 @@ CREATE TABLE IF NOT EXISTS no_evaluation_object_stage_skips_v2 (
     evaluation_opportunity_set_id TEXT NOT NULL UNIQUE REFERENCES evaluation_opportunity_sets_v2(evaluation_opportunity_set_id),
     eligibility_audit_revision_id TEXT NOT NULL UNIQUE REFERENCES agent_outcome_eligibility_revisions_v2(audit_revision_id),
     recorded_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS outcome_source_receipts_v1 (
+    source_receipt_id TEXT PRIMARY KEY,
+    source_receipt_hash TEXT NOT NULL UNIQUE,
+    evaluation_opportunity_set_id TEXT NOT NULL REFERENCES evaluation_opportunity_sets_v2(evaluation_opportunity_set_id),
+    accepted_output_id TEXT NOT NULL REFERENCES accepted_agent_outputs_v2(accepted_output_id),
+    scheduled_sample_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    required_source_id TEXT NOT NULL,
+    authority_registry_hash TEXT NOT NULL,
+    authority_entry_hash TEXT NOT NULL,
+    source_owner TEXT NOT NULL,
+    adapter_contract_id TEXT NOT NULL,
+    adapter_contract_version TEXT NOT NULL,
+    verifier_id TEXT NOT NULL,
+    signing_key_id TEXT NOT NULL,
+    attestation_hash TEXT NOT NULL UNIQUE,
+    detached_signature_base64url TEXT NOT NULL,
+    observed_through_at TEXT NOT NULL,
+    released_at TEXT NOT NULL,
+    vintage_at TEXT NOT NULL,
+    verified_at TEXT NOT NULL,
+    ingested_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    UNIQUE(scheduled_sample_id, required_source_id)
+);
+
+CREATE TABLE IF NOT EXISTS outcome_source_authority_registry_history_v1 (
+    authority_registry_hash TEXT PRIMARY KEY,
+    authority_registry_version TEXT NOT NULL,
+    authority_registry_schema_hash TEXT NOT NULL,
+    provisioning_status TEXT NOT NULL CHECK(provisioning_status = 'ACTIVE'),
+    recorded_at TEXT NOT NULL,
+    registry_history_record_hash TEXT NOT NULL UNIQUE,
+    record_json TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS outcome_source_batches_v1 (
+    source_batch_id TEXT PRIMARY KEY,
+    source_batch_hash TEXT NOT NULL UNIQUE,
+    scheduled_sample_id TEXT NOT NULL UNIQUE,
+    evaluation_opportunity_set_id TEXT NOT NULL UNIQUE REFERENCES evaluation_opportunity_sets_v2(evaluation_opportunity_set_id),
+    accepted_output_id TEXT NOT NULL UNIQUE REFERENCES accepted_agent_outputs_v2(accepted_output_id),
+    agent_id TEXT NOT NULL,
+    authority_registry_hash TEXT NOT NULL,
+    outcome_due_at TEXT NOT NULL,
+    matured_at TEXT NOT NULL,
+    projection_status TEXT NOT NULL CHECK(projection_status IN ('SCORE', 'ABSTAIN')),
+    realized_metric_schema_id TEXT NOT NULL,
+    observed_through_at TEXT NOT NULL,
+    released_at TEXT NOT NULL,
+    vintage_at TEXT NOT NULL,
+    verified_at TEXT NOT NULL,
+    ingested_at TEXT NOT NULL,
+    sealed_at TEXT NOT NULL,
     record_json TEXT NOT NULL
 );
 
@@ -1549,6 +1799,20 @@ CREATE TABLE IF NOT EXISTS darwinian_v2_usage_weight_batch_revisions (
     UNIQUE(update_event_id, status)
 );
 
+CREATE TABLE IF NOT EXISTS darwinian_v2_usage_weight_batch_publications (
+    publication_receipt_id TEXT PRIMARY KEY,
+    publication_receipt_hash TEXT NOT NULL UNIQUE,
+    update_event_id TEXT NOT NULL UNIQUE,
+    published_batch_revision_id TEXT NOT NULL UNIQUE
+        REFERENCES darwinian_v2_usage_weight_batch_revisions(batch_revision_id),
+    published_batch_revision_hash TEXT NOT NULL,
+    published_at TEXT NOT NULL,
+    record_json TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_darwin_v2_batch_publication_time
+    ON darwinian_v2_usage_weight_batch_publications(published_at);
+
 CREATE TABLE IF NOT EXISTS darwinian_v2_usage_weight_snapshots (
     darwinian_snapshot_id TEXT PRIMARY KEY,
     darwinian_snapshot_hash TEXT NOT NULL UNIQUE,
@@ -1618,6 +1882,66 @@ CREATE TRIGGER IF NOT EXISTS no_update_evaluation_opportunity_sets_v2
 BEFORE UPDATE ON evaluation_opportunity_sets_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
 CREATE TRIGGER IF NOT EXISTS no_delete_evaluation_opportunity_sets_v2
 BEFORE DELETE ON evaluation_opportunity_sets_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS opportunity_available_excludes_generation_failure_v2
+BEFORE INSERT ON evaluation_opportunity_sets_v2
+WHEN EXISTS (
+    SELECT 1 FROM evaluation_opportunity_set_generation_failures_v2
+    WHERE scheduled_sample_id = NEW.scheduled_sample_id
+)
+BEGIN SELECT RAISE(ABORT, 'scheduled_opportunity_terminal_conflict'); END;
+CREATE TRIGGER IF NOT EXISTS generation_failure_excludes_opportunity_available_v2
+BEFORE INSERT ON evaluation_opportunity_set_generation_failures_v2
+WHEN EXISTS (
+    SELECT 1 FROM evaluation_opportunity_sets_v2
+    WHERE scheduled_sample_id = NEW.scheduled_sample_id
+)
+BEGIN SELECT RAISE(ABORT, 'scheduled_opportunity_terminal_conflict'); END;
+CREATE TRIGGER IF NOT EXISTS accepted_output_requires_freeze_authority_v2
+BEFORE INSERT ON accepted_agent_outputs_v2
+WHEN NEW.scheduled_sample_id IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM evaluation_authority_events_v2
+    WHERE event_kind = 'OPPORTUNITY_FROZEN'
+      AND scheduled_sample_id = NEW.scheduled_sample_id
+)
+BEGIN SELECT RAISE(ABORT, 'accepted_output_requires_freeze_authority'); END;
+CREATE TRIGGER IF NOT EXISTS accepted_output_authority_event_v2
+AFTER INSERT ON accepted_agent_outputs_v2
+WHEN NEW.scheduled_sample_id IS NOT NULL
+BEGIN
+    INSERT INTO evaluation_authority_events_v2 (
+        authority_event_id,
+        event_kind,
+        scheduled_sample_id,
+        evaluation_opportunity_set_id,
+        evaluation_opportunity_set_hash,
+        accepted_output_id,
+        authority_recorded_at
+    )
+    SELECT
+        'accepted-output-persisted:' || NEW.accepted_output_id,
+        'ACCEPTED_OUTPUT_PERSISTED',
+        NEW.scheduled_sample_id,
+        opportunity.evaluation_opportunity_set_id,
+        opportunity.evaluation_opportunity_set_hash,
+        NEW.accepted_output_id,
+        CASE
+            WHEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') >= COALESCE((
+                SELECT MAX(authority_recorded_at)
+                FROM evaluation_authority_events_v2
+            ), '')
+            THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            ELSE (
+                SELECT MAX(authority_recorded_at)
+                FROM evaluation_authority_events_v2
+            )
+        END
+    FROM evaluation_opportunity_sets_v2 AS opportunity
+    WHERE opportunity.scheduled_sample_id = NEW.scheduled_sample_id;
+END;
+CREATE TRIGGER IF NOT EXISTS no_update_evaluation_authority_events_v2
+BEFORE UPDATE ON evaluation_authority_events_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_evaluation_authority_events_v2
+BEFORE DELETE ON evaluation_authority_events_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
 CREATE TRIGGER IF NOT EXISTS no_update_outcome_schedule_plans_v2
 BEFORE UPDATE ON outcome_schedule_plans_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
 CREATE TRIGGER IF NOT EXISTS no_delete_outcome_schedule_plans_v2
@@ -1638,6 +1962,18 @@ CREATE TRIGGER IF NOT EXISTS no_update_no_evaluation_object_stage_skips_v2
 BEFORE UPDATE ON no_evaluation_object_stage_skips_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
 CREATE TRIGGER IF NOT EXISTS no_delete_no_evaluation_object_stage_skips_v2
 BEFORE DELETE ON no_evaluation_object_stage_skips_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_outcome_source_receipts_v1
+BEFORE UPDATE ON outcome_source_receipts_v1 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_outcome_source_receipts_v1
+BEFORE DELETE ON outcome_source_receipts_v1 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_outcome_source_authority_registry_history_v1
+BEFORE UPDATE ON outcome_source_authority_registry_history_v1 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_outcome_source_authority_registry_history_v1
+BEFORE DELETE ON outcome_source_authority_registry_history_v1 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_outcome_source_batches_v1
+BEFORE UPDATE ON outcome_source_batches_v1 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_outcome_source_batches_v1
+BEFORE DELETE ON outcome_source_batches_v1 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
 CREATE TRIGGER IF NOT EXISTS no_update_realized_outcome_observations_v2
 BEFORE UPDATE ON realized_outcome_observations_v2 BEGIN SELECT RAISE(ABORT, 'append_only'); END;
 CREATE TRIGGER IF NOT EXISTS no_delete_realized_outcome_observations_v2
@@ -1674,6 +2010,10 @@ CREATE TRIGGER IF NOT EXISTS no_update_darwin_v2_batch_revisions
 BEFORE UPDATE ON darwinian_v2_usage_weight_batch_revisions BEGIN SELECT RAISE(ABORT, 'append_only'); END;
 CREATE TRIGGER IF NOT EXISTS no_delete_darwin_v2_batch_revisions
 BEFORE DELETE ON darwinian_v2_usage_weight_batch_revisions BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_update_darwin_v2_batch_publications
+BEFORE UPDATE ON darwinian_v2_usage_weight_batch_publications BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+CREATE TRIGGER IF NOT EXISTS no_delete_darwin_v2_batch_publications
+BEFORE DELETE ON darwinian_v2_usage_weight_batch_publications BEGIN SELECT RAISE(ABORT, 'append_only'); END;
 CREATE TRIGGER IF NOT EXISTS no_update_darwin_v2_weight_snapshots
 BEFORE UPDATE ON darwinian_v2_usage_weight_snapshots BEGIN SELECT RAISE(ABORT, 'append_only'); END;
 CREATE TRIGGER IF NOT EXISTS no_delete_darwin_v2_weight_snapshots
@@ -1747,6 +2087,9 @@ def expand_state_to_recommendations(state: dict[str, Any]) -> list[dict[str, Any
     backtest_run_id = state.get("backtest_run_id")
     if not isinstance(backtest_run_id, int) or isinstance(backtest_run_id, bool):
         backtest_run_id = None
+    graph_run_id = state.get("trace_id")
+    if not isinstance(graph_run_id, str) or not graph_run_id.strip():
+        graph_run_id = None
 
     rows: list[dict[str, Any]] = []
 
@@ -1857,6 +2200,7 @@ def expand_state_to_recommendations(state: dict[str, Any]) -> list[dict[str, Any
         row["replay_triggered"] = replay_flag
         row["day_outcome_status"] = day_outcome_status
         row["backtest_run_id"] = backtest_run_id
+        row["graph_run_id"] = graph_run_id
         for key in (
             "current_weight_pct",
             "delta_weight_pct",
@@ -1889,6 +2233,9 @@ def _expand_formal_accepted_recommendations(
     backtest_run_id = state.get("backtest_run_id")
     if not isinstance(backtest_run_id, int) or isinstance(backtest_run_id, bool):
         backtest_run_id = None
+    graph_run_id = state.get("trace_id")
+    if not isinstance(graph_run_id, str) or not graph_run_id.strip():
+        raise ValueError("formal accepted recommendations require state.trace_id")
     rows: list[dict[str, Any]] = []
     records = _formal_accepted_payload_records(state)
     for record, payload in records:
@@ -2023,6 +2370,8 @@ def _expand_formal_accepted_recommendations(
                         "backtest_run_id": backtest_run_id,
                     }
                 )
+    for row in rows:
+        row["graph_run_id"] = graph_run_id
     return rows
 
 
@@ -2170,6 +2519,9 @@ def expand_state_to_macro_signals(state: dict[str, Any]) -> list[dict[str, Any]]
     backtest_run_id = state.get("backtest_run_id")
     if not isinstance(backtest_run_id, int) or isinstance(backtest_run_id, bool):
         backtest_run_id = None
+    graph_run_id = state.get("trace_id")
+    if not isinstance(graph_run_id, str) or not graph_run_id.strip():
+        graph_run_id = None
 
     rows: list[dict[str, Any]] = []
     macro_outputs = (
@@ -2201,6 +2553,7 @@ def expand_state_to_macro_signals(state: dict[str, Any]) -> list[dict[str, Any]]
                 "prompt_sha256": prompt_sha256,
                 "day_outcome_status": day_outcome_status,
                 "backtest_run_id": backtest_run_id,
+                "graph_run_id": graph_run_id,
             }
         )
     influence = _macro_equal_weight_influence(rows)
@@ -2234,6 +2587,10 @@ class ScorecardStore:
             conn.execute("PRAGMA foreign_keys = ON")
             conn.row_factory = sqlite3.Row
             yield conn
+        except Exception:
+            conn.rollback()
+            raise
+        else:
             conn.commit()
         finally:
             conn.close()
@@ -2263,8 +2620,13 @@ class ScorecardStore:
                 ("dissent_notes", "TEXT"),
                 ("day_outcome_status", "TEXT NOT NULL DEFAULT 'legacy_unverified'"),
                 ("backtest_run_id", "INTEGER"),
+                ("graph_run_id", "TEXT"),
             ):
                 self._ensure_column(conn, "recommendations", column, ddl)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_rec_cohort_graph_run "
+                "ON recommendations(cohort, graph_run_id, date)"
+            )
             self._ensure_column(conn, "prompt_versions", "prompt_repo_id", "TEXT")
             self._ensure_column(conn, "prompt_versions", "prompt_base_commit_hash", "TEXT")
             self._ensure_column(conn, "prompt_versions", "prompt_sha256", "TEXT")
@@ -2300,6 +2662,12 @@ class ScorecardStore:
                 "TEXT NOT NULL DEFAULT 'legacy_unverified'",
             )
             self._ensure_column(conn, "macro_signals", "backtest_run_id", "INTEGER")
+            self._ensure_column(conn, "macro_signals", "graph_run_id", "TEXT")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_macro_signals_cohort_graph_run "
+                "ON macro_signals(cohort, graph_run_id, date)"
+            )
+            conn.executescript(_SCORECARD_SEAL_GUARDS_SQL)
             for column, ddl in (
                 ("prepared_at", "TEXT"),
                 ("recorded_at", "TEXT"),
@@ -2616,6 +2984,176 @@ class ScorecardStore:
         with self._connect() as conn:
             return append_accepted_cycle(conn, state=state)
 
+    def append_accepted_scorecard_cycle(
+        self,
+        state: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Atomically persist scorecard sidecars and the accepted Darwinian run."""
+        full_state = dict(state)
+        evaluation_state = {
+            key: value
+            for key, value in full_state.items()
+            if key != "agent_display_narratives"
+        }
+        if (
+            evaluation_state.get("darwinian_runtime_binding") is not None
+            and full_state.get("agent_display_narratives") is None
+        ):
+            raise ValueError(
+                "accepted scorecard run requires agent_display_narratives"
+            )
+        with self._connect() as conn:
+            recommendation_count = self.append_from_state(
+                evaluation_state,
+                _conn=conn,
+            )
+            macro_count = self.append_macro_signals_from_state(
+                evaluation_state,
+                _conn=conn,
+            )
+            narrative_count = (
+                self.append_agent_display_narratives_from_state(
+                    full_state,
+                    _conn=conn,
+                )
+                if full_state.get("agent_display_narratives") is not None
+                else None
+            )
+            darwinian_result: dict[str, Any] | None = None
+            if evaluation_state.get("darwinian_runtime_binding") is not None:
+                from mosaic.scorecard.darwinian_v2 import append_accepted_cycle
+
+                darwinian_result = append_accepted_cycle(
+                    conn,
+                    state=evaluation_state,
+                )
+                self._seal_scorecard_accepted_run(
+                    conn,
+                    state=full_state,
+                    recommendation_count=recommendation_count,
+                    macro_count=macro_count,
+                    narrative_count=narrative_count or 0,
+                )
+        return {
+            "ingested": recommendation_count,
+            "macro_ingested": macro_count,
+            **(
+                {"agent_narratives_ingested": narrative_count}
+                if narrative_count is not None
+                else {}
+            ),
+            **(
+                {"darwinian_v2": darwinian_result}
+                if darwinian_result is not None
+                else {}
+            ),
+        }
+
+    def _seal_scorecard_accepted_run(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        state: Mapping[str, Any],
+        recommendation_count: int,
+        macro_count: int,
+        narrative_count: int,
+    ) -> dict[str, Any]:
+        from mosaic.scorecard.darwinian_v2 import canonical_hash, canonical_json
+
+        graph_run_id = state.get("trace_id")
+        cohort = state.get("active_cohort")
+        as_of_date = state.get("as_of_date")
+        if not all(
+            isinstance(value, str) and value.strip()
+            for value in (graph_run_id, cohort, as_of_date)
+        ):
+            raise ValueError("accepted scorecard run requires trace/cohort/date")
+        rows = conn.execute(
+            "SELECT accepted_output_id, accepted_output_hash, accepted_at, record_json "
+            "FROM accepted_agent_outputs_v2 WHERE graph_run_id = ? "
+            "AND cohort_id = ? AND agent_id = 'cio' "
+            "AND accepted_output_kind = 'CIO_FINAL' "
+            "AND sample_origin = 'PRODUCTION_ACTIVE'",
+            (graph_run_id, cohort),
+        ).fetchall()
+        if len(rows) != 1:
+            raise ValueError(
+                "accepted scorecard run requires one authoritative CIO final output"
+            )
+        row = rows[0]
+        accepted = json.loads(row[3])
+        if (
+            not isinstance(accepted, dict)
+            or accepted.get("accepted_output_id") != row[0]
+            or accepted.get("accepted_output_hash") != row[1]
+            or accepted.get("accepted_at") != row[2]
+            or accepted.get("graph_run_id") != graph_run_id
+            or accepted.get("cohort_id") != cohort
+            or not isinstance(accepted.get("as_of"), str)
+            or accepted["as_of"][:10] != as_of_date
+            or accepted.get("accepted_output_hash")
+            != canonical_hash(
+                {
+                    key: value
+                    for key, value in accepted.items()
+                    if key != "accepted_output_hash"
+                }
+            )
+        ):
+            raise ValueError("authoritative CIO final output seal binding mismatch")
+        binding = state.get("darwinian_runtime_binding")
+        if not isinstance(binding, Mapping):
+            raise ValueError("accepted scorecard run requires Darwinian binding")
+        narrative_bundle = state.get("agent_display_narratives")
+        without_hash = {
+            "schema_version": "scorecard_accepted_run_v1",
+            "graph_run_id": graph_run_id,
+            "cohort": cohort,
+            "date": as_of_date,
+            "darwinian_runtime_binding_hash": binding.get("binding_hash"),
+            "cio_final_accepted_output_id": row[0],
+            "cio_final_accepted_output_hash": row[1],
+            "recommendation_row_count": recommendation_count,
+            "macro_signal_row_count": macro_count,
+            "narrative_row_count": narrative_count,
+            "narrative_bundle_hash": (
+                narrative_bundle.get("bundle_hash")
+                if isinstance(narrative_bundle, Mapping)
+                else None
+            ),
+            "sealed_at": row[2],
+        }
+        record = {
+            **without_hash,
+            "scorecard_accepted_run_hash": canonical_hash(without_hash),
+        }
+        record_json = canonical_json(record)
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO scorecard_accepted_runs ("
+            "graph_run_id, scorecard_accepted_run_hash, cohort, date, "
+            "cio_final_accepted_output_id, cio_final_accepted_output_hash, "
+            "sealed_at, record_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                graph_run_id,
+                record["scorecard_accepted_run_hash"],
+                cohort,
+                as_of_date,
+                row[0],
+                row[1],
+                row[2],
+                record_json,
+            ),
+        )
+        if cursor.rowcount == 0:
+            existing = conn.execute(
+                "SELECT record_json FROM scorecard_accepted_runs "
+                "WHERE graph_run_id = ?",
+                (graph_run_id,),
+            ).fetchone()
+            if existing is None or existing[0] != record_json:
+                raise ValueError("conflicting immutable accepted scorecard run")
+        return record
+
     def append_knot_pair_side_execution_result(
         self,
         *,
@@ -2698,6 +3236,24 @@ class ScorecardStore:
             )
             return {**result, "cio_proposal_ref": proposal_ref}
 
+    def append_and_seal_outcome_source_batch(
+        self,
+        *,
+        evaluation_opportunity_set_id: str,
+        signed_attestations: Sequence[Mapping[str, Any]],
+    ) -> dict[str, Any]:
+        """Verify and atomically seal one exact required-source batch."""
+        from mosaic.scorecard.outcome_source_receipts import (
+            append_and_seal_outcome_source_batch,
+        )
+
+        with self._connect() as conn:
+            return append_and_seal_outcome_source_batch(
+                conn,
+                evaluation_opportunity_set_id=evaluation_opportunity_set_id,
+                signed_attestations=signed_attestations,
+            )
+
     def prepare_outcome_schedule_plan(
         self,
         *,
@@ -2767,9 +3323,15 @@ class ScorecardStore:
         return {
             "scheduled_sample_id": scheduled_sample_id,
             "as_of": plan["as_of"],
+            "prepared_at": plan["prepared_at"],
+            "graph_run_id": plan["graph_run_id"],
             "agent_id": slot["agent_id"],
             "track_key_hash": slot["track_key_hash"],
             "outcome_schedule_plan_id": plan["outcome_schedule_plan_id"],
+            "outcome_schedule_slot_id": slot["outcome_schedule_slot_id"],
+            "outcome_schedule_slot_hash": slot["outcome_schedule_slot_hash"],
+            "run_slot_id": slot["run_slot_id"],
+            "trigger_event": slot["trigger_event"],
         }
 
     def freeze_scheduled_outcome_opportunity(
@@ -2781,6 +3343,9 @@ class ScorecardStore:
         member_refs: Sequence[Mapping[str, Any]],
         source_evidence_by_required_source_id: Mapping[str, Sequence[str]],
         projection_snapshot_hash: str,
+        frozen_object_set_id: str | None = None,
+        frozen_object_set_hash: str | None = None,
+        runtime_authority_binding: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         from mosaic.scorecard.outcome_scheduler import freeze_scheduled_opportunity
 
@@ -2795,6 +3360,9 @@ class ScorecardStore:
                     source_evidence_by_required_source_id
                 ),
                 projection_snapshot_hash=projection_snapshot_hash,
+                frozen_object_set_id=frozen_object_set_id,
+                frozen_object_set_hash=frozen_object_set_hash,
+                runtime_authority_binding=runtime_authority_binding,
             )
 
     def record_scheduled_outcome_opportunity_failure(
@@ -2843,6 +3411,41 @@ class ScorecardStore:
                 recorded_at=recorded_at,
             )
 
+    def resolve_no_evaluation_object_stage_skip(
+        self,
+        *,
+        graph_run_id: str,
+        agent_id: str,
+    ) -> dict[str, Any] | None:
+        """Return the unique immutable stage skip for one runtime control source."""
+        from mosaic.scorecard.canonical_json import canonical_hash
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT record_json FROM no_evaluation_object_stage_skips_v2 "
+                "WHERE graph_run_id = ? AND agent_id = ?",
+                (graph_run_id, agent_id),
+            ).fetchall()
+        if not rows:
+            return None
+        if len(rows) != 1:
+            raise ValueError(
+                f"multiple stage skips resolve {graph_run_id}:{agent_id}"
+            )
+        record = json.loads(rows[0][0])
+        without_hash = {
+            key: value for key, value in record.items() if key != "stage_skip_hash"
+        }
+        if (
+            record.get("graph_run_id") != graph_run_id
+            or record.get("agent_id") != agent_id
+            or record.get("skip_reason") != "NO_EVALUATION_OBJECT"
+            or record.get("model_invoked") is not False
+            or record.get("stage_skip_hash") != canonical_hash(without_hash)
+        ):
+            raise ValueError(f"invalid persisted stage skip: {graph_run_id}:{agent_id}")
+        return record
+
     def prepare_darwinian_v2_production_variant(
         self,
         *,
@@ -2861,9 +3464,20 @@ class ScorecardStore:
         cutoff_at: str,
         trading_dates: Sequence[str],
     ) -> list[dict[str, Any]]:
-        from mosaic.scorecard.darwinian_updates import refresh_evaluation_windows
+        from mosaic.scorecard.darwinian_updates import (
+            materialize_due_outcomes,
+            refresh_evaluation_windows,
+        )
 
         with self._connect() as conn:
+            materialize_due_outcomes(
+                conn,
+                production_variant_roster_revision_id=(
+                    production_variant_roster_revision_id
+                ),
+                cutoff_at=cutoff_at,
+                trading_dates=trading_dates,
+            )
             return refresh_evaluation_windows(
                 conn,
                 production_variant_roster_revision_id=(
@@ -2880,9 +3494,24 @@ class ScorecardStore:
         cutoff_at: str,
         trading_dates: Sequence[str],
     ) -> list[dict[str, Any]]:
-        from mosaic.scorecard.darwinian_updates import publish_usage_weight_updates
+        from mosaic.scorecard.darwinian_updates import (
+            materialize_due_outcomes,
+            publish_usage_weight_updates,
+        )
 
         with self._connect() as conn:
+            maturation = materialize_due_outcomes(
+                conn,
+                production_variant_roster_revision_id=(
+                    production_variant_roster_revision_id
+                ),
+                cutoff_at=cutoff_at,
+                trading_dates=trading_dates,
+            )
+            if maturation["unresolved_count"]:
+                raise ValueError(
+                    "Darwinian publication blocked by unresolved due outcome projections"
+                )
             return publish_usage_weight_updates(
                 conn,
                 production_variant_roster_revision_id=(
@@ -3047,7 +3676,12 @@ class ScorecardStore:
 
     # ── recommendations ──────────────────────────────────────────────────
 
-    def append_from_state(self, state: dict[str, Any]) -> int:
+    def append_from_state(
+        self,
+        state: dict[str, Any],
+        *,
+        _conn: sqlite3.Connection | None = None,
+    ) -> int:
         """Ingest a daily-cycle final state. Returns the number of rows
         upserted.
 
@@ -3062,7 +3696,7 @@ class ScorecardStore:
         if not rows:
             return 0
 
-        with self._connect() as conn:
+        with (nullcontext(_conn) if _conn is not None else self._connect()) as conn:
             conn.executemany(
                 """
                 INSERT INTO recommendations (
@@ -3072,7 +3706,8 @@ class ScorecardStore:
                     thesis_status, risk_flags_json, declared_knob_influence_ids_json,
                     declared_influence_rationale, verified_knob_audit_json,
                     decision_agent_audits_json, dissent_notes, rationale_snapshot,
-                    replay_triggered, day_outcome_status, backtest_run_id
+                    replay_triggered, day_outcome_status, backtest_run_id,
+                    graph_run_id
                 ) VALUES (
                     :cohort, :agent, :ticker, :date, :action, :conviction,
                     :target_weight_pct, :current_weight_pct, :delta_weight_pct,
@@ -3080,7 +3715,8 @@ class ScorecardStore:
                     :thesis_status, :risk_flags_json, :declared_knob_influence_ids_json,
                     :declared_influence_rationale, :verified_knob_audit_json,
                     :decision_agent_audits_json, :dissent_notes, :rationale_snapshot,
-                    :replay_triggered, :day_outcome_status, :backtest_run_id
+                    :replay_triggered, :day_outcome_status, :backtest_run_id,
+                    :graph_run_id
                 )
                 ON CONFLICT(cohort, agent, ticker, date) DO UPDATE SET
                     action = excluded.action,
@@ -3101,14 +3737,18 @@ class ScorecardStore:
                     rationale_snapshot = excluded.rationale_snapshot,
                     replay_triggered = excluded.replay_triggered,
                     day_outcome_status = excluded.day_outcome_status,
-                    backtest_run_id = excluded.backtest_run_id
+                    backtest_run_id = excluded.backtest_run_id,
+                    graph_run_id = excluded.graph_run_id
                 """,
                 rows,
             )
         return len(rows)
 
     def append_agent_display_narratives_from_state(
-        self, state: dict[str, Any]
+        self,
+        state: dict[str, Any],
+        *,
+        _conn: sqlite3.Connection | None = None,
     ) -> int:
         """Persist the exact 28-Agent UI narrative sidecar for one live run.
 
@@ -3434,7 +4074,7 @@ class ScorecardStore:
                 }
             )
 
-        with self._connect() as conn:
+        with (nullcontext(_conn) if _conn is not None else self._connect()) as conn:
             conn.executemany(
                 """
                 INSERT INTO agent_display_narratives (
@@ -3549,7 +4189,12 @@ class ScorecardStore:
 
     # ── macro signals (Layer 1) ──────────────────────────────────────────
 
-    def append_macro_signals_from_state(self, state: dict[str, Any]) -> int:
+    def append_macro_signals_from_state(
+        self,
+        state: dict[str, Any],
+        *,
+        _conn: sqlite3.Connection | None = None,
+    ) -> int:
         """Ingest Layer 1 macro outputs into ``macro_signals``. Returns rows upserted.
 
         Idempotent on (cohort, agent, date): re-ingest refreshes vote/confidence/
@@ -3559,17 +4204,19 @@ class ScorecardStore:
         rows = expand_state_to_macro_signals(state)
         if not rows:
             return 0
-        with self._connect() as conn:
+        with (nullcontext(_conn) if _conn is not None else self._connect()) as conn:
             conn.executemany(
                 """
                 INSERT INTO macro_signals (
                     cohort, agent, date, vote, signal, confidence, raw_output_json,
                     consensus_stance, consensus_score, influence_weight_equal,
-                    prompt_repo_id, prompt_sha256, day_outcome_status, backtest_run_id
+                    prompt_repo_id, prompt_sha256, day_outcome_status, backtest_run_id,
+                    graph_run_id
                 ) VALUES (
                     :cohort, :agent, :date, :vote, :signal, :confidence, :raw_output_json,
                     :consensus_stance, :consensus_score, :influence_weight_equal,
-                    :prompt_repo_id, :prompt_sha256, :day_outcome_status, :backtest_run_id
+                    :prompt_repo_id, :prompt_sha256, :day_outcome_status, :backtest_run_id,
+                    :graph_run_id
                 )
                 ON CONFLICT(cohort, agent, date) DO UPDATE SET
                     vote = excluded.vote,
@@ -3578,11 +4225,16 @@ class ScorecardStore:
                     raw_output_json = excluded.raw_output_json,
                     consensus_stance = excluded.consensus_stance,
                     consensus_score = excluded.consensus_score,
-                    influence_weight_equal = excluded.influence_weight_equal,
+                    influence_weight_equal = CASE
+                        WHEN macro_signals.scored_at IS NULL
+                        THEN excluded.influence_weight_equal
+                        ELSE macro_signals.influence_weight_equal
+                    END,
                     prompt_repo_id = excluded.prompt_repo_id,
                     prompt_sha256 = excluded.prompt_sha256,
                     day_outcome_status = excluded.day_outcome_status,
-                    backtest_run_id = excluded.backtest_run_id
+                    backtest_run_id = excluded.backtest_run_id,
+                    graph_run_id = excluded.graph_run_id
                 """,
                 rows,
             )
@@ -4040,12 +4692,11 @@ class ScorecardStore:
         date the CIO produced any. Read-only."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT MAX(date) AS d FROM recommendations WHERE cohort = ? AND agent = 'cio' "
-                "AND day_outcome_status = 'accepted'",
+                "SELECT date, graph_run_id FROM scorecard_accepted_runs "
+                "WHERE cohort = ? ORDER BY date DESC, sealed_at DESC LIMIT 1",
                 (cohort,),
             ).fetchone()
-            latest = row["d"] if row else None
-            if not latest:
+            if row is None:
                 return {"cohort": cohort, "date": None, "actions": []}
             cur = conn.execute(
                 "SELECT ticker, action, target_weight_pct, rationale_snapshot, "
@@ -4055,19 +4706,30 @@ class ScorecardStore:
                 "       declared_influence_rationale, verified_knob_audit_json, "
                 "       decision_agent_audits_json, dissent_notes "
                 "FROM recommendations WHERE cohort = ? AND agent = 'cio' AND date = ? "
-                "AND day_outcome_status = 'accepted' "
+                "AND graph_run_id = ? AND day_outcome_status = 'accepted' "
                 "ORDER BY target_weight_pct DESC, ticker",
-                (cohort, latest),
+                (cohort, row["date"], row["graph_run_id"]),
             )
-            return {"cohort": cohort, "date": latest, "actions": [dict(r) for r in cur.fetchall()]}
+            return {
+                "cohort": cohort,
+                "date": row["date"],
+                "actions": [dict(item) for item in cur.fetchall()],
+            }
 
     def get_latest_agent_display_narratives(self, cohort: str) -> dict[str, Any]:
         """Return the latest complete UI-only Agent narrative bundle."""
         with self._connect() as conn:
             latest = conn.execute(
-                "SELECT date, trace_id, bundle_hash, language "
-                "FROM agent_display_narratives WHERE cohort = ? "
-                "ORDER BY created_at DESC, id DESC LIMIT 1",
+                "SELECT narratives.date, narratives.trace_id, "
+                "narratives.bundle_hash, narratives.language "
+                "FROM agent_display_narratives narratives "
+                "JOIN scorecard_accepted_runs runs "
+                "ON runs.graph_run_id = narratives.trace_id "
+                "AND runs.cohort = narratives.cohort "
+                "AND runs.date = narratives.date "
+                "WHERE narratives.cohort = ? "
+                "ORDER BY runs.date DESC, runs.sealed_at DESC, narratives.id DESC "
+                "LIMIT 1",
                 (cohort,),
             ).fetchone()
             if not latest:

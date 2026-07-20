@@ -54,7 +54,7 @@ In development you can run the whole pipeline at zero cost with a mocked LLM (`-
 ```bash
 cd /path/to/MOSAIC-RKE
 
-# Smoke-test the bridge (spawns the Python sidecar, lists tools + config)
+# Smoke-test the bridge (spawns the Python sidecar and verifies config.get)
 pnpm --dir mosaic-ts dev bridge-ping
 
 # Build a fresh, hash-bound synthetic PIT bundle, then run all 29 stages.

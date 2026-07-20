@@ -1,0 +1,142 @@
+{
+  "registry_version": "outcome_normalization_registry_v1",
+  "registry_hash": "sha256:9f7e47e4a6a0a2a32ee1312f0a36a27ce70b8265d58db191f6843dabb01b1ce5",
+  "entries": [
+    {
+      "normalization_contract_version": "alpha_incremental_utility_normalization_v2",
+      "effective_at": "2020-01-01T00:00:00+08:00",
+      "scale": 1.0,
+      "scale_authority": "PRE_REGISTERED_COLD_START_UNIT_SCALE",
+      "calibration_sample_count": 0,
+      "calibration_window_end": null
+    },
+    {
+      "normalization_contract_version": "china_macro_transmission_a_share_path_5d_normalization_v1",
+      "effective_at": "2020-01-01T00:00:00+08:00",
+      "scale": 1.0,
+      "scale_authority": "PRE_REGISTERED_COLD_START_UNIT_SCALE",
+      "calibration_sample_count": 0,
+      "calibration_window_end": null
+    },
+    {
+      "normalization_contract_version": "cio_portfolio_utility_normalization_v2",
+      "effective_at": "2020-01-01T00:00:00+08:00",
+      "scale": 1.0,
+      "scale_authority": "PRE_REGISTERED_COLD_START_UNIT_SCALE",
+      "calibration_sample_count": 0,
+      "calibration_window_end": null
+    },
+    {
+      "normalization_contract_version": "commodity_a_share_transmission_path_5d_normalization_v1",
+      "effective_at": "2020-01-01T00:00:00+08:00",
+      "scale": 1.0,
+      "scale_authority": "PRE_REGISTERED_COLD_START_UNIT_SCALE",
+      "calibration_sample_count": 0,
+      "calibration_window_end": null
+    },
+    {
+      "normalization_contract_version": "cro_risk_control_normalization_v2",
+      "effective_at": "2020-01-01T00:00:00+08:00",
+      "scale": 1.0,
+      "scale_authority": "PRE_REGISTERED_COLD_START_UNIT_SCALE",
+      "calibration_sample_count": 0,
+      "calibration_window_end": null
+    },
+    {
+      "normalization_contract_version": "eu_economic_cycle_a_share_path_5d_normalization_v1",
+      "effective_at": "2020-01-01T00:00:00+08:00",
+      "scale": 1.0,
+      "scale_authority": "PRE_REGISTERED_COLD_START_UNIT_SCALE",
+      "calibration_sample_count": 0,
+      "calibration_window_end": null
+    },
+    {
+      "normalization_contract_version": "euro_area_financial_conditions_a_share_path_5d_normalization_v1",
+      "effective_at": "2020-01-01T00:00:00+08:00",
+      "scale": 1.0,
+      "scale_authority": "PRE_REGISTERED_COLD_START_UNIT_SCALE",
+      "calibration_sample_count": 0,
+      "calibration_window_end": null
+    },
+    {
+      "normalization_contract_version": "execution_cost_feasibility_normalization_v2",
+      "effective_at": "2020-01-01T00:00:00+08:00",
+      "scale": 1.0,
+      "scale_authority": "PRE_REGISTERED_COLD_START_UNIT_SCALE",
+      "calibration_sample_count": 0,
+      "calibration_window_end": null
+    },
+    {
+      "normalization_contract_version": "geopolitical_transmission_a_share_path_5d_normalization_v1",
+      "effective_at": "2020-01-01T00:00:00+08:00",
+      "scale": 1.0,
+      "scale_authority": "PRE_REGISTERED_COLD_START_UNIT_SCALE",
+      "calibration_sample_count": 0,
+      "calibration_window_end": null
+    },
+    {
+      "normalization_contract_version": "institutional_flow_followthrough_5d_normalization_v1",
+      "effective_at": "2020-01-01T00:00:00+08:00",
+      "scale": 1.0,
+      "scale_authority": "PRE_REGISTERED_COLD_START_UNIT_SCALE",
+      "calibration_sample_count": 0,
+      "calibration_window_end": null
+    },
+    {
+      "normalization_contract_version": "market_breadth_confirmation_5d_normalization_v1",
+      "effective_at": "2020-01-01T00:00:00+08:00",
+      "scale": 1.0,
+      "scale_authority": "PRE_REGISTERED_COLD_START_UNIT_SCALE",
+      "calibration_sample_count": 0,
+      "calibration_window_end": null
+    },
+    {
+      "normalization_contract_version": "pboc_rate_liquidity_a_share_path_5d_normalization_v1",
+      "effective_at": "2020-01-01T00:00:00+08:00",
+      "scale": 1.0,
+      "scale_authority": "PRE_REGISTERED_COLD_START_UNIT_SCALE",
+      "calibration_sample_count": 0,
+      "calibration_window_end": null
+    },
+    {
+      "normalization_contract_version": "relationship_edge_validation_normalization_v2",
+      "effective_at": "2020-01-01T00:00:00+08:00",
+      "scale": 1.0,
+      "scale_authority": "PRE_REGISTERED_COLD_START_UNIT_SCALE",
+      "calibration_sample_count": 0,
+      "calibration_window_end": null
+    },
+    {
+      "normalization_contract_version": "sector_opportunity_adjusted_utility_normalization_v3",
+      "effective_at": "2020-01-01T00:00:00+08:00",
+      "scale": 1.0,
+      "scale_authority": "PRE_REGISTERED_COLD_START_UNIT_SCALE",
+      "calibration_sample_count": 0,
+      "calibration_window_end": null
+    },
+    {
+      "normalization_contract_version": "superinvestor_pick_utility_normalization_v2",
+      "effective_at": "2020-01-01T00:00:00+08:00",
+      "scale": 1.0,
+      "scale_authority": "PRE_REGISTERED_COLD_START_UNIT_SCALE",
+      "calibration_sample_count": 0,
+      "calibration_window_end": null
+    },
+    {
+      "normalization_contract_version": "us_economic_cycle_a_share_path_5d_normalization_v1",
+      "effective_at": "2020-01-01T00:00:00+08:00",
+      "scale": 1.0,
+      "scale_authority": "PRE_REGISTERED_COLD_START_UNIT_SCALE",
+      "calibration_sample_count": 0,
+      "calibration_window_end": null
+    },
+    {
+      "normalization_contract_version": "us_financial_conditions_a_share_path_5d_normalization_v1",
+      "effective_at": "2020-01-01T00:00:00+08:00",
+      "scale": 1.0,
+      "scale_authority": "PRE_REGISTERED_COLD_START_UNIT_SCALE",
+      "calibration_sample_count": 0,
+      "calibration_window_end": null
+    }
+  ]
+}

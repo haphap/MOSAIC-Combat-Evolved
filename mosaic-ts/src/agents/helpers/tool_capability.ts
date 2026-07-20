@@ -10,6 +10,7 @@ import {
   AgentIdSchema,
   validatePreparedCapability,
 } from "../tool_contract.js";
+import { canonicalJsonHash } from "./canonical_json.js";
 
 export type { AgentExecutionStageId } from "../tool_contract.js";
 
@@ -44,6 +45,7 @@ export async function prepareAgentToolCapability(
   const graphRunId = args.state.trace_id || stableRunId(args.state);
   const nodeId = `${args.agentId}:${args.stage}`;
   const invocationNonce = randomUUID();
+  const runtimeInputs = args.runtimeInputs ?? {};
   const request: ToolCapabilityPrepareRequest = {
     graph_run_id: graphRunId,
     run_slot_id: `${graphRunId}:${nodeId}`,
@@ -53,7 +55,7 @@ export async function prepareAgentToolCapability(
     stage: args.stage,
     as_of: asOf,
     materialization_request_id: `materialize:${graphRunId}:${nodeId}:${invocationNonce}`,
-    runtime_inputs: args.runtimeInputs ?? {},
+    runtime_inputs: runtimeInputs,
     candidate_scope: args.candidateScope ?? null,
   };
   const rawPrepared = await args.api.toolsPrepareCapability(request);
@@ -61,7 +63,9 @@ export async function prepareAgentToolCapability(
   if (
     prepared.bundle.agent_id !== agentId ||
     prepared.bundle.stage !== args.stage ||
-    prepared.bundle.as_of !== asOf
+    prepared.bundle.as_of !== asOf ||
+    ("outcome_opportunity_authority" in runtimeInputs &&
+      prepared.bundle.runtime_input_hash !== canonicalJsonHash(runtimeInputs))
   ) {
     throw new Error(`${args.agentId}: bridge returned a mismatched tool capability`);
   }

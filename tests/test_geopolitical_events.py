@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 from pathlib import Path
 
 import pytest
 
+from mosaic.dataflows.cross_runtime_json import canonical_hash
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.geopolitical_events import (
     ALL_SOURCE_IDS,
@@ -24,14 +24,6 @@ from mosaic.dataflows.geopolitical_events import (
     validate_event_revision,
     validate_geopolitical_manifest,
 )
-
-
-def canonical_hash(payload: object) -> str:
-    encoded = json.dumps(
-        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    )
-    return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-
 
 def rehash_manifest(payload: dict) -> dict:
     payload["coverage_scope_hash"] = canonical_hash(

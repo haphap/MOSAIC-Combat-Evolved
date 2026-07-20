@@ -18,6 +18,19 @@ import type {
   CroAgentSubmission,
   DecisionAgentSubmission,
 } from "./accepted.js";
+import {
+  assertCioHoldCurrentTargetSet,
+  assertExactExecutionResolutionSet,
+} from "./decision_semantics.js";
+import {
+  assertMatchesFrozenOrderIntents,
+  expectedFrozenOrderIntents,
+} from "./frozen_order_intents.js";
+
+export {
+  expectedFrozenOrderIntents,
+  frozenOrderIntentRef,
+} from "./frozen_order_intents.js";
 
 export function decisionSubmissionToRuntimeOutput(
   submission: DecisionAgentSubmission,
@@ -93,25 +106,36 @@ export function executionSubmissionToRuntime(
   submission: AutonomousExecutionSubmission,
   state: DailyCycleStateType,
 ): AutoExecOutput {
-  const candidate = state.layer4_outputs.runtime?.candidate_target_state;
-  const candidateByTicker = new Map(
-    (candidate?.portfolio_actions ?? []).map((action) => [action.ticker, action]),
+  const runtime = state.layer4_outputs.runtime;
+  const candidate = runtime?.candidate_target_state;
+  const croReview = runtime?.cro_review_state;
+  if (!candidate || !croReview) {
+    throw new Error("execution requires frozen candidate and CRO controls");
+  }
+  const plan = expectedFrozenOrderIntents(candidate, croReview);
+  assertMatchesFrozenOrderIntents(
+    submission.order_assessments,
+    plan.order_intents,
+    "Execution assessment",
+  );
+  const intentByRef = new Map(
+    plan.order_intents.map((intent) => [intent.order_intent_ref, intent]),
   );
   const trades = submission.order_assessments.flatMap((assessment) => {
     if (assessment.feasibility === "BLOCKED") return [];
-    const candidateAction = candidateByTicker.get(assessment.ts_code);
-    const candidateDelta = candidateAction?.delta_weight ?? assessment.requested_delta_weight;
+    const intent = intentByRef.get(assessment.order_intent_ref);
+    if (!intent) throw new Error("Execution assessment does not match a frozen order intent");
     const executableMagnitude =
       assessment.feasibility === "PARTIAL"
         ? (assessment.max_executable_delta_weight ?? 0)
-        : Math.abs(assessment.requested_delta_weight);
-    const deltaWeight = Math.sign(candidateDelta) * executableMagnitude;
+        : Math.abs(intent.requested_delta_weight);
+    const deltaWeight = Math.sign(intent.requested_delta_weight) * executableMagnitude;
     return [
       {
         assessment_local_id: assessment.assessment_local_id,
         order_intent_ref: assessment.order_intent_ref,
         ticker: assessment.ts_code,
-        action: executionAction(candidateAction, candidateDelta),
+        action: intent.action,
         size_pct: Math.abs(deltaWeight),
         delta_weight: deltaWeight,
         estimated_slippage_pct: assessment.predicted_cost_bps / 10_000,
@@ -130,6 +154,7 @@ export function executionSubmissionToRuntime(
       assessment_local_id: assessment.assessment_local_id,
       order_intent_ref: assessment.order_intent_ref,
       ticker: assessment.ts_code,
+      requested_delta_weight: assessment.requested_delta_weight,
       status: assessment.feasibility.toLowerCase() as "feasible" | "partial" | "blocked",
       estimated_cost_bps: assessment.predicted_cost_bps,
       ...(assessment.max_executable_delta_weight !== null
@@ -146,6 +171,26 @@ export function cioSubmissionToRuntime(
   submission: CioProposalSubmission | CioFinalSubmission,
   state: DailyCycleStateType,
 ): CioProposalOutput | CioFinalOutput {
+  assertCioHoldCurrentTargetSet({
+    decisionDisposition: submission.decision_disposition,
+    targets: submission.target_positions.map((position) => ({
+      ticker: position.ts_code,
+      target_weight: position.target_weight,
+      position_decision: position.position_decision,
+    })),
+    currentSnapshotStatus: state.current_positions.snapshot_status,
+    currentPositions: state.current_positions.positions,
+    context: `CIO ${submission.decision_stage.toLowerCase()} runtime`,
+  });
+  if (submission.decision_stage === "FINAL") {
+    const execution = state.layer4_outputs.runtime?.execution_feasibility_state;
+    if (!execution) throw new Error("CIO final runtime execution control is unavailable");
+    assertExactExecutionResolutionSet({
+      resolutions: submission.execution_control_resolutions,
+      assessments: execution.output.execution_checks ?? [],
+      context: "CIO final runtime",
+    });
+  }
   const currentByTicker = new Map(
     state.current_positions.positions.map((position) => [position.ticker, position]),
   );
@@ -198,7 +243,16 @@ export function cioSubmissionToRuntime(
         ),
     };
   }
-  return { ...base, dissent_refs: finalDissentRefs(submission, state) };
+  return {
+    ...base,
+    dissent_refs: finalDissentRefs(submission, state),
+    cro_control_resolutions: submission.cro_control_resolutions.map((resolution) => ({
+      ...resolution,
+    })),
+    execution_control_resolutions: submission.execution_control_resolutions.map((resolution) => ({
+      ...resolution,
+    })),
+  };
 }
 
 export function frozenCandidateRef(candidateTargetHash: string, tsCode: string): string {
@@ -206,65 +260,6 @@ export function frozenCandidateRef(candidateTargetHash: string, tsCode: string):
     candidate_target_hash: candidateTargetHash,
     ts_code: tsCode,
   });
-}
-
-export function frozenOrderIntentRef(input: {
-  candidateTargetHash: string;
-  croReviewHash: string;
-  tsCode: string;
-  requestedDeltaWeight: number;
-}): string {
-  return persistentRef("order-intent", {
-    candidate_target_hash: input.candidateTargetHash,
-    cro_review_hash: input.croReviewHash,
-    ts_code: input.tsCode,
-    requested_delta_weight: input.requestedDeltaWeight,
-  });
-}
-
-export interface FrozenOrderIntentView {
-  order_intent_ref: string;
-  ts_code: string;
-  requested_delta_weight: number;
-}
-
-export function expectedFrozenOrderIntents(state: DailyCycleStateType): FrozenOrderIntentView[] {
-  const runtime = state.layer4_outputs.runtime;
-  const candidate = runtime?.candidate_target_state;
-  const cro = runtime?.cro_review_state;
-  if (!candidate || !cro) return [];
-  const adjustments = new Map(
-    (cro.output.required_adjustments ?? []).map((adjustment) => [adjustment.ticker, adjustment]),
-  );
-  return candidate.portfolio_actions
-    .flatMap((position): FrozenOrderIntentView[] => {
-      const adjustment = adjustments.get(position.ticker);
-      if (adjustment?.adjustment === "REQUIRE_REVIEW") return [];
-      const controlledTarget =
-        adjustment?.adjustment === "VETO"
-          ? 0
-          : adjustment?.adjustment === "CAP_WEIGHT" || adjustment?.adjustment === "REDUCE_WEIGHT"
-            ? Math.min(
-                position.target_weight,
-                adjustment.max_target_weight ?? position.target_weight,
-              )
-            : position.target_weight;
-      const requestedDeltaWeight = controlledTarget - (position.current_weight ?? 0);
-      if (Math.abs(requestedDeltaWeight) <= 1e-9) return [];
-      return [
-        {
-          order_intent_ref: frozenOrderIntentRef({
-            candidateTargetHash: candidate.candidate_target_hash,
-            croReviewHash: cro.review_hash,
-            tsCode: position.ticker,
-            requestedDeltaWeight,
-          }),
-          ts_code: position.ticker,
-          requested_delta_weight: requestedDeltaWeight,
-        },
-      ];
-    })
-    .sort((left, right) => left.ts_code.localeCompare(right.ts_code));
 }
 
 function finalResolutionReasons(
@@ -361,16 +356,6 @@ function runtimeEnvelope(submission: DecisionAgentSubmission) {
       ? { verified_claim_audit: submission.verified_claim_audit }
       : {}),
   };
-}
-
-function executionAction(
-  candidate: PortfolioAction | undefined,
-  delta: number,
-): "BUY" | "SELL" | "HOLD" | "REDUCE" {
-  if (delta > 1e-9) return "BUY";
-  if (candidate && candidate.target_weight <= 1e-9) return "SELL";
-  if (delta < -1e-9) return "REDUCE";
-  return "HOLD";
 }
 
 function positionAction(decision: "HOLD" | "ADD" | "REDUCE" | "EXIT"): PortfolioAction["action"] {

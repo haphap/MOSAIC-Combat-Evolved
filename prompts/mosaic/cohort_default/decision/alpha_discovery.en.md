@@ -21,7 +21,7 @@ Output fields include: `agent_id`, `discovery_disposition`, `novel_picks`, `key_
 
 Required runtime tools: `get_alpha_candidate_snapshot`, `get_role_event_snapshot`.
 
-Emit `claims` and `claim_refs`. Every claim must cite catalog `evidence_id` values through `evidence_ids`; every `INTERPRETATION` claim must also cite a permitted opaque identifier through `research_rule_refs`. Every recommendation, candidate, pick, position decision, portfolio action, risk adjustment, or execution check must use `claim_refs` to cite its supporting claim. When evidence is insufficient, emit an evidence-backed explicit empty disposition and a `RISK_FLAG` claim; never invent evidence ids, fingerprints, citation identifiers, or cross-run references.
+Emit `claims` and `claim_refs`. Every claim must cite catalog `evidence_id` values through `evidence_ids`; every `INTERPRETATION` claim must also cite a permitted opaque identifier through `research_rule_refs`. Every recommendation, candidate, pick, position decision, portfolio action, risk adjustment, or execution check must use `claim_refs` to cite its supporting claim. Reject the stage without an Agent output when required evidence is missing or invalid. Emit an empty-candidate or abstention branch only when complete frozen evidence proves that the runtime contract permits it. Never invent evidence ids, fingerprints, citation identifiers, or cross-run references.
 
 `macro_input_attributions` must include exactly one `SUBMISSION_SUMMARY` row for each of the ten Macro Agents, plus applicable target-level rows for directions, securities, risk actions, or portfolio decisions.
 

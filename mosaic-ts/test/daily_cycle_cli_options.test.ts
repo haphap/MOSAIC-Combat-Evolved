@@ -49,6 +49,7 @@ function writeStructuredSmokeBundle(root: string, asOfDate = "2026-07-17") {
     "geopolitical_events",
     "macro_snapshots",
     "market_breadth",
+    "outcome_runtime",
     "runtime_snapshots",
     "sector_snapshots",
   ]) {
@@ -62,6 +63,10 @@ function writeStructuredSmokeBundle(root: string, asOfDate = "2026-07-17") {
   mkdirSync(join(root, "macro_snapshots", asOfDate), { recursive: true });
   const macroContent = JSON.stringify({ fixture: "synthetic", as_of_date: asOfDate });
   writeFileSync(macroPath, macroContent);
+  const outcomeRuntimePath = join(root, "outcome_runtime", asOfDate, "event_coverage.json");
+  mkdirSync(join(root, "outcome_runtime", asOfDate), { recursive: true });
+  const outcomeRuntimeContent = JSON.stringify({ fixture: "synthetic", as_of_date: asOfDate });
+  writeFileSync(outcomeRuntimePath, outcomeRuntimeContent);
   const artifactInventory = [
     {
       relative_path: "geopolitical_events/manifest.json",
@@ -70,6 +75,10 @@ function writeStructuredSmokeBundle(root: string, asOfDate = "2026-07-17") {
     {
       relative_path: `macro_snapshots/${asOfDate}/china.json`,
       content_sha256: contentHash(macroContent),
+    },
+    {
+      relative_path: `outcome_runtime/${asOfDate}/event_coverage.json`,
+      content_sha256: contentHash(outcomeRuntimeContent),
     },
   ];
   const body = {

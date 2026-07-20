@@ -263,7 +263,7 @@ function renderStructuredNarrative(
   if (claims.length > 0) {
     parts.push(section(language, "Evidence", "证据结论", claims));
   }
-  return truncate(parts.filter(Boolean).join("\n"), 2_000);
+  return truncateAgentDisplayText(parts.filter(Boolean).join("\n"), 2_000);
 }
 
 function macroParts(output: Record<string, unknown>, language: Language): string[] {
@@ -556,7 +556,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function pct(value: unknown): string {
-  return typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(0)}%` : "-";
+  return formatAgentDisplayPercent(value);
+}
+
+export function formatAgentDisplayPercent(value: unknown): string {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "-";
+  const scaled = value * 100;
+  const rounded = Math.sign(scaled) * Math.floor(Math.abs(scaled) + 0.5);
+  return `${Object.is(rounded, -0) ? 0 : rounded}%`;
 }
 
 function text(value: unknown): string {
@@ -573,11 +580,17 @@ function clean(value: string): string {
   const printable = Array.from(value, (char) =>
     char >= " " && char !== "\u007f" ? char : " ",
   ).join("");
-  return truncate(printable.replace(/\s+/g, " ").trim(), 320);
+  return truncateAgentDisplayText(printable.replace(/\s+/g, " ").trim(), 320);
 }
 
-function truncate(value: string, max: number): string {
-  return value.length <= max ? value : `${value.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+export function truncateAgentDisplayText(value: string, max: number): string {
+  const characters = [...value];
+  return characters.length <= max
+    ? value
+    : `${characters
+        .slice(0, Math.max(0, max - 1))
+        .join("")
+        .trimEnd()}…`;
 }
 
 function requiredText(value: string, field: string): string {

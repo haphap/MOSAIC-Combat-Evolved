@@ -2,11 +2,20 @@ import { AIMessage, HumanMessage, SystemMessage } from "@langchain/core/messages
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
+  AlphaDiscoverySubmissionSchema,
+  AutonomousExecutionSubmissionSchema,
+  CioFinalSubmissionSchema,
+  CioProposalSubmissionSchema,
+  CroSubmissionSchema,
+} from "../src/agents/decision/submission_schemas.js";
+import {
   type AgentContractIssue,
   AgentRunContractError,
   assertStructuredOutputCapability,
   invokeStrictStructured,
 } from "../src/agents/helpers/agent_run_contract.js";
+import { createMacroSubmissionSchema } from "../src/agents/macro/_contracts.js";
+import { macroSubmission } from "./helpers/macro.js";
 
 const Schema = z.object({
   disposition: z.enum(["ITEMS", "NONE"]),
@@ -47,6 +56,44 @@ class SequenceLlm {
 
 function messages(): [SystemMessage, HumanMessage] {
   return [new SystemMessage("fixed prompt"), new HumanMessage("immutable evidence")];
+}
+
+function namedPropertySchemas(value: unknown, propertyName: string): Record<string, unknown>[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((nested) => namedPropertySchemas(nested, propertyName));
+  }
+  if (value === null || typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  const properties =
+    record.properties !== null &&
+    typeof record.properties === "object" &&
+    !Array.isArray(record.properties)
+      ? (record.properties as Record<string, unknown>)
+      : null;
+  const own = properties?.[propertyName];
+  return [
+    ...(own !== null && typeof own === "object" && !Array.isArray(own)
+      ? [own as Record<string, unknown>]
+      : []),
+    ...Object.values(record).flatMap((nested) => namedPropertySchemas(nested, propertyName)),
+  ];
+}
+
+async function capturedProviderSchema(schema: z.ZodType<unknown>, name: string): Promise<unknown> {
+  const llm = new SequenceLlm([new Error("400 Bad Request")]);
+  await expect(
+    invokeStrictStructured({
+      llm: llm as never,
+      schema,
+      messages: messages(),
+      agent: name,
+      stage: "agent_run",
+      runId: `provider-schema-${name}`,
+      evidenceSnapshot: {},
+      onAttempt: () => {},
+    }),
+  ).rejects.toBeInstanceOf(AgentRunContractError);
+  return llm.schemas[0];
 }
 
 function semanticIssues(output: z.infer<typeof Schema>): AgentContractIssue[] {
@@ -90,6 +137,43 @@ describe("strict agent-run contract", () => {
     expect(result.audit.attempt_count).toBe(1);
     expect(result.audit.prompt_hash).toMatch(/^sha256:/);
     expect(result.audit.evidence_hash).toMatch(/^sha256:/);
+  });
+
+  it("hashes runtime evidence maps and sets by their canonical JSON projection", async () => {
+    const output = { disposition: "ITEMS", items: ["x"], claim_refs: ["claim-1"] };
+    const first = await run(new SequenceLlm([output]), {
+      evidenceSnapshot: {
+        evidenceById: new Map([
+          ["evidence:b", { evidence_id: "evidence:b", value: 2 }],
+          ["evidence:a", { evidence_id: "evidence:a", value: 1 }],
+        ]),
+        evidenceLedger: [],
+        allowedResearchRuleIds: new Set(["rule.b", "rule.a"]),
+      },
+    });
+    const reordered = await run(new SequenceLlm([output]), {
+      evidenceSnapshot: {
+        evidenceById: new Map([
+          ["evidence:a", { value: 1, evidence_id: "evidence:a" }],
+          ["evidence:b", { value: 2, evidence_id: "evidence:b" }],
+        ]),
+        evidenceLedger: [],
+        allowedResearchRuleIds: new Set(["rule.a", "rule.b"]),
+      },
+    });
+    const changed = await run(new SequenceLlm([output]), {
+      evidenceSnapshot: {
+        evidenceById: new Map([
+          ["evidence:a", { evidence_id: "evidence:a", value: 1 }],
+          ["evidence:b", { evidence_id: "evidence:b", value: 3 }],
+        ]),
+        evidenceLedger: [],
+        allowedResearchRuleIds: new Set(["rule.a", "rule.changed"]),
+      },
+    });
+
+    expect(first.audit.evidence_hash).toBe(reordered.audit.evidence_hash);
+    expect(changed.audit.evidence_hash).not.toBe(first.audit.evidence_hash);
   });
 
   it("combines schema and semantic validation across repairs and accepts a legal empty result", async () => {
@@ -344,6 +428,185 @@ describe("strict agent-run contract", () => {
     });
     const properties = (llm.schemas[0] as { properties: Record<string, Record<string, unknown>> })
       .properties;
-    expect(properties.claims?.maxItems).toBe(8);
+    expect(properties.claims?.minItems).toBe(5);
+    expect(properties.claims?.maxItems).toBe(5);
+  });
+
+  it("projects a four-component Macro contract without losing independent claim ownership", async () => {
+    const schema = createMacroSubmissionSchema("us_economy");
+    const base = macroSubmission("us_economy");
+    if (base.mode !== "COMPONENTS") throw new Error("component fixture required");
+    const evidenceId = `evidence:${"a".repeat(64)}`;
+    const providerOutput = {
+      provider_contract: "MACRO_COMPONENTS_COMPACT_V1",
+      mode: "COMPONENTS",
+      components: base.components.map((component) => ({
+        component: component.component,
+        signal: { direction: "NEUTRAL", strength: 0 },
+        persistence_horizon: "WEEKS",
+        confidence: 0.7,
+        channel: "A-share risk premium",
+        claim_kind: "RISK_FLAG",
+        statement: "The component evidence supports a cautious assessment",
+        state: "The component state is mixed",
+        a_share_transmission: "The component has a balanced A-share transmission",
+        evidence_id: evidenceId,
+        research_rule_ref: null,
+        snapshot_echo: null,
+      })),
+    };
+    const llm = new SequenceLlm([providerOutput]);
+    const result = await invokeStrictStructured({
+      llm: llm as never,
+      schema,
+      messages: messages(),
+      agent: "us_economy",
+      stage: "agent_run",
+      runId: "provider-macro-components",
+      evidenceSnapshot: {
+        evidenceLedger: [{ evidence_id: evidenceId }],
+        allowedResearchRuleIds: new Set<string>(),
+      },
+      onAttempt: () => {},
+    });
+    expect(result.output.mode).toBe("COMPONENTS");
+    if (result.output.mode !== "COMPONENTS") throw new Error("component output required");
+    expect(result.output.claims).toHaveLength(4);
+    expect(
+      new Set(result.output.components.flatMap((component) => component.claim_refs)).size,
+    ).toBe(4);
+    const providerSchema = llm.schemas[0] as {
+      properties: {
+        provider_contract: { const: string };
+        components: {
+          minItems: number;
+          maxItems: number;
+          prefixItems: Array<{ properties: Record<string, Record<string, unknown>> }>;
+        };
+      };
+    };
+    expect(providerSchema.properties.provider_contract.const).toBe("MACRO_COMPONENTS_COMPACT_V1");
+    expect(providerSchema.properties).not.toHaveProperty("claims");
+    expect(providerSchema.properties.components).toMatchObject({ minItems: 4, maxItems: 4 });
+    for (const component of providerSchema.properties.components.prefixItems) {
+      expect(component.properties.channel).toMatchObject({
+        type: "string",
+        maxLength: 96,
+        pattern: "^[^0-9０-９%％\\r\\n]{1,96}$",
+      });
+      expect(component.properties.statement).toMatchObject({
+        type: "string",
+        maxLength: 160,
+        pattern: "^[^0-9０-９%％\\r\\n]{1,160}$",
+      });
+      expect(component.properties.state).toMatchObject({
+        type: "string",
+        maxLength: 128,
+        pattern: "^[^0-9０-９%％\\r\\n]{1,128}$",
+      });
+      expect(component.properties.a_share_transmission).toMatchObject({
+        type: "string",
+        maxLength: 160,
+        pattern: "^[^0-9０-９%％\\r\\n]{1,160}$",
+      });
+      expect(component.properties.evidence_id).toMatchObject({
+        type: "string",
+        enum: [evidenceId],
+      });
+      expect(component.properties.research_rule_ref).toEqual({ type: "null" });
+      expect(component.properties.claim_kind).toEqual({
+        type: "string",
+        enum: ["FACT", "EVENT", "RISK_FLAG"],
+      });
+      expect(component.properties.snapshot_echo).toEqual({ type: "null" });
+    }
+  });
+
+  it("fails closed before provider invocation when Macro runtime evidence is empty", async () => {
+    const llm = new SequenceLlm([]);
+    await expect(
+      invokeStrictStructured({
+        llm: llm as never,
+        schema: createMacroSubmissionSchema("geopolitical"),
+        messages: messages(),
+        agent: "geopolitical",
+        stage: "agent_run",
+        runId: "provider-macro-empty-evidence",
+        evidenceSnapshot: { evidenceLedger: [], allowedResearchRuleIds: new Set<string>() },
+        onAttempt: () => {},
+      }),
+    ).rejects.toMatchObject({
+      audit: {
+        stop_reason: "evidence_contract_failure",
+        reason_codes: ["MACRO_RUNTIME_EVIDENCE_CATALOG_EMPTY"],
+        attempt_count: 0,
+      },
+    });
+    expect(llm.calls).toHaveLength(0);
+    expect(llm.schemas).toHaveLength(0);
+  });
+
+  it.each([
+    ["cro", CroSubmissionSchema],
+    ["alpha_discovery", AlphaDiscoverySubmissionSchema],
+    ["autonomous_execution", AutonomousExecutionSubmissionSchema],
+    ["cio_proposal", CioProposalSubmissionSchema],
+    ["cio_final", CioFinalSubmissionSchema],
+  ] as const)("publishes finite Decision provider bounds for %s", async (name, schema) => {
+    const providerSchema = await capturedProviderSchema(schema, name);
+    for (const field of ["claims", "claim_refs"] as const) {
+      const fields = namedPropertySchemas(providerSchema, field);
+      expect(fields.length).toBeGreaterThan(0);
+      expect(
+        fields.every(
+          (entry) =>
+            typeof entry.maxItems === "number" &&
+            entry.maxItems > 0 &&
+            entry.maxItems <= (field === "claims" ? 2 : 1),
+        ),
+      ).toBe(true);
+    }
+    for (const field of ["summary", "reason", "thesis", "decision_reason"] as const) {
+      expect(
+        namedPropertySchemas(providerSchema, field).every(
+          (entry) => typeof entry.maxLength === "number" && entry.maxLength <= 320,
+        ),
+      ).toBe(true);
+    }
+    if (name === "autonomous_execution") {
+      const assessments = namedPropertySchemas(providerSchema, "order_assessments");
+      expect(assessments.length).toBeGreaterThan(0);
+      expect(
+        assessments.every(
+          (entry) => entry.type === "array" && entry.minItems === 1 && entry.maxItems === 50,
+        ),
+      ).toBe(true);
+      const costs = namedPropertySchemas(providerSchema, "predicted_cost_bps");
+      expect(costs.length).toBeGreaterThan(0);
+      expect(
+        costs.every(
+          (entry) => entry.type === "number" && entry.minimum === 0 && entry.maximum === 10_000,
+        ),
+      ).toBe(true);
+      const slices = namedPropertySchemas(providerSchema, "recommended_slice_count");
+      expect(slices.length).toBeGreaterThan(0);
+      expect(
+        slices.every(
+          (entry) => entry.type === "integer" && entry.minimum === 0 && entry.maximum === 100,
+        ),
+      ).toBe(true);
+    }
+    if (name === "cio_proposal" || name === "cio_final") {
+      const riskFlags = namedPropertySchemas(providerSchema, "risk_flags");
+      expect(riskFlags.length).toBeGreaterThan(0);
+      expect(
+        riskFlags.every(
+          (entry) =>
+            entry.maxItems === 20 &&
+            typeof entry.items === "object" &&
+            (entry.items as Record<string, unknown>).maxLength === 128,
+        ),
+      ).toBe(true);
+    }
   });
 });

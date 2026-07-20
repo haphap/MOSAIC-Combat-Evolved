@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   type ClaimEvidenceGraph,
   type EvidenceLedgerEntry,
@@ -11,6 +10,7 @@ import {
 import { AGENTS_BY_LAYER } from "../prompts/cohorts.js";
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType } from "../state.js";
+import { canonicalJsonHash } from "./canonical_json.js";
 import {
   buildAgentInvocationId,
   type PrivateKnotSnapshot,
@@ -958,9 +958,7 @@ function validSha256(value: string | undefined): value is string {
 }
 
 function canonicalHash(value: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(JSON.stringify(sortJson(value)))
-    .digest("hex")}`;
+  return canonicalJsonHash(sortJson(value));
 }
 
 function sortJson(value: unknown): unknown {
