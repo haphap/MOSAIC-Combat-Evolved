@@ -3,8 +3,8 @@
  *
  * Each layer-X agent produces a typed payload that gets written into
  * ``state.layer<X>_outputs[<agent_id>]`` by the dict-merge reducer in
- * ``state.ts``. Aggregator nodes at the end of each layer collapse those
- * maps into a single consensus object (``layer<X>_consensus``).
+ * ``state.ts``. Downstream stages consume the individual accepted outputs;
+ * the runtime does not collapse a layer into a consensus bundle.
  *
  * Conventions:
  *   * All confidences are in [0, 1].

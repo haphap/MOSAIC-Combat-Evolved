@@ -101,8 +101,8 @@ export function renderBundledPrompt(
   }
   if (agent === "relationship_mapper") {
     return language === "zh"
-      ? `# relationship_mapper 关系图角色\n\n目标：在冻结的行业与证券域内识别可验证的供应链、所有权和传染关系。\n观察镜头：\n${renderCohortBehavior(lens)}\n\n工具：只调用 ${tools}；不得扩域或读取新闻。\n所有边、风险和结论必须满足 as-of/PIT 并引用真实 evidence_id。\n输出由运行时结构化 schema 强制。\n`
-      : `# relationship_mapper graph role\n\nGoal: identify verifiable supply-chain, ownership, and contagion relationships inside the frozen domain.\nCohort lens:\n${renderCohortBehavior(lens)}\n\nTool: call only ${spec.requiredTools.join(", ")}; do not expand the domain or read news.\nEvery edge, risk, and conclusion must be as-of/PIT-valid and cite a real evidence_id.\nThe runtime structured schema is authoritative.\n`;
+      ? `# relationship_mapper 关系图角色\n\n目标：在冻结的行业与证券域内识别可验证的供应链、所有权和传染关系。\n观察镜头：\n${renderCohortBehavior(lens)}\n\n工具：只调用 ${tools}；不得扩域或读取新闻。\n所有边、风险和结论必须满足 as-of/PIT 并引用真实 evidence_id。\n\`factual_edges\` 必须逐一且仅一次回显全部冻结事实元组，不得删减、新增、反转或改写关系类型。运行时从已验证快照投影最终事实字段，模型只附加 claim 引用；预测边可以弃权，事实边不得缩减。\n输出由运行时结构化 schema 强制。\n`
+      : `# relationship_mapper graph role\n\nGoal: identify verifiable supply-chain, ownership, and contagion relationships inside the frozen domain.\nCohort lens:\n${renderCohortBehavior(lens)}\n\nTool: call only ${spec.requiredTools.join(", ")}; do not expand the domain or read news.\nEvery edge, risk, and conclusion must be as-of/PIT-valid and cite a real evidence_id.\n\`factual_edges\` must restate every frozen factual tuple exactly once: never omit, add, reverse, or retype one. The runtime projects accepted factual fields from the verified snapshot; the model only attaches claim references. Predictive edges may abstain, but factual edges may not be reduced.\nThe runtime structured schema is authoritative.\n`;
   }
   if (layer === "superinvestor") {
     const goal = SUPER_GOALS[agent];
@@ -113,9 +113,15 @@ export function renderBundledPrompt(
   }
   const goal = DECISION_GOALS[agent];
   if (!goal) throw new Error(`decision goal missing: ${agent}`);
+  const executionBoundary =
+    agent === "autonomous_execution"
+      ? language === "zh"
+        ? "只使用冻结的 CIO proposal、CRO 控制、订单意图与执行证据；不得直接读取、复述或归因 Macro gate 或十个 Macro 输出。\n"
+        : "Use only the frozen CIO proposal, CRO controls, order intents, and execution evidence. Do not directly read, restate, or attribute the Macro gate or ten Macro outputs.\n"
+      : "";
   return language === "zh"
-    ? `# ${agent} 决策角色\n\n目标：${goal.zh}\n观察镜头：\n${renderCohortBehavior(lens)}\n\n工具：只调用 ${tools}；所有上游、持仓、约束和候选域均由运行时冻结。\n不得扩域、重算上游结论或读取冻结输入之外的信息。\n严格引用同一 run/stage lineage；必需快照不完整时拒绝。\n输出由运行时结构化 schema 强制。\n`
-    : `# ${agent} decision role\n\nGoal: ${goal.en}\nCohort lens:\n${renderCohortBehavior(lens)}\n\nTool: call only ${spec.requiredTools.join(", ")}; upstream inputs, positions, constraints, and candidate scope are runtime-frozen.\nDo not expand scope, recompute upstream conclusions, or read beyond the frozen inputs.\nBind every conclusion to the same run/stage lineage and reject incomplete required snapshots.\nThe runtime structured schema is authoritative.\n`;
+    ? `# ${agent} 决策角色\n\n目标：${goal.zh}\n观察镜头：\n${renderCohortBehavior(lens)}\n\n工具：只调用 ${tools}；所有上游、持仓、约束和候选域均由运行时冻结。\n${executionBoundary}不得扩域、重算上游结论或读取冻结输入之外的信息。\n严格引用同一 run/stage lineage；必需快照不完整时拒绝。\n输出由运行时结构化 schema 强制。\n`
+    : `# ${agent} decision role\n\nGoal: ${goal.en}\nCohort lens:\n${renderCohortBehavior(lens)}\n\nTool: call only ${spec.requiredTools.join(", ")}; upstream inputs, positions, constraints, and candidate scope are runtime-frozen.\n${executionBoundary}Do not expand scope, recompute upstream conclusions, or read beyond the frozen inputs.\nBind every conclusion to the same run/stage lineage and reject incomplete required snapshots.\nThe runtime structured schema is authoritative.\n`;
 }
 
 export const NON_MACRO_BUNDLED_AGENTS = [

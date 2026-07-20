@@ -4,17 +4,17 @@
     "private_relative_path": "registry/knot/domain_knob_catalog_v1.json",
     "file_hash": "sha256:5e245119783e4ac5230d891aae97e6e2d10a447e4453a04f555ac02a556f4165",
     "catalog_version": "domain_knob_catalog_v1",
-    "catalog_hash": "sha256:7064227c0cff30640a2ebb55f557d5c71c81fbdc932779bf818a682ceac5ba0c"
+    "catalog_hash": "sha256:2a045f8991f311f61fb0c944cdc63b5ab1915d8e27a0ed89645113cfa89f45d2"
   },
   "evaluation_contract": {
     "private_relative_path": "registry/knot/domain_knob_evaluation_contract_v1.json",
-    "file_hash": "sha256:e776e9c91f9291f9bdd434eb29bba56de6f48f88c303f13eed7d8874d3bd2da2",
+    "file_hash": "sha256:fbb8624407bed00dd65b528e1756f3ff8ee821e19715cc42d46900459b90d387",
     "contract_version": "domain_knob_evaluation_contract_v1",
     "schema_hash": "sha256:ab8e7bef2e22dfadd080b19f2f4181aec145afadd27de2900ddb3b4c7e102adc",
-    "catalog_hash": "sha256:7064227c0cff30640a2ebb55f557d5c71c81fbdc932779bf818a682ceac5ba0c",
-    "metric_registry_hash": "sha256:aafb67d08764b43316c4732500d7e9d9eca481f53741591cd720a1ae01c1194a",
-    "calculator_registry_hash": "sha256:f76785cc56ed7361bf9bf0f2e29ccd6d06bc19163f63917bbdb05e6c46406cc4",
-    "contract_hash": "sha256:c0b9c1674370ab305c2c8e9e712e33698e3cbefa550df4d50eef5a714d6847e9"
+    "catalog_hash": "sha256:2a045f8991f311f61fb0c944cdc63b5ab1915d8e27a0ed89645113cfa89f45d2",
+    "metric_registry_hash": "sha256:52f87420ae609ed3f1a96b24a39a3ae473bbd5672fba6f0106d574bde42caa19",
+    "calculator_registry_hash": "sha256:8130ee3bf22740f3b6531ac69ce2d9d9f3dea1726f6bee929e3357a486daec77",
+    "contract_hash": "sha256:315c01b6207a938c06e7b2d05bbee447697601dc16748c55a15a2ab56d22b5b2"
   },
   "research_knob_projections": {
     "private_manifest_relative_path": "registry/knot/research_knob_projection_manifest_v2.json",

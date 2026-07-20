@@ -276,7 +276,7 @@ def test_apply_lockbox_review_import_rejects_invalid_json_target(tmp_path: Path)
     ).exists()
 
 
-def test_lockbox_review_import_allows_production_after_manual_gates(
+def test_lockbox_review_import_keeps_rke_shadow_after_manual_gates(
     monkeypatch, tmp_path: Path
 ):
     _stub_lockbox_downstream(monkeypatch)
@@ -297,9 +297,13 @@ def test_lockbox_review_import_allows_production_after_manual_gates(
     promotion = build_production_promotion_gate_report(tmp_path)
 
     assert lockbox_report.accepted
-    assert promotion.staged_production_allowed
-    assert promotion.production_allowed
-    assert promotion.next_state == "production"
+    assert promotion.execution_mode == "RKE_SHADOW"
+    assert promotion.production_signal_allowed is False
+    assert promotion.paper_trading_allowed
+    assert not promotion.staged_production_allowed
+    assert not promotion.production_allowed
+    assert promotion.next_state == "paper_trading"
+    assert promotion.direct_production_forbidden
 
 
 def test_apply_lockbox_review_import_rejects_reopening_existing_lockbox(

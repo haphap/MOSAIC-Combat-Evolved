@@ -153,12 +153,7 @@ export async function buildPromptTokenBudgetManifest(opts: {
   );
   if (systemPromptCapTokens <= 0) throw new Error("prompt_token_budget_system_cap_invalid");
   const runtimeManifestHash = canonicalHash(buildRuntimeAgentManifestArtifact());
-  const baseline = validateBaseline(
-    opts.baseline ?? null,
-    opts.cohort,
-    contextWindowTokens,
-    runtimeManifestHash,
-  );
+  const baseline = validateBaseline(opts.baseline ?? null, opts.cohort, contextWindowTokens);
   const baselineRows = new Map((baseline?.rows ?? []).map((row) => [rowKey(row), row] as const));
   const sources: PromptBudgetSource[] = [
     {
@@ -302,20 +297,45 @@ function validateBaseline(
   baseline: PromptTokenBudgetManifest | null,
   cohort: string,
   contextWindowTokens: number,
-  runtimeManifestHash: string,
 ): PromptTokenBudgetManifest | null {
   if (!baseline) return null;
   const parsed = PromptTokenBudgetManifestSchema.parse(baseline);
   if (
     parsed.cohort !== cohort ||
     parsed.context_window_tokens !== contextWindowTokens ||
-    parsed.runtime_manifest_hash !== runtimeManifestHash ||
     parsed.tokenizer.id !== PROMPT_TOKENIZER_ID ||
     parsed.tokenizer.version !== PROMPT_TOKENIZER_VERSION
   ) {
     throw new Error("prompt_token_budget_baseline_configuration_mismatch");
   }
+  const expectedRowKeys = promptBudgetRowKeys();
+  const baselineRowKeys = parsed.rows.map((row) => rowKey(row));
+  if (
+    new Set(baselineRowKeys).size !== baselineRowKeys.length ||
+    baselineRowKeys.length !== expectedRowKeys.size ||
+    baselineRowKeys.some((key) => !expectedRowKeys.has(key))
+  ) {
+    throw new Error("prompt_token_budget_baseline_configuration_mismatch");
+  }
+  // The runtime manifest includes opaque private-release pins that can rotate
+  // without changing prompt topology. Exact row-key parity is the growth
+  // baseline compatibility contract; the new artifact still records the
+  // current full runtime-manifest hash.
   return parsed;
+}
+
+function promptBudgetRowKeys(): ReadonlySet<string> {
+  const keys = new Set<string>();
+  for (const source of ["private", "bundled"] as const) {
+    for (const spec of RUNTIME_AGENT_SPECS) {
+      for (const stageSpec of spec.stages) {
+        for (const language of ["zh", "en"] as const) {
+          keys.add(rowKey({ source, agent: spec.agent, stage: stageSpec.stage, language }));
+        }
+      }
+    }
+  }
+  return keys;
 }
 
 function rowKey(
