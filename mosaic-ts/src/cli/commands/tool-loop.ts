@@ -1,32 +1,35 @@
 /**
- * Phase 1 Exit: drive a minimal tool-calling loop with one bridge tool.
+ * Drive a minimal capability-bound tool-calling loop with the China Macro snapshot.
  *
  * Flow:
  *   1. Resolve config from the bridge.
- *   2. Build a chat model from that config + env API key (Anthropic by default
- *      per Plan §1; switch via `--provider lemonade` for zero-cost local dev).
- *   3. Wrap one bridge tool (default: get_fred_series) as a LangChain tool.
+ *   2. Prepare a signed China Agent capability for the requested as-of date.
+ *   3. Expose only get_china_macro_snapshot through that capability.
  *   4. Loop: invoke LLM → if tool_calls, dispatch → feed back → repeat.
  *   5. Print the final assistant message.
  */
 
+import { randomUUID } from "node:crypto";
 import type { BaseMessage } from "@langchain/core/messages";
 import { type AIMessage, HumanMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import type { Command } from "commander";
 import pc from "picocolors";
-import { BridgeApi, BridgeClient, pickBridgeTools, RpcError } from "../../bridge/index.js";
+import {
+  BridgeApi,
+  BridgeClient,
+  pickBridgeTools,
+  RpcError,
+  type SignedAgentToolCapability,
+} from "../../bridge/index.js";
 import { createLlmFromConfig } from "../../llm/factory.js";
 
-const DEFAULT_TOOL = "get_fred_series";
+const CHINA_SNAPSHOT_TOOL = "get_china_macro_snapshot";
 const DEFAULT_QUESTION =
-  "请用中文简要描述美国 FEDFUNDS 利率在 2024 年上半年的走势。" +
-  "调用 get_fred_series 工具拉取 2024-01-01 至 2024-06-30 的 FEDFUNDS 序列后再作答，" +
-  "答复中点出关键的政策转折点。";
+  "请调用零参数 get_china_macro_snapshot 工具，并仅依据冻结快照概括中国宏观环境。";
 const MAX_LOOPS = 6;
 
 interface LoopOptions {
-  tool?: string;
   model?: string;
   provider?: string;
   question?: string;
@@ -36,11 +39,7 @@ interface LoopOptions {
 export function registerToolLoop(program: Command): void {
   program
     .command("tool-loop")
-    .description(
-      "Phase 1 Exit demo: one chat model + one bridge tool. " +
-        "Default tool is get_fred_series (requires FRED_API_KEY).",
-    )
-    .option("--tool <name>", `Bridge tool to expose to the LLM (default: ${DEFAULT_TOOL})`)
+    .description("Capability-bound demo for the frozen China Macro snapshot.")
     .option("--model <name>", "Override LLM model from bridge config")
     .option("--provider <name>", "Override LLM provider from bridge config")
     .option("--question <text>", "Override the user question")
@@ -48,6 +47,7 @@ export function registerToolLoop(program: Command): void {
     .action(async (opts: LoopOptions) => {
       const client = new BridgeClient();
       const api = new BridgeApi(client);
+      let capability: SignedAgentToolCapability | null = null;
       try {
         await client.start();
         const config = await api.configGet();
@@ -56,9 +56,24 @@ export function registerToolLoop(program: Command): void {
           ...(opts.model ? { model: opts.model } : {}),
           ...(opts.provider ? { provider: opts.provider } : {}),
         });
-        const toolName = opts.tool ?? DEFAULT_TOOL;
+        const toolName = CHINA_SNAPSHOT_TOOL;
+        const asOf = opts.asOfDate ?? new Date().toISOString().slice(0, 10);
+        const runId = `tool-loop:${randomUUID()}`;
+        const prepared = await api.toolsPrepareCapability({
+          graph_run_id: runId,
+          run_slot_id: `${runId}:china`,
+          run_id: runId,
+          node_id: "china:china",
+          agent_id: "china",
+          stage: "china",
+          as_of: asOf,
+          materialization_request_id: `materialize:${runId}`,
+          runtime_inputs: {},
+          candidate_scope: null,
+        });
+        capability = prepared.capability;
         const [boundTool] = await pickBridgeTools(api, [toolName], {
-          ...(opts.asOfDate ? { context: { mode: "backtest", as_of_date: opts.asOfDate } } : {}),
+          capability,
         });
         if (!boundTool) {
           throw new Error(`Bridge tool ${toolName} not available`);
@@ -105,6 +120,11 @@ export function registerToolLoop(program: Command): void {
         }
         process.exitCode = 1;
       } finally {
+        if (capability) {
+          await api
+            .toolsTerminateCapability(capability, "tool_loop_finished")
+            .catch(() => undefined);
+        }
         await client.close();
       }
     });

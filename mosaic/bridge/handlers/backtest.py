@@ -123,8 +123,8 @@ def backtest_append_actions(params: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(actions, list):
         raise RpcError(INVALID_PARAMS, "'actions' must be an array")
     audits = params.get("agent_run_audits")
-    if not isinstance(audits, list) or len(audits) != 26:
-        raise RpcError(INVALID_PARAMS, "'agent_run_audits' must contain all 26 stages")
+    if not isinstance(audits, list) or len(audits) != 29:
+        raise RpcError(INVALID_PARAMS, "'agent_run_audits' must contain all 29 stages")
     decision_disposition = params.get("decision_disposition")
     if decision_disposition not in ("TARGET_PORTFOLIO", "HOLD_CURRENT", "ALL_CASH"):
         raise RpcError(INVALID_PARAMS, "invalid or missing 'decision_disposition'")

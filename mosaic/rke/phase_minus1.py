@@ -2,6 +2,9 @@
 
 Phase -1 is not production validation. It audits source corpora and prepares
 gold-set sampling so the team can decide whether schema freeze is justified.
+The original ``dollar`` and ``volatility`` sampling domains are historical
+``legacy_unverified`` taxonomy labels, not current Agent identities. Current
+field ownership is defined by the RKE-shadow migration manifest.
 """
 
 from __future__ import annotations

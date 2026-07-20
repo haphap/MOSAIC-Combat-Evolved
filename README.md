@@ -23,12 +23,14 @@ changes are accepted or reverted by measured lift.
 
 ## Highlights
 
-- **25-agent decision graph**: 10 macro agents, 7 sector agents, 4
-  superinvestor agents, and 4 decision agents (CRO / Alpha / Execution / CIO).
-- **A-share data layer**: Tushare, akshare, FRED, yfinance, Xueqiu heat,
-  financial statements, technical indicators, ETF data, and research reports.
-- **Autoresearch loop**: mutate prompts, commit to a git branch, run two-stage
-  backtests, and keep/revert by delta Sharpe under cooldown and lockout rules.
+- **28-agent decision graph**: 10 macro agents, 10 sector/relationship agents,
+  4 superinvestor agents, and 4 decision agents (CRO / Alpha / Execution / CIO)
+  run through 29 execution stages.
+- **A-share data layer**: role-scoped PIT snapshots backed by registered
+  Tushare and official macro sources, financial statements, market breadth,
+  technical indicators, and ETF data. RKE research reports remain shadow-only.
+- **Governed evolution loop**: KNOT paired research, Agent-owned deterministic
+  outcome labels, and Darwinian usage weights with atomic promotion/rollback.
 - **PRISM / JANUS / MiroFish**: regime-cohort training, cross-cohort
   meta-weighting, and synthetic forward scenarios.
 - **Backtest and paper trading**: qlib replay, scorecard, Darwinian weights,
@@ -87,11 +89,12 @@ data, and fall back to the existing official-site crawlers if clone/pull/refresh
 is unavailable. Set `MOSAIC_CHINA_POLICY_DB_PUSH_UPDATES=1` only when this
 machine should push refreshed data back to the policy-db remote.
 
-Optional private prompt repo:
+Private prompt repo (required for production; optional for fake/offline runs):
 
-By default, agents load prompts from `MOSAIC-Combat-Evolved/prompts/mosaic`.
-To make all agent runs prefer an external prompt repo, clone `MOSAIC-Prompts`
-outside this checkout and configure it once in `.env`:
+Bundled prompts in `MOSAIC-Combat-Evolved/prompts/mosaic` are for non-production
+fake/offline runs only. Production formal releases fail closed unless the private
+`MOSAIC-Prompts` repository is configured. Clone it outside this checkout and
+configure it once in `.env`:
 
 ```bash
 git clone https://github.com/haphap/MOSAIC-Prompts.git ../MOSAIC-Prompts
@@ -119,9 +122,15 @@ The full pull, validate, export, commit, and push procedure is documented in
 Run a full no-cost smoke cycle:
 
 ```bash
-cd mosaic-ts
-pnpm dev daily-cycle --cohort cohort_default --fake-llm
-pnpm dev dashboard
+mkdir -p .mosaic/tmp
+# Use an A-share trading day; this deterministic default is verified.
+SMOKE_DATE="${SMOKE_DATE:-2026-07-17}"
+SMOKE_ROOT="$(mktemp -d .mosaic/tmp/structured-smoke.XXXXXX)"
+eval "$(uv run python scripts/build_structured_smoke_fixtures.py \
+  --root "$SMOKE_ROOT" --date "$SMOKE_DATE" --shell-exports)"
+pnpm --dir mosaic-ts dev daily-cycle \
+  --cohort cohort_default --date "$SMOKE_DATE" --fake-llm
+pnpm --dir mosaic-ts dev dashboard
 ```
 
 ## Common Commands
@@ -129,15 +138,15 @@ pnpm dev dashboard
 All development CLI commands run from `mosaic-ts/`:
 
 ```bash
-# Daily 25-agent cycle
-pnpm dev daily-cycle --cohort cohort_default --fake-llm
+# Daily 28-agent / 29-stage synthetic smoke: use the complete fresh-bundle
+# sequence in "Run a full no-cost smoke cycle" above.
 
 # Scorecard and Darwinian weights
 pnpm dev scorecard --cohort cohort_default --since 2024-01-01
 pnpm dev darwinian --cohort cohort_default
 
-# Prompt self-improvement
-pnpm dev autoresearch trigger --cohort crisis_2008 --fake-llm --eval-days 5
+# Legacy prompt diagnostics (no v2 promotion)
+pnpm dev autoresearch trigger --cohort crisis_2008 --fake-llm --eval-days 5 --dry-run
 pnpm dev autoresearch log --cohort crisis_2008
 
 # Regime training and meta-weighting
@@ -191,9 +200,11 @@ JSON in and return JSON out.
 
 ## Prompt Assets
 
-The public repository contains baseline prompts needed to understand and run the
-system. Optimized production prompts should live in a separate private prompt
-repo and be loaded through the private-repo path, not committed here.
+The public repository contains only the 56 bilingual `cohort_default` baseline
+prompts needed for fake/offline runs; non-default cohort directories are empty
+skeletons. All seven non-default cohort behaviors and optimized production
+prompts live in the private prompt repository and are loaded through the
+private-repo path, never rendered or committed here.
 
 Useful checks:
 

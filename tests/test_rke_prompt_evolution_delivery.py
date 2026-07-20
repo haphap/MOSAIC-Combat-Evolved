@@ -177,6 +177,17 @@ def test_run_directory_prepares_pytest_basetemp_parent(tmp_path: Path):
     assert (run_dir / "pytest").is_dir()
 
 
+def test_public_delivery_gate_does_not_require_private_knot_runtime(tmp_path: Path):
+    bundled = next(
+        spec
+        for spec in command_specs(ROOT, tmp_path)
+        if spec.check_id == "bundled_prompt_contract"
+    )
+
+    assert "check-bundled-contract" in bundled.argv
+    assert "check-private-knot" not in bundled.argv
+
+
 def test_upstream_ci_block_propagates_without_self_assertion():
     checks = _checks(python_status="queued")
     artifact = _artifact(checks, _upstream_ci(python_status="queued"))

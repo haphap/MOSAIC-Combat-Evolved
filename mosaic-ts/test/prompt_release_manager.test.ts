@@ -38,6 +38,7 @@ const SPEC: RuntimeAgentSpec = {
       stage: "agent_run",
       enablement: "enabled",
       outputSchemaRef: "macro.central_bank.output.v1",
+      outputSchemaFields: ["signal"],
       maxRepairAttempts: 3,
       requiredSourceIds: [],
       producedSourceIds: ["upstream_agent_outputs"],
@@ -261,11 +262,12 @@ describe("prompt release manager", () => {
     const codeRepo = initRepo({
       [PROMPT_PATHS.zh]: "fallback zh\n",
       [PROMPT_PATHS.en]: "fallback en\n",
-      "registry/prompt_checks/domain_knob_evaluation_contract_v1.json": `${JSON.stringify(closure)}\n`,
+      "registry/prompt_checks/private_knot_assets_ref_v1.json": `${JSON.stringify({ evaluation_contract: closure })}\n`,
     });
     const registryRoot = mkdtempSync(join(tmpdir(), "mosaic-release-registry-"));
     roots.push(registryRoot);
     const candidateSources: string[] = [];
+    const candidateRuntimePins: Array<{ repo: string; commit: string }> = [];
     const stageOptions = {
       registryRoot,
       releaseId: "release-1",
@@ -282,8 +284,17 @@ describe("prompt release manager", () => {
     };
     const deps = {
       specs: [SPEC],
-      checkCandidate: async ({ source }: { source: string }) => {
+      checkCandidate: async ({
+        source,
+        privateRuntimeRepo,
+        privateRuntimeCommit,
+      }: {
+        source: string;
+        privateRuntimeRepo: string;
+        privateRuntimeCommit: string;
+      }) => {
         candidateSources.push(source);
+        candidateRuntimePins.push({ repo: privateRuntimeRepo, commit: privateRuntimeCommit });
         return { snapshotHashes: { "central_bank:agent_run": HASH } };
       },
       now: () => "2026-07-10T00:00:00.000Z",
@@ -321,6 +332,9 @@ describe("prompt release manager", () => {
     expect(staged.prompt_pairs).toHaveLength(1);
     expect(staged.bundled_fallback?.prompt_pairs).toHaveLength(1);
     expect(candidateSources).toEqual(["private", "bundled", "private", "bundled"]);
+    expect(candidateRuntimePins).toEqual(
+      Array.from({ length: 4 }, () => ({ repo: privateRepo.root, commit: privateRepo.commit })),
+    );
 
     const canaryOptions = {
       registryRoot,

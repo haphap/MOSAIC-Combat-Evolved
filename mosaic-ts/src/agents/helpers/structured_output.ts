@@ -1,7 +1,7 @@
 /**
  * Structured-output invocation helpers with graceful free-text fallback.
  *
- * Port of ``etfagents.agents.utils.structured`` adapted for MOSAIC's 25
+ * Port of ``etfagents.agents.utils.structured`` adapted for MOSAIC's 28
  * agents:
  *
  *   * ``bind_structured``                        → bindStructured
@@ -11,7 +11,7 @@
  *
  * **MOSAIC adaptation (Plan §11.2 design note 2A.2-2)**: ETFAgents hard-codes
  * 3 trader-specific sentences in ``STRUCTURED_ONLY_SENTENCES`` (mentioning
- * `target_weight_pct`, `add_triggers`, etc — ETF fields). MOSAIC's 25 agents
+ * `target_weight_pct`, `add_triggers`, etc — ETF fields). MOSAIC's 28 agents
  * each have their own schema, so ``stripStructuredOnlyText`` and the
  * fallback-prompt builders here take the sentences-to-strip as a function
  * argument. Each agent passes its own list when it constructs the structured-

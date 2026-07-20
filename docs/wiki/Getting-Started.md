@@ -52,16 +52,23 @@ In development you can run the whole pipeline at zero cost with a mocked LLM (`-
 ## First run
 
 ```bash
-cd mosaic-ts
+cd /path/to/MOSAIC-RKE
 
-# Smoke-test the bridge (spawns the Python sidecar, lists tools + config)
-pnpm dev bridge-ping
+# Smoke-test the bridge (spawns the Python sidecar and verifies config.get)
+pnpm --dir mosaic-ts dev bridge-ping
 
-# Run one full daily cycle (25 agents) with a zero-cost mock LLM
-pnpm dev daily-cycle --cohort cohort_default --fake-llm
+# Build a fresh, hash-bound synthetic PIT bundle, then run all 29 stages.
+mkdir -p .mosaic/tmp
+# Use an A-share trading day; this deterministic default is verified.
+SMOKE_DATE="${SMOKE_DATE:-2026-07-17}"
+SMOKE_ROOT="$(mktemp -d .mosaic/tmp/structured-smoke.XXXXXX)"
+eval "$(uv run python scripts/build_structured_smoke_fixtures.py \
+  --root "$SMOKE_ROOT" --date "$SMOKE_DATE" --shell-exports)"
+pnpm --dir mosaic-ts dev daily-cycle \
+  --cohort cohort_default --date "$SMOKE_DATE" --fake-llm
 
 # Look at the read-only dashboard
-pnpm dev dashboard
+pnpm --dir mosaic-ts dev dashboard
 ```
 
 See the [CLI Reference](CLI-Reference.md) for the full command surface and the

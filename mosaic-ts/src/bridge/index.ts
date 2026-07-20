@@ -31,6 +31,10 @@ export {
   pickBridgeTools,
 } from "./tools.js";
 export type {
+  AgentDisplayNarrativeRow,
+  AgentDisplayNarratives,
+  AgentSnapshotBundle,
+  AgentToolCapabilityManifest,
   AutoresearchActiveBranch,
   AutoresearchEvalResult,
   AutoresearchLogEntry,
@@ -66,10 +70,15 @@ export type {
   PaperPosition,
   PaperSuggestion,
   PaperTrade,
+  PreparedAgentToolCapability,
   ScorecardScoreOutcome,
+  SectorModelUsageReport,
+  SectorModelUsageSummaryReceipt,
+  SignedAgentToolCapability,
   SkillRow,
-  ToolCallContext,
   ToolCallResult,
+  ToolCapabilityIssueRequest,
+  ToolCapabilityPrepareRequest,
   ToolMetadata,
 } from "./types.js";
 export { BridgeApi } from "./types.js";

@@ -36,7 +36,10 @@
 
 ## Darwinian 权重
 
-`darwinian.compute` / `darwinian.get_weights`(`mosaic/scorecard/weights.py`)把 agent 技能转成演化权重,供下游使用(如 `autonomous_execution`)。
+`darwinian.compute` / `darwinian.get_weights`（`mosaic/scorecard/weights.py`）是显式
+`legacy_unverified`、仅供审计/回放的旧接口，不能作为生产 fallback。生产下游只通过
+accepted-output adapter 使用 Darwinian-v2 production variant 中冻结的精确权重快照；窗口刷新
+和发布绑定 roster revision，且其输入由服务端持有。
 
 ## 纸上交易 (`mosaic/paper_trading/`)
 

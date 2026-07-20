@@ -14,14 +14,14 @@ Exposes the prompt-mutation lifecycle to the TS orchestrator:
 
 from __future__ import annotations
 
-import hashlib
-import json
 import math
 import os
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+from mosaic.scorecard.canonical_json import canonical_hash
 
 from ..protocol import AUTORESEARCH_ERROR, INVALID_PARAMS, RpcError
 from ..registry import method
@@ -40,14 +40,7 @@ def _store():
 
 
 def _canonical_hash(value: Any) -> str:
-    payload = json.dumps(
-        value,
-        ensure_ascii=False,
-        allow_nan=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+    return canonical_hash(value)
 
 
 def _authorized_prompt_release_operators() -> set[str]:
@@ -542,11 +535,6 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
     Returns:
         {"results": [{version_id, status, delta_sharpe?}, ...]}
     """
-    from mosaic.autoresearch.decider import decide
-    from mosaic.autoresearch.domain_evaluator import (
-        DomainEvaluationError,
-        evaluate_domain_mutation,
-    )
     from mosaic.autoresearch.evaluator import (
         compute_delta,
         ensure_baseline_run,
@@ -621,6 +609,10 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
             )
         )
         if is_contract_evaluated_mutation:
+            from mosaic.autoresearch.domain_evaluator import (
+                DomainEvaluationError,
+            )
+
             lifecycle = store.get_prompt_version(version_id).get("mutation_lifecycle")
             if lifecycle in ("eligible_for_promotion", "reverted", "invalid", "kept"):
                 results.append(
@@ -653,19 +645,10 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
                     store.set_version_mutation_lifecycle(version_id, "shadow_evaluating")
                 elif lifecycle == "needs_fill":
                     store.set_version_mutation_lifecycle(version_id, "shadow_evaluating")
-                evaluation_result = evaluate_domain_mutation(
-                    mutation_metadata, domain_sample_manifest
+                evaluation_result = store.evaluate_domain_mutation(
+                    mutation_metadata,
+                    domain_sample_manifest,
                 )
-                if evaluation_result.get("holdout_consumption_required") is True:
-                    try:
-                        store.consume_domain_holdout(
-                            version_id,
-                            holdout_id=evaluation_result["holdout_id"],
-                            mutation_id=evaluation_result["mutation_id"],
-                            result_hash=evaluation_result["result_hash"],
-                        )
-                    except ValueError as exc:
-                        raise DomainEvaluationError(str(exc)) from exc
                 store.set_domain_evaluation_result(version_id, evaluation_result)
                 evaluation_status = evaluation_result["status"]
                 store.set_version_mutation_lifecycle(version_id, evaluation_status)
@@ -755,21 +738,22 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
             })
             continue
 
-        # Both runs complete: evaluate + decide.
+        # Both runs complete: preserve the legacy diagnostic, but never let
+        # aggregate portfolio Sharpe write or promote a v2 prompt. KNOT owns
+        # production behavior proposal/pairing and the promotion gate owns the
+        # prospective release revision.
         try:
             delta_result = compute_delta(store, version_id, config)
-            # Re-read version after eval writes.
-            updated_version = store.get_prompt_version(version_id)
-            git = _git_ops_for_branch(updated_version["branch_name"], updated_version)
-            status = decide(store, git, updated_version, config)
-            # decide() returns the stored state-machine value (keep/revert);
-            # expose the past-tense form (kept/reverted) on the RPC boundary so
-            # it matches the autoresearch_log event names and the TS consumers.
-            rpc_status = {"keep": "kept", "revert": "reverted"}.get(status, status)
+            store.append_log(
+                version_id,
+                "legacy_unverified",
+                "delta_sharpe retained for audit only; production promotion disabled",
+            )
             results.append({
                 "version_id": version_id,
-                "status": rpc_status,
+                "status": "legacy_unverified",
                 "delta_sharpe": delta_result["delta_sharpe"],
+                "detail": "legacy aggregate evaluation cannot promote a v2 prompt",
             })
         except ValueError as exc:
             results.append({
@@ -984,11 +968,15 @@ def autoresearch_historical_decide(params: dict[str, Any]) -> dict[str, Any]:
 
 @method("autoresearch.review_domain_promotion")
 def autoresearch_review_domain_promotion(params: dict[str, Any]) -> dict[str, Any]:
-    """Record an explicit operator keep/revert decision after holdout evaluation."""
+    """Record an explicit rejection of a legacy diagnostic mutation."""
     version_id = _require_int(params, "version_id")
     decision = _require_str(params, "decision")
-    if decision not in ("keep", "revert"):
-        raise RpcError(INVALID_PARAMS, "'decision' must be 'keep' or 'revert'")
+    if decision != "revert":
+        raise RpcError(
+            AUTORESEARCH_ERROR,
+            "legacy domain promotion is disabled; production prompt behavior can be "
+            "promoted only by a KNOT promotion batch",
+        )
     approved_by = _require_str(params, "approved_by")
     if approved_by not in _authorized_prompt_release_operators():
         raise RpcError(INVALID_PARAMS, "'approved_by' is not an authorized prompt release operator")
@@ -1014,7 +1002,7 @@ def autoresearch_review_domain_promotion(params: dict[str, Any]) -> dict[str, An
             raise RpcError(AUTORESEARCH_ERROR, "domain promotion decision already exists")
         return {
             "version_id": version_id,
-            "status": "kept" if decision == "keep" else "reverted",
+            "status": "reverted",
             "decision_hash": _canonical_hash(existing_decision),
             "decision": existing_decision,
             "created": False,
@@ -1080,12 +1068,12 @@ def autoresearch_review_domain_promotion(params: dict[str, Any]) -> dict[str, An
         raise RpcError(AUTORESEARCH_ERROR, str(exc)) from exc
     store.append_log(
         version_id,
-        "kept" if decision == "keep" else "reverted",
+        "reverted",
         f"promotion_decision={decision_hash}; approved_by={approved_by}",
     )
     return {
         "version_id": version_id,
-        "status": "kept" if decision == "keep" else "reverted",
+        "status": "reverted",
         "decision_hash": decision_hash,
         "decision": decision_evidence,
         "created": created,

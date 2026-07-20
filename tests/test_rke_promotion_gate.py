@@ -109,15 +109,17 @@ def _license_import_rows(root: Path) -> list[dict]:
     ]
 
 
-def test_production_promotion_gate_allows_current_registry():
+def test_production_promotion_gate_keeps_current_registry_shadow_only():
     report = build_production_promotion_gate_report(".")
     blockers = " ".join(report.blockers)
 
+    assert report.execution_mode == "RKE_SHADOW"
+    assert report.production_signal_allowed is False
     assert report.paper_trading_allowed
-    assert report.staged_production_allowed
-    assert report.production_allowed
-    assert report.next_state == "production"
-    assert not report.direct_production_forbidden
+    assert not report.staged_production_allowed
+    assert not report.production_allowed
+    assert report.next_state == "paper_trading"
+    assert report.direct_production_forbidden
     assert "manual gold-set review" not in blockers
     assert "source license review" not in blockers
     assert "lockbox" not in blockers
@@ -211,7 +213,7 @@ def test_production_promotion_gate_rejects_malformed_patch_payload(tmp_path: Pat
     assert "promotion patch must be object" in pg10.blocker
 
 
-def test_production_promotion_gate_allows_production_after_manual_and_lockbox_gates(
+def test_production_promotion_gate_stays_shadow_after_manual_and_lockbox_gates(
     tmp_path: Path,
 ):
     _copy_registry(tmp_path)
@@ -240,8 +242,12 @@ def test_production_promotion_gate_allows_production_after_manual_and_lockbox_ga
     report = build_production_promotion_gate_report(tmp_path)
     payload = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
 
+    assert report.execution_mode == "RKE_SHADOW"
+    assert report.production_signal_allowed is False
     assert report.paper_trading_allowed
-    assert report.staged_production_allowed
-    assert report.production_allowed
-    assert report.next_state == "production"
-    assert payload["production_allowed"] is True
+    assert not report.staged_production_allowed
+    assert not report.production_allowed
+    assert report.next_state == "paper_trading"
+    assert report.direct_production_forbidden
+    assert payload["production_allowed"] is False
+    assert payload["production_signal_allowed"] is False

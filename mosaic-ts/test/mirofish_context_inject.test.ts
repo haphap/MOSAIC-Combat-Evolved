@@ -7,9 +7,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { disableManifestResearchKnobsForLegacyFixtures } from "./helpers/research_knobs_env.js";
-
-disableManifestResearchKnobsForLegacyFixtures();
 
 import { buildAutonomousExecutionNode } from "../src/agents/decision/autonomous_execution.js";
 import { buildCioNode } from "../src/agents/decision/cio.js";
@@ -144,9 +141,22 @@ describe("CIO MiroFish context injection", () => {
 
   const state = (): DailyCycleStateType =>
     ({
+      messages: [],
       active_cohort: "cohort_default",
       as_of_date: "2024-06-30",
+      mode: "live",
+      trace_id: "mirofish-context-test",
+      darwinian_runtime_binding: null,
+      darwinian_weight_snapshot: null,
+      component_weight_snapshot: null,
+      outcome_schedule_plan: null,
+      outcome_stage_skips: {},
+      component_calibration_inputs: {},
+      continuity_context: {},
+      lesson_context: {},
+      method_context: {},
       layer1_outputs: {},
+      macro_input_gate: null,
       layer2_outputs: {},
       layer3_outputs: {},
       layer4_outputs: {
@@ -162,7 +172,18 @@ describe("CIO MiroFish context injection", () => {
         position_snapshot_hash: "sha256:empty_positions",
         positions: [],
       },
+      position_reviews: [],
+      position_audit: {
+        position_snapshot_hash: "sha256:empty_positions",
+        snapshot_status: "empty_confirmed",
+        position_source: "empty_confirmed",
+        source_error_code: null,
+        positions_loaded: 0,
+        positions_reviewed: 0,
+      },
       portfolio_actions: [],
+      replay_triggered: false,
+      llm_calls: [],
     }) as unknown as DailyCycleStateType;
 
   function fakeApi(ctx: MirofishContext | null) {

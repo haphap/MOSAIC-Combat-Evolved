@@ -4,8 +4,8 @@ TypeScript front-end for MOSAIC. Drives the Python codebase as a black-box
 JSON-RPC sidecar (`mosaic.bridge`). See plan §2 for architecture and §11 for
 the bridge wire protocol (mirrored from ETFAgents).
 
-This package is **internal-use only** for now (no npm publish). The eventual
-delivery is a CLI + Ink TUI; Phase 1 only delivers the bridge plumbing.
+This package is **internal-use only** (no npm publish). It contains the CLI,
+Ink TUI, and the TypeScript orchestration for the 28-Agent / 29-stage graph.
 
 ## Layout
 
@@ -13,8 +13,11 @@ delivery is a CLI + Ink TUI; Phase 1 only delivers the bridge plumbing.
 mosaic-ts/
 ├── src/
 │   ├── bridge/           # JSON-RPC client, types, JSON-Schema → Zod, tool factories
+│   ├── agents/           # Agent contracts, runtime nodes, prompts, and validation
+│   ├── autoresearch/     # Prompt-behavior evaluation and release plumbing
+│   ├── graph/            # Layered LangGraph orchestration
 │   ├── llm/              # ChatOpenAI / ChatAnthropic factory built from bridge config
-│   └── cli/              # commander entry + commands (Phase 1)
+│   └── cli/              # Commander entry, operational commands, and Ink TUI
 └── test/                 # Vitest tests, mostly black-box against the real sidecar
 ```
 
@@ -43,33 +46,31 @@ pnpm format                  # biome format --write
 pnpm test                    # vitest run
 pnpm build                   # emit dist/
 
-# Phase 1 CLI commands (run via tsx during development)
+# Bridge and snapshot diagnostics (run via tsx during development)
 pnpm dev bridge-ping
-pnpm dev tool-call <name> [argsJson]
-pnpm dev tool-loop [--tool name] [--model name] [--question text]
+pnpm dev tool-loop [--model name] [--question text] [--as-of-date YYYY-MM-DD]
 
-# Phase 4 autoresearch (prompt mutation loop)
-pnpm dev autoresearch trigger --cohort crisis_2008 --agent volatility --fake-llm  # one-shot generate+commit+eval+decide (zero-cost smoke)
-pnpm dev autoresearch trigger --cohort crisis_2008 --dry-run --fake-llm           # select+generate only, no branch/DB side effects
-pnpm dev autoresearch evaluate --cohort crisis_2008                               # evaluate pending mutations (resume)
+# Legacy autoresearch diagnostics (never a v2 production promotion path)
+pnpm dev autoresearch trigger --cohort crisis_2008 --dry-run --fake-llm           # generate only, no branch/DB side effects
+pnpm dev autoresearch evaluate --cohort crisis_2008                               # legacy audit; terminal result is legacy_unverified
 pnpm dev autoresearch log --cohort crisis_2008 --days 7                           # audit log
 pnpm dev autoresearch branches --cohort crisis_2008                               # active feature branches
 pnpm dev autoresearch revert --version-id 12                                      # manual revert (respects 3-day keep-lockout)
 
-# Phase 5 PRISM (7-cohort training orchestration)
+# PRISM (7-cohort training orchestration)
 pnpm dev prism list                                  # 7 cohorts + branch/run status
 pnpm dev prism train --cohort crisis_2008 --fake-llm [--max-concurrent 5] [--max-mutations 1] [--dry-run]
 pnpm dev prism train --all --fake-llm                # train all 7 cohorts sequentially (layers sequential, ≤5 agents/layer concurrent)
 pnpm dev prism status --cohort crisis_2008
 pnpm dev prism compare [--metric sharpe] [--since YYYY-MM-DD]
 
-# Phase 6 JANUS (meta-weighting over the 7 regime cohorts)
+# JANUS (meta-weighting over the 7 regime cohorts)
 pnpm dev janus run [--date YYYY-MM-DD] [--window 30]    # weights + regime + blended recs (persisted)
 pnpm dev janus weights [--date YYYY-MM-DD] [--window 30]
 pnpm dev janus regime [--date YYYY-MM-DD]
 pnpm dev janus history [--days 30]
 
-# Phase 7 MiroFish (synthetic-futures forward training; isolated from real P&L)
+# MiroFish (synthetic-futures forward training; isolated from real P&L)
 pnpm dev mirofish generate [--days 30] [--seed 42] [--print] [--swarm]   # real MOSAIC-Fish by default; generate + persist context
   # The default oasis engine drives deployed MOSAIC-Fish (set MOSAIC_MIROFISH_URL, e.g. http://localhost:5001);
   #   walks the real multi-step API (graph/build → simulation → report) and maps the prediction report's
@@ -82,7 +83,7 @@ pnpm dev mirofish history [--days 30]
   # to CRO / autonomous execution / CIO with anti-lookahead checks and a simulation-only disclaimer.
   # Real-service operations: ../docs/runbooks/mosaic_fish_feedback_loop.md
 
-# Phase 8 — paper trading (simulated A-share ETF account; fake money, local SQLite)
+# Paper trading (simulated A-share ETF account; fake money, local SQLite)
 pnpm dev paper register <user> <pw>                  # create account
 pnpm dev paper login <user> <pw>                     # start a session (host-global)
 pnpm dev paper account [--user u]                    # cash / market value / PnL
@@ -92,7 +93,7 @@ pnpm dev paper positions [--user u]
 pnpm dev paper trades [--user u] [--limit 50]
 pnpm dev paper suggest <ticker> '<state-json>' [--user u]   # signal→order from a decision state
 
-# Phase 9B/10 — read-only Ink TUI dashboard (aggregates existing read RPCs; manual refresh)
+# Read-only Ink TUI dashboard (aggregates existing read RPCs; manual refresh)
 pnpm dev dashboard [--cohort cohort_default] [--user u]
   # tabs: [1] today (latest CIO plan: what to trade) · [2] winrate (per-ticker hit rate) ·
   #       [3] skill (agent alpha/sharpe) · [4] paper (account+positions) · [5] cohorts (PRISM)
@@ -112,45 +113,33 @@ The bridge client looks for the Python interpreter in this order:
 There is no silent fallback to a system Python — failures would surface inside
 LangChain / Tushare imports far from the root cause.
 
-## Phase 1 Exit standard
+## Signed China snapshot tool loop
 
-The `tool-loop` command demonstrates a minimal LLM + bridge tool round-trip:
+The `tool-loop` command demonstrates one capability-bound LLM + bridge round-trip. It always
+uses the China Macro role and exposes only `get_china_macro_snapshot`; arbitrary tool selection is
+intentionally unavailable because every snapshot tool is bound to an exact Agent and stage.
 
 ```bash
 # Requires:
 #   * ANTHROPIC_API_KEY (or OPENAI_API_KEY — see src/llm/factory.ts)
-#   * FRED_API_KEY (for the default get_fred_series tool — free at
-#     https://fredaccount.stlouisfed.org/apikey)
+#   * TUSHARE_TOKEN and the configured live snapshot sources
 export ANTHROPIC_API_KEY=sk-ant-...
-export FRED_API_KEY=...
+export TUSHARE_TOKEN=...
 
-pnpm dev tool-loop --question "What was the U.S. effective federal funds rate in early 2024?"
+pnpm dev tool-loop --as-of-date 2026-07-17 \
+  --question "请仅依据冻结快照概括中国宏观环境。"
 ```
 
 Flow:
 
 1. Spawn the Python sidecar.
-2. Pull `tools.list` and the active config from the bridge.
-3. Build a chat model from the bridge config + env API key (Anthropic by default).
-4. Wrap **one** bridge tool (default `get_fred_series`) as a LangChain
-   `DynamicStructuredTool`.
-5. Loop: invoke LLM → if `tool_calls`, dispatch through the bridge → feed
+2. Read the active model config and prepare a signed capability for the China Agent, China stage,
+   and exact as-of date.
+3. List the capability-authorized surface and bind only `get_china_macro_snapshot`.
+4. Loop: invoke LLM → if `tool_calls`, dispatch through the signed capability → feed
    results back as `ToolMessage` → repeat until the LLM produces a final
    answer (max 6 iterations).
-6. Print the final assistant message.
-
-This proves: subprocess management, JSON-RPC framing/correlation, Pydantic
-JSON Schema → Zod conversion, LangChain.js tool calling, and error
-propagation across the language boundary.
-
-## What's NOT in Phase 1
-
-- LangGraph orchestration of the 4-layer 25-agent graph (Phase 2)
-- Agent prompts, schemas, debate, manager (Phase 2)
-- Memory, validation, reflection (Phase 2)
-- Scorecard / Darwinian weights (Phase 3)
-- Autoresearch / PRISM / JANUS / MiroFish (Phase 4–7)
-- Ink TUI, full CLI command coverage (Phase 9)
+5. Terminate the capability and close the bridge.
 
 ## Tests
 
@@ -158,15 +147,7 @@ propagation across the language boundary.
 pnpm test
 ```
 
-The suite has tests across three files:
-
-- `python.test.ts` — interpreter discovery fallback chain (uses tempdirs).
-- `client.test.ts` — JSON-RPC client driving the real bridge subprocess:
-  request correlation, error envelope mapping, timeout semantics.
-- `tools.test.ts` — JSON-Schema → Zod conversion (unit) plus end-to-end:
-  every Pydantic schema returned by `tools.list` becomes a usable LangChain
-  tool.
-
-Black-box tests start the real `python -m mosaic.bridge` subprocess. They
-require `<repoRoot>/.venv` to exist (run `uv venv && uv pip install -e ".[data]"`
-once).
+The TypeScript suite covers the current graph, signed tool capabilities, structured-output
+contracts, prompt/private boundaries, accepted-output lineage, and CLI behavior. Tests that spawn
+the Python bridge require `<repoRoot>/.venv` to exist; initialize it once with
+`uv venv && uv pip install -e ".[data]"`.

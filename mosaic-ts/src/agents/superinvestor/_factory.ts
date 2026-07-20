@@ -2,8 +2,8 @@
  * Generic factory for Layer-3 superinvestor agent nodes (Plan §11.2 sub-step 2D.2).
  *
  * Reads upstream:
- *   - state.layer1_consensus (RegimeSignal)
- *   - state.layer2_outputs.* (the 7 sector agents' picks → candidate universe)
+ *   - ten independent accepted Macro transmissions with usage shares
+ *   - state.layer2_outputs.* (nine Sector selections plus relationship graph)
  *
  * Writes:
  *   - state.layer3_outputs[<agentId>] (SuperinvestorOutput)
@@ -14,32 +14,56 @@
  * tools), but the orchestration is identical — schema-agnostic.
  */
 
-import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import type { StructuredToolInterface } from "@langchain/core/tools";
-import type { z } from "zod";
+import {
+  type BaseMessage,
+  HumanMessage,
+  SystemMessage,
+  type ToolMessage,
+} from "@langchain/core/messages";
+import { type StructuredToolInterface, tool } from "@langchain/core/tools";
+import { z } from "zod";
 import { persistPromptReleaseCanaryEvents } from "../../autoresearch/prompt_release_canary_slo.js";
-import type { BridgeApi, BridgeToolFactoryOptions, MosaicConfig } from "../../bridge/index.js";
+import { type BridgeApi, type MosaicConfig, pickBridgeTools } from "../../bridge/index.js";
 import type { LlmHandle } from "../../llm/factory.js";
+import {
+  type AcceptedAgentOutputStore,
+  acceptedOutputBuildContextFromState,
+  acceptedOutputRefKey,
+  buildAcceptedAgentOutputRecord,
+  buildStructuredSmokeAcceptedOutputRef,
+  canonicalAcceptedOutputHash,
+} from "../accepted_output.js";
 import { type AgentInitialToolCall, runAgentToolLoop } from "../helpers/agent_loop.js";
 import { invokeStrictStructured } from "../helpers/agent_run_contract.js";
 import {
-  buildAgentInvocationId,
+  evidenceLineageEnvelopeFromGraph,
+  renderCausalEvidenceResolutionSet,
+} from "../helpers/causal_evidence_resolution.js";
+import { extractTextContent } from "../helpers/content.js";
+import {
   buildRuntimeEvidenceSnapshot,
   type RuntimeEvidenceSnapshot,
 } from "../helpers/evidence_runtime.js";
+import {
+  canonicalAcceptedSubmissionBody,
+  MACRO_ATTRIBUTION_PROVIDER_INSTRUCTION,
+  resolveMacroInputAttributions,
+} from "../helpers/macro_attribution.js";
+import { acceptedMacroOutputs, renderAcceptedMacroInputs } from "../helpers/macro_context.js";
+import { preModelOutcomeDisposition } from "../helpers/outcome_pre_model.js";
+import {
+  isPrivateKnotStageEnabled,
+  type PrivateKnotAuditSummary,
+  type PrivateKnotSnapshot,
+  privateKnotInvocationContextForState,
+  type ToolStatus,
+} from "../helpers/private_knot_boundary.js";
 import {
   type AgentCanaryEventContext,
   agentCanaryEventContext,
   beginAgentPromptCanaryInvocation,
   buildAgentPromptCanaryEvent,
 } from "../helpers/prompt_canary.js";
-import { pickResearchDigestTools } from "../helpers/research_digest_tools.js";
-import {
-  isResearchKnobsStageEnabled,
-  type ResearchKnobCapAudit,
-  type ResearchKnobsSnapshot,
-  type ToolStatus,
-} from "../helpers/research_knobs.js";
 import {
   buildLlmCall,
   formatAgentEvent,
@@ -51,13 +75,29 @@ import {
   withAgentTimeout,
 } from "../helpers/runtime.js";
 import { resolveRuntimeSourceStatusesForAgent } from "../helpers/runtime_sources.js";
+import { renderAcceptedSectorInputs } from "../helpers/source_layer_usage.js";
 import { validateStrictAgentOutput } from "../helpers/strict_agent_validation.js";
-import { type LoaderLanguage, loadPrompt, loadPromptWithKnobs } from "../prompts/loader.js";
+import { SUPERINVESTOR_ABSTENTION_PROVIDER_INSTRUCTION } from "../helpers/structured_provider_adapters.js";
+import {
+  hasAgentToolCapabilityApi,
+  prepareAgentToolCapability,
+  terminateAgentToolCapability,
+} from "../helpers/tool_capability.js";
+import { MACRO_AGENT_IDS } from "../macro/_contracts.js";
+import { type LoaderLanguage, loadPrompt, loadPromptWithPrivateKnot } from "../prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type { SuperinvestorOutput } from "../types.js";
+import { buildRuntimeSuperinvestorSchema } from "./_schemas.js";
+import {
+  acceptedSuperinvestorSelectionPayload,
+  buildAcceptedSuperinvestorSelection,
+  superinvestorMacroAttributionTargets,
+} from "./accepted.js";
+
+export type SuperinvestorAgentId = "druckenmiller" | "munger" | "burry" | "ackman";
 
 export interface LayerThreeAgentSpec<TOutput extends SuperinvestorOutput> {
-  agentId: string;
+  agentId: SuperinvestorAgentId;
   schema: z.ZodType<TOutput>;
   fieldNames: ReadonlyArray<string>;
   requiredTools: ReadonlyArray<string>;
@@ -76,6 +116,7 @@ export interface LayerThreeAgentDeps {
   agentTimeoutSeconds?: number;
   /** Override prompt-root directory (tests inject a tmpdir). */
   promptsRoot?: string;
+  acceptedOutputStore?: AcceptedAgentOutputStore;
 }
 
 export type LayerThreeAgentNode = (state: DailyCycleStateType) => Promise<DailyCycleStateUpdate>;
@@ -85,12 +126,22 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
   deps: LayerThreeAgentDeps,
 ): LayerThreeAgentNode {
   return async function layerThreeAgentNode(state) {
+    if (
+      preModelOutcomeDisposition({
+        state,
+        agentId: spec.agentId,
+        stage: "agent_run",
+        authorityKind: "SUPERINVESTOR",
+      }) === "SKIP"
+    ) {
+      return {};
+    }
     const structuredHandle = deps.llmHandleStructured ?? deps.llmHandle;
     const timeoutMs = resolveAgentTimeoutMs(deps.agentTimeoutSeconds);
     const onLog = deps.onLog ?? (() => undefined);
     const startedAt = Date.now();
     let canaryContext: AgentCanaryEventContext | null = null;
-    let canaryKnobSnapshot: ResearchKnobsSnapshot | null = null;
+    let canaryKnobSnapshot: PrivateKnotSnapshot | null = null;
     let canaryToolStatuses: ReadonlyArray<ToolStatus> = [];
     onLog(
       formatAgentEvent("start", "L3", spec.agentId, [
@@ -105,21 +156,25 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
           const language = pickPromptLanguage(deps.config);
           onLog(formatAgentEvent("phase", "L3", spec.agentId, ["prepare"]));
 
-          let knobSnapshot: ResearchKnobsSnapshot | null = null;
+          let knobSnapshot: PrivateKnotSnapshot | null = null;
           let baseSystemPrompt: string;
           let release: Parameters<typeof agentCanaryEventContext>[0]["release"];
-          if (isResearchKnobsStageEnabled(spec.agentId, "agent_run", undefined, cohort)) {
+          if (isPrivateKnotStageEnabled(spec.agentId, "agent_run", cohort)) {
             const runtimeSourceStatuses = resolveRuntimeSourceStatusesForAgent(
               state,
               spec.agentId,
               "agent_run",
             );
-            const loaded = await loadPromptWithKnobs({
+            const loaded = await loadPromptWithPrivateKnot({
               agent: spec.agentId,
               cohort,
               stage: "agent_run",
               trafficAssignmentKey: state.trace_id || state.as_of_date,
               runtimeSourceStatuses,
+              invocationContext: privateKnotInvocationContextForState(state),
+              ...(state.darwinian_runtime_binding
+                ? { requirePinnedPrivateRelease: true as const }
+                : {}),
               onReleaseAssigned: async (assignedRelease) => {
                 canaryContext = await beginAgentPromptCanaryInvocation({
                   release: assignedRelease,
@@ -148,35 +203,59 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
             canaryContext = agentCanaryEventContext({
               release,
               state,
-              agentInvocationId:
-                canaryContext?.agentInvocationId ??
-                buildAgentInvocationId({
-                  runId: state.trace_id || state.as_of_date || "current_run",
-                  agent: spec.agentId,
-                  stage: "agent_run",
-                  cohort,
-                  asOf: state.as_of_date || "live",
-                  snapshotHash: knobSnapshot.hash,
-                }),
+              agentInvocationId: knobSnapshot.agent_invocation_id,
               systemPrompt,
             });
           }
 
-          const toolOptions = {
-            ...(state.mode === "backtest" && state.as_of_date
-              ? { context: { mode: "backtest", as_of_date: state.as_of_date } }
-              : {}),
-          } satisfies BridgeToolFactoryOptions;
-          const tools = await pickResearchDigestTools({
-            api: deps.api,
-            names: spec.requiredTools,
-            options: toolOptions,
-            llmHandle: deps.llmHandle,
-            onLog: (msg) => onLog(formatAgentEvent("phase", "L3", spec.agentId, [msg])),
-            signal,
-          });
+          const availableAcceptedSnapshotRefs = superinvestorAcceptedSnapshotRefs(state);
+          const acceptedSnapshotRefs =
+            availableAcceptedSnapshotRefs.length > 0 ? availableAcceptedSnapshotRefs : null;
+          const opportunityAuthority = superinvestorOpportunityAuthority(state, spec.agentId);
+          const capabilityApi = hasAgentToolCapabilityApi(deps.api) ? deps.api : null;
+          if (!capabilityApi && deps.llmHandle.provider !== "fake") {
+            throw new Error(`${spec.agentId}: bridge tool capability API is unavailable`);
+          }
+          const preparedCapability = capabilityApi
+            ? await prepareAgentToolCapability({
+                api: deps.api,
+                state,
+                agentId: spec.agentId,
+                stage: spec.agentId,
+                runtimeInputs: acceptedSnapshotRefs
+                  ? { accepted_output_refs: acceptedSnapshotRefs }
+                  : {
+                      macro_input_gate: state.macro_input_gate,
+                      layer1_outputs: state.layer1_outputs,
+                      layer2_outputs: state.layer2_outputs,
+                    },
+                candidateScope: acceptedSnapshotRefs
+                  ? { accepted_output_refs: acceptedSnapshotRefs }
+                  : { accepted_sector_outputs: state.layer2_outputs },
+              })
+            : null;
+          if (
+            opportunityAuthority &&
+            preparedCapability?.bundle.candidate_scope_hash !==
+              opportunityAuthority.candidateScopeHash
+          ) {
+            throw new Error(
+              `${spec.agentId}: runtime candidate scope changed after opportunity freeze`,
+            );
+          }
+          const tools = preparedCapability
+            ? await pickBridgeTools(deps.api, spec.requiredTools, {
+                capability: preparedCapability.capability,
+              })
+            : spec.requiredTools.map((name) =>
+                buildFakeSuperinvestorSnapshotTool(name, spec.agentId, state.as_of_date),
+              );
 
-          const userContext = buildLayerThreeUserContext(state, spec.agentId);
+          const userContext = buildLayerThreeUserContext(
+            state,
+            spec.agentId,
+            deps.acceptedOutputStore,
+          );
           let runtimeEvidence: RuntimeEvidenceSnapshot | null = knobSnapshot
             ? buildRuntimeEvidenceSnapshot({
                 state,
@@ -188,27 +267,36 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
           const evidenceUserContext = runtimeEvidence
             ? `${userContext}\n\n${runtimeEvidence.visibleCatalog}`
             : userContext;
-          const loopResult = await runAgentToolLoop({
-            llm: deps.llmHandle.llm,
-            tools: tools as StructuredToolInterface[],
-            systemMessage: systemPrompt,
-            initialMessages: [new HumanMessage(evidenceUserContext)],
-            ...(runtimeEvidence ? { agentInvocationId: runtimeEvidence.agentInvocationId } : {}),
-            initialToolCalls: buildLayerThreeInitialToolCalls(state, spec.agentId),
-            maxLoops: 3,
-            replayFullToolMaxChars: 80_000,
-            onLog: (msg) => onLog(formatAgentEvent("phase", "L3", spec.agentId, [msg])),
-            signal,
-          });
-          if (knobSnapshot) {
-            runtimeEvidence = buildRuntimeEvidenceSnapshot({
-              state,
-              agent: spec.agentId,
-              stage: "agent_run",
-              knobSnapshot,
-              toolStatuses: loopResult.toolStatuses,
+          let loopResult!: Awaited<ReturnType<typeof runAgentToolLoop>>;
+          try {
+            loopResult = await runAgentToolLoop({
+              llm: deps.llmHandle.llm,
+              tools: tools as StructuredToolInterface[],
+              systemMessage: systemPrompt,
+              initialMessages: [new HumanMessage(evidenceUserContext)],
+              ...(runtimeEvidence ? { agentInvocationId: runtimeEvidence.agentInvocationId } : {}),
+              initialToolCalls: buildLayerThreeInitialToolCalls(state, spec.agentId),
+              maxLoops: 3,
+              replayFullToolMaxChars: 80_000,
+              onLog: (msg) => onLog(formatAgentEvent("phase", "L3", spec.agentId, [msg])),
+              signal,
             });
+          } finally {
+            if (preparedCapability) {
+              await terminateAgentToolCapability(
+                deps.api,
+                preparedCapability,
+                "superinvestor_candidate_research_completed",
+              );
+            }
           }
+          runtimeEvidence = buildRuntimeEvidenceSnapshot({
+            state,
+            agent: spec.agentId,
+            stage: "agent_run",
+            knobSnapshot,
+            toolStatuses: loopResult.toolStatuses,
+          });
           canaryToolStatuses = loopResult.toolStatuses;
 
           onLog(
@@ -219,14 +307,25 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
           const extractorSystem = spec.buildExtractorSystem
             ? spec.buildExtractorSystem(language)
             : defaultExtractorSystem(spec, language);
+          const allowedTsCodes = frozenSuperinvestorCandidateCodes(
+            loopResult.messages,
+            opportunityAuthority,
+          );
+          const extractionSchema = buildRuntimeSuperinvestorSchema(
+            spec.agentId,
+            allowedTsCodes,
+          ) as z.ZodType<TOutput>;
           const extractor = await invokeStrictStructured<TOutput>({
             llm: structuredHandle.llm,
-            schema: spec.schema,
+            schema: extractionSchema,
             messages: [
               new SystemMessage(extractorSystem),
               new HumanMessage(
                 [
                   loopResult.analysisText || "(no analysis produced)",
+                  allowedTsCodes.length === 0
+                    ? "Frozen candidate universe is empty. The only legal disposition is NO_QUALIFIED_CANDIDATES with picks=[]."
+                    : `Frozen allowed ts_code values (exact closed set): ${JSON.stringify(allowedTsCodes)}`,
                   runtimeEvidence?.visibleCatalog,
                 ]
                   .filter((part): part is string => Boolean(part))
@@ -240,18 +339,78 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
             validate: (output) =>
               validateStrictAgentOutput({
                 output,
-                schema: spec.schema,
+                schema: extractionSchema,
                 agent: spec.agentId,
                 stage: "agent_run",
+                cohort: state.active_cohort,
                 runtimeEvidence,
                 knobSnapshot,
                 toolStatuses: loopResult.toolStatuses,
               }),
-            isAcceptedEmpty: (output) => output.selection_disposition === "NO_QUALIFIED_CANDIDATES",
+            isAcceptedEmpty: (output) => output.selection_status === "NO_QUALIFIED_CANDIDATES",
             signal,
           });
 
           const output = extractor.output;
+          let acceptedOutputRefs: DailyCycleStateUpdate["accepted_output_refs"] | undefined;
+          if (state.darwinian_runtime_binding) {
+            const gate = state.macro_input_gate;
+            const claimGraph = output.verified_claim_graph;
+            const behavior = state.darwinian_runtime_binding.agent_behavior_bindings[spec.agentId];
+            if (!gate || !claimGraph || !behavior || !deps.acceptedOutputStore) {
+              throw new Error(
+                `${spec.agentId}: production accepted Superinvestor context is unavailable`,
+              );
+            }
+            const selection = acceptedSuperinvestorSelectionPayload(output);
+            const acceptedAttributions = resolveMacroInputAttributions({
+              submissions: output.macro_input_attributions,
+              acceptedMacroOutputs: acceptedMacroOutputs(state, deps.acceptedOutputStore),
+              macroInputGate: gate,
+              acceptedSubmissionBody: canonicalAcceptedSubmissionBody(selection),
+              targets: superinvestorMacroAttributionTargets(output),
+            });
+            const accepted = buildAcceptedSuperinvestorSelection({
+              output,
+              behavior,
+              acceptedMacroInputAttributions: acceptedAttributions,
+            });
+            const lineage = evidenceLineageEnvelopeFromGraph(accepted, claimGraph);
+            const record = buildAcceptedAgentOutputRecord({
+              kind: "SUPERINVESTOR_SELECTION",
+              agentId: spec.agentId,
+              payload: accepted,
+              evidenceBundleIds: lineage.evidence_bundle_ids,
+              causalDedupeKeys: lineage.causal_dedupe_keys,
+              claimGraph,
+              sourceAgentOutputHash: requiredAcceptedAuditOutputHash(
+                extractor.audit.output_hash,
+                spec.agentId,
+              ),
+              context: acceptedOutputBuildContextFromState({
+                state,
+                agentId: spec.agentId,
+                sourceAgentRunId: extractor.audit.run_id,
+                acceptedOutputKind: "SUPERINVESTOR_SELECTION",
+              }),
+            });
+            const ref = deps.acceptedOutputStore.put(record, claimGraph);
+            acceptedOutputRefs = {
+              [acceptedOutputRefKey("SUPERINVESTOR_SELECTION", spec.agentId)]: ref,
+            };
+          } else {
+            const ref = buildStructuredSmokeAcceptedOutputRef({
+              kind: "SUPERINVESTOR_SELECTION",
+              agentId: spec.agentId,
+              payload: output,
+              state,
+            });
+            if (ref) {
+              acceptedOutputRefs = {
+                [acceptedOutputRefKey("SUPERINVESTOR_SELECTION", spec.agentId)]: ref,
+              };
+            }
+          }
           const repairPromptTokens = extractor.audit.attempts.reduce(
             (sum, attempt) => sum + attempt.prompt_tokens,
             0,
@@ -274,14 +433,14 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
             claimGraphAccepted: true,
             knobSnapshot,
             knobAudit:
-              (output as TOutput & { verified_knob_audit?: ResearchKnobCapAudit })
-                .verified_knob_audit ?? null,
+              (output as TOutput & { private_knot_audit?: PrivateKnotAuditSummary })
+                .private_knot_audit ?? null,
             toolStatuses: loopResult.toolStatuses,
             output,
             validatorIds: [
               `${spec.agentId}.structured_output.v1`,
               "evidence_claim_graph_v1",
-              "research_knobs_runtime_v1",
+              "private_knot_runtime_v1",
             ],
           });
           if (canaryEvent) {
@@ -314,7 +473,10 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
           );
 
           return {
-            layer3_outputs: { [spec.agentId]: output },
+            ...(state.darwinian_runtime_binding
+              ? {}
+              : { layer3_outputs: { [spec.agentId]: output } }),
+            ...(acceptedOutputRefs ? { accepted_output_refs: acceptedOutputRefs } : {}),
             llm_calls: [llmCall],
           };
         },
@@ -342,7 +504,7 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
         validatorIds: [
           `${spec.agentId}.structured_output.v1`,
           "evidence_claim_graph_v1",
-          "research_knobs_runtime_v1",
+          "private_knot_runtime_v1",
         ],
         forceFallback: true,
         forceSourceFailure: true,
@@ -351,6 +513,25 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
       throw err;
     }
   };
+}
+
+function requiredAcceptedAuditOutputHash(value: string | null, agentId: string): string {
+  if (!value || !/^sha256:[0-9a-f]{64}$/.test(value)) {
+    throw new Error(`${agentId}: accepted output lacks an Agent-run output hash`);
+  }
+  return value;
+}
+
+export function superinvestorAcceptedSnapshotRefs(state: DailyCycleStateType) {
+  return Object.entries(state.accepted_output_refs)
+    .filter(
+      ([key]) =>
+        key.startsWith("MACRO_TRANSMISSION:") ||
+        key.startsWith("STANDARD_SECTOR_SELECTION:") ||
+        key === "RELATIONSHIP_GRAPH:relationship_mapper",
+    )
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, ref]) => ({ key, ...ref }));
 }
 
 // ---------------------------------------------------------------------------
@@ -365,108 +546,200 @@ export function pickPromptLanguage(config: MosaicConfig): LoaderLanguage {
 }
 
 /** Build user-context block that surfaces L1 regime + L2 sector picks. */
-export function buildLayerThreeUserContext(state: DailyCycleStateType, agentId: string): string {
+export function buildLayerThreeUserContext(
+  state: DailyCycleStateType,
+  agentId: SuperinvestorAgentId,
+  acceptedOutputStore?: AcceptedAgentOutputStore,
+): string {
   const date = state.as_of_date || new Date().toISOString().slice(0, 10);
   const mode = state.mode || "live";
   const cohort = state.active_cohort || "cohort_default";
-  const regime = state.layer1_consensus;
+  const macroBlock = renderAcceptedMacroInputs(state, acceptedOutputStore);
 
-  const regimeBlock = regime
-    ? `## Layer-1 macro regime\n` +
-      `* stance: ${regime.stance}\n` +
-      `* confidence: ${regime.confidence.toFixed(2)}\n` +
-      `* layer_1_consensus_score: ${regime.layer_1_consensus_score.toFixed(2)}\n` +
-      `* key_drivers:\n${regime.key_drivers.map((d) => `  - ${d}`).join("\n")}\n`
-    : "## Layer-1 macro regime\n* (not available — state.layer1_consensus is null)\n";
-
-  const sectorBlocks = renderSectorPicks(state);
+  const sectorBlocks = renderAcceptedSectorInputs(state, acceptedOutputStore);
+  const causalResolutionBlock = renderCausalEvidenceResolutionSet({
+    state,
+    consumerAgentId: agentId,
+    sourceLayers: ["MACRO", "SECTOR"],
+    ...(acceptedOutputStore ? { acceptedOutputStore } : {}),
+  });
 
   return (
     `Cycle context for ${agentId} (Layer 3 superinvestor):\n` +
     `* as_of_date: ${date}\n` +
     `* mode:       ${mode}\n` +
     `* cohort:     ${cohort}\n\n` +
-    `${regimeBlock}\n` +
+    `${macroBlock}\n` +
     `${sectorBlocks}\n` +
-    buildLayerThreeToolPlan(agentId) +
-    `\n` +
-    `Use get_rke_research_context only as report-derived research prior and ` +
-    `style-fit hint. It may expand or annotate the candidate set, but any pick ` +
-    `must be confirmed by current stock research, fundamentals, financials, or price data. ` +
-    `Apply your investment philosophy to the candidate set above. Use your ` +
-    `philosophy-specific tools for current verification before selecting stocks.`
+    `${causalResolutionBlock}\n` +
+    `Use only the frozen candidate snapshot supplied for this role. ` +
+    `Do not expand the candidate set or query report-derived research. ` +
+    `Apply the role philosophy to the accepted candidates and evidence already present in that snapshot.`
   );
 }
 
 export function buildLayerThreeInitialToolCalls(
-  state: DailyCycleStateType,
-  agentId: string,
+  _state: DailyCycleStateType,
+  _agentId: string,
 ): AgentInitialToolCall[] {
-  const date = state.as_of_date || new Date().toISOString().slice(0, 10);
-  if (agentId === "ackman") {
-    return pickAckmanCandidateTickers(state)
-      .slice(0, 1)
-      .flatMap((ticker) => [
-        { name: "get_fundamentals", args: { ticker, curr_date: date } },
-        { name: "get_cashflow", args: { ticker, freq: "annual", curr_date: date } },
-      ]);
-  }
-  if (agentId === "burry") {
-    return pickBurryCandidateTickers(state)
-      .slice(0, 1)
-      .flatMap((ticker) => [
-        { name: "get_fundamentals", args: { ticker, curr_date: date } },
-        { name: "get_balance_sheet", args: { ticker, freq: "annual", curr_date: date } },
-      ]);
-  }
-  if (agentId === "munger") {
-    return pickMungerCandidateTickers(state)
-      .slice(0, 1)
-      .flatMap((ticker) => [
-        { name: "get_fundamentals", args: { ticker, curr_date: date } },
-        { name: "get_cashflow", args: { ticker, freq: "annual", curr_date: date } },
-      ]);
-  }
-  return [];
+  return [{ name: "get_superinvestor_candidate_snapshot", args: {} }];
 }
 
-function buildLayerThreeToolPlan(agentId: string): string {
-  if (agentId === "ackman") {
-    return (
-      `## Tool plan\n` +
-      `* Initial evidence: verify the highest-priority consumer/financial quality candidate with fundamentals and cashflow.\n` +
-      `* Round 1: judge pricing power, FCF conversion, balance-sheet durability, and candidate fit for that candidate.\n` +
-      `* Round 2: use stock research, income statement, balance sheet, or stock data only for the same candidate or one backup.\n` +
-      `* Round 3: fill one critical gap only; do not broaden beyond the initial quality candidate and one backup.\n` +
-      `* Round 4: no more tools; write the final analysis from gathered evidence.\n`
+export interface SuperinvestorOpportunityAuthority {
+  candidateScopeHash: string;
+  candidateUniverseHash: string;
+  sourceSnapshotHash: string;
+}
+
+function superinvestorOpportunityAuthority(
+  state: DailyCycleStateType,
+  agentId: SuperinvestorAgentId,
+): SuperinvestorOpportunityAuthority | null {
+  if (!state.darwinian_runtime_binding) return null;
+  const schedule = state.outcome_schedule_plan;
+  if (!schedule) throw new Error(`${agentId}: outcome schedule is unavailable`);
+  const slots = schedule.slots.filter((slot) => slot.agent_id === agentId);
+  if (slots.length !== 1) throw new Error(`${agentId}: outcome schedule slot is ambiguous`);
+  const slot = slots[0];
+  if (!slot) throw new Error(`${agentId}: outcome schedule slot is unavailable`);
+  if (slot.run_slot_kind === "DOWNSTREAM_ONLY") return null;
+  const binding = state.outcome_opportunity_bindings[agentId];
+  if (
+    !binding ||
+    binding.scheduled_sample_id !== slot.scheduled_sample_id ||
+    !binding.runtime_candidate_scope_hash ||
+    !binding.runtime_candidate_universe_hash ||
+    !binding.runtime_source_snapshot_hash
+  ) {
+    throw new Error(`${agentId}: runtime opportunity authority is unavailable`);
+  }
+  return {
+    candidateScopeHash: binding.runtime_candidate_scope_hash,
+    candidateUniverseHash: binding.runtime_candidate_universe_hash,
+    sourceSnapshotHash: binding.runtime_source_snapshot_hash,
+  };
+}
+
+export function frozenSuperinvestorCandidateCodes(
+  messages: ReadonlyArray<BaseMessage>,
+  expectedAuthority: SuperinvestorOpportunityAuthority | null = null,
+): string[] {
+  const snapshotMessage = messages.find(
+    (message) =>
+      message.getType() === "tool" && (message as ToolMessage).tool_call_id === "initial_tool_1",
+  ) as ToolMessage | undefined;
+  if (!snapshotMessage) {
+    throw new Error("superinvestor frozen candidate snapshot result is unavailable");
+  }
+  let payload: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(extractTextContent(snapshotMessage.content as unknown));
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("snapshot must be an object");
+    }
+    payload = parsed as Record<string, unknown>;
+  } catch (cause) {
+    throw new Error(
+      `superinvestor frozen candidate snapshot is invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
     );
   }
-  if (agentId === "munger") {
-    return (
-      `## Tool plan\n` +
-      `* Initial evidence: verify the highest-quality compounder candidate with fundamentals and cashflow.\n` +
-      `* Round 1: judge moat durability, cash conversion, and management-quality evidence for that candidate.\n` +
-      `* Round 2: use stock research, income statement, balance sheet, or stock data only for the same candidate or one backup.\n` +
-      `* Round 3: fill one critical gap only; do not broaden beyond the compounder candidate set.\n` +
-      `* Round 4: no more tools; write the final analysis from gathered evidence.\n`
-    );
+  const universe = payload.candidate_universe ?? payload.candidates;
+  if (!Array.isArray(universe)) {
+    throw new Error("superinvestor frozen candidate snapshot requires candidate_universe");
   }
-  if (agentId === "burry") {
-    return (
-      `## Tool plan\n` +
-      `* Initial evidence: verify the highest-downside candidate with fundamentals and balance sheet.\n` +
-      `* Round 1: judge balance-sheet stress, cash burn, valuation risk, and downside asymmetry for that candidate.\n` +
-      `* Round 2: use cashflow, stock data, stock research, or RKE prior only for the same candidate or one backup.\n` +
-      `* Round 3: fill one critical short-thesis gap only; do not broaden beyond the initial downside candidate and one backup.\n` +
-      `* Round 4: no more tools; write the final analysis from gathered evidence.\n`
-    );
+  if (expectedAuthority) {
+    if (
+      payload.candidate_scope_hash !== expectedAuthority.candidateScopeHash ||
+      payload.candidate_universe_hash !== expectedAuthority.candidateUniverseHash ||
+      payload.snapshot_hash !== expectedAuthority.sourceSnapshotHash
+    ) {
+      throw new Error("superinvestor candidate snapshot changed after opportunity freeze");
+    }
+    const candidateStatus = payload.candidate_status;
+    if (candidateStatus !== "AVAILABLE" && candidateStatus !== "EMPTY_CONFIRMED") {
+      throw new Error("superinvestor candidate snapshot has invalid candidate_status");
+    }
+    const computedUniverseHash = canonicalAcceptedOutputHash({
+      candidate_status: candidateStatus,
+      candidate_universe: universe,
+    });
+    if (computedUniverseHash !== expectedAuthority.candidateUniverseHash) {
+      throw new Error("superinvestor candidate universe content hash mismatch");
+    }
+    const candidateScope = payload.candidate_scope;
+    if (
+      candidateScope === null ||
+      typeof candidateScope !== "object" ||
+      Array.isArray(candidateScope) ||
+      canonicalAcceptedOutputHash(candidateScope) !== expectedAuthority.candidateScopeHash ||
+      (candidateScope as Record<string, unknown>).candidate_universe_hash !==
+        expectedAuthority.candidateUniverseHash
+    ) {
+      throw new Error("superinvestor candidate scope content hash mismatch");
+    }
   }
-  return (
-    `## Tool plan\n` +
-    `* Round 1: pick at least 2 candidate tickers that fit your philosophy and verify them with stock research or fundamentals.\n` +
-    `* Round 2: verify the strongest candidates with available financial, cashflow, balance-sheet, price, or indicator tools.\n` +
-    `* Round 3: fill only critical gaps with stock research, cashflow, or policy evidence.\n` +
-    `* Round 4: no more tools; write the final analysis from gathered evidence.\n`
+  const constraints =
+    payload.constraints !== null &&
+    typeof payload.constraints === "object" &&
+    !Array.isArray(payload.constraints)
+      ? (payload.constraints as Record<string, unknown>)
+      : {};
+  const cashOnly = constraints.cash_only === true || constraints.allow_new_positions === false;
+  if (cashOnly && universe.length > 0) {
+    throw new Error("superinvestor candidate snapshot conflicts with its cash-only constraints");
+  }
+  const codes = universe.map((candidate, index) => {
+    const record =
+      candidate !== null && typeof candidate === "object" && !Array.isArray(candidate)
+        ? (candidate as Record<string, unknown>)
+        : null;
+    const nestedSecurity =
+      record?.security !== null &&
+      typeof record?.security === "object" &&
+      !Array.isArray(record.security)
+        ? (record.security as Record<string, unknown>)
+        : null;
+    const code =
+      typeof candidate === "string"
+        ? candidate
+        : typeof record?.ts_code === "string"
+          ? record.ts_code
+          : typeof record?.ticker === "string"
+            ? record.ticker
+            : typeof nestedSecurity?.ts_code === "string"
+              ? nestedSecurity.ts_code
+              : null;
+    if (!code || !/^\d{6}\.(?:SH|SZ|BJ)$/.test(code)) {
+      throw new Error(`superinvestor candidate_universe[${index}] has no valid A-share ts_code`);
+    }
+    return code;
+  });
+  if (new Set(codes).size !== codes.length) {
+    throw new Error("superinvestor candidate_universe contains duplicate ts_code values");
+  }
+  return codes.sort();
+}
+
+function buildFakeSuperinvestorSnapshotTool(
+  name: string,
+  agentId: SuperinvestorAgentId,
+  asOf: string,
+): StructuredToolInterface {
+  return tool(
+    async () =>
+      JSON.stringify({
+        schema_version: "fake_superinvestor_candidate_snapshot_v1",
+        agent_id: agentId,
+        as_of: asOf,
+        candidate_status: "EMPTY_CONFIRMED",
+        candidates: [],
+        evidence_id: `fake-${agentId}-snapshot`,
+      }),
+    {
+      name,
+      description: "Deterministic frozen candidate snapshot for fake structural smoke runs.",
+      schema: z.object({}).strict(),
+    },
   );
 }
 
@@ -475,80 +748,8 @@ function buildLayerThreeCurrentToolContract(requiredTools: ReadonlyArray<string>
     `## Current tool contract\n` +
     `Only call these registered tools: ${requiredTools.join(", ")}.\n` +
     `Do not call older prompt names that are not listed above.\n` +
-    `Use current financial, stock research, price, policy, or RKE-prior tools according to your role; ` +
-    `do not skip current verification for final picks.`
+    `The role snapshot is frozen before invocation; do not query outside its candidate or evidence scope.`
   );
-}
-
-function pickAckmanCandidateTickers(state: DailyCycleStateType): string[] {
-  const outputs = state.layer2_outputs ?? {};
-  const preferred = ["consumer", "financials"];
-  const tickers: string[] = [];
-  for (const agent of preferred) {
-    const output = outputs[agent];
-    if (output && "longs" in output) {
-      tickers.push(...output.longs.map((pick) => pick.ticker));
-    }
-  }
-  if (tickers.length === 0) {
-    for (const output of Object.values(outputs)) {
-      if (output && "longs" in output) tickers.push(...output.longs.map((pick) => pick.ticker));
-    }
-  }
-  return [...new Set(tickers.filter(Boolean))];
-}
-
-function pickBurryCandidateTickers(state: DailyCycleStateType): string[] {
-  const tickers: string[] = [];
-  for (const output of Object.values(state.layer2_outputs ?? {})) {
-    if (output && "shorts" in output) tickers.push(...output.shorts.map((pick) => pick.ticker));
-  }
-  for (const output of Object.values(state.layer2_outputs ?? {})) {
-    if (output && "longs" in output) tickers.push(...output.longs.map((pick) => pick.ticker));
-  }
-  return [...new Set(tickers.filter(Boolean))];
-}
-
-function pickMungerCandidateTickers(state: DailyCycleStateType): string[] {
-  const tickers: string[] = [];
-  for (const output of Object.values(state.layer2_outputs ?? {})) {
-    if (output && "longs" in output) tickers.push(...output.longs.map((pick) => pick.ticker));
-  }
-  return [...new Set(tickers.filter(Boolean))];
-}
-
-function renderSectorPicks(state: DailyCycleStateType): string {
-  const sectors = state.layer2_outputs ?? {};
-  const lines: string[] = ["## Layer-2 sector picks (candidate universe)"];
-
-  for (const [sectorId, out] of Object.entries(sectors)) {
-    if (out.agent === "relationship_mapper") {
-      const chains = out.supply_chains.map((c) => `${c.name}=[${c.tickers.join(",")}]`).join("; ");
-      const risks = out.contagion_risks.join(" | ");
-      lines.push(`### ${sectorId} (cross-sector)`);
-      lines.push(`* supply_chains: ${chains || "(none)"}`);
-      lines.push(`* contagion_risks: ${risks || "(none)"}`);
-    } else {
-      const longs = out.longs
-        .slice(0, 5)
-        .map((p) => `${p.ticker}(${p.conviction.toFixed(2)})`)
-        .join(", ");
-      const shorts = out.shorts
-        .slice(0, 5)
-        .map((p) => `${p.ticker}(${p.conviction.toFixed(2)})`)
-        .join(", ");
-      lines.push(
-        `### ${sectorId} (score=${out.sector_score.toFixed(2)}, conf=${out.confidence.toFixed(2)})`,
-      );
-      lines.push(`* longs:  ${longs || "(none)"}`);
-      lines.push(`* shorts: ${shorts || "(none)"}`);
-    }
-  }
-
-  if (Object.keys(sectors).length === 0) {
-    lines.push("* (no Layer-2 outputs available — falling back to philosophy alone)");
-  }
-  return lines.join("\n");
 }
 
 function defaultExtractorSystem<TOutput extends SuperinvestorOutput>(
@@ -562,13 +763,65 @@ function defaultExtractorSystem<TOutput extends SuperinvestorOutput>(
   return (
     `You are a structured-output extractor for the ${spec.agentId} superinvestor agent. ` +
     `The user message contains a free-form philosophy-driven analysis. Populate every field ` +
-    `in the runtime-supplied JSON Schema. For CANDIDATES, picks should be 3-5 ` +
+    `in the runtime-supplied JSON Schema. For SELECTED, submit 1-10 ` +
     `concrete A-share tickers (e.g. '600519.SH') sourced from the Layer-2 candidate ` +
-    `universe in the analysis text — never invent codes. Each pick needs a thesis, ` +
-    `conviction (0-1), and holding_period from {1W, 1M, 3M, 6M, 1Y, 5Y+}. ` +
+    `universe in the analysis text — never invent codes. Each pick needs a stable local id, ` +
+    `LONG/AVOID action, thesis, conviction in (0,1], and claim refs; total conviction must ` +
+    `not exceed 1. holding_period is one of WEEKS, MONTHS, YEARS. ` +
     `If no pick is defensible, use NO_QUALIFIED_CANDIDATES with an evidence-backed claim. ` +
     `When a runtime evidence catalog is present, include claims, top-level claim_refs, ` +
-    `and per-pick claim_refs using only its evidence_id and allowed research rule ids. ` +
+    `and per-pick claim_refs using only its evidence_id and opaque permitted citation identifiers. ` +
+    `Submit exactly ten SUBMISSION_SUMMARY macro_input_attributions, one for each named Macro ` +
+    `Agent; use target_local_ref=$SUBMISSION and add SECURITY_PICK rows only for real pick ids. ` +
+    `${SUPERINVESTOR_ABSTENTION_PROVIDER_INSTRUCTION} ` +
+    `${MACRO_ATTRIBUTION_PROVIDER_INSTRUCTION} ` +
     lang
   );
+}
+
+export function fallbackSuperinvestorOutput(
+  agent: SuperinvestorAgentId,
+  text: string,
+): SuperinvestorOutput {
+  const statement = text.trim().slice(0, 320) || "No qualified candidate was established.";
+  const claimId = `fallback-${agent}-claim`;
+  return {
+    agent,
+    selection_status: "NO_QUALIFIED_CANDIDATES",
+    confidence: 1,
+    holding_period: "MONTHS",
+    picks: [],
+    key_drivers: [
+      {
+        driver_local_id: `fallback-${agent}-driver`,
+        summary: statement,
+        claim_refs: [claimId],
+      },
+    ],
+    risks: [
+      {
+        risk_local_id: `fallback-${agent}-risk`,
+        summary: "The candidate evidence was insufficient for an accountable activation.",
+        claim_refs: [claimId],
+      },
+    ],
+    claims: [
+      {
+        claim_id: claimId,
+        claim_kind: "RISK_FLAG",
+        statement,
+        structured_conclusion: { selection_status: "NO_QUALIFIED_CANDIDATES" },
+        evidence_ids: [`fallback-evidence:${agent}`],
+        research_rule_refs: [],
+      },
+    ],
+    claim_refs: [claimId],
+    macro_input_attributions: MACRO_AGENT_IDS.map((agentId) => ({
+      agent_id: agentId,
+      target_type: "SUBMISSION_SUMMARY",
+      target_local_ref: "$SUBMISSION",
+      claim_refs_used: [],
+      effect: "NOT_MATERIAL",
+    })),
+  };
 }

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
@@ -10,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .cross_runtime_json import canonical_hash
 from .exceptions import DataVendorUnavailable
 
 BREADTH_SCHEMA_VERSION = "market_breadth_snapshot_v1"
@@ -256,6 +256,7 @@ def compute_market_breadth_snapshot(
         "concentration_q80_252d": round(concentration_q80, 10),
         "breadth_state": state,
         "concentration_state": concentration_state,
+        "direct_data_quality": 1.0,
         "methodology": {
             "universe": "PIT listed/not-delisted, >=60 observations, known suspensions excluded",
             "adjustment": "only adjustment factors dated on/before as_of",
@@ -265,9 +266,7 @@ def compute_market_breadth_snapshot(
         },
     }
     payload["evidence_id"] = f"market_breadth:{as_of_date}"
-    payload["snapshot_hash"] = hashlib.sha256(
-        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
-    ).hexdigest()
+    payload["snapshot_hash"] = canonical_hash(payload).removeprefix("sha256:")
     return payload
 
 

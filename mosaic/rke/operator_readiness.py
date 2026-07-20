@@ -65,7 +65,7 @@ from .operator_handoff import (
 from .promotion_dry_run import (
     build_promotion_dry_run_report,
 )
-from .promotion_gate import build_production_promotion_gate_report
+from .promotion_gate import RKE_EXECUTION_MODE, build_production_promotion_gate_report
 from .registry_manifest import validate_required_registry, validate_required_registry_content
 from .report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
@@ -220,16 +220,14 @@ def _promotion_gate_state_consistency(
         for criterion in criteria
     }
     missing = sorted({f"PG{index:02d}" for index in range(1, 11)} - set(passed_by_id))
-    staged_expected = all(passed_by_id.get(f"PG{index:02d}") is True for index in range(1, 9))
-    production_expected = staged_expected and all(
-        passed_by_id.get(f"PG{index:02d}") is True for index in range(9, 11)
+    shadow_mode = (
+        getattr(promotion, "execution_mode", None) == RKE_EXECUTION_MODE
+        and getattr(promotion, "production_signal_allowed", None) is False
     )
-    direct_forbidden_expected = not production_expected
-    if production_expected:
-        next_state_expected = "production"
-    elif staged_expected:
-        next_state_expected = "staged_production"
-    elif getattr(promotion, "paper_trading_allowed", None) is True:
+    staged_expected = False
+    production_expected = False
+    direct_forbidden_expected = True
+    if getattr(promotion, "paper_trading_allowed", None) is True:
         next_state_expected = "paper_trading"
     else:
         next_state_expected = "candidate"
@@ -237,6 +235,7 @@ def _promotion_gate_state_consistency(
     blockers = tuple(getattr(promotion, "blockers", ()) or ())
     consistent = (
         not missing
+        and shadow_mode
         and getattr(promotion, "staged_production_allowed", None) is staged_expected
         and getattr(promotion, "production_allowed", None) is production_expected
         and getattr(promotion, "direct_production_forbidden", None) is direct_forbidden_expected
@@ -244,6 +243,8 @@ def _promotion_gate_state_consistency(
         and (not production_expected or not blockers)
     )
     evidence = (
+        f"execution_mode={getattr(promotion, 'execution_mode', None)}, "
+        f"production_signal_allowed={getattr(promotion, 'production_signal_allowed', None)}, "
         f"next_state={getattr(promotion, 'next_state', None)}, "
         f"expected_next_state={next_state_expected}, "
         f"staged={getattr(promotion, 'staged_production_allowed', None)}/{staged_expected}, "
@@ -252,7 +253,7 @@ def _promotion_gate_state_consistency(
         f"blockers={len(blockers)}, missing={len(missing)}"
     )
     blocker = (
-        "promotion gate state is inconsistent with PG01-PG10 criteria"
+        "promotion gate state is inconsistent with the shadow-only runtime and PG01-PG10 criteria"
         if not missing
         else f"promotion gate missing criteria: {', '.join(missing)}"
     )

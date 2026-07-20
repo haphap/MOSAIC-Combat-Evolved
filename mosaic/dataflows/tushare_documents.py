@@ -1,52 +1,30 @@
-"""Tushare document crawler → ``macro_documents`` (autoresearch macro plan P5).
+"""Legacy audit surface for disabled Tushare document endpoints.
 
-Persists Tushare news/corpus documents so they become a *point-in-time* event
-source for China and geopolitical evidence: each row is
-stamped with ``discovered_at`` (crawl time) and ``published_at`` (from the
-item). Historical scoring only reads documents discovered on/before the signal
-date, so a backfill stamped "now" can never leak into past scoring.
-
-The Tushare call is injectable (``fetch=``) so tests run without a vendor key.
+``major_news``, ``news``, ``npr`` and ``monetary_policy`` are unavailable to
+this deployment.  V2 event collection uses registered official adapters (with
+GDELT only for discovery), so this module never constructs a client or polls a
+fallback endpoint.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
-from mosaic.dataflows.opencli_news import _normalise_macro_document
-from mosaic.scorecard.macro_events import classify_document
+from mosaic.dataflows.tushare_catalog import (
+    DISABLED_PERMISSION_ENDPOINTS,
+    endpoint_registration,
+)
 
-# Event-capable Tushare endpoints used as macro document sources. Kept small and
-# explicit; extend via the ``endpoints=`` arg as more are validated.
-_DEFAULT_DOC_ENDPOINTS: tuple[str, ...] = ("news",)
-_DEFAULT_NEWS_SOURCE = "sina"
-
+_DEFAULT_DOC_ENDPOINTS: tuple[str, ...] = ()
 DocFetch = Callable[[str, str, str], list[dict]]
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-
-
 def _default_tushare_fetch(endpoint: str, start_date: str, end_date: str) -> list[dict]:
-    """Fetch documents from a Tushare endpoint via the generic ``pro.query``."""
-    from mosaic.dataflows.tushare import (  # type: ignore[attr-defined]
-        _get_pro_client,
-        _to_api_date,
+    del start_date, end_date
+    registration = endpoint_registration(endpoint)
+    raise PermissionError(
+        f"TUSHARE_DOCUMENT_ENDPOINT_DISABLED:{endpoint}:{registration.status}"
     )
-
-    pro = _get_pro_client()
-    params: dict[str, Any] = {
-        "start_date": _to_api_date(start_date),
-        "end_date": _to_api_date(end_date),
-    }
-    if endpoint in {"news", "llm_corpus_topic"}:
-        params["src"] = _DEFAULT_NEWS_SOURCE
-    df = pro.query(endpoint, **params)
-    if df is None or getattr(df, "empty", True):
-        return []
-    return df.to_dict("records")
 
 
 def crawl_macro_documents(
@@ -58,48 +36,30 @@ def crawl_macro_documents(
     discovered_at: Optional[str] = None,
     fetch: Optional[DocFetch] = None,
 ) -> dict[str, Any]:
-    """Crawl Tushare document endpoints and persist into ``macro_documents``.
-
-    ``discovered_at`` defaults to now (correct for a live crawl). One row per
-    item, tagged with the endpoint's macro agents; deduped by content hash.
-    Returns ``{"endpoints", "fetched", "persisted", "errors"}``.
-    """
-    from mosaic.dataflows.tushare_catalog import catalog_by_endpoint
-
-    catalog = catalog_by_endpoint()
-    eps = endpoints or [e for e in _DEFAULT_DOC_ENDPOINTS if e in catalog]
-    fetch = fetch or _default_tushare_fetch
-    stamp = discovered_at or _now_iso()
-
-    rows: list[dict] = []
-    seen: set[str] = set()
-    fetched = 0
+    """Return an auditable refusal without invoking a supplied fetch callback."""
+    del store, start_date, end_date, discovered_at, fetch
+    requested = list(endpoints or _DEFAULT_DOC_ENDPOINTS)
     errors: list[dict[str, str]] = []
-    for ep in eps:
-        spec = catalog.get(ep) or {}
-        agent_tags = list(spec.get("agent_tags") or ("china", "geopolitical"))
-        try:
-            items = fetch(ep, start_date, end_date)
-        except Exception as exc:  # noqa: BLE001 - one bad endpoint shouldn't abort the crawl
-            errors.append({"endpoint": ep, "error": f"{type(exc).__name__}: {exc}"})
-            items = []
-        for item in items or []:
-            fetched += 1
-            row = _normalise_macro_document(
-                item=item, agent=agent_tags[0], query=ep,
-                source="tushare", channel=ep, discovered_at=stamp,
-            )
-            row["agent_tags"] = agent_tags  # one row tagged for all relevant agents
-            h = row["content_hash"]
-            if h in seen:
-                continue
-            seen.add(h)
-            # Deterministic event/sentiment classification at ingest (P4); the
-            # index reader stays look-ahead-safe regardless of when this runs.
-            classified = classify_document(row)
-            row["event_tags"] = classified["event_tags"]
-            row["sentiment_score"] = classified["sentiment_score"]
-            rows.append(row)
+    for endpoint in requested:
+        registration = endpoint_registration(endpoint)
+        reason = (
+            "DISABLED_PERMISSION_DENIED"
+            if endpoint in DISABLED_PERMISSION_ENDPOINTS
+            else registration.status
+        )
+        errors.append(
+            {
+                "endpoint": endpoint,
+                "error": f"TUSHARE_DOCUMENT_ENDPOINT_NOT_ACTIVE:{reason}",
+            }
+        )
+    return {
+        "endpoints": requested,
+        "fetched": 0,
+        "persisted": 0,
+        "errors": errors,
+        "runtime_client_constructed": False,
+    }
 
-    persisted = store.append_macro_documents(rows) if rows else 0
-    return {"endpoints": eps, "fetched": fetched, "persisted": persisted, "errors": errors}
+
+__all__ = ["crawl_macro_documents"]

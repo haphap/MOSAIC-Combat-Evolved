@@ -17,7 +17,6 @@
  * tool calls happened (for the LlmCallRecord ledger in DailyCycleState).
  */
 
-import { createHash } from "node:crypto";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import {
   AIMessage,
@@ -27,9 +26,10 @@ import {
   ToolMessage,
 } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
+import { canonicalJsonHash } from "./canonical_json.js";
 import { extractTextContent } from "./content.js";
+import type { ToolStatus } from "./private_knot_boundary.js";
 import { isProcessOnlyReportText, stripProcessOnlyReportPrefix } from "./process_narration.js";
-import type { ToolStatus } from "./research_knobs.js";
 import { extractLlmTokenUsage } from "./runtime.js";
 
 export interface AgentToolLoopOptions {
@@ -87,7 +87,7 @@ export interface AgentToolLoopResult {
   llmElapsedMs: number;
   /** The full message thread including ToolMessages, useful for debugging. */
   messages: BaseMessage[];
-  /** Per-tool call status ledger consumed by research-knob cap enforcement. */
+  /** Per-tool call status ledger consumed by private policy enforcement. */
   toolStatuses: ToolStatus[];
 }
 
@@ -213,9 +213,7 @@ function canonicalize(value: unknown): unknown {
 }
 
 function sha256Canonical(value: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(JSON.stringify(canonicalize(value)))
-    .digest("hex")}`;
+  return canonicalJsonHash(canonicalize(value));
 }
 
 export function toolArgsFingerprint(args: unknown): string {
@@ -253,10 +251,7 @@ export function toolSourceFingerprint(input: {
 
 export function toolCallFingerprint(name: string | undefined, args: unknown): string {
   const toolName = name || "unknown";
-  const hash = createHash("sha256")
-    .update(JSON.stringify(canonicalize(args ?? {})))
-    .digest("hex")
-    .slice(0, 10);
+  const hash = canonicalJsonHash(canonicalize(args ?? {})).slice("sha256:".length, 17);
   return `${toolName}#${hash}`;
 }
 
@@ -799,7 +794,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
   }
 
   // maxLoops hit — force one final non-tool invocation so we get something
-  // usable. This matches Phase 1's tool-loop forced-final behaviour.
+  // usable. This matches the CLI tool-loop's forced-final behaviour.
   const finalStartedAt = Date.now();
   const final = (await opts.llm.invoke(
     [

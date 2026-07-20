@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Official EU macro source transport preflight v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "adapter_version",
+    "generated_at",
+    "raw_provider_rows_committed",
+    "checks",
+    "summary",
+    "preflight_hash"
+  ],
+  "properties": {
+    "schema_version": { "const": "official_macro_source_preflight_v1" },
+    "adapter_version": { "const": "official_macro_adapters_v1" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "raw_provider_rows_committed": { "const": false },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "provider",
+              "series_key",
+              "source",
+              "usage_mode",
+              "request_url",
+              "content_type",
+              "retrieved_at",
+              "payload_hash",
+              "row_count",
+              "elapsed_ms",
+              "pit_status",
+              "transport_status",
+              "snapshot_readiness",
+              "reason"
+            ],
+            "properties": {
+              "provider": { "enum": ["EUROSTAT", "ECB", "WORLD_BANK"] },
+              "series_key": { "type": "string", "minLength": 1 },
+              "source": { "type": "string", "minLength": 1 },
+              "usage_mode": { "enum": ["PRIMARY", "CONTEXT_ONLY"] },
+              "request_url": { "type": "string", "pattern": "^https://" },
+              "content_type": { "type": "string", "minLength": 1 },
+              "retrieved_at": { "type": "string", "format": "date-time" },
+              "payload_hash": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "row_count": { "type": "integer", "minimum": 1 },
+              "elapsed_ms": { "type": "number", "minimum": 0 },
+              "pit_status": {
+                "const": "CURRENT_RESPONSE_REQUIRES_RELEASE_VINTAGE_JOIN"
+              },
+              "transport_status": { "const": "ACTIVE" },
+              "snapshot_readiness": { "const": "PREFLIGHT_ONLY" },
+              "reason": {
+                "const": "release_timestamp_and_archived_vintage_join_required"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "provider",
+              "series_key",
+              "transport_status",
+              "snapshot_readiness",
+              "reason"
+            ],
+            "properties": {
+              "provider": { "enum": ["EUROSTAT", "ECB", "WORLD_BANK"] },
+              "series_key": { "type": "string", "minLength": 1 },
+              "transport_status": { "const": "UNAVAILABLE" },
+              "snapshot_readiness": { "const": "BLOCKED" },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
+        ]
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "check_count",
+        "active_transport_count",
+        "required_transport_ready",
+        "production_snapshot_ready",
+        "production_blocker"
+      ],
+      "properties": {
+        "check_count": { "type": "integer", "minimum": 1 },
+        "active_transport_count": { "type": "integer", "minimum": 0 },
+        "required_transport_ready": { "type": "boolean" },
+        "production_snapshot_ready": { "const": false },
+        "production_blocker": {
+          "const": "archived release/vintage coverage is not established by a live transport probe"
+        }
+      }
+    },
+    "preflight_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

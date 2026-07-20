@@ -1,0 +1,462 @@
+{
+  "registry_version": "outcome_source_authority_registry_v1",
+  "provisioning_status": "PROVISIONING_REQUIRED",
+  "registry_schema_hash": "sha256:699ee2f15af105436dd96d961965c89b00405a766dfda30e69a1f89d89f5eea8",
+  "registry_hash": "sha256:b26e0a82b7b7240743efe7e6f156c0b73f2d53466b391ae0edf316375d29f9eb",
+  "entries": [
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "accepted_sector_layer_snapshot_v2",
+      "source_owner": "mosaic.accepted_output_store",
+      "adapter_contract_id": "accepted_sector_layer_snapshot_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.accepted_output_store.verifier.v1",
+      "signing_key_id": "accepted_sector_layer_snapshot_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "WeWtsdyHtJ1L7nJHsIKHFo8OEAPKu_UftBtgjXZxbds",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "superinvestor_realized_metrics_v1": []
+      },
+      "entry_hash": "sha256:a1dfeebecd99870176e66afa3b62374bee24eb07b63f3d7039cd67c7c2cae04f"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "china_verified_macro_release_event_v2",
+      "source_owner": "mosaic.macro_event_registry",
+      "adapter_contract_id": "china_verified_macro_release_event_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.macro_event_registry.verifier.v1",
+      "signing_key_id": "china_verified_macro_release_event_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "OuxL7ek_VeIvDl8IKMndiy-jz9XF4Or1MbvxdRRh9eM",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "macro_transmission_realized_metrics_v1": []
+      },
+      "entry_hash": "sha256:6ec1231b0189b98a3cc1f9a810c4fa881a5139a0ad483ffc62772fbec72bb808"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "cio_approved_order_intent_set_v2",
+      "source_owner": "mosaic.decision_freeze_store",
+      "adapter_contract_id": "cio_approved_order_intent_set_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.decision_freeze_store.verifier.v1",
+      "signing_key_id": "cio_approved_order_intent_set_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "QH762kEnWYaGgoLVpzEChGJQnkL-6_rL5UAVxVZE4XQ",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "execution_realized_metrics_v1": []
+      },
+      "entry_hash": "sha256:642d9d2106bbf46e5f128f1b68ac0b731d3375ec96e787456fa9bcb1f28f65e7"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "cn_a_share_pit_volatility_scale_v1",
+      "source_owner": "mosaic.market_data_authority",
+      "adapter_contract_id": "cn_a_share_pit_volatility_scale_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.market_data_authority.verifier.v1",
+      "signing_key_id": "cn_a_share_pit_volatility_scale_v1.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "6qjS6rD8_V41ouNOoa99iDb6oaV4gsfOamo8N_54lOo",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "macro_transmission_realized_metrics_v1": ["pit_volatility_scale"]
+      },
+      "entry_hash": "sha256:1d3d7046b2aa19a958fc852b6847cdc993571d55617e5b0c872f8ccddc67696f"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "cn_a_share_security_outcome_path_v2",
+      "source_owner": "mosaic.market_data_authority",
+      "adapter_contract_id": "cn_a_share_security_outcome_path_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.market_data_authority.verifier.v1",
+      "signing_key_id": "cn_a_share_security_outcome_path_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "reu_B60sjCmRB8hXVRzCOaZXFzzAZGUoelZtu4h6XU4",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "alpha_realized_metrics_v1": ["candidate_paths"],
+        "standard_sector_realized_metrics_v1": ["direction_paths", "security_paths"],
+        "superinvestor_realized_metrics_v1": ["candidate_paths"]
+      },
+      "entry_hash": "sha256:ea398e4e96f293c52b493256b9357a3d0cbfec29673ef4d9ce4c13ab985a5674"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "cn_a_share_t_plus_1_total_return_path_v1",
+      "source_owner": "mosaic.market_data_authority",
+      "adapter_contract_id": "cn_a_share_t_plus_1_total_return_path_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.market_data_authority.verifier.v1",
+      "signing_key_id": "cn_a_share_t_plus_1_total_return_path_v1.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "wy26CtDbon-Sv5v7VSFjM_8LyQPV7Jo7LIXUuvJQngw",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "macro_transmission_realized_metrics_v1": ["role_path_metric"]
+      },
+      "entry_hash": "sha256:3f1742531e009d3d7a019f210be3ba6c74f92e351d1cdd5f9b5605f0f195b216"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "commodity_market_transmission_path_v2",
+      "source_owner": "mosaic.commodity_data_authority",
+      "adapter_contract_id": "commodity_market_transmission_path_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.commodity_data_authority.verifier.v1",
+      "signing_key_id": "commodity_market_transmission_path_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "4mEZiomcvFX7vim-xaT9aRX5iYPun2Q3S-qBm0tiPgE",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "macro_transmission_realized_metrics_v1": []
+      },
+      "entry_hash": "sha256:abf49ae3a90d9aeb6020d96d9b69fb0e7bc9a6735a80bc635cb45b633a6bb1ac"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "eu27_verified_macro_release_event_v2",
+      "source_owner": "mosaic.macro_event_registry",
+      "adapter_contract_id": "eu27_verified_macro_release_event_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.macro_event_registry.verifier.v1",
+      "signing_key_id": "eu27_verified_macro_release_event_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "934K-z4_w4iXu7l97-aKIitPipwNUZwBiaMBzk55umY",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "macro_transmission_realized_metrics_v1": []
+      },
+      "entry_hash": "sha256:f8ae45f500627a3c5ef2b857537558fb1ce868fc2f8fd7fbcd422ec717bc29e2"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "euro_area_financial_conditions_path_v2",
+      "source_owner": "mosaic.external_financial_conditions_authority",
+      "adapter_contract_id": "euro_area_financial_conditions_path_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.external_financial_conditions_authority.verifier.v1",
+      "signing_key_id": "euro_area_financial_conditions_path_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "L_90zO61u1jnTu6y28XkONUOoEdrkNIDQ1VQjRztAEM",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "macro_transmission_realized_metrics_v1": []
+      },
+      "entry_hash": "sha256:138ca9826100120e37a743791140e48c18b533d1be6bb30721cf47d9b6fa1ce5"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "frozen_layer3_novel_candidate_set_v2",
+      "source_owner": "mosaic.decision_freeze_store",
+      "adapter_contract_id": "frozen_layer3_novel_candidate_set_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.decision_freeze_store.verifier.v1",
+      "signing_key_id": "frozen_layer3_novel_candidate_set_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "6VCFCprP-G3uygH5ANzIqm4vZryqwMknJRMJ13o43q0",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "alpha_realized_metrics_v1": []
+      },
+      "entry_hash": "sha256:5145befa5499fd1881f9a5646ac729597a13078985055759b7c4e690dfa585d2"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "institutional_flow_followthrough_path_v2",
+      "source_owner": "mosaic.flow_data_authority",
+      "adapter_contract_id": "institutional_flow_followthrough_path_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.flow_data_authority.verifier.v1",
+      "signing_key_id": "institutional_flow_followthrough_path_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "E26FgSFOChEgzPIOZwyPbXheIgrb-xYlgANPcC2pxUA",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "macro_transmission_realized_metrics_v1": []
+      },
+      "entry_hash": "sha256:ebaaad7127718c6b069c2074c09bc93bceef4c1076b2d2e1ce384be466c208c4"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "market_breadth_composite_path_v2",
+      "source_owner": "mosaic.breadth_data_authority",
+      "adapter_contract_id": "market_breadth_composite_path_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.breadth_data_authority.verifier.v1",
+      "signing_key_id": "market_breadth_composite_path_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "l3EU2yKP_itCphF1yE5m_bFQfnNhrIQsj876xoR6Ba8",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "macro_transmission_realized_metrics_v1": []
+      },
+      "entry_hash": "sha256:64b1c8585182ed25547c77f996411a652d0f591ee271447c5494d71c3eb22ec2"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "next_session_execution_outcome_v2",
+      "source_owner": "mosaic.execution_venue_authority",
+      "adapter_contract_id": "next_session_execution_outcome_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.execution_venue_authority.verifier.v1",
+      "signing_key_id": "next_session_execution_outcome_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "uwBw5Z4MNNc4jGofT_xXFhTWMCyHJfbWxqnBmG5fbQs",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "execution_realized_metrics_v1": ["order_paths"]
+      },
+      "entry_hash": "sha256:7ba140ed6e1c34a35dcdc9dd47fdb2527a2b7d72a8da00ddbc3f4998f4cd6478"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "pboc_verified_policy_liquidity_event_v2",
+      "source_owner": "mosaic.macro_event_registry",
+      "adapter_contract_id": "pboc_verified_policy_liquidity_event_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.macro_event_registry.verifier.v1",
+      "signing_key_id": "pboc_verified_policy_liquidity_event_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "rIn1AOtslDqQ0Y3OkqpqWaSn5AWENpuoEXdK-tkFi04",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "macro_transmission_realized_metrics_v1": []
+      },
+      "entry_hash": "sha256:64bc3b8f7295538cff5eff80d6a9b62a84146d165a02945a4ef028bdf363bdab"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "pre_cio_portfolio_and_constraints_v2",
+      "source_owner": "mosaic.decision_freeze_store",
+      "adapter_contract_id": "pre_cio_portfolio_and_constraints_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.decision_freeze_store.verifier.v1",
+      "signing_key_id": "pre_cio_portfolio_and_constraints_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "_niTBQlESoTmaMDbhpHcHYJ0MLU4IrwDFFJ7Av09AVM",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "cio_realized_metrics_v1": []
+      },
+      "entry_hash": "sha256:efaec5658290885f030cc0697697e80b66fd71f603575b69052208aaea39392d"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "pre_cro_candidate_set_v2",
+      "source_owner": "mosaic.decision_freeze_store",
+      "adapter_contract_id": "pre_cro_candidate_set_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.decision_freeze_store.verifier.v1",
+      "signing_key_id": "pre_cro_candidate_set_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "BXXpY8Bng_EMLS2OV_-loBJbG3Q3Qav0XhI8VBOjsTA",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "cro_realized_metrics_v1": []
+      },
+      "entry_hash": "sha256:747e63bcb734a8938e73ee2992d7b4db07fa52a59a4835eb721836c1b9329873"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "realized_portfolio_path_v2",
+      "source_owner": "mosaic.portfolio_accounting_authority",
+      "adapter_contract_id": "realized_portfolio_path_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.portfolio_accounting_authority.verifier.v1",
+      "signing_key_id": "realized_portfolio_path_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "cSnLJwdII2SED3SICpM_5YCFoyBxzXiUpObesjjbnIA",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "cio_realized_metrics_v1": [
+          "accepted_portfolio_max_drawdown_5d",
+          "accepted_portfolio_net_return_5d",
+          "accepted_portfolio_turnover_cost",
+          "baseline_portfolio_max_drawdown_5d",
+          "baseline_portfolio_net_return_5d",
+          "baseline_portfolio_turnover_cost",
+          "position_paths",
+          "realized_cash_weight",
+          "realized_constraint_compliance"
+        ]
+      },
+      "entry_hash": "sha256:88c9337708c65b1e0a176e910f19391da26b55831090cfb1583a3d1f241c22f1"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "realized_risk_state_path_v2",
+      "source_owner": "mosaic.risk_event_authority",
+      "adapter_contract_id": "realized_risk_state_path_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.risk_event_authority.verifier.v1",
+      "signing_key_id": "realized_risk_state_path_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "6VwWBsEj3IKgCZW3VN_ZuOLXvbioyyHaaS9ICbU79CQ",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "cro_realized_metrics_v1": ["candidate_states"]
+      },
+      "entry_hash": "sha256:4ce87b4fbcdde971edd1eec66a3b24badad9ded6bff126e2eced47eeb958816d"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "relationship_edge_realized_path_v2",
+      "source_owner": "mosaic.relationship_outcome_authority",
+      "adapter_contract_id": "relationship_edge_realized_path_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.relationship_outcome_authority.verifier.v1",
+      "signing_key_id": "relationship_edge_realized_path_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "4DmvxIqbp5hs0IJKiNGSTGC3hfEXqYlE6YVfTf_8A4U",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "relationship_realized_metrics_v1": ["edge_paths"]
+      },
+      "entry_hash": "sha256:2e361eece3c4aca50c37d11739c1da2b60e71095427b396a45ca9a42ba3b4b4d"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "relationship_graph_candidate_snapshot_v2",
+      "source_owner": "mosaic.relationship_candidate_registry",
+      "adapter_contract_id": "relationship_graph_candidate_snapshot_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.relationship_candidate_registry.verifier.v1",
+      "signing_key_id": "relationship_graph_candidate_snapshot_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "cGdfDCU3LtQkHMtjEhx4iJzDX5ItkWiXRx3LXLYkDGE",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "relationship_realized_metrics_v1": []
+      },
+      "entry_hash": "sha256:828214fc2d56135beac421d6b62545c166794c2a81a8f188af82b9797f4b07d5"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "relationship_matched_non_edge_sample_v2",
+      "source_owner": "mosaic.relationship_control_authority",
+      "adapter_contract_id": "relationship_matched_non_edge_sample_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.relationship_control_authority.verifier.v1",
+      "signing_key_id": "relationship_matched_non_edge_sample_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "KVIRkWvz41eJL1oj2BXw0Y__QJGuZN1syGZS1JxDpdo",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "relationship_realized_metrics_v1": []
+      },
+      "entry_hash": "sha256:588ea70716c5418f861eac144d9959af994c6c3f8d1b937d16f8aff387f58f23"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "sector_research_snapshot_v4",
+      "source_owner": "mosaic.sector_snapshot_authority",
+      "adapter_contract_id": "sector_research_snapshot_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.sector_snapshot_authority.verifier.v1",
+      "signing_key_id": "sector_research_snapshot_v4.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "NGWKjn4SIvMerzgB90RQg_kFrrlNiQYF32aB42l4OpE",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "standard_sector_realized_metrics_v1": []
+      },
+      "entry_hash": "sha256:912eabd6aab44d2c3eccbe133734f9add65f72b098fb34d1e0129d76203ecf23"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "sector_universe_manifest_v1",
+      "source_owner": "mosaic.sector_universe_registry",
+      "adapter_contract_id": "sector_universe_manifest_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.sector_universe_registry.verifier.v1",
+      "signing_key_id": "sector_universe_manifest_v1.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "rYry29KhI1u_pQUcMT8sM7hba0vxd_Mw3NrDp8R7Oas",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "standard_sector_realized_metrics_v1": []
+      },
+      "entry_hash": "sha256:91e78e4f79d563c750378885eb1a56f4832ef4800c0762495dc64fee421be622"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "us_financial_conditions_path_v2",
+      "source_owner": "mosaic.external_financial_conditions_authority",
+      "adapter_contract_id": "us_financial_conditions_path_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.external_financial_conditions_authority.verifier.v1",
+      "signing_key_id": "us_financial_conditions_path_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "dgS-euG7HaP0G8PBJfUNjDyySPrhKcR2emIcGvM88-I",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "macro_transmission_realized_metrics_v1": []
+      },
+      "entry_hash": "sha256:a706739c433a4beddd6957e0cc3f5e94f161abddf78f3b92e36e60b147770393"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "us_verified_macro_release_event_v2",
+      "source_owner": "mosaic.macro_event_registry",
+      "adapter_contract_id": "us_verified_macro_release_event_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.macro_event_registry.verifier.v1",
+      "signing_key_id": "us_verified_macro_release_event_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "MhiYJW4jwqjDPciqRfjPa5f0YY6EeVj7yKussLYUq0g",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "macro_transmission_realized_metrics_v1": []
+      },
+      "entry_hash": "sha256:db8d6e09d09198f54185443287958daeb913c407021f8581f5ad45055e0604c7"
+    },
+    {
+      "entry_version": "outcome_source_authority_entry_v1",
+      "required_source_id": "verified_geopolitical_event_lifecycle_v2",
+      "source_owner": "mosaic.geopolitical_event_registry",
+      "adapter_contract_id": "verified_geopolitical_event_lifecycle_adapter",
+      "adapter_contract_version": "1.0.0",
+      "verifier_id": "mosaic.geopolitical_event_registry.verifier.v1",
+      "signing_key_id": "verified_geopolitical_event_lifecycle_v2.ed25519.2026-01",
+      "signature_algorithm": "Ed25519",
+      "ed25519_public_key_base64url": "T-QwvdtUxVsC-EUJ1RIyz3hPrFgsjqHTghwxe4IAAYg",
+      "effective_from": "2020-01-01T00:00:00+08:00",
+      "effective_until": null,
+      "owned_realized_fields_by_schema_id": {
+        "macro_transmission_realized_metrics_v1": []
+      },
+      "entry_hash": "sha256:fe149fd983b113b58cc2d1695256ce8b83fb878d99f832407624f7b7a1d382e8"
+    }
+  ]
+}

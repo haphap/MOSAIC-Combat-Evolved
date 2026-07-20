@@ -151,6 +151,7 @@ export async function runRkeShadowReplay(
   const config = await api.configGet();
   await assertRuntimePromptPreflight({
     cohort,
+    requirePrivateKnot: true,
     ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
   });
   const promptPinsByAgent = buildPromptPinsByAgent(contractCheck.rows, config.output_language);

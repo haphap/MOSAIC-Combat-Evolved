@@ -1,5 +1,9 @@
 # MOSAIC Prompt Evolution × Research Knowledge Engine 落地主计划 v1.1
 
+> **历史归档。** v1.1 的 Agent roster、research-knob prompt 暴露和生产晋级设计已由
+> `docs/plans/macro-agent-role-contracts-v2-plan.md` 取代；RKE 当前保持 shadow-only，
+> 生产 prompt 只允许通过 KNOT 配对评估和原子 release 晋级。
+
 > Version: v1.1 integrated master plan  
 > Date: 2026-06-05  
 > Scope: Prompt Evolution, Research Knowledge Engine, Empirical Validation Hardening, Runtime Rule Aggregation, Confidence Policy, Production Promotion  

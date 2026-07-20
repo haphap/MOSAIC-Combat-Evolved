@@ -25,6 +25,7 @@
  */
 
 import { END, START, StateGraph } from "@langchain/langgraph";
+import { AcceptedAgentOutputStore } from "../agents/accepted_output.js";
 import {
   DailyCycleState,
   type DailyCycleStateType,
@@ -58,6 +59,8 @@ export interface BuildDailyCycleGraphDeps {
   vetoThreshold?: number;
   /** Override prompt-root directory (tests inject a tmpdir). */
   promptsRoot?: string;
+  /** Injectable for persistence adapters and contract tests; one store is shared by all layers. */
+  acceptedOutputStore?: AcceptedAgentOutputStore;
 }
 
 export const DAILY_CYCLE_LAYER_NODES = ["layer1", "layer2", "layer3", "layer4"] as const;
@@ -115,25 +118,30 @@ function invokeSubgraph(
       llm_calls: (result.llm_calls ?? []).slice(prevLlmLen),
       // ── replace / dict-merge channels: idempotent under same-content updates ──
       layer1_outputs: result.layer1_outputs,
-      layer1_consensus: result.layer1_consensus,
+      macro_input_gate: result.macro_input_gate,
+      component_weight_snapshot: result.component_weight_snapshot,
+      component_calibration_inputs: result.component_calibration_inputs,
       layer2_outputs: result.layer2_outputs,
-      layer2_consensus: result.layer2_consensus,
       layer3_outputs: result.layer3_outputs,
       layer4_outputs: result.layer4_outputs,
       current_positions: result.current_positions,
       position_reviews: result.position_reviews,
       position_audit: result.position_audit,
       portfolio_actions: result.portfolio_actions,
+      outcome_stage_skips: result.outcome_stage_skips,
+      accepted_output_refs: result.accepted_output_refs,
     } as DailyCycleStateUpdate;
   };
 }
 
 /** Build (and compile) the full 4-layer daily cycle graph. */
 export function buildDailyCycleGraph(deps: BuildDailyCycleGraphDeps) {
-  const l1 = buildLayer1Graph(deps);
-  const l2 = buildLayer2Graph(deps);
-  const l3 = buildLayer3Graph(deps);
-  const l4 = buildLayer4Graph(deps);
+  const acceptedOutputStore = deps.acceptedOutputStore ?? new AcceptedAgentOutputStore();
+  const runDeps = { ...deps, acceptedOutputStore };
+  const l1 = buildLayer1Graph(runDeps);
+  const l2 = buildLayer2Graph(runDeps);
+  const l3 = buildLayer3Graph(runDeps);
+  const l4 = buildLayer4Graph(runDeps);
 
   const graph = new StateGraph(DailyCycleState)
     .addNode("layer1", invokeSubgraph(l1 as InvokeOnly))

@@ -25,6 +25,48 @@ PRIVATE_PATH_PREFIXES = (
     "data/private-prompts/",
 )
 
+PRIVATE_KNOT_PUBLIC_PATHS = frozenset(
+    {
+        "registry/prompt_checks/knot_runtime_contract_manifest_v2.json",
+        "registry/prompt_checks/domain_knob_catalog_v1.json",
+        "registry/prompt_checks/domain_knob_evaluation_contract_v1.json",
+        "schemas/knot_runtime_contract_manifest_v2.schema.json",
+        "schemas/research_knobs_v1.schema.json",
+        "schemas/domain_knob_catalog_v1.schema.json",
+        "schemas/domain_knob_values_v1.schema.json",
+        "schemas/domain_knob_evaluation_contract_v1.schema.json",
+        "schemas/prompt_governance_values_v1.schema.json",
+        "schemas/prompt_mutation_transaction_v1.schema.json",
+        "schemas/prompt_mutation_recovery_v1.schema.json",
+        "mosaic-ts/src/autoresearch/knot_cio_control_shadow.ts",
+        "mosaic-ts/src/agents/helpers/research_knobs.ts",
+        "mosaic-ts/src/agents/prompts/domain_knob_catalog.ts",
+        "mosaic-ts/src/agents/prompts/domain_knob_registry.ts",
+        "mosaic-ts/src/agents/prompts/prompt_governance_registry.ts",
+        "mosaic-ts/src/autoresearch/transaction_coordinator.ts",
+    }
+)
+
+PRIVATE_KNOT_CONTENT_MARKERS = (
+    re.compile(r"\bminimum_accountable_pairs\b"),
+    re.compile(r"\bpromotion_mean_delta_floor\b"),
+    re.compile(r"\brollback_mean_delta_ceiling\b"),
+    re.compile(r"\bblock_bootstrap_resamples\b"),
+    re.compile(r"\bbenjamini_hochberg_q_max\b"),
+    re.compile(r"\bDOMAIN_SEEDS_BY_AGENT\b"),
+    re.compile(r"CREATE TABLE IF NOT EXISTS knot_"),
+    re.compile(r"CREATE TRIGGER IF NOT EXISTS no_(?:update|delete)_knot_"),
+)
+
+PRIVATE_KNOT_GUARD_PATHS = frozenset(
+    {
+        "scripts/check_private_knot_boundary.py",
+        "scripts/check_prompt_leaks.py",
+        "tests/test_knot_private_boundary.py",
+        "mosaic-ts/test/knot_contract.test.ts",
+    }
+)
+
 AUTORESEARCH_BRANCH_PATTERNS = (
     re.compile(r"(^|/)cohort/[^/]+/auto/[^/]+/\d{4}-\d{2}-\d{2}$"),
     re.compile(r"(^|/)autoresearch(/|$)"),
@@ -145,6 +187,23 @@ def check_repo(repo: Path, base_ref: str | None = None) -> list[Finding]:
                 Finding(
                     "private-path",
                     f"private prompt repo/material must not be tracked in project repo: {path}",
+                )
+            )
+        if path in PRIVATE_KNOT_PUBLIC_PATHS:
+            findings.append(
+                Finding(
+                    "private-knot-path",
+                    f"private KNOT asset must not be tracked in project repo: {path}",
+                )
+            )
+
+    scanned_paths = [path for path in paths if path not in PRIVATE_KNOT_GUARD_PATHS]
+    for path, line in _added_lines(repo, base_ref, scanned_paths):
+        if any(marker.search(line) for marker in PRIVATE_KNOT_CONTENT_MARKERS):
+            findings.append(
+                Finding(
+                    "private-knot-content",
+                    f"private KNOT contract content found in {path}: {line[:160]}",
                 )
             )
 

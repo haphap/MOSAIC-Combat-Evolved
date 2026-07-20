@@ -12,8 +12,8 @@
 - [快速上手 (Getting Started)](Getting-Started.md) — 安装(uv + pnpm)、可选 extras、`.env`、首跑。
 - [CLI 参考 (CLI Reference)](CLI-Reference.md) — 每个 `pnpm dev <command>` 及其子命令。
 - [桥 RPC (Bridge RPC)](Bridge-RPC.md) — 按命名空间列出的完整 `@method` 接口。
-- [智能体 (Agents)](Agents.md) — 4 层 25 智能体决策图。
-- [数据层 (Data Layer)](Data-Layer.md) — qlib 本地读取、ingest、vendored 采集器、ETF 路由、研报工具。
+- [智能体 (Agents)](Agents.md) — 4 层 28 个逻辑 Agent、29 个执行阶段的决策图。
+- [数据层 (Data Layer)](Data-Layer.md) — qlib 本地读取、ingest、vendored 采集器、ETF 路由与能力绑定快照。
 - [自我改进 (Self-Improvement)](Self-Improvement.md) — Autoresearch / PRISM / JANUS / MiroFish。
 - [评分与纸上交易 (Scorecard & Paper Trading)](Scorecard-and-Paper-Trading.md) — 评分、胜率、Darwinian 权重、纸交易引擎。
 - [TUI](TUI.md) — 可读可编辑的 Ink 仪表盘及其标签页。
@@ -24,12 +24,12 @@
 
 | 方面 | 概要 |
 | --- | --- |
-| 决策图 | 4 层 25 智能体(10 宏观 → 7 行业 → 4 投资哲学 → 4 决策),由 LangGraph.js 编排成单次 daily cycle |
-| 自我改进 | Autoresearch 在 git 分支上改写提示词,按 ΔSharpe 决定 keep/revert |
-| 多周期 | PRISM 跨 7 个市场 regime cohort 训练;JANUS 跨 cohort 元加权 |
+| 决策图 | 4 层 28 个逻辑 Agent（10 宏观 → 10 行业 → 4 投资哲学 → 4 决策）、29 个执行阶段，由 LangGraph.js 编排成单次 daily cycle |
+| 自我改进 | KNOT 通过配对 shadow outcome 演化私有 prompt 行为并原子晋级；旧 ΔSharpe 仅供审计 |
+| 多周期 | PRISM 覆盖 8 个 cohort（default + 7 个市场 regime）；JANUS 跨 cohort 元加权 |
 | 反身性模拟 | MiroFish 前向模拟情景(默认 Monte-Carlo,可选 swarm 引擎) |
 | 回测/纸交易 | qlib 两段式向量化回测 + 自建纸上交易引擎(T+1、佣金) |
-| 行业/个股研报 | 行业 agent 用 Tushare 行业研报、个股级 agent 用个股研报分析 |
+| 研报边界 | RKE 研报只在 shadow 评测链使用，不进入生产决策图或模型可见工具 |
 | 语言 | Python `≥3.10` sidecar · Node `≥22` + TypeScript 前端 |
 | 协议 | Apache-2.0(vendored qlib 采集器依赖仍为 MIT — 见[数据层](Data-Layer.md)) |
 

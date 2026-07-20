@@ -22,11 +22,8 @@ COMMAND_CONTRACT_VERSION = "prompt_evolution_delivery_commands_v2"
 Status = Literal["pass", "fail", "blocked"]
 
 PROMPT_CHECK_DIR = Path("registry/prompt_checks")
-RUNTIME_MANIFEST_PATH = PROMPT_CHECK_DIR / "runtime_agent_manifest_v2.json"
-DOMAIN_CATALOG_PATH = PROMPT_CHECK_DIR / "domain_knob_catalog_v1.json"
-EVALUATION_CONTRACT_PATH = (
-    PROMPT_CHECK_DIR / "domain_knob_evaluation_contract_v1.json"
-)
+RUNTIME_MANIFEST_PATH = PROMPT_CHECK_DIR / "runtime_agent_manifest_v4.json"
+PRIVATE_KNOT_ASSETS_REF_PATH = PROMPT_CHECK_DIR / "private_knot_assets_ref_v1.json"
 TOKEN_BUDGET_PATH = PROMPT_CHECK_DIR / "prompt_token_budget_manifest_v1.json"
 PERFORMANCE_BUDGET_PATH = (
     PROMPT_CHECK_DIR / "prompt_evolution_performance_budget_v1.json"
@@ -44,17 +41,14 @@ DELIVERY_INPUT_PATHS = (
     Path("mosaic-ts/package.json"),
     Path("mosaic-ts/pnpm-lock.yaml"),
     Path("pyproject.toml"),
-    DOMAIN_CATALOG_PATH,
-    EVALUATION_CONTRACT_PATH,
+    PRIVATE_KNOT_ASSETS_REF_PATH,
     PERFORMANCE_BUDGET_PATH,
     RUNTIME_MANIFEST_PATH,
     TOKEN_BUDGET_PATH,
-    Path("schemas/domain_knob_catalog_v1.schema.json"),
-    Path("schemas/domain_knob_evaluation_contract_v1.schema.json"),
     Path("schemas/prompt_evolution_delivery_status_v1.schema.json"),
     Path("schemas/prompt_evolution_performance_budget_v1.schema.json"),
     Path("schemas/prompt_token_budget_manifest_v1.schema.json"),
-    Path("schemas/runtime_agent_manifest_v2.schema.json"),
+    Path("schemas/runtime_agent_manifest_v4.schema.json"),
 )
 
 CHECK_IDS = (
@@ -158,7 +152,7 @@ GATE_DEFINITIONS: Mapping[str, Mapping[str, Any]] = {
 }
 
 CONDITION_DEFINITIONS: Mapping[str, Mapping[str, Any]] = {
-    "C01": {"title": "25 agents and 26 stages", "checks": (), "gates": ("G5",)},
+    "C01": {"title": "28 agents and 29 stages", "checks": (), "gates": ("G5",)},
     "C02": {"title": "claim-to-evidence closure", "checks": (), "gates": ("G2",)},
     "C03": {"title": "scoped real source statuses", "checks": (), "gates": ("G2",)},
     "C04": {"title": "registry and write-back closure", "checks": (), "gates": ("G0", "G3")},
@@ -188,7 +182,7 @@ CONDITION_DEFINITIONS: Mapping[str, Mapping[str, Any]] = {
 }
 
 PYTHON_GATE_TESTS = (
-    "tests/test_autoresearch_domain_evaluator.py",
+    "tests/test_knot_private_boundary.py",
     "tests/test_bridge_autoresearch.py",
     "tests/test_bridge_prompts.py",
     "tests/test_mirofish.py",
@@ -196,8 +190,7 @@ PYTHON_GATE_TESTS = (
 )
 
 REPRESENTATIVE_EVALUATION_TESTS = (
-    "tests/test_autoresearch_domain_evaluator.py::test_generic_confidence_and_weight_targets_use_paired_evaluator",
-    "tests/test_autoresearch_domain_evaluator.py::test_representative_domain_categories_complete_paired_evaluation_and_rollback",
+    "tests/test_knot_private_boundary.py",
 )
 
 PYTHON_INTEGRATION_CONTRACT_TESTS = (
@@ -230,15 +223,13 @@ TYPESCRIPT_GATE_TESTS = (
     "test/layer4_source_adapters.test.ts",
     "test/mirofish_context_inject.test.ts",
     "test/mirofish_trainer.test.ts",
-    "test/mutator.test.ts",
     "test/orchestrator.test.ts",
     "test/prompt_loader.test.ts",
     "test/prompt_release_canary_runtime.test.ts",
     "test/prompt_release_manager.test.ts",
     "test/prompt_token_budget.test.ts",
     "test/release_prompt_loader.test.ts",
-    "test/research_knobs.test.ts",
-    "test/research_knobs_checker.test.ts",
+    "test/knot_contract.test.ts",
     "test/runtime_agent_spec.test.ts",
     "test/transaction_release_coordinator.test.ts",
 )
@@ -325,7 +316,7 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
                 "python",
                 "-m",
                 "pytest",
-                "tests/test_rke_schema_artifacts.py::test_domain_knob_evaluation_contract_schema_requires_generic_write_back",
+                "tests/test_knot_private_boundary.py",
                 "tests/test_rke_prompt_evolution_delivery.py::test_delivery_artifact_validates_against_json_schema",
                 "-q",
                 "--junitxml",
@@ -335,10 +326,10 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
             ),
             root,
             (
-                "tests/test_rke_schema_artifacts.py::test_domain_knob_evaluation_contract_schema_requires_generic_write_back",
+                "tests/test_knot_private_boundary.py",
                 "tests/test_rke_prompt_evolution_delivery.py::test_delivery_artifact_validates_against_json_schema",
             ),
-            junit_expected_tests=2,
+            junit_expected_tests=16,
             junit_path=run_dir / "focused-schema.xml",
         ),
         CommandSpec(
@@ -392,7 +383,7 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
             ),
             root,
             REPRESENTATIVE_EVALUATION_TESTS,
-            junit_expected_tests=2,
+            junit_expected_tests=15,
             junit_path=run_dir / "representative-evaluation.xml",
         ),
         CommandSpec(
@@ -430,7 +421,14 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
         ),
         CommandSpec(
             "typescript_gate_tests",
-            ("pnpm", "exec", "vitest", "run", *TYPESCRIPT_GATE_TESTS),
+            (
+                "pnpm",
+                "exec",
+                "vitest",
+                "run",
+                *TYPESCRIPT_GATE_TESTS,
+                "--no-file-parallelism",
+            ),
             root / "mosaic-ts",
             tuple(f"mosaic-ts/{path}" for path in TYPESCRIPT_GATE_TESTS),
         ),
@@ -463,7 +461,7 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
                 "pnpm",
                 "dev",
                 "prompts",
-                "check-research-knobs",
+                "check-bundled-contract",
                 "--prompts-root",
                 str(prompts_root),
                 "--enabled-agents",
@@ -481,26 +479,23 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
             "export-runtime-agent-manifest",
             RUNTIME_MANIFEST_PATH,
         ),
-        _artifact_export_spec(
-            root,
-            generated_dir,
-            "domain_catalog_reproducible",
-            "export-domain-knob-catalog",
-            DOMAIN_CATALOG_PATH,
-        ),
-        _artifact_export_spec(
-            root,
-            generated_dir,
-            "evaluation_contract_reproducible",
-            "export-domain-knob-evaluation-contract",
-            EVALUATION_CONTRACT_PATH,
-        ),
+        _private_knot_ref_spec(root, "domain_catalog_reproducible"),
+        _private_knot_ref_spec(root, "evaluation_contract_reproducible"),
         CommandSpec(
             "git_diff_check",
             ("git", "diff", "--check"),
             root,
             ("git:working-tree",),
         ),
+    )
+
+
+def _private_knot_ref_spec(root: Path, check_id: str) -> CommandSpec:
+    return CommandSpec(
+        check_id,
+        ("uv", "run", "python", "scripts/check_private_knot_boundary.py"),
+        root,
+        (str(PRIVATE_KNOT_ASSETS_REF_PATH),),
     )
 
 
@@ -698,12 +693,23 @@ def verify_prompt_budget_attestation(root: Path) -> tuple[Status, list[str]]:
     rows = budget.get("rows")
     if not isinstance(summary, Mapping) or summary.get("ready") is not True:
         reasons.append("PROMPT_BUDGET_NOT_READY")
-    if not isinstance(rows, list) or len(rows) != 104:
+    agents = runtime_manifest.get("agents")
+    expected_stage_count = (
+        sum(len(row.get("stages", [])) for row in agents if isinstance(row, Mapping))
+        if isinstance(agents, list)
+        else 0
+    )
+    expected_source_rows = expected_stage_count * 2
+    expected_row_count = expected_source_rows * 2
+    if expected_stage_count < 1 or not isinstance(rows, list) or len(rows) != expected_row_count:
         reasons.append("PROMPT_BUDGET_ROW_COUNT_MISMATCH")
         rows = []
     private_rows = [row for row in rows if row.get("source") == "private"]
     bundled_rows = [row for row in rows if row.get("source") == "bundled"]
-    if len(private_rows) != 52 or len(bundled_rows) != 52:
+    if (
+        len(private_rows) != expected_source_rows
+        or len(bundled_rows) != expected_source_rows
+    ):
         reasons.append("PROMPT_BUDGET_SOURCE_COVERAGE_MISMATCH")
     if any(row.get("passed") is not True for row in rows):
         reasons.append("PROMPT_BUDGET_ROW_FAILED")
@@ -845,12 +851,11 @@ def verify_performance_budget(
 def verify_documentation_contract(root: Path) -> tuple[Status, list[str]]:
     requirements = {
         Path("docs/runbooks/position_aware_prompt_evolution.md"): (
-            "MOSAIC_PROMPT_CANARY_EVENT_LOG",
-            "prompt-token-budget",
-            "summarize-slo",
-            "MOSAIC_TEST_PRIVATE_REPORT_INTELLIGENCE_FIXTURES",
-            "prompt_evolution_performance_budget_v1",
-            "--durations=20",
+            "MOSAIC_KNOT_RUNTIME_ROOT",
+            "check_private_knot_boundary.py",
+            "check_prompt_leaks.py",
+            "canary",
+            "rollback",
         ),
         Path("docs/wiki/CLI-Reference.md"): ("prompt-token-budget", "summarize-slo"),
         Path("docs/wiki/zh/CLI-Reference.md"): ("prompt-token-budget", "summarize-slo"),

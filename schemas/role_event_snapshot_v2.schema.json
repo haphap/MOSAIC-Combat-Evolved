@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Role-bound economic calendar projection snapshot v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "role_event_snapshot_id",
+    "schema_version",
+    "consumer_agent",
+    "as_of",
+    "contract_version",
+    "coverage",
+    "projections",
+    "role_event_snapshot_hash"
+  ],
+  "properties": {
+    "role_event_snapshot_id": { "type": "string", "minLength": 1 },
+    "schema_version": { "const": "role_event_snapshot_v2" },
+    "consumer_agent": { "type": "string", "minLength": 1 },
+    "as_of": { "type": "string", "format": "date-time" },
+    "contract_version": { "const": "role_event_coverage_v2" },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coverage_state",
+        "event_presence_state",
+        "coverage_completeness",
+        "coverage_as_of",
+        "query_complete",
+        "required_route_ids",
+        "healthy_route_ids",
+        "unhealthy_route_ids",
+        "coverage_evidence_ids",
+        "material_event_revision_ids",
+        "coverage_contract_version"
+      ],
+      "properties": {
+        "coverage_state": {
+          "enum": [
+            "AVAILABLE_MATERIAL_EVENTS",
+            "COVERAGE_CONFIRMED_NO_MATERIAL_EVENT",
+            "SOURCE_UNAVAILABLE"
+          ]
+        },
+        "event_presence_state": { "enum": ["MATERIAL_EVENTS_PRESENT", "NO_MATERIAL_EVENT_OBSERVED"] },
+        "coverage_completeness": { "enum": ["COMPLETE", "INCOMPLETE"] },
+        "coverage_as_of": { "type": "string", "format": "date-time" },
+        "query_complete": { "type": "boolean" },
+        "required_route_ids": { "$ref": "#/$defs/nonEmptyUniqueStrings" },
+        "healthy_route_ids": { "$ref": "#/$defs/uniqueStrings" },
+        "unhealthy_route_ids": { "$ref": "#/$defs/uniqueStrings" },
+        "coverage_evidence_ids": { "$ref": "#/$defs/nonEmptyUniqueStrings" },
+        "material_event_revision_ids": { "$ref": "#/$defs/uniqueStrings" },
+        "coverage_contract_version": { "const": "role_event_coverage_v2" }
+      }
+    },
+    "projections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "calendar_event_id",
+          "event_revision_id",
+          "evidence_bundle_id",
+          "source_evidence_ids",
+          "fact_owner",
+          "signal_owner",
+          "consumer_agent",
+          "usage_mode",
+          "signal_scope",
+          "allowed_purpose",
+          "materiality_tier",
+          "normalized_event",
+          "reference_period",
+          "release_stage",
+          "scheduled_at",
+          "released_at",
+          "event_phase",
+          "actual",
+          "previous",
+          "forecast",
+          "surprise",
+          "unit",
+          "time_status",
+          "conflict_status",
+          "reconciliation_status",
+          "causal_dedupe_key"
+        ],
+        "properties": {
+          "calendar_event_id": { "type": "string", "minLength": 1 },
+          "event_revision_id": { "type": "string", "minLength": 1 },
+          "evidence_bundle_id": { "type": "string", "minLength": 1 },
+          "source_evidence_ids": { "$ref": "#/$defs/nonEmptyUniqueStrings" },
+          "fact_owner": { "const": "economic_calendar_pipeline" },
+          "signal_owner": { "type": "string", "minLength": 1 },
+          "consumer_agent": { "type": "string", "minLength": 1 },
+          "usage_mode": { "enum": ["PRIMARY", "CONTEXT_ONLY"] },
+          "signal_scope": { "enum": ["MACRO_FACTOR", "SECTOR_THESIS", "DECISION_CONTROL"] },
+          "allowed_purpose": { "enum": ["SIGNAL", "TRANSMISSION", "CATALYST", "RISK_TIMING", "EXECUTION_TIMING"] },
+          "materiality_tier": { "enum": [1, 2, 3] },
+          "normalized_event": { "type": "string", "minLength": 1 },
+          "reference_period": { "type": ["string", "null"] },
+          "release_stage": { "type": "string", "minLength": 1 },
+          "scheduled_at": { "type": ["string", "null"], "format": "date-time" },
+          "released_at": { "type": ["string", "null"], "format": "date-time" },
+          "event_phase": { "enum": ["SCHEDULED", "RELEASED", "REVISED"] },
+          "actual": { "type": ["number", "null"] },
+          "previous": { "type": ["number", "null"] },
+          "forecast": { "type": ["number", "null"] },
+          "surprise": { "type": ["number", "null"] },
+          "unit": { "type": ["string", "null"] },
+          "time_status": { "enum": ["VERIFIED", "UNVERIFIED"] },
+          "conflict_status": { "enum": ["CLEAR", "CONFLICT", "RESOLVED"] },
+          "reconciliation_status": { "enum": ["EXACT", "WITHIN_TOLERANCE", "EXPECTED_REVISION", "CONFLICT", "UNVERIFIED"] },
+          "causal_dedupe_key": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "role_event_snapshot_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  },
+  "$defs": {
+    "uniqueStrings": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "nonEmptyUniqueStrings": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

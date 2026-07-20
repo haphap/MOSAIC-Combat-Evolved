@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Runtime Agent Manifest v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "lifecycle_status",
+    "production_selectable",
+    "superseded_by",
+    "runtime_agent_count",
+    "runtime_stage_count",
+    "default_cohort",
+    "private_knot_cohort_enablement",
+    "canonical_l4_sequence",
+    "knot_runtime_contract_ref",
+    "agents"
+  ],
+  "properties": {
+    "schema_version": { "const": "runtime_agent_manifest_v3" },
+    "lifecycle_status": { "const": "legacy_unverified" },
+    "production_selectable": { "const": false },
+    "superseded_by": { "const": "runtime_agent_manifest_v4" },
+    "runtime_agent_count": { "const": 28 },
+    "runtime_stage_count": { "const": 29 },
+    "default_cohort": { "const": "cohort_default" },
+    "private_knot_cohort_enablement": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["cohort", "enabled_agent_stages", "legacy_agent_stages"],
+        "properties": {
+          "cohort": { "type": "string", "minLength": 1 },
+          "enabled_agent_stages": {
+            "type": "array",
+            "minItems": 29,
+            "maxItems": 29,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "legacy_agent_stages": { "type": "array", "maxItems": 0 }
+        }
+      }
+    },
+    "canonical_l4_sequence": {
+      "const": [
+        "alpha_discovery",
+        "cio_proposal",
+        "cro_review",
+        "execution_feasibility",
+        "cio_final"
+      ]
+    },
+    "knot_runtime_contract_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "knot_runtime_contract_manifest_id",
+        "knot_runtime_contract_manifest_version",
+        "knot_runtime_contract_manifest_hash",
+        "private_runtime_manifest_hash",
+        "research_score_contract_id",
+        "research_score_contract_version",
+        "research_score_contract_hash",
+        "scheduler_contract_id",
+        "scheduler_contract_version",
+        "scheduler_contract_hash"
+      ],
+      "properties": {
+        "knot_runtime_contract_manifest_id": { "const": "knot-runtime-contract" },
+        "knot_runtime_contract_manifest_version": { "const": "knot_runtime_contract_manifest_v2" },
+        "knot_runtime_contract_manifest_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "private_runtime_manifest_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "research_score_contract_id": { "const": "knot-research-score" },
+        "research_score_contract_version": { "const": "knot_research_score_v2" },
+        "research_score_contract_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "scheduler_contract_id": { "const": "knot-scheduler" },
+        "scheduler_contract_version": { "const": "knot_scheduler_v2" },
+        "scheduler_contract_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
+    "agents": {
+      "type": "array",
+      "minItems": 28,
+      "maxItems": 28,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agent",
+          "layer",
+          "prompt_ir_agent_id",
+          "required_tools",
+          "output_schema_fields",
+          "stages"
+        ],
+        "properties": {
+          "agent": { "type": "string", "minLength": 1 },
+          "layer": { "enum": ["macro", "sector", "superinvestor", "decision"] },
+          "prompt_ir_agent_id": { "type": "string", "minLength": 1 },
+          "required_tools": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "output_schema_fields": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "stages": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "stage",
+                "enablement",
+                "output_schema_ref",
+                "max_repair_attempts",
+                "required_source_ids",
+                "produced_source_ids"
+              ],
+              "properties": {
+                "stage": {
+                  "enum": [
+                    "agent_run",
+                    "alpha_discovery",
+                    "cio_proposal",
+                    "cro_review",
+                    "execution_feasibility",
+                    "cio_final"
+                  ]
+                },
+                "enablement": { "const": "enabled" },
+                "output_schema_ref": { "type": "string", "minLength": 1 },
+                "max_repair_attempts": { "const": 3 },
+                "required_source_ids": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "produced_source_ids": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

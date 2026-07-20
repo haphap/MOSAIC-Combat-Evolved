@@ -1,0 +1,1600 @@
+{
+  "schema_version": "runtime_agent_manifest_v4",
+  "runtime_agent_count": 28,
+  "runtime_stage_count": 29,
+  "default_cohort": "cohort_default",
+  "private_knot_cohort_enablement": [
+    {
+      "cohort": "cohort_bull_2007",
+      "enabled_agent_stages": [
+        "china:agent_run",
+        "us_economy:agent_run",
+        "eu_economy:agent_run",
+        "central_bank:agent_run",
+        "us_financial_conditions:agent_run",
+        "euro_area_financial_conditions:agent_run",
+        "commodities:agent_run",
+        "geopolitical:agent_run",
+        "market_breadth:agent_run",
+        "institutional_flow:agent_run",
+        "semiconductor:agent_run",
+        "technology:agent_run",
+        "energy:agent_run",
+        "biotech:agent_run",
+        "consumer:agent_run",
+        "industrials:agent_run",
+        "real_estate_construction:agent_run",
+        "financials:agent_run",
+        "agriculture:agent_run",
+        "relationship_mapper:agent_run",
+        "druckenmiller:agent_run",
+        "munger:agent_run",
+        "burry:agent_run",
+        "ackman:agent_run",
+        "cro:cro_review",
+        "alpha_discovery:alpha_discovery",
+        "autonomous_execution:execution_feasibility",
+        "cio:cio_proposal",
+        "cio:cio_final"
+      ],
+      "bundled_fallback_agent_stages": []
+    },
+    {
+      "cohort": "cohort_bull_2016",
+      "enabled_agent_stages": [
+        "china:agent_run",
+        "us_economy:agent_run",
+        "eu_economy:agent_run",
+        "central_bank:agent_run",
+        "us_financial_conditions:agent_run",
+        "euro_area_financial_conditions:agent_run",
+        "commodities:agent_run",
+        "geopolitical:agent_run",
+        "market_breadth:agent_run",
+        "institutional_flow:agent_run",
+        "semiconductor:agent_run",
+        "technology:agent_run",
+        "energy:agent_run",
+        "biotech:agent_run",
+        "consumer:agent_run",
+        "industrials:agent_run",
+        "real_estate_construction:agent_run",
+        "financials:agent_run",
+        "agriculture:agent_run",
+        "relationship_mapper:agent_run",
+        "druckenmiller:agent_run",
+        "munger:agent_run",
+        "burry:agent_run",
+        "ackman:agent_run",
+        "cro:cro_review",
+        "alpha_discovery:alpha_discovery",
+        "autonomous_execution:execution_feasibility",
+        "cio:cio_proposal",
+        "cio:cio_final"
+      ],
+      "bundled_fallback_agent_stages": []
+    },
+    {
+      "cohort": "cohort_crisis_2008",
+      "enabled_agent_stages": [
+        "china:agent_run",
+        "us_economy:agent_run",
+        "eu_economy:agent_run",
+        "central_bank:agent_run",
+        "us_financial_conditions:agent_run",
+        "euro_area_financial_conditions:agent_run",
+        "commodities:agent_run",
+        "geopolitical:agent_run",
+        "market_breadth:agent_run",
+        "institutional_flow:agent_run",
+        "semiconductor:agent_run",
+        "technology:agent_run",
+        "energy:agent_run",
+        "biotech:agent_run",
+        "consumer:agent_run",
+        "industrials:agent_run",
+        "real_estate_construction:agent_run",
+        "financials:agent_run",
+        "agriculture:agent_run",
+        "relationship_mapper:agent_run",
+        "druckenmiller:agent_run",
+        "munger:agent_run",
+        "burry:agent_run",
+        "ackman:agent_run",
+        "cro:cro_review",
+        "alpha_discovery:alpha_discovery",
+        "autonomous_execution:execution_feasibility",
+        "cio:cio_proposal",
+        "cio:cio_final"
+      ],
+      "bundled_fallback_agent_stages": []
+    },
+    {
+      "cohort": "cohort_crisis_covid",
+      "enabled_agent_stages": [
+        "china:agent_run",
+        "us_economy:agent_run",
+        "eu_economy:agent_run",
+        "central_bank:agent_run",
+        "us_financial_conditions:agent_run",
+        "euro_area_financial_conditions:agent_run",
+        "commodities:agent_run",
+        "geopolitical:agent_run",
+        "market_breadth:agent_run",
+        "institutional_flow:agent_run",
+        "semiconductor:agent_run",
+        "technology:agent_run",
+        "energy:agent_run",
+        "biotech:agent_run",
+        "consumer:agent_run",
+        "industrials:agent_run",
+        "real_estate_construction:agent_run",
+        "financials:agent_run",
+        "agriculture:agent_run",
+        "relationship_mapper:agent_run",
+        "druckenmiller:agent_run",
+        "munger:agent_run",
+        "burry:agent_run",
+        "ackman:agent_run",
+        "cro:cro_review",
+        "alpha_discovery:alpha_discovery",
+        "autonomous_execution:execution_feasibility",
+        "cio:cio_proposal",
+        "cio:cio_final"
+      ],
+      "bundled_fallback_agent_stages": []
+    },
+    {
+      "cohort": "cohort_default",
+      "enabled_agent_stages": [
+        "china:agent_run",
+        "us_economy:agent_run",
+        "eu_economy:agent_run",
+        "central_bank:agent_run",
+        "us_financial_conditions:agent_run",
+        "euro_area_financial_conditions:agent_run",
+        "commodities:agent_run",
+        "geopolitical:agent_run",
+        "market_breadth:agent_run",
+        "institutional_flow:agent_run",
+        "semiconductor:agent_run",
+        "technology:agent_run",
+        "energy:agent_run",
+        "biotech:agent_run",
+        "consumer:agent_run",
+        "industrials:agent_run",
+        "real_estate_construction:agent_run",
+        "financials:agent_run",
+        "agriculture:agent_run",
+        "relationship_mapper:agent_run",
+        "druckenmiller:agent_run",
+        "munger:agent_run",
+        "burry:agent_run",
+        "ackman:agent_run",
+        "cro:cro_review",
+        "alpha_discovery:alpha_discovery",
+        "autonomous_execution:execution_feasibility",
+        "cio:cio_proposal",
+        "cio:cio_final"
+      ],
+      "bundled_fallback_agent_stages": []
+    },
+    {
+      "cohort": "cohort_euphoria_2021",
+      "enabled_agent_stages": [
+        "china:agent_run",
+        "us_economy:agent_run",
+        "eu_economy:agent_run",
+        "central_bank:agent_run",
+        "us_financial_conditions:agent_run",
+        "euro_area_financial_conditions:agent_run",
+        "commodities:agent_run",
+        "geopolitical:agent_run",
+        "market_breadth:agent_run",
+        "institutional_flow:agent_run",
+        "semiconductor:agent_run",
+        "technology:agent_run",
+        "energy:agent_run",
+        "biotech:agent_run",
+        "consumer:agent_run",
+        "industrials:agent_run",
+        "real_estate_construction:agent_run",
+        "financials:agent_run",
+        "agriculture:agent_run",
+        "relationship_mapper:agent_run",
+        "druckenmiller:agent_run",
+        "munger:agent_run",
+        "burry:agent_run",
+        "ackman:agent_run",
+        "cro:cro_review",
+        "alpha_discovery:alpha_discovery",
+        "autonomous_execution:execution_feasibility",
+        "cio:cio_proposal",
+        "cio:cio_final"
+      ],
+      "bundled_fallback_agent_stages": []
+    },
+    {
+      "cohort": "cohort_rate_tightening",
+      "enabled_agent_stages": [
+        "china:agent_run",
+        "us_economy:agent_run",
+        "eu_economy:agent_run",
+        "central_bank:agent_run",
+        "us_financial_conditions:agent_run",
+        "euro_area_financial_conditions:agent_run",
+        "commodities:agent_run",
+        "geopolitical:agent_run",
+        "market_breadth:agent_run",
+        "institutional_flow:agent_run",
+        "semiconductor:agent_run",
+        "technology:agent_run",
+        "energy:agent_run",
+        "biotech:agent_run",
+        "consumer:agent_run",
+        "industrials:agent_run",
+        "real_estate_construction:agent_run",
+        "financials:agent_run",
+        "agriculture:agent_run",
+        "relationship_mapper:agent_run",
+        "druckenmiller:agent_run",
+        "munger:agent_run",
+        "burry:agent_run",
+        "ackman:agent_run",
+        "cro:cro_review",
+        "alpha_discovery:alpha_discovery",
+        "autonomous_execution:execution_feasibility",
+        "cio:cio_proposal",
+        "cio:cio_final"
+      ],
+      "bundled_fallback_agent_stages": []
+    },
+    {
+      "cohort": "cohort_recovery_2020",
+      "enabled_agent_stages": [
+        "china:agent_run",
+        "us_economy:agent_run",
+        "eu_economy:agent_run",
+        "central_bank:agent_run",
+        "us_financial_conditions:agent_run",
+        "euro_area_financial_conditions:agent_run",
+        "commodities:agent_run",
+        "geopolitical:agent_run",
+        "market_breadth:agent_run",
+        "institutional_flow:agent_run",
+        "semiconductor:agent_run",
+        "technology:agent_run",
+        "energy:agent_run",
+        "biotech:agent_run",
+        "consumer:agent_run",
+        "industrials:agent_run",
+        "real_estate_construction:agent_run",
+        "financials:agent_run",
+        "agriculture:agent_run",
+        "relationship_mapper:agent_run",
+        "druckenmiller:agent_run",
+        "munger:agent_run",
+        "burry:agent_run",
+        "ackman:agent_run",
+        "cro:cro_review",
+        "alpha_discovery:alpha_discovery",
+        "autonomous_execution:execution_feasibility",
+        "cio:cio_proposal",
+        "cio:cio_final"
+      ],
+      "bundled_fallback_agent_stages": []
+    }
+  ],
+  "canonical_l4_sequence": [
+    "alpha_discovery",
+    "cio_proposal",
+    "cro_review",
+    "execution_feasibility",
+    "cio_final"
+  ],
+  "knot_runtime_contract_ref": {
+    "knot_runtime_contract_manifest_id": "knot-runtime-contract",
+    "knot_runtime_contract_manifest_version": "knot_runtime_contract_manifest_v2",
+    "knot_runtime_contract_manifest_hash": "sha256:a8f5b1108df82be7e05d036593c4bd0826193025bfbffbb1b56824097aaa9076",
+    "private_runtime_manifest_hash": "sha256:9ddb706c7697645c5177ddcb1ac1e868e6cfa6d72884defb7c3a0cbca6150e33",
+    "research_score_contract_id": "knot-research-score",
+    "research_score_contract_version": "knot_research_score_v2",
+    "research_score_contract_hash": "sha256:2ff2cdedb25b0208323190eed716498bfad6c8c18631f3bc5a1c6a01ae3843ec",
+    "scheduler_contract_id": "knot-scheduler",
+    "scheduler_contract_version": "knot_scheduler_v2",
+    "scheduler_contract_hash": "sha256:5630393210fdf098049f9f9b93eadada90e00e2f96a5747efb6ce47169f2b6b0"
+  },
+  "agents": [
+    {
+      "agent": "china",
+      "layer": "macro",
+      "prompt_ir_agent_id": "macro.china",
+      "required_tools": [
+        "get_china_macro_snapshot"
+      ],
+      "output_schema_fields": [
+        "mode",
+        "claims",
+        "key_drivers",
+        "components"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "macro.china.output.v1",
+          "output_schema_fields": [
+            "mode",
+            "claims",
+            "key_drivers",
+            "components"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "us_economy",
+      "layer": "macro",
+      "prompt_ir_agent_id": "macro.us_economy",
+      "required_tools": [
+        "get_us_macro_snapshot"
+      ],
+      "output_schema_fields": [
+        "mode",
+        "claims",
+        "key_drivers",
+        "components"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "macro.us_economy.output.v1",
+          "output_schema_fields": [
+            "mode",
+            "claims",
+            "key_drivers",
+            "components"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "eu_economy",
+      "layer": "macro",
+      "prompt_ir_agent_id": "macro.eu_economy",
+      "required_tools": [
+        "get_eu_macro_snapshot"
+      ],
+      "output_schema_fields": [
+        "mode",
+        "claims",
+        "key_drivers",
+        "components"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "macro.eu_economy.output.v1",
+          "output_schema_fields": [
+            "mode",
+            "claims",
+            "key_drivers",
+            "components"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "central_bank",
+      "layer": "macro",
+      "prompt_ir_agent_id": "macro.central_bank",
+      "required_tools": [
+        "get_central_bank_snapshot"
+      ],
+      "output_schema_fields": [
+        "mode",
+        "claims",
+        "key_drivers",
+        "components"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "macro.central_bank.output.v1",
+          "output_schema_fields": [
+            "mode",
+            "claims",
+            "key_drivers",
+            "components"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "us_financial_conditions",
+      "layer": "macro",
+      "prompt_ir_agent_id": "macro.us_financial_conditions",
+      "required_tools": [
+        "get_us_financial_conditions_snapshot"
+      ],
+      "output_schema_fields": [
+        "mode",
+        "claims",
+        "key_drivers",
+        "components"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "macro.us_financial_conditions.output.v1",
+          "output_schema_fields": [
+            "mode",
+            "claims",
+            "key_drivers",
+            "components"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "euro_area_financial_conditions",
+      "layer": "macro",
+      "prompt_ir_agent_id": "macro.euro_area_financial_conditions",
+      "required_tools": [
+        "get_euro_area_financial_conditions_snapshot"
+      ],
+      "output_schema_fields": [
+        "mode",
+        "claims",
+        "key_drivers",
+        "components"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "macro.euro_area_financial_conditions.output.v1",
+          "output_schema_fields": [
+            "mode",
+            "claims",
+            "key_drivers",
+            "components"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "commodities",
+      "layer": "macro",
+      "prompt_ir_agent_id": "macro.commodities",
+      "required_tools": [
+        "get_commodity_conditions_snapshot"
+      ],
+      "output_schema_fields": [
+        "mode",
+        "claims",
+        "key_drivers",
+        "components"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "macro.commodities.output.v1",
+          "output_schema_fields": [
+            "mode",
+            "claims",
+            "key_drivers",
+            "components"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "geopolitical",
+      "layer": "macro",
+      "prompt_ir_agent_id": "macro.geopolitical",
+      "required_tools": [
+        "get_geopolitical_events_snapshot"
+      ],
+      "output_schema_fields": [
+        "mode",
+        "claims",
+        "key_drivers",
+        "signal"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "macro.geopolitical.output.v1",
+          "output_schema_fields": [
+            "mode",
+            "claims",
+            "key_drivers",
+            "signal"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "market_breadth",
+      "layer": "macro",
+      "prompt_ir_agent_id": "macro.market_breadth",
+      "required_tools": [
+        "get_market_breadth_snapshot"
+      ],
+      "output_schema_fields": [
+        "mode",
+        "claims",
+        "key_drivers",
+        "signal"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "macro.market_breadth.output.v1",
+          "output_schema_fields": [
+            "mode",
+            "claims",
+            "key_drivers",
+            "signal"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "institutional_flow",
+      "layer": "macro",
+      "prompt_ir_agent_id": "macro.institutional_flow",
+      "required_tools": [
+        "get_market_positioning_snapshot"
+      ],
+      "output_schema_fields": [
+        "mode",
+        "claims",
+        "key_drivers",
+        "signal"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "macro.institutional_flow.output.v1",
+          "output_schema_fields": [
+            "mode",
+            "claims",
+            "key_drivers",
+            "signal"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "semiconductor",
+      "layer": "sector",
+      "prompt_ir_agent_id": "sector.semiconductor",
+      "required_tools": [
+        "get_sector_research_snapshot",
+        "get_role_event_snapshot"
+      ],
+      "output_schema_fields": [
+        "agent",
+        "selection_status",
+        "preferred_direction",
+        "least_preferred_direction",
+        "persistence_horizon",
+        "confidence",
+        "key_drivers",
+        "risks",
+        "claims",
+        "claim_refs",
+        "preferred_security_status",
+        "preferred_security_abstention_confidence",
+        "long_picks",
+        "least_preferred_security_status",
+        "least_preferred_security_abstention_confidence",
+        "short_or_avoid_picks",
+        "macro_input_attributions"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "sector.semiconductor.output.v1",
+          "output_schema_fields": [
+            "agent",
+            "selection_status",
+            "preferred_direction",
+            "least_preferred_direction",
+            "persistence_horizon",
+            "confidence",
+            "key_drivers",
+            "risks",
+            "claims",
+            "claim_refs",
+            "preferred_security_status",
+            "preferred_security_abstention_confidence",
+            "long_picks",
+            "least_preferred_security_status",
+            "least_preferred_security_abstention_confidence",
+            "short_or_avoid_picks",
+            "macro_input_attributions"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "technology",
+      "layer": "sector",
+      "prompt_ir_agent_id": "sector.technology",
+      "required_tools": [
+        "get_sector_research_snapshot",
+        "get_role_event_snapshot"
+      ],
+      "output_schema_fields": [
+        "agent",
+        "selection_status",
+        "preferred_direction",
+        "least_preferred_direction",
+        "persistence_horizon",
+        "confidence",
+        "key_drivers",
+        "risks",
+        "claims",
+        "claim_refs",
+        "preferred_security_status",
+        "preferred_security_abstention_confidence",
+        "long_picks",
+        "least_preferred_security_status",
+        "least_preferred_security_abstention_confidence",
+        "short_or_avoid_picks",
+        "macro_input_attributions"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "sector.technology.output.v1",
+          "output_schema_fields": [
+            "agent",
+            "selection_status",
+            "preferred_direction",
+            "least_preferred_direction",
+            "persistence_horizon",
+            "confidence",
+            "key_drivers",
+            "risks",
+            "claims",
+            "claim_refs",
+            "preferred_security_status",
+            "preferred_security_abstention_confidence",
+            "long_picks",
+            "least_preferred_security_status",
+            "least_preferred_security_abstention_confidence",
+            "short_or_avoid_picks",
+            "macro_input_attributions"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "energy",
+      "layer": "sector",
+      "prompt_ir_agent_id": "sector.energy",
+      "required_tools": [
+        "get_sector_research_snapshot",
+        "get_role_event_snapshot"
+      ],
+      "output_schema_fields": [
+        "agent",
+        "selection_status",
+        "preferred_direction",
+        "least_preferred_direction",
+        "persistence_horizon",
+        "confidence",
+        "key_drivers",
+        "risks",
+        "claims",
+        "claim_refs",
+        "preferred_security_status",
+        "preferred_security_abstention_confidence",
+        "long_picks",
+        "least_preferred_security_status",
+        "least_preferred_security_abstention_confidence",
+        "short_or_avoid_picks",
+        "macro_input_attributions"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "sector.energy.output.v1",
+          "output_schema_fields": [
+            "agent",
+            "selection_status",
+            "preferred_direction",
+            "least_preferred_direction",
+            "persistence_horizon",
+            "confidence",
+            "key_drivers",
+            "risks",
+            "claims",
+            "claim_refs",
+            "preferred_security_status",
+            "preferred_security_abstention_confidence",
+            "long_picks",
+            "least_preferred_security_status",
+            "least_preferred_security_abstention_confidence",
+            "short_or_avoid_picks",
+            "macro_input_attributions"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "biotech",
+      "layer": "sector",
+      "prompt_ir_agent_id": "sector.biotech",
+      "required_tools": [
+        "get_sector_research_snapshot"
+      ],
+      "output_schema_fields": [
+        "agent",
+        "selection_status",
+        "preferred_direction",
+        "least_preferred_direction",
+        "persistence_horizon",
+        "confidence",
+        "key_drivers",
+        "risks",
+        "claims",
+        "claim_refs",
+        "preferred_security_status",
+        "preferred_security_abstention_confidence",
+        "long_picks",
+        "least_preferred_security_status",
+        "least_preferred_security_abstention_confidence",
+        "short_or_avoid_picks",
+        "macro_input_attributions"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "sector.biotech.output.v1",
+          "output_schema_fields": [
+            "agent",
+            "selection_status",
+            "preferred_direction",
+            "least_preferred_direction",
+            "persistence_horizon",
+            "confidence",
+            "key_drivers",
+            "risks",
+            "claims",
+            "claim_refs",
+            "preferred_security_status",
+            "preferred_security_abstention_confidence",
+            "long_picks",
+            "least_preferred_security_status",
+            "least_preferred_security_abstention_confidence",
+            "short_or_avoid_picks",
+            "macro_input_attributions"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "consumer",
+      "layer": "sector",
+      "prompt_ir_agent_id": "sector.consumer",
+      "required_tools": [
+        "get_sector_research_snapshot",
+        "get_role_event_snapshot"
+      ],
+      "output_schema_fields": [
+        "agent",
+        "selection_status",
+        "preferred_direction",
+        "least_preferred_direction",
+        "persistence_horizon",
+        "confidence",
+        "key_drivers",
+        "risks",
+        "claims",
+        "claim_refs",
+        "preferred_security_status",
+        "preferred_security_abstention_confidence",
+        "long_picks",
+        "least_preferred_security_status",
+        "least_preferred_security_abstention_confidence",
+        "short_or_avoid_picks",
+        "macro_input_attributions"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "sector.consumer.output.v1",
+          "output_schema_fields": [
+            "agent",
+            "selection_status",
+            "preferred_direction",
+            "least_preferred_direction",
+            "persistence_horizon",
+            "confidence",
+            "key_drivers",
+            "risks",
+            "claims",
+            "claim_refs",
+            "preferred_security_status",
+            "preferred_security_abstention_confidence",
+            "long_picks",
+            "least_preferred_security_status",
+            "least_preferred_security_abstention_confidence",
+            "short_or_avoid_picks",
+            "macro_input_attributions"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "industrials",
+      "layer": "sector",
+      "prompt_ir_agent_id": "sector.industrials",
+      "required_tools": [
+        "get_sector_research_snapshot",
+        "get_role_event_snapshot"
+      ],
+      "output_schema_fields": [
+        "agent",
+        "selection_status",
+        "preferred_direction",
+        "least_preferred_direction",
+        "persistence_horizon",
+        "confidence",
+        "key_drivers",
+        "risks",
+        "claims",
+        "claim_refs",
+        "preferred_security_status",
+        "preferred_security_abstention_confidence",
+        "long_picks",
+        "least_preferred_security_status",
+        "least_preferred_security_abstention_confidence",
+        "short_or_avoid_picks",
+        "macro_input_attributions"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "sector.industrials.output.v1",
+          "output_schema_fields": [
+            "agent",
+            "selection_status",
+            "preferred_direction",
+            "least_preferred_direction",
+            "persistence_horizon",
+            "confidence",
+            "key_drivers",
+            "risks",
+            "claims",
+            "claim_refs",
+            "preferred_security_status",
+            "preferred_security_abstention_confidence",
+            "long_picks",
+            "least_preferred_security_status",
+            "least_preferred_security_abstention_confidence",
+            "short_or_avoid_picks",
+            "macro_input_attributions"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "real_estate_construction",
+      "layer": "sector",
+      "prompt_ir_agent_id": "sector.real_estate_construction",
+      "required_tools": [
+        "get_sector_research_snapshot",
+        "get_role_event_snapshot"
+      ],
+      "output_schema_fields": [
+        "agent",
+        "selection_status",
+        "preferred_direction",
+        "least_preferred_direction",
+        "persistence_horizon",
+        "confidence",
+        "key_drivers",
+        "risks",
+        "claims",
+        "claim_refs",
+        "preferred_security_status",
+        "preferred_security_abstention_confidence",
+        "long_picks",
+        "least_preferred_security_status",
+        "least_preferred_security_abstention_confidence",
+        "short_or_avoid_picks",
+        "macro_input_attributions"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "sector.real_estate_construction.output.v1",
+          "output_schema_fields": [
+            "agent",
+            "selection_status",
+            "preferred_direction",
+            "least_preferred_direction",
+            "persistence_horizon",
+            "confidence",
+            "key_drivers",
+            "risks",
+            "claims",
+            "claim_refs",
+            "preferred_security_status",
+            "preferred_security_abstention_confidence",
+            "long_picks",
+            "least_preferred_security_status",
+            "least_preferred_security_abstention_confidence",
+            "short_or_avoid_picks",
+            "macro_input_attributions"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "financials",
+      "layer": "sector",
+      "prompt_ir_agent_id": "sector.financials",
+      "required_tools": [
+        "get_sector_research_snapshot",
+        "get_role_event_snapshot"
+      ],
+      "output_schema_fields": [
+        "agent",
+        "selection_status",
+        "preferred_direction",
+        "least_preferred_direction",
+        "persistence_horizon",
+        "confidence",
+        "key_drivers",
+        "risks",
+        "claims",
+        "claim_refs",
+        "preferred_security_status",
+        "preferred_security_abstention_confidence",
+        "long_picks",
+        "least_preferred_security_status",
+        "least_preferred_security_abstention_confidence",
+        "short_or_avoid_picks",
+        "macro_input_attributions"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "sector.financials.output.v1",
+          "output_schema_fields": [
+            "agent",
+            "selection_status",
+            "preferred_direction",
+            "least_preferred_direction",
+            "persistence_horizon",
+            "confidence",
+            "key_drivers",
+            "risks",
+            "claims",
+            "claim_refs",
+            "preferred_security_status",
+            "preferred_security_abstention_confidence",
+            "long_picks",
+            "least_preferred_security_status",
+            "least_preferred_security_abstention_confidence",
+            "short_or_avoid_picks",
+            "macro_input_attributions"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "agriculture",
+      "layer": "sector",
+      "prompt_ir_agent_id": "sector.agriculture",
+      "required_tools": [
+        "get_sector_research_snapshot",
+        "get_role_event_snapshot"
+      ],
+      "output_schema_fields": [
+        "agent",
+        "selection_status",
+        "preferred_direction",
+        "least_preferred_direction",
+        "persistence_horizon",
+        "confidence",
+        "key_drivers",
+        "risks",
+        "claims",
+        "claim_refs",
+        "preferred_security_status",
+        "preferred_security_abstention_confidence",
+        "long_picks",
+        "least_preferred_security_status",
+        "least_preferred_security_abstention_confidence",
+        "short_or_avoid_picks",
+        "macro_input_attributions"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "sector.agriculture.output.v1",
+          "output_schema_fields": [
+            "agent",
+            "selection_status",
+            "preferred_direction",
+            "least_preferred_direction",
+            "persistence_horizon",
+            "confidence",
+            "key_drivers",
+            "risks",
+            "claims",
+            "claim_refs",
+            "preferred_security_status",
+            "preferred_security_abstention_confidence",
+            "long_picks",
+            "least_preferred_security_status",
+            "least_preferred_security_abstention_confidence",
+            "short_or_avoid_picks",
+            "macro_input_attributions"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "relationship_mapper",
+      "layer": "sector",
+      "prompt_ir_agent_id": "sector.relationship_mapper",
+      "required_tools": [
+        "get_relationship_graph_snapshot"
+      ],
+      "output_schema_fields": [
+        "agent",
+        "factual_edges",
+        "predictive_edges",
+        "predictive_graph_status",
+        "predictive_graph_abstention_confidence",
+        "key_drivers",
+        "risks",
+        "claims",
+        "claim_refs",
+        "macro_input_attributions"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "sector.relationship_mapper.output.v1",
+          "output_schema_fields": [
+            "agent",
+            "factual_edges",
+            "predictive_edges",
+            "predictive_graph_status",
+            "predictive_graph_abstention_confidence",
+            "key_drivers",
+            "risks",
+            "claims",
+            "claim_refs",
+            "macro_input_attributions"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "druckenmiller",
+      "layer": "superinvestor",
+      "prompt_ir_agent_id": "superinvestor.druckenmiller",
+      "required_tools": [
+        "get_superinvestor_candidate_snapshot"
+      ],
+      "output_schema_fields": [
+        "agent",
+        "selection_status",
+        "confidence",
+        "holding_period",
+        "picks",
+        "key_drivers",
+        "risks",
+        "claims",
+        "claim_refs",
+        "macro_input_attributions"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "superinvestor.druckenmiller.output.v1",
+          "output_schema_fields": [
+            "agent",
+            "selection_status",
+            "confidence",
+            "holding_period",
+            "picks",
+            "key_drivers",
+            "risks",
+            "claims",
+            "claim_refs",
+            "macro_input_attributions"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "munger",
+      "layer": "superinvestor",
+      "prompt_ir_agent_id": "superinvestor.munger",
+      "required_tools": [
+        "get_superinvestor_candidate_snapshot"
+      ],
+      "output_schema_fields": [
+        "agent",
+        "selection_status",
+        "confidence",
+        "holding_period",
+        "picks",
+        "key_drivers",
+        "risks",
+        "claims",
+        "claim_refs",
+        "macro_input_attributions"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "superinvestor.munger.output.v1",
+          "output_schema_fields": [
+            "agent",
+            "selection_status",
+            "confidence",
+            "holding_period",
+            "picks",
+            "key_drivers",
+            "risks",
+            "claims",
+            "claim_refs",
+            "macro_input_attributions"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "burry",
+      "layer": "superinvestor",
+      "prompt_ir_agent_id": "superinvestor.burry",
+      "required_tools": [
+        "get_superinvestor_candidate_snapshot"
+      ],
+      "output_schema_fields": [
+        "agent",
+        "selection_status",
+        "confidence",
+        "holding_period",
+        "picks",
+        "key_drivers",
+        "risks",
+        "claims",
+        "claim_refs",
+        "macro_input_attributions"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "superinvestor.burry.output.v1",
+          "output_schema_fields": [
+            "agent",
+            "selection_status",
+            "confidence",
+            "holding_period",
+            "picks",
+            "key_drivers",
+            "risks",
+            "claims",
+            "claim_refs",
+            "macro_input_attributions"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "ackman",
+      "layer": "superinvestor",
+      "prompt_ir_agent_id": "superinvestor.ackman",
+      "required_tools": [
+        "get_superinvestor_candidate_snapshot"
+      ],
+      "output_schema_fields": [
+        "agent",
+        "selection_status",
+        "confidence",
+        "holding_period",
+        "picks",
+        "key_drivers",
+        "risks",
+        "claims",
+        "claim_refs",
+        "macro_input_attributions"
+      ],
+      "stages": [
+        {
+          "stage": "agent_run",
+          "enablement": "enabled",
+          "output_schema_ref": "superinvestor.ackman.output.v1",
+          "output_schema_fields": [
+            "agent",
+            "selection_status",
+            "confidence",
+            "holding_period",
+            "picks",
+            "key_drivers",
+            "risks",
+            "claims",
+            "claim_refs",
+            "macro_input_attributions"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "cro",
+      "layer": "decision",
+      "prompt_ir_agent_id": "decision.cro",
+      "required_tools": [
+        "get_cro_risk_snapshot",
+        "get_role_event_snapshot"
+      ],
+      "output_schema_fields": [
+        "agent_id",
+        "review_disposition",
+        "candidate_actions",
+        "correlated_risks",
+        "black_swan_scenarios",
+        "confidence",
+        "claims",
+        "claim_refs",
+        "macro_input_attributions"
+      ],
+      "stages": [
+        {
+          "stage": "cro_review",
+          "enablement": "enabled",
+          "output_schema_ref": "decision.cro.review.v1",
+          "output_schema_fields": [
+            "agent_id",
+            "review_disposition",
+            "candidate_actions",
+            "correlated_risks",
+            "black_swan_scenarios",
+            "confidence",
+            "claims",
+            "claim_refs",
+            "macro_input_attributions"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [
+            "candidate_target_state",
+            "position_review_state",
+            "current_position_snapshot",
+            "current_market_data",
+            "portfolio_exposure_state"
+          ],
+          "produced_source_ids": [
+            "cro_review_state"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "alpha_discovery",
+      "layer": "decision",
+      "prompt_ir_agent_id": "decision.alpha_discovery",
+      "required_tools": [
+        "get_alpha_candidate_snapshot",
+        "get_role_event_snapshot"
+      ],
+      "output_schema_fields": [
+        "agent_id",
+        "discovery_disposition",
+        "novel_picks",
+        "key_drivers",
+        "risks",
+        "confidence",
+        "claims",
+        "claim_refs",
+        "macro_input_attributions"
+      ],
+      "stages": [
+        {
+          "stage": "alpha_discovery",
+          "enablement": "enabled",
+          "output_schema_ref": "decision.alpha_discovery.output.v1",
+          "output_schema_fields": [
+            "agent_id",
+            "discovery_disposition",
+            "novel_picks",
+            "key_drivers",
+            "risks",
+            "confidence",
+            "claims",
+            "claim_refs",
+            "macro_input_attributions"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [
+            "upstream_agent_outputs",
+            "current_position_snapshot",
+            "current_market_data"
+          ],
+          "produced_source_ids": [
+            "upstream_agent_outputs"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "autonomous_execution",
+      "layer": "decision",
+      "prompt_ir_agent_id": "decision.autonomous_execution",
+      "required_tools": [
+        "get_execution_snapshot",
+        "get_role_event_snapshot"
+      ],
+      "output_schema_fields": [
+        "agent_id",
+        "execution_disposition",
+        "order_assessments",
+        "confidence",
+        "claims",
+        "claim_refs"
+      ],
+      "stages": [
+        {
+          "stage": "execution_feasibility",
+          "enablement": "enabled",
+          "output_schema_ref": "decision.autonomous_execution.feasibility.v1",
+          "output_schema_fields": [
+            "agent_id",
+            "execution_disposition",
+            "order_assessments",
+            "confidence",
+            "claims",
+            "claim_refs"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [
+            "candidate_target_state",
+            "cro_review_state",
+            "current_position_snapshot",
+            "current_market_data",
+            "execution_liquidity_state"
+          ],
+          "produced_source_ids": [
+            "execution_feasibility_state"
+          ]
+        }
+      ]
+    },
+    {
+      "agent": "cio",
+      "layer": "decision",
+      "prompt_ir_agent_id": "decision.cio",
+      "required_tools": [
+        "get_cio_decision_snapshot"
+      ],
+      "output_schema_fields": [
+        "agent_id",
+        "decision_stage",
+        "decision_disposition",
+        "target_positions",
+        "cash_weight",
+        "decision_reason",
+        "cro_control_resolutions",
+        "execution_control_resolutions",
+        "confidence",
+        "claims",
+        "claim_refs",
+        "macro_input_attributions"
+      ],
+      "stages": [
+        {
+          "stage": "cio_proposal",
+          "enablement": "enabled",
+          "output_schema_ref": "decision.cio.proposal.v1",
+          "output_schema_fields": [
+            "agent_id",
+            "decision_stage",
+            "decision_disposition",
+            "target_positions",
+            "cash_weight",
+            "decision_reason",
+            "confidence",
+            "claims",
+            "claim_refs",
+            "macro_input_attributions"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [
+            "upstream_agent_outputs",
+            "current_position_snapshot",
+            "current_market_data",
+            "previous_target_state",
+            "position_thesis_state"
+          ],
+          "produced_source_ids": [
+            "candidate_target_state",
+            "position_review_state"
+          ]
+        },
+        {
+          "stage": "cio_final",
+          "enablement": "enabled",
+          "output_schema_ref": "decision.cio.final.v1",
+          "output_schema_fields": [
+            "agent_id",
+            "decision_stage",
+            "decision_disposition",
+            "target_positions",
+            "cash_weight",
+            "decision_reason",
+            "cro_control_resolutions",
+            "execution_control_resolutions",
+            "confidence",
+            "claims",
+            "claim_refs",
+            "macro_input_attributions"
+          ],
+          "max_repair_attempts": 3,
+          "required_source_ids": [
+            "candidate_target_state",
+            "position_review_state",
+            "cro_review_state",
+            "execution_feasibility_state",
+            "current_position_snapshot",
+            "current_market_data"
+          ],
+          "produced_source_ids": []
+        }
+      ]
+    }
+  ]
+}

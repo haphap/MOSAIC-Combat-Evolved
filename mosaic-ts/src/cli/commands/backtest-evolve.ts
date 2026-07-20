@@ -557,7 +557,12 @@ async function prepareGraph(
     ref: commit,
   });
   if (!worktree.prompts_root) throw new Error("private prompt worktree has no prompts_root");
-  await assertRuntimePromptPreflight({ cohort, promptsRoot: worktree.prompts_root });
+  await assertRuntimePromptPreflight({
+    cohort,
+    promptsRoot: worktree.prompts_root,
+    privatePromptsRoot: worktree.path,
+    requirePrivateKnot: true,
+  });
   return {
     path: worktree.path,
     promptsRoot: worktree.prompts_root,
@@ -617,9 +622,8 @@ async function invokeArm(
       active_cohort: final.active_cohort,
       as_of_date: final.as_of_date,
       layer1_outputs: final.layer1_outputs,
-      layer1_consensus: final.layer1_consensus,
+      macro_input_gate: final.macro_input_gate,
       layer2_outputs: final.layer2_outputs,
-      layer2_consensus: final.layer2_consensus,
       layer3_outputs: final.layer3_outputs,
       layer4_outputs: final.layer4_outputs,
       portfolio_actions: final.portfolio_actions,

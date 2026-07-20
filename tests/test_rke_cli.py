@@ -1106,6 +1106,8 @@ def test_promotion_status_next_actions_includes_lockbox_when_pg09_fails(
     _copy_registry(tmp_path)
     result = ProductionPromotionGateReport(
         report_id="test",
+        execution_mode="RKE_SHADOW",
+        production_signal_allowed=False,
         paper_trading_allowed=True,
         staged_production_allowed=True,
         production_allowed=False,

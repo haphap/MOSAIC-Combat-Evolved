@@ -5,7 +5,7 @@ import { BridgeApi, BridgeClient, resolvePython } from "../../bridge/index.js";
 export function registerBridgePing(program: Command): void {
   program
     .command("bridge-ping")
-    .description("Verify the Python sidecar starts and answers tools.list / config.get")
+    .description("Verify the Python sidecar starts and answers config.get")
     .action(async () => {
       const python = resolvePython();
       console.log(pc.dim(`python:    ${python.python}`));
@@ -16,21 +16,12 @@ export function registerBridgePing(program: Command): void {
       const api = new BridgeApi(client);
       try {
         await client.start();
-        const tools = await api.toolsList();
         const config = await api.configGet();
         console.log(
           pc.green(
-            `\nbridge ok: ${tools.length} tools, llm_provider=${String(config.llm_provider)}, ` +
+            `\nbridge ok: tool_access=capability_bound, llm_provider=${String(config.llm_provider)}, ` +
               `deep=${String(config.deep_think_llm)}, output_language=${String(config.output_language)}, ` +
               `active_cohort=${String(config.active_cohort)}`,
-          ),
-        );
-        console.log(
-          pc.dim(
-            `tools: ${tools
-              .slice(0, 10)
-              .map((t) => t.name)
-              .join(", ")}${tools.length > 10 ? ", …" : ""}`,
           ),
         );
       } catch (err) {

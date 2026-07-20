@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "registry_version": {
+      "type": "string",
+      "const": "outcome_source_authority_registry_v1"
+    },
+    "provisioning_status": {
+      "type": "string",
+      "enum": ["ACTIVE", "PROVISIONING_REQUIRED"]
+    },
+    "registry_schema_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "registry_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 26,
+      "maxItems": 26,
+      "items": {
+        "type": "object",
+        "properties": {
+          "entry_version": {
+            "type": "string",
+            "const": "outcome_source_authority_entry_v1"
+          },
+          "required_source_id": { "type": "string", "minLength": 1 },
+          "source_owner": { "type": "string", "minLength": 1 },
+          "adapter_contract_id": { "type": "string", "minLength": 1 },
+          "adapter_contract_version": { "type": "string", "minLength": 1 },
+          "verifier_id": { "type": "string", "minLength": 1 },
+          "signing_key_id": { "type": "string", "minLength": 1 },
+          "signature_algorithm": { "type": "string", "const": "Ed25519" },
+          "ed25519_public_key_base64url": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "effective_from": { "type": "string", "format": "date-time" },
+          "effective_until": {
+            "type": ["string", "null"],
+            "format": "date-time"
+          },
+          "owned_realized_fields_by_schema_id": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "uniqueItems": true
+            }
+          },
+          "entry_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "entry_version",
+          "required_source_id",
+          "source_owner",
+          "adapter_contract_id",
+          "adapter_contract_version",
+          "verifier_id",
+          "signing_key_id",
+          "signature_algorithm",
+          "ed25519_public_key_base64url",
+          "effective_from",
+          "effective_until",
+          "owned_realized_fields_by_schema_id",
+          "entry_hash"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "registry_version",
+    "provisioning_status",
+    "registry_schema_hash",
+    "registry_hash",
+    "entries"
+  ],
+  "additionalProperties": false
+}

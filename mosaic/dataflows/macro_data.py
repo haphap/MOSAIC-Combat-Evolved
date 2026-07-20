@@ -1,4 +1,10 @@
-"""A-share macro & sentiment data sources for Layer-1 agents.
+"""Legacy raw macro and sentiment collectors.
+
+These arbitrary-query helpers remain for historical replay and non-model
+diagnostics. They are not registered on the production ``tools.*`` RPC
+surface; v2 Agents receive only pre-materialized role snapshots through signed
+capabilities. Old Agent names below describe legacy callers, not the current
+roster.
 
 Covers the **macro_data** category functions consumed by the Layer-1 analysts
 (Plan §5.1):
@@ -17,10 +23,8 @@ Function                            Vendor / endpoint                      Used 
 :func:`get_realized_volatility`     AkShare OMAN / Risk-Lab RV             ``volatility``
 ==================================  =====================================  ============================================================
 
-All public functions return ``str`` (markdown-with-CSV body) so they slot into
-``mosaic.dataflows.interface.route_to_vendor`` and the bridge ``tools.call``
-envelope. Errors raise :class:`DataVendorUnavailable` so the caller's fallback
-chain decides what to do.
+All public functions return ``str`` for legacy vendor routing. Errors raise
+:class:`DataVendorUnavailable` for their non-production callers.
 
 Endpoint disclaimer
 -------------------

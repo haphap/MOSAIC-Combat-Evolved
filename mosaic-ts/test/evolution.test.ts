@@ -145,11 +145,11 @@ describe("historical evolution schedule", () => {
     expect(
       selectLayerAgent({
         layer: "macro",
-        macroSkill: [macroRow("volatility", -0.5), macroRow("china", 0.1)],
+        macroSkill: [macroRow("us_financial_conditions", -0.5), macroRow("china", 0.1)],
         weights: {},
         rotation: 0,
       }),
-    ).toBe("volatility");
+    ).toBe("us_financial_conditions");
     expect(
       selectLayerAgent({
         layer: "sector",
@@ -157,7 +157,7 @@ describe("historical evolution schedule", () => {
         weights: {},
         rotation: 2,
       }),
-    ).toBe("biotech");
+    ).toBe("energy");
   });
 
   it("retains a pending month across the next trading day until generation completes", () => {

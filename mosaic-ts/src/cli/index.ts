@@ -2,10 +2,8 @@
 /**
  * mosaic-ts CLI entry.
  *
- * Phase 1 commands prove the bridge plumbing end-to-end. They are not the
- * eventual user-facing commands — the full surface (Layer-1/2/3/4 cycle,
- * cohort switch, autoresearch trigger, scorecard view, paper trading,
- * backtest, Ink TUI) lands in Phases 2–9.
+ * The command surface covers bridge diagnostics, the Layer-1/2/3/4 cycle,
+ * prompt releases, evaluation, paper trading, backtests, and the Ink TUI.
  */
 
 import { Command } from "commander";
@@ -34,7 +32,6 @@ import { registerRkePromptProvenanceEvidence } from "./commands/rke-prompt-prove
 import { registerRkeRollbackRehearsalEvidence } from "./commands/rke-rollback-rehearsal-evidence.js";
 import { registerRkeShadowReplay } from "./commands/rke-shadow-replay.js";
 import { registerScorecard } from "./commands/scorecard.js";
-import { registerToolCall } from "./commands/tool-call.js";
 import { registerToolLoop } from "./commands/tool-loop.js";
 import { loadProjectEnv } from "./env.js";
 
@@ -44,11 +41,10 @@ const program = new Command();
 
 program
   .name("mosaic")
-  .description("MOSAIC TypeScript CLI (Phase 1: bridge plumbing)")
+  .description("MOSAIC TypeScript research and orchestration CLI")
   .version("0.1.0");
 
 registerBridgePing(program);
-registerToolCall(program);
 registerToolLoop(program);
 registerDailyCycle(program);
 registerScorecard(program);

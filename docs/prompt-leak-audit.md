@@ -2,6 +2,13 @@
 
 日期：2026-06-01
 
+> [!WARNING]
+> 这是 2026-06-01 的历史审计快照，不描述当前 runtime。文中“仍存在”的 project-repo
+> mutation 泄漏路径已经被 fail-closed 私有 prompt release 路径取代；当前合同见
+> [`macro-agent-role-contracts-v2-plan.md`](plans/macro-agent-role-contracts-v2-plan.md)。生产运行只
+> 接受固定私有 commit/hash，私有资产缺失时不得回退到公库，公库 bundled prompt 仅供
+> fake/offline 使用。
+
 ## 结论
 
 本次审计覆盖当前本地 refs 和 `origin` fetch/prune 后可见的远端 refs。结论：

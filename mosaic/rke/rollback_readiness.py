@@ -11,7 +11,7 @@ from .monitoring_diagnostics import (
     MONITORING_DIAGNOSTICS_PATH,
     build_production_monitor_diagnostics,
 )
-from .promotion_gate import build_production_promotion_gate_report
+from .promotion_gate import RKE_EXECUTION_MODE, build_production_promotion_gate_report
 
 
 ROLLBACK_READINESS_REPORT_PATH = (
@@ -332,7 +332,18 @@ def build_rollback_readiness_report(root: str | Path = ".") -> RollbackReadiness
                 "lockbox",
             )
         )
-        if promotion.production_allowed:
+        shadow_policy_active = (
+            promotion.execution_mode == RKE_EXECUTION_MODE
+            and promotion.production_signal_allowed is False
+            and not promotion.staged_production_allowed
+            and not promotion.production_allowed
+            and promotion.direct_production_forbidden
+        )
+        if shadow_policy_active:
+            promotion_trigger = "RKE execution mode remains shadow-only"
+            promotion_action = "forbid production signal consumption"
+            promotion_passed = True
+        elif promotion.production_allowed:
             promotion_trigger = "manual and compliance rollback blockers cleared"
             promotion_action = "allow production after rollback gates clear"
             promotion_passed = (

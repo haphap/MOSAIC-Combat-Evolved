@@ -1,4 +1,4 @@
-"""Production-promotion gate for RKE rollout decisions."""
+"""Shadow-only promotion-readiness gate for RKE rollout decisions."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from .lockbox import LockboxReview, evaluate_lockbox_review
 
 
 PROMOTION_GATE_REPORT_PATH = "registry/promotion/rke_production_promotion_gate.json"
+RKE_EXECUTION_MODE = "RKE_SHADOW"
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,8 @@ class PromotionGateCriterion:
 @dataclass(frozen=True)
 class ProductionPromotionGateReport:
     report_id: str
+    execution_mode: str
+    production_signal_allowed: bool
     paper_trading_allowed: bool
     staged_production_allowed: bool
     production_allowed: bool
@@ -348,7 +351,7 @@ def build_production_promotion_gate_report(
         ),
         _criterion(
             "PG10",
-            "Direct production remains forbidden until all staged gates and lockbox pass.",
+            "The RKE shadow line has not activated a production patch.",
             not patch_direct_payload_errors
             and patch_validation.get("promotion_state") != "production",
             patch_path,
@@ -359,31 +362,19 @@ def build_production_promotion_gate_report(
         ),
     )
 
-    staged_required = {f"PG{idx:02d}" for idx in range(1, 9)}
-    staged_allowed = all(
-        criterion.passed
-        for criterion in criteria
-        if criterion.criterion_id in staged_required
-    )
-    production_allowed = staged_allowed and lockbox_decision.production_allowed
     paper_trading_allowed = paper_summary.get("ready") is True and bool(rollback_rule)
     blockers = tuple(criterion.blocker for criterion in criteria if criterion.blocker)
-    if production_allowed:
-        next_state = "production"
-    elif staged_allowed:
-        next_state = "staged_production"
-    elif paper_trading_allowed:
-        next_state = "paper_trading"
-    else:
-        next_state = "candidate"
+    next_state = "paper_trading" if paper_trading_allowed else "candidate"
 
     return ProductionPromotionGateReport(
         report_id="RKE-PRODUCTION-PROMOTION-GATE-20260606",
+        execution_mode=RKE_EXECUTION_MODE,
+        production_signal_allowed=False,
         paper_trading_allowed=paper_trading_allowed,
-        staged_production_allowed=staged_allowed,
-        production_allowed=production_allowed,
+        staged_production_allowed=False,
+        production_allowed=False,
         next_state=next_state,
-        direct_production_forbidden=not production_allowed,
+        direct_production_forbidden=True,
         criteria=criteria,
         blockers=blockers,
     )

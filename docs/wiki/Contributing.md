@@ -29,16 +29,14 @@ Notes:
 - `tests/test_rke_tushare_reports.py` previously copied a 166 MB private-augmented registry nine times and depended on ignored review files. It now uses public-only registry fixtures plus synthetic review rows; all 27 tests should finish in about 3s and behave identically on a clean checkout.
 - Some tests are guarded by `_HAS_QLIB` / dep-presence and skip cleanly when an optional extra (e.g. `pyqlib`, `bcrypt`, `numpy`) is absent, so the suite runs hermetically.
 - CI also runs the prompt leak guard. It blocks autoresearch/private prompt artifacts in the project repo, but it is provenance-based and does not classify ordinary prompt content.
-- Domain knob catalog changes must keep `projection_bucket` aligned across
-  TypeScript, schema, and visible-contract filtering. The v1 buckets are
-  `lookbacks`, `thresholds`, `tie_breaks`, `evidence_weights`, and
-  `confidence_caps`; bucket assignment is explicit catalog behavior, so
-  quarter-count history windows are `lookbacks` even though they do not use a
-  `_days` suffix.
-- Decision-layer domain mutation targets must stay on the PR3 owner lists.
-  Extra CIO portfolio-construction knobs or read-only risk/scenario defaults
-  need their own card, metric policy, and tests before they enter
-  `mutation_targets`.
+- Domain control catalogs are runtime contracts only. Keep TypeScript, schema,
+  calculators, and visibility filters aligned, but never expose catalog cards,
+  thresholds, or mutation metadata in bundled/private model-visible prompts.
+  They are not KNOT mutation targets; changing them requires an explicit
+  contract release and new Darwinian/KNOT track identities.
+- Decision-layer control changes need their own contract, metric policy, PIT
+  tests, and release migration. They cannot enter a private prompt behavior
+  delta.
 - Domain source bindings are coverage-specific: `direct_tool` and
   `derived_proxy` cards need matching evidence dependencies; `runtime_state`
   cards need runtime input sources.
@@ -50,9 +48,8 @@ Notes:
   baseline, PIT, and exclusion policies covering missing/stale inputs, source
   errors, lookahead risk, and incomplete fills. Signed-return metrics must be
   higher-is-better, while loss/cost conventions must be lower-is-better.
-- Domain knob mutations may choose only metrics in the owning card's metric
-  closure: its primary evaluation metric, rollback metric, or registered
-  secondary metrics.
+- KNOT mutations may change only reasoning order, counter-evidence checks, or
+  expression strategy inside the private cohort-behavior block.
 - CIO pre-decision cards must not consume `candidate_target_state`; only
   CRO/execution or downstream validation can depend on CIO's same-run proposal.
 - Layer 4 must preserve the canonical proposal/freeze/CRO/execution/final

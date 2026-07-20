@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import { z } from "zod";
+import { canonicalJsonHash } from "../helpers/canonical_json.js";
 
 const Sha256Schema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const CommitRefSchema = z.string().min(7);
@@ -34,22 +34,8 @@ export const ReleasePromptPairSchema = z
 
 export type ReleasePromptPair = z.infer<typeof ReleasePromptPairSchema>;
 
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, entry]) => [key, canonicalize(entry)]),
-    );
-  }
-  return value === undefined ? null : value;
-}
-
 function canonicalHash(value: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(JSON.stringify(canonicalize(value)))
-    .digest("hex")}`;
+  return canonicalJsonHash(value);
 }
 
 export function releasePromptPairHash(pair: Omit<ReleasePromptPair, "pair_hash">): string {
@@ -173,118 +159,6 @@ function validatePromptPairs(
     }
   }
 }
-
-export const MutationTransactionStateSchema = z.enum([
-  "created",
-  "prepared",
-  "committed_log_pending",
-  "committed",
-  "aborted",
-]);
-
-export const MutationTransactionManifestSchema = z
-  .object({
-    schema_version: z.literal("prompt_mutation_transaction_v1"),
-    mutation_id: z.string().min(1),
-    transaction_id: z.string().min(1),
-    experiment_id: z.string().min(1),
-    state: MutationTransactionStateSchema,
-    recovery_state: z.enum(["not_needed", "pending", "reconciled"]),
-    base_release_id: z.string().min(1),
-    catalog_hash: Sha256Schema,
-    schema_hash: Sha256Schema,
-    evaluation_contract_hash: Sha256Schema,
-    recovery_descriptor_hash: Sha256Schema,
-    target_paths: z.array(z.string().startsWith("/")).min(1),
-    components: z
-      .array(
-        z
-          .object({
-            repo_id: z.string().min(1),
-            base_commit: CommitRefSchema,
-            new_commit: CommitRefSchema.nullable(),
-            candidate_ref: z.string().min(1),
-            prepare_status: z.enum(["pending", "prepared", "aborted"]),
-            files: z
-              .array(
-                z
-                  .object({
-                    path: z.string().min(1),
-                    old_hash: Sha256Schema,
-                    new_hash: Sha256Schema,
-                    staging_path_hash: Sha256Schema,
-                  })
-                  .strict(),
-              )
-              .min(1),
-          })
-          .strict(),
-      )
-      .min(1),
-    metadata_log: z
-      .object({
-        path: z.string().min(1),
-        entry_hash: Sha256Schema,
-        appended: z.boolean(),
-      })
-      .strict(),
-    created_at: z.string().min(1),
-    prepared_at: z.string().min(1).nullable(),
-    committed_at: z.string().min(1).nullable(),
-    aborted_at: z.string().min(1).nullable(),
-    recovery_decision: z.string().min(1).nullable(),
-  })
-  .strict()
-  .superRefine((manifest, ctx) => {
-    if (["prepared", "committed_log_pending", "committed"].includes(manifest.state)) {
-      if (!manifest.prepared_at) {
-        ctx.addIssue({ code: "custom", path: ["prepared_at"], message: "required by state" });
-      }
-      if (manifest.components.some((component) => component.prepare_status !== "prepared")) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["components"],
-          message: "all components must be prepared",
-        });
-      }
-    }
-    if (["committed_log_pending", "committed"].includes(manifest.state)) {
-      if (manifest.components.some((component) => !component.new_commit)) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["components"],
-          message: "all committed components require new_commit",
-        });
-      }
-    }
-    if (manifest.state === "committed" && !manifest.metadata_log.appended) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["metadata_log", "appended"],
-        message: "committed transaction requires durable metadata log",
-      });
-    }
-    if (manifest.state === "committed_log_pending" && manifest.metadata_log.appended) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["metadata_log", "appended"],
-        message: "log-pending state cannot claim append success",
-      });
-    }
-    if (manifest.state === "aborted" && !manifest.aborted_at) {
-      ctx.addIssue({ code: "custom", path: ["aborted_at"], message: "required by state" });
-    }
-    if (
-      manifest.recovery_state === "reconciled" &&
-      !["committed", "aborted"].includes(manifest.state)
-    ) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["recovery_state"],
-        message: "reconciled transaction must have a final factual state",
-      });
-    }
-  });
 
 export const ActivePromptReleaseManifestSchema = z
   .object({
@@ -537,8 +411,6 @@ export const ActivePromptReleaseManifestSchema = z
     }
   });
 
-export type MutationTransactionState = z.infer<typeof MutationTransactionStateSchema>;
-export type MutationTransactionManifest = z.infer<typeof MutationTransactionManifestSchema>;
 export type ActivePromptReleaseManifest = z.infer<typeof ActivePromptReleaseManifestSchema>;
 
 export function promptReleaseRuntimeSloPasses(
@@ -556,30 +428,6 @@ export function promptReleaseRuntimeSloPasses(
     summary.duplicate_order_intent_count === 0 &&
     summary.exposure_breach_count === 0
   );
-}
-
-const TRANSACTION_TRANSITIONS: Readonly<Record<MutationTransactionState, ReadonlySet<string>>> = {
-  created: new Set(["prepared", "aborted"]),
-  prepared: new Set(["committed_log_pending", "aborted"]),
-  committed_log_pending: new Set(["committed"]),
-  committed: new Set(),
-  aborted: new Set(),
-};
-
-export function assertMutationTransactionTransition(
-  previous: MutationTransactionManifest,
-  next: MutationTransactionManifest,
-): void {
-  if (
-    previous.transaction_id !== next.transaction_id ||
-    previous.mutation_id !== next.mutation_id
-  ) {
-    throw new Error("mutation_transaction_identity_changed");
-  }
-  if (!TRANSACTION_TRANSITIONS[previous.state].has(next.state)) {
-    throw new Error(`mutation_transaction_transition_invalid:${previous.state}:${next.state}`);
-  }
-  MutationTransactionManifestSchema.parse(next);
 }
 
 const RELEASE_TRANSITIONS: Readonly<

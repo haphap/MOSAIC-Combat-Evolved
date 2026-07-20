@@ -5,16 +5,20 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AIMessage, type BaseMessage } from "@langchain/core/messages";
+import { AIMessage, type BaseMessage, ToolMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  renderDarwinianWeightsStub,
+  frozenAlphaCandidatesFromToolLoop,
+  layerFourExtractorSystem,
+} from "../src/agents/decision/_factory.js";
+import {
   renderJanusRegimeStub,
   renderLayer1Context,
   renderLayer2Context,
   renderLayer3Context,
   renderLayer4PeerContext,
 } from "../src/agents/decision/_user_context.js";
+import type { AutonomousExecutionSubmission } from "../src/agents/decision/accepted.js";
 import {
   alphaDiscoverySpec,
   buildAlphaDiscoveryNode,
@@ -37,15 +41,12 @@ import {
 } from "../src/agents/decision/cio.js";
 import { buildCroNode, croSpec, fallbackCro, renderCro } from "../src/agents/decision/cro.js";
 import {
-  ExecutionActionValidationError,
-  validateAutonomousExecutionActions,
-} from "../src/agents/decision/execution_validator.js";
-import {
   assertL4RunSnapshotStage,
   emptyLayer4RuntimeState,
   freezeCioProposal,
   freezeCroReview,
   freezeExecutionFeasibility,
+  freezeExecutionStageSkip,
   freezeFinalTarget,
   freezeL4RunSnapshotBundle,
   Layer4RuntimeContractError,
@@ -57,16 +58,26 @@ import {
   PositionActionValidationError,
   validateCioPositionActions,
 } from "../src/agents/decision/position_validator.js";
-import { AgentRunContractError } from "../src/agents/helpers/agent_run_contract.js";
 import {
-  buildResearchKnobsSnapshot,
-  renderResearchKnobsFence,
-} from "../src/agents/helpers/research_knobs.js";
+  executionSubmissionToRuntime,
+  expectedFrozenOrderIntents,
+} from "../src/agents/decision/runtime_adapter.js";
+import {
+  authorityBindingFromFrozenObject,
+  buildAuthorityStageFrozenObject,
+  type DecisionSnapshotAuthority,
+} from "../src/agents/decision/stage_opportunity.js";
+import {
+  CioFinalNonEmptyCurrentSubmissionSchema,
+  CioProposalNonEmptyCurrentSubmissionSchema,
+} from "../src/agents/decision/submission_schemas.js";
+import { AgentRunContractError } from "../src/agents/helpers/agent_run_contract.js";
+import { MACRO_AGENT_IDS } from "../src/agents/macro/_contracts.js";
+import { validateMacroInputs } from "../src/agents/macro/_input_gate.js";
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
-import { buildRuntimeResearchKnobs } from "../src/agents/prompts/research_knobs_projection.js";
-import { RUNTIME_AGENT_SPEC_BY_AGENT } from "../src/agents/prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../src/agents/state.js";
+import { fallbackSuperinvestorOutput } from "../src/agents/superinvestor/_factory.js";
 import type {
   AutoExecOutput,
   CioOutput,
@@ -74,13 +85,190 @@ import type {
   CurrentPositionsSnapshot,
   Layer4Outputs,
   PortfolioAction,
-  RegimeSignal,
   SemiconductorOutput,
   SuperinvestorOutput,
 } from "../src/agents/types.js";
+import type { NoEvaluationObjectStageSkipRecord } from "../src/autoresearch/outcome_stage_skip.js";
 import type { BridgeApi, MosaicConfig } from "../src/bridge/types.js";
+import { fakeAgentStructuredOutput } from "../src/cli/fake_agent_output.js";
 import { validateFinalTargetNode } from "../src/graph/layer4.js";
 import type { LlmHandle } from "../src/llm/factory.js";
+import { macroOutput } from "./helpers/macro.js";
+import { sectorOutput } from "./helpers/sector.js";
+
+describe("frozen Alpha candidate snapshot", () => {
+  it("extracts exact pairs and rejects constraint-conflicting domains", () => {
+    const message = (payload: unknown) =>
+      new ToolMessage({
+        content: JSON.stringify(payload),
+        tool_call_id: "alpha-tool-call",
+      });
+    const status = [
+      {
+        name: "get_alpha_candidate_snapshot",
+        call_id: "alpha-tool-call",
+        called: true,
+        failed: false,
+        missing: false,
+        fallback: false,
+        cache_hit: false,
+      },
+    ];
+    expect(
+      frozenAlphaCandidatesFromToolLoop(
+        [
+          message({
+            candidate_universe: [
+              { candidate_ref: "candidate-b", ts_code: "000001.SZ" },
+              { candidate_ref: "candidate-a", ticker: "600000.sh" },
+            ],
+            constraints: { cash_only: false, allow_new_positions: true },
+          }),
+        ],
+        status,
+      ),
+    ).toEqual([
+      { candidate_ref: "candidate-a", ts_code: "600000.SH" },
+      { candidate_ref: "candidate-b", ts_code: "000001.SZ" },
+    ]);
+    expect(() =>
+      frozenAlphaCandidatesFromToolLoop(
+        [
+          message({
+            candidate_universe: [{ candidate_ref: "candidate-a", ts_code: "600000.SH" }],
+            constraints: { cash_only: true, allow_new_positions: false },
+          }),
+        ],
+        status,
+      ),
+    ).toThrow(/conflicts/);
+
+    expect(() =>
+      frozenAlphaCandidatesFromToolLoop(
+        [
+          message({
+            candidate_scope_hash: `sha256:${"1".repeat(64)}`,
+            candidate_universe_hash: `sha256:${"2".repeat(64)}`,
+            candidate_universe: [],
+            constraints: { cash_only: false, allow_new_positions: true },
+          }),
+        ],
+        status,
+        {
+          candidateScopeHash: `sha256:${"3".repeat(64)}`,
+          candidateUniverseHash: `sha256:${"2".repeat(64)}`,
+        },
+      ),
+    ).toThrow(/changed after the evaluation universe was frozen/);
+  });
+});
+
+describe("server-authority Decision stage objects", () => {
+  const snapshot = (
+    agentId: "alpha_discovery" | "cro" | "autonomous_execution" | "cio",
+    candidates: Array<Record<string, unknown>>,
+  ): DecisionSnapshotAuthority => ({
+    snapshot_id: `${agentId}-snapshot:1`,
+    snapshot_hash: `sha256:${"1".repeat(64)}`,
+    candidate_scope_hash: `sha256:${"2".repeat(64)}`,
+    candidate_universe_id: `${agentId}-universe:1`,
+    candidate_universe_hash: `sha256:${"3".repeat(64)}`,
+    upstream_accepted_output_refs: [],
+    candidate_universe: candidates,
+    candidate_scope: {},
+    constraints: {},
+    role_context: {},
+  });
+
+  it("derives exact CRO, Execution, and CIO member identities", () => {
+    const cro = buildAuthorityStageFrozenObject(
+      "cro",
+      snapshot("cro", [
+        {
+          candidate_ref: "risk:1",
+          ts_code: "600001.SH",
+          proposed_target_weight: 0.1,
+        },
+      ]),
+    );
+    expect(cro.member_refs).toEqual([
+      {
+        risk_candidate_id: "risk:1",
+        ts_code: "600001.SH",
+        proposed_target_weight: 0.1,
+      },
+    ]);
+
+    const execution = buildAuthorityStageFrozenObject(
+      "autonomous_execution",
+      snapshot("autonomous_execution", [
+        {
+          order_intent_ref: "order:reduce",
+          ts_code: "600002.SH",
+          current_weight: 0.3,
+          target_weight: 0.2,
+          requested_delta_weight: -0.1,
+        },
+        {
+          order_intent_ref: "order:hold",
+          ts_code: "600003.SH",
+          current_weight: 0.1,
+          target_weight: 0.1,
+          requested_delta_weight: 0,
+        },
+      ]),
+    );
+    expect(execution.member_refs).toEqual([
+      {
+        order_intent_id: "order:reduce",
+        ts_code: "600002.SH",
+        action: "REDUCE",
+        requested_delta_weight: -0.1,
+      },
+    ]);
+
+    const cio = buildAuthorityStageFrozenObject(
+      "cio",
+      snapshot("cio", [
+        {
+          proposal_position_ref: "position:1",
+          ts_code: "600004.SH",
+          current_weight: 0.2,
+          proposed_target_weight: 0.3,
+        },
+      ]),
+    );
+    expect(cio.member_refs).toEqual([
+      {
+        controlled_target_set_id: "cio-universe:1",
+        baseline_cash_weight: 0.8,
+        positions: [
+          {
+            position_ref: "position:1",
+            ts_code: "600004.SH",
+            baseline_weight: 0.2,
+            controlled_target_weight: 0.3,
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("pins source, scope, universe, and upstream-ref hashes", () => {
+    const frozen = buildAuthorityStageFrozenObject(
+      "alpha_discovery",
+      snapshot("alpha_discovery", []),
+    );
+    expect(authorityBindingFromFrozenObject(frozen)).toEqual({
+      source_tool_id: "get_alpha_candidate_snapshot",
+      source_snapshot_hash: `sha256:${"1".repeat(64)}`,
+      candidate_scope_hash: `sha256:${"2".repeat(64)}`,
+      candidate_universe_hash: `sha256:${"3".repeat(64)}`,
+      upstream_accepted_output_refs_hash:
+        "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    });
+  });
+});
 
 // ============================================================ AGENTS_BY_LAYER
 
@@ -103,61 +291,87 @@ describe("each Layer-4 spec wires correct fields", () => {
     expect(croSpec.runtimeStage).toBe("cro_review");
     expect(croSpec.stateUpdateField).toBe("cro");
     expect(croSpec.fieldNames).toEqual([
+      "agent_id",
       "review_disposition",
-      "rejected_picks",
+      "candidate_actions",
       "correlated_risks",
       "black_swan_scenarios",
-      "required_adjustments",
       "confidence",
       "claims",
       "claim_refs",
+      "macro_input_attributions",
     ]);
-    expect(croSpec.requiredTools).toContain("get_rke_research_context");
+    expect(croSpec.requiredTools).toEqual(["get_cro_risk_snapshot", "get_role_event_snapshot"]);
   });
   it("alpha_discovery", () => {
     expect(alphaDiscoverySpec.agentId).toBe("alpha_discovery");
     expect(alphaDiscoverySpec.runtimeStage).toBe("alpha_discovery");
     expect(alphaDiscoverySpec.stateUpdateField).toBe("alpha_discovery");
     expect(alphaDiscoverySpec.fieldNames).toEqual([
+      "agent_id",
       "discovery_disposition",
       "novel_picks",
+      "key_drivers",
+      "risks",
       "confidence",
       "claims",
       "claim_refs",
+      "macro_input_attributions",
     ]);
-    expect(alphaDiscoverySpec.requiredTools).toContain("get_rke_research_context");
+    expect(alphaDiscoverySpec.requiredTools).toEqual([
+      "get_alpha_candidate_snapshot",
+      "get_role_event_snapshot",
+    ]);
   });
   it("autonomous_execution", () => {
     expect(autonomousExecutionSpec.agentId).toBe("autonomous_execution");
     expect(autonomousExecutionSpec.runtimeStage).toBe("execution_feasibility");
     expect(autonomousExecutionSpec.stateUpdateField).toBe("autonomous_execution");
     expect(autonomousExecutionSpec.fieldNames).toEqual([
+      "agent_id",
       "execution_disposition",
-      "trades",
-      "execution_checks",
+      "order_assessments",
       "confidence",
       "claims",
       "claim_refs",
     ]);
-    expect(autonomousExecutionSpec.requiredTools).toContain("get_rke_research_context");
+    expect(autonomousExecutionSpec.requiredTools).toEqual([
+      "get_execution_snapshot",
+      "get_role_event_snapshot",
+    ]);
   });
   it("cio", () => {
     expect(cioSpec.agentId).toBe("cio");
     expect(cioProposalSpec.runtimeStage).toBe("cio_proposal");
     expect(cioSpec.runtimeStage).toBe("cio_final");
     expect(cioSpec.stateUpdateField).toBe("cio");
-    expect(cioSpec.fieldNames).toEqual([
+    expect(cioProposalSpec.fieldNames).toEqual([
+      "agent_id",
+      "decision_stage",
       "decision_disposition",
+      "target_positions",
+      "cash_weight",
       "decision_reason",
-      "decision_claim_refs",
-      "portfolio_actions",
-      "position_reviews",
-      "dissent_refs",
       "confidence",
       "claims",
       "claim_refs",
+      "macro_input_attributions",
     ]);
-    expect(cioSpec.requiredTools).toContain("get_rke_research_context");
+    expect(cioSpec.fieldNames).toEqual([
+      "agent_id",
+      "decision_stage",
+      "decision_disposition",
+      "target_positions",
+      "cash_weight",
+      "decision_reason",
+      "cro_control_resolutions",
+      "execution_control_resolutions",
+      "confidence",
+      "claims",
+      "claim_refs",
+      "macro_input_attributions",
+    ]);
+    expect(cioSpec.requiredTools).toEqual(["get_cio_decision_snapshot"]);
   });
 });
 
@@ -192,466 +406,440 @@ describe("renderers + fallbacks", () => {
 // ============================================================ schema rejects
 
 describe("schemas reject malformations", () => {
+  const claim = {
+    claim_id: "claim-1",
+    claim_kind: "FACT" as const,
+    statement: "Frozen evidence supports the structural contract test.",
+    structured_conclusion: { status: "supported" },
+    evidence_ids: ["evidence-1"],
+    research_rule_refs: [],
+  };
+  const macroAttributions = MACRO_AGENT_IDS.map((agent_id) => ({
+    agent_id,
+    target_type: "SUBMISSION_SUMMARY" as const,
+    target_local_ref: "$SUBMISSION",
+    claim_refs_used: [],
+    effect: "NOT_MATERIAL" as const,
+  }));
+
+  const decisionClaims = (count: number) =>
+    Array.from({ length: count }, (_, index) => ({
+      ...claim,
+      claim_id: `claim-${index + 1}`,
+    }));
+
+  const executionAssessment = (index = 0) => ({
+    assessment_local_id: `assessment-${index + 1}`,
+    order_intent_ref: `intent-${index + 1}`,
+    ts_code: `${600000 + index}.SH`,
+    requested_delta_weight: 0.1,
+    feasibility: "FEASIBLE" as const,
+    feasibility_confidence: 0.5,
+    predicted_cost_bps: 10,
+    max_executable_delta_weight: 0.1,
+    recommended_slice_count: 1,
+    reason: "The frozen intent is executable within the modeled liquidity ceiling.",
+    claim_refs: ["claim-1"],
+  });
+
+  it("enforces finite claims and claim_refs on every Decision submission path", () => {
+    const claims = decisionClaims(10);
+    const cases = [
+      {
+        schema: croSpec.schema,
+        value: {
+          agent_id: "cro",
+          review_disposition: "NO_OBJECTION",
+          candidate_actions: [],
+          correlated_risks: [],
+          black_swan_scenarios: [],
+          confidence: 0.5,
+          claims,
+          claim_refs: ["claim-1"],
+          macro_input_attributions: macroAttributions,
+        },
+      },
+      {
+        schema: alphaDiscoverySpec.schema,
+        value: {
+          agent_id: "alpha_discovery",
+          discovery_disposition: "NONE_FOUND",
+          novel_picks: [],
+          key_drivers: [],
+          risks: [],
+          confidence: 0.5,
+          claims,
+          claim_refs: ["claim-1"],
+          macro_input_attributions: macroAttributions,
+        },
+      },
+      {
+        schema: autonomousExecutionSpec.schema,
+        value: {
+          agent_id: "autonomous_execution",
+          execution_disposition: "ORDERS_ASSESSED",
+          order_assessments: [executionAssessment()],
+          confidence: 0.5,
+          claims,
+          claim_refs: ["claim-1"],
+        },
+      },
+      {
+        schema: cioProposalSpec.schema,
+        value: {
+          agent_id: "cio",
+          decision_stage: "PROPOSAL",
+          decision_disposition: "ALL_CASH",
+          target_positions: [],
+          cash_weight: 1,
+          decision_reason: "The frozen inputs support an all-cash proposal.",
+          confidence: 0.5,
+          claims,
+          claim_refs: ["claim-1"],
+          macro_input_attributions: macroAttributions,
+        },
+      },
+      {
+        schema: cioSpec.schema,
+        value: {
+          agent_id: "cio",
+          decision_stage: "FINAL",
+          decision_disposition: "ALL_CASH",
+          target_positions: [],
+          cash_weight: 1,
+          decision_reason: "The frozen controls support an all-cash final decision.",
+          cro_control_resolutions: [],
+          execution_control_resolutions: [],
+          confidence: 0.5,
+          claims,
+          claim_refs: ["claim-1"],
+          macro_input_attributions: macroAttributions,
+        },
+      },
+    ];
+    for (const { schema, value } of cases) {
+      expect(schema.safeParse(value).success).toBe(true);
+      expect(schema.safeParse({ ...value, claims: decisionClaims(11) }).success).toBe(false);
+      expect(schema.safeParse({ ...value, claim_refs: Array(11).fill("claim-1") }).success).toBe(
+        false,
+      );
+    }
+  });
+
+  it("publishes and enforces the full execution collection and numeric ceilings", () => {
+    const base = {
+      agent_id: "autonomous_execution",
+      execution_disposition: "ORDERS_ASSESSED",
+      confidence: 0.5,
+      claims: [claim],
+      claim_refs: ["claim-1"],
+    };
+    const fifty = Array.from({ length: 50 }, (_, index) => executionAssessment(index));
+    expect(
+      autonomousExecutionSpec.schema.safeParse({ ...base, order_assessments: fifty }).success,
+    ).toBe(true);
+    expect(
+      autonomousExecutionSpec.schema.safeParse({
+        ...base,
+        order_assessments: [...fifty, executionAssessment(50)],
+      }).success,
+    ).toBe(false);
+    expect(
+      autonomousExecutionSpec.schema.safeParse({
+        ...base,
+        order_assessments: [{ ...executionAssessment(), predicted_cost_bps: 10_001 }],
+      }).success,
+    ).toBe(false);
+    expect(
+      autonomousExecutionSpec.schema.safeParse({
+        ...base,
+        order_assessments: [{ ...executionAssessment(), recommended_slice_count: 101 }],
+      }).success,
+    ).toBe(false);
+    expect(
+      autonomousExecutionSpec.schema.safeParse({
+        ...base,
+        order_assessments: [{ ...executionAssessment(), reason: "x".repeat(321) }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("forbids direct Macro attribution on autonomous execution submissions", () => {
+    const submission = {
+      agent_id: "autonomous_execution",
+      execution_disposition: "ORDERS_ASSESSED",
+      order_assessments: [executionAssessment()],
+      confidence: 0.5,
+      claims: [claim],
+      claim_refs: ["claim-1"],
+    };
+    expect(autonomousExecutionSpec.schema.safeParse(submission).success).toBe(true);
+    expect(
+      autonomousExecutionSpec.schema.safeParse({
+        ...submission,
+        macro_input_attributions: macroAttributions,
+      }).success,
+    ).toBe(false);
+  });
+
   it("uses distinct CIO proposal and final contracts", () => {
     const base = {
-      agent: "cio" as const,
-      decision_disposition: "ALL_CASH" as const,
+      agent_id: "cio",
+      decision_disposition: "ALL_CASH",
+      target_positions: [],
+      cash_weight: 1,
       decision_reason: "Current evidence supports cash.",
-      decision_claim_refs: ["claim-cash"],
-      portfolio_actions: [],
       confidence: 0.4,
-      claims: [
-        {
-          claim_id: "claim-cash",
-          claim_type: "uncertainty" as const,
-          statement: "No position is justified by current evidence.",
-          structured_conclusion: { decision: "CASH" },
-          evidence_refs: [],
-          research_rule_refs: [],
-        },
-      ],
-      claim_refs: ["claim-cash"],
-    };
-
-    expect(() => cioProposalSpec.schema.parse(base)).toThrow(/position_reviews/);
-    expect(
-      cioProposalSpec.schema.parse({ ...base, position_reviews: [] }).position_reviews,
-    ).toEqual([]);
-    expect(cioSpec.schema.parse(base).dissent_refs).toEqual([]);
-  });
-
-  it("rejects non-empty CIO actions without evidence claims and claim_refs", () => {
-    const action = {
-      ticker: "600519.SH",
-      action: "BUY" as const,
-      target_weight: 0.04,
-      holding_period: "1Y" as const,
-      dissent_notes: "",
-    };
-    const base = {
-      agent: "cio" as const,
-      decision_disposition: "TARGET_PORTFOLIO" as const,
-      decision_reason: "Current evidence supports a target.",
-      decision_claim_refs: ["claim-1"],
+      claims: [claim],
       claim_refs: ["claim-1"],
-      portfolio_actions: [action],
-      confidence: 0.7,
-      dissent_refs: [],
+      macro_input_attributions: macroAttributions,
     };
-
-    expect(() => cioSpec.schema.parse(base)).toThrow(/claims/);
+    expect(() =>
+      cioProposalSpec.schema.parse({ ...base, decision_stage: "PROPOSAL" }),
+    ).not.toThrow();
     expect(() =>
       cioSpec.schema.parse({
         ...base,
-        claims: [
-          {
-            claim_id: "claim-1",
-            claim_type: "inference",
-            statement: "Current evidence supports a small position.",
-            structured_conclusion: { decision: "BUY" },
-            evidence_refs: ["evidence-1"],
-            research_rule_refs: ["decision.cio.policy.001"],
-          },
-        ],
-      }),
-    ).toThrow(/claim_refs/);
-
-    expect(
-      cioSpec.schema.parse({
-        ...base,
-        portfolio_actions: [{ ...action, claim_refs: ["claim-1"] }],
-        claims: [
-          {
-            claim_id: "claim-1",
-            claim_type: "inference",
-            statement: "Current evidence supports a small position.",
-            structured_conclusion: { decision: "BUY" },
-            evidence_refs: ["evidence-1"],
-            research_rule_refs: ["decision.cio.policy.001"],
-          },
-        ],
-      }).portfolio_actions,
-    ).toHaveLength(1);
-  });
-
-  it("cro rejects non-string ticker in rejected_picks", () => {
-    expect(() =>
-      croSpec.schema.parse({
-        agent: "cro",
-        // biome-ignore lint/suspicious/noExplicitAny: deliberately invalid
-        rejected_picks: [{ ticker: 123 as any, reason: "x" }],
-        correlated_risks: [],
-        black_swan_scenarios: [],
-        confidence: 0.5,
-      }),
-    ).toThrow();
-  });
-
-  it("requires structured CRO vetoes when evidence claims are enabled", () => {
-    expect(() =>
-      croSpec.schema.parse({
-        agent: "cro",
-        review_disposition: "REVIEW_ACTIONS",
-        rejected_picks: [{ ticker: "600519.SH", reason: "risk", claim_refs: ["claim-1"] }],
-        correlated_risks: [],
-        black_swan_scenarios: [],
-        confidence: 0.5,
-        claims: [
-          {
-            claim_id: "claim-1",
-            claim_type: "uncertainty",
-            statement: "risk",
-            structured_conclusion: {},
-            evidence_refs: [],
-            research_rule_refs: [],
-          },
-        ],
-        claim_refs: ["claim-1"],
-      }),
-    ).toThrow(/structured VETO adjustment/);
-  });
-
-  it("alpha_discovery rejects empty why_missed_by_others", () => {
-    expect(() =>
-      alphaDiscoverySpec.schema.parse({
-        agent: "alpha_discovery",
-        novel_picks: [{ ticker: "600519.SH", why_missed_by_others: "" }],
-        confidence: 0.5,
-      }),
-    ).toThrow();
-  });
-
-  it("autonomous_execution rejects size_pct out of [0, 1]", () => {
-    expect(() =>
-      autonomousExecutionSpec.schema.parse({
-        agent: "autonomous_execution",
-        execution_disposition: "TRADES",
-        trades: [{ ticker: "600519.SH", action: "BUY", size_pct: 1.5, conviction: 0.5 }],
-        confidence: 0.5,
-      }),
-    ).toThrow();
-  });
-
-  it("autonomous_execution rejects unknown action", () => {
-    expect(() =>
-      autonomousExecutionSpec.schema.parse({
-        agent: "autonomous_execution",
-        trades: [
-          {
-            ticker: "600519.SH",
-            // biome-ignore lint/suspicious/noExplicitAny: deliberately invalid
-            action: "BORROW" as any,
-            size_pct: 0.1,
-            conviction: 0.5,
-          },
-        ],
-        confidence: 0.5,
-      }),
-    ).toThrow();
-  });
-
-  it("requires an execution check for each evidence-enabled trade", () => {
-    expect(() =>
-      autonomousExecutionSpec.schema.parse({
-        agent: "autonomous_execution",
-        execution_disposition: "TRADES",
-        trades: [
-          {
-            ticker: "600519.SH",
-            action: "BUY",
-            size_pct: 0.1,
-            conviction: 0.5,
-            claim_refs: ["claim-1"],
-          },
-        ],
-        confidence: 0.5,
-        claims: [
-          {
-            claim_id: "claim-1",
-            claim_type: "uncertainty",
-            statement: "execution uncertain",
-            structured_conclusion: {},
-            evidence_refs: [],
-            research_rule_refs: [],
-          },
-        ],
-        claim_refs: ["claim-1"],
-      }),
-    ).toThrow(/structured execution check/);
-  });
-
-  it("cio rejects target_weight sum above 1.0 plus epsilon", () => {
-    expect(() =>
-      cioSpec.schema.parse({
-        agent: "cio",
-        decision_disposition: "TARGET_PORTFOLIO",
-        decision_reason: "Evidence supports a partial allocation.",
-        decision_claim_refs: ["claim-1"],
-        portfolio_actions: [
-          {
-            ticker: "A",
-            action: "BUY",
-            target_weight: 0.6,
-            holding_period: "3M",
-            dissent_notes: "",
-          },
-          {
-            ticker: "B",
-            action: "BUY",
-            target_weight: 0.6,
-            holding_period: "3M",
-            dissent_notes: "",
-          },
-        ],
-        confidence: 0.5,
-      }),
-    ).toThrow();
-  });
-
-  it("cio accepts target_weight sum < 1.0 (cash holding)", () => {
-    expect(() =>
-      cioSpec.schema.parse({
-        agent: "cio",
-        decision_disposition: "TARGET_PORTFOLIO",
-        decision_reason: "Evidence supports a partial allocation.",
-        decision_claim_refs: ["claim-1"],
-        portfolio_actions: [
-          {
-            ticker: "600519.SH",
-            action: "BUY",
-            target_weight: 0.4,
-            holding_period: "1Y",
-            dissent_notes: "",
-            claim_refs: ["claim-1"],
-          },
-        ],
-        claims: [
-          {
-            claim_id: "claim-1",
-            claim_type: "inference",
-            statement: "Evidence supports a partial allocation.",
-            structured_conclusion: { decision: "BUY" },
-            evidence_refs: ["evidence-1"],
-            research_rule_refs: ["decision.cio.policy.001"],
-          },
-        ],
-        claim_refs: ["claim-1"],
-        confidence: 0.5,
+        decision_stage: "FINAL",
+        cro_control_resolutions: [],
+        execution_control_resolutions: [],
       }),
     ).not.toThrow();
+    expect(() =>
+      cioProposalSpec.schema.parse({
+        ...base,
+        decision_stage: "PROPOSAL",
+        cro_control_resolutions: [],
+        execution_control_resolutions: [],
+      }),
+    ).toThrow();
+    expect(() => cioSpec.schema.parse({ ...base, decision_stage: "FINAL" })).toThrow();
+    expect(() => cioSpec.schema.parse({ ...base, decision_stage: "PROPOSAL" })).toThrow();
   });
 
-  it("cio preserves position-aware review fields", () => {
-    const parsed = cioSpec.schema.parse({
-      agent: "cio",
-      decision_disposition: "HOLD_CURRENT",
-      decision_reason: "Evidence supports holding the position.",
-      decision_claim_refs: ["claim-1"],
-      portfolio_actions: [
+  it("rejects CRO action/disposition conflicts and unresolved claims", () => {
+    const base = {
+      agent_id: "cro",
+      review_disposition: "REVIEW_ACTIONS",
+      candidate_actions: [
         {
-          ticker: "600519.SH",
-          action: "HOLD",
-          sector: "consumer",
-          position_decision: "HOLD",
-          current_weight: 0.2,
-          target_weight: 0.2,
-          delta_weight: 0,
-          holding_period: "1Y",
-          position_decision_reason: "thesis intact after review",
-          override_reason: "stop loss overridden by fresh policy catalyst",
-          thesis_status: "weakened",
-          risk_flags: ["stop_loss_breached"],
-          dissent_notes: "",
+          action_local_id: "action-1",
+          candidate_ref: "candidate-1",
+          ts_code: "600519.SH",
+          action: "VETO",
+          predicted_risk_probability: 0.8,
+          max_target_weight: 0,
+          reason: "Risk exceeds the frozen limit.",
           claim_refs: ["claim-1"],
         },
       ],
-      claims: [
+      correlated_risks: [],
+      black_swan_scenarios: [],
+      confidence: 0.5,
+      claims: [claim],
+      claim_refs: ["claim-1"],
+      macro_input_attributions: macroAttributions,
+    };
+    expect(() => croSpec.schema.parse(base)).toThrow(/BLOCK_ALL/);
+    expect(() =>
+      croSpec.schema.parse({
+        ...base,
+        review_disposition: "BLOCK_ALL",
+        candidate_actions: [{ ...base.candidate_actions[0], claim_refs: ["missing"] }],
+      }),
+    ).toThrow(/unresolved/);
+    expect(
+      croSpec.schema.safeParse({
+        ...base,
+        review_disposition: "BLOCK_ALL",
+        candidate_actions: [{ ...base.candidate_actions[0], reason: "x".repeat(321) }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("bounds Alpha driver, risk, and pick prose", () => {
+    const base = {
+      agent_id: "alpha_discovery",
+      discovery_disposition: "CANDIDATES",
+      novel_picks: [
         {
-          claim_id: "claim-1",
-          claim_type: "inference",
-          statement: "Evidence supports holding the reviewed position.",
-          structured_conclusion: { decision: "HOLD" },
-          evidence_refs: ["evidence-1"],
-          research_rule_refs: ["decision.cio.policy.001"],
+          pick_local_id: "pick-1",
+          candidate_ref: "candidate-1",
+          ts_code: "600519.SH",
+          conviction: 0.7,
+          thesis: "The frozen candidate has an evidence-supported setup.",
+          claim_refs: ["claim-1"],
         },
       ],
-      claim_refs: ["claim-1"],
+      key_drivers: [
+        { driver_local_id: "driver-1", summary: "A supported driver.", claim_refs: ["claim-1"] },
+      ],
+      risks: [{ risk_local_id: "risk-1", summary: "A supported risk.", claim_refs: ["claim-1"] }],
       confidence: 0.5,
-    });
-    const action = parsed.portfolio_actions[0];
-    expect(action?.sector).toBe("consumer");
-    expect(action?.override_reason).toContain("policy catalyst");
-    expect(action?.risk_flags).toEqual(["stop_loss_breached"]);
+      claims: [claim],
+      claim_refs: ["claim-1"],
+      macro_input_attributions: macroAttributions,
+    };
+    expect(alphaDiscoverySpec.schema.safeParse(base).success).toBe(true);
+    expect(
+      alphaDiscoverySpec.schema.safeParse({
+        ...base,
+        novel_picks: [{ ...base.novel_picks[0], thesis: "x".repeat(321) }],
+      }).success,
+    ).toBe(false);
+    expect(
+      alphaDiscoverySpec.schema.safeParse({
+        ...base,
+        key_drivers: [{ ...base.key_drivers[0], summary: "x".repeat(321) }],
+      }).success,
+    ).toBe(false);
+    expect(
+      alphaDiscoverySpec.schema.safeParse({
+        ...base,
+        risks: [{ ...base.risks[0], summary: "x".repeat(321) }],
+      }).success,
+    ).toBe(false);
   });
 
-  it("cio rejects holding_period outside enum", () => {
+  it("rejects invalid execution feasibility bounds", () => {
+    const assessment = {
+      assessment_local_id: "assessment-1",
+      order_intent_ref: "intent-1",
+      ts_code: "600519.SH",
+      requested_delta_weight: 0.1,
+      feasibility: "PARTIAL",
+      feasibility_confidence: 0.5,
+      predicted_cost_bps: 10,
+      max_executable_delta_weight: 0.1,
+      recommended_slice_count: 1,
+      reason: "Partial capacity.",
+      claim_refs: ["claim-1"],
+    };
+    expect(() =>
+      autonomousExecutionSpec.schema.parse({
+        agent_id: "autonomous_execution",
+        execution_disposition: "ORDERS_ASSESSED",
+        order_assessments: [assessment],
+        confidence: 0.5,
+        claims: [claim],
+        claim_refs: ["claim-1"],
+      }),
+    ).toThrow(/strictly between/);
+  });
+
+  it("requires CIO target weights plus explicit cash to equal one", () => {
+    const base = {
+      agent_id: "cio",
+      decision_stage: "FINAL",
+      decision_disposition: "TARGET_PORTFOLIO",
+      target_positions: [
+        {
+          position_local_id: "position-1",
+          ts_code: "600519.SH",
+          target_weight: 0.4,
+          position_decision: "ADD",
+          holding_period: "WEEKS",
+          thesis_status: "INTACT",
+          risk_flags: [],
+          claim_refs: ["claim-1"],
+        },
+      ],
+      cash_weight: 0.6,
+      decision_reason: "Partial allocation with explicit cash.",
+      cro_control_resolutions: [],
+      execution_control_resolutions: [],
+      confidence: 0.5,
+      claims: [claim],
+      claim_refs: ["claim-1"],
+      macro_input_attributions: macroAttributions,
+    };
+    expect(() => cioSpec.schema.parse(base)).not.toThrow();
+    expect(() => cioSpec.schema.parse({ ...base, cash_weight: 0.5 })).toThrow(/equal 1/);
+    expect(cioSpec.schema.safeParse({ ...base, decision_reason: "x".repeat(321) }).success).toBe(
+      false,
+    );
     expect(() =>
       cioSpec.schema.parse({
-        agent: "cio",
-        portfolio_actions: [
-          {
-            ticker: "A",
-            action: "BUY",
-            target_weight: 0.5,
-            // biome-ignore lint/suspicious/noExplicitAny: deliberately invalid
-            holding_period: "10Y" as any,
-            dissent_notes: "",
-          },
-        ],
-        confidence: 0.5,
+        ...base,
+        target_positions: [{ ...base.target_positions[0], holding_period: "10Y" }],
       }),
     ).toThrow();
-  });
-});
-
-function activeAutoExecSnapshot() {
-  const spec = RUNTIME_AGENT_SPEC_BY_AGENT.get("autonomous_execution");
-  expect(spec).toBeDefined();
-  if (!spec) throw new Error("missing autonomous_execution runtime spec");
-  return buildResearchKnobsSnapshot({
-    agent: "autonomous_execution",
-    cohort: "cohort_default",
-    knobs: buildRuntimeResearchKnobs(spec),
-    runtimeSourceStatuses: [
-      {
-        source_id: "current_position_snapshot",
-        scope: "account:default|cohort:cohort_default|run:test",
-        status: "loaded",
-      },
-      { source_id: "current_market_data", scope: "ticker:600519.SH", status: "loaded" },
-      {
-        source_id: "candidate_target_state",
-        scope: "account:default|cohort:cohort_default|run:test",
-        status: "loaded",
-      },
-      {
-        source_id: "execution_liquidity_state",
-        scope: "ticker:600519.SH",
-        status: "loaded",
-      },
-      {
-        source_id: "mirofish_context",
-        scope: "context:sha256:test",
-        status: "loaded",
-        snapshot_hash: "sha256:test",
-      },
-    ],
-  });
-}
-
-describe("autonomous execution validator", () => {
-  it("rejects active min-delta policy breaches and audits accepted trades", () => {
-    const snapshot = activeAutoExecSnapshot();
-
-    expect(() =>
-      validateAutonomousExecutionActions({
-        output: {
-          agent: "autonomous_execution",
-          trades: [
-            {
-              ticker: "600519.SH",
-              action: "BUY",
-              size_pct: 0.005,
-              conviction: 0.7,
-              estimated_slippage_pct: 0.001,
-              liquidity_score: 0.8,
-            },
-          ],
-          confidence: 0.6,
-        },
-        knobSnapshot: snapshot,
-      }),
-    ).toThrow(ExecutionActionValidationError);
-
-    const accepted = validateAutonomousExecutionActions({
-      output: {
-        agent: "autonomous_execution",
-        trades: [
+    expect(
+      cioSpec.schema.safeParse({
+        ...base,
+        target_positions: [{ ...base.target_positions[0], risk_flags: ["x".repeat(129)] }],
+      }).success,
+    ).toBe(false);
+    expect(
+      cioSpec.schema.safeParse({
+        ...base,
+        cro_control_resolutions: [
           {
-            ticker: "600519.SH",
-            action: "BUY",
-            size_pct: 0.02,
-            conviction: 0.7,
-            estimated_slippage_pct: 0.001,
-            liquidity_score: 0.8,
+            cro_action_local_ref: "action-1",
+            resolution: "COMPLIED",
+            reason: "x".repeat(321),
+            claim_refs: ["claim-1"],
           },
         ],
-        confidence: 0.6,
-      },
-      knobSnapshot: snapshot,
-    });
-    expect(accepted.execution_enforcement).toMatchObject({
-      checked_trade_count: 1,
-      active_policy_ids: expect.arrayContaining([
-        "min_delta_trade_weight",
-        "slippage_cap",
-        "liquidity_floor",
-      ]),
-      min_delta_trade_weight: 0.01,
-      slippage_cap: 0.003,
-      liquidity_floor: 0.6,
-    });
+      }).success,
+    ).toBe(false);
   });
 
-  it("rejects active slippage and liquidity policy breaches", () => {
-    const snapshot = activeAutoExecSnapshot();
-    const base = {
-      agent: "autonomous_execution" as const,
-      confidence: 0.6,
+  it("does not expose ALL_CASH for non-empty current positions", () => {
+    const common = {
+      agent_id: "cio" as const,
+      decision_disposition: "ALL_CASH" as const,
+      target_positions: [],
+      cash_weight: 1,
+      decision_reason: "Exit only through explicit frozen position rows.",
+      confidence: 0.7,
+      claims: [claim],
+      claim_refs: ["claim-1"],
+      macro_input_attributions: macroAttributions,
     };
+    expect(
+      CioProposalNonEmptyCurrentSubmissionSchema.safeParse({
+        ...common,
+        decision_stage: "PROPOSAL",
+      }).success,
+    ).toBe(false);
+    expect(
+      CioFinalNonEmptyCurrentSubmissionSchema.safeParse({
+        ...common,
+        decision_stage: "FINAL",
+        cro_control_resolutions: [],
+        execution_control_resolutions: [],
+      }).success,
+    ).toBe(false);
 
-    expect(() =>
-      validateAutonomousExecutionActions({
-        output: {
-          ...base,
-          trades: [
-            {
-              ticker: "600519.SH",
-              action: "BUY",
-              size_pct: 0.02,
-              conviction: 0.7,
-              estimated_slippage_pct: 0.004,
-              liquidity_score: 0.8,
-            },
-          ],
-        },
-        knobSnapshot: snapshot,
-      }),
-    ).toThrow(/slippage_cap/);
-    expect(() =>
-      validateAutonomousExecutionActions({
-        output: {
-          ...base,
-          trades: [
-            {
-              ticker: "600519.SH",
-              action: "BUY",
-              size_pct: 0.02,
-              conviction: 0.7,
-              estimated_slippage_pct: 0.001,
-              liquidity_score: 0.5,
-            },
-          ],
-        },
-        knobSnapshot: snapshot,
-      }),
-    ).toThrow(/liquidity_floor/);
-  });
-
-  it("does not enforce disabled execution cards", () => {
-    const accepted = validateAutonomousExecutionActions({
-      output: {
-        agent: "autonomous_execution",
-        trades: [{ ticker: "600519.SH", action: "BUY", size_pct: 0.005, conviction: 0.7 }],
-        confidence: 0.6,
-      },
-      knobSnapshot: null,
-    });
-
-    expect(accepted.execution_enforcement).toEqual({
-      checked_trade_count: 1,
-      active_policy_ids: [],
-    });
+    const explicitExit = {
+      position_local_id: "position-exit-1",
+      ts_code: "600519.SH",
+      target_weight: 0,
+      position_decision: "EXIT" as const,
+      holding_period: "DAYS" as const,
+      thesis_status: "BROKEN" as const,
+      risk_flags: ["exit-required"],
+      claim_refs: ["claim-1"],
+    };
+    expect(
+      CioProposalNonEmptyCurrentSubmissionSchema.safeParse({
+        ...common,
+        decision_stage: "PROPOSAL",
+        decision_disposition: "TARGET_PORTFOLIO",
+        target_positions: [explicitExit],
+      }).success,
+    ).toBe(true);
+    expect(
+      CioFinalNonEmptyCurrentSubmissionSchema.safeParse({
+        ...common,
+        decision_stage: "FINAL",
+        decision_disposition: "TARGET_PORTFOLIO",
+        target_positions: [explicitExit],
+        cro_control_resolutions: [],
+        execution_control_resolutions: [],
+      }).success,
+    ).toBe(true);
   });
 });
 
@@ -663,13 +851,20 @@ const baseState = (): DailyCycleStateType => ({
   as_of_date: "2024-06-24",
   mode: "live",
   trace_id: "t",
+  darwinian_runtime_binding: null,
+  darwinian_weight_snapshot: null,
+  component_weight_snapshot: null,
+  component_calibration_inputs: {},
+  outcome_schedule_plan: null,
+  outcome_stage_skips: {},
+  outcome_opportunity_bindings: {},
+  accepted_output_refs: {},
   continuity_context: {},
   lesson_context: {},
   method_context: {},
   layer1_outputs: {},
-  layer1_consensus: null,
+  macro_input_gate: null,
   layer2_outputs: {},
-  layer2_consensus: null,
   layer3_outputs: {},
   layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
   current_positions: {
@@ -718,31 +913,31 @@ const testL4PromptSnapshots = [
     agent: "alpha_discovery" as const,
     stage: "alpha_discovery" as const,
     prompt_source_hash: "p1",
-    knob_snapshot_hash: null,
+    private_knot_snapshot_hash: null,
   },
   {
     agent: "cio" as const,
     stage: "cio_proposal" as const,
     prompt_source_hash: "p2",
-    knob_snapshot_hash: null,
+    private_knot_snapshot_hash: null,
   },
   {
     agent: "cro" as const,
     stage: "cro_review" as const,
     prompt_source_hash: "p3",
-    knob_snapshot_hash: null,
+    private_knot_snapshot_hash: null,
   },
   {
     agent: "autonomous_execution" as const,
     stage: "execution_feasibility" as const,
     prompt_source_hash: "p4",
-    knob_snapshot_hash: null,
+    private_knot_snapshot_hash: null,
   },
   {
     agent: "cio" as const,
     stage: "cio_final" as const,
     prompt_source_hash: "p5",
-    knob_snapshot_hash: null,
+    private_knot_snapshot_hash: null,
   },
 ];
 
@@ -765,29 +960,52 @@ function cioOutput(portfolio_actions: PortfolioAction[]): CioOutput {
   };
 }
 
-function executableOutput(deltaWeight = 0.2): AutoExecOutput {
+function executableOutput(intent: {
+  order_intent_ref: string;
+  ts_code: string;
+  requested_delta_weight: number;
+  action: "BUY" | "SELL" | "REDUCE";
+}): AutoExecOutput {
   return {
     agent: "autonomous_execution",
     execution_disposition: "TRADES",
     trades: [
       {
-        ticker: "600519.SH",
-        action: "BUY",
-        size_pct: Math.abs(deltaWeight),
-        delta_weight: deltaWeight,
+        order_intent_ref: intent.order_intent_ref,
+        ticker: intent.ts_code,
+        action: intent.action,
+        size_pct: Math.abs(intent.requested_delta_weight),
+        delta_weight: intent.requested_delta_weight,
         conviction: 0.6,
       },
     ],
     execution_checks: [
       {
-        ticker: "600519.SH",
+        assessment_local_id: "execution-local-1",
+        order_intent_ref: intent.order_intent_ref,
+        ticker: intent.ts_code,
+        requested_delta_weight: intent.requested_delta_weight,
         status: "feasible",
         estimated_cost_bps: 5,
-        max_executable_delta_weight: Math.abs(deltaWeight),
+        max_executable_delta_weight: Math.abs(intent.requested_delta_weight),
         reason: "fixture liquidity supports the frozen delta",
       },
     ],
     confidence: 0.6,
+  };
+}
+
+function withExecutionResolution<T extends CioOutput>(output: T): T {
+  return {
+    ...output,
+    execution_control_resolutions: [
+      {
+        execution_assessment_local_ref: "execution-local-1",
+        resolution: "COMPLIED",
+        reason: "The final target resolves the frozen execution assessment.",
+        claim_refs: ["claim-1"],
+      },
+    ],
   };
 }
 
@@ -804,6 +1022,283 @@ const heldPosition = {
   entry_thesis_id: "thesis-600519",
   last_review_date: "2024-06-20",
 };
+
+function executionStageSkip(): NoEvaluationObjectStageSkipRecord {
+  return {
+    stage_skip_id: "skip:autonomous_execution",
+    stage_skip_hash: `sha256:${"1".repeat(64)}`,
+    schema_version: "no_evaluation_object_stage_skip_v2",
+    graph_run_id: "t",
+    outcome_schedule_plan_id: "plan-1",
+    outcome_schedule_slot_id: "slot:autonomous_execution",
+    scheduled_sample_id: "sample:autonomous_execution",
+    track_key_hash: `sha256:${"2".repeat(64)}`,
+    agent_id: "autonomous_execution",
+    skip_reason: "NO_EVALUATION_OBJECT",
+    frozen_object_set_id: "set:autonomous_execution",
+    frozen_object_set_hash: `sha256:${"3".repeat(64)}`,
+    member_count: 0,
+    model_invoked: false,
+    eligibility_audit_id: "audit:autonomous_execution",
+    eligibility_audit_revision_id: "revision:autonomous_execution",
+    eligibility_audit_revision_hash: `sha256:${"4".repeat(64)}`,
+    evidence_ids: ["evidence:autonomous_execution"],
+    causal_dedupe_key: `sha256:${"5".repeat(64)}`,
+    recorded_at: "2026-07-20T09:00:00+08:00",
+  };
+}
+
+describe("Layer-4 factory outcome boundary", () => {
+  it("honors an authoritative execution skip before any model or bridge work", async () => {
+    const input = baseState();
+    const skip = executionStageSkip();
+    input.darwinian_runtime_binding = {} as DailyCycleStateType["darwinian_runtime_binding"];
+    input.outcome_schedule_plan = {
+      outcome_schedule_plan_id: skip.outcome_schedule_plan_id,
+      outcome_schedule_plan_hash: `sha256:${"6".repeat(64)}`,
+      schema_version: "outcome_schedule_plan_v2",
+      graph_run_id: skip.graph_run_id,
+      production_variant_roster_id: "roster:1",
+      production_variant_roster_revision_id: "revision:1",
+      execution_behavior_release_id: "release:1",
+      cohort_id: "cohort_default",
+      language: "zh",
+      as_of: "2026-07-20T09:00:00+08:00",
+      prepared_at: skip.recorded_at,
+      slots: [
+        {
+          schema_version: "outcome_schedule_slot_v2",
+          outcome_schedule_slot_id: skip.outcome_schedule_slot_id,
+          outcome_schedule_slot_hash: `sha256:${"7".repeat(64)}`,
+          outcome_schedule_plan_id: skip.outcome_schedule_plan_id,
+          graph_run_id: skip.graph_run_id,
+          agent_id: skip.agent_id,
+          track_key_hash: skip.track_key_hash,
+          run_slot_id: "run-slot:autonomous_execution",
+          run_slot_kind: "OUTCOME_SCHEDULED",
+          scheduled_sample_id: skip.scheduled_sample_id,
+        },
+      ],
+    };
+    input.outcome_stage_skips = { autonomous_execution: skip };
+    input.outcome_opportunity_bindings = {
+      autonomous_execution: {
+        agent_id: "autonomous_execution",
+        scheduled_sample_id: skip.scheduled_sample_id,
+        evaluation_opportunity_set_id: "opportunity:autonomous_execution",
+        evaluation_opportunity_set_hash: `sha256:${"8".repeat(64)}`,
+        frozen_object_set_id: skip.frozen_object_set_id,
+        frozen_object_set_hash: skip.frozen_object_set_hash,
+        runtime_authority_binding: {
+          source_tool_id: "get_execution_snapshot",
+          source_snapshot_hash: `sha256:${"9".repeat(64)}`,
+          candidate_scope_hash: `sha256:${"a".repeat(64)}`,
+          candidate_universe_hash: `sha256:${"b".repeat(64)}`,
+          upstream_accepted_output_refs_hash: `sha256:${"c".repeat(64)}`,
+        },
+      },
+    };
+
+    let modelInvocations = 0;
+    let bridgeTouches = 0;
+    const api = new Proxy({} as BridgeApi, {
+      get() {
+        bridgeTouches += 1;
+        throw new Error("bridge must not be touched for an authoritative skip");
+      },
+    });
+    const node = buildAutonomousExecutionNode({
+      api,
+      config: {} as MosaicConfig,
+      llmHandle: {
+        provider: "fake",
+        model: "fake",
+        baseUrl: undefined,
+        llm: {
+          invoke: async () => {
+            modelInvocations += 1;
+            throw new Error("model must not be invoked for an authoritative skip");
+          },
+        } as unknown as LlmHandle["llm"],
+      },
+    });
+
+    expect(await node(input)).toEqual({});
+    expect(modelInvocations).toBe(0);
+    expect(bridgeTouches).toBe(0);
+  });
+
+  it("rejects a forged Alpha skip before CIO proposal model or bridge work", async () => {
+    const input = baseState();
+    const executionSkip = executionStageSkip();
+    const skip: NoEvaluationObjectStageSkipRecord = {
+      ...executionSkip,
+      stage_skip_id: "skip:alpha_discovery",
+      graph_run_id: input.trace_id,
+      outcome_schedule_slot_id: "slot:alpha_discovery",
+      scheduled_sample_id: "sample:alpha_discovery",
+      agent_id: "alpha_discovery",
+      frozen_object_set_id: "set:alpha_discovery",
+      frozen_object_set_hash: `sha256:${"3".repeat(64)}`,
+    };
+    input.darwinian_runtime_binding = {} as DailyCycleStateType["darwinian_runtime_binding"];
+    input.outcome_schedule_plan = {
+      outcome_schedule_plan_id: skip.outcome_schedule_plan_id,
+      outcome_schedule_plan_hash: `sha256:${"6".repeat(64)}`,
+      schema_version: "outcome_schedule_plan_v2",
+      graph_run_id: input.trace_id,
+      production_variant_roster_id: "roster:1",
+      production_variant_roster_revision_id: "revision:1",
+      execution_behavior_release_id: "release:1",
+      cohort_id: "cohort_default",
+      language: "zh",
+      as_of: "2026-07-20T09:00:00+08:00",
+      prepared_at: skip.recorded_at,
+      slots: [
+        {
+          schema_version: "outcome_schedule_slot_v2",
+          outcome_schedule_slot_id: skip.outcome_schedule_slot_id,
+          outcome_schedule_slot_hash: `sha256:${"7".repeat(64)}`,
+          outcome_schedule_plan_id: skip.outcome_schedule_plan_id,
+          graph_run_id: input.trace_id,
+          agent_id: skip.agent_id,
+          track_key_hash: skip.track_key_hash,
+          run_slot_id: "run-slot:alpha_discovery",
+          run_slot_kind: "OUTCOME_SCHEDULED",
+          scheduled_sample_id: skip.scheduled_sample_id,
+        },
+      ],
+    };
+    input.outcome_stage_skips = { alpha_discovery: skip };
+    input.outcome_opportunity_bindings = {
+      alpha_discovery: {
+        agent_id: "alpha_discovery",
+        scheduled_sample_id: skip.scheduled_sample_id,
+        evaluation_opportunity_set_id: "opportunity:alpha_discovery",
+        evaluation_opportunity_set_hash: `sha256:${"8".repeat(64)}`,
+        frozen_object_set_id: skip.frozen_object_set_id,
+        frozen_object_set_hash: `sha256:${"4".repeat(64)}`,
+        runtime_authority_binding: {
+          source_tool_id: "get_alpha_candidate_snapshot",
+          source_snapshot_hash: `sha256:${"9".repeat(64)}`,
+          candidate_scope_hash: `sha256:${"a".repeat(64)}`,
+          candidate_universe_hash: `sha256:${"b".repeat(64)}`,
+          upstream_accepted_output_refs_hash: `sha256:${"c".repeat(64)}`,
+        },
+      },
+    };
+
+    let modelInvocations = 0;
+    let bridgeTouches = 0;
+    const api = new Proxy({} as BridgeApi, {
+      get() {
+        bridgeTouches += 1;
+        throw new Error("bridge must not be touched for a forged Alpha skip");
+      },
+    });
+    const node = buildCioProposalNode({
+      api,
+      config: {} as MosaicConfig,
+      llmHandle: {
+        provider: "fake",
+        model: "fake",
+        baseUrl: undefined,
+        llm: {
+          invoke: async () => {
+            modelInvocations += 1;
+            throw new Error("model must not be invoked for a forged Alpha skip");
+          },
+        } as unknown as LlmHandle["llm"],
+      },
+    });
+
+    await expect(node(input)).rejects.toThrow(/stage skip differs from frozen opportunity/);
+    expect(modelInvocations).toBe(0);
+    expect(bridgeTouches).toBe(0);
+  });
+});
+
+function frozenCandidateWithCurrent(targetWeight = 0.4) {
+  const state = baseState();
+  state.current_positions = loadedPositions([heldPosition]);
+  const proposal = {
+    ...cioOutput([
+      {
+        ticker: heldPosition.ticker,
+        action: "BUY" as const,
+        position_decision: "ADD" as const,
+        current_weight: heldPosition.current_weight,
+        target_weight: targetWeight,
+        delta_weight: targetWeight - heldPosition.current_weight,
+        holding_period: "3M" as const,
+        position_decision_reason: "increase the reviewed position",
+        thesis_status: "intact" as const,
+        risk_flags: [],
+        dissent_notes: "",
+      },
+    ]),
+    position_reviews: [
+      {
+        ticker: heldPosition.ticker,
+        decision: "ADD" as const,
+        target_weight: targetWeight,
+        reason: "increase the reviewed position",
+        thesis_status: "intact" as const,
+        risk_flags: [],
+        confidence: 0.61,
+      },
+    ],
+  };
+  const frozen = freezeCioProposal(state, proposal);
+  return { state, frozen };
+}
+
+function executionSubmissionFor(intent: {
+  order_intent_ref: string;
+  ts_code: string;
+  requested_delta_weight: number;
+}) {
+  return autonomousExecutionSpec.schema.parse({
+    agent_id: "autonomous_execution",
+    execution_disposition: "ORDERS_ASSESSED",
+    order_assessments: [
+      {
+        assessment_local_id: "assessment-1",
+        order_intent_ref: intent.order_intent_ref,
+        ts_code: intent.ts_code,
+        requested_delta_weight: intent.requested_delta_weight,
+        feasibility: "FEASIBLE",
+        feasibility_confidence: 0.8,
+        predicted_cost_bps: 8,
+        max_executable_delta_weight: Math.abs(intent.requested_delta_weight),
+        recommended_slice_count: 1,
+        reason: "The frozen intent is feasible.",
+        claim_refs: ["claim-1"],
+      },
+    ],
+    confidence: 0.8,
+    claims: [
+      {
+        claim_id: "claim-1",
+        claim_kind: "FACT",
+        statement: "The frozen execution evidence supports the assessment.",
+        structured_conclusion: { status: "supported" },
+        evidence_ids: ["evidence-1"],
+        research_rule_refs: [],
+      },
+    ],
+    claim_refs: ["claim-1"],
+  }) as AutonomousExecutionSubmission;
+}
+
+function requiredFrozenIntent(
+  candidate: Parameters<typeof expectedFrozenOrderIntents>[0],
+  croReview: Parameters<typeof expectedFrozenOrderIntents>[1],
+) {
+  const intent = expectedFrozenOrderIntents(candidate, croReview).order_intents[0];
+  if (!intent) throw new Error("execution fixture requires one frozen order intent");
+  return intent;
+}
 
 function stateWithFrozenCandidate(): DailyCycleStateType {
   const state = baseState();
@@ -830,6 +1325,178 @@ function stateWithFrozenCandidate(): DailyCycleStateType {
 }
 
 describe("Layer-4 runtime source envelopes", () => {
+  it("requires HOLD_CURRENT proposal targets to exactly preserve current positions", () => {
+    const state = baseState();
+    state.current_positions = loadedPositions([
+      heldPosition,
+      { ...heldPosition, ticker: "300750.SZ", current_weight: 0.1 },
+    ]);
+    const holdAction = (ticker: string, targetWeight: number): PortfolioAction => ({
+      ticker,
+      action: "HOLD",
+      position_decision: "HOLD",
+      current_weight: targetWeight,
+      target_weight: targetWeight,
+      delta_weight: 0,
+      holding_period: "3M",
+      position_decision_reason: "retain the current target",
+      thesis_status: "intact",
+      risk_flags: [],
+      dissent_notes: "",
+    });
+    const valid = {
+      ...cioOutput([holdAction("600519.SH", 0.2), holdAction("300750.SZ", 0.1)]),
+      decision_disposition: "HOLD_CURRENT" as const,
+      position_reviews: [
+        {
+          ticker: "600519.SH",
+          decision: "HOLD" as const,
+          target_weight: 0.2,
+          reason: "retain the current target",
+          thesis_status: "intact" as const,
+          risk_flags: [],
+          confidence: 0.61,
+        },
+        {
+          ticker: "300750.SZ",
+          decision: "HOLD" as const,
+          target_weight: 0.1,
+          reason: "retain the current target",
+          thesis_status: "intact" as const,
+          risk_flags: [],
+          confidence: 0.61,
+        },
+      ],
+    };
+
+    expect(freezeCioProposal(state, valid).candidate.portfolio_actions).toHaveLength(2);
+    expect(() =>
+      freezeCioProposal(state, {
+        ...valid,
+        portfolio_actions: [holdAction("600519.SH", 0.2)],
+      }),
+    ).toThrow(/target ticker set must equal current positions/);
+    expect(() =>
+      freezeCioProposal(state, {
+        ...valid,
+        portfolio_actions: [
+          holdAction("600519.SH", 0.2),
+          { ...holdAction("300750.SZ", 0.1), position_decision: "ADD" },
+        ],
+      }),
+    ).toThrow(/requires HOLD/);
+    expect(() =>
+      freezeCioProposal(state, {
+        ...valid,
+        portfolio_actions: [
+          holdAction("600519.SH", 0.2),
+          holdAction("300750.SZ", 0.1),
+          holdAction("000001.SZ", 0.01),
+        ],
+      }),
+    ).toThrow(/target ticker set must equal current positions/);
+  });
+
+  it("rejects ALL_CASH shells for non-empty current positions at proposal and final runtime", () => {
+    const state = baseState();
+    state.current_positions = loadedPositions([heldPosition]);
+    expect(() =>
+      freezeCioProposal(state, {
+        ...cioOutput([]),
+        decision_disposition: "ALL_CASH",
+        position_reviews: [],
+      }),
+    ).toThrow(/explicit current-position review/);
+
+    const frozen = freezeCioProposal(state, {
+      ...cioOutput([
+        {
+          ticker: heldPosition.ticker,
+          action: "HOLD",
+          position_decision: "HOLD",
+          current_weight: heldPosition.current_weight,
+          target_weight: heldPosition.current_weight,
+          delta_weight: 0,
+          holding_period: "3M",
+          position_decision_reason: "retain the reviewed current position",
+          thesis_status: "intact",
+          risk_flags: [],
+          dissent_notes: "",
+        },
+      ]),
+      decision_disposition: "HOLD_CURRENT",
+      position_reviews: [
+        {
+          ticker: heldPosition.ticker,
+          decision: "HOLD",
+          target_weight: heldPosition.current_weight,
+          reason: "retain the reviewed current position",
+          thesis_status: "intact",
+          risk_flags: [],
+          confidence: 0.61,
+        },
+      ],
+    });
+    const cro = freezeCroReview("t", frozen.candidate, {
+      agent: "cro",
+      rejected_picks: [],
+      required_adjustments: [],
+      correlated_risks: [],
+      black_swan_scenarios: [],
+      confidence: 0.8,
+    });
+    const skip = executionStageSkip();
+    state.outcome_stage_skips.autonomous_execution = skip;
+    const execution = freezeExecutionStageSkip("t", frozen.candidate, cro, skip);
+    state.layer4_outputs.runtime = {
+      ...emptyLayer4RuntimeState(),
+      candidate_target_state: frozen.candidate,
+      cro_review_state: cro,
+      execution_feasibility_state: execution,
+    };
+    expect(() =>
+      freezeFinalTarget(
+        state,
+        { ...cioOutput([]), decision_disposition: "ALL_CASH", dissent_refs: [] },
+        [],
+      ),
+    ).toThrow(/omits current position ticker/);
+    expect(() =>
+      freezeFinalTarget(
+        state,
+        {
+          ...frozen.proposal,
+          execution_control_resolutions: [
+            {
+              execution_assessment_local_ref: "unknown-skipped-assessment",
+              resolution: "COMPLIED",
+              reason: "No execution assessment exists.",
+              claim_refs: ["claim-1"],
+            },
+          ],
+        },
+        [],
+      ),
+    ).toThrow(/must exactly match accepted execution assessments/);
+    const frozenHoldAction = frozen.proposal.portfolio_actions[0];
+    if (!frozenHoldAction) throw new Error("hold fixture requires one frozen action");
+    expect(() =>
+      freezeFinalTarget(
+        state,
+        {
+          ...frozen.proposal,
+          portfolio_actions: [
+            {
+              ...frozenHoldAction,
+              position_decision: "ADD",
+            },
+          ],
+        },
+        [],
+      ),
+    ).toThrow(/requires HOLD/);
+  });
+
   it("rejects prompt, position, and base-market drift after L4 snapshot freeze", () => {
     const state = baseState();
     const status = {
@@ -851,7 +1518,7 @@ describe("Layer-4 runtime source envelopes", () => {
         agent: "cio",
         stage: "cio_proposal",
         promptSourceHash: "p2",
-        knobSnapshotHash: null,
+        privateKnotSnapshotHash: null,
         mirofishContextHash: null,
       }).bundle_hash,
     ).toMatch(/^sha256:/);
@@ -861,7 +1528,7 @@ describe("Layer-4 runtime source envelopes", () => {
         agent: "cio",
         stage: "cio_proposal",
         promptSourceHash: "prompt-drift",
-        knobSnapshotHash: null,
+        privateKnotSnapshotHash: null,
         mirofishContextHash: null,
       }),
     ).toThrow(/prompt or knob hash drifted/);
@@ -874,7 +1541,7 @@ describe("Layer-4 runtime source envelopes", () => {
         agent: "cio",
         stage: "cio_proposal",
         promptSourceHash: "p2",
-        knobSnapshotHash: null,
+        privateKnotSnapshotHash: null,
         mirofishContextHash: null,
       }),
     ).toThrow(/immutable input changed/);
@@ -890,7 +1557,7 @@ describe("Layer-4 runtime source envelopes", () => {
         agent: "cio",
         stage: "cio_proposal",
         promptSourceHash: "p2",
-        knobSnapshotHash: null,
+        privateKnotSnapshotHash: null,
         mirofishContextHash: null,
       }),
     ).toThrow(/base market source drifted/);
@@ -1024,7 +1691,12 @@ describe("Layer-4 runtime source envelopes", () => {
       black_swan_scenarios: [],
       confidence: 0.5,
     });
-    const execution = freezeExecutionFeasibility("t", frozen.candidate, cro, executableOutput());
+    const execution = freezeExecutionFeasibility(
+      "t",
+      frozen.candidate,
+      cro,
+      executableOutput(requiredFrozenIntent(frozen.candidate, cro)),
+    );
     state.layer4_outputs.runtime = {
       ...emptyLayer4RuntimeState(),
       candidate_target_state: frozen.candidate,
@@ -1032,7 +1704,47 @@ describe("Layer-4 runtime source envelopes", () => {
       execution_feasibility_state: execution,
     };
 
-    const final = freezeFinalTarget(state, frozen.proposal, ["validator:portfolio.v1"]);
+    expect(() => freezeFinalTarget(state, frozen.proposal, [])).toThrow(
+      /must exactly match accepted execution assessments/,
+    );
+    expect(() =>
+      freezeFinalTarget(
+        state,
+        {
+          ...frozen.proposal,
+          execution_control_resolutions: [
+            {
+              execution_assessment_local_ref: "unknown-execution-assessment",
+              resolution: "COMPLIED",
+              reason: "Unknown assessment.",
+              claim_refs: ["claim-1"],
+            },
+          ],
+        },
+        [],
+      ),
+    ).toThrow(/must exactly match accepted execution assessments/);
+    expect(() =>
+      freezeFinalTarget(
+        state,
+        {
+          ...withExecutionResolution(frozen.proposal),
+          execution_control_resolutions: [
+            ...(withExecutionResolution(frozen.proposal).execution_control_resolutions ?? []),
+            {
+              execution_assessment_local_ref: "extra-execution-assessment",
+              resolution: "COMPLIED",
+              reason: "Extra assessment.",
+              claim_refs: ["claim-1"],
+            },
+          ],
+        },
+        [],
+      ),
+    ).toThrow(/must exactly match accepted execution assessments/);
+    const final = freezeFinalTarget(state, withExecutionResolution(frozen.proposal), [
+      "validator:portfolio.v1",
+    ]);
 
     expect(final.candidate_target_hash).toBe(frozen.candidate.candidate_target_hash);
     expect(final.cro_review_hash).toBe(cro.review_hash);
@@ -1077,7 +1789,7 @@ describe("Layer-4 runtime source envelopes", () => {
     });
     expect(() =>
       freezeExecutionFeasibility("t", frozen.candidate, cro, fallbackAutonomousExecution("")),
-    ).toThrow(/target delta lacks execution check/);
+    ).toThrow(/frozen order intent set one-to-one/);
   });
 
   it("rejects CRO references outside the candidate and malformed reductions", () => {
@@ -1124,6 +1836,183 @@ describe("Layer-4 runtime source envelopes", () => {
     ).toThrow(/must be below frozen candidate target/);
   });
 
+  it("derives VETO and crossing CAP/REDUCE execution from the CRO-adjusted target", () => {
+    for (const control of [
+      { adjustment: "VETO" as const, max_target_weight: undefined, expectedAction: "SELL" },
+      { adjustment: "CAP_WEIGHT" as const, max_target_weight: 0.1, expectedAction: "REDUCE" },
+      { adjustment: "REDUCE_WEIGHT" as const, max_target_weight: 0.1, expectedAction: "REDUCE" },
+    ]) {
+      const { state, frozen } = frozenCandidateWithCurrent();
+      const cro = freezeCroReview("t", frozen.candidate, {
+        agent: "cro",
+        review_disposition: "REVIEW_ACTIONS",
+        rejected_picks:
+          control.adjustment === "VETO"
+            ? [{ ticker: heldPosition.ticker, reason: "veto the proposal" }]
+            : [],
+        required_adjustments: [
+          {
+            action_local_id: `control-${control.adjustment}`,
+            ticker: heldPosition.ticker,
+            adjustment: control.adjustment,
+            ...(control.max_target_weight === undefined
+              ? {}
+              : { max_target_weight: control.max_target_weight }),
+            reason: "apply the frozen CRO control",
+          },
+        ],
+        correlated_risks: [],
+        black_swan_scenarios: [],
+        confidence: 0.8,
+      });
+      state.layer4_outputs.runtime = {
+        ...emptyLayer4RuntimeState(),
+        candidate_target_state: frozen.candidate,
+        cro_review_state: cro,
+      };
+      const plan = expectedFrozenOrderIntents(frozen.candidate, cro);
+      expect(plan.order_intents).toHaveLength(1);
+      const intent = requiredFrozenIntent(frozen.candidate, cro);
+      expect(intent.requested_delta_weight).toBe(
+        (control.max_target_weight ?? 0) - heldPosition.current_weight,
+      );
+      expect(intent.action).toBe(control.expectedAction);
+      const runtimeOutput = executionSubmissionToRuntime(executionSubmissionFor(intent), state);
+      expect(runtimeOutput.trades[0]).toMatchObject({
+        ticker: heldPosition.ticker,
+        action: control.expectedAction,
+        delta_weight: intent.requested_delta_weight,
+        order_intent_ref: intent.order_intent_ref,
+      });
+      expect(() =>
+        freezeExecutionFeasibility("t", frozen.candidate, cro, runtimeOutput),
+      ).not.toThrow();
+    }
+  });
+
+  it("rejects execution intent ref, ticker, and requested-delta mismatches at runtime", () => {
+    const { state, frozen } = frozenCandidateWithCurrent();
+    const cro = freezeCroReview("t", frozen.candidate, {
+      agent: "cro",
+      rejected_picks: [],
+      required_adjustments: [],
+      correlated_risks: [],
+      black_swan_scenarios: [],
+      confidence: 0.8,
+    });
+    state.layer4_outputs.runtime = {
+      ...emptyLayer4RuntimeState(),
+      candidate_target_state: frozen.candidate,
+      cro_review_state: cro,
+    };
+    const intent = requiredFrozenIntent(frozen.candidate, cro);
+    const submission = executionSubmissionFor(intent);
+    for (const orderAssessment of [
+      { ...submission.order_assessments[0], order_intent_ref: "order-intent:wrong" },
+      { ...submission.order_assessments[0], ts_code: "000001.SZ" },
+      {
+        ...submission.order_assessments[0],
+        requested_delta_weight: submission.order_assessments[0].requested_delta_weight / 2,
+      },
+    ]) {
+      expect(() =>
+        executionSubmissionToRuntime(
+          { ...submission, order_assessments: [orderAssessment] },
+          state,
+        ),
+      ).toThrow(/frozen order intent/);
+    }
+
+    const runtimeOutput = executionSubmissionToRuntime(submission, state);
+    const tampered = {
+      ...runtimeOutput,
+      execution_checks: runtimeOutput.execution_checks?.map((check) => ({
+        ...check,
+        requested_delta_weight: intent.requested_delta_weight / 2,
+      })),
+    };
+    expect(() => freezeExecutionFeasibility("t", frozen.candidate, cro, tampered)).toThrow(
+      /frozen order intent/,
+    );
+  });
+
+  it("fails closed on unresolved REQUIRE_REVIEW and requires COMPLIED at current weight", () => {
+    const { state, frozen } = frozenCandidateWithCurrent();
+    const cro = freezeCroReview("t", frozen.candidate, {
+      agent: "cro",
+      review_disposition: "REVIEW_ACTIONS",
+      rejected_picks: [],
+      required_adjustments: [
+        {
+          action_local_id: "review-1",
+          ticker: heldPosition.ticker,
+          adjustment: "REQUIRE_REVIEW",
+          reason: "manual risk review remains unresolved",
+        },
+      ],
+      correlated_risks: [],
+      black_swan_scenarios: [],
+      confidence: 0.8,
+    });
+    expect(expectedFrozenOrderIntents(frozen.candidate, cro).order_intents).toEqual([]);
+    const skip = executionStageSkip();
+    state.outcome_stage_skips.autonomous_execution = skip;
+    const execution = freezeExecutionStageSkip("t", frozen.candidate, cro, skip);
+    state.layer4_outputs.runtime = {
+      ...emptyLayer4RuntimeState(),
+      candidate_target_state: frozen.candidate,
+      cro_review_state: cro,
+      execution_feasibility_state: execution,
+    };
+    const finalOutput = (targetWeight: number, resolution: "COMPLIED" | "MORE_CONSERVATIVE") => ({
+      ...cioOutput([
+        {
+          ticker: heldPosition.ticker,
+          action:
+            targetWeight === heldPosition.current_weight ? ("HOLD" as const) : ("BUY" as const),
+          position_decision:
+            targetWeight === heldPosition.current_weight ? ("HOLD" as const) : ("ADD" as const),
+          current_weight: heldPosition.current_weight,
+          target_weight: targetWeight,
+          delta_weight: targetWeight - heldPosition.current_weight,
+          holding_period: "3M" as const,
+          position_decision_reason: "respect the unresolved review",
+          thesis_status: "intact" as const,
+          risk_flags: [],
+          dissent_notes: "manual risk review remains unresolved",
+        },
+      ]),
+      cro_control_resolutions: [
+        {
+          cro_action_local_ref: "review-1",
+          resolution,
+          reason: "respect the unresolved review",
+          claim_refs: ["claim-1"],
+        },
+      ],
+      execution_control_resolutions: [],
+      dissent_refs: [
+        {
+          ticker: heldPosition.ticker,
+          source: "cro_review" as const,
+          source_hash: cro.review_hash,
+          reason: "respect the unresolved review",
+        },
+      ],
+    });
+
+    expect(() => freezeFinalTarget(state, finalOutput(0.4, "COMPLIED"), [])).toThrow(
+      /REQUIRE_REVIEW.*current weight/,
+    );
+    expect(() =>
+      freezeFinalTarget(state, finalOutput(heldPosition.current_weight, "MORE_CONSERVATIVE"), []),
+    ).toThrow(/REQUIRE_REVIEW.*COMPLIED/);
+    expect(
+      freezeFinalTarget(state, finalOutput(heldPosition.current_weight, "COMPLIED"), [])
+        .portfolio_actions[0]?.target_weight,
+    ).toBe(heldPosition.current_weight);
+  });
+
   it("rejects blocked or partial execution that carries excess delta", () => {
     const frozen = freezeCioProposal(
       baseState(),
@@ -1145,14 +2034,16 @@ describe("Layer-4 runtime source envelopes", () => {
       black_swan_scenarios: [],
       confidence: 0.5,
     });
+    const intent = requiredFrozenIntent(frozen.candidate, cro);
 
     expect(() =>
       freezeExecutionFeasibility("t", frozen.candidate, cro, {
         agent: "autonomous_execution",
         trades: [
           {
-            ticker: "600519.SH",
-            action: "BUY",
+            order_intent_ref: intent.order_intent_ref,
+            ticker: intent.ts_code,
+            action: intent.action,
             size_pct: 0.2,
             delta_weight: 0.2,
             conviction: 0.5,
@@ -1160,7 +2051,9 @@ describe("Layer-4 runtime source envelopes", () => {
         ],
         execution_checks: [
           {
-            ticker: "600519.SH",
+            order_intent_ref: intent.order_intent_ref,
+            ticker: intent.ts_code,
+            requested_delta_weight: intent.requested_delta_weight,
             status: "blocked",
             estimated_cost_bps: 10,
             reason: "halted",
@@ -1174,8 +2067,9 @@ describe("Layer-4 runtime source envelopes", () => {
         agent: "autonomous_execution",
         trades: [
           {
-            ticker: "600519.SH",
-            action: "BUY",
+            order_intent_ref: intent.order_intent_ref,
+            ticker: intent.ts_code,
+            action: intent.action,
             size_pct: 0.15,
             delta_weight: 0.15,
             conviction: 0.5,
@@ -1183,7 +2077,9 @@ describe("Layer-4 runtime source envelopes", () => {
         ],
         execution_checks: [
           {
-            ticker: "600519.SH",
+            order_intent_ref: intent.order_intent_ref,
+            ticker: intent.ts_code,
+            requested_delta_weight: intent.requested_delta_weight,
             status: "partial",
             estimated_cost_bps: 10,
             max_executable_delta_weight: 0.1,
@@ -1224,7 +2120,12 @@ describe("Layer-4 runtime source envelopes", () => {
       black_swan_scenarios: [],
       confidence: 0.5,
     });
-    const execution = freezeExecutionFeasibility("t", frozen.candidate, cro, executableOutput());
+    const execution = freezeExecutionFeasibility(
+      "t",
+      frozen.candidate,
+      cro,
+      executableOutput(requiredFrozenIntent(frozen.candidate, cro)),
+    );
     state.layer4_outputs.runtime = {
       ...emptyLayer4RuntimeState(),
       candidate_target_state: frozen.candidate,
@@ -1240,6 +2141,8 @@ describe("Layer-4 runtime source envelopes", () => {
         dissent_notes: "applied CRO cap",
       },
     ]);
+    adjusted.execution_control_resolutions =
+      withExecutionResolution(adjusted).execution_control_resolutions;
 
     expect(() => freezeFinalTarget(state, adjusted, [])).toThrow(/lacks frozen CRO dissent/);
     adjusted.dissent_refs = [
@@ -1258,6 +2161,178 @@ describe("Layer-4 runtime source envelopes", () => {
       reason: "applied CRO cap",
     };
     expect(() => freezeFinalTarget(state, adjusted, [])).toThrow(/dissent hash mismatch/);
+  });
+
+  it("enforces FEASIBLE, PARTIAL, and BLOCKED execution caps with frozen dissent", () => {
+    const makeState = (
+      buildExecutionOutput: (
+        intent: ReturnType<typeof expectedFrozenOrderIntents>["order_intents"][number],
+      ) => AutoExecOutput,
+    ) => {
+      const state = baseState();
+      const frozen = freezeCioProposal(
+        state,
+        cioOutput([
+          {
+            ticker: "600519.SH",
+            action: "BUY",
+            target_weight: 0.2,
+            holding_period: "3M",
+            dissent_notes: "",
+          },
+        ]),
+      );
+      const cro = freezeCroReview("t", frozen.candidate, {
+        agent: "cro",
+        rejected_picks: [],
+        required_adjustments: [],
+        correlated_risks: [],
+        black_swan_scenarios: [],
+        confidence: 0.5,
+      });
+      const intent = requiredFrozenIntent(frozen.candidate, cro);
+      const execution = freezeExecutionFeasibility(
+        "t",
+        frozen.candidate,
+        cro,
+        buildExecutionOutput(intent),
+      );
+      state.layer4_outputs.runtime = {
+        ...emptyLayer4RuntimeState(),
+        candidate_target_state: frozen.candidate,
+        cro_review_state: cro,
+        execution_feasibility_state: execution,
+      };
+      return { state, frozen, execution };
+    };
+
+    const feasible = makeState(executableOutput);
+    expect(
+      freezeFinalTarget(feasible.state, withExecutionResolution(feasible.frozen.proposal), []),
+    ).toBeDefined();
+    expect(() =>
+      freezeFinalTarget(
+        feasible.state,
+        withExecutionResolution(
+          cioOutput([
+            {
+              ticker: "600519.SH",
+              action: "BUY",
+              target_weight: 0.1,
+              holding_period: "3M",
+              dissent_notes: "uncontrolled reduction",
+            },
+          ]),
+        ),
+        [],
+      ),
+    ).toThrow(/without a binding control/);
+
+    const partial = makeState((intent) => ({
+      agent: "autonomous_execution",
+      execution_disposition: "TRADES",
+      trades: [
+        {
+          order_intent_ref: intent.order_intent_ref,
+          ticker: intent.ts_code,
+          action: intent.action,
+          size_pct: 0.1,
+          delta_weight: 0.1,
+          conviction: 0.5,
+        },
+      ],
+      execution_checks: [
+        {
+          assessment_local_id: "execution-local-1",
+          order_intent_ref: intent.order_intent_ref,
+          ticker: intent.ts_code,
+          requested_delta_weight: intent.requested_delta_weight,
+          status: "partial",
+          estimated_cost_bps: 10,
+          max_executable_delta_weight: 0.1,
+          reason: "bounded capacity",
+        },
+      ],
+      confidence: 0.5,
+    }));
+    const partialFinal = cioOutput([
+      {
+        ticker: "600519.SH",
+        action: "BUY",
+        target_weight: 0.1,
+        holding_period: "3M",
+        dissent_notes: "applied execution cap",
+      },
+    ]);
+    partialFinal.execution_control_resolutions =
+      withExecutionResolution(partialFinal).execution_control_resolutions;
+    expect(() => freezeFinalTarget(partial.state, partialFinal, [])).toThrow(
+      /lacks frozen execution dissent/,
+    );
+    partialFinal.dissent_refs = [
+      {
+        ticker: "600519.SH",
+        source: "execution_feasibility",
+        source_hash: partial.execution.feasibility_hash,
+        reason: "applied execution cap",
+      },
+    ];
+    expect(
+      freezeFinalTarget(partial.state, partialFinal, []).portfolio_actions[0]?.target_weight,
+    ).toBe(0.1);
+    const partialAction = partialFinal.portfolio_actions[0];
+    if (!partialAction) throw new Error("partial fixture requires one action");
+    partialAction.target_weight = 0.15;
+    expect(() => freezeFinalTarget(partial.state, partialFinal, [])).toThrow(
+      /exceeds frozen partial execution cap/,
+    );
+
+    const blocked = makeState((intent) => ({
+      agent: "autonomous_execution",
+      execution_disposition: "BLOCKED",
+      trades: [],
+      execution_checks: [
+        {
+          assessment_local_id: "execution-local-1",
+          order_intent_ref: intent.order_intent_ref,
+          ticker: intent.ts_code,
+          requested_delta_weight: intent.requested_delta_weight,
+          status: "blocked",
+          estimated_cost_bps: 0,
+          max_executable_delta_weight: 0,
+          reason: "halted",
+        },
+      ],
+      confidence: 0.5,
+    }));
+    const blockedFinal = cioOutput([
+      {
+        ticker: "600519.SH",
+        action: "HOLD",
+        target_weight: 0,
+        holding_period: "3M",
+        dissent_notes: "blocked",
+      },
+    ]);
+    blockedFinal.execution_control_resolutions =
+      withExecutionResolution(blockedFinal).execution_control_resolutions;
+    blockedFinal.dissent_refs = [
+      {
+        ticker: "600519.SH",
+        source: "execution_feasibility",
+        source_hash: blocked.execution.feasibility_hash,
+        reason: "blocked",
+      },
+    ];
+    expect(
+      freezeFinalTarget(blocked.state, blockedFinal, []).portfolio_actions[0]?.target_weight,
+    ).toBe(0);
+    const blockedDissent = blockedFinal.dissent_refs[0];
+    if (!blockedDissent) throw new Error("blocked fixture requires one dissent ref");
+    blockedDissent.source_hash = "sha256:wrong";
+    expect(() => freezeFinalTarget(blocked.state, blockedFinal, [])).toThrow(
+      /dissent hash mismatch/,
+    );
   });
 
   it("rejects CIO final after shared validation without constructing a hard exit", () => {
@@ -1444,7 +2519,6 @@ describe("CIO position validator", () => {
         currentPositions: loadedPositions([
           { ...heldPosition, unrealized_pnl_pct: -0.12, holding_days: 25 },
         ]),
-        sharedPolicyValues: { max_single_name_weight: 0.2 },
       }),
     ).toThrow(/stop_loss breached/);
   });
@@ -1490,26 +2564,6 @@ describe("CIO position validator", () => {
     ).toThrow(/counterevidence/);
   });
 
-  it("uses upstream CRO-owned active risk knob values for CIO validation", () => {
-    expect(() =>
-      validateCioPositionActions({
-        output: cioOutput([
-          {
-            ticker: "600519.SH",
-            action: "HOLD",
-            target_weight: 0.2,
-            holding_period: "3M",
-            dissent_notes: "",
-          },
-        ]),
-        currentPositions: loadedPositions([
-          { ...heldPosition, unrealized_pnl_pct: -0.06, holding_days: 25 },
-        ]),
-        sharedPolicyValues: { stop_loss_pct: -0.05, max_single_name_weight: 0.2 },
-      }),
-    ).toThrow(/stop_loss breached/);
-  });
-
   it("rejects max single-name breaches without CRO risk override", () => {
     expect(() =>
       validateCioPositionActions({
@@ -1524,7 +2578,6 @@ describe("CIO position validator", () => {
           },
         ]),
         currentPositions: loadedPositions([]),
-        sharedPolicyValues: { max_single_name_weight: 0.25 },
       }),
     ).toThrow(/CRO risk override/);
   });
@@ -1544,13 +2597,12 @@ describe("CIO position validator", () => {
         },
       ]),
       currentPositions: loadedPositions([]),
-      sharedPolicyValues: { max_single_name_weight: 0.25 },
     });
 
     expect(result.output.portfolio_actions[0]?.risk_flags).toEqual(["cro_risk_override"]);
   });
 
-  it("uses the catalog single-name cap when runtime policy values are unavailable", () => {
+  it("uses the public hard-control single-name cap", () => {
     expect(() =>
       validateCioPositionActions({
         output: cioOutput([
@@ -1568,7 +2620,7 @@ describe("CIO position validator", () => {
     ).toThrow(/max_single_name_weight/);
   });
 
-  it("uses the catalog sector cap when runtime policy values are unavailable", () => {
+  it("uses the public hard-control sector cap", () => {
     expect(() =>
       validateCioPositionActions({
         output: cioOutput(
@@ -1586,34 +2638,6 @@ describe("CIO position validator", () => {
     ).toThrow(/max_sector_weight/);
   });
 
-  it("rejects sector concentration breaches when max_sector_weight is active", () => {
-    expect(() =>
-      validateCioPositionActions({
-        output: cioOutput([
-          {
-            ticker: "688981.SH",
-            action: "HOLD",
-            target_weight: 0.18,
-            holding_period: "3M",
-            dissent_notes: "",
-          },
-          {
-            ticker: "300750.SZ",
-            action: "HOLD",
-            target_weight: 0.1,
-            holding_period: "3M",
-            dissent_notes: "",
-          },
-        ]),
-        currentPositions: loadedPositions([
-          { ...heldPosition, ticker: "688981.SH", sector: "semiconductor", current_weight: 0.18 },
-          { ...heldPosition, ticker: "300750.SZ", sector: "semiconductor", current_weight: 0.1 },
-        ]),
-        sharedPolicyValues: { max_single_name_weight: 0.2, max_sector_weight: 0.25 },
-      }),
-    ).toThrow(/max_sector_weight/);
-  });
-
   it("requires sector exposure when max_sector_weight is active", () => {
     expect(() =>
       validateCioPositionActions({
@@ -1627,7 +2651,6 @@ describe("CIO position validator", () => {
           },
         ]),
         currentPositions: loadedPositions([]),
-        sharedPolicyValues: { max_sector_weight: 0.25 },
       }),
     ).toThrow(/sector is missing/);
   });
@@ -1700,108 +2723,6 @@ describe("CIO position validator", () => {
         currentPositions: loadedPositions([heldPosition]),
       }),
     ).toThrow(/target_weight = 0/);
-  });
-
-  it("rejects MiroFish-only portfolio actions", () => {
-    expect(() =>
-      validateCioPositionActions({
-        output: {
-          ...cioOutput([
-            {
-              ticker: "600519.SH",
-              action: "BUY",
-              target_weight: 0.1,
-              holding_period: "3M",
-              dissent_notes: "scenario stress looked favorable",
-            },
-          ]),
-          declared_knob_influence_ids: ["mirofish_portfolio_stress_weight"],
-        },
-        currentPositions: loadedPositions([]),
-      }),
-    ).toThrow(/MiroFish-only/);
-  });
-
-  it("rejects RKE prior-only portfolio actions", () => {
-    expect(() =>
-      validateCioPositionActions({
-        output: {
-          ...cioOutput([
-            {
-              ticker: "688981.SH",
-              action: "BUY",
-              target_weight: 0.1,
-              holding_period: "3M",
-              dissent_notes: "ranked report prior looked favorable",
-            },
-          ]),
-          declared_knob_influence_ids: ["rke_prior"],
-        },
-        currentPositions: loadedPositions([]),
-      }),
-    ).toThrow(/RKE\/MiroFish prior-only/);
-  });
-
-  it("rejects mixed prior and simulation-only portfolio actions", () => {
-    expect(() =>
-      validateCioPositionActions({
-        output: {
-          ...cioOutput([
-            {
-              ticker: "688981.SH",
-              action: "BUY",
-              target_weight: 0.1,
-              holding_period: "3M",
-              dissent_notes: "report prior and scenario agreed",
-            },
-          ]),
-          declared_knob_influence_ids: ["rke_prior", "mirofish_portfolio_stress_weight"],
-        },
-        currentPositions: loadedPositions([]),
-      }),
-    ).toThrow(/RKE\/MiroFish prior-only/);
-  });
-
-  it("rejects MiroFish-influenced current-position changes without dissent notes", () => {
-    expect(() =>
-      validateCioPositionActions({
-        output: {
-          ...cioOutput([
-            {
-              ticker: "600519.SH",
-              action: "REDUCE",
-              target_weight: 0.1,
-              holding_period: "3M",
-              dissent_notes: "",
-            },
-          ]),
-          declared_knob_influence_ids: ["mirofish_portfolio_stress_weight", "rebalance_drift_pct"],
-        },
-        currentPositions: loadedPositions([heldPosition]),
-      }),
-    ).toThrow(/MiroFish-influenced position change requires dissent_notes/);
-  });
-
-  it("allows MiroFish-influenced current-position changes with dissent notes", () => {
-    const result = validateCioPositionActions({
-      output: {
-        ...cioOutput([
-          {
-            ticker: "600519.SH",
-            action: "REDUCE",
-            target_weight: 0.1,
-            holding_period: "3M",
-            dissent_notes:
-              "MiroFish tail stress conflicts with base hold, current data still valid",
-          },
-        ]),
-        declared_knob_influence_ids: ["mirofish_portfolio_stress_weight", "rebalance_drift_pct"],
-      },
-      currentPositions: loadedPositions([heldPosition]),
-    });
-
-    expect(result.output.portfolio_actions[0]?.position_decision).toBe("REDUCE");
-    expect(result.position_audit.reduce_count).toBe(1);
   });
 
   it("allows stop-loss breached HOLD with an override and audits it", () => {
@@ -1884,13 +2805,14 @@ describe("CIO position validator", () => {
         {
           ticker: "600519.SH",
           action: "HOLD",
-          target_weight: 0.2,
+          target_weight: 0.1,
           holding_period: "3M",
           dissent_notes: "",
         },
       ]),
-      currentPositions: loadedPositions([{ ...heldPosition, holding_days: 30 }]),
-      sharedPolicyValues: { max_single_name_weight: 0.2 },
+      currentPositions: loadedPositions([
+        { ...heldPosition, current_weight: 0.1, holding_days: 30 },
+      ]),
     });
 
     expect(result.output.portfolio_actions[0]?.risk_flags).toContain("stale_thesis");
@@ -1907,7 +2829,7 @@ describe("CIO position validator", () => {
         {
           ticker: "600519.SH",
           action: "HOLD",
-          target_weight: 0.2,
+          target_weight: 0.1,
           holding_period: "6M",
           dissent_notes: "core position still intact",
         },
@@ -1931,7 +2853,7 @@ describe("CIO position validator", () => {
         },
       ]),
       currentPositions: loadedPositions([
-        heldPosition,
+        { ...heldPosition, current_weight: 0.1 },
         {
           ...heldPosition,
           ticker: "688981.SH",
@@ -1947,7 +2869,6 @@ describe("CIO position validator", () => {
           entry_thesis_id: "thesis-000001",
         },
       ]),
-      sharedPolicyValues: { max_single_name_weight: 0.2 },
     });
 
     expect(result.position_reviews.map((review) => review.ticker).sort()).toEqual([
@@ -1970,27 +2891,36 @@ describe("CIO position validator", () => {
 });
 
 describe("Layer 1/2/3/4 context renderers", () => {
-  const regime: RegimeSignal = {
-    stance: "BULLISH",
-    confidence: 0.7,
-    key_drivers: ["d1", "d2"],
-    layer_1_consensus_score: 0.6,
-  };
-  const semi: SemiconductorOutput = {
-    agent: "semiconductor",
-    longs: [{ ticker: "688981.SH", thesis: "x", conviction: 0.8 }],
-    shorts: [],
-    sector_score: 0.6,
-    key_drivers: ["d"],
-    confidence: 0.45,
-  };
-  const druck: SuperinvestorOutput = {
-    agent: "druckenmiller",
-    picks: [
-      { ticker: "688981.SH", thesis: "regime BULLISH", conviction: 0.7, holding_period: "6M" },
+  const semi: SemiconductorOutput = sectorOutput("semiconductor", {
+    preferred_security_status: "PICKS_PRESENT",
+    preferred_security_abstention_confidence: null,
+    long_picks: [
+      {
+        pick_local_id: "semi-pick",
+        ts_code: "688981.SH",
+        direction_local_id: "semiconductor-preferred",
+        position_action: "LONG",
+        conviction: 0.8,
+        thesis: "x",
+        claim_refs: ["semiconductor-claim"],
+      },
     ],
-    philosophy_note: "macro / momentum",
-    key_drivers: ["d"],
+  });
+  const druck: SuperinvestorOutput = {
+    ...fallbackSuperinvestorOutput("druckenmiller", "macro momentum"),
+    agent: "druckenmiller",
+    selection_status: "SELECTED",
+    picks: [
+      {
+        pick_local_id: "druck-pick-1",
+        ts_code: "688981.SH",
+        position_action: "LONG",
+        thesis: "regime BULLISH",
+        conviction: 0.7,
+        claim_refs: ["fallback-druckenmiller-claim"],
+      },
+    ],
+    holding_period: "MONTHS",
     confidence: 0.6,
   };
   const cro: CroOutput = {
@@ -2001,11 +2931,21 @@ describe("Layer 1/2/3/4 context renderers", () => {
     confidence: 0.5,
   };
 
-  it("L1 renders regime + falls back when null", () => {
+  it("L1 renders independent transmissions and has no aggregate stance", () => {
     const s = baseState();
-    expect(renderLayer1Context(s)).toContain("not available");
-    s.layer1_consensus = regime;
-    expect(renderLayer1Context(s)).toContain("BULLISH");
+    expect(renderLayer1Context(s)).toContain("macro_input_gate: NOT_READY");
+    s.layer1_outputs = Object.fromEntries(
+      MACRO_AGENT_IDS.map((agent) => [
+        agent,
+        macroOutput(
+          agent,
+          agent === "china" ? { direction: "SUPPORTIVE", strength: 3 } : undefined,
+        ),
+      ]),
+    );
+    s.macro_input_gate = validateMacroInputs(s.layer1_outputs);
+    expect(renderLayer1Context(s)).toContain("china");
+    expect(renderLayer1Context(s)).not.toContain("layer_1_consensus_score");
   });
 
   it("L2 renders sector picks + relationship_mapper differently", () => {
@@ -2016,15 +2956,44 @@ describe("Layer 1/2/3/4 context renderers", () => {
     s.layer2_outputs = {
       relationship_mapper: {
         agent: "relationship_mapper",
-        supply_chains: [{ name: "半导体", tickers: ["688981.SH"], risk: "出口" }],
-        ownership_clusters: [],
-        contagion_risks: ["spillover"],
-        key_drivers: ["d"],
-        confidence: 0.4,
+        factual_edges: [
+          {
+            edge_local_id: "edge-1",
+            source_entity: "688981.SH",
+            target_entity: "semiconductor_equipment",
+            edge_type: "supply_chain",
+            claim_refs: ["mapper-claim"],
+          },
+        ],
+        predictive_edges: [],
+        predictive_graph_status: "NO_QUALIFIED_PREDICTIVE_EDGE",
+        predictive_graph_abstention_confidence: 0.4,
+        key_drivers: [
+          { driver_local_id: "driver-1", summary: "fixture driver", claim_refs: ["mapper-claim"] },
+        ],
+        risks: [{ risk_local_id: "risk-1", summary: "spillover", claim_refs: ["mapper-claim"] }],
+        claims: [
+          {
+            claim_id: "mapper-claim",
+            claim_kind: "FACT",
+            statement: "Relationship fixture.",
+            structured_conclusion: { relationship: "supply_chain" },
+            evidence_ids: ["fixture:mapper"],
+            research_rule_refs: [],
+          },
+        ],
+        claim_refs: ["mapper-claim"],
+        macro_input_attributions: MACRO_AGENT_IDS.map((macroAgentId) => ({
+          agent_id: macroAgentId,
+          target_type: "SUBMISSION_SUMMARY",
+          target_local_ref: "$SUBMISSION",
+          claim_refs_used: [],
+          effect: "NOT_MATERIAL",
+        })),
       },
     };
-    expect(renderLayer2Context(s)).toContain("supply_chains");
-    expect(renderLayer2Context(s)).toContain("contagion_risks");
+    expect(renderLayer2Context(s)).toContain("factual_edges");
+    expect(renderLayer2Context(s)).toContain("predictive_graph_status");
   });
 
   it("L3 renders superinvestor picks", () => {
@@ -2047,206 +3016,29 @@ describe("Layer 1/2/3/4 context renderers", () => {
     expect(ctxExcl).not.toContain("BAD:regulatory");
   });
 
-  it("Phase-3/6 stubs are present", () => {
-    expect(renderDarwinianWeightsStub()).toContain("Phase 3 stub");
-    expect(renderJanusRegimeStub()).toContain("Phase 6 stub");
+  it("keeps cohort provenance separate from a synthetic stance", () => {
+    expect(renderJanusRegimeStub()).toContain("Cohort provenance");
+    expect(renderJanusRegimeStub()).not.toContain("Phase 6 stub");
   });
 });
 
-// ============================================================ Phase 3F: renderDarwinianWeights + bridge wiring
-
-describe("renderDarwinianWeights (Phase 3F)", () => {
-  it("falls through to stub when weights are empty / undefined", async () => {
-    const { renderDarwinianWeights } = await import("../src/agents/decision/_user_context.js");
-    expect(renderDarwinianWeights(undefined)).toContain("Phase 3 stub");
-    expect(renderDarwinianWeights({})).toContain("Phase 3 stub");
-  });
-
-  it("renders per-agent weight table with quartile annotation", async () => {
-    const { renderDarwinianWeights } = await import("../src/agents/decision/_user_context.js");
-    const out = renderDarwinianWeights(
-      {
-        ackman: { weight: 1.5, sharpe_30: 1.0, quartile: 1 },
-        druckenmiller: { weight: 0.8, sharpe_30: 0.3, quartile: 3 },
-        burry: { weight: 0.4, sharpe_30: -0.1, quartile: 4 },
-      },
-      "2024-07-31",
-    );
-    expect(out).toContain("Darwinian weights (2024-07-31)");
-    expect(out).toContain("ackman: weight=1.50");
-    expect(out).toContain("Q1");
-    expect(out).toContain("Q4");
-    // Sorted by weight descending → ackman before druckenmiller before burry
-    const ackmanIdx = out.indexOf("ackman");
-    const druckIdx = out.indexOf("druckenmiller");
-    const burryIdx = out.indexOf("burry");
-    expect(ackmanIdx).toBeLessThan(druckIdx);
-    expect(druckIdx).toBeLessThan(burryIdx);
-  });
-
-  it("renders n<5 marker when sharpe_30 is null", async () => {
-    const { renderDarwinianWeights } = await import("../src/agents/decision/_user_context.js");
-    const out = renderDarwinianWeights({
-      ackman: { weight: 1.0, sharpe_30: null, quartile: null },
-    });
-    expect(out).toContain("sharpe_30=n<5");
-    expect(out).toContain("(?)");
-  });
-});
-
-describe("buildAutonomousExecutionNode (Phase 3F bridge wiring)", () => {
-  // Stub a minimal BridgeApi that records the get_weights call.
-  function makeApi(returnValue: unknown, throwOnCall = false) {
-    const calls: Array<{ cohort: string; date?: string }> = [];
-    const api = {
-      darwinianGetWeights: async (cohort: string, date?: string) => {
-        calls.push({ cohort, ...(date ? { date } : {}) });
-        if (throwOnCall) throw new Error("bridge-down");
-        return returnValue as { weights: Record<string, unknown> };
-      },
-    };
-    return { api, calls };
-  }
-
-  it("calls darwinian.get_weights with the cohort + as_of_date from state", async () => {
-    const { buildAutonomousExecutionNode, autonomousExecutionSpec } = await import(
+describe("autonomous execution reliability boundary", () => {
+  it("does not expose raw Darwinian fields in its model context", async () => {
+    const { autonomousExecutionSpec } = await import(
       "../src/agents/decision/autonomous_execution.js"
     );
-    const { api, calls } = makeApi({
-      weights: {
-        ackman: { weight: 1.5, sharpe_30: 1.0, sharpe_90: 0.8, quartile: 1 },
-      },
-    });
-    const state: DailyCycleStateType = {
-      messages: [],
-      active_cohort: "cohort_alpha",
-      as_of_date: "2024-07-15",
-      mode: "live",
-      trace_id: "t",
-      continuity_context: {},
-      lesson_context: {},
-      method_context: {},
-      layer1_outputs: {},
-      layer1_consensus: null,
-      layer2_outputs: {},
-      layer2_consensus: null,
-      layer3_outputs: {},
-      layer4_outputs: { cro: null, alpha_discovery: null, autonomous_execution: null, cio: null },
-      current_positions: {
-        snapshot_status: "empty_confirmed",
-        position_source: "empty_confirmed",
-        source_error_code: null,
-        position_snapshot_hash: "sha256:empty_positions",
-        positions: [],
-      },
-      position_reviews: [],
-      position_audit: {
-        position_snapshot_hash: "sha256:empty_positions",
-        snapshot_status: "empty_confirmed",
-        position_source: "empty_confirmed",
-        source_error_code: null,
-        positions_loaded: 0,
-        positions_reviewed: 0,
-        positions_unreviewed: 0,
-        hold_count: 0,
-        add_count: 0,
-        reduce_count: 0,
-        exit_count: 0,
-        stale_thesis_count: 0,
-        stop_loss_override_count: 0,
-        target_current_drift_count: 0,
-      },
-      portfolio_actions: [],
-      replay_triggered: false,
-      llm_calls: [],
-    };
-    // We don't fully build the node — we just verify the spec wrapper
-    // calls the bridge correctly via the closure.
-    void buildAutonomousExecutionNode; // ensure it imports cleanly
-    const wrappedSpec = (() => {
-      const spec = { ...autonomousExecutionSpec };
-      spec.buildUserContext = (s) =>
-        // Mirror the wrapper logic: wraps deps closure
-        (async () => {
-          const result = await api.darwinianGetWeights(
-            s.active_cohort || "cohort_default",
-            s.as_of_date,
-          );
-          return JSON.stringify(result);
-        })();
-      return spec;
-    })();
-    const ctx = await wrappedSpec.buildUserContext(state);
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.cohort).toBe("cohort_alpha");
-    expect(calls[0]?.date).toBe("2024-07-15");
-    expect(ctx).toContain("ackman");
+    const context = await autonomousExecutionSpec.buildUserContext(baseState());
+    expect(context).not.toMatch(/darwinian|quartile|sharpe|weight_record/i);
+    expect(context).toContain("frozen candidate target");
   });
 
-  it("falls back to stub when bridge call throws", async () => {
-    const { buildAutonomousExecutionNode } = await import(
-      "../src/agents/decision/autonomous_execution.js"
+  it("does not request Macro attribution during structured extraction", () => {
+    const executionExtractor = layerFourExtractorSystem(autonomousExecutionSpec, "en");
+    expect(executionExtractor).toContain("do not emit or infer Macro input attributions");
+    expect(executionExtractor).not.toContain("macro_input_attributions is an object");
+    expect(layerFourExtractorSystem(croSpec, "en")).toContain(
+      "macro_input_attributions is an object",
     );
-    const { api } = makeApi(null, /*throwOnCall=*/ true);
-    const onLogCalls: string[] = [];
-    const node = buildAutonomousExecutionNode({
-      llmHandle: {
-        llm: {
-          bindTools: () => ({}),
-          withStructuredOutput: () => ({
-            invoke: async () => {
-              throw new Error("force fallback");
-            },
-          }),
-          // biome-ignore lint/suspicious/noExplicitAny: minimal mock
-          invoke: async () => ({ content: "fallback" }) as any,
-          // biome-ignore lint/suspicious/noExplicitAny: structural typing for test mock
-        } as any,
-        provider: "fake",
-        model: "fake",
-        baseUrl: undefined,
-      },
-      // biome-ignore lint/suspicious/noExplicitAny: structural BridgeApi mock
-      api: api as any,
-      config: {
-        llm_provider: "fake",
-        deep_think_llm: "fake",
-        quick_think_llm: "fake",
-        backend_url: null,
-        anthropic_base_url: null,
-        anthropic_effort: null,
-        output_language: "Chinese",
-        research_depth_name: "标准",
-        active_cohort: "cohort_default",
-        cohorts: { cohort_default: { start: "2000-01-01", end: "2099-12-31" } },
-        autoresearch: {
-          agent_mutation_cooldown_hours: 24,
-          keep_revert_lockout_days: 3,
-          keep_threshold_delta_sharpe: 0.1,
-          monthly_modification_cap_per_cohort: 100,
-          evaluation_horizon_trading_days: 5,
-        },
-        data_vendors: {},
-        tool_vendors: {},
-      },
-      onLog: (msg) => onLogCalls.push(msg),
-      // No promptsRoot — the test relies on the factory throwing on
-      // structured output (which is our own mock); buildUserContext is
-      // exercised before that.
-    });
-    void node; // ensure no construction error
-    // The bridge fallback is exercised inside the factory loop. We can't
-    // easily run the node without a prompts dir, so we focus on the
-    // log-side effect by directly invoking the closure via an untyped
-    // path. Instead verify the onLog mechanism wires through by
-    // simulating an explicit failure:
-    onLogCalls.length = 0;
-    try {
-      await api.darwinianGetWeights("c", "d");
-    } catch {
-      onLogCalls.push("simulated bridge-down (mirrors deps.onLog path)");
-    }
-    expect(onLogCalls.length).toBe(1);
   });
 });
 
@@ -2333,9 +3125,7 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
     promptDir = mkdtempSync(join(tmpdir(), "mosaic-l4-"));
     const dir = join(promptDir, "cohort_default", "decision");
     mkdirSync(dir, { recursive: true });
-    const spec = RUNTIME_AGENT_SPEC_BY_AGENT.get("cio");
-    if (!spec) throw new Error("missing CIO runtime spec");
-    const prompt = `FAKE-CIO\n\n${renderResearchKnobsFence(buildRuntimeResearchKnobs(spec))}`;
+    const prompt = "FAKE-CIO";
     writeFileSync(join(dir, "cio.zh.md"), prompt, "utf-8");
     writeFileSync(join(dir, "cio.en.md"), prompt, "utf-8");
     clearPromptCache();
@@ -2399,12 +3189,16 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
     };
 
     const sample: DailyCycleStateType = baseState();
-    sample.layer1_consensus = {
-      stance: "BULLISH",
-      confidence: 0.6,
-      key_drivers: ["d"],
-      layer_1_consensus_score: 0.5,
-    };
+    sample.layer1_outputs = Object.fromEntries(
+      MACRO_AGENT_IDS.map((agent) => [
+        agent,
+        macroOutput(
+          agent,
+          agent === "china" ? { direction: "SUPPORTIVE", strength: 3 } : undefined,
+        ),
+      ]),
+    );
+    sample.macro_input_gate = validateMacroInputs(sample.layer1_outputs);
     sample.layer4_outputs = {
       cro: {
         agent: "cro",
@@ -2470,10 +3264,7 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
     const previousEnabled = process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENT_STAGES;
     process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENT_STAGES = "cio:cio_proposal";
     try {
-      const spec = RUNTIME_AGENT_SPEC_BY_AGENT.get("cio");
-      expect(spec).toBeDefined();
-      if (!spec) return;
-      const prompt = `FAKE-CIO\n\n${renderResearchKnobsFence(buildRuntimeResearchKnobs(spec))}`;
+      const prompt = "FAKE-CIO";
       const dir = join(promptDir, "cohort_default", "decision");
       writeFileSync(join(dir, "cio.zh.md"), prompt, "utf-8");
       writeFileSync(join(dir, "cio.en.md"), prompt, "utf-8");
@@ -2487,7 +3278,7 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
           this.invokeCalls++;
           return new AIMessage("Hold the existing position on current account evidence.");
         }
-        withStructuredOutput(): { invoke: (messages: BaseMessage[]) => Promise<CioOutput> } {
+        withStructuredOutput(): { invoke: (messages: BaseMessage[]) => Promise<unknown> } {
           return {
             invoke: async (messages) => {
               this.structuredCalls++;
@@ -2504,35 +3295,21 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
               }
               const evidenceId = this.evidenceId;
               if (!evidenceId) throw new Error("current evidence missing from extraction catalog");
-              expect(text).toContain("decision.cio.policy.001");
               return {
-                agent: "cio",
+                agent_id: "cio",
+                decision_stage: "PROPOSAL",
                 decision_disposition: "HOLD_CURRENT",
                 decision_reason: "Current evidence supports holding the existing target.",
-                decision_claim_refs: ["claim-hold"],
-                portfolio_actions: [
+                cash_weight: 0.8,
+                target_positions: [
                   {
-                    ticker: "600519.SH",
-                    action: "HOLD",
+                    position_local_id: "position-hold",
+                    ts_code: "600519.SH",
                     position_decision: "HOLD",
-                    current_weight: 0.2,
                     target_weight: 0.2,
-                    delta_weight: 0,
-                    holding_period: "1M",
-                    position_decision_reason: "Current position evidence remains valid.",
-                    dissent_notes: "",
-                    claim_refs: ["claim-hold"],
-                  },
-                ],
-                position_reviews: [
-                  {
-                    ticker: "600519.SH",
-                    decision: "HOLD",
-                    target_weight: 0.2,
-                    reason: "Current position evidence remains valid.",
-                    thesis_status: "intact",
+                    holding_period: "WEEKS",
+                    thesis_status: "INTACT",
                     risk_flags: [],
-                    confidence: 0.5,
                     claim_refs: ["claim-hold"],
                   },
                 ],
@@ -2540,14 +3317,21 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
                 claims: [
                   {
                     claim_id: "claim-hold",
-                    claim_type: "inference",
+                    claim_kind: "FACT",
                     statement: "Keep the existing target unchanged.",
                     structured_conclusion: { decision: "HOLD" },
-                    evidence_refs: [evidenceId ?? "missing"],
-                    research_rule_refs: ["decision.cio.policy.001"],
+                    evidence_ids: [evidenceId ?? "missing"],
+                    research_rule_refs: [],
                   },
                 ],
                 claim_refs: ["claim-hold"],
+                macro_input_attributions: MACRO_AGENT_IDS.map((agent_id) => ({
+                  agent_id,
+                  target_type: "SUBMISSION_SUMMARY",
+                  target_local_ref: "$SUBMISSION",
+                  claim_refs_used: [],
+                  effect: "NOT_MATERIAL",
+                })),
               };
             },
           };
@@ -2600,13 +3384,8 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
           claim_refs: ["claim-hold"],
         },
         {
-          output_id: "portfolio_action:0:600519.SH",
+          output_id: "target_position:0:600519.SH",
           output_type: "portfolio_action",
-          claim_refs: ["claim-hold"],
-        },
-        {
-          output_id: "position_review:0:600519.SH",
-          output_type: "position_decision",
           claim_refs: ["claim-hold"],
         },
       ]);
@@ -2625,7 +3404,7 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
 
 // ============================================================ end-to-end via factory (cro)
 
-describe("buildCroNode (no-tool synthesis, no portfolio_actions mirror)", () => {
+describe("buildCroNode (frozen snapshots, no portfolio_actions mirror)", () => {
   let promptDir: string;
 
   class ScriptedLlm {
@@ -2638,11 +3417,11 @@ describe("buildCroNode (no-tool synthesis, no portfolio_actions mirror)", () => 
       this.bindToolsCalled++;
       return this;
     }
-    withStructuredOutput(_s: unknown): { invoke: (input: unknown) => Promise<unknown> } {
+    withStructuredOutput(schema: unknown): { invoke: (input: unknown) => Promise<unknown> } {
       return {
-        invoke: async () => {
+        invoke: async (input) => {
           this.structuredCalls++;
-          return this.canned;
+          return fakeAgentStructuredOutput(schema, "cro", input);
         },
       };
     }
@@ -2657,9 +3436,7 @@ describe("buildCroNode (no-tool synthesis, no portfolio_actions mirror)", () => 
     promptDir = mkdtempSync(join(tmpdir(), "mosaic-l4cro-"));
     const dir = join(promptDir, "cohort_default", "decision");
     mkdirSync(dir, { recursive: true });
-    const spec = RUNTIME_AGENT_SPEC_BY_AGENT.get("cro");
-    if (!spec) throw new Error("missing CRO runtime spec");
-    const prompt = `FAKE-CRO\n\n${renderResearchKnobsFence(buildRuntimeResearchKnobs(spec))}`;
+    const prompt = "FAKE-CRO";
     writeFileSync(join(dir, "cro.zh.md"), prompt, "utf-8");
     writeFileSync(join(dir, "cro.en.md"), prompt, "utf-8");
     clearPromptCache();
@@ -2668,6 +3445,29 @@ describe("buildCroNode (no-tool synthesis, no portfolio_actions mirror)", () => 
     rmSync(promptDir, { recursive: true, force: true });
     clearPromptCache();
   });
+
+  function croApi(
+    includeRke = false,
+    calls: Array<{ name: string; args: Record<string, unknown> }> = [],
+  ): BridgeApi {
+    const names = [
+      "get_cro_risk_snapshot",
+      "get_role_event_snapshot",
+      ...(includeRke ? ["get_rke_research_context"] : []),
+    ];
+    return {
+      toolsList: async () =>
+        names.map((name) => ({
+          name,
+          description: name,
+          args_schema: { type: "object", properties: {}, required: [] },
+        })),
+      toolsCall: async (name: string, args: Record<string, unknown>) => {
+        calls.push({ name, args });
+        return { text: `Frozen snapshot from ${name}` };
+      },
+    } as unknown as BridgeApi;
+  }
 
   it("does NOT write portfolio_actions (only cio does)", async () => {
     const canned: CroOutput = {
@@ -2681,10 +3481,10 @@ describe("buildCroNode (no-tool synthesis, no portfolio_actions mirror)", () => 
       claims: [
         {
           claim_id: "claim-no-objection",
-          claim_type: "uncertainty",
+          claim_kind: "RISK_FLAG",
           statement: "No evidence-backed objection was identified.",
           structured_conclusion: { decision: "NO_OBJECTION" },
-          evidence_refs: [],
+          evidence_ids: ["test:no-objection"],
           research_rule_refs: [],
         },
       ],
@@ -2719,19 +3519,27 @@ describe("buildCroNode (no-tool synthesis, no portfolio_actions mirror)", () => 
       tool_vendors: {},
     };
     const sample = stateWithFrozenCandidate();
-    const node = buildCroNode({ llmHandle: handle, config, promptsRoot: promptDir });
+    const node = buildCroNode({
+      llmHandle: handle,
+      api: croApi(),
+      config,
+      promptsRoot: promptDir,
+    });
     const update = await node(sample);
     const u = update as DailyCycleStateUpdate as unknown as {
       layer4_outputs?: Partial<Layer4Outputs>;
       portfolio_actions?: PortfolioAction[];
     };
-    expect(u.layer4_outputs?.cro).toMatchObject(canned);
+    expect(u.layer4_outputs?.cro).toMatchObject({
+      agent: "cro",
+      review_disposition: "NO_OBJECTION",
+    });
     expect(u.portfolio_actions).toBeUndefined();
     expect(llm.bindToolsCalled).toBe(0);
     expect(llm.invokeCalls).toBe(1);
   });
 
-  it("injects and binds RKE research context when bridge api is supplied", async () => {
+  it("keeps RKE research context outside the production decision graph", async () => {
     const canned: CroOutput = {
       agent: "cro",
       review_disposition: "NO_OBJECTION",
@@ -2743,10 +3551,10 @@ describe("buildCroNode (no-tool synthesis, no portfolio_actions mirror)", () => 
       claims: [
         {
           claim_id: "claim-no-objection",
-          claim_type: "uncertainty",
+          claim_kind: "RISK_FLAG",
           statement: "No evidence-backed objection was identified.",
           structured_conclusion: { decision: "NO_OBJECTION" },
-          evidence_refs: [],
+          evidence_ids: ["test:no-objection"],
           research_rule_refs: [],
         },
       ],
@@ -2781,37 +3589,15 @@ describe("buildCroNode (no-tool synthesis, no portfolio_actions mirror)", () => 
       tool_vendors: {},
     };
     const toolCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
-    const api = {
-      toolsList: async () => [
-        {
-          name: "get_rke_research_context",
-          description: "rke",
-          args_schema: { type: "object", properties: {}, required: [] },
-        },
-      ],
-      toolsCall: async (name: string, args: Record<string, unknown>) => {
-        toolCalls.push({ name, args });
-        return { text: "Runtime preflight: ok" };
-      },
-    } as unknown as BridgeApi;
+    const api = croApi(true, toolCalls);
 
     const node = buildCroNode({ llmHandle: handle, api, config, promptsRoot: promptDir });
     await node(stateWithFrozenCandidate());
 
-    expect(toolCalls).toEqual([
-      {
-        name: "get_rke_research_context",
-        args: {
-          agent_id: "cro",
-          layer: "decision",
-          as_of_date: "2024-06-24",
-          max_items: 3,
-        },
-      },
-    ]);
-    expect(llm.bindToolsCalled).toBe(1);
+    expect(toolCalls.map((call) => call.name)).not.toContain("get_rke_research_context");
+    expect(llm.bindToolsCalled).toBe(0);
     expect(llm.invokeCalls).toBe(1);
-    expect(llm.lastMessages.map((msg) => String(msg.content)).join("\n")).toContain(
+    expect(llm.lastMessages.map((msg) => String(msg.content)).join("\n")).not.toContain(
       "RKE research prior context",
     );
   });

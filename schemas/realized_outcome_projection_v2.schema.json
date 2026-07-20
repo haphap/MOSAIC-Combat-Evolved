@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "realized_outcome_projection_v2"
+    },
+    "snapshot_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "scheduled_sample_id": { "type": "string", "minLength": 1 },
+    "outcome_schedule_slot_id": { "type": "string", "minLength": 1 },
+    "outcome_schedule_slot_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "evaluation_opportunity_set_id": { "type": "string", "minLength": 1 },
+    "evaluation_opportunity_set_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "accepted_output_id": { "type": "string", "minLength": 1 },
+    "accepted_output_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "track_key_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "agent_id": {
+      "type": "string",
+      "enum": [
+        "china",
+        "us_economy",
+        "eu_economy",
+        "central_bank",
+        "us_financial_conditions",
+        "euro_area_financial_conditions",
+        "commodities",
+        "geopolitical",
+        "market_breadth",
+        "institutional_flow",
+        "semiconductor",
+        "technology",
+        "energy",
+        "biotech",
+        "consumer",
+        "industrials",
+        "real_estate_construction",
+        "financials",
+        "agriculture",
+        "relationship_mapper",
+        "druckenmiller",
+        "munger",
+        "burry",
+        "ackman",
+        "cro",
+        "alpha_discovery",
+        "autonomous_execution",
+        "cio"
+      ]
+    },
+    "metric_family": { "type": "string", "minLength": 1 },
+    "metric_schema_id": { "type": "string", "minLength": 1 },
+    "realized_metric_schema_id": { "type": "string", "minLength": 1 },
+    "outcome_registry_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "metric_schemas_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "realized_metric_schemas_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "outcome_projection_schema_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "source_authority_registry_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "source_authority_registry_schema_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "source_receipt_schema_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "source_batch_schema_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "opportunity_as_of": { "type": "string", "format": "date-time" },
+    "outcome_due_at": { "type": "string", "format": "date-time" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "pit_status": { "type": "string", "const": "VERIFIED" },
+    "source_batch_id": { "type": "string", "minLength": 1 },
+    "source_batch_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "snapshot_hash",
+    "scheduled_sample_id",
+    "outcome_schedule_slot_id",
+    "outcome_schedule_slot_hash",
+    "evaluation_opportunity_set_id",
+    "evaluation_opportunity_set_hash",
+    "accepted_output_id",
+    "accepted_output_hash",
+    "track_key_hash",
+    "agent_id",
+    "metric_family",
+    "metric_schema_id",
+    "realized_metric_schema_id",
+    "outcome_registry_hash",
+    "metric_schemas_hash",
+    "realized_metric_schemas_hash",
+    "outcome_projection_schema_hash",
+    "source_authority_registry_hash",
+    "source_authority_registry_schema_hash",
+    "source_receipt_schema_hash",
+    "source_batch_schema_hash",
+    "opportunity_as_of",
+    "outcome_due_at",
+    "generated_at",
+    "pit_status",
+    "source_batch_id",
+    "source_batch_hash"
+  ],
+  "additionalProperties": false
+}

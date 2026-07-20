@@ -1,0 +1,300 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Geopolitical initial source and route closure manifest v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_registry_version",
+    "coverage_scope_version",
+    "source_coverage_contract_version",
+    "active_event_types",
+    "watchlist_actor_ids",
+    "watchlist_region_ids",
+    "registrations",
+    "adapter_contracts",
+    "approved_publishers",
+    "coverage_routes",
+    "manifest_readiness",
+    "readiness_blockers",
+    "raw_source_content_committed",
+    "coverage_scope_hash",
+    "manifest_hash"
+  ],
+  "properties": {
+    "schema_version": { "const": "geopolitical_initial_source_manifest_v2" },
+    "source_registry_version": { "const": "geopolitical_source_registry_v2" },
+    "coverage_scope_version": { "const": "geopolitical_coverage_scope_v2" },
+    "source_coverage_contract_version": { "const": "geopolitical_source_coverage_v2" },
+    "active_event_types": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/eventType" }
+    },
+    "watchlist_actor_ids": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "uniqueItems": true,
+      "items": { "enum": ["CN", "US", "EU", "RU", "UA", "IR", "IL", "KP", "KR"] }
+    },
+    "watchlist_region_ids": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "TAIWAN_STRAIT",
+          "SOUTH_CHINA_SEA",
+          "RED_SEA_BAB_EL_MANDEB",
+          "STRAIT_OF_HORMUZ",
+          "BLACK_SEA",
+          "KOREAN_PENINSULA"
+        ]
+      }
+    },
+    "registrations": {
+      "type": "array",
+      "minItems": 15,
+      "maxItems": 15,
+      "items": { "$ref": "#/$defs/registration" }
+    },
+    "adapter_contracts": {
+      "type": "array",
+      "minItems": 15,
+      "maxItems": 15,
+      "items": { "$ref": "#/$defs/adapter" }
+    },
+    "approved_publishers": {
+      "type": "array",
+      "minItems": 15,
+      "maxItems": 15,
+      "items": { "$ref": "#/$defs/publisher" }
+    },
+    "coverage_routes": {
+      "type": "array",
+      "minItems": 112,
+      "maxItems": 112,
+      "items": { "$ref": "#/$defs/route" }
+    },
+    "manifest_readiness": { "enum": ["READY", "PREFLIGHT_REQUIRED"] },
+    "readiness_blockers": { "$ref": "#/$defs/uniqueStrings" },
+    "raw_source_content_committed": { "const": false },
+    "coverage_scope_hash": { "$ref": "#/$defs/hash" },
+    "manifest_hash": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "eventType": {
+      "enum": [
+        "SANCTION",
+        "EXPORT_CONTROL",
+        "TARIFF_TRADE_RESTRICTION",
+        "ARMED_CONFLICT",
+        "SHIPPING_DISRUPTION",
+        "DIPLOMATIC_ESCALATION",
+        "DIPLOMATIC_DEESCALATION"
+      ]
+    },
+    "uniqueStrings": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "nonEmptyUniqueStrings": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "nullableString": { "type": ["string", "null"] },
+    "preflight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "required_continuous_days",
+        "observed_continuous_days",
+        "window_started_at",
+        "window_completed_at",
+        "availability_ratio",
+        "p95_capture_lag_minutes",
+        "schema_verified",
+        "pagination_verified",
+        "publication_time_verified",
+        "license_verified",
+        "evidence_id"
+      ],
+      "properties": {
+        "status": { "enum": ["READY", "PREFLIGHT_REQUIRED", "FAILED"] },
+        "required_continuous_days": { "const": 30 },
+        "observed_continuous_days": { "type": "integer", "minimum": 0 },
+        "window_started_at": { "type": ["string", "null"], "format": "date-time" },
+        "window_completed_at": { "type": ["string", "null"], "format": "date-time" },
+        "availability_ratio": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "p95_capture_lag_minutes": { "type": ["number", "null"], "minimum": 0 },
+        "schema_verified": { "type": "boolean" },
+        "pagination_verified": { "type": "boolean" },
+        "publication_time_verified": { "type": "boolean" },
+        "license_verified": { "type": "boolean" },
+        "evidence_id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "registration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "provider_kind",
+        "registration_status",
+        "source_contract_version",
+        "adapter_contract_id",
+        "adapter_contract_hash",
+        "required",
+        "required_for_event_types",
+        "publisher_organization_id",
+        "upstream_origin_family",
+        "source_backend",
+        "tushare_endpoint_id",
+        "preflight"
+      ],
+      "properties": {
+        "source_id": { "type": "string", "minLength": 1 },
+        "provider_kind": { "enum": ["OFFICIAL_PRIMARY", "STRUCTURED_DISCOVERY", "OPTIONAL_CONTEXT"] },
+        "registration_status": { "enum": ["ACTIVE_VERIFIED", "PREFLIGHT_REQUIRED", "DISABLED_CONTRACT"] },
+        "source_contract_version": { "const": "geopolitical_source_registration_v2" },
+        "adapter_contract_id": { "type": "string", "minLength": 1 },
+        "adapter_contract_hash": { "$ref": "#/$defs/hash" },
+        "required": { "type": "boolean" },
+        "required_for_event_types": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/eventType" }
+        },
+        "publisher_organization_id": { "type": "string", "minLength": 1 },
+        "upstream_origin_family": { "type": "string", "minLength": 1 },
+        "source_backend": { "const": "DIRECT" },
+        "tushare_endpoint_id": { "type": "null" },
+        "preflight": { "$ref": "#/$defs/preflight" }
+      }
+    },
+    "adapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "adapter_contract_id",
+        "adapter_contract_version",
+        "source_id",
+        "canonical_url_or_api",
+        "retrieval_mode",
+        "pagination_or_cursor_contract",
+        "continuous_scope_query_template",
+        "covered_actor_ids",
+        "covered_region_ids",
+        "global_scope_capable",
+        "covered_event_types",
+        "source_time_zone",
+        "published_at_field",
+        "license_classification",
+        "expected_poll_interval_minutes",
+        "max_capture_age_minutes",
+        "truncation_detection_contract",
+        "no_event_claim_capable",
+        "expected_response_schema_hash",
+        "adapter_contract_hash"
+      ],
+      "properties": {
+        "adapter_contract_id": { "type": "string", "minLength": 1 },
+        "adapter_contract_version": { "const": "geopolitical_source_adapter_v2" },
+        "source_id": { "type": "string", "minLength": 1 },
+        "canonical_url_or_api": { "type": "string", "minLength": 1 },
+        "retrieval_mode": { "enum": ["API", "RSS", "HTML_DIRECTORY", "FILE_FEED"] },
+        "pagination_or_cursor_contract": { "type": "string", "minLength": 1 },
+        "continuous_scope_query_template": { "type": "string", "minLength": 1 },
+        "covered_actor_ids": { "$ref": "#/$defs/nonEmptyUniqueStrings" },
+        "covered_region_ids": { "$ref": "#/$defs/nonEmptyUniqueStrings" },
+        "global_scope_capable": { "type": "boolean" },
+        "covered_event_types": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/eventType" }
+        },
+        "source_time_zone": { "type": "string", "minLength": 1 },
+        "published_at_field": { "type": "string", "minLength": 1 },
+        "license_classification": { "type": "string", "minLength": 1 },
+        "expected_poll_interval_minutes": { "type": "integer", "minimum": 1 },
+        "max_capture_age_minutes": { "type": "integer", "minimum": 1 },
+        "truncation_detection_contract": { "type": "string", "minLength": 1 },
+        "no_event_claim_capable": { "type": "boolean" },
+        "expected_response_schema_hash": { "$ref": "#/$defs/hash" },
+        "adapter_contract_hash": { "$ref": "#/$defs/hash" }
+      }
+    },
+    "publisher": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domain",
+        "publisher_organization_id",
+        "allowed_event_types",
+        "upstream_origin_family",
+        "independence_rule"
+      ],
+      "properties": {
+        "domain": { "type": "string", "minLength": 1 },
+        "publisher_organization_id": { "type": "string", "minLength": 1 },
+        "allowed_event_types": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/eventType" }
+        },
+        "upstream_origin_family": { "type": "string", "minLength": 1 },
+        "independence_rule": { "const": "organization_and_upstream_origin_must_both_differ" }
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coverage_route_id",
+        "event_type",
+        "subject_type",
+        "actor_id",
+        "region_id",
+        "actor_official_source_id",
+        "applicability",
+        "applicability_reason_code",
+        "required_source_ids",
+        "no_event_evidence_source_ids",
+        "route_status",
+        "coverage_route_hash"
+      ],
+      "properties": {
+        "coverage_route_id": { "type": "string", "minLength": 1 },
+        "event_type": { "$ref": "#/$defs/eventType" },
+        "subject_type": { "enum": ["ACTOR", "REGION", "GLOBAL"] },
+        "actor_id": { "type": ["string", "null"] },
+        "region_id": { "type": ["string", "null"] },
+        "actor_official_source_id": { "type": ["string", "null"] },
+        "applicability": { "enum": ["APPLICABLE", "NOT_APPLICABLE"] },
+        "applicability_reason_code": {
+          "enum": [
+            "MATERIAL_A_SHARE_TRANSMISSION_SCOPE",
+            "ISSUER_OR_TARGET_WATCHLIST_SCOPE",
+            "REGION_WATCHLIST_SCOPE",
+            "NO_REGISTERED_MATERIAL_LINK"
+          ]
+        },
+        "required_source_ids": { "$ref": "#/$defs/uniqueStrings" },
+        "no_event_evidence_source_ids": { "$ref": "#/$defs/uniqueStrings" },
+        "route_status": { "enum": ["ACTIVE_VERIFIED", "PREFLIGHT_REQUIRED", "COVERAGE_UNAVAILABLE", "NOT_APPLICABLE"] },
+        "coverage_route_hash": { "$ref": "#/$defs/hash" }
+      }
+    }
+  }
+}

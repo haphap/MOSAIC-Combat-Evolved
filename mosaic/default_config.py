@@ -227,8 +227,10 @@ DEFAULT_CONFIG = {
         },
     },
     "darwinian": {
-        # Phase 9 unified Darwinian evolution is the default path. Set this
-        # false to roll back to the legacy rolling-Sharpe-to-weight projection.
+        # Legacy-unverified v1 audit/replay table only. Production usage weights
+        # come from a frozen Darwinian-v2 production-variant binding and never
+        # fall back here. Within an explicit v1 audit, this flag selects the
+        # layer-aware rewrite instead of the older rolling-Sharpe projection.
         "weight_rewrite_enabled": True,
         "weight_start": 1.0,
         "weight_floor": 0.3,

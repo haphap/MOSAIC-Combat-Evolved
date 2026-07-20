@@ -4,10 +4,12 @@
  * Differs structurally from L1/L2/L3 factories:
  *   * Layer 4 primarily synthesises upstream state, but may expose a small
  *     required tool set such as RKE research context when deps.api is present.
- *   * **Each agent's user-context build is custom** — cro reads L1+L2+L3,
- *     alpha reads L1+L2+L3, autonomous_execution reads cro+alpha+L3, cio
- *     reads everything. The spec carries a ``buildUserContext`` function
- *     so each agent picks exactly what it needs.
+ *   * **Each agent's user-context build is custom** — cro and alpha consume
+ *     their registered research inputs, autonomous_execution consumes only
+ *     the frozen CIO proposal/CRO controls/order intents plus execution
+ *     evidence, and cio consumes its registered proposal/final inputs. The
+ *     spec carries a ``buildUserContext`` function so each agent picks exactly
+ *     what it needs.
  *
  * State writes:
  *   * ``layer4_outputs[<stateUpdateField>]`` (cro / alpha_discovery /
@@ -17,9 +19,9 @@
  *   * ``llm_calls`` append.
  */
 
-import { HumanMessage, SystemMessage } from "@langchain/core/messages";
-import type { StructuredToolInterface } from "@langchain/core/tools";
-import type { z } from "zod";
+import { type BaseMessage, HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { type StructuredToolInterface, tool } from "@langchain/core/tools";
+import { z } from "zod";
 import {
   type PromptReleaseCanaryEvent,
   persistPromptReleaseCanaryEvents,
@@ -32,31 +34,46 @@ import {
 } from "../../bridge/index.js";
 import type { LlmHandle } from "../../llm/factory.js";
 import { formatMirofishContext } from "../../mirofish/context.js";
-import { runAgentToolLoop } from "../helpers/agent_loop.js";
 import {
-  type AgentContractIssue,
-  type AgentRunAudit,
-  invokeStrictStructured,
-} from "../helpers/agent_run_contract.js";
+  type AcceptedAgentOutputRecord,
+  type AcceptedAgentOutputStore,
+  type AcceptedOutputKind,
+  type AcceptedOutputRecordRef,
+  acceptedOutputBuildContextFromState,
+  acceptedOutputRefKey,
+  buildAcceptedAgentOutputRecord,
+  buildStructuredSmokeAcceptedOutputRef,
+  canonicalAcceptedOutputHash,
+} from "../accepted_output.js";
+import { runAgentToolLoop } from "../helpers/agent_loop.js";
+import { type AgentRunAudit, invokeStrictStructured } from "../helpers/agent_run_contract.js";
+import { evidenceLineageEnvelopeFromGraph } from "../helpers/causal_evidence_resolution.js";
 import { extractTextContent } from "../helpers/content.js";
 import {
-  buildAgentInvocationId,
   buildRuntimeEvidenceSnapshot,
   type RuntimeEvidenceSnapshot,
 } from "../helpers/evidence_runtime.js";
+import {
+  canonicalAcceptedSubmissionBody,
+  MACRO_ATTRIBUTION_PROVIDER_INSTRUCTION,
+  resolveMacroInputAttributions,
+} from "../helpers/macro_attribution.js";
+import { acceptedMacroOutputs } from "../helpers/macro_context.js";
+import { preModelOutcomeDisposition } from "../helpers/outcome_pre_model.js";
+import {
+  isPrivateKnotStageEnabled,
+  type PrivateKnotAuditSummary,
+  type PrivateKnotSnapshot,
+  privateKnotInvocationContextForState,
+  type RuntimeSourceStatus,
+  type ToolStatus,
+} from "../helpers/private_knot_boundary.js";
 import {
   type AgentCanaryEventContext,
   agentCanaryEventContext,
   beginAgentPromptCanaryInvocation,
   buildAgentPromptCanaryEvent,
 } from "../helpers/prompt_canary.js";
-import {
-  isResearchKnobsStageEnabled,
-  type ResearchKnobCapAudit,
-  type ResearchKnobsSnapshot,
-  type RuntimeSourceStatus,
-  type ToolStatus,
-} from "../helpers/research_knobs.js";
 import {
   buildLlmCall,
   extractLlmTokenUsage,
@@ -70,11 +87,16 @@ import {
 } from "../helpers/runtime.js";
 import { resolveRuntimeSourceStatusesForAgent } from "../helpers/runtime_sources.js";
 import { validateStrictAgentOutput } from "../helpers/strict_agent_validation.js";
-import { type LoaderLanguage, loadPrompt, loadPromptWithKnobs } from "../prompts/loader.js";
+import {
+  type AgentExecutionStageId,
+  hasAgentToolCapabilityApi,
+  prepareAgentToolCapability,
+  terminateAgentToolCapability,
+} from "../helpers/tool_capability.js";
+import { type LoaderLanguage, loadPrompt, loadPromptWithPrivateKnot } from "../prompts/loader.js";
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type {
-  AlphaDiscoveryOutput,
   AutoExecOutput,
   CioOutput,
   CroOutput,
@@ -83,7 +105,27 @@ import type {
   Layer4RuntimeTraceEntry,
   LlmCallRecord,
 } from "../types.js";
-import { validateAutonomousExecutionActions } from "./execution_validator.js";
+import {
+  type AcceptedAlphaDiscovery,
+  type AcceptedCioProposal,
+  type AcceptedCroRiskReview,
+  type AcceptedExecutionAssessment,
+  alphaDiscoveryPayload,
+  buildAcceptedAlphaDiscovery,
+  buildAcceptedCioFinal,
+  buildAcceptedCioProposal,
+  buildAcceptedCroRiskReview,
+  buildAcceptedExecutionAssessment,
+  type CioFinalSubmission,
+  type CioProposalSubmission,
+  type CroAgentSubmission,
+  cioDecisionPayload,
+  croRiskReviewPayload,
+  type DecisionAgentSubmission,
+  type DecisionControlSourceRef,
+  type DecisionStageSourceRef,
+  decisionMacroAttributionTargets,
+} from "./accepted.js";
 import {
   assertL4RunSnapshotStage,
   freezeCioProposal,
@@ -96,22 +138,42 @@ import {
   validateFinalTargetEnvelope,
 } from "./layer4_runtime.js";
 import { validateCioPositionActions } from "./position_validator.js";
+import {
+  decisionSubmissionToRuntimeOutput,
+  expectedFrozenOrderIntents,
+  frozenCandidateRef,
+} from "./runtime_adapter.js";
+import { buildCroStageFrozenObject } from "./stage_opportunity.js";
+import {
+  buildRuntimeAlphaDiscoverySubmissionSchema,
+  CioFinalAllCashSubmissionSchema,
+  CioFinalNonEmptyCurrentSubmissionSchema,
+  CioFinalWithoutHoldSubmissionSchema,
+  CioProposalAllCashSubmissionSchema,
+  CioProposalNonEmptyCurrentSubmissionSchema,
+  CioProposalWithoutHoldSubmissionSchema,
+  type FrozenAlphaCandidate,
+} from "./submission_schemas.js";
 
 /** Union of the 4 Layer-4 outputs handled by this factory. */
-export type Layer4AgentOutput = CroOutput | AlphaDiscoveryOutput | AutoExecOutput | CioOutput;
+export type Layer4AgentOutput = DecisionAgentSubmission;
 
 export interface LayerFourAgentSpec<TOutput extends Layer4AgentOutput> {
   agentId: string;
   runtimeStage: RuntimeAgentStageId;
   stateWriteMode?: "agent_output" | "cio_proposal" | "cio_final";
-  schema: z.ZodType<TOutput>;
+  schema: z.ZodTypeAny;
   fieldNames: ReadonlyArray<string>;
   /** The Layer4Outputs slot this agent populates. */
   stateUpdateField: Layer4AgentOutputKey;
   /** Build the user-context prose; each L4 agent reads different upstream layers.
-   *  May be async — autonomous_execution fetches Darwinian weights from the
-   *  bridge (Plan §11.3 sub-step 3F). */
-  buildUserContext: (state: DailyCycleStateType) => string | Promise<string>;
+   *  May be async when a role needs an authoritative runtime snapshot. Frozen
+   *  Darwinian-v2 usage weights are applied by the accepted-output adapter and
+   *  are never exposed to the model as raw records. */
+  buildUserContext: (
+    state: DailyCycleStateType,
+    acceptedOutputStore?: AcceptedAgentOutputStore,
+  ) => string | Promise<string>;
   /** Bridge tools this decision agent may call during synthesis. */
   requiredTools?: ReadonlyArray<string>;
   render: (output: TOutput) => string;
@@ -134,6 +196,8 @@ export interface LayerFourAgentDeps {
   mirofishContextCache?: Map<string, Promise<MirofishContextLoadResult>>;
   /** Canonical graph sets this; direct unit nodes may omit the graph-level bundle. */
   requireL4SnapshotBundle?: boolean;
+  /** Shared accepted-output resolver; required for formal production transport. */
+  acceptedOutputStore?: AcceptedAgentOutputStore;
 }
 
 export type LayerFourAgentNode = (state: DailyCycleStateType) => Promise<DailyCycleStateUpdate>;
@@ -148,12 +212,22 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
   deps: LayerFourAgentDeps,
 ): LayerFourAgentNode {
   return async function layerFourAgentNode(state) {
+    if (
+      preModelOutcomeDisposition({
+        state,
+        agentId: spec.agentId,
+        stage: spec.runtimeStage,
+        authorityKind: "DECISION",
+      }) === "SKIP"
+    ) {
+      return {};
+    }
     const structuredHandle = deps.llmHandleStructured ?? deps.llmHandle;
     const timeoutMs = resolveAgentTimeoutMs(deps.agentTimeoutSeconds);
     const onLog = deps.onLog ?? (() => undefined);
     const startedAt = Date.now();
     let canaryContext: AgentCanaryEventContext | null = null;
-    let canaryKnobSnapshot: ResearchKnobsSnapshot | null = null;
+    let canaryKnobSnapshot: PrivateKnotSnapshot | null = null;
     let canaryToolStatuses: ReadonlyArray<ToolStatus> = [];
     onLog(
       formatAgentEvent("start", "L4", spec.agentId, [
@@ -170,20 +244,24 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           const mirofish = await maybeLoadMirofishContext(spec, deps, state);
 
           // Phase 0: load prompt.
-          let knobSnapshot: ResearchKnobsSnapshot | null = null;
+          let knobSnapshot: PrivateKnotSnapshot | null = null;
           let systemPrompt: string;
           let promptSourceHash: string;
-          if (isResearchKnobsStageEnabled(spec.agentId, spec.runtimeStage, undefined, cohort)) {
+          if (isPrivateKnotStageEnabled(spec.agentId, spec.runtimeStage, cohort)) {
             const runtimeSourceStatuses = [
               ...resolveRuntimeSourceStatusesForAgent(state, spec.agentId, spec.runtimeStage),
               ...(mirofish.status ? [mirofish.status] : []),
             ];
-            const loaded = await loadPromptWithKnobs({
+            const loaded = await loadPromptWithPrivateKnot({
               agent: spec.agentId,
               cohort,
               stage: spec.runtimeStage,
               trafficAssignmentKey: state.trace_id || state.as_of_date,
               runtimeSourceStatuses,
+              invocationContext: privateKnotInvocationContextForState(state),
+              ...(state.darwinian_runtime_binding
+                ? { requirePinnedPrivateRelease: true as const }
+                : {}),
               onReleaseAssigned: async (release) => {
                 canaryContext = await beginAgentPromptCanaryInvocation({
                   release,
@@ -202,16 +280,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             canaryContext = agentCanaryEventContext({
               release: loaded.release,
               state,
-              agentInvocationId:
-                canaryContext?.agentInvocationId ??
-                buildAgentInvocationId({
-                  runId: state.trace_id || state.as_of_date || "current_run",
-                  agent: spec.agentId,
-                  stage: spec.runtimeStage,
-                  cohort,
-                  asOf: state.as_of_date || "live",
-                  snapshotHash: loaded.snapshot.hash,
-                }),
+              agentInvocationId: loaded.snapshot.agent_invocation_id,
               systemPrompt,
             });
           } else {
@@ -229,29 +298,26 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               agent: spec.agentId,
               stage: spec.runtimeStage,
               promptSourceHash,
-              knobSnapshotHash: knobSnapshot?.hash ?? null,
+              privateKnotSnapshotHash: knobSnapshot?.snapshot_hash ?? null,
               mirofishContextHash: layer4MirofishSnapshotHash(mirofish.context),
             });
           }
 
           // Phase 1: synthesis, with optional tools when the spec requires them.
-          const userContext = await spec.buildUserContext(state);
-          const rkeAugmentedContext = await maybeAppendRkeContext(spec, userContext, deps, state);
+          const userContext = await spec.buildUserContext(state, deps.acceptedOutputStore);
           const augmentedContext = await maybeAppendMirofishContext(
             spec,
-            rkeAugmentedContext,
+            userContext,
             deps,
             language,
             mirofish.context,
           );
-          let runtimeEvidence: RuntimeEvidenceSnapshot | null = knobSnapshot
-            ? buildRuntimeEvidenceSnapshot({
-                state,
-                agent: spec.agentId,
-                stage: spec.runtimeStage,
-                knobSnapshot,
-              })
-            : null;
+          let runtimeEvidence: RuntimeEvidenceSnapshot | null = buildRuntimeEvidenceSnapshot({
+            state,
+            agent: spec.agentId,
+            stage: spec.runtimeStage,
+            knobSnapshot,
+          });
           const evidenceAugmentedContext = runtimeEvidence
             ? `${augmentedContext}\n\n${runtimeEvidence.visibleCatalog}`
             : augmentedContext;
@@ -265,21 +331,65 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           let completionTokens = 0;
           let llmElapsedMs = 0;
           let toolStatuses: ReadonlyArray<ToolStatus> = [];
-          if (requiredTools.length > 0 && hasToolApi(deps.api)) {
-            const tools = await pickBridgeTools(deps.api, requiredTools, {
-              ...(state.mode === "backtest" && state.as_of_date
-                ? { context: { mode: "backtest", as_of_date: state.as_of_date } }
-                : {}),
-            });
-            const loopResult = await runAgentToolLoop({
-              llm: deps.llmHandle.llm,
-              tools: tools as StructuredToolInterface[],
-              systemMessage: systemPrompt,
-              initialMessages: [new HumanMessage(evidenceAugmentedContext)],
-              ...(runtimeEvidence ? { agentInvocationId: runtimeEvidence.agentInvocationId } : {}),
-              onLog: (msg) => onLog(formatAgentEvent("phase", "L4", spec.agentId, [msg])),
-              signal,
-            });
+          let toolLoopMessages: readonly BaseMessage[] = [];
+          if (requiredTools.length > 0) {
+            const capabilityApi = hasAgentToolCapabilityApi(deps.api) ? deps.api : null;
+            if (!capabilityApi && deps.llmHandle.provider !== "fake") {
+              throw new Error(`${spec.agentId}: bridge tool capability API is unavailable`);
+            }
+            const capabilityCandidateScope = decisionCandidateScope(state, spec);
+            const hasAcceptedOutputScope = "accepted_output_refs" in capabilityCandidateScope;
+            const preparedCapability = capabilityApi
+              ? await prepareAgentToolCapability({
+                  api: capabilityApi,
+                  state,
+                  agentId: spec.agentId,
+                  stage: decisionCapabilityStage(spec),
+                  runtimeInputs:
+                    hasAcceptedOutputScope || spec.agentId === "autonomous_execution"
+                      ? capabilityCandidateScope
+                      : {
+                          macro_input_gate: state.macro_input_gate,
+                          layer1_outputs: state.layer1_outputs,
+                          layer2_outputs: state.layer2_outputs,
+                          layer3_outputs: state.layer3_outputs,
+                          layer4_outputs: state.layer4_outputs,
+                          current_positions: state.current_positions,
+                        },
+                  candidateScope: capabilityCandidateScope,
+                })
+              : null;
+            const tools = preparedCapability
+              ? await pickBridgeTools(deps.api as BridgeApi, requiredTools, {
+                  capability: preparedCapability.capability,
+                })
+              : requiredTools.map((name) =>
+                  buildFakeDecisionSnapshotTool(name, spec.agentId, state.as_of_date),
+                );
+            let loopResult!: Awaited<ReturnType<typeof runAgentToolLoop>>;
+            try {
+              loopResult = await runAgentToolLoop({
+                llm: deps.llmHandle.llm,
+                tools: tools as StructuredToolInterface[],
+                systemMessage: systemPrompt,
+                initialMessages: [new HumanMessage(evidenceAugmentedContext)],
+                initialToolCalls: requiredTools.map((name) => ({ name, args: {} })),
+                allowModelToolCalls: false,
+                ...(runtimeEvidence
+                  ? { agentInvocationId: runtimeEvidence.agentInvocationId }
+                  : {}),
+                onLog: (msg) => onLog(formatAgentEvent("phase", "L4", spec.agentId, [msg])),
+                signal,
+              });
+            } finally {
+              if (preparedCapability) {
+                await terminateAgentToolCapability(
+                  deps.api as BridgeApi,
+                  preparedCapability,
+                  "decision_snapshot_research_completed",
+                );
+              }
+            }
             analysisText = loopResult.analysisText;
             analysisLlmInvocations = loopResult.llmInvocations;
             toolCalls = loopResult.toolCalls;
@@ -289,17 +399,16 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             completionTokens = loopResult.completionTokens;
             llmElapsedMs = loopResult.llmElapsedMs;
             toolStatuses = loopResult.toolStatuses;
+            toolLoopMessages = loopResult.messages;
             canaryToolStatuses = toolStatuses;
-            if (knobSnapshot) {
-              runtimeEvidence = buildRuntimeEvidenceSnapshot({
-                state,
-                agent: spec.agentId,
-                stage: spec.runtimeStage,
-                knobSnapshot,
-                toolStatuses,
-              });
-            }
-          } else {
+            runtimeEvidence = buildRuntimeEvidenceSnapshot({
+              state,
+              agent: spec.agentId,
+              stage: spec.runtimeStage,
+              knobSnapshot,
+              toolStatuses,
+            });
+          } else if (requiredTools.length === 0) {
             onLog(formatAgentEvent("phase", "L4", spec.agentId, ["synthesis_llm=1"]));
             const llmStartedAt = Date.now();
             const analysisResponse = await deps.llmHandle.llm.invoke(
@@ -314,7 +423,11 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               typeof analysisResponse.content === "string"
                 ? analysisResponse.content
                 : extractTextContent(analysisResponse.content);
+          } else {
+            throw new Error(`${spec.agentId}: required capability tool API is unavailable`);
           }
+
+          assertDecisionToolSnapshotAuthority(state, spec, toolLoopMessages, toolStatuses);
 
           // Phase 2: structured extraction.
           onLog(
@@ -322,14 +435,47 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           );
           const extractorSystem = spec.buildExtractorSystem
             ? spec.buildExtractorSystem(language)
-            : defaultExtractorSystem(spec, language);
+            : layerFourExtractorSystem(spec, language);
+          const emptyPortfolio = state.current_positions.positions.length === 0;
+          const allCashRequired =
+            spec.agentId === "cio" && cioAllCashRequired(state, spec.runtimeStage);
+          const alphaSchema =
+            spec.agentId === "alpha_discovery"
+              ? buildRuntimeAlphaDiscoverySubmissionSchema(
+                  frozenAlphaCandidatesFromToolLoop(
+                    toolLoopMessages,
+                    toolStatuses,
+                    alphaFrozenAuthority(state),
+                  ),
+                )
+              : null;
+          const extractionSchema = alphaSchema
+            ? (alphaSchema as z.ZodType<TOutput>)
+            : allCashRequired
+              ? ((spec.runtimeStage === "cio_proposal"
+                  ? CioProposalAllCashSubmissionSchema
+                  : CioFinalAllCashSubmissionSchema) as unknown as z.ZodType<TOutput>)
+              : spec.agentId === "cio" && emptyPortfolio
+                ? ((spec.runtimeStage === "cio_proposal"
+                    ? CioProposalWithoutHoldSubmissionSchema
+                    : CioFinalWithoutHoldSubmissionSchema) as unknown as z.ZodType<TOutput>)
+                : spec.agentId === "cio"
+                  ? ((spec.runtimeStage === "cio_proposal"
+                      ? CioProposalNonEmptyCurrentSubmissionSchema
+                      : CioFinalNonEmptyCurrentSubmissionSchema) as unknown as z.ZodType<TOutput>)
+                  : (spec.schema as z.ZodType<TOutput>);
           const extractor = await invokeStrictStructured<TOutput>({
             llm: structuredHandle.llm,
-            schema: spec.schema,
+            schema: extractionSchema,
             messages: [
               new SystemMessage(extractorSystem),
               new HumanMessage(
-                [analysisText || "(no analysis produced)", runtimeEvidence?.visibleCatalog]
+                [
+                  analysisText || "(no analysis produced)",
+                  "## Frozen Decision submission constraints",
+                  augmentedContext,
+                  runtimeEvidence?.visibleCatalog,
+                ]
                   .filter((part): part is string => Boolean(part))
                   .join("\n\n"),
               ),
@@ -339,55 +485,32 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             runId: state.trace_id || state.as_of_date || "current_run",
             evidenceSnapshot: runtimeEvidence,
             validate: (candidate) => {
-              let validated = validateStrictAgentOutput({
+              const validated = validateStrictAgentOutput({
                 output: candidate,
-                schema: spec.schema,
+                schema: extractionSchema,
                 agent: spec.agentId,
                 stage: spec.runtimeStage,
+                cohort: state.active_cohort,
                 runtimeEvidence,
                 knobSnapshot,
                 toolStatuses,
                 currentPositions: state.current_positions,
-              });
-              if (
-                validated.issues.length === 0 &&
-                spec.stateUpdateField === "autonomous_execution"
-              ) {
-                try {
-                  validated = {
-                    output: validateAutonomousExecutionActions({
-                      output: validated.output as unknown as AutoExecOutput,
-                      knobSnapshot,
-                    }) as TOutput,
-                    issues: [],
-                  };
-                } catch (error) {
-                  const executionIssue: AgentContractIssue = {
-                    validator: "decision.autonomous_execution.action_validator.v1",
-                    reason_code: "EXECUTION_SEMANTIC_REJECTED",
-                    json_path: "$.trades",
-                    message: error instanceof Error ? error.message : String(error),
-                  };
-                  validated = { output: validated.output, issues: [executionIssue] };
-                }
-              }
-              if (validated.issues.length === 0) {
-                try {
-                  validateLayer4StageSemantics(spec, state, validated.output);
-                } catch (error) {
-                  validated = {
-                    output: validated.output,
-                    issues: [
+                validateBeforePrivatePolicy: (output) => {
+                  try {
+                    validateLayer4StageSemantics(spec, state, output);
+                    return [];
+                  } catch (error) {
+                    return [
                       {
                         validator: `decision.${spec.runtimeStage}.semantic_validator.v1`,
                         reason_code: "L4_SEMANTIC_REJECTED",
                         json_path: "$",
                         message: error instanceof Error ? error.message : String(error),
                       },
-                    ],
-                  };
-                }
-              }
+                    ];
+                  }
+                },
+              });
               return validated;
             },
             isAcceptedEmpty: (candidate) => isAcceptedEmptyDecision(candidate),
@@ -412,16 +535,16 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             claimGraphAccepted: true,
             knobSnapshot,
             knobAudit:
-              (output as TOutput & { verified_knob_audit?: ResearchKnobCapAudit })
-                .verified_knob_audit ?? null,
+              (output as TOutput & { private_knot_audit?: PrivateKnotAuditSummary })
+                .private_knot_audit ?? null,
             toolStatuses,
             output,
             validatorIds: [
               `${spec.agentId}.${spec.runtimeStage}.structured_output.v1`,
               "evidence_claim_graph_v1",
-              "research_knobs_runtime_v1",
+              "private_knot_runtime_v1",
               ...(spec.stateUpdateField === "autonomous_execution"
-                ? ["decision.autonomous_execution.action_validator.v1"]
+                ? ["decision.execution_submission_semantics_v2"]
                 : []),
             ],
           });
@@ -455,6 +578,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               knobSnapshot,
               canaryEvent,
               audit: extractor.audit,
+              acceptedOutputStore: deps.acceptedOutputStore,
             },
           );
         },
@@ -482,7 +606,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
         validatorIds: [
           `${spec.agentId}.${spec.runtimeStage}.structured_output.v1`,
           "evidence_claim_graph_v1",
-          "research_knobs_runtime_v1",
+          "private_knot_runtime_v1",
         ],
         forceFallback: true,
         forceSourceFailure: true,
@@ -500,12 +624,14 @@ function validateLayer4StageSemantics<TOutput extends Layer4AgentOutput>(
 ): void {
   const runtime = runtimeStateForLayer4(state);
   const runId = state.trace_id || state.as_of_date || "current_run";
+  const runtimeOutput = decisionSubmissionToRuntimeOutput(output, state);
   if (spec.runtimeStage === "cio_proposal") {
-    freezeCioProposal(state, output as unknown as CioOutput);
+    freezeCioProposal(state, runtimeOutput as CioOutput);
     return;
   }
   if (spec.runtimeStage === "cro_review") {
-    freezeCroReview(runId, runtime.candidate_target_state, output as unknown as CroOutput);
+    validateCroFrozenUniverse(output as CroAgentSubmission, state);
+    freezeCroReview(runId, runtime.candidate_target_state, runtimeOutput as CroOutput);
     return;
   }
   if (spec.runtimeStage === "execution_feasibility") {
@@ -513,7 +639,7 @@ function validateLayer4StageSemantics<TOutput extends Layer4AgentOutput>(
       runId,
       runtime.candidate_target_state,
       runtime.cro_review_state,
-      output as unknown as AutoExecOutput,
+      runtimeOutput as AutoExecOutput,
       runtime.resolved_source_statuses,
       state.as_of_date || "live",
     );
@@ -521,10 +647,8 @@ function validateLayer4StageSemantics<TOutput extends Layer4AgentOutput>(
   }
   if (spec.runtimeStage === "cio_final") {
     const validated = validateCioPositionActions({
-      output: output as unknown as CioOutput,
+      output: runtimeOutput as CioOutput,
       currentPositions: state.current_positions,
-      knobSnapshot: runtime.cio_final_knob_snapshot,
-      sharedPolicyValues: activeKnobValuesFromUpstreamDecisionAgents(state.layer4_outputs),
     });
     validateFinalTargetEnvelope(
       { ...state, layer4_outputs: { ...state.layer4_outputs, cio: validated.output } },
@@ -533,42 +657,297 @@ function validateLayer4StageSemantics<TOutput extends Layer4AgentOutput>(
   }
 }
 
+function validateCroFrozenUniverse(
+  submission: CroAgentSubmission,
+  state: DailyCycleStateType,
+): void {
+  const candidate = state.layer4_outputs.runtime?.candidate_target_state;
+  if (!candidate) throw new Error("CRO requires a frozen candidate universe");
+  if (submission.candidate_actions.length !== candidate.portfolio_actions.length) {
+    throw new Error("CRO candidate_actions must cover the frozen candidate universe one-to-one");
+  }
+  const expected = new Map(
+    candidate.portfolio_actions.map((position) => [
+      position.ticker,
+      frozenCandidateRef(candidate.candidate_target_hash, position.ticker),
+    ]),
+  );
+  for (const action of submission.candidate_actions) {
+    if (expected.get(action.ts_code) !== action.candidate_ref) {
+      throw new Error(`${action.ts_code}: CRO candidate_ref does not match the frozen universe`);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function maybeAppendRkeContext<TOutput extends Layer4AgentOutput>(
-  spec: LayerFourAgentSpec<TOutput>,
-  userContext: string,
-  deps: LayerFourAgentDeps,
-  state: DailyCycleStateType,
-): Promise<string> {
-  if (!hasToolApi(deps.api) || !spec.requiredTools?.includes("get_rke_research_context")) {
-    return userContext;
+function cioAllCashRequired(state: DailyCycleStateType, stage: RuntimeAgentStageId): boolean {
+  if (
+    state.current_positions.snapshot_status !== "empty_confirmed" ||
+    state.current_positions.positions.length !== 0
+  ) {
+    return false;
   }
-  const asOfDate = state.as_of_date || new Date().toISOString().slice(0, 10);
+  if (stage === "cio_proposal") {
+    const hasSectorLong = Object.values(state.layer2_outputs).some(
+      (output) => "long_picks" in output && output.long_picks.length > 0,
+    );
+    const hasSuperinvestorLong = Object.values(state.layer3_outputs).some((output) =>
+      output.picks.some((pick) => pick.position_action === "LONG"),
+    );
+    const hasAlphaCandidate = (state.layer4_outputs.alpha_discovery?.novel_picks.length ?? 0) > 0;
+    return !hasSectorLong && !hasSuperinvestorLong && !hasAlphaCandidate;
+  }
+  if (stage === "cio_final") {
+    const candidateTarget = state.layer4_outputs.runtime?.candidate_target_state;
+    return candidateTarget !== null && candidateTarget !== undefined
+      ? candidateTarget.portfolio_actions.length === 0
+      : false;
+  }
+  return false;
+}
+
+function decisionCapabilityStage<TOutput extends Layer4AgentOutput>(
+  spec: LayerFourAgentSpec<TOutput>,
+): AgentExecutionStageId {
+  if (spec.agentId === "cio") {
+    if (spec.runtimeStage === "cio_proposal" || spec.runtimeStage === "cio_final") {
+      return spec.runtimeStage;
+    }
+    throw new Error(`cio cannot bind capability stage ${spec.runtimeStage}`);
+  }
+  if (
+    spec.agentId === "alpha_discovery" ||
+    spec.agentId === "cro" ||
+    spec.agentId === "autonomous_execution"
+  ) {
+    return spec.agentId;
+  }
+  throw new Error(`unknown decision agent ${spec.agentId}`);
+}
+
+function decisionCandidateScope<TOutput extends Layer4AgentOutput>(
+  state: DailyCycleStateType,
+  spec: LayerFourAgentSpec<TOutput>,
+): Record<string, unknown> {
+  const acceptedOutputRefs = acceptedRefsForPrefixes(state, decisionSourcePrefixes(spec));
+  if (state.darwinian_runtime_binding || acceptedOutputRefs.length > 0) {
+    return { accepted_output_refs: acceptedOutputRefs };
+  }
+  if (spec.agentId === "alpha_discovery") {
+    return { layer2_outputs: state.layer2_outputs, layer3_outputs: state.layer3_outputs };
+  }
+  if (spec.agentId === "cio" && spec.runtimeStage === "cio_proposal") {
+    return {
+      layer3_outputs: state.layer3_outputs,
+      alpha_discovery: state.layer4_outputs.alpha_discovery,
+    };
+  }
+  if (spec.agentId === "autonomous_execution") {
+    return {
+      cio_proposal: state.layer4_outputs.cio,
+      cro: state.layer4_outputs.cro,
+    };
+  }
+  return {
+    cio_proposal: state.layer4_outputs.cio,
+    cro: state.layer4_outputs.cro,
+    autonomous_execution: state.layer4_outputs.autonomous_execution,
+  };
+}
+
+function decisionSourcePrefixes<TOutput extends Layer4AgentOutput>(
+  spec: LayerFourAgentSpec<TOutput>,
+): readonly string[] {
+  if (spec.agentId === "alpha_discovery") {
+    return ["STANDARD_SECTOR_SELECTION:", "RELATIONSHIP_GRAPH:", "SUPERINVESTOR_SELECTION:"];
+  }
+  if (spec.agentId === "cio" && spec.runtimeStage === "cio_proposal") {
+    return [
+      "MACRO_TRANSMISSION:",
+      "STANDARD_SECTOR_SELECTION:",
+      "RELATIONSHIP_GRAPH:",
+      "SUPERINVESTOR_SELECTION:",
+      "ALPHA_DISCOVERY:",
+    ];
+  }
+  if (spec.agentId === "autonomous_execution") {
+    return ["CIO_PROPOSAL:", "CRO_RISK_REVIEW:"];
+  }
+  return ["CIO_PROPOSAL:", "CRO_RISK_REVIEW:", "EXECUTION_ASSESSMENT:"];
+}
+
+function buildFakeDecisionSnapshotTool(
+  name: string,
+  agentId: string,
+  asOf: string,
+): StructuredToolInterface {
+  return tool(
+    async () =>
+      JSON.stringify({
+        schema_version: "fake_decision_snapshot_v1",
+        agent_id: agentId,
+        as_of: asOf,
+        ...(agentId === "alpha_discovery" ? { candidate_universe: [] } : {}),
+        fixture: "fake_llm_structural_smoke",
+        evidence_id: `fake-${agentId}-${name}`,
+      }),
+    {
+      name,
+      description: "Deterministic frozen Decision snapshot for fake structural smoke runs.",
+      schema: z.object({}).strict(),
+    },
+  );
+}
+
+export function frozenAlphaCandidatesFromToolLoop(
+  messages: readonly BaseMessage[],
+  toolStatuses: readonly ToolStatus[],
+  expectedAuthority?: {
+    candidateScopeHash: string;
+    candidateUniverseHash: string;
+  },
+): FrozenAlphaCandidate[] {
+  const status = [...toolStatuses]
+    .reverse()
+    .find(
+      (row) =>
+        row.name === "get_alpha_candidate_snapshot" &&
+        row.called &&
+        !row.failed &&
+        !row.missing &&
+        !row.fallback,
+    );
+  if (!status?.call_id) throw new Error("alpha candidate snapshot was not accepted");
+  const message = [...messages]
+    .reverse()
+    .find(
+      (row) =>
+        row.getType() === "tool" &&
+        (row as BaseMessage & { tool_call_id?: string }).tool_call_id === status.call_id,
+    );
+  if (typeof message?.content !== "string") {
+    throw new Error("alpha candidate snapshot payload is unavailable");
+  }
+  let payload: unknown;
   try {
-    const { text } = await deps.api.toolsCall(
-      "get_rke_research_context",
-      { agent_id: spec.agentId, layer: "decision", as_of_date: asOfDate, max_items: 3 },
-      state.mode === "backtest" ? { mode: "backtest", as_of_date: asOfDate } : undefined,
+    payload = JSON.parse(message.content);
+  } catch (cause) {
+    throw new Error("alpha candidate snapshot payload is invalid", { cause });
+  }
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("alpha candidate snapshot must be an object");
+  }
+  const record = payload as Record<string, unknown>;
+  if (
+    expectedAuthority &&
+    (record.candidate_scope_hash !== expectedAuthority.candidateScopeHash ||
+      record.candidate_universe_hash !== expectedAuthority.candidateUniverseHash)
+  ) {
+    throw new Error("alpha candidate snapshot changed after the evaluation universe was frozen");
+  }
+  if (!Array.isArray(record.candidate_universe)) {
+    throw new Error("alpha candidate snapshot lacks candidate_universe");
+  }
+  const candidates = record.candidate_universe.map((value, index) =>
+    parseFrozenAlphaCandidate(value, index),
+  );
+  const refs = candidates.map((candidate) => candidate.candidate_ref);
+  const tickers = candidates.map((candidate) => candidate.ts_code);
+  if (new Set(refs).size !== refs.length || new Set(tickers).size !== tickers.length) {
+    throw new Error("alpha candidate snapshot contains duplicate candidate refs or tickers");
+  }
+  const constraints =
+    record.constraints !== null &&
+    typeof record.constraints === "object" &&
+    !Array.isArray(record.constraints)
+      ? (record.constraints as Record<string, unknown>)
+      : null;
+  if (
+    candidates.length > 0 &&
+    (constraints?.cash_only === true || constraints?.allow_new_positions === false)
+  ) {
+    throw new Error("alpha candidate snapshot conflicts with its no-new-position constraints");
+  }
+  return candidates.sort((left, right) => left.candidate_ref.localeCompare(right.candidate_ref));
+}
+
+function assertDecisionToolSnapshotAuthority<TOutput extends Layer4AgentOutput>(
+  state: DailyCycleStateType,
+  spec: LayerFourAgentSpec<TOutput>,
+  messages: readonly BaseMessage[],
+  toolStatuses: readonly ToolStatus[],
+): void {
+  const binding = state.outcome_opportunity_bindings?.[spec.agentId];
+  const authority = binding?.runtime_authority_binding;
+  if (!authority) return;
+  if (!("candidate_scope_hash" in authority)) {
+    throw new Error(`${spec.agentId}: frozen Decision authority shape mismatch`);
+  }
+  const expectedTool = {
+    alpha_discovery: "get_alpha_candidate_snapshot",
+    cro: "get_cro_risk_snapshot",
+    autonomous_execution: "get_execution_snapshot",
+    cio: "get_cio_decision_snapshot",
+  }[spec.agentId];
+  if (!expectedTool || authority.source_tool_id !== expectedTool) {
+    throw new Error(`${spec.agentId}: frozen Decision authority tool mismatch`);
+  }
+  const status = [...toolStatuses]
+    .reverse()
+    .find(
+      (row) =>
+        row.name === expectedTool && row.called && !row.failed && !row.missing && !row.fallback,
     );
-    deps.onLog?.(`rke context injected for ${spec.agentId}`);
-    return (
-      `${userContext}\n\n` +
-      "RKE research prior context (redacted; shadow-only; " +
-      "no trade without current data confirmation):\n" +
-      text
+  if (!status?.call_id) {
+    throw new Error(`${spec.agentId}: frozen Decision authority snapshot was not accepted`);
+  }
+  const message = [...messages]
+    .reverse()
+    .find(
+      (row) =>
+        row.getType() === "tool" &&
+        (row as BaseMessage & { tool_call_id?: string }).tool_call_id === status.call_id,
     );
-  } catch (err) {
-    const message = safeErrorMessage(err);
-    deps.onLog?.(`rke context injection skipped for ${spec.agentId}: ${message}`);
-    return `${userContext}\n\nRKE research prior context unavailable: ${message}`;
+  if (typeof message?.content !== "string") {
+    throw new Error(`${spec.agentId}: frozen Decision authority payload is unavailable`);
+  }
+  let payload: unknown;
+  try {
+    payload = JSON.parse(message.content);
+  } catch (cause) {
+    throw new Error(`${spec.agentId}: frozen Decision authority payload is invalid`, { cause });
+  }
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error(`${spec.agentId}: frozen Decision authority must be an object`);
+  }
+  const record = payload as Record<string, unknown>;
+  const refs = record.upstream_accepted_output_refs;
+  if (
+    record.snapshot_hash !== authority.source_snapshot_hash ||
+    record.candidate_scope_hash !== authority.candidate_scope_hash ||
+    record.candidate_universe_hash !== authority.candidate_universe_hash ||
+    !Array.isArray(refs) ||
+    canonicalAcceptedOutputHash(refs) !== authority.upstream_accepted_output_refs_hash
+  ) {
+    throw new Error(`${spec.agentId}: Decision authority changed after opportunity freeze`);
   }
 }
 
-function hasToolApi(api: BridgeApi | undefined): api is BridgeApi {
-  return typeof api?.toolsList === "function" && typeof api.toolsCall === "function";
+function parseFrozenAlphaCandidate(value: unknown, index: number): FrozenAlphaCandidate {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`alpha candidate ${index} must be an object`);
+  }
+  const record = value as Record<string, unknown>;
+  const candidateRef = typeof record.candidate_ref === "string" ? record.candidate_ref.trim() : "";
+  const rawTsCode = record.ts_code ?? record.ticker;
+  const tsCode = typeof rawTsCode === "string" ? rawTsCode.trim().toUpperCase() : "";
+  if (!candidateRef || !/^\d{6}\.(?:SH|SZ|BJ)$/.test(tsCode)) {
+    throw new Error(`alpha candidate ${index} has an invalid candidate_ref or ts_code`);
+  }
+  return { candidate_ref: candidateRef, ts_code: tsCode };
 }
 
 function shouldLoadMirofishContext<TOutput extends Layer4AgentOutput>(
@@ -782,7 +1161,7 @@ export function pickPromptLanguage(config: MosaicConfig): LoaderLanguage {
   return "zh";
 }
 
-function defaultExtractorSystem<TOutput extends Layer4AgentOutput>(
+export function layerFourExtractorSystem<TOutput extends Layer4AgentOutput>(
   spec: LayerFourAgentSpec<TOutput>,
   language: LoaderLanguage,
 ): string {
@@ -797,9 +1176,13 @@ function defaultExtractorSystem<TOutput extends Layer4AgentOutput>(
     `in the analysis text; never invent. If evidence supports no action, select the explicit ` +
     `schema disposition for an evidence-backed empty conclusion; never return an unclassified ` +
     `empty array. When a runtime evidence catalog is present, include ` +
-    `claims and per-entry claim_refs using only its evidence_id and allowed research rule ids. ` +
-    `For cio, every non-empty portfolio_actions entry requires claim_refs and at least one ` +
+    `claims and per-entry claim_refs using only its evidence_id and opaque permitted citation identifiers. ` +
+    `For cio, every non-empty target_positions entry requires claim_refs and at least one ` +
     `supporting claim; omitting either is a schema failure, not a valid cash decision. ` +
+    (spec.agentId === "autonomous_execution"
+      ? `For autonomous_execution, do not emit or infer Macro input attributions; use only ` +
+        `the frozen CIO proposal, CRO controls, order intents, and execution evidence. `
+      : `${MACRO_ATTRIBUTION_PROVIDER_INSTRUCTION} `) +
     lang
   );
 }
@@ -810,9 +1193,10 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
   llmCall: LlmCallRecord,
   opts: {
     state: DailyCycleStateType;
-    knobSnapshot: ResearchKnobsSnapshot | null;
+    knobSnapshot: PrivateKnotSnapshot | null;
     canaryEvent: PromptReleaseCanaryEvent | null;
     audit: AgentRunAudit;
+    acceptedOutputStore: AcceptedAgentOutputStore | undefined;
   },
 ): DailyCycleStateUpdate {
   if (opts.canaryEvent) llmCall.prompt_canary_event = opts.canaryEvent;
@@ -820,8 +1204,17 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
   const currentRuntime = runtimeStateForLayer4(opts.state);
   const runId = opts.state.trace_id || opts.state.as_of_date || "current_run";
   const mode = spec.stateWriteMode ?? "agent_output";
+  const runtimeOutput = decisionSubmissionToRuntimeOutput(output, opts.state);
+  const acceptedOutputRefs = materializeAcceptedDecisionOutput({
+    spec,
+    submission: output,
+    state: opts.state,
+    store: opts.acceptedOutputStore,
+    sourceAgentRunId: opts.audit.run_id,
+    sourceAgentOutputHash: requiredAcceptedAuditOutputHash(opts.audit.output_hash, spec.agentId),
+  });
   if (mode === "cio_proposal") {
-    const proposal = output as unknown as CioOutput;
+    const proposal = runtimeOutput as CioOutput;
     const runtime = updateLayer4Runtime(
       currentRuntime,
       { cio_proposal: proposal },
@@ -835,11 +1228,12 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
     );
     return {
       layer4_outputs: { runtime },
+      ...(acceptedOutputRefs ? { accepted_output_refs: acceptedOutputRefs } : {}),
       llm_calls: [llmCall],
     };
   }
   if (mode === "cio_final") {
-    const finalOutput = output as unknown as CioOutput;
+    const finalOutput = runtimeOutput as CioOutput;
     const runtime = updateLayer4Runtime(
       currentRuntime,
       { cio_final_knob_snapshot: opts.knobSnapshot },
@@ -853,12 +1247,13 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
     );
     return {
       layer4_outputs: { cio: finalOutput, runtime },
+      ...(acceptedOutputRefs ? { accepted_output_refs: acceptedOutputRefs } : {}),
       llm_calls: [llmCall],
     };
   }
 
   let runtime = currentRuntime;
-  let selectedOutput = output;
+  let selectedOutput = runtimeOutput;
   if (spec.stateUpdateField === "alpha_discovery") {
     runtime = updateLayer4Runtime(
       currentRuntime,
@@ -868,23 +1263,23 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
         operation: "agent_run",
         ...stageResultTrace(spec, output),
         input_hashes: {},
-        output_hashes: { alpha_discovery: stableRuntimeHash(output) },
+        output_hashes: { alpha_discovery: stableRuntimeHash(runtimeOutput) },
       },
     );
   } else if (spec.stateUpdateField === "cro") {
     const review = freezeCroReview(
       runId,
       currentRuntime.candidate_target_state,
-      output as unknown as CroOutput,
+      runtimeOutput as CroOutput,
     );
-    selectedOutput = review.output as unknown as TOutput;
+    selectedOutput = review.output;
     runtime = updateLayer4Runtime(
       currentRuntime,
       { cro_review_state: review },
       {
         stage: "cro_review",
         operation: "agent_run",
-        ...stageResultTrace(spec, selectedOutput),
+        ...stageResultTrace(spec, output),
         input_hashes: layer4InputHashes(currentRuntime),
         output_hashes: { cro_review_state: review.review_hash },
       },
@@ -894,18 +1289,18 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
       runId,
       currentRuntime.candidate_target_state,
       currentRuntime.cro_review_state,
-      output as unknown as AutoExecOutput,
+      runtimeOutput as AutoExecOutput,
       currentRuntime.resolved_source_statuses,
       opts.state.as_of_date || "live",
     );
-    selectedOutput = feasibility.output as unknown as TOutput;
+    selectedOutput = feasibility.output;
     runtime = updateLayer4Runtime(
       currentRuntime,
       { execution_feasibility_state: feasibility },
       {
         stage: "execution_feasibility",
         operation: "agent_run",
-        ...stageResultTrace(spec, selectedOutput),
+        ...stageResultTrace(spec, output),
         input_hashes: layer4InputHashes(currentRuntime),
         output_hashes: { execution_feasibility_state: feasibility.feasibility_hash },
       },
@@ -916,7 +1311,431 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
       [spec.stateUpdateField]: selectedOutput,
       runtime,
     } as Partial<Layer4Outputs>,
+    ...(acceptedOutputRefs ? { accepted_output_refs: acceptedOutputRefs } : {}),
     llm_calls: [llmCall],
+  };
+}
+
+function materializeAcceptedDecisionOutput<TOutput extends Layer4AgentOutput>(input: {
+  spec: LayerFourAgentSpec<TOutput>;
+  submission: TOutput;
+  state: DailyCycleStateType;
+  store: AcceptedAgentOutputStore | undefined;
+  sourceAgentRunId: string;
+  sourceAgentOutputHash: string;
+}): DailyCycleStateUpdate["accepted_output_refs"] | undefined {
+  if (!input.state.darwinian_runtime_binding) {
+    const kind = decisionAcceptedOutputKind(input.submission);
+    const ref = buildStructuredSmokeAcceptedOutputRef({
+      kind,
+      agentId: input.spec.agentId as never,
+      payload: input.submission,
+      state: input.state,
+    });
+    return ref ? { [acceptedOutputRefKey(kind, input.spec.agentId as never)]: ref } : undefined;
+  }
+  const store = input.store;
+  const behavior =
+    input.state.darwinian_runtime_binding.agent_behavior_bindings[input.spec.agentId];
+  const claimGraph = input.submission.verified_claim_graph;
+  if (!store || !behavior || !claimGraph) {
+    throw new Error(`${input.spec.agentId}: production accepted Decision context is unavailable`);
+  }
+
+  let kind: AcceptedOutputKind;
+  let accepted: unknown;
+  if (input.submission.agent_id === "alpha_discovery") {
+    const opportunity = decisionEvaluationBinding(input.state, "alpha_discovery");
+    const candidateSnapshotEvidence = claimGraph.evidence_ledger.find(
+      (entry) =>
+        entry.source_kind === "tool" && entry.tool_or_source === "get_alpha_candidate_snapshot",
+    );
+    if (!opportunity && !candidateSnapshotEvidence) {
+      throw new Error("alpha_discovery: frozen candidate snapshot lineage is unavailable");
+    }
+    const fallbackUniverse = opportunity
+      ? null
+      : frozenObjectSet("alpha-novel-candidate-universe", {
+          l4_run_snapshot_hash: requiredL4SnapshotHash(input.state),
+          candidate_snapshot_source_fingerprint: candidateSnapshotEvidence?.source_fingerprint,
+          source_refs: acceptedRefsForPrefixes(input.state, [
+            "STANDARD_SECTOR_SELECTION:",
+            "RELATIONSHIP_GRAPH:",
+            "SUPERINVESTOR_SELECTION:",
+          ]),
+        });
+    const attributions = resolveDecisionMacroAttributions(
+      input.state,
+      store,
+      input.submission,
+      alphaDiscoveryPayload(input.submission),
+    );
+    kind = "ALPHA_DISCOVERY";
+    accepted = buildAcceptedAlphaDiscovery({
+      submission: input.submission,
+      behavior,
+      frozenNovelCandidateUniverseId:
+        opportunity?.frozen_object_set_id ?? (fallbackUniverse as { id: string }).id,
+      frozenNovelCandidateUniverseHash:
+        opportunity?.frozen_object_set_hash ?? (fallbackUniverse as { hash: string }).hash,
+      acceptedMacroInputAttributions: attributions,
+    });
+  } else if (
+    input.submission.agent_id === "cio" &&
+    input.submission.decision_stage === "PROPOSAL"
+  ) {
+    const preCioInput = frozenObjectSet("pre-cio-input", {
+      l4_run_snapshot_hash: requiredL4SnapshotHash(input.state),
+      macro_gate_hash: input.state.macro_input_gate?.input_hash ?? null,
+      source_refs: acceptedRefsForPrefixes(input.state, [
+        "MACRO_TRANSMISSION:",
+        "STANDARD_SECTOR_SELECTION:",
+        "RELATIONSHIP_GRAPH:",
+        "SUPERINVESTOR_SELECTION:",
+        "ALPHA_DISCOVERY:",
+      ]),
+      current_position_snapshot_hash: input.state.current_positions.position_snapshot_hash ?? null,
+    });
+    const attributions = resolveDecisionMacroAttributions(
+      input.state,
+      store,
+      input.submission,
+      cioDecisionPayload(input.submission),
+    );
+    const alphaSource = decisionStageSource(
+      input.state,
+      store,
+      "ALPHA_DISCOVERY",
+      "alpha_discovery",
+    );
+    const acceptedAlpha =
+      alphaSource.source_status === "ACCEPTED_OUTPUT"
+        ? requiredAcceptedPayload<"ALPHA_DISCOVERY", AcceptedAlphaDiscovery>(
+            input.state,
+            store,
+            "ALPHA_DISCOVERY",
+            "alpha_discovery",
+          )
+        : null;
+    kind = "CIO_PROPOSAL";
+    accepted = buildAcceptedCioProposal({
+      submission: input.submission,
+      behavior,
+      frozenPreCioInputId: preCioInput.id,
+      frozenPreCioInputHash: preCioInput.hash,
+      alphaSource,
+      acceptedAlphaDiscovery: acceptedAlpha,
+      currentPositions: input.state.current_positions,
+      acceptedMacroInputAttributions: attributions,
+    });
+  } else if (input.submission.agent_id === "cro") {
+    const proposal = requiredAcceptedPayload<"CIO_PROPOSAL", AcceptedCioProposal>(
+      input.state,
+      store,
+      "CIO_PROPOSAL",
+      "cio",
+    );
+    const opportunity = decisionEvaluationBinding(input.state, "cro");
+    const fallbackUniverse = opportunity ? null : buildCroStageFrozenObject(input.state, store);
+    const attributions = resolveDecisionMacroAttributions(
+      input.state,
+      store,
+      input.submission,
+      croRiskReviewPayload(input.submission),
+    );
+    kind = "CRO_RISK_REVIEW";
+    accepted = buildAcceptedCroRiskReview({
+      submission: input.submission,
+      behavior,
+      frozenProposalId: proposal.proposal_id,
+      frozenProposalHash: proposal.proposal_hash,
+      frozenCandidateUniverseId:
+        opportunity?.frozen_object_set_id ??
+        (fallbackUniverse as { frozen_object_set_id: string }).frozen_object_set_id,
+      frozenCandidateUniverseHash:
+        opportunity?.frozen_object_set_hash ??
+        (fallbackUniverse as { frozen_object_set_hash: string }).frozen_object_set_hash,
+      acceptedMacroInputAttributions: attributions,
+    });
+  } else if (input.submission.agent_id === "autonomous_execution") {
+    const proposal = requiredAcceptedPayload<"CIO_PROPOSAL", AcceptedCioProposal>(
+      input.state,
+      store,
+      "CIO_PROPOSAL",
+      "cio",
+    );
+    const croSource = decisionStageSource(input.state, store, "CRO_RISK_REVIEW", "cro");
+    const candidate = input.state.layer4_outputs.runtime?.candidate_target_state;
+    const croRuntime = input.state.layer4_outputs.runtime?.cro_review_state;
+    if (!candidate || !croRuntime) {
+      throw new Error("execution: frozen candidate/CRO state is unavailable");
+    }
+    const controlledTargets = expectedFrozenOrderIntents(candidate, croRuntime);
+    const opportunity = decisionEvaluationBinding(input.state, "autonomous_execution");
+    kind = "EXECUTION_ASSESSMENT";
+    accepted = buildAcceptedExecutionAssessment({
+      submission: input.submission,
+      behavior,
+      executionMode:
+        input.state.current_positions.position_source === "paper_account" ||
+        input.state.mode === "backtest"
+          ? "PAPER"
+          : "REAL",
+      frozenProposalId: proposal.proposal_id,
+      frozenProposalHash: proposal.proposal_hash,
+      croControlSource: croSource,
+      frozenControlledTargetSet: controlledTargets,
+      ...(opportunity
+        ? {
+            frozenOrderIntentSetId: opportunity.frozen_object_set_id,
+            frozenOrderIntentSetHash: opportunity.frozen_object_set_hash,
+          }
+        : {}),
+    });
+  } else {
+    const submission = input.submission as CioFinalSubmission;
+    const proposal = requiredAcceptedPayload<"CIO_PROPOSAL", AcceptedCioProposal>(
+      input.state,
+      store,
+      "CIO_PROPOSAL",
+      "cio",
+    );
+    const croSource = decisionStageSource(input.state, store, "CRO_RISK_REVIEW", "cro");
+    const executionSource = decisionStageSource(
+      input.state,
+      store,
+      "EXECUTION_ASSESSMENT",
+      "autonomous_execution",
+    );
+    const acceptedCro =
+      croSource.source_status === "ACCEPTED_OUTPUT"
+        ? requiredAcceptedPayload<"CRO_RISK_REVIEW", AcceptedCroRiskReview>(
+            input.state,
+            store,
+            "CRO_RISK_REVIEW",
+            "cro",
+          )
+        : null;
+    const acceptedExecution =
+      executionSource.source_status === "ACCEPTED_OUTPUT"
+        ? requiredAcceptedPayload<"EXECUTION_ASSESSMENT", AcceptedExecutionAssessment>(
+            input.state,
+            store,
+            "EXECUTION_ASSESSMENT",
+            "autonomous_execution",
+          )
+        : null;
+    const attributions = resolveDecisionMacroAttributions(
+      input.state,
+      store,
+      submission,
+      cioDecisionPayload(submission),
+    );
+    const candidate = input.state.layer4_outputs.runtime?.candidate_target_state;
+    const croRuntime = input.state.layer4_outputs.runtime?.cro_review_state;
+    if (!candidate || !croRuntime) {
+      throw new Error("cio: frozen candidate/CRO state is unavailable");
+    }
+    const controlledTargets = expectedFrozenOrderIntents(candidate, croRuntime);
+    const opportunity = decisionEvaluationBinding(input.state, "cio");
+    kind = "CIO_FINAL";
+    accepted = buildAcceptedCioFinal({
+      submission,
+      behavior,
+      frozenProposal: proposal,
+      frozenProposalId: proposal.proposal_id,
+      frozenProposalHash: proposal.proposal_hash,
+      croControlSource: croSource,
+      executionControlSource: executionSource,
+      acceptedCroReview: acceptedCro,
+      acceptedExecutionAssessment: acceptedExecution,
+      frozenControlledTargetSet: controlledTargets,
+      ...(opportunity
+        ? {
+            frozenControlledTargetSetId: opportunity.frozen_object_set_id,
+            frozenControlledTargetSetHash: opportunity.frozen_object_set_hash,
+          }
+        : {}),
+      acceptedMacroInputAttributions: attributions,
+    });
+  }
+
+  const lineage = evidenceLineageEnvelopeFromGraph(accepted, claimGraph);
+  const record = buildAcceptedAgentOutputRecord({
+    kind,
+    agentId: input.spec.agentId as never,
+    payload: accepted,
+    evidenceBundleIds: lineage.evidence_bundle_ids,
+    causalDedupeKeys: lineage.causal_dedupe_keys,
+    claimGraph,
+    sourceAgentOutputHash: input.sourceAgentOutputHash,
+    context: acceptedOutputBuildContextFromState({
+      state: input.state,
+      agentId: input.spec.agentId as never,
+      sourceAgentRunId: input.sourceAgentRunId,
+      acceptedOutputKind: kind,
+    }),
+  });
+  const ref = store.put(record, claimGraph);
+  return { [acceptedOutputRefKey(kind, input.spec.agentId as never)]: ref };
+}
+
+function requiredAcceptedAuditOutputHash(value: string | null, agentId: string): string {
+  if (!value || !/^sha256:[0-9a-f]{64}$/.test(value)) {
+    throw new Error(`${agentId}: accepted output lacks an Agent-run output hash`);
+  }
+  return value;
+}
+
+function decisionAcceptedOutputKind(output: Layer4AgentOutput): AcceptedOutputKind {
+  if (output.agent_id === "alpha_discovery") return "ALPHA_DISCOVERY";
+  if (output.agent_id === "cro") return "CRO_RISK_REVIEW";
+  if (output.agent_id === "autonomous_execution") return "EXECUTION_ASSESSMENT";
+  return output.decision_stage === "PROPOSAL" ? "CIO_PROPOSAL" : "CIO_FINAL";
+}
+
+function resolveDecisionMacroAttributions(
+  state: DailyCycleStateType,
+  store: AcceptedAgentOutputStore,
+  submission:
+    | CroAgentSubmission
+    | CioProposalSubmission
+    | CioFinalSubmission
+    | {
+        agent_id: "alpha_discovery";
+        macro_input_attributions: CroAgentSubmission["macro_input_attributions"];
+      },
+  acceptedBody: unknown,
+) {
+  const gate = state.macro_input_gate;
+  if (!gate) throw new Error(`${submission.agent_id}: production Macro gate is unavailable`);
+  return resolveMacroInputAttributions({
+    submissions: submission.macro_input_attributions,
+    acceptedMacroOutputs: acceptedMacroOutputs(state, store),
+    macroInputGate: gate,
+    acceptedSubmissionBody: canonicalAcceptedSubmissionBody(acceptedBody),
+    targets: decisionMacroAttributionTargets(
+      submission as CroAgentSubmission | CioProposalSubmission | CioFinalSubmission | never,
+    ),
+  });
+}
+
+function requiredAcceptedPayload<K extends AcceptedOutputKind, T>(
+  state: DailyCycleStateType,
+  store: AcceptedAgentOutputStore,
+  kind: K,
+  agentId: string,
+): T {
+  const key = acceptedOutputRefKey(kind, agentId as never);
+  const ref = state.accepted_output_refs[key];
+  if (!ref) throw new Error(`${agentId}: ${kind} accepted source is unavailable`);
+  const record = store.resolve(ref as AcceptedOutputRecordRef<K>) as AcceptedAgentOutputRecord<
+    K,
+    T
+  >;
+  if (
+    record.graph_run_id !== state.trace_id ||
+    record.as_of !== (state.outcome_schedule_plan?.as_of ?? state.as_of_date) ||
+    record.cohort_id !== state.active_cohort
+  ) {
+    throw new Error(`${agentId}: ${kind} accepted source binding mismatch`);
+  }
+  return record.output.payload;
+}
+
+function decisionStageSource<
+  K extends "ALPHA_DISCOVERY" | "CRO_RISK_REVIEW" | "EXECUTION_ASSESSMENT",
+  A extends "alpha_discovery" | "cro" | "autonomous_execution",
+>(
+  state: DailyCycleStateType,
+  store: AcceptedAgentOutputStore,
+  kind: K,
+  agentId: A,
+): A extends "cro" | "autonomous_execution"
+  ? DecisionControlSourceRef<A>
+  : DecisionStageSourceRef<A> {
+  const ref = state.accepted_output_refs[acceptedOutputRefKey(kind, agentId as never)];
+  const skip = state.outcome_stage_skips[agentId];
+  if (ref && skip)
+    throw new Error(`${agentId}: accepted output and stage skip are mutually exclusive`);
+  if (ref) {
+    store.resolve(ref as AcceptedOutputRecordRef<K>);
+    return {
+      source_status: "ACCEPTED_OUTPUT",
+      agent_id: agentId,
+      accepted_output_id: ref.accepted_output_id,
+      accepted_output_hash: ref.accepted_output_hash,
+      stage_skip_id: null,
+      stage_skip_hash: null,
+    } as never;
+  }
+  if (!skip || skip.agent_id !== agentId || skip.member_count !== 0 || skip.model_invoked) {
+    throw new Error(`${agentId}: accepted source or valid NO_EVALUATION_OBJECT skip is required`);
+  }
+  return {
+    source_status: "NO_EVALUATION_OBJECT",
+    agent_id: agentId,
+    accepted_output_id: null,
+    accepted_output_hash: null,
+    stage_skip_id: skip.stage_skip_id,
+    stage_skip_hash: skip.stage_skip_hash,
+  } as never;
+}
+
+function requiredL4SnapshotHash(state: DailyCycleStateType): string {
+  const hash = state.layer4_outputs.runtime?.l4_run_snapshot_bundle?.bundle_hash;
+  if (!hash) throw new Error("Decision accepted output requires frozen L4 run snapshot");
+  return hash;
+}
+
+function acceptedRefsForPrefixes(state: DailyCycleStateType, prefixes: readonly string[]) {
+  return Object.entries(state.accepted_output_refs ?? {})
+    .filter(([key]) => prefixes.some((prefix) => key.startsWith(prefix)))
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, ref]) => ({ key, ...ref }));
+}
+
+function frozenObjectSet(namespace: string, payload: unknown): { id: string; hash: string } {
+  const hash = canonicalAcceptedOutputHash(payload);
+  return { id: `${namespace}:${hash.slice("sha256:".length)}`, hash };
+}
+
+function decisionEvaluationBinding(
+  state: DailyCycleStateType,
+  agentId: "alpha_discovery" | "cro" | "autonomous_execution" | "cio",
+): {
+  frozen_object_set_id: string;
+  frozen_object_set_hash: string;
+} | null {
+  const binding = state.outcome_opportunity_bindings[agentId];
+  if (
+    !binding ||
+    binding.agent_id !== agentId ||
+    !binding.frozen_object_set_id ||
+    !binding.frozen_object_set_hash
+  ) {
+    return null;
+  }
+  return {
+    frozen_object_set_id: binding.frozen_object_set_id,
+    frozen_object_set_hash: binding.frozen_object_set_hash,
+  };
+}
+
+function alphaFrozenAuthority(state: DailyCycleStateType):
+  | {
+      candidateScopeHash: string;
+      candidateUniverseHash: string;
+    }
+  | undefined {
+  const binding = state.outcome_opportunity_bindings.alpha_discovery;
+  if (!binding) return undefined;
+  if (!binding.runtime_candidate_scope_hash || !binding.runtime_candidate_universe_hash) {
+    throw new Error("alpha_discovery: frozen candidate authority pins are unavailable");
+  }
+  return {
+    candidateScopeHash: binding.runtime_candidate_scope_hash,
+    candidateUniverseHash: binding.runtime_candidate_universe_hash,
   };
 }
 
@@ -924,14 +1743,12 @@ function isAcceptedEmptyDecision(output: Layer4AgentOutput): boolean {
   if ("review_disposition" in output) return output.review_disposition === "NO_OBJECTION";
   if ("discovery_disposition" in output) return output.discovery_disposition === "NONE_FOUND";
   if ("execution_disposition" in output) {
-    return (
-      output.execution_disposition === "NO_DELTA" || output.execution_disposition === "BLOCKED"
-    );
+    return output.execution_disposition === "BLOCKED";
   }
   return (
     "decision_disposition" in output &&
     output.decision_disposition === "ALL_CASH" &&
-    output.portfolio_actions.length === 0
+    output.target_positions.length === 0
   );
 }
 
@@ -963,23 +1780,4 @@ function layer4InputHashes(
       ? { execution_feasibility_state: runtime.execution_feasibility_state.feasibility_hash }
       : {}),
   };
-}
-
-export function activeKnobValuesFromUpstreamDecisionAgents(
-  outputs: Layer4Outputs,
-): Record<string, unknown> {
-  const values: Record<string, unknown> = {};
-  for (const output of [outputs.cro, outputs.alpha_discovery, outputs.autonomous_execution]) {
-    const audit = (output as { verified_knob_audit?: unknown } | null)?.verified_knob_audit;
-    if (audit === null || typeof audit !== "object" || Array.isArray(audit)) continue;
-    const activeKnobs = (audit as { active_knobs?: unknown }).active_knobs;
-    if (!Array.isArray(activeKnobs)) continue;
-    for (const item of activeKnobs) {
-      if (item === null || typeof item !== "object" || Array.isArray(item)) continue;
-      const cardId = (item as { card_id?: unknown }).card_id;
-      if (typeof cardId !== "string") continue;
-      values[cardId] = (item as { value?: unknown }).value;
-    }
-  }
-  return values;
 }

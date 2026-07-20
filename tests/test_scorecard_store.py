@@ -106,12 +106,11 @@ def _sample_state(date: str = "2024-06-24", cohort: str = "cohort_default") -> d
                 "correlated_risks": [],
                 "black_swan_scenarios": [],
                 "confidence": 0.5,
-                "declared_knob_influence_ids": ["stop_loss_pct"],
-                "verified_knob_audit": {
-                    "knob_snapshot_hash": "sha256:cro",
-                    "fired_cap_ids": ["missing_current_data"],
-                    "unsupported_knob_influence_ids": [],
-                    "sample_exclusion_reason": "missing_current_data",
+                "private_knot_audit": {
+                    "snapshot_hash": f"sha256:{'1' * 64}",
+                    "accepted": True,
+                    "output_selection": "raw",
+                    "reason_codes": [],
                 },
             },
             "alpha_discovery": None,
@@ -119,23 +118,20 @@ def _sample_state(date: str = "2024-06-24", cohort: str = "cohort_default") -> d
                 "agent": "autonomous_execution",
                 "trades": [],
                 "confidence": 0.4,
-                "declared_knob_influence_ids": ["mirofish_path_sizing_weight"],
-                "verified_knob_audit": {
-                    "knob_snapshot_hash": "sha256:exec",
-                    "fired_cap_ids": [],
-                    "unsupported_knob_influence_ids": [],
-                    "sample_exclusion_reason": None,
+                "private_knot_audit": {
+                    "snapshot_hash": f"sha256:{'2' * 64}",
+                    "accepted": True,
+                    "output_selection": "raw",
+                    "reason_codes": [],
                 },
             },
             "cio": {
                 "agent": "cio",
-                "declared_knob_influence_ids": ["mirofish_portfolio_stress_weight"],
-                "declared_influence_rationale": "scenario stress tempered add size",
-                "verified_knob_audit": {
-                    "knob_snapshot_hash": "sha256:cio",
-                    "fired_cap_ids": ["fallback_primary_tool"],
-                    "unsupported_knob_influence_ids": [],
-                    "sample_exclusion_reason": None,
+                "private_knot_audit": {
+                    "snapshot_hash": f"sha256:{'3' * 64}",
+                    "accepted": True,
+                    "output_selection": "raw",
+                    "reason_codes": [],
                 },
                 "portfolio_actions": [
                     {
@@ -228,18 +224,12 @@ class TestExpandState:
         assert first["override_reason"] == "CRO allowed add after current data review"
         assert first["thesis_status"] == "intact"
         assert first["risk_flags_json"] == '["target_current_drift"]'
-        assert json.loads(first["declared_knob_influence_ids_json"]) == [
-            "mirofish_portfolio_stress_weight"
-        ]
-        assert first["declared_influence_rationale"] == "scenario stress tempered add size"
-        assert json.loads(first["verified_knob_audit_json"])["fired_cap_ids"] == [
-            "fallback_primary_tool"
-        ]
+        assert first["declared_knob_influence_ids_json"] is None
+        assert first["declared_influence_rationale"] is None
+        assert json.loads(first["verified_knob_audit_json"])["accepted"] is True
         audits = json.loads(first["decision_agent_audits_json"])
-        assert audits["cro"]["fired_cap_ids"] == ["missing_current_data"]
-        assert audits["autonomous_execution"]["declared_knob_influence_ids"] == [
-            "mirofish_path_sizing_weight"
-        ]
+        assert audits["cro"]["accepted"] is True
+        assert audits["autonomous_execution"]["reason_codes"] == []
         # §14 R-A2: CIO has no per-pick conviction → stored as None (not the
         # target_weight proxy), so it isn't falsely comparable to L2/L3.
         assert first["conviction"] is None
@@ -366,26 +356,16 @@ class TestScorecardStore:
         assert row["alpha_5d"] == pytest.approx(0.02)
         assert row["scored_at"] == "2024-07-01"
 
-    def test_latest_cio_actions_includes_position_review_fields(self, store: ScorecardStore):
+    def test_latest_cio_actions_hides_unsealed_position_rows(
+        self, store: ScorecardStore
+    ):
         store.append_from_state(_sample_state())
         latest = store.get_latest_cio_actions("cohort_default")
-        row = next(action for action in latest["actions"] if action["ticker"] == "688981.SH")
-        assert row["current_weight_pct"] == pytest.approx(25.0)
-        assert row["delta_weight_pct"] == pytest.approx(15.0)
-        assert row["position_decision"] == "ADD"
-        assert row["position_decision_reason"] == "raise intact thesis"
-        assert row["override_reason"] == "CRO allowed add after current data review"
-        assert row["thesis_status"] == "intact"
-        assert row["risk_flags_json"] == '["target_current_drift"]'
-        assert json.loads(row["declared_knob_influence_ids_json"]) == [
-            "mirofish_portfolio_stress_weight"
-        ]
-        assert json.loads(row["verified_knob_audit_json"])["fired_cap_ids"] == [
-            "fallback_primary_tool"
-        ]
-        assert json.loads(row["decision_agent_audits_json"])["cio"]["knob_snapshot_hash"] == (
-            "sha256:cio"
-        )
+        assert latest == {
+            "cohort": "cohort_default",
+            "date": None,
+            "actions": [],
+        }
 
     def test_list_pending_filters_scored_and_date(self, store: ScorecardStore):
         store.append_from_state(_sample_state(date="2024-06-24"))
@@ -553,7 +533,7 @@ class TestSignalsAndWinRate:
         assert store.get_latest_cio_actions("cohort_default")["actions"] == []
         assert store.compute_win_rate("cohort_default") == []
 
-    def test_latest_cio_actions_picks_most_recent_date(self, store: ScorecardStore):
+    def test_latest_cio_actions_ignores_unsealed_rows(self, store: ScorecardStore):
         self._insert(
             store,
             [
@@ -563,8 +543,11 @@ class TestSignalsAndWinRate:
             ],
         )
         out = store.get_latest_cio_actions("cohort_default")
-        assert out["date"] == "2024-06-25"
-        assert {a["ticker"] for a in out["actions"]} == {"512880.SH", "159915.SZ"}
+        assert out == {
+            "cohort": "cohort_default",
+            "date": None,
+            "actions": [],
+        }
 
     def test_latest_cio_actions_empty_when_none(self, store: ScorecardStore):
         out = store.get_latest_cio_actions("cohort_default")

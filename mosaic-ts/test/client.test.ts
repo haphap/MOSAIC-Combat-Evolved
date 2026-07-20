@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import {
   BridgeApi,
   BridgeClient,
@@ -11,6 +11,16 @@ import {
   parseBridgeTimeoutMs,
   RpcError,
 } from "../src/bridge/index.js";
+
+const bridgeCacheDir = mkdtempSync(join(tmpdir(), "mosaic-bridge-client-cache-"));
+
+function createBridgeClient(): BridgeClient {
+  return new BridgeClient({ env: { MOSAIC_CACHE_DIR: bridgeCacheDir } });
+}
+
+afterAll(() => {
+  rmSync(bridgeCacheDir, { recursive: true, force: true });
+});
 
 /**
  * Black-box client tests. They drive the real `mosaic.bridge` subprocess,
@@ -38,19 +48,18 @@ describe("parseBridgeTimeoutMs", () => {
 
 describe("BridgeClient against real sidecar", () => {
   it("correlates concurrent requests by id", async () => {
-    const client = new BridgeClient();
+    const client = createBridgeClient();
     try {
       await client.start();
       // Fire all four in parallel — the client must demux responses back to
       // the correct promise. Using only Phase-0 stable methods.
-      const [list, cfg, stats, defaultCfg] = await Promise.all([
-        client.call<unknown[]>("tools.list", {}),
+      const [details, cfg, stats, defaultCfg] = await Promise.all([
+        client.call<Record<string, unknown>>("cache.details", { category: "api" }),
         client.call<Record<string, unknown>>("config.get", {}),
         client.call<Record<string, unknown>>("cache.stats", {}),
         client.call<Record<string, unknown>>("config.default", {}),
       ]);
-      expect(Array.isArray(list)).toBe(true);
-      expect(list.length).toBeGreaterThanOrEqual(8); // Phase 0 macro_tools surface
+      expect(details).toBeTypeOf("object");
       expect(cfg.llm_provider).toBeTypeOf("string");
       expect(stats.total_mb).toBeTypeOf("number");
       // MOSAIC-specific defaults from Plan §1
@@ -63,7 +72,7 @@ describe("BridgeClient against real sidecar", () => {
   });
 
   it("maps {error} envelope to RpcError with code/method", async () => {
-    const client = new BridgeClient();
+    const client = createBridgeClient();
     try {
       await client.start();
       await expect(client.call("does.not.exist", {})).rejects.toMatchObject({
@@ -77,7 +86,7 @@ describe("BridgeClient against real sidecar", () => {
   });
 
   it("maps invalid-params errors per JSON-RPC spec", async () => {
-    const client = new BridgeClient();
+    const client = createBridgeClient();
     try {
       await client.start();
       const err = await client.call("tools.call", { args: {} }).catch((e) => e);
@@ -89,7 +98,7 @@ describe("BridgeClient against real sidecar", () => {
   });
 
   it("times out a call when timeoutMs is short", async () => {
-    const client = new BridgeClient();
+    const client = createBridgeClient();
     try {
       await client.start();
       // Use a 1ms timeout to force a timeout regardless of how fast Python
@@ -103,7 +112,7 @@ describe("BridgeClient against real sidecar", () => {
   });
 
   it("paper.* is live: current_user returns the default session user", async () => {
-    const client = new BridgeClient();
+    const client = createBridgeClient();
     const tmp = mkdtempSync(join(tmpdir(), "mosaic-paper-client-"));
     try {
       await client.start();
@@ -118,12 +127,11 @@ describe("BridgeClient against real sidecar", () => {
   });
 
   it("BridgeApi ergonomic helpers cover the same surface", async () => {
-    const client = new BridgeClient();
+    const client = createBridgeClient();
     const api = new BridgeApi(client);
     try {
       await client.start();
-      const tools = await api.toolsList();
-      expect(tools.length).toBeGreaterThanOrEqual(8);
+      await expect(client.call("tools.list", {})).rejects.toThrow(/capability/i);
       const stats = await api.cacheStats();
       expect(stats.total_mb).toBeTypeOf("number");
       const cfg = await api.configGet();
@@ -134,7 +142,7 @@ describe("BridgeClient against real sidecar", () => {
   });
 
   it("Phase 3D scorecard / darwinian wrappers reach a live bridge", async () => {
-    const client = new BridgeClient();
+    const client = createBridgeClient();
     const api = new BridgeApi(client);
     try {
       await client.start();
@@ -162,7 +170,7 @@ describe("BridgeClient against real sidecar", () => {
   });
 
   it("data.* is registered: bad kind maps to INVALID_PARAMS", async () => {
-    const client = new BridgeClient();
+    const client = createBridgeClient();
     try {
       await client.start();
       // Method exists (registered) and rejects a bad kind before any ingest —
@@ -178,7 +186,7 @@ describe("BridgeClient against real sidecar", () => {
   });
 
   it("backtest failed-days (R-A3): record → get round-trip via the typed wrappers", async () => {
-    const client = new BridgeClient();
+    const client = createBridgeClient();
     const api = new BridgeApi(client);
     try {
       await client.start();

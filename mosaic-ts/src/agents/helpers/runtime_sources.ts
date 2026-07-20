@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
 import { AGENTS_BY_LAYER } from "../prompts/cohorts.js";
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType } from "../state.js";
-import type { RuntimeSourceStatus } from "./research_knobs.js";
+import { canonicalJsonHash } from "./canonical_json.js";
+import type { RuntimeSourceStatus } from "./private_knot_boundary.js";
 
 export function resolveRuntimeSourceStatusesForAgent(
   state: DailyCycleStateType,
@@ -103,7 +103,7 @@ export function resolveRuntimeSourceStatusesForAgent(
       );
     } else {
       for (const scope of marketScopes) {
-        const resolved = runtime?.resolved_source_statuses.find(
+        const resolved = runtime?.resolved_source_statuses?.find(
           (status) => status.source_id === "current_market_data" && status.scope === scope,
         );
         statuses.push(
@@ -187,7 +187,7 @@ export function resolveRuntimeSourceStatusesForAgent(
       );
     } else {
       for (const scope of liquidityScopes) {
-        const resolved = runtime?.resolved_source_statuses.find(
+        const resolved = runtime?.resolved_source_statuses?.find(
           (status) => status.source_id === "execution_liquidity_state" && status.scope === scope,
         );
         statuses.push(
@@ -331,12 +331,15 @@ function decisionMarketTickers(
   const current = state.current_positions.positions.map((position) => position.ticker);
   if (agentId === "alpha_discovery" || (agentId === "cio" && stage === "cio_proposal")) {
     const layer2 = Object.values(state.layer2_outputs).flatMap((output) =>
-      "longs" in output
-        ? [...output.longs.map((pick) => pick.ticker), ...output.shorts.map((pick) => pick.ticker)]
+      output.agent !== "relationship_mapper"
+        ? [
+            ...output.long_picks.map((pick) => pick.ts_code),
+            ...output.short_or_avoid_picks.map((pick) => pick.ts_code),
+          ]
         : [],
     );
     const layer3 = Object.values(state.layer3_outputs).flatMap((output) =>
-      output.picks.map((pick) => pick.ticker),
+      output.picks.map((pick) => pick.ts_code),
     );
     const alpha =
       agentId === "cio"
@@ -369,26 +372,6 @@ function upstreamOutputStatus(
     };
   }
   const record = output as Record<string, unknown>;
-  const audit = record.verified_knob_audit;
-  const firedCaps =
-    audit !== null && typeof audit === "object" && !Array.isArray(audit)
-      ? (audit as Record<string, unknown>).fired_cap_ids
-      : undefined;
-  const seriousCaps = Array.isArray(firedCaps)
-    ? firedCaps
-        .filter(
-          (cap): cap is string =>
-            typeof cap === "string" &&
-            ["missing_current_data", "fallback_primary_tool", "conflicting_evidence"].includes(cap),
-        )
-        .sort()
-    : [];
-  if (seriousCaps.length > 0) {
-    return {
-      status: "source_error",
-      error_code: `upstream_agent_output_fired_caps:${agent}:${seriousCaps.join(",")}`,
-    };
-  }
   const confidence = record.confidence;
   if (typeof confidence === "number" && Number.isFinite(confidence) && confidence <= 0.05) {
     return {
@@ -406,9 +389,7 @@ function scopedTickers(tickers: ReadonlyArray<string>): string[] {
 }
 
 function stableHash(value: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(JSON.stringify(sortJson(value)))
-    .digest("hex")}`;
+  return canonicalJsonHash(sortJson(value));
 }
 
 function sortJson(value: unknown): unknown {
@@ -416,6 +397,7 @@ function sortJson(value: unknown): unknown {
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
+        .filter(([, item]) => item !== undefined)
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([key, item]) => [key, sortJson(item)]),
     );

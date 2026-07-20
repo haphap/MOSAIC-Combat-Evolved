@@ -2,6 +2,13 @@
 
 日期：2026-06-01
 
+> [!WARNING]
+> 这是 2026-06-01 的历史设计快照，已由
+> [`macro-agent-role-contracts-v2-plan.md`](macro-agent-role-contracts-v2-plan.md) 的私有 KNOT
+> 边界与 release-pin 合同取代。下文“当前状态”和 project-tree fallback/write 描述仅代表当时；
+> 当前生产路径必须从固定私有 commit 加载并校验 prompt/KNOT 资产，缺失或 hash 漂移时失败
+> 关闭。公库 bundled `cohort_default` 只用于 fake/offline，不是生产 fallback。
+
 ## 目标
 
 Agent prompt 是本项目最重要的私有资产。模型跑起来以后，autoresearch / PRISM / 人工调优产生的优化 prompt 不得暴露到公开项目 repo、公开 git remote、PR diff、CI artifact、日志、测试快照或 issue 文本中。

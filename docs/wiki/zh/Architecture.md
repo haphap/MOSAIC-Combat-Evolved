@@ -7,7 +7,7 @@ TypeScript 前端 (mosaic-ts/)           JSON-RPC / stdio        Python sidecar 
 ──────────────────────────────        ───────────────        ────────────────────────────
 CLI (commander) + TUI (Ink)                                   bridge/    JSON-RPC 服务 + handlers/
 LangGraph.js 4 层编排                ⇄  行分隔 JSON         ⇄  dataflows/ Tushare/akshare/FRED/qlib
-  L1 宏观(10) · L2 行业(7)                                    scorecard/ · autoresearch/ · prism/
+  L1 宏观(10) · L2 行业(10)                                   scorecard/ · autoresearch/ · prism/
   L3 投资哲学(4) · L4 决策(4)                                janus/ · mirofish/ · backtest/ · paper_trading/
 LLM 客户端 · Scorecard 视图                                   持久化:SQLite + 一个 git 仓库
 ```
@@ -34,7 +34,7 @@ MOSAIC-Combat-Evolved/
 │   ├── dataflows/              #   Tushare / akshare / yfinance / FRED + qlib 本地读取 + ingest
 │   │   └── collectors/         #   vendored qlib + tushare/ETF 采集器(见数据层)
 │   ├── scorecard/              #   SQLite 存储 · forward-return 评分 · Darwinian 权重
-│   ├── autoresearch/           #   git_ops · 约束 · 评估器 · keep/revert 决策器
+│   ├── autoresearch/           #   仅保留旧诊断/回放，不存在生产晋级边
 │   ├── prism/                  #   7-cohort 训练编排
 │   ├── janus/                  #   跨 cohort 元加权
 │   ├── mirofish/               #   反身性情景模拟(swarm 引擎 · path-aware 评分)
@@ -49,7 +49,7 @@ MOSAIC-Combat-Evolved/
 │       ├── autoresearch/ · prism/ · mirofish/
 │       ├── cli/commands/       #   CLI 子命令
 │       └── tui/                #   Ink 仪表盘
-├── prompts/mosaic/             # 📝 双语提示词仓库(cohort_default + 7 cohorts)
+├── prompts/mosaic/             # 📝 最小 bundled/fake prompt；生产 prompt 位于私有仓
 ├── tests/                      # ✅ Python 测试 (pytest / unittest)
 ├── pyproject.toml · docs/plans/mosaic-tsplan.md · .github/workflows/ci.yml
 ```
@@ -62,5 +62,5 @@ MOSAIC-Combat-Evolved/
 ## 持久化
 
 - **SQLite** —— scorecard 推荐 + 评分、autoresearch 元数据、回测 run 缓存、纸交易 DB(`~/.mosaic/paper_trading.db`)。
-- **git 仓库** —— Autoresearch 在 feature 分支上版本化提示词变更;keep = 合并到 main,revert = 删分支(见[自我改进](Self-Improvement.md))。
+- **prompt 仓库** —— 生产加载固定 commit 的私有 448 份 prompt release。KNOT 是唯一生产行为晋级器，并原子发布 execution-behavior release；旧 Delta-Sharpe 分支路径只供诊断和历史回放(见[自我改进](Self-Improvement.md))。
 - **配置文件** —— `~/.mosaic/config.json`(可选;见[配置](Configuration.md))。

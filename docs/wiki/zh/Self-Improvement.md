@@ -1,94 +1,25 @@
 # 自我改进
 
-MOSAIC 的自我改进栈有四部分:**Autoresearch**(提示词进化)、**PRISM**(多周期训练)、**JANUS**(跨 cohort 元加权)、**MiroFish**(反身性模拟)。
+MOSAIC 严格分离 Agent 评价和 prompt 演化：
 
-## Autoresearch —— 提示词自进化
+- Darwinian 按各 Agent 自己的 PIT outcome contract 评价表现，并只在合同允许时提供
+  Agent 级 usage weight。
+- KNOT 通过私有、哈希固定的 runtime 和私有 prompt release 演化生产行为。
+- 组件校准是面向七个组合型 Macro 合同的独立半年度、shadow-gated 发布路径。版本化权重
+  release 只从未来生效，并采用 append-only/可回滚记录；Darwinian 与 KNOT 都不直接修改
+  组件权重。
 
-`mosaic/autoresearch/` 保留旧版提示词改写闭环;Delta Sharpe 只适用于该旧路径。
-受治理的 generic confidence/evidence-weight target 与 domain card 统一使用生成的
-metric/calculator contract、预注册 paired PIT evaluation、单次 holdout 和显式
-rollback policy。仅有 catalog/card 不代表参数效果已经改善。
+Macro 输出保持相互独立；公开 runtime 不构造会损失信息的六因子 bundle 或聚合
+stance。Decision 角色消费显式 control object，也不会把 CIO 组合收益反向归因给上游
+Agent。
 
-- **`git_ops.py`**(`GitOps`)—— `git` 的薄、fail-loud 封装。变更在一个一次性 `git worktree` 内提交,使操作者的工作树不被触碰。keep = `merge_to_main`,revert = `delete_branch`。
-- **`constraints.py`** —— `check_cooldown`(每 agent 24h)、`check_monthly_cap`(≤100/cohort/月)、`check_keep_lockout`(keep 后 3 天)。
-- **`evaluator.py`** —— 在评估窗口(默认 5 交易日)上算 ΔSharpe。
-- **`decider.py`** —— `delta_sharpe ≥ keep_threshold_delta_sharpe`(默认 0.1)则 keep。
-- **`knob_patch` 模式** —— 修改受治理的 Prompt IR/domain-knob 路径,不改写提示词正文。只有 `activation_state: active` 的 card 可以 mutation;`read_only` 和 `backlog` path 必须拒绝。
+公开仓库只定义 Agent 职责、工具、输出 schema、证据 lineage、release 引用和
+fail-closed 完整性校验。KNOT 算法、阈值、candidate policy、mutation target、scheduler
+policy 和 research-knob 数值均不存放在公开仓库，也不会进入模型可见 prompt；实现、
+测试和详细运维手册只保存在私有仓库。
 
-分支命名:`cohort/{name}/auto/{agent}/{YYYY-MM-DD}`。
+生产 prompt release 仍使用受限 `canary` 并支持 `rollback`，但这些发布操作不会暴露或
+重新定义私有演化合同。
 
-### 可选:把 keep 的变更镜像到自托管 git 服务器
-
-`autoresearch.git` 配置(默认**关闭**):当 `push: true`,keep 路径在成功合并后运行 `git push <remote> main`。push 失败只记录并吞掉(keep 决策本地仍成立);合并失败则跳过 push。凭证由操作者负责(SSH key / credential helper)。配置:`{ "push": false, "remote": "origin" }`。
-
-默认值(`mosaic/default_config.py` → `autoresearch`):`agent_mutation_cooldown_hours: 24`、`keep_revert_lockout_days: 3`、`keep_threshold_delta_sharpe: 0.1`、`monthly_modification_cap_per_cohort: 100`、`evaluation_horizon_trading_days: 5`。
-
-### 受治理的 research knobs
-
-Domain-knob catalog 是 prompt projection 的 typed source。每张 card 只有一种 activation state:
-
-- `active`:进入 projection、active coverage count 和 `mutation_targets`。
-- `read_only`:以 versioned value 投影供 runtime 使用,但不进入 mutation target 或 active coverage。
-- `backlog`:只保留 authoring metadata,不进入 effective prompt bucket。
-
-生成的 catalog 和 evaluation contract 位于 `registry/prompt_checks/`。每条 evaluation binding 包含 activation state、metric、horizon 和 rollback policy;同一 contract 还携带 metric-to-calculator registry。私有双语 prompt checker 覆盖 25 个 agent、26 个 runtime stage;checker 通过不等于 card 或 release pointer 已激活。
-
-Evaluator 会把每种注册的不确定性策略分派给真实 estimator：paired/independent
-block bootstrap、二元 rate 的 Wilson interval，以及 rank correlation 的 Fisher-z
-interval。Runtime evidence health 也会聚合同名工具的每一次调用；即使首个调用
-成功，后续 missing、failed 或 fallback 仍会触发 confidence cap。
-Sample manifest 会对 baseline/treatment 两个 arm、evidence vintage、generator
-identity 与 source snapshot 做 content hash；arm-specific exclusion 或非对称缺失会
-直接阻断 promotion。
-
-Keep 后仍须经过 staged 和 canary release。每次 canary invocation 在 prompt load
-前持久化 assignment，并在 success、fallback、timeout 或 load failure 后写入唯一
-terminal record；bundled prompt fallback 同时计为 fallback 和 source failure。
-`prompt-release summarize-slo` 只读取配置的 journal，并闭合 invocation set 与
-journal prefix；activation 会重读 journal，拒绝手写、过期或抽样 summary。进程中断
-后使用 `autoresearch recover-transactions`,并可用 `prompt-release rollback` 恢复
-上一 aggregate release pointer。Abort 失败时 transaction 保持 pending，path lease
-在 candidate ref 被确认清除前不会释放。
-
-非 canary 流量必须留在 active pinned baseline。没有 active baseline 时 canary
-transition 会被拒绝；operator 必须先用 `prompt-release provision-baseline` 导入已批准
-且重新校验通过的 active manifest。Canary 期间 code identity 仍保持 pin。Prompt
-cache identity 包含 lifecycle state 和 rollout scope，因此同一 release id 从 canary
-晋升为 active 后会刷新 runtime metadata。
-
-Decision layer 固定按 alpha discovery、CIO proposal、冻结 candidate target、CRO review、execution feasibility、CIO final、shared validation 的顺序运行。Runtime 在 backtest/shadow cycle 间传递上一轮已接受 final target,按 ticker 解析 market/liquidity evidence,并冻结 CIO final 使用的 prompt/source 输入。若输出声明了 unsupported knob influence,原输出会被拒绝并替换为 deterministic conservative fallback,不能只记 audit 后继续执行。Claim/evidence graph validator 已存在,但只有 runtime-owned result fingerprint/evidence id 已注入 structured extractor,且每个 recommendation/action 都有 verified claim refs 后,evidence-runtime gate 才算通过。
-若 runtime/shared concentration policy 缺失，CIO validator 与 fallback 使用 catalog
-默认值（single-name 12%、sector 30%），不会把上限退化为 100%。
-
-## PRISM —— 多周期训练
-
-`mosaic/prism/` 跨 **7 个市场 regime cohort** 训练提示词进化,按 cohort 顺序进行、层内有界并发。Cohort(`prism/cohorts.py`):
-
-| Cohort | 窗口 | Regime |
-| --- | --- | --- |
-| `bull_2007` | 2006-01-04 → 2007-10-16 | 牛市顶 6124 |
-| `crisis_2008` | 2007-10-17 → 2008-10-28 | 暴跌 70%,1664 见底 |
-| `bull_2016` | 2016-01-29 → 2017-12-29 | 慢牛 + 白酒 |
-| `crisis_covid` | 2018-10-19 → 2020-03-23 | 贸易战 + 疫情合并 |
-| `recovery_2020` | 2020-03-24 → 2020-12-31 | 疫后宽松反弹 |
-| `euphoria_2021` | 2020-07-01 → 2021-02-18 | 茅指数高峰(启动 cohort) |
-| `rate_tightening` | 2022-04-01 → 2023-12-31 | 中特估 + 量化退潮 + Fed 加息 |
-
-CLI:`prism list|train|status|compare`。
-
-## JANUS —— 跨 cohort 元加权
-
-`mosaic/janus/` 跨 cohort 算 softmax 元权重(使在线系统按当前 regime 契合度融合各 regime 专精的提示词)。CLI:`janus run|weights|regime|history`;RPC `janus.run_daily|get_weights|regime|get_history`。
-
-## MiroFish —— 反身性模拟
-
-`mosaic/mirofish/` 从行为主体群合成前向情景,并据此给推荐打分。
-
-- **engine**(`config.mirofish.engine`):`oasis`(默认 —— 真实自托管 MOSAIC-Fish)、`montecarlo`(本地相关路径)或 `swarm`(本地主体间交互)。
-- **scorer**(`config.mirofish.scorer`):`terminal`(默认 —— 方向 × 累计收益)或 `path_aware`(回撤惩罚的权益曲线;`mirofish train` 上的 `--path-aware` 简写)。
-- **inject_context**(`config.mirofish.inject_context`,默认开):把同一份 simulation-only 情景上下文追加到本轮第 4 层 CRO、autonomous execution 和 CIO 提示词(见[智能体](Agents.md));成功的 `mirofish generate` 和非 dry-run `mirofish train` 会自动刷新它。
-- OASIS 适配器可经 HTTP 驱动真实外部 MiroFish 引擎(`MOSAIC_MIROFISH_URL`)。
-
-CLI:`mirofish generate|train|history`;RPC 在 `mirofish.*`。
-
-> 记忆/persona(7M.2/7M.3)经增益验证 deferred/NO-GO;记录于 `docs/plans/mosaic-tsplan.md` §11.8.1。
+更多公开边界见[宏观 Agent 职责合同](../../macro_agent_role_contracts.md)和
+[公开运维边界](../../runbooks/position_aware_prompt_evolution.md)。

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import {
   type ClaimEvidenceGraph,
   type EvidenceLedgerEntry,
@@ -11,15 +10,20 @@ import {
 import { AGENTS_BY_LAYER } from "../prompts/cohorts.js";
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType } from "../state.js";
-import type {
-  ResearchKnobsSnapshot,
-  RuntimeSourceEvidenceObservation,
-  RuntimeSourceStatus,
-  ToolStatus,
-} from "./research_knobs.js";
+import { canonicalJsonHash } from "./canonical_json.js";
+import {
+  buildAgentInvocationId,
+  type PrivateKnotSnapshot,
+  type RuntimeSourceEvidenceObservation,
+  type RuntimeSourceStatus,
+  type ToolStatus,
+} from "./private_knot_boundary.js";
+
+export { buildAgentInvocationId } from "./private_knot_boundary.js";
 
 export interface RuntimeEvidenceSnapshot {
   runId: string;
+  agentId: string;
   agentInvocationId: string;
   stage: RuntimeAgentStageId;
   snapshotHash: string;
@@ -52,19 +56,21 @@ export function attachRuntimeOwnedFallbackClaims<T>(input: {
       : null;
   const sourceGraph = sourceRecord?.verified_claim_graph as ClaimEvidenceGraph | undefined;
   if (!sourceGraph) return input.output;
+  const fallbackEvidenceId = sourceGraph.evidence_ledger[0]?.evidence_id;
+  if (!fallbackEvidenceId) return input.output;
 
   const claimId = `runtime-fallback:${input.stage}:${sourceGraph.run_id}`;
-  const withRefs = withFallbackClaimRefs(input.output, claimId);
+  const withRefs = withFallbackClaimRefs(input.output, claimId, fallbackEvidenceId);
   if (withRefs === null || typeof withRefs !== "object" || Array.isArray(withRefs)) {
     return input.output;
   }
   const record = withRefs as Record<string, unknown>;
   const fallbackClaim: LlmResearchClaim = {
     claim_id: claimId,
-    claim_type: "uncertainty",
+    claim_kind: "RISK_FLAG",
     statement: input.statement,
     structured_conclusion: { action_policy: "conservative_fallback" },
-    evidence_refs: [],
+    evidence_ids: [fallbackEvidenceId],
     research_rule_refs: [],
   };
   record.claims = [fallbackClaim];
@@ -74,7 +80,7 @@ export function attachRuntimeOwnedFallbackClaims<T>(input: {
     run_id: sourceGraph.run_id,
     snapshot_hash: sourceGraph.snapshot_hash,
     evidence_ledger: sourceGraph.evidence_ledger,
-    claims: [{ ...fallbackClaim, snapshot_hash: sourceGraph.snapshot_hash }],
+    claims: [fallbackClaim],
     recommendation_claim_refs: references.references,
   };
   const runtimeEvidenceById = new Map(
@@ -85,7 +91,7 @@ export function attachRuntimeOwnedFallbackClaims<T>(input: {
     expectedSnapshotHash: sourceGraph.snapshot_hash,
     runtimeOwnedEvidenceById: runtimeEvidenceById,
     requiredOutputIds: references.requiredOutputIds,
-    allowUncertaintyOnlyOutputIds: references.requiredOutputIds,
+    allowRiskFlagOnlyOutputIds: references.requiredOutputIds,
   });
   if (!validation.accepted) {
     throw new Error(`runtime_owned_fallback_claim_graph_invalid:${validation.reasons.join(";")}`);
@@ -114,47 +120,90 @@ const RUNTIME_SOURCE_ALIASES: Readonly<Record<string, string>> = {
 
 const SECTOR_PICK_AGENTS = new Set([
   "semiconductor",
+  "technology",
   "energy",
   "biotech",
   "consumer",
   "industrials",
+  "real_estate_construction",
   "financials",
+  "agriculture",
 ]);
 const SUPERINVESTOR_AGENTS = new Set<string>(AGENTS_BY_LAYER.superinvestor);
-
-export function buildAgentInvocationId(input: {
-  runId: string;
-  agent: string;
-  stage: RuntimeAgentStageId;
-  cohort: string;
-  asOf: string;
-  snapshotHash: string;
-}): string {
-  const digest = canonicalHash({ schema_version: "agent_invocation_id_v1", ...input });
-  return `agent-invocation:${digest.slice("sha256:".length)}`;
-}
+const OBSERVATION_BACKED_RUNTIME_SOURCES = new Set([
+  "current_market_data",
+  "execution_liquidity_state",
+]);
 
 export function buildRuntimeEvidenceSnapshot(input: {
   state: DailyCycleStateType;
   agent: string;
   stage: RuntimeAgentStageId;
-  knobSnapshot: ResearchKnobsSnapshot;
+  knobSnapshot?: PrivateKnotSnapshot | null;
   toolStatuses?: ReadonlyArray<ToolStatus>;
 }): RuntimeEvidenceSnapshot {
   const runId = input.state.trace_id || input.state.as_of_date || "current_run";
-  const agentInvocationId = buildAgentInvocationId({
-    runId,
-    agent: input.agent,
-    stage: input.stage,
-    cohort: input.state.active_cohort || "cohort_default",
-    asOf: input.state.as_of_date || "live",
-    snapshotHash: input.knobSnapshot.hash,
-  });
+  if (input.knobSnapshot) {
+    const expectedExecutionRelease =
+      input.state.darwinian_runtime_binding?.execution_behavior_release_id;
+    for (const [field, actual, expected] of [
+      ["graph_run_id", input.knobSnapshot.graph_run_id, runId],
+      ["as_of", input.knobSnapshot.as_of, input.state.as_of_date],
+      ["agent", input.knobSnapshot.agent, input.agent],
+      ["stage", input.knobSnapshot.stage, input.stage],
+      ["cohort", input.knobSnapshot.cohort, input.state.active_cohort || "cohort_default"],
+      [
+        "execution_behavior_release_id",
+        input.knobSnapshot.execution_behavior_release_id,
+        expectedExecutionRelease ?? "non-production-test",
+      ],
+    ] as const) {
+      if (actual !== expected) throw new Error(`private_knot_snapshot_${field}_mismatch`);
+    }
+    const expectedMode = expectedExecutionRelease ? "PRODUCTION" : "NON_PRODUCTION_TEST";
+    if (input.knobSnapshot.invocation_mode !== expectedMode) {
+      throw new Error("private_knot_snapshot_invocation_mode_mismatch");
+    }
+  }
+  const snapshotHash =
+    input.knobSnapshot?.snapshot_hash ??
+    canonicalHash({
+      schema_version: "runtime_evidence_snapshot_v2",
+      run_id: runId,
+      agent: input.agent,
+      stage: input.stage,
+      tool_statuses: input.toolStatuses ?? [],
+    });
+  const agentInvocationId =
+    input.knobSnapshot?.agent_invocation_id ??
+    buildAgentInvocationId({
+      runId,
+      agent: input.agent,
+      stage: input.stage,
+      cohort: input.state.active_cohort || "cohort_default",
+      asOf: input.state.as_of_date || "live",
+      promptReleaseHash: snapshotHash,
+    });
   const evidenceLedger: EvidenceLedgerEntry[] = [];
   const seen = new Set<string>();
-  for (const [evidenceKey, registryEntry] of Object.entries(
-    input.knobSnapshot.knobs.evidence_registry,
-  )) {
+  const evidenceRegistry = input.knobSnapshot
+    ? Object.fromEntries(
+        input.knobSnapshot.evidence_bindings.map((binding) => [
+          binding.evidence_key,
+          {
+            metric: binding.metric,
+            ...(binding.tool ? { tool: binding.tool } : {}),
+            ...(binding.source ? { source: binding.source } : {}),
+          },
+        ]),
+      )
+    : Object.fromEntries(
+        [...new Set((input.toolStatuses ?? []).map((status) => status.name))].map((name) => [
+          name,
+          { tool: name, metric: `${name}_snapshot` },
+        ]),
+      );
+  for (const [evidenceKey, registryEntry] of Object.entries(evidenceRegistry)) {
     if (registryEntry.tool) {
       const statuses = (input.toolStatuses ?? []).filter(
         (status) => status.name === registryEntry.tool,
@@ -166,15 +215,15 @@ export function buildRuntimeEvidenceSnapshot(input: {
           metric: registryEntry.metric,
           runId,
           agentInvocationId,
-          snapshotHash: input.knobSnapshot.hash,
+          snapshotHash,
           asOf: input.state.as_of_date || "live",
         });
         appendUniqueEvidence(evidenceLedger, seen, entry);
       }
       continue;
     }
-    const sourceId = runtimeSourceId(evidenceKey, registryEntry.metric);
-    const statuses = input.knobSnapshot.consumptionSnapshot.runtimeSourceStatuses.filter(
+    const sourceId = runtimeSourceId(evidenceKey, registryEntry.metric, registryEntry.source);
+    const statuses = (input.knobSnapshot?.runtime_source_statuses ?? []).filter(
       (status) => status.source_id === sourceId,
     );
     for (const status of statuses) {
@@ -185,19 +234,20 @@ export function buildRuntimeEvidenceSnapshot(input: {
         metric: registryEntry.metric,
         runId,
         agentInvocationId,
-        snapshotHash: input.knobSnapshot.hash,
+        snapshotHash,
       });
       appendUniqueEvidence(evidenceLedger, seen, entry);
     }
   }
   evidenceLedger.sort((left, right) => left.evidence_id.localeCompare(right.evidence_id));
   const evidenceById = new Map(evidenceLedger.map((entry) => [entry.evidence_id, entry]));
-  const allowedResearchRuleIds = researchRuleIds(input.knobSnapshot);
+  const allowedResearchRuleIds = new Set(input.knobSnapshot?.allowed_research_rule_ids ?? []);
   return {
     runId,
+    agentId: input.agent,
     agentInvocationId,
     stage: input.stage,
-    snapshotHash: input.knobSnapshot.hash,
+    snapshotHash,
     evidenceLedger,
     evidenceById,
     allowedResearchRuleIds,
@@ -253,7 +303,7 @@ export function selectOutputByClaimEvidence<T>(
 export function validateOutputByClaimEvidence<T>(
   rawOutput: T,
   runtime: RuntimeEvidenceSnapshot,
-  options: { allowUncertaintyOnly?: boolean } = {},
+  options: { allowRiskFlagOnly?: boolean } = {},
 ): ClaimGraphSelection<T> {
   const rawGraph = claimGraphFromOutput(rawOutput, runtime);
   if (!rawGraph.graph) {
@@ -269,8 +319,8 @@ export function validateOutputByClaimEvidence<T>(
     expectedSnapshotHash: runtime.snapshotHash,
     runtimeOwnedEvidenceById: runtime.evidenceById,
     requiredOutputIds: rawGraph.requiredOutputIds,
-    ...(isExplicitEmptyDisposition(rawOutput) || options.allowUncertaintyOnly
-      ? { allowUncertaintyOnlyOutputIds: rawGraph.requiredOutputIds }
+    ...(isExplicitEmptyDisposition(rawOutput) || options.allowRiskFlagOnly
+      ? { allowRiskFlagOnlyOutputIds: rawGraph.requiredOutputIds }
       : {}),
     allowedResearchRuleIds: runtime.allowedResearchRuleIds,
   });
@@ -349,7 +399,7 @@ export function renderRuntimeEvidenceCatalog(
       {
         agent_invocation_id: agentInvocationId,
         evidence,
-        allowed_research_rule_ids: [...allowedResearchRuleIds].sort(),
+        allowed_citation_ids: [...allowedResearchRuleIds].sort(),
       },
       null,
       2,
@@ -430,11 +480,8 @@ function claimGraphFromOutput(
       ),
     };
   }
-  const references = outputClaimReferences(record, runtime.stage);
-  const claims: ResearchClaim[] = parsedClaims.data.map((claim) => ({
-    ...claim,
-    snapshot_hash: runtime.snapshotHash,
-  }));
+  const references = outputClaimReferences(record, runtime.stage, runtime.agentId);
+  const claims: ResearchClaim[] = parsedClaims.data;
   return {
     graph: {
       schema_version: "evidence_claim_graph_v1",
@@ -452,57 +499,67 @@ function claimGraphFromOutput(
 function outputClaimReferences(
   record: Record<string, unknown>,
   stage: RuntimeAgentStageId,
+  runtimeAgentId?: string,
 ): {
   references: RecommendationClaimReference[];
   requiredOutputIds: ReadonlySet<string>;
 } {
-  const agent = typeof record.agent === "string" ? record.agent : "unknown";
+  const agent =
+    runtimeAgentId ??
+    (typeof record.agent === "string"
+      ? record.agent
+      : typeof record.agent_id === "string"
+        ? record.agent_id
+        : "unknown");
   const configs =
     agent === "alpha_discovery"
       ? [{ field: "novel_picks", prefix: "novel_pick", type: "candidate" as const }]
       : agent === "cro"
         ? [
             {
-              field: "rejected_picks",
-              prefix: "rejected_pick",
-              type: "recommendation" as const,
-            },
-            {
-              field: "required_adjustments",
-              prefix: "cro_adjustment",
+              field: "candidate_actions",
+              prefix: "cro_risk_action",
               type: "recommendation" as const,
             },
           ]
         : agent === "autonomous_execution"
           ? [
-              { field: "trades", prefix: "trade", type: "portfolio_action" as const },
               {
-                field: "execution_checks",
-                prefix: "execution_check",
+                field: "order_assessments",
+                prefix: "execution_assessment",
                 type: "recommendation" as const,
               },
             ]
           : agent === "cio"
             ? [
                 {
-                  field: "portfolio_actions",
-                  prefix: "portfolio_action",
+                  field: "target_positions",
+                  prefix: "target_position",
                   type: "portfolio_action" as const,
                 },
-                ...(stage === "cio_proposal"
+                ...(stage === "cio_final"
                   ? [
                       {
-                        field: "position_reviews",
-                        prefix: "position_review",
-                        type: "position_decision" as const,
+                        field: "cro_control_resolutions",
+                        prefix: "cro_control_resolution",
+                        type: "recommendation" as const,
+                      },
+                      {
+                        field: "execution_control_resolutions",
+                        prefix: "execution_control_resolution",
+                        type: "recommendation" as const,
                       },
                     ]
                   : []),
               ]
             : SECTOR_PICK_AGENTS.has(agent)
               ? [
-                  { field: "longs", prefix: "long_candidate", type: "candidate" as const },
-                  { field: "shorts", prefix: "short_candidate", type: "candidate" as const },
+                  { field: "long_picks", prefix: "long_candidate", type: "candidate" as const },
+                  {
+                    field: "short_or_avoid_picks",
+                    prefix: "short_or_avoid_candidate",
+                    type: "candidate" as const,
+                  },
                 ]
               : SUPERINVESTOR_AGENTS.has(agent)
                 ? [{ field: "picks", prefix: "pick", type: "candidate" as const }]
@@ -512,7 +569,7 @@ function outputClaimReferences(
   if (agent !== "unknown") {
     const outputId = `recommendation:0:${agent}`;
     requiredOutputIds.add(outputId);
-    const authoredRefs = agent === "cio" ? record.decision_claim_refs : record.claim_refs;
+    const authoredRefs = record.claim_refs ?? macroSubmissionClaimRefs(record);
     const claimRefs = Array.isArray(authoredRefs)
       ? authoredRefs.filter((claimId): claimId is string => typeof claimId === "string")
       : [];
@@ -532,7 +589,12 @@ function outputClaimReferences(
         entry !== null && typeof entry === "object" && !Array.isArray(entry)
           ? (entry as Record<string, unknown>)
           : {};
-      const ticker = typeof item.ticker === "string" ? item.ticker : "unknown";
+      const ticker =
+        typeof item.ticker === "string"
+          ? item.ticker
+          : typeof item.ts_code === "string"
+            ? item.ts_code
+            : "unknown";
       const outputId = `${config.prefix}:${index}:${ticker}`;
       requiredOutputIds.add(outputId);
       const claimRefs = Array.isArray(item.claim_refs)
@@ -546,6 +608,31 @@ function outputClaimReferences(
   return { references, requiredOutputIds };
 }
 
+function macroSubmissionClaimRefs(record: Record<string, unknown>): unknown {
+  if (record.mode === "DIRECT") {
+    const signal = record.signal;
+    return signal && typeof signal === "object" && !Array.isArray(signal)
+      ? (signal as Record<string, unknown>).claim_refs
+      : undefined;
+  }
+  if (record.mode !== "COMPONENTS" || !Array.isArray(record.components)) {
+    return undefined;
+  }
+  return [
+    ...new Set(
+      record.components.flatMap((component) => {
+        if (component === null || typeof component !== "object" || Array.isArray(component)) {
+          return [];
+        }
+        const claimRefs = (component as Record<string, unknown>).claim_refs;
+        return Array.isArray(claimRefs)
+          ? claimRefs.filter((claimRef): claimRef is string => typeof claimRef === "string")
+          : [];
+      }),
+    ),
+  ];
+}
+
 function deterministicFallbackSelection<T>(
   fallbackOutput: T,
   runtime: RuntimeEvidenceSnapshot,
@@ -553,7 +640,11 @@ function deterministicFallbackSelection<T>(
   fallbackReasonCode: string,
 ): ClaimGraphSelection<T> {
   const claimId = `runtime-fallback:${runtime.agentInvocationId}`;
-  const output = withFallbackClaimRefs(fallbackOutput, claimId);
+  const fallbackEvidenceId = runtime.evidenceLedger[0]?.evidence_id;
+  if (!fallbackEvidenceId) {
+    throw new Error("deterministic_fallback_claim_graph_build_failed:no_runtime_evidence");
+  }
+  const output = withFallbackClaimRefs(fallbackOutput, claimId, fallbackEvidenceId);
   const graphParts = claimGraphFromOutput(output, runtime);
   if (!graphParts.graph) {
     throw new Error(
@@ -565,7 +656,7 @@ function deterministicFallbackSelection<T>(
     expectedSnapshotHash: runtime.snapshotHash,
     runtimeOwnedEvidenceById: runtime.evidenceById,
     requiredOutputIds: graphParts.requiredOutputIds,
-    allowUncertaintyOnlyOutputIds: graphParts.requiredOutputIds,
+    allowRiskFlagOnlyOutputIds: graphParts.requiredOutputIds,
     allowedResearchRuleIds: runtime.allowedResearchRuleIds,
   });
   if (!validation.accepted) {
@@ -583,7 +674,7 @@ function deterministicFallbackSelection<T>(
   };
 }
 
-function withFallbackClaimRefs<T>(output: T, claimId: string): T {
+function withFallbackClaimRefs<T>(output: T, claimId: string, evidenceId: string): T {
   if (output === null || typeof output !== "object" || Array.isArray(output)) return output;
   const record = { ...(output as Record<string, unknown>) };
   record.claim_refs = [claimId];
@@ -591,21 +682,22 @@ function withFallbackClaimRefs<T>(output: T, claimId: string): T {
   record.claims = [
     {
       claim_id: claimId,
-      claim_type: "uncertainty",
+      claim_kind: "RISK_FLAG",
       statement: "Runtime selected a conservative fallback because raw evidence validation failed.",
       structured_conclusion: { action_policy: "conservative_fallback" },
-      evidence_refs: [],
+      evidence_ids: [evidenceId],
       research_rule_refs: [],
     },
   ];
   for (const field of [
     "novel_picks",
-    "rejected_picks",
-    "required_adjustments",
-    "trades",
-    "execution_checks",
-    "portfolio_actions",
-    "position_reviews",
+    "candidate_actions",
+    "order_assessments",
+    "target_positions",
+    "cro_control_resolutions",
+    "execution_control_resolutions",
+    "long_picks",
+    "short_or_avoid_picks",
   ]) {
     if (!Array.isArray(record[field])) continue;
     record[field] = record[field].map((entry) =>
@@ -643,7 +735,21 @@ function runtimeSourceEvidenceEntry(input: {
   agentInvocationId: string;
   snapshotHash: string;
 }): EvidenceLedgerEntry {
-  const observation = sourceObservation(input.state, input.sourceId, input.status.scope);
+  const observation = sourceObservation(
+    input.state,
+    input.sourceId,
+    input.status.scope,
+    input.metric,
+  );
+  if (
+    OBSERVATION_BACKED_RUNTIME_SOURCES.has(input.sourceId) &&
+    (input.status.status === "loaded" || input.status.status === "stale") &&
+    !observation
+  ) {
+    runtimeSourceStatusMismatch(input.status, "observation");
+  }
+  if (observation) validateRuntimeSourceObservation(input.status, observation, input.metric);
+  const directValue = sourceValue(input.state, input.sourceId, input.status);
   const sourceFingerprint = validSha256(observation?.source_fingerprint)
     ? observation.source_fingerprint
     : validSha256(input.status.snapshot_hash)
@@ -662,7 +768,7 @@ function runtimeSourceEvidenceEntry(input: {
     source_kind: "runtime_source",
     tool_or_source: input.sourceId,
     metric: input.metric,
-    value: observation?.value ?? sourceValue(input.state, input.sourceId, input.status),
+    value: observation?.value ?? directValue ?? statusSummary(input.status),
     unit: observation?.unit ?? "snapshot",
     as_of: observation?.as_of ?? input.status.as_of ?? (input.state.as_of_date || "live"),
     lookback: observation?.lookback ?? "point_in_time",
@@ -681,6 +787,9 @@ function sourceValue(
 ): unknown {
   const runtime = state.layer4_outputs?.runtime;
   if (sourceId === "current_position_snapshot") return state.current_positions;
+  if (sourceId === "position_thesis_state") {
+    return positionThesisStateValue(state, status);
+  }
   if (sourceId === "previous_target_state") return state.layer4_outputs?.previous_target_state;
   if (sourceId === "candidate_target_state") return runtime?.candidate_target_state;
   if (sourceId === "position_review_state") return runtime?.position_review_state;
@@ -702,6 +811,42 @@ function sourceValue(
   return statusSummary(status);
 }
 
+function positionThesisStateValue(
+  state: DailyCycleStateType,
+  status: RuntimeSourceStatus,
+): Record<string, string> | undefined {
+  const ticker = status.scope.match(/^ticker:([^|]+)$/)?.[1];
+  if (!ticker) runtimeSourceStatusMismatch(status, "scope");
+  const positions = state.current_positions.positions.filter(
+    (position) => position.ticker === ticker,
+  );
+  const contentBearing = status.status === "loaded" || status.status === "stale";
+  if (!contentBearing) {
+    if (positions.length > 0) runtimeSourceStatusMismatch(status, "status");
+    return undefined;
+  }
+  if (state.current_positions.snapshot_status !== "loaded" || positions.length !== 1) {
+    runtimeSourceStatusMismatch(status, "status");
+  }
+  if (status.adapter_id !== "portfolio.position_thesis_adapter.v1") {
+    runtimeSourceStatusMismatch(status, "adapter_id");
+  }
+  if (status.status === "loaded" && status.as_of !== state.as_of_date) {
+    runtimeSourceStatusMismatch(status, "as_of");
+  }
+  const position = positions[0];
+  if (!position) runtimeSourceStatusMismatch(status, "status");
+  const value = {
+    entry_thesis_id: position.entry_thesis_id,
+    last_review_date: position.last_review_date,
+    ticker: position.ticker,
+  };
+  if (!validSha256(status.snapshot_hash) || status.snapshot_hash !== canonicalHash(value)) {
+    runtimeSourceStatusMismatch(status, "source_fingerprint");
+  }
+  return value;
+}
+
 function statusSummary(status: RuntimeSourceStatus): Record<string, unknown> {
   return {
     scope: status.scope,
@@ -715,14 +860,50 @@ function sourceObservation(
   state: DailyCycleStateType,
   sourceId: string,
   scope: string,
+  metric: string,
 ): RuntimeSourceEvidenceObservation | undefined {
-  return state.layer4_outputs?.runtime?.source_evidence_observations?.find(
+  const scoped = (state.layer4_outputs?.runtime?.source_evidence_observations ?? []).filter(
     (entry) => entry.source_id === sourceId && entry.scope === scope,
+  );
+  if (scoped.length === 0) return undefined;
+  const matched = scoped.filter((entry) => entry.metric === metric);
+  if (matched.length !== 1) {
+    throw new Error(`runtime_source_observation_status_mismatch:${sourceId}:${scope}:metric`);
+  }
+  return matched[0];
+}
+
+function validateRuntimeSourceObservation(
+  status: RuntimeSourceStatus,
+  observation: RuntimeSourceEvidenceObservation,
+  metric: string,
+): void {
+  const mismatch = (field: string): never => runtimeSourceStatusMismatch(status, field);
+  if (observation.metric !== metric) mismatch("metric");
+  if (
+    !validSha256(status.snapshot_hash) ||
+    observation.source_fingerprint !== status.snapshot_hash
+  ) {
+    mismatch("source_fingerprint");
+  }
+  if (!status.as_of || observation.as_of !== status.as_of) mismatch("as_of");
+  if (observation.freshness !== runtimeFreshness(status.status)) mismatch("freshness");
+  if (!status.adapter_id || observation.adapter_id !== status.adapter_id) mismatch("adapter_id");
+}
+
+function runtimeSourceStatusMismatch(status: RuntimeSourceStatus, field: string): never {
+  throw new Error(
+    `runtime_source_observation_status_mismatch:${status.source_id}:${status.scope}:${field}`,
   );
 }
 
-function runtimeSourceId(evidenceKey: string, metric: string): string {
-  return RUNTIME_SOURCE_ALIASES[evidenceKey] ?? RUNTIME_SOURCE_ALIASES[metric] ?? evidenceKey;
+function runtimeSourceId(evidenceKey: string, metric: string, declaredSource?: string): string {
+  return (
+    declaredSource ??
+    RUNTIME_SOURCE_ALIASES[evidenceKey] ??
+    RUNTIME_SOURCE_ALIASES[metric] ??
+    evidenceKey
+  );
 }
 
 function runtimeFreshness(status: RuntimeSourceStatus["status"]): EvidenceLedgerEntry["freshness"] {
@@ -730,15 +911,6 @@ function runtimeFreshness(status: RuntimeSourceStatus["status"]): EvidenceLedger
   if (status === "stale") return "stale";
   if (status === "source_error") return "tool_failed";
   return "missing";
-}
-
-function researchRuleIds(snapshot: ResearchKnobsSnapshot): ReadonlySet<string> {
-  const ids = new Set<string>();
-  for (const target of snapshot.knobs.mutation_targets) {
-    const ruleId = target.path.match(/\/rules\/([^/]+)\//)?.[1];
-    if (ruleId) ids.add(ruleId);
-  }
-  return ids;
 }
 
 function appendUniqueEvidence(
@@ -772,6 +944,7 @@ function visibleEvidenceValue(entry: EvidenceLedgerEntry): unknown {
     return { source_fingerprint: entry.source_fingerprint };
   }
   const rendered = JSON.stringify(entry.value);
+  if (rendered === undefined) return null;
   if (rendered.length <= 2_000) return entry.value;
   return {
     source_fingerprint: entry.source_fingerprint,
@@ -785,9 +958,7 @@ function validSha256(value: string | undefined): value is string {
 }
 
 function canonicalHash(value: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(JSON.stringify(sortJson(value)))
-    .digest("hex")}`;
+  return canonicalJsonHash(sortJson(value));
 }
 
 function sortJson(value: unknown): unknown {

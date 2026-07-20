@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Private KNOT Assets Reference v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "domain_knob_catalog",
+    "evaluation_contract",
+    "research_knob_projections"
+  ],
+  "properties": {
+    "schema_version": { "const": "private_knot_assets_ref_v1" },
+    "domain_knob_catalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["private_relative_path", "file_hash", "catalog_version", "catalog_hash"],
+      "properties": {
+        "private_relative_path": { "const": "registry/knot/domain_knob_catalog_v1.json" },
+        "file_hash": { "$ref": "#/$defs/sha256" },
+        "catalog_version": { "type": "string", "minLength": 1 },
+        "catalog_hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "evaluation_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "private_relative_path",
+        "file_hash",
+        "contract_version",
+        "schema_hash",
+        "catalog_hash",
+        "metric_registry_hash",
+        "calculator_registry_hash",
+        "contract_hash"
+      ],
+      "properties": {
+        "private_relative_path": { "const": "registry/knot/domain_knob_evaluation_contract_v1.json" },
+        "file_hash": { "$ref": "#/$defs/sha256" },
+        "contract_version": { "type": "string", "minLength": 1 },
+        "schema_hash": { "$ref": "#/$defs/sha256" },
+        "catalog_hash": { "$ref": "#/$defs/sha256" },
+        "metric_registry_hash": { "$ref": "#/$defs/sha256" },
+        "calculator_registry_hash": { "$ref": "#/$defs/sha256" },
+        "contract_hash": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "research_knob_projections": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["private_manifest_relative_path", "manifest_hash", "projection_count"],
+      "properties": {
+        "private_manifest_relative_path": {
+          "const": "registry/knot/research_knob_projection_manifest_v2.json"
+        },
+        "manifest_hash": { "$ref": "#/$defs/sha256" },
+        "projection_count": { "const": 224 }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

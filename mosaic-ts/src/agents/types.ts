@@ -1,10 +1,10 @@
 /**
- * Output contracts for the 4-layer 25-agent daily cycle (Plan §5).
+ * Output contracts for the 4-layer 28-agent daily cycle.
  *
  * Each layer-X agent produces a typed payload that gets written into
  * ``state.layer<X>_outputs[<agent_id>]`` by the dict-merge reducer in
- * ``state.ts``. Aggregator nodes at the end of each layer collapse those
- * maps into a single consensus object (``layer<X>_consensus``).
+ * ``state.ts``. Downstream stages consume the individual accepted outputs;
+ * the runtime does not collapse a layer into a consensus bundle.
  *
  * Conventions:
  *   * All confidences are in [0, 1].
@@ -24,16 +24,18 @@ import type { PromptReleaseCanaryEvent } from "../autoresearch/prompt_release_ca
 import type { ClaimEvidenceGraph, LlmResearchClaim } from "./evidence_contract.js";
 import type { AgentRunAudit } from "./helpers/agent_run_contract.js";
 import type {
-  ResearchKnobsSnapshot,
+  AcceptedMacroInputAttribution,
+  MacroInputAttributionSubmission,
+} from "./helpers/macro_attribution.js";
+import type {
+  PrivateKnotSnapshot,
   RuntimeSourceEvidenceObservation,
   RuntimeSourceStatus,
-} from "./helpers/research_knobs.js";
+} from "./helpers/private_knot_boundary.js";
 
 // ============================================================ Layer 1: Macro
 
-export interface KnobInfluenceDeclaration {
-  declared_knob_influence_ids?: string[] | undefined;
-  declared_influence_rationale?: string | undefined;
+export interface RuntimeOutputAuditFields {
   claims?: LlmResearchClaim[] | undefined;
   claim_refs?: string[] | undefined;
   /** Runtime-owned fields, ignored by legacy consumers. */
@@ -57,121 +59,260 @@ export interface KnobInfluenceDeclaration {
 export type MacroAgentId =
   | "china"
   | "us_economy"
+  | "eu_economy"
   | "central_bank"
-  | "dollar"
-  | "yield_curve"
+  | "us_financial_conditions"
+  | "euro_area_financial_conditions"
   | "commodities"
   | "geopolitical"
-  | "volatility"
   | "market_breadth"
   | "institutional_flow";
 
-/** The sole directional contract shared by every Layer-1 macro role. */
-export interface MacroTransmission {
-  direction: "SUPPORTIVE" | "NEUTRAL" | "ADVERSE";
+export type MacroDirection = "SUPPORTIVE" | "NEUTRAL" | "ADVERSE";
+export type MacroPersistenceHorizon = "DAYS" | "WEEKS" | "MONTHS";
+
+export interface DirectMacroSignal {
+  direction: MacroDirection;
   strength: 0 | 1 | 2 | 3 | 4 | 5;
-  horizon: "DAYS" | "WEEKS" | "MONTHS";
+  persistence_horizon: MacroPersistenceHorizon;
+  evaluation_horizon_trading_days: 5;
+  confidence: number;
   channels: string[];
   claim_refs: string[];
 }
 
-export interface MacroAgentOutputBase extends KnobInfluenceDeclaration, MacroTransmission {
-  agent: MacroAgentId;
-  confidence: number;
-  key_drivers: string[];
-  claims: LlmResearchClaim[];
-  claim_refs: string[];
+export interface MacroComponentSignal extends DirectMacroSignal {
+  component: string;
 }
 
-export type CentralBankOutput = MacroAgentOutputBase & { agent: "central_bank" };
-export type ChinaOutput = MacroAgentOutputBase & { agent: "china" };
-export type UsEconomyOutput = MacroAgentOutputBase & { agent: "us_economy" };
-export type DollarOutput = MacroAgentOutputBase & { agent: "dollar" };
-export type YieldCurveOutput = MacroAgentOutputBase & { agent: "yield_curve" };
-export type CommoditiesOutput = MacroAgentOutputBase & { agent: "commodities" };
-export type GeopoliticalOutput = MacroAgentOutputBase & { agent: "geopolitical" };
-export type VolatilityOutput = MacroAgentOutputBase & { agent: "volatility" };
-export type MarketBreadthOutput = MacroAgentOutputBase & { agent: "market_breadth" };
-export type InstitutionalFlowOutput = MacroAgentOutputBase & { agent: "institutional_flow" };
+export interface MacroAgentSubmissionBase extends RuntimeOutputAuditFields {
+  claims: LlmResearchClaim[];
+  key_drivers: string[];
+}
 
-export type MacroAgentOutput =
-  | ChinaOutput
-  | UsEconomyOutput
-  | CentralBankOutput
-  | DollarOutput
-  | YieldCurveOutput
-  | CommoditiesOutput
-  | GeopoliticalOutput
-  | VolatilityOutput
-  | MarketBreadthOutput
-  | InstitutionalFlowOutput;
+export type MacroAgentSubmission =
+  | (MacroAgentSubmissionBase & {
+      mode: "DIRECT";
+      signal: DirectMacroSignal;
+    })
+  | (MacroAgentSubmissionBase & {
+      mode: "COMPONENTS";
+      components: MacroComponentSignal[];
+    });
+
+export interface AcceptedMacroTransmission extends RuntimeOutputAuditFields {
+  agent_id: MacroAgentId;
+  agent_contract_version: string;
+  prompt_behavior_version: string;
+  execution_behavior_version: string;
+  component_weight_contract_version: string | null;
+  direction: "SUPPORTIVE" | "NEUTRAL" | "ADVERSE";
+  strength: 0 | 1 | 2 | 3 | 4 | 5;
+  persistence_horizon: "DAYS" | "WEEKS" | "MONTHS";
+  evaluation_horizon_trading_days: 5;
+  model_confidence: number;
+  deterministic_data_quality: number;
+  confidence: number;
+  channels: string[];
+  claims: LlmResearchClaim[];
+  claim_refs: string[];
+  key_drivers: string[];
+}
+
+export interface ComponentCalibrationRuntimeInput {
+  agent_id: MacroAgentId;
+  component_weight_contract_version: string;
+  components: Array<
+    MacroComponentSignal & {
+      deterministic_data_quality: number;
+    }
+  >;
+}
+
+/**
+ * Runtime-only, immutable composition evidence for a composed Macro output.
+ * It is hash-bound to the accepted record, but is never part of the payload
+ * exposed to models or downstream voting consumers.
+ */
+export interface MacroComponentCompositionAudit extends ComponentCalibrationRuntimeInput {
+  schema_version: "macro_component_composition_audit_v1";
+  component_weights: Record<string, number>;
+  source_snapshot_hash: string;
+  context_only_projection_hash: string | null;
+  composed_payload_hash: string;
+  component_composition_hash: string;
+}
+
+export interface MacroInputGateReceipt {
+  schema_version: "macro_input_gate_receipt_v1";
+  accepted_agent_ids: MacroAgentId[];
+  accepted_count: 10;
+  input_hash: string;
+  source_layer_snapshot_id: string;
+  source_layer_snapshot_hash: string;
+  darwinian_snapshot_id: string | null;
+  darwinian_snapshot_hash: string | null;
+  reliability_by_agent: Record<
+    MacroAgentId,
+    {
+      effective_reliability: number;
+      usage_share: number;
+      weight_record_id: string | null;
+      reliability_record_id: string | null;
+    }
+  >;
+}
+
+export type ChinaOutput = MacroAgentSubmission;
+export type UsEconomyOutput = MacroAgentSubmission;
+export type EuEconomyOutput = MacroAgentSubmission;
+export type CentralBankOutput = MacroAgentSubmission;
+export type UsFinancialConditionsOutput = MacroAgentSubmission;
+export type EuroAreaFinancialConditionsOutput = MacroAgentSubmission;
+export type CommoditiesOutput = MacroAgentSubmission;
+export type GeopoliticalOutput = MacroAgentSubmission;
+export type MarketBreadthOutput = MacroAgentSubmission;
+export type InstitutionalFlowOutput = MacroAgentSubmission;
+export type MacroAgentOutput = AcceptedMacroTransmission;
 
 /** Old rows remain readable for audit only and never enter current aggregation or ranking. */
 export interface LegacyMacroAgentOutput {
-  agent: "emerging_markets" | "news_sentiment";
+  agent: "dollar" | "yield_curve" | "volatility" | "emerging_markets" | "news_sentiment";
   legacy_status: "legacy_unverified";
   [key: string]: unknown;
 }
 
-/** Plan §5.1 — aggregated regime call after all 10 macro agents have written. */
-export interface RegimeSignal {
-  stance: "BULLISH" | "BEARISH" | "NEUTRAL";
-  confidence: number;
-  key_drivers: string[];
-  /** Final six-group score S in [-1, 1]. */
-  layer_1_consensus_score: number;
-}
-
 // ============================================================ Layer 2: Sector
 
-/** Plan §5.2 — semiconductor, energy, biotech, consumer, industrials, financials,
- *  relationship_mapper.
- *
- *  Sector agents share a uniform shape: longs / shorts with thesis, plus a
- *  numeric sector_score. relationship_mapper deviates and uses
- *  ``RelationshipMapperOutput`` instead.
- */
-export interface SectorPick {
-  ticker: string;
-  thesis: string;
-  /** [0, 1]. */
+export type StandardSectorAgentId =
+  | "semiconductor"
+  | "technology"
+  | "energy"
+  | "biotech"
+  | "consumer"
+  | "industrials"
+  | "real_estate_construction"
+  | "financials"
+  | "agriculture";
+
+export type SectorAgentId = StandardSectorAgentId | "relationship_mapper";
+
+export interface SectorSecurityPickSubmission {
+  pick_local_id: string;
+  ts_code: string;
+  direction_local_id: string;
+  position_action: "LONG" | "SHORT" | "AVOID";
   conviction: number;
-  claim_refs?: string[] | undefined;
+  thesis: string;
+  claim_refs: string[];
 }
 
-export interface SectorAgentOutputBase extends KnobInfluenceDeclaration {
-  agent: string;
-  selection_disposition?: "CANDIDATES" | "NO_QUALIFIED_CANDIDATES" | undefined;
-  longs: SectorPick[];
-  shorts: SectorPick[];
-  /** [-1, 1], where +1 = max bullish on the sector. */
-  sector_score: number;
-  key_drivers: string[];
-  /** Self-rated confidence in [0, 1]. Same semantics as Layer 1. */
+export interface SectorAgentOutputBase extends RuntimeOutputAuditFields {
+  agent: StandardSectorAgentId;
+  selection_status: "SELECTED";
+  preferred_direction: {
+    selection_role: "PREFERRED";
+    direction_local_id: string;
+    direction_id: string;
+    allocation_action: "OVERWEIGHT";
+    strength: 1 | 2 | 3 | 4 | 5;
+    thesis: string;
+    claim_refs: string[];
+  };
+  least_preferred_direction: {
+    selection_role: "LEAST_PREFERRED";
+    direction_local_id: string;
+    direction_id: string;
+    allocation_action: "UNDERWEIGHT";
+    strength: 1 | 2 | 3 | 4 | 5;
+    thesis: string;
+    claim_refs: string[];
+  };
+  persistence_horizon: MacroPersistenceHorizon;
   confidence: number;
+  key_drivers: Array<{ driver_local_id: string; summary: string; claim_refs: string[] }>;
+  risks: Array<{ risk_local_id: string; summary: string; claim_refs: string[] }>;
+  claims: LlmResearchClaim[];
+  claim_refs: string[];
+  preferred_security_status: "PICKS_PRESENT" | "NO_QUALIFIED_SECURITY";
+  preferred_security_abstention_confidence: number | null;
+  long_picks: SectorSecurityPickSubmission[];
+  least_preferred_security_status: "PICKS_PRESENT" | "NO_QUALIFIED_SECURITY";
+  least_preferred_security_abstention_confidence: number | null;
+  short_or_avoid_picks: SectorSecurityPickSubmission[];
+  macro_input_attributions: MacroInputAttributionSubmission[];
+  /** Runtime-owned bindings. They are never part of the model final-selection schema. */
+  sector_runtime_binding?: SectorRuntimeSelectionBinding | undefined;
 }
 
-export interface RelationshipMapperOutput extends KnobInfluenceDeclaration {
+export interface SectorRuntimeSelectionBinding {
+  snapshot_bundle_id: string;
+  snapshot_bundle_hash: string;
+  direction_comparison_audit_hash: string;
+  finalized_pair_matrix_hash: string;
+  selection_status: "SELECTED";
+  preferred_direction_id: string;
+  least_preferred_direction_id: string;
+  preferred_security_shortlist_id: string;
+  preferred_security_shortlist_hash: string;
+  least_preferred_security_shortlist_id: string;
+  least_preferred_security_shortlist_hash: string;
+  security_scoring_contract_version: string;
+  security_scoring_contract_hash: string;
+  required_preferred_evidence_ids: string[];
+  required_least_preferred_evidence_ids: string[];
+  required_final_evidence_ids: string[];
+}
+
+export interface RelationshipMapperOutput extends RuntimeOutputAuditFields {
   agent: "relationship_mapper";
-  supply_chains: Array<{ name: string; tickers: string[]; risk: string }>;
-  ownership_clusters: Array<{ cluster_id: string; tickers: string[] }>;
-  contagion_risks: string[];
-  key_drivers: string[];
-  /** Self-rated confidence in [0, 1]. */
-  confidence: number;
+  factual_edges: Array<{
+    edge_local_id: string;
+    source_entity: string;
+    target_entity: string;
+    edge_type: string;
+    claim_refs: string[];
+  }>;
+  predictive_edges: Array<{
+    edge_local_id: string;
+    edge_candidate_id: string;
+    source_entity: string;
+    target_entity: string;
+    edge_type: string;
+    transmission_direction: "POSITIVE" | "NEGATIVE" | "MIXED";
+    activation_trigger: string;
+    evaluation_horizon_trading_days: 20;
+    model_confidence: number;
+    claim_refs: string[];
+  }>;
+  predictive_graph_status: "EDGES_PRESENT" | "NO_QUALIFIED_PREDICTIVE_EDGE";
+  predictive_graph_abstention_confidence: number | null;
+  key_drivers: Array<{ driver_local_id: string; summary: string; claim_refs: string[] }>;
+  risks: Array<{ risk_local_id: string; summary: string; claim_refs: string[] }>;
+  claims: LlmResearchClaim[];
+  claim_refs: string[];
+  macro_input_attributions: SectorAgentOutputBase["macro_input_attributions"];
 }
+
+export type { AcceptedMacroInputAttribution, MacroInputAttributionSubmission };
 
 export type SectorAgentOutput =
   | SemiconductorOutput
+  | TechnologyOutput
   | EnergyOutput
   | BiotechOutput
   | ConsumerOutput
   | IndustrialsOutput
+  | RealEstateConstructionOutput
   | FinancialsOutput
+  | AgricultureOutput
   | RelationshipMapperOutput;
 
 export interface SemiconductorOutput extends SectorAgentOutputBase {
   agent: "semiconductor";
+}
+export interface TechnologyOutput extends SectorAgentOutputBase {
+  agent: "technology";
 }
 export interface EnergyOutput extends SectorAgentOutputBase {
   agent: "energy";
@@ -185,18 +326,14 @@ export interface ConsumerOutput extends SectorAgentOutputBase {
 export interface IndustrialsOutput extends SectorAgentOutputBase {
   agent: "industrials";
 }
+export interface RealEstateConstructionOutput extends SectorAgentOutputBase {
+  agent: "real_estate_construction";
+}
 export interface FinancialsOutput extends SectorAgentOutputBase {
   agent: "financials";
 }
-
-/** Aggregated sector view written by the L2 aggregator. */
-export interface SectorConsensus {
-  /** Top 3 sectors with the strongest positive sector_score. */
-  top_sectors: Array<{ sector: string; score: number }>;
-  /** Top 3 sectors with the strongest negative sector_score. */
-  bottom_sectors: Array<{ sector: string; score: number }>;
-  /** Cross-sector contagion or relationship signals from relationship_mapper. */
-  cross_sector_risks: string[];
+export interface AgricultureOutput extends SectorAgentOutputBase {
+  agent: "agriculture";
 }
 
 // ============================================================ Layer 3: Superinvestor
@@ -206,50 +343,67 @@ export interface SectorConsensus {
  *  Each superinvestor applies a philosophy filter and produces a concentrated
  *  pick list (typically 3–5 names) with the philosophical rationale.
  */
-export interface SuperinvestorPick {
-  ticker: string;
-  /** The investor-style rationale: macro asymmetry / quality moat / deep value / activist quality. */
-  thesis: string;
+export type SuperinvestorAgentId = "druckenmiller" | "munger" | "burry" | "ackman";
+
+export interface SuperinvestorSecurityPickSubmission {
+  pick_local_id: string;
+  ts_code: string;
+  position_action: "LONG" | "AVOID";
   conviction: number;
-  /** Suggested holding period bracket. */
-  holding_period: "1W" | "1M" | "3M" | "6M" | "1Y" | "5Y+";
-  claim_refs?: string[] | undefined;
+  thesis: string;
+  claim_refs: string[];
 }
 
-export interface SuperinvestorOutput extends KnobInfluenceDeclaration {
-  agent: "druckenmiller" | "munger" | "burry" | "ackman";
-  selection_disposition?: "CANDIDATES" | "NO_QUALIFIED_CANDIDATES" | undefined;
-  picks: SuperinvestorPick[];
-  /** Why these 3-5 names + macro/sector regime fit. */
-  philosophy_note: string;
-  key_drivers: string[];
-  /** Self-rated confidence in [0, 1]. Same semantics as L1/L2. */
+export interface SuperinvestorDriverSubmission {
+  driver_local_id: string;
+  summary: string;
+  claim_refs: string[];
+}
+
+export interface SuperinvestorRiskSubmission {
+  risk_local_id: string;
+  summary: string;
+  claim_refs: string[];
+}
+
+interface SuperinvestorSubmissionBase extends RuntimeOutputAuditFields {
+  agent: SuperinvestorAgentId;
   confidence: number;
+  holding_period: "WEEKS" | "MONTHS" | "YEARS";
+  key_drivers: SuperinvestorDriverSubmission[];
+  risks: SuperinvestorRiskSubmission[];
+  claims: LlmResearchClaim[];
+  claim_refs: string[];
+  macro_input_attributions: MacroInputAttributionSubmission[];
 }
 
-export interface DruckenmillerOutput extends Omit<SuperinvestorOutput, "agent"> {
-  agent: "druckenmiller";
-}
-export interface MungerOutput extends Omit<SuperinvestorOutput, "agent"> {
-  agent: "munger";
-}
-export interface BurryOutput extends Omit<SuperinvestorOutput, "agent"> {
-  agent: "burry";
-}
-export interface AckmanOutput extends Omit<SuperinvestorOutput, "agent"> {
-  agent: "ackman";
-}
+export type SuperinvestorOutput =
+  | (SuperinvestorSubmissionBase & {
+      selection_status: "SELECTED";
+      picks: SuperinvestorSecurityPickSubmission[];
+    })
+  | (SuperinvestorSubmissionBase & {
+      selection_status: "NO_QUALIFIED_CANDIDATES";
+      picks: [];
+    });
+
+export type DruckenmillerOutput = SuperinvestorOutput & { agent: "druckenmiller" };
+export type MungerOutput = SuperinvestorOutput & { agent: "munger" };
+export type BurryOutput = SuperinvestorOutput & { agent: "burry" };
+export type AckmanOutput = SuperinvestorOutput & { agent: "ackman" };
 
 // ============================================================ Layer 4: Decision
 
 /** Plan §5.4 — cro, alpha_discovery, autonomous_execution, cio. */
 
-export interface CroOutput extends KnobInfluenceDeclaration {
+export interface CroOutput extends RuntimeOutputAuditFields {
   agent: "cro";
   review_disposition?: "REVIEW_ACTIONS" | "NO_OBJECTION" | "BLOCK_ALL" | undefined;
   rejected_picks: Array<{ ticker: string; reason: string; claim_refs?: string[] | undefined }>;
   required_adjustments?:
     | Array<{
+        action_local_id?: string | undefined;
+        candidate_ref?: string | undefined;
         ticker: string;
         adjustment: "VETO" | "CAP_WEIGHT" | "REDUCE_WEIGHT" | "REQUIRE_REVIEW";
         max_target_weight?: number | undefined;
@@ -263,7 +417,7 @@ export interface CroOutput extends KnobInfluenceDeclaration {
   confidence: number;
 }
 
-export interface AlphaDiscoveryOutput extends KnobInfluenceDeclaration {
+export interface AlphaDiscoveryOutput extends RuntimeOutputAuditFields {
   agent: "alpha_discovery";
   discovery_disposition?: "CANDIDATES" | "NONE_FOUND" | undefined;
   novel_picks: Array<{
@@ -275,10 +429,12 @@ export interface AlphaDiscoveryOutput extends KnobInfluenceDeclaration {
   confidence: number;
 }
 
-export interface AutoExecOutput extends KnobInfluenceDeclaration {
+export interface AutoExecOutput extends RuntimeOutputAuditFields {
   agent: "autonomous_execution";
   execution_disposition?: "TRADES" | "NO_DELTA" | "BLOCKED" | undefined;
   trades: Array<{
+    assessment_local_id?: string | undefined;
+    order_intent_ref?: string | undefined;
     ticker: string;
     action: "BUY" | "SELL" | "HOLD" | "REDUCE";
     size_pct: number;
@@ -291,7 +447,10 @@ export interface AutoExecOutput extends KnobInfluenceDeclaration {
   }>;
   execution_checks?:
     | Array<{
+        assessment_local_id?: string | undefined;
+        order_intent_ref?: string | undefined;
         ticker: string;
+        requested_delta_weight?: number | undefined;
         status: "feasible" | "partial" | "blocked";
         estimated_cost_bps: number;
         max_executable_delta_weight?: number | undefined;
@@ -321,7 +480,7 @@ export interface PortfolioAction {
   /** Target portfolio weight in [0, 1]. */
   target_weight: number;
   delta_weight?: number | undefined;
-  holding_period: SuperinvestorPick["holding_period"];
+  holding_period: "1W" | "1M" | "3M" | "6M" | "1Y" | "5Y+";
   position_decision_reason?: string | undefined;
   override_reason?: string | undefined;
   thesis_status?: "intact" | "weakened" | "broken" | "expired" | undefined;
@@ -333,7 +492,7 @@ export interface PortfolioAction {
   claim_refs?: string[] | undefined;
 }
 
-export interface CioOutput extends KnobInfluenceDeclaration {
+export interface CioOutput extends RuntimeOutputAuditFields {
   agent: "cio";
   decision_disposition?: "TARGET_PORTFOLIO" | "HOLD_CURRENT" | "ALL_CASH" | undefined;
   decision_reason?: string | undefined;
@@ -341,6 +500,22 @@ export interface CioOutput extends KnobInfluenceDeclaration {
   portfolio_actions: PortfolioAction[];
   position_reviews?: PositionReview[] | undefined;
   dissent_refs?: CioDissentReference[] | undefined;
+  cro_control_resolutions?:
+    | Array<{
+        cro_action_local_ref: string;
+        resolution: "COMPLIED" | "MORE_CONSERVATIVE";
+        reason: string;
+        claim_refs?: string[] | undefined;
+      }>
+    | undefined;
+  execution_control_resolutions?:
+    | Array<{
+        execution_assessment_local_ref: string;
+        resolution: "COMPLIED" | "MORE_CONSERVATIVE";
+        reason: string;
+        claim_refs?: string[] | undefined;
+      }>
+    | undefined;
   /** Self-rated confidence in [0, 1]. */
   confidence: number;
 }
@@ -458,6 +633,9 @@ export interface CroReviewState {
   run_id: string;
   candidate_target_hash: string;
   l4_run_snapshot_hash: string;
+  source_status: "ACCEPTED_OUTPUT" | "NO_EVALUATION_OBJECT";
+  stage_skip_id: string | null;
+  stage_skip_hash: string | null;
   review_hash: string;
   output: CroOutput;
   frozen: true;
@@ -469,6 +647,9 @@ export interface ExecutionFeasibilityState {
   candidate_target_hash: string;
   l4_run_snapshot_hash: string;
   cro_review_hash: string;
+  source_status: "ACCEPTED_OUTPUT" | "NO_EVALUATION_OBJECT";
+  stage_skip_id: string | null;
+  stage_skip_hash: string | null;
   liquidity_vintage_hash: string;
   feasibility_hash: string;
   output: AutoExecOutput;
@@ -532,7 +713,7 @@ export interface L4RunPromptSnapshot {
   agent: "alpha_discovery" | "cio" | "cro" | "autonomous_execution";
   stage: "alpha_discovery" | "cio_proposal" | "cro_review" | "execution_feasibility" | "cio_final";
   prompt_source_hash: string;
-  knob_snapshot_hash: string | null;
+  private_knot_snapshot_hash: string | null;
 }
 
 export interface L4RunSnapshotBundle {
@@ -561,8 +742,8 @@ export interface Layer4RuntimeTraceEntry {
     | "execution_feasibility"
     | "cio_final"
     | "shared_validation";
-  operation: "agent_run" | "source_freeze" | "validation";
-  status: "completed" | "fallback" | "rejected";
+  operation: "agent_run" | "source_freeze" | "stage_skip" | "validation";
+  status: "completed" | "skipped" | "fallback" | "rejected";
   reason_codes?: string[] | undefined;
   fallback_factory_id?: string | undefined;
   fallback_factory_version?: string | undefined;
@@ -580,7 +761,7 @@ export interface Layer4RuntimeState {
   execution_feasibility_state: ExecutionFeasibilityState | null;
   final_target_state: FinalTargetState | null;
   portfolio_summary: PortfolioSummary | null;
-  cio_final_knob_snapshot: ResearchKnobsSnapshot | null;
+  cio_final_knob_snapshot: PrivateKnotSnapshot | null;
   resolved_source_statuses: RuntimeSourceStatus[];
   source_evidence_observations: RuntimeSourceEvidenceObservation[];
   stage_trace: Layer4RuntimeTraceEntry[];
@@ -638,6 +819,24 @@ export interface LlmCallRecord {
   cost_usd: number;
   prompt_canary_event?: PromptReleaseCanaryEvent;
   agent_run_audit?: AgentRunAudit;
+  sector_inference_audit?: SectorInferenceAuditRecord;
+}
+
+export interface SectorInferenceAuditRecord {
+  schema_version: "sector_inference_audit_v1";
+  sector_agent_id: StandardSectorAgentId;
+  snapshot_bundle_hash: string;
+  model_subcall_count: number;
+  conflict_review_triggered: boolean;
+  direction_research_audit: AgentRunAudit;
+  conflict_review_audit: AgentRunAudit | null;
+  final_selection_audit: AgentRunAudit;
+  direction_comparison_audit_hash: string;
+  direction_comparison_audit: Record<string, unknown>;
+  inference_cost_audit_id: string;
+  inference_cost_audit_hash: string;
+  usage_summary_receipt_id: string;
+  usage_summary_receipt_hash: string;
 }
 
 // ============================================================ Convenience
@@ -648,9 +847,8 @@ export interface DailyCycleResult {
   active_cohort: string;
   as_of_date: string;
   layer1_outputs: Record<string, MacroAgentOutput>;
-  layer1_consensus: RegimeSignal | null;
+  macro_input_gate: MacroInputGateReceipt | null;
   layer2_outputs: Record<string, SectorAgentOutput>;
-  layer2_consensus: SectorConsensus | null;
   layer3_outputs: Record<string, SuperinvestorOutput>;
   layer4_outputs: Layer4Outputs;
   current_positions: CurrentPositionsSnapshot;

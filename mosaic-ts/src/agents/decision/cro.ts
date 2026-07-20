@@ -13,8 +13,9 @@ import {
 } from "./_factory.js";
 import { CRO_FIELD_NAMES, CroSchema } from "./_schemas.js";
 import { renderCurrentPositionsContext, renderLayer4RuntimeContext } from "./_user_context.js";
+import type { CroAgentSubmission } from "./accepted.js";
 
-const REQUIRED_TOOLS = ["get_rke_research_context"] as const;
+const REQUIRED_TOOLS = ["get_cro_risk_snapshot", "get_role_event_snapshot"] as const;
 
 function buildUserContext(state: DailyCycleStateType): string {
   const date = state.as_of_date || new Date().toISOString().slice(0, 10);
@@ -30,7 +31,7 @@ function buildUserContext(state: DailyCycleStateType): string {
   );
 }
 
-export const croSpec: LayerFourAgentSpec<CroOutput> = {
+export const croSpec: LayerFourAgentSpec<CroAgentSubmission> = {
   agentId: "cro",
   runtimeStage: "cro_review",
   schema: CroSchema,
@@ -45,13 +46,24 @@ export function buildCroNode(deps: LayerFourAgentDeps): LayerFourAgentNode {
   return buildLayerFourAgentNode(croSpec, deps);
 }
 
-export function renderCro(o: CroOutput): string {
-  const rejected = o.rejected_picks.map((r) => `${r.ticker}:${r.reason}`).join(" | ");
+export function renderCro(o: CroAgentSubmission | CroOutput): string {
+  if ("agent" in o) {
+    const rejected = o.rejected_picks.map((pick) => `${pick.ticker}:${pick.reason}`).join(" | ");
+    return (
+      `cro review (confidence=${o.confidence.toFixed(2)})\n` +
+      `  rejected: ${rejected || "(none)"}\n` +
+      `  correlated_risks: ${o.correlated_risks.join(" | ")}\n` +
+      `  black_swans: ${o.black_swan_scenarios.join(" | ")}`
+    );
+  }
+  const actions = o.candidate_actions
+    .map((action) => `${action.ts_code}:${action.action}:${action.reason}`)
+    .join(" | ");
   return (
     `cro review (confidence=${o.confidence.toFixed(2)})\n` +
-    `  rejected: ${rejected || "(none)"}\n` +
-    `  correlated_risks: ${o.correlated_risks.join(" | ")}\n` +
-    `  black_swans: ${o.black_swan_scenarios.join(" | ")}`
+    `  candidate_actions: ${actions || "(none)"}\n` +
+    `  correlated_risks: ${o.correlated_risks.map((risk) => risk.summary).join(" | ")}\n` +
+    `  black_swans: ${o.black_swan_scenarios.map((risk) => risk.summary).join(" | ")}`
   );
 }
 
