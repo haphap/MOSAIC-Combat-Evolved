@@ -14,14 +14,14 @@ Exposes the prompt-mutation lifecycle to the TS orchestrator:
 
 from __future__ import annotations
 
-import hashlib
-import json
 import math
 import os
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+from mosaic.scorecard.canonical_json import canonical_hash
 
 from ..protocol import AUTORESEARCH_ERROR, INVALID_PARAMS, RpcError
 from ..registry import method
@@ -40,14 +40,7 @@ def _store():
 
 
 def _canonical_hash(value: Any) -> str:
-    payload = json.dumps(
-        value,
-        ensure_ascii=False,
-        allow_nan=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+    return canonical_hash(value)
 
 
 def _authorized_prompt_release_operators() -> set[str]:

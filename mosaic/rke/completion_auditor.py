@@ -964,7 +964,7 @@ _EXPECTED_ROLLBACK_CHECKS: dict[str, tuple[str, str]] = {
     ),
     "promotion_gate_respects_rollback_blocks": (
         "promotion",
-        "keep rule in paper_trading",
+        "forbid production signal consumption",
     ),
 }
 

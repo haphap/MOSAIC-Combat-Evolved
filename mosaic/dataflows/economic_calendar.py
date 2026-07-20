@@ -8,7 +8,6 @@ from this immutable cache.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
@@ -19,6 +18,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from mosaic.dataflows.cross_runtime_json import canonical_hash, canonical_json
 from mosaic.dataflows.tushare_catalog import assert_endpoint_runtime_enabled
 
 ECO_CAL_SCHEMA_VERSION = "economic_calendar_event_v2"
@@ -158,11 +158,11 @@ _REFERENCE_PERIOD_PATTERNS = (
 
 
 def _canonical_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return canonical_json(value)
 
 
 def _hash(value: Any) -> str:
-    return "sha256:" + hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
+    return canonical_hash(value)
 
 
 def _id(namespace: str, value: Any) -> str:

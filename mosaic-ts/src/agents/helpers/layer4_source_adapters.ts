@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
 import type { BridgeApi } from "../../bridge/index.js";
 import type { DailyCycleStateType } from "../state.js";
+import { canonicalJsonHash } from "./canonical_json.js";
 import type {
   RuntimeSourceEvidenceObservation,
   RuntimeSourceStatus,
@@ -335,7 +335,7 @@ function evidenceKey(
 }
 
 function stableHash(value: unknown): string {
-  return `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
+  return canonicalJsonHash(value);
 }
 
 async function mapWithConcurrency<T, U>(

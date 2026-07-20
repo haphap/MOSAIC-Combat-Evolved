@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  freezeCroReview,
   freezeCroStageSkip,
   freezeExecutionStageSkip,
   Layer4RuntimeContractError,
@@ -105,5 +106,41 @@ describe("no-evaluation-object stage skip", () => {
     expect(() =>
       freezeExecutionStageSkip("run-1", actionable, cro, stageSkip("autonomous_execution")),
     ).toThrow(Layer4RuntimeContractError);
+  });
+
+  it("allows execution stage skip when a CRO control reduces the frozen delta to zero", () => {
+    const controlled = candidate([
+      {
+        ticker: "600519.SH",
+        action: "BUY",
+        current_weight: 0.1,
+        target_weight: 0.2,
+        delta_weight: 0.1,
+        holding_period: "1Y",
+        dissent_notes: "",
+      },
+    ]);
+    const cro = freezeCroReview("run-1", controlled, {
+      agent: "cro",
+      review_disposition: "REVIEW_ACTIONS",
+      rejected_picks: [],
+      required_adjustments: [
+        {
+          action_local_id: "cap-to-current",
+          ticker: "600519.SH",
+          adjustment: "CAP_WEIGHT",
+          max_target_weight: 0.1,
+          reason: "do not increase the current position",
+        },
+      ],
+      correlated_risks: [],
+      black_swan_scenarios: [],
+      confidence: 0.8,
+    });
+
+    expect(
+      freezeExecutionStageSkip("run-1", controlled, cro, stageSkip("autonomous_execution")).output
+        .execution_disposition,
+    ).toBe("NO_DELTA");
   });
 });

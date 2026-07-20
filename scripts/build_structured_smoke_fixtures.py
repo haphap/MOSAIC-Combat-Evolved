@@ -39,33 +39,46 @@ from mosaic.dataflows.geopolitical_events import (
     scope_query_hash,
     validate_geopolitical_manifest,
 )
+from mosaic.dataflows.macro_source_contracts import (
+    COMMODITY_CONTRACT_MAP,
+    COMMODITY_FAMILY_CONTRACTS,
+)
+from mosaic.dataflows.macro_snapshots import (
+    MACRO_EVENT_ROLES,
+    validate_role_snapshot,
+)
+from mosaic.dataflows.market_breadth import render_market_breadth_snapshot
+from mosaic.dataflows.outcome_runtime_inputs import (
+    EVENT_COVERAGE_SCHEMA_VERSION,
+    OPPORTUNITY_PROJECTION_SCHEMA_VERSION,
+)
+from mosaic.dataflows.role_events import build_role_event_snapshot
 from mosaic.dataflows.sector_snapshots import (
     RELATIONSHIP_SNAPSHOT_SCHEMA_VERSION,
     SECTOR_DIRECTION_CONTRACT_VERSION,
     SECTOR_DIRECTION_IDS,
+    SECTOR_ETF_DIRECTION_AUTHORITY,
     SECTOR_SNAPSHOT_SCHEMA_VERSION,
     SECTOR_UNIVERSE_MANIFEST,
     _canonical_hash as _sector_canonical_hash,
 )
+from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
+from mosaic.scorecard.opportunity_authority import macro_authority_members
+from mosaic.scorecard.canonical_json import canonical_hash
 
 _FIXTURE_ARTIFACT_ROOTS = (
     "economic_calendar",
     "geopolitical_events",
     "macro_snapshots",
     "market_breadth",
+    "outcome_runtime",
     "runtime_snapshots",
     "sector_snapshots",
 )
 
 
 def _canonical_hash(payload: Any) -> str:
-    encoded = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+    return canonical_hash(payload)
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -81,10 +94,14 @@ def _fixture_artifact_inventory(root: Path) -> list[dict[str, str]]:
     for directory_name in _FIXTURE_ARTIFACT_ROOTS:
         directory = root / directory_name
         if not directory.is_dir() or directory.is_symlink():
-            raise RuntimeError(f"structured-smoke fixture directory is invalid: {directory}")
+            raise RuntimeError(
+                f"structured-smoke fixture directory is invalid: {directory}"
+            )
         for path in sorted(directory.rglob("*")):
             if path.is_symlink():
-                raise RuntimeError(f"structured-smoke fixture cannot contain symlinks: {path}")
+                raise RuntimeError(
+                    f"structured-smoke fixture cannot contain symlinks: {path}"
+                )
             if path.is_dir():
                 continue
             if not path.is_file():
@@ -123,6 +140,98 @@ def _macro_observation(
         "source": source,
         "pit_status": "AVAILABLE_AS_OF",
         "evidence_id": f"structured-smoke:macro:{series_id}:{as_of.isoformat()}",
+    }
+
+
+def _synthetic_commodity_conditions(as_of: date) -> dict[str, Any]:
+    trade_date = as_of
+    while trade_date.weekday() >= 5:
+        trade_date -= timedelta(days=1)
+    captured_at = (
+        datetime.combine(
+            trade_date,
+            datetime.min.time(),
+            tzinfo=timezone.utc,
+        )
+        .replace(hour=6)
+        .isoformat()
+    )
+    required_families = (
+        family_id
+        for component in COMMODITY_CONTRACT_MAP.values()
+        for family_id in component["required_families"]
+    )
+    families: list[dict[str, Any]] = []
+    for family_ordinal, family_id in enumerate(required_families, start=1):
+        source = COMMODITY_FAMILY_CONTRACTS[family_id]
+        delivery_dates = [
+            (as_of + timedelta(days=offset)).replace(day=20) for offset in (60, 120)
+        ]
+        contracts: list[dict[str, Any]] = []
+        for contract_ordinal, delivery_date in enumerate(delivery_dates, start=1):
+            symbol = f"{source['product_code']}{delivery_date:%y%m}"
+            evidence_key = f"{family_id}:{delivery_date:%Y-%m}"
+            contracts.append(
+                {
+                    "ts_code": f"{symbol}.{source['ts_code_suffix']}",
+                    "symbol": symbol,
+                    "exchange": source["exchange"],
+                    "name": f"synthetic {family_id} {delivery_date:%Y-%m}",
+                    "fut_code": source["product_code"],
+                    "multiplier": 1,
+                    "trade_unit": "synthetic_contract",
+                    "quote_unit": "synthetic_price",
+                    "list_date": (as_of - timedelta(days=365)).isoformat(),
+                    "delist_date": delivery_date.replace(day=15).isoformat(),
+                    "delivery_month": delivery_date.strftime("%Y-%m"),
+                    "last_delivery_date": delivery_date.isoformat(),
+                    "trade_date": trade_date.isoformat(),
+                    "settle": 100.0 + family_ordinal + contract_ordinal,
+                    "volume": 1000.0 + contract_ordinal,
+                    "open_interest": 2000.0 + contract_ordinal,
+                    "metadata_released_at": captured_at,
+                    "metadata_vintage_at": captured_at,
+                    "price_released_at": captured_at,
+                    "price_vintage_at": captured_at,
+                    "metadata_source": source["contract_metadata_source"],
+                    "price_source": source["daily_settlement_source"],
+                    "pit_status": "AVAILABLE_AS_OF",
+                    "metadata_evidence_id": (
+                        f"structured-smoke:commodity:metadata:{evidence_key}"
+                    ),
+                    "price_evidence_id": (
+                        f"structured-smoke:commodity:settlement:{evidence_key}"
+                    ),
+                }
+            )
+        families.append(
+            {
+                "family_id": family_id,
+                "component": source["component"],
+                "contracts": contracts,
+                "inventory": {
+                    "series_id": f"inventory_{family_id.replace('@', '_')}",
+                    "family_id": family_id,
+                    "observation_date": trade_date.isoformat(),
+                    "released_at": captured_at,
+                    "vintage_at": captured_at,
+                    "actual": 1000.0 + family_ordinal,
+                    "previous": 999.0 + family_ordinal,
+                    "unit": "synthetic_inventory_unit",
+                    "source": source["inventory_source"],
+                    "pit_status": "AVAILABLE_AS_OF",
+                    "evidence_id": (
+                        f"structured-smoke:commodity:inventory:{family_id}:"
+                        f"{trade_date.isoformat()}"
+                    ),
+                },
+            }
+        )
+    return {
+        "schema_version": "commodity_condition_inputs_v1",
+        "as_of_date": as_of.isoformat(),
+        "market_session_date": trade_date.isoformat(),
+        "families": families,
     }
 
 
@@ -214,23 +323,33 @@ def _build_macro_snapshots(root: Path, as_of: date) -> None:
                                 ordinal=ordinal,
                             )
                             for ordinal, (series_id, source) in enumerate(
-                                role_series[
-                                    "us_economy"
-                                    if role == "us_financial_conditions"
-                                    else "eu_economy"
-                                ],
+                                (
+                                    role_series["china"][:3]
+                                    if role == "central_bank"
+                                    else role_series[
+                                        "us_economy"
+                                        if role == "us_financial_conditions"
+                                        else "eu_economy"
+                                    ]
+                                ),
                                 start=101,
                             )
                         ]
                     }
                     if role
                     in {
+                        "central_bank",
                         "us_financial_conditions",
                         "euro_area_financial_conditions",
                     }
                     else {}
                 ),
                 "events": [],
+                **(
+                    {"commodity_conditions": _synthetic_commodity_conditions(as_of)}
+                    if role == "commodities"
+                    else {}
+                ),
                 **(
                     {
                         "component_coverage": {
@@ -389,7 +508,9 @@ def _business_days_ending(as_of: date, count: int) -> list[date]:
     return sorted(days)
 
 
-def _write_csv(path: Path, fieldnames: tuple[str, ...], rows: list[dict[str, Any]]) -> None:
+def _write_csv(
+    path: Path, fieldnames: tuple[str, ...], rows: list[dict[str, Any]]
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -400,6 +521,11 @@ def _write_csv(path: Path, fieldnames: tuple[str, ...], rows: list[dict[str, Any
 def _build_market_breadth(root: Path, as_of: date) -> None:
     target = root / "market_breadth"
     trading_days = _business_days_ending(as_of, 320)
+    # Structured smoke accepts any ISO date, including weekends used by the
+    # bridge protocol suite. Keep the bundle explicitly synthetic while giving
+    # its PIT snapshot an observation at the requested boundary.
+    if trading_days[-1] != as_of:
+        trading_days.append(as_of)
     tickers = [f"{index:06d}.SZ" for index in range(1, 41)]
     _write_csv(
         target / "stock_basic.csv",
@@ -419,7 +545,9 @@ def _build_market_breadth(root: Path, as_of: date) -> None:
     for day_index, trading_day in enumerate(trading_days):
         for ticker_index, ticker in enumerate(tickers):
             pre_close = prices[ticker]
-            daily_return = ((ticker_index % 9) - 4) * 0.0008 + ((day_index % 7) - 3) * 0.0004
+            daily_return = ((ticker_index % 9) - 4) * 0.0008 + (
+                (day_index % 7) - 3
+            ) * 0.0004
             close = max(1.0, pre_close * (1.0 + daily_return))
             prices[ticker] = close
             daily_rows.append(
@@ -488,7 +616,11 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
                 "vintage_at": released_at,
                 "pit_status": "PIT_VERIFIED",
                 "content_hash": _sector_canonical_hash(
-                    {"agent_id": agent_id, "direction_id": direction_id, "as_of": as_of.isoformat()}
+                    {
+                        "agent_id": agent_id,
+                        "direction_id": direction_id,
+                        "as_of": as_of.isoformat(),
+                    }
                 ),
             }
             evidence["evidence_record_hash"] = _sector_canonical_hash(evidence)
@@ -547,10 +679,22 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
                 "etf_family_id": f"sector-etf:{agent_id}:{direction_id}",
                 "direction_id": direction_id,
                 "etf_ts_codes": [],
-                "selection_date": released_at,
-                "released_at": released_at,
-                "vintage_at": released_at,
+                "selection_date": as_of.isoformat(),
+                "released_at": as_of.isoformat(),
+                "vintage_at": as_of.isoformat(),
                 "pit_status": "PIT_VERIFIED",
+                "direction_authority_version": SECTOR_ETF_DIRECTION_AUTHORITY[
+                    "authority_version"
+                ],
+                "direction_authority_hash": SECTOR_ETF_DIRECTION_AUTHORITY[
+                    "authority_hash"
+                ],
+                "direction_authority_effective_from": SECTOR_ETF_DIRECTION_AUTHORITY[
+                    "effective_from"
+                ],
+                "direction_authority_effective_to": SECTOR_ETF_DIRECTION_AUTHORITY[
+                    "effective_to"
+                ],
                 "evidence_ids": [evidence_id],
             }
             etf_family["etf_family_hash"] = _sector_canonical_hash(etf_family)
@@ -561,9 +705,9 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
                     **metric_contract,
                     "direction_id": direction_id,
                     "availability_status": "UNAVAILABLE" if is_etf else "AVAILABLE",
-                    "observation_date": released_at,
-                    "released_at": released_at,
-                    "vintage_at": released_at,
+                    "observation_date": as_of.isoformat() if is_etf else released_at,
+                    "released_at": as_of.isoformat() if is_etf else released_at,
+                    "vintage_at": as_of.isoformat() if is_etf else released_at,
                     "pit_status": "PIT_VERIFIED",
                     "value": None if is_etf else round(0.25 + ordinal * 0.01, 4),
                     "observation_count": (
@@ -573,7 +717,9 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
                     "observed_count": 0 if is_etf else len(members),
                     "coverage_ratio": 0.0 if is_etf else 1.0,
                     "etf_family_id": etf_family["etf_family_id"] if is_etf else None,
-                    "etf_family_hash": etf_family["etf_family_hash"] if is_etf else None,
+                    "etf_family_hash": etf_family["etf_family_hash"]
+                    if is_etf
+                    else None,
                     "evidence_ids": [evidence_id],
                 }
                 metric["metric_observation_hash"] = _sector_canonical_hash(metric)
@@ -622,56 +768,297 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
                 "security_scoring_contract"
             ]["scoring_contract_hash"],
             "security_scoring_rows": security_scoring_rows,
-            "security_scoring_rows_hash": _sector_canonical_hash(
-                security_scoring_rows
+            "security_scoring_rows_hash": _sector_canonical_hash(security_scoring_rows),
+            "evidence_catalog": sorted(
+                evidence_catalog, key=lambda row: row["evidence_id"]
             ),
-            "evidence_catalog": sorted(evidence_catalog, key=lambda row: row["evidence_id"]),
         }
         snapshot["snapshot_hash"] = _sector_canonical_hash(snapshot)
         _write_json(target / f"{agent_id}.json", snapshot)
-    _write_json(
-        target / "relationship_mapper.json",
+    relationship_evidence = {
+        "evidence_id": "structured-smoke:relationship:1",
+        "evidence_kind": "SYNTHETIC_RELATIONSHIP_RECORD",
+        "source_id": "synthetic_structured_smoke",
+        "source_endpoint": "synthetic_relationship_fixture",
+        "observation_date": released_at,
+        "released_at": released_at,
+        "vintage_at": released_at,
+        "pit_status": "PIT_VERIFIED",
+        "content_hash": _sector_canonical_hash(
+            {"fixture": "relationship-source-batch"}
+        ),
+    }
+    relationship_evidence["evidence_record_hash"] = _sector_canonical_hash(
+        relationship_evidence
+    )
+    relationship_row = {
+        "edge_candidate_id": "structured-smoke-edge-1",
+        "source_entity": "synthetic-holder",
+        "source_entity_type": "HOLDER",
+        "target_entity": "000001.SZ",
+        "target_entity_type": "PIT_ELIGIBLE_SECURITY",
+        "target_sector_id": "sector-energy",
+        "edge_type": "SHAREHOLDING",
+        "activation_trigger": "synthetic smoke trigger",
+        "observation_date": released_at,
+        "released_at": released_at,
+        "vintage_at": released_at,
+        "pit_status": "PIT_VERIFIED",
+        "evidence_ids": [relationship_evidence["evidence_id"]],
+    }
+    relationship_row["relationship_row_hash"] = _sector_canonical_hash(relationship_row)
+    matched_non_edges = [
         {
-            "schema_version": RELATIONSHIP_SNAPSHOT_SCHEMA_VERSION,
-            "as_of_date": as_of.isoformat(),
-            "frozen_security_domain_hash": _canonical_hash([]),
-            "relationships": [
+            "source_entity": "synthetic-holder",
+            "source_entity_type": "HOLDER",
+            "target_entity": "000002.SZ",
+            "target_entity_type": "PIT_ELIGIBLE_SECURITY",
+            "target_sector_id": "sector-energy",
+            "edge_type": "SHAREHOLDING",
+            "materiality_bucket": "MEDIUM",
+        }
+    ]
+    relationship_snapshot = {
+        "schema_version": RELATIONSHIP_SNAPSHOT_SCHEMA_VERSION,
+        "as_of_date": as_of.isoformat(),
+        "frozen_holder_domain_hash": _sector_canonical_hash(["synthetic-holder"]),
+        "frozen_security_domain_hash": _sector_canonical_hash(
+            ["000001.SZ", "000002.SZ"]
+        ),
+        "relationships": [relationship_row],
+        "prediction_opportunity_set": {
+            "candidate_generation_contract_version": "relationship_candidate_generation_v1",
+            "scoring_contract_version": "relationship_graph_validation_20d_v1",
+            "ordered_opportunities": [
                 {
                     "edge_candidate_id": "structured-smoke-edge-1",
-                    "source_entity": "energy",
-                    "target_entity": "industrials",
-                    "edge_type": "INPUT_COST",
-                    "activation_trigger": "synthetic smoke trigger",
-                    "evidence_ids": ["structured-smoke:relationship:1"],
+                    "source_entity": "synthetic-holder",
+                    "source_entity_type": "HOLDER",
+                    "target_entity": "000001.SZ",
+                    "target_entity_type": "PIT_ELIGIBLE_SECURITY",
+                    "target_sector_id": "sector-energy",
+                    "edge_type": "SHAREHOLDING",
+                    "materiality_weight": 1.0,
+                    "materiality_bucket": "MEDIUM",
+                    "matched_non_edge_set_id": "structured-smoke-non-edge-1",
+                    "matched_non_edge_set_hash": _sector_canonical_hash(
+                        matched_non_edges
+                    ),
+                    "matched_non_edges": matched_non_edges,
                 }
             ],
-            "prediction_opportunity_set": {
-                "candidate_generation_contract_version": "relationship_candidate_generation_v1",
-                "scoring_contract_version": "relationship_graph_validation_20d_v1",
-                "ordered_opportunities": [
-                    {
-                        "edge_candidate_id": "structured-smoke-edge-1",
-                        "source_entity": "energy",
-                        "target_entity": "industrials",
-                        "edge_type": "INPUT_COST",
-                        "materiality_weight": 1.0,
-                        "matched_non_edge_set_id": "structured-smoke-non-edge-1",
-                        "matched_non_edge_set_hash": _canonical_hash(
-                            ["structured-smoke-non-edge-1"]
-                        ),
-                    }
-                ],
-            },
-            "evidence_catalog": [
+        },
+        "evidence_catalog": [relationship_evidence],
+        "evidence_catalog_hash": _sector_canonical_hash([relationship_evidence]),
+        "fixture_class": "SYNTHETIC_NON_PRODUCTION",
+    }
+    relationship_snapshot["snapshot_hash"] = _sector_canonical_hash(
+        relationship_snapshot
+    )
+    _write_json(target / "relationship_mapper.json", relationship_snapshot)
+
+
+def _structured_smoke_event_id(agent_id: str, as_of: date) -> str:
+    return f"structured-smoke:event:{agent_id}:{as_of.isoformat()}"
+
+
+def _build_outcome_event_coverage(root: Path, as_of: date) -> None:
+    event_coverage: dict[str, dict[str, Any]] = {}
+    for agent_id, contract in sorted(OUTCOME_CONTRACTS.items()):
+        schedule = contract["sample_schedule"]
+        if schedule["kind"] != "EVENT_TRIGGERED":
+            continue
+        event_id = _structured_smoke_event_id(agent_id, as_of)
+        event_coverage[agent_id] = {
+            "coverage_status": "COMPLETE",
+            "coverage_evidence_ids": [
+                f"structured-smoke:event-coverage:{agent_id}:{as_of.isoformat()}"
+            ],
+            "event_registry_version": schedule["event_registry_version"],
+            "event_priority_version": schedule["event_priority_version"],
+            "candidates": [
                 {
-                    "evidence_id": "structured-smoke:relationship:1",
-                    "source": "synthetic_structured_smoke",
+                    "event_id": event_id,
+                    "causal_dedupe_key": f"structured-smoke:causal:{event_id}",
+                    "event_registry_version": schedule["event_registry_version"],
+                    "event_priority_version": schedule["event_priority_version"],
+                    "priority_rank": 0,
+                    "published_at": f"{as_of.isoformat()}T14:58:00+08:00",
+                    "source_evidence_ids": [
+                        f"structured-smoke:event-evidence:{agent_id}:{as_of.isoformat()}"
+                    ],
+                    "pit_status": "VERIFIED",
+                }
+            ],
+        }
+    without_hash = {
+        "schema_version": EVENT_COVERAGE_SCHEMA_VERSION,
+        "as_of": f"{as_of.isoformat()}T15:00:00+08:00",
+        "generated_at": f"{as_of.isoformat()}T14:59:00+08:00",
+        "pit_status": "VERIFIED",
+        "event_coverage": event_coverage,
+    }
+    _write_json(
+        root / "outcome_runtime" / as_of.isoformat() / "event_coverage.json",
+        {**without_hash, "snapshot_hash": _canonical_hash(without_hash)},
+    )
+
+
+def _synthetic_macro_authority_snapshot(
+    root: Path,
+    *,
+    agent_id: str,
+    as_of: date,
+) -> dict[str, Any]:
+    if agent_id == "geopolitical":
+        return {
+            "snapshot_hash": _canonical_hash(
+                {
+                    "fixture_class": "SYNTHETIC_NON_PRODUCTION",
+                    "agent_id": agent_id,
                     "as_of": as_of.isoformat(),
                 }
-            ],
-            "fixture_class": "SYNTHETIC_NON_PRODUCTION",
-        },
+            )
+        }
+    if agent_id == "market_breadth":
+        return json.loads(
+            render_market_breadth_snapshot(
+                as_of.isoformat(), root / "market_breadth"
+            )
+        )
+    raw = json.loads(
+        (root / "macro_snapshots" / as_of.isoformat() / f"{agent_id}.json")
+        .read_text(encoding="utf-8")
     )
+    snapshot = validate_role_snapshot(raw, agent_id, as_of.isoformat())
+    if agent_id in MACRO_EVENT_ROLES:
+        snapshot["role_event_snapshot"] = build_role_event_snapshot(
+            agent_id,
+            as_of.isoformat(),
+            store=EconomicCalendarStore(
+                root / "economic_calendar" / "eco_cal.sqlite3"
+            ),
+        )
+        snapshot["snapshot_hash"] = _canonical_hash(
+            {key: value for key, value in snapshot.items() if key != "snapshot_hash"}
+        )
+    return snapshot
+
+
+def _build_outcome_opportunity_projections(root: Path, as_of: date) -> None:
+    """Build hash-bound L1-L3 denominators with the production member shapes."""
+    as_of_timestamp = f"{as_of.isoformat()}T15:00:00+08:00"
+    generated_at = f"{as_of.isoformat()}T14:59:00+08:00"
+    target = root / "outcome_runtime" / as_of.isoformat() / "opportunities"
+    scoring_contract = SECTOR_UNIVERSE_MANIFEST["security_scoring_contract"]
+    shortlist_limit = scoring_contract["shortlist_maximum_size_per_direction"]
+
+    for agent_id, contract in sorted(OUTCOME_CONTRACTS.items()):
+        layer = contract["layer"]
+        if layer == "DECISION":
+            continue
+        if contract["evaluation_object_type"] == "MACRO_TRANSMISSION":
+            snapshot = _synthetic_macro_authority_snapshot(
+                root, agent_id=agent_id, as_of=as_of
+            )
+            member_refs: list[dict[str, Any]] = macro_authority_members(
+                agent_id=agent_id,
+                snapshot=snapshot,
+                schedule_slot={
+                    "trigger_event": (
+                        {"event_id": _structured_smoke_event_id(agent_id, as_of)}
+                        if contract["sample_schedule"]["kind"]
+                        == "EVENT_TRIGGERED"
+                        else None
+                    )
+                },
+            )
+        elif contract["evaluation_object_type"] == "SECTOR_TILT_PICKS":
+            snapshot = json.loads(
+                (root / "sector_snapshots" / as_of.isoformat() / f"{agent_id}.json")
+                .read_text(encoding="utf-8")
+            )
+            scoring_rows = snapshot["security_scoring_rows"]
+            member_refs = []
+            for direction_id in snapshot["direction_ids"]:
+                rows = sorted(
+                    (
+                        row
+                        for row in scoring_rows
+                        if row["direction_id"] == direction_id
+                        and row["availability_status"] == "AVAILABLE"
+                    ),
+                    key=lambda row: (-row["median_amount_20d_cny"], row["ts_code"]),
+                )[:shortlist_limit]
+                shortlist_hash = _canonical_hash(
+                    {
+                        "direction_id": direction_id,
+                        "security_scoring_contract_version": scoring_contract[
+                            "scoring_contract_version"
+                        ],
+                        "security_scoring_contract_hash": scoring_contract[
+                            "scoring_contract_hash"
+                        ],
+                        "rows": rows,
+                    }
+                )
+                member_refs.append(
+                    {
+                        "subindustry_id": direction_id,
+                        "security_shortlist_id": (
+                            f"sector-shortlist:{direction_id}:{shortlist_hash[-16:]}"
+                        ),
+                        "security_shortlist_hash": shortlist_hash,
+                        "security_ts_codes": [row["ts_code"] for row in rows],
+                    }
+                )
+        elif contract["evaluation_object_type"] == "RELATIONSHIP_EDGES":
+            snapshot = json.loads(
+                (
+                    root
+                    / "sector_snapshots"
+                    / as_of.isoformat()
+                    / "relationship_mapper.json"
+                ).read_text(encoding="utf-8")
+            )
+            member_refs = [
+                {
+                    "edge_candidate_id": row["edge_candidate_id"],
+                    "materiality_weight": row["materiality_weight"],
+                }
+                for row in snapshot["prediction_opportunity_set"][
+                    "ordered_opportunities"
+                ]
+            ]
+        elif contract["evaluation_object_type"] == "SUPERINVESTOR_PICKS":
+            # The exact L2-derived candidate universe is unavailable until the
+            # corresponding L3 stage boundary; this artifact proves readiness only.
+            member_refs = []
+        else:  # pragma: no cover - the public L1-L3 roster closes this branch
+            raise RuntimeError(f"unsupported L1-L3 opportunity type for {agent_id}")
+
+        source_evidence = {
+            source_id: [f"structured-smoke:opportunity:{agent_id}:{source_id}"]
+            for source_id in contract["required_source_ids"]
+        }
+        without_hash = {
+            "schema_version": OPPORTUNITY_PROJECTION_SCHEMA_VERSION,
+            "agent_id": agent_id,
+            "as_of": as_of_timestamp,
+            "generated_at": generated_at,
+            "pit_status": "VERIFIED",
+            "projection_status": "AVAILABLE",
+            "qualification_predicate_version": contract[
+                "opportunity_set_contract_version"
+            ],
+            "member_refs": member_refs,
+            "source_evidence_by_required_source_id": source_evidence,
+            "error_codes": [],
+        }
+        _write_json(
+            target / f"{agent_id}.json",
+            {**without_hash, "snapshot_hash": _canonical_hash(without_hash)},
+        )
 
 
 def _runtime_accepted_ref(
@@ -1064,13 +1451,17 @@ def build_structured_smoke_fixtures(root: Path, as_of_date: str) -> dict[str, st
         raise RuntimeError("structured-smoke fixture root cannot be a symlink")
     root = requested_root.resolve()
     if root.exists() and (not root.is_dir() or any(root.iterdir())):
-        raise RuntimeError("structured-smoke fixture root must be a fresh empty directory")
+        raise RuntimeError(
+            "structured-smoke fixture root must be a fresh empty directory"
+        )
     root.mkdir(parents=True, exist_ok=True)
     _build_macro_snapshots(root, as_of)
     _build_economic_calendar(root, as_of)
     manifest_path = _build_geopolitical_cache(root, as_of)
     _build_market_breadth(root, as_of)
     _build_sector_snapshots(root, as_of)
+    _build_outcome_event_coverage(root, as_of)
+    _build_outcome_opportunity_projections(root, as_of)
     _build_runtime_snapshots(root, as_of)
     artifact_inventory = _fixture_artifact_inventory(root)
     marker = {

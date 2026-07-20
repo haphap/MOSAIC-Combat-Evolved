@@ -8,16 +8,19 @@ import type {
   CioProposalSubmission,
   CroAgentSubmission,
 } from "./accepted.js";
+import { assertCioHoldCurrentPositions } from "./decision_semantics.js";
 
 const LocalIdSchema = z.string().trim().min(1).max(128);
 const TsCodeSchema = z.string().trim().min(1).max(32);
-const ClaimRefsSchema = z.array(LocalIdSchema).min(1);
+const ConciseTextSchema = z.string().trim().min(1).max(320);
+const RiskFlagTextSchema = z.string().trim().min(1).max(128);
+const ClaimRefsSchema = z.array(LocalIdSchema).min(1).max(10);
 const ConfidenceSchema = z.number().min(0).max(1);
 
 const DriverSchema = z
   .object({
     driver_local_id: LocalIdSchema,
-    summary: z.string().trim().min(1),
+    summary: ConciseTextSchema,
     claim_refs: ClaimRefsSchema,
   })
   .strict();
@@ -25,13 +28,13 @@ const DriverSchema = z
 const RiskSchema = z
   .object({
     risk_local_id: LocalIdSchema,
-    summary: z.string().trim().min(1),
+    summary: ConciseTextSchema,
     claim_refs: ClaimRefsSchema,
   })
   .strict();
 
 const ClaimsFields = {
-  claims: z.array(LlmResearchClaimSchema).min(1),
+  claims: z.array(LlmResearchClaimSchema).min(1).max(10),
   claim_refs: ClaimRefsSchema,
 };
 
@@ -43,7 +46,7 @@ const CroActionSchema = z
     action: z.enum(["VETO", "CAP_WEIGHT", "REDUCE_WEIGHT", "REQUIRE_REVIEW", "NO_OBJECTION"]),
     predicted_risk_probability: ConfidenceSchema,
     max_target_weight: z.number().min(0).max(1).nullable(),
-    reason: z.string().trim().min(1),
+    reason: ConciseTextSchema,
     claim_refs: ClaimRefsSchema,
   })
   .strict()
@@ -109,7 +112,7 @@ const AlphaPickSchema = z
     candidate_ref: LocalIdSchema,
     ts_code: TsCodeSchema,
     conviction: ConfidenceSchema,
-    thesis: z.string().trim().min(1),
+    thesis: ConciseTextSchema,
     claim_refs: ClaimRefsSchema,
   })
   .strict();
@@ -159,7 +162,7 @@ export function buildRuntimeAlphaDiscoverySubmissionSchema(
         candidate_ref: z.literal(candidate.candidate_ref),
         ts_code: z.literal(candidate.ts_code),
         conviction: ConfidenceSchema,
-        thesis: z.string().trim().min(1),
+        thesis: ConciseTextSchema,
         claim_refs: ClaimRefsSchema,
       })
       .strict(),
@@ -217,10 +220,10 @@ const ExecutionAssessmentSchema = z
       }),
     feasibility: z.enum(["FEASIBLE", "PARTIAL", "BLOCKED"]),
     feasibility_confidence: ConfidenceSchema,
-    predicted_cost_bps: z.number().min(0),
+    predicted_cost_bps: z.number().min(0).max(10_000),
     max_executable_delta_weight: z.number().min(0).max(1).nullable(),
-    recommended_slice_count: z.number().int().min(0),
-    reason: z.string().trim().min(1),
+    recommended_slice_count: z.number().int().min(0).max(100),
+    reason: ConciseTextSchema,
     claim_refs: ClaimRefsSchema,
   })
   .strict()
@@ -259,13 +262,16 @@ const ExecutionAssessmentSchema = z
     }
   });
 
+type ExecutionAssessment = z.infer<typeof ExecutionAssessmentSchema>;
+const ExecutionAssessmentsSchema = z
+  .array(ExecutionAssessmentSchema)
+  .min(1)
+  .max(50) as unknown as z.ZodType<[ExecutionAssessment, ...ExecutionAssessment[]]>;
+
 const ExecutionBase = z.object({
   agent_id: z.literal("autonomous_execution"),
   confidence: ConfidenceSchema,
-  order_assessments: z
-    .tuple([ExecutionAssessmentSchema])
-    .rest(ExecutionAssessmentSchema)
-    .refine((rows) => rows.length <= 50, { message: "order_assessments cannot exceed 50" }),
+  order_assessments: ExecutionAssessmentsSchema,
   ...ClaimsFields,
 });
 
@@ -302,7 +308,7 @@ const CioPositionSchema = z
     position_decision: z.enum(["HOLD", "ADD", "REDUCE", "EXIT"]),
     holding_period: z.enum(["DAYS", "WEEKS", "MONTHS"]),
     thesis_status: z.enum(["INTACT", "WEAKENED", "BROKEN", "EXPIRED"]),
-    risk_flags: z.array(z.string().trim().min(1)).max(20),
+    risk_flags: z.array(RiskFlagTextSchema).max(20),
     claim_refs: ClaimRefsSchema,
   })
   .strict()
@@ -316,7 +322,7 @@ const CioDecisionBase = z.object({
   agent_id: z.literal("cio"),
   confidence: ConfidenceSchema,
   cash_weight: z.number().min(0).max(1),
-  decision_reason: z.string().trim().min(1),
+  decision_reason: ConciseTextSchema,
   target_positions: z.array(CioPositionSchema).max(50),
   macro_input_attributions: MacroInputAttributionSubmissionArraySchema,
   ...ClaimsFields,
@@ -341,6 +347,10 @@ export const CioProposalSubmissionSchema = z
   .discriminatedUnion("decision_disposition", [CioProposalTarget, CioProposalHold, CioProposalCash])
   .superRefine(validateCioSubmission);
 
+export const CioProposalNonEmptyCurrentSubmissionSchema = z
+  .discriminatedUnion("decision_disposition", [CioProposalTarget, CioProposalHold])
+  .superRefine(validateCioSubmission);
+
 export const CioProposalWithoutHoldSubmissionSchema = z
   .discriminatedUnion("decision_disposition", [CioProposalTarget, CioProposalCash])
   .superRefine(validateCioSubmission);
@@ -352,7 +362,7 @@ const CroResolutionSchema = z
   .object({
     cro_action_local_ref: LocalIdSchema,
     resolution: z.enum(["COMPLIED", "MORE_CONSERVATIVE"]),
-    reason: z.string().trim().min(1),
+    reason: ConciseTextSchema,
     claim_refs: ClaimRefsSchema,
   })
   .strict();
@@ -361,7 +371,7 @@ const ExecutionResolutionSchema = z
   .object({
     execution_assessment_local_ref: LocalIdSchema,
     resolution: z.enum(["COMPLIED", "MORE_CONSERVATIVE"]),
-    reason: z.string().trim().min(1),
+    reason: ConciseTextSchema,
     claim_refs: ClaimRefsSchema,
   })
   .strict();
@@ -387,6 +397,24 @@ const CioFinalCash = CioFinalBase.extend({
 
 export const CioFinalSubmissionSchema = z
   .discriminatedUnion("decision_disposition", [CioFinalTarget, CioFinalHold, CioFinalCash])
+  .superRefine((submission, ctx) => {
+    validateCioSubmission(submission, ctx);
+    uniqueFields(
+      submission.cro_control_resolutions,
+      ["cro_action_local_ref"],
+      "cro_control_resolutions",
+      ctx,
+    );
+    uniqueFields(
+      submission.execution_control_resolutions,
+      ["execution_assessment_local_ref"],
+      "execution_control_resolutions",
+      ctx,
+    );
+  });
+
+export const CioFinalNonEmptyCurrentSubmissionSchema = z
+  .discriminatedUnion("decision_disposition", [CioFinalTarget, CioFinalHold])
   .superRefine((submission, ctx) => {
     validateCioSubmission(submission, ctx);
     uniqueFields(
@@ -441,6 +469,19 @@ function validateCioSubmission(
   submission: z.infer<typeof CioDecisionBase> & { decision_disposition: string },
   ctx: z.RefinementCtx,
 ): void {
+  try {
+    assertCioHoldCurrentPositions({
+      decisionDisposition: submission.decision_disposition,
+      targets: submission.target_positions.map((position) => ({
+        ticker: position.ts_code,
+        target_weight: position.target_weight,
+        position_decision: position.position_decision,
+      })),
+      context: "CIO submission",
+    });
+  } catch (error) {
+    issue(ctx, ["target_positions"], error instanceof Error ? error.message : String(error));
+  }
   uniqueFields(
     submission.target_positions,
     ["position_local_id", "ts_code"],

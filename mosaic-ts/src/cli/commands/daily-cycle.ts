@@ -1,5 +1,5 @@
 /**
- * Phase 2F MVP CLI command: ``pnpm dev daily-cycle``.
+ * Production and structured-smoke CLI command: ``pnpm dev daily-cycle``.
  *
  * Drives one full L1→L2→L3→L4 cycle via the composite graph from
  * ``graph/daily_cycle.ts``. Covers three LLM modes:
@@ -30,6 +30,7 @@ import {
   buildAgentDisplayNarrativeBundle,
 } from "../../agents/agent_display_narrative.js";
 import { assertStructuredOutputCapability } from "../../agents/helpers/agent_run_contract.js";
+import { canonicalJsonHash } from "../../agents/helpers/canonical_json.js";
 import { buildPositionAuditToolStatusSummary } from "../../agents/helpers/position_audit.js";
 import { privateKnotRuntimeInstalled } from "../../agents/helpers/private_knot_boundary.js";
 import {
@@ -41,7 +42,11 @@ import { findBundledPromptsRoot, formatPromptSourceLabel } from "../../agents/pr
 import { PRIVATE_KNOT_COHORT_IDS } from "../../agents/prompts/private_knot_stage_enablement.js";
 import { assertRuntimePromptPreflight } from "../../agents/prompts/runtime_prompt_preflight.js";
 import { captureDailyCycleRkeFootprints } from "../../agents/rke_footprints.js";
-import { type DailyCycleStateType, emptyCurrentPositions } from "../../agents/state.js";
+import {
+  type DailyCycleStateType,
+  emptyCurrentPositions,
+  type OutcomeOpportunityBinding,
+} from "../../agents/state.js";
 import type {
   CurrentPosition,
   CurrentPositionsSnapshot,
@@ -343,6 +348,9 @@ export function registerDailyCycle(program: Command): void {
           component_weight_snapshot: componentWeightSnapshot,
           outcome_schedule_plan: preparedOutcomes?.outcome_schedule_plan ?? null,
           outcome_stage_skips: parseOutcomeStageSkips(preparedOutcomes?.stage_skips ?? {}),
+          outcome_opportunity_bindings: preparedOutcomes
+            ? preparedOutcomeOpportunityBindings(preparedOutcomes.scheduled_opportunity_decisions)
+            : {},
           accepted_output_refs: {},
           continuity_context: {},
           lesson_context: {},
@@ -402,6 +410,7 @@ export function registerDailyCycle(program: Command): void {
             trace_id: final.trace_id,
             mode: "live",
             darwinian_runtime_binding: final.darwinian_runtime_binding,
+            darwinian_weight_snapshot: final.darwinian_weight_snapshot,
             outcome_schedule_plan: final.outcome_schedule_plan,
             outcome_stage_skips: final.outcome_stage_skips,
             accepted_output_refs: final.accepted_output_refs,
@@ -572,6 +581,7 @@ const STRUCTURED_SMOKE_ARTIFACT_ROOTS = [
   "geopolitical_events",
   "macro_snapshots",
   "market_breadth",
+  "outcome_runtime",
   "runtime_snapshots",
   "sector_snapshots",
 ] as const;
@@ -718,21 +728,6 @@ function collectStructuredSmokeArtifactInventory(root: string): Array<{
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function canonicalJsonHash(value: unknown): string {
-  const canonical = JSON.stringify(sortJsonValue(value));
-  return `sha256:${createHash("sha256").update(canonical).digest("hex")}`;
-}
-
-function sortJsonValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortJsonValue);
-  if (!isPlainRecord(value)) return value;
-  return Object.fromEntries(
-    Object.keys(value)
-      .sort()
-      .map((key) => [key, sortJsonValue(value[key])]),
-  );
 }
 
 function restoreOptionalEnv(name: string, value: string | undefined): void {
@@ -975,8 +970,7 @@ async function loadPaperCurrentPositions(api: BridgeApi): Promise<CurrentPositio
 }
 
 function currentPositionFixtureHash(positions: ReadonlyArray<CurrentPosition>): string {
-  const payload = JSON.stringify(positions);
-  return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
+  return canonicalJsonHash(positions);
 }
 
 function normalizeCurrentPositionsFixture(raw: unknown): CurrentPositionsSnapshot {
@@ -1315,7 +1309,40 @@ export async function submitPaperTargetDeltaOrders(
 }
 
 function sha256Json(value: unknown): string {
-  return `sha256:${createHash("sha256").update(JSON.stringify(value)).digest("hex")}`;
+  return canonicalJsonHash(value);
+}
+
+function preparedOutcomeOpportunityBindings(
+  decisions: Array<Record<string, unknown>>,
+): Record<string, OutcomeOpportunityBinding> {
+  const bindings: Record<string, OutcomeOpportunityBinding> = {};
+  for (const decision of decisions) {
+    const agentId = decision.agent_id;
+    const scheduledSampleId = decision.scheduled_sample_id;
+    const evaluationId = decision.evaluation_opportunity_set_id;
+    const evaluationHash = decision.evaluation_opportunity_set_hash;
+    if (
+      typeof agentId !== "string" ||
+      typeof scheduledSampleId !== "string" ||
+      typeof evaluationId !== "string" ||
+      typeof evaluationHash !== "string"
+    ) {
+      throw new Error("prepared outcome opportunity binding is incomplete");
+    }
+    bindings[agentId] = {
+      agent_id: agentId,
+      scheduled_sample_id: scheduledSampleId,
+      evaluation_opportunity_set_id: evaluationId,
+      evaluation_opportunity_set_hash: evaluationHash,
+      frozen_object_set_id:
+        typeof decision.frozen_object_set_id === "string" ? decision.frozen_object_set_id : null,
+      frozen_object_set_hash:
+        typeof decision.frozen_object_set_hash === "string"
+          ? decision.frozen_object_set_hash
+          : null,
+    };
+  }
+  return bindings;
 }
 
 // ---------------------------------------------------------------------------

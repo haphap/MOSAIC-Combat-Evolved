@@ -1,9 +1,9 @@
-import { createHash } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
+import { canonicalJsonHash } from "./canonical_json.js";
 import { extractLlmTokenUsage } from "./runtime.js";
 import {
   adaptStrictProviderJsonSchema,
@@ -53,7 +53,8 @@ export interface AgentRunAudit {
     | "timeout"
     | "connection_error"
     | "model_service_error"
-    | "private_policy_failure";
+    | "private_policy_failure"
+    | "evidence_contract_failure";
   reason_codes: string[];
   prompt_hash: string;
   schema_hash: string;
@@ -125,12 +126,28 @@ export async function invokeStrictStructured<T>(
   const hashes = {
     prompt_hash: canonicalHash(opts.messages.map((message) => message.content)),
     schema_hash: canonicalHash(safeJsonSchema(opts.schema)),
-    evidence_hash: canonicalHash(opts.evidenceSnapshot),
+    evidence_hash: canonicalHash(projectEvidenceSnapshotForHash(opts.evidenceSnapshot ?? null)),
   };
+  let strictProviderSchema: unknown;
+  try {
+    strictProviderSchema = providerJsonSchema(opts.schema, opts.evidenceSnapshot);
+  } catch (cause) {
+    if (cause instanceof ProviderRuntimeBindingError) {
+      const audit = failedAudit(opts, hashes, [], "error", "evidence_contract_failure", [
+        cause.reasonCode,
+      ]);
+      throw new AgentRunContractError(
+        `${opts.agent}/${opts.stage}: ${cause.reasonCode}`,
+        audit,
+        cause,
+      );
+    }
+    throw cause;
+  }
   let bound: { invoke: (input: unknown, options?: { signal?: AbortSignal }) => Promise<unknown> };
   try {
     // biome-ignore lint/suspicious/noExplicitAny: LangChain providers expose different generic signatures.
-    bound = (opts.llm as any).withStructuredOutput(providerJsonSchema(opts.schema), {
+    bound = (opts.llm as any).withStructuredOutput(strictProviderSchema, {
       includeRaw: true,
       method: "jsonSchema",
       strict: true,
@@ -570,9 +587,13 @@ function safeJsonSchema<T>(schema: z.ZodType<T>): unknown {
   }
 }
 
-function providerJsonSchema<T>(schema: z.ZodType<T>): unknown {
-  return applyProviderExtractionBounds(
+function providerJsonSchema<T>(schema: z.ZodType<T>, evidenceSnapshot?: unknown): unknown {
+  const providerSchema = applyProviderExtractionBounds(
     adaptStrictProviderJsonSchema(omitUnsupportedProviderKeywords(safeJsonSchema(schema))),
+  );
+  return bindMacroProviderRuntimeCatalog(
+    providerSchema,
+    extractRepairEvidenceCatalog(evidenceSnapshot),
   );
 }
 
@@ -582,12 +603,97 @@ const PROVIDER_ARRAY_CAPS: Readonly<Record<string, number>> = {
   claim_refs: 1,
   claim_refs_used: 1,
   claims: 2,
+  channels: 1,
   key_drivers: 1,
   risks: 1,
   long_picks: 2,
   short_or_avoid_picks: 2,
   picks: 2,
 };
+
+export const STRICT_PROVIDER_EXTRACTION_DESCRIPTOR = Object.freeze({
+  contract_version: "strict_provider_extraction_bounds_v2",
+  array_caps: PROVIDER_ARRAY_CAPS,
+  implicit_string_max_length: 320,
+  implicit_open_object_max_properties: 12,
+  tuple_policy: "EXACT_PREFIX_ITEMS_LENGTH_V1",
+  component_claim_policy: "EXACT_ONE_INDEPENDENT_CLAIM_PER_COMPONENT_V1",
+  macro_runtime_catalog_binding: "EXACT_EVIDENCE_AND_PERMITTED_CITATION_ENUM_V1",
+  macro_claim_kind_binding: "NO_INTERPRETATION_WITHOUT_PERMITTED_CITATION_V1",
+  macro_optional_numeric_echo: "COMPACT_EXTRACTION_OMITS_OPTIONAL_NUMERIC_ECHO_V1",
+});
+
+class ProviderRuntimeBindingError extends Error {
+  constructor(readonly reasonCode: "MACRO_RUNTIME_EVIDENCE_CATALOG_EMPTY") {
+    super(reasonCode);
+    this.name = "ProviderRuntimeBindingError";
+  }
+}
+
+function bindMacroProviderRuntimeCatalog(value: unknown, catalog: RepairEvidenceCatalog): unknown {
+  const root = value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+  const rootProperties = root ? (root as Record<string, unknown>).properties : null;
+  const providerContract =
+    rootProperties !== null && typeof rootProperties === "object" && !Array.isArray(rootProperties)
+      ? (rootProperties as Record<string, unknown>).provider_contract
+      : null;
+  const providerContractConst =
+    providerContract !== null &&
+    typeof providerContract === "object" &&
+    !Array.isArray(providerContract)
+      ? (providerContract as Record<string, unknown>).const
+      : null;
+  if (
+    providerContractConst !== "MACRO_COMPONENTS_COMPACT_V1" &&
+    providerContractConst !== "MACRO_DIRECT_COMPACT_V1"
+  ) {
+    return value;
+  }
+  if (catalog.allowed_evidence_ids.length === 0) {
+    throw new ProviderRuntimeBindingError("MACRO_RUNTIME_EVIDENCE_CATALOG_EMPTY");
+  }
+  return bind(value);
+
+  function bind(nested: unknown, propertyName?: string): unknown {
+    if (propertyName === "evidence_id") {
+      return { type: "string", enum: catalog.allowed_evidence_ids };
+    }
+    if (propertyName === "research_rule_ref") {
+      return catalog.allowed_citation_ids.length === 0
+        ? { type: "null" }
+        : {
+            anyOf: [{ type: "null" }, { type: "string", enum: catalog.allowed_citation_ids }],
+          };
+    }
+    if (propertyName === "claim_kind" && catalog.allowed_citation_ids.length === 0) {
+      return { type: "string", enum: ["FACT", "EVENT", "RISK_FLAG"] };
+    }
+    if (Array.isArray(nested)) return nested.map((item) => bind(item));
+    if (nested === null || typeof nested !== "object") return nested;
+    const record = nested as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(record).map(([key, item]) => {
+        if (
+          key !== "properties" ||
+          item === null ||
+          typeof item !== "object" ||
+          Array.isArray(item)
+        ) {
+          return [key, bind(item)];
+        }
+        return [
+          key,
+          Object.fromEntries(
+            Object.entries(item as Record<string, unknown>).map(([property, schema]) => [
+              property,
+              bind(schema, property),
+            ]),
+          ),
+        ];
+      }),
+    );
+  }
+}
 
 function applyProviderExtractionBounds(value: unknown, fieldName?: string): unknown {
   if (Array.isArray(value)) {
@@ -658,8 +764,14 @@ function applyProviderExtractionBounds(value: unknown, fieldName?: string): unkn
           ? (sourceComponents as Record<string, unknown>).maxItems
           : undefined;
       const claims = properties.claims as Record<string, unknown>;
-      if (typeof sourceClaimLimit === "number") claims.maxItems = sourceClaimLimit;
-      else if (typeof componentLimit === "number") claims.maxItems = componentLimit;
+      const independentClaimCapacity =
+        typeof sourceClaimLimit === "number" && typeof componentLimit === "number"
+          ? Math.min(sourceClaimLimit, componentLimit)
+          : (sourceClaimLimit ?? componentLimit);
+      if (typeof independentClaimCapacity === "number") {
+        claims.minItems = independentClaimCapacity;
+        claims.maxItems = independentClaimCapacity;
+      }
     }
     const selectionStatus = schemaConst(properties.selection_status);
     const predictiveStatus = schemaConst(properties.predictive_graph_status);
@@ -705,15 +817,31 @@ function omitUnsupportedProviderKeywords(value: unknown): unknown {
 }
 
 export function canonicalHash(value: unknown): string {
-  return `sha256:${createHash("sha256").update(stableJson(value)).digest("hex")}`;
+  return canonicalJsonHash(value);
 }
 
-function stableJson(value: unknown): string {
-  if (value === undefined) return "null";
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  return `{${Object.entries(value as Record<string, unknown>)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, nested]) => `${JSON.stringify(key)}:${stableJson(nested)}`)
-    .join(",")}}`;
+function projectEvidenceSnapshotForHash(value: unknown): unknown {
+  if (value instanceof Set) {
+    const values = [...value];
+    if (!values.every((item): item is string => typeof item === "string")) {
+      throw new Error("evidence snapshot sets must contain only strings");
+    }
+    return values.sort();
+  }
+  if (value instanceof Map) {
+    const entries = [...value.entries()];
+    if (!entries.every((entry): entry is [string, unknown] => typeof entry[0] === "string")) {
+      throw new Error("evidence snapshot maps must use string keys");
+    }
+    entries.sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+    return Object.fromEntries(
+      entries.map(([key, nested]) => [key, projectEvidenceSnapshotForHash(nested)]),
+    );
+  }
+  if (Array.isArray(value)) return value.map((nested) => projectEvidenceSnapshotForHash(nested));
+  if (value === null || typeof value !== "object") return value;
+  if (Object.prototype.toString.call(value) !== "[object Object]") return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, nested]) => [key, projectEvidenceSnapshotForHash(nested)]),
+  );
 }

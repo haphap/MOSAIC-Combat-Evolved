@@ -8,8 +8,8 @@
 
 | 命令 | 用途 |
 | --- | --- |
-| `bridge-ping` | spawn Python sidecar 并验证 `tools.list` / `config.get`。 |
-| `tool-loop` | 运行 tool-report 循环。 |
+| `bridge-ping` | spawn Python sidecar 并验证 `config.get`；报告工具面受 capability 约束。 |
+| `tool-loop` | 运行签名的中国宏观快照工具循环。 |
 
 ## 日循环
 

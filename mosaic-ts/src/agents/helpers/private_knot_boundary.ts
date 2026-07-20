@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
+import { canonicalJson, canonicalJsonHash } from "./canonical_json.js";
 
 /** Public, value-free boundary for the private KNOT runtime. */
 export interface ToolStatus {
@@ -384,25 +384,15 @@ function canonicalRuntimeSourceStatuses(
 ): RuntimeSourceStatus[] {
   return statuses
     .map((status) => structuredClone(status))
-    .sort((left, right) => canonicalJson(left).localeCompare(canonicalJson(right)));
+    .sort((left, right) => compareCanonicalJson(left, right));
 }
 
 function canonicalHash(value: unknown): string {
-  return `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
+  return canonicalJsonHash(value);
 }
 
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(canonicalize(value));
-}
-
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, nested]) => [key, canonicalize(nested)]),
-    );
-  }
-  return value;
+function compareCanonicalJson(left: unknown, right: unknown): number {
+  const leftJson = canonicalJson(left);
+  const rightJson = canonicalJson(right);
+  return leftJson < rightJson ? -1 : leftJson > rightJson ? 1 : 0;
 }

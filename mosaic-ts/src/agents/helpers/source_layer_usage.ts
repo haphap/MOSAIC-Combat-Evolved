@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type { NoEvaluationObjectStageSkipRecord } from "../../autoresearch/outcome_stage_skip.js";
 import type { DarwinianUsageWeightSnapshot } from "../../autoresearch/production_variant.js";
 import {
@@ -22,6 +21,7 @@ import {
   modelVisibleAcceptedSuperinvestorSelection,
 } from "../superinvestor/accepted.js";
 import type { RelationshipMapperOutput, SectorAgentOutput, SuperinvestorOutput } from "../types.js";
+import { canonicalJsonHash } from "./canonical_json.js";
 
 export const SUPERINVESTOR_AGENT_IDS = ["druckenmiller", "munger", "burry", "ackman"] as const;
 
@@ -592,19 +592,5 @@ function modelVisibleRelationship(output: RelationshipMapperOutput) {
 }
 
 function canonicalHash(value: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(JSON.stringify(canonicalize(value)))
-    .digest("hex")}`;
-}
-
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, item]) => [key, canonicalize(item)]),
-    );
-  }
-  return value;
+  return canonicalJsonHash(value);
 }

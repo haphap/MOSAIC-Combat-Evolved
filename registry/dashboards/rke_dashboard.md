@@ -21,8 +21,11 @@
 - Rollback readiness accepted: True
 - Rollback readiness failures: 0
 - Lockbox result: passed
-- Promotion next state: production
-- Promotion production allowed: True
+- Promotion execution mode: RKE_SHADOW
+- Promotion signal allowed: False
+- Promotion next state: paper_trading
+- Promotion production allowed: False
+- Direct production forbidden: True
 - Validation ablations accepted: True
 - Validation statistical significance accepted: True
 - Experiment validation failures: 0
@@ -34,8 +37,8 @@
 - Macro expansion candidates: 3
 - Phase 7 sector actionability: monitor_only
 - Gold-set review pending claims: 0
-- Gold review packet spans: 228
-- Gold candidate claims: 314
+- Gold review packet spans: 102
+- Gold candidate claims: 500
 - License review pending sources: 0
 - License review packet pending sources: 0
 - Next gold review batch rows: 0
@@ -44,11 +47,11 @@
 - Gold review assist: registry/review_batches/gold_set_review_assist.md
 - Next license review batch rows: 0
 - Source license review workbook: registry/review_batches/source_license_review_workbook.md
-- Manual review promotion dry-run ready: True
-- Manual review progress blockers: 0
+- Manual review promotion dry-run ready: False
+- Manual review progress blockers: 10
 - Manual review runbook: registry/review_batches/manual_review_runbook.md
 - Operator handoff ready: True
-- Operator handoff blockers: 0
+- Operator handoff blockers: 1
 - Operator readiness accepted: True
 - Operator readiness failures: 0
 - Experiment governance family: FAM-CB-LIQUIDITY-2026Q2

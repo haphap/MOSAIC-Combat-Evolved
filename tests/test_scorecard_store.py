@@ -356,22 +356,16 @@ class TestScorecardStore:
         assert row["alpha_5d"] == pytest.approx(0.02)
         assert row["scored_at"] == "2024-07-01"
 
-    def test_latest_cio_actions_includes_position_review_fields(self, store: ScorecardStore):
+    def test_latest_cio_actions_hides_unsealed_position_rows(
+        self, store: ScorecardStore
+    ):
         store.append_from_state(_sample_state())
         latest = store.get_latest_cio_actions("cohort_default")
-        row = next(action for action in latest["actions"] if action["ticker"] == "688981.SH")
-        assert row["current_weight_pct"] == pytest.approx(25.0)
-        assert row["delta_weight_pct"] == pytest.approx(15.0)
-        assert row["position_decision"] == "ADD"
-        assert row["position_decision_reason"] == "raise intact thesis"
-        assert row["override_reason"] == "CRO allowed add after current data review"
-        assert row["thesis_status"] == "intact"
-        assert row["risk_flags_json"] == '["target_current_drift"]'
-        assert row["declared_knob_influence_ids_json"] is None
-        assert json.loads(row["verified_knob_audit_json"])["accepted"] is True
-        assert json.loads(row["decision_agent_audits_json"])["cio"]["snapshot_hash"] == (
-            f"sha256:{'3' * 64}"
-        )
+        assert latest == {
+            "cohort": "cohort_default",
+            "date": None,
+            "actions": [],
+        }
 
     def test_list_pending_filters_scored_and_date(self, store: ScorecardStore):
         store.append_from_state(_sample_state(date="2024-06-24"))
@@ -539,7 +533,7 @@ class TestSignalsAndWinRate:
         assert store.get_latest_cio_actions("cohort_default")["actions"] == []
         assert store.compute_win_rate("cohort_default") == []
 
-    def test_latest_cio_actions_picks_most_recent_date(self, store: ScorecardStore):
+    def test_latest_cio_actions_ignores_unsealed_rows(self, store: ScorecardStore):
         self._insert(
             store,
             [
@@ -549,8 +543,11 @@ class TestSignalsAndWinRate:
             ],
         )
         out = store.get_latest_cio_actions("cohort_default")
-        assert out["date"] == "2024-06-25"
-        assert {a["ticker"] for a in out["actions"]} == {"512880.SH", "159915.SZ"}
+        assert out == {
+            "cohort": "cohort_default",
+            "date": None,
+            "actions": [],
+        }
 
     def test_latest_cio_actions_empty_when_none(self, store: ScorecardStore):
         out = store.get_latest_cio_actions("cohort_default")

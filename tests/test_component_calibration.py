@@ -7,6 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from mosaic.dataflows.outcome_runtime_inputs import (
+    expected_qualification_predicate_version,
+)
 import mosaic.scorecard.component_calibration as component_calibration
 from mosaic.scorecard.component_calibration import (
     append_component_shadow_checkpoint,
@@ -15,6 +18,10 @@ from mosaic.scorecard.component_calibration import (
     resolve_component_weights,
     rollback_component_weight_release,
     run_component_calibration,
+)
+from mosaic.scorecard.darwinian_updates import (
+    LIVE_SOURCE_TOOL_BY_AGENT,
+    freeze_evaluation_opportunity_set,
 )
 from mosaic.scorecard.darwinian_v2 import (
     canonical_hash,
@@ -166,7 +173,6 @@ def _seed_component_sample(
     run_id = f"run:{sample_id}"
     graph_run_id = f"graph:{sample_id}"
     run_slot_id = f"slot:{sample_id}"
-    opportunity_id = f"opportunity:{sample_id}"
     common = {
         "graph_run_id": graph_run_id,
         "run_slot_id": run_slot_id,
@@ -182,6 +188,36 @@ def _seed_component_sample(
         "agent_id": agent_id,
         "track_key_hash": track["track_key_hash"],
     }
+    member_key = (
+        "event_id"
+        if contract["sample_schedule"]["kind"] == "EVENT_TRIGGERED"
+        else "path_snapshot_id"
+    )
+    opportunity = freeze_evaluation_opportunity_set(
+        conn,
+        production_variant_roster_revision_id=revision[
+            "production_variant_roster_revision_id"
+        ],
+        track_key_hash=track["track_key_hash"],
+        scheduled_sample_id=sample_id,
+        sample_origin="PRODUCTION_ACTIVE",
+        as_of=as_of,
+        member_refs=[{member_key: sample_id}],
+        required_source_evidence_ids=[f"official:{sample_id}"],
+        qualification_predicate_version=expected_qualification_predicate_version(
+            agent_id
+        ),
+        runtime_authority_binding={
+            "source_tool_id": LIVE_SOURCE_TOOL_BY_AGENT[agent_id],
+            "source_snapshot_hash": canonical_hash(
+                {"sample_id": sample_id, "kind": "source"}
+            ),
+            "domain_hash": canonical_hash(
+                {"sample_id": sample_id, "kind": "domain"}
+            ),
+        },
+    )
+    opportunity_id = opportunity["evaluation_opportunity_set_id"]
     accepted_without_hash = {
         "accepted_output_id": accepted_id,
         **common,
@@ -298,61 +334,6 @@ def _seed_component_sample(
             as_of,
             operational_without_hash["recorded_at"],
             canonical_json(operational),
-        ),
-    )
-
-    opportunity_without_hash = {
-        "evaluation_opportunity_set_id": opportunity_id,
-        "schema_version": "evaluation_opportunity_set_v2",
-        "production_variant_roster_id": revision["production_variant_roster_id"],
-        "production_variant_roster_revision_id": revision[
-            "production_variant_roster_revision_id"
-        ],
-        "execution_behavior_release_id": revision["execution_behavior_release_id"],
-        "cohort_id": "cohort_default",
-        "language": "zh",
-        "track_key_hash": track["track_key_hash"],
-        "agent_id": agent_id,
-        "sample_origin": "PRODUCTION_ACTIVE",
-        "opportunity_set_status": "AVAILABLE",
-        "member_state": "NON_EMPTY",
-        "scheduled_sample_id": sample_id,
-        "members": [{"event_id": sample_id}],
-        "required_source_evidence_ids": [f"official:{sample_id}"],
-        "pit_status": "VERIFIED",
-        "frozen_at": f"{as_of}T08:00:00+08:00",
-    }
-    opportunity = {
-        **opportunity_without_hash,
-        "evaluation_opportunity_set_hash": canonical_hash(opportunity_without_hash),
-    }
-    _insert(
-        conn,
-        """
-        INSERT INTO evaluation_opportunity_sets_v2 (
-            evaluation_opportunity_set_id, evaluation_opportunity_set_hash,
-            scheduled_sample_id, production_variant_roster_id,
-            production_variant_roster_revision_id, execution_behavior_release_id,
-            cohort_id, language, track_key_hash, agent_id, sample_origin,
-            opportunity_set_status, member_state, frozen_at, record_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            opportunity_id,
-            opportunity["evaluation_opportunity_set_hash"],
-            sample_id,
-            revision["production_variant_roster_id"],
-            revision["production_variant_roster_revision_id"],
-            revision["execution_behavior_release_id"],
-            "cohort_default",
-            "zh",
-            track["track_key_hash"],
-            agent_id,
-            "PRODUCTION_ACTIVE",
-            "AVAILABLE",
-            "NON_EMPTY",
-            opportunity_without_hash["frozen_at"],
-            canonical_json(opportunity),
         ),
     )
 

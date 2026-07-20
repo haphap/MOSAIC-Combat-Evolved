@@ -28,7 +28,7 @@ components 必须恰好为：growth_production、prices、employment、demand_tr
 
 必需运行时工具：`get_us_macro_snapshot`。
 
-提交 `mode=COMPONENTS`，只输出 `components` 并省略 `signal`；每个组件分别在 `components[].claim_refs` 中提交结论引用。
+提交 `mode=COMPONENTS`，只输出 `components` 并省略 `signal`；每个组件必须在 `components[].claim_refs` 中至少引用一个不与其他组件共享的 claim，且该 claim 的 `structured_conclusion.subject` 必须精确等于组件的 `component` id。
 
 必须输出 `claims`，不得输出顶层 `claim_refs`。每个 claim 必须通过 `evidence_ids` 引用证据目录中的 `evidence_id`；每个 `INTERPRETATION` claim 还必须通过 `research_rule_refs` 引用允许的不透明标识。必需证据不足时拒绝本阶段，不得生成宏观输出；只有证据有效但相互冲突时，才能输出带证据引用的 `RISK_FLAG` 声明。不得伪造证据 ID、指纹、引用标识或跨运行引用。
 

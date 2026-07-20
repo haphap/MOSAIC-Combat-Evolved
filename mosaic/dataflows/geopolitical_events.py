@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
+from .cross_runtime_json import canonical_hash, canonical_json
 from .exceptions import DataVendorUnavailable
 
 MANIFEST_SCHEMA_VERSION = "geopolitical_initial_source_manifest_v2"
@@ -72,6 +73,7 @@ _STRUCTURED_SMOKE_ARTIFACT_ROOTS = (
     "geopolitical_events",
     "macro_snapshots",
     "market_breadth",
+    "outcome_runtime",
     "runtime_snapshots",
     "sector_snapshots",
 )
@@ -85,13 +87,11 @@ _MANIFEST_PATH = (
 
 
 def _canonical_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return canonical_json(value)
 
 
 def _canonical_hash(value: Any) -> str:
-    return (
-        "sha256:" + hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
-    )
+    return canonical_hash(value)
 
 
 def _without_hash(payload: Mapping[str, Any], field: str) -> dict[str, Any]:

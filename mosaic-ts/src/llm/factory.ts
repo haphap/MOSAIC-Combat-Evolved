@@ -1,7 +1,7 @@
 /**
  * Build a LangChain chat model from the bridge's active config.
  *
- * Phase 1 supports two paths:
+ * The runtime supports two paths:
  *   * **Anthropic** native via `ChatAnthropic` — MOSAIC's default per Plan §1
  *     (Claude Sonnet for parity with the ATLAS reference architecture).
  *   * **OpenAI-compatible** providers via `ChatOpenAI`: openai / xai /
@@ -76,7 +76,7 @@ export interface LlmOptions {
   tier?: "deep" | "quick";
   /** Override the model from config. */
   model?: string;
-  /** Override the temperature from config (Phase 1 default 0.2). */
+  /** Override the temperature from config (default 0.2). */
   temperature?: number;
   /** Omit sampling fields so an OpenAI-compatible server preset owns them. */
   useProviderSamplingDefaults?: boolean;
@@ -233,7 +233,7 @@ export function createLlmFromConfig(config: MosaicConfig, options: LlmOptions = 
   }
 
   throw new Error(
-    `Provider '${provider}' is not supported in Phase 1. Supported: ` +
+    `Provider '${provider}' is not supported. Supported: ` +
       [...NATIVE_PROVIDERS, ...OPENAI_COMPATIBLE].sort().join(", ") +
       `. Google / Vertex native clients arrive when an agent first requests them.`,
   );

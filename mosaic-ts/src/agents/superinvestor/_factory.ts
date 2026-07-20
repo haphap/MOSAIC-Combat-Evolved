@@ -31,6 +31,7 @@ import {
   acceptedOutputRefKey,
   buildAcceptedAgentOutputRecord,
   buildStructuredSmokeAcceptedOutputRef,
+  canonicalAcceptedOutputHash,
 } from "../accepted_output.js";
 import { type AgentInitialToolCall, runAgentToolLoop } from "../helpers/agent_loop.js";
 import { invokeStrictStructured } from "../helpers/agent_run_contract.js";
@@ -49,6 +50,7 @@ import {
   resolveMacroInputAttributions,
 } from "../helpers/macro_attribution.js";
 import { acceptedMacroOutputs, renderAcceptedMacroInputs } from "../helpers/macro_context.js";
+import { preModelOutcomeDisposition } from "../helpers/outcome_pre_model.js";
 import {
   isPrivateKnotStageEnabled,
   type PrivateKnotAuditSummary,
@@ -124,6 +126,16 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
   deps: LayerThreeAgentDeps,
 ): LayerThreeAgentNode {
   return async function layerThreeAgentNode(state) {
+    if (
+      preModelOutcomeDisposition({
+        state,
+        agentId: spec.agentId,
+        stage: "agent_run",
+        authorityKind: "SUPERINVESTOR",
+      }) === "SKIP"
+    ) {
+      return {};
+    }
     const structuredHandle = deps.llmHandleStructured ?? deps.llmHandle;
     const timeoutMs = resolveAgentTimeoutMs(deps.agentTimeoutSeconds);
     const onLog = deps.onLog ?? (() => undefined);
@@ -199,6 +211,7 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
           const availableAcceptedSnapshotRefs = superinvestorAcceptedSnapshotRefs(state);
           const acceptedSnapshotRefs =
             availableAcceptedSnapshotRefs.length > 0 ? availableAcceptedSnapshotRefs : null;
+          const opportunityAuthority = superinvestorOpportunityAuthority(state, spec.agentId);
           const capabilityApi = hasAgentToolCapabilityApi(deps.api) ? deps.api : null;
           if (!capabilityApi && deps.llmHandle.provider !== "fake") {
             throw new Error(`${spec.agentId}: bridge tool capability API is unavailable`);
@@ -221,6 +234,15 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
                   : { accepted_sector_outputs: state.layer2_outputs },
               })
             : null;
+          if (
+            opportunityAuthority &&
+            preparedCapability?.bundle.candidate_scope_hash !==
+              opportunityAuthority.candidateScopeHash
+          ) {
+            throw new Error(
+              `${spec.agentId}: runtime candidate scope changed after opportunity freeze`,
+            );
+          }
           const tools = preparedCapability
             ? await pickBridgeTools(deps.api, spec.requiredTools, {
                 capability: preparedCapability.capability,
@@ -285,7 +307,10 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
           const extractorSystem = spec.buildExtractorSystem
             ? spec.buildExtractorSystem(language)
             : defaultExtractorSystem(spec, language);
-          const allowedTsCodes = frozenSuperinvestorCandidateCodes(loopResult.messages);
+          const allowedTsCodes = frozenSuperinvestorCandidateCodes(
+            loopResult.messages,
+            opportunityAuthority,
+          );
           const extractionSchema = buildRuntimeSuperinvestorSchema(
             spec.agentId,
             allowedTsCodes,
@@ -357,10 +382,16 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
               payload: accepted,
               evidenceBundleIds: lineage.evidence_bundle_ids,
               causalDedupeKeys: lineage.causal_dedupe_keys,
+              claimGraph,
+              sourceAgentOutputHash: requiredAcceptedAuditOutputHash(
+                extractor.audit.output_hash,
+                spec.agentId,
+              ),
               context: acceptedOutputBuildContextFromState({
                 state,
                 agentId: spec.agentId,
                 sourceAgentRunId: extractor.audit.run_id,
+                acceptedOutputKind: "SUPERINVESTOR_SELECTION",
               }),
             });
             const ref = deps.acceptedOutputStore.put(record, claimGraph);
@@ -484,6 +515,13 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
   };
 }
 
+function requiredAcceptedAuditOutputHash(value: string | null, agentId: string): string {
+  if (!value || !/^sha256:[0-9a-f]{64}$/.test(value)) {
+    throw new Error(`${agentId}: accepted output lacks an Agent-run output hash`);
+  }
+  return value;
+}
+
 export function superinvestorAcceptedSnapshotRefs(state: DailyCycleStateType) {
   return Object.entries(state.accepted_output_refs)
     .filter(
@@ -547,7 +585,45 @@ export function buildLayerThreeInitialToolCalls(
   return [{ name: "get_superinvestor_candidate_snapshot", args: {} }];
 }
 
-export function frozenSuperinvestorCandidateCodes(messages: ReadonlyArray<BaseMessage>): string[] {
+export interface SuperinvestorOpportunityAuthority {
+  candidateScopeHash: string;
+  candidateUniverseHash: string;
+  sourceSnapshotHash: string;
+}
+
+function superinvestorOpportunityAuthority(
+  state: DailyCycleStateType,
+  agentId: SuperinvestorAgentId,
+): SuperinvestorOpportunityAuthority | null {
+  if (!state.darwinian_runtime_binding) return null;
+  const schedule = state.outcome_schedule_plan;
+  if (!schedule) throw new Error(`${agentId}: outcome schedule is unavailable`);
+  const slots = schedule.slots.filter((slot) => slot.agent_id === agentId);
+  if (slots.length !== 1) throw new Error(`${agentId}: outcome schedule slot is ambiguous`);
+  const slot = slots[0];
+  if (!slot) throw new Error(`${agentId}: outcome schedule slot is unavailable`);
+  if (slot.run_slot_kind === "DOWNSTREAM_ONLY") return null;
+  const binding = state.outcome_opportunity_bindings[agentId];
+  if (
+    !binding ||
+    binding.scheduled_sample_id !== slot.scheduled_sample_id ||
+    !binding.runtime_candidate_scope_hash ||
+    !binding.runtime_candidate_universe_hash ||
+    !binding.runtime_source_snapshot_hash
+  ) {
+    throw new Error(`${agentId}: runtime opportunity authority is unavailable`);
+  }
+  return {
+    candidateScopeHash: binding.runtime_candidate_scope_hash,
+    candidateUniverseHash: binding.runtime_candidate_universe_hash,
+    sourceSnapshotHash: binding.runtime_source_snapshot_hash,
+  };
+}
+
+export function frozenSuperinvestorCandidateCodes(
+  messages: ReadonlyArray<BaseMessage>,
+  expectedAuthority: SuperinvestorOpportunityAuthority | null = null,
+): string[] {
   const snapshotMessage = messages.find(
     (message) =>
       message.getType() === "tool" && (message as ToolMessage).tool_call_id === "initial_tool_1",
@@ -570,6 +646,37 @@ export function frozenSuperinvestorCandidateCodes(messages: ReadonlyArray<BaseMe
   const universe = payload.candidate_universe ?? payload.candidates;
   if (!Array.isArray(universe)) {
     throw new Error("superinvestor frozen candidate snapshot requires candidate_universe");
+  }
+  if (expectedAuthority) {
+    if (
+      payload.candidate_scope_hash !== expectedAuthority.candidateScopeHash ||
+      payload.candidate_universe_hash !== expectedAuthority.candidateUniverseHash ||
+      payload.snapshot_hash !== expectedAuthority.sourceSnapshotHash
+    ) {
+      throw new Error("superinvestor candidate snapshot changed after opportunity freeze");
+    }
+    const candidateStatus = payload.candidate_status;
+    if (candidateStatus !== "AVAILABLE" && candidateStatus !== "EMPTY_CONFIRMED") {
+      throw new Error("superinvestor candidate snapshot has invalid candidate_status");
+    }
+    const computedUniverseHash = canonicalAcceptedOutputHash({
+      candidate_status: candidateStatus,
+      candidate_universe: universe,
+    });
+    if (computedUniverseHash !== expectedAuthority.candidateUniverseHash) {
+      throw new Error("superinvestor candidate universe content hash mismatch");
+    }
+    const candidateScope = payload.candidate_scope;
+    if (
+      candidateScope === null ||
+      typeof candidateScope !== "object" ||
+      Array.isArray(candidateScope) ||
+      canonicalAcceptedOutputHash(candidateScope) !== expectedAuthority.candidateScopeHash ||
+      (candidateScope as Record<string, unknown>).candidate_universe_hash !==
+        expectedAuthority.candidateUniverseHash
+    ) {
+      throw new Error("superinvestor candidate scope content hash mismatch");
+    }
   }
   const constraints =
     payload.constraints !== null &&

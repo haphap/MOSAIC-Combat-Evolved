@@ -8,10 +8,12 @@ import {
   MACRO_AGENT_IDS,
   MACRO_PROMPT_COHORT_IDS,
   MACRO_ROLE_CONTRACTS,
+  macroNarrativeIssue,
   macroSubmissionFieldNames,
   renderMacroPromptBody,
   renderMacroRuntimeContract,
 } from "../src/agents/macro/_contracts.js";
+import { renderDefaultMacroExtractorSystem } from "../src/agents/macro/_factory.js";
 import {
   MACRO_SNAPSHOT_SEMANTIC_VALIDATOR_ID,
   macroSnapshotEchoView,
@@ -59,8 +61,13 @@ describe.each(specs)("$agentId macro role contract", (spec) => {
 
   it("requires claims, drivers, channels, refs, and exact component membership", () => {
     const base = macroSubmission(spec.agentId);
+    const firstClaim = base.claims[0];
+    if (!firstClaim) throw new Error("claim fixture required");
     expect(spec.schema.safeParse({ ...base, claims: [] }).success).toBe(false);
     expect(spec.schema.safeParse({ ...base, key_drivers: [] }).success).toBe(false);
+    expect(spec.schema.safeParse({ ...base, claims: [firstClaim, firstClaim] }).success).toBe(
+      false,
+    );
     if (base.mode === "DIRECT") {
       expect(spec.schema.safeParse({ ...base, components: [] }).success).toBe(false);
       expect(
@@ -68,6 +75,24 @@ describe.each(specs)("$agentId macro role contract", (spec) => {
       ).toBe(false);
       expect(
         spec.schema.safeParse({ ...base, signal: { ...base.signal, claim_refs: [] } }).success,
+      ).toBe(false);
+      expect(
+        spec.schema.safeParse({
+          ...base,
+          signal: {
+            ...base.signal,
+            claim_refs: Array(9).fill(base.claims[0]?.claim_id),
+          },
+        }).success,
+      ).toBe(false);
+      expect(
+        spec.schema.safeParse({
+          ...base,
+          signal: {
+            ...base.signal,
+            claim_refs: [firstClaim.claim_id, firstClaim.claim_id],
+          },
+        }).success,
       ).toBe(false);
     } else {
       expect(
@@ -96,8 +121,87 @@ describe.each(specs)("$agentId macro role contract", (spec) => {
       expect(spec.schema.safeParse({ ...base, components: base.components.slice(1) }).success).toBe(
         false,
       );
+      expect(
+        spec.schema.safeParse({
+          ...base,
+          components: base.components.map((component, index) =>
+            index === 0
+              ? {
+                  ...component,
+                  claim_refs: Array(9).fill(base.claims[0]?.claim_id),
+                }
+              : component,
+          ),
+        }).success,
+      ).toBe(false);
+      expect(
+        spec.schema.safeParse({
+          ...base,
+          components: base.components.map((component, index) =>
+            index === 0
+              ? {
+                  ...component,
+                  claim_refs: [firstClaim.claim_id, firstClaim.claim_id],
+                }
+              : component,
+          ),
+        }).success,
+      ).toBe(false);
     }
   });
+});
+
+it("accepts four component conclusions with independent local claim ownership", () => {
+  const base = macroSubmission("us_economy");
+  if (base.mode !== "COMPONENTS") throw new Error("component fixture required");
+  const templateClaim = base.claims[0];
+  if (!templateClaim) throw new Error("claim fixture required");
+  const claims = base.components.map((component) => ({
+    ...templateClaim,
+    claim_id: `us-economy-${component.component}-claim`,
+    structured_conclusion: {
+      ...templateClaim.structured_conclusion,
+      subject: component.component,
+    },
+    evidence_ids: [`fixture:us_economy:${component.component}`],
+  }));
+  const output = {
+    ...base,
+    claims,
+    components: base.components.map((component) => ({
+      ...component,
+      claim_refs: [`us-economy-${component.component}-claim`],
+    })),
+  };
+  const parsed = createMacroSubmissionSchema("us_economy").parse(output);
+  expect(parsed.mode).toBe("COMPONENTS");
+  if (parsed.mode !== "COMPONENTS") throw new Error("component output required");
+  expect(new Set(parsed.components.flatMap((component) => component.claim_refs)).size).toBe(4);
+  expect(
+    createMacroSubmissionSchema("us_economy").safeParse({
+      ...output,
+      components: output.components.map((component) => ({
+        ...component,
+        claim_refs: [claims[0]?.claim_id],
+      })),
+    }).success,
+  ).toBe(false);
+  expect(
+    createMacroSubmissionSchema("us_economy").safeParse({
+      ...output,
+      claims: output.claims.map((claim, index) =>
+        index === 0
+          ? {
+              ...claim,
+              structured_conclusion: {
+                ...claim.structured_conclusion,
+                subject: "wrong_component",
+              },
+            }
+          : claim,
+      ),
+    }).success,
+  ).toBe(false);
 });
 
 describe("macro responsibility and prompt contract", () => {
@@ -143,6 +247,24 @@ describe("macro responsibility and prompt contract", () => {
       expect(body).not.toMatch(/research-knobs|domain knob|knob influence/i);
       expect(body).not.toMatch(/claim_type|evidence_refs|layer_1_consensus_score|macro stance/i);
     }
+  });
+
+  it("makes compact extractor ownership explicit for both Macro submission modes", () => {
+    const components = renderDefaultMacroExtractorSystem(chinaSpec, "en");
+    expect(components).toContain("MACRO_COMPONENTS_COMPACT_V1");
+    expect(components).toContain("no component may share a claim");
+    expect(components).toContain(
+      "canonical structured_conclusion.subject is fixed to that component id",
+    );
+    expect(components).toContain("snapshot_echo to null");
+    expect(components).toContain("omits optional numeric echoes");
+    expect(components).toContain("Never rewrite digits as Chinese or English number words");
+    expect(components).toContain("standalone narrative");
+    expect(components).toContain("without a dangling comma, conjunction, or truncated word");
+    const direct = renderDefaultMacroExtractorSystem(geopoliticalSpec, "en");
+    expect(direct).toContain("MACRO_DIRECT_COMPACT_V1");
+    expect(direct).toContain("fill the single judgment and its concise subject exactly once");
+    expect(direct).not.toContain("no component may share a claim");
   });
 });
 
@@ -225,7 +347,7 @@ describe("macro snapshot semantic validation", () => {
     ]);
   });
 
-  it("makes the echo triple reachable in the real schema and closes numeric prose bypasses", () => {
+  it("closes numeric-word, placeholder, and truncation narrative bypasses", () => {
     const base = macroSubmission("us_economy");
     const firstClaim = base.claims[0];
     if (!firstClaim || base.mode !== "COMPONENTS") throw new Error("fixture claim required");
@@ -246,33 +368,83 @@ describe("macro snapshot semantic validation", () => {
         ],
       }).success,
     ).toBe(false);
+    type MacroClaim = (typeof base.claims)[number];
+    const withFirstClaim = (mutate: (claim: MacroClaim) => MacroClaim) => ({
+      ...base,
+      claims: base.claims.map((claim, index) => (index === 0 ? mutate(claim) : claim)),
+    });
     for (const candidate of [
-      { ...base, key_drivers: ["CPI rose 3.2 percent"] },
+      { ...base, key_drivers: ["CPI rose three percent"] },
+      withFirstClaim((claim) => ({ ...claim, statement: "信贷指数升至一百零二点一" })),
+      withFirstClaim((claim) => ({ ...claim, statement: "x".repeat(160) })),
+      withFirstClaim((claim) => ({
+        ...claim,
+        structured_conclusion: {
+          ...claim.structured_conclusion,
+          state: "十年期收益率保持高位",
+        },
+      })),
+      withFirstClaim((claim) => ({
+        ...claim,
+        structured_conclusion: {
+          ...claim.structured_conclusion,
+          a_share_transmission: "NEUTRAL",
+        },
+      })),
+      withFirstClaim((claim) => ({
+        ...claim,
+        structured_conclusion: {
+          ...claim.structured_conclusion,
+          a_share_transmission: "Policy easing supports A-shares and",
+        },
+      })),
       {
         ...base,
-        claims: [{ ...firstClaim, statement: "CPI rose 3.2 percent" }],
-      },
-      {
-        ...base,
-        claims: [
-          {
-            ...firstClaim,
-            structured_conclusion: {
-              ...firstClaim.structured_conclusion,
-              state: "CPI rose 3.2 percent",
-            },
-          },
-        ],
+        components: base.components.map((component, index) =>
+          index === 0 ? { ...component, channels: ["ten-year yield remains elevated"] } : component,
+        ),
       },
       {
         ...base,
         components: base.components.map((component, index) =>
-          index === 0 ? { ...component, channels: ["ten-year yield at 3.2 percent"] } : component,
+          index === 0 ? { ...component, channels: ["x".repeat(96)] } : component,
         ),
       },
     ]) {
       expect(schema.safeParse(candidate).success).toBe(false);
     }
+  });
+
+  it("distinguishes numeric expressions from ordinary Chinese and embedded English text", () => {
+    for (const value of [
+      "一百零二点一",
+      "十年期收益率保持高位",
+      "两年期流动性压力",
+      "百分之三的增幅",
+      "第三阶段政策操作",
+      "five percent inflation",
+      "one trillion in liquidity",
+      "a decimal increase",
+      "the second policy phase",
+    ]) {
+      expect(macroNarrativeIssue(value, 160)).toBe("NUMERIC_EXPRESSION");
+    }
+    for (const value of [
+      "政策路径保持一致",
+      "统一市场预期改善",
+      "市场正在形成新的增长点",
+      "政策部门十分关注传导",
+      "Someone sees percentile pressure easing",
+      "The long end remains elevated",
+      "中性偏宽松的政策状态",
+    ]) {
+      expect(macroNarrativeIssue(value, 160)).toBeNull();
+    }
+    for (const value of ["NEUTRAL", "supportive", "UNKNOWN", "N/A", "NONE", "中性", "未知", "无"]) {
+      expect(macroNarrativeIssue(value, 160)).toBe("PLACEHOLDER");
+    }
+    expect(macroNarrativeIssue("Policy support remains constructive,", 160)).toBe("TRUNCATED");
+    expect(macroNarrativeIssue("x".repeat(160), 160)).toBe("TRUNCATED");
   });
 
   it("separates snapshot echo locators from claim evidence ids", () => {

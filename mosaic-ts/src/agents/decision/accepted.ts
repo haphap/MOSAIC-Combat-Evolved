@@ -6,7 +6,16 @@ import type {
   MacroAttributionTarget,
   MacroInputAttributionSubmission,
 } from "../helpers/macro_attribution.js";
-import type { RuntimeOutputAuditFields } from "../types.js";
+import type { CurrentPositionsSnapshot, RuntimeOutputAuditFields } from "../types.js";
+import {
+  assertCioHoldCurrentTargetSet,
+  assertExactExecutionResolutionSet,
+} from "./decision_semantics.js";
+import {
+  assertFrozenOrderIntentPlanIntegrity,
+  assertMatchesFrozenOrderIntents,
+  type FrozenOrderIntentPlan,
+} from "./frozen_order_intents.js";
 
 export interface DecisionDriverSubmission {
   driver_local_id: string;
@@ -331,6 +340,8 @@ export interface AcceptedCioFinal {
   frozen_proposal_hash: string;
   cro_control_source: DecisionControlSourceRef<"cro">;
   execution_control_source: DecisionControlSourceRef<"autonomous_execution">;
+  frozen_controlled_target_set_id: string;
+  frozen_controlled_target_set_hash: string;
   final_portfolio_id: string;
   final_portfolio_hash: string;
   decision: CioPortfolioDecisionPayload;
@@ -567,17 +578,32 @@ export function buildAcceptedExecutionAssessment(input: {
   frozenProposalId: string;
   frozenProposalHash: string;
   croControlSource: DecisionControlSourceRef<"cro">;
-  frozenOrderIntentSetId: string;
-  frozenOrderIntentSetHash: string;
+  frozenControlledTargetSet: FrozenOrderIntentPlan;
+  frozenOrderIntentSetId?: string;
+  frozenOrderIntentSetHash?: string;
 }): AcceptedExecutionAssessment {
   const payload = executionAssessmentPayload(input.submission);
+  assertFrozenOrderIntentPlanIntegrity(input.frozenControlledTargetSet);
+  assertMatchesFrozenOrderIntents(
+    payload.order_assessments,
+    input.frozenControlledTargetSet.order_intents,
+    "Accepted execution assessment",
+  );
+  const frozenOrderIntentSet = frozenOrderIntentSetIdentity({
+    proposalId: input.frozenProposalId,
+    proposalHash: input.frozenProposalHash,
+    croControlSource: input.croControlSource,
+    frozenControlledTargetSet: input.frozenControlledTargetSet,
+  });
+  const frozenOrderIntentSetId = input.frozenOrderIntentSetId ?? frozenOrderIntentSet.id;
+  const frozenOrderIntentSetHash = input.frozenOrderIntentSetHash ?? frozenOrderIntentSet.hash;
   const seed = {
     agent_id: "autonomous_execution",
     frozen_proposal_id: input.frozenProposalId,
     frozen_proposal_hash: input.frozenProposalHash,
     cro_control_source: input.croControlSource,
-    frozen_order_intent_set_id: input.frozenOrderIntentSetId,
-    frozen_order_intent_set_hash: input.frozenOrderIntentSetHash,
+    frozen_order_intent_set_id: frozenOrderIntentSetId,
+    frozen_order_intent_set_hash: frozenOrderIntentSetHash,
     assessment: payload,
   };
   const acceptedId = persistentId("accepted-execution-assessment", seed);
@@ -608,8 +634,8 @@ export function buildAcceptedExecutionAssessment(input: {
     frozen_proposal_id: input.frozenProposalId,
     frozen_proposal_hash: input.frozenProposalHash,
     cro_control_source: input.croControlSource,
-    frozen_order_intent_set_id: input.frozenOrderIntentSetId,
-    frozen_order_intent_set_hash: input.frozenOrderIntentSetHash,
+    frozen_order_intent_set_id: frozenOrderIntentSetId,
+    frozen_order_intent_set_hash: frozenOrderIntentSetHash,
     assessment: { ...payload, order_assessments: orderAssessments },
     model_confidence: input.submission.confidence,
   };
@@ -626,10 +652,22 @@ export function buildAcceptedCioProposal(input: {
   frozenPreCioInputHash: string;
   alphaSource: DecisionStageSourceRef<"alpha_discovery">;
   acceptedAlphaDiscovery: AcceptedAlphaDiscovery | null;
+  currentPositions: CurrentPositionsSnapshot;
   acceptedMacroInputAttributions: AcceptedMacroInputAttribution[];
 }): AcceptedCioProposal {
   assertAlphaSource(input.alphaSource, input.acceptedAlphaDiscovery);
   const decision = cioDecisionPayload(input.submission);
+  assertCioHoldCurrentTargetSet({
+    decisionDisposition: decision.decision_disposition,
+    targets: decision.target_positions.map((position) => ({
+      ticker: position.ts_code,
+      target_weight: position.target_weight,
+      position_decision: position.position_decision,
+    })),
+    currentSnapshotStatus: input.currentPositions.snapshot_status,
+    currentPositions: input.currentPositions.positions,
+    context: "Accepted CIO proposal",
+  });
   const targetByTicker = new Map(
     decision.target_positions.map((position) => [position.ts_code, position.position_local_id]),
   );
@@ -690,6 +728,9 @@ export function buildAcceptedCioFinal(input: {
   executionControlSource: DecisionControlSourceRef<"autonomous_execution">;
   acceptedCroReview: AcceptedCroRiskReview | null;
   acceptedExecutionAssessment: AcceptedExecutionAssessment | null;
+  frozenControlledTargetSet: FrozenOrderIntentPlan;
+  frozenControlledTargetSetId?: string;
+  frozenControlledTargetSetHash?: string;
   acceptedMacroInputAttributions: AcceptedMacroInputAttribution[];
 }): AcceptedCioFinal {
   if (
@@ -698,6 +739,21 @@ export function buildAcceptedCioFinal(input: {
   ) {
     throw new Error("CIO final frozen proposal identity mismatch");
   }
+  assertFrozenOrderIntentPlanIntegrity(input.frozenControlledTargetSet);
+  const acceptedCurrentPositions = input.frozenControlledTargetSet.controlled_targets
+    .filter((target) => target.current_weight > 1e-9)
+    .map((target) => ({ ticker: target.ts_code, current_weight: target.current_weight }));
+  assertCioHoldCurrentTargetSet({
+    decisionDisposition: input.submission.decision_disposition,
+    targets: input.submission.target_positions.map((position) => ({
+      ticker: position.ts_code,
+      target_weight: position.target_weight,
+      position_decision: position.position_decision,
+    })),
+    currentSnapshotStatus: acceptedCurrentPositions.length > 0 ? "loaded" : "empty_confirmed",
+    currentPositions: acceptedCurrentPositions,
+    context: "Accepted CIO final",
+  });
   const croResolutions = resolveCroControls(input.submission, input.acceptedCroReview);
   const executionResolutions = resolveExecutionControls(
     input.submission,
@@ -714,6 +770,8 @@ export function buildAcceptedCioFinal(input: {
     frozenProposal: input.frozenProposal,
     acceptedCroReview: input.acceptedCroReview,
     acceptedExecutionAssessment: input.acceptedExecutionAssessment,
+    croControlSource: input.croControlSource,
+    frozenControlledTargetSet: input.frozenControlledTargetSet,
   });
   const withoutIdentity = {
     agent_id: "cio" as const,
@@ -725,6 +783,11 @@ export function buildAcceptedCioFinal(input: {
     frozen_proposal_hash: input.frozenProposalHash,
     cro_control_source: input.croControlSource,
     execution_control_source: input.executionControlSource,
+    frozen_controlled_target_set_id:
+      input.frozenControlledTargetSetId ?? input.frozenControlledTargetSet.controlled_target_set_id,
+    frozen_controlled_target_set_hash:
+      input.frozenControlledTargetSetHash ??
+      input.frozenControlledTargetSet.controlled_target_set_hash,
     decision: cioDecisionPayload(input.submission),
     cro_control_resolutions: croResolutions,
     execution_control_resolutions: executionResolutions,
@@ -818,23 +881,18 @@ function resolveExecutionControls(
   submission: CioFinalSubmission,
   accepted: AcceptedExecutionAssessment | null,
 ): AcceptedCioExecutionControlResolution[] {
-  if (!accepted) {
-    if (submission.execution_control_resolutions.length !== 0) {
-      throw new Error(
-        "CIO final cannot resolve execution assessments without an accepted assessment",
-      );
-    }
-    return [];
-  }
-  const required = accepted.assessment.order_assessments;
+  const required = accepted?.assessment.order_assessments ?? [];
+  assertExactExecutionResolutionSet({
+    resolutions: submission.execution_control_resolutions,
+    assessments: required,
+    context: "Accepted CIO final",
+  });
+  if (!accepted) return [];
   const byLocalId = uniqueBy(
     submission.execution_control_resolutions,
     (resolution) => resolution.execution_assessment_local_ref,
     "execution resolution",
   );
-  if (byLocalId.size !== required.length) {
-    throw new Error("CIO final must resolve every execution assessment exactly once");
-  }
   return required
     .map((assessment): AcceptedCioExecutionControlResolution => {
       const resolution = byLocalId.get(assessment.assessment_local_id);
@@ -859,6 +917,8 @@ function assertAcceptedCioFinalControlCompliance(input: {
   frozenProposal: AcceptedCioProposal;
   acceptedCroReview: AcceptedCroRiskReview | null;
   acceptedExecutionAssessment: AcceptedExecutionAssessment | null;
+  croControlSource: DecisionControlSourceRef<"cro">;
+  frozenControlledTargetSet: FrozenOrderIntentPlan;
 }): void {
   const epsilon = 1e-9;
   if (
@@ -875,12 +935,40 @@ function assertAcceptedCioFinalControlCompliance(input: {
   ) {
     throw new Error("CIO final execution assessment is bound to a different frozen proposal");
   }
+  if (input.acceptedExecutionAssessment) {
+    const expectedOrderIntentSet = frozenOrderIntentSetIdentity({
+      proposalId: input.frozenProposal.proposal_id,
+      proposalHash: input.frozenProposal.proposal_hash,
+      croControlSource: input.croControlSource,
+      frozenControlledTargetSet: input.frozenControlledTargetSet,
+    });
+    if (
+      canonicalAcceptedOutputHash(input.acceptedExecutionAssessment.cro_control_source) !==
+        canonicalAcceptedOutputHash(input.croControlSource) ||
+      input.acceptedExecutionAssessment.frozen_order_intent_set_id !== expectedOrderIntentSet.id ||
+      input.acceptedExecutionAssessment.frozen_order_intent_set_hash !== expectedOrderIntentSet.hash
+    ) {
+      throw new Error("CIO final execution assessment is bound to a different frozen intent set");
+    }
+  }
   const proposalTargets = new Map(
     input.frozenProposal.decision.target_positions.map((position) => [
       position.ts_code,
       position.target_weight,
     ]),
   );
+  const controlledTargets = new Map(
+    input.frozenControlledTargetSet.controlled_targets.map((target) => [target.ts_code, target]),
+  );
+  if (
+    controlledTargets.size !== proposalTargets.size ||
+    [...proposalTargets].some(([ticker, proposalTarget]) => {
+      const controlled = controlledTargets.get(ticker);
+      return !controlled || Math.abs(controlled.proposal_target_weight - proposalTarget) > epsilon;
+    })
+  ) {
+    throw new Error("CIO final frozen controlled-target set does not match the proposal");
+  }
   const finalTargets = uniqueBy(
     input.submission.target_positions,
     (position) => position.ts_code,
@@ -891,13 +979,62 @@ function assertAcceptedCioFinalControlCompliance(input: {
       throw new Error(`CIO final target ${ticker} is outside the frozen proposal`);
     }
   }
+  for (const target of controlledTargets.values()) {
+    const finalTarget = finalTargets.get(target.ts_code)?.target_weight ?? 0;
+    if (target.current_weight > epsilon && !finalTargets.has(target.ts_code)) {
+      throw new Error(
+        `CIO final must explicitly retain or exit current position ${target.ts_code}`,
+      );
+    }
+    if (
+      target.cro_adjustment !== "REQUIRE_REVIEW" &&
+      Math.abs(target.requested_delta_weight) <= epsilon &&
+      Math.abs(finalTarget - target.current_weight) > epsilon
+    ) {
+      throw new Error(`${target.ts_code}: zero-delta frozen control must remain at current weight`);
+    }
+  }
   const croActionByTicker = new Map(
     (input.acceptedCroReview?.review.candidate_actions ?? [])
       .filter((action) => action.action !== "NO_OBJECTION" && action.action !== "REQUIRE_REVIEW")
       .map((action) => [action.ts_code, action]),
   );
+  const acceptedCroControlByTicker = new Map(
+    (input.acceptedCroReview?.review.candidate_actions ?? [])
+      .filter((action) => action.action !== "NO_OBJECTION")
+      .map((action) => [action.ts_code, action]),
+  );
+  for (const target of controlledTargets.values()) {
+    const action = acceptedCroControlByTicker.get(target.ts_code);
+    const expectedControlledTarget =
+      action?.action === "VETO"
+        ? 0
+        : action?.action === "REQUIRE_REVIEW"
+          ? target.current_weight
+          : action?.action === "CAP_WEIGHT" || action?.action === "REDUCE_WEIGHT"
+            ? Math.min(
+                target.proposal_target_weight,
+                action.max_target_weight ?? target.proposal_target_weight,
+              )
+            : target.proposal_target_weight;
+    if (
+      target.cro_adjustment !== (action?.action ?? null) ||
+      target.cro_action_local_id !== (action?.action_local_id ?? null) ||
+      Math.abs(target.controlled_target_weight - expectedControlledTarget) > epsilon ||
+      Math.abs(
+        target.requested_delta_weight - (target.controlled_target_weight - target.current_weight),
+      ) > epsilon
+    ) {
+      throw new Error(`${target.ts_code}: frozen controlled target does not match accepted CRO`);
+    }
+  }
 
   if (input.acceptedExecutionAssessment) {
+    assertMatchesFrozenOrderIntents(
+      input.acceptedExecutionAssessment.assessment.order_assessments,
+      input.frozenControlledTargetSet.order_intents,
+      "Accepted CIO execution control",
+    );
     const resolutions = uniqueBy(
       input.submission.execution_control_resolutions,
       (resolution) => resolution.execution_assessment_local_ref,
@@ -905,7 +1042,8 @@ function assertAcceptedCioFinalControlCompliance(input: {
     );
     for (const assessment of input.acceptedExecutionAssessment.assessment.order_assessments) {
       const proposalTarget = proposalTargets.get(assessment.ts_code);
-      if (proposalTarget === undefined) {
+      const controlledTarget = controlledTargets.get(assessment.ts_code);
+      if (proposalTarget === undefined || !controlledTarget) {
         throw new Error(
           `CIO final execution assessment ${assessment.ts_code} is outside the frozen proposal`,
         );
@@ -916,7 +1054,7 @@ function assertAcceptedCioFinalControlCompliance(input: {
           `CIO final execution assessment ${assessment.ts_code} has no actionable delta`,
         );
       }
-      const currentWeight = proposalTarget - assessment.requested_delta_weight;
+      const currentWeight = controlledTarget.current_weight;
       const finalTarget = finalTargets.get(assessment.ts_code)?.target_weight ?? 0;
       const finalDelta = finalTarget - currentWeight;
       if (
@@ -966,6 +1104,8 @@ function assertAcceptedCioFinalControlCompliance(input: {
         );
       }
     }
+  } else if (input.frozenControlledTargetSet.order_intents.length !== 0) {
+    throw new Error("CIO final actionable frozen intents lack accepted execution controls");
   }
 
   if (input.acceptedCroReview) {
@@ -985,6 +1125,18 @@ function assertAcceptedCioFinalControlCompliance(input: {
         }
         if (resolution.resolution !== "COMPLIED") {
           throw new Error(`CIO final CRO VETO ${action.action_local_id} must be COMPLIED`);
+        }
+        continue;
+      }
+      if (action.action === "REQUIRE_REVIEW") {
+        const currentWeight = controlledTargets.get(action.ts_code)?.current_weight;
+        if (currentWeight === undefined || Math.abs(finalTarget - currentWeight) > epsilon) {
+          throw new Error(
+            `CIO final REQUIRE_REVIEW ${action.ts_code} must remain at current weight`,
+          );
+        }
+        if (resolution.resolution !== "COMPLIED") {
+          throw new Error(`CIO final REQUIRE_REVIEW ${action.action_local_id} must be COMPLIED`);
         }
         continue;
       }
@@ -1033,6 +1185,24 @@ function assertResolutionSource(
   if (source.source_status === "NO_EVALUATION_OBJECT" && accepted) {
     throw new Error(`${agentId}: stage skip cannot mask an accepted control output`);
   }
+}
+
+export function frozenOrderIntentSetIdentity(input: {
+  proposalId: string;
+  proposalHash: string;
+  croControlSource: DecisionControlSourceRef<"cro">;
+  frozenControlledTargetSet: FrozenOrderIntentPlan;
+}): { id: string; hash: string; payload: Record<string, unknown> } {
+  const payload = {
+    proposal_id: input.proposalId,
+    proposal_hash: input.proposalHash,
+    cro_control_source: input.croControlSource,
+    controlled_target_set_id: input.frozenControlledTargetSet.controlled_target_set_id,
+    controlled_target_set_hash: input.frozenControlledTargetSet.controlled_target_set_hash,
+    intents: input.frozenControlledTargetSet.order_intents,
+  };
+  const hash = canonicalAcceptedOutputHash(payload);
+  return { id: `order-intent-set:${hash.slice("sha256:".length)}`, hash, payload };
 }
 
 function uniqueBy<T>(

@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { assertCioHoldCurrentTargetSet } from "../decision/decision_semantics.js";
 import type { CurrentPositionsSnapshot } from "../types.js";
 import type { AgentContractIssue, ContractValidationResult } from "./agent_run_contract.js";
 import { type RuntimeEvidenceSnapshot, validateOutputByClaimEvidence } from "./evidence_runtime.js";
@@ -263,7 +264,6 @@ function validateDispositionAndCioCoverage(
               : "HOLD",
     }));
   const positions = currentPositions.positions;
-  const positionByTicker = new Map(positions.map((position) => [position.ticker, position]));
   const actionByTicker = new Map(actions.map((action) => [action.ticker, action]));
   const issues: AgentContractIssue[] = [];
   const decisionClaimRefs = record.decision_claim_refs;
@@ -292,29 +292,32 @@ function validateDispositionAndCioCoverage(
     }
   }
   if (record.decision_disposition === "HOLD_CURRENT") {
-    if (positions.length === 0) {
+    try {
+      assertCioHoldCurrentTargetSet({
+        decisionDisposition: record.decision_disposition,
+        targets: actions.map((action) => ({
+          ticker: action.ticker,
+          target_weight: action.target_weight,
+          position_decision: action.position_decision as
+            | "HOLD"
+            | "ADD"
+            | "REDUCE"
+            | "EXIT"
+            | undefined,
+        })),
+        currentSnapshotStatus: currentPositions.snapshot_status,
+        currentPositions: positions,
+        context: "CIO strict output",
+      });
+    } catch (error) {
       issues.push(
-        issue("cio_position_semantics_v1", "EMPTY_PORTFOLIO_CANNOT_HOLD", "$.decision_disposition"),
+        issue(
+          "cio_position_semantics_v1",
+          "HOLD_CURRENT_TARGET_SET_MISMATCH",
+          "$.portfolio_actions",
+          error instanceof Error ? error.message : String(error),
+        ),
       );
-    }
-    for (const action of actions) {
-      const position = positionByTicker.get(action.ticker);
-      if (!position) {
-        issues.push(
-          issue("cio_position_semantics_v1", "HOLD_ADDS_NEW_TICKER", "$.portfolio_actions"),
-        );
-      } else if (
-        action.action !== "HOLD" ||
-        Math.abs(action.target_weight - position.current_weight) > 1e-6
-      ) {
-        issues.push(
-          issue(
-            "cio_position_semantics_v1",
-            "HOLD_CURRENT_WEIGHT_CHANGED",
-            `$.portfolio_actions.${action.ticker}`,
-          ),
-        );
-      }
     }
   }
   if (record.decision_disposition === "ALL_CASH") {

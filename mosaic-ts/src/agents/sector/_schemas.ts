@@ -11,8 +11,12 @@ import { STANDARD_SECTOR_ROLE_CONTRACTS } from "./_contracts.js";
 
 const LocalId = z.string().trim().min(1).max(128);
 const ConciseText = z.string().trim().min(1).max(320);
-const ClaimRefs = z.array(LocalId).min(1).max(12);
+export const STANDARD_SECTOR_MAX_CLAIMS = 14;
+const ClaimRefs = z.array(LocalId).min(1).max(STANDARD_SECTOR_MAX_CLAIMS);
 const Strength = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(5)]);
+export const RELATIONSHIP_MAPPER_MAX_FACTUAL_EDGES = 32;
+export const RELATIONSHIP_MAPPER_MAX_PREDICTIVE_EDGES = 32;
+export const RELATIONSHIP_MAPPER_MAX_CLAIMS = 14;
 const SecurityPick = z
   .object({
     pick_local_id: LocalId,
@@ -62,7 +66,7 @@ const common = {
   confidence: z.number().min(0).max(1),
   key_drivers: z.array(Driver).min(1).max(3),
   risks: z.array(Risk).min(1).max(3),
-  claims: z.array(SectorFinalClaimSchema).min(1).max(6),
+  claims: z.array(SectorFinalClaimSchema).min(1).max(STANDARD_SECTOR_MAX_CLAIMS),
   claim_refs: ClaimRefs,
   macro_input_attributions: MacroInputAttributionSubmissionArraySchema,
 };
@@ -342,17 +346,21 @@ export function buildRelationshipMapperSchema(bounds?: {
     edge_type: string;
   }[];
 }) {
-  const factualBase = relationshipGraphBase(bounds?.maxFactualEdges, bounds?.factualRelationships);
+  assertRelationshipSchemaBounds(bounds);
+  assertUniqueFrozenFactualRelationships(bounds?.factualRelationships);
+  assertUniqueFrozenPredictiveOpportunities(bounds?.predictiveOpportunities);
+  const maxFactualEdges = bounds?.maxFactualEdges ?? RELATIONSHIP_MAPPER_MAX_FACTUAL_EDGES;
+  const maxPredictiveEdges = bounds?.maxPredictiveEdges ?? RELATIONSHIP_MAPPER_MAX_PREDICTIVE_EDGES;
+  const factualBase = relationshipGraphBase(maxFactualEdges, bounds?.factualRelationships);
   const predictiveEdges = z
     .array(relationshipPredictiveEdge(bounds?.predictiveOpportunities))
-    .min(1);
-  const boundedPredictiveEdges =
-    bounds === undefined ? predictiveEdges : predictiveEdges.max(bounds.maxPredictiveEdges);
+    .min(1)
+    .max(maxPredictiveEdges);
   return z
     .discriminatedUnion("predictive_graph_status", [
       factualBase.extend({
         predictive_graph_status: z.literal("EDGES_PRESENT"),
-        predictive_edges: boundedPredictiveEdges,
+        predictive_edges: predictiveEdges,
         predictive_graph_abstention_confidence: z.null(),
       }),
       factualBase.extend({
@@ -395,6 +403,31 @@ export function buildRelationshipMapperSchema(bounds?: {
           message: "duplicate edge_candidate_id",
         });
       }
+      const factualLocalIds = new Map<string, number>();
+      const factualTuples = new Map<string, number>();
+      output.factual_edges.forEach((edge, index) => {
+        const localIdOwner = factualLocalIds.get(edge.edge_local_id);
+        if (localIdOwner !== undefined) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["factual_edges", index, "edge_local_id"],
+            message: `duplicate factual edge_local_id first used at factual_edges[${localIdOwner}]`,
+          });
+        } else {
+          factualLocalIds.set(edge.edge_local_id, index);
+        }
+        const tuple = factualRelationshipTupleKey(edge);
+        const tupleOwner = factualTuples.get(tuple);
+        if (tupleOwner !== undefined) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["factual_edges", index],
+            message: `duplicate factual relationship tuple first used at factual_edges[${tupleOwner}]`,
+          });
+        } else {
+          factualTuples.set(tuple, index);
+        }
+      });
       if (output.macro_input_attributions.some((row) => row.target_type !== "SUBMISSION_SUMMARY")) {
         ctx.addIssue({
           code: "custom",
@@ -420,10 +453,14 @@ function relationshipGraphBase(
     .object({
       agent: z.literal("relationship_mapper"),
       factual_edges:
-        maxFactualEdges === undefined ? factualEdges : factualEdges.max(maxFactualEdges),
+        factualRelationships !== undefined
+          ? factualEdges.length(factualRelationships.length)
+          : maxFactualEdges === undefined
+            ? factualEdges
+            : factualEdges.max(maxFactualEdges),
       key_drivers: z.array(Driver).min(1).max(8),
       risks: z.array(Risk).min(1).max(8),
-      claims: z.array(ClaimSchemaV2).min(1),
+      claims: z.array(ClaimSchemaV2).min(1).max(RELATIONSHIP_MAPPER_MAX_CLAIMS),
       claim_refs: ClaimRefs,
       macro_input_attributions: MacroInputAttributionSubmissionArraySchema,
     })
@@ -438,7 +475,7 @@ function relationshipFactualEdge(
   }[],
 ) {
   const commonFields = {
-    edge_local_id: z.string().trim().min(1),
+    edge_local_id: LocalId,
     claim_refs: ClaimRefs,
   };
   if (relationships && relationships.length > 0) {
@@ -446,9 +483,9 @@ function relationshipFactualEdge(
       z
         .object({
           ...commonFields,
-          source_entity: z.literal(relationship.source_entity),
-          target_entity: z.literal(relationship.target_entity),
-          edge_type: z.literal(relationship.edge_type),
+          source_entity: frozenLocalIdLiteral(relationship.source_entity, "source_entity"),
+          target_entity: frozenLocalIdLiteral(relationship.target_entity, "target_entity"),
+          edge_type: frozenLocalIdLiteral(relationship.edge_type, "edge_type"),
         })
         .strict(),
     );
@@ -465,9 +502,9 @@ function relationshipFactualEdge(
   return z
     .object({
       ...commonFields,
-      source_entity: z.string().trim().min(1),
-      target_entity: z.string().trim().min(1),
-      edge_type: z.string().trim().min(1),
+      source_entity: LocalId,
+      target_entity: LocalId,
+      edge_type: LocalId,
     })
     .strict();
 }
@@ -482,7 +519,7 @@ function relationshipPredictiveEdge(
 ) {
   const decisionFields = {
     transmission_direction: z.enum(["POSITIVE", "NEGATIVE", "MIXED"]),
-    activation_trigger: z.string().trim().min(1),
+    activation_trigger: ConciseText,
     evaluation_horizon_trading_days: z.literal(20),
     model_confidence: z.number().min(0).max(1),
     claim_refs: ClaimRefs,
@@ -491,11 +528,14 @@ function relationshipPredictiveEdge(
     const variants = opportunities.map((opportunity) =>
       z
         .object({
-          edge_local_id: z.string().trim().min(1),
-          edge_candidate_id: z.literal(opportunity.edge_candidate_id),
-          source_entity: z.literal(opportunity.source_entity),
-          target_entity: z.literal(opportunity.target_entity),
-          edge_type: z.literal(opportunity.edge_type),
+          edge_local_id: LocalId,
+          edge_candidate_id: frozenLocalIdLiteral(
+            opportunity.edge_candidate_id,
+            "edge_candidate_id",
+          ),
+          source_entity: frozenLocalIdLiteral(opportunity.source_entity, "source_entity"),
+          target_entity: frozenLocalIdLiteral(opportunity.target_entity, "target_entity"),
+          edge_type: frozenLocalIdLiteral(opportunity.edge_type, "edge_type"),
           ...decisionFields,
         })
         .strict(),
@@ -512,14 +552,130 @@ function relationshipPredictiveEdge(
   }
   return z
     .object({
-      edge_local_id: z.string().trim().min(1),
-      edge_candidate_id: z.string().trim().min(1),
-      source_entity: z.string().trim().min(1),
-      target_entity: z.string().trim().min(1),
-      edge_type: z.string().trim().min(1),
+      edge_local_id: LocalId,
+      edge_candidate_id: LocalId,
+      source_entity: LocalId,
+      target_entity: LocalId,
+      edge_type: LocalId,
       ...decisionFields,
     })
     .strict();
+}
+
+function frozenLocalIdLiteral(value: string, field: string) {
+  const parsed = LocalId.parse(value);
+  if (parsed !== value) {
+    throw new Error(`relationship mapper frozen ${field} must already be trimmed`);
+  }
+  return z.literal(parsed);
+}
+
+function assertUniqueFrozenFactualRelationships(
+  relationships:
+    | readonly { source_entity: string; target_entity: string; edge_type: string }[]
+    | undefined,
+): void {
+  if (!relationships) return;
+  const tuples = new Set<string>();
+  for (const relationship of relationships) {
+    const tuple = factualRelationshipTupleKey({
+      source_entity: LocalId.parse(relationship.source_entity),
+      target_entity: LocalId.parse(relationship.target_entity),
+      edge_type: LocalId.parse(relationship.edge_type),
+    });
+    if (tuples.has(tuple)) {
+      throw new Error("relationship mapper frozen factual relationship tuples must be unique");
+    }
+    tuples.add(tuple);
+  }
+}
+
+function assertRelationshipSchemaBounds(
+  bounds:
+    | {
+        maxFactualEdges: number;
+        maxPredictiveEdges: number;
+        factualRelationships?: readonly {
+          source_entity: string;
+          target_entity: string;
+          edge_type: string;
+        }[];
+        predictiveOpportunities?: readonly {
+          edge_candidate_id: string;
+          source_entity: string;
+          target_entity: string;
+          edge_type: string;
+        }[];
+      }
+    | undefined,
+): void {
+  if (!bounds) return;
+  if (
+    !Number.isInteger(bounds.maxFactualEdges) ||
+    bounds.maxFactualEdges < 0 ||
+    bounds.maxFactualEdges > RELATIONSHIP_MAPPER_MAX_FACTUAL_EDGES
+  ) {
+    throw new Error(
+      `relationship mapper factual domain must contain at most ${RELATIONSHIP_MAPPER_MAX_FACTUAL_EDGES} rows`,
+    );
+  }
+  if (
+    !Number.isInteger(bounds.maxPredictiveEdges) ||
+    bounds.maxPredictiveEdges < 1 ||
+    bounds.maxPredictiveEdges > RELATIONSHIP_MAPPER_MAX_PREDICTIVE_EDGES
+  ) {
+    throw new Error(
+      `relationship mapper predictive domain must contain between 1 and ${RELATIONSHIP_MAPPER_MAX_PREDICTIVE_EDGES} rows`,
+    );
+  }
+  if (
+    (bounds.factualRelationships?.length ?? 0) > bounds.maxFactualEdges ||
+    (bounds.factualRelationships?.length ?? 0) > RELATIONSHIP_MAPPER_MAX_FACTUAL_EDGES
+  ) {
+    throw new Error("relationship mapper factual domain exceeds its frozen bound");
+  }
+  if (
+    (bounds.predictiveOpportunities?.length ?? 0) > bounds.maxPredictiveEdges ||
+    (bounds.predictiveOpportunities?.length ?? 0) > RELATIONSHIP_MAPPER_MAX_PREDICTIVE_EDGES
+  ) {
+    throw new Error("relationship mapper predictive domain exceeds its frozen bound");
+  }
+}
+
+function assertUniqueFrozenPredictiveOpportunities(
+  opportunities:
+    | readonly {
+        edge_candidate_id: string;
+        source_entity: string;
+        target_entity: string;
+        edge_type: string;
+      }[]
+    | undefined,
+): void {
+  if (!opportunities) return;
+  const candidateIds = new Set<string>();
+  for (const opportunity of opportunities) {
+    const candidateId = LocalId.parse(opportunity.edge_candidate_id);
+    LocalId.parse(opportunity.source_entity);
+    LocalId.parse(opportunity.target_entity);
+    LocalId.parse(opportunity.edge_type);
+    if (candidateIds.has(candidateId)) {
+      throw new Error("relationship mapper frozen predictive candidate ids must be unique");
+    }
+    candidateIds.add(candidateId);
+  }
+}
+
+function factualRelationshipTupleKey(relationship: {
+  source_entity: string;
+  target_entity: string;
+  edge_type: string;
+}): string {
+  return JSON.stringify([
+    relationship.source_entity,
+    relationship.target_entity,
+    relationship.edge_type,
+  ]);
 }
 
 export const RELATIONSHIP_MAPPER_FIELD_NAMES = [

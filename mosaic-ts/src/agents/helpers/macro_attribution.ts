@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
 import { z } from "zod";
 import { MACRO_AGENT_IDS } from "../macro/_contracts.js";
 import type { MacroAgentId, MacroAgentOutput, MacroInputGateReceipt } from "../types.js";
+import { canonicalJsonHash } from "./canonical_json.js";
 
 const LocalRefSchema = z.string().trim().min(1).max(128);
 const ClaimRefSchema = z.string().trim().min(1).max(128);
@@ -444,19 +444,5 @@ function compareAttributions(
 }
 
 export function canonicalHash(value: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(JSON.stringify(canonicalize(value)))
-    .digest("hex")}`;
-}
-
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, item]) => [key, canonicalize(item)]),
-    );
-  }
-  return value;
+  return canonicalJsonHash(value);
 }

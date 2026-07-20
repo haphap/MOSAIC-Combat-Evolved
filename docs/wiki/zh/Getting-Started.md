@@ -54,7 +54,7 @@ LLM keys:`ANTHROPIC_API_KEY`、`DEEPSEEK_API_KEY`、`OPENAI_API_KEY`、`GOOGLE_A
 ```bash
 cd /path/to/MOSAIC-RKE
 
-# 冒烟测试 bridge(spawn Python sidecar,列出 tools + config)
+# 冒烟测试 bridge（spawn Python sidecar 并验证 config.get）
 pnpm --dir mosaic-ts dev bridge-ping
 
 # 生成 fresh、hash-bound 的 synthetic PIT bundle，再跑通全部 29 个阶段。

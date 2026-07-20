@@ -788,6 +788,10 @@ def build_dashboard_report(root: str | Path = ".") -> dict[str, Any]:
             and int(lockbox.get("open_count") or 0) <= 1,
         },
         "promotion_gate": {
+            "execution_mode": promotion_gate.get("execution_mode"),
+            "production_signal_allowed": promotion_gate.get(
+                "production_signal_allowed"
+            ),
             "paper_trading_allowed": promotion_gate.get("paper_trading_allowed"),
             "staged_production_allowed": promotion_gate.get(
                 "staged_production_allowed"
@@ -1079,8 +1083,11 @@ def render_dashboard_markdown(report: Mapping[str, Any]) -> str:
         f"- Rollback readiness accepted: {dict(report.get('rollback_readiness') or {}).get('accepted')}",
         f"- Rollback readiness failures: {dict(report.get('rollback_readiness') or {}).get('failure_count')}",
         f"- Lockbox result: {dict(report.get('lockbox') or {}).get('result')}",
+        f"- Promotion execution mode: {dict(report.get('promotion_gate') or {}).get('execution_mode')}",
+        f"- Promotion signal allowed: {dict(report.get('promotion_gate') or {}).get('production_signal_allowed')}",
         f"- Promotion next state: {dict(report.get('promotion_gate') or {}).get('next_state')}",
         f"- Promotion production allowed: {dict(report.get('promotion_gate') or {}).get('production_allowed')}",
+        f"- Direct production forbidden: {dict(report.get('promotion_gate') or {}).get('direct_production_forbidden')}",
         f"- Validation ablations accepted: {dict(report.get('validation_hardening') or {}).get('ablation_accepted')}",
         f"- Validation statistical significance accepted: {dict(report.get('validation_hardening') or {}).get('statistical_significance_accepted')}",
         f"- Experiment validation failures: {dict(report.get('experiment_validation') or {}).get('failure_count')}",

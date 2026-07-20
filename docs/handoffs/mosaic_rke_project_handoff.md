@@ -1,5 +1,13 @@
 # 项目交接文档
 
+> [!WARNING]
+> 这是截至 2026-06-16、分支 `rke-recipe-required-data` 的历史交接快照，不是当前分支、
+> runtime 或操作状态。当前入口以 [`README.md`](../../README.md) 和
+> [`rke_report_intelligence_operations.md`](../runbooks/rke_report_intelligence_operations.md)
+> 为准；当前 Agent/prompt 私有边界见
+> [`macro-agent-role-contracts-v2-plan.md`](../plans/macro-agent-role-contracts-v2-plan.md)，生产
+> prompt/KNOT 资产必须按固定私有 commit/hash fail closed 加载。
+
 更新时间：2026-06-16  
 项目目录：`/home/hap/Project/MOSAIC-RKE`  
 当前分支：`rke-recipe-required-data`，跟踪 `origin/rke-recipe-required-data`  

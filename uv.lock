@@ -5059,6 +5059,7 @@ name = "mosaic"
 version = "0.1.0.dev0"
 source = { editable = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "jsonschema" },
     { name = "langchain-core" },
     { name = "python-dotenv" },
@@ -5149,6 +5150,7 @@ requires-dist = [
     { name = "akshare", marker = "extra == 'data'", specifier = ">=1.16.0" },
     { name = "bcrypt", marker = "extra == 'trading'", specifier = ">=4.0" },
     { name = "beautifulsoup4", marker = "extra == 'ingest'", specifier = ">=4.12" },
+    { name = "cryptography", specifier = ">=46.0" },
     { name = "fire", marker = "extra == 'ingest'", specifier = ">=0.5" },
     { name = "joblib", marker = "extra == 'ingest'", specifier = ">=1.3" },
     { name = "jsonschema", specifier = ">=4.23" },

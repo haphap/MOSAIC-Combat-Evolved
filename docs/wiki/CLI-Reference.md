@@ -8,8 +8,8 @@ Output defaults to Chinese reports; CLI flags stay English. `--lang zh|en|biling
 
 | Command | Purpose |
 | --- | --- |
-| `bridge-ping` | Spawn the Python sidecar and verify `tools.list` / `config.get`. |
-| `tool-loop` | Run the tool-report loop. |
+| `bridge-ping` | Spawn the Python sidecar and verify `config.get`; report that tools are capability-bound. |
+| `tool-loop` | Run the signed China Macro snapshot tool loop. |
 
 ## Daily cycle
 

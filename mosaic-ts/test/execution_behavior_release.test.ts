@@ -21,6 +21,7 @@ import {
   executionBehaviorReleaseArchiveFilename,
   loadExecutionBehaviorReleaseManifest,
   releaseVariantFor,
+  STRUCTURED_PROVIDER_CONTRACT_VERSION,
   validateExecutionBehaviorReleaseManifest,
   writeExecutionBehaviorReleaseArtifacts,
 } from "../src/autoresearch/execution_behavior_release.js";
@@ -85,6 +86,14 @@ describe("execution behavior release", () => {
         /^sha256:[0-9a-f]{64}$/.test(variant.structured_provider_contract_hash),
       ),
     ).toBe(true);
+    expect(STRUCTURED_PROVIDER_CONTRACT_VERSION).toBe("structured_provider_contract_v2");
+    expect(
+      releaseVariantFor(manifest, "cohort_default", "zh", "china")
+        .structured_provider_contract_hash,
+    ).not.toBe(
+      releaseVariantFor(manifest, "cohort_default", "zh", "geopolitical")
+        .structured_provider_contract_hash,
+    );
     expect(
       releaseVariantFor(
         manifest,
@@ -191,7 +200,7 @@ describe("execution behavior release", () => {
         model: "claude-sonnet-4",
         baseUrlMode: "PROVIDER_DEFAULT",
       }),
-    ).toThrow(/not canonical|research knobs/);
+    ).toThrow(/not canonical|private KNOT/);
 
     writeCanonicalPrompt(fixture.privatePromptsRoot, "china", "cohort_default", "zh");
     fixture.privatePromptCommit = commitPrivatePrompts(fixture, "restore canonical prompt");
@@ -214,6 +223,87 @@ describe("execution behavior release", () => {
     expect(() => validateExecutionBehaviorReleaseManifest(providerTampered)).toThrow(
       /structured provider contract drift/,
     );
+  });
+
+  it("rejects an English mutable behavior hidden inside a zh prompt", () => {
+    const fixture = promptFixture();
+    const path = promptPath({
+      agent: "china",
+      cohort: "cohort_bull_2007",
+      language: "zh",
+      promptsRoot: fixture.privatePromptsRoot,
+    });
+    writeFileSync(
+      path,
+      replaceCohortBehavior(readFileSync(path, "utf8"), "This block is English, not Chinese."),
+    );
+    fixture.privatePromptCommit = commitPrivatePrompts(fixture, "commit invalid zh behavior");
+
+    expect(() =>
+      buildExecutionBehaviorReleaseManifest({
+        ...fixture,
+        provider: "anthropic",
+        model: "claude-sonnet-4",
+        baseUrlMode: "PROVIDER_DEFAULT",
+      }),
+    ).toThrow(/Chinese cohort behavior must contain meaningful Chinese prose/);
+  });
+
+  it("rejects identical behavior across all eight cohorts", () => {
+    const fixture = promptFixture();
+    const defaultPath = promptPath({
+      agent: "china",
+      cohort: "cohort_default",
+      language: "zh",
+      promptsRoot: fixture.privatePromptsRoot,
+    });
+    const behavior = extractCohortBehavior(readFileSync(defaultPath, "utf8"));
+    for (const cohort of MACRO_PROMPT_COHORT_IDS) {
+      const path = promptPath({
+        agent: "china",
+        cohort,
+        language: "zh",
+        promptsRoot: fixture.privatePromptsRoot,
+      });
+      writeFileSync(path, replaceCohortBehavior(readFileSync(path, "utf8"), behavior));
+    }
+    fixture.privatePromptCommit = commitPrivatePrompts(fixture, "commit identical cohorts");
+
+    expect(() =>
+      buildExecutionBehaviorReleaseManifest({
+        ...fixture,
+        provider: "anthropic",
+        model: "claude-sonnet-4",
+        baseUrlMode: "PROVIDER_DEFAULT",
+      }),
+    ).toThrow(/every production cohort must have distinct cohort behavior/);
+  });
+
+  it("rejects disguised private evolution policy content", () => {
+    const fixture = promptFixture();
+    const path = promptPath({
+      agent: "china",
+      cohort: "cohort_bull_2007",
+      language: "en",
+      promptsRoot: fixture.privatePromptsRoot,
+    });
+    writeFileSync(
+      path,
+      replaceCohortBehavior(
+        readFileSync(path, "utf8"),
+        "Use the Darwinian evolution state before interpreting evidence.",
+      ),
+    );
+    fixture.privatePromptCommit = commitPrivatePrompts(fixture, "commit private policy leak");
+
+    expect(() =>
+      buildExecutionBehaviorReleaseManifest({
+        ...fixture,
+        provider: "anthropic",
+        model: "claude-sonnet-4",
+        baseUrlMode: "PROVIDER_DEFAULT",
+      }),
+    ).toThrow(/private KNOT policy must remain hidden/);
   });
 
   it("archives every immutable release before advancing the active pointer", () => {
@@ -330,10 +420,18 @@ function writeCanonicalPrompt(
     ? renderMacroPromptBody(agent as (typeof MACRO_AGENT_IDS)[number], language, "cohort_default")
     : renderBundledPrompt(agent, language, "cohort_default");
   const baseline = upsertRuntimeEvidenceContract(body, spec, language);
+  const cohortIndex = MACRO_PROMPT_COHORT_IDS.indexOf(
+    cohort as (typeof MACRO_PROMPT_COHORT_IDS)[number],
+  );
   const prompt =
     cohort === "cohort_default"
       ? baseline
-      : replaceCohortBehavior(baseline, `Opaque fixture behavior for ${cohort}`);
+      : replaceCohortBehavior(
+          baseline,
+          language === "zh"
+            ? `这是仅用于验证发布契约的中文场景行为，场景编号为 ${cohortIndex}。`
+            : `Opaque fixture behavior for scenario ${cohortIndex}.`,
+        );
   const path = promptPath({
     agent,
     cohort,

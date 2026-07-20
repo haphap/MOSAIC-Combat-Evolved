@@ -1,11 +1,9 @@
-"""LangChain ``@tool`` wrappers around the ETF data layer.
+"""Legacy LangChain ``@tool`` wrappers around the ETF data layer.
 
-The CIO recommends broad-based ETFs, but Layer-4 is synthesis-only (no tool
-loop), so ETF data must be fetched by **tool-capable upstream agents** and flow
-to the CIO via state. These wrappers attach to:
-  * ``emerging_markets`` (Layer-1) — ETF info / NAV / universe for the broad-base
-    read the CIO acts on.
-  * the sector agents (Layer-2) — ``get_etf_holdings`` for industry exposure.
+The v2 production Agent tool manifest does not expose these arbitrary-query
+wrappers. They remain available to paper-trading infrastructure, historical
+tests, and non-model diagnostics; Agent-facing ETF comparisons come from the
+role-limited deterministic snapshot tools.
 
 Each delegates to ``mosaic.dataflows.interface.route_to_vendor`` (Tushare),
 which clamps ``curr_date`` under a backtest context. Impls live in

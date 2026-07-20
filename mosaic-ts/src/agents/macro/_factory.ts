@@ -44,6 +44,11 @@ import {
   type RuntimeEvidenceSnapshot,
 } from "../helpers/evidence_runtime.js";
 import {
+  assertLiveOutcomeSourceSnapshot,
+  freezeLiveOutcomeOpportunity,
+  liveOutcomeCapabilityRuntimeInput,
+} from "../helpers/outcome_pre_model.js";
+import {
   isPrivateKnotStageEnabled,
   type PrivateKnotAuditSummary,
   type PrivateKnotSnapshot,
@@ -68,6 +73,7 @@ import {
 } from "../helpers/runtime.js";
 import { resolveRuntimeSourceStatusesForAgent } from "../helpers/runtime_sources.js";
 import { validateStrictAgentOutput } from "../helpers/strict_agent_validation.js";
+import { MACRO_PROVIDER_INSTRUCTION } from "../helpers/structured_provider_adapters.js";
 import {
   hasAgentToolCapabilityApi,
   prepareAgentToolCapability,
@@ -79,6 +85,7 @@ import type { AcceptedMacroTransmission, MacroAgentId, MacroAgentSubmission } fr
 import {
   buildMacroComponentCompositionAudit,
   composeAcceptedMacroTransmission,
+  MACRO_CONTEXT_SOURCE_ROLES,
   MACRO_ROLE_CONTRACTS,
   type MacroDataQualityInput,
   renderMacroRuntimeContract,
@@ -148,6 +155,12 @@ export function buildLayerOneAgentNode(
   deps: LayerOneAgentDeps,
 ): LayerOneAgentNode {
   return async function layerOneAgentNode(state) {
+    const liveFreeze = await freezeLiveOutcomeOpportunity({
+      api: deps.api,
+      state,
+      agentId: spec.agentId,
+    });
+    state = liveFreeze.state;
     const structuredHandle = deps.llmHandleStructured ?? deps.llmHandle;
     const timeoutMs = resolveAgentTimeoutMs(deps.agentTimeoutSeconds);
     const onLog = deps.onLog ?? (() => undefined);
@@ -234,6 +247,7 @@ export function buildLayerOneAgentNode(
                 state,
                 agentId: spec.agentId,
                 stage: spec.agentId,
+                runtimeInputs: liveOutcomeCapabilityRuntimeInput(state, spec.agentId),
               })
             : null;
           const tools = preparedCapability
@@ -295,7 +309,7 @@ export function buildLayerOneAgentNode(
           );
           const extractorSystem = spec.buildExtractorSystem
             ? spec.buildExtractorSystem(language)
-            : defaultExtractorSystem(spec, language);
+            : renderDefaultMacroExtractorSystem(spec, language);
           const roleSnapshot = roleSnapshotFromToolLoop({
             agent: spec.agentId,
             asOfDate: state.as_of_date,
@@ -303,6 +317,14 @@ export function buildLayerOneAgentNode(
             requiredTool: spec.requiredTools[0],
             toolStatuses: loopResult.toolStatuses,
           });
+          if (roleSnapshot.snapshot) {
+            assertLiveOutcomeSourceSnapshot({
+              state,
+              agentId: spec.agentId,
+              sourceToolId: spec.requiredTools[0],
+              sourceSnapshotHash: roleSnapshot.snapshot.snapshot_hash,
+            });
+          }
           const extractor = await invokeStrictStructured<MacroAgentSubmission>({
             llm: structuredHandle.llm,
             schema: spec.schema,
@@ -408,6 +430,8 @@ export function buildLayerOneAgentNode(
               payload: acceptedTransmission,
               evidenceBundleIds: lineage.evidence_bundle_ids,
               causalDedupeKeys: lineage.causal_dedupe_keys,
+              claimGraph,
+              sourceAgentOutputHash: requiredAcceptedAuditOutputHash(extractor.audit.output_hash),
               ...(componentCompositionAudit
                 ? {
                     runtimeAudit: {
@@ -419,6 +443,7 @@ export function buildLayerOneAgentNode(
                 state,
                 agentId: spec.agentId,
                 sourceAgentRunId: extractor.audit.run_id,
+                acceptedOutputKind: "MACRO_TRANSMISSION",
               }),
             });
             const ref = deps.acceptedOutputStore.put(record, claimGraph);
@@ -504,6 +529,7 @@ export function buildLayerOneAgentNode(
           );
 
           return {
+            ...(liveFreeze.update ?? {}),
             ...(state.darwinian_runtime_binding
               ? {}
               : { layer1_outputs: { [spec.agentId]: output } }),
@@ -556,6 +582,13 @@ export function buildLayerOneAgentNode(
       throw err;
     }
   };
+}
+
+function requiredAcceptedAuditOutputHash(value: string | null): string {
+  if (!value || !/^sha256:[0-9a-f]{64}$/.test(value)) {
+    throw new Error("accepted Macro output lacks an Agent-run output hash");
+  }
+  return value;
 }
 
 /**
@@ -636,14 +669,15 @@ function buildFakeRoleSnapshotTool(
                         ]),
                       ),
                     }),
-                ...(agent === "us_financial_conditions" ||
-                agent === "euro_area_financial_conditions"
+                ...(agent in MACRO_CONTEXT_SOURCE_ROLES
                   ? {
                       context_only_projection: {
                         schema_version: "macro_real_economy_context_projection_v1",
                         usage_mode: "CONTEXT_ONLY",
                         source_role:
-                          agent === "us_financial_conditions" ? "us_economy" : "eu_economy",
+                          MACRO_CONTEXT_SOURCE_ROLES[
+                            agent as keyof typeof MACRO_CONTEXT_SOURCE_ROLES
+                          ],
                         contributes_to_required_components: false,
                         component_summaries: {},
                         projection_hash: `sha256:${"1".repeat(64)}`,
@@ -687,36 +721,44 @@ export function buildUserContext(state: DailyCycleStateType, agentId: string): s
   );
 }
 
-function defaultExtractorSystem(spec: LayerOneAgentSpec, language: LoaderLanguage): string {
+export function renderDefaultMacroExtractorSystem(
+  spec: LayerOneAgentSpec,
+  language: LoaderLanguage,
+): string {
   const lang =
     language === "en"
       ? "Reply in English."
-      : "Reply in Chinese. Numbers stay numeric; do not wrap them in 中文括号.";
+      : "Reply in Chinese. Omit every numeric fact from narrative prose.";
+  const componentOwnership =
+    MACRO_ROLE_CONTRACTS[spec.agentId].mode === "COMPONENTS"
+      ? "In COMPONENTS mode, fill every fixed component exactly once. Runtime gives every component its own canonical claim and claim_ref; no component may share a claim, and each canonical structured_conclusion.subject is fixed to that component id. "
+      : "In DIRECT mode, fill the single judgment and its concise subject exactly once. ";
   return (
     `You are a structured-output extractor for the ${spec.agentId} agent. ` +
     `The user message contains a free-form analysis written by a previous LLM call, the ` +
     `frozen role snapshot JSON, and the runtime evidence catalog. Read them carefully and ` +
     `populate every field in the runtime-supplied JSON Schema. Only emit values supported ` +
     `by those inputs; never invent numbers. ` +
+    `${MACRO_PROVIDER_INSTRUCTION} ${componentOwnership}` +
     `When the snapshot contains context_only_projection, treat it only as deterministic ` +
     `background: it cannot add or satisfy a required component, replace financial evidence, ` +
     `or become a second real-economy vote. Never read another Macro Agent's LLM output. ` +
     `If a field cannot be supported by the text, use the most conservative valid value ` +
-    `(prefer NEUTRAL signals, 0 strength, and confidence ≤ 0.4), while still producing a complete analysis. Give every claim a unique ` +
-    `claim_id. Top-level claim_refs must contain only claim_id values present in claims; ` +
-    `evidence_id values belong only in evidence_ids and opaque permitted citation identifiers belong only in ` +
-    `research_rule_refs inside each claim. Every claim must cite at least one exact ` +
-    `evidence_id from the visible catalog. Every INTERPRETATION claim must also cite at least ` +
-    `one exact permitted opaque identifier; otherwise change it to FACT, EVENT, or RISK_FLAG as ` +
-    `supported by the analysis. Never leave either required reference array empty. The ` +
-    `claim structured_conclusion must not repeat signal fields such as direction, strength, ` +
-    `persistence_horizon, evaluation_horizon_trading_days, confidence, or channels. Keep all ` +
-    `numeric literals out of claim statements, conclusion prose, channels, and key_drivers. If a ` +
-    `claim needs one numeric fact, populate its structured_conclusion snapshot_echo_id, ` +
-    `snapshot_metric, and snapshot_value with one exact locator, field name, and value from the ` +
-    `frozen echo catalog; otherwise set all three fields to null. Use another claim for another ` +
-    `numeric fact. Snapshot echo locators must never appear in claims.evidence_ids; that array ` +
-    `accepts only ids from the runtime-owned evidence catalog. Never echo data_quality, ` +
+    `(prefer NEUTRAL signals, 0 strength, and confidence no greater than the conservative bound), ` +
+    `while still producing a complete analysis. Every compact judgment must copy one exact ` +
+    `evidence_id from the visible catalog. If the catalog supplies a permitted opaque identifier, ` +
+    `copy one exact value into research_rule_ref; otherwise set it to null and use FACT, EVENT, or ` +
+    `RISK_FLAG rather than INTERPRETATION. The runtime places those values into canonical ` +
+    `evidence_ids and research_rule_refs and assigns all local claim ` +
+    `ids and references; do not invent or emit those runtime-owned fields. Omit every numeric ` +
+    `fact from statement, subject, state, A-share transmission, and channel prose. Never rewrite ` +
+    `digits as Chinese or English number words, decimal words, percentages, or written-out tenor ` +
+    `phrases. Do not use NEUTRAL, SUPPORTIVE, ADVERSE, UNKNOWN, N/A, NONE, 中性, 未知, or 无 as a ` +
+    `standalone narrative; write an actual qualitative state and A-share transmission. Finish ` +
+    `each narrative as a complete phrase or sentence without a dangling comma, conjunction, or ` +
+    `truncated word. Set ` +
+    `snapshot_echo to null: this compact extraction path omits optional numeric echoes. Snapshot ` +
+    `echo locators must never be used as evidence_id values. Never echo data_quality, ` +
     `direct_data_quality, component_data_quality, signal fields, weights, shares, scores, ` +
     `probabilities, or invented percentage impacts; those values are runtime-owned or ` +
     `model assessments, not source observations. ` +

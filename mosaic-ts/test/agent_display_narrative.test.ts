@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   AcceptedAgentOutputStore,
@@ -6,7 +8,12 @@ import {
   acceptedOutputRefKey,
   buildAcceptedAgentOutputRecord,
 } from "../src/agents/accepted_output.js";
-import { buildAgentDisplayNarrativeBundle } from "../src/agents/agent_display_narrative.js";
+import {
+  buildAgentDisplayNarrativeBundle,
+  formatAgentDisplayPercent,
+  truncateAgentDisplayText,
+} from "../src/agents/agent_display_narrative.js";
+import type { ClaimEvidenceGraph } from "../src/agents/evidence_contract.js";
 import { AGENTS_BY_LAYER, ALL_AGENTS, LAYER_BY_AGENT } from "../src/agents/prompts/cohorts.js";
 
 function acceptedKind(agent: string): AcceptedOutputKind {
@@ -410,12 +417,50 @@ function bindAcceptedRecords(state: ReturnType<typeof stateFixture>): AcceptedAg
   const store = new AcceptedAgentOutputStore();
   const refs: Record<string, AcceptedOutputRecordRef> = {};
   const add = (kind: AcceptedOutputKind, agent: string, payload: unknown) => {
+    const snapshotHash = `sha256:${"b".repeat(64)}`;
+    const claimGraph: ClaimEvidenceGraph = {
+      schema_version: "evidence_claim_graph_v1",
+      run_id: state.trace_id,
+      snapshot_hash: snapshotHash,
+      evidence_ledger: [
+        {
+          evidence_id: `evidence:${agent}:${kind}`,
+          run_id: state.trace_id,
+          snapshot_hash: snapshotHash,
+          source_kind: "tool",
+          tool_or_source: "fixture",
+          metric: "fixture",
+          value: 1,
+          unit: "index",
+          as_of: state.as_of_date,
+          lookback: "current",
+          freshness: "current",
+          fallback: false,
+          source_fingerprint: `sha256:${"c".repeat(64)}`,
+          direction: "neutral",
+          privacy_class: "public_structured",
+        },
+      ],
+      claims: [
+        {
+          claim_id: `claim:${agent}:${kind}`,
+          claim_kind: "FACT",
+          statement: "Fixture claim.",
+          structured_conclusion: { value: 1 },
+          evidence_ids: [`evidence:${agent}:${kind}`],
+          research_rule_refs: [],
+        },
+      ],
+      recommendation_claim_refs: [],
+    };
     const record = buildAcceptedAgentOutputRecord({
       kind: kind as never,
       agentId: agent as never,
       payload,
       evidenceBundleIds: [`evidence-bundle:${agent}:${kind}`],
       causalDedupeKeys: [`dedupe:${agent}:${kind}`],
+      claimGraph,
+      sourceAgentOutputHash: `sha256:${"d".repeat(64)}`,
       context: {
         graph_run_id: state.trace_id,
         run_id: `run:${agent}:${kind}`,
@@ -467,6 +512,34 @@ function clearStateOutputs(state: ReturnType<typeof stateFixture>): void {
 }
 
 describe("Agent display narratives", () => {
+  it("matches the cross-runtime percentage and Unicode truncation contract", () => {
+    const fixture = JSON.parse(
+      readFileSync(
+        resolve(process.cwd(), "..", "tests", "fixtures", "agent_display_cross_runtime_cases.json"),
+        "utf8",
+      ),
+    ) as {
+      percent_cases: Array<{ value: number; expected: string }>;
+      unicode_truncation_cases: Array<{
+        unit: string;
+        repeat: number;
+        maximum: number;
+        kept: number;
+      }>;
+    };
+    for (const testCase of fixture.percent_cases) {
+      expect(formatAgentDisplayPercent(testCase.value)).toBe(testCase.expected);
+    }
+    for (const testCase of fixture.unicode_truncation_cases) {
+      const rendered = truncateAgentDisplayText(
+        testCase.unit.repeat(testCase.repeat),
+        testCase.maximum,
+      );
+      expect(rendered).toBe(`${testCase.unit.repeat(testCase.kept)}…`);
+      expect([...rendered]).toHaveLength(testCase.maximum);
+    }
+  });
+
   it("deterministically renders all 28 Agents from accepted structured outputs", () => {
     const state = stateFixture();
     const store = bindAcceptedRecords(state);

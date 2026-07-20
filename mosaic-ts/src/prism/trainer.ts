@@ -3,7 +3,7 @@
  *
  * Scales the Phase 4 single-agent autoresearch cycle up to multi-cohort
  * training, under the §1 concurrency contract:
- *   - cohorts are trained SEQUENTIALLY (avoid 7×25 concurrent LLM calls);
+ *   - cohorts are trained SEQUENTIALLY (avoid 7×28 concurrent LLM calls);
  *   - within a cohort, layers run SEQUENTIALLY (macro → sector →
  *     superinvestor → decision — lower layers consume upper-layer output);
  *   - within a layer, up to ``maxAgentsConcurrent`` (default 5) agents train

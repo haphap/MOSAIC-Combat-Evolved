@@ -533,6 +533,7 @@ function emptyState(): DailyCycleStateType {
     component_calibration_inputs: {},
     outcome_schedule_plan: null,
     outcome_stage_skips: {},
+    outcome_opportunity_bindings: {},
     accepted_output_refs: {},
     continuity_context: {},
     lesson_context: {},
@@ -737,6 +738,7 @@ function formalState(): DailyCycleStateType {
     ...base,
     trace_id: "formal-graph-run",
     outcome_stage_skips: outcomeStageSkips,
+    outcome_opportunity_bindings: {},
     darwinian_runtime_binding: {
       schema_version: "darwinian_runtime_binding_v2",
       production_variant_roster_id: rosterId,

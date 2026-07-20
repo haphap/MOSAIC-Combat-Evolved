@@ -1,7 +1,7 @@
 /**
  * Structured-output invocation helpers with graceful free-text fallback.
  *
- * Port of ``etfagents.agents.utils.structured`` adapted for MOSAIC's 25
+ * Port of ``etfagents.agents.utils.structured`` adapted for MOSAIC's 28
  * agents:
  *
  *   * ``bind_structured``                        → bindStructured

@@ -205,17 +205,19 @@ def test_operator_readiness_no_write_uses_generated_temp_support_artifacts(
         assert path.read_text(encoding="utf-8") == ""
 
 
-def test_promotion_gate_state_consistency_accepts_future_production_state():
+def test_promotion_gate_state_consistency_accepts_shadow_state():
     promotion = SimpleNamespace(
         criteria=tuple(
             SimpleNamespace(criterion_id=f"PG{index:02d}", passed=True)
             for index in range(1, 11)
         ),
+        execution_mode="RKE_SHADOW",
+        production_signal_allowed=False,
         paper_trading_allowed=True,
-        staged_production_allowed=True,
-        production_allowed=True,
-        direct_production_forbidden=False,
-        next_state="production",
+        staged_production_allowed=False,
+        production_allowed=False,
+        direct_production_forbidden=True,
+        next_state="paper_trading",
         blockers=(),
     )
 
@@ -230,6 +232,8 @@ def test_promotion_gate_state_consistency_rejects_bypassed_production_state():
             SimpleNamespace(criterion_id=f"PG{index:02d}", passed=(index < 9))
             for index in range(1, 11)
         ),
+        execution_mode="RKE_SHADOW",
+        production_signal_allowed=False,
         paper_trading_allowed=True,
         staged_production_allowed=True,
         production_allowed=True,
@@ -241,8 +245,11 @@ def test_promotion_gate_state_consistency_rejects_bypassed_production_state():
     passed, evidence, blocker = _promotion_gate_state_consistency(promotion)
 
     assert not passed
-    assert "expected_next_state=staged_production" in evidence
-    assert blocker == "promotion gate state is inconsistent with PG01-PG10 criteria"
+    assert "expected_next_state=paper_trading" in evidence
+    assert blocker == (
+        "promotion gate state is inconsistent with the shadow-only runtime "
+        "and PG01-PG10 criteria"
+    )
 
 
 def test_operator_readiness_reports_malformed_required_registry_artifact(tmp_path: Path):

@@ -30,7 +30,7 @@ Output fields include: `mode`, `claims`, `key_drivers`, `components`.
 
 Required runtime tools: `get_us_financial_conditions_snapshot`.
 
-Submit `mode=COMPONENTS`, emit only `components`, and omit `signal`; place conclusion references separately in each `components[].claim_refs`.
+Submit `mode=COMPONENTS`, emit only `components`, and omit `signal`; each component must cite at least one claim in `components[].claim_refs` that no other component cites, and that claim's `structured_conclusion.subject` must exactly equal the component's `component` id.
 
 Emit `claims` and do not emit a top-level `claim_refs` field. Every claim must cite catalog `evidence_id` values through `evidence_ids`; every INTERPRETATION claim must also cite a permitted opaque identifier through `research_rule_refs`. When required evidence is insufficient, reject the stage without emitting a Macro output. Only valid but conflicting evidence may produce an evidence-backed `RISK_FLAG` claim. Never invent evidence ids, fingerprints, citation identifiers, or cross-run references.
 

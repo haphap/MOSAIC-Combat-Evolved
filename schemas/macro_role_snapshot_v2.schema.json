@@ -82,6 +82,7 @@
         "crowding": { "$ref": "#/$defs/coverage" }
       }
     },
+    "commodity_conditions": { "$ref": "commodity_conditions_v1.schema.json" },
     "context_only_projection": { "$ref": "#/$defs/context_projection" },
     "role_event_snapshot": { "$ref": "role_event_snapshot_v2.schema.json" },
     "snapshot_hash": {
@@ -125,9 +126,26 @@
     },
     {
       "if": {
+        "properties": { "role": { "const": "commodities" } },
+        "required": ["role"]
+      },
+      "then": { "required": ["commodity_conditions"] }
+    },
+    {
+      "if": {
+        "not": {
+          "properties": { "role": { "const": "commodities" } },
+          "required": ["role"]
+        }
+      },
+      "then": { "not": { "required": ["commodity_conditions"] } }
+    },
+    {
+      "if": {
         "properties": {
           "role": {
             "enum": [
+              "central_bank",
               "us_financial_conditions",
               "euro_area_financial_conditions"
             ]
@@ -145,7 +163,6 @@
               "china",
               "us_economy",
               "eu_economy",
-              "central_bank",
               "commodities",
               "institutional_flow"
             ]
@@ -215,9 +232,15 @@
       ],
       "properties": {
         "component": {
-          "enum": ["growth_production", "prices", "employment", "demand_trade"]
+          "enum": [
+            "growth_production",
+            "prices",
+            "credit",
+            "employment",
+            "demand_trade"
+          ]
         },
-        "source_role": { "enum": ["us_economy", "eu_economy"] },
+        "source_role": { "enum": ["china", "us_economy", "eu_economy"] },
         "usage_mode": { "const": "CONTEXT_ONLY" },
         "contributes_to_required_components": { "const": false },
         "observation_count": { "type": "integer", "minimum": 1 },
@@ -246,15 +269,15 @@
       "properties": {
         "schema_version": { "const": "macro_real_economy_context_projection_v1" },
         "usage_mode": { "const": "CONTEXT_ONLY" },
-        "source_role": { "enum": ["us_economy", "eu_economy"] },
+        "source_role": { "enum": ["china", "us_economy", "eu_economy"] },
         "contributes_to_required_components": { "const": false },
         "component_summaries": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["growth_production", "prices", "employment", "demand_trade"],
           "properties": {
             "growth_production": { "$ref": "#/$defs/context_summary" },
             "prices": { "$ref": "#/$defs/context_summary" },
+            "credit": { "$ref": "#/$defs/context_summary" },
             "employment": { "$ref": "#/$defs/context_summary" },
             "demand_trade": { "$ref": "#/$defs/context_summary" }
           }
@@ -263,7 +286,49 @@
           "type": "string",
           "pattern": "^sha256:[0-9a-f]{64}$"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "source_role": { "const": "china" } },
+            "required": ["source_role"]
+          },
+          "then": {
+            "properties": {
+              "component_summaries": {
+                "required": ["growth_production", "prices", "credit"],
+                "not": {
+                  "anyOf": [
+                    { "required": ["employment"] },
+                    { "required": ["demand_trade"] }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "source_role": { "enum": ["us_economy", "eu_economy"] }
+            },
+            "required": ["source_role"]
+          },
+          "then": {
+            "properties": {
+              "component_summaries": {
+                "required": [
+                  "growth_production",
+                  "prices",
+                  "employment",
+                  "demand_trade"
+                ],
+                "not": { "required": ["credit"] }
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

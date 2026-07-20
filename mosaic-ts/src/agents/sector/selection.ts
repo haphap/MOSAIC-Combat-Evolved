@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
 import type { z } from "zod";
 import type { ClaimSchemaV2 } from "../evidence_contract.js";
+import { canonicalJsonHash } from "../helpers/canonical_json.js";
 import type { SectorAgentOutputBase, SectorRuntimeSelectionBinding } from "../types.js";
 import type {
   AcceptedDirectionPairResolution,
@@ -379,19 +379,5 @@ function sortedUnique(values: readonly string[]): string[] {
 }
 
 function canonicalHash(value: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(JSON.stringify(canonicalize(value)))
-    .digest("hex")}`;
-}
-
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, entry]) => [key, canonicalize(entry)]),
-    );
-  }
-  return value;
+  return canonicalJsonHash(value);
 }

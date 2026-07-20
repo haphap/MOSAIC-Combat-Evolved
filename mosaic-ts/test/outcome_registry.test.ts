@@ -3,8 +3,10 @@ import { ALL_AGENTS } from "../src/agents/prompts/cohorts.js";
 import {
   OUTCOME_LABEL_REGISTRY,
   OUTCOME_METRIC_SCHEMA_REGISTRY,
+  OUTCOME_REALIZED_METRIC_SCHEMA_REGISTRY,
   outcomeRegistryHash,
   parseOutcomeRawMetrics,
+  parseOutcomeRealizedMetrics,
   renderOutcomeContractManifestArtifact,
   validateOutcomeRegistry,
 } from "../src/autoresearch/outcome_registry.js";
@@ -81,6 +83,8 @@ describe("28-Agent outcome registry", () => {
       expect(new Set(row.required_source_ids).size).toBe(row.required_source_ids.length);
       expect(row.maturity.trading_calendar_id).toBe("cn_a_share_trading_calendar_v1");
       expect(row.metric_schema_id).toMatch(/_v[23]$/);
+      expect(row.realized_metric_schema_id).toMatch(/_realized_metrics_v1$/);
+      expect(OUTCOME_REALIZED_METRIC_SCHEMA_REGISTRY).toHaveProperty(row.realized_metric_schema_id);
       for (const value of Object.values(row.track_contract_dimensions)) {
         expect(["REQUIRED", "NULL"]).toContain(value);
       }
@@ -114,6 +118,30 @@ describe("28-Agent outcome registry", () => {
       Object.keys(OUTCOME_METRIC_SCHEMA_REGISTRY).sort(),
     );
     expect(manifest.metric_schemas_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(manifest.realized_metric_schema_count).toBe(8);
+    expect(Object.keys(manifest.realized_metric_schemas).sort()).toEqual(
+      Object.keys(OUTCOME_REALIZED_METRIC_SCHEMA_REGISTRY).sort(),
+    );
+    expect(manifest.realized_metric_schemas_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+
+  it("keeps realized inputs strict and free of nested prediction, utility, or score fields", () => {
+    const valid = { role_path_metric: 0.1, pit_volatility_scale: 1 };
+    expect(() =>
+      parseOutcomeRealizedMetrics("macro_transmission_realized_metrics_v1", valid),
+    ).not.toThrow();
+    expect(() =>
+      parseOutcomeRealizedMetrics("macro_transmission_realized_metrics_v1", {
+        ...valid,
+        wrapper: { forecast_loss: 0.1 },
+      }),
+    ).toThrow();
+    expect(() =>
+      parseOutcomeRealizedMetrics("macro_transmission_realized_metrics_v1", {
+        ...valid,
+        prediction_value: 0.1,
+      }),
+    ).toThrow();
   });
 
   it("enforces the closed Decision component tuple and weights", () => {

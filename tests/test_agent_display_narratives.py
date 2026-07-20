@@ -1,14 +1,33 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from copy import deepcopy
+from pathlib import Path
 
 import pytest
 
 from mosaic.bridge.tool_capabilities import AGENTS_BY_LAYER, ALL_AGENT_IDS
 from mosaic.scorecard import ScorecardStore
 from mosaic.scorecard.darwinian_v2 import canonical_hash
-from mosaic.scorecard.store import render_agent_display_narrative_text
+from mosaic.scorecard.store import (
+    _display_pct,
+    _display_truncate,
+    render_agent_display_narrative_text,
+)
+
+
+def test_cross_runtime_percentage_and_unicode_truncation_contract():
+    fixture_path = (
+        Path(__file__).parent / "fixtures" / "agent_display_cross_runtime_cases.json"
+    )
+    fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    for case in fixture["percent_cases"]:
+        assert _display_pct(case["value"]) == case["expected"]
+    for case in fixture["unicode_truncation_cases"]:
+        rendered = _display_truncate(case["unit"] * case["repeat"], case["maximum"])
+        assert rendered == case["unit"] * case["kept"] + "…"
+        assert len(rendered) == case["maximum"]
 
 
 def _accepted_kind(agent: str) -> str:
@@ -196,17 +215,16 @@ def _state(trace_id: str = "trace-1") -> dict:
     }
 
 
-def test_append_and_read_latest_agent_display_narratives(tmp_path):
+def test_unsealed_agent_display_narratives_are_not_latest(tmp_path):
     store = ScorecardStore(tmp_path / "scorecard.db")
 
     assert store.append_agent_display_narratives_from_state(_state()) == 28
     assert store.append_agent_display_narratives_from_state(_state()) == 28
 
     latest = store.get_latest_agent_display_narratives("cohort_default")
-    assert latest["date"] == "2026-07-18"
-    assert latest["trace_id"] == "trace-1"
-    assert [row["agent_id"] for row in latest["narratives"]] == list(ALL_AGENT_IDS)
-    assert all(row["ui_only"] is True for row in latest["narratives"])
+    assert latest["date"] is None
+    assert latest["trace_id"] is None
+    assert latest["narratives"] == []
     with store._connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM agent_display_narratives").fetchone()[0] == 28
 
@@ -423,13 +441,14 @@ def test_append_verifies_nested_accepted_payload_projection(tmp_path):
     )
     store = ScorecardStore(tmp_path / "scorecard.db")
     assert store.append_agent_display_narratives_from_state(state) == 28
-    row = next(
-        item
-        for item in store.get_latest_agent_display_narratives("cohort_default")[
-            "narratives"
-        ]
-        if item["agent_id"] == "agriculture"
-    )
+    with store._connect() as conn:
+        row = dict(
+            conn.execute(
+                "SELECT narrative_text FROM agent_display_narratives "
+                "WHERE cohort = ? AND agent = ?",
+                ("cohort_default", "agriculture"),
+            ).fetchone()
+        )
     assert "oilseeds" in row["narrative_text"]
     assert "600000.SH" in row["narrative_text"]
 

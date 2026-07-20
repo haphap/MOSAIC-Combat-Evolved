@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
+from mosaic.dataflows.outcome_runtime_inputs import (
+    expected_qualification_predicate_version,
+)
 from mosaic.scorecard.darwinian_updates import (
+    LIVE_SOURCE_TOOL_BY_AGENT,
     append_agent_outcome_label,
     append_outcome_eligibility_revision,
     append_realized_outcome_observation,
@@ -17,9 +21,25 @@ from mosaic.scorecard.darwinian_updates import (
     publish_usage_weight_updates,
     refresh_evaluation_windows,
 )
-from mosaic.scorecard.darwinian_v2 import canonical_hash
+from mosaic.scorecard.darwinian_v2 import (
+    canonical_hash,
+    deterministic_id,
+    get_production_weight_snapshot,
+)
 from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
+from mosaic.scorecard.outcome_contracts import (
+    OUTCOME_METRIC_SCHEMAS_HASH,
+    OUTCOME_PROJECTION_SCHEMA_HASH,
+    OUTCOME_REALIZED_METRIC_SCHEMAS_HASH,
+    OUTCOME_REGISTRY_HASH,
+)
 from mosaic.scorecard.store import ScorecardStore
+from tests.outcome_source_authority_helpers import (
+    EphemeralOutcomeSourceAuthority,
+    authority_projection_pins,
+    provision_test_outcome_source_authority,
+    seal_test_outcome_source_batch,
+)
 
 
 def _darwin_trading_calendar() -> tuple[list[str], str]:
@@ -120,6 +140,7 @@ def _insert_scheduled_acceptance(
     track_hash: str,
     agent_id: str,
     scheduled_sample_id: str,
+    opportunity: dict,
 ) -> str:
     contract = OUTCOME_CONTRACTS[agent_id]
     accepted_id = f"accepted:{scheduled_sample_id}"
@@ -142,9 +163,27 @@ def _insert_scheduled_acceptance(
         "sample_origin": "PRODUCTION_ACTIVE",
         "run_slot_kind": "OUTCOME_SCHEDULED",
         "scheduled_sample_id": scheduled_sample_id,
+        "evaluation_opportunity_set_id": opportunity[
+            "evaluation_opportunity_set_id"
+        ],
+        "evaluation_opportunity_set_hash": opportunity[
+            "evaluation_opportunity_set_hash"
+        ],
+        "frozen_object_set_id": opportunity.get("frozen_object_set_id"),
+        "frozen_object_set_hash": opportunity.get("frozen_object_set_hash"),
+        "runtime_opportunity_authority": opportunity.get(
+            "runtime_authority_binding"
+        ),
         "as_of": "2024-01-02",
         "accepted_at": "2024-01-02T15:00:00+08:00",
-        "output": {"payload": {"agent_id": agent_id}},
+        "output": {
+            "payload": {
+                "agent_id": agent_id,
+                "direction": "SUPPORTIVE",
+                "strength": 5,
+                "confidence": 0.8,
+            }
+        },
     }
     record = {
         **record_without_hash,
@@ -187,7 +226,367 @@ def _insert_scheduled_acceptance(
     return accepted_id
 
 
-def test_macro_outcome_label_uses_squared_loss_skill_and_frozen_scale(
+def _write_realized_projection(
+    root: Path,
+    conn: sqlite3.Connection,
+    *,
+    authority: EphemeralOutcomeSourceAuthority,
+    opportunity: dict,
+    accepted_output_id: str,
+    outcome_due_at: str,
+    matured_at: str,
+    realized_metrics: dict,
+) -> tuple[str, list[str]]:
+    slot_row = conn.execute(
+        "SELECT record_json FROM outcome_schedule_slots_v2 "
+        "WHERE scheduled_sample_id = ?",
+        (opportunity["scheduled_sample_id"],),
+    ).fetchone()
+    assert slot_row is not None
+    slot = json.loads(slot_row[0])
+    plan_row = conn.execute(
+        "SELECT record_json FROM outcome_schedule_plans_v2 "
+        "WHERE outcome_schedule_plan_id = ?",
+        (slot["outcome_schedule_plan_id"],),
+    ).fetchone()
+    assert plan_row is not None
+    plan = json.loads(plan_row[0])
+    accepted_row = conn.execute(
+        "SELECT accepted_output_hash FROM accepted_agent_outputs_v2 "
+        "WHERE accepted_output_id = ?",
+        (accepted_output_id,),
+    ).fetchone()
+    assert accepted_row is not None
+    contract = OUTCOME_CONTRACTS[opportunity["agent_id"]]
+    evaluation_context = {
+        "scheduled_sample_id": opportunity["scheduled_sample_id"],
+        "outcome_schedule_slot_id": slot["outcome_schedule_slot_id"],
+        "outcome_schedule_slot_hash": slot["outcome_schedule_slot_hash"],
+        "evaluation_opportunity_set_id": opportunity[
+            "evaluation_opportunity_set_id"
+        ],
+        "evaluation_opportunity_set_hash": opportunity[
+            "evaluation_opportunity_set_hash"
+        ],
+        "accepted_output_id": accepted_output_id,
+        "accepted_output_hash": accepted_row[0],
+        "track_key_hash": opportunity["track_key_hash"],
+        "agent_id": opportunity["agent_id"],
+        "opportunity_as_of": plan["as_of"],
+        "outcome_due_at": outcome_due_at,
+        "realized_metric_schema_id": contract["realized_metric_schema_id"],
+    }
+    source_batch = seal_test_outcome_source_batch(
+        conn,
+        authority=authority,
+        evaluation_context=evaluation_context,
+        realized_metrics=realized_metrics,
+        at=matured_at,
+    )
+    source_pins = authority_projection_pins(authority)
+    body = {
+        "schema_version": "realized_outcome_projection_v2",
+        "scheduled_sample_id": opportunity["scheduled_sample_id"],
+        "outcome_schedule_slot_id": slot["outcome_schedule_slot_id"],
+        "outcome_schedule_slot_hash": slot["outcome_schedule_slot_hash"],
+        "evaluation_opportunity_set_id": opportunity[
+            "evaluation_opportunity_set_id"
+        ],
+        "evaluation_opportunity_set_hash": opportunity[
+            "evaluation_opportunity_set_hash"
+        ],
+        "accepted_output_id": accepted_output_id,
+        "accepted_output_hash": accepted_row[0],
+        "track_key_hash": opportunity["track_key_hash"],
+        "agent_id": opportunity["agent_id"],
+        "metric_family": contract["metric_family"],
+        "metric_schema_id": contract["metric_schema_id"],
+        "realized_metric_schema_id": contract["realized_metric_schema_id"],
+        "outcome_registry_hash": OUTCOME_REGISTRY_HASH,
+        "metric_schemas_hash": OUTCOME_METRIC_SCHEMAS_HASH,
+        "realized_metric_schemas_hash": OUTCOME_REALIZED_METRIC_SCHEMAS_HASH,
+        "outcome_projection_schema_hash": OUTCOME_PROJECTION_SCHEMA_HASH,
+        "source_authority_registry_hash": source_pins[
+            "authority_registry_hash"
+        ],
+        "source_authority_registry_schema_hash": source_pins[
+            "authority_registry_schema_hash"
+        ],
+        "source_receipt_schema_hash": source_pins["receipt_schema_hash"],
+        "source_batch_schema_hash": source_pins["batch_schema_hash"],
+        "opportunity_as_of": plan["as_of"],
+        "outcome_due_at": outcome_due_at,
+        "generated_at": matured_at,
+        "pit_status": "VERIFIED",
+        "source_batch_id": source_batch["source_batch_id"],
+        "source_batch_hash": source_batch["source_batch_hash"],
+    }
+    payload = {**body, "snapshot_hash": canonical_hash(body)}
+    path = (
+        root
+        / outcome_due_at[:10]
+        / "realized_outcomes"
+        / f"{opportunity['scheduled_sample_id']}.json"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return payload["snapshot_hash"], source_batch["source_evidence_ids"]
+
+
+def test_macro_outcome_label_uses_sealed_forecast_and_registry_owned_scale(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    outcome_root = tmp_path / "outcome-runtime"
+    monkeypatch.setenv("MOSAIC_OUTCOME_RUNTIME_DIR", str(outcome_root))
+    authority = provision_test_outcome_source_authority(tmp_path, monkeypatch)
+    store, revision = _registered(tmp_path)
+    with store._connect() as conn:
+        track_hash = _track_by_agent(conn, revision)["china"]
+        scheduled_sample_id, _ = _seed_schedule_slot(
+            conn,
+            track_hash=track_hash,
+            agent_id="china",
+            sequence=1,
+            outcome_due_at="2024-01-09T15:00:00+08:00",
+            as_of="2024-01-02T08:00:00+08:00",
+        )
+        opportunity = freeze_evaluation_opportunity_set(
+            conn,
+            production_variant_roster_revision_id=revision[
+                "production_variant_roster_revision_id"
+            ],
+            track_key_hash=track_hash,
+            scheduled_sample_id=scheduled_sample_id,
+            sample_origin="PRODUCTION_ACTIVE",
+            as_of="2024-01-02T08:00:00+08:00",
+            member_refs=[{"event_id": "cn-gdp-2024q1"}],
+            required_source_evidence_ids=["official:cn-gdp-2024q1"],
+            qualification_predicate_version=expected_qualification_predicate_version(
+                "china"
+            ),
+            runtime_authority_binding={
+                "source_tool_id": LIVE_SOURCE_TOOL_BY_AGENT["china"],
+                "source_snapshot_hash": canonical_hash(
+                    {"agent_id": "china", "kind": "source"}
+                ),
+                "domain_hash": canonical_hash(
+                    {"agent_id": "china", "kind": "domain"}
+                ),
+            },
+        )
+        accepted_id = _insert_scheduled_acceptance(
+            conn,
+            revision=revision,
+            track_hash=track_hash,
+            agent_id="china",
+            scheduled_sample_id=scheduled_sample_id,
+            opportunity=opportunity,
+        )
+        pending = append_outcome_eligibility_revision(
+            conn,
+            track_key_hash=track_hash,
+            scheduled_sample_id=scheduled_sample_id,
+            sample_origin="PRODUCTION_ACTIVE",
+            disposition="PENDING",
+            recorded_at="2024-01-02T15:00:00+08:00",
+            evaluation_opportunity_set_id=opportunity[
+                "evaluation_opportunity_set_id"
+            ],
+            accepted_output_id=accepted_id,
+        )
+        realized_metrics = {
+            "role_path_metric": 0.5,
+            "pit_volatility_scale": 1.0,
+        }
+        realized_projection_hash, source_evidence_ids = _write_realized_projection(
+            outcome_root,
+            conn,
+            authority=authority,
+            opportunity=opportunity,
+            accepted_output_id=accepted_id,
+            outcome_due_at="2024-01-09T15:00:00+08:00",
+            matured_at="2024-01-09T16:00:00+08:00",
+            realized_metrics=realized_metrics,
+        )
+        with pytest.raises(ValueError, match="cannot use external schedule authority"):
+            append_realized_outcome_observation(
+                conn,
+                evaluation_opportunity_set_id=opportunity[
+                    "evaluation_opportunity_set_id"
+                ],
+                outcome_due_at="2024-01-09T15:00:00+08:00",
+                matured_at="2024-01-09T16:00:00+08:00",
+                realized_metrics=realized_metrics,
+                source_evidence_ids=source_evidence_ids,
+                realized_projection_hash=realized_projection_hash,
+                production_cutoff_at="2024-01-09T16:00:00+08:00",
+                external_schedule_authority={},
+                external_schedule_authority_verifier=lambda value: value,
+            )
+        with pytest.raises(ValueError, match="realized_projection_hash"):
+            append_realized_outcome_observation(
+                conn,
+                evaluation_opportunity_set_id=opportunity[
+                    "evaluation_opportunity_set_id"
+                ],
+                outcome_due_at="2024-01-09T15:00:00+08:00",
+                matured_at="2024-01-09T16:00:00+08:00",
+                realized_metrics={
+                    "role_path_metric": 0.5,
+                    "pit_volatility_scale": 1.0,
+                },
+                source_evidence_ids=source_evidence_ids,
+                production_cutoff_at="2024-01-09T16:00:00+08:00",
+            )
+        with pytest.raises(ValueError, match="later than production_cutoff"):
+            append_realized_outcome_observation(
+                conn,
+                evaluation_opportunity_set_id=opportunity[
+                    "evaluation_opportunity_set_id"
+                ],
+                outcome_due_at="2024-01-09T15:00:00+08:00",
+                matured_at="2024-01-09T16:00:00+08:00",
+                realized_metrics={
+                    "role_path_metric": 0.5,
+                    "pit_volatility_scale": 1.0,
+                },
+                source_evidence_ids=source_evidence_ids,
+                realized_projection_hash=realized_projection_hash,
+                production_cutoff_at="2024-01-09T15:30:00+08:00",
+            )
+        with pytest.raises(ValueError, match="at or after"):
+            append_realized_outcome_observation(
+                conn,
+                evaluation_opportunity_set_id=opportunity[
+                    "evaluation_opportunity_set_id"
+                ],
+                outcome_due_at="2024-01-09T15:00:00+08:00",
+                matured_at="2024-01-09T14:59:59+08:00",
+                realized_metrics={
+                    "role_path_metric": 0.5,
+                    "pit_volatility_scale": 1.0,
+                },
+                source_evidence_ids=source_evidence_ids,
+                realized_projection_hash=realized_projection_hash,
+                production_cutoff_at="2024-01-09T16:00:00+08:00",
+            )
+        with pytest.raises(ValueError, match="forecast"):
+            append_realized_outcome_observation(
+                conn,
+                evaluation_opportunity_set_id=opportunity[
+                    "evaluation_opportunity_set_id"
+                ],
+                outcome_due_at="2024-01-09T15:00:00+08:00",
+                matured_at="2024-01-09T16:00:00+08:00",
+                realized_metrics={
+                    "role_path_metric": 0.5,
+                    "pit_volatility_scale": 1.0,
+                    "wrapper": {"forecast_value": 0.5},
+                },
+                source_evidence_ids=source_evidence_ids,
+                realized_projection_hash=realized_projection_hash,
+                production_cutoff_at="2024-01-09T16:00:00+08:00",
+            )
+        with pytest.raises(ValueError, match="authoritative source batch"):
+            append_realized_outcome_observation(
+                conn,
+                evaluation_opportunity_set_id=opportunity[
+                    "evaluation_opportunity_set_id"
+                ],
+                outcome_due_at="2024-01-09T15:00:00+08:00",
+                matured_at="2024-01-09T16:00:00+08:00",
+                realized_metrics=realized_metrics,
+                source_evidence_ids=source_evidence_ids,
+                realized_projection_hash=canonical_hash({"forged": True}),
+                production_cutoff_at="2024-01-09T16:00:00+08:00",
+            )
+        observation = append_realized_outcome_observation(
+            conn,
+            evaluation_opportunity_set_id=opportunity[
+                "evaluation_opportunity_set_id"
+            ],
+            outcome_due_at="2024-01-09T15:00:00+08:00",
+            matured_at="2024-01-09T16:00:00+08:00",
+            realized_metrics={
+                "role_path_metric": 0.5,
+                "pit_volatility_scale": 1.0,
+            },
+            source_evidence_ids=source_evidence_ids,
+            realized_projection_hash=realized_projection_hash,
+            production_cutoff_at="2024-01-09T16:00:00+08:00",
+        )
+        score = append_outcome_eligibility_revision(
+            conn,
+            track_key_hash=track_hash,
+            scheduled_sample_id=scheduled_sample_id,
+            sample_origin="PRODUCTION_ACTIVE",
+            disposition="SCORE",
+            recorded_at="2024-01-09T16:00:00+08:00",
+            evaluation_opportunity_set_id=opportunity[
+                "evaluation_opportunity_set_id"
+            ],
+            accepted_output_id=accepted_id,
+        )
+        assert score["supersedes_revision_id"] == pending["audit_revision_id"]
+        with pytest.raises(ValueError, match="realized_projection_hash"):
+            append_agent_outcome_label(
+                conn,
+                audit_revision_id=score["audit_revision_id"],
+                realized_outcome_observation_id=observation[
+                    "realized_outcome_observation_id"
+                ],
+                realized_projection_hash="sha256:" + "0" * 64,
+            )
+        accepted_row = conn.execute(
+            "SELECT accepted_output_hash, record_json FROM accepted_agent_outputs_v2 "
+            "WHERE accepted_output_id = ?",
+            (accepted_id,),
+        ).fetchone()
+        assert accepted_row is not None
+        _, original_json = accepted_row
+        for field, value in (("direction", "ADVERSE"), ("confidence", 0.1)):
+            mutated = json.loads(original_json)
+            mutated["output"]["payload"][field] = value
+            mutated_body = {
+                key: item
+                for key, item in mutated.items()
+                if key != "accepted_output_hash"
+            }
+            mutated["accepted_output_hash"] = canonical_hash(mutated_body)
+            with pytest.raises(sqlite3.IntegrityError, match="append_only"):
+                conn.execute(
+                    "UPDATE accepted_agent_outputs_v2 SET accepted_output_hash = ?, "
+                    "record_json = ? WHERE accepted_output_id = ?",
+                    (
+                        mutated["accepted_output_hash"],
+                        json.dumps(mutated),
+                        accepted_id,
+                    ),
+                )
+        label = append_agent_outcome_label(
+            conn,
+            audit_revision_id=score["audit_revision_id"],
+            realized_outcome_observation_id=observation[
+                "realized_outcome_observation_id"
+            ],
+            realized_projection_hash=realized_projection_hash,
+        )
+        assert label["utility_delta"] == pytest.approx(0.16)
+        assert label["normalized_score"] == pytest.approx(0.16)
+        assert label["raw_metrics"]["confidence"] == pytest.approx(0.8)
+        assert label["normalization_reference"]["scale"] == 1.0
+        assert append_agent_outcome_label(
+            conn,
+            audit_revision_id=score["audit_revision_id"],
+            realized_outcome_observation_id=observation[
+                "realized_outcome_observation_id"
+            ],
+            realized_projection_hash=realized_projection_hash,
+        )["outcome_label_id"] == label["outcome_label_id"]
+
+
+def test_knot_outcome_requires_unchanged_hash_bound_external_schedule_authority(
     tmp_path: Path,
 ) -> None:
     store, revision = _registered(tmp_path)
@@ -199,96 +598,98 @@ def test_macro_outcome_label_uses_squared_loss_skill_and_frozen_scale(
                 "production_variant_roster_revision_id"
             ],
             track_key_hash=track_hash,
-            scheduled_sample_id="china:2024-01-02",
-            sample_origin="PRODUCTION_ACTIVE",
+            scheduled_sample_id="knot:china:external-authority",
+            sample_origin="KNOT_RESEARCH_SHADOW",
             as_of="2024-01-02T08:00:00+08:00",
-            member_refs=[{"event_id": "cn-gdp-2024q1"}],
-            required_source_evidence_ids=["official:cn-gdp-2024q1"],
-            qualification_predicate_version="china_macro_qualification_v2",
+            member_refs=[{"event_id": "cn-release-external-authority"}],
+            required_source_evidence_ids=["official:cn-release-external-authority"],
+            qualification_predicate_version=expected_qualification_predicate_version(
+                "china"
+            ),
         )
-        accepted_id = _insert_scheduled_acceptance(
-            conn,
-            revision=revision,
-            track_hash=track_hash,
-            agent_id="china",
-            scheduled_sample_id="china:2024-01-02",
-        )
-        pending = append_outcome_eligibility_revision(
-            conn,
-            track_key_hash=track_hash,
-            scheduled_sample_id="china:2024-01-02",
-            sample_origin="PRODUCTION_ACTIVE",
-            disposition="PENDING",
-            recorded_at="2024-01-02T15:00:00+08:00",
-            evaluation_opportunity_set_id=opportunity[
+        due_at = "2024-01-09T15:00:00+08:00"
+        matured_at = "2024-01-09T16:00:00+08:00"
+        authority_identity = {
+            "authority_namespace": "test-private-runtime",
+            "external_schedule_manifest_id": "private-manifest:china:1",
+            "external_schedule_manifest_hash": canonical_hash(
+                {"private_manifest": 1}
+            ),
+            "external_schedule_slot_id": "private-slot:china:1",
+            "external_schedule_slot_hash": canonical_hash({"private_slot": 1}),
+            "external_run_id": "private-run:china:1",
+            "external_run_hash": canonical_hash({"private_run": 1}),
+            "evaluation_opportunity_set_id": opportunity[
                 "evaluation_opportunity_set_id"
             ],
-            accepted_output_id=accepted_id,
-        )
-        score = append_outcome_eligibility_revision(
-            conn,
-            track_key_hash=track_hash,
-            scheduled_sample_id="china:2024-01-02",
-            sample_origin="PRODUCTION_ACTIVE",
-            disposition="SCORE",
-            recorded_at="2024-01-09T15:00:00+08:00",
-            evaluation_opportunity_set_id=opportunity[
+            "evaluation_opportunity_set_hash": opportunity[
+                "evaluation_opportunity_set_hash"
+            ],
+            "outcome_due_at": due_at,
+            "trading_calendar_snapshot_hash": canonical_hash(
+                ["2024-01-02", "2024-01-09"]
+            ),
+        }
+        authority_without_hash = {
+            "schema_version": "external_outcome_schedule_authority_v1",
+            "schedule_authority_id": deterministic_id(
+                "external-outcome-schedule-authority", authority_identity
+            ),
+            **authority_identity,
+            "sample_origin": "KNOT_RESEARCH_SHADOW",
+            "scheduled_sample_id": opportunity["scheduled_sample_id"],
+            "track_key_hash": track_hash,
+            "agent_id": "china",
+            "opportunity_as_of": opportunity["as_of"],
+            "trading_calendar_id": "cn_a_share_trading_calendar_v1",
+            "authority_published_at": "2024-01-02T07:00:00+08:00",
+            "external_run_frozen_at": "2024-01-02T09:00:00+08:00",
+            "verified_at": matured_at,
+        }
+        authority = {
+            **authority_without_hash,
+            "schedule_authority_hash": canonical_hash(authority_without_hash),
+        }
+        call = {
+            "evaluation_opportunity_set_id": opportunity[
                 "evaluation_opportunity_set_id"
             ],
-            accepted_output_id=accepted_id,
-        )
-        assert score["supersedes_revision_id"] == pending["audit_revision_id"]
+            "outcome_due_at": due_at,
+            "matured_at": matured_at,
+            "realized_metrics": {
+                "role_path_metric": 0.5,
+                "pit_volatility_scale": 1.0,
+            },
+            "source_evidence_ids": ["official:china:realized"],
+        }
+        with pytest.raises(ValueError, match="requires external schedule authority"):
+            append_realized_outcome_observation(conn, **call)
+        with pytest.raises(ValueError, match="verifier changed"):
+            append_realized_outcome_observation(
+                conn,
+                **call,
+                external_schedule_authority=authority,
+                external_schedule_authority_verifier=lambda value: {
+                    **value,
+                    "external_schedule_slot_id": "private-slot:forged",
+                },
+            )
+        forged = {**authority, "outcome_due_at": "2024-01-10T15:00:00+08:00"}
+        with pytest.raises(ValueError, match="outcome_due_at mismatch"):
+            append_realized_outcome_observation(
+                conn,
+                **call,
+                external_schedule_authority=forged,
+                external_schedule_authority_verifier=lambda value: value,
+            )
         observation = append_realized_outcome_observation(
             conn,
-            evaluation_opportunity_set_id=opportunity[
-                "evaluation_opportunity_set_id"
-            ],
-            outcome_due_at="2024-01-09T15:00:00+08:00",
-            matured_at="2024-01-09T16:00:00+08:00",
-            realized_metrics={"role_path_metric": 0.5},
-            source_evidence_ids=["market:path:china:5d"],
+            **call,
+            external_schedule_authority=authority,
+            external_schedule_authority_verifier=lambda value: value,
         )
-        normalization = {
-            "normalization_reference_id": "china-normalization-v1",
-            "normalization_contract_version": OUTCOME_CONTRACTS["china"][
-                "normalization_contract_version"
-            ],
-            "cutoff": "2023-12-31",
-            "scale": 0.2,
-        }
-        normalization["normalization_reference_hash"] = canonical_hash(normalization)
-        label = append_agent_outcome_label(
-            conn,
-            audit_revision_id=score["audit_revision_id"],
-            realized_outcome_observation_id=observation[
-                "realized_outcome_observation_id"
-            ],
-            raw_metrics={
-                "direction_sign": 1,
-                "strength": 5,
-                "confidence": 0.8,
-                "role_path_metric": 0.5,
-                "pit_volatility_scale": 1.0,
-            },
-            normalization_reference=normalization,
-        )
-        assert label["utility_delta"] == pytest.approx(0.16)
-        assert label["normalized_score"] == pytest.approx(0.8)
-        assert append_agent_outcome_label(
-            conn,
-            audit_revision_id=score["audit_revision_id"],
-            realized_outcome_observation_id=observation[
-                "realized_outcome_observation_id"
-            ],
-            raw_metrics={
-                "direction_sign": 1,
-                "strength": 5,
-                "confidence": 0.8,
-                "role_path_metric": 0.5,
-                "pit_volatility_scale": 1.0,
-            },
-            normalization_reference=normalization,
-        )["outcome_label_id"] == label["outcome_label_id"]
+        assert observation["outcome_schedule_slot_id"] == "private-slot:china:1"
+        assert observation["external_schedule_authority"] == authority
 
 
 def test_decision_components_are_closed_and_weighted() -> None:
@@ -399,6 +800,7 @@ def _seed_schedule_slot(
     agent_id: str,
     sequence: int,
     outcome_due_at: str | None = None,
+    as_of: str | None = None,
 ) -> tuple[str, str]:
     revision_row = conn.execute(
         "SELECT record_json FROM darwinian_v2_production_variant_roster_revisions "
@@ -410,8 +812,34 @@ def _seed_schedule_slot(
         ordinal = (sequence - 1) % 30
         boundary = date(2024, 2, 1) + timedelta(days=ordinal)
         outcome_due_at = f"{boundary.isoformat()}T15:00:00+08:00"
+    if as_of is None:
+        as_of = outcome_due_at
     graph_run_id = f"graph:{agent_id}:{sequence}"
     plan_id = f"plan:{agent_id}:{sequence}"
+    sample_id = f"sample:{agent_id}:{sequence}"
+    slot_id = f"slot:{agent_id}:{sequence}"
+    slot_with_id = {
+        "outcome_schedule_slot_id": slot_id,
+        "schema_version": "outcome_schedule_slot_v2",
+        "outcome_schedule_plan_id": plan_id,
+        "graph_run_id": graph_run_id,
+        "agent_id": agent_id,
+        "track_key_hash": track_hash,
+        "run_slot_id": f"run-slot:{agent_id}:{sequence}",
+        "run_slot_kind": "OUTCOME_SCHEDULED",
+        "scheduled_sample_id": sample_id,
+        "outcome_due_at": outcome_due_at,
+        "trigger_event": None,
+        "excluded_events": [],
+        "sample_schedule": OUTCOME_CONTRACTS[agent_id]["sample_schedule"],
+        "sample_schedule_contract_version": OUTCOME_CONTRACTS[agent_id][
+            "sample_schedule_contract_version"
+        ],
+    }
+    slot = {
+        **slot_with_id,
+        "outcome_schedule_slot_hash": canonical_hash(slot_with_id),
+    }
     plan_without_hash = {
         "outcome_schedule_plan_id": plan_id,
         "schema_version": "outcome_schedule_plan_v2",
@@ -426,9 +854,9 @@ def _seed_schedule_slot(
         "trading_calendar_id": "cn_a_share_trading_calendar_v1",
         "trading_calendar_snapshot_hash": canonical_hash(["2024-01-01"]),
         "event_candidate_input_hash": canonical_hash({}),
-        "as_of": outcome_due_at,
+        "as_of": as_of,
         "prepared_at": outcome_due_at,
-        "slots": [],
+        "slots": [slot],
     }
     plan = {
         **plan_without_hash,
@@ -460,30 +888,6 @@ def _seed_schedule_slot(
             json.dumps(plan),
         ),
     )
-    sample_id = f"sample:{agent_id}:{sequence}"
-    slot_id = f"slot:{agent_id}:{sequence}"
-    slot_with_id = {
-        "outcome_schedule_slot_id": slot_id,
-        "schema_version": "outcome_schedule_slot_v2",
-        "outcome_schedule_plan_id": plan_id,
-        "graph_run_id": graph_run_id,
-        "agent_id": agent_id,
-        "track_key_hash": track_hash,
-        "run_slot_id": f"run-slot:{agent_id}:{sequence}",
-        "run_slot_kind": "OUTCOME_SCHEDULED",
-        "scheduled_sample_id": sample_id,
-        "outcome_due_at": outcome_due_at,
-        "trigger_event": None,
-        "excluded_events": [],
-        "sample_schedule": OUTCOME_CONTRACTS[agent_id]["sample_schedule"],
-        "sample_schedule_contract_version": OUTCOME_CONTRACTS[agent_id][
-            "sample_schedule_contract_version"
-        ],
-    }
-    slot = {
-        **slot_with_id,
-        "outcome_schedule_slot_hash": canonical_hash(slot_with_id),
-    }
     conn.execute(
         """
         INSERT INTO outcome_schedule_slots_v2 (
@@ -869,13 +1273,102 @@ def test_30_sample_peer_and_self_updates_are_atomic_and_idempotent(
         assert after == before
 
 
+def test_later_publication_cannot_rewrite_historical_weight_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, revision = _registered(tmp_path)
+    trading_dates, cutoff_at = _darwin_trading_calendar()
+    first_published_at = datetime(2025, 2, 10, tzinfo=timezone.utc)
+    monkeypatch.setattr(
+        "mosaic.scorecard.darwinian_updates._server_now",
+        lambda: first_published_at,
+    )
+
+    with store._connect() as conn:
+        china_track = _track_by_agent(conn, revision)["china"]
+        for sequence in range(1, 31):
+            _seed_score(
+                conn,
+                track_hash=china_track,
+                agent_id="china",
+                sequence=sequence,
+                score=0.5,
+            )
+
+        published = publish_usage_weight_updates(
+            conn,
+            production_variant_roster_revision_id=revision[
+                "production_variant_roster_revision_id"
+            ],
+            cutoff_at=cutoff_at,
+            trading_dates=trading_dates,
+        )
+        receipts = conn.execute(
+            "SELECT published_at FROM "
+            "darwinian_v2_usage_weight_batch_publications ORDER BY rowid"
+        ).fetchall()
+        assert len(receipts) == len(published)
+        assert {row[0] for row in receipts} == {first_published_at.isoformat()}
+
+        historical = get_production_weight_snapshot(
+            conn,
+            production_variant_roster_revision_id=revision[
+                "production_variant_roster_revision_id"
+            ],
+            as_of="2025-02-01T00:00:00+08:00",
+        )
+        historical_weights = {
+            row["agent_id"]: row["darwin_weight"] for row in historical["weights"]
+        }
+        assert historical_weights["china"] == pytest.approx(1.0)
+
+        prospective = get_production_weight_snapshot(
+            conn,
+            production_variant_roster_revision_id=revision[
+                "production_variant_roster_revision_id"
+            ],
+            as_of="2025-02-11T00:00:00+08:00",
+        )
+        prospective_weights = {
+            row["agent_id"]: row["darwin_weight"] for row in prospective["weights"]
+        }
+        assert prospective_weights["china"] == pytest.approx(1.05)
+
+        monkeypatch.setattr(
+            "mosaic.scorecard.darwinian_updates._server_now",
+            lambda: datetime(2025, 3, 1, tzinfo=timezone.utc),
+        )
+        retry = publish_usage_weight_updates(
+            conn,
+            production_variant_roster_revision_id=revision[
+                "production_variant_roster_revision_id"
+            ],
+            cutoff_at=cutoff_at,
+            trading_dates=trading_dates,
+        )
+        assert [row["update_event_id"] for row in retry] == [
+            row["update_event_id"] for row in published
+        ]
+        retry_receipts = conn.execute(
+            "SELECT published_at FROM "
+            "darwinian_v2_usage_weight_batch_publications ORDER BY rowid"
+        ).fetchall()
+        assert retry_receipts == receipts
+        with pytest.raises(sqlite3.IntegrityError, match="append_only"):
+            conn.execute(
+                "UPDATE darwinian_v2_usage_weight_batch_publications "
+                "SET published_at = published_at"
+            )
+
+
 def test_empty_opportunity_set_is_restricted_to_explicit_skip_roles(
     tmp_path: Path,
 ) -> None:
     store, revision = _registered(tmp_path)
     with store._connect() as conn:
         tracks = _track_by_agent(conn, revision)
-        with pytest.raises(ValueError, match="cannot freeze an empty"):
+        with pytest.raises(ValueError, match="cannot .* empty"):
             freeze_evaluation_opportunity_set(
                 conn,
                 production_variant_roster_revision_id=revision[
@@ -887,7 +1380,9 @@ def test_empty_opportunity_set_is_restricted_to_explicit_skip_roles(
                 as_of="2024-01-02T08:00:00+08:00",
                 member_refs=[],
                 required_source_evidence_ids=["official:calendar"],
-                qualification_predicate_version="china_macro_qualification_v2",
+                qualification_predicate_version=expected_qualification_predicate_version(
+                    "china"
+                ),
             )
         record = freeze_evaluation_opportunity_set(
             conn,
@@ -900,6 +1395,23 @@ def test_empty_opportunity_set_is_restricted_to_explicit_skip_roles(
             as_of="2024-01-02T08:00:00+08:00",
             member_refs=[],
             required_source_evidence_ids=["frozen:pre-cro-universe"],
-            qualification_predicate_version="cro_empty_qualification_v2",
+            qualification_predicate_version=expected_qualification_predicate_version(
+                "cro"
+            ),
+            runtime_authority_binding={
+                "source_tool_id": "get_cro_risk_snapshot",
+                "source_snapshot_hash": canonical_hash(
+                    "cro:empty:source-snapshot"
+                ),
+                "candidate_scope_hash": canonical_hash(
+                    "cro:empty:candidate-scope"
+                ),
+                "candidate_universe_hash": canonical_hash(
+                    "cro:empty:candidate-universe"
+                ),
+                "upstream_accepted_output_refs_hash": canonical_hash(
+                    "cro:empty:upstream-accepted-output-refs"
+                ),
+            },
         )
         assert record["member_state"] == "EMPTY"

@@ -4,7 +4,7 @@
  * Lifecycle:
  *   const client = new BridgeClient();
  *   await client.start();
- *   const result = await client.call("tools.list", {});
+ *   const result = await client.call("config.get", {});
  *   await client.close();
  *
  * One in-flight request per id; multiple `call()`s can be issued concurrently

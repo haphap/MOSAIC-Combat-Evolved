@@ -9,6 +9,7 @@ from mosaic.scorecard.outcome_contracts import (
     EVOLUTION_ONLY_AGENT_IDS,
     OUTCOME_CONTRACTS,
     OUTCOME_CONTRACT_MANIFEST_PATH,
+    OUTCOME_REALIZED_METRIC_SCHEMAS,
     TOOL_CONTRACT_MANIFEST_PATH,
     USAGE_WEIGHT_AGENT_IDS,
     load_outcome_contracts,
@@ -25,6 +26,10 @@ def test_outcome_contracts_cover_exact_runtime_roster_and_modes() -> None:
         "cro",
     }
     assert not set(USAGE_WEIGHT_AGENT_IDS) & set(EVOLUTION_ONLY_AGENT_IDS)
+    assert len(OUTCOME_REALIZED_METRIC_SCHEMAS) == 8
+    assert {
+        row["realized_metric_schema_id"] for row in OUTCOME_CONTRACTS.values()
+    } == set(OUTCOME_REALIZED_METRIC_SCHEMAS)
 
 
 def test_outcome_contracts_freeze_schedule_and_label_ownership() -> None:

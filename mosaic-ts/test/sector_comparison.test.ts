@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
+import { adaptStrictProviderJsonSchema } from "../src/agents/helpers/structured_provider_adapters.js";
 import {
   applyConflictReview,
   buildSectorConflictReviewSchema,
   buildSectorDirectionResearchSchema,
   type DirectionCriterionResult,
   type DirectionPairwiseComparisonSubmission,
+  DirectionPairwiseComparisonSubmissionSchema,
+  MAX_SECTOR_COMPARISON_CLAIM_REFS,
+  MAX_SECTOR_COVERAGE_EVIDENCE_IDS,
   reduceDirectionMatrix,
   resolveDirectionPair,
   type SectorCoverageDirective,
@@ -96,6 +101,21 @@ function pair(
   };
 }
 
+function pairWithClaimRefs(
+  input: DirectionPairwiseComparisonSubmission,
+  claimRefs: string[],
+): DirectionPairwiseComparisonSubmission {
+  return {
+    ...input,
+    criterion_results: input.criterion_results.map((result) =>
+      result.claim_refs.length === 0
+        ? result
+        : ({ ...result, claim_refs: [...claimRefs] } as DirectionCriterionResult),
+    ),
+    claim_refs: [...claimRefs],
+  };
+}
+
 describe("Sector direction research contract", () => {
   const directions = ["a", "b", "c"] as const;
 
@@ -165,6 +185,105 @@ describe("Sector direction research contract", () => {
         direction_comparisons: comparisons,
       }).success,
     ).toBe(false);
+  });
+
+  it("bounds comparison claims, references, coverage ids, and provider tuples", () => {
+    const schema = buildSectorDirectionResearchSchema(directions, coverageDirective);
+    const threeClaims = [claim("claim-1"), claim("claim-2"), claim("claim-3")];
+    const maximumValid = {
+      research_mode: "PAIRWISE" as const,
+      comparison_claims: threeClaims,
+      direction_comparisons: [
+        pairWithClaimRefs(pair("a", "b"), ["claim-1"]),
+        pairWithClaimRefs(pair("a", "c"), ["claim-2"]),
+        pairWithClaimRefs(pair("b", "c"), ["claim-3"]),
+      ],
+    };
+    expect(schema.safeParse(maximumValid).success).toBe(true);
+
+    const fourthClaim = claim("claim-4");
+    expect(
+      schema.safeParse({
+        ...maximumValid,
+        comparison_claims: [...threeClaims, fourthClaim],
+        direction_comparisons: [
+          pairWithClaimRefs(pair("a", "b"), ["claim-1", "claim-4"]),
+          maximumValid.direction_comparisons[1],
+          maximumValid.direction_comparisons[2],
+        ],
+      }).success,
+    ).toBe(false);
+
+    const excessiveRefs = Array.from(
+      { length: MAX_SECTOR_COMPARISON_CLAIM_REFS + 1 },
+      (_, index) => `claim-${index + 1}`,
+    );
+    expect(
+      DirectionPairwiseComparisonSubmissionSchema.safeParse(
+        pairWithClaimRefs(pair("a", "b"), excessiveRefs),
+      ).success,
+    ).toBe(false);
+
+    const rawSchema = z.toJSONSchema(schema) as unknown as {
+      properties: {
+        comparison_claims: { maxItems: number };
+        direction_comparisons: {
+          prefixItems: Array<{ properties: { claim_refs: { maxItems: number } } }>;
+        };
+      };
+    };
+    expect(rawSchema.properties.comparison_claims.maxItems).toBe(3);
+    expect(rawSchema.properties.direction_comparisons.prefixItems).toHaveLength(3);
+    expect(
+      rawSchema.properties.direction_comparisons.prefixItems[0]?.properties.claim_refs.maxItems,
+    ).toBe(MAX_SECTOR_COMPARISON_CLAIM_REFS);
+
+    const providerSchema = adaptStrictProviderJsonSchema(rawSchema) as {
+      properties: {
+        coverage_evidence_ids: { maxItems: number };
+        pairs: {
+          minItems: number;
+          maxItems: number;
+          items: false;
+          prefixItems: Array<{
+            properties: { decisions: { minItems: number; maxItems: number; items: false } };
+          }>;
+        };
+      };
+    };
+    expect(providerSchema.properties.coverage_evidence_ids.maxItems).toBe(
+      MAX_SECTOR_COVERAGE_EVIDENCE_IDS,
+    );
+    expect(providerSchema.properties.pairs).toMatchObject({
+      minItems: 3,
+      maxItems: 3,
+      items: false,
+    });
+    expect(providerSchema.properties.pairs.prefixItems[0]?.properties.decisions).toMatchObject({
+      minItems: 10,
+      maxItems: 10,
+      items: false,
+    });
+  });
+
+  it("rejects a role-event coverage tuple above the provider-safe cap", () => {
+    const coverageEvidenceIds = Array.from(
+      { length: MAX_SECTOR_COVERAGE_EVIDENCE_IDS + 1 },
+      (_, index) => `coverage:${String(index + 1).padStart(3, "0")}`,
+    ) as [string, ...string[]];
+    expect(() =>
+      buildSectorDirectionResearchSchema(directions, {
+        contract_version: "sector_role_event_coverage_directive_v1",
+        macro_event_fit: {
+          coverage_state: "COVERAGE_CONFIRMED_NO_MATERIAL_EVENT",
+          coverage_evidence_ids: coverageEvidenceIds,
+        },
+        catalysts: {
+          coverage_state: "COVERAGE_CONFIRMED_NO_MATERIAL_CATALYST",
+          coverage_evidence_ids: coverageEvidenceIds,
+        },
+      }),
+    ).toThrow(`sector coverage evidence ids exceed ${MAX_SECTOR_COVERAGE_EVIDENCE_IDS}`);
   });
 });
 

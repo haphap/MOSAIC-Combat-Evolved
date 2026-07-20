@@ -207,10 +207,10 @@ def test_promotion_dry_run_simulates_full_manual_gate_pass_without_mutating_root
 
     assert report.accepted
     assert report.mutated_original_registry is False
-    assert report.before_next_state == "staged_production"
-    assert report.after_next_state == "production"
-    assert report.staged_production_allowed_after_simulation is True
-    assert report.production_allowed_after_simulation is True
+    assert report.before_next_state == "paper_trading"
+    assert report.after_next_state == "paper_trading"
+    assert report.staged_production_allowed_after_simulation is False
+    assert report.production_allowed_after_simulation is False
     assert report.after_blockers == ()
     assert {step.review_kind for step in report.steps} == {
         "gold_set",
@@ -238,9 +238,7 @@ def test_promotion_dry_run_reports_missing_inputs():
     assert steps["lockbox"].result == "already_applied"
     assert steps["lockbox"].accepted
     assert report.accepted is all(step.accepted for step in report.steps)
-    assert report.production_allowed_after_simulation is (
-        report.after_next_state == "production"
-    )
+    assert report.production_allowed_after_simulation is False
 
 
 def test_promotion_dry_run_rejects_partial_valid_bundle(tmp_path: Path):
@@ -284,8 +282,8 @@ def test_promotion_dry_run_uses_already_applied_source_license_gate(tmp_path: Pa
     steps = {step.review_kind: step for step in report.steps}
 
     assert report.accepted
-    assert report.after_next_state == "production"
-    assert report.production_allowed_after_simulation is True
+    assert report.after_next_state == "paper_trading"
+    assert report.production_allowed_after_simulation is False
     assert steps["source_license"].result == "already_applied"
     assert not steps["source_license"].provided
     assert steps["source_license"].accepted
@@ -337,5 +335,5 @@ def test_cli_promotion_dry_run_validates_inputs(tmp_path: Path, capsys):
 
     assert code == 0
     assert output["accepted"] is True
-    assert output["production_allowed_after_simulation"] is True
+    assert output["production_allowed_after_simulation"] is False
     assert (tmp_path / "registry/promotion/rke_promotion_dry_run_report.json").exists()

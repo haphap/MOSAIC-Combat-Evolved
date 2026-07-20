@@ -1,5 +1,5 @@
 /**
- * Phase 10: Ink dashboard. Aggregates existing read RPCs into one screen.
+ * Ink dashboard. Aggregates existing read RPCs into one screen.
  * Tabs: 1 Today (latest CIO picks) / 2 WinRate (per-ticker hit rate) / 3 Skill /
  * 4 Paper / 5 Cohorts / 6 MiroFish (scenario context + recent runs) /
  * 7 Settings (curated, editable, persisted config via config.save) /

@@ -7,12 +7,13 @@ a second agent/label table.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
+
+from mosaic.scorecard.canonical_json import canonical_hash
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -22,38 +23,25 @@ OUTCOME_CONTRACT_MANIFEST_PATH = (
     / "prompt_checks"
     / "agent_outcome_contract_manifest_v2.json"
 )
+OUTCOME_PROJECTION_SCHEMA_PATH = (
+    _REPO_ROOT / "schemas" / "realized_outcome_projection_v2.schema.json"
+)
 TOOL_CONTRACT_MANIFEST_PATH = (
     _REPO_ROOT
     / "registry"
     / "prompt_checks"
     / "agent_tool_contract_manifest_v1.json"
 )
-
-
-def _canonical_hash(value: Any) -> str:
-    encoded = json.dumps(
-        value,
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
-
-
-def _sorted_canonical_hash(value: Any) -> str:
-    encoded = json.dumps(
-        _sort_json(value),
-        ensure_ascii=False,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
-
-
-def _sort_json(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {key: _sort_json(value[key]) for key in sorted(value)}
-    if isinstance(value, list):
-        return [_sort_json(item) for item in value]
-    return value
+OPPORTUNITY_GENERATOR_CONTRACT_VERSION = "evaluation_opportunity_generator_v2"
+OPPORTUNITY_GENERATION_FAILURE_CODES = frozenset(
+    {
+        "CONTRACT_MISMATCH",
+        "EMPTY_REQUIRED_OPPORTUNITY_SET",
+        "PIT_UNVERIFIED",
+        "REQUIRED_DATA_UNAVAILABLE",
+        "SOURCE_COVERAGE_UNHEALTHY",
+    }
+)
 
 
 def load_outcome_contracts(
@@ -72,9 +60,18 @@ def load_outcome_contracts(
         or not isinstance(metric_schemas, dict)
         or len(metric_schemas) != 8
         or payload.get("metric_schemas_hash")
-        != _sorted_canonical_hash(metric_schemas)
+        != canonical_hash(metric_schemas)
     ):
         raise RuntimeError("Agent outcome metric schema registry is invalid")
+    realized_metric_schemas = payload.get("realized_metric_schemas")
+    if (
+        payload.get("realized_metric_schema_count") != 8
+        or not isinstance(realized_metric_schemas, dict)
+        or len(realized_metric_schemas) != 8
+        or payload.get("realized_metric_schemas_hash")
+        != canonical_hash(realized_metric_schemas)
+    ):
+        raise RuntimeError("Agent realized outcome metric schema registry is invalid")
 
     by_agent: dict[str, Mapping[str, Any]] = {}
     labels: set[str] = set()
@@ -188,13 +185,19 @@ def load_outcome_contracts(
         metric_schema_id = row.get("metric_schema_id")
         if not isinstance(metric_schema_id, str) or metric_schema_id not in metric_schemas:
             raise RuntimeError(f"unknown metric schema for Agent {agent_id}")
+        realized_metric_schema_id = row.get("realized_metric_schema_id")
+        if (
+            not isinstance(realized_metric_schema_id, str)
+            or realized_metric_schema_id not in realized_metric_schemas
+        ):
+            raise RuntimeError(f"unknown realized metric schema for Agent {agent_id}")
         by_agent[agent_id] = MappingProxyType(row)
         labels.add(label_id)
 
     canonical_registry = {
         agent_id: dict(by_agent[agent_id]) for agent_id in sorted(by_agent)
     }
-    if payload.get("registry_hash") != _canonical_hash(canonical_registry):
+    if payload.get("registry_hash") != canonical_hash(canonical_registry):
         raise RuntimeError("Agent outcome contract registry_hash mismatch")
 
     usage = {
@@ -228,7 +231,7 @@ def load_outcome_contracts(
         by_agent[agent_id].get("layer") != "MACRO" for agent_id in component_agents
     ):
         raise RuntimeError("component composition contracts must cover seven Macro Agents")
-    if len({_sorted_canonical_hash(contract) for contract in component_calibration_contracts}) != 1:
+    if len({canonical_hash(contract) for contract in component_calibration_contracts}) != 1:
         raise RuntimeError("component calibration contract must be identical across Macro Agents")
 
     tool_payload = json.loads(tool_manifest_path.read_text(encoding="utf-8"))
@@ -252,7 +255,7 @@ def load_outcome_metric_schemas(
         payload.get("metric_schema_count") != 8
         or not isinstance(schemas, dict)
         or len(schemas) != 8
-        or payload.get("metric_schemas_hash") != _sorted_canonical_hash(schemas)
+        or payload.get("metric_schemas_hash") != canonical_hash(schemas)
     ):
         raise RuntimeError("Agent outcome metric schema registry is invalid")
     return MappingProxyType(
@@ -264,8 +267,42 @@ def load_outcome_metric_schemas(
     )
 
 
+def load_outcome_realized_metric_schemas(
+    manifest_path: Path = OUTCOME_CONTRACT_MANIFEST_PATH,
+) -> Mapping[str, Mapping[str, Any]]:
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    schemas = payload.get("realized_metric_schemas")
+    if (
+        payload.get("realized_metric_schema_count") != 8
+        or not isinstance(schemas, dict)
+        or len(schemas) != 8
+        or payload.get("realized_metric_schemas_hash")
+        != canonical_hash(schemas)
+    ):
+        raise RuntimeError("Agent realized outcome metric schema registry is invalid")
+    return MappingProxyType(
+        {
+            schema_id: MappingProxyType(schema)
+            for schema_id, schema in schemas.items()
+            if isinstance(schema_id, str) and isinstance(schema, dict)
+        }
+    )
+
+
 OUTCOME_CONTRACTS = load_outcome_contracts()
 OUTCOME_METRIC_SCHEMAS = load_outcome_metric_schemas()
+OUTCOME_REALIZED_METRIC_SCHEMAS = load_outcome_realized_metric_schemas()
+_OUTCOME_MANIFEST = json.loads(
+    OUTCOME_CONTRACT_MANIFEST_PATH.read_text(encoding="utf-8")
+)
+OUTCOME_REGISTRY_HASH = str(_OUTCOME_MANIFEST["registry_hash"])
+OUTCOME_METRIC_SCHEMAS_HASH = str(_OUTCOME_MANIFEST["metric_schemas_hash"])
+OUTCOME_REALIZED_METRIC_SCHEMAS_HASH = str(
+    _OUTCOME_MANIFEST["realized_metric_schemas_hash"]
+)
+OUTCOME_PROJECTION_SCHEMA_HASH = canonical_hash(
+    json.loads(OUTCOME_PROJECTION_SCHEMA_PATH.read_text(encoding="utf-8"))
+)
 USAGE_WEIGHT_AGENT_IDS = tuple(
     agent_id
     for agent_id, row in OUTCOME_CONTRACTS.items()
@@ -280,11 +317,20 @@ EVOLUTION_ONLY_AGENT_IDS = tuple(
 
 __all__ = [
     "EVOLUTION_ONLY_AGENT_IDS",
+    "OPPORTUNITY_GENERATION_FAILURE_CODES",
+    "OPPORTUNITY_GENERATOR_CONTRACT_VERSION",
     "OUTCOME_CONTRACTS",
     "OUTCOME_CONTRACT_MANIFEST_PATH",
     "OUTCOME_METRIC_SCHEMAS",
+    "OUTCOME_METRIC_SCHEMAS_HASH",
+    "OUTCOME_PROJECTION_SCHEMA_HASH",
+    "OUTCOME_PROJECTION_SCHEMA_PATH",
+    "OUTCOME_REALIZED_METRIC_SCHEMAS_HASH",
+    "OUTCOME_REALIZED_METRIC_SCHEMAS",
+    "OUTCOME_REGISTRY_HASH",
     "TOOL_CONTRACT_MANIFEST_PATH",
     "USAGE_WEIGHT_AGENT_IDS",
     "load_outcome_contracts",
     "load_outcome_metric_schemas",
+    "load_outcome_realized_metric_schemas",
 ]

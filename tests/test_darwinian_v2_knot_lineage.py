@@ -6,6 +6,9 @@ from pathlib import Path
 
 import pytest
 
+from mosaic.dataflows.outcome_runtime_inputs import (
+    expected_qualification_predicate_version,
+)
 from mosaic.scorecard.darwinian_updates import (
     append_outcome_eligibility_revision,
     freeze_evaluation_opportunity_set,
@@ -384,7 +387,9 @@ def _knot_fixture(tmp_path: Path) -> tuple[ScorecardStore, dict, dict, dict, dic
             as_of="2026-07-17T09:00:00+08:00",
             member_refs=[{"event_id": "cn-gdp-2026q2"}],
             required_source_evidence_ids=["official:cn-gdp-2026q2"],
-            qualification_predicate_version="china_macro_qualification_v2",
+            qualification_predicate_version=expected_qualification_predicate_version(
+                "china"
+            ),
         )
         research_track, pair = _insert_private_pair_ledgers(
             conn,
@@ -464,7 +469,9 @@ def _post_promotion_knot_fixture(
             as_of="2026-07-17T09:00:00+08:00",
             member_refs=[{"event_id": "cn-gdp-post-promotion"}],
             required_source_evidence_ids=["official:cn-gdp-post-promotion"],
-            qualification_predicate_version="china_macro_qualification_v2",
+            qualification_predicate_version=expected_qualification_predicate_version(
+                "china"
+            ),
         )
         research_track, pair = _insert_private_pair_ledgers(
             conn,

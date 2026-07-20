@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type {
   AcceptedAgentOutputRecord,
   AcceptedAgentOutputStore,
@@ -10,6 +9,7 @@ import { MACRO_AGENT_IDS } from "../macro/_contracts.js";
 import { SECTOR_AGENT_IDS } from "../sector/_contracts.js";
 import type { DailyCycleStateType } from "../state.js";
 import type { AgentId } from "../tool_contract.js";
+import { canonicalJsonHash } from "./canonical_json.js";
 import {
   deriveSectorUsageReceipt,
   deriveSuperinvestorUsageReceipt,
@@ -506,19 +506,5 @@ function sortedUnique<T extends string>(values: readonly T[]): T[] {
 }
 
 function canonicalHash(value: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(JSON.stringify(canonicalize(value)))
-    .digest("hex")}`;
-}
-
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, item]) => [key, canonicalize(item)]),
-    );
-  }
-  return value;
+  return canonicalJsonHash(value);
 }

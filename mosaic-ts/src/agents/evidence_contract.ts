@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { canonicalJson } from "./helpers/canonical_json.js";
 
 const Sha256Schema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const ClaimIdSchema = z.string().trim().min(1).max(128);
@@ -235,22 +236,6 @@ export function validateClaimEvidenceGraph(
     }
   }
   return { accepted: reasons.length === 0, reasons };
-}
-
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(sortJson(value));
-}
-
-function sortJson(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map((item) => sortJson(item));
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, item]) => [key, sortJson(item)]),
-    );
-  }
-  return value;
 }
 
 function uniqueById<T>(

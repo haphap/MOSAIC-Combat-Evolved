@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -18,6 +17,7 @@ from mosaic.bridge.tool_capabilities import (
     materialize_tool_payload,
 )
 from mosaic.dataflows.exceptions import DataVendorUnavailable
+from mosaic.scorecard.canonical_json import canonical_hash
 from scripts.build_structured_smoke_fixtures import build_structured_smoke_fixtures
 
 
@@ -47,14 +47,7 @@ def _store(tmp_path: Path, now: list[datetime]) -> AgentToolCapabilityStore:
 
 
 def _canonical_hash(value: object) -> str:
-    return "sha256:" + hashlib.sha256(
-        json.dumps(
-            value,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-    ).hexdigest()
+    return canonical_hash(value)
 
 
 def _sector_budget(**overrides: object) -> dict:
@@ -576,6 +569,13 @@ def _paired_sector_capabilities(
     return root, candidate, binding
 
 
+def test_capability_hashing_uses_shared_cross_runtime_jcs_authority():
+    value = {"number": 1.0, "\U00010000": "astral", "\ue000": "bmp"}
+
+    assert capability_module._canonical_json(value) == '{"number":1,"𐀀":"astral","":"bmp"}'
+    assert capability_module._sha256(value) == canonical_hash(value)
+
+
 def test_v3_matrix_has_28_agents_and_29_closed_execution_stages():
     assert len(ALL_AGENT_IDS) == 28
     assert set(AGENT_TOOL_MATRIX) == set(ALL_AGENT_IDS)
@@ -912,6 +912,48 @@ def test_bound_runtime_snapshots_reject_untrusted_or_incomplete_payloads(
         )
 
 
+def test_bound_runtime_control_skip_cannot_mask_an_accepted_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _bound_snapshot(
+        tool_id="get_execution_snapshot",
+        agent_id="autonomous_execution",
+        stage="autonomous_execution",
+        upstream_agent="cro",
+        upstream_stage="cro",
+        upstream_kind="CRO_RISK_REVIEW",
+    )
+    payload["role_context"]["cro_control_source"] = {
+        "source_status": "NO_EVALUATION_OBJECT",
+        "agent_id": "cro",
+        "accepted_output_kind": "CRO_RISK_REVIEW",
+        "accepted_output_id": None,
+        "accepted_output_hash": None,
+        "stage_skip_id": "stage-skip:cro:forged",
+        "stage_skip_hash": f"sha256:{'9' * 64}",
+    }
+    payload = _rehash_bound_snapshot(payload)
+    _write_bound_snapshot(
+        tmp_path,
+        payload=payload,
+        tool_id="get_execution_snapshot",
+        agent_id="autonomous_execution",
+        stage="autonomous_execution",
+    )
+    monkeypatch.setenv("MOSAIC_RUNTIME_SNAPSHOT_DIR", str(tmp_path))
+
+    with pytest.raises(DataVendorUnavailable, match="stage skip masks"):
+        materialize_tool_payload(
+            "get_execution_snapshot",
+            agent_id="autonomous_execution",
+            stage="autonomous_execution",
+            as_of="2026-07-09",
+            graph_run_id="graph-1",
+            expected_candidate_scope_hash=payload["candidate_scope_hash"],
+        )
+
+
 def test_prepare_binds_bound_tools_to_snapshot_authoritative_candidate_scope(
     tmp_path,
     monkeypatch,
@@ -1135,6 +1177,27 @@ def test_prepare_materializes_once_and_calls_read_only_bundle_payload(tmp_path):
     assert len(calls) == 1
     with pytest.raises(ValueError, match="already been used"):
         store.call_tool(envelope, "get_china_macro_snapshot", {})
+
+
+def test_prepare_rejects_live_source_drift_before_capability_issuance(
+    tmp_path: Path,
+) -> None:
+    request = _request()
+    request["runtime_inputs"] = {
+        "outcome_opportunity_authority": {
+            "source_tool_id": "get_china_macro_snapshot",
+            "source_snapshot_hash": f"sha256:{'4' * 64}",
+            "domain_hash": f"sha256:{'5' * 64}",
+        }
+    }
+
+    with pytest.raises(DataVendorUnavailable, match="changed after opportunity freeze"):
+        _store(tmp_path, [datetime(2026, 7, 9, tzinfo=timezone.utc)]).prepare(
+            request,
+            materializer=lambda *_args, **_kwargs: json.dumps(
+                {"snapshot_hash": f"sha256:{'6' * 64}"}
+            ),
+        )
 
 
 def test_zero_args_wrong_tool_signature_and_termination_fail_closed(tmp_path):

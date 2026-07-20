@@ -12,7 +12,12 @@ from mosaic.bridge.tool_capabilities import (
 )
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.geopolitical_events import load_geopolitical_events_snapshot
+from mosaic.dataflows.outcome_runtime_inputs import (
+    load_evaluation_opportunity_projection,
+)
 from mosaic.scorecard.darwinian_v2 import canonical_hash
+from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
+from mosaic.scorecard.opportunity_authority import materialize_pre_run_authority
 from scripts.build_structured_smoke_fixtures import (
     build_structured_smoke_fixtures,
     render_shell_exports,
@@ -77,6 +82,90 @@ def test_structured_smoke_bundle_materializes_all_29_stage_tools(
     assert marker["contains_vendor_prose"] is False
     body = {key: value for key, value in marker.items() if key != "bundle_hash"}
     assert marker["bundle_hash"] == canonical_hash(body)
+
+
+def test_structured_smoke_bundle_supports_a_non_trading_as_of_date(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    as_of = "2024-06-30"  # Sunday.
+    bindings = build_structured_smoke_fixtures(tmp_path / "cache", as_of)
+    _bind_structured_smoke(bindings, monkeypatch)
+
+    payload = json.loads(
+        materialize_tool_payload(
+            "get_market_breadth_snapshot",
+            agent_id="market_breadth",
+            stage="market_breadth",
+            as_of=as_of,
+        )
+    )
+    assert payload["as_of_date"] == as_of
+    assert payload["coverage_ratio"] == 1.0
+
+
+def test_structured_smoke_l1_l3_opportunities_use_exact_member_authorities(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    as_of_date = "2026-07-17"
+    as_of = f"{as_of_date}T15:00:00+08:00"
+    cache_root = tmp_path / "cache"
+    bindings = build_structured_smoke_fixtures(cache_root, as_of_date)
+    _bind_structured_smoke(bindings, monkeypatch)
+
+    expected_fields = {
+        "MACRO_TRANSMISSION": None,
+        "SECTOR_TILT_PICKS": {
+            "subindustry_id",
+            "security_shortlist_id",
+            "security_shortlist_hash",
+            "security_ts_codes",
+        },
+        "RELATIONSHIP_EDGES": {"edge_candidate_id", "materiality_weight"},
+        "SUPERINVESTOR_PICKS": {"candidate_ref", "ts_code"},
+    }
+    for agent_id, contract in OUTCOME_CONTRACTS.items():
+        if contract["layer"] == "DECISION":
+            continue
+        projection = load_evaluation_opportunity_projection(
+            as_of,
+            agent_id,
+            root=cache_root / "outcome_runtime",
+        )
+        members = projection["member_refs"]
+        object_type = contract["evaluation_object_type"]
+        if object_type == "SUPERINVESTOR_PICKS":
+            assert members == []
+            continue
+        assert members
+        fields = expected_fields[object_type]
+        if fields is None:
+            member_field = (
+                "event_id"
+                if contract["sample_schedule"]["kind"] == "EVENT_TRIGGERED"
+                else "path_snapshot_id"
+            )
+            fields = {member_field}
+        assert all(set(member) == fields for member in members)
+        authority = materialize_pre_run_authority(
+            agent_id=agent_id,
+            as_of=as_of,
+            graph_run_id="structured-smoke-opportunity-test",
+            schedule_slot={
+                "outcome_schedule_slot_hash": "sha256:" + "1" * 64,
+                "trigger_event": (
+                    {
+                        "event_id": (
+                            f"structured-smoke:event:{agent_id}:{as_of_date}"
+                        )
+                    }
+                    if contract["sample_schedule"]["kind"] == "EVENT_TRIGGERED"
+                    else None
+                ),
+            },
+        )
+        assert members == authority["member_refs"]
 
 
 @pytest.mark.parametrize("mutation", ["tamper", "extra", "missing"])

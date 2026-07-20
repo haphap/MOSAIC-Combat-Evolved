@@ -11,8 +11,8 @@ import json
 import math
 import sqlite3
 from collections import defaultdict
-from datetime import date
-from typing import Any, Mapping, Sequence
+from datetime import date, datetime, timezone
+from typing import Any, Callable, Mapping, Sequence
 
 from jsonschema import Draft7Validator
 
@@ -22,8 +22,14 @@ from mosaic.scorecard.darwinian_v2 import (
     deterministic_id,
 )
 from mosaic.scorecard.outcome_contracts import (
+    OPPORTUNITY_GENERATION_FAILURE_CODES,
+    OPPORTUNITY_GENERATOR_CONTRACT_VERSION,
     OUTCOME_CONTRACTS,
     OUTCOME_METRIC_SCHEMAS,
+)
+from mosaic.scorecard.outcome_source_receipts import (
+    OutcomeSourceBatchUnavailable,
+    load_server_selected_outcome_source_batch,
 )
 
 
@@ -48,6 +54,30 @@ EMPTY_OPPORTUNITY_ALLOWED = {
     "alpha_discovery",
     "autonomous_execution",
 }
+LIVE_SOURCE_TOOL_BY_AGENT = {
+    "china": "get_china_macro_snapshot",
+    "us_economy": "get_us_macro_snapshot",
+    "eu_economy": "get_eu_macro_snapshot",
+    "central_bank": "get_central_bank_snapshot",
+    "us_financial_conditions": "get_us_financial_conditions_snapshot",
+    "euro_area_financial_conditions": (
+        "get_euro_area_financial_conditions_snapshot"
+    ),
+    "commodities": "get_commodity_conditions_snapshot",
+    "geopolitical": "get_geopolitical_events_snapshot",
+    "market_breadth": "get_market_breadth_snapshot",
+    "institutional_flow": "get_market_positioning_snapshot",
+    "semiconductor": "get_sector_research_snapshot",
+    "technology": "get_sector_research_snapshot",
+    "energy": "get_sector_research_snapshot",
+    "biotech": "get_sector_research_snapshot",
+    "consumer": "get_sector_research_snapshot",
+    "industrials": "get_sector_research_snapshot",
+    "real_estate_construction": "get_sector_research_snapshot",
+    "financials": "get_sector_research_snapshot",
+    "agriculture": "get_sector_research_snapshot",
+    "relationship_mapper": "get_relationship_graph_snapshot",
+}
 TERMINAL_ELIGIBILITY_DISPOSITIONS = {
     "SCORE",
     "AGENT_FAILURE",
@@ -57,6 +87,33 @@ KNOT_SAMPLE_ORIGINS = {
     "KNOT_RESEARCH_SHADOW",
     "KNOT_POST_PROMOTION_CHAMPION_SHADOW",
 }
+EXTERNAL_SCHEDULE_AUTHORITY_FIELDS = frozenset(
+    {
+        "schema_version",
+        "schedule_authority_id",
+        "schedule_authority_hash",
+        "authority_namespace",
+        "sample_origin",
+        "scheduled_sample_id",
+        "track_key_hash",
+        "agent_id",
+        "evaluation_opportunity_set_id",
+        "evaluation_opportunity_set_hash",
+        "opportunity_as_of",
+        "outcome_due_at",
+        "external_schedule_manifest_id",
+        "external_schedule_manifest_hash",
+        "external_schedule_slot_id",
+        "external_schedule_slot_hash",
+        "external_run_id",
+        "external_run_hash",
+        "trading_calendar_id",
+        "trading_calendar_snapshot_hash",
+        "authority_published_at",
+        "external_run_frozen_at",
+        "verified_at",
+    }
+)
 KNOT_LINEAGE_FIELDS = (
     "knot_pair_id",
     "knot_pair_input_hash",
@@ -160,6 +217,17 @@ def _required_sha256(value: Any, field: str) -> str:
     return text
 
 
+def _timestamp(value: Any, field: str) -> datetime:
+    text = _required_text(value, field)
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{field} must be an ISO timestamp") from exc
+    if parsed.tzinfo is None:
+        raise ValueError(f"{field} must include a timezone")
+    return parsed
+
+
 def _clip(value: float, lower: float, upper: float) -> float:
     return max(lower, min(upper, value))
 
@@ -248,6 +316,257 @@ def _track_record(conn: sqlite3.Connection, track_key_hash: str) -> dict[str, An
     if canonical is None or contract != canonical:
         raise ValueError("evaluation track outcome contract drift")
     return record
+
+
+def _validated_schedule_context(
+    conn: sqlite3.Connection,
+    *,
+    scheduled_sample_id: str,
+    track_key_hash: str,
+    agent_id: str,
+    production_variant_roster_revision_id: str | None = None,
+    cutoff_at: str | None = None,
+    trading_dates: Sequence[str] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Resolve and independently verify the immutable plan/slot authority."""
+    rows = conn.execute(
+        "SELECT s.outcome_schedule_slot_id, s.outcome_schedule_slot_hash, "
+        "s.outcome_schedule_plan_id, s.graph_run_id, s.agent_id, "
+        "s.track_key_hash, s.run_slot_id, s.run_slot_kind, "
+        "s.scheduled_sample_id, s.record_json, p.outcome_schedule_plan_hash, "
+        "p.production_variant_roster_revision_id, p.record_json "
+        "FROM outcome_schedule_slots_v2 s "
+        "JOIN outcome_schedule_plans_v2 p "
+        "ON p.outcome_schedule_plan_id = s.outcome_schedule_plan_id "
+        "WHERE s.scheduled_sample_id = ? AND s.track_key_hash = ? "
+        "AND s.agent_id = ?",
+        (scheduled_sample_id, track_key_hash, agent_id),
+    ).fetchall()
+    if len(rows) != 1:
+        raise ValueError(
+            "outcome observation requires exactly one authoritative "
+            "sample/track/agent schedule slot"
+        )
+    row = rows[0]
+    slot = json.loads(row[9])
+    plan = json.loads(row[12])
+    if not isinstance(slot, dict) or not isinstance(plan, dict):
+        raise ValueError("outcome schedule plan/slot record must be an object")
+    expected_slot_hash = canonical_hash(
+        {key: value for key, value in slot.items() if key != "outcome_schedule_slot_hash"}
+    )
+    for index, field in enumerate(
+        (
+            "outcome_schedule_slot_id",
+            "outcome_schedule_slot_hash",
+            "outcome_schedule_plan_id",
+            "graph_run_id",
+            "agent_id",
+            "track_key_hash",
+            "run_slot_id",
+            "run_slot_kind",
+            "scheduled_sample_id",
+        )
+    ):
+        if row[index] != slot.get(field):
+            raise ValueError(f"outcome schedule slot {field} column/record mismatch")
+    if (
+        slot.get("outcome_schedule_slot_hash") != expected_slot_hash
+        or slot.get("scheduled_sample_id") != scheduled_sample_id
+        or slot.get("track_key_hash") != track_key_hash
+        or slot.get("agent_id") != agent_id
+        or slot.get("run_slot_kind") != "OUTCOME_SCHEDULED"
+    ):
+        raise ValueError("outcome schedule slot identity/hash/owner mismatch")
+    expected_plan_hash = canonical_hash(
+        {key: value for key, value in plan.items() if key != "outcome_schedule_plan_hash"}
+    )
+    if (
+        row[10] != plan.get("outcome_schedule_plan_hash")
+        or row[10] != expected_plan_hash
+        or row[11] != plan.get("production_variant_roster_revision_id")
+        or plan.get("outcome_schedule_plan_id") != slot.get("outcome_schedule_plan_id")
+        or plan.get("graph_run_id") != slot.get("graph_run_id")
+    ):
+        raise ValueError("outcome schedule plan identity/hash/owner mismatch")
+    embedded = plan.get("slots")
+    if not isinstance(embedded, list) or [
+        item
+        for item in embedded
+        if isinstance(item, dict)
+        and item.get("outcome_schedule_slot_id") == slot["outcome_schedule_slot_id"]
+    ] != [slot]:
+        raise ValueError("outcome schedule slot is not hash-bound into its plan")
+    if (
+        production_variant_roster_revision_id is not None
+        and plan.get("production_variant_roster_revision_id")
+        != production_variant_roster_revision_id
+    ):
+        raise ValueError("outcome schedule plan roster revision drift")
+
+    contract = OUTCOME_CONTRACTS[agent_id]
+    if (
+        slot.get("sample_schedule") != contract["sample_schedule"]
+        or slot.get("sample_schedule_contract_version")
+        != contract["sample_schedule_contract_version"]
+        or plan.get("trading_calendar_id")
+        != contract["maturity"]["trading_calendar_id"]
+    ):
+        raise ValueError("outcome schedule contract/calendar drift")
+    if (cutoff_at is None) != (trading_dates is None):
+        raise ValueError("cutoff_at and trading_dates must be supplied together")
+    if cutoff_at is not None and trading_dates is not None:
+        dates = list(trading_dates)
+        if not dates or dates != sorted(set(dates)):
+            raise ValueError("outcome maturity trading calendar is invalid")
+        as_of_date = _required_text(plan.get("as_of"), "schedule plan as_of")[:10]
+        cutoff_date = _required_text(cutoff_at, "cutoff_at")[:10]
+        if as_of_date not in dates or cutoff_date not in dates:
+            raise ValueError("outcome maturity boundary is not a trading session")
+        horizon = contract["maturity"]["horizon_trading_days"]
+        maturity_index = dates.index(as_of_date) + horizon
+        if maturity_index >= len(dates):
+            raise ValueError("verified calendar does not cover outcome maturity")
+        expected_due_at = f"{dates[maturity_index]}T15:00:00+08:00"
+        if slot.get("outcome_due_at") != expected_due_at:
+            raise ValueError("outcome schedule due_at drift from registered maturity")
+        if _timestamp(cutoff_at, "cutoff_at") < _timestamp(
+            expected_due_at, "outcome_due_at"
+        ):
+            raise ValueError("outcome schedule slot has not matured at cutoff")
+    return slot, plan
+
+
+def _validated_external_schedule_authority(
+    *,
+    authority: Mapping[str, Any],
+    verifier: Callable[[Mapping[str, Any]], Mapping[str, Any]],
+    opportunity: Mapping[str, Any],
+    outcome_due_at: str,
+    matured_at: str,
+) -> dict[str, Any]:
+    """Validate an opaque, hash-bound schedule authority supplied by private runtime."""
+    if not isinstance(authority, Mapping):
+        raise ValueError("external schedule authority must be an object")
+    if not callable(verifier):
+        raise ValueError("external schedule authority verifier is required")
+    supplied = dict(authority)
+    verified = verifier(dict(supplied))
+    if not isinstance(verified, Mapping) or canonical_json(dict(verified)) != canonical_json(
+        supplied
+    ):
+        raise ValueError("external schedule authority verifier changed the receipt")
+    if set(supplied) != EXTERNAL_SCHEDULE_AUTHORITY_FIELDS:
+        raise ValueError("external schedule authority fields mismatch")
+    if supplied.get("schema_version") != "external_outcome_schedule_authority_v1":
+        raise ValueError("external schedule authority schema_version mismatch")
+
+    sample_origin = opportunity.get("sample_origin")
+    if sample_origin not in KNOT_SAMPLE_ORIGINS:
+        raise ValueError("external schedule authority is restricted to KNOT shadow samples")
+    expected_bindings = {
+        "sample_origin": sample_origin,
+        "scheduled_sample_id": opportunity.get("scheduled_sample_id"),
+        "track_key_hash": opportunity.get("track_key_hash"),
+        "agent_id": opportunity.get("agent_id"),
+        "evaluation_opportunity_set_id": opportunity.get(
+            "evaluation_opportunity_set_id"
+        ),
+        "evaluation_opportunity_set_hash": opportunity.get(
+            "evaluation_opportunity_set_hash"
+        ),
+        "opportunity_as_of": opportunity.get("as_of"),
+        "outcome_due_at": outcome_due_at,
+        "trading_calendar_id": OUTCOME_CONTRACTS[str(opportunity.get("agent_id"))][
+            "maturity"
+        ]["trading_calendar_id"],
+    }
+    for field, expected in expected_bindings.items():
+        if supplied.get(field) != expected:
+            raise ValueError(f"external schedule authority {field} mismatch")
+
+    for field in (
+        "schedule_authority_hash",
+        "track_key_hash",
+        "evaluation_opportunity_set_hash",
+        "external_schedule_manifest_hash",
+        "external_schedule_slot_hash",
+        "external_run_hash",
+        "trading_calendar_snapshot_hash",
+    ):
+        _required_sha256(supplied.get(field), f"external_schedule_authority.{field}")
+    for field in (
+        "schedule_authority_id",
+        "authority_namespace",
+        "scheduled_sample_id",
+        "agent_id",
+        "evaluation_opportunity_set_id",
+        "external_schedule_manifest_id",
+        "external_schedule_slot_id",
+        "external_run_id",
+        "trading_calendar_id",
+    ):
+        _required_text(supplied.get(field), f"external_schedule_authority.{field}")
+
+    expected_authority_id = deterministic_id(
+        "external-outcome-schedule-authority",
+        {
+            "authority_namespace": supplied["authority_namespace"],
+            "external_schedule_manifest_id": supplied[
+                "external_schedule_manifest_id"
+            ],
+            "external_schedule_manifest_hash": supplied[
+                "external_schedule_manifest_hash"
+            ],
+            "external_schedule_slot_id": supplied["external_schedule_slot_id"],
+            "external_schedule_slot_hash": supplied[
+                "external_schedule_slot_hash"
+            ],
+            "external_run_id": supplied["external_run_id"],
+            "external_run_hash": supplied["external_run_hash"],
+            "evaluation_opportunity_set_id": supplied[
+                "evaluation_opportunity_set_id"
+            ],
+            "evaluation_opportunity_set_hash": supplied[
+                "evaluation_opportunity_set_hash"
+            ],
+            "outcome_due_at": supplied["outcome_due_at"],
+            "trading_calendar_snapshot_hash": supplied[
+                "trading_calendar_snapshot_hash"
+            ],
+        },
+    )
+    if supplied["schedule_authority_id"] != expected_authority_id:
+        raise ValueError("external schedule authority identity mismatch")
+    if supplied["schedule_authority_hash"] != canonical_hash(
+        {
+            key: value
+            for key, value in supplied.items()
+            if key != "schedule_authority_hash"
+        }
+    ):
+        raise ValueError("external schedule authority hash mismatch")
+
+    published = _timestamp(
+        supplied["authority_published_at"],
+        "external_schedule_authority.authority_published_at",
+    )
+    opportunity_time = _timestamp(
+        supplied["opportunity_as_of"],
+        "external_schedule_authority.opportunity_as_of",
+    )
+    run_frozen = _timestamp(
+        supplied["external_run_frozen_at"],
+        "external_schedule_authority.external_run_frozen_at",
+    )
+    due = _timestamp(outcome_due_at, "outcome_due_at")
+    verified_at = _timestamp(
+        supplied["verified_at"], "external_schedule_authority.verified_at"
+    )
+    matured = _timestamp(matured_at, "matured_at")
+    if not published <= opportunity_time <= run_frozen <= due <= verified_at <= matured:
+        raise ValueError("external schedule authority chronology is invalid")
+    return supplied
 
 
 def _insert_immutable(
@@ -707,6 +1026,71 @@ def _validated_knot_operational_audit(
     return operational
 
 
+def _append_evaluation_freeze_authority_event(
+    conn: sqlite3.Connection,
+    opportunity: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Record server-owned ordering metadata outside deterministic opportunity identity."""
+    event_id = (
+        "opportunity-frozen:"
+        + _required_text(
+            opportunity.get("evaluation_opportunity_set_id"),
+            "evaluation_opportunity_set_id",
+        )
+    )
+    values = (
+        event_id,
+        "OPPORTUNITY_FROZEN",
+        opportunity["scheduled_sample_id"],
+        opportunity["evaluation_opportunity_set_id"],
+        opportunity["evaluation_opportunity_set_hash"],
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO evaluation_authority_events_v2 ("
+        "authority_event_id, event_kind, scheduled_sample_id, "
+        "evaluation_opportunity_set_id, evaluation_opportunity_set_hash, "
+        "authority_recorded_at"
+        ") SELECT ?, ?, ?, ?, ?, CASE "
+        "WHEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') >= COALESCE("
+        "(SELECT MAX(authority_recorded_at) FROM evaluation_authority_events_v2), '') "
+        "THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE "
+        "(SELECT MAX(authority_recorded_at) FROM evaluation_authority_events_v2) END",
+        values,
+    )
+    row = conn.execute(
+        "SELECT authority_event_sequence, authority_event_id, event_kind, "
+        "scheduled_sample_id, evaluation_opportunity_set_id, "
+        "evaluation_opportunity_set_hash, accepted_output_id, "
+        "authority_recorded_at FROM evaluation_authority_events_v2 "
+        "WHERE authority_event_id = ?",
+        (event_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError("evaluation freeze authority event was not persisted")
+    expected = (*values, None)
+    if tuple(row[1:7]) != expected:
+        raise ValueError("evaluation freeze authority event immutable collision")
+    sequence = int(row[0])
+    if sequence < 1:
+        raise ValueError("evaluation freeze authority sequence is invalid")
+    recorded_at = _required_text(row[7], "freeze authority_recorded_at")
+    _timestamp(recorded_at, "freeze authority_recorded_at")
+    return {
+        "authority_event_sequence": sequence,
+        "authority_event_id": event_id,
+        "event_kind": "OPPORTUNITY_FROZEN",
+        "scheduled_sample_id": opportunity["scheduled_sample_id"],
+        "evaluation_opportunity_set_id": opportunity[
+            "evaluation_opportunity_set_id"
+        ],
+        "evaluation_opportunity_set_hash": opportunity[
+            "evaluation_opportunity_set_hash"
+        ],
+        "accepted_output_id": None,
+        "authority_recorded_at": recorded_at,
+    }
+
+
 def freeze_evaluation_opportunity_set(
     conn: sqlite3.Connection,
     *,
@@ -719,6 +1103,9 @@ def freeze_evaluation_opportunity_set(
     required_source_evidence_ids: Sequence[str],
     qualification_predicate_version: str,
     generator_input_snapshot_hash: str | None = None,
+    frozen_object_set_id: str | None = None,
+    frozen_object_set_hash: str | None = None,
+    runtime_authority_binding: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Freeze the complete pre-run denominator for one scheduled sample."""
     track = _track_record(conn, track_key_hash)
@@ -743,22 +1130,106 @@ def freeze_evaluation_opportunity_set(
         not isinstance(item, str) or not item for item in required_source_evidence_ids
     ):
         raise ValueError("opportunity set requires non-empty source evidence")
-    members = [dict(member) for member in member_refs]
+    qualification_predicate_version = _required_text(
+        qualification_predicate_version,
+        "qualification_predicate_version",
+    )
+    from mosaic.dataflows.outcome_runtime_inputs import (
+        validate_evaluation_opportunity_members,
+    )
+
+    members = validate_evaluation_opportunity_members(
+        agent_id,
+        qualification_predicate_version,
+        list(member_refs),
+    )
     if not members and agent_id not in EMPTY_OPPORTUNITY_ALLOWED:
         raise ValueError(f"{agent_id} cannot freeze an empty opportunity set")
     if len({canonical_hash(member) for member in members}) != len(members):
         raise ValueError("opportunity set contains duplicate members")
     member_state = "NON_EMPTY" if members else "EMPTY"
-    qualification_predicate_version = _required_text(
-        qualification_predicate_version,
-        "qualification_predicate_version",
-    )
     if generator_input_snapshot_hash is not None and not (
         isinstance(generator_input_snapshot_hash, str)
         and generator_input_snapshot_hash.startswith("sha256:")
         and len(generator_input_snapshot_hash) == 71
     ):
         raise ValueError("generator_input_snapshot_hash must be sha256 when present")
+    if (frozen_object_set_id is None) != (frozen_object_set_hash is None):
+        raise ValueError("frozen object set identity must be complete")
+    if frozen_object_set_id is not None:
+        _required_text(frozen_object_set_id, "frozen_object_set_id")
+        _required_sha256(frozen_object_set_hash, "frozen_object_set_hash")
+    decision_tool_by_agent = {
+        "alpha_discovery": "get_alpha_candidate_snapshot",
+        "cro": "get_cro_risk_snapshot",
+        "autonomous_execution": "get_execution_snapshot",
+        "cio": "get_cio_decision_snapshot",
+    }
+    normalized_authority: dict[str, str] | None = None
+    if runtime_authority_binding is not None:
+        if agent_id in LIVE_SOURCE_TOOL_BY_AGENT:
+            if set(runtime_authority_binding) != {
+                "source_tool_id",
+                "source_snapshot_hash",
+                "domain_hash",
+            }:
+                raise ValueError("live source authority binding fields mismatch")
+            normalized_authority = {
+                "source_tool_id": _required_text(
+                    runtime_authority_binding.get("source_tool_id"),
+                    "runtime authority source_tool_id",
+                ),
+                "source_snapshot_hash": _required_sha256(
+                    runtime_authority_binding.get("source_snapshot_hash"),
+                    "runtime authority source_snapshot_hash",
+                ),
+                "domain_hash": _required_sha256(
+                    runtime_authority_binding.get("domain_hash"),
+                    "runtime authority domain_hash",
+                ),
+            }
+            if (
+                normalized_authority["source_tool_id"]
+                != LIVE_SOURCE_TOOL_BY_AGENT[agent_id]
+            ):
+                raise ValueError("runtime authority tool does not match the L1/L2 Agent")
+        elif agent_id in decision_tool_by_agent:
+            if set(runtime_authority_binding) != {
+                "source_tool_id",
+                "source_snapshot_hash",
+                "candidate_scope_hash",
+                "candidate_universe_hash",
+                "upstream_accepted_output_refs_hash",
+            }:
+                raise ValueError("runtime authority binding fields mismatch")
+            normalized_authority = {
+                "source_tool_id": _required_text(
+                    runtime_authority_binding.get("source_tool_id"),
+                    "runtime authority source_tool_id",
+                ),
+                **{
+                    field: _required_sha256(
+                        runtime_authority_binding.get(field),
+                        f"runtime authority {field}",
+                    )
+                    for field in (
+                        "source_snapshot_hash",
+                        "candidate_scope_hash",
+                        "candidate_universe_hash",
+                        "upstream_accepted_output_refs_hash",
+                    )
+                },
+            }
+            if normalized_authority["source_tool_id"] != decision_tool_by_agent[agent_id]:
+                raise ValueError("runtime authority tool does not match the Decision Agent")
+        else:
+            raise ValueError("runtime authority binding is not allowed for this Agent")
+    if (
+        sample_origin == "PRODUCTION_ACTIVE"
+        and agent_id in (set(decision_tool_by_agent) | set(LIVE_SOURCE_TOOL_BY_AGENT))
+        and normalized_authority is None
+    ):
+        raise ValueError(f"{agent_id} requires a server-owned runtime authority binding")
     outcome_contract = track["outcome_contract"]
     identity = {
         "scheduled_sample_id": _required_text(scheduled_sample_id, "scheduled_sample_id"),
@@ -769,6 +1240,13 @@ def freeze_evaluation_opportunity_set(
         "required_source_evidence_ids": sorted(set(required_source_evidence_ids)),
         "qualification_predicate_version": qualification_predicate_version,
         "generator_input_snapshot_hash": generator_input_snapshot_hash,
+        "frozen_object_set_id": frozen_object_set_id,
+        "frozen_object_set_hash": frozen_object_set_hash,
+        **(
+            {"runtime_authority_binding": normalized_authority}
+            if normalized_authority is not None
+            else {}
+        ),
     }
     set_id = deterministic_id("evaluation-opportunity-set", identity)
     without_hash = {
@@ -807,6 +1285,13 @@ def freeze_evaluation_opportunity_set(
         "frozen_at": as_of,
         "qualification_predicate_version": qualification_predicate_version,
         "generator_input_snapshot_hash": generator_input_snapshot_hash,
+        "frozen_object_set_id": frozen_object_set_id,
+        "frozen_object_set_hash": frozen_object_set_hash,
+        **(
+            {"runtime_authority_binding": normalized_authority}
+            if normalized_authority is not None
+            else {}
+        ),
         "pit_status": "VERIFIED",
         "contract_versions": {
             key: outcome_contract[key]
@@ -865,6 +1350,7 @@ def freeze_evaluation_opportunity_set(
         ),
         record_json=record_json,
     )
+    _append_evaluation_freeze_authority_event(conn, record)
     return record
 
 
@@ -1040,6 +1526,28 @@ def append_outcome_eligibility_revision(
                 raise ValueError("KNOT accepted output operational audit mismatch")
     if disposition in {"PENDING", "SCORE"} and accepted_record is None:
         raise ValueError(f"{disposition} requires the role-matched accepted output")
+    if (
+        accepted_record is not None
+        and set_record is not None
+        and sample_origin == "PRODUCTION_ACTIVE"
+    ):
+        expected_frozen_id = set_record.get("frozen_object_set_id")
+        expected_frozen_hash = set_record.get("frozen_object_set_hash")
+        for field, expected in (
+            ("evaluation_opportunity_set_id", evaluation_opportunity_set_id),
+            (
+                "evaluation_opportunity_set_hash",
+                set_record.get("evaluation_opportunity_set_hash"),
+            ),
+            ("frozen_object_set_id", expected_frozen_id),
+            ("frozen_object_set_hash", expected_frozen_hash),
+            (
+                "runtime_opportunity_authority",
+                set_record.get("runtime_authority_binding"),
+            ),
+        ):
+            if accepted_record.get(field) != expected:
+                raise ValueError(f"accepted output {field} mismatch")
     if disposition == "AGENT_FAILURE" and accepted_record is not None:
         raise ValueError("AGENT_FAILURE cannot carry an accepted output")
     if disposition in {"AGENT_FAILURE", "EXOGENOUS_EXCLUSION"} and not (
@@ -1221,6 +1729,12 @@ def append_outcome_eligibility_revision(
         "evaluation_opportunity_set_hash": (
             set_record.get("evaluation_opportunity_set_hash") if set_record else None
         ),
+        "frozen_object_set_id": (
+            set_record.get("frozen_object_set_id") if set_record else None
+        ),
+        "frozen_object_set_hash": (
+            set_record.get("frozen_object_set_hash") if set_record else None
+        ),
         "opportunity_set_status": "AVAILABLE" if set_record else "UNAVAILABLE",
         "exclusion_or_failure_reason": exclusion_or_failure_reason,
         "darwin_evaluation_eligible": (
@@ -1319,6 +1833,13 @@ def append_realized_outcome_observation(
     matured_at: str,
     realized_metrics: Mapping[str, Any],
     source_evidence_ids: Sequence[str],
+    projection_status: str = "SCORE",
+    realized_projection_hash: str | None = None,
+    production_cutoff_at: str | None = None,
+    external_schedule_authority: Mapping[str, Any] | None = None,
+    external_schedule_authority_verifier: (
+        Callable[[Mapping[str, Any]], Mapping[str, Any]] | None
+    ) = None,
 ) -> dict[str, Any]:
     """Persist shared market/event realization without Agent forecasts or utility."""
     row = conn.execute(
@@ -1329,24 +1850,219 @@ def append_realized_outcome_observation(
     if row is None:
         raise ValueError("AVAILABLE evaluation opportunity set is required")
     opportunity = json.loads(row[0])
-    forbidden = {
-        "agent_output",
-        "prediction",
-        "forecast_loss",
-        "utility_delta",
-        "normalized_score",
-    }
-    if forbidden & set(realized_metrics):
-        raise ValueError("realized observation cannot contain Agent predictions or scores")
-    if not source_evidence_ids or any(not isinstance(item, str) or not item for item in source_evidence_ids):
+    opportunity_hash = _required_sha256(
+        opportunity.get("evaluation_opportunity_set_hash"),
+        "evaluation_opportunity_set_hash",
+    )
+    if opportunity_hash != canonical_hash(
+        {
+            key: value
+            for key, value in opportunity.items()
+            if key != "evaluation_opportunity_set_hash"
+        }
+    ):
+        raise ValueError("evaluation opportunity set hash mismatch")
+    due = _timestamp(outcome_due_at, "outcome_due_at")
+    matured = _timestamp(matured_at, "matured_at")
+    sample_origin = opportunity.get("sample_origin")
+    validated_external_authority: dict[str, Any] | None = None
+    if sample_origin == "PRODUCTION_ACTIVE":
+        if (
+            external_schedule_authority is not None
+            or external_schedule_authority_verifier is not None
+        ):
+            raise ValueError(
+                "production outcome observation cannot use external schedule authority"
+            )
+        slot, plan = _validated_schedule_context(
+            conn,
+            scheduled_sample_id=opportunity["scheduled_sample_id"],
+            track_key_hash=opportunity["track_key_hash"],
+            agent_id=opportunity["agent_id"],
+        )
+    elif sample_origin in KNOT_SAMPLE_ORIGINS:
+        if (
+            external_schedule_authority is None
+            or external_schedule_authority_verifier is None
+        ):
+            raise ValueError(
+                "KNOT outcome observation requires external schedule authority and verifier"
+            )
+        validated_external_authority = _validated_external_schedule_authority(
+            authority=external_schedule_authority,
+            verifier=external_schedule_authority_verifier,
+            opportunity=opportunity,
+            outcome_due_at=outcome_due_at,
+            matured_at=matured_at,
+        )
+        slot = {
+            "outcome_schedule_slot_id": validated_external_authority[
+                "external_schedule_slot_id"
+            ],
+            "outcome_schedule_slot_hash": validated_external_authority[
+                "external_schedule_slot_hash"
+            ],
+            "outcome_due_at": validated_external_authority["outcome_due_at"],
+        }
+        plan = {"as_of": validated_external_authority["opportunity_as_of"]}
+    else:
+        raise ValueError("outcome observation has an unsupported sample origin")
+    if slot.get("outcome_due_at") != outcome_due_at:
+        raise ValueError("outcome_due_at is not the authoritative schedule boundary")
+    if matured < due:
+        raise ValueError("matured_at must be at or after outcome_due_at")
+    production_projection: dict[str, Any] | None = None
+    production_batch: dict[str, Any] | None = None
+    if sample_origin == "PRODUCTION_ACTIVE":
+        realized_projection_hash = _required_sha256(
+            realized_projection_hash,
+            "realized_projection_hash",
+        )
+        cutoff = _timestamp(production_cutoff_at, "production_cutoff_at")
+        if matured > cutoff:
+            raise ValueError("matured_at cannot be later than production_cutoff_at")
+        current_rows = conn.execute(
+            "SELECT current.record_json "
+            "FROM agent_outcome_eligibility_revisions_v2 current "
+            "WHERE current.scheduled_sample_id = ? "
+            "AND current.track_key_hash = ? AND current.agent_id = ? "
+            "AND current.sample_origin = 'PRODUCTION_ACTIVE' "
+            "AND NOT EXISTS ("
+            "SELECT 1 FROM agent_outcome_eligibility_revisions_v2 newer "
+            "WHERE newer.audit_id = current.audit_id "
+            "AND newer.audit_sequence > current.audit_sequence)",
+            (
+                opportunity["scheduled_sample_id"],
+                opportunity["track_key_hash"],
+                opportunity["agent_id"],
+            ),
+        ).fetchall()
+        if len(current_rows) != 1:
+            raise ValueError(
+                "production outcome observation requires exactly one current eligibility revision"
+            )
+        pending_audit = json.loads(current_rows[0][0])
+        if (
+            not isinstance(pending_audit, dict)
+            or pending_audit.get("audit_revision_hash")
+            != canonical_hash(
+                {
+                    key: value
+                    for key, value in pending_audit.items()
+                    if key != "audit_revision_hash"
+                }
+            )
+            or pending_audit.get("disposition") != "PENDING"
+            or pending_audit.get("evaluation_opportunity_set_id")
+            != evaluation_opportunity_set_id
+            or pending_audit.get("evaluation_opportunity_set_hash")
+            != opportunity_hash
+        ):
+            raise ValueError(
+                "production outcome observation requires the hash-bound current PENDING revision"
+            )
+        if opportunity.get("as_of") != plan.get("as_of"):
+            raise ValueError("production outcome opportunity as_of drift from schedule plan")
+        from mosaic.dataflows.outcome_runtime_inputs import (
+            load_realized_outcome_projection,
+        )
+
+        production_projection = load_realized_outcome_projection(
+            scheduled_sample_id=opportunity["scheduled_sample_id"],
+            outcome_schedule_slot_id=slot["outcome_schedule_slot_id"],
+            outcome_schedule_slot_hash=slot["outcome_schedule_slot_hash"],
+            evaluation_opportunity_set_id=evaluation_opportunity_set_id,
+            evaluation_opportunity_set_hash=opportunity_hash,
+            accepted_output_id=pending_audit["accepted_output_id"],
+            accepted_output_hash=pending_audit["accepted_output_hash"],
+            track_key_hash=opportunity["track_key_hash"],
+            agent_id=opportunity["agent_id"],
+            opportunity_as_of=plan["as_of"],
+            outcome_due_at=outcome_due_at,
+            cutoff_at=production_cutoff_at,
+        )
+        production_batch = load_server_selected_outcome_source_batch(
+            conn,
+            scheduled_sample_id=opportunity["scheduled_sample_id"],
+            projection_source_batch_id=production_projection["source_batch_id"],
+            projection_source_batch_hash=production_projection["source_batch_hash"],
+            projection_source_authority_registry_hash=production_projection[
+                "source_authority_registry_hash"
+            ],
+            projection_source_authority_registry_schema_hash=production_projection[
+                "source_authority_registry_schema_hash"
+            ],
+            projection_source_receipt_schema_hash=production_projection[
+                "source_receipt_schema_hash"
+            ],
+            projection_source_batch_schema_hash=production_projection[
+                "source_batch_schema_hash"
+            ],
+            cutoff_at=str(production_cutoff_at),
+        )
+    elif realized_projection_hash is not None:
+        realized_projection_hash = _required_sha256(
+            realized_projection_hash,
+            "realized_projection_hash",
+        )
+        if production_cutoff_at is not None:
+            _timestamp(production_cutoff_at, "production_cutoff_at")
+    if projection_status not in {"SCORE", "ABSTAIN"}:
+        raise ValueError("realized observation projection_status is invalid")
+    from mosaic.dataflows.outcome_runtime_inputs import (
+        validate_realized_outcome_metrics,
+    )
+
+    validated_realized_metrics = validate_realized_outcome_metrics(
+        str(opportunity["agent_id"]),
+        realized_metrics,
+        allow_empty=projection_status == "ABSTAIN",
+    )
+    if projection_status == "ABSTAIN" and validated_realized_metrics:
+        raise ValueError("ABSTAIN realized observation metrics must be empty")
+    if not source_evidence_ids or any(
+        not isinstance(item, str) or not item for item in source_evidence_ids
+    ):
         raise ValueError("realized observation requires source evidence")
+    if len(source_evidence_ids) != len(set(source_evidence_ids)):
+        raise ValueError("realized observation source evidence IDs must be unique")
+    if production_projection is not None and production_batch is not None and (
+        production_projection["snapshot_hash"] != realized_projection_hash
+        or production_batch["matured_at"] != matured_at
+        or production_batch["projection_status"] != projection_status
+        or production_batch["realized_metrics"] != validated_realized_metrics
+        or production_batch["source_evidence_ids"]
+        != sorted(source_evidence_ids)
+    ):
+        raise ValueError(
+            "production outcome observation does not match the authoritative source batch"
+        )
     identity = {
         "scheduled_sample_id": opportunity["scheduled_sample_id"],
         "evaluation_opportunity_set_hash": opportunity["evaluation_opportunity_set_hash"],
         "outcome_due_at": outcome_due_at,
         "matured_at": matured_at,
-        "realized_metrics": dict(realized_metrics),
+        "projection_status": projection_status,
+        "realized_metric_schema_id": OUTCOME_CONTRACTS[opportunity["agent_id"]][
+            "realized_metric_schema_id"
+        ],
+        "realized_metrics": validated_realized_metrics,
         "source_evidence_ids": sorted(set(source_evidence_ids)),
+        "realized_projection_hash": realized_projection_hash,
+        "production_cutoff_at": production_cutoff_at,
+        "external_schedule_authority_hash": (
+            validated_external_authority["schedule_authority_hash"]
+            if validated_external_authority is not None
+            else None
+        ),
+        "source_batch_id": (
+            production_batch["source_batch_id"] if production_batch is not None else None
+        ),
+        "source_batch_hash": (
+            production_batch["source_batch_hash"]
+            if production_batch is not None
+            else None
+        ),
     }
     observation_id = deterministic_id("realized-outcome-observation", identity)
     without_hash = {
@@ -1356,11 +2072,28 @@ def append_realized_outcome_observation(
         "evaluation_opportunity_set_id": evaluation_opportunity_set_id,
         "evaluation_opportunity_set_hash": opportunity["evaluation_opportunity_set_hash"],
         "agent_id": opportunity["agent_id"],
+        "outcome_schedule_slot_id": slot["outcome_schedule_slot_id"],
+        "outcome_schedule_slot_hash": slot["outcome_schedule_slot_hash"],
         "outcome_due_at": _required_text(outcome_due_at, "outcome_due_at"),
         "matured_at": _required_text(matured_at, "matured_at"),
-        "realized_metrics": dict(realized_metrics),
+        "projection_status": projection_status,
+        "realized_metric_schema_id": OUTCOME_CONTRACTS[opportunity["agent_id"]][
+            "realized_metric_schema_id"
+        ],
+        "realized_metrics": validated_realized_metrics,
         "source_evidence_ids": sorted(set(source_evidence_ids)),
         "source_evidence_hash": canonical_hash(sorted(set(source_evidence_ids))),
+        "realized_projection_hash": realized_projection_hash,
+        "production_cutoff_at": production_cutoff_at,
+        "external_schedule_authority": validated_external_authority,
+        "source_batch_id": (
+            production_batch["source_batch_id"] if production_batch is not None else None
+        ),
+        "source_batch_hash": (
+            production_batch["source_batch_hash"]
+            if production_batch is not None
+            else None
+        ),
     }
     record = {
         **without_hash,
@@ -1664,10 +2397,9 @@ def append_agent_outcome_label(
     *,
     audit_revision_id: str,
     realized_outcome_observation_id: str,
-    raw_metrics: Mapping[str, Any],
-    normalization_reference: Mapping[str, Any],
+    realized_projection_hash: str,
 ) -> dict[str, Any]:
-    """Compute and append one deterministic, role-owned normalized score."""
+    """Compute one score from the sealed output and realized-only observation."""
     audit_row = conn.execute(
         "SELECT record_json FROM agent_outcome_eligibility_revisions_v2 "
         "WHERE audit_revision_id = ? AND disposition = 'SCORE'",
@@ -1691,18 +2423,197 @@ def append_agent_outcome_label(
     if observation_row is None:
         raise ValueError("realized outcome observation is unavailable")
     observation = json.loads(observation_row[0])
-    if observation["scheduled_sample_id"] != audit["scheduled_sample_id"]:
+    observation_hash = _required_sha256(
+        observation.get("realized_outcome_observation_hash"),
+        "realized_outcome_observation_hash",
+    )
+    if observation_hash != canonical_hash(
+        {
+            key: value
+            for key, value in observation.items()
+            if key != "realized_outcome_observation_hash"
+        }
+    ):
+        raise ValueError("realized outcome observation hash mismatch")
+    if (
+        observation["scheduled_sample_id"] != audit["scheduled_sample_id"]
+        or observation.get("agent_id") != audit["agent_id"]
+        or observation.get("projection_status") != "SCORE"
+    ):
         raise ValueError("realized observation scheduled sample mismatch")
+    expected_projection_hash = _required_sha256(
+        observation.get("realized_projection_hash"),
+        "observation.realized_projection_hash",
+    )
+    if (
+        _required_sha256(realized_projection_hash, "realized_projection_hash")
+        != expected_projection_hash
+    ):
+        raise ValueError("outcome label realized_projection_hash mismatch")
+    opportunity_row = conn.execute(
+        "SELECT record_json FROM evaluation_opportunity_sets_v2 "
+        "WHERE evaluation_opportunity_set_id = ?",
+        (observation.get("evaluation_opportunity_set_id"),),
+    ).fetchone()
+    if opportunity_row is None:
+        raise ValueError("outcome label evaluation opportunity is unavailable")
+    opportunity = json.loads(opportunity_row[0])
+    if (
+        not isinstance(opportunity, dict)
+        or opportunity.get("evaluation_opportunity_set_hash")
+        != canonical_hash(
+            {
+                key: value
+                for key, value in opportunity.items()
+                if key != "evaluation_opportunity_set_hash"
+            }
+        )
+        or opportunity.get("evaluation_opportunity_set_hash")
+        != observation.get("evaluation_opportunity_set_hash")
+    ):
+        raise ValueError("outcome label evaluation opportunity hash mismatch")
+    if audit["sample_origin"] == "PRODUCTION_ACTIVE":
+        if _timestamp(observation.get("matured_at"), "matured_at") > _timestamp(
+            observation.get("production_cutoff_at"),
+            "production_cutoff_at",
+        ):
+            raise ValueError("outcome label matured_at exceeds production cutoff")
+        slot, plan = _validated_schedule_context(
+            conn,
+            scheduled_sample_id=audit["scheduled_sample_id"],
+            track_key_hash=audit["track_key_hash"],
+            agent_id=audit["agent_id"],
+        )
+        if opportunity.get("as_of") != plan.get("as_of"):
+            raise ValueError("outcome label opportunity as_of drift from schedule plan")
+        from mosaic.dataflows.outcome_runtime_inputs import (
+            load_realized_outcome_projection,
+        )
+
+        production_projection = load_realized_outcome_projection(
+            scheduled_sample_id=audit["scheduled_sample_id"],
+            outcome_schedule_slot_id=slot["outcome_schedule_slot_id"],
+            outcome_schedule_slot_hash=slot["outcome_schedule_slot_hash"],
+            evaluation_opportunity_set_id=observation[
+                "evaluation_opportunity_set_id"
+            ],
+            evaluation_opportunity_set_hash=observation[
+                "evaluation_opportunity_set_hash"
+            ],
+            accepted_output_id=audit["accepted_output_id"],
+            accepted_output_hash=audit["accepted_output_hash"],
+            track_key_hash=audit["track_key_hash"],
+            agent_id=audit["agent_id"],
+            opportunity_as_of=plan["as_of"],
+            outcome_due_at=observation["outcome_due_at"],
+            cutoff_at=observation["production_cutoff_at"],
+        )
+        if production_projection["snapshot_hash"] != expected_projection_hash:
+            raise ValueError(
+                "production outcome label does not match the authoritative projection"
+            )
+        source_batch = load_server_selected_outcome_source_batch(
+            conn,
+            scheduled_sample_id=audit["scheduled_sample_id"],
+            projection_source_batch_id=production_projection["source_batch_id"],
+            projection_source_batch_hash=production_projection["source_batch_hash"],
+            projection_source_authority_registry_hash=production_projection[
+                "source_authority_registry_hash"
+            ],
+            projection_source_authority_registry_schema_hash=production_projection[
+                "source_authority_registry_schema_hash"
+            ],
+            projection_source_receipt_schema_hash=production_projection[
+                "source_receipt_schema_hash"
+            ],
+            projection_source_batch_schema_hash=production_projection[
+                "source_batch_schema_hash"
+            ],
+            cutoff_at=observation["production_cutoff_at"],
+        )
+        if (
+            observation.get("source_batch_id") != source_batch["source_batch_id"]
+            or observation.get("source_batch_hash")
+            != source_batch["source_batch_hash"]
+            or observation.get("realized_metrics") != source_batch["realized_metrics"]
+        ):
+            raise ValueError(
+                "production outcome label does not match the server-selected source batch"
+            )
     track = _track_record(conn, audit["track_key_hash"])
     if track["agent_id"] != audit["agent_id"]:
         raise ValueError("label owner does not match evaluation track")
-    if track["agent_id"] != "cio" and {
-        "cio_portfolio_return",
-        "cio_total_pnl",
-        "downstream_portfolio_pnl",
-    } & set(raw_metrics):
-        raise ValueError("CIO outcome cannot label an upstream Agent")
     contract = track["outcome_contract"]
+    if observation.get("realized_metric_schema_id") != contract[
+        "realized_metric_schema_id"
+    ]:
+        raise ValueError("realized observation metric schema drift")
+    accepted_row = conn.execute(
+        "SELECT record_json FROM accepted_agent_outputs_v2 "
+        "WHERE accepted_output_id = ?",
+        (audit.get("accepted_output_id"),),
+    ).fetchone()
+    if accepted_row is None:
+        raise ValueError("outcome label accepted output is unavailable")
+    accepted = json.loads(accepted_row[0])
+    accepted_hash = _required_sha256(
+        accepted.get("accepted_output_hash"), "accepted_output_hash"
+    )
+    if (
+        accepted_hash != audit.get("accepted_output_hash")
+        or accepted_hash
+        != canonical_hash(
+            {
+                key: value
+                for key, value in accepted.items()
+                if key != "accepted_output_hash"
+            }
+        )
+    ):
+        raise ValueError("outcome label accepted output hash mismatch")
+    for field, expected in (
+        ("scheduled_sample_id", audit["scheduled_sample_id"]),
+        ("track_key_hash", audit["track_key_hash"]),
+        ("agent_id", audit["agent_id"]),
+        ("sample_origin", audit["sample_origin"]),
+        ("accepted_output_kind", contract["accepted_output_kind"]),
+        (
+            "evaluation_opportunity_set_id",
+            opportunity.get("evaluation_opportunity_set_id"),
+        ),
+        (
+            "evaluation_opportunity_set_hash",
+            opportunity.get("evaluation_opportunity_set_hash"),
+        ),
+        ("frozen_object_set_id", opportunity.get("frozen_object_set_id")),
+        ("frozen_object_set_hash", opportunity.get("frozen_object_set_hash")),
+        (
+            "runtime_opportunity_authority",
+            opportunity.get("runtime_authority_binding"),
+        ),
+    ):
+        if accepted.get(field) != expected:
+            raise ValueError(f"outcome label accepted output {field} mismatch")
+    output = accepted.get("output")
+    if not isinstance(output, Mapping) or not isinstance(output.get("payload"), Mapping):
+        raise ValueError("outcome label accepted output payload is unavailable")
+    from mosaic.scorecard.outcome_metric_derivation import (
+        derive_authoritative_outcome_metrics,
+    )
+    from mosaic.scorecard.outcome_normalization import (
+        resolve_outcome_normalization_reference,
+    )
+
+    raw_metrics = derive_authoritative_outcome_metrics(
+        agent_id=str(audit["agent_id"]),
+        accepted_payload=output["payload"],
+        opportunity_member_refs=opportunity.get("member_refs", []),
+        realized_metrics=observation.get("realized_metrics", {}),
+    )
+    normalization_reference = resolve_outcome_normalization_reference(
+        str(audit["agent_id"]),
+        str(opportunity.get("as_of")),
+    )
     metric_schema_id = str(contract["metric_schema_id"])
     metric_schema = OUTCOME_METRIC_SCHEMAS.get(metric_schema_id)
     if metric_schema is None:
@@ -1715,6 +2626,15 @@ def append_agent_outcome_label(
         first = schema_errors[0]
         path = ".".join(str(item) for item in first.absolute_path) or "$"
         raise ValueError(f"raw outcome metrics schema violation at {path}: {first.message}")
+    from mosaic.dataflows.outcome_runtime_inputs import (
+        validate_raw_metrics_realization_consistency,
+    )
+
+    validate_raw_metrics_realization_consistency(
+        str(audit["agent_id"]),
+        observation.get("realized_metrics", {}),
+        raw_metrics,
+    )
     utility_delta, computed_raw = compute_outcome_utility(
         str(contract["metric_family"]),
         raw_metrics,
@@ -1743,6 +2663,7 @@ def append_agent_outcome_label(
             "utility_delta": utility_delta,
             "normalization_reference": dict(normalization_reference),
             "normalized_score": normalized_score,
+            "realized_projection_hash": realized_projection_hash,
         }
         if any(existing_record.get(key) != value for key, value in immutable_fields.items()):
             raise ValueError("immutable outcome label retry mismatch")
@@ -1755,6 +2676,7 @@ def append_agent_outcome_label(
         "realized_outcome_observation_hash": observation[
             "realized_outcome_observation_hash"
         ],
+        "realized_projection_hash": realized_projection_hash,
         "primary_label_id": contract["primary_label_id"],
     }
     label_id = deterministic_id("agent-outcome-label", label_identity)
@@ -1774,6 +2696,7 @@ def append_agent_outcome_label(
         "realized_outcome_observation_hash": observation[
             "realized_outcome_observation_hash"
         ],
+        "realized_projection_hash": realized_projection_hash,
         "raw_metrics": computed_raw,
         "utility_delta": utility_delta,
         "normalization_reference": dict(normalization_reference),
@@ -1826,6 +2749,867 @@ def append_agent_outcome_label(
         record_json=record_json,
     )
     return record
+
+
+def materialize_due_outcomes(
+    conn: sqlite3.Connection,
+    *,
+    production_variant_roster_revision_id: str,
+    cutoff_at: str,
+    trading_dates: Sequence[str],
+) -> dict[str, Any]:
+    """Materialize due PENDING outcomes from server-owned, hashed projections.
+
+    Missing projections remain PENDING. Invalid or drifted projections abort the
+    transaction; they are never converted into neutral scores.
+    """
+    revision_id = _required_text(
+        production_variant_roster_revision_id,
+        "production_variant_roster_revision_id",
+    )
+    revision_row = conn.execute(
+        "SELECT record_json FROM darwinian_v2_production_variant_roster_revisions "
+        "WHERE production_variant_roster_revision_id = ? AND readiness = 'READY'",
+        (revision_id,),
+    ).fetchone()
+    if revision_row is None:
+        raise ValueError("READY roster revision is unavailable")
+    revision = json.loads(revision_row[0])
+    cutoff = _timestamp(cutoff_at, "cutoff_at")
+    dates = list(trading_dates)
+    if not dates or dates != sorted(set(dates)) or cutoff_at[:10] not in dates:
+        raise ValueError("outcome maturity cutoff requires a verified trading calendar")
+    from mosaic.dataflows.outcome_runtime_inputs import (
+        expected_qualification_predicate_version,
+        load_realized_outcome_projection,
+    )
+    from mosaic.dataflows.outcome_runtime_inputs import (
+        validate_evaluation_opportunity_members,
+    )
+
+    def decoded_hashed_record(
+        raw: str, *, hash_field: str, scope: str
+    ) -> dict[str, Any]:
+        record = json.loads(raw)
+        if not isinstance(record, dict):
+            raise ValueError(f"{scope} must be an object")
+        supplied_hash = _required_sha256(record.get(hash_field), hash_field)
+        if supplied_hash != canonical_hash(
+            {key: value for key, value in record.items() if key != hash_field}
+        ):
+            raise ValueError(f"{scope} hash mismatch")
+        return record
+
+    def unresolved_schedule_result(
+        slot: Mapping[str, Any], *, status: str, failure_code: str
+    ) -> dict[str, Any]:
+        return {
+            "agent_id": slot["agent_id"],
+            "scheduled_sample_id": slot["scheduled_sample_id"],
+            "outcome_schedule_slot_id": slot["outcome_schedule_slot_id"],
+            "outcome_schedule_slot_hash": slot["outcome_schedule_slot_hash"],
+            "outcome_due_at": slot["outcome_due_at"],
+            "maturation_status": status,
+            "failure_code": failure_code,
+        }
+
+    def operational_audit_for_slot(
+        slot: Mapping[str, Any], plan: Mapping[str, Any]
+    ) -> dict[str, Any] | None:
+        operational_rows = conn.execute(
+            "SELECT record_json FROM operational_opportunity_audits_v2 "
+            "WHERE graph_run_id = ? AND run_slot_id = ? AND agent_id = ? "
+            "AND track_key_hash = ? AND scheduled_sample_id = ? "
+            "AND sample_origin = 'PRODUCTION_ACTIVE'",
+            (
+                plan["graph_run_id"],
+                slot["run_slot_id"],
+                slot["agent_id"],
+                slot["track_key_hash"],
+                slot["scheduled_sample_id"],
+            ),
+        ).fetchall()
+        if len(operational_rows) > 1:
+            raise ValueError("scheduled outcome operational authority is ambiguous")
+        if not operational_rows:
+            return None
+        operational = decoded_hashed_record(
+            operational_rows[0][0],
+            hash_field="operational_opportunity_audit_hash",
+            scope="scheduled outcome operational audit",
+        )
+        for field, expected in (
+            ("graph_run_id", plan["graph_run_id"]),
+            ("run_slot_id", slot["run_slot_id"]),
+            ("production_variant_roster_id", plan["production_variant_roster_id"]),
+            (
+                "production_variant_roster_revision_id",
+                plan["production_variant_roster_revision_id"],
+            ),
+            ("execution_behavior_release_id", plan["execution_behavior_release_id"]),
+            ("cohort_id", plan["cohort_id"]),
+            ("language", plan["language"]),
+            ("agent_id", slot["agent_id"]),
+            ("track_key_hash", slot["track_key_hash"]),
+            ("sample_origin", "PRODUCTION_ACTIVE"),
+            ("run_slot_kind", "OUTCOME_SCHEDULED"),
+            ("scheduled_sample_id", slot["scheduled_sample_id"]),
+            ("as_of", plan["as_of"]),
+        ):
+            if operational.get(field) != expected:
+                raise ValueError(f"scheduled outcome operational {field} mismatch")
+        if _timestamp(operational.get("recorded_at"), "recorded_at") > cutoff:
+            raise ValueError("future scheduled outcome operational audit rejected")
+        return operational
+
+    unresolved_schedule_results: list[dict[str, Any]] = []
+    scheduled_rows = conn.execute(
+        "SELECT s.record_json FROM outcome_schedule_slots_v2 s "
+        "JOIN outcome_schedule_plans_v2 p "
+        "ON p.outcome_schedule_plan_id = s.outcome_schedule_plan_id "
+        "WHERE p.production_variant_roster_revision_id = ? "
+        "AND s.run_slot_kind = 'OUTCOME_SCHEDULED'",
+        (revision_id,),
+    ).fetchall()
+    for scheduled_row in scheduled_rows:
+        scheduled = json.loads(scheduled_row[0])
+        if not isinstance(scheduled, dict):
+            raise ValueError("outcome schedule slot must be an object")
+        due = _timestamp(scheduled.get("outcome_due_at"), "outcome_due_at")
+        if due > cutoff:
+            continue
+        slot, plan = _validated_schedule_context(
+            conn,
+            scheduled_sample_id=_required_text(
+                scheduled.get("scheduled_sample_id"), "scheduled_sample_id"
+            ),
+            track_key_hash=_required_sha256(
+                scheduled.get("track_key_hash"), "track_key_hash"
+            ),
+            agent_id=_required_text(scheduled.get("agent_id"), "agent_id"),
+            production_variant_roster_revision_id=revision_id,
+            cutoff_at=cutoff_at,
+            trading_dates=dates,
+        )
+        track = _track_record(conn, str(slot["track_key_hash"]))
+        if (
+            track["agent_id"] != slot["agent_id"]
+            or track["track_key_hash"]
+            not in revision["evaluation_track_key_hashes"]
+        ):
+            raise ValueError("scheduled outcome track is outside the roster revision")
+        opportunity_rows = conn.execute(
+            "SELECT record_json FROM evaluation_opportunity_sets_v2 "
+            "WHERE scheduled_sample_id = ?",
+            (slot["scheduled_sample_id"],),
+        ).fetchall()
+        failure_rows = conn.execute(
+            "SELECT record_json FROM evaluation_opportunity_set_generation_failures_v2 "
+            "WHERE scheduled_sample_id = ?",
+            (slot["scheduled_sample_id"],),
+        ).fetchall()
+        if len(opportunity_rows) > 1 or len(failure_rows) > 1:
+            raise ValueError("scheduled outcome preparation authority is ambiguous")
+        available_opportunity = False
+        opportunity: dict[str, Any] | None = None
+        if opportunity_rows:
+            opportunity = decoded_hashed_record(
+                opportunity_rows[0][0],
+                hash_field="evaluation_opportunity_set_hash",
+                scope="scheduled outcome opportunity",
+            )
+            for field, expected in (
+                ("scheduled_sample_id", slot["scheduled_sample_id"]),
+                ("track_key_hash", slot["track_key_hash"]),
+                ("agent_id", slot["agent_id"]),
+                ("sample_origin", "PRODUCTION_ACTIVE"),
+                ("production_variant_roster_revision_id", revision_id),
+            ):
+                if opportunity.get(field) != expected:
+                    raise ValueError(
+                        f"scheduled outcome opportunity {field} mismatch"
+                    )
+            available_opportunity = (
+                opportunity.get("opportunity_set_status") == "AVAILABLE"
+                and opportunity.get("pit_status") == "VERIFIED"
+            )
+            if available_opportunity:
+                validate_evaluation_opportunity_members(
+                    str(slot["agent_id"]),
+                    opportunity.get("qualification_predicate_version"),
+                    opportunity.get("member_refs"),
+                )
+        if available_opportunity and failure_rows:
+            raise ValueError(
+                "scheduled outcome cannot be both AVAILABLE and generation-failed"
+            )
+        generation_failure: dict[str, Any] | None = None
+        if failure_rows:
+            generation_failure = decoded_hashed_record(
+                failure_rows[0][0],
+                hash_field="generation_attempt_hash",
+                scope="scheduled opportunity generation failure",
+            )
+            for field, expected in (
+                (
+                    "schema_version",
+                    "evaluation_opportunity_set_generation_failure_v2",
+                ),
+                ("outcome_schedule_plan_id", plan["outcome_schedule_plan_id"]),
+                ("outcome_schedule_slot_id", slot["outcome_schedule_slot_id"]),
+                ("scheduled_sample_id", slot["scheduled_sample_id"]),
+                ("track_key_hash", slot["track_key_hash"]),
+                ("agent_id", slot["agent_id"]),
+                (
+                    "opportunity_set_contract_version",
+                    OUTCOME_CONTRACTS[str(slot["agent_id"])][
+                        "opportunity_set_contract_version"
+                    ],
+                ),
+                (
+                    "generator_contract_version",
+                    OPPORTUNITY_GENERATOR_CONTRACT_VERSION,
+                ),
+                (
+                    "qualification_predicate_version",
+                    expected_qualification_predicate_version(
+                        str(slot["agent_id"])
+                    ),
+                ),
+                (
+                    "required_source_ids",
+                    list(
+                        OUTCOME_CONTRACTS[str(slot["agent_id"])][
+                            "required_source_ids"
+                        ]
+                    ),
+                ),
+            ):
+                if generation_failure.get(field) != expected:
+                    raise ValueError(
+                        f"scheduled opportunity generation failure {field} mismatch"
+                    )
+            if _timestamp(
+                generation_failure.get("attempted_at"), "attempted_at"
+            ) > cutoff:
+                raise ValueError("future opportunity generation failure rejected")
+            if generation_failure.get("attempted_at") != plan.get("prepared_at"):
+                raise ValueError(
+                    "scheduled opportunity generation failure timestamp mismatch"
+                )
+            evidence_ids = generation_failure.get("source_evidence_ids")
+            if (
+                not isinstance(evidence_ids, list)
+                or not evidence_ids
+                or any(not isinstance(item, str) or not item for item in evidence_ids)
+                or len(evidence_ids) != len(set(evidence_ids))
+            ):
+                raise ValueError(
+                    "scheduled opportunity generation failure evidence is invalid"
+                )
+            error_codes = generation_failure.get("error_codes")
+            if (
+                not isinstance(error_codes, list)
+                or not error_codes
+                or error_codes != sorted(set(error_codes))
+                or any(
+                    code not in OPPORTUNITY_GENERATION_FAILURE_CODES
+                    for code in error_codes
+                )
+            ):
+                raise ValueError(
+                    "scheduled opportunity generation failure error codes are invalid"
+                )
+        preparation_available = available_opportunity or generation_failure is not None
+        current_rows = conn.execute(
+            "SELECT current.record_json "
+            "FROM agent_outcome_eligibility_revisions_v2 current "
+            "WHERE current.scheduled_sample_id = ? "
+            "AND current.track_key_hash = ? "
+            "AND current.agent_id = ? "
+            "AND current.sample_origin = 'PRODUCTION_ACTIVE' "
+            "AND NOT EXISTS ("
+            "SELECT 1 FROM agent_outcome_eligibility_revisions_v2 newer "
+            "WHERE newer.audit_id = current.audit_id "
+            "AND newer.audit_sequence > current.audit_sequence)",
+            (
+                slot["scheduled_sample_id"],
+                slot["track_key_hash"],
+                slot["agent_id"],
+            ),
+        ).fetchall()
+        if len(current_rows) > 1:
+            raise ValueError("scheduled outcome has ambiguous current eligibility")
+        current: dict[str, Any] | None = None
+        if current_rows:
+            current = decoded_hashed_record(
+                current_rows[0][0],
+                hash_field="audit_revision_hash",
+                scope="scheduled outcome current eligibility",
+            )
+            for field, expected in (
+                ("scheduled_sample_id", slot["scheduled_sample_id"]),
+                ("track_key_hash", slot["track_key_hash"]),
+                ("agent_id", slot["agent_id"]),
+                ("sample_origin", "PRODUCTION_ACTIVE"),
+            ):
+                if current.get(field) != expected:
+                    raise ValueError(
+                        f"scheduled outcome current eligibility {field} mismatch"
+                    )
+        if preparation_available:
+            if current is None:
+                unresolved_schedule_results.append(
+                    unresolved_schedule_result(
+                        slot,
+                        status="PENDING_ELIGIBILITY_AUDIT_MISSING",
+                        failure_code="REQUIRED_ELIGIBILITY_AUDIT_UNAVAILABLE",
+                    )
+                )
+                continue
+        else:
+            unresolved_schedule_results.append(
+                unresolved_schedule_result(
+                    slot,
+                    status="PENDING_PREPARATION_UNAVAILABLE",
+                    failure_code="REQUIRED_OUTCOME_PREPARATION_UNAVAILABLE",
+                )
+            )
+            continue
+
+        operational = operational_audit_for_slot(slot, plan)
+        if generation_failure is not None:
+            if (
+                current.get("disposition") != "EXOGENOUS_EXCLUSION"
+                or current.get("evaluation_opportunity_set_id") is not None
+                or current.get("opportunity_set_status") != "UNAVAILABLE"
+                or current.get("exclusion_or_failure_reason")
+                != "OPPORTUNITY_SET_UNAVAILABLE"
+            ):
+                raise ValueError(
+                    "generation failure eligibility terminal is inconsistent"
+                )
+            if operational is None:
+                unresolved_schedule_results.append(
+                    unresolved_schedule_result(
+                        slot,
+                        status="PENDING_TERMINAL_COMPANION_UNAVAILABLE",
+                        failure_code="REQUIRED_TERMINAL_OUTCOME_COMPANION_UNAVAILABLE",
+                    )
+                )
+                continue
+            if (
+                operational.get("disposition") != "EXOGENOUS_EXCLUSION"
+                or operational.get("failure_reason")
+                != "OPPORTUNITY_SET_UNAVAILABLE"
+                or operational.get("accepted_output_id") is not None
+                or operational.get("recorded_at")
+                != generation_failure.get("attempted_at")
+                or current.get("recorded_at")
+                != generation_failure.get("attempted_at")
+            ):
+                raise ValueError("generation failure operational audit mismatch")
+            continue
+
+        assert opportunity is not None
+        if current.get("evaluation_opportunity_set_id") != opportunity.get(
+            "evaluation_opportunity_set_id"
+        ) or current.get("evaluation_opportunity_set_hash") != opportunity.get(
+            "evaluation_opportunity_set_hash"
+        ):
+            raise ValueError("scheduled outcome eligibility opportunity mismatch")
+        if opportunity.get("member_state") == "EMPTY":
+            if (
+                current.get("disposition") != "EXOGENOUS_EXCLUSION"
+                or current.get("exclusion_or_failure_reason")
+                != "NO_EVALUATION_OBJECT"
+            ):
+                raise ValueError("empty opportunity requires the registered stage skip")
+            skip_rows = conn.execute(
+                "SELECT record_json FROM no_evaluation_object_stage_skips_v2 "
+                "WHERE outcome_schedule_slot_id = ?",
+                (slot["outcome_schedule_slot_id"],),
+            ).fetchall()
+            if not skip_rows or operational is None:
+                unresolved_schedule_results.append(
+                    unresolved_schedule_result(
+                        slot,
+                        status="PENDING_TERMINAL_COMPANION_UNAVAILABLE",
+                        failure_code="REQUIRED_TERMINAL_OUTCOME_COMPANION_UNAVAILABLE",
+                    )
+                )
+                continue
+            if len(skip_rows) != 1:
+                raise ValueError("empty opportunity stage-skip authority is ambiguous")
+            stage_skip = decoded_hashed_record(
+                skip_rows[0][0],
+                hash_field="stage_skip_hash",
+                scope="no-evaluation-object stage skip",
+            )
+            for field, expected in (
+                ("schema_version", "no_evaluation_object_stage_skip_v2"),
+                ("graph_run_id", plan["graph_run_id"]),
+                ("outcome_schedule_plan_id", plan["outcome_schedule_plan_id"]),
+                ("outcome_schedule_slot_id", slot["outcome_schedule_slot_id"]),
+                ("scheduled_sample_id", slot["scheduled_sample_id"]),
+                ("track_key_hash", slot["track_key_hash"]),
+                ("agent_id", slot["agent_id"]),
+                ("skip_reason", "NO_EVALUATION_OBJECT"),
+                (
+                    "frozen_object_set_id",
+                    opportunity.get("frozen_object_set_id")
+                    or opportunity["evaluation_opportunity_set_id"],
+                ),
+                (
+                    "frozen_object_set_hash",
+                    opportunity.get("frozen_object_set_hash")
+                    or opportunity["evaluation_opportunity_set_hash"],
+                ),
+                ("eligibility_audit_revision_id", current["audit_revision_id"]),
+                ("eligibility_audit_revision_hash", current["audit_revision_hash"]),
+                ("model_invoked", False),
+                ("member_count", 0),
+                ("recorded_at", plan["prepared_at"]),
+            ):
+                if stage_skip.get(field) != expected:
+                    raise ValueError(f"stage skip {field} mismatch")
+            if (
+                operational.get("disposition") != "EXOGENOUS_EXCLUSION"
+                or operational.get("failure_reason") != "NO_EVALUATION_OBJECT"
+                or operational.get("stage_skip_id") != stage_skip["stage_skip_id"]
+                or operational.get("stage_skip_hash") != stage_skip["stage_skip_hash"]
+                or operational.get("recorded_at") != stage_skip["recorded_at"]
+                or current.get("recorded_at") != stage_skip["recorded_at"]
+            ):
+                raise ValueError("stage skip operational audit mismatch")
+            continue
+        if opportunity.get("member_state") != "NON_EMPTY":
+            raise ValueError("scheduled opportunity member_state is invalid")
+
+        disposition = current.get("disposition")
+        if disposition == "PENDING":
+            continue
+        observation_rows = conn.execute(
+            "SELECT record_json FROM realized_outcome_observations_v2 "
+            "WHERE scheduled_sample_id = ? AND evaluation_opportunity_set_id = ?",
+            (
+                slot["scheduled_sample_id"],
+                opportunity["evaluation_opportunity_set_id"],
+            ),
+        ).fetchall()
+        if disposition in {"SCORE", "EXOGENOUS_EXCLUSION"} and not observation_rows:
+            unresolved_schedule_results.append(
+                unresolved_schedule_result(
+                    slot,
+                    status="PENDING_TERMINAL_COMPANION_UNAVAILABLE",
+                    failure_code="REQUIRED_TERMINAL_OUTCOME_COMPANION_UNAVAILABLE",
+                )
+            )
+            continue
+        if disposition == "AGENT_FAILURE":
+            if operational is None:
+                unresolved_schedule_results.append(
+                    unresolved_schedule_result(
+                        slot,
+                        status="PENDING_TERMINAL_COMPANION_UNAVAILABLE",
+                        failure_code="REQUIRED_TERMINAL_OUTCOME_COMPANION_UNAVAILABLE",
+                    )
+                )
+                continue
+            if (
+                operational.get("disposition") != "AGENT_FAILURE"
+                or operational.get("accountable") is not True
+                or operational.get("production_reliability_eligible") is not True
+                or operational.get("failure_reason")
+                != current.get("exclusion_or_failure_reason")
+            ):
+                raise ValueError("agent failure operational audit mismatch")
+            continue
+        if disposition not in {"SCORE", "EXOGENOUS_EXCLUSION"}:
+            raise ValueError("scheduled outcome eligibility disposition is invalid")
+        if len(observation_rows) != 1:
+            raise ValueError("scheduled outcome observation authority is ambiguous")
+        observation = decoded_hashed_record(
+            observation_rows[0][0],
+            hash_field="realized_outcome_observation_hash",
+            scope="scheduled realized outcome observation",
+        )
+        for field, expected in (
+            ("scheduled_sample_id", slot["scheduled_sample_id"]),
+            (
+                "evaluation_opportunity_set_id",
+                opportunity["evaluation_opportunity_set_id"],
+            ),
+            (
+                "evaluation_opportunity_set_hash",
+                opportunity["evaluation_opportunity_set_hash"],
+            ),
+            ("agent_id", slot["agent_id"]),
+            ("outcome_schedule_slot_id", slot["outcome_schedule_slot_id"]),
+            ("outcome_schedule_slot_hash", slot["outcome_schedule_slot_hash"]),
+            ("outcome_due_at", slot["outcome_due_at"]),
+            ("external_schedule_authority", None),
+        ):
+            if observation.get(field) != expected:
+                raise ValueError(f"realized outcome observation {field} mismatch")
+        if _timestamp(observation.get("matured_at"), "matured_at") > cutoff:
+            raise ValueError("future realized outcome observation rejected")
+        if disposition == "EXOGENOUS_EXCLUSION":
+            if (
+                observation.get("projection_status") != "ABSTAIN"
+                or not str(current.get("exclusion_or_failure_reason", "")).startswith(
+                    "OUTCOME_ABSTAIN:"
+                )
+            ):
+                raise ValueError("exogenous outcome terminal is not an ABSTAIN")
+            if conn.execute(
+                "SELECT 1 FROM agent_outcome_labels_v2 WHERE audit_revision_id = ?",
+                (current["audit_revision_id"],),
+            ).fetchone() is not None:
+                raise ValueError("ABSTAIN outcome cannot carry a score label")
+            continue
+        if observation.get("projection_status") != "SCORE":
+            raise ValueError("SCORE eligibility requires a SCORE observation")
+        label_rows = conn.execute(
+            "SELECT record_json FROM agent_outcome_labels_v2 "
+            "WHERE audit_revision_id = ?",
+            (current["audit_revision_id"],),
+        ).fetchall()
+        if not label_rows:
+            unresolved_schedule_results.append(
+                unresolved_schedule_result(
+                    slot,
+                    status="PENDING_TERMINAL_COMPANION_UNAVAILABLE",
+                    failure_code="REQUIRED_TERMINAL_OUTCOME_COMPANION_UNAVAILABLE",
+                )
+            )
+            continue
+        if len(label_rows) != 1:
+            raise ValueError("scheduled outcome label authority is ambiguous")
+        label = decoded_hashed_record(
+            label_rows[0][0],
+            hash_field="outcome_label_hash",
+            scope="scheduled outcome label",
+        )
+        for field, expected in (
+            ("audit_revision_id", current["audit_revision_id"]),
+            ("audit_revision_hash", current["audit_revision_hash"]),
+            ("scheduled_sample_id", slot["scheduled_sample_id"]),
+            ("track_key_hash", slot["track_key_hash"]),
+            ("agent_id", slot["agent_id"]),
+            (
+                "realized_outcome_observation_id",
+                observation["realized_outcome_observation_id"],
+            ),
+            (
+                "realized_outcome_observation_hash",
+                observation["realized_outcome_observation_hash"],
+            ),
+            ("outcome_due_at", slot["outcome_due_at"]),
+            ("matured_at", observation["matured_at"]),
+        ):
+            if label.get(field) != expected:
+                raise ValueError(f"scheduled outcome label {field} mismatch")
+
+    rows = conn.execute(
+        "SELECT current.record_json "
+        "FROM agent_outcome_eligibility_revisions_v2 current "
+        "WHERE current.sample_origin = 'PRODUCTION_ACTIVE' "
+        "AND current.disposition = 'PENDING' "
+        "AND NOT EXISTS ("
+        "SELECT 1 FROM agent_outcome_eligibility_revisions_v2 newer "
+        "WHERE newer.audit_id = current.audit_id "
+        "AND newer.audit_sequence > current.audit_sequence) ",
+    ).fetchall()
+    contexts: list[
+        tuple[datetime, dict[str, Any], dict[str, Any], dict[str, Any], dict[str, Any]]
+    ] = []
+    not_due_count = 0
+    for row in rows:
+        audit = json.loads(row[0])
+        if not isinstance(audit, dict):
+            raise ValueError("pending outcome audit must be an object")
+        opportunity_row = conn.execute(
+            "SELECT record_json FROM evaluation_opportunity_sets_v2 "
+            "WHERE evaluation_opportunity_set_id = ?",
+            (audit.get("evaluation_opportunity_set_id"),),
+        ).fetchone()
+        if opportunity_row is None:
+            raise ValueError("pending outcome opportunity is unavailable")
+        opportunity = json.loads(opportunity_row[0])
+        if not isinstance(opportunity, dict):
+            raise ValueError("pending outcome records must be objects")
+        if opportunity.get("production_variant_roster_revision_id") != revision_id:
+            continue
+        audit_hash = _required_sha256(
+            audit.get("audit_revision_hash"), "audit_revision_hash"
+        )
+        if audit_hash != canonical_hash(
+            {
+                key: value
+                for key, value in audit.items()
+                if key != "audit_revision_hash"
+            }
+        ):
+            raise ValueError("pending outcome eligibility hash mismatch")
+        opportunity_hash = _required_sha256(
+            opportunity.get("evaluation_opportunity_set_hash"),
+            "evaluation_opportunity_set_hash",
+        )
+        if opportunity_hash != canonical_hash(
+            {
+                key: value
+                for key, value in opportunity.items()
+                if key != "evaluation_opportunity_set_hash"
+            }
+        ):
+            raise ValueError("pending evaluation opportunity hash mismatch")
+        for field in ("scheduled_sample_id", "track_key_hash", "agent_id", "sample_origin"):
+            if audit.get(field) != opportunity.get(field):
+                raise ValueError(f"pending outcome {field} lineage mismatch")
+        if (
+            opportunity.get("production_variant_roster_revision_id") != revision_id
+            or opportunity.get("opportunity_set_status") != "AVAILABLE"
+            or opportunity.get("pit_status") != "VERIFIED"
+            or audit.get("evaluation_opportunity_set_id")
+            != opportunity.get("evaluation_opportunity_set_id")
+            or audit.get("evaluation_opportunity_set_hash") != opportunity_hash
+        ):
+            raise ValueError("pending outcome opportunity ownership/status drift")
+        track = _track_record(conn, str(audit["track_key_hash"]))
+        if (
+            track["agent_id"] != audit["agent_id"]
+            or track["track_key_hash"]
+            not in revision["evaluation_track_key_hashes"]
+        ):
+            raise ValueError("pending outcome track is outside the roster revision")
+        validate_evaluation_opportunity_members(
+            str(audit["agent_id"]),
+            opportunity.get("qualification_predicate_version"),
+            opportunity.get("member_refs"),
+        )
+        slot, plan = _validated_schedule_context(
+            conn,
+            scheduled_sample_id=str(audit["scheduled_sample_id"]),
+            track_key_hash=str(audit["track_key_hash"]),
+            agent_id=str(audit["agent_id"]),
+            production_variant_roster_revision_id=revision_id,
+        )
+        if opportunity.get("as_of") != plan.get("as_of"):
+            raise ValueError("pending outcome opportunity as_of drift from schedule plan")
+        _required_text(audit.get("accepted_output_id"), "accepted_output_id")
+        _required_sha256(audit.get("accepted_output_hash"), "accepted_output_hash")
+        due = _timestamp(slot.get("outcome_due_at"), "outcome_due_at")
+        if due > cutoff:
+            not_due_count += 1
+            continue
+        slot, plan = _validated_schedule_context(
+            conn,
+            scheduled_sample_id=str(audit["scheduled_sample_id"]),
+            track_key_hash=str(audit["track_key_hash"]),
+            agent_id=str(audit["agent_id"]),
+            production_variant_roster_revision_id=revision_id,
+            cutoff_at=cutoff_at,
+            trading_dates=dates,
+        )
+        contexts.append((due, audit, opportunity, slot, plan))
+
+    results: list[dict[str, Any]] = list(unresolved_schedule_results)
+    for _, audit, opportunity, slot, plan in sorted(
+        contexts,
+        key=lambda item: (
+            item[0],
+            str(item[1]["agent_id"]),
+            str(item[1]["scheduled_sample_id"]),
+        ),
+    ):
+        loader_kwargs = {
+            "scheduled_sample_id": audit["scheduled_sample_id"],
+            "outcome_schedule_slot_id": slot["outcome_schedule_slot_id"],
+            "outcome_schedule_slot_hash": slot["outcome_schedule_slot_hash"],
+            "evaluation_opportunity_set_id": opportunity[
+                "evaluation_opportunity_set_id"
+            ],
+            "evaluation_opportunity_set_hash": opportunity[
+                "evaluation_opportunity_set_hash"
+            ],
+            "accepted_output_id": audit["accepted_output_id"],
+            "accepted_output_hash": audit["accepted_output_hash"],
+            "track_key_hash": audit["track_key_hash"],
+            "agent_id": audit["agent_id"],
+            "opportunity_as_of": plan["as_of"],
+            "outcome_due_at": slot["outcome_due_at"],
+            "cutoff_at": cutoff_at,
+        }
+        try:
+            projection = load_realized_outcome_projection(**loader_kwargs)
+        except FileNotFoundError:
+            results.append(
+                {
+                    "agent_id": audit["agent_id"],
+                    "scheduled_sample_id": audit["scheduled_sample_id"],
+                    "outcome_schedule_slot_id": slot["outcome_schedule_slot_id"],
+                    "outcome_schedule_slot_hash": slot["outcome_schedule_slot_hash"],
+                    "outcome_due_at": slot["outcome_due_at"],
+                    "maturation_status": "PENDING_INPUT_UNAVAILABLE",
+                    "failure_code": "REQUIRED_OUTCOME_PROJECTION_UNAVAILABLE",
+                }
+            )
+            continue
+        try:
+            source_batch = load_server_selected_outcome_source_batch(
+                conn,
+                scheduled_sample_id=audit["scheduled_sample_id"],
+                projection_source_batch_id=projection["source_batch_id"],
+                projection_source_batch_hash=projection["source_batch_hash"],
+                projection_source_authority_registry_hash=projection[
+                    "source_authority_registry_hash"
+                ],
+                projection_source_authority_registry_schema_hash=projection[
+                    "source_authority_registry_schema_hash"
+                ],
+                projection_source_receipt_schema_hash=projection[
+                    "source_receipt_schema_hash"
+                ],
+                projection_source_batch_schema_hash=projection[
+                    "source_batch_schema_hash"
+                ],
+                cutoff_at=cutoff_at,
+            )
+        except OutcomeSourceBatchUnavailable:
+            results.append(
+                {
+                    "agent_id": audit["agent_id"],
+                    "scheduled_sample_id": audit["scheduled_sample_id"],
+                    "outcome_schedule_slot_id": slot["outcome_schedule_slot_id"],
+                    "outcome_schedule_slot_hash": slot[
+                        "outcome_schedule_slot_hash"
+                    ],
+                    "outcome_due_at": slot["outcome_due_at"],
+                    "maturation_status": "PENDING_INPUT_UNAVAILABLE",
+                    "failure_code": "REQUIRED_OUTCOME_SOURCE_BATCH_UNAVAILABLE",
+                }
+            )
+            continue
+        observation = append_realized_outcome_observation(
+            conn,
+            evaluation_opportunity_set_id=opportunity[
+                "evaluation_opportunity_set_id"
+            ],
+            outcome_due_at=slot["outcome_due_at"],
+            matured_at=source_batch["matured_at"],
+            realized_metrics=source_batch["realized_metrics"],
+            source_evidence_ids=source_batch["source_evidence_ids"],
+            projection_status=source_batch["projection_status"],
+            realized_projection_hash=projection["snapshot_hash"],
+            production_cutoff_at=cutoff_at,
+        )
+        if source_batch["projection_status"] == "ABSTAIN":
+            eligibility = append_outcome_eligibility_revision(
+                conn,
+                track_key_hash=audit["track_key_hash"],
+                scheduled_sample_id=audit["scheduled_sample_id"],
+                sample_origin="PRODUCTION_ACTIVE",
+                disposition="EXOGENOUS_EXCLUSION",
+                recorded_at=source_batch["matured_at"],
+                evaluation_opportunity_set_id=opportunity[
+                    "evaluation_opportunity_set_id"
+                ],
+                accepted_output_id=audit["accepted_output_id"],
+                exclusion_or_failure_reason=(
+                    f"OUTCOME_ABSTAIN:{source_batch['abstain_reason']}"
+                ),
+            )
+            results.append(
+                {
+                    "agent_id": audit["agent_id"],
+                    "scheduled_sample_id": audit["scheduled_sample_id"],
+                    "outcome_schedule_slot_id": slot["outcome_schedule_slot_id"],
+                    "outcome_schedule_slot_hash": slot["outcome_schedule_slot_hash"],
+                    "outcome_due_at": slot["outcome_due_at"],
+                    "matured_at": source_batch["matured_at"],
+                    "maturation_status": "ABSTAIN",
+                    "audit_revision_id": eligibility["audit_revision_id"],
+                    "realized_outcome_observation_id": observation[
+                        "realized_outcome_observation_id"
+                    ],
+                    "outcome_label_id": None,
+                }
+            )
+            continue
+        eligibility = append_outcome_eligibility_revision(
+            conn,
+            track_key_hash=audit["track_key_hash"],
+            scheduled_sample_id=audit["scheduled_sample_id"],
+            sample_origin="PRODUCTION_ACTIVE",
+            disposition="SCORE",
+            recorded_at=source_batch["matured_at"],
+            evaluation_opportunity_set_id=opportunity[
+                "evaluation_opportunity_set_id"
+            ],
+            accepted_output_id=audit["accepted_output_id"],
+        )
+        label = append_agent_outcome_label(
+            conn,
+            audit_revision_id=eligibility["audit_revision_id"],
+            realized_outcome_observation_id=observation[
+                "realized_outcome_observation_id"
+            ],
+            realized_projection_hash=projection["snapshot_hash"],
+        )
+        results.append(
+            {
+                "agent_id": audit["agent_id"],
+                "scheduled_sample_id": audit["scheduled_sample_id"],
+                "outcome_schedule_slot_id": slot["outcome_schedule_slot_id"],
+                "outcome_schedule_slot_hash": slot["outcome_schedule_slot_hash"],
+                "outcome_due_at": slot["outcome_due_at"],
+                "matured_at": source_batch["matured_at"],
+                "maturation_status": "SCORE",
+                "audit_revision_id": eligibility["audit_revision_id"],
+                "realized_outcome_observation_id": observation[
+                    "realized_outcome_observation_id"
+                ],
+                "outcome_label_id": label["outcome_label_id"],
+                "darwin_application_mode": OUTCOME_CONTRACTS[audit["agent_id"]][
+                    "darwin_application_mode"
+                ],
+            }
+        )
+
+    results.sort(
+        key=lambda item: (
+            str(item["outcome_due_at"]),
+            str(item["agent_id"]),
+            str(item["scheduled_sample_id"]),
+        )
+    )
+    unresolved_statuses = {
+        "PENDING_INPUT_UNAVAILABLE",
+        "PENDING_ELIGIBILITY_AUDIT_MISSING",
+        "PENDING_PREPARATION_UNAVAILABLE",
+        "PENDING_TERMINAL_COMPANION_UNAVAILABLE",
+    }
+    counts = {
+        "due_pending_count": len(contexts) + len(unresolved_schedule_results),
+        "scored_count": sum(item["maturation_status"] == "SCORE" for item in results),
+        "abstained_count": sum(
+            item["maturation_status"] == "ABSTAIN" for item in results
+        ),
+        "unresolved_count": sum(
+            item["maturation_status"] in unresolved_statuses for item in results
+        ),
+        "not_due_count": not_due_count,
+    }
+    without_hash = {
+        "schema_version": "outcome_maturation_batch_v2",
+        "production_variant_roster_revision_id": revision_id,
+        "production_variant_roster_id": revision["production_variant_roster_id"],
+        "cutoff_at": cutoff_at,
+        **counts,
+        "results": results,
+    }
+    return {**without_hash, "maturation_batch_hash": canonical_hash(without_hash)}
 
 
 def _window_for_track(
@@ -2234,8 +4018,14 @@ def _current_weight_record(
         WHERE usage_track_key_hash = ? AND effective_at <= ?
           AND (
             update_event_id IS NULL OR EXISTS (
-              SELECT 1 FROM darwinian_v2_usage_weight_batch_revisions b
-              WHERE b.update_event_id = w.update_event_id AND b.status = 'PUBLISHED'
+              SELECT 1
+              FROM darwinian_v2_usage_weight_batch_revisions b
+              JOIN darwinian_v2_usage_weight_batch_publications p
+                ON p.update_event_id = b.update_event_id
+               AND p.published_batch_revision_id = b.batch_revision_id
+               AND p.published_batch_revision_hash = b.batch_revision_hash
+              WHERE b.update_event_id = w.update_event_id
+                AND b.status = 'PUBLISHED'
             )
           )
         ORDER BY effective_at DESC, rowid DESC LIMIT 1
@@ -2245,6 +4035,149 @@ def _current_weight_record(
     if row is None:
         raise ValueError(f"no published weight for {usage_track_key_hash}")
     return json.loads(row[0])
+
+
+def _server_now() -> datetime:
+    """Read the Scorecard host clock; callers cannot supply publication time."""
+    return datetime.now(timezone.utc)
+
+
+def _append_batch_publication_receipt(
+    conn: sqlite3.Connection,
+    *,
+    published_batch: Mapping[str, Any],
+) -> dict[str, Any]:
+    if published_batch.get("status") != "PUBLISHED":
+        raise ValueError("usage-weight publication receipt requires PUBLISHED batch")
+    update_event_id = _required_text(
+        published_batch.get("update_event_id"), "update_event_id"
+    )
+    batch_revision_id = _required_text(
+        published_batch.get("batch_revision_id"), "batch_revision_id"
+    )
+    batch_revision_hash = _required_sha256(
+        published_batch.get("batch_revision_hash"), "batch_revision_hash"
+    )
+    batch_without_hash = {
+        key: value
+        for key, value in published_batch.items()
+        if key != "batch_revision_hash"
+    }
+    if batch_revision_hash != canonical_hash(batch_without_hash):
+        raise ValueError("PUBLISHED usage-weight batch hash mismatch")
+    receipt_id = deterministic_id(
+        "darwin-weight-batch-publication",
+        {
+            "update_event_id": update_event_id,
+            "published_batch_revision_id": batch_revision_id,
+        },
+    )
+    existing = conn.execute(
+        "SELECT record_json FROM darwinian_v2_usage_weight_batch_publications "
+        "WHERE update_event_id = ?",
+        (update_event_id,),
+    ).fetchone()
+    if existing is not None:
+        receipt = json.loads(existing[0])
+        if not isinstance(receipt, dict) or set(receipt) != {
+            "schema_version",
+            "publication_receipt_id",
+            "publication_receipt_hash",
+            "update_event_id",
+            "published_batch_revision_id",
+            "published_batch_revision_hash",
+            "published_at",
+        }:
+            raise ValueError("invalid immutable usage-weight publication receipt")
+        without_hash = {
+            key: value
+            for key, value in receipt.items()
+            if key != "publication_receipt_hash"
+        }
+        if (
+            receipt.get("schema_version")
+            != "darwinian_usage_weight_batch_publication_v1"
+            or receipt.get("publication_receipt_id") != receipt_id
+            or receipt.get("update_event_id") != update_event_id
+            or receipt.get("published_batch_revision_id") != batch_revision_id
+            or receipt.get("published_batch_revision_hash") != batch_revision_hash
+            or receipt.get("publication_receipt_hash") != canonical_hash(without_hash)
+        ):
+            raise ValueError("invalid immutable usage-weight publication receipt")
+        _timestamp(receipt.get("published_at"), "published_at")
+        return receipt
+
+    published_value = _server_now()
+    if not isinstance(published_value, datetime) or published_value.tzinfo is None:
+        raise ValueError("usage-weight publication server clock must be timezone-aware")
+    without_hash = {
+        "schema_version": "darwinian_usage_weight_batch_publication_v1",
+        "publication_receipt_id": receipt_id,
+        "update_event_id": update_event_id,
+        "published_batch_revision_id": batch_revision_id,
+        "published_batch_revision_hash": batch_revision_hash,
+        "published_at": published_value.astimezone(timezone.utc).isoformat(),
+    }
+    receipt = {
+        **without_hash,
+        "publication_receipt_hash": canonical_hash(without_hash),
+    }
+    receipt_json = canonical_json(receipt)
+    _insert_immutable(
+        conn,
+        table="darwinian_v2_usage_weight_batch_publications",
+        id_column="publication_receipt_id",
+        record_id=receipt_id,
+        columns=(
+            "publication_receipt_id",
+            "publication_receipt_hash",
+            "update_event_id",
+            "published_batch_revision_id",
+            "published_batch_revision_hash",
+            "published_at",
+            "record_json",
+        ),
+        values=(
+            receipt_id,
+            receipt["publication_receipt_hash"],
+            update_event_id,
+            batch_revision_id,
+            batch_revision_hash,
+            receipt["published_at"],
+            receipt_json,
+        ),
+        record_json=receipt_json,
+    )
+    return receipt
+
+
+def _migrate_known_batch_publications(
+    conn: sqlite3.Connection,
+    *,
+    production_variant_roster_id: str,
+) -> None:
+    """Server-stamp legacy PUBLISHED rows when first encountered after upgrade."""
+    rows = conn.execute(
+        """
+        SELECT b.record_json
+        FROM darwinian_v2_usage_weight_batch_revisions b
+        LEFT JOIN darwinian_v2_usage_weight_batch_publications p
+          ON p.update_event_id = b.update_event_id
+        WHERE b.production_variant_roster_id = ?
+          AND b.status = 'PUBLISHED'
+          AND p.publication_receipt_id IS NULL
+        ORDER BY b.rowid
+        """,
+        (production_variant_roster_id,),
+    ).fetchall()
+    for row in rows:
+        published_batch = json.loads(row[0])
+        if not isinstance(published_batch, dict):
+            raise ValueError("invalid immutable PUBLISHED usage-weight batch")
+        _append_batch_publication_receipt(
+            conn,
+            published_batch=published_batch,
+        )
 
 
 def _next_weight(previous: float, band: str) -> float:
@@ -2283,6 +4216,10 @@ def publish_usage_weight_updates(
     if revision_row is None:
         raise ValueError("roster revision is unavailable")
     revision = json.loads(revision_row[0])
+    _migrate_known_batch_publications(
+        conn,
+        production_variant_roster_id=revision["production_variant_roster_id"],
+    )
     checkpoint_by_track = {row["track_key_hash"]: row for row in checkpoints}
     usage_rows = conn.execute(
         "SELECT usage_track_key_hash, evaluation_track_key_hash, agent_id "
@@ -2686,6 +4623,10 @@ def publish_usage_weight_updates(
                 ),
                 record_json=published_json,
             )
+            _append_batch_publication_receipt(
+                conn,
+                published_batch=published_record,
+            )
             conn.execute("RELEASE SAVEPOINT publish_darwinian_scope")
             published.append(published_record)
         except Exception:
@@ -2742,6 +4683,7 @@ __all__ = [
     "compute_outcome_utility",
     "derive_darwin_calendar_window",
     "freeze_evaluation_opportunity_set",
+    "materialize_due_outcomes",
     "publish_usage_weight_updates",
     "refresh_evaluation_windows",
 ]

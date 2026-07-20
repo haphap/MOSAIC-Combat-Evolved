@@ -70,10 +70,13 @@ def test_dashboard_report_summarizes_completion_and_monitoring():
     assert report["rollback_readiness"]["failure_count"] == 0
     assert report["lockbox"]["result"] == "passed"
     assert report["lockbox"]["production_allowed"] is True
+    assert report["promotion_gate"]["execution_mode"] == "RKE_SHADOW"
+    assert report["promotion_gate"]["production_signal_allowed"] is False
     assert report["promotion_gate"]["paper_trading_allowed"] is True
-    assert report["promotion_gate"]["staged_production_allowed"] is True
-    assert report["promotion_gate"]["production_allowed"] is True
-    assert report["promotion_gate"]["next_state"] == "production"
+    assert report["promotion_gate"]["staged_production_allowed"] is False
+    assert report["promotion_gate"]["production_allowed"] is False
+    assert report["promotion_gate"]["next_state"] == "paper_trading"
+    assert report["promotion_gate"]["direct_production_forbidden"] is True
     assert report["promotion_gate"]["blocker_count"] == 0
     assert report["validation_hardening"]["ablation_accepted"] is True
     assert report["validation_hardening"]["horizon_metric_failures"] == []
@@ -272,8 +275,11 @@ def test_dashboard_markdown_renders_blockers():
     assert "MVP exit blocked sections: none" in markdown
     assert "Final acceptance blocked: 0" in markdown
     assert "Final acceptance blocked sections: none" in markdown
-    assert "Promotion next state: production" in markdown
-    assert "Promotion production allowed: True" in markdown
+    assert "Promotion execution mode: RKE_SHADOW" in markdown
+    assert "Promotion signal allowed: False" in markdown
+    assert "Promotion next state: paper_trading" in markdown
+    assert "Promotion production allowed: False" in markdown
+    assert "Direct production forbidden: True" in markdown
     assert "Validation ablations accepted: True" in markdown
     assert "Validation statistical significance accepted: True" in markdown
     assert "Experiment validation failures: 0" in markdown

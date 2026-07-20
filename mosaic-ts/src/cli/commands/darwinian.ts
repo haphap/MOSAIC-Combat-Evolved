@@ -114,7 +114,9 @@ function printDarwinianTable(
     console.log(
       pc.dim("\n(no weights computed yet — run `pnpm dev darwinian --compute` to populate)"),
     );
-    console.log(pc.dim("Until then, autonomous_execution falls back to uniform 1.0."));
+    console.log(
+      pc.dim("Production Darwinian-v2 bindings are unaffected and never fall back to this table."),
+    );
     return;
   }
 

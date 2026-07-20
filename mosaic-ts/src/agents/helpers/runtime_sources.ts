@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
 import { AGENTS_BY_LAYER } from "../prompts/cohorts.js";
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType } from "../state.js";
+import { canonicalJsonHash } from "./canonical_json.js";
 import type { RuntimeSourceStatus } from "./private_knot_boundary.js";
 
 export function resolveRuntimeSourceStatusesForAgent(
@@ -389,9 +389,7 @@ function scopedTickers(tickers: ReadonlyArray<string>): string[] {
 }
 
 function stableHash(value: unknown): string {
-  return `sha256:${createHash("sha256")
-    .update(JSON.stringify(sortJson(value)))
-    .digest("hex")}`;
+  return canonicalJsonHash(sortJson(value));
 }
 
 function sortJson(value: unknown): unknown {
@@ -399,6 +397,7 @@ function sortJson(value: unknown): unknown {
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
+        .filter(([, item]) => item !== undefined)
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([key, item]) => [key, sortJson(item)]),
     );

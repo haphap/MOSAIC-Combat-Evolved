@@ -339,7 +339,15 @@ function fakeRelationshipSubmission(messages: unknown): unknown {
   const claimId = "fake-claim-relationship_mapper";
   return {
     agent: "relationship_mapper",
-    factual_edges: [],
+    factual_edges: [
+      {
+        edge_local_id: "relationship-fact-1",
+        source_entity: "synthetic-holder",
+        target_entity: "000001.SZ",
+        edge_type: "SHAREHOLDING",
+        claim_refs: [claimId],
+      },
+    ],
     predictive_edges: [],
     predictive_graph_status: "NO_QUALIFIED_PREDICTIVE_EDGE",
     predictive_graph_abstention_confidence: 0.5,
@@ -591,26 +599,23 @@ function fakeSectorSubmission(name: StandardSectorAgentId, messages: unknown): u
 
 function fakeMacroSubmission(name: MacroAgentId, messages: unknown): unknown {
   const evidenceId = firstEvidenceId(messageText(messages));
-  const claimId = `fake-claim-${name}`;
-  const claims = [
-    {
-      claim_id: claimId,
-      claim_kind: "RISK_FLAG",
-      statement: "Fake smoke found no evidence-supported directional conclusion.",
-      structured_conclusion: {
-        conclusion_type: "MACRO_RISK",
-        subject: name,
-        state: "No evidence-supported directional conclusion",
-        a_share_transmission: "No evidence-supported A-share transmission",
-        snapshot_echo_id: null,
-        snapshot_metric: null,
-        snapshot_value: null,
-      },
-      evidence_ids: evidenceId ? [evidenceId] : [],
-      research_rule_refs: [],
+  const claim = (subject: string) => ({
+    claim_id: `fake-claim-${name}-${subject}`.slice(0, 128),
+    claim_kind: "RISK_FLAG",
+    statement: "Fake smoke found no evidence-supported directional conclusion.",
+    structured_conclusion: {
+      conclusion_type: "MACRO_RISK",
+      subject,
+      state: "No evidence-supported directional conclusion",
+      a_share_transmission: "No evidence-supported A-share transmission",
+      snapshot_echo_id: null,
+      snapshot_metric: null,
+      snapshot_value: null,
     },
-  ];
-  const signal = {
+    evidence_ids: evidenceId ? [evidenceId] : [],
+    research_rule_refs: [],
+  });
+  const signal = (claimId: string) => ({
     direction: "NEUTRAL",
     strength: 0,
     persistence_horizon: "DAYS",
@@ -618,18 +623,29 @@ function fakeMacroSubmission(name: MacroAgentId, messages: unknown): unknown {
     confidence: 0.4,
     channels: ["insufficient directional evidence"],
     claim_refs: [claimId],
-  };
+  });
   const contract = MACRO_ROLE_CONTRACTS[name];
-  return contract.mode === "DIRECT"
-    ? { mode: "DIRECT", claims, key_drivers: ["fake structural smoke"], signal }
-    : {
-        mode: "COMPONENTS",
-        claims,
-        key_drivers: ["fake structural smoke"],
-        components: Object.keys(contract.components)
-          .sort()
-          .map((component) => ({ component, ...signal })),
-      };
+  if (contract.mode === "DIRECT") {
+    const directClaim = claim(name);
+    return {
+      mode: "DIRECT",
+      claims: [directClaim],
+      key_drivers: ["fake structural smoke"],
+      signal: signal(directClaim.claim_id),
+    };
+  }
+  const componentClaims = Object.keys(contract.components)
+    .sort()
+    .map((component) => claim(component));
+  return {
+    mode: "COMPONENTS",
+    claims: componentClaims,
+    key_drivers: ["fake structural smoke"],
+    components: componentClaims.map((componentClaim) => ({
+      component: componentClaim.structured_conclusion.subject,
+      ...signal(componentClaim.claim_id),
+    })),
+  };
 }
 
 export function fakeContractOutput(

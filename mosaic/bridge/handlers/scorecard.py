@@ -143,40 +143,13 @@ def scorecard_append(params: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError(
                     "backtest scorecard append requires the matching accepted backtest day"
                 )
-        # The explanation sidecar is persisted independently and stripped from
-        # every recommendation/evaluation writer by construction.
-        evaluation_state = {
-            key: value
-            for key, value in state.items()
-            if key != "agent_display_narratives"
-        }
-        n = store.append_from_state(evaluation_state)
-        macro_n = store.append_macro_signals_from_state(evaluation_state)
-        narrative_n = (
-            store.append_agent_display_narratives_from_state(state)
-            if state.get("agent_display_narratives") is not None
-            else None
-        )
-        darwinian_v2 = (
-            store.append_darwinian_v2_accepted_cycle(evaluation_state)
-            if state.get("darwinian_runtime_binding") is not None
-            else None
-        )
+        result = store.append_accepted_scorecard_cycle(state)
     except ValueError as exc:
         # expand_* raises ValueError when as_of_date is missing
         raise RpcError(INVALID_PARAMS, str(exc)) from exc
     except Exception as exc:
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
-    return {
-        "ingested": n,
-        "macro_ingested": macro_n,
-        **(
-            {"agent_narratives_ingested": narrative_n}
-            if narrative_n is not None
-            else {}
-        ),
-        **({"darwinian_v2": darwinian_v2} if darwinian_v2 is not None else {}),
-    }
+    return result
 
 
 # ---------------------------------------------------------------------------
