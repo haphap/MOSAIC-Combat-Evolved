@@ -36,6 +36,7 @@ import { submitPaperTargetDeltaOrders } from "../src/cli/commands/daily-cycle.js
 import { fakeAgentStructuredOutput, fakeSchemaValue } from "../src/cli/fake_agent_output.js";
 import { buildDailyCycleGraph, DAILY_CYCLE_LAYER_NODES } from "../src/graph/daily_cycle.js";
 import type { LlmHandle } from "../src/llm/factory.js";
+import { runtimeBehaviorRunPinsFixture } from "./helpers/runtime_behavior.js";
 
 // ============================================================ helpers / shared
 
@@ -617,8 +618,8 @@ function formalState(): DailyCycleStateType {
   const base = emptyState();
   const asOf = "2024-06-24T15:00:00+08:00";
   const rosterId = "production-variant-roster:fixture";
-  const revisionId = "production-variant-roster-revision:fixture";
-  const releaseId = "execution-behavior-release:fixture";
+  const revisionId = `production-variant-roster-revision:${"d".repeat(64)}`;
+  const releaseId = `execution-behavior-release:${"c".repeat(64)}`;
   const hash = (index: number) => `sha256:${index.toString(16).padStart(64, "0")}`;
   const macroIds = new Set<string>(MACRO_AGENT_IDS);
   const componentIds = new Set(
@@ -750,6 +751,10 @@ function formalState(): DailyCycleStateType {
       effective_at: asOf,
       agent_behavior_bindings: behaviorBindings,
       binding_hash: hash(700),
+      runtime_release_pins: runtimeBehaviorRunPinsFixture({
+        executionBehaviorReleaseId: releaseId,
+        rosterRevisionId: revisionId,
+      }),
     },
     darwinian_weight_snapshot: {
       darwinian_snapshot_id: "darwinian-snapshot:fixture",

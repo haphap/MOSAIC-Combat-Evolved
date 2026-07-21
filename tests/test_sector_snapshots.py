@@ -123,6 +123,45 @@ def test_sector_snapshot_accepts_strict_pit_fixture(snapshot: dict[str, Any]) ->
     assert accepted["eligible_count"] == len(accepted["eligible_security_universe"])
 
 
+def test_structured_smoke_sector_fixture_has_a_decisive_order(
+    snapshot: dict[str, Any],
+) -> None:
+    values_by_metric = {
+        metric_id: [
+            next(
+                metric["value"]
+                for metric in card["metrics"]
+                if metric["metric_id"] == metric_id
+            )
+            for card in snapshot["direction_cards"]
+        ]
+        for metric_id in (
+            "REVENUE_GROWTH_TTM_YOY",
+            "EARNINGS_YIELD_TTM",
+            "RELATIVE_TOTAL_RETURN_20D",
+            "REALIZED_VOLATILITY_60D",
+            "CURRENT_DRAWDOWN_252D",
+        )
+    }
+    assert values_by_metric["REVENUE_GROWTH_TTM_YOY"] == sorted(
+        values_by_metric["REVENUE_GROWTH_TTM_YOY"]
+    )
+    assert values_by_metric["EARNINGS_YIELD_TTM"] == sorted(
+        values_by_metric["EARNINGS_YIELD_TTM"]
+    )
+    assert values_by_metric["RELATIVE_TOTAL_RETURN_20D"] == sorted(
+        values_by_metric["RELATIVE_TOTAL_RETURN_20D"]
+    )
+    assert values_by_metric["REALIZED_VOLATILITY_60D"] == sorted(
+        values_by_metric["REALIZED_VOLATILITY_60D"], reverse=True
+    )
+    assert values_by_metric["CURRENT_DRAWDOWN_252D"] == sorted(
+        values_by_metric["CURRENT_DRAWDOWN_252D"]
+    )
+    for values in values_by_metric.values():
+        assert len(set(values)) == len(values)
+
+
 def test_sector_manifest_rejects_rehashed_nested_contract_drift(tmp_path: Path) -> None:
     manifest = copy.deepcopy(SECTOR_UNIVERSE_MANIFEST)
     manifest["flow_coverage_contract"]["aggregation"] = "UNREGISTERED_AGGREGATION"

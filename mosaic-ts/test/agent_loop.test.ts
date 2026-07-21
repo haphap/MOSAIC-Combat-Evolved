@@ -13,6 +13,7 @@ import {
   toolCallFingerprint,
   toolResultFingerprint,
 } from "../src/agents/helpers/agent_loop.js";
+import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
 
 class ScriptedLlm {
   bindToolsCalled = 0;
@@ -33,7 +34,152 @@ class ScriptedLlm {
   }
 }
 
+class ContextSensitiveLlm {
+  bindTools(): ContextSensitiveLlm {
+    return this;
+  }
+
+  async invoke(messages: BaseMessage[]): Promise<AIMessage> {
+    const input = messages.map((message) => String(message.content)).join("\n");
+    return new AIMessage(input.includes('"value":49.2') ? "ADVERSE" : "SUPPORTIVE");
+  }
+}
+
 describe("agent tool loop helpers", () => {
+  it("freezes required tool evidence and injects one derived context before the first model call", async () => {
+    const llm = new ScriptedLlm([
+      new AIMessage("SUPPORTIVE because the activity observation rose."),
+    ]);
+    let toolFinished = false;
+    let contextPrepared = 0;
+    const snapshotTool = tool(
+      async () => {
+        toolFinished = true;
+        return JSON.stringify({
+          as_of: "2026-07-21",
+          observations: [{ actual: 51.2, unit: "index", observation_period: "2026-07" }],
+        });
+      },
+      {
+        name: "get_china_macro_snapshot",
+        description: "test snapshot",
+        schema: z.object({ as_of: z.string() }),
+      },
+    );
+    const context = [
+      {
+        schema_version: "knot_derived_economic_feature_v1" as const,
+        public_feature_id: "china.activity.composite_observation",
+        observation_period: "2026-07",
+        as_of: "2026-07-21",
+        value: 51.2,
+        unit: "index",
+        evidence_refs: [`sha256:${"a".repeat(64)}`],
+        pit_status: "PIT_VERIFIED" as const,
+      },
+    ];
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [snapshotTool],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("as_of=2026-07-21")],
+      initialToolCalls: [{ name: "get_china_macro_snapshot", args: { as_of: "2026-07-21" } }],
+      allowModelToolCalls: false,
+      agentInvocationId: "agent-invocation:test",
+      prepareModelContext: async (initialToolResults) => {
+        expect(toolFinished).toBe(true);
+        expect(llm.seenMessages).toHaveLength(0);
+        expect(initialToolResults).toHaveLength(1);
+        expect(initialToolResults[0]).toMatchObject({
+          tool_name: "get_china_macro_snapshot",
+          payload: expect.objectContaining({ as_of: "2026-07-21" }),
+          status: "CURRENT",
+        });
+        contextPrepared++;
+        const contextHash = canonicalJsonHash({
+          schema_version: "private_knot_model_context_v1",
+          snapshot_hash: `sha256:${"b".repeat(64)}`,
+          context,
+        });
+        return {
+          context,
+          context_hash: contextHash,
+          audit: {
+            snapshot_hash: `sha256:${"b".repeat(64)}`,
+            disposition: "APPLIED",
+            envelope_hashes: context.map((item) => canonicalJsonHash(item)),
+          },
+        };
+      },
+    });
+
+    expect(contextPrepared).toBe(1);
+    expect(result.modelContext?.context).toEqual(context);
+    expect(result.effectiveModelInputHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(llm.seenMessages).toHaveLength(1);
+    const firstModelInput = llm.seenMessages[0]
+      ?.map((message) => String(message.content))
+      .join("\n");
+    if (!firstModelInput) throw new Error("model input fixture missing");
+    expect(firstModelInput).toContain("china.activity.composite_observation");
+    expect(firstModelInput).toContain("51.2");
+  });
+
+  it("lets a registered derived observation change judgment on the same frozen tool result", async () => {
+    const snapshotTool = tool(async () => JSON.stringify({ as_of: "2026-07-21", activity: 50 }), {
+      name: "get_china_macro_snapshot",
+      description: "test snapshot",
+      schema: z.object({ as_of: z.string() }),
+    });
+    const run = (value: number) =>
+      runAgentToolLoop({
+        llm: new ContextSensitiveLlm() as never,
+        tools: [snapshotTool],
+        systemMessage: "system",
+        initialMessages: [new HumanMessage("as_of=2026-07-21")],
+        initialToolCalls: [{ name: "get_china_macro_snapshot", args: { as_of: "2026-07-21" } }],
+        allowModelToolCalls: false,
+        agentInvocationId: "agent-invocation:counterfactual",
+        prepareModelContext: async (initialToolResults) => {
+          const initialToolResult = initialToolResults[0];
+          if (!initialToolResult) throw new Error("initial tool fixture missing");
+          const context = [
+            {
+              schema_version: "knot_derived_economic_feature_v1" as const,
+              public_feature_id: "china.activity.composite_observation",
+              observation_period: "2026-07",
+              as_of: "2026-07-21",
+              value,
+              unit: "index",
+              evidence_refs: [initialToolResult.source_fingerprint],
+              pit_status: "PIT_VERIFIED" as const,
+            },
+          ];
+          return {
+            context,
+            context_hash: canonicalJsonHash({
+              schema_version: "private_knot_model_context_v1",
+              snapshot_hash: `sha256:${"b".repeat(64)}`,
+              context,
+            }),
+            audit: {
+              snapshot_hash: `sha256:${"b".repeat(64)}`,
+              disposition: "APPLIED" as const,
+              envelope_hashes: context.map((item) => canonicalJsonHash(item)),
+            },
+          };
+        },
+      });
+
+    const [champion, candidate] = await Promise.all([run(51.2), run(49.2)]);
+    expect(champion.analysisText).toBe("SUPPORTIVE");
+    expect(candidate.analysisText).toBe("ADVERSE");
+    expect(champion.effectiveModelInputHash).not.toBe(candidate.effectiveModelInputHash);
+    expect(champion.toolStatuses[0]?.result_fingerprint).toBe(
+      candidate.toolStatuses[0]?.result_fingerprint,
+    );
+  });
+
   it("does not truncate tool output by default", () => {
     expect(resolveToolOutputMaxChars(undefined, undefined)).toBe(0);
     expect(compactToolOutput("a".repeat(10_000), 0)).toEqual({

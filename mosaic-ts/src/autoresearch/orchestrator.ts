@@ -56,6 +56,8 @@ export interface MutationResult {
 }
 
 export interface CycleResult {
+  namespace: "LEGACY_DIAGNOSTIC";
+  production_eligible: false;
   mutations: MutationResult[];
 }
 
@@ -304,5 +306,9 @@ export async function runAutoresearchCycle(opts: AutoresearchCycleOptions): Prom
         : {}),
     });
   }
-  return { mutations: results };
+  return {
+    namespace: "LEGACY_DIAGNOSTIC",
+    production_eligible: false,
+    mutations: results,
+  };
 }

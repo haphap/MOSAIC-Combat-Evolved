@@ -82,6 +82,12 @@ export interface PromptReleaseRuntimeAssignment {
   lifecycle_state: "staged" | "canary" | "active" | "rolled_back";
 }
 
+export function buildPromptReleaseAssignmentKey(cohort: string, asOfDate: string): string {
+  return `daily-release-${canonicalJsonHash({ cohort, as_of_date: asOfDate }).slice(
+    "sha256:".length,
+  )}`;
+}
+
 const cache = new Map<string, string>();
 const privateKnotCache = new Map<string, LoadPromptWithPrivateKnotResult>();
 

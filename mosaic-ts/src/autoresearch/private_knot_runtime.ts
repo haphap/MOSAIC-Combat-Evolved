@@ -8,6 +8,10 @@ import {
   type PrivateKnotRuntimeAdapter,
 } from "../agents/helpers/private_knot_boundary.js";
 import { KNOT_RUNTIME_CONTRACT_REF } from "./knot_contract.js";
+import {
+  type RuntimeBehaviorBundleRef,
+  RuntimeBehaviorBundleRefSchema,
+} from "./runtime_behavior_bundle.js";
 
 export interface PrivateRuntimeManifest {
   schema_version: "private_knot_runtime_manifest_v1";
@@ -23,6 +27,7 @@ const PUBLIC_ASSET_REF_PATH = resolve(
 export async function initializePrivateKnotRuntime(opts: {
   required: boolean;
   privateRoot?: string;
+  expectedRuntimeBehaviorBundle?: RuntimeBehaviorBundleRef;
 }): Promise<boolean> {
   const root = resolvePrivateRoot(opts.privateRoot);
   if (!root) {
@@ -69,6 +74,14 @@ export async function initializePrivateKnotRuntime(opts: {
     assetRef.research_knob_projections.private_manifest_relative_path,
     assetRef.research_knob_projections.manifest_hash,
   );
+  if (opts.expectedRuntimeBehaviorBundle) {
+    assertRuntimeBehaviorBundlePrivateClosure({
+      bundle: opts.expectedRuntimeBehaviorBundle,
+      privateRuntimeManifestHash: sha256(manifestRaw),
+      projectionManifestHash: assetRef.research_knob_projections.manifest_hash,
+      verifiedFiles,
+    });
+  }
   const imported = (await import(
     `${pathToFileURL(adapterPath).href}?sha256=${entry.sha256.slice("sha256:".length)}`
   )) as {
@@ -97,6 +110,34 @@ export async function initializePrivateKnotRuntime(opts: {
   }
   installPrivateKnotRuntime(adapter);
   return true;
+}
+
+export function assertRuntimeBehaviorBundlePrivateClosure(input: {
+  bundle: RuntimeBehaviorBundleRef;
+  privateRuntimeManifestHash: string;
+  projectionManifestHash: string;
+  verifiedFiles: ReadonlyMap<string, Buffer>;
+}): void {
+  const bundle = RuntimeBehaviorBundleRefSchema.parse(input.bundle);
+  if (bundle.private_runtime_manifest_hash !== input.privateRuntimeManifestHash) {
+    throw new Error("private_knot_runtime_bundle_manifest_mismatch");
+  }
+  if (bundle.private_policy_hash !== input.projectionManifestHash) {
+    throw new Error("private_knot_runtime_bundle_policy_mismatch");
+  }
+  const registryPins = {
+    knot_effect_registry: bundle.effect_registry_hash,
+    knot_effect_consumer_registry: bundle.consumer_registry_hash,
+    knot_effect_fitness_registry: bundle.fitness_registry_hash,
+  } as const;
+  for (const [logicalName, expectedHash] of Object.entries(registryPins)) {
+    const raw = input.verifiedFiles.get(logicalName);
+    if (!raw) throw new Error(`private_knot_runtime_bundle_registry_missing:${logicalName}`);
+    const parsed = JSON.parse(raw.toString("utf-8")) as { registry_hash?: unknown };
+    if (parsed.registry_hash !== expectedHash) {
+      throw new Error(`private_knot_runtime_bundle_registry_mismatch:${logicalName}`);
+    }
+  }
 }
 
 export async function verifyPrivateKnotRuntimeManifestFiles(

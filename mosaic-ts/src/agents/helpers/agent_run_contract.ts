@@ -180,7 +180,7 @@ export async function invokeStrictStructured<T>(
         ? opts.messages
         : buildRepairMessages({
             attempt,
-            schema: opts.schema,
+            providerSchema: strictProviderSchema,
             originalMessages: opts.messages,
             originalOutput: previousProviderRaw,
             cumulativeIssues,
@@ -350,9 +350,9 @@ function sanitize(value: string): string {
   return value.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 160) || "unknown_run";
 }
 
-function buildRepairMessages<T>(input: {
+function buildRepairMessages(input: {
   attempt: number;
-  schema: z.ZodType<T>;
+  providerSchema: unknown;
   originalMessages: [SystemMessage, HumanMessage];
   originalOutput: unknown;
   cumulativeIssues: AgentContractIssue[];
@@ -360,12 +360,17 @@ function buildRepairMessages<T>(input: {
   repairEvidenceCatalog: RepairEvidenceCatalog;
 }): [SystemMessage, HumanMessage] {
   const issuePayload = dedupeIssues(input.cumulativeIssues);
-  const contract = providerJsonSchema(input.schema);
+  const contract = input.providerSchema;
+  const originalSystem = input.originalMessages[0].content;
   const originalUser = input.originalMessages[1].content;
   if (input.attempt === 1) {
     return [
       new SystemMessage(
-        "Structured repair 1/3. Correct the complete prior object directly. Return a complete object; do not omit disposition fields or add prose. Copy exact evidence_id and opaque permitted citation identifiers from the immutable catalog: every claim needs evidence_ids, and every INTERPRETATION also needs research_rule_refs.",
+        [
+          "Structured repair 1/3. Correct the complete prior object directly. Return a complete object; do not omit disposition fields or add prose. Copy exact evidence_id and opaque permitted citation identifiers from the immutable catalog: every claim needs evidence_ids, and every INTERPRETATION also needs research_rule_refs. Do not repeat invalid text: remove numeric facts including spelled-out numbers, and shorten dangling narrative to a complete phrase well below its limit.",
+          "Original system contract remains binding:",
+          String(originalSystem),
+        ].join("\n\n"),
       ),
       new HumanMessage(
         JSON.stringify({
@@ -381,7 +386,11 @@ function buildRepairMessages<T>(input: {
   if (input.attempt === 2) {
     return [
       new SystemMessage(
-        "Structured repair 2/3. Regenerate one complete object from the original immutable evidence. Satisfy every machine constraint and all cumulative errors. Use only exact catalog ids; all claims require evidence_ids and INTERPRETATION claims require research_rule_refs.",
+        [
+          "Structured repair 2/3. Regenerate one complete object from the original immutable evidence. Satisfy every machine constraint and all cumulative errors. Use only exact catalog ids; all claims require evidence_ids and INTERPRETATION claims require research_rule_refs. Remove numeric facts including spelled-out numbers, and keep every narrative phrase complete and comfortably below its limit.",
+          "Original system contract remains binding:",
+          String(originalSystem),
+        ].join("\n\n"),
       ),
       new HumanMessage(
         JSON.stringify({
@@ -396,7 +405,11 @@ function buildRepairMessages<T>(input: {
   }
   return [
     new SystemMessage(
-      "FINAL structured repair 3/3. Rebuild the complete object under the strict contract. Use only exact catalog ids; all claims require evidence_ids and INTERPRETATION claims require research_rule_refs. You may choose an explicitly supported empty disposition, but disposition and conclusion references are mandatory. Return no prose.",
+      [
+        "FINAL structured repair 3/3. Rebuild the complete object under the strict contract. Use only exact catalog ids; all claims require evidence_ids and INTERPRETATION claims require research_rule_refs. Remove numeric facts including spelled-out numbers, and keep every narrative phrase complete and comfortably below its limit. You may choose an explicitly supported empty disposition, but disposition and conclusion references are mandatory. Return no prose.",
+        "Original system contract remains binding:",
+        String(originalSystem),
+      ].join("\n\n"),
     ),
     new HumanMessage(
       JSON.stringify({
@@ -417,11 +430,20 @@ function buildRepairMessages<T>(input: {
 interface RepairEvidenceCatalog {
   allowed_evidence_ids: string[];
   allowed_citation_ids: string[];
+  required_preferred_evidence_ids: string[];
+  required_least_evidence_ids: string[];
+  required_final_evidence_ids: string[];
 }
 
 function extractRepairEvidenceCatalog(snapshot: unknown): RepairEvidenceCatalog {
   if (snapshot === null || typeof snapshot !== "object" || Array.isArray(snapshot)) {
-    return { allowed_evidence_ids: [], allowed_citation_ids: [] };
+    return {
+      allowed_evidence_ids: [],
+      allowed_citation_ids: [],
+      required_preferred_evidence_ids: [],
+      required_least_evidence_ids: [],
+      required_final_evidence_ids: [],
+    };
   }
   const record = snapshot as Record<string, unknown>;
   const evidenceLedger = Array.isArray(record.evidenceLedger) ? record.evidenceLedger : [];
@@ -439,9 +461,24 @@ function extractRepairEvidenceCatalog(snapshot: unknown): RepairEvidenceCatalog 
       : Array.isArray(ruleSource)
         ? ruleSource.filter((ruleId): ruleId is string => typeof ruleId === "string").sort()
         : [];
+  const directive =
+    record.directive !== null &&
+    typeof record.directive === "object" &&
+    !Array.isArray(record.directive)
+      ? (record.directive as Record<string, unknown>)
+      : null;
+  const directiveEvidence = (field: string): string[] => {
+    const values = directive?.[field];
+    return Array.isArray(values)
+      ? [...new Set(values.filter((value): value is string => typeof value === "string"))].sort()
+      : [];
+  };
   return {
     allowed_evidence_ids: [...new Set(allowedEvidenceIds)],
     allowed_citation_ids: [...new Set(allowedResearchRuleIds)],
+    required_preferred_evidence_ids: directiveEvidence("required_preferred_evidence_ids"),
+    required_least_evidence_ids: directiveEvidence("required_least_preferred_evidence_ids"),
+    required_final_evidence_ids: directiveEvidence("required_final_evidence_ids"),
   };
 }
 
@@ -561,7 +598,14 @@ function classifyOperationalFailure(
       reasonCode: "MODEL_CONNECTION_ERROR",
     };
   }
-  if (/\b(400|429|500|502|503|504)\b|bad request|service unavailable|overloaded/.test(message)) {
+  if (
+    /bad request|too many requests|rate limit|internal server error|bad gateway|service unavailable|gateway timeout|overloaded/.test(
+      message,
+    ) ||
+    /\b(?:http(?: status)?|status(?: code)?|response)\s*[:=]?\s*(?:400|429|500|502|503|504)\b/.test(
+      message,
+    )
+  ) {
     return {
       status: "error",
       stopReason: "model_service_error",
@@ -588,13 +632,12 @@ function safeJsonSchema<T>(schema: z.ZodType<T>): unknown {
 }
 
 function providerJsonSchema<T>(schema: z.ZodType<T>, evidenceSnapshot?: unknown): unknown {
-  const providerSchema = applyProviderExtractionBounds(
-    adaptStrictProviderJsonSchema(omitUnsupportedProviderKeywords(safeJsonSchema(schema))),
+  const providerSchema = omitUnsupportedProviderKeywords(
+    applyProviderExtractionBounds(
+      adaptStrictProviderJsonSchema(omitUnsupportedProviderKeywords(safeJsonSchema(schema))),
+    ),
   );
-  return bindMacroProviderRuntimeCatalog(
-    providerSchema,
-    extractRepairEvidenceCatalog(evidenceSnapshot),
-  );
+  return bindProviderRuntimeCatalog(providerSchema, extractRepairEvidenceCatalog(evidenceSnapshot));
 }
 
 const PROVIDER_ARRAY_CAPS: Readonly<Record<string, number>> = {
@@ -612,65 +655,98 @@ const PROVIDER_ARRAY_CAPS: Readonly<Record<string, number>> = {
 };
 
 export const STRICT_PROVIDER_EXTRACTION_DESCRIPTOR = Object.freeze({
-  contract_version: "strict_provider_extraction_bounds_v2",
+  contract_version: "strict_provider_extraction_bounds_v3",
   array_caps: PROVIDER_ARRAY_CAPS,
   implicit_string_max_length: 320,
   implicit_open_object_max_properties: 12,
   tuple_policy: "EXACT_PREFIX_ITEMS_LENGTH_V1",
   component_claim_policy: "EXACT_ONE_INDEPENDENT_CLAIM_PER_COMPONENT_V1",
-  macro_runtime_catalog_binding: "EXACT_EVIDENCE_AND_PERMITTED_CITATION_ENUM_V1",
-  macro_claim_kind_binding: "NO_INTERPRETATION_WITHOUT_PERMITTED_CITATION_V1",
+  runtime_catalog_binding:
+    "ALL_COMPACT_CONTRACTS_EXACT_EVIDENCE_LEGS_AND_PERMITTED_CITATION_ENUM_V3",
+  claim_kind_binding:
+    "PRIMARY_COMPACT_CLAIMS_EXCLUDE_RISK_FLAG_AND_REQUIRE_CITATION_FOR_INTERPRETATION_V3",
   macro_optional_numeric_echo: "COMPACT_EXTRACTION_OMITS_OPTIONAL_NUMERIC_ECHO_V1",
 });
 
 class ProviderRuntimeBindingError extends Error {
-  constructor(readonly reasonCode: "MACRO_RUNTIME_EVIDENCE_CATALOG_EMPTY") {
+  constructor(
+    readonly reasonCode: "MACRO_RUNTIME_EVIDENCE_CATALOG_EMPTY" | "RUNTIME_EVIDENCE_CATALOG_EMPTY",
+  ) {
     super(reasonCode);
     this.name = "ProviderRuntimeBindingError";
   }
 }
 
-function bindMacroProviderRuntimeCatalog(value: unknown, catalog: RepairEvidenceCatalog): unknown {
-  const root = value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
-  const rootProperties = root ? (root as Record<string, unknown>).properties : null;
-  const providerContract =
-    rootProperties !== null && typeof rootProperties === "object" && !Array.isArray(rootProperties)
-      ? (rootProperties as Record<string, unknown>).provider_contract
-      : null;
-  const providerContractConst =
-    providerContract !== null &&
-    typeof providerContract === "object" &&
-    !Array.isArray(providerContract)
-      ? (providerContract as Record<string, unknown>).const
-      : null;
-  if (
-    providerContractConst !== "MACRO_COMPONENTS_COMPACT_V1" &&
-    providerContractConst !== "MACRO_DIRECT_COMPACT_V1"
-  ) {
-    return value;
-  }
-  if (catalog.allowed_evidence_ids.length === 0) {
-    throw new ProviderRuntimeBindingError("MACRO_RUNTIME_EVIDENCE_CATALOG_EMPTY");
-  }
-  return bind(value);
+const COMPACT_PROVIDER_CONTRACTS = new Set([
+  "MACRO_COMPONENTS_COMPACT_V1",
+  "MACRO_DIRECT_COMPACT_V1",
+  "SECTOR_DIRECTION_RESEARCH_COMPACT_V3",
+  "SECTOR_CONFLICT_REVIEW_COMPACT_V4",
+  "SECTOR_SELECTED_COMPACT_V2",
+  "RELATIONSHIP_MAPPER_COMPACT_V2",
+  "SUPERINVESTOR_ABSTENTION_COMPACT_V2",
+]);
 
-  function bind(nested: unknown, propertyName?: string): unknown {
-    if (propertyName === "evidence_id") {
+function bindProviderRuntimeCatalog(value: unknown, catalog: RepairEvidenceCatalog): unknown {
+  return bind(value, null);
+
+  function bind(nested: unknown, activeContract: string | null, propertyName?: string): unknown {
+    if (activeContract && propertyName === "evidence_id") {
       return { type: "string", enum: catalog.allowed_evidence_ids };
     }
-    if (propertyName === "research_rule_ref") {
+    if (activeContract === "SECTOR_SELECTED_COMPACT_V2") {
+      const requiredEvidenceByProperty: Readonly<Record<string, string[]>> = {
+        preferred_evidence_ids: catalog.required_preferred_evidence_ids,
+        least_preferred_evidence_ids: catalog.required_least_evidence_ids,
+        final_evidence_ids: catalog.required_final_evidence_ids,
+      };
+      const exactEvidence = propertyName ? requiredEvidenceByProperty[propertyName] : undefined;
+      if (exactEvidence) return exactStringTupleSchema(exactEvidence);
+    }
+    if (activeContract && propertyName === "research_rule_ref") {
       return catalog.allowed_citation_ids.length === 0
         ? { type: "null" }
         : {
             anyOf: [{ type: "null" }, { type: "string", enum: catalog.allowed_citation_ids }],
           };
     }
-    if (propertyName === "claim_kind" && catalog.allowed_citation_ids.length === 0) {
-      return { type: "string", enum: ["FACT", "EVENT", "RISK_FLAG"] };
+    if (
+      activeContract &&
+      propertyName === "claim_kind" &&
+      catalog.allowed_citation_ids.length === 0
+    ) {
+      return { type: "string", enum: ["FACT", "EVENT"] };
     }
-    if (Array.isArray(nested)) return nested.map((item) => bind(item));
+    if (Array.isArray(nested)) return nested.map((item) => bind(item, activeContract));
     if (nested === null || typeof nested !== "object") return nested;
     const record = nested as Record<string, unknown>;
+    const properties =
+      record.properties !== null &&
+      typeof record.properties === "object" &&
+      !Array.isArray(record.properties)
+        ? (record.properties as Record<string, unknown>)
+        : null;
+    const providerContract = properties?.provider_contract;
+    const providerContractConst =
+      providerContract !== null &&
+      typeof providerContract === "object" &&
+      !Array.isArray(providerContract)
+        ? (providerContract as Record<string, unknown>).const
+        : null;
+    const contract =
+      activeContract ??
+      (typeof providerContractConst === "string" &&
+      COMPACT_PROVIDER_CONTRACTS.has(providerContractConst)
+        ? providerContractConst
+        : null);
+    if (!activeContract && contract && catalog.allowed_evidence_ids.length === 0) {
+      throw new ProviderRuntimeBindingError(
+        providerContractConst === "MACRO_COMPONENTS_COMPACT_V1" ||
+          providerContractConst === "MACRO_DIRECT_COMPACT_V1"
+          ? "MACRO_RUNTIME_EVIDENCE_CATALOG_EMPTY"
+          : "RUNTIME_EVIDENCE_CATALOG_EMPTY",
+      );
+    }
     return Object.fromEntries(
       Object.entries(record).map(([key, item]) => {
         if (
@@ -679,20 +755,30 @@ function bindMacroProviderRuntimeCatalog(value: unknown, catalog: RepairEvidence
           typeof item !== "object" ||
           Array.isArray(item)
         ) {
-          return [key, bind(item)];
+          return [key, bind(item, contract)];
         }
         return [
           key,
           Object.fromEntries(
             Object.entries(item as Record<string, unknown>).map(([property, schema]) => [
               property,
-              bind(schema, property),
+              bind(schema, contract, property),
             ]),
           ),
         ];
       }),
     );
   }
+}
+
+function exactStringTupleSchema(values: readonly string[]): Record<string, unknown> {
+  return {
+    type: "array",
+    prefixItems: values.map((value) => ({ type: "string", const: value })),
+    items: false,
+    minItems: values.length,
+    maxItems: values.length,
+  };
 }
 
 function applyProviderExtractionBounds(value: unknown, fieldName?: string): unknown {
@@ -811,7 +897,7 @@ function omitUnsupportedProviderKeywords(value: unknown): unknown {
   if (value === null || typeof value !== "object") return value;
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
-      .filter(([key]) => key !== "propertyNames")
+      .filter(([key]) => key !== "propertyNames" && key !== "uniqueItems")
       .map(([key, nested]) => [key, omitUnsupportedProviderKeywords(nested)]),
   );
 }

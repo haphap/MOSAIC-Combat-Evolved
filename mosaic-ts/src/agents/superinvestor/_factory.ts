@@ -52,9 +52,11 @@ import {
 import { acceptedMacroOutputs, renderAcceptedMacroInputs } from "../helpers/macro_context.js";
 import { preModelOutcomeDisposition } from "../helpers/outcome_pre_model.js";
 import {
+  finalizePrivateKnotSnapshot,
   isPrivateKnotStageEnabled,
   type PrivateKnotAuditSummary,
   type PrivateKnotSnapshot,
+  preparePrivateKnotModelContext,
   privateKnotInvocationContextForState,
   type ToolStatus,
 } from "../helpers/private_knot_boundary.js";
@@ -84,7 +86,12 @@ import {
   terminateAgentToolCapability,
 } from "../helpers/tool_capability.js";
 import { MACRO_AGENT_IDS } from "../macro/_contracts.js";
-import { type LoaderLanguage, loadPrompt, loadPromptWithPrivateKnot } from "../prompts/loader.js";
+import {
+  buildPromptReleaseAssignmentKey,
+  type LoaderLanguage,
+  loadPrompt,
+  loadPromptWithPrivateKnot,
+} from "../prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type { SuperinvestorOutput } from "../types.js";
 import { buildRuntimeSuperinvestorSchema } from "./_schemas.js";
@@ -169,7 +176,7 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
               agent: spec.agentId,
               cohort,
               stage: "agent_run",
-              trafficAssignmentKey: state.trace_id || state.as_of_date,
+              trafficAssignmentKey: buildPromptReleaseAssignmentKey(cohort, state.as_of_date),
               runtimeSourceStatuses,
               invocationContext: privateKnotInvocationContextForState(state),
               ...(state.darwinian_runtime_binding
@@ -275,6 +282,15 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
               systemMessage: systemPrompt,
               initialMessages: [new HumanMessage(evidenceUserContext)],
               ...(runtimeEvidence ? { agentInvocationId: runtimeEvidence.agentInvocationId } : {}),
+              ...(knobSnapshot
+                ? {
+                    prepareModelContext: (initialToolResults) =>
+                      preparePrivateKnotModelContext({
+                        snapshot: knobSnapshot,
+                        initialToolResults,
+                      }),
+                  }
+                : {}),
               initialToolCalls: buildLayerThreeInitialToolCalls(state, spec.agentId),
               maxLoops: 3,
               replayFullToolMaxChars: 80_000,
@@ -296,6 +312,8 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
             stage: "agent_run",
             knobSnapshot,
             toolStatuses: loopResult.toolStatuses,
+            modelContext: loopResult.modelContext,
+            effectiveModelInputHash: loopResult.effectiveModelInputHash,
           });
           canaryToolStatuses = loopResult.toolStatuses;
 
@@ -511,6 +529,8 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
       });
       if (failureEvent) await persistPromptReleaseCanaryEvents([failureEvent]);
       throw err;
+    } finally {
+      if (canaryKnobSnapshot) finalizePrivateKnotSnapshot(canaryKnobSnapshot);
     }
   };
 }

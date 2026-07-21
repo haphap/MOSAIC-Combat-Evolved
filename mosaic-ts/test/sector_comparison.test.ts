@@ -240,7 +240,8 @@ describe("Sector direction research contract", () => {
 
     const providerSchema = adaptStrictProviderJsonSchema(rawSchema) as {
       properties: {
-        coverage_evidence_ids: { maxItems: number };
+        macro_event_coverage_evidence_ids: { prefixItems: unknown[] };
+        catalyst_coverage_evidence_ids: { prefixItems: unknown[] };
         pairs: {
           minItems: number;
           maxItems: number;
@@ -251,9 +252,8 @@ describe("Sector direction research contract", () => {
         };
       };
     };
-    expect(providerSchema.properties.coverage_evidence_ids.maxItems).toBe(
-      MAX_SECTOR_COVERAGE_EVIDENCE_IDS,
-    );
+    expect(providerSchema.properties.macro_event_coverage_evidence_ids.prefixItems).toHaveLength(1);
+    expect(providerSchema.properties.catalyst_coverage_evidence_ids.prefixItems).toHaveLength(1);
     expect(providerSchema.properties.pairs).toMatchObject({
       minItems: 3,
       maxItems: 3,

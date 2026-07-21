@@ -167,6 +167,40 @@ export interface PrivateKnotPolicyResult<T> {
   audit: PrivateKnotAuditSummary;
 }
 
+export interface PrivateKnotFrozenInitialToolResult {
+  tool_name: string;
+  tool_call_id: string;
+  agent_invocation_id: string;
+  args: Record<string, unknown>;
+  payload: unknown;
+  args_fingerprint: string;
+  result_fingerprint: string;
+  source_fingerprint: string;
+  as_of: string;
+  status: "CURRENT" | "FALLBACK" | "MISSING" | "TOOL_FAILED";
+}
+
+export interface KnotDerivedEconomicFeatureEnvelope {
+  schema_version: "knot_derived_economic_feature_v1";
+  public_feature_id: string;
+  observation_period: string;
+  as_of: string;
+  value: number | string;
+  unit: string;
+  evidence_refs: string[];
+  pit_status: "PIT_VERIFIED";
+}
+
+export interface PrivateKnotModelContextResult {
+  context: KnotDerivedEconomicFeatureEnvelope[];
+  context_hash: string;
+  audit: {
+    snapshot_hash: string;
+    disposition: "APPLIED" | "NOT_TRIGGERED" | "NOT_APPLICABLE";
+    envelope_hashes: string[];
+  };
+}
+
 export interface PrivateKnotRuntimeDescriptor {
   knot_runtime_contract_manifest_hash: string;
   private_runtime_manifest_hash: string;
@@ -183,15 +217,23 @@ export interface PrivateKnotRuntimeAdapter {
       runtimeSourceStatuses: ReadonlyArray<RuntimeSourceStatus>;
     },
   ): Promise<PrivateKnotSnapshot>;
+  prepareModelContext(input: {
+    snapshot: PrivateKnotSnapshot;
+    initialToolResults: ReadonlyArray<PrivateKnotFrozenInitialToolResult>;
+  }): Promise<PrivateKnotModelContextResult>;
   applyPolicy<T>(input: {
     snapshot: PrivateKnotSnapshot;
     output: T;
     toolStatuses: ReadonlyArray<ToolStatus>;
   }): PrivateKnotPolicyResult<T>;
+  finalize(snapshot: PrivateKnotSnapshot): void;
 }
 
 let activeAdapter: PrivateKnotRuntimeAdapter | null = null;
-const issuedSnapshots = new Map<string, { snapshot: PrivateKnotSnapshot; consumed: boolean }>();
+const issuedSnapshots = new Map<
+  string,
+  { snapshot: PrivateKnotSnapshot; contextConsumed: boolean; policyConsumed: boolean }
+>();
 
 export function installPrivateKnotRuntime(adapter: PrivateKnotRuntimeAdapter): void {
   activeAdapter = adapter;
@@ -234,9 +276,30 @@ export async function preparePrivateKnotSnapshot(
   }
   issuedSnapshots.set(snapshot.snapshot_id, {
     snapshot: structuredClone(snapshot),
-    consumed: false,
+    contextConsumed: false,
+    policyConsumed: false,
   });
   return snapshot;
+}
+
+export async function preparePrivateKnotModelContext(input: {
+  snapshot: PrivateKnotSnapshot;
+  initialToolResults: ReadonlyArray<PrivateKnotFrozenInitialToolResult>;
+}): Promise<PrivateKnotModelContextResult> {
+  if (!activeAdapter) throw new Error("private_knot_runtime_not_initialized");
+  const issued = issuedSnapshots.get(input.snapshot.snapshot_id);
+  if (!issued) throw new Error("private_knot_snapshot_not_issued");
+  if (issued.contextConsumed) throw new Error("private_knot_model_context_already_consumed");
+  if (issued.policyConsumed) throw new Error("private_knot_model_context_out_of_order");
+  issued.contextConsumed = true;
+  assertPresentedSnapshot(issued.snapshot, input.snapshot);
+  validateFrozenInitialToolResults(input.initialToolResults, input.snapshot);
+  const result = await activeAdapter.prepareModelContext({
+    snapshot: input.snapshot,
+    initialToolResults: input.initialToolResults,
+  });
+  validateModelContextResult(result, input.snapshot);
+  return result;
 }
 
 export function applyPrivateKnotPolicy<T>(input: {
@@ -247,16 +310,140 @@ export function applyPrivateKnotPolicy<T>(input: {
   if (!activeAdapter) throw new Error("private_knot_runtime_not_initialized");
   const issued = issuedSnapshots.get(input.snapshot.snapshot_id);
   if (!issued) throw new Error("private_knot_snapshot_not_issued");
-  if (issued.consumed) throw new Error("private_knot_snapshot_already_consumed");
-  issued.consumed = true;
-  if (canonicalHash(issued.snapshot) !== canonicalHash(input.snapshot)) {
+  if (!issued.contextConsumed) throw new Error("private_knot_policy_before_model_context");
+  if (issued.policyConsumed) throw new Error("private_knot_snapshot_already_consumed");
+  issued.policyConsumed = true;
+  assertPresentedSnapshot(issued.snapshot, input.snapshot);
+  try {
+    return activeAdapter.applyPolicy({
+      snapshot: input.snapshot,
+      output: input.output,
+      toolStatuses: input.toolStatuses,
+    });
+  } finally {
+    issuedSnapshots.delete(input.snapshot.snapshot_id);
+  }
+}
+
+export function finalizePrivateKnotSnapshot(snapshot: PrivateKnotSnapshot): void {
+  const issued = issuedSnapshots.get(snapshot.snapshot_id);
+  if (!issued) return;
+  assertPresentedSnapshot(issued.snapshot, snapshot);
+  issuedSnapshots.delete(snapshot.snapshot_id);
+  activeAdapter?.finalize(snapshot);
+}
+
+function assertPresentedSnapshot(
+  expected: PrivateKnotSnapshot,
+  presented: PrivateKnotSnapshot,
+): void {
+  if (canonicalHash(expected) !== canonicalHash(presented)) {
     throw new Error("private_knot_snapshot_binding_mismatch");
   }
-  return activeAdapter.applyPolicy({
-    snapshot: input.snapshot,
-    output: input.output,
-    toolStatuses: input.toolStatuses,
-  });
+}
+
+const PUBLIC_MODEL_CONTEXT_FEATURES: Readonly<Record<string, ReadonlySet<string>>> = {
+  china: new Set(["china.activity.composite_observation"]),
+  central_bank: new Set(["pboc.liquidity.composite_observation"]),
+};
+
+function validateFrozenInitialToolResults(
+  results: ReadonlyArray<PrivateKnotFrozenInitialToolResult>,
+  snapshot: PrivateKnotSnapshot,
+): void {
+  if (results.length === 0) {
+    if (snapshot.agent === "china" || snapshot.agent === "central_bank") {
+      throw new Error("private_knot_initial_tool_result_required");
+    }
+    return;
+  }
+  const seen = new Set<string>();
+  for (const result of results) {
+    if (
+      !result ||
+      typeof result !== "object" ||
+      !result.tool_name?.trim() ||
+      !result.tool_call_id?.trim() ||
+      result.agent_invocation_id !== snapshot.agent_invocation_id ||
+      !isSha256(result.args_fingerprint) ||
+      !isSha256(result.result_fingerprint) ||
+      !isSha256(result.source_fingerprint) ||
+      !result.as_of?.trim() ||
+      !["CURRENT", "FALLBACK", "MISSING", "TOOL_FAILED"].includes(result.status) ||
+      !result.args ||
+      typeof result.args !== "object" ||
+      Array.isArray(result.args)
+    ) {
+      throw new Error("private_knot_initial_tool_result_schema_mismatch");
+    }
+    if (seen.has(result.tool_call_id)) {
+      throw new Error("private_knot_initial_tool_result_duplicate");
+    }
+    seen.add(result.tool_call_id);
+  }
+}
+
+function validateModelContextResult(
+  result: PrivateKnotModelContextResult,
+  snapshot: PrivateKnotSnapshot,
+): void {
+  if (
+    !result ||
+    typeof result !== "object" ||
+    !Array.isArray(result.context) ||
+    !isSha256(result.context_hash) ||
+    result.audit?.snapshot_hash !== snapshot.snapshot_hash ||
+    !["APPLIED", "NOT_TRIGGERED", "NOT_APPLICABLE"].includes(result.audit?.disposition) ||
+    !Array.isArray(result.audit?.envelope_hashes)
+  ) {
+    throw new Error("private_knot_model_context_schema_mismatch");
+  }
+  const allowed = PUBLIC_MODEL_CONTEXT_FEATURES[snapshot.agent] ?? new Set<string>();
+  const envelopeHashes: string[] = [];
+  for (const envelope of result.context) {
+    if (
+      envelope.schema_version !== "knot_derived_economic_feature_v1" ||
+      !allowed.has(envelope.public_feature_id) ||
+      !envelope.observation_period?.trim() ||
+      !envelope.as_of?.trim() ||
+      (typeof envelope.value !== "number" && typeof envelope.value !== "string") ||
+      (typeof envelope.value === "number" && !Number.isFinite(envelope.value)) ||
+      !envelope.unit?.trim() ||
+      !Array.isArray(envelope.evidence_refs) ||
+      envelope.evidence_refs.length === 0 ||
+      envelope.evidence_refs.some((reference) => !isSha256(reference)) ||
+      envelope.pit_status !== "PIT_VERIFIED"
+    ) {
+      throw new Error("private_knot_model_context_envelope_invalid");
+    }
+    envelopeHashes.push(canonicalHash(envelope));
+  }
+  if (
+    canonicalHash({
+      schema_version: "private_knot_model_context_v1",
+      snapshot_hash: snapshot.snapshot_hash,
+      context: result.context,
+    }) !== result.context_hash ||
+    canonicalHash(envelopeHashes) !== canonicalHash(result.audit.envelope_hashes) ||
+    (result.audit.disposition === "APPLIED") !== result.context.length > 0
+  ) {
+    throw new Error("private_knot_model_context_hash_mismatch");
+  }
+  const serialized = JSON.stringify(result.context).toLowerCase();
+  if (
+    [
+      "mutation_target",
+      "confidence_cap",
+      "threshold",
+      "lookback",
+      "candidate",
+      "champion",
+      "prediction_targets",
+      "research_knobs",
+    ].some((marker) => serialized.includes(marker))
+  ) {
+    throw new Error("private_knot_model_context_private_content");
+  }
 }
 
 function validateSnapshot(

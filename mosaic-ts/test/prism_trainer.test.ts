@@ -38,6 +38,8 @@ beforeEach(() => {
   api = fakeApi();
   deps = { llm: new FakeLlm() as never, api };
   mockedCycle.mockImplementation(async (opts) => ({
+    namespace: "LEGACY_DIAGNOSTIC",
+    production_eligible: false,
     mutations: [
       { agent: opts.forceAgent ?? "?", version_id: 1, status: "kept" as const, delta_sharpe: 0.2 },
     ],
@@ -83,6 +85,8 @@ describe("runCohortTraining", () => {
       await new Promise((r) => setTimeout(r, 1));
       inFlight--;
       return {
+        namespace: "LEGACY_DIAGNOSTIC",
+        production_eligible: false,
         mutations: [{ agent: opts.forceAgent ?? "?", version_id: 1, status: "kept" as const }],
       };
     });
@@ -105,7 +109,11 @@ describe("runCohortTraining", () => {
   });
 
   it("synthesizes needs_fill when an agent produces no mutation", async () => {
-    mockedCycle.mockResolvedValue({ mutations: [] });
+    mockedCycle.mockResolvedValue({
+      namespace: "LEGACY_DIAGNOSTIC",
+      production_eligible: false,
+      mutations: [],
+    });
     const result = await runCohortTraining({
       cohort: "crisis_2008",
       layers: ["decision"],
@@ -144,6 +152,8 @@ describe("runCohortTraining", () => {
     mockedCycle.mockImplementation(async (opts) => {
       if (opts.forceAgent === "cro") throw new Error("boom");
       return {
+        namespace: "LEGACY_DIAGNOSTIC",
+        production_eligible: false,
         mutations: [{ agent: opts.forceAgent ?? "?", version_id: 1, status: "kept" as const }],
       };
     });
@@ -163,6 +173,8 @@ describe("runCohortTraining", () => {
 
   it("keeps every mutation when maxMutationsPerAgent > 1", async () => {
     mockedCycle.mockImplementation(async (opts) => ({
+      namespace: "LEGACY_DIAGNOSTIC",
+      production_eligible: false,
       mutations: [
         { agent: opts.forceAgent ?? "?", version_id: 1, status: "kept" as const },
         { agent: opts.forceAgent ?? "?", version_id: 2, status: "reverted" as const },
@@ -185,7 +197,11 @@ describe("runPrismTraining", () => {
     const order: string[] = [];
     mockedCycle.mockImplementation(async (opts) => {
       order.push(opts.cohort);
-      return { mutations: [{ agent: opts.forceAgent ?? "?", version_id: 1, status: "kept" }] };
+      return {
+        namespace: "LEGACY_DIAGNOSTIC" as const,
+        production_eligible: false as const,
+        mutations: [{ agent: opts.forceAgent ?? "?", version_id: 1, status: "kept" as const }],
+      };
     });
 
     const results = await runPrismTraining({

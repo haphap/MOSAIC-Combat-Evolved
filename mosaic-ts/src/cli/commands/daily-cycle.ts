@@ -39,7 +39,10 @@ import {
   resolveAgentTimeoutMs,
 } from "../../agents/helpers/runtime.js";
 import { findBundledPromptsRoot, formatPromptSourceLabel } from "../../agents/prompts/cohorts.js";
+import { buildPromptReleaseAssignmentKey } from "../../agents/prompts/loader.js";
 import { PRIVATE_KNOT_COHORT_IDS } from "../../agents/prompts/private_knot_stage_enablement.js";
+import { assertFullRuntimePromptRelease } from "../../agents/prompts/prompt_release_contract.js";
+import { resolveConfiguredPromptReleaseContext } from "../../agents/prompts/release_prompt_loader.js";
 import { assertRuntimePromptPreflight } from "../../agents/prompts/runtime_prompt_preflight.js";
 import { captureDailyCycleRkeFootprints } from "../../agents/rke_footprints.js";
 import {
@@ -53,12 +56,14 @@ import type {
   PortfolioAction,
   PositionAudit,
 } from "../../agents/types.js";
-import { loadExecutionBehaviorReleaseManifest } from "../../autoresearch/execution_behavior_release.js";
+import { loadExecutionBehaviorReleaseArchive } from "../../autoresearch/execution_behavior_release.js";
 import { parseOutcomeStageSkips } from "../../autoresearch/outcome_stage_skip.js";
 import {
+  bindRuntimeReleasePins,
   buildDarwinianRuntimeBinding,
   validateComponentWeightRuntimeSnapshot,
 } from "../../autoresearch/production_variant.js";
+import { buildRuntimeBehaviorRunPins } from "../../autoresearch/runtime_behavior_bundle.js";
 import { assertAcceptedDailyCycle } from "../../backtest/decision_health.js";
 import {
   BridgeApi,
@@ -254,22 +259,48 @@ export function registerDailyCycle(program: Command): void {
             `prompt source preflight failed: ${promptSource.source_status.blocked_reason || "unknown"}`,
           );
         }
+        const promptReleaseAssignmentKey = buildPromptReleaseAssignmentKey(cohort, asOfDate);
+        const promptReleaseContext = nonProductionSmoke
+          ? null
+          : await resolveConfiguredPromptReleaseContext(promptReleaseAssignmentKey);
+        if (!nonProductionSmoke && !promptReleaseContext) {
+          throw new Error("live execution requires an active full-runtime release");
+        }
+        const promptReleaseManifest = promptReleaseContext?.manifest ?? null;
+        if (promptReleaseManifest) assertFullRuntimePromptRelease(promptReleaseManifest);
+        const runtimeBehaviorRunPins = promptReleaseManifest
+          ? buildRuntimeBehaviorRunPins({
+              activePromptReleaseId: promptReleaseManifest.release_id,
+              activePromptReleaseManifestHash: canonicalJsonHash(promptReleaseManifest),
+              bundle: promptReleaseManifest.runtime_behavior_bundle,
+            })
+          : null;
         const executionBehaviorRelease = nonProductionSmoke
           ? null
-          : loadExecutionBehaviorReleaseManifest(
-              resolve(
-                findBundledPromptsRoot(),
-                "..",
-                "..",
-                "registry",
-                "prompt_checks",
-                "execution_behavior_release_manifest_v1.json",
-              ),
-            );
+          : loadExecutionBehaviorReleaseArchive({
+              archiveRoot:
+                process.env.MOSAIC_EXECUTION_BEHAVIOR_ARCHIVE_ROOT?.trim() ||
+                resolve(
+                  findBundledPromptsRoot(),
+                  "..",
+                  "..",
+                  "registry",
+                  "prompt_checks",
+                  "execution_behavior_releases",
+                ),
+              executionBehaviorReleaseId:
+                promptReleaseManifest?.runtime_behavior_bundle.execution_behavior_release_id ?? "",
+              executionBehaviorReleaseHash:
+                promptReleaseManifest?.runtime_behavior_bundle.execution_behavior_release_hash ??
+                "",
+            });
         await assertRuntimePromptPreflight({
           cohort,
           requirePrivateKnot: !nonProductionSmoke,
           ...(runtimePromptsRoot ? { promptsRoot: runtimePromptsRoot } : {}),
+          ...(promptReleaseManifest
+            ? { runtimeBehaviorBundle: promptReleaseManifest.runtime_behavior_bundle }
+            : {}),
         });
         if (nonProductionSmoke && privateKnotRuntimeInstalled()) {
           throw new Error("non-production smoke must not install a private KNOT runtime");
@@ -286,7 +317,9 @@ export function registerDailyCycle(program: Command): void {
             llmHandle,
             promptPreflight: promptSource,
             executionBehaviorRelease,
-            effectiveAt: asOfTimestamp,
+            effectiveAt:
+              promptReleaseManifest?.runtime_behavior_bundle.earliest_activation_slot ??
+              asOfTimestamp,
           });
         }
         const preparedDarwinian = darwinianRuntimeBinding
@@ -303,6 +336,18 @@ export function registerDailyCycle(program: Command): void {
           preparedDarwinian?.roster_revision.production_variant_roster_revision_id;
         if (preparedDarwinian && typeof rosterRevisionId !== "string") {
           throw new Error("Darwinian preparation did not return a roster revision ID");
+        }
+        if (preparedDarwinian && promptReleaseManifest) {
+          const rosterRevisionHash =
+            preparedDarwinian.roster_revision.production_variant_roster_revision_hash;
+          if (
+            rosterRevisionId !==
+              promptReleaseManifest.runtime_behavior_bundle.production_variant_roster_revision_id ||
+            rosterRevisionHash !==
+              promptReleaseManifest.runtime_behavior_bundle.production_variant_roster_revision_hash
+          ) {
+            throw new Error("full-runtime release roster revision pin mismatch");
+          }
         }
         const traceId = nonProductionSmoke
           ? `${opts.fakeLlm ? "fake" : "structured"}-smoke-${Date.now()}`
@@ -343,7 +388,10 @@ export function registerDailyCycle(program: Command): void {
           as_of_date: asOfDate,
           mode: "live",
           trace_id: traceId,
-          darwinian_runtime_binding: preparedDarwinian?.runtime_binding ?? null,
+          darwinian_runtime_binding:
+            preparedDarwinian && runtimeBehaviorRunPins
+              ? bindRuntimeReleasePins(preparedDarwinian.runtime_binding, runtimeBehaviorRunPins)
+              : null,
           darwinian_weight_snapshot: preparedDarwinian?.weight_snapshot ?? null,
           component_weight_snapshot: componentWeightSnapshot,
           outcome_schedule_plan: preparedOutcomes?.outcome_schedule_plan ?? null,

@@ -12,6 +12,10 @@ import {
   releaseVariantFor,
 } from "./execution_behavior_release.js";
 import { OUTCOME_LABEL_REGISTRY } from "./outcome_registry.js";
+import {
+  type RuntimeBehaviorRunPins,
+  validateRuntimeBehaviorRunPins,
+} from "./runtime_behavior_bundle.js";
 
 export interface DarwinianAgentBehaviorBinding {
   agent_contract_version: string;
@@ -33,6 +37,19 @@ export interface DarwinianRuntimeBinding {
   effective_at: string;
   agent_behavior_bindings: Record<string, DarwinianAgentBehaviorBinding>;
   binding_hash: string;
+  /** Runtime resolver proof; attached only after the Python preparation call. */
+  runtime_release_pins?: RuntimeBehaviorRunPins;
+}
+
+export function bindRuntimeReleasePins(
+  binding: DarwinianRuntimeBinding,
+  pins: RuntimeBehaviorRunPins,
+): DarwinianRuntimeBinding {
+  validateRuntimeBehaviorRunPins(pins);
+  if (binding.execution_behavior_release_id !== pins.execution_behavior_release_id) {
+    throw new Error("runtime release pins execution binding mismatch");
+  }
+  return { ...binding, runtime_release_pins: structuredClone(pins) };
 }
 
 export interface DarwinianUsageWeightRow {

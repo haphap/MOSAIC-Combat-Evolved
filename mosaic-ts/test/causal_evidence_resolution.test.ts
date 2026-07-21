@@ -17,6 +17,11 @@ import type { DailyCycleStateType } from "../src/agents/state.js";
 import { emptyCurrentPositions, emptyLayer4, emptyPositionAudit } from "../src/agents/state.js";
 import type { AcceptedMacroTransmission, MacroAgentId } from "../src/agents/types.js";
 import { macroOutput } from "./helpers/macro.js";
+import {
+  EXECUTION_RELEASE_ID_FIXTURE,
+  ROSTER_REVISION_ID_FIXTURE,
+  runtimeBehaviorRunPinsFixture,
+} from "./helpers/runtime_behavior.js";
 
 const SHARED_FINGERPRINT = `sha256:${"a".repeat(64)}`;
 
@@ -124,8 +129,9 @@ function productionAcceptedState(): {
         run_slot_id: `slot:${agent}`,
         operational_opportunity_audit_id: `operational:${agent}`,
         production_variant_roster_id: "roster:1",
-        production_variant_roster_revision_id: "roster-revision:1",
-        execution_behavior_release_id: "release:1",
+        production_variant_roster_revision_id: ROSTER_REVISION_ID_FIXTURE,
+        execution_behavior_release_id: EXECUTION_RELEASE_ID_FIXTURE,
+        runtime_release_pins: runtimeBehaviorRunPinsFixture(),
         cohort_id: "cohort_default",
         language: "zh",
         track_key_hash: `sha256:${"1".repeat(64)}`,
@@ -172,7 +178,7 @@ function productionAcceptedState(): {
       darwinian_runtime_binding: {
         language: "zh",
         production_variant_roster_id: "roster:1",
-        execution_behavior_release_id: "release:1",
+        execution_behavior_release_id: EXECUTION_RELEASE_ID_FIXTURE,
       } as DailyCycleStateType["darwinian_runtime_binding"],
     },
   };

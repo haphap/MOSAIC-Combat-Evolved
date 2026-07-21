@@ -1,11 +1,11 @@
 {
   "schema_version": "agent_prompt_role_contract_manifest_v2",
   "private_prompt_repository": "haphap/MOSAIC-Prompts",
-  "private_prompt_branch": "codex/macro-agent-role-contracts-v2",
-  "private_prompt_commit": "2424fc6df03e92c31f150d2f3b25af59572a34bc",
+  "private_prompt_branch": "codex/knot-judgment-autoresearch-closure-private",
+  "private_prompt_commit": "fa58b83c65a1db37d183d63325a3282353c47daa",
   "prompt_tree_sha256": "009534b391ceb3f16db4eceedaea64b0abede6f85bb53ca59dfae8ab21342ef6",
-  "execution_behavior_release_id": "execution-behavior-release:8d452f7e0e701e3cfac934f7629b6091787be6a90bac6f48ca47023c05c3410a",
-  "execution_behavior_release_hash": "sha256:359e69668e4ed5d7339c8041828bb38531aa405646d5e86fde673fb806b45298",
+  "execution_behavior_release_id": "execution-behavior-release:549110c5a1e63f02c30cc2c4a45aa721f4448c962891e81cec2df67bd330f6b0",
+  "execution_behavior_release_hash": "sha256:1e21657cb5c8eb00a97629fa30326a434218966f4209fb5531cf48a89e1db280",
   "cohorts": [
     "cohort_bull_2007",
     "cohort_bull_2016",

@@ -61,9 +61,11 @@ import {
 import { acceptedMacroOutputs } from "../helpers/macro_context.js";
 import { preModelOutcomeDisposition } from "../helpers/outcome_pre_model.js";
 import {
+  finalizePrivateKnotSnapshot,
   isPrivateKnotStageEnabled,
   type PrivateKnotAuditSummary,
   type PrivateKnotSnapshot,
+  preparePrivateKnotModelContext,
   privateKnotInvocationContextForState,
   type RuntimeSourceStatus,
   type ToolStatus,
@@ -93,7 +95,12 @@ import {
   prepareAgentToolCapability,
   terminateAgentToolCapability,
 } from "../helpers/tool_capability.js";
-import { type LoaderLanguage, loadPrompt, loadPromptWithPrivateKnot } from "../prompts/loader.js";
+import {
+  buildPromptReleaseAssignmentKey,
+  type LoaderLanguage,
+  loadPrompt,
+  loadPromptWithPrivateKnot,
+} from "../prompts/loader.js";
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type {
@@ -256,7 +263,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               agent: spec.agentId,
               cohort,
               stage: spec.runtimeStage,
-              trafficAssignmentKey: state.trace_id || state.as_of_date,
+              trafficAssignmentKey: buildPromptReleaseAssignmentKey(cohort, state.as_of_date),
               runtimeSourceStatuses,
               invocationContext: privateKnotInvocationContextForState(state),
               ...(state.darwinian_runtime_binding
@@ -378,6 +385,15 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
                 ...(runtimeEvidence
                   ? { agentInvocationId: runtimeEvidence.agentInvocationId }
                   : {}),
+                ...(knobSnapshot
+                  ? {
+                      prepareModelContext: (initialToolResults) =>
+                        preparePrivateKnotModelContext({
+                          snapshot: knobSnapshot,
+                          initialToolResults,
+                        }),
+                    }
+                  : {}),
                 onLog: (msg) => onLog(formatAgentEvent("phase", "L4", spec.agentId, [msg])),
                 signal,
               });
@@ -407,6 +423,8 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               stage: spec.runtimeStage,
               knobSnapshot,
               toolStatuses,
+              modelContext: loopResult.modelContext,
+              effectiveModelInputHash: loopResult.effectiveModelInputHash,
             });
           } else if (requiredTools.length === 0) {
             onLog(formatAgentEvent("phase", "L4", spec.agentId, ["synthesis_llm=1"]));
@@ -613,6 +631,8 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
       });
       if (failureEvent) await persistPromptReleaseCanaryEvents([failureEvent]);
       throw err;
+    } finally {
+      if (canaryKnobSnapshot) finalizePrivateKnotSnapshot(canaryKnobSnapshot);
     }
   };
 }

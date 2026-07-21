@@ -4,7 +4,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ActivePromptReleaseManifest } from "../src/agents/prompts/prompt_release_contract.js";
+import {
+  type ActivePromptReleaseManifest,
+  releasePromptPairHash,
+  releasePromptSetHash,
+} from "../src/agents/prompts/prompt_release_contract.js";
 import type { RuntimeAgentSpec } from "../src/agents/prompts/runtime_agent_spec.js";
 import {
   buildPromptReleaseCanaryAssignmentEvent,
@@ -16,10 +20,16 @@ import {
   activatePromptRelease,
   provisionPromptReleaseBaseline,
   rollbackPromptRelease,
+  stageForwardRecoveryRelease,
   stagePromptRelease,
   startPromptReleaseCanary,
 } from "../src/autoresearch/prompt_release_manager.js";
 import { ActivePromptReleaseRegistry } from "../src/autoresearch/release_registry.js";
+import {
+  buildRuntimeBehaviorBundleRef,
+  buildRuntimeBehaviorRunPins,
+  runtimeBehaviorBundleContent,
+} from "../src/autoresearch/runtime_behavior_bundle.js";
 import type { PromptReleaseCheckResult } from "../src/bridge/types.js";
 
 const HASH = `sha256:${"1".repeat(64)}`;
@@ -90,6 +100,55 @@ function versionSha(files: Record<string, string>): string {
     digest.update("\0");
   }
   return digest.digest("hex");
+}
+
+function runtimeBundle(promptFiles: Record<string, string>, privateCommit: string) {
+  const pair = {
+    agent: "central_bank",
+    layer: "macro" as const,
+    cohort: "cohort_default",
+    stages: ["agent_run" as const],
+    zh: {
+      path: PROMPT_PATHS.zh,
+      sha256: `sha256:${createHash("sha256")
+        .update(promptFiles[PROMPT_PATHS.zh] ?? "")
+        .digest("hex")}`,
+    },
+    en: {
+      path: PROMPT_PATHS.en,
+      sha256: `sha256:${createHash("sha256")
+        .update(promptFiles[PROMPT_PATHS.en] ?? "")
+        .digest("hex")}`,
+    },
+  };
+  const promptHash = releasePromptSetHash([{ ...pair, pair_hash: releasePromptPairHash(pair) }]);
+  return buildRuntimeBehaviorBundleRef({
+    schema_version: "runtime_behavior_bundle_ref_v1",
+    prompt_hash: promptHash,
+    execution_behavior_release_id: `execution-behavior-release:${"2".repeat(64)}`,
+    execution_behavior_release_hash: `sha256:${"3".repeat(64)}`,
+    production_variant_roster_revision_id: `production-variant-roster-revision:${"4".repeat(64)}`,
+    production_variant_roster_revision_hash: `sha256:${"5".repeat(64)}`,
+    origin: {
+      kind: "KNOT_PROMOTION",
+      track_id: "prompt-track-1",
+      promotion_receipt_hash: `sha256:${"6".repeat(64)}`,
+    },
+    private_runtime_commit: privateCommit,
+    private_runtime_manifest_hash: `sha256:${"7".repeat(64)}`,
+    private_policy_commit: privateCommit,
+    private_policy_hash: `sha256:${"8".repeat(64)}`,
+    effect_registry_hash: `sha256:${"9".repeat(64)}`,
+    consumer_registry_hash: `sha256:${"a".repeat(64)}`,
+    fitness_registry_hash: `sha256:${"b".repeat(64)}`,
+    catalog_hash: HASH,
+    agent_contract_hash: `sha256:${"c".repeat(64)}`,
+    evaluation_contract_hash: HASH,
+    schema_hash: HASH,
+    score_contract_hash: `sha256:${"d".repeat(64)}`,
+    scheduler_contract_hash: `sha256:${"e".repeat(64)}`,
+    earliest_activation_slot: "2026-07-10T02:00:00.000Z",
+  });
 }
 
 function verification(opts: {
@@ -163,6 +222,7 @@ function canaryRecords(
   overrides: Omit<Partial<PromptReleaseCanaryEvent>, "schema_version"> = {},
   startIndex = 0,
   count = 20,
+  assignmentObservedAt = "2026-07-10T01:29:00.000Z",
 ) {
   return canaryEvents(overrides, startIndex, count).flatMap((event) => {
     const assignment = buildPromptReleaseCanaryAssignmentEvent({
@@ -177,15 +237,29 @@ function canaryRecords(
       agentInvocationId: event.agent_invocation_id,
       agent: event.agent,
       stage: event.stage,
-      observedAt: "2026-07-10T01:29:00.000Z",
+      observedAt: assignmentObservedAt,
     });
     if (!assignment) throw new Error("canary assignment missing");
     return [assignment, event];
   });
 }
 
-function sloArtifact(overrides: Omit<Partial<PromptReleaseCanaryEvent>, "schema_version"> = {}) {
-  const records = canaryRecords(overrides);
+function sloArtifact(
+  releaseId: string,
+  overrides: Omit<Partial<PromptReleaseCanaryEvent>, "schema_version"> = {},
+  window = {
+    canaryStartedAt: "2026-07-10T01:00:00.000Z",
+    observationEndedAt: "2026-07-10T02:00:00.000Z",
+    observedAt: "2026-07-10T01:30:00.000Z",
+    assignmentObservedAt: "2026-07-10T01:29:00.000Z",
+  },
+) {
+  const records = canaryRecords(
+    { ...overrides, release_id: releaseId, observed_at: window.observedAt },
+    0,
+    20,
+    window.assignmentObservedAt,
+  );
   const eventJournalPath = join(
     mkdtempSync(join(tmpdir(), "mosaic-canary-activation-")),
     "events.jsonl",
@@ -198,11 +272,11 @@ function sloArtifact(overrides: Omit<Partial<PromptReleaseCanaryEvent>, "schema_
   return {
     eventJournalPath,
     artifact: buildPromptReleaseCanarySloArtifact({
-      releaseId: "release-1",
+      releaseId,
       accountMode: "paper",
       trafficPercent: 10,
-      canaryStartedAt: "2026-07-10T01:00:00.000Z",
-      observationEndedAt: "2026-07-10T02:00:00.000Z",
+      canaryStartedAt: window.canaryStartedAt,
+      observationEndedAt: window.observationEndedAt,
       stageSnapshotHashes: { "central_bank:agent_run": HASH },
       records,
     }),
@@ -270,13 +344,13 @@ describe("prompt release manager", () => {
     const candidateRuntimePins: Array<{ repo: string; commit: string }> = [];
     const stageOptions = {
       registryRoot,
-      releaseId: "release-1",
       verification: verification({
         promptCommit: privateRepo.commit,
         codeCommit: codeRepo.commit,
         promptSha: versionSha(promptFiles),
       }),
       privatePromptRepo: privateRepo.root,
+      runtimeBehaviorBundle: runtimeBundle(promptFiles, privateRepo.commit),
       codeRepo: codeRepo.root,
       cohort: "cohort_default",
       accountMode: "paper" as const,
@@ -298,18 +372,20 @@ describe("prompt release manager", () => {
         return { snapshotHashes: { "central_bank:agent_run": HASH } };
       },
       now: () => "2026-07-10T00:00:00.000Z",
+      validateExecutionBehaviorPin: () => undefined,
     };
 
     process.env.MOSAIC_PROMPT_RELEASE_AUTHORIZED_OPERATORS = "operator:test";
     const baselineRegistryRoot = mkdtempSync(join(tmpdir(), "mosaic-baseline-source-"));
     roots.push(baselineRegistryRoot);
     const baselineStaged = await stagePromptRelease(
-      { ...stageOptions, registryRoot: baselineRegistryRoot, releaseId: "baseline-1" },
+      { ...stageOptions, registryRoot: baselineRegistryRoot },
       {
         ...deps,
         checkCandidate: async () => ({
           snapshotHashes: { "central_bank:agent_run": HASH },
         }),
+        validateExecutionBehaviorPin: () => undefined,
       },
     );
     await provisionPromptReleaseBaseline({
@@ -328,6 +404,12 @@ describe("prompt release manager", () => {
     });
 
     const staged = await stagePromptRelease(stageOptions, deps);
+    if (
+      staged.schema_version !== "active_prompt_release_manifest_v2" ||
+      baselineStaged.schema_version !== "active_prompt_release_manifest_v2"
+    ) {
+      throw new Error("full-runtime release fixtures required");
+    }
     await stagePromptRelease(stageOptions, deps);
     expect(staged.prompt_pairs).toHaveLength(1);
     expect(staged.bundled_fallback?.prompt_pairs).toHaveLength(1);
@@ -338,7 +420,7 @@ describe("prompt release manager", () => {
 
     const canaryOptions = {
       registryRoot,
-      releaseId: "release-1",
+      releaseId: staged.release_id,
       approvedBy: "operator:test",
       reason: "candidate closure reviewed",
       trafficPercent: 10,
@@ -348,7 +430,7 @@ describe("prompt release manager", () => {
     await startPromptReleaseCanary(canaryOptions);
     const canaryRegistry = new ActivePromptReleaseRegistry(registryRoot);
     expect(await canaryRegistry.canaryPointer()).toMatchObject({
-      current_release_id: "release-1",
+      current_release_id: staged.release_id,
       traffic_percent: 10,
     });
     const assignments = await Promise.all(
@@ -357,12 +439,14 @@ describe("prompt release manager", () => {
       ),
     );
     expect(assignments.some((manifest) => manifest?.lifecycle_state === "canary")).toBe(true);
-    expect(assignments.some((manifest) => manifest?.release_id === "baseline-1")).toBe(true);
-    const failingSlo = sloArtifact({ latency_ms: 120_001 });
+    expect(assignments.some((manifest) => manifest?.release_id === baselineStaged.release_id)).toBe(
+      true,
+    );
+    const failingSlo = sloArtifact(staged.release_id, { latency_ms: 120_001 });
     await expect(
       activatePromptRelease({
         registryRoot,
-        releaseId: "release-1",
+        releaseId: staged.release_id,
         approvedBy: "operator:test",
         reason: "asserted pass with excessive latency",
         sloArtifact: failingSlo.artifact,
@@ -371,14 +455,14 @@ describe("prompt release manager", () => {
         deps: { now: () => "2026-07-10T02:00:00.000Z" },
       }),
     ).rejects.toThrow("prompt_release_runtime_slo_failed");
-    const staleSlo = sloArtifact();
+    const staleSlo = sloArtifact(staged.release_id);
     await new PromptReleaseCanaryEventJournal(staleSlo.eventJournalPath).appendOnce(
-      canaryRecords({}, 100, 1),
+      canaryRecords({ release_id: staged.release_id }, 100, 1),
     );
     await expect(
       activatePromptRelease({
         registryRoot,
-        releaseId: "release-1",
+        releaseId: staged.release_id,
         approvedBy: "operator:test",
         reason: "stale journal snapshot must not activate",
         sloArtifact: staleSlo.artifact,
@@ -387,10 +471,10 @@ describe("prompt release manager", () => {
         deps: { now: () => "2026-07-10T02:00:00.000Z" },
       }),
     ).rejects.toThrow("prompt_release_canary_slo_journal_closure_mismatch");
-    const passingSlo = sloArtifact();
+    const passingSlo = sloArtifact(staged.release_id);
     const activationOptions = {
       registryRoot,
-      releaseId: "release-1",
+      releaseId: staged.release_id,
       approvedBy: "operator:test",
       reason: "canary SLOs passed",
       sloArtifact: passingSlo.artifact,
@@ -401,12 +485,22 @@ describe("prompt release manager", () => {
     await activatePromptRelease(activationOptions);
     await activatePromptRelease(activationOptions);
     expect((await new ActivePromptReleaseRegistry(registryRoot).resolveActive())?.release_id).toBe(
-      "release-1",
+      staged.release_id,
     );
     expect((await canaryRegistry.canaryPointer()).current_release_id).toBeNull();
+    expect(await canaryRegistry.activationReceipt(staged.release_id)).toMatchObject({
+      schema_version: "prompt_release_activation_receipt_v1",
+      release_id: staged.release_id,
+      expected_base_release_id: baselineStaged.release_id,
+      full_bundle_id: staged.runtime_behavior_bundle.full_bundle_id,
+      full_bundle_hash: staged.runtime_behavior_bundle.full_bundle_hash,
+      operator: "operator:test",
+      slo_artifact_hash: passingSlo.artifact.artifact_hash,
+      activated_at: "2026-07-10T02:00:00.000Z",
+    });
     const rollbackOptions = {
       registryRoot,
-      releaseId: "release-1",
+      releaseId: staged.release_id,
       approvedBy: "operator:test",
       reason: "operational rollback drill",
       deps: { now: () => "2026-07-10T03:00:00.000Z" },
@@ -415,7 +509,93 @@ describe("prompt release manager", () => {
     await rollbackPromptRelease(rollbackOptions);
 
     const registry = new ActivePromptReleaseRegistry(registryRoot);
-    expect((await registry.pointer()).current_release_id).toBe("baseline-1");
+    expect((await registry.pointer()).current_release_id).toBe(baselineStaged.release_id);
+    expect(await registry.rollbackReceipt(staged.release_id)).toMatchObject({
+      schema_version: "prompt_release_rollback_receipt_v1",
+      failed_release_id: staged.release_id,
+      failed_full_bundle_id: staged.runtime_behavior_bundle.full_bundle_id,
+      restored_release_id: baselineStaged.release_id,
+      restored_full_bundle_id: baselineStaged.runtime_behavior_bundle.full_bundle_id,
+      operator: "operator:test",
+      rolled_back_at: "2026-07-10T03:00:00.000Z",
+    });
+
+    const recoveryEvidenceHash = `sha256:${"f".repeat(64)}`;
+    const recoveryBundle = buildRuntimeBehaviorBundleRef({
+      ...runtimeBehaviorBundleContent(staged.runtime_behavior_bundle),
+      execution_behavior_release_id: `execution-behavior-release:${"6".repeat(64)}`,
+      execution_behavior_release_hash: `sha256:${"7".repeat(64)}`,
+      production_variant_roster_revision_id: `production-variant-roster-revision:${"8".repeat(64)}`,
+      production_variant_roster_revision_hash: `sha256:${"9".repeat(64)}`,
+      origin: {
+        kind: "FORWARD_RECOVERY",
+        rolled_back_release_id: staged.release_id,
+        recovery_evidence_hash: recoveryEvidenceHash,
+      },
+    });
+    const recovery = await stageForwardRecoveryRelease(
+      {
+        registryRoot,
+        rolledBackReleaseId: staged.release_id,
+        recoveryEvidenceHash,
+        privatePromptRepo: privateRepo.root,
+        runtimeBehaviorBundle: recoveryBundle,
+        codeRepo: codeRepo.root,
+      },
+      {
+        ...deps,
+        now: () => "2026-07-10T03:30:00.000Z",
+        validateExecutionBehaviorPin: () => undefined,
+      },
+    );
+    expect(recovery).toMatchObject({
+      lifecycle_state: "staged",
+      base_release_id: baselineStaged.release_id,
+      release_evidence: {
+        kind: "FORWARD_RECOVERY",
+        rolled_back_release_id: staged.release_id,
+      },
+    });
+    await startPromptReleaseCanary({
+      registryRoot,
+      releaseId: recovery.release_id,
+      approvedBy: "operator:test",
+      reason: "forward recovery canary",
+      trafficPercent: 10,
+      deps: { now: () => "2026-07-10T04:00:00.000Z" },
+    });
+    const recoverySlo = sloArtifact(
+      recovery.release_id,
+      {},
+      {
+        canaryStartedAt: "2026-07-10T04:00:00.000Z",
+        observationEndedAt: "2026-07-10T05:00:00.000Z",
+        observedAt: "2026-07-10T04:30:00.000Z",
+        assignmentObservedAt: "2026-07-10T04:29:00.000Z",
+      },
+    );
+    const recoveredActive = await activatePromptRelease({
+      registryRoot,
+      releaseId: recovery.release_id,
+      approvedBy: "operator:test",
+      reason: "forward recovery SLO passed",
+      sloArtifact: recoverySlo.artifact,
+      eventJournalPath: recoverySlo.eventJournalPath,
+      codeRepo: codeRepo.root,
+      deps: { now: () => "2026-07-10T05:00:00.000Z" },
+    });
+    if (recoveredActive.schema_version !== "active_prompt_release_manifest_v2") {
+      throw new Error("forward recovery full-runtime release required");
+    }
+    const recoveryPins = buildRuntimeBehaviorRunPins({
+      activePromptReleaseId: recoveredActive.release_id,
+      activePromptReleaseManifestHash: `sha256:${"a".repeat(64)}`,
+      bundle: recoveredActive.runtime_behavior_bundle,
+    });
+    expect(recoveryPins).toMatchObject({
+      full_bundle_hash: recoveryBundle.full_bundle_hash,
+      origin_kind: "FORWARD_RECOVERY",
+    });
     const audit = readFileSync(join(registryRoot, "release-audit.jsonl"), "utf-8")
       .trim()
       .split("\n")
@@ -426,6 +606,9 @@ describe("prompt release manager", () => {
       "canary",
       "active",
       "rolled_back",
+      "staged",
+      "canary",
+      "active",
     ]);
   });
 

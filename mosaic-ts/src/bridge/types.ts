@@ -2280,6 +2280,82 @@ export class BridgeApi {
     return this.client.call("darwinian.knot_nominate", params);
   }
 
+  darwinianKnotFreezeProposalInput(params: {
+    production_variant_id: string;
+    agent_id: string;
+    effect_contract_id: string;
+    proposal_cutoff_at: string;
+    matured_outcomes: Array<Record<string, unknown>>;
+    operational_diagnosis_hashes: string[];
+    scheduler_contract_hash: string;
+    score_contract_hash: string;
+    proposer_version: string;
+    frozen_at: string;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("darwinian.knot_freeze_proposal_input", params);
+  }
+
+  darwinianKnotAppendBlindCommitment(params: {
+    namespace: "FORMAL_RESEARCH" | "TEST_CONTRACT_REPLAY";
+    target_agent_id: string;
+    commitment_hash: string;
+    committed_at: string;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("darwinian.knot_append_blind_commitment", params);
+  }
+
+  darwinianKnotRevealBlindEvaluation(params: {
+    blind_commitment_id: string;
+    manifest: Record<string, unknown>;
+    manifest_hash: string;
+    nonce: string;
+    candidate_bundle_id: string;
+    candidate_bundle_hash: string;
+    candidate_committed_at: string;
+    revealed_at: string;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("darwinian.knot_reveal_blind_evaluation", params);
+  }
+
+  darwinianKnotCoordinatorTransition(params: {
+    workflow_id: string;
+    expected_revision: number;
+    from_state: string | null;
+    to_state: string;
+    idempotency_key: string;
+    command_payload_hash: string;
+    recorded_at: string;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("darwinian.knot_coordinator_transition", params);
+  }
+
+  darwinianKnotCoordinatorStatus(params: { workflow_id: string }): Promise<{
+    workflow_id: string;
+    latest_event: Record<string, unknown> | null;
+  }> {
+    return this.client.call("darwinian.knot_coordinator_status", params);
+  }
+
+  darwinianKnotIssueResearchCandidateCapability(params: {
+    knot_pair_id: string;
+    idempotency_key: string;
+    issued_at: string;
+    expires_at: string;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("darwinian.knot_issue_research_candidate_capability", params);
+  }
+
+  darwinianKnotConsumeResearchCandidateCapability(params: {
+    capability: Record<string, unknown>;
+    knot_pair_id: string;
+    candidate_bundle_id: string;
+    candidate_bundle_hash: string;
+    invocation_mode: "KNOT_RESEARCH" | "PRODUCTION" | "CANARY";
+    consumed_at: string;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("darwinian.knot_consume_research_candidate_capability", params);
+  }
+
   darwinianKnotPublishSchedule(params: {
     knot_research_track_id: string;
     pair_phase: "RESEARCH" | "POST_PROMOTION_SHADOW";
@@ -2347,6 +2423,7 @@ export class BridgeApi {
           accepted_output_record: Record<string, unknown>;
           verified_claim_graph: Record<string, unknown>;
           schema_json: Record<string, unknown>;
+          candidate_authorization_receipt?: Record<string, unknown>;
         }
       | {
           knot_pair_id: string;
@@ -2355,6 +2432,7 @@ export class BridgeApi {
           recorded_at: string;
           failure_reason: string;
           cio_failure_phase?: "PROPOSAL" | "FINAL" | null;
+          candidate_authorization_receipt?: Record<string, unknown>;
         },
   ): Promise<Record<string, unknown>> {
     return this.client.call("darwinian.knot_append_pair_side_result", params);

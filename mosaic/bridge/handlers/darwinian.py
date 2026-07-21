@@ -100,6 +100,13 @@ def _require_positive_int(params: dict, key: str) -> int:
     return value
 
 
+def _require_nonnegative_int(params: dict, key: str) -> int:
+    value = params.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise RpcError(INVALID_PARAMS, f"'{key}' must be a non-negative integer")
+    return value
+
+
 _DEFERRED_DECISION_OPPORTUNITY_AGENTS = {
     "alpha_discovery",
     "cro",
@@ -1349,6 +1356,220 @@ def darwinian_knot_nominate(params: dict[str, Any]) -> dict[str, Any]:
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
 
 
+@method("darwinian.knot_freeze_proposal_input")
+def darwinian_knot_freeze_proposal_input(params: dict[str, Any]) -> dict[str, Any]:
+    _reject_unknown_params(
+        params,
+        {
+            "production_variant_id",
+            "agent_id",
+            "effect_contract_id",
+            "proposal_cutoff_at",
+            "matured_outcomes",
+            "operational_diagnosis_hashes",
+            "scheduler_contract_hash",
+            "score_contract_hash",
+            "proposer_version",
+            "frozen_at",
+        },
+    )
+    matured_outcomes = params.get("matured_outcomes")
+    if not isinstance(matured_outcomes, list) or any(
+        not isinstance(row, dict) for row in matured_outcomes
+    ):
+        raise RpcError(INVALID_PARAMS, "'matured_outcomes' must be an object array")
+    try:
+        return _store().freeze_knot_proposal_input(
+            production_variant_id=_require_str(params, "production_variant_id"),
+            agent_id=_require_str(params, "agent_id"),
+            effect_contract_id=_require_str(params, "effect_contract_id"),
+            proposal_cutoff_at=_require_str(params, "proposal_cutoff_at"),
+            matured_outcomes=matured_outcomes,
+            operational_diagnosis_hashes=_require_nonempty_str_list(
+                params, "operational_diagnosis_hashes"
+            ),
+            scheduler_contract_hash=_require_str(params, "scheduler_contract_hash"),
+            score_contract_hash=_require_str(params, "score_contract_hash"),
+            proposer_version=_require_str(params, "proposer_version"),
+            frozen_at=_require_str(params, "frozen_at"),
+        )
+    except RpcError:
+        raise
+    except ValueError as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
+
+
+@method("darwinian.knot_append_blind_commitment")
+def darwinian_knot_append_blind_commitment(params: dict[str, Any]) -> dict[str, Any]:
+    _reject_unknown_params(
+        params,
+        {"namespace", "target_agent_id", "commitment_hash", "committed_at"},
+    )
+    try:
+        return _store().append_knot_blind_commitment(
+            namespace=_require_choice(
+                params, "namespace", {"FORMAL_RESEARCH", "TEST_CONTRACT_REPLAY"}
+            ),
+            target_agent_id=_require_str(params, "target_agent_id"),
+            commitment_hash=_require_str(params, "commitment_hash"),
+            committed_at=_require_str(params, "committed_at"),
+        )
+    except RpcError:
+        raise
+    except ValueError as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
+
+
+@method("darwinian.knot_reveal_blind_evaluation")
+def darwinian_knot_reveal_blind_evaluation(params: dict[str, Any]) -> dict[str, Any]:
+    _reject_unknown_params(
+        params,
+        {
+            "blind_commitment_id",
+            "manifest",
+            "manifest_hash",
+            "nonce",
+            "candidate_bundle_id",
+            "candidate_bundle_hash",
+            "candidate_committed_at",
+            "revealed_at",
+        },
+    )
+    try:
+        return _store().reveal_knot_blind_evaluation(
+            blind_commitment_id=_require_str(params, "blind_commitment_id"),
+            manifest=_require_dict(params, "manifest"),
+            manifest_hash=_require_str(params, "manifest_hash"),
+            nonce=_require_str(params, "nonce"),
+            candidate_bundle_id=_require_str(params, "candidate_bundle_id"),
+            candidate_bundle_hash=_require_str(params, "candidate_bundle_hash"),
+            candidate_committed_at=_require_str(params, "candidate_committed_at"),
+            revealed_at=_require_str(params, "revealed_at"),
+        )
+    except RpcError:
+        raise
+    except ValueError as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
+
+
+@method("darwinian.knot_coordinator_transition")
+def darwinian_knot_coordinator_transition(params: dict[str, Any]) -> dict[str, Any]:
+    _reject_unknown_params(
+        params,
+        {
+            "workflow_id",
+            "expected_revision",
+            "from_state",
+            "to_state",
+            "idempotency_key",
+            "command_payload_hash",
+            "recorded_at",
+        },
+    )
+    from_state = params.get("from_state")
+    if from_state is not None and not isinstance(from_state, str):
+        raise RpcError(INVALID_PARAMS, "'from_state' must be a string or null")
+    try:
+        return _store().append_knot_coordinator_transition(
+            workflow_id=_require_str(params, "workflow_id"),
+            expected_revision=_require_nonnegative_int(params, "expected_revision"),
+            from_state=from_state,
+            to_state=_require_str(params, "to_state"),
+            idempotency_key=_require_str(params, "idempotency_key"),
+            command_payload_hash=_require_str(params, "command_payload_hash"),
+            recorded_at=_require_str(params, "recorded_at"),
+        )
+    except RpcError:
+        raise
+    except ValueError as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
+
+
+@method("darwinian.knot_coordinator_status")
+def darwinian_knot_coordinator_status(params: dict[str, Any]) -> dict[str, Any]:
+    _reject_unknown_params(params, {"workflow_id"})
+    try:
+        return {
+            "workflow_id": _require_str(params, "workflow_id"),
+            "latest_event": _store().knot_coordinator_status(
+                workflow_id=_require_str(params, "workflow_id")
+            ),
+        }
+    except RpcError:
+        raise
+    except ValueError as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
+
+
+@method("darwinian.knot_issue_research_candidate_capability")
+def darwinian_knot_issue_research_candidate_capability(
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    _reject_unknown_params(
+        params,
+        {"knot_pair_id", "idempotency_key", "issued_at", "expires_at"},
+    )
+    try:
+        return _store().issue_knot_research_candidate_capability(
+            knot_pair_id=_require_str(params, "knot_pair_id"),
+            idempotency_key=_require_str(params, "idempotency_key"),
+            issued_at=_require_str(params, "issued_at"),
+            expires_at=_require_str(params, "expires_at"),
+        )
+    except RpcError:
+        raise
+    except ValueError as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
+
+
+@method("darwinian.knot_consume_research_candidate_capability")
+def darwinian_knot_consume_research_candidate_capability(
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    _reject_unknown_params(
+        params,
+        {
+            "capability",
+            "knot_pair_id",
+            "candidate_bundle_id",
+            "candidate_bundle_hash",
+            "invocation_mode",
+            "consumed_at",
+        },
+    )
+    try:
+        return _store().consume_knot_research_candidate_capability(
+            capability=_require_dict(params, "capability"),
+            knot_pair_id=_require_str(params, "knot_pair_id"),
+            candidate_bundle_id=_require_str(params, "candidate_bundle_id"),
+            candidate_bundle_hash=_require_str(params, "candidate_bundle_hash"),
+            invocation_mode=_require_choice(
+                params,
+                "invocation_mode",
+                {"KNOT_RESEARCH", "PRODUCTION", "CANARY"},
+            ),
+            consumed_at=_require_str(params, "consumed_at"),
+        )
+    except RpcError:
+        raise
+    except ValueError as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
+
+
 @method("darwinian.knot_publish_schedule")
 def darwinian_knot_publish_schedule(params: dict[str, Any]) -> dict[str, Any]:
     _reject_unknown_params(
@@ -1617,6 +1838,7 @@ def darwinian_knot_append_pair_side_result(
             "failure_reason",
             "cio_failure_phase",
             "output_phase",
+            "candidate_authorization_receipt",
         },
     )
     try:
@@ -1627,6 +1849,15 @@ def darwinian_knot_append_pair_side_result(
         disposition = _require_choice(
             params, "result_disposition", {"ACCEPTED", "AGENT_FAILURE"}
         )
+        candidate_authorization = params.get("candidate_authorization_receipt")
+        if candidate_authorization is not None and not isinstance(
+            candidate_authorization, dict
+        ):
+            raise RpcError(
+                INVALID_PARAMS,
+                "'candidate_authorization_receipt' must be an object or null",
+            )
+        scorecard_store = _store()
         capability_store = _capability_store()
         capability = capability_store.resolve_knot_pair_side_capability(
             knot_pair_id=knot_pair_id,
@@ -1752,12 +1983,18 @@ def darwinian_knot_append_pair_side_result(
             "strict_receipt_verifier": strict_receipt_verifier,
             "cio_failure_phase": cio_failure_phase,
             "cio_output_phase": private_cio_output_phase,
+            "candidate_authorization_receipt": candidate_authorization,
+            "candidate_authorization_verifier": (
+                scorecard_store.verify_knot_research_candidate_capability_consumption
+                if candidate_authorization is not None
+                else None
+            ),
         }
         if disposition == "ACCEPTED" and output_phase == "CIO_PROPOSAL":
-            return _store().append_knot_cio_proposal_execution_result(
+            return scorecard_store.append_knot_cio_proposal_execution_result(
                 **append_kwargs
             )
-        return _store().append_knot_pair_side_execution_result(
+        return scorecard_store.append_knot_pair_side_execution_result(
             **append_kwargs
         )
     except RpcError:

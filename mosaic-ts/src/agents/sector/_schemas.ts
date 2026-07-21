@@ -91,6 +91,22 @@ export function buildStandardSectorSchema<TAgent extends StandardSectorAgentId>(
   const preferredDirection = directive ? z.literal(directive.preferred_direction_id) : direction;
   const preferredSecurityUnavailable = directive?.allowed_preferred_security_ids.length === 0;
   const leastSecurityUnavailable = directive?.allowed_least_preferred_security_ids.length === 0;
+  const preferredSecurityPick =
+    directive && !preferredSecurityUnavailable
+      ? SecurityPick.safeExtend({
+          ts_code: z.enum(directive.allowed_preferred_security_ids as [string, ...string[]]),
+          direction_local_id: z.literal(directive.preferred_direction_id),
+          position_action: z.literal("LONG"),
+        })
+      : SecurityPick;
+  const leastSecurityPick =
+    directive && !leastSecurityUnavailable
+      ? SecurityPick.safeExtend({
+          ts_code: z.enum(directive.allowed_least_preferred_security_ids as [string, ...string[]]),
+          direction_local_id: z.literal(directive.least_preferred_direction_id),
+          position_action: z.enum(["SHORT", "AVOID"]),
+        })
+      : SecurityPick;
   const leastPreferredDirection = z
     .object({
       selection_role: z.literal("LEAST_PREFERRED"),
@@ -132,7 +148,7 @@ export function buildStandardSectorSchema<TAgent extends StandardSectorAgentId>(
       long_picks: preferredSecurityUnavailable
         ? z.tuple([])
         : directive
-          ? z.array(SecurityPick).min(1).max(5)
+          ? z.array(preferredSecurityPick).min(1).max(5)
           : z.array(SecurityPick).max(5),
       least_preferred_security_status: leastSecurityUnavailable
         ? z.literal("NO_QUALIFIED_SECURITY")
@@ -147,7 +163,7 @@ export function buildStandardSectorSchema<TAgent extends StandardSectorAgentId>(
       short_or_avoid_picks: leastSecurityUnavailable
         ? z.tuple([])
         : directive
-          ? z.array(SecurityPick).min(1).max(5)
+          ? z.array(leastSecurityPick).min(1).max(5)
           : z.array(SecurityPick).max(5),
     })
     .strict()

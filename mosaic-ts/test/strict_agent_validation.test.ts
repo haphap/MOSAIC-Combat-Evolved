@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
+import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
 import type { RuntimeEvidenceSnapshot } from "../src/agents/helpers/evidence_runtime.js";
 import {
   buildAgentInvocationId,
   clearPrivateKnotRuntimeForTests,
   installPrivateKnotRuntime,
   type PrivateKnotSnapshot,
+  preparePrivateKnotModelContext,
   preparePrivateKnotSnapshot,
 } from "../src/agents/helpers/private_knot_boundary.js";
 import { validateStrictAgentOutput } from "../src/agents/helpers/strict_agent_validation.js";
@@ -57,7 +59,52 @@ function runtimeEvidenceFor(snapshot: PrivateKnotSnapshot): RuntimeEvidenceSnaps
     evidenceById: new Map([[evidence.evidence_id, evidence]]),
     allowedResearchRuleIds: new Set(),
     visibleCatalog: "",
+    modelContextHash: modelContextHash(snapshot),
+    effectiveModelInputHash: HASH,
   };
+}
+
+function modelContextHash(snapshot: PrivateKnotSnapshot): string {
+  return canonicalJsonHash({
+    schema_version: "private_knot_model_context_v1",
+    snapshot_hash: snapshot.snapshot_hash,
+    context: [],
+  });
+}
+
+function adapterLifecycle() {
+  return {
+    prepareModelContext: async ({ snapshot }: { snapshot: PrivateKnotSnapshot }) => ({
+      context: [],
+      context_hash: modelContextHash(snapshot),
+      audit: {
+        snapshot_hash: snapshot.snapshot_hash,
+        disposition: "NOT_TRIGGERED" as const,
+        envelope_hashes: [],
+      },
+    }),
+    finalize: () => undefined,
+  };
+}
+
+async function consumeModelContext(snapshot: PrivateKnotSnapshot): Promise<void> {
+  await preparePrivateKnotModelContext({
+    snapshot,
+    initialToolResults: [
+      {
+        tool_name: "get_china_macro_snapshot",
+        tool_call_id: "initial_tool_1",
+        agent_invocation_id: snapshot.agent_invocation_id,
+        args: {},
+        payload: { as_of: snapshot.as_of },
+        args_fingerprint: HASH,
+        result_fingerprint: HASH,
+        source_fingerprint: HASH,
+        as_of: snapshot.as_of,
+        status: "CURRENT",
+      },
+    ],
+  });
 }
 
 function invocationBinding(agent = "china", stage = "agent_run" as const) {
@@ -108,6 +155,7 @@ describe("private KNOT policy evidence inputs", () => {
   it("rejects an audit that is not bound to the supplied snapshot", async () => {
     let policyInputKeys: string[] = [];
     installPrivateKnotRuntime({
+      ...adapterLifecycle(),
       describe: () => ({
         knot_runtime_contract_manifest_hash: HASH,
         private_runtime_manifest_hash: HASH,
@@ -153,6 +201,7 @@ describe("private KNOT policy evidence inputs", () => {
       ...binding,
       runtimeSourceStatuses: [],
     });
+    await consumeModelContext(snapshot);
 
     const result = validateStrictAgentOutput({
       output: claimOutput(),
@@ -174,6 +223,7 @@ describe("private KNOT policy evidence inputs", () => {
   it("does not consume one-use policy before deterministic validation succeeds", async () => {
     let policyCalls = 0;
     installPrivateKnotRuntime({
+      ...adapterLifecycle(),
       describe: () => ({
         knot_runtime_contract_manifest_hash: HASH,
         private_runtime_manifest_hash: HASH,
@@ -224,6 +274,7 @@ describe("private KNOT policy evidence inputs", () => {
       ...invocationBinding(),
       runtimeSourceStatuses: [],
     });
+    await consumeModelContext(snapshot);
     const common = {
       output: claimOutput(),
       schema: z.object({ claims: z.array(z.unknown()), claim_refs: z.array(z.string()) }),
@@ -297,6 +348,8 @@ describe("private KNOT policy evidence inputs", () => {
       evidenceById: new Map(),
       allowedResearchRuleIds: new Set(),
       visibleCatalog: "",
+      modelContextHash: HASH,
+      effectiveModelInputHash: HASH,
     };
 
     const result = validateStrictAgentOutput({

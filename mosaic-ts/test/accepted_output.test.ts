@@ -5,9 +5,15 @@ import {
   acceptedOutputRecordRef,
   acceptedOutputRefKey,
   buildAcceptedAgentOutputRecord,
+  canonicalAcceptedOutputHash,
   validateAcceptedAgentOutputRecord,
 } from "../src/agents/accepted_output.js";
 import type { ClaimEvidenceGraph } from "../src/agents/evidence_contract.js";
+import {
+  EXECUTION_RELEASE_ID_FIXTURE,
+  ROSTER_REVISION_ID_FIXTURE,
+  runtimeBehaviorRunPinsFixture,
+} from "./helpers/runtime_behavior.js";
 
 const SOURCE_OUTPUT_HASH = `sha256:${"a".repeat(64)}`;
 
@@ -62,8 +68,10 @@ function context(
     run_slot_id: "slot:china",
     operational_opportunity_audit_id: "operational:china",
     production_variant_roster_id: "roster:1",
-    production_variant_roster_revision_id: "roster-revision:1",
-    execution_behavior_release_id: "release:1",
+    production_variant_roster_revision_id: ROSTER_REVISION_ID_FIXTURE,
+    execution_behavior_release_id: EXECUTION_RELEASE_ID_FIXTURE,
+    runtime_release_pins:
+      runBinding.sample_origin === "PRODUCTION_ACTIVE" ? runtimeBehaviorRunPinsFixture() : null,
     cohort_id: "cohort_default",
     language: "zh",
     track_key_hash: `sha256:${"1".repeat(64)}`,
@@ -181,6 +189,19 @@ describe("AcceptedAgentOutputRecord", () => {
         accepted_output_hash: `sha256:${"0".repeat(64)}`,
       }),
     ).toThrow(/hash mismatch/);
+  });
+
+  it("rejects an internally rehashed production record with different execution pins", () => {
+    const record = structuredClone(macroRecord());
+    if (!record.runtime_release_pins) throw new Error("runtime pin fixture required");
+    record.runtime_release_pins.execution_behavior_release_id = `execution-behavior-release:${"e".repeat(64)}`;
+    const { run_pins_hash: _runPinsHash, ...runPinsBody } = record.runtime_release_pins;
+    record.runtime_release_pins.run_pins_hash = canonicalAcceptedOutputHash(runPinsBody);
+    const { accepted_output_hash: _acceptedHash, ...recordBody } = record;
+    record.accepted_output_hash = canonicalAcceptedOutputHash(recordBody);
+    expect(() => validateAcceptedAgentOutputRecord(record)).toThrow(
+      /runtime release pins mismatch/,
+    );
   });
 
   it("enforces the scheduled/downstream-only sample-origin matrix", () => {

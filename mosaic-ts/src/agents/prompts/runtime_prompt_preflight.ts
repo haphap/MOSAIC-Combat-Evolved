@@ -1,4 +1,5 @@
 import { initializePrivateKnotRuntime } from "../../autoresearch/private_knot_runtime.js";
+import type { RuntimeBehaviorBundleRef } from "../../autoresearch/runtime_behavior_bundle.js";
 import {
   checkPrivateKnotPromptBoundary,
   type PrivateKnotPromptCheckReport,
@@ -13,6 +14,7 @@ export async function assertRuntimePromptPreflight(opts: {
   promptsRoot?: string;
   privatePromptsRoot?: string;
   requirePrivateKnot?: boolean;
+  runtimeBehaviorBundle?: RuntimeBehaviorBundleRef;
 }): Promise<PrivateKnotPromptCheckReport> {
   const manifest = buildRuntimeAgentManifestArtifact();
   const manifestReasons = validateRuntimeAgentManifestArtifact(manifest);
@@ -24,6 +26,9 @@ export async function assertRuntimePromptPreflight(opts: {
     await initializePrivateKnotRuntime({
       required: true,
       ...(opts.privatePromptsRoot ? { privateRoot: opts.privatePromptsRoot } : {}),
+      ...(opts.runtimeBehaviorBundle
+        ? { expectedRuntimeBehaviorBundle: opts.runtimeBehaviorBundle }
+        : {}),
     });
   } else {
     const { clearPrivateKnotRuntime } = await import("../helpers/private_knot_boundary.js");

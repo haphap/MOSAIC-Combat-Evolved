@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { canonicalJsonHash } from "../../src/agents/helpers/canonical_json.js";
 import {
   installPrivateKnotRuntime,
   type PrivateKnotRuntimeAdapter,
@@ -31,6 +32,19 @@ export function installTestPrivateKnotRuntime(): void {
         runtime_source_statuses: [...input.runtimeSourceStatuses],
       };
     },
+    prepareModelContext: async ({ snapshot }) => ({
+      context: [],
+      context_hash: canonicalJsonHash({
+        schema_version: "private_knot_model_context_v1",
+        snapshot_hash: snapshot.snapshot_hash,
+        context: [],
+      }),
+      audit: {
+        snapshot_hash: snapshot.snapshot_hash,
+        disposition: "NOT_TRIGGERED",
+        envelope_hashes: [],
+      },
+    }),
     applyPolicy: (input) => {
       if (!snapshots.has(input.snapshot.snapshot_id)) {
         throw new Error("test_private_knot_snapshot_missing");
@@ -58,6 +72,9 @@ export function installTestPrivateKnotRuntime(): void {
           },
         },
       };
+    },
+    finalize: (snapshot) => {
+      snapshots.delete(snapshot.snapshot_id);
     },
   };
   installPrivateKnotRuntime(adapter);
