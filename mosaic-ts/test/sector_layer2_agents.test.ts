@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { adaptStrictProviderJsonSchema } from "../src/agents/helpers/structured_provider_adapters.js";
 import { MACRO_AGENT_IDS } from "../src/agents/macro/_contracts.js";
+import { validateMacroInputs } from "../src/agents/macro/_input_gate.js";
 import { renderBundledPrompt } from "../src/agents/prompts/bundled_prompt_renderer.js";
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
@@ -52,6 +53,7 @@ import type {
 import { fakeAgentStructuredOutput } from "../src/cli/fake_agent_output.js";
 import { LAYER2_AGENT_NODES } from "../src/graph/layer2.js";
 import type { LlmHandle } from "../src/llm/factory.js";
+import { macroOutput } from "./helpers/macro.js";
 import { sectorOutput } from "./helpers/sector.js";
 
 describe("Layer-2 roster and role contracts", () => {
@@ -773,6 +775,61 @@ class InstrumentedSectorLlm {
   }
 }
 
+class MacroSensitiveSectorLlm {
+  withStructuredOutput(
+    schema: unknown,
+    options?: { name?: string },
+  ): { invoke: (input: unknown) => Promise<unknown> } {
+    return {
+      invoke: async (input) => {
+        const output = fakeAgentStructuredOutput(schema, options?.name ?? "energy", input);
+        if (options?.name !== "energy_direction_research") return output;
+        const rendered = JSON.stringify(input);
+        const preferred = rendered.includes("SUPPORTIVE") ? "coal" : "solar";
+        return forceEnergyDirectionRanking(output, preferred);
+      },
+    };
+  }
+}
+
+function forceEnergyDirectionRanking(value: unknown, preferred: "coal" | "solar"): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const record = value as Record<string, unknown>;
+  if (!Array.isArray(record.direction_comparisons)) return value;
+  const directions = STANDARD_SECTOR_ROLE_CONTRACTS.energy.directionIds;
+  const least = preferred === "coal" ? "solar" : "coal";
+  const ranking = [
+    preferred,
+    ...directions.filter((item) => item !== preferred && item !== least),
+    least,
+  ];
+  return {
+    ...record,
+    direction_comparisons: record.direction_comparisons.map((comparison) => {
+      const row = comparison as Record<string, unknown>;
+      const aRank = ranking.indexOf(String(row.direction_a_id));
+      const bRank = ranking.indexOf(String(row.direction_b_id));
+      return {
+        ...row,
+        criterion_results: Array.isArray(row.criterion_results)
+          ? row.criterion_results.map((criterion) => {
+              const result = criterion as Record<string, unknown>;
+              if (
+                result.comparison_status !== "COMPARABLE" ||
+                !["FUNDAMENTALS", "VALUATION", "BASKET_TECHNICALS", "RISK_ASYMMETRY"].includes(
+                  String(result.criterion),
+                )
+              ) {
+                return result;
+              }
+              return { ...result, verdict: aRank < bRank ? "FAVORS_A" : "FAVORS_B" };
+            })
+          : [],
+      };
+    }),
+  };
+}
+
 function conflictReviewFromNeutralResearch(
   research: Record<string, unknown>,
   mode: "RESOLVED_AFTER_REVIEW" | "NO_UNIQUE_PAIR" | "NO_UNIQUE_LOSER" | "NO_NON_ETF_EDGE",
@@ -1216,6 +1273,23 @@ function sectorPipelineState(): DailyCycleStateType {
   };
 }
 
+function sectorPipelineStateWithChina(direction: "SUPPORTIVE" | "ADVERSE"): DailyCycleStateType {
+  const state = sectorPipelineState();
+  const outputs = Object.fromEntries(
+    MACRO_AGENT_IDS.map((agent) => [
+      agent,
+      macroOutput(agent, {
+        ...(agent === "china" ? { direction, strength: 5 as const } : {}),
+      }),
+    ]),
+  ) as DailyCycleStateType["layer1_outputs"];
+  state.layer1_outputs = outputs;
+  state.macro_input_gate = validateMacroInputs(
+    outputs as Parameters<typeof validateMacroInputs>[0],
+  );
+  return state;
+}
+
 describe("standard Sector usage lifecycle", () => {
   let promptDir: string;
   const config: MosaicConfig = {
@@ -1359,6 +1433,32 @@ describe("standard Sector usage lifecycle", () => {
     });
   });
 
+  it("can propagate one audited Macro judgment delta into a real Sector selection", async () => {
+    const run = async (direction: "SUPPORTIVE" | "ADVERSE") => {
+      const events = { reports: [] as SectorModelUsageReport[], lifecycle: [] as string[] };
+      const handle: LlmHandle = {
+        llm: new MacroSensitiveSectorLlm() as unknown as LlmHandle["llm"],
+        provider: "fake",
+        model: "fixture-model",
+        baseUrl: undefined,
+      };
+      return buildEnergyNode({
+        llmHandle: handle,
+        api: instrumentedSectorApi(events),
+        config,
+        promptsRoot: promptDir,
+      })(sectorPipelineStateWithChina(direction));
+    };
+
+    const supportive = await run("SUPPORTIVE");
+    const adverse = await run("ADVERSE");
+    const selected = (update: Awaited<ReturnType<typeof run>>) =>
+      (update.layer2_outputs as Record<string, { preferred_direction: { direction_id: string } }>)
+        .energy?.preferred_direction.direction_id;
+    expect(selected(supportive)).toBe("coal");
+    expect(selected(adverse)).toBe("solar");
+  });
+
   it("preserves the triggering conflict after a successful bounded review", async () => {
     const events = { reports: [] as SectorModelUsageReport[], lifecycle: [] as string[] };
     const llm = new InstrumentedSectorLlm(false, "RESOLVED_AFTER_REVIEW");
@@ -1398,6 +1498,8 @@ describe("standard Sector usage lifecycle", () => {
     expect(comparisonAudit?.conflict_type).not.toBe("NONE");
     expect(comparisonAudit?.conflict_direction_ids).toEqual(expect.any(Array));
     expect((comparisonAudit?.conflict_direction_ids as unknown[]).length).toBeGreaterThan(0);
+    expect(llm.prompts[1]).toContain("sector_research_snapshot_v4");
+    expect(llm.prompts[1]).toContain("ETF_RELATIVE_RETURN_20D");
   });
 
   it("rejects the stage when conflict review still has no unique best/worst pair", async () => {

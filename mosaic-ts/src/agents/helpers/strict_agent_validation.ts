@@ -152,6 +152,24 @@ function validateRuntimeLineage(input: {
     );
   }
   if (!input.knobSnapshot) return issues;
+  if (!input.runtimeEvidence?.modelContextHash) {
+    issues.push(
+      issue(
+        "private_knot_runtime_v1",
+        "PRIVATE_KNOT_MODEL_CONTEXT_MISSING",
+        "$.private_knot_model_context.context_hash",
+      ),
+    );
+  }
+  if (!input.runtimeEvidence?.effectiveModelInputHash) {
+    issues.push(
+      issue(
+        "private_knot_runtime_v1",
+        "PRIVATE_KNOT_EFFECTIVE_MODEL_INPUT_HASH_MISSING",
+        "$.private_knot_model_context.effective_model_input_hash",
+      ),
+    );
+  }
   if (input.knobSnapshot.agent !== input.agent) {
     issues.push(
       issue(

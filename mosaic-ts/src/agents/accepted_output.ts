@@ -1,3 +1,7 @@
+import {
+  type RuntimeBehaviorRunPins,
+  validateRuntimeBehaviorRunPins,
+} from "../autoresearch/runtime_behavior_bundle.js";
 import type { ClaimEvidenceGraph } from "./evidence_contract.js";
 import { canonicalJsonHash } from "./helpers/canonical_json.js";
 import type { EvidenceLineageEnvelope } from "./helpers/causal_evidence_resolution.js";
@@ -118,6 +122,7 @@ export interface AcceptedAgentOutputRecordBase {
   production_variant_roster_id: string;
   production_variant_roster_revision_id: string;
   execution_behavior_release_id: string;
+  runtime_release_pins: RuntimeBehaviorRunPins | null;
   cohort_id: string;
   language: "en" | "zh";
   track_key_hash: string;
@@ -206,6 +211,7 @@ export interface AcceptedOutputBuildContext {
   production_variant_roster_id: string;
   production_variant_roster_revision_id: string;
   execution_behavior_release_id: string;
+  runtime_release_pins: RuntimeBehaviorRunPins | null;
   cohort_id: string;
   language: "en" | "zh";
   track_key_hash: string;
@@ -259,6 +265,18 @@ export function acceptedOutputBuildContextFromState(input: {
   const behavior = binding.agent_behavior_bindings[input.agentId];
   if (!behavior)
     throw new Error(`${input.agentId}: accepted output behavior binding is unavailable`);
+  const runtimeReleasePins = binding.runtime_release_pins;
+  if (!runtimeReleasePins) {
+    throw new Error(`${input.agentId}: accepted output runtime release pins are unavailable`);
+  }
+  validateRuntimeBehaviorRunPins(runtimeReleasePins);
+  if (
+    runtimeReleasePins.execution_behavior_release_id !== binding.execution_behavior_release_id ||
+    runtimeReleasePins.production_variant_roster_revision_id !==
+      weightSnapshot.production_variant_roster_revision_id
+  ) {
+    throw new Error(`${input.agentId}: accepted output runtime release pins mismatch`);
+  }
   const runBinding: AcceptedOutputRunBinding =
     slot.run_slot_kind === "OUTCOME_SCHEDULED"
       ? {
@@ -296,6 +314,7 @@ export function acceptedOutputBuildContextFromState(input: {
     production_variant_roster_id: binding.production_variant_roster_id,
     production_variant_roster_revision_id: weightSnapshot.production_variant_roster_revision_id,
     execution_behavior_release_id: binding.execution_behavior_release_id,
+    runtime_release_pins: structuredClone(runtimeReleasePins),
     cohort_id: binding.cohort_id,
     language: binding.language,
     track_key_hash: slot.track_key_hash,
@@ -380,6 +399,9 @@ export function buildAcceptedAgentOutputRecord<K extends AcceptedOutputKind, TPa
       input.context.execution_behavior_release_id,
       "execution_behavior_release_id",
     ),
+    runtime_release_pins: input.context.runtime_release_pins
+      ? structuredClone(input.context.runtime_release_pins)
+      : null,
     cohort_id: requiredText(input.context.cohort_id, "cohort_id"),
     language: input.context.language,
     track_key_hash: requiredText(input.context.track_key_hash, "track_key_hash"),
@@ -544,6 +566,7 @@ function validateAcceptedOutputClaimGraph(
 export function validateAcceptedAgentOutputRecord(record: AcceptedAgentOutputRecord): void {
   validateOwner(record.accepted_output_kind, record.agent_id);
   validateRunBinding(record);
+  validateAcceptedRuntimeReleasePins(record);
   validateEvaluationBinding(record);
   const { accepted_output_hash: suppliedHash, ...withoutHash } = record;
   if (canonicalHash(withoutHash) !== suppliedHash) {
@@ -561,6 +584,29 @@ export function validateAcceptedAgentOutputRecord(record: AcceptedAgentOutputRec
   sortedNonEmptyUnique(record.output.causal_dedupe_keys, "causal dedupe key");
   validateAdapterLineage(record);
   validateRuntimeAudit(record);
+}
+
+function validateAcceptedRuntimeReleasePins(record: AcceptedAgentOutputRecord): void {
+  if (record.sample_origin !== "PRODUCTION_ACTIVE") {
+    if (record.runtime_release_pins !== null) {
+      validateRuntimeBehaviorRunPins(record.runtime_release_pins);
+    }
+    return;
+  }
+  if (!record.runtime_release_pins) {
+    throw new Error(
+      `production accepted output lacks runtime release pins: ${record.accepted_output_id}`,
+    );
+  }
+  validateRuntimeBehaviorRunPins(record.runtime_release_pins);
+  if (
+    record.runtime_release_pins.execution_behavior_release_id !==
+      record.execution_behavior_release_id ||
+    record.runtime_release_pins.production_variant_roster_revision_id !==
+      record.production_variant_roster_revision_id
+  ) {
+    throw new Error(`accepted output runtime release pins mismatch: ${record.accepted_output_id}`);
+  }
 }
 
 function validateAdapterLineage(record: AcceptedAgentOutputRecord): void {
@@ -891,6 +937,22 @@ function validateBuildContext(context: AcceptedOutputBuildContext): void {
     throw new Error("accepted output language must be en or zh");
   }
   validateRunBinding(context.run_binding);
+  if (context.run_binding.sample_origin === "PRODUCTION_ACTIVE") {
+    if (!context.runtime_release_pins) {
+      throw new Error("production accepted output context lacks runtime release pins");
+    }
+    validateRuntimeBehaviorRunPins(context.runtime_release_pins);
+    if (
+      context.runtime_release_pins.execution_behavior_release_id !==
+        context.execution_behavior_release_id ||
+      context.runtime_release_pins.production_variant_roster_revision_id !==
+        context.production_variant_roster_revision_id
+    ) {
+      throw new Error("accepted output context runtime release pins mismatch");
+    }
+  } else if (context.runtime_release_pins !== null) {
+    validateRuntimeBehaviorRunPins(context.runtime_release_pins);
+  }
 }
 
 function optionalContractVersion(value: string | null, label: string): string | null {

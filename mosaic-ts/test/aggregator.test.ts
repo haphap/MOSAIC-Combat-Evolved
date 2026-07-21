@@ -225,6 +225,26 @@ describe("v2 macro composition and input gate", () => {
     expect(() => validateMacroInputs(wrong)).toThrow(/version mismatch/);
   });
 
+  it("propagates an accepted confidence-only delta into Darwinian usage without changing judgment", () => {
+    const champion = Object.fromEntries(
+      MACRO_AGENT_IDS.map((agent) => [agent, macroOutput(agent, { confidence: 0.8 })]),
+    ) as Record<MacroAgentId, ReturnType<typeof macroOutput>>;
+    const candidate = structuredClone(champion);
+    candidate.china.confidence = 0.4;
+    expect(candidate.china.direction).toBe(champion.china.direction);
+    expect(candidate.china.strength).toBe(champion.china.strength);
+    expect(candidate.china.claims).toEqual(champion.china.claims);
+
+    const championGate = validateMacroInputs(champion);
+    const candidateGate = validateMacroInputs(candidate);
+    expect(candidateGate.reliability_by_agent.china.usage_share).toBeLessThan(
+      championGate.reliability_by_agent.china.usage_share,
+    );
+    expect(candidateGate.source_layer_snapshot_hash).not.toBe(
+      championGate.source_layer_snapshot_hash,
+    );
+  });
+
   it("hashes exact namespace-safe record references at the production gate", () => {
     const outputs = Object.fromEntries(
       MACRO_AGENT_IDS.map((agent) => [agent, macroOutput(agent)]),

@@ -27,8 +27,8 @@ export function fakeAgentStructuredOutput(
   if (sectorAgent) {
     if (
       schemaMentionsProperty(jsonSchema, "research_mode") ||
-      schemaMentionsConst(jsonSchema, "SECTOR_DIRECTION_RESEARCH_COMPACT_V2") ||
-      schemaMentionsConst(jsonSchema, "SECTOR_CONFLICT_REVIEW_COMPACT_V2")
+      schemaMentionsConst(jsonSchema, "SECTOR_DIRECTION_RESEARCH_COMPACT_V3") ||
+      schemaMentionsConst(jsonSchema, "SECTOR_CONFLICT_REVIEW_COMPACT_V4")
     ) {
       return fakeSectorDirectionResearch(sectorAgent, messages);
     }

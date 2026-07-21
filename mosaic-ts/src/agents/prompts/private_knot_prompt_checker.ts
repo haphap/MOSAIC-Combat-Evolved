@@ -1,5 +1,6 @@
 import {
   buildAgentInvocationId,
+  finalizePrivateKnotSnapshot,
   isPrivateKnotStageEnabled,
   preparePrivateKnotSnapshot,
   privateKnotRuntimeInstalled,
@@ -107,6 +108,7 @@ export async function checkPrivateKnotPromptBoundary(opts: {
             runtimeSourceStatuses: [],
           });
           snapshotHash = snapshot.snapshot_hash;
+          finalizePrivateKnotSnapshot(snapshot);
         } catch (error) {
           reasons.push(error instanceof Error ? error.message : String(error));
         }

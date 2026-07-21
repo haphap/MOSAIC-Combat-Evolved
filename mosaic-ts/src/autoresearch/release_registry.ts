@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { canonicalJsonHash } from "../agents/helpers/canonical_json.js";
 import {
   type ActivePromptReleaseManifest,
   ActivePromptReleaseManifestSchema,
@@ -25,6 +26,35 @@ export interface PromptReleaseCanaryPointer {
 export interface PromptReleaseAuditContext {
   operator: string;
   reason: string;
+}
+
+export interface PromptReleaseActivationReceipt {
+  schema_version: "prompt_release_activation_receipt_v1";
+  receipt_id: string;
+  receipt_hash: string;
+  release_id: string;
+  expected_base_release_id: string;
+  full_bundle_id: string;
+  full_bundle_hash: string;
+  operator: string;
+  slo_artifact_hash: string;
+  activated_at: string;
+  pointer_version: number;
+}
+
+export interface PromptReleaseRollbackReceipt {
+  schema_version: "prompt_release_rollback_receipt_v1";
+  receipt_id: string;
+  receipt_hash: string;
+  failed_release_id: string;
+  failed_full_bundle_id: string;
+  failed_full_bundle_hash: string;
+  restored_release_id: string;
+  restored_full_bundle_id: string;
+  restored_full_bundle_hash: string;
+  operator: string;
+  rolled_back_at: string;
+  pointer_version: number;
 }
 
 function idHash(value: string): string {
@@ -82,6 +112,7 @@ async function lock<T>(path: string, action: () => Promise<T>): Promise<T> {
 
 function immutableReleaseClosure(manifest: ActivePromptReleaseManifest): unknown {
   return {
+    schema_version: manifest.schema_version,
     release_id: manifest.release_id,
     base_release_id: manifest.base_release_id,
     prompt_commit: manifest.prompt_commit,
@@ -102,6 +133,9 @@ function immutableReleaseClosure(manifest: ActivePromptReleaseManifest): unknown
     previous_approved_release_id: manifest.previous_approved_release_id,
     bundled_fallback: manifest.bundled_fallback,
     created_at: manifest.created_at,
+    ...(manifest.schema_version === "active_prompt_release_manifest_v2"
+      ? { runtime_behavior_bundle: manifest.runtime_behavior_bundle }
+      : {}),
   };
 }
 
@@ -137,6 +171,14 @@ export class ActivePromptReleaseRegistry {
 
   private auditPath(): string {
     return join(this.root, "release-audit.jsonl");
+  }
+
+  private activationReceiptPath(releaseId: string): string {
+    return join(this.root, "receipts", `activation-${idHash(releaseId)}.json`);
+  }
+
+  private rollbackReceiptPath(releaseId: string): string {
+    return join(this.root, "receipts", `rollback-${idHash(releaseId)}.json`);
   }
 
   async load(releaseId: string): Promise<ActivePromptReleaseManifest | null> {
@@ -390,6 +432,52 @@ export class ActivePromptReleaseRegistry {
         } satisfies ActivePromptReleasePointer);
       }
 
+      const currentPointer = await this.pointer();
+      if (
+        next.lifecycle_state === "active" &&
+        next.schema_version === "active_prompt_release_manifest_v2"
+      ) {
+        if (
+          !next.base_release_id ||
+          !next.activated_at ||
+          !next.runtime_slo_evidence?.artifact_hash
+        ) {
+          throw new Error("prompt_release_activation_receipt_closure_incomplete");
+        }
+        await this.writeActivationReceipt({
+          schema_version: "prompt_release_activation_receipt_v1",
+          release_id: next.release_id,
+          expected_base_release_id: next.base_release_id,
+          full_bundle_id: next.runtime_behavior_bundle.full_bundle_id,
+          full_bundle_hash: next.runtime_behavior_bundle.full_bundle_hash,
+          operator: opts.audit.operator,
+          slo_artifact_hash: next.runtime_slo_evidence.artifact_hash,
+          activated_at: next.activated_at,
+          pointer_version: currentPointer.pointer_version,
+        });
+      }
+      if (activeRollback && next.schema_version === "active_prompt_release_manifest_v2") {
+        if (!rollbackTarget || !next.rolled_back_at) {
+          throw new Error("prompt_release_rollback_receipt_closure_incomplete");
+        }
+        const restored = await this.load(rollbackTarget);
+        if (restored?.schema_version !== "active_prompt_release_manifest_v2") {
+          throw new Error("prompt_release_rollback_target_not_full_runtime");
+        }
+        await this.writeRollbackReceipt({
+          schema_version: "prompt_release_rollback_receipt_v1",
+          failed_release_id: next.release_id,
+          failed_full_bundle_id: next.runtime_behavior_bundle.full_bundle_id,
+          failed_full_bundle_hash: next.runtime_behavior_bundle.full_bundle_hash,
+          restored_release_id: restored.release_id,
+          restored_full_bundle_id: restored.runtime_behavior_bundle.full_bundle_id,
+          restored_full_bundle_hash: restored.runtime_behavior_bundle.full_bundle_hash,
+          operator: opts.audit.operator,
+          rolled_back_at: next.rolled_back_at,
+          pointer_version: currentPointer.pointer_version,
+        });
+      }
+
       await this.appendAudit({
         event_id: `${next.release_id}:${next.lifecycle_state}`,
         event: next.lifecycle_state,
@@ -410,6 +498,42 @@ export class ActivePromptReleaseRegistry {
       throw new Error("active_prompt_release_pointer_is_not_closed");
     }
     return manifest;
+  }
+
+  async activationReceipt(releaseId: string): Promise<PromptReleaseActivationReceipt | null> {
+    const receipt = await readJson<PromptReleaseActivationReceipt>(
+      this.activationReceiptPath(releaseId),
+    );
+    if (!receipt) return null;
+    const { receipt_id: receiptId, receipt_hash: receiptHash, ...body } = receipt;
+    const expectedHash = canonicalJsonHash(body);
+    if (
+      receipt.schema_version !== "prompt_release_activation_receipt_v1" ||
+      receipt.release_id !== releaseId ||
+      receiptHash !== expectedHash ||
+      receiptId !== `prompt-release-activation:${expectedHash.slice("sha256:".length)}`
+    ) {
+      throw new Error("prompt_release_activation_receipt_invalid");
+    }
+    return receipt;
+  }
+
+  async rollbackReceipt(releaseId: string): Promise<PromptReleaseRollbackReceipt | null> {
+    const receipt = await readJson<PromptReleaseRollbackReceipt>(
+      this.rollbackReceiptPath(releaseId),
+    );
+    if (!receipt) return null;
+    const { receipt_id: receiptId, receipt_hash: receiptHash, ...body } = receipt;
+    const expectedHash = canonicalJsonHash(body);
+    if (
+      receipt.schema_version !== "prompt_release_rollback_receipt_v1" ||
+      receipt.failed_release_id !== releaseId ||
+      receiptHash !== expectedHash ||
+      receiptId !== `prompt-release-rollback:${expectedHash.slice("sha256:".length)}`
+    ) {
+      throw new Error("prompt_release_rollback_receipt_invalid");
+    }
+    return receipt;
   }
 
   async resolveForRuntime(assignmentKey?: string): Promise<ActivePromptReleaseManifest | null> {
@@ -472,4 +596,39 @@ export class ActivePromptReleaseRegistry {
       await file.close();
     }
   }
+
+  private async writeActivationReceipt(
+    body: Omit<PromptReleaseActivationReceipt, "receipt_id" | "receipt_hash">,
+  ): Promise<void> {
+    const receiptHash = canonicalJsonHash(body);
+    const receipt: PromptReleaseActivationReceipt = {
+      ...body,
+      receipt_id: `prompt-release-activation:${receiptHash.slice("sha256:".length)}`,
+      receipt_hash: receiptHash,
+    };
+    await writeImmutableReceipt(this.activationReceiptPath(body.release_id), receipt);
+  }
+
+  private async writeRollbackReceipt(
+    body: Omit<PromptReleaseRollbackReceipt, "receipt_id" | "receipt_hash">,
+  ): Promise<void> {
+    const receiptHash = canonicalJsonHash(body);
+    const receipt: PromptReleaseRollbackReceipt = {
+      ...body,
+      receipt_id: `prompt-release-rollback:${receiptHash.slice("sha256:".length)}`,
+      receipt_hash: receiptHash,
+    };
+    await writeImmutableReceipt(this.rollbackReceiptPath(body.failed_release_id), receipt);
+  }
+}
+
+async function writeImmutableReceipt(path: string, receipt: unknown): Promise<void> {
+  const existing = await readJson<unknown>(path);
+  if (existing) {
+    if (JSON.stringify(existing) !== JSON.stringify(receipt)) {
+      throw new Error("prompt_release_receipt_retry_conflict");
+    }
+    return;
+  }
+  await atomicWrite(path, receipt);
 }

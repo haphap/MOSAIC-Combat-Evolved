@@ -431,6 +431,33 @@ export function loadExecutionBehaviorReleaseManifest(
   return validateExecutionBehaviorReleaseManifest(payload);
 }
 
+export function loadExecutionBehaviorReleaseArchive(input: {
+  archiveRoot: string;
+  executionBehaviorReleaseId: string;
+  executionBehaviorReleaseHash: string;
+}): ExecutionBehaviorReleaseManifest {
+  if (!/^execution-behavior-release:[0-9a-f]{64}$/.test(input.executionBehaviorReleaseId)) {
+    throw new Error("execution behavior release archive id is invalid");
+  }
+  if (!/^sha256:[0-9a-f]{64}$/.test(input.executionBehaviorReleaseHash)) {
+    throw new Error("execution behavior release archive hash is invalid");
+  }
+  const archivePath = resolve(
+    input.archiveRoot,
+    `${input.executionBehaviorReleaseId.slice("execution-behavior-release:".length)}--${stripSha(
+      input.executionBehaviorReleaseHash,
+    )}.json`,
+  );
+  const manifest = loadExecutionBehaviorReleaseManifest(archivePath);
+  if (
+    manifest.execution_behavior_release_id !== input.executionBehaviorReleaseId ||
+    manifest.execution_behavior_release_hash !== input.executionBehaviorReleaseHash
+  ) {
+    throw new Error("execution behavior release archive pin mismatch");
+  }
+  return manifest;
+}
+
 export function executionBehaviorReleaseArchiveFilename(value: unknown): string {
   const manifest = validateExecutionBehaviorReleaseArtifactIntegrity(value);
   return `${manifest.execution_behavior_release_id.replace(

@@ -1,13 +1,26 @@
-const COMPACT_DIRECTION_RESEARCH = "SECTOR_DIRECTION_RESEARCH_COMPACT_V2";
-const COMPACT_CONFLICT_REVIEW = "SECTOR_CONFLICT_REVIEW_COMPACT_V2";
+const COMPACT_DIRECTION_RESEARCH = "SECTOR_DIRECTION_RESEARCH_COMPACT_V3";
+const COMPACT_CONFLICT_REVIEW = "SECTOR_CONFLICT_REVIEW_COMPACT_V4";
 
 export const SECTOR_DIRECTION_PROVIDER_INSTRUCTION =
   "The bounded provider extraction contract may request a compact exact pair tuple. For every " +
-  "pair, judge all eight named criteria, copy one exact runtime evidence_id and one allowed " +
-  "research_rule_ref, and provide the complete ordered event-coverage evidence-id list. decisions order is " +
+  "pair, judge the eight named criteria through the ten ordered decision/coverage fields, copy one exact runtime evidence_id, and copy one exact " +
+  "research_rule_ref only when the catalog permits it. Provide the complete ordered Macro-event " +
+  "and catalyst coverage evidence-id lists separately. decisions order is " +
   "fundamentals, valuation, basket technicals, risk asymmetry, macro coverage state, macro " +
   "verdict, catalyst coverage state, catalyst verdict, ETF price, ETF share flow. Runtime expands only " +
-  "the repetitive claim and criterion envelopes; it never changes your verdicts.";
+  "the repetitive claim and criterion envelopes. Initial research verdicts are preserved exactly. " +
+  "Conflict review additionally requires one best-to-worst direction_order; that order is the " +
+  "authoritative conflict-resolution verdict and runtime projects it consistently across comparable " +
+  "criterion fields while preserving coverage states and unavailable ETF fields. Within the registered " +
+  "core metrics, stronger growth, cash generation, earnings/book yield, relative return, participation, " +
+  "liquidity, and flow support favor that direction; lower volatility and a less severe drawdown favor " +
+  "that direction on risk asymmetry. When every available metric in a criterion favors one side, that " +
+  "criterion must favor the same side. Use NEUTRAL only " +
+  "when the available evidence genuinely does not distinguish the pair. Apply the same evidence rule " +
+  "to every pair regardless of pair presentation order: when multiple registered metrics consistently " +
+  "order the directions without an offsetting event, preserve that transitive evidence-backed ordering. During the " +
+  "single conflict review, reconsider the named conflict pairs from the frozen evidence instead of " +
+  "repeating a default neutral judgment.";
 
 const COMPARABLE_VERDICTS = ["FAVORS_A", "FAVORS_B", "NEUTRAL"] as const;
 const OPTIONAL_ETF_VERDICTS = [...COMPARABLE_VERDICTS, "INCOMPARABLE"] as const;
@@ -32,8 +45,10 @@ interface CompactDirectionDecision {
 
 interface CompactDirectionEvidence {
   evidence_id: string;
-  research_rule_ref: string;
-  coverage_evidence_ids: string[];
+  research_rule_ref: string | null;
+  claim_kind: "FACT" | "EVENT" | "INTERPRETATION" | "RISK_FLAG";
+  macro_event_coverage_evidence_ids: string[];
+  catalyst_coverage_evidence_ids: string[];
 }
 
 interface CompactDirectionPair extends CompactDirectionDecision {
@@ -66,6 +81,12 @@ export function adaptSectorDirectionProviderJsonSchema(value: unknown): unknown 
 
   const compactPairs = pairSchemas.map(compactPairSchema);
   if (compactPairs.some((schema) => schema === null)) return recurseSchema(value);
+  const firstCriteria = criterionSchemas(pairSchemas[0]);
+  const macroCoverageEvidence = coverageEvidenceSchema(firstCriteria?.[4]);
+  const catalystCoverageEvidence = coverageEvidenceSchema(firstCriteria?.[5]);
+  if (!macroCoverageEvidence || !catalystCoverageEvidence) return recurseSchema(value);
+  const conflictDirections =
+    contract === COMPACT_CONFLICT_REVIEW ? orderedPairDirections(pairSchemas) : [];
   return {
     type: "object",
     properties: {
@@ -75,14 +96,28 @@ export function adaptSectorDirectionProviderJsonSchema(value: unknown): unknown 
         pattern: "^evidence:[0-9a-f]{64}$",
         maxLength: 73,
       },
-      research_rule_ref: { type: "string", minLength: 1, maxLength: 256 },
-      coverage_evidence_ids: {
-        type: "array",
-        items: { type: "string", minLength: 1, maxLength: 256 },
-        minItems: 1,
-        maxItems: 32,
-        uniqueItems: true,
+      claim_kind: {
+        type: "string",
+        enum: ["FACT", "EVENT", "INTERPRETATION", "RISK_FLAG"],
       },
+      research_rule_ref: {
+        anyOf: [{ type: "null" }, { type: "string", minLength: 1, maxLength: 256 }],
+      },
+      macro_event_coverage_evidence_ids: macroCoverageEvidence,
+      catalyst_coverage_evidence_ids: catalystCoverageEvidence,
+      ...(contract === COMPACT_CONFLICT_REVIEW
+        ? {
+            direction_order: {
+              type: "array",
+              description:
+                "Authoritative best-to-worst total order for every conflict direction exactly once.",
+              items: { type: "string", enum: conflictDirections },
+              uniqueItems: true,
+              minItems: conflictDirections.length,
+              maxItems: conflictDirections.length,
+            },
+          }
+        : {}),
       pairs: {
         type: "array",
         prefixItems: compactPairs,
@@ -94,8 +129,11 @@ export function adaptSectorDirectionProviderJsonSchema(value: unknown): unknown 
     required: [
       "provider_contract",
       "evidence_id",
+      "claim_kind",
       "research_rule_ref",
-      "coverage_evidence_ids",
+      "macro_event_coverage_evidence_ids",
+      "catalyst_coverage_evidence_ids",
+      ...(contract === COMPACT_CONFLICT_REVIEW ? ["direction_order"] : []),
       "pairs",
     ],
     additionalProperties: false,
@@ -116,11 +154,17 @@ export function normalizeSectorDirectionProviderPayload(value: unknown): unknown
       record.pairs as CompactDirectionPair[],
       {
         evidence_id: String(record.evidence_id),
-        research_rule_ref: String(record.research_rule_ref),
-        coverage_evidence_ids: Array.isArray(record.coverage_evidence_ids)
-          ? record.coverage_evidence_ids.map(String)
+        research_rule_ref:
+          typeof record.research_rule_ref === "string" ? record.research_rule_ref : null,
+        claim_kind: normalizeClaimKind(record.claim_kind),
+        macro_event_coverage_evidence_ids: Array.isArray(record.macro_event_coverage_evidence_ids)
+          ? record.macro_event_coverage_evidence_ids.map(String)
+          : [],
+        catalyst_coverage_evidence_ids: Array.isArray(record.catalyst_coverage_evidence_ids)
+          ? record.catalyst_coverage_evidence_ids.map(String)
           : [],
       },
+      Array.isArray(record.direction_order) ? record.direction_order.map(String) : null,
     );
   }
   return Object.fromEntries(
@@ -140,9 +184,11 @@ function compactPairSchema(value: unknown): Record<string, unknown> | null {
   }
   const directionAValue = schemaConst(directionA) as string;
   const directionBValue = schemaConst(directionB) as string;
+  const criteria = criterionSchemas(value);
+  if (!criteria) return null;
   const compactProperties = {
     pair_key: { type: "string", const: `${directionAValue}|${directionBValue}` },
-    ...compactDecisionProperties(),
+    ...compactDecisionProperties(criteria),
   };
   return {
     type: "object",
@@ -152,8 +198,18 @@ function compactPairSchema(value: unknown): Record<string, unknown> | null {
   };
 }
 
-function compactDecisionProperties() {
+function compactDecisionProperties(criteria: unknown[]) {
   const verdict = { type: "string", enum: [...COMPARABLE_VERDICTS] };
+  const macroProperties = objectRecord(objectRecord(criteria[4])?.properties);
+  const catalystProperties = objectRecord(objectRecord(criteria[5])?.properties);
+  if (
+    !macroProperties?.coverage_state ||
+    !macroProperties.verdict ||
+    !catalystProperties?.coverage_state ||
+    !catalystProperties.verdict
+  ) {
+    throw new Error("sector direction coverage schema is incomplete");
+  }
   return {
     decisions: {
       type: "array",
@@ -164,24 +220,10 @@ function compactDecisionProperties() {
         verdict,
         verdict,
         verdict,
-        {
-          type: "string",
-          enum: [
-            "AVAILABLE_MATERIAL_EVENTS",
-            "COVERAGE_CONFIRMED_NO_MATERIAL_EVENT",
-            "SOURCE_UNAVAILABLE",
-          ],
-        },
-        verdict,
-        {
-          type: "string",
-          enum: [
-            "AVAILABLE_MATERIAL_CATALYSTS",
-            "COVERAGE_CONFIRMED_NO_MATERIAL_CATALYST",
-            "SOURCE_UNAVAILABLE",
-          ],
-        },
-        verdict,
+        macroProperties.coverage_state,
+        macroProperties.verdict,
+        catalystProperties.coverage_state,
+        catalystProperties.verdict,
         { type: "string", enum: [...OPTIONAL_ETF_VERDICTS] },
         { type: "string", enum: [...OPTIONAL_ETF_VERDICTS] },
       ],
@@ -196,15 +238,20 @@ function materializeDirectionResearch(
   contract: typeof COMPACT_DIRECTION_RESEARCH | typeof COMPACT_CONFLICT_REVIEW,
   pairs: CompactDirectionPair[],
   evidence: CompactDirectionEvidence,
+  directionOrder: string[] | null,
 ): unknown {
   const prefix =
     contract === COMPACT_DIRECTION_RESEARCH ? "provider-direction" : "provider-conflict";
-  const claims = pairs.map((pair, index) => {
+  const effectivePairs =
+    contract === COMPACT_CONFLICT_REVIEW
+      ? alignConflictPairsToDirectionOrder(pairs, directionOrder)
+      : pairs;
+  const claims = effectivePairs.map((pair, index) => {
     const [directionA, directionB] = pairDirections(pair.pair_key);
     const claimId = pairClaimId(prefix, directionA, directionB, index);
     return {
       claim_id: claimId,
-      claim_kind: "INTERPRETATION",
+      claim_kind: evidence.claim_kind,
       statement: `${directionA} and ${directionB} were compared across the frozen eight-criterion contract.`,
       structured_conclusion: {
         conclusion_type: "SECTOR_DIRECTION_COMPARISON",
@@ -212,15 +259,20 @@ function materializeDirectionResearch(
         state: "COMPARED",
       },
       evidence_ids: [
-        evidence.evidence_id,
-        ...(pair.decisions[4] !== "SOURCE_UNAVAILABLE" || pair.decisions[6] !== "SOURCE_UNAVAILABLE"
-          ? evidence.coverage_evidence_ids
-          : []),
+        ...new Set([
+          evidence.evidence_id,
+          ...(pair.decisions[4] !== "SOURCE_UNAVAILABLE"
+            ? evidence.macro_event_coverage_evidence_ids
+            : []),
+          ...(pair.decisions[6] !== "SOURCE_UNAVAILABLE"
+            ? evidence.catalyst_coverage_evidence_ids
+            : []),
+        ]),
       ],
-      research_rule_refs: [evidence.research_rule_ref],
+      research_rule_refs: evidence.research_rule_ref ? [evidence.research_rule_ref] : [],
     };
   });
-  const comparisons = pairs.map((pair, index) => {
+  const comparisons = effectivePairs.map((pair, index) => {
     const [directionA, directionB] = pairDirections(pair.pair_key);
     const claimId = pairClaimId(prefix, directionA, directionB, index);
     const claimRefs = [claimId];
@@ -231,7 +283,8 @@ function materializeDirectionResearch(
       direction_b_id: directionB,
       criterion_results: materializeCriterionResults(
         decisions,
-        evidence.coverage_evidence_ids,
+        evidence.macro_event_coverage_evidence_ids,
+        evidence.catalyst_coverage_evidence_ids,
         claimRefs,
       ),
       claim_refs: claimRefs,
@@ -246,9 +299,55 @@ function materializeDirectionResearch(
     : { review_round: 1, comparison_claims: claims, revised_comparisons: comparisons };
 }
 
+function orderedPairDirections(pairSchemas: unknown[]): string[] {
+  const ordered: string[] = [];
+  for (const pairSchema of pairSchemas) {
+    const properties = objectRecord(objectRecord(pairSchema)?.properties);
+    for (const value of [
+      schemaConst(properties?.direction_a_id),
+      schemaConst(properties?.direction_b_id),
+    ]) {
+      if (typeof value === "string" && !ordered.includes(value)) ordered.push(value);
+    }
+  }
+  return ordered;
+}
+
+function alignConflictPairsToDirectionOrder(
+  pairs: CompactDirectionPair[],
+  directionOrder: string[] | null,
+): CompactDirectionPair[] {
+  const expectedDirections = [...new Set(pairs.flatMap((pair) => pairDirections(pair.pair_key)))];
+  if (
+    !directionOrder ||
+    directionOrder.length !== expectedDirections.length ||
+    new Set(directionOrder).size !== directionOrder.length ||
+    expectedDirections.some((direction) => !directionOrder.includes(direction))
+  ) {
+    throw new Error("conflict direction_order must contain every reviewed direction exactly once");
+  }
+  const rank = new Map(directionOrder.map((direction, index) => [direction, index]));
+  return pairs.map((pair) => {
+    const [directionA, directionB] = pairDirections(pair.pair_key);
+    const verdict: ComparableVerdict =
+      (rank.get(directionA) as number) < (rank.get(directionB) as number) ? "FAVORS_A" : "FAVORS_B";
+    const decisions = [...pair.decisions] as CompactDirectionDecision["decisions"];
+    decisions[0] = verdict;
+    decisions[1] = verdict;
+    decisions[2] = verdict;
+    decisions[3] = verdict;
+    decisions[5] = verdict;
+    decisions[7] = verdict;
+    if (decisions[8] !== "INCOMPARABLE") decisions[8] = verdict;
+    if (decisions[9] !== "INCOMPARABLE") decisions[9] = verdict;
+    return { ...pair, decisions };
+  });
+}
+
 function materializeCriterionResults(
   decisions: CompactDirectionDecision["decisions"],
-  coverageEvidenceIds: string[],
+  macroEventCoverageEvidenceIds: string[],
+  catalystCoverageEvidenceIds: string[],
   claimRefs: string[],
 ) {
   return [
@@ -260,10 +359,16 @@ function materializeCriterionResults(
       "MACRO_EVENT_FIT",
       decisions[4],
       decisions[5],
-      coverageEvidenceIds,
+      macroEventCoverageEvidenceIds,
       claimRefs,
     ),
-    coverageCriterion("CATALYSTS", decisions[6], decisions[7], coverageEvidenceIds, claimRefs),
+    coverageCriterion(
+      "CATALYSTS",
+      decisions[6],
+      decisions[7],
+      catalystCoverageEvidenceIds,
+      claimRefs,
+    ),
     optionalEtfCriterion("ETF_PRICE_CONFIRMATION", decisions[8], claimRefs),
     optionalEtfCriterion("ETF_SHARE_FLOW_CONFIRMATION", decisions[9], claimRefs),
   ];
@@ -355,4 +460,21 @@ function objectRecord(value: unknown): Record<string, unknown> | null {
 
 function schemaConst(value: unknown): unknown {
   return objectRecord(value)?.const;
+}
+
+function criterionSchemas(value: unknown): unknown[] | null {
+  const properties = objectRecord(objectRecord(value)?.properties);
+  const criteria = objectRecord(properties?.criterion_results);
+  return Array.isArray(criteria?.prefixItems) && criteria.prefixItems.length === 8
+    ? criteria.prefixItems
+    : null;
+}
+
+function coverageEvidenceSchema(value: unknown): Record<string, unknown> | null {
+  const properties = objectRecord(objectRecord(value)?.properties);
+  return objectRecord(properties?.coverage_evidence_ids);
+}
+
+function normalizeClaimKind(value: unknown): "FACT" | "EVENT" | "INTERPRETATION" | "RISK_FLAG" {
+  return value === "EVENT" || value === "INTERPRETATION" || value === "RISK_FLAG" ? value : "FACT";
 }

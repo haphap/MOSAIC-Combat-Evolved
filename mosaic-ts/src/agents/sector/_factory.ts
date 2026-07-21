@@ -65,9 +65,11 @@ import {
   liveOutcomeCapabilityRuntimeInput,
 } from "../helpers/outcome_pre_model.js";
 import {
+  finalizePrivateKnotSnapshot,
   isPrivateKnotStageEnabled,
   type PrivateKnotAuditSummary,
   type PrivateKnotSnapshot,
+  preparePrivateKnotModelContext,
   privateKnotInvocationContextForState,
   type ToolStatus,
 } from "../helpers/private_knot_boundary.js";
@@ -99,7 +101,12 @@ import {
   prepareAgentToolCapability,
   terminateAgentToolCapability,
 } from "../helpers/tool_capability.js";
-import { type LoaderLanguage, loadPrompt, loadPromptWithPrivateKnot } from "../prompts/loader.js";
+import {
+  buildPromptReleaseAssignmentKey,
+  type LoaderLanguage,
+  loadPrompt,
+  loadPromptWithPrivateKnot,
+} from "../prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type {
   RelationshipMapperOutput,
@@ -215,7 +222,7 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
               agent: spec.agentId,
               cohort,
               stage: "agent_run",
-              trafficAssignmentKey: state.trace_id || state.as_of_date,
+              trafficAssignmentKey: buildPromptReleaseAssignmentKey(cohort, state.as_of_date),
               runtimeSourceStatuses,
               invocationContext: privateKnotInvocationContextForState(state),
               ...(state.darwinian_runtime_binding
@@ -357,6 +364,15 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
               initialToolCalls: spec.requiredTools.map((name) => ({ name, args: {} })),
               allowModelToolCalls: false,
               ...(runtimeEvidence ? { agentInvocationId: runtimeEvidence.agentInvocationId } : {}),
+              ...(knobSnapshot
+                ? {
+                    prepareModelContext: (initialToolResults) =>
+                      preparePrivateKnotModelContext({
+                        snapshot: knobSnapshot,
+                        initialToolResults,
+                      }),
+                  }
+                : {}),
               maxLoops: 3,
               replayFullToolMaxChars: 80_000,
               onLog: (msg) => onLog(formatAgentEvent("phase", "L2", spec.agentId, [msg])),
@@ -377,6 +393,8 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
             stage: "agent_run",
             knobSnapshot,
             toolStatuses: loopResult.toolStatuses,
+            modelContext: loopResult.modelContext,
+            effectiveModelInputHash: loopResult.effectiveModelInputHash,
           });
           canaryToolStatuses = loopResult.toolStatuses;
           const relationshipSnapshot = state.darwinian_runtime_binding
@@ -658,6 +676,8 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
       });
       if (failureEvent) await persistPromptReleaseCanaryEvents([failureEvent]);
       throw err;
+    } finally {
+      if (canaryKnobSnapshot) finalizePrivateKnotSnapshot(canaryKnobSnapshot);
     }
   };
 }
@@ -837,24 +857,29 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
             `Do not use tools and do not submit a final selection, direction ranking, or security picks.`,
         ),
         new HumanMessage(
-          JSON.stringify({
-            review_id: conflictReviewId,
-            conflict_direction_ids: orderedConflictDirections,
-            reserved_claim_ids: [...reservedClaimIds].sort(),
-            initial_comparisons: finalizedComparisons.filter(
-              (row) =>
-                orderedConflictDirections.includes(row.direction_a_id) &&
-                orderedConflictDirections.includes(row.direction_b_id),
-            ),
-            coverage_directive: coverageDirective,
-            evidence_catalog: runtimeEvidence.visibleCatalog,
-          }),
+          [
+            JSON.stringify({
+              review_id: conflictReviewId,
+              conflict_direction_ids: orderedConflictDirections,
+              reserved_claim_ids: [...reservedClaimIds].sort(),
+              initial_comparisons: finalizedComparisons.filter(
+                (row) =>
+                  orderedConflictDirections.includes(row.direction_a_id) &&
+                  orderedConflictDirections.includes(row.direction_b_id),
+              ),
+              coverage_directive: coverageDirective,
+              evidence_catalog: runtimeEvidence.visibleCatalog,
+            }),
+            "Frozen direction-research projection used by the initial comparison:",
+            renderSectorDirectionResearchPayloads(toolMaterialization.payloads),
+          ].join("\n\n"),
         ),
       ],
       agent: input.spec.agentId,
       stage: "conflict_review",
       runId: input.state.trace_id || input.state.as_of_date || "current_run",
       evidenceSnapshot: {
+        ...runtimeEvidence,
         snapshot_hash: runtimeEvidence.snapshotHash,
         conflict_review_id: conflictReviewId,
       },
@@ -989,6 +1014,7 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
     stage: "final_selection",
     runId: input.state.trace_id || input.state.as_of_date || "current_run",
     evidenceSnapshot: {
+      ...runtimeEvidence,
       snapshot_hash: runtimeEvidence.snapshotHash,
       directive: modelVisibleDirective(directive),
       final_grounding_hash: canonicalHash(finalGrounding),

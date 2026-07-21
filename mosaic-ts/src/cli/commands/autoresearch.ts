@@ -56,10 +56,41 @@ interface RevertOptions {
   versionId: string;
 }
 
+interface StatusOptions {
+  workflowId: string;
+}
+
 export function registerAutoresearch(program: Command): void {
   const cmd = program
     .command("autoresearch")
     .description("Legacy prompt diagnostics; production v2 promotion is KNOT-only.");
+
+  cmd
+    .command("status")
+    .description("Show opaque formal KNOT coordinator state without exposing private policy.")
+    .requiredOption("--workflow-id <id>", "Formal KNOT workflow id")
+    .action(async (opts: StatusOptions) => {
+      const client = new BridgeClient();
+      const api = new BridgeApi(client);
+      try {
+        await client.start();
+        const status = await api.darwinianKnotCoordinatorStatus({
+          workflow_id: opts.workflowId,
+        });
+        const event = status.latest_event;
+        if (!event) {
+          console.log(`workflow=${opts.workflowId} state=NOT_STARTED revision=0`);
+          return;
+        }
+        const state = typeof event.state === "string" ? event.state : "INVALID";
+        const revision = typeof event.revision === "number" ? event.revision : "INVALID";
+        console.log(`workflow=${opts.workflowId} state=${state} revision=${revision}`);
+      } catch (err) {
+        handleError(err, client);
+      } finally {
+        await client.close();
+      }
+    });
 
   // ── autoresearch trigger ──────────────────────────────────────────────
 

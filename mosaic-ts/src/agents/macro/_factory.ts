@@ -49,9 +49,11 @@ import {
   liveOutcomeCapabilityRuntimeInput,
 } from "../helpers/outcome_pre_model.js";
 import {
+  finalizePrivateKnotSnapshot,
   isPrivateKnotStageEnabled,
   type PrivateKnotAuditSummary,
   type PrivateKnotSnapshot,
+  preparePrivateKnotModelContext,
   privateKnotInvocationContextForState,
   type ToolStatus,
 } from "../helpers/private_knot_boundary.js";
@@ -79,7 +81,12 @@ import {
   prepareAgentToolCapability,
   terminateAgentToolCapability,
 } from "../helpers/tool_capability.js";
-import { type LoaderLanguage, loadPrompt, loadPromptWithPrivateKnot } from "../prompts/loader.js";
+import {
+  buildPromptReleaseAssignmentKey,
+  type LoaderLanguage,
+  loadPrompt,
+  loadPromptWithPrivateKnot,
+} from "../prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type { AcceptedMacroTransmission, MacroAgentId, MacroAgentSubmission } from "../types.js";
 import {
@@ -196,7 +203,7 @@ export function buildLayerOneAgentNode(
               agent: spec.agentId,
               cohort,
               stage: "agent_run",
-              trafficAssignmentKey: state.trace_id || state.as_of_date,
+              trafficAssignmentKey: buildPromptReleaseAssignmentKey(cohort, state.as_of_date),
               runtimeSourceStatuses,
               invocationContext: privateKnotInvocationContextForState(state),
               ...(state.darwinian_runtime_binding
@@ -279,6 +286,15 @@ export function buildLayerOneAgentNode(
               initialToolCalls: [{ name: spec.requiredTools[0], args: {} }],
               allowModelToolCalls: false,
               ...(runtimeEvidence ? { agentInvocationId: runtimeEvidence.agentInvocationId } : {}),
+              ...(knobSnapshot
+                ? {
+                    prepareModelContext: (initialToolResults) =>
+                      preparePrivateKnotModelContext({
+                        snapshot: knobSnapshot,
+                        initialToolResults,
+                      }),
+                  }
+                : {}),
               ...(spec.maxLoops !== undefined ? { maxLoops: spec.maxLoops } : {}),
               onLog: (msg) => onLog(formatAgentEvent("phase", "L1", spec.agentId, [msg])),
               signal,
@@ -298,6 +314,8 @@ export function buildLayerOneAgentNode(
             stage: "agent_run",
             knobSnapshot,
             toolStatuses: loopResult.toolStatuses,
+            modelContext: loopResult.modelContext,
+            effectiveModelInputHash: loopResult.effectiveModelInputHash,
           });
           canaryToolStatuses = loopResult.toolStatuses;
 
@@ -580,6 +598,8 @@ export function buildLayerOneAgentNode(
       });
       if (failureEvent) await persistPromptReleaseCanaryEvents([failureEvent]);
       throw err;
+    } finally {
+      if (canaryKnobSnapshot) finalizePrivateKnotSnapshot(canaryKnobSnapshot);
     }
   };
 }

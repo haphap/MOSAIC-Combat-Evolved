@@ -148,6 +148,123 @@ def _dispatch(method: str, params: dict[str, Any]) -> dict[str, Any]:
     return handler(params)
 
 
+def test_knot_coordinator_bridge_exposes_only_frozen_inputs_and_opaque_cas(
+    stores: tuple[_RecordingStore, _RecordingCapabilityStore],
+) -> None:
+    scorecard, _ = stores
+    proposal = _dispatch(
+        "darwinian.knot_freeze_proposal_input",
+        {
+            "production_variant_id": "variant:1",
+            "agent_id": "china",
+            "effect_contract_id": "effect:china",
+            "proposal_cutoff_at": "2026-07-20T15:00:00+08:00",
+            "matured_outcomes": [
+                {
+                    "outcome_id": "outcome:china:1",
+                    "outcome_hash": f"sha256:{'a' * 64}",
+                    "agent_id": "china",
+                    "matured_at": "2026-07-20T14:00:00+08:00",
+                }
+            ],
+            "operational_diagnosis_hashes": [f"sha256:{'b' * 64}"],
+            "scheduler_contract_hash": f"sha256:{'c' * 64}",
+            "score_contract_hash": f"sha256:{'d' * 64}",
+            "proposer_version": "private-proposer-v1",
+            "frozen_at": "2026-07-20T15:01:00+08:00",
+        },
+    )
+    assert proposal["method"] == "freeze_knot_proposal_input"
+    transition = _dispatch(
+        "darwinian.knot_coordinator_transition",
+        {
+            "workflow_id": "workflow:1",
+            "expected_revision": 0,
+            "from_state": None,
+            "to_state": "DISCOVER_MATURE_TRACKS",
+            "idempotency_key": "workflow:1:discover",
+            "command_payload_hash": f"sha256:{'e' * 64}",
+            "recorded_at": "2026-07-21T08:00:00+08:00",
+        },
+    )
+    assert transition["method"] == "append_knot_coordinator_transition"
+    assert [method for method, _ in scorecard.calls] == [
+        "freeze_knot_proposal_input",
+        "append_knot_coordinator_transition",
+    ]
+
+
+def test_knot_coordinator_bridge_rejects_caller_output_fields(
+    stores: tuple[_RecordingStore, _RecordingCapabilityStore],
+) -> None:
+    scorecard, _ = stores
+    with pytest.raises(RpcError, match="unsupported parameter"):
+        _dispatch(
+            "darwinian.knot_coordinator_transition",
+            {
+                "workflow_id": "workflow:1",
+                "expected_revision": 0,
+                "from_state": None,
+                "to_state": "DISCOVER_MATURE_TRACKS",
+                "idempotency_key": "workflow:1:discover",
+                "command_payload_hash": f"sha256:{'e' * 64}",
+                "recorded_at": "2026-07-21T08:00:00+08:00",
+                "accepted_output": {"forged": True},
+            },
+        )
+    assert scorecard.calls == []
+
+
+def test_knot_candidate_capability_bridge_only_forwards_server_owned_binding(
+    stores: tuple[_RecordingStore, _RecordingCapabilityStore],
+) -> None:
+    scorecard, _ = stores
+    issued = _dispatch(
+        "darwinian.knot_issue_research_candidate_capability",
+        {
+            "knot_pair_id": "pair-1",
+            "idempotency_key": "pair-1:candidate",
+            "issued_at": "2026-07-21T08:00:00+08:00",
+            "expires_at": "2026-07-21T08:05:00+08:00",
+        },
+    )
+    assert issued["method"] == "issue_knot_research_candidate_capability"
+    consumed = _dispatch(
+        "darwinian.knot_consume_research_candidate_capability",
+        {
+            "capability": {"capability_id": "capability-1"},
+            "knot_pair_id": "pair-1",
+            "candidate_bundle_id": "candidate-1",
+            "candidate_bundle_hash": f"sha256:{'a' * 64}",
+            "invocation_mode": "KNOT_RESEARCH",
+            "consumed_at": "2026-07-21T08:01:00+08:00",
+        },
+    )
+    assert consumed["method"] == "consume_knot_research_candidate_capability"
+    assert [method for method, _ in scorecard.calls] == [
+        "issue_knot_research_candidate_capability",
+        "consume_knot_research_candidate_capability",
+    ]
+
+
+def test_knot_candidate_capability_issue_rejects_caller_supplied_bundle(
+    stores: tuple[_RecordingStore, _RecordingCapabilityStore],
+) -> None:
+    scorecard, _ = stores
+    with pytest.raises(RpcError, match="unsupported parameter"):
+        _dispatch(
+            "darwinian.knot_issue_research_candidate_capability",
+            {
+                "knot_pair_id": "pair-1",
+                "idempotency_key": "pair-1:candidate",
+                "issued_at": "2026-07-21T08:00:00+08:00",
+                "expires_at": "2026-07-21T08:05:00+08:00",
+                "candidate_bundle_hash": f"sha256:{'a' * 64}",
+            },
+        )
+    assert scorecard.calls == []
+
+
 @pytest.mark.parametrize(
     ("fields", "message"),
     [
@@ -620,6 +737,10 @@ def test_failed_pair_side_forbids_accepted_fields_and_uses_frozen_run_lineage(
     stores: tuple[_RecordingStore, _RecordingCapabilityStore],
 ) -> None:
     scorecard, _ = stores
+    candidate_authorization = {
+        "schema_version": "knot_research_candidate_capability_consumption_v1",
+        "consumption_id": "candidate-consumption-1",
+    }
     _dispatch(
         "darwinian.knot_append_pair_side_result",
         {
@@ -628,6 +749,7 @@ def test_failed_pair_side_forbids_accepted_fields_and_uses_frozen_run_lineage(
             "result_disposition": "AGENT_FAILURE",
             "recorded_at": "2026-07-19T09:10:00+08:00",
             "failure_reason": "MODEL_TIMEOUT",
+            "candidate_authorization_receipt": candidate_authorization,
         },
     )
     _, forwarded = scorecard.calls[-1]
@@ -637,6 +759,8 @@ def test_failed_pair_side_forbids_accepted_fields_and_uses_frozen_run_lineage(
     assert forwarded["strict_receipt_verifier"] is None
     assert forwarded["cio_failure_phase"] is None
     assert forwarded["cio_output_phase"] is None
+    assert forwarded["candidate_authorization_receipt"] == candidate_authorization
+    assert callable(forwarded["candidate_authorization_verifier"])
 
     with pytest.raises(RpcError) as exc_info:
         _dispatch(

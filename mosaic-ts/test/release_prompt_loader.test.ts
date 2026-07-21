@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { clearPromptCache, loadPromptWithPrivateKnot } from "../src/agents/prompts/loader.js";
 import {
   type ActivePromptReleaseManifest,
+  ActivePromptReleaseManifestSchema,
+  assertFullRuntimePromptRelease,
+  deterministicFullRuntimeReleaseId,
   type ReleasePromptPair,
   releasePromptPairHash,
   releasePromptSetHash,
@@ -16,6 +19,7 @@ import {
   resolveConfiguredPromptReleaseContext,
 } from "../src/agents/prompts/release_prompt_loader.js";
 import { ActivePromptReleaseRegistry } from "../src/autoresearch/release_registry.js";
+import { buildRuntimeBehaviorBundleRef } from "../src/autoresearch/runtime_behavior_bundle.js";
 import { installTestPrivateKnotRuntime } from "./helpers/private_knot.js";
 
 const HASH = `sha256:${"1".repeat(64)}`;
@@ -107,33 +111,32 @@ function release(opts: {
 }): ActivePromptReleaseManifest {
   const promptPairs = [opts.promptPair];
   const fallbackPairs = opts.fallback ? [opts.fallback.promptPair] : null;
-  return {
-    schema_version: "active_prompt_release_manifest_v1",
-    release_id: "release-1",
+  const promptHash = releasePromptSetHash(promptPairs);
+  const catalogHash = opts.closure?.catalogHash ?? HASH;
+  const schemaHash = opts.closure?.schemaHash ?? HASH;
+  const evaluationContractHash = opts.closure?.evaluationContractHash ?? HASH;
+  const withoutId = {
+    schema_version: "active_prompt_release_manifest_v2" as const,
     base_release_id: null,
-    lifecycle_state: "active",
+    lifecycle_state: "active" as const,
     prompt_commit: opts.promptCommit,
     code_commit: "7654321",
-    prompt_hash: releasePromptSetHash(promptPairs),
+    prompt_hash: promptHash,
     prompt_pairs: promptPairs,
     stage_snapshot_hashes: { "central_bank:agent_run": HASH },
-    catalog_hash: opts.closure?.catalogHash ?? HASH,
-    schema_hash: opts.closure?.schemaHash ?? HASH,
-    evaluation_contract_hash: opts.closure?.evaluationContractHash ?? HASH,
+    catalog_hash: catalogHash,
+    schema_hash: schemaHash,
+    evaluation_contract_hash: evaluationContractHash,
     keep_decision_hash: HASH,
-    keep_decision_state: "kept",
+    keep_decision_state: "kept" as const,
     release_evidence: {
-      version_id: 1,
-      mutation_id: "mutation-1",
-      experiment_id: "experiment-1",
-      mutated_agent: "central_bank",
-      evaluation_result_hash: HASH,
-      transaction_manifest_hash: HASH,
-      prompt_pair_sha256: "1".repeat(64),
+      kind: "BASELINE_MIGRATION" as const,
+      migration_id: "test-baseline",
+      migration_evidence_hash: HASH,
     },
     activation_scope: {
       cohort: "cohort_default",
-      account_mode: "paper",
+      account_mode: "paper" as const,
       traffic_percent: 100,
     },
     approval_policy_id: "decision_release_manual_v1",
@@ -153,22 +156,7 @@ function release(opts: {
       duplicate_order_intent_count: 0,
       exposure_breach_count: 0,
     },
-    runtime_slo_evidence: {
-      schema_version: "prompt_release_canary_slo_evidence_v1",
-      release_id: "release-1",
-      account_mode: "paper",
-      traffic_percent: 10,
-      canary_started_at: "2026-07-10T00:00:00Z",
-      observation_ended_at: "2026-07-10T01:00:00Z",
-      eligible_event_count: 20,
-      excluded_event_count: 0,
-      excluded_count_by_reason: {},
-      event_set_hash: HASH,
-      stage_snapshot_hashes_hash: HASH,
-      aggregator_id: "prompt_release_canary_slo",
-      aggregator_version: "1",
-      artifact_hash: HASH,
-    },
+    runtime_slo_evidence: null,
     rollback_triggers: ["schema_failure_rate_gt_0"],
     previous_approved_release_id: null,
     bundled_fallback:
@@ -184,7 +172,55 @@ function release(opts: {
     created_at: "2026-07-10T00:00:00Z",
     activated_at: "2026-07-10T01:00:00Z",
     rolled_back_at: null,
+    runtime_behavior_bundle: buildRuntimeBehaviorBundleRef({
+      schema_version: "runtime_behavior_bundle_ref_v1",
+      prompt_hash: promptHash,
+      execution_behavior_release_id: `execution-behavior-release:${"2".repeat(64)}`,
+      execution_behavior_release_hash: `sha256:${"3".repeat(64)}`,
+      production_variant_roster_revision_id: `production-variant-roster-revision:${"4".repeat(64)}`,
+      production_variant_roster_revision_hash: `sha256:${"5".repeat(64)}`,
+      origin: {
+        kind: "BASELINE_MIGRATION",
+        migration_id: "test-baseline",
+        migration_evidence_hash: HASH,
+      },
+      private_runtime_commit: "6".repeat(40),
+      private_runtime_manifest_hash: `sha256:${"7".repeat(64)}`,
+      private_policy_commit: "8".repeat(40),
+      private_policy_hash: `sha256:${"9".repeat(64)}`,
+      effect_registry_hash: `sha256:${"a".repeat(64)}`,
+      consumer_registry_hash: `sha256:${"b".repeat(64)}`,
+      fitness_registry_hash: `sha256:${"c".repeat(64)}`,
+      catalog_hash: catalogHash,
+      agent_contract_hash: `sha256:${"d".repeat(64)}`,
+      evaluation_contract_hash: evaluationContractHash,
+      schema_hash: schemaHash,
+      score_contract_hash: `sha256:${"e".repeat(64)}`,
+      scheduler_contract_hash: `sha256:${"f".repeat(64)}`,
+      earliest_activation_slot: "2026-07-10T00:00:00Z",
+    }),
   };
+  const releaseId = deterministicFullRuntimeReleaseId(withoutId);
+  return ActivePromptReleaseManifestSchema.parse({
+    ...withoutId,
+    release_id: releaseId,
+    runtime_slo_evidence: {
+      schema_version: "prompt_release_canary_slo_evidence_v1",
+      release_id: releaseId,
+      account_mode: "paper",
+      traffic_percent: 10,
+      canary_started_at: "2026-07-10T00:00:00Z",
+      observation_ended_at: "2026-07-10T01:00:00Z",
+      eligible_event_count: 20,
+      excluded_event_count: 0,
+      excluded_count_by_reason: {},
+      event_set_hash: HASH,
+      stage_snapshot_hashes_hash: HASH,
+      aggregator_id: "prompt_release_canary_slo",
+      aggregator_version: "1",
+      artifact_hash: HASH,
+    },
+  });
 }
 
 describe("release-pinned prompt loading", () => {
@@ -229,6 +265,7 @@ describe("release-pinned prompt loading", () => {
     const contents = { zh: prompt("private zh v1"), en: prompt("private en v1") };
     const repo = gitRepo(contents);
     writeFileSync(join(repo.root, PROMPT_PATHS.zh), prompt("floating zh v2"), "utf-8");
+    const manifest = release({ promptCommit: repo.commit, promptPair: pair(contents) });
 
     const loaded = await loadPromptWithPrivateKnot({
       invocationContext: TEST_KNOT_INVOCATION,
@@ -237,7 +274,7 @@ describe("release-pinned prompt loading", () => {
       stage: "agent_run",
       noCache: true,
       releaseContext: {
-        manifest: release({ promptCommit: repo.commit, promptPair: pair(contents) }),
+        manifest,
         privatePromptRepo: repo.root,
         accountMode: "paper",
         expectedCatalogHash: HASH,
@@ -249,7 +286,7 @@ describe("release-pinned prompt loading", () => {
     expect(loaded.bodies.zh).toContain("private zh v1");
     expect(loaded.bodies.zh).not.toContain("floating zh v2");
     expect(loaded.release).toMatchObject({
-      release_id: "release-1",
+      release_id: manifest.release_id,
       source: "private",
       prompt_commit: repo.commit,
     });
@@ -283,7 +320,7 @@ describe("release-pinned prompt loading", () => {
     });
 
     expect(loaded.release).toMatchObject({
-      release_id: "release-1",
+      release_id: active.release_id,
       lifecycle_state: "canary",
       traffic_percent: 10,
     });
@@ -380,11 +417,11 @@ describe("release-pinned prompt loading", () => {
         evaluationContractHash: evaluationClosure.contract_hash,
       },
     });
-    const staged: ActivePromptReleaseManifest = {
+    assertFullRuntimePromptRelease(baseline);
+    const stagedWithoutId = {
       ...baseline,
-      release_id: "release-canary",
       base_release_id: baseline.release_id,
-      lifecycle_state: "staged",
+      lifecycle_state: "staged" as const,
       activation_scope: { ...baseline.activation_scope, traffic_percent: 0 },
       approved_by: null,
       canary_started_at: null,
@@ -394,6 +431,10 @@ describe("release-pinned prompt loading", () => {
       previous_approved_release_id: baseline.release_id,
       activated_at: null,
     };
+    const staged: ActivePromptReleaseManifest = ActivePromptReleaseManifestSchema.parse({
+      ...stagedWithoutId,
+      release_id: deterministicFullRuntimeReleaseId(stagedWithoutId),
+    });
     const canary: ActivePromptReleaseManifest = {
       ...staged,
       lifecycle_state: "canary",
@@ -425,7 +466,7 @@ describe("release-pinned prompt loading", () => {
         encoding: "utf-8",
       }).trim();
       expect(context).toMatchObject({
-        manifest: { release_id: "release-canary", lifecycle_state: "canary" },
+        manifest: { release_id: staged.release_id, lifecycle_state: "canary" },
         expectedCodeCommit: head,
       });
     } finally {
@@ -604,7 +645,7 @@ describe("release-pinned prompt loading", () => {
         noCache: true,
       });
       expect(loaded.release).toMatchObject({
-        release_id: "release-1",
+        release_id: active.release_id,
         source: "private",
         prompt_commit: repo.commit,
       });

@@ -155,6 +155,42 @@ function state(): DailyCycleStateType {
 }
 
 describe("runtime evidence snapshots", () => {
+  it("keeps required tool evidence when a private snapshot has no explicit tool binding", () => {
+    const snapshot = knobSnapshot("us_economy", "agent_run");
+    snapshot.evidence_bindings = [];
+    snapshot.runtime_source_statuses = [];
+
+    const result = buildRuntimeEvidenceSnapshot({
+      state: state(),
+      agent: "us_economy",
+      stage: "agent_run",
+      knobSnapshot: snapshot,
+      toolStatuses: [
+        {
+          name: "get_us_macro_snapshot",
+          call_id: "call-us-macro",
+          called: true,
+          failed: false,
+          missing: false,
+          fallback: false,
+          cache_hit: false,
+          args_fingerprint: HASH,
+          result_fingerprint: TOOL_HASH,
+          source_fingerprint: TOOL_HASH,
+          as_of: "2026-07-09",
+        },
+      ],
+    });
+
+    expect(result.evidenceLedger).toEqual([
+      expect.objectContaining({
+        tool_or_source: "get_us_macro_snapshot",
+        metric: "get_us_macro_snapshot_snapshot",
+        source_fingerprint: TOOL_HASH,
+      }),
+    ]);
+  });
+
   it("binds source and tool observations to one invocation snapshot", () => {
     const result = buildRuntimeEvidenceSnapshot({
       state: state(),

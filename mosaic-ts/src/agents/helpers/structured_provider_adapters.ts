@@ -19,25 +19,25 @@ const STANDARD_SECTOR_AGENTS = new Set([
   "agriculture",
 ]);
 
-const COMPACT_SELECTED_SECTOR = "SECTOR_SELECTED_COMPACT_V1";
-const COMPACT_RELATIONSHIP_MAPPER = "RELATIONSHIP_MAPPER_COMPACT_V1";
-const COMPACT_SUPERINVESTOR_ABSTENTION = "SUPERINVESTOR_ABSTENTION_COMPACT_V1";
+const COMPACT_SELECTED_SECTOR = "SECTOR_SELECTED_COMPACT_V2";
+const COMPACT_RELATIONSHIP_MAPPER = "RELATIONSHIP_MAPPER_COMPACT_V2";
+const COMPACT_SUPERINVESTOR_ABSTENTION = "SUPERINVESTOR_ABSTENTION_COMPACT_V2";
 const COMPACT_MACRO_COMPONENTS = "MACRO_COMPONENTS_COMPACT_V1";
 const COMPACT_MACRO_DIRECT = "MACRO_DIRECT_COMPACT_V1";
 const SUPERINVESTOR_AGENTS = new Set(["druckenmiller", "munger", "burry", "ackman"]);
 
 export const STRUCTURED_PROVIDER_ADAPTER_DESCRIPTOR = Object.freeze({
-  contract_version: "structured_provider_adapter_pipeline_v3",
+  contract_version: "structured_provider_adapter_pipeline_v5",
   adapter_pipeline: [
-    "SECTOR_DIRECTION_PROVIDER_ADAPTER_V2",
-    "SECTOR_FINAL_PROVIDER_ADAPTER_V2",
-    "MACRO_PROVIDER_ADAPTER_V2",
+    "SECTOR_DIRECTION_PROVIDER_ADAPTER_V4",
+    "SECTOR_FINAL_PROVIDER_ADAPTER_V3",
+    "MACRO_PROVIDER_ADAPTER_V4",
     "MACRO_ATTRIBUTION_PROVIDER_ADAPTER_V1",
     "STRICT_PROVIDER_PAYLOAD_NORMALIZATION_V2",
   ],
   compact_contracts: [
-    "SECTOR_DIRECTION_RESEARCH_COMPACT_V2",
-    "SECTOR_CONFLICT_REVIEW_COMPACT_V2",
+    "SECTOR_DIRECTION_RESEARCH_COMPACT_V3",
+    "SECTOR_CONFLICT_REVIEW_COMPACT_V4",
     COMPACT_SELECTED_SECTOR,
     COMPACT_RELATIONSHIP_MAPPER,
     COMPACT_SUPERINVESTOR_ABSTENTION,
@@ -45,11 +45,11 @@ export const STRUCTURED_PROVIDER_ADAPTER_DESCRIPTOR = Object.freeze({
     COMPACT_MACRO_DIRECT,
   ],
   macro_materialization:
-    "ONE_MODEL_JUDGMENT_TO_ONE_RUNTIME_OWNED_CLAIM_WITH_EXACT_COMPONENT_SUBJECT_V1",
+    "ONE_MODEL_JUDGMENT_TO_ONE_RUNTIME_OWNED_CLAIM_WITH_EXACT_SUBJECT_AND_NARRATIVE_CANONICALIZATION_V4",
   macro_narrative_projection:
-    "BOUNDED_COMPLETE_QUALITATIVE_PROSE_WITH_CANONICAL_NUMBER_WORD_AND_PLACEHOLDER_GUARD_V1",
+    "BOUNDED_COMPLETE_QUALITATIVE_PROSE_WITH_TENOR_TERMINAL_AND_STATE_LABEL_CANONICALIZATION_V4",
   sector_security_materialization:
-    "DISTINCT_DIRECTION_DRIVER_RISK_AND_PER_SECURITY_CAUSAL_CLAIMS_V2",
+    "EXACT_LEG_EVIDENCE_DISTINCT_DIRECTION_DRIVER_RISK_AND_PER_SECURITY_CAUSAL_CLAIMS_V3",
 });
 
 export const MACRO_PROVIDER_INSTRUCTION =
@@ -68,23 +68,26 @@ export const MACRO_PROVIDER_INSTRUCTION =
   "claim whose canonical structured_conclusion.subject is exactly that component id.";
 
 export const SECTOR_SELECTED_PROVIDER_INSTRUCTION =
-  "When the bounded provider extraction contract is SECTOR_SELECTED_COMPACT_V1, return the exact " +
+  "When the bounded provider extraction contract is SECTOR_SELECTED_COMPACT_V2, return the exact " +
   "runtime-owned direction ids, concise preferred/least theses, one driver, one risk, one accepted " +
-  "evidence_id, security-leg decisions with LONG on the preferred leg and SHORT or AVOID on the " +
+  "runtime-bound preferred, least-preferred, and final evidence-id lists, a claim_kind, and an " +
+  "exact permitted research_rule_ref when one is available; " +
+  "otherwise set research_rule_ref to null and do not select INTERPRETATION. Return security-leg " +
+  "decisions with LONG on the preferred leg and SHORT or AVOID on the " +
   "least-preferred leg, and Macro attributions. Runtime deterministically assigns local ids and " +
   "maps each explicit direction, driver, risk, and security judgment to its own claim/reference " +
   "envelope without changing your direction, strength, confidence, security, or Macro-attribution " +
   "judgments.";
 
 export const SUPERINVESTOR_ABSTENTION_PROVIDER_INSTRUCTION =
-  "When the bounded extraction contract is SUPERINVESTOR_ABSTENTION_COMPACT_V1, provide one " +
-  "abstention summary, one risk summary, accepted evidence/rule ids, confidence, holding period, " +
+  "When the bounded extraction contract is SUPERINVESTOR_ABSTENTION_COMPACT_V2, provide one " +
+  "abstention summary, one risk summary, a claim_kind, accepted evidence/rule ids, confidence, holding period, " +
   "and Macro attributions. Runtime deterministically expands the empty-candidate claim and closes " +
   "all local references; do not invent local claim ids.";
 
 export const RELATIONSHIP_MAPPER_PROVIDER_INSTRUCTION =
-  "The bounded extraction contract is RELATIONSHIP_MAPPER_COMPACT_V1. Return only the compact " +
-  "fields requested by that schema: frozen factual edges, the predictive graph decision, at most " +
+  "The bounded extraction contract is RELATIONSHIP_MAPPER_COMPACT_V2. Return only the compact " +
+  "fields requested by that schema: frozen factual edges, the predictive graph decision, claim_kind, at most " +
   "the listed frozen predictive candidates, one driver, one risk, accepted evidence/rule ids, and " +
   "Macro attributions. Do not emit claims, claim_refs, edge_local_id, or the canonical graph " +
   "envelope; runtime deterministically creates those fields after extraction.";
@@ -198,14 +201,18 @@ function compactMacroJudgmentSchema(input: {
     signal: compactMacroDirectionStrengthSchema(),
     persistence_horizon: input.source.persistence_horizon,
     confidence: input.source.confidence,
-    channel: boundedMacroNarrativeSchema(channel, 96),
-    claim_kind: input.claims.claim_kind,
-    statement: boundedMacroNarrativeSchema(input.claims.statement, 160),
+    channel: boundedMacroNarrativeSchema(channel, 96, 12),
+    claim_kind: compactMacroClaimKindProviderSchema(),
+    statement: boundedMacroNarrativeSchema(input.claims.statement, 160, 24),
     ...(input.includeSubject
-      ? { subject: boundedMacroNarrativeSchema(input.conclusion.subject, 96) }
+      ? { subject: boundedMacroNarrativeSchema(input.conclusion.subject, 96, 3) }
       : {}),
-    state: boundedMacroNarrativeSchema(input.conclusion.state, 128),
-    a_share_transmission: boundedMacroNarrativeSchema(input.conclusion.a_share_transmission, 160),
+    state: boundedMacroNarrativeSchema(input.conclusion.state, 128, 16),
+    a_share_transmission: boundedMacroNarrativeSchema(
+      input.conclusion.a_share_transmission,
+      160,
+      24,
+    ),
     evidence_id: runtimeEvidenceIdProviderSchema(),
     research_rule_ref: {
       anyOf: [
@@ -306,9 +313,18 @@ function visitSchema(value: unknown, visitor: (record: Record<string, unknown>) 
   for (const nested of Object.values(record)) visitSchema(nested, visitor);
 }
 
-function boundedMacroNarrativeSchema(value: unknown, maxLength: number): Record<string, unknown> {
+function boundedMacroNarrativeSchema(
+  value: unknown,
+  maxLength: number,
+  minLength: number,
+): Record<string, unknown> {
   return {
-    ...boundedIdentifierSchema(value, maxLength, `^[^0-9０-９%％\\r\\n]{1,${maxLength}}$`),
+    ...boundedIdentifierSchema(
+      value,
+      maxLength,
+      `^[^0-9０-９%％\\r\\n]{${minLength},${maxLength}}$`,
+    ),
+    minLength,
     description:
       "Complete qualitative prose only. Omit numeric facts entirely: do not spell numbers in " +
       "Chinese or English, do not use tenor phrases such as written-out year counts, and do not " +
@@ -389,12 +405,12 @@ function materializeMacroJudgment(
   const claim = {
     claim_id: claimId.slice(0, 128),
     claim_kind: input.claim_kind,
-    statement: input.statement,
+    statement: canonicalizeCompactMacroNarrative(input.statement, 160),
     structured_conclusion: {
       conclusion_type: macroConclusionType(kind),
       subject,
-      state: input.state,
-      a_share_transmission: input.a_share_transmission,
+      state: canonicalizeCompactMacroState(input.state, subject),
+      a_share_transmission: canonicalizeCompactMacroNarrative(input.a_share_transmission, 160),
       snapshot_echo_id: snapshotEcho?.snapshot_echo_id ?? null,
       snapshot_metric: snapshotEcho?.snapshot_metric ?? null,
       snapshot_value: snapshotEcho?.snapshot_value ?? null,
@@ -412,10 +428,59 @@ function materializeMacroJudgment(
       persistence_horizon: input.persistence_horizon,
       evaluation_horizon_trading_days: 5,
       confidence: input.confidence,
-      channels: [input.channel],
+      channels: [canonicalizeCompactMacroNarrative(input.channel, 96)],
       claim_refs: [claim.claim_id],
     },
   };
+}
+
+function canonicalizeCompactMacroState(value: unknown, subject: string): unknown {
+  if (typeof value !== "string") return value;
+  const token = value
+    .trim()
+    .replace(/[\s.,;:!?，。；：！？、]+/gu, "")
+    .toUpperCase();
+  const state = new Map<string, string>([
+    ["SUPPORTIVE", "supportive"],
+    ["ADVERSE", "adverse"],
+    ["NEUTRAL", "mixed"],
+    ["中性", "mixed"],
+    ["UNKNOWN", "uncertain"],
+    ["N/A", "uncertain"],
+    ["NA", "uncertain"],
+    ["NONE", "uncertain"],
+    ["NULL", "uncertain"],
+    ["未知", "uncertain"],
+    ["无", "uncertain"],
+  ]).get(token);
+  if (!state) return canonicalizeCompactMacroNarrative(value, 128);
+  return `The observed ${subject.replaceAll("_", " ")} state is ${state}.`;
+}
+
+function canonicalizeCompactMacroNarrative(value: unknown, maxLength: number): unknown {
+  if (typeof value !== "string") return value;
+  let normalized = value
+    .replace(
+      /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|twenty|thirty)[ -]year(?=\s+(?:(?:u\.?s\.?|chinese|euro(?:zone| area)?|german)\s+)?(?:government\s+)?(?:yield|rate|bond|treasury|curve))/giu,
+      "long-term",
+    )
+    .replace(
+      /[零〇一二两三四五六七八九十百千万亿兆]+年期(?=(?:(?:中国|美国|欧元区|德国)\s*)?(?:名义|实际)?(?:国债|美债|欧债|德债|日债|债券|收益率|利率|曲线))/gu,
+      "长期",
+    )
+    .trim()
+    .replace(/[,;:，；：]\s*$/u, "")
+    .replace(/\b(?:a|an|the|and|or|but|with|via|to|for|of|supporting)\s*$/iu, "")
+    .trim();
+  if (/[.!?。！？]$/u.test(normalized)) return normalized;
+  if (normalized.length >= maxLength) {
+    const shortened = normalized
+      .slice(0, maxLength - 1)
+      .replace(/\s+\S*$/u, "")
+      .trim();
+    normalized = shortened || normalized.slice(0, maxLength - 1).trim();
+  }
+  return `${normalized}.`;
 }
 
 function macroConclusionType(kind: string): string {
@@ -497,7 +562,8 @@ function relationshipUnionProviderSchema(value: unknown): Record<string, unknown
     driver_summary: conciseProviderText(),
     risk_summary: conciseProviderText(),
     evidence_id: runtimeEvidenceIdProviderSchema(),
-    research_rule_ref: { type: "string", minLength: 1, maxLength: 256 },
+    claim_kind: compactClaimKindProviderSchema(),
+    research_rule_ref: nullableResearchRuleRefProviderSchema(),
     macro_input_attributions: edgesBranch.properties.macro_input_attributions,
   };
   return {
@@ -549,7 +615,8 @@ function superinvestorAbstentionProviderSchema(
     abstention_summary: conciseProviderText(),
     risk_summary: conciseProviderText(),
     evidence_id: runtimeEvidenceIdProviderSchema(),
-    research_rule_ref: { type: "string", minLength: 1, maxLength: 256 },
+    claim_kind: compactClaimKindProviderSchema(),
+    research_rule_ref: nullableResearchRuleRefProviderSchema(),
     macro_input_attributions: properties.macro_input_attributions,
   };
   return {
@@ -565,6 +632,8 @@ function materializeSuperinvestorAbstention(input: Record<string, unknown>): unk
   const claimId = `provider-${agent}-abstention-claim`.slice(0, 128);
   const claimRefs = [claimId];
   const summary = String(input.abstention_summary);
+  const researchRuleRefs =
+    typeof input.research_rule_ref === "string" ? [input.research_rule_ref] : [];
   return {
     agent,
     selection_status: "NO_QUALIFIED_CANDIDATES",
@@ -587,7 +656,7 @@ function materializeSuperinvestorAbstention(input: Record<string, unknown>): unk
     claims: [
       {
         claim_id: claimId,
-        claim_kind: "INTERPRETATION",
+        claim_kind: normalizeCompactClaimKind(input.claim_kind),
         statement: summary,
         structured_conclusion: {
           conclusion_type: "POSITION_DECISION",
@@ -595,7 +664,7 @@ function materializeSuperinvestorAbstention(input: Record<string, unknown>): unk
           state: "NO_QUALIFIED_CANDIDATES",
         },
         evidence_ids: [input.evidence_id],
-        research_rule_refs: [input.research_rule_ref],
+        research_rule_refs: researchRuleRefs,
       },
     ],
     claim_refs: claimRefs,
@@ -647,7 +716,8 @@ function relationshipProviderSchema(
     driver_summary: conciseProviderText(),
     risk_summary: conciseProviderText(),
     evidence_id: runtimeEvidenceIdProviderSchema(),
-    research_rule_ref: { type: "string", minLength: 1, maxLength: 256 },
+    claim_kind: compactClaimKindProviderSchema(),
+    research_rule_ref: nullableResearchRuleRefProviderSchema(),
     macro_input_attributions: properties.macro_input_attributions,
   };
   return {
@@ -721,6 +791,8 @@ function materializeRelationshipMapper(input: Record<string, unknown>): unknown 
   const factualRows = Array.isArray(input.factual_edges) ? input.factual_edges : [];
   const predictiveRows = Array.isArray(input.predictive_edges) ? input.predictive_edges : [];
   const status = input.predictive_graph_status;
+  const researchRuleRefs =
+    typeof input.research_rule_ref === "string" ? [input.research_rule_ref] : [];
   return {
     agent: "relationship_mapper",
     factual_edges: factualRows.flatMap((value, index) => {
@@ -752,14 +824,14 @@ function materializeRelationshipMapper(input: Record<string, unknown>): unknown 
     claims: [
       {
         claim_id: claimId,
-        claim_kind: "INTERPRETATION",
+        claim_kind: normalizeCompactClaimKind(input.claim_kind),
         statement: input.driver_summary,
         structured_conclusion: {
           conclusion_type: "RELATIONSHIP_GRAPH",
           state: status,
         },
         evidence_ids: [input.evidence_id],
-        research_rule_refs: [input.research_rule_ref],
+        research_rule_refs: researchRuleRefs,
       },
     ],
     claim_refs: claimRefs,
@@ -821,6 +893,8 @@ function selectedSectorProviderSchema(
   const leastCapacity = arrayCapacity(properties.short_or_avoid_picks);
   const preferredSecurityStatus = schemaConst(properties.preferred_security_status);
   const leastSecurityStatus = schemaConst(properties.least_preferred_security_status);
+  const preferredPickItems = objectRecord(objectRecord(properties.long_picks)?.items);
+  const leastPickItems = objectRecord(objectRecord(properties.short_or_avoid_picks)?.items);
   const compactProperties: Record<string, unknown> = {
     provider_contract: { type: "string", const: COMPACT_SELECTED_SECTOR },
     agent: properties.agent,
@@ -836,16 +910,23 @@ function selectedSectorProviderSchema(
     confidence: properties.confidence,
     driver_summary: conciseProviderText(),
     risk_summary: conciseProviderText(),
-    evidence_id: runtimeEvidenceIdProviderSchema(),
-    research_rule_ref: { type: "string", minLength: 1, maxLength: 256 },
-    preferred_security: compactSecurityLegSchema(preferredCapacity, preferredSecurityStatus, {
-      type: "string",
-      const: "LONG",
-    }),
-    least_preferred_security: compactSecurityLegSchema(leastCapacity, leastSecurityStatus, {
-      type: "string",
-      enum: ["SHORT", "AVOID"],
-    }),
+    preferred_evidence_ids: compactEvidenceIdsProviderSchema(),
+    least_preferred_evidence_ids: compactEvidenceIdsProviderSchema(),
+    final_evidence_ids: compactEvidenceIdsProviderSchema(),
+    claim_kind: compactClaimKindProviderSchema(),
+    research_rule_ref: nullableResearchRuleRefProviderSchema(),
+    preferred_security: compactSecurityLegSchema(
+      preferredCapacity,
+      preferredSecurityStatus,
+      { type: "string", const: "LONG" },
+      preferredPickItems,
+    ),
+    least_preferred_security: compactSecurityLegSchema(
+      leastCapacity,
+      leastSecurityStatus,
+      { type: "string", enum: ["SHORT", "AVOID"] },
+      leastPickItems,
+    ),
     macro_input_attributions: properties.macro_input_attributions,
   };
   return {
@@ -860,6 +941,7 @@ function compactSecurityLegSchema(
   capacity: number,
   requiredStatus: string | null,
   positionAction: Record<string, unknown>,
+  sourceItems: Record<string, unknown> | null,
 ): Record<string, unknown> {
   const noQualified = {
     type: "object",
@@ -877,7 +959,7 @@ function compactSecurityLegSchema(
       status: { type: "string", const: "PICKS_PRESENT" },
       picks: {
         type: "array",
-        items: compactSecurityPickSchema(positionAction),
+        items: compactSecurityPickSchema(positionAction, sourceItems),
         minItems: 1,
         maxItems: capacity,
       },
@@ -890,9 +972,13 @@ function compactSecurityLegSchema(
 
 function compactSecurityPickSchema(
   positionAction: Record<string, unknown>,
+  sourceItems: Record<string, unknown> | null,
 ): Record<string, unknown> {
+  const sourceProperties = objectRecord(sourceItems?.properties);
   const properties = {
-    ts_code: { type: "string", pattern: "^\\d{6}\\.(?:SH|SZ|BJ)$" },
+    ts_code:
+      sourceProperties?.ts_code ??
+      ({ type: "string", pattern: "^\\d{6}\\.(?:SH|SZ|BJ)$" } as Record<string, unknown>),
     position_action: positionAction,
     conviction: { type: "number", exclusiveMinimum: 0, maximum: 1 },
     thesis: conciseProviderText(),
@@ -937,11 +1023,21 @@ function materializeSelectedSector(input: Record<string, unknown>): unknown {
   const leastThesis = String(input.least_preferred_thesis);
   const driverSummary = String(input.driver_summary);
   const riskSummary = String(input.risk_summary);
-  const evidenceIds = [input.evidence_id];
-  const researchRuleRefs = [input.research_rule_ref];
+  const preferredEvidenceIds = requiredStringArray(
+    input.preferred_evidence_ids,
+    "preferred_evidence_ids",
+  );
+  const leastEvidenceIds = requiredStringArray(
+    input.least_preferred_evidence_ids,
+    "least_preferred_evidence_ids",
+  );
+  const finalEvidenceIds = requiredStringArray(input.final_evidence_ids, "final_evidence_ids");
+  const researchRuleRefs =
+    typeof input.research_rule_ref === "string" ? [input.research_rule_ref] : [];
+  const claimKind = normalizeCompactClaimKind(input.claim_kind);
   const securityClaims = [...preferredSecurity.picks, ...leastSecurity.picks].map((pick) => ({
     claim_id: String((pick.claim_refs as string[])[0]),
-    claim_kind: "INTERPRETATION",
+    claim_kind: claimKind,
     statement: pick.thesis,
     structured_conclusion: {
       conclusion_type: "SECTOR_SECURITY",
@@ -954,13 +1050,16 @@ function materializeSelectedSector(input: Record<string, unknown>): unknown {
       position_action: pick.position_action,
       summary: pick.thesis,
     },
-    evidence_ids: evidenceIds,
+    evidence_ids:
+      pick.direction_local_id === preferredDirectionLocalId
+        ? preferredEvidenceIds
+        : leastEvidenceIds,
     research_rule_refs: researchRuleRefs,
   }));
   const claims = [
     {
       claim_id: preferredClaimId,
-      claim_kind: "INTERPRETATION",
+      claim_kind: claimKind,
       statement: preferredThesis,
       structured_conclusion: {
         conclusion_type: "SECTOR_DIRECTION",
@@ -970,12 +1069,12 @@ function materializeSelectedSector(input: Record<string, unknown>): unknown {
         position_action: null,
         summary: preferredThesis,
       },
-      evidence_ids: evidenceIds,
+      evidence_ids: preferredEvidenceIds,
       research_rule_refs: researchRuleRefs,
     },
     {
       claim_id: leastClaimId,
-      claim_kind: "INTERPRETATION",
+      claim_kind: claimKind,
       statement: leastThesis,
       structured_conclusion: {
         conclusion_type: "SECTOR_DIRECTION",
@@ -985,12 +1084,12 @@ function materializeSelectedSector(input: Record<string, unknown>): unknown {
         position_action: null,
         summary: leastThesis,
       },
-      evidence_ids: evidenceIds,
+      evidence_ids: leastEvidenceIds,
       research_rule_refs: researchRuleRefs,
     },
     {
       claim_id: driverClaimId,
-      claim_kind: "INTERPRETATION",
+      claim_kind: claimKind,
       statement: driverSummary,
       structured_conclusion: {
         conclusion_type: "SECTOR_DRIVER",
@@ -1000,7 +1099,7 @@ function materializeSelectedSector(input: Record<string, unknown>): unknown {
         position_action: null,
         summary: driverSummary,
       },
-      evidence_ids: evidenceIds,
+      evidence_ids: finalEvidenceIds,
       research_rule_refs: researchRuleRefs,
     },
     {
@@ -1015,7 +1114,7 @@ function materializeSelectedSector(input: Record<string, unknown>): unknown {
         position_action: null,
         summary: riskSummary,
       },
-      evidence_ids: evidenceIds,
+      evidence_ids: finalEvidenceIds,
       research_rule_refs: researchRuleRefs,
     },
     ...securityClaims,
@@ -1118,6 +1217,35 @@ function runtimeEvidenceIdProviderSchema(): Record<string, unknown> {
   return { type: "string", pattern: "^evidence:[0-9a-f]{64}$", maxLength: 73 };
 }
 
+function compactEvidenceIdsProviderSchema(): Record<string, unknown> {
+  return {
+    type: "array",
+    items: { type: "string", minLength: 1, maxLength: 256 },
+    minItems: 1,
+    maxItems: 16,
+  };
+}
+
+function compactClaimKindProviderSchema(): Record<string, unknown> {
+  return { type: "string", enum: ["FACT", "EVENT", "INTERPRETATION"] };
+}
+
+function compactMacroClaimKindProviderSchema(): Record<string, unknown> {
+  return { type: "string", enum: ["FACT", "EVENT", "INTERPRETATION"] };
+}
+
+function nullableResearchRuleRefProviderSchema(): Record<string, unknown> {
+  return {
+    anyOf: [{ type: "null" }, { type: "string", minLength: 1, maxLength: 256 }],
+  };
+}
+
+function normalizeCompactClaimKind(
+  value: unknown,
+): "FACT" | "EVENT" | "INTERPRETATION" | "RISK_FLAG" {
+  return value === "EVENT" || value === "INTERPRETATION" || value === "RISK_FLAG" ? value : "FACT";
+}
+
 function arrayCapacity(value: unknown): number {
   const schema = objectRecord(value);
   if (!schema) return 0;
@@ -1139,6 +1267,17 @@ function requiredString(value: unknown, field: string): string {
     throw new Error(`${field} must be a non-empty string`);
   }
   return value;
+}
+
+function requiredStringArray(value: unknown, field: string): string[] {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.some((item) => typeof item !== "string" || item.length === 0)
+  ) {
+    throw new Error(`${field} must be a non-empty string array`);
+  }
+  return [...new Set(value as string[])];
 }
 
 function objectRecord(value: unknown): Record<string, unknown> | null {

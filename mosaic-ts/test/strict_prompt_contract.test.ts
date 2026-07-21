@@ -37,8 +37,14 @@ describe("strict bilingual runtime prompt contracts", () => {
       prepareSnapshot: async () => {
         throw new Error("stale adapter must not be called");
       },
+      prepareModelContext: async () => {
+        throw new Error("stale adapter must not be called");
+      },
       applyPolicy: (input) => {
         throw new Error(`stale adapter must not be called: ${String(input.snapshot.snapshot_id)}`);
+      },
+      finalize: () => {
+        throw new Error("stale adapter must not be called");
       },
     });
     process.env.MOSAIC_KNOT_RUNTIME_ROOT = "/private/root/must-not-be-read-by-smoke";

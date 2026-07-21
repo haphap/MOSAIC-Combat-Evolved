@@ -19,6 +19,7 @@ import {
   startPromptReleaseCanary,
 } from "../../autoresearch/prompt_release_manager.js";
 import { ActivePromptReleaseRegistry } from "../../autoresearch/release_registry.js";
+import { RuntimeBehaviorBundleRefSchema } from "../../autoresearch/runtime_behavior_bundle.js";
 import { BridgeApi, BridgeClient } from "../../bridge/index.js";
 import { redactSensitiveText } from "../../security/redaction.js";
 
@@ -69,7 +70,9 @@ export function registerPromptRelease(program: Command): void {
   command
     .command("stage")
     .requiredOption("--version-id <id>", "Kept domain mutation version id")
-    .requiredOption("--release-id <id>", "Immutable release id")
+    .option("--release-id <id>", "Expected deterministic full-runtime release id")
+    .requiredOption("--runtime-bundle <path>", "Content-addressed runtime behavior bundle ref")
+    .option("--execution-behavior-archive-root <path>", "Immutable execution behavior archive")
     .option("--registry-root <path>", "Release registry root")
     .option("--private-prompts-repo <path>", "Private prompt repository")
     .option("--cohort <name>", "Release cohort", "cohort_default")
@@ -82,7 +85,9 @@ export function registerPromptRelease(program: Command): void {
     .action(
       async (opts: {
         versionId: string;
-        releaseId: string;
+        releaseId?: string;
+        runtimeBundle: string;
+        executionBehaviorArchiveRoot?: string;
         registryRoot?: string;
         privatePromptsRepo?: string;
         cohort: string;
@@ -99,7 +104,15 @@ export function registerPromptRelease(program: Command): void {
           });
           const manifest = await stagePromptRelease({
             registryRoot: registryRoot(opts),
-            releaseId: opts.releaseId,
+            ...(opts.releaseId ? { releaseId: opts.releaseId } : {}),
+            runtimeBehaviorBundle: RuntimeBehaviorBundleRefSchema.parse(
+              JSON.parse(await readFile(opts.runtimeBundle, "utf-8")),
+            ),
+            executionBehaviorArchiveRoot: required(
+              opts.executionBehaviorArchiveRoot,
+              "MOSAIC_EXECUTION_BEHAVIOR_ARCHIVE_ROOT",
+              "--execution-behavior-archive-root",
+            ),
             verification,
             privatePromptRepo:
               opts.privatePromptsRepo?.trim() ||

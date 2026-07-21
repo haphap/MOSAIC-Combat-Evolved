@@ -13,6 +13,7 @@ import type { DailyCycleStateType } from "../state.js";
 import { canonicalJsonHash } from "./canonical_json.js";
 import {
   buildAgentInvocationId,
+  type PrivateKnotModelContextResult,
   type PrivateKnotSnapshot,
   type RuntimeSourceEvidenceObservation,
   type RuntimeSourceStatus,
@@ -31,6 +32,8 @@ export interface RuntimeEvidenceSnapshot {
   evidenceById: ReadonlyMap<string, EvidenceLedgerEntry>;
   allowedResearchRuleIds: ReadonlySet<string>;
   visibleCatalog: string;
+  modelContextHash: string | null;
+  effectiveModelInputHash: string | null;
 }
 
 export interface ClaimGraphSelection<T> {
@@ -141,6 +144,8 @@ export function buildRuntimeEvidenceSnapshot(input: {
   stage: RuntimeAgentStageId;
   knobSnapshot?: PrivateKnotSnapshot | null;
   toolStatuses?: ReadonlyArray<ToolStatus>;
+  modelContext?: PrivateKnotModelContextResult | null;
+  effectiveModelInputHash?: string | null;
 }): RuntimeEvidenceSnapshot {
   const runId = input.state.trace_id || input.state.as_of_date || "current_run";
   if (input.knobSnapshot) {
@@ -186,23 +191,28 @@ export function buildRuntimeEvidenceSnapshot(input: {
     });
   const evidenceLedger: EvidenceLedgerEntry[] = [];
   const seen = new Set<string>();
-  const evidenceRegistry = input.knobSnapshot
-    ? Object.fromEntries(
-        input.knobSnapshot.evidence_bindings.map((binding) => [
-          binding.evidence_key,
-          {
-            metric: binding.metric,
-            ...(binding.tool ? { tool: binding.tool } : {}),
-            ...(binding.source ? { source: binding.source } : {}),
-          },
-        ]),
-      )
-    : Object.fromEntries(
-        [...new Set((input.toolStatuses ?? []).map((status) => status.name))].map((name) => [
-          name,
-          { tool: name, metric: `${name}_snapshot` },
-        ]),
-      );
+  const explicitBindings = input.knobSnapshot?.evidence_bindings ?? [];
+  const explicitlyBoundTools = new Set(
+    explicitBindings.flatMap((binding) => (binding.tool ? [binding.tool] : [])),
+  );
+  const defaultToolBindings = [...new Set((input.toolStatuses ?? []).map((status) => status.name))]
+    .filter((name) => !explicitlyBoundTools.has(name))
+    .map((name) => [name, { tool: name, metric: `${name}_snapshot` }] as const);
+  const evidenceRegistry: Record<string, { metric: string; tool?: string; source?: string }> =
+    Object.fromEntries([
+      ...defaultToolBindings,
+      ...explicitBindings.map(
+        (binding) =>
+          [
+            binding.evidence_key,
+            {
+              metric: binding.metric,
+              ...(binding.tool ? { tool: binding.tool } : {}),
+              ...(binding.source ? { source: binding.source } : {}),
+            },
+          ] as const,
+      ),
+    ]);
   for (const [evidenceKey, registryEntry] of Object.entries(evidenceRegistry)) {
     if (registryEntry.tool) {
       const statuses = (input.toolStatuses ?? []).filter(
@@ -242,6 +252,29 @@ export function buildRuntimeEvidenceSnapshot(input: {
   evidenceLedger.sort((left, right) => left.evidence_id.localeCompare(right.evidence_id));
   const evidenceById = new Map(evidenceLedger.map((entry) => [entry.evidence_id, entry]));
   const allowedResearchRuleIds = new Set(input.knobSnapshot?.allowed_research_rule_ids ?? []);
+  if (
+    input.modelContext &&
+    (!input.knobSnapshot ||
+      input.modelContext.audit.snapshot_hash !== input.knobSnapshot.snapshot_hash)
+  ) {
+    throw new Error("private_knot_model_context_snapshot_mismatch");
+  }
+  if (
+    input.effectiveModelInputHash &&
+    !/^sha256:[0-9a-f]{64}$/.test(input.effectiveModelInputHash)
+  ) {
+    throw new Error("effective_model_input_hash_invalid");
+  }
+  const evidenceCatalog = renderRuntimeEvidenceCatalog(
+    evidenceLedger,
+    allowedResearchRuleIds,
+    agentInvocationId,
+  );
+  const modelContextCatalog = input.modelContext
+    ? `KNOT_DERIVED_ECONOMIC_CONTEXT context_hash=${input.modelContext.context_hash}:\n${JSON.stringify(
+        input.modelContext.context,
+      )}`
+    : "";
   return {
     runId,
     agentId: input.agent,
@@ -251,11 +284,9 @@ export function buildRuntimeEvidenceSnapshot(input: {
     evidenceLedger,
     evidenceById,
     allowedResearchRuleIds,
-    visibleCatalog: renderRuntimeEvidenceCatalog(
-      evidenceLedger,
-      allowedResearchRuleIds,
-      agentInvocationId,
-    ),
+    visibleCatalog: [evidenceCatalog, modelContextCatalog].filter(Boolean).join("\n\n"),
+    modelContextHash: input.modelContext?.context_hash ?? null,
+    effectiveModelInputHash: input.effectiveModelInputHash ?? null,
   };
 }
 

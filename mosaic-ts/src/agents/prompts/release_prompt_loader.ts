@@ -8,6 +8,7 @@ import { getConfiguredPromptSource } from "./cohorts.js";
 import {
   type ActivePromptReleaseManifest,
   ActivePromptReleaseManifestSchema,
+  assertFullRuntimePromptRelease,
   type ReleasePromptPair,
   releasePromptPairHash,
 } from "./prompt_release_contract.js";
@@ -43,9 +44,11 @@ export interface ReleasePinnedPromptPair {
 }
 
 const pairCache = new Map<string, ReleasePinnedPromptPair>();
+const configuredContextCache = new Map<string, PromptReleaseLoadContext>();
 
 export function clearReleasePromptCache(): void {
   pairCache.clear();
+  configuredContextCache.clear();
 }
 
 export async function buildReleasePromptPairsAtCommit(opts: {
@@ -142,6 +145,7 @@ function findPair(
 
 function assertClosure(context: PromptReleaseLoadContext, cohort: string): void {
   const manifest = ActivePromptReleaseManifestSchema.parse(context.manifest);
+  assertFullRuntimePromptRelease(manifest);
   if (!["canary", "active"].includes(manifest.lifecycle_state)) {
     throw new Error(`prompt_release_not_runtime_eligible:${manifest.lifecycle_state}`);
   }
@@ -356,6 +360,14 @@ export async function resolveConfiguredPromptReleaseContext(
 ): Promise<PromptReleaseLoadContext | null> {
   const registryRoot = process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT?.trim();
   if (!registryRoot) return null;
+  const cacheKey = trafficAssignmentKey?.trim()
+    ? `${registryRoot}\0${trafficAssignmentKey.trim()}`
+    : null;
+  const cached = cacheKey ? configuredContextCache.get(cacheKey) : null;
+  if (cached) {
+    await onReleaseAssigned?.(cached.manifest);
+    return cached;
+  }
   const registry = new ActivePromptReleaseRegistry(registryRoot);
   const manifest = await registry.resolveForRuntime(trafficAssignmentKey);
   if (!manifest) throw new Error("active_prompt_release_missing");
@@ -369,7 +381,7 @@ export async function resolveConfiguredPromptReleaseContext(
   const closure = await loadLocalPromptReleaseClosure();
   const explicitCodeCommit = process.env.MOSAIC_CODE_COMMIT?.trim();
   const expectedCodeCommit = explicitCodeCommit ?? (await gitHead(findRepoRoot()));
-  return {
+  const context: PromptReleaseLoadContext = {
     manifest,
     ...(source?.kind === "private-repo" ? { privatePromptRepo: source.repo } : {}),
     bundledRepo: findRepoRoot(),
@@ -379,4 +391,6 @@ export async function resolveConfiguredPromptReleaseContext(
     expectedEvaluationContractHash: closure.contract_hash,
     ...(expectedCodeCommit ? { expectedCodeCommit } : {}),
   };
+  if (cacheKey) configuredContextCache.set(cacheKey, context);
+  return context;
 }

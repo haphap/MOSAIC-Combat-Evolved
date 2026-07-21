@@ -28,7 +28,11 @@ import {
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import { canonicalJsonHash } from "./canonical_json.js";
 import { extractTextContent } from "./content.js";
-import type { ToolStatus } from "./private_knot_boundary.js";
+import type {
+  PrivateKnotFrozenInitialToolResult,
+  PrivateKnotModelContextResult,
+  ToolStatus,
+} from "./private_knot_boundary.js";
 import { isProcessOnlyReportText, stripProcessOnlyReportPrefix } from "./process_narration.js";
 import { extractLlmTokenUsage } from "./runtime.js";
 
@@ -57,6 +61,9 @@ export interface AgentToolLoopOptions {
   signal?: AbortSignal;
   /** Runtime-owned identity for the current agent/stage invocation. */
   agentInvocationId?: string;
+  prepareModelContext?: (
+    initialToolResults: ReadonlyArray<PrivateKnotFrozenInitialToolResult>,
+  ) => Promise<PrivateKnotModelContextResult>;
 }
 
 export interface AgentInitialToolCall {
@@ -89,6 +96,8 @@ export interface AgentToolLoopResult {
   messages: BaseMessage[];
   /** Per-tool call status ledger consumed by private policy enforcement. */
   toolStatuses: ToolStatus[];
+  modelContext: PrivateKnotModelContextResult | null;
+  effectiveModelInputHash: string;
 }
 
 const DEFAULT_MAX_LOOPS = 6;
@@ -514,6 +523,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
   let completionTokens = 0;
   let llmElapsedMs = 0;
   const toolStatuses: ToolStatus[] = [];
+  const initialToolResults: PrivateKnotFrozenInitialToolResult[] = [];
   // ponytail: per-agent cache; make it shared only if duplicate tool IO remains costly.
   const toolOutputCache = new Map<string, CachedToolResult>();
   let toolReplayEntries: ToolReplayEntry[] = [];
@@ -558,18 +568,20 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       if (!tool) {
         opts.onLog?.(`unknown tool '${name}', stubbing reply`);
         const cached = missingToolResult(name, call.args);
-        toolStatuses.push(
-          buildToolStatus({
-            name,
-            callId: call.id,
-            ...(opts.agentInvocationId ? { agentInvocationId: opts.agentInvocationId } : {}),
-            args: call.args,
-            shortFingerprint: fingerprint,
-            cached,
-            cacheHit: false,
-            missing: true,
-          }),
-        );
+        const status = buildToolStatus({
+          name,
+          callId: call.id,
+          ...(opts.agentInvocationId ? { agentInvocationId: opts.agentInvocationId } : {}),
+          args: call.args,
+          shortFingerprint: fingerprint,
+          cached,
+          cacheHit: false,
+          missing: true,
+        });
+        toolStatuses.push(status);
+        if (opts.prepareModelContext) {
+          initialToolResults.push(frozenInitialToolResult(call, status, cached.output));
+        }
         const toolMessage = new ToolMessage({
           content: cached.output,
           tool_call_id: call.id,
@@ -593,33 +605,37 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
           ...(metadata.as_of ? { asOf: metadata.as_of } : {}),
         });
         toolOutputCache.set(fingerprint, cached);
-        toolStatuses.push(
-          buildToolStatus({
-            name,
-            callId: call.id,
-            ...(opts.agentInvocationId ? { agentInvocationId: opts.agentInvocationId } : {}),
-            args: call.args,
-            shortFingerprint: fingerprint,
-            cached,
-            cacheHit: false,
-          }),
-        );
+        const status = buildToolStatus({
+          name,
+          callId: call.id,
+          ...(opts.agentInvocationId ? { agentInvocationId: opts.agentInvocationId } : {}),
+          args: call.args,
+          shortFingerprint: fingerprint,
+          cached,
+          cacheHit: false,
+        });
+        toolStatuses.push(status);
+        if (opts.prepareModelContext) {
+          initialToolResults.push(frozenInitialToolResult(call, status, output));
+        }
       } catch (err) {
         output = `Tool '${name}' raised: ${(err as Error).message}`;
         opts.onLog?.(output);
         const cached = cachedToolResult({ name, args: call.args, output, failed: true });
         toolOutputCache.set(fingerprint, cached);
-        toolStatuses.push(
-          buildToolStatus({
-            name,
-            callId: call.id,
-            ...(opts.agentInvocationId ? { agentInvocationId: opts.agentInvocationId } : {}),
-            args: call.args,
-            shortFingerprint: fingerprint,
-            cached,
-            cacheHit: false,
-          }),
-        );
+        const status = buildToolStatus({
+          name,
+          callId: call.id,
+          ...(opts.agentInvocationId ? { agentInvocationId: opts.agentInvocationId } : {}),
+          args: call.args,
+          shortFingerprint: fingerprint,
+          cached,
+          cacheHit: false,
+        });
+        toolStatuses.push(status);
+        if (opts.prepareModelContext) {
+          initialToolResults.push(frozenInitialToolResult(call, status, output));
+        }
       }
       const compacted = compactToolOutput(output, toolOutputMaxChars);
       const toolMessage = new ToolMessage({ content: compacted.text, tool_call_id: call.id });
@@ -627,6 +643,29 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       replayMessages.push(toolMessage);
     }
   }
+
+  const modelContext = opts.prepareModelContext
+    ? await opts.prepareModelContext(initialToolResults)
+    : null;
+  if (modelContext) {
+    const contextMessage = new HumanMessage(
+      `Derived economic observations (PIT-verified runtime context):\n${JSON.stringify(
+        modelContext.context,
+      )}`,
+    );
+    messages.push(contextMessage);
+    replayMessages.push(contextMessage);
+  }
+  const effectiveModelInputHash = sha256Canonical({
+    schema_version: "effective_model_input_v1",
+    system_message: opts.systemMessage,
+    initial_messages: opts.initialMessages.map((message) => ({
+      type: message.getType(),
+      content: extractTextContent(message.content as unknown),
+    })),
+    initial_tool_results: initialToolResults,
+    model_context_hash: modelContext?.context_hash ?? null,
+  });
 
   for (let step = 0; step < maxLoops; step++) {
     opts.onLog?.(`analysis_llm=${step + 1}/${maxLoops}`);
@@ -663,6 +702,8 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
         llmElapsedMs,
         messages,
         toolStatuses,
+        modelContext,
+        effectiveModelInputHash,
       };
     }
 
@@ -826,5 +867,46 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
     llmElapsedMs,
     messages,
     toolStatuses,
+    modelContext,
+    effectiveModelInputHash,
+  };
+}
+
+function frozenInitialToolResult(
+  call: { id: string; name: string; args: Record<string, unknown> },
+  status: ToolStatus,
+  output: string,
+): PrivateKnotFrozenInitialToolResult {
+  if (
+    !status.agent_invocation_id ||
+    !status.args_fingerprint ||
+    !status.result_fingerprint ||
+    !status.source_fingerprint
+  ) {
+    throw new Error("private_knot_initial_tool_result_lineage_missing");
+  }
+  let payload: unknown = output;
+  try {
+    payload = JSON.parse(output);
+  } catch {
+    // Preserve the exact non-JSON result as a frozen string payload.
+  }
+  return {
+    tool_name: call.name,
+    tool_call_id: call.id,
+    agent_invocation_id: status.agent_invocation_id,
+    args: structuredClone(call.args),
+    payload,
+    args_fingerprint: status.args_fingerprint,
+    result_fingerprint: status.result_fingerprint,
+    source_fingerprint: status.source_fingerprint,
+    as_of: status.as_of ?? "unavailable",
+    status: status.missing
+      ? "MISSING"
+      : status.failed
+        ? "TOOL_FAILED"
+        : status.fallback
+          ? "FALLBACK"
+          : "CURRENT",
   };
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RuntimeBehaviorBundleRefSchema } from "../../autoresearch/runtime_behavior_bundle.js";
 import { canonicalJsonHash } from "../helpers/canonical_json.js";
 
 const Sha256Schema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
@@ -160,7 +161,7 @@ function validatePromptPairs(
   }
 }
 
-export const ActivePromptReleaseManifestSchema = z
+const ActivePromptReleaseManifestV1ObjectSchema = z
   .object({
     schema_version: z.literal("active_prompt_release_manifest_v1"),
     release_id: z.string().min(1),
@@ -277,8 +278,10 @@ export const ActivePromptReleaseManifestSchema = z
     activated_at: z.string().min(1).nullable(),
     rolled_back_at: z.string().min(1).nullable(),
   })
-  .strict()
-  .superRefine((manifest, ctx) => {
+  .strict();
+
+export const ActivePromptReleaseManifestV1Schema =
+  ActivePromptReleaseManifestV1ObjectSchema.superRefine((manifest, ctx) => {
     validatePromptPairs(manifest.prompt_pairs, manifest.activation_scope.cohort, ctx, [
       "prompt_pairs",
     ]);
@@ -411,7 +414,219 @@ export const ActivePromptReleaseManifestSchema = z
     }
   });
 
+const PromptBehaviorReleaseEvidenceSchema =
+  ActivePromptReleaseManifestV1ObjectSchema.shape.release_evidence
+    .extend({
+      kind: z.literal("PROMPT_BEHAVIOR"),
+      base_prompt_hash: Sha256Schema,
+      candidate_prompt_hash: Sha256Schema,
+    })
+    .strict();
+
+const PrivateExecutionPolicyReleaseEvidenceSchema = z
+  .object({
+    kind: z.literal("PRIVATE_EXECUTION_POLICY"),
+    agent_id: z.string().min(1),
+    effect_id: z.string().min(1),
+    track_id: z.string().min(1),
+    candidate_receipt_hash: Sha256Schema,
+    promotion_gate_hash: Sha256Schema,
+    base_prompt_hash: Sha256Schema,
+    candidate_prompt_hash: Sha256Schema,
+  })
+  .strict();
+
+const BaselineMigrationReleaseEvidenceSchema = z
+  .object({
+    kind: z.literal("BASELINE_MIGRATION"),
+    migration_id: z.string().min(1),
+    migration_evidence_hash: Sha256Schema,
+  })
+  .strict();
+
+const ForwardRecoveryReleaseEvidenceSchema = z
+  .object({
+    kind: z.literal("FORWARD_RECOVERY"),
+    rolled_back_release_id: z.string().min(1),
+    recovery_evidence_hash: Sha256Schema,
+  })
+  .strict();
+
+export const FullRuntimeReleaseEvidenceSchema = z.discriminatedUnion("kind", [
+  PromptBehaviorReleaseEvidenceSchema,
+  PrivateExecutionPolicyReleaseEvidenceSchema,
+  BaselineMigrationReleaseEvidenceSchema,
+  ForwardRecoveryReleaseEvidenceSchema,
+]);
+
+const ActivePromptReleaseManifestV2ObjectSchema = ActivePromptReleaseManifestV1ObjectSchema.omit({
+  schema_version: true,
+  release_evidence: true,
+})
+  .extend({
+    schema_version: z.literal("active_prompt_release_manifest_v2"),
+    release_evidence: FullRuntimeReleaseEvidenceSchema,
+    runtime_behavior_bundle: RuntimeBehaviorBundleRefSchema,
+  })
+  .strict();
+
+export const ActivePromptReleaseManifestV2Schema =
+  ActivePromptReleaseManifestV2ObjectSchema.superRefine((manifest, ctx) => {
+    const firstPair = manifest.prompt_pairs[0];
+    if (!firstPair) return;
+    const legacyEvidence =
+      manifest.release_evidence.kind === "PROMPT_BEHAVIOR"
+        ? {
+            version_id: manifest.release_evidence.version_id,
+            mutation_id: manifest.release_evidence.mutation_id,
+            experiment_id: manifest.release_evidence.experiment_id,
+            mutated_agent: manifest.release_evidence.mutated_agent,
+            evaluation_result_hash: manifest.release_evidence.evaluation_result_hash,
+            transaction_manifest_hash: manifest.release_evidence.transaction_manifest_hash,
+            prompt_pair_sha256: manifest.release_evidence.prompt_pair_sha256,
+          }
+        : {
+            version_id: 1,
+            mutation_id: `v2:${manifest.release_evidence.kind}`,
+            experiment_id: `v2:${manifest.release_evidence.kind}`,
+            mutated_agent: firstPair.agent,
+            evaluation_result_hash: manifest.keep_decision_hash,
+            transaction_manifest_hash: manifest.keep_decision_hash,
+            prompt_pair_sha256: firstPair.pair_hash.slice("sha256:".length),
+          };
+    const { runtime_behavior_bundle: _runtimeBundle, ...legacyManifest } = manifest;
+    const legacyCheck = ActivePromptReleaseManifestV1Schema.safeParse({
+      ...legacyManifest,
+      schema_version: "active_prompt_release_manifest_v1",
+      release_evidence: legacyEvidence,
+    });
+    if (!legacyCheck.success) {
+      for (const issue of legacyCheck.error.issues) {
+        ctx.addIssue({ code: "custom", path: issue.path, message: issue.message });
+      }
+    }
+
+    const bundle = manifest.runtime_behavior_bundle;
+    for (const [path, expected, actual] of [
+      ["prompt_hash", manifest.prompt_hash, bundle.prompt_hash],
+      ["catalog_hash", manifest.catalog_hash, bundle.catalog_hash],
+      [
+        "evaluation_contract_hash",
+        manifest.evaluation_contract_hash,
+        bundle.evaluation_contract_hash,
+      ],
+      ["schema_hash", manifest.schema_hash, bundle.schema_hash],
+    ] as const) {
+      if (expected !== actual) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["runtime_behavior_bundle", path],
+          message: `runtime behavior bundle ${path} does not match release closure`,
+        });
+      }
+    }
+
+    const evidence = manifest.release_evidence;
+    const origin = bundle.origin;
+    const expectedOrigin =
+      evidence.kind === "PROMPT_BEHAVIOR" || evidence.kind === "PRIVATE_EXECUTION_POLICY"
+        ? "KNOT_PROMOTION"
+        : evidence.kind;
+    if (origin.kind !== expectedOrigin) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["runtime_behavior_bundle", "origin", "kind"],
+        message: "runtime behavior bundle origin does not match release evidence",
+      });
+    }
+    if (evidence.kind === "PROMPT_BEHAVIOR" || evidence.kind === "PRIVATE_EXECUTION_POLICY") {
+      if (evidence.candidate_prompt_hash !== manifest.prompt_hash) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["release_evidence", "candidate_prompt_hash"],
+          message: "candidate prompt hash does not match release prompt hash",
+        });
+      }
+      if (
+        evidence.kind === "PRIVATE_EXECUTION_POLICY" &&
+        evidence.base_prompt_hash !== evidence.candidate_prompt_hash
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["release_evidence", "base_prompt_hash"],
+          message: "private execution/policy releases must keep prompts byte-identical",
+        });
+      }
+    }
+    if (manifest.release_id !== deterministicFullRuntimeReleaseId(manifest)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["release_id"],
+        message: "full runtime release id mismatch",
+      });
+    }
+  });
+
+export const ActivePromptReleaseManifestSchema = z.union([
+  ActivePromptReleaseManifestV1Schema,
+  ActivePromptReleaseManifestV2Schema,
+]);
+
 export type ActivePromptReleaseManifest = z.infer<typeof ActivePromptReleaseManifestSchema>;
+export type ActivePromptReleaseManifestV2 = z.infer<typeof ActivePromptReleaseManifestV2Schema>;
+
+type FullRuntimeReleaseIdentityInput = Omit<
+  ActivePromptReleaseManifestV2,
+  | "release_id"
+  | "lifecycle_state"
+  | "approved_by"
+  | "canary_started_at"
+  | "canary_ended_at"
+  | "runtime_slo_summary"
+  | "runtime_slo_evidence"
+  | "activated_at"
+  | "rolled_back_at"
+> & { release_id?: string };
+
+export function deterministicFullRuntimeReleaseId(
+  manifest: FullRuntimeReleaseIdentityInput,
+): string {
+  const identity = {
+    schema_version: manifest.schema_version,
+    base_release_id: manifest.base_release_id,
+    prompt_commit: manifest.prompt_commit,
+    code_commit: manifest.code_commit,
+    prompt_hash: manifest.prompt_hash,
+    prompt_pairs: manifest.prompt_pairs,
+    stage_snapshot_hashes: manifest.stage_snapshot_hashes,
+    catalog_hash: manifest.catalog_hash,
+    schema_hash: manifest.schema_hash,
+    evaluation_contract_hash: manifest.evaluation_contract_hash,
+    keep_decision_hash: manifest.keep_decision_hash,
+    keep_decision_state: manifest.keep_decision_state,
+    release_evidence: manifest.release_evidence,
+    activation_scope: {
+      cohort: manifest.activation_scope.cohort,
+      account_mode: manifest.activation_scope.account_mode,
+    },
+    approval_policy_id: manifest.approval_policy_id,
+    rollback_triggers: manifest.rollback_triggers,
+    previous_approved_release_id: manifest.previous_approved_release_id,
+    bundled_fallback: manifest.bundled_fallback,
+    created_at: manifest.created_at,
+    runtime_behavior_bundle: manifest.runtime_behavior_bundle,
+  };
+  return `active-prompt-release:${canonicalHash(identity).slice("sha256:".length)}`;
+}
+
+export function assertFullRuntimePromptRelease(
+  manifest: ActivePromptReleaseManifest,
+): asserts manifest is ActivePromptReleaseManifestV2 {
+  if (manifest.schema_version !== "active_prompt_release_manifest_v2") {
+    throw new Error("prompt_release_runtime_requires_full_bundle_v2");
+  }
+  ActivePromptReleaseManifestV2Schema.parse(manifest);
+}
 
 export function promptReleaseRuntimeSloPasses(
   summary: NonNullable<ActivePromptReleaseManifest["runtime_slo_summary"]>,
@@ -444,6 +659,9 @@ export function assertPromptReleaseTransition(
   next: ActivePromptReleaseManifest,
 ): void {
   if (previous.release_id !== next.release_id) throw new Error("prompt_release_identity_changed");
+  if (previous.schema_version !== next.schema_version) {
+    throw new Error("prompt_release_schema_version_changed");
+  }
   if (!RELEASE_TRANSITIONS[previous.lifecycle_state].has(next.lifecycle_state)) {
     throw new Error(
       `prompt_release_transition_invalid:${previous.lifecycle_state}:${next.lifecycle_state}`,

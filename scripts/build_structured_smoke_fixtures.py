@@ -701,6 +701,17 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
             metrics = []
             for metric_contract in metric_contracts:
                 is_etf = metric_contract["metric_family"] == "ETF_CONFIRMATION"
+                metric_id = metric_contract["metric_id"]
+                if metric_id == "REALIZED_VOLATILITY_60D":
+                    synthetic_value = round(
+                        0.1 * (len(direction_ids) - ordinal + 1), 4
+                    )
+                elif metric_id == "CURRENT_DRAWDOWN_252D":
+                    synthetic_value = round(
+                        -0.1 * (len(direction_ids) - ordinal + 1), 4
+                    )
+                else:
+                    synthetic_value = round(0.12 * ordinal, 4)
                 metric = {
                     **metric_contract,
                     "direction_id": direction_id,
@@ -709,7 +720,7 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
                     "released_at": as_of.isoformat() if is_etf else released_at,
                     "vintage_at": as_of.isoformat() if is_etf else released_at,
                     "pit_status": "PIT_VERIFIED",
-                    "value": None if is_etf else round(0.25 + ordinal * 0.01, 4),
+                    "value": None if is_etf else synthetic_value,
                     "observation_count": (
                         0 if is_etf else metric_contract["minimum_observations"]
                     ),

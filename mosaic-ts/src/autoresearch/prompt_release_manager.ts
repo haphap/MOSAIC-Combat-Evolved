@@ -7,7 +7,10 @@ import { checkPrivateKnotPromptBoundary } from "../agents/prompts/private_knot_p
 import {
   type ActivePromptReleaseManifest,
   ActivePromptReleaseManifestSchema,
+  type ActivePromptReleaseManifestV2,
+  assertFullRuntimePromptRelease,
   assertReleasePromptStageClosure,
+  deterministicFullRuntimeReleaseId,
   promptReleaseRuntimeSloPasses,
   releasePromptSetHash,
 } from "../agents/prompts/prompt_release_contract.js";
@@ -20,6 +23,7 @@ import type { RuntimeAgentSpec } from "../agents/prompts/runtime_agent_spec.js";
 import { RUNTIME_AGENT_SPECS } from "../agents/prompts/runtime_agent_spec.js";
 import { findRepoRoot } from "../bridge/python.js";
 import type { PromptReleaseCheckResult } from "../bridge/types.js";
+import { loadExecutionBehaviorReleaseArchive } from "./execution_behavior_release.js";
 import { initializePrivateKnotRuntime } from "./private_knot_runtime.js";
 import {
   buildPromptReleaseCanarySloArtifact,
@@ -29,6 +33,10 @@ import {
   stageSnapshotHashesHash,
 } from "./prompt_release_canary_slo.js";
 import { ActivePromptReleaseRegistry } from "./release_registry.js";
+import {
+  type RuntimeBehaviorBundleRef,
+  RuntimeBehaviorBundleRefSchema,
+} from "./runtime_behavior_bundle.js";
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
 
@@ -63,17 +71,33 @@ export interface PromptReleaseManagerDependencies {
   specs?: ReadonlyArray<RuntimeAgentSpec>;
   checkCandidate?: (opts: CandidateCheckOptions) => Promise<PromptReleaseCandidateCheckResult>;
   now?: () => string;
+  validateExecutionBehaviorPin?: (input: {
+    bundle: RuntimeBehaviorBundleRef;
+    promptCommit: string;
+  }) => Promise<void> | void;
 }
 
 export interface StagePromptReleaseOptions {
   registryRoot: string;
-  releaseId: string;
+  releaseId?: string;
   verification: PromptReleaseCheckResult;
   privatePromptRepo: string;
+  runtimeBehaviorBundle: RuntimeBehaviorBundleRef;
+  executionBehaviorArchiveRoot?: string;
   codeRepo?: string;
   cohort: string;
   accountMode: "paper" | "backtest" | "live";
   approvalPolicyId: "domain_release_manual_v1" | "decision_release_manual_v1";
+}
+
+export interface StageForwardRecoveryReleaseOptions {
+  registryRoot: string;
+  rolledBackReleaseId: string;
+  recoveryEvidenceHash: string;
+  privatePromptRepo: string;
+  runtimeBehaviorBundle: RuntimeBehaviorBundleRef;
+  executionBehaviorArchiveRoot?: string;
+  codeRepo?: string;
 }
 
 function runGit(repo: string, args: ReadonlyArray<string>): Promise<Buffer> {
@@ -286,15 +310,16 @@ export async function stagePromptRelease(
     cohort: opts.cohort,
     specs,
   });
+  const promptHash = releasePromptSetHash(promptPairs);
   assertReleasePromptStageClosure(
     {
       schema_version: "active_prompt_release_manifest_v1",
-      release_id: opts.releaseId,
+      release_id: opts.releaseId ?? "v2-release-id-pending",
       base_release_id: null,
       lifecycle_state: "staged",
       prompt_commit: promptCommit,
       code_commit: codeCommit,
-      prompt_hash: releasePromptSetHash(promptPairs),
+      prompt_hash: promptHash,
       prompt_pairs: promptPairs,
       stage_snapshot_hashes: privateCheck.snapshotHashes,
       catalog_hash: `sha256:${"0".repeat(64)}`,
@@ -342,6 +367,37 @@ export async function stagePromptRelease(
   }
 
   const closure = await loadPromptReleaseClosureAtCommit({ repo: codeRepo, commit: codeCommit });
+  const runtimeBehaviorBundle = RuntimeBehaviorBundleRefSchema.parse(opts.runtimeBehaviorBundle);
+  if (
+    runtimeBehaviorBundle.prompt_hash !== promptHash ||
+    runtimeBehaviorBundle.catalog_hash !== closure.catalog_hash ||
+    runtimeBehaviorBundle.schema_hash !== closure.schema_hash ||
+    runtimeBehaviorBundle.evaluation_contract_hash !== closure.contract_hash
+  ) {
+    throw new Error("prompt_release_runtime_bundle_contract_mismatch");
+  }
+  if (
+    runtimeBehaviorBundle.private_runtime_commit !== promptCommit ||
+    runtimeBehaviorBundle.private_policy_commit !== promptCommit
+  ) {
+    throw new Error("prompt_release_runtime_bundle_private_commit_mismatch");
+  }
+  const validateExecutionBehaviorPin =
+    deps.validateExecutionBehaviorPin ??
+    ((input: { bundle: RuntimeBehaviorBundleRef; promptCommit: string }) => {
+      if (!opts.executionBehaviorArchiveRoot) {
+        throw new Error("prompt_release_execution_behavior_archive_root_required");
+      }
+      const release = loadExecutionBehaviorReleaseArchive({
+        archiveRoot: opts.executionBehaviorArchiveRoot,
+        executionBehaviorReleaseId: input.bundle.execution_behavior_release_id,
+        executionBehaviorReleaseHash: input.bundle.execution_behavior_release_hash,
+      });
+      if (release.private_prompt_commit !== input.promptCommit) {
+        throw new Error("prompt_release_execution_behavior_prompt_commit_mismatch");
+      }
+    });
+  await validateExecutionBehaviorPin({ bundle: runtimeBehaviorBundle, promptCommit });
   const fallbackCheck = await candidateCheck({
     repo: codeRepo,
     commit: codeCommit,
@@ -371,23 +427,29 @@ export async function stagePromptRelease(
 
   const registry = new ActivePromptReleaseRegistry(opts.registryRoot);
   const pointer = await registry.pointer();
+  const baseRelease = pointer.current_release_id
+    ? await registry.load(pointer.current_release_id)
+    : null;
+  if (pointer.current_release_id && !baseRelease) {
+    throw new Error("prompt_release_base_pointer_is_not_closed");
+  }
   const createdAt = now(deps);
-  const manifest: ActivePromptReleaseManifest = {
-    schema_version: "active_prompt_release_manifest_v1",
-    release_id: opts.releaseId,
+  const manifestWithoutId = {
+    schema_version: "active_prompt_release_manifest_v2" as const,
     base_release_id: pointer.current_release_id,
-    lifecycle_state: "staged",
+    lifecycle_state: "staged" as const,
     prompt_commit: promptCommit,
     code_commit: codeCommit,
-    prompt_hash: releasePromptSetHash(promptPairs),
+    prompt_hash: promptHash,
     prompt_pairs: promptPairs,
     stage_snapshot_hashes: privateCheck.snapshotHashes,
     catalog_hash: closure.catalog_hash,
     schema_hash: closure.schema_hash,
     evaluation_contract_hash: closure.contract_hash,
     keep_decision_hash: pin.keepDecisionHash,
-    keep_decision_state: "kept",
+    keep_decision_state: "kept" as const,
     release_evidence: {
+      kind: "PROMPT_BEHAVIOR" as const,
       version_id: pin.versionId,
       mutation_id: pin.mutationId,
       experiment_id: pin.experimentId,
@@ -395,6 +457,8 @@ export async function stagePromptRelease(
       evaluation_result_hash: pin.evaluationResultHash,
       transaction_manifest_hash: pin.transactionManifestHash,
       prompt_pair_sha256: pin.promptSha,
+      base_prompt_hash: baseRelease?.prompt_hash ?? promptHash,
+      candidate_prompt_hash: promptHash,
     },
     activation_scope: {
       cohort: opts.cohort,
@@ -413,7 +477,168 @@ export async function stagePromptRelease(
     created_at: createdAt,
     activated_at: null,
     rolled_back_at: null,
+    runtime_behavior_bundle: runtimeBehaviorBundle,
   };
+  const releaseId = deterministicFullRuntimeReleaseId(manifestWithoutId);
+  if (opts.releaseId && opts.releaseId !== releaseId) {
+    throw new Error("prompt_release_requested_id_mismatch");
+  }
+  const manifest = ActivePromptReleaseManifestSchema.parse({
+    ...manifestWithoutId,
+    release_id: releaseId,
+  }) as ActivePromptReleaseManifestV2;
+  await registry.stage(manifest);
+  return manifest;
+}
+
+export async function stageForwardRecoveryRelease(
+  opts: StageForwardRecoveryReleaseOptions,
+  deps: PromptReleaseManagerDependencies = {},
+): Promise<ActivePromptReleaseManifestV2> {
+  if (!SHA256.test(opts.recoveryEvidenceHash)) {
+    throw new Error("prompt_release_recovery_evidence_hash_invalid");
+  }
+  const registry = new ActivePromptReleaseRegistry(opts.registryRoot);
+  const rollbackReceipt = await registry.rollbackReceipt(opts.rolledBackReleaseId);
+  if (!rollbackReceipt) throw new Error("prompt_release_recovery_rollback_receipt_required");
+  const restored = await registry.resolveActive();
+  if (!restored) throw new Error("prompt_release_recovery_active_base_required");
+  assertFullRuntimePromptRelease(restored);
+  if (
+    rollbackReceipt.failed_release_id !== opts.rolledBackReleaseId ||
+    rollbackReceipt.restored_release_id !== restored.release_id ||
+    rollbackReceipt.restored_full_bundle_hash !== restored.runtime_behavior_bundle.full_bundle_hash
+  ) {
+    throw new Error("prompt_release_recovery_rollback_receipt_mismatch");
+  }
+  const failed = await registry.load(opts.rolledBackReleaseId);
+  if (failed?.lifecycle_state !== "rolled_back") {
+    throw new Error("prompt_release_recovery_failed_release_unavailable");
+  }
+  assertFullRuntimePromptRelease(failed);
+
+  const bundle = RuntimeBehaviorBundleRefSchema.parse(opts.runtimeBehaviorBundle);
+  if (
+    bundle.origin.kind !== "FORWARD_RECOVERY" ||
+    bundle.origin.rolled_back_release_id !== failed.release_id ||
+    bundle.origin.recovery_evidence_hash !== opts.recoveryEvidenceHash
+  ) {
+    throw new Error("prompt_release_recovery_bundle_origin_mismatch");
+  }
+  if (
+    bundle.prompt_hash !== restored.prompt_hash ||
+    bundle.execution_behavior_release_id ===
+      failed.runtime_behavior_bundle.execution_behavior_release_id ||
+    bundle.production_variant_roster_revision_id ===
+      failed.runtime_behavior_bundle.production_variant_roster_revision_id
+  ) {
+    throw new Error("prompt_release_recovery_bundle_version_mismatch");
+  }
+  if (
+    bundle.private_runtime_commit !== bundle.private_policy_commit ||
+    bundle.catalog_hash !== restored.catalog_hash ||
+    bundle.schema_hash !== restored.schema_hash ||
+    bundle.evaluation_contract_hash !== restored.evaluation_contract_hash
+  ) {
+    throw new Error("prompt_release_recovery_bundle_contract_mismatch");
+  }
+
+  const codeRepo = opts.codeRepo ?? findRepoRoot();
+  const [promptCommit, codeCommit] = await Promise.all([
+    fullCommit(opts.privatePromptRepo, bundle.private_runtime_commit),
+    fullCommit(codeRepo, restored.code_commit),
+  ]);
+  if (promptCommit !== bundle.private_runtime_commit || codeCommit !== restored.code_commit) {
+    throw new Error("prompt_release_requires_full_commit_ids");
+  }
+  await assertCleanCodeCheckout(codeRepo, codeCommit);
+  const specs = deps.specs ?? RUNTIME_AGENT_SPECS;
+  const promptPairs = await buildReleasePromptPairsAtCommit({
+    repo: opts.privatePromptRepo,
+    commit: promptCommit,
+    cohort: restored.activation_scope.cohort,
+    specs,
+  });
+  if (
+    releasePromptSetHash(promptPairs) !== restored.prompt_hash ||
+    sortedObjectJson(Object.fromEntries(promptPairs.map((pair) => [pair.pair_hash, pair]))) !==
+      sortedObjectJson(
+        Object.fromEntries(restored.prompt_pairs.map((pair) => [pair.pair_hash, pair])),
+      )
+  ) {
+    throw new Error("prompt_release_recovery_prompt_closure_mismatch");
+  }
+  const closure = await loadPromptReleaseClosureAtCommit({ repo: codeRepo, commit: codeCommit });
+  if (
+    closure.catalog_hash !== restored.catalog_hash ||
+    closure.schema_hash !== restored.schema_hash ||
+    closure.contract_hash !== restored.evaluation_contract_hash
+  ) {
+    throw new Error("prompt_release_local_contract_closure_drift");
+  }
+  const candidateCheck = deps.checkCandidate ?? checkCandidateAtCommit;
+  const privateCheck = await candidateCheck({
+    repo: opts.privatePromptRepo,
+    commit: promptCommit,
+    cohort: restored.activation_scope.cohort,
+    source: "private",
+    privateRuntimeRepo: opts.privatePromptRepo,
+    privateRuntimeCommit: promptCommit,
+  });
+  if (
+    sortedObjectJson(privateCheck.snapshotHashes) !==
+    sortedObjectJson(restored.stage_snapshot_hashes)
+  ) {
+    throw new Error("prompt_release_recovery_stage_snapshot_mismatch");
+  }
+  const validateExecutionBehaviorPin =
+    deps.validateExecutionBehaviorPin ??
+    ((input: { bundle: RuntimeBehaviorBundleRef; promptCommit: string }) => {
+      if (!opts.executionBehaviorArchiveRoot) {
+        throw new Error("prompt_release_execution_behavior_archive_root_required");
+      }
+      const release = loadExecutionBehaviorReleaseArchive({
+        archiveRoot: opts.executionBehaviorArchiveRoot,
+        executionBehaviorReleaseId: input.bundle.execution_behavior_release_id,
+        executionBehaviorReleaseHash: input.bundle.execution_behavior_release_hash,
+      });
+      if (release.private_prompt_commit !== input.promptCommit) {
+        throw new Error("prompt_release_execution_behavior_prompt_commit_mismatch");
+      }
+    });
+  await validateExecutionBehaviorPin({ bundle, promptCommit });
+
+  const createdAt = now(deps);
+  const withoutId = {
+    ...restored,
+    base_release_id: restored.release_id,
+    lifecycle_state: "staged" as const,
+    prompt_commit: promptCommit,
+    prompt_pairs: promptPairs,
+    stage_snapshot_hashes: { ...privateCheck.snapshotHashes },
+    keep_decision_hash: opts.recoveryEvidenceHash,
+    release_evidence: {
+      kind: "FORWARD_RECOVERY" as const,
+      rolled_back_release_id: failed.release_id,
+      recovery_evidence_hash: opts.recoveryEvidenceHash,
+    },
+    activation_scope: { ...restored.activation_scope, traffic_percent: 0 },
+    approved_by: null,
+    canary_started_at: null,
+    canary_ended_at: null,
+    runtime_slo_summary: null,
+    runtime_slo_evidence: null,
+    previous_approved_release_id: restored.release_id,
+    created_at: createdAt,
+    activated_at: null,
+    rolled_back_at: null,
+    runtime_behavior_bundle: bundle,
+  };
+  const manifest = ActivePromptReleaseManifestSchema.parse({
+    ...withoutId,
+    release_id: deterministicFullRuntimeReleaseId(withoutId),
+  });
+  assertFullRuntimePromptRelease(manifest);
   await registry.stage(manifest);
   return manifest;
 }
@@ -430,6 +655,7 @@ export async function provisionPromptReleaseBaseline(opts: {
   assertAuthorizedOperator(opts.approvedBy);
   if (!opts.reason.trim()) throw new Error("prompt_release_baseline_reason_required");
   const manifest = ActivePromptReleaseManifestSchema.parse(opts.manifest);
+  assertFullRuntimePromptRelease(manifest);
   if (manifest.lifecycle_state !== "active") {
     throw new Error("prompt_release_baseline_must_be_active");
   }
@@ -530,11 +756,13 @@ export async function startPromptReleaseCanary(opts: {
   const registry = new ActivePromptReleaseRegistry(opts.registryRoot);
   const previous = await registry.load(opts.releaseId);
   if (!previous) throw new Error("prompt_release_not_found");
+  assertFullRuntimePromptRelease(previous);
   if (!previous.base_release_id) throw new Error("prompt_release_canary_baseline_required");
   const baseline = await registry.resolveActive();
   if (!baseline || baseline.release_id !== previous.base_release_id) {
     throw new Error("prompt_release_canary_baseline_mismatch");
   }
+  assertFullRuntimePromptRelease(baseline);
   if (previous.lifecycle_state === "canary") {
     if (
       previous.approved_by !== opts.approvedBy ||
@@ -578,8 +806,16 @@ export async function activatePromptRelease(opts: {
   const registry = new ActivePromptReleaseRegistry(opts.registryRoot);
   const previous = await registry.load(opts.releaseId);
   if (!previous) throw new Error("prompt_release_not_found");
+  assertFullRuntimePromptRelease(previous);
   if (previous.approved_by !== opts.approvedBy) {
     throw new Error("prompt_release_activation_operator_mismatch");
+  }
+  const activationTime = now(opts.deps ?? {});
+  if (
+    Date.parse(activationTime) <
+    Date.parse(previous.runtime_behavior_bundle.earliest_activation_slot)
+  ) {
+    throw new Error("prompt_release_earliest_activation_slot_not_reached");
   }
   await assertCleanCodeCheckout(opts.codeRepo ?? findRepoRoot(), previous.code_commit);
   const closure = await loadPromptReleaseClosureAtCommit({

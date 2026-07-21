@@ -15,6 +15,11 @@ import {
 } from "../src/agents/agent_display_narrative.js";
 import type { ClaimEvidenceGraph } from "../src/agents/evidence_contract.js";
 import { AGENTS_BY_LAYER, ALL_AGENTS, LAYER_BY_AGENT } from "../src/agents/prompts/cohorts.js";
+import {
+  EXECUTION_RELEASE_ID_FIXTURE,
+  ROSTER_REVISION_ID_FIXTURE,
+  runtimeBehaviorRunPinsFixture,
+} from "./helpers/runtime_behavior.js";
 
 function acceptedKind(agent: string): AcceptedOutputKind {
   if (AGENTS_BY_LAYER.macro.includes(agent as never)) return "MACRO_TRANSMISSION";
@@ -467,8 +472,9 @@ function bindAcceptedRecords(state: ReturnType<typeof stateFixture>): AcceptedAg
         run_slot_id: `slot:${agent}:${kind}`,
         operational_opportunity_audit_id: `opportunity:${agent}:${kind}`,
         production_variant_roster_id: "roster-1",
-        production_variant_roster_revision_id: "roster-revision-1",
-        execution_behavior_release_id: "execution-release-1",
+        production_variant_roster_revision_id: ROSTER_REVISION_ID_FIXTURE,
+        execution_behavior_release_id: EXECUTION_RELEASE_ID_FIXTURE,
+        runtime_release_pins: runtimeBehaviorRunPinsFixture(),
         cohort_id: state.active_cohort,
         language: "zh",
         track_key_hash: `track:${agent}:${kind}`,

@@ -15,6 +15,8 @@ import {
   invokeStrictStructured,
 } from "../src/agents/helpers/agent_run_contract.js";
 import { createMacroSubmissionSchema } from "../src/agents/macro/_contracts.js";
+import { buildStandardSectorSchema } from "../src/agents/sector/_schemas.js";
+import { RelationshipMapperSchema } from "../src/agents/sector/relationship_mapper.js";
 import { macroSubmission } from "./helpers/macro.js";
 
 const Schema = z.object({
@@ -79,7 +81,14 @@ function namedPropertySchemas(value: unknown, propertyName: string): Record<stri
   ];
 }
 
-async function capturedProviderSchema(schema: z.ZodType<unknown>, name: string): Promise<unknown> {
+async function capturedProviderSchema(
+  schema: z.ZodType<unknown>,
+  name: string,
+  evidenceSnapshot: unknown = {
+    evidenceLedger: [{ evidence_id: `evidence:${"a".repeat(64)}` }],
+    allowedResearchRuleIds: new Set<string>(),
+  },
+): Promise<unknown> {
   const llm = new SequenceLlm([new Error("400 Bad Request")]);
   await expect(
     invokeStrictStructured({
@@ -89,7 +98,7 @@ async function capturedProviderSchema(schema: z.ZodType<unknown>, name: string):
       agent: name,
       stage: "agent_run",
       runId: `provider-schema-${name}`,
-      evidenceSnapshot: {},
+      evidenceSnapshot,
       onAttempt: () => {},
     }),
   ).rejects.toBeInstanceOf(AgentRunContractError);
@@ -259,6 +268,20 @@ describe("strict agent-run contract", () => {
     });
   });
 
+  it("repairs provider JSON parse failures without mistaking a character position for HTTP 429", async () => {
+    const llm = new SequenceLlm([
+      new SyntaxError("Expected double-quoted property name in JSON at position 429"),
+      { disposition: "ITEMS", items: ["fixed"], claim_refs: ["claim-1"] },
+    ]);
+    const result = await run(llm);
+    expect(result.audit.output_source).toBe("structured_repair");
+    expect(result.audit.repair_count).toBe(1);
+    expect(result.audit.attempts[0]?.validation_issues).toEqual([
+      expect.objectContaining({ reason_code: "STRUCTURED_OUTPUT_INVALID" }),
+    ]);
+    expect(llm.calls).toHaveLength(2);
+  });
+
   it.each([
     [new Error("request timed out"), "timeout", "MODEL_TIMEOUT"],
     [new Error("ECONNREFUSED"), "connection_error", "MODEL_CONNECTION_ERROR"],
@@ -340,6 +363,59 @@ describe("strict agent-run contract", () => {
     expect(JSON.stringify(llm.schemas[0])).toContain("additionalProperties");
     expect(result.audit.repair_count).toBe(1);
     expect(result.output).toEqual({ values: { "/score": 1 } });
+  });
+
+  it("removes adapter-added uniqueItems before provider binding", async () => {
+    const providerSchema = await capturedProviderSchema(
+      RelationshipMapperSchema,
+      "relationship_mapper",
+    );
+    expect(JSON.stringify(providerSchema)).not.toContain("uniqueItems");
+  });
+
+  it("binds compact Sector final evidence legs to the exact runtime directive", async () => {
+    const mainEvidence = `evidence:${"a".repeat(64)}`;
+    const coverageEvidence = "coverage-evidence-1";
+    const schema = z
+      .object({
+        final_selection: buildStandardSectorSchema("energy", "SELECTED", {
+          selection_status: "SELECTED",
+          preferred_direction_id: "coal",
+          least_preferred_direction_id: "oil_gas",
+          allowed_preferred_security_ids: [],
+          allowed_least_preferred_security_ids: [],
+        }),
+      })
+      .strict();
+    const providerSchema = (await capturedProviderSchema(schema, "energy", {
+      evidenceLedger: [{ evidence_id: mainEvidence }, { evidence_id: coverageEvidence }],
+      allowedResearchRuleIds: new Set<string>(),
+      directive: {
+        required_preferred_evidence_ids: [mainEvidence, coverageEvidence],
+        required_least_preferred_evidence_ids: [mainEvidence],
+        required_final_evidence_ids: [mainEvidence, coverageEvidence],
+      },
+    })) as {
+      properties: {
+        final_selection: {
+          properties: Record<string, { prefixItems?: Array<{ const: string }> }>;
+        };
+      };
+    };
+    const final = providerSchema.properties.final_selection.properties;
+    expect(final.preferred_evidence_ids?.prefixItems?.map((item) => item.const)).toEqual([
+      coverageEvidence,
+      mainEvidence,
+    ]);
+    expect(final.least_preferred_evidence_ids?.prefixItems?.map((item) => item.const)).toEqual([
+      mainEvidence,
+    ]);
+    expect(final.final_evidence_ids?.prefixItems?.map((item) => item.const)).toEqual([
+      coverageEvidence,
+      mainEvidence,
+    ]);
+    expect(final.research_rule_ref).toEqual({ type: "null" });
+    expect(final.claim_kind).toEqual({ type: "string", enum: ["FACT", "EVENT"] });
   });
 
   it("bounds high-volume extraction arrays without narrowing the domain schema", async () => {
@@ -446,7 +522,7 @@ describe("strict agent-run contract", () => {
         persistence_horizon: "WEEKS",
         confidence: 0.7,
         channel: "A-share risk premium",
-        claim_kind: "RISK_FLAG",
+        claim_kind: "FACT",
         statement: "The component evidence supports a cautious assessment",
         state: "The component state is mixed",
         a_share_transmission: "The component has a balanced A-share transmission",
@@ -491,23 +567,27 @@ describe("strict agent-run contract", () => {
     for (const component of providerSchema.properties.components.prefixItems) {
       expect(component.properties.channel).toMatchObject({
         type: "string",
+        minLength: 12,
         maxLength: 96,
-        pattern: "^[^0-9０-９%％\\r\\n]{1,96}$",
+        pattern: "^[^0-9０-９%％\\r\\n]{12,96}$",
       });
       expect(component.properties.statement).toMatchObject({
         type: "string",
+        minLength: 24,
         maxLength: 160,
-        pattern: "^[^0-9０-９%％\\r\\n]{1,160}$",
+        pattern: "^[^0-9０-９%％\\r\\n]{24,160}$",
       });
       expect(component.properties.state).toMatchObject({
         type: "string",
+        minLength: 16,
         maxLength: 128,
-        pattern: "^[^0-9０-９%％\\r\\n]{1,128}$",
+        pattern: "^[^0-9０-９%％\\r\\n]{16,128}$",
       });
       expect(component.properties.a_share_transmission).toMatchObject({
         type: "string",
+        minLength: 24,
         maxLength: 160,
-        pattern: "^[^0-9０-９%％\\r\\n]{1,160}$",
+        pattern: "^[^0-9０-９%％\\r\\n]{24,160}$",
       });
       expect(component.properties.evidence_id).toMatchObject({
         type: "string",
@@ -516,10 +596,103 @@ describe("strict agent-run contract", () => {
       expect(component.properties.research_rule_ref).toEqual({ type: "null" });
       expect(component.properties.claim_kind).toEqual({
         type: "string",
-        enum: ["FACT", "EVENT", "RISK_FLAG"],
+        enum: ["FACT", "EVENT"],
       });
       expect(component.properties.snapshot_echo).toEqual({ type: "null" });
     }
+  });
+
+  it("reuses the evidence-bound Macro provider schema during structured repair", async () => {
+    const schema = createMacroSubmissionSchema("us_economy");
+    const base = macroSubmission("us_economy");
+    if (base.mode !== "COMPONENTS") throw new Error("component fixture required");
+    const evidenceId = `evidence:${"b".repeat(64)}`;
+    const repairedOutput = {
+      provider_contract: "MACRO_COMPONENTS_COMPACT_V1",
+      mode: "COMPONENTS",
+      components: base.components.map((component) => ({
+        component: component.component,
+        signal: { direction: "NEUTRAL", strength: 0 },
+        persistence_horizon: "WEEKS",
+        confidence: 0.7,
+        channel: "A-share risk premium",
+        claim_kind: "FACT",
+        statement: "The component evidence supports a cautious assessment",
+        state: "The component state is mixed",
+        a_share_transmission: "The component has a balanced A-share transmission",
+        evidence_id: evidenceId,
+        research_rule_ref: null,
+        snapshot_echo: null,
+      })),
+    };
+    const llm = new SequenceLlm([
+      { provider_contract: "MACRO_COMPONENTS_COMPACT_V1", mode: "COMPONENTS", components: [] },
+      repairedOutput,
+    ]);
+
+    const result = await invokeStrictStructured({
+      llm: llm as never,
+      schema,
+      messages: messages(),
+      agent: "us_economy",
+      stage: "agent_run",
+      runId: "provider-macro-components-repair",
+      evidenceSnapshot: {
+        evidenceLedger: [{ evidence_id: evidenceId }],
+        allowedResearchRuleIds: new Set<string>(),
+      },
+      onAttempt: () => {},
+    });
+
+    expect(result.audit.output_source).toBe("structured_repair");
+    expect(result.audit.repair_count).toBe(1);
+    expect(JSON.stringify(llm.calls[1])).toContain(evidenceId);
+    expect(JSON.stringify(llm.calls[1])).toContain("fixed prompt");
+  });
+
+  it("canonicalizes named Macro tenors without accepting numeric facts generally", async () => {
+    const schema = createMacroSubmissionSchema("central_bank");
+    const base = macroSubmission("central_bank");
+    if (base.mode !== "COMPONENTS") throw new Error("component fixture required");
+    const evidenceId = `evidence:${"c".repeat(64)}`;
+    const providerOutput = {
+      provider_contract: "MACRO_COMPONENTS_COMPACT_V1",
+      mode: "COMPONENTS",
+      components: base.components.map((component, index) => ({
+        component: component.component,
+        signal: { direction: "NEUTRAL", strength: 0 },
+        persistence_horizon: "WEEKS",
+        confidence: 0.7,
+        channel: "Long-term rates transmit through equity discount rates.",
+        claim_kind: "FACT",
+        statement:
+          index === 0
+            ? "十年期美债曲线显示长端利率压力仍然存在。"
+            : "Current policy evidence supports a cautious assessment.",
+        state: "The observed component state remains mixed.",
+        a_share_transmission: "The component has a balanced A-share transmission.",
+        evidence_id: evidenceId,
+        research_rule_ref: null,
+        snapshot_echo: null,
+      })),
+    };
+    const result = await invokeStrictStructured({
+      llm: new SequenceLlm([providerOutput]) as never,
+      schema,
+      messages: messages(),
+      agent: "central_bank",
+      stage: "agent_run",
+      runId: "provider-macro-tenor-canonicalization",
+      evidenceSnapshot: {
+        evidenceLedger: [{ evidence_id: evidenceId }],
+        allowedResearchRuleIds: new Set<string>(),
+      },
+      onAttempt: () => {},
+    });
+
+    expect(result.audit.output_source).toBe("structured_primary");
+    expect(result.output.claims[0]?.statement).toContain("长期美债曲线");
+    expect(result.output.claims[0]?.statement).not.toContain("十年期");
   });
 
   it("fails closed before provider invocation when Macro runtime evidence is empty", async () => {

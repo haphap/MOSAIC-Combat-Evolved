@@ -3168,6 +3168,8 @@ class ScorecardStore:
         failure_reason: str | None = None,
         cio_failure_phase: str | None = None,
         cio_output_phase: str | None = None,
+        candidate_authorization_receipt: Mapping[str, Any] | None = None,
+        candidate_authorization_verifier: Any | None = None,
     ) -> dict[str, Any]:
         from mosaic.scorecard.knot_v2 import append_knot_pair_side_execution_result
 
@@ -3185,6 +3187,8 @@ class ScorecardStore:
                 failure_reason=failure_reason,
                 cio_failure_phase=cio_failure_phase,
                 cio_output_phase=cio_output_phase,
+                candidate_authorization_receipt=candidate_authorization_receipt,
+                candidate_authorization_verifier=candidate_authorization_verifier,
             )
 
     def append_knot_cio_proposal_execution_result(
@@ -3201,6 +3205,8 @@ class ScorecardStore:
         failure_reason: str | None = None,
         cio_failure_phase: str | None = None,
         cio_output_phase: str | None = None,
+        candidate_authorization_receipt: Mapping[str, Any] | None = None,
+        candidate_authorization_verifier: Any | None = None,
     ) -> dict[str, Any]:
         """Persist a CIO proposal and its dependency ref in one transaction."""
         from mosaic.scorecard.knot_v2 import (
@@ -3222,6 +3228,8 @@ class ScorecardStore:
                 failure_reason=failure_reason,
                 cio_failure_phase=cio_failure_phase,
                 cio_output_phase=cio_output_phase,
+                candidate_authorization_receipt=candidate_authorization_receipt,
+                candidate_authorization_verifier=candidate_authorization_verifier,
             )
             proposal_output_id = result.get("proposal_output_id")
             if not isinstance(proposal_output_id, str) or not proposal_output_id:
@@ -3673,6 +3681,70 @@ class ScorecardStore:
         )
         with self._connect() as conn:
             return publish_knot_rollback_revision(conn, **kwargs)
+
+    def freeze_knot_proposal_input(self, **kwargs: Any) -> dict[str, Any]:
+        from mosaic.scorecard.knot_coordinator import freeze_knot_proposal_input
+
+        with self._connect() as conn:
+            return freeze_knot_proposal_input(conn, **kwargs)
+
+    def append_knot_blind_commitment(self, **kwargs: Any) -> dict[str, Any]:
+        from mosaic.scorecard.knot_coordinator import append_knot_blind_commitment
+
+        with self._connect() as conn:
+            return append_knot_blind_commitment(conn, **kwargs)
+
+    def reveal_knot_blind_evaluation(self, **kwargs: Any) -> dict[str, Any]:
+        from mosaic.scorecard.knot_coordinator import reveal_knot_blind_evaluation
+
+        with self._connect() as conn:
+            return reveal_knot_blind_evaluation(conn, **kwargs)
+
+    def append_knot_coordinator_transition(self, **kwargs: Any) -> dict[str, Any]:
+        from mosaic.scorecard.knot_coordinator import (
+            append_knot_coordinator_transition,
+        )
+
+        with self._connect() as conn:
+            return append_knot_coordinator_transition(conn, **kwargs)
+
+    def knot_coordinator_status(self, **kwargs: Any) -> dict[str, Any] | None:
+        from mosaic.scorecard.knot_coordinator import knot_coordinator_status
+
+        with self._connect() as conn:
+            return knot_coordinator_status(conn, **kwargs)
+
+    def issue_knot_research_candidate_capability(
+        self, **kwargs: Any
+    ) -> dict[str, Any]:
+        from mosaic.scorecard.knot_coordinator import (
+            issue_knot_research_candidate_capability,
+        )
+
+        with self._connect() as conn:
+            return issue_knot_research_candidate_capability(conn, **kwargs)
+
+    def consume_knot_research_candidate_capability(
+        self, **kwargs: Any
+    ) -> dict[str, Any]:
+        from mosaic.scorecard.knot_coordinator import (
+            consume_knot_research_candidate_capability,
+        )
+
+        with self._connect() as conn:
+            return consume_knot_research_candidate_capability(conn, **kwargs)
+
+    def verify_knot_research_candidate_capability_consumption(
+        self, receipt: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        from mosaic.scorecard.knot_coordinator import (
+            verify_knot_research_candidate_capability_consumption,
+        )
+
+        with self._connect() as conn:
+            return verify_knot_research_candidate_capability_consumption(
+                conn, receipt=receipt
+            )
 
     # ── recommendations ──────────────────────────────────────────────────
 

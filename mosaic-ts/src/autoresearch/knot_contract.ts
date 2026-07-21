@@ -41,7 +41,7 @@ export const KNOT_RUNTIME_CONTRACT_REF: KnotRuntimeContractRef = KnotRuntimeCont
     knot_runtime_contract_manifest_hash:
       "sha256:a8f5b1108df82be7e05d036593c4bd0826193025bfbffbb1b56824097aaa9076",
     private_runtime_manifest_hash:
-      "sha256:9ddb706c7697645c5177ddcb1ac1e868e6cfa6d72884defb7c3a0cbca6150e33",
+      "sha256:a81cf8cca65dcc234548ee799a98c031f06a2b82b0d03d3f25b8628fdc853b49",
     research_score_contract_ref: {
       research_score_contract_id: "knot-research-score",
       research_score_contract_version: "knot_research_score_v2",
