@@ -192,6 +192,10 @@
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
+    "privateLineageHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
     "createdAt": {
       "type": "string",
       "format": "date-time",
@@ -217,6 +221,7 @@
     "alignmentVerifierVersion",
     "behaviorAlignmentHash",
     "behaviorContractHash",
+    "privateLineageHash",
     "createdAt"
   ],
   "additionalProperties": false

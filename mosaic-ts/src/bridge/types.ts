@@ -27,6 +27,7 @@ import type {
   PromptExperimentRun,
   PromptPromotionDecision,
 } from "../autoresearch/prompt_optimizer_contract.js";
+import type { PromptTrainingHistory } from "../autoresearch/prompt_training_history.js";
 import type { BridgeClient } from "./client.js";
 
 export type {
@@ -2762,6 +2763,23 @@ export class BridgeApi {
 
   promptOptimizerLatestSummary(cohort: string): Promise<PromptOptimizerSummary> {
     return this.client.call<PromptOptimizerSummary>("prompt_optimizer.latest_summary", { cohort });
+  }
+
+  async promptOptimizerTrainingHistory(params: {
+    agent_id: string;
+    stage: string;
+    cohort: string;
+    cutoff_at: string;
+    excluded_sample_ids?: string[];
+  }): Promise<PromptTrainingHistory> {
+    const result = await this.client.call<{ history: PromptTrainingHistory }>(
+      "prompt_optimizer.training_history",
+      params,
+    );
+    const { PromptTrainingHistorySchema } = await import(
+      "../autoresearch/prompt_training_history.js"
+    );
+    return PromptTrainingHistorySchema.parse(result.history);
   }
 
   autoresearchTrigger(params: {

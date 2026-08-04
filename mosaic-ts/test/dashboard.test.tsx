@@ -103,6 +103,7 @@ function fakeApi() {
         alignmentVerifierVersion: "bilingual-alignment-v1",
         behaviorAlignmentHash: `sha256:${"9".repeat(64)}`,
         behaviorContractHash: `sha256:${"a".repeat(64)}`,
+        privateLineageHash: `sha256:${"b".repeat(64)}`,
         createdAt: "2026-05-30T00:00:00Z",
       },
       experiment: {

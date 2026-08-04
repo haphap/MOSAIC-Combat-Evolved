@@ -373,6 +373,7 @@ describe("Agent-specific Prompt promotion policy", () => {
         alignmentVerifierVersion: "bilingual-alignment-v1",
       }),
       behaviorContractHash: HASH_A,
+      privateLineageHash: HASH_A,
       createdAt: "2025-04-01T00:00:00Z",
     });
     const api = {

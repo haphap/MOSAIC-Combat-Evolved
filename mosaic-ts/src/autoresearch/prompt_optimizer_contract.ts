@@ -25,12 +25,39 @@ const SafePublicVersionSchema = z
 const FiniteMetricRecordSchema = z.record(z.string().trim().min(1), z.number().finite());
 const BehaviorFacetFeedbackSchema = z
   .object({
-    matureSampleCount: z.number().int().min(30),
-    meanScore: z.number().finite().min(-1).max(1),
-    lowerTailScore: z.number().finite().min(-1).max(1),
+    evaluationMode: z.enum(["DIRECT_OUTCOME", "CONTROLLED_EXPERIMENT"]),
+    observationStatus: z.enum(["OBSERVED", "COLD_START"]),
+    directMatureSampleCount: z.number().int().nonnegative(),
+    experimentPairCount: z.number().int().nonnegative(),
+    meanScore: z.number().finite().min(-1).max(1).nullable(),
+    lowerTailScore: z.number().finite().min(-1).max(1).nullable(),
     failureCategoryCounts: z.record(z.string().trim().min(1), z.number().int().nonnegative()),
   })
-  .strict();
+  .strict()
+  .superRefine((feedback, ctx) => {
+    const count =
+      feedback.evaluationMode === "DIRECT_OUTCOME"
+        ? feedback.directMatureSampleCount
+        : feedback.experimentPairCount;
+    const observed = feedback.observationStatus === "OBSERVED";
+    if (
+      observed !== (count > 0 && feedback.meanScore !== null && feedback.lowerTailScore !== null)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: "facet observation status must match its score-bearing sample count",
+      });
+    }
+    if (feedback.evaluationMode === "DIRECT_OUTCOME" && feedback.experimentPairCount !== 0) {
+      ctx.addIssue({ code: "custom", message: "direct facets cannot consume experiment pairs" });
+    }
+    if (
+      feedback.evaluationMode === "CONTROLLED_EXPERIMENT" &&
+      feedback.directMatureSampleCount !== 0
+    ) {
+      ctx.addIssue({ code: "custom", message: "experimental facets cannot claim direct scores" });
+    }
+  });
 
 function instant(value: string): number {
   const parsed = Date.parse(value);
@@ -146,11 +173,14 @@ export const PromptTrainingSnapshotSchema = z
       });
     }
     for (const [facetId, feedback] of Object.entries(snapshot.behaviorFeedback.facets)) {
-      if (feedback.matureSampleCount !== snapshot.matureSampleCount) {
+      if (
+        feedback.evaluationMode === "DIRECT_OUTCOME" &&
+        feedback.directMatureSampleCount !== snapshot.matureSampleCount
+      ) {
         ctx.addIssue({
           code: "custom",
-          path: ["behaviorFeedback", "facets", facetId, "matureSampleCount"],
-          message: "every facet must use the complete mature training sample set",
+          path: ["behaviorFeedback", "facets", facetId, "directMatureSampleCount"],
+          message: "every direct facet must use the complete mature training sample set",
         });
       }
     }
@@ -178,6 +208,7 @@ export const PromptCandidateSchema = z
     alignmentVerifierVersion: SafePublicVersionSchema,
     behaviorAlignmentHash: PromptOptimizerSha256Schema,
     behaviorContractHash: PromptOptimizerSha256Schema,
+    privateLineageHash: PromptOptimizerSha256Schema,
     createdAt: IsoDateTimeSchema,
   })
   .strict()

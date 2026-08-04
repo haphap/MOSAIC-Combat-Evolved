@@ -100,6 +100,7 @@ function candidate() {
       alignmentVerifierVersion: "bilingual-alignment-v1",
     }),
     behaviorContractHash: HASH,
+    privateLineageHash: HASH,
     createdAt: "2025-04-01T00:00:00Z",
   };
 }
@@ -229,7 +230,10 @@ describe("prompt optimizer public contracts", () => {
         contractHash: HASH,
         facets: {
           growth_production: {
-            matureSampleCount: 30,
+            evaluationMode: "DIRECT_OUTCOME",
+            observationStatus: "OBSERVED",
+            directMatureSampleCount: 30,
+            experimentPairCount: 0,
             meanScore: 0.1,
             lowerTailScore: -0.2,
             failureCategoryCounts: { missing_counter_evidence: 4 },
@@ -263,7 +267,7 @@ describe("prompt optimizer public contracts", () => {
           facets: {
             growth_production: {
               ...training.behaviorFeedback.facets.growth_production,
-              matureSampleCount: 31,
+              directMatureSampleCount: 31,
             },
           },
         },

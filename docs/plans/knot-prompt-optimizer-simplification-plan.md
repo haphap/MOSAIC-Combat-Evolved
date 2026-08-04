@@ -46,6 +46,7 @@ KNOT 不再负责或拥有：
 
 ```text
 Agent accepted analyses + mature Agent-specific outcomes
+ + prior-round validation paired summaries promoted to training metadata
                          |
                          | training snapshot only
                          v
@@ -70,7 +71,7 @@ Agent accepted analyses + mature Agent-specific outcomes
 
 | 组件 | 唯一职责 | 明确禁止 |
 | --- | --- | --- |
-| KNOT Prompt Mutator | 诊断训练结果、提出 Prompt 改写、记录假设与 lineage | 读取 validation/holdout、执行 Agent、评分、晋升 |
+| KNOT Prompt Mutator | 诊断训练结果、提出 Prompt 改写、记录假设与 lineage | 读取当前轮原始 validation/holdout 分区或 holdout 结果、执行 Agent、评分、晋升；只允许接收已完成旧轮次的 paired-delta 训练元数据 |
 | Autoresearch Runner | 冻结实验环境、运行 champion/candidate、聚合指标与失败案例 | 修改 Candidate、Evaluator 或生产 release |
 | Evaluator | 从既有 Agent-specific evaluation object/outcome 合同确定性评分 | 读取候选身份后改变规则、使用 CIO 总收益替代上游 outcome |
 | Promotion Authority | 应用统计门、不退化门、canary、activation、rollback | 生成 Candidate、修改实验结果 |
@@ -187,8 +188,9 @@ Promotion Authority 把合格 Candidate 作为普通 Prompt-only release 交给�
 
 每轮 evolution 在 Candidate 生成前冻结一个 PIT、Agent-specific 的 split manifest：
 
-- `training`：KNOT 唯一可见分区，只含 cutoff 前已成熟的分析、label、score 和失败案例；
-- `validation`：Runner 用于比较和自动选择 Candidate，KNOT 不可见；
+- `training`：KNOT 唯一可见分区，只含 cutoff 前已成熟的分析、label、score、失败案例，以及已完成旧
+  轮次、与当前 reserved IDs 不重叠的 validation paired-delta 摘要；
+- `validation`：Runner 用于比较和自动选择当前 Candidate，当前轮原始样本、输出和分区对 KNOT 不可见；
 - `holdout`：最终 Promotion Gate 使用，每轮只解封一次，Candidate 和选择器均不可见；
 - 三个分区的 `sample_id`、原始事件窗口和 outcome maturity 不得重叠；金融时间序列优先使用前瞻
   时间切分，不使用会泄漏未来状态的随机切分；
@@ -295,13 +297,14 @@ KNOT 的训练输入应优先提供确定性摘要：分数分布、常见失败
 
 ### WP2：把 KNOT 收缩为私有 Prompt Mutator
 
-- KNOT 只接收 training snapshot 的确定性摘要和具名失败案例引用；
+- KNOT 只接收 training snapshot 的确定性摘要、具名失败案例引用和已完成旧轮次的 paired-delta
+  训练元数据；
 - 生成双语 Prompt Candidate、mutation summary 与 hypothesis；
 - 只允许 cohort-behavior Prompt-only diff，角色、工具、schema 和 immutable block 不可变；
 - Candidate 写入私有 Prompt Git，记录 parent/candidate/training/mutator lineage；
 - 删除 numerical effect、confidence/execution policy 和 production runtime projection 的生成入口。
 
-验收：KNOT 无 validation/holdout API；Candidate 正文/hash、冻结训练输入与 lineage 可验证；不要求
+验收：KNOT 无当前轮原始 validation/holdout API；Candidate 正文/hash、冻结训练输入与 lineage 可验证；不要求
 重新调用随机 mutator 得到逐字相同输出；Prompt invariants 和 private leak gate 通过。
 
 ### WP3：实现通用 Autoresearch Runner
@@ -375,7 +378,8 @@ Agent、Darwinian、outcome 和 release 功能不回归。
 
 只有同时满足以下条件才完成：
 
-1. KNOT 只能从 training snapshot 生成 Prompt Candidate，无法读取 validation/holdout；
+1. KNOT 只能从 training snapshot 生成 Prompt Candidate，无法读取当前轮原始 validation/holdout
+   分区或任何 holdout 结果；旧轮次 paired-delta 只有在转为 PIT 训练元数据后才可见；
 2. Candidate 只改变 Prompt cohort behavior，不改变角色、工具、schema、Evaluator 或 runtime policy；
 3. Runner 能在冻结环境中重复执行 champion/candidate，并记录最小 Experiment/Run 对象；
 4. 自动选择同时通过样本量、显著性、关键尾部不退化和独立 holdout；
@@ -385,3 +389,30 @@ Agent、Darwinian、outcome 和 release 功能不回归。
 8. Darwinian、Agent-specific outcome、RKE shadow-only、私有 Prompt 和 TUI 人可读说明边界保持不变；
 9. 旧 KNOT 账本只读可审计，但不参与新 Candidate 评分、晋升或生产运行；
 10. 公私门禁、fake smoke 和小型 shadow smoke 通过，且没有运行旧的重型 closure 流程。
+
+## 12. Facet 评价闭环补充
+
+生产链路不再使用无调用方的公开 `prompt_behavior_evaluation_v1` facet-score builder。公开仓只导出
+严格、hash-bound 的 `prompt_training_history_v1`：目标 Agent 自己的 accepted output、成熟 outcome、
+七个可组合 Macro Agent 的 component signals、CIO 同 run proposal，以及已经完成旧轮次的 validation
+paired deltas。当前 validation/holdout 的 sample IDs 必须作为 exclusions 传入；任何重叠实验整轮排除，
+当前轮原始 validation 数据以及所有 holdout 字段和结果永不进入 KNOT 请求。
+
+28-Agent、173-facet 的语义、评价模式和变异规则只存在私库。可独立识别的 component/action facet 使用
+该 Agent 自己的确定性 outcome component；无法从一次整体输出可靠归因的 reasoning facet 只接受单
+facet Candidate 的 validation paired delta，未实验前保持 `COLD_START`，不得复制 overall score 或使用
+LLM judge。每个 Candidate 的目标 facet 写入私有 lineage sidecar，公开 DTO 只保存 sidecar hash。
+
+真实入口为：
+
+```bash
+pnpm --dir mosaic-ts dev autoresearch generate-candidate \
+  --request <public-safe-request.json> \
+  --private-cli <private-repo>/runtime/typescript/dist/cli.js \
+  --private-repo <private-repo> \
+  --mutation-adapter <private-adapter.js>
+```
+
+该入口依次完成 bridge 历史导出、私有 facet snapshot 构造、单 facet 双语变异、私有 Git 发布和公开
+Candidate 持久化。少于 30 个角色匹配成熟样本、未来数据、reserved split 重叠、CIO proposal 缺失、
+facet mode/lineage/hash 漂移均 fail closed。

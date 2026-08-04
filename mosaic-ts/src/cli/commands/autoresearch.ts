@@ -1,5 +1,6 @@
 /**
- * Legacy diagnostic CLI. Production Prompt changes use the Prompt Release flow.
+ * Prompt Autoresearch CLI. Candidate generation and shadow experiments remain
+ * separate from the existing Prompt Release activation authority.
  *
  * Subcommands:
  *   - trigger: run the autoresearch mutation cycle
@@ -9,17 +10,25 @@
  *   - revert: manually revert a modification
  */
 
-import { readFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Command } from "commander";
 import pc from "picocolors";
+import { z } from "zod";
+import { canonicalJsonHash } from "../../agents/helpers/canonical_json.js";
 import { runAutoresearchCycle } from "../../autoresearch/orchestrator.js";
 import {
   BridgePromptExperimentRepository,
   type PromptExperimentAgentExecutor,
   type PromptExperimentEvaluator,
 } from "../../autoresearch/prompt_experiment_runner.js";
+import {
+  PromptCandidateSchema,
+  PromptOptimizerTargetSchema,
+} from "../../autoresearch/prompt_optimizer_contract.js";
 import {
   PromptOptimizerShadowPlanSchema,
   runPromptOptimizerShadowPlan,
@@ -68,10 +77,149 @@ interface RevertOptions {
   versionId: string;
 }
 
+const PromptCandidateGenerationRequestSchema = z
+  .object({
+    parentId: z.string().trim().min(1),
+    parentPromptCommit: z.string().regex(/^[0-9a-f]{40}$/),
+    target: PromptOptimizerTargetSchema,
+    promptRefs: z.object({ zh: z.string().trim().min(1), en: z.string().trim().min(1) }).strict(),
+    cutoffAt: z.iso.datetime({ offset: true }),
+    excludedSampleIds: z.array(z.string().trim().min(1)).default([]),
+    mutatorConfigHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+    mutatorCommit: z.string().regex(/^[0-9a-f]{40}$/),
+    createdAt: z.iso.datetime({ offset: true }),
+  })
+  .strict();
+
+type PromptCandidateGenerationRequest = z.infer<typeof PromptCandidateGenerationRequestSchema>;
+
+export function assertPrivateCandidateMatchesRequest(
+  candidate: z.infer<typeof PromptCandidateSchema>,
+  request: PromptCandidateGenerationRequest,
+): void {
+  const expected = {
+    parentId: request.parentId,
+    parentPromptCommit: request.parentPromptCommit,
+    target: request.target,
+    promptRefs: request.promptRefs,
+    mutatorConfigHash: request.mutatorConfigHash,
+    mutatorCommit: request.mutatorCommit,
+    createdAt: request.createdAt,
+  };
+  const actual = {
+    parentId: candidate.parentId,
+    parentPromptCommit: candidate.parentPromptCommit,
+    target: candidate.target,
+    promptRefs: candidate.promptRefs,
+    mutatorConfigHash: candidate.mutatorConfigHash,
+    mutatorCommit: candidate.mutatorCommit,
+    createdAt: candidate.createdAt,
+  };
+  if (canonicalJsonHash(actual) !== canonicalJsonHash(expected)) {
+    throw new Error("private Prompt candidate request binding mismatch");
+  }
+}
+
+function runPrivateCandidateCli(privateCli: string, args: string[]): Promise<string> {
+  return new Promise((resolveOutput, reject) => {
+    execFile(
+      process.execPath,
+      [privateCli, ...args],
+      { encoding: "utf8" },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(`private Prompt candidate failed: ${stderr.trim() || error.message}`));
+        } else {
+          resolveOutput(stdout.trim());
+        }
+      },
+    );
+  });
+}
+
 export function registerAutoresearch(program: Command): void {
   const cmd = program
     .command("autoresearch")
-    .description("Legacy prompt diagnostics; production changes use Prompt Release.");
+    .description("Prompt Candidate generation, experiments, and legacy diagnostics.");
+
+  cmd
+    .command("generate-candidate")
+    .description(
+      "Build a training-only facet snapshot from sealed outcomes and invoke the private Prompt mutator.",
+    )
+    .requiredOption("--request <path>", "Public-safe Candidate request JSON")
+    .requiredOption("--private-cli <path>", "Built private Prompt mutator CLI")
+    .requiredOption("--private-repo <path>", "Private Prompt Git repository")
+    .requiredOption("--mutation-adapter <path>", "Private mutation/alignment adapter module")
+    .action(
+      async (opts: {
+        request: string;
+        privateCli: string;
+        privateRepo: string;
+        mutationAdapter: string;
+      }) => {
+        const client = new BridgeClient();
+        const temporaryRoot = await mkdtemp(resolve(tmpdir(), "mosaic-prompt-training-"));
+        try {
+          const request = PromptCandidateGenerationRequestSchema.parse(
+            JSON.parse(await readFile(resolve(opts.request), "utf8")),
+          );
+          await client.start();
+          const api = new BridgeApi(client);
+          const history = await api.promptOptimizerTrainingHistory({
+            agent_id: request.target.agentId,
+            stage: request.target.stage,
+            cohort: request.target.cohort,
+            cutoff_at: request.cutoffAt,
+            excluded_sample_ids: request.excludedSampleIds,
+          });
+          const privateRequestPath = resolve(temporaryRoot, "candidate-request.json");
+          await writeFile(
+            privateRequestPath,
+            `${JSON.stringify({
+              parentId: request.parentId,
+              parentPromptCommit: request.parentPromptCommit,
+              target: request.target,
+              promptRefs: request.promptRefs,
+              trainingHistory: history,
+              mutatorConfigHash: request.mutatorConfigHash,
+              mutatorCommit: request.mutatorCommit,
+              createdAt: request.createdAt,
+            })}\n`,
+            { encoding: "utf8", mode: 0o600 },
+          );
+          const output = JSON.parse(
+            await runPrivateCandidateCli(resolve(opts.privateCli), [
+              "--request",
+              privateRequestPath,
+              "--adapter",
+              resolve(opts.mutationAdapter),
+              "--repo",
+              resolve(opts.privateRepo),
+            ]),
+          ) as { candidate?: unknown; promptCommit?: unknown };
+          const candidate = PromptCandidateSchema.parse(output.candidate);
+          assertPrivateCandidateMatchesRequest(candidate, request);
+          if (
+            typeof output.promptCommit !== "string" ||
+            !/^[0-9a-f]{40}$/.test(output.promptCommit)
+          ) {
+            throw new Error("private Prompt candidate commit is invalid");
+          }
+          await api.promptOptimizerPutCandidate(candidate);
+          console.log(
+            `candidate=${candidate.candidateId} prompt_commit=${output.promptCommit} ` +
+              `training_snapshot=${candidate.trainingSnapshotId}`,
+          );
+        } catch (error) {
+          console.error(`error: ${redactSensitiveText((error as Error).message)}`);
+          process.exitCode = 1;
+        } finally {
+          await client.close();
+          await rm(temporaryRoot, { recursive: true, force: true });
+        }
+      },
+    );
 
   cmd
     .command("shadow-run")

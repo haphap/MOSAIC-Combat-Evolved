@@ -169,6 +169,7 @@ function candidate(input: {
       alignmentVerifierVersion: "bilingual-alignment-v1",
     }),
     behaviorContractHash: HASH,
+    privateLineageHash: HASH,
     createdAt: "2026-07-10T00:00:00.000Z",
   };
 }

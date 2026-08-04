@@ -3527,6 +3527,30 @@ class ScorecardStore:
                 trading_dates=trading_dates,
             )
 
+    def build_prompt_training_history(
+        self,
+        *,
+        agent_id: str,
+        stage: str,
+        cohort: str,
+        cutoff_at: str,
+        excluded_sample_ids: Sequence[str] = (),
+    ) -> dict[str, Any]:
+        """Export sealed training-only history for the private KNOT mutator."""
+        from mosaic.scorecard.prompt_training_history import (
+            build_prompt_training_history,
+        )
+
+        with self._connect() as conn:
+            return build_prompt_training_history(
+                conn,
+                agent_id=agent_id,
+                stage=stage,
+                cohort=cohort,
+                cutoff_at=cutoff_at,
+                excluded_sample_ids=excluded_sample_ids,
+            )
+
     def register_knot_research_track(
         self,
         *,

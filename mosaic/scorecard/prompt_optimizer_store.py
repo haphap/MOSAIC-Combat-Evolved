@@ -215,6 +215,8 @@ def _assert_candidate_semantics(value: Mapping[str, Any]) -> None:
     }
     if value["behaviorAlignmentHash"] != _canonical_hash(alignment):
         raise ValueError("prompt_candidate_alignment_hash_mismatch")
+    if not str(value.get("privateLineageHash", "")).startswith("sha256:"):
+        raise ValueError("prompt_candidate_private_lineage_hash_missing")
 
 
 class PromptOptimizerStore:

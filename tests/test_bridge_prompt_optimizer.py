@@ -10,6 +10,7 @@ from mosaic.bridge.handlers import prompt_optimizer
 from mosaic.bridge.protocol import RpcError
 from mosaic.bridge.registry import all_methods, get_handler
 from mosaic.scorecard.prompt_optimizer_store import PromptOptimizerStore
+from mosaic.scorecard.store import ScorecardStore
 
 
 HASH_A = "sha256:" + "a" * 64
@@ -53,6 +54,7 @@ def candidate() -> dict[str, object]:
         "alignmentVerifierVersion": "bilingual-alignment-v1",
         "behaviorAlignmentHash": alignment_hash,
         "behaviorContractHash": HASH_A,
+        "privateLineageHash": HASH_A,
         "createdAt": "2025-04-01T00:00:00Z",
     }
 
@@ -82,6 +84,7 @@ def test_prompt_optimizer_bridge_registers_minimal_surface_and_round_trips(
         "prompt_optimizer.get_experiment",
         "prompt_optimizer.list_runs",
         "prompt_optimizer.latest_summary",
+        "prompt_optimizer.training_history",
         "prompt_optimizer.put_candidate",
         "prompt_optimizer.put_family",
         "prompt_optimizer.put_split",
@@ -103,6 +106,42 @@ def test_prompt_optimizer_bridge_registers_minimal_surface_and_round_trips(
         "decision": None,
         "release": None,
     }
+
+
+def test_prompt_optimizer_bridge_exports_strict_training_history(
+    isolated_store: PromptOptimizerStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scorecard = ScorecardStore(isolated_store.db_path)
+    import mosaic.scorecard
+
+    monkeypatch.setattr(mosaic.scorecard, "get_store", lambda: scorecard)
+    response = dispatch(
+        "prompt_optimizer.training_history",
+        {
+            "agent_id": "china",
+            "stage": "agent_run",
+            "cohort": "cohort_default",
+            "cutoff_at": "2026-08-01T00:00:00+08:00",
+            "excluded_sample_ids": ["reserved-validation"],
+        },
+    )
+    assert isinstance(response, dict)
+    history = response["history"]
+    assert history["target"]["agentId"] == "china"
+    assert history["excludedSampleIds"] == ["reserved-validation"]
+    assert history["records"] == []
+    with pytest.raises(RpcError, match="string array"):
+        dispatch(
+            "prompt_optimizer.training_history",
+            {
+                "agent_id": "china",
+                "stage": "agent_run",
+                "cohort": "cohort_default",
+                "cutoff_at": "2026-08-01T00:00:00+08:00",
+                "excluded_sample_ids": "not-an-array",
+            },
+        )
 
 
 def test_prompt_optimizer_bridge_rejects_private_body_and_extra_rpc_params(

@@ -2,10 +2,10 @@
   "schema_version": "agent_prompt_role_contract_manifest_v2",
   "private_prompt_repository": "haphap/MOSAIC-Prompts",
   "private_prompt_branch": "codex/knot-prompt-optimizer-simplification-private",
-  "private_prompt_commit": "7bd668e54701705aeaf71481470ee2f1061a27a8",
+  "private_prompt_commit": "e7db3818a26038fc91a9628f3e29d36df5186576",
   "prompt_tree_sha256": "009534b391ceb3f16db4eceedaea64b0abede6f85bb53ca59dfae8ab21342ef6",
-  "execution_behavior_release_id": "execution-behavior-release:f387080fec353a51533f9768354d2510af7d84a26a07f7017d8e095d61eb5013",
-  "execution_behavior_release_hash": "sha256:fedab8db4fbe936ad073eaf2c8cbc1876574ba3ee11bf9345645ba74f3342843",
+  "execution_behavior_release_id": "execution-behavior-release:7abd9fc48c5c7544f53c234c3587078e4a385fcf75e191017a2f443692a5048b",
+  "execution_behavior_release_hash": "sha256:5d3400879060191b3a4205cf87826282026499cb349a06720e6337968e90368c",
   "cohorts": [
     "cohort_bull_2007",
     "cohort_bull_2016",

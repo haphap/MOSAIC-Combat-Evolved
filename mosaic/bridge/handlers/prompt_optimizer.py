@@ -154,3 +154,38 @@ def latest_summary(params: dict[str, Any]) -> dict[str, Any]:
         None if candidate is None else str(candidate["candidateId"])
     )
     return summary
+
+
+@method("prompt_optimizer.training_history")
+def training_history(params: dict[str, Any]) -> dict[str, Any]:
+    required = {"agent_id", "stage", "cohort", "cutoff_at"}
+    optional = {"excluded_sample_ids"}
+    if not required.issubset(params) or not set(params).issubset(required | optional):
+        raise RpcError(
+            INVALID_PARAMS,
+            "expected agent_id, stage, cohort, cutoff_at and optional excluded_sample_ids",
+        )
+    values: dict[str, str] = {}
+    for key in sorted(required):
+        value = params.get(key)
+        if not isinstance(value, str) or not value.strip():
+            raise RpcError(INVALID_PARAMS, f"'{key}' must be a non-empty string")
+        values[key] = value.strip()
+    excluded = params.get("excluded_sample_ids", [])
+    if not isinstance(excluded, list) or any(
+        not isinstance(value, str) or not value.strip() for value in excluded
+    ):
+        raise RpcError(INVALID_PARAMS, "'excluded_sample_ids' must be a string array")
+    try:
+        from mosaic.scorecard import get_store
+
+        return {
+            "history": get_store().build_prompt_training_history(
+                **values,
+                excluded_sample_ids=[value.strip() for value in excluded],
+            )
+        }
+    except ValueError as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(INTERNAL_ERROR, f"Prompt training export failed: {exc}") from exc
