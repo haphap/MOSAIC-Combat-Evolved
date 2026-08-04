@@ -29,9 +29,8 @@ const PromptTrainingHistoryRecordSchema = z
     promptBehaviorVersion: NonEmpty,
     normalizedScore: UnitScore,
     rawMetrics: JsonObject,
-    acceptedPayload: JsonObject,
     componentSignals: z.array(PromptTrainingComponentSignalSchema),
-    supportingAcceptedPayloads: JsonObject,
+    supportingAcceptedOutputs: JsonObject,
   })
   .strict();
 

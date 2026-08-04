@@ -140,6 +140,7 @@ export const PromptTrainingSnapshotSchema = z
     snapshotId: NonEmptyIdSchema,
     snapshotHash: PromptOptimizerSha256Schema,
     datasetSnapshotHash: PromptOptimizerSha256Schema,
+    excludedSampleIdsHash: PromptOptimizerSha256Schema,
     cutoffAt: IsoDateTimeSchema,
     outcomeContractVersion: NonEmptyIdSchema,
     evaluatorVersion: NonEmptyIdSchema,
@@ -200,6 +201,7 @@ export const PromptCandidateSchema = z
     promptHashes: PromptHashPairSchema,
     trainingSnapshotId: NonEmptyIdSchema,
     trainingSnapshotHash: PromptOptimizerSha256Schema,
+    excludedSampleIdsHash: PromptOptimizerSha256Schema,
     mutatorConfigHash: PromptOptimizerSha256Schema,
     mutatorCommit: PromptOptimizerGitCommitSchema,
     mutationCategories: z.array(PromptMutationCategorySchema).min(1).max(6),
@@ -368,6 +370,12 @@ export const DatasetSplitManifestSchema = z
   });
 
 export type DatasetSplitManifest = z.infer<typeof DatasetSplitManifestSchema>;
+
+export function promptSplitExcludedSampleIdsHash(split: DatasetSplitManifest): string {
+  return canonicalJsonHash(
+    [...split.validation.samples, ...split.holdout.samples].map((sample) => sample.sampleId).sort(),
+  );
+}
 
 export const PromptCandidateFamilyStatusSchema = z.enum(["REGISTERED", "SELECTED", "COMPLETE"]);
 
@@ -603,6 +611,7 @@ export function assertCandidateMatchesTrainingSnapshot(
     JSON.stringify(candidate.target) !== JSON.stringify(training.target) ||
     candidate.trainingSnapshotId !== training.snapshotId ||
     candidate.trainingSnapshotHash !== training.snapshotHash ||
+    candidate.excludedSampleIdsHash !== training.excludedSampleIdsHash ||
     candidate.behaviorContractHash !== training.behaviorFeedback.contractHash
   ) {
     throw new Error("candidate_training_snapshot_mismatch");
@@ -616,7 +625,8 @@ export function assertCandidateMatchesSplit(
   if (
     JSON.stringify(candidate.target) !== JSON.stringify(split.target) ||
     candidate.trainingSnapshotId !== split.training.snapshotId ||
-    candidate.trainingSnapshotHash !== split.training.snapshotHash
+    candidate.trainingSnapshotHash !== split.training.snapshotHash ||
+    candidate.excludedSampleIdsHash !== promptSplitExcludedSampleIdsHash(split)
   ) {
     throw new Error("candidate_dataset_split_mismatch");
   }

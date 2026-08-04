@@ -102,6 +102,7 @@ interface PromptCandidate {
   promptHashes: { zh: string; en: string };
   trainingSnapshotId: string;
   trainingSnapshotHash: string;
+  excludedSampleIdsHash: string;
   mutatorConfigHash: string;
   mutatorCommit: string;
   mutationSummary: string;
@@ -194,6 +195,8 @@ Promotion Authority 把合格 Candidate 作为普通 Prompt-only release 交给�
 - `holdout`：最终 Promotion Gate 使用，每轮只解封一次，Candidate 和选择器均不可见；
 - 三个分区的 `sample_id`、原始事件窗口和 outcome maturity 不得重叠；金融时间序列优先使用前瞻
   时间切分，不使用会泄漏未来状态的随机切分；
+- Candidate 必须绑定排序后的 validation + holdout reserved sample IDs hash；Runner 在第一次
+  validation 调用前与冻结 split 重算比对，不一致则整轮拒绝；
 - Candidate 在 validation 或 holdout 结果产生后不可修改。holdout 失败即关闭该 evolution round；
   不允许继续针对同一 holdout 调参；
 - Prompt 与 Evaluator 不得在同一 experiment 中同时变化。Evaluator 版本变化必须形成新的基线轮次；
@@ -393,15 +396,17 @@ Agent、Darwinian、outcome 和 release 功能不回归。
 ## 12. Facet 评价闭环补充
 
 生产链路不再使用无调用方的公开 `prompt_behavior_evaluation_v1` facet-score builder。公开仓只导出
-严格、hash-bound 的 `prompt_training_history_v1`：目标 Agent 自己的 accepted output、成熟 outcome、
+严格、hash-bound 的 `prompt_training_history_v1`：目标 Agent 自己的 accepted-output ref/hash、成熟 outcome、
 七个可组合 Macro Agent 的 component signals、CIO 同 run proposal，以及已经完成旧轮次的 validation
 paired deltas。当前 validation/holdout 的 sample IDs 必须作为 exclusions 传入；任何重叠实验整轮排除，
-当前轮原始 validation 数据以及所有 holdout 字段和结果永不进入 KNOT 请求。
+当前轮原始 validation 数据以及所有 holdout 字段和结果永不进入 KNOT 请求。accepted-output 与 CIO
+proposal 的完整 payload 不跨 bridge；只保留可审计 ref/hash 和评分所需的确定性 metrics。
 
 28-Agent、173-facet 的语义、评价模式和变异规则只存在私库。可独立识别的 component/action facet 使用
 该 Agent 自己的确定性 outcome component；无法从一次整体输出可靠归因的 reasoning facet 只接受单
 facet Candidate 的 validation paired delta，未实验前保持 `COLD_START`，不得复制 overall score 或使用
-LLM judge。每个 Candidate 的目标 facet 写入私有 lineage sidecar，公开 DTO 只保存 sidecar hash。
+LLM judge。每个 Candidate 的目标 facet 写入私有 lineage sidecar，公开 DTO 只保存 sidecar hash；私仓
+Candidate commit 原子包含中英文 Prompt、公开 Candidate record 和私有 lineage sidecar 共四个文件。
 
 真实入口为：
 

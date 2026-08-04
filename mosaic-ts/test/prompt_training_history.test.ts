@@ -28,9 +28,8 @@ function history(overrides: Record<string, unknown> = {}) {
         promptBehaviorVersion: "china-prompt-v2",
         normalizedScore: 0.2,
         rawMetrics: { realized_scaled_path: 0.1 },
-        acceptedPayload: { direction: "SUPPORTIVE" },
         componentSignals: [],
-        supportingAcceptedPayloads: {},
+        supportingAcceptedOutputs: {},
       },
     ],
     validationExperiments: [],
@@ -135,7 +134,7 @@ describe("Prompt training history transport", () => {
       target: { agentId: "china" as const, stage: "agent_run" as const, cohort: "cohort_default" },
       promptRefs: { zh: "private/china.zh.md", en: "private/china.en.md" },
       cutoffAt: "2025-01-31T00:00:00Z",
-      excludedSampleIds: [],
+      excludedSampleIds: ["validation-1", "holdout-1"],
       mutatorConfigHash: HASH,
       mutatorCommit: "c".repeat(40),
       createdAt: "2025-02-01T00:00:00Z",
@@ -151,6 +150,7 @@ describe("Prompt training history transport", () => {
       promptHashes: { zh: HASH, en: HASH },
       trainingSnapshotId: "training-1",
       trainingSnapshotHash: HASH,
+      excludedSampleIdsHash: canonicalJsonHash(["holdout-1", "validation-1"]),
       mutatorConfigHash: request.mutatorConfigHash,
       mutatorCommit: request.mutatorCommit,
       mutationCategories: ["EVIDENCE_PRIORITY" as const],
@@ -169,6 +169,9 @@ describe("Prompt training history transport", () => {
         { ...candidate, target: { ...candidate.target, cohort: "cohort_bull_2007" } },
         request,
       ),
+    ).toThrow(/request binding mismatch/);
+    expect(() =>
+      assertPrivateCandidateMatchesRequest({ ...candidate, excludedSampleIdsHash: HASH }, request),
     ).toThrow(/request binding mismatch/);
   });
 });

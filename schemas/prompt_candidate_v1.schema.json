@@ -146,6 +146,10 @@
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
+    "excludedSampleIdsHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
     "mutatorConfigHash": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
@@ -213,6 +217,7 @@
     "promptHashes",
     "trainingSnapshotId",
     "trainingSnapshotHash",
+    "excludedSampleIdsHash",
     "mutatorConfigHash",
     "mutatorCommit",
     "mutationCategories",

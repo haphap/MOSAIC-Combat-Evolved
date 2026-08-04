@@ -160,15 +160,9 @@ def _cio_proposal(
         or any(proposal.get(field) != accepted.get(field) for field in shared_fields)
     ):
         raise ValueError("CIO proposal/final behavior binding mismatch")
-    output = proposal.get("output")
-    if not isinstance(output, Mapping) or not isinstance(
-        output.get("payload"), Mapping
-    ):
-        raise ValueError("CIO proposal payload is unavailable")
     return {
         "agentOutputRef": str(proposal["accepted_output_id"]),
         "agentOutputHash": str(proposal["accepted_output_hash"]),
-        "acceptedPayload": dict(output["payload"]),
     }
 
 
@@ -399,11 +393,6 @@ def build_prompt_training_history(
             != contract["outcome_contract_version"]
         ):
             raise ValueError("Prompt training outcome contract drift")
-        output = accepted.get("output")
-        if not isinstance(output, Mapping) or not isinstance(
-            output.get("payload"), Mapping
-        ):
-            raise ValueError("Prompt training accepted payload is unavailable")
         raw_metrics = label.get("raw_metrics")
         if not isinstance(raw_metrics, Mapping):
             raise ValueError("Prompt training raw metrics are unavailable")
@@ -428,12 +417,11 @@ def build_prompt_training_history(
             "promptBehaviorVersion": prompt_behavior_version,
             "normalizedScore": float(normalized_score),
             "rawMetrics": dict(raw_metrics),
-            "acceptedPayload": dict(output["payload"]),
             "componentSignals": _component_signals(conn, accepted, agent_id),
-            "supportingAcceptedPayloads": {},
+            "supportingAcceptedOutputs": {},
         }
         if agent_id == "cio":
-            record["supportingAcceptedPayloads"] = {
+            record["supportingAcceptedOutputs"] = {
                 "cioProposal": _cio_proposal(conn, accepted)
             }
         records.append(record)

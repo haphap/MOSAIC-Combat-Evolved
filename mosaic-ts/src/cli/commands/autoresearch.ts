@@ -84,7 +84,13 @@ const PromptCandidateGenerationRequestSchema = z
     target: PromptOptimizerTargetSchema,
     promptRefs: z.object({ zh: z.string().trim().min(1), en: z.string().trim().min(1) }).strict(),
     cutoffAt: z.iso.datetime({ offset: true }),
-    excludedSampleIds: z.array(z.string().trim().min(1)).default([]),
+    excludedSampleIds: z
+      .array(z.string().trim().min(1))
+      .min(1)
+      .refine(
+        (values) => new Set(values).size === values.length,
+        "excluded sample IDs must be unique",
+      ),
     mutatorConfigHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
     mutatorCommit: z.string().regex(/^[0-9a-f]{40}$/),
     createdAt: z.iso.datetime({ offset: true }),
@@ -102,6 +108,7 @@ export function assertPrivateCandidateMatchesRequest(
     parentPromptCommit: request.parentPromptCommit,
     target: request.target,
     promptRefs: request.promptRefs,
+    excludedSampleIdsHash: canonicalJsonHash([...request.excludedSampleIds].sort()),
     mutatorConfigHash: request.mutatorConfigHash,
     mutatorCommit: request.mutatorCommit,
     createdAt: request.createdAt,
@@ -111,6 +118,7 @@ export function assertPrivateCandidateMatchesRequest(
     parentPromptCommit: candidate.parentPromptCommit,
     target: candidate.target,
     promptRefs: candidate.promptRefs,
+    excludedSampleIdsHash: candidate.excludedSampleIdsHash,
     mutatorConfigHash: candidate.mutatorConfigHash,
     mutatorCommit: candidate.mutatorCommit,
     createdAt: candidate.createdAt,

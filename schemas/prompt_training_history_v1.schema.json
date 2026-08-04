@@ -153,13 +153,6 @@
             },
             "additionalProperties": {}
           },
-          "acceptedPayload": {
-            "type": "object",
-            "propertyNames": {
-              "type": "string"
-            },
-            "additionalProperties": {}
-          },
           "componentSignals": {
             "type": "array",
             "items": {
@@ -188,7 +181,7 @@
               "additionalProperties": false
             }
           },
-          "supportingAcceptedPayloads": {
+          "supportingAcceptedOutputs": {
             "type": "object",
             "propertyNames": {
               "type": "string"
@@ -207,9 +200,8 @@
           "promptBehaviorVersion",
           "normalizedScore",
           "rawMetrics",
-          "acceptedPayload",
           "componentSignals",
-          "supportingAcceptedPayloads"
+          "supportingAcceptedOutputs"
         ],
         "additionalProperties": false
       }

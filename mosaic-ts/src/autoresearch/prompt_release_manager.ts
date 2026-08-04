@@ -161,6 +161,7 @@ async function assertCandidateCommitScope(input: {
     throw new Error("prompt_release_candidate_parent_commit_mismatch");
   }
   const recordRef = `registry/prompt_candidates_v2/${input.candidate.candidateId}.json`;
+  const privateLineageRef = `registry/prompt_candidate_private_v1/${input.candidate.candidateId}.json`;
   const changed = (
     await runGit(input.repo, ["diff-tree", "--no-commit-id", "--name-only", "-r", input.commit])
   )
@@ -169,7 +170,12 @@ async function assertCandidateCommitScope(input: {
     .split("\n")
     .filter(Boolean)
     .sort();
-  const expected = [input.candidate.promptRefs.zh, input.candidate.promptRefs.en, recordRef].sort();
+  const expected = [
+    input.candidate.promptRefs.zh,
+    input.candidate.promptRefs.en,
+    recordRef,
+    privateLineageRef,
+  ].sort();
   if (JSON.stringify(changed) !== JSON.stringify(expected)) {
     throw new Error("prompt_release_candidate_commit_scope_invalid");
   }

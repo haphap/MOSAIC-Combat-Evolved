@@ -97,9 +97,9 @@ def test_training_history_exports_pit_component_records_and_exclusions(
     assert {
         signal["component"] for signal in history["records"][0]["componentSignals"]
     } == {"growth_production", "prices", "employment", "demand_trade"}
+    assert all("acceptedPayload" not in record for record in history["records"])
     assert all(
-        record["acceptedPayload"] == {"direction": "NEUTRAL"}
-        for record in history["records"]
+        record["supportingAcceptedOutputs"] == {} for record in history["records"]
     )
     assert all(
         record["maturedAt"] <= history["cutoffAt"] for record in history["records"]
@@ -231,7 +231,6 @@ def test_training_history_binds_cio_proposal_to_the_same_run() -> None:
     assert supporting == {
         "agentOutputRef": "accepted-cio-proposal",
         "agentOutputHash": proposal["accepted_output_hash"],
-        "acceptedPayload": proposal["output"]["payload"],
     }
 
     forged_final = {**final, "run_slot_id": "slot-cio-forged"}

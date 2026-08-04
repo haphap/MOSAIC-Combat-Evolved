@@ -362,6 +362,11 @@ describe("Agent-specific Prompt promotion policy", () => {
       promptHashes: fixture.experiment.candidatePromptHashes,
       trainingSnapshotId: fixture.split.training.snapshotId,
       trainingSnapshotHash: fixture.split.training.snapshotHash,
+      excludedSampleIdsHash: canonicalJsonHash(
+        [...fixture.split.validation.samples, ...fixture.split.holdout.samples]
+          .map((sample) => sample.sampleId)
+          .sort(),
+      ),
       mutatorConfigHash: HASH_A,
       mutatorCommit: COMMIT,
       mutationCategories,

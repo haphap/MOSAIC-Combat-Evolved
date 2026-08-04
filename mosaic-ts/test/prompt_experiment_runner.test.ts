@@ -105,6 +105,11 @@ function fixtures(experimentId = "experiment-1") {
     promptHashes: { zh: HASH_B, en: HASH_C },
     trainingSnapshotId: split.training.snapshotId,
     trainingSnapshotHash: split.training.snapshotHash,
+    excludedSampleIdsHash: canonicalJsonHash(
+      [...split.validation.samples, ...split.holdout.samples]
+        .map((sample) => sample.sampleId)
+        .sort(),
+    ),
     mutatorConfigHash: HASH_A,
     mutatorCommit: COMMIT,
     mutationCategories: ["CONFLICT_RESOLUTION"],
@@ -456,6 +461,26 @@ describe("frozen Prompt experiment runner", () => {
         evaluator: adapter.evaluator,
       }),
     ).rejects.toThrow("prompt_experiment_environment_drift:toolConfigHash");
+    expect(repository.writeCount).toBe(0);
+    expect(adapter.calls.size).toBe(0);
+  });
+
+  it("rejects a Candidate whose reserved sample set differs from the frozen split", async () => {
+    const values = fixtures("experiment-exclusion-drift");
+    const repository = new MemoryRepository();
+    const adapter = adapters();
+    await expect(
+      runPromptExperimentPartition({
+        ...values,
+        candidate: { ...values.candidate, excludedSampleIdsHash: HASH_C },
+        partition: "VALIDATION",
+        environment: environment(),
+        promptBinding: binding(),
+        repository,
+        executor: adapter.executor,
+        evaluator: adapter.evaluator,
+      }),
+    ).rejects.toThrow("candidate_dataset_split_mismatch");
     expect(repository.writeCount).toBe(0);
     expect(adapter.calls.size).toBe(0);
   });

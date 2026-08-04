@@ -94,6 +94,7 @@ function fakeApi() {
         promptHashes: { zh: `sha256:${"1".repeat(64)}`, en: `sha256:${"2".repeat(64)}` },
         trainingSnapshotId: "training-1",
         trainingSnapshotHash: `sha256:${"3".repeat(64)}`,
+        excludedSampleIdsHash: `sha256:${"c".repeat(64)}`,
         mutatorConfigHash: `sha256:${"4".repeat(64)}`,
         mutatorCommit: "5".repeat(40),
         mutationCategories: ["CONFLICT_RESOLUTION"],

@@ -19,6 +19,7 @@ import {
 
 const HASH = `sha256:${"a".repeat(64)}`;
 const OTHER_HASH = `sha256:${"b".repeat(64)}`;
+const EXCLUDED_SAMPLE_IDS_HASH = canonicalJsonHash(["holdout-1", "validation-1"]);
 const COMMIT = "c".repeat(40);
 const target = { agentId: "china", stage: "agent_run", cohort: "cohort_default" } as const;
 
@@ -89,6 +90,7 @@ function candidate() {
     promptHashes,
     trainingSnapshotId: "training-1",
     trainingSnapshotHash: HASH,
+    excludedSampleIdsHash: EXCLUDED_SAMPLE_IDS_HASH,
     mutatorConfigHash: HASH,
     mutatorCommit: COMMIT,
     mutationCategories,
@@ -218,6 +220,7 @@ describe("prompt optimizer public contracts", () => {
       target,
       snapshotId: "training-1",
       datasetSnapshotHash: OTHER_HASH,
+      excludedSampleIdsHash: EXCLUDED_SAMPLE_IDS_HASH,
       cutoffAt: "2025-01-31T00:00:00Z",
       outcomeContractVersion: "china-outcome-v2",
       evaluatorVersion: "agent-outcome-v2",
@@ -317,6 +320,12 @@ describe("prompt optimizer public contracts", () => {
     expect(() =>
       assertCandidateMatchesSplit(
         { ...parsedCandidate, trainingSnapshotHash: OTHER_HASH },
+        parsedSplit,
+      ),
+    ).toThrow("candidate_dataset_split_mismatch");
+    expect(() =>
+      assertCandidateMatchesSplit(
+        { ...parsedCandidate, excludedSampleIdsHash: OTHER_HASH },
         parsedSplit,
       ),
     ).toThrow("candidate_dataset_split_mismatch");

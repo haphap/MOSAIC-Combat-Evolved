@@ -109,8 +109,18 @@ function commitCandidate(
     writeFileSync(join(repo.root, path), content, "utf8");
   }
   const record = join(repo.root, `registry/prompt_candidates_v2/${value.candidateId}.json`);
+  const privateLineage = join(
+    repo.root,
+    `registry/prompt_candidate_private_v1/${value.candidateId}.json`,
+  );
   mkdirSync(dirname(record), { recursive: true });
+  mkdirSync(dirname(privateLineage), { recursive: true });
   writeFileSync(record, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  writeFileSync(
+    privateLineage,
+    `${JSON.stringify({ schemaVersion: "private_prompt_candidate_facet_lineage_v1" })}\n`,
+    "utf8",
+  );
   execFileSync("git", ["-C", repo.root, "add", "."]);
   execFileSync("git", [
     "-C",
@@ -158,6 +168,7 @@ function candidate(input: {
     promptHashes,
     trainingSnapshotId: "training-1",
     trainingSnapshotHash: HASH,
+    excludedSampleIdsHash: HASH,
     mutatorConfigHash: HASH,
     mutatorCommit: "c".repeat(40),
     mutationCategories: [...mutationCategories],

@@ -78,6 +78,10 @@
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
+    "excludedSampleIdsHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
     "cutoffAt": {
       "type": "string",
       "format": "date-time",
@@ -242,6 +246,7 @@
     "snapshotId",
     "snapshotHash",
     "datasetSnapshotHash",
+    "excludedSampleIdsHash",
     "cutoffAt",
     "outcomeContractVersion",
     "evaluatorVersion",

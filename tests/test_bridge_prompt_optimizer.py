@@ -44,6 +44,7 @@ def candidate() -> dict[str, object]:
         "promptHashes": prompt_hashes,
         "trainingSnapshotId": "training-bridge",
         "trainingSnapshotHash": HASH_A,
+        "excludedSampleIdsHash": HASH_A,
         "mutatorConfigHash": HASH_B,
         "mutatorCommit": "c" * 40,
         "mutationCategories": ["EVIDENCE_PRIORITY"],

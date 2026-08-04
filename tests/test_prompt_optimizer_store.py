@@ -39,6 +39,7 @@ def candidate() -> dict[str, object]:
         "promptHashes": prompt_hashes,
         "trainingSnapshotId": "training-1",
         "trainingSnapshotHash": HASH_A,
+        "excludedSampleIdsHash": canonical_hash(["holdout-1", "validation-1"]),
         "mutatorConfigHash": HASH_A,
         "mutatorCommit": COMMIT,
         "mutationCategories": ["CONFLICT_RESOLUTION"],
