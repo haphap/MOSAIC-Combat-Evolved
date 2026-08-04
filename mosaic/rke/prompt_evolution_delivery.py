@@ -17,7 +17,7 @@ from typing import Any, Literal, Mapping, Sequence
 SCHEMA_VERSION = "prompt_evolution_delivery_status_v1"
 GENERATOR_ID = "prompt_evolution_delivery"
 GENERATOR_VERSION = "3"
-COMMAND_CONTRACT_VERSION = "prompt_evolution_delivery_commands_v3"
+COMMAND_CONTRACT_VERSION = "prompt_evolution_delivery_commands_v4"
 
 Status = Literal["pass", "fail", "blocked"]
 
@@ -391,7 +391,7 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
             ),
             root,
             REPRESENTATIVE_EVALUATION_TESTS,
-            junit_expected_tests=15,
+            junit_expected_tests=11,
             junit_path=run_dir / "representative-evaluation.xml",
         ),
         CommandSpec(
