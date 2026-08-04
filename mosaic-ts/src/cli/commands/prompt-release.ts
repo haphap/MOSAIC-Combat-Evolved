@@ -5,6 +5,7 @@ import {
   type ActivePromptReleaseManifest,
   ActivePromptReleaseManifestSchema,
 } from "../../agents/prompts/prompt_release_contract.js";
+import { verifyStoredPromptPromotionDecision } from "../../autoresearch/prompt_promotion_authority.js";
 import {
   buildPromptReleaseCanarySloArtifact,
   PromptReleaseCanaryEventJournal,
@@ -107,25 +108,35 @@ export function registerPromptRelease(program: Command): void {
           if (!promotionDecision) {
             throw new Error(`Promotion Decision not found: ${opts.decisionId}`);
           }
-          const manifest = await stagePromptRelease({
-            registryRoot: registryRoot(opts),
-            releaseId: opts.releaseId,
-            candidate,
-            promotionDecision,
-            privatePromptRepo:
-              opts.privatePromptsRepo?.trim() ||
-              process.env.MOSAIC_PROMPTS_REPO?.trim() ||
-              required(
-                process.env.MOSAIC_PRIVATE_PROMPT_REPO,
-                "MOSAIC_PRIVATE_PROMPT_REPO",
-                "--private-prompts-repo",
-              ),
-            privatePromptCommit: opts.privatePromptCommit,
-            codeCommit: opts.codeCommit,
-            cohort: opts.cohort,
-            accountMode: parseMode(opts.accountMode),
-            approvalPolicyId: parsePolicy(opts.approvalPolicy),
-          });
+          const manifest = await stagePromptRelease(
+            {
+              registryRoot: registryRoot(opts),
+              releaseId: opts.releaseId,
+              candidate,
+              promotionDecision,
+              privatePromptRepo:
+                opts.privatePromptsRepo?.trim() ||
+                process.env.MOSAIC_PROMPTS_REPO?.trim() ||
+                required(
+                  process.env.MOSAIC_PRIVATE_PROMPT_REPO,
+                  "MOSAIC_PRIVATE_PROMPT_REPO",
+                  "--private-prompts-repo",
+                ),
+              privatePromptCommit: opts.privatePromptCommit,
+              codeCommit: opts.codeCommit,
+              cohort: opts.cohort,
+              accountMode: parseMode(opts.accountMode),
+              approvalPolicyId: parsePolicy(opts.approvalPolicy),
+            },
+            {
+              verifyPromotionDecision: (candidateValue, decisionValue) =>
+                verifyStoredPromptPromotionDecision({
+                  api,
+                  candidate: candidateValue,
+                  decision: decisionValue,
+                }),
+            },
+          );
           console.log(
             `staged release=${manifest.release_id} base=${manifest.base_release_id ?? "none"} ` +
               `pairs=${manifest.prompt_pairs.length}`,

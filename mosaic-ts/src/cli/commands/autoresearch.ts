@@ -9,9 +9,21 @@
  *   - revert: manually revert a modification
  */
 
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { Command } from "commander";
 import pc from "picocolors";
 import { runAutoresearchCycle } from "../../autoresearch/orchestrator.js";
+import {
+  BridgePromptExperimentRepository,
+  type PromptExperimentAgentExecutor,
+  type PromptExperimentEvaluator,
+} from "../../autoresearch/prompt_experiment_runner.js";
+import {
+  PromptOptimizerShadowPlanSchema,
+  runPromptOptimizerShadowPlan,
+} from "../../autoresearch/prompt_optimizer_shadow_runner.js";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { createLlmFromConfig } from "../../llm/factory.js";
 import { redactSensitiveText } from "../../security/redaction.js";
@@ -60,6 +72,48 @@ export function registerAutoresearch(program: Command): void {
   const cmd = program
     .command("autoresearch")
     .description("Legacy prompt diagnostics; production changes use Prompt Release.");
+
+  cmd
+    .command("shadow-run")
+    .description(
+      "Run a preregistered Prompt Candidate family through validation and one-time holdout.",
+    )
+    .requiredOption(
+      "--plan <path>",
+      "Local uncommitted shadow-plan JSON; it may contain private policy values",
+    )
+    .requiredOption("--adapter <path>", "Local module exporting executor and evaluator adapters")
+    .action(async (opts: { plan: string; adapter: string }) => {
+      const client = new BridgeClient();
+      try {
+        const plan = PromptOptimizerShadowPlanSchema.parse(
+          JSON.parse(await readFile(resolve(opts.plan), "utf8")),
+        );
+        const adapter = (await import(pathToFileURL(resolve(opts.adapter)).href)) as {
+          executor?: PromptExperimentAgentExecutor;
+          evaluator?: PromptExperimentEvaluator;
+        };
+        if (!adapter.executor?.execute || !adapter.evaluator?.evaluate) {
+          throw new Error("shadow adapter must export executor.execute and evaluator.evaluate");
+        }
+        await client.start();
+        const result = await runPromptOptimizerShadowPlan({
+          plan,
+          repository: new BridgePromptExperimentRepository(new BridgeApi(client)),
+          executor: adapter.executor,
+          evaluator: adapter.evaluator,
+        });
+        console.log(
+          `shadow decision=${result.decision.decision} candidate=${result.decision.candidateId} ` +
+            `experiment=${result.experiment.experimentId}`,
+        );
+      } catch (error) {
+        console.error(`error: ${redactSensitiveText((error as Error).message)}`);
+        process.exitCode = 1;
+      } finally {
+        await client.close();
+      }
+    });
 
   // ── autoresearch trigger ──────────────────────────────────────────────
 

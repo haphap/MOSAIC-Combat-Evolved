@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { canonicalJsonHash } from "../agents/helpers/canonical_json.js";
 import {
   RUNTIME_AGENT_STAGE_IDS,
   RUNTIME_AGENT_STAGE_SPEC_BY_KEY,
@@ -17,7 +18,47 @@ const PublicRefSchema = z
   .max(512)
   .regex(/^[^\r\n]+$/);
 const PublicSummarySchema = z.string().trim().min(1).max(2_000);
+const SafePublicVersionSchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$/);
 const FiniteMetricRecordSchema = z.record(z.string().trim().min(1), z.number().finite());
+
+function instant(value: string): number {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) throw new Error(`invalid ISO datetime: ${value}`);
+  return parsed;
+}
+
+export const PromptMutationCategorySchema = z.enum([
+  "EVIDENCE_PRIORITY",
+  "TEMPORAL_DISCIPLINE",
+  "CONFLICT_RESOLUTION",
+  "TRANSMISSION_CLARITY",
+  "UNCERTAINTY_CALIBRATION",
+  "TAIL_RISK_CONTROL",
+]);
+export type PromptMutationCategory = z.infer<typeof PromptMutationCategorySchema>;
+
+export function promptMutationSummary(categories: ReadonlyArray<PromptMutationCategory>): string {
+  return `Behavior focus: ${categories.join(", ")}.`;
+}
+
+export function promptMutationHypothesis(
+  categories: ReadonlyArray<PromptMutationCategory>,
+): string {
+  return `Preregistered hypothesis: ${categories.join(", ")} improves the frozen Agent outcome score.`;
+}
+
+export function promptBehaviorAlignmentHash(input: {
+  promptHashes: { zh: string; en: string };
+  alignmentVerifierVersion: string;
+}): string {
+  return canonicalJsonHash({
+    alignmentVerifierVersion: input.alignmentVerifierVersion,
+    promptHashes: input.promptHashes,
+  });
+}
 
 export const PromptOptimizerTargetSchema = z
   .object({
@@ -81,6 +122,8 @@ export const PromptCandidateSchema = z
     schemaVersion: z.literal("prompt_candidate_v1"),
     candidateId: NonEmptyIdSchema,
     parentId: NonEmptyIdSchema,
+    parentPromptCommit: PromptOptimizerGitCommitSchema,
+    parentPromptHashes: PromptHashPairSchema,
     target: PromptOptimizerTargetSchema,
     promptRefs: PromptRefPairSchema,
     promptHashes: PromptHashPairSchema,
@@ -88,11 +131,51 @@ export const PromptCandidateSchema = z
     trainingSnapshotHash: PromptOptimizerSha256Schema,
     mutatorConfigHash: PromptOptimizerSha256Schema,
     mutatorCommit: PromptOptimizerGitCommitSchema,
+    mutationCategories: z.array(PromptMutationCategorySchema).min(1).max(6),
     mutationSummary: PublicSummarySchema,
     hypothesis: PublicSummarySchema,
+    alignmentVerifierVersion: SafePublicVersionSchema,
+    behaviorAlignmentHash: PromptOptimizerSha256Schema,
     createdAt: IsoDateTimeSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((candidate, ctx) => {
+    const sorted = [...new Set(candidate.mutationCategories)].sort();
+    if (JSON.stringify(sorted) !== JSON.stringify(candidate.mutationCategories)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["mutationCategories"],
+        message: "mutation categories must be unique and sorted",
+      });
+    }
+    if (candidate.mutationSummary !== promptMutationSummary(candidate.mutationCategories)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["mutationSummary"],
+        message: "mutation summary must be the safe category projection",
+      });
+    }
+    if (candidate.hypothesis !== promptMutationHypothesis(candidate.mutationCategories)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["hypothesis"],
+        message: "hypothesis must be the safe category projection",
+      });
+    }
+    if (
+      candidate.behaviorAlignmentHash !==
+      promptBehaviorAlignmentHash({
+        promptHashes: candidate.promptHashes,
+        alignmentVerifierVersion: candidate.alignmentVerifierVersion,
+      })
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["behaviorAlignmentHash"],
+        message: "alignment hash must bind the verifier and Prompt hashes",
+      });
+    }
+  });
 
 export type PromptCandidate = z.infer<typeof PromptCandidateSchema>;
 
@@ -104,12 +187,15 @@ export const PromptDatasetSampleRefSchema = z
     eventWindow: z
       .object({ startAt: IsoDateTimeSchema, endAt: IsoDateTimeSchema })
       .strict()
-      .refine((window) => window.startAt <= window.endAt, "event window must be ordered"),
+      .refine(
+        (window) => instant(window.startAt) <= instant(window.endAt),
+        "event window must be ordered",
+      ),
     maturedAt: IsoDateTimeSchema,
   })
   .strict()
   .superRefine((sample, ctx) => {
-    if (sample.maturedAt < sample.eventWindow.endAt) {
+    if (instant(sample.maturedAt) < instant(sample.eventWindow.endAt)) {
       ctx.addIssue({
         code: "custom",
         path: ["maturedAt"],
@@ -129,13 +215,14 @@ const DatasetPartitionSchema = z
   })
   .strict()
   .superRefine((partition, ctx) => {
-    if (partition.windowStartAt > partition.windowEndAt) {
+    if (instant(partition.windowStartAt) > instant(partition.windowEndAt)) {
       ctx.addIssue({ code: "custom", message: "partition window must be ordered" });
     }
+    const eventWindows = new Set<string>();
     for (const [index, sample] of partition.samples.entries()) {
       if (
-        sample.eventWindow.startAt < partition.windowStartAt ||
-        sample.eventWindow.endAt > partition.windowEndAt
+        instant(sample.eventWindow.startAt) < instant(partition.windowStartAt) ||
+        instant(sample.eventWindow.endAt) > instant(partition.windowEndAt)
       ) {
         ctx.addIssue({
           code: "custom",
@@ -143,6 +230,15 @@ const DatasetPartitionSchema = z
           message: "sample event window must be contained in its partition",
         });
       }
+      const eventWindow = `${instant(sample.eventWindow.startAt)}:${instant(sample.eventWindow.endAt)}`;
+      if (eventWindows.has(eventWindow)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["samples", index, "eventWindow"],
+          message: "sample event windows must define an unambiguous chronological order",
+        });
+      }
+      eventWindows.add(eventWindow);
     }
   });
 
@@ -160,7 +256,7 @@ export const DatasetSplitManifestSchema = z
   })
   .strict()
   .superRefine((manifest, ctx) => {
-    if (manifest.training.windowEndAt !== manifest.cutoffAt) {
+    if (instant(manifest.training.windowEndAt) !== instant(manifest.cutoffAt)) {
       ctx.addIssue({
         code: "custom",
         path: ["cutoffAt"],
@@ -168,8 +264,8 @@ export const DatasetSplitManifestSchema = z
       });
     }
     if (
-      manifest.training.windowEndAt >= manifest.validation.windowStartAt ||
-      manifest.validation.windowEndAt >= manifest.holdout.windowStartAt
+      instant(manifest.training.windowEndAt) >= instant(manifest.validation.windowStartAt) ||
+      instant(manifest.validation.windowEndAt) >= instant(manifest.holdout.windowStartAt)
     ) {
       ctx.addIssue({
         code: "custom",
@@ -187,7 +283,7 @@ export const DatasetSplitManifestSchema = z
           });
         }
         seen.add(sample.sampleId);
-        if (sample.maturedAt > manifest.createdAt) {
+        if (instant(sample.maturedAt) > instant(manifest.createdAt)) {
           ctx.addIssue({
             code: "custom",
             path: [partition, "samples", index, "maturedAt"],
@@ -199,6 +295,88 @@ export const DatasetSplitManifestSchema = z
   });
 
 export type DatasetSplitManifest = z.infer<typeof DatasetSplitManifestSchema>;
+
+export const PromptCandidateFamilyStatusSchema = z.enum(["REGISTERED", "SELECTED", "COMPLETE"]);
+
+export const PromptCandidateFamilySchema = z
+  .object({
+    schemaVersion: z.literal("prompt_candidate_family_v1"),
+    familyId: NonEmptyIdSchema,
+    target: PromptOptimizerTargetSchema,
+    championReleaseId: NonEmptyIdSchema,
+    championPromptCommit: PromptOptimizerGitCommitSchema,
+    championPromptRefs: PromptRefPairSchema,
+    championPromptHashes: PromptHashPairSchema,
+    datasetSplitId: NonEmptyIdSchema,
+    datasetSplitManifestHash: PromptOptimizerSha256Schema,
+    candidateIds: z.array(NonEmptyIdSchema).min(1),
+    validationExperimentIds: z.array(NonEmptyIdSchema),
+    selectedCandidateId: NonEmptyIdSchema.nullable(),
+    selectedExperimentId: NonEmptyIdSchema.nullable(),
+    holdoutExperimentId: NonEmptyIdSchema.nullable(),
+    status: PromptCandidateFamilyStatusSchema,
+    createdAt: IsoDateTimeSchema,
+    updatedAt: IsoDateTimeSchema,
+  })
+  .strict()
+  .superRefine((family, ctx) => {
+    for (const key of ["candidateIds", "validationExperimentIds"] as const) {
+      const sorted = [...new Set(family[key])].sort();
+      if (JSON.stringify(sorted) !== JSON.stringify(family[key])) {
+        ctx.addIssue({ code: "custom", path: [key], message: `${key} must be unique and sorted` });
+      }
+    }
+    if (instant(family.updatedAt) < instant(family.createdAt)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["updatedAt"],
+        message: "updatedAt precedes createdAt",
+      });
+    }
+    const selected = family.status !== "REGISTERED";
+    if (
+      selected !== (family.selectedCandidateId !== null && family.selectedExperimentId !== null)
+    ) {
+      ctx.addIssue({ code: "custom", message: "selected family state requires one winner" });
+    }
+    if (family.status === "REGISTERED" && family.validationExperimentIds.length !== 0) {
+      ctx.addIssue({
+        code: "custom",
+        message: "registered family cannot claim validation completion",
+      });
+    }
+    if (selected) {
+      if (!family.candidateIds.includes(family.selectedCandidateId ?? "")) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["selectedCandidateId"],
+          message: "winner not in family",
+        });
+      }
+      if (!family.validationExperimentIds.includes(family.selectedExperimentId ?? "")) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["selectedExperimentId"],
+          message: "winner experiment missing",
+        });
+      }
+      if (family.validationExperimentIds.length !== family.candidateIds.length) {
+        ctx.addIssue({
+          code: "custom",
+          message: "selection requires one validation experiment per Candidate",
+        });
+      }
+    }
+    if ((family.status === "COMPLETE") !== (family.holdoutExperimentId !== null)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["holdoutExperimentId"],
+        message: "complete family requires consumed holdout",
+      });
+    }
+  });
+
+export type PromptCandidateFamily = z.infer<typeof PromptCandidateFamilySchema>;
 
 export const PromptExperimentStatusSchema = z.enum([
   "PENDING",
@@ -213,11 +391,16 @@ export const PromptExperimentSchema = z
   .object({
     schemaVersion: z.literal("prompt_experiment_v1"),
     experimentId: NonEmptyIdSchema,
+    familyId: NonEmptyIdSchema,
     candidateId: NonEmptyIdSchema,
     championId: NonEmptyIdSchema,
     target: PromptOptimizerTargetSchema,
+    championPromptCommit: PromptOptimizerGitCommitSchema,
+    championPromptRefs: PromptRefPairSchema,
     championPromptHashes: PromptHashPairSchema,
+    candidatePromptRefs: PromptRefPairSchema,
     candidatePromptHashes: PromptHashPairSchema,
+    datasetSplitId: NonEmptyIdSchema,
     datasetSplitManifestHash: PromptOptimizerSha256Schema,
     validationSnapshotHash: PromptOptimizerSha256Schema,
     holdoutSnapshotHash: PromptOptimizerSha256Schema,
@@ -325,12 +508,14 @@ export const PromptPromotionDecisionSchema = z
     schemaVersion: z.literal("prompt_promotion_decision_v1"),
     decisionId: NonEmptyIdSchema,
     experimentId: NonEmptyIdSchema,
+    familyId: NonEmptyIdSchema,
     candidateId: NonEmptyIdSchema,
     policyVersion: NonEmptyIdSchema,
     policyConfigHash: PromptOptimizerSha256Schema,
     decision: z.enum(["ELIGIBLE", "REJECTED"]),
     reasons: z.array(NonEmptyIdSchema).min(1),
     metricSummary: FiniteMetricRecordSchema,
+    evidenceHash: PromptOptimizerSha256Schema,
     decidedAt: IsoDateTimeSchema,
   })
   .strict();
@@ -365,6 +550,7 @@ export function assertCandidateMatchesSplit(
 
 export const PROMPT_OPTIMIZER_PUBLIC_SCHEMAS = Object.freeze({
   prompt_candidate_v1: PromptCandidateSchema,
+  prompt_candidate_family_v1: PromptCandidateFamilySchema,
   prompt_dataset_split_v1: DatasetSplitManifestSchema,
   prompt_experiment_v1: PromptExperimentSchema,
   prompt_experiment_run_v1: PromptExperimentRunSchema,

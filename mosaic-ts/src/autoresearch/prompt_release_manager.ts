@@ -1,6 +1,12 @@
 import { execFile } from "node:child_process";
 import { canonicalJsonHash } from "../agents/helpers/canonical_json.js";
 import {
+  extractCohortBehavior,
+  immutablePromptContractText,
+  validateCohortBehaviorLanguage,
+} from "../agents/prompts/cohort_behavior.js";
+import { containsPrivateKnotPromptContent } from "../agents/prompts/private_knot_prompt_markers.js";
+import {
   type ActivePromptReleaseManifest,
   ActivePromptReleaseManifestSchema,
   assertReleasePromptStageClosure,
@@ -46,6 +52,10 @@ type RuntimeSloSummary = NonNullable<ActivePromptReleaseManifest["runtime_slo_su
 export interface PromptReleaseManagerDependencies {
   specs?: ReadonlyArray<RuntimeAgentSpec>;
   now?: () => string;
+  verifyPromotionDecision?: (
+    candidate: PromptCandidate,
+    decision: PromptPromotionDecision,
+  ) => Promise<void>;
 }
 
 export interface StagePromptReleaseOptions {
@@ -133,6 +143,111 @@ async function assertCandidateRecordAtCommit(input: {
   }
 }
 
+async function promptTextAtCommit(repo: string, commit: string, path: string): Promise<string> {
+  return (await runGit(repo, ["show", `${commit}:${path}`])).toString("utf-8");
+}
+
+async function assertCandidateCommitScope(input: {
+  repo: string;
+  commit: string;
+  candidate: PromptCandidate;
+}): Promise<void> {
+  const parents = (await runGit(input.repo, ["show", "-s", "--format=%P", input.commit]))
+    .toString("utf-8")
+    .trim()
+    .split(/\s+/u)
+    .filter(Boolean);
+  if (parents.length !== 1 || parents[0] !== input.candidate.parentPromptCommit) {
+    throw new Error("prompt_release_candidate_parent_commit_mismatch");
+  }
+  const recordRef = `registry/prompt_candidates_v2/${input.candidate.candidateId}.json`;
+  const changed = (
+    await runGit(input.repo, ["diff-tree", "--no-commit-id", "--name-only", "-r", input.commit])
+  )
+    .toString("utf-8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .sort();
+  const expected = [input.candidate.promptRefs.zh, input.candidate.promptRefs.en, recordRef].sort();
+  if (JSON.stringify(changed) !== JSON.stringify(expected)) {
+    throw new Error("prompt_release_candidate_commit_scope_invalid");
+  }
+}
+
+function promptToolNames(text: string): string[] {
+  return [...new Set(text.match(/\bget_[a-z0-9_]+\b/gu) ?? [])].sort();
+}
+
+async function assertPinnedPromptTree(input: {
+  repo: string;
+  commit: string;
+  candidate: PromptCandidate;
+  promptPairs: ActivePromptReleaseManifest["prompt_pairs"];
+  specs: ReadonlyArray<RuntimeAgentSpec>;
+  base: ActivePromptReleaseManifest | null;
+}): Promise<void> {
+  const baseByAgent = new Map(input.base?.prompt_pairs.map((pair) => [pair.agent, pair]) ?? []);
+  for (const spec of input.specs) {
+    const pair = input.promptPairs.find((value) => value.agent === spec.agent);
+    if (!pair) throw new Error(`prompt_release_prompt_pair_missing:${spec.agent}`);
+    const [zh, en] = await Promise.all([
+      promptTextAtCommit(input.repo, input.commit, pair.zh.path),
+      promptTextAtCommit(input.repo, input.commit, pair.en.path),
+    ]);
+    validateCohortBehaviorLanguage(extractCohortBehavior(zh), "zh");
+    validateCohortBehaviorLanguage(extractCohortBehavior(en), "en");
+    if (containsPrivateKnotPromptContent(`${zh}\n${en}`)) {
+      throw new Error(`prompt_release_private_knot_content:${spec.agent}`);
+    }
+    const expectedTools = [...spec.requiredTools].sort();
+    if (
+      JSON.stringify(promptToolNames(zh)) !== JSON.stringify(expectedTools) ||
+      JSON.stringify(promptToolNames(en)) !== JSON.stringify(expectedTools)
+    ) {
+      throw new Error(`prompt_release_tool_contract_mismatch:${spec.agent}`);
+    }
+    const basePair = baseByAgent.get(spec.agent);
+    if (input.base && !basePair) throw new Error(`prompt_release_base_pair_missing:${spec.agent}`);
+    if (basePair && spec.agent !== input.candidate.target.agentId) {
+      if (canonicalJsonHash(pair) !== canonicalJsonHash(basePair)) {
+        throw new Error(`prompt_release_non_target_pair_changed:${spec.agent}`);
+      }
+    }
+  }
+  const targetPair = input.promptPairs.find(
+    (pair) => pair.agent === input.candidate.target.agentId,
+  );
+  if (!targetPair) throw new Error("prompt_release_mutated_agent_pair_missing");
+  const parentPair = (
+    await buildReleasePromptPairsAtCommit({
+      repo: input.repo,
+      commit: input.candidate.parentPromptCommit,
+      cohort: input.candidate.target.cohort,
+      specs: input.specs,
+    })
+  ).find((pair) => pair.agent === input.candidate.target.agentId);
+  if (
+    !parentPair ||
+    parentPair.zh.sha256 !== input.candidate.parentPromptHashes.zh ||
+    parentPair.en.sha256 !== input.candidate.parentPromptHashes.en
+  ) {
+    throw new Error("prompt_release_candidate_parent_pair_mismatch");
+  }
+  const [parentZh, parentEn, candidateZh, candidateEn] = await Promise.all([
+    promptTextAtCommit(input.repo, input.candidate.parentPromptCommit, parentPair.zh.path),
+    promptTextAtCommit(input.repo, input.candidate.parentPromptCommit, parentPair.en.path),
+    promptTextAtCommit(input.repo, input.commit, targetPair.zh.path),
+    promptTextAtCommit(input.repo, input.commit, targetPair.en.path),
+  ]);
+  if (
+    immutablePromptContractText(parentZh) !== immutablePromptContractText(candidateZh) ||
+    immutablePromptContractText(parentEn) !== immutablePromptContractText(candidateEn)
+  ) {
+    throw new Error("prompt_release_candidate_immutable_contract_changed");
+  }
+}
+
 function now(deps: PromptReleaseManagerDependencies): string {
   return deps.now?.() ?? new Date().toISOString();
 }
@@ -165,6 +280,10 @@ export async function stagePromptRelease(
     opts.promotionDecision,
     opts.cohort,
   );
+  if (!deps.verifyPromotionDecision) {
+    throw new Error("prompt_release_promotion_authority_required");
+  }
+  await deps.verifyPromotionDecision(candidate, decision);
   if (
     ["cro", "alpha_discovery", "autonomous_execution", "cio"].includes(candidate.target.agentId) &&
     opts.approvalPolicyId !== "decision_release_manual_v1"
@@ -184,11 +303,36 @@ export async function stagePromptRelease(
     commit: promptCommit,
     candidate,
   });
+  await assertCandidateCommitScope({
+    repo: opts.privatePromptRepo,
+    commit: promptCommit,
+    candidate,
+  });
+  const registry = new ActivePromptReleaseRegistry(opts.registryRoot);
+  const pointer = await registry.pointer();
+  const base = pointer.current_release_id ? await registry.load(pointer.current_release_id) : null;
+  if (pointer.current_release_id && !base) throw new Error("prompt_release_base_manifest_missing");
+  if (
+    base &&
+    (candidate.parentId !== base.release_id ||
+      candidate.parentPromptCommit !== base.prompt_commit ||
+      base.activation_scope.cohort !== candidate.target.cohort)
+  ) {
+    throw new Error("prompt_release_candidate_active_champion_mismatch");
+  }
   const promptPairs = await buildReleasePromptPairsAtCommit({
     repo: opts.privatePromptRepo,
     commit: promptCommit,
     cohort: opts.cohort,
     specs,
+  });
+  await assertPinnedPromptTree({
+    repo: opts.privatePromptRepo,
+    commit: promptCommit,
+    candidate,
+    promptPairs,
+    specs,
+    base,
   });
   const stageSnapshotHashes = Object.fromEntries(
     promptPairs.flatMap((pair) =>
@@ -223,8 +367,6 @@ export async function stagePromptRelease(
     catalog_hash: closure.catalog_hash,
   };
 
-  const registry = new ActivePromptReleaseRegistry(opts.registryRoot);
-  const pointer = await registry.pointer();
   const createdAt = now(deps);
   const releaseEvidence = {
     candidate_id: candidate.candidateId,
@@ -507,7 +649,10 @@ export async function activatePromptRelease(opts: {
     throw new Error(`prompt_release_activation_state_invalid:${previous.lifecycle_state}`);
   }
   const activatedAt = now(opts.deps ?? {});
-  if (!previous.canary_started_at || activatedAt <= previous.canary_started_at) {
+  if (
+    !previous.canary_started_at ||
+    Date.parse(activatedAt) <= Date.parse(previous.canary_started_at)
+  ) {
     throw new Error("prompt_release_canary_window_invalid");
   }
   const next: ActivePromptReleaseManifest = {

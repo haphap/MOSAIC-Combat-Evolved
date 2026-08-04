@@ -5,6 +5,8 @@ import {
   type DatasetSplitManifest,
   DatasetSplitManifestSchema,
   type PromptCandidate,
+  type PromptCandidateFamily,
+  PromptCandidateFamilySchema,
   PromptCandidateSchema,
   type PromptDatasetSampleRef,
   type PromptExperiment,
@@ -13,16 +15,22 @@ import {
   PromptExperimentSchema,
   PromptHashPairSchema,
   type PromptOptimizerTarget,
+  type PromptPromotionDecision,
   type PromptRefPair,
   PromptRefPairSchema,
 } from "./prompt_optimizer_contract.js";
 
 export interface PromptExperimentRepository {
   putCandidate(record: PromptCandidate): Promise<PromptCandidate>;
+  putSplit(record: DatasetSplitManifest): Promise<DatasetSplitManifest>;
+  putFamily(record: PromptCandidateFamily): Promise<PromptCandidateFamily>;
+  getFamily(familyId: string): Promise<PromptCandidateFamily | null>;
   getExperiment(experimentId: string): Promise<PromptExperiment | null>;
   putExperiment(record: PromptExperiment): Promise<PromptExperiment>;
   listRuns(experimentId: string): Promise<PromptExperimentRun[]>;
   putRun(record: PromptExperimentRun): Promise<PromptExperimentRun>;
+  claimRun(record: PromptExperimentRun): Promise<PromptExperimentRun | null>;
+  putDecision(record: PromptPromotionDecision): Promise<PromptPromotionDecision>;
 }
 
 export class BridgePromptExperimentRepository implements PromptExperimentRepository {
@@ -30,6 +38,18 @@ export class BridgePromptExperimentRepository implements PromptExperimentReposit
 
   putCandidate(record: PromptCandidate): Promise<PromptCandidate> {
     return this.api.promptOptimizerPutCandidate(record);
+  }
+
+  putSplit(record: DatasetSplitManifest): Promise<DatasetSplitManifest> {
+    return this.api.promptOptimizerPutSplit(record);
+  }
+
+  putFamily(record: PromptCandidateFamily): Promise<PromptCandidateFamily> {
+    return this.api.promptOptimizerPutFamily(record);
+  }
+
+  getFamily(familyId: string): Promise<PromptCandidateFamily | null> {
+    return this.api.promptOptimizerGetFamily(familyId);
   }
 
   getExperiment(experimentId: string): Promise<PromptExperiment | null> {
@@ -46,6 +66,14 @@ export class BridgePromptExperimentRepository implements PromptExperimentReposit
 
   putRun(record: PromptExperimentRun): Promise<PromptExperimentRun> {
     return this.api.promptOptimizerPutRun(record);
+  }
+
+  claimRun(record: PromptExperimentRun): Promise<PromptExperimentRun | null> {
+    return this.api.promptOptimizerClaimRun(record);
+  }
+
+  putDecision(record: PromptPromotionDecision): Promise<PromptPromotionDecision> {
+    return this.api.promptOptimizerPutDecision(record);
   }
 }
 
@@ -92,6 +120,7 @@ export interface PromptExperimentEvaluator {
 
 export interface RunPromptExperimentPartitionInput {
   candidate: PromptCandidate;
+  family: PromptCandidateFamily;
   experiment: PromptExperiment;
   split: DatasetSplitManifest;
   partition: "VALIDATION" | "HOLDOUT";
@@ -127,6 +156,10 @@ function assertBindings(input: RunPromptExperimentPartitionInput): void {
   }
   assertCandidateMatchesSplit(input.candidate, input.split);
   if (
+    input.candidate.parentId !== input.experiment.championId ||
+    input.candidate.parentPromptCommit !== input.experiment.championPromptCommit ||
+    canonicalJsonHash(input.candidate.parentPromptHashes) !==
+      canonicalJsonHash(input.experiment.championPromptHashes) ||
     canonicalJsonHash(input.candidate.target) !== canonicalJsonHash(input.experiment.target) ||
     input.candidate.candidateId !== input.experiment.candidateId ||
     canonicalJsonHash(input.candidate.promptHashes) !==
@@ -134,9 +167,29 @@ function assertBindings(input: RunPromptExperimentPartitionInput): void {
     canonicalJsonHash(input.promptBinding.candidate.promptHashes) !==
       canonicalJsonHash(input.experiment.candidatePromptHashes) ||
     canonicalJsonHash(input.promptBinding.champion.promptHashes) !==
-      canonicalJsonHash(input.experiment.championPromptHashes)
+      canonicalJsonHash(input.experiment.championPromptHashes) ||
+    canonicalJsonHash(input.promptBinding.champion.promptRefs) !==
+      canonicalJsonHash(input.experiment.championPromptRefs) ||
+    canonicalJsonHash(input.promptBinding.candidate.promptRefs) !==
+      canonicalJsonHash(input.experiment.candidatePromptRefs) ||
+    canonicalJsonHash(input.candidate.promptRefs) !==
+      canonicalJsonHash(input.experiment.candidatePromptRefs)
   ) {
     throw new Error("prompt_experiment_prompt_binding_drift");
+  }
+  if (
+    input.family.familyId !== input.experiment.familyId ||
+    !input.family.candidateIds.includes(input.candidate.candidateId) ||
+    input.family.championReleaseId !== input.experiment.championId ||
+    input.family.championPromptCommit !== input.experiment.championPromptCommit ||
+    canonicalJsonHash(input.family.championPromptRefs) !==
+      canonicalJsonHash(input.experiment.championPromptRefs) ||
+    canonicalJsonHash(input.family.championPromptHashes) !==
+      canonicalJsonHash(input.experiment.championPromptHashes) ||
+    input.family.datasetSplitId !== input.split.splitId ||
+    input.family.datasetSplitManifestHash !== input.experiment.datasetSplitManifestHash
+  ) {
+    throw new Error("prompt_experiment_family_binding_drift");
   }
   if (
     input.split.validation.snapshotHash !== input.experiment.validationSnapshotHash ||
@@ -154,11 +207,16 @@ function assertPersistedExperimentMatches(
 ): void {
   for (const key of [
     "experimentId",
+    "familyId",
     "candidateId",
     "championId",
     "target",
+    "championPromptCommit",
+    "championPromptRefs",
     "championPromptHashes",
+    "candidatePromptRefs",
     "candidatePromptHashes",
+    "datasetSplitId",
     "datasetSplitManifestHash",
     "validationSnapshotHash",
     "holdoutSnapshotHash",
@@ -262,22 +320,21 @@ async function executeRun(input: {
 }): Promise<void> {
   const { definition } = input;
   const startedAt = input.now();
-  if (definition.status !== "RUNNING") {
-    await input.repository.putRun(
-      PromptExperimentRunSchema.parse({
-        ...definition,
-        status: "RUNNING",
-        agentOutputRef: null,
-        metrics: {},
-        failureCaseRefs: [],
-        traceRef: null,
-        effectiveInputHash: null,
-        errorCode: null,
-        startedAt,
-        completedAt: null,
-      }),
-    );
-  }
+  const claimed = await input.repository.claimRun(
+    PromptExperimentRunSchema.parse({
+      ...definition,
+      status: "RUNNING",
+      agentOutputRef: null,
+      metrics: {},
+      failureCaseRefs: [],
+      traceRef: null,
+      effectiveInputHash: null,
+      errorCode: null,
+      startedAt,
+      completedAt: null,
+    }),
+  );
+  if (claimed === null) return;
   try {
     const prompt =
       definition.side === "CHAMPION" ? input.binding.champion : input.binding.candidate;
@@ -296,7 +353,7 @@ async function executeRun(input: {
     });
     await input.repository.putRun(
       PromptExperimentRunSchema.parse({
-        ...definition,
+        ...claimed,
         status: "COMPLETE",
         agentOutputRef: execution.acceptedOutputRef,
         metrics: mergedMetrics(evaluation.normalizedScore, evaluation.metrics),
@@ -311,7 +368,7 @@ async function executeRun(input: {
   } catch (error) {
     await input.repository.putRun(
       PromptExperimentRunSchema.parse({
-        ...definition,
+        ...claimed,
         status: "FAILED",
         agentOutputRef: null,
         metrics: {},
@@ -382,6 +439,7 @@ export async function runPromptExperimentPartition(
   const input = {
     ...rawInput,
     candidate: PromptCandidateSchema.parse(rawInput.candidate),
+    family: PromptCandidateFamilySchema.parse(rawInput.family),
     experiment: PromptExperimentSchema.parse(rawInput.experiment),
     split: DatasetSplitManifestSchema.parse(rawInput.split),
     promptBinding: {
@@ -397,6 +455,34 @@ export async function runPromptExperimentPartition(
   };
   assertBindings(input);
   await input.repository.putCandidate(input.candidate);
+  await input.repository.putSplit(input.split);
+  const persistedFamily = await input.repository.getFamily(input.family.familyId);
+  if (persistedFamily === null) {
+    await input.repository.putFamily(input.family);
+  } else if (
+    canonicalJsonHash({
+      target: persistedFamily.target,
+      championReleaseId: persistedFamily.championReleaseId,
+      championPromptCommit: persistedFamily.championPromptCommit,
+      championPromptRefs: persistedFamily.championPromptRefs,
+      championPromptHashes: persistedFamily.championPromptHashes,
+      datasetSplitId: persistedFamily.datasetSplitId,
+      datasetSplitManifestHash: persistedFamily.datasetSplitManifestHash,
+      candidateIds: persistedFamily.candidateIds,
+    }) !==
+    canonicalJsonHash({
+      target: input.family.target,
+      championReleaseId: input.family.championReleaseId,
+      championPromptCommit: input.family.championPromptCommit,
+      championPromptRefs: input.family.championPromptRefs,
+      championPromptHashes: input.family.championPromptHashes,
+      datasetSplitId: input.family.datasetSplitId,
+      datasetSplitManifestHash: input.family.datasetSplitManifestHash,
+      candidateIds: input.family.candidateIds,
+    })
+  ) {
+    throw new Error("prompt_experiment_family_definition_drift");
+  }
   const persisted = await input.repository.getExperiment(input.experiment.experimentId);
   if (persisted !== null) assertPersistedExperimentMatches(input.experiment, persisted);
   let experiment = persisted ?? (await input.repository.putExperiment(input.experiment));
@@ -413,6 +499,15 @@ export async function runPromptExperimentPartition(
       throw new Error(`prompt_experiment_validation_state_invalid:${experiment.status}`);
     }
   } else {
+    const currentFamily = await input.repository.getFamily(experiment.familyId);
+    if (
+      currentFamily === null ||
+      !["SELECTED", "COMPLETE"].includes(currentFamily.status) ||
+      currentFamily.selectedExperimentId !== experiment.experimentId ||
+      currentFamily.selectedCandidateId !== experiment.candidateId
+    ) {
+      throw new Error("prompt_experiment_holdout_winner_required");
+    }
     if (experiment.status === "VALIDATION_COMPLETE") {
       experiment = await input.repository.putExperiment({
         ...experiment,

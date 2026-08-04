@@ -20,7 +20,9 @@ import type {
 } from "../agents/tool_contract.js";
 import type { LlmCallRecord } from "../agents/types.js";
 import type {
+  DatasetSplitManifest,
   PromptCandidate,
+  PromptCandidateFamily,
   PromptExperiment,
   PromptExperimentRun,
   PromptPromotionDecision,
@@ -2692,6 +2694,30 @@ export class BridgeApi {
       .then((result) => result.record);
   }
 
+  promptOptimizerPutSplit(record: DatasetSplitManifest): Promise<DatasetSplitManifest> {
+    return this.client.call<DatasetSplitManifest>("prompt_optimizer.put_split", { record });
+  }
+
+  promptOptimizerGetSplit(splitId: string): Promise<DatasetSplitManifest | null> {
+    return this.client
+      .call<{ record: DatasetSplitManifest | null }>("prompt_optimizer.get_split", {
+        split_id: splitId,
+      })
+      .then((result) => result.record);
+  }
+
+  promptOptimizerPutFamily(record: PromptCandidateFamily): Promise<PromptCandidateFamily> {
+    return this.client.call<PromptCandidateFamily>("prompt_optimizer.put_family", { record });
+  }
+
+  promptOptimizerGetFamily(familyId: string): Promise<PromptCandidateFamily | null> {
+    return this.client
+      .call<{ record: PromptCandidateFamily | null }>("prompt_optimizer.get_family", {
+        family_id: familyId,
+      })
+      .then((result) => result.record);
+  }
+
   promptOptimizerPutExperiment(record: PromptExperiment): Promise<PromptExperiment> {
     return this.client.call<PromptExperiment>("prompt_optimizer.put_experiment", { record });
   }
@@ -2706,6 +2732,12 @@ export class BridgeApi {
 
   promptOptimizerPutRun(record: PromptExperimentRun): Promise<PromptExperimentRun> {
     return this.client.call<PromptExperimentRun>("prompt_optimizer.put_run", { record });
+  }
+
+  promptOptimizerClaimRun(record: PromptExperimentRun): Promise<PromptExperimentRun | null> {
+    return this.client
+      .call<{ record: PromptExperimentRun | null }>("prompt_optimizer.claim_run", { record })
+      .then((result) => result.record);
   }
 
   promptOptimizerListRuns(experimentId: string): Promise<PromptExperimentRun[]> {

@@ -16,6 +16,11 @@
       "minLength": 1,
       "maxLength": 256
     },
+    "familyId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
     "candidateId": {
       "type": "string",
       "minLength": 1,
@@ -56,6 +61,10 @@
         "type": "number"
       }
     },
+    "evidenceHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
     "decidedAt": {
       "type": "string",
       "format": "date-time",
@@ -66,12 +75,14 @@
     "schemaVersion",
     "decisionId",
     "experimentId",
+    "familyId",
     "candidateId",
     "policyVersion",
     "policyConfigHash",
     "decision",
     "reasons",
     "metricSummary",
+    "evidenceHash",
     "decidedAt"
   ],
   "additionalProperties": false

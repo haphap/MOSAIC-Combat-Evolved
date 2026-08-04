@@ -5,6 +5,8 @@ import { OUTCOME_LABEL_REGISTRY } from "./outcome_registry.js";
 import {
   type DatasetSplitManifest,
   DatasetSplitManifestSchema,
+  type PromptCandidateFamily,
+  PromptCandidateFamilySchema,
   type PromptExperiment,
   type PromptExperimentRun,
   PromptExperimentRunSchema,
@@ -25,7 +27,6 @@ export const PromptPromotionPolicySchema = z
     minimumRepeatSeeds: z.number().int().positive(),
     minimumPairedDelta: z.number().finite(),
     familyAlpha: Probability,
-    candidateFamilySize: z.number().int().positive(),
     bootstrapSamples: z.number().int().min(99),
     blockLength: z.number().int().positive(),
     tailQuantile: z.number().finite().positive().max(0.5),
@@ -208,6 +209,7 @@ function failureRate(runs: ReadonlyArray<PromptExperimentRun>): number {
 
 function evaluatePartition(input: {
   experiment: PromptExperiment;
+  family: PromptCandidateFamily;
   split: DatasetSplitManifest;
   runs: ReadonlyArray<PromptExperimentRun>;
   policy: PromptPromotionPolicy;
@@ -227,11 +229,22 @@ function evaluatePartition(input: {
     values.push(candidate - champion);
     grouped.set(pair.sampleId, values);
   }
-  const sampleDeltas = [...grouped.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([sampleId, deltas]) => ({ sampleId, delta: mean(deltas) }));
+  const chronologicalSamples = [
+    ...(input.partition === "VALIDATION"
+      ? input.split.validation.samples
+      : input.split.holdout.samples),
+  ].sort((left, right) => {
+    const start = Date.parse(left.eventWindow.startAt) - Date.parse(right.eventWindow.startAt);
+    if (start !== 0) return start;
+    return Date.parse(left.eventWindow.endAt) - Date.parse(right.eventWindow.endAt);
+  });
+  const sampleDeltas = chronologicalSamples.map((sample) => {
+    const deltas = grouped.get(sample.sampleId);
+    if (!deltas) throw new Error("prompt_promotion_sample_delta_missing");
+    return { sampleId: sample.sampleId, delta: mean(deltas) };
+  });
   const deltas = sampleDeltas.map((row) => row.delta);
-  const adjustedAlpha = input.policy.familyAlpha / input.policy.candidateFamilySize;
+  const adjustedAlpha = input.policy.familyAlpha / input.family.candidateIds.length;
   const bootstrap = blockBootstrap({
     deltas,
     samples: input.policy.bootstrapSamples,
@@ -293,17 +306,28 @@ function evaluatePartition(input: {
 
 export function createPromptPromotionDecision(input: {
   experiment: PromptExperiment;
+  family: PromptCandidateFamily;
   split: DatasetSplitManifest;
   runs: ReadonlyArray<PromptExperimentRun>;
   policy: PromptPromotionPolicy;
   decidedAt: string;
 }): PromptPromotionDecision {
   const experiment = PromptExperimentSchema.parse(input.experiment);
+  const family = PromptCandidateFamilySchema.parse(input.family);
   const split = DatasetSplitManifestSchema.parse(input.split);
   const runs = input.runs.map((run) => PromptExperimentRunSchema.parse(run));
   const policy = PromptPromotionPolicySchema.parse(input.policy);
   if (experiment.status !== "COMPLETE" || experiment.holdoutOpenedAt === null) {
     throw new Error("prompt_promotion_experiment_not_complete");
+  }
+  if (
+    family.status !== "COMPLETE" ||
+    family.familyId !== experiment.familyId ||
+    family.selectedCandidateId !== experiment.candidateId ||
+    family.selectedExperimentId !== experiment.experimentId ||
+    family.holdoutExperimentId !== experiment.experimentId
+  ) {
+    throw new Error("prompt_promotion_candidate_family_not_complete");
   }
   if (
     canonicalJsonHash(split) !== experiment.datasetSplitManifestHash ||
@@ -329,6 +353,7 @@ export function createPromptPromotionDecision(input: {
   const policyHash = canonicalJsonHash(policy);
   const validation = evaluatePartition({
     experiment,
+    family,
     split,
     runs,
     policy,
@@ -337,6 +362,7 @@ export function createPromptPromotionDecision(input: {
   });
   const holdout = evaluatePartition({
     experiment,
+    family,
     split,
     runs,
     policy,
@@ -345,17 +371,26 @@ export function createPromptPromotionDecision(input: {
   });
   const reasons = [...validation.reasons, ...holdout.reasons].sort();
   const decision = reasons.length === 0 ? "ELIGIBLE" : "REJECTED";
+  const evidenceHash = canonicalJsonHash({
+    experiment,
+    family,
+    split,
+    runs: [...runs].sort((left, right) => left.runId.localeCompare(right.runId)),
+    policyConfigHash: policyHash,
+  });
   const decisionId = `decision-${canonicalJsonHash({ experimentId: experiment.experimentId, policyHash }).slice(7, 31)}`;
   return PromptPromotionDecisionSchema.parse({
     schemaVersion: "prompt_promotion_decision_v1",
     decisionId,
     experimentId: experiment.experimentId,
+    familyId: family.familyId,
     candidateId: experiment.candidateId,
     policyVersion: policy.policyVersion,
     policyConfigHash: policyHash,
     decision,
     reasons: decision === "ELIGIBLE" ? ["all_promotion_gates_passed"] : reasons,
     metricSummary: { ...validation.metrics, ...holdout.metrics },
+    evidenceHash,
     decidedAt: input.decidedAt,
   });
 }

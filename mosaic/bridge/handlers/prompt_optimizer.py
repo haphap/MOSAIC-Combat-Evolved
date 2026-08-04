@@ -86,6 +86,26 @@ def get_candidate(params: dict[str, Any]) -> dict[str, Any]:
     return {"record": _store().get_candidate(_id(params, "candidate_id"))}
 
 
+@method("prompt_optimizer.put_split")
+def put_split(params: dict[str, Any]) -> dict[str, Any]:
+    return _write(params, _store().put_split)
+
+
+@method("prompt_optimizer.get_split")
+def get_split(params: dict[str, Any]) -> dict[str, Any]:
+    return {"record": _store().get_split(_id(params, "split_id"))}
+
+
+@method("prompt_optimizer.put_family")
+def put_family(params: dict[str, Any]) -> dict[str, Any]:
+    return _write(params, _store().put_family)
+
+
+@method("prompt_optimizer.get_family")
+def get_family(params: dict[str, Any]) -> dict[str, Any]:
+    return {"record": _store().get_family(_id(params, "family_id"))}
+
+
 @method("prompt_optimizer.put_experiment")
 def put_experiment(params: dict[str, Any]) -> dict[str, Any]:
     return _write(params, _store().put_experiment)
@@ -99,6 +119,16 @@ def get_experiment(params: dict[str, Any]) -> dict[str, Any]:
 @method("prompt_optimizer.put_run")
 def put_run(params: dict[str, Any]) -> dict[str, Any]:
     return _write(params, _store().put_run)
+
+
+@method("prompt_optimizer.claim_run")
+def claim_run(params: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return {"record": _store().claim_run(_record(params))}
+    except ValueError as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(INTERNAL_ERROR, f"prompt optimizer persistence failed: {exc}") from exc
 
 
 @method("prompt_optimizer.list_runs")

@@ -25,7 +25,7 @@
 | Aspect | Summary |
 | --- | --- |
 | Decision graph | 4 layers, 28 logical agents (10 macro → 10 sector → 4 superinvestor → 4 decision) across 29 execution stages, orchestrated by LangGraph.js as one daily cycle |
-| Self-improvement | KNOT evolves private prompt behavior with paired shadow outcomes and atomic promotion; legacy ΔSharpe is audit-only |
+| Self-improvement | KNOT proposes private Prompt Candidates; public frozen shadow evaluation and Prompt Release own promotion; legacy ΔSharpe is audit-only |
 | Multi-regime | PRISM covers 8 cohorts (default plus 7 market regimes); JANUS meta-weights across them |
 | Reflexive sim | Real MOSAIC-Fish/OASIS by default, with explicit local Monte-Carlo and swarm engines |
 | Backtest / paper | qlib two-stage vectorized backtest + a bespoke paper-trading engine (T+1, commission) |

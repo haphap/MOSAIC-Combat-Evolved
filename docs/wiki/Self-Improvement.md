@@ -23,7 +23,8 @@ lineage, release references, and fail-closed integrity checks. It does not
 contain Prompt bodies, training/failure-case prose, mutator policy, or private
 promotion thresholds. Those details and their tests live in the private
 repository and stay outside model-visible prompts. The public repository owns
-only the minimal Candidate/Experiment/Decision contracts and generic Runner.
+only public-safe Candidate/Split/Family/Experiment/Run/Decision contracts, the
+generic shadow Runner, Promotion Authority, and Prompt Release.
 
 Production prompt releases still use bounded `canary` traffic and support
 `rollback`; those release operations do not reveal or redefine the private

@@ -87,6 +87,8 @@ function fakeApi() {
         schemaVersion: "prompt_candidate_v1",
         candidateId: "candidate-optimizer-1",
         parentId: "champion-1",
+        parentPromptCommit: "6".repeat(40),
+        parentPromptHashes: { zh: `sha256:${"7".repeat(64)}`, en: `sha256:${"8".repeat(64)}` },
         target: { agentId: "china", stage: "agent_run", cohort: "cohort_default" },
         promptRefs: { zh: "private://hidden.zh", en: "private://hidden.en" },
         promptHashes: { zh: `sha256:${"1".repeat(64)}`, en: `sha256:${"2".repeat(64)}` },
@@ -94,8 +96,12 @@ function fakeApi() {
         trainingSnapshotHash: `sha256:${"3".repeat(64)}`,
         mutatorConfigHash: `sha256:${"4".repeat(64)}`,
         mutatorCommit: "5".repeat(40),
-        mutationSummary: "先检查反证，再形成结论。",
-        hypothesis: "减少尾部判断错误。",
+        mutationCategories: ["CONFLICT_RESOLUTION"],
+        mutationSummary: "Behavior focus: CONFLICT_RESOLUTION.",
+        hypothesis:
+          "Preregistered hypothesis: CONFLICT_RESOLUTION improves the frozen Agent outcome score.",
+        alignmentVerifierVersion: "bilingual-alignment-v1",
+        behaviorAlignmentHash: `sha256:${"9".repeat(64)}`,
         createdAt: "2026-05-30T00:00:00Z",
       },
       experiment: {
@@ -384,8 +390,8 @@ describe("Dashboard", () => {
     stdin.write("9");
     await flush();
     expect(lastFrame()).toContain("Prompt optimizer");
-    expect(lastFrame()).toContain("减少尾部判断错误");
-    expect(lastFrame()).toContain("先检查反证");
+    expect(lastFrame()).toContain("CONFLICT_RESOLUTION improves");
+    expect(lastFrame()).toContain("Behavior focus: CONFLICT_RESOLUTION");
     expect(lastFrame()).toContain("holdout_confidence_lower=0.0300");
     expect(lastFrame()).toContain("failure://tail-1");
     expect(lastFrame()).toContain("release-optimizer-1:canary");

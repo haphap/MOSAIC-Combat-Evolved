@@ -6,9 +6,12 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ActivePromptReleaseManifest } from "../src/agents/prompts/prompt_release_contract.js";
 import type { RuntimeAgentSpec } from "../src/agents/prompts/runtime_agent_spec.js";
-import type {
-  PromptCandidate,
-  PromptPromotionDecision,
+import {
+  type PromptCandidate,
+  type PromptPromotionDecision,
+  promptBehaviorAlignmentHash,
+  promptMutationHypothesis,
+  promptMutationSummary,
 } from "../src/autoresearch/prompt_optimizer_contract.js";
 import {
   buildPromptReleaseCanaryAssignmentEvent,
@@ -84,42 +87,104 @@ function initRepo(files: Record<string, string>): { root: string; commit: string
   };
 }
 
+function prompt(language: "zh" | "en", behavior: string): string {
+  return [
+    language === "zh" ? "# 央行" : "# Central bank",
+    "",
+    "<!-- cohort-behavior:start -->",
+    behavior,
+    "<!-- cohort-behavior:end -->",
+    "",
+    language === "zh" ? "## 不可变合同" : "## Immutable contract",
+    language === "zh" ? "仅输出规定结构。" : "Return only the required structure.",
+  ].join("\n");
+}
+
+function commitCandidate(
+  repo: { root: string; commit: string },
+  value: PromptCandidate,
+  promptFiles: Record<string, string>,
+): string {
+  for (const [path, content] of Object.entries(promptFiles)) {
+    writeFileSync(join(repo.root, path), content, "utf8");
+  }
+  const record = join(repo.root, `registry/prompt_candidates_v2/${value.candidateId}.json`);
+  mkdirSync(dirname(record), { recursive: true });
+  writeFileSync(record, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  execFileSync("git", ["-C", repo.root, "add", "."]);
+  execFileSync("git", [
+    "-C",
+    repo.root,
+    "-c",
+    "user.name=Codex Test",
+    "-c",
+    "user.email=codex@example.invalid",
+    "commit",
+    "-qm",
+    value.candidateId,
+  ]);
+  return execFileSync("git", ["-C", repo.root, "rev-parse", "HEAD"], {
+    encoding: "utf8",
+  }).trim();
+}
+
 function sha256(value: string): string {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
 
-function candidate(promptFiles: Record<string, string>): PromptCandidate {
+function candidate(input: {
+  candidateId: string;
+  parentId: string;
+  parentPromptCommit: string;
+  parentPromptFiles: Record<string, string>;
+  promptFiles: Record<string, string>;
+}): PromptCandidate {
+  const promptHashes = {
+    zh: sha256(input.promptFiles[PROMPT_PATHS.zh] ?? ""),
+    en: sha256(input.promptFiles[PROMPT_PATHS.en] ?? ""),
+  };
+  const mutationCategories = ["EVIDENCE_PRIORITY"] as const;
   return {
     schemaVersion: "prompt_candidate_v1",
-    candidateId: "candidate-1",
-    parentId: "champion-1",
+    candidateId: input.candidateId,
+    parentId: input.parentId,
+    parentPromptCommit: input.parentPromptCommit,
+    parentPromptHashes: {
+      zh: sha256(input.parentPromptFiles[PROMPT_PATHS.zh] ?? ""),
+      en: sha256(input.parentPromptFiles[PROMPT_PATHS.en] ?? ""),
+    },
     target: { agentId: "central_bank", stage: "agent_run", cohort: "cohort_default" },
     promptRefs: PROMPT_PATHS,
-    promptHashes: {
-      zh: sha256(promptFiles[PROMPT_PATHS.zh] ?? ""),
-      en: sha256(promptFiles[PROMPT_PATHS.en] ?? ""),
-    },
+    promptHashes,
     trainingSnapshotId: "training-1",
     trainingSnapshotHash: HASH,
     mutatorConfigHash: HASH,
     mutatorCommit: "c".repeat(40),
-    mutationSummary: "test candidate",
-    hypothesis: "test hypothesis",
+    mutationCategories: [...mutationCategories],
+    mutationSummary: promptMutationSummary(mutationCategories),
+    hypothesis: promptMutationHypothesis(mutationCategories),
+    alignmentVerifierVersion: "bilingual-alignment-v1",
+    behaviorAlignmentHash: promptBehaviorAlignmentHash({
+      promptHashes,
+      alignmentVerifierVersion: "bilingual-alignment-v1",
+    }),
     createdAt: "2026-07-10T00:00:00.000Z",
   };
 }
 
-function promotionDecision(): PromptPromotionDecision {
+function promotionDecision(candidateId = "candidate-1"): PromptPromotionDecision {
   return {
     schemaVersion: "prompt_promotion_decision_v1",
     decisionId: "decision-1",
     experimentId: "experiment-1",
-    candidateId: "candidate-1",
+    familyId: "family-1",
+    candidateId,
     policyVersion: "policy-v1",
     policyConfigHash: HASH,
     decision: "ELIGIBLE",
     reasons: ["all_promotion_gates_passed"],
     metricSummary: { holdout_paired_delta: 0.1 },
+    evidenceHash: HASH,
     decidedAt: "2026-07-10T00:00:00.000Z",
   };
 }
@@ -259,32 +324,49 @@ function approvedBaseline(staged: ActivePromptReleaseManifest): ActivePromptRele
 
 describe("prompt release manager", () => {
   it("stages a hash-closed aggregate release and runs audited idempotent lifecycle steps", async () => {
-    const promptFiles = { [PROMPT_PATHS.zh]: "private zh\n", [PROMPT_PATHS.en]: "private en\n" };
-    const promptCandidate = candidate(promptFiles);
-    const candidateRecordPath = `registry/prompt_candidates_v2/${promptCandidate.candidateId}.json`;
-    const privateRepo = initRepo({
-      ...promptFiles,
-      [candidateRecordPath]: `${JSON.stringify(promptCandidate, null, 2)}\n`,
+    const parentPromptFiles = {
+      [PROMPT_PATHS.zh]: prompt("zh", "先核对时点与证据，再形成结论。"),
+      [PROMPT_PATHS.en]: prompt("en", "Check timing and evidence before forming the conclusion."),
+    };
+    const privateRepo = initRepo(parentPromptFiles);
+    const baselinePromptFiles = {
+      [PROMPT_PATHS.zh]: prompt("zh", "先核对时点、证据与反例，再形成结论。"),
+      [PROMPT_PATHS.en]: prompt(
+        "en",
+        "Check timing, evidence, and counter-cases before forming the conclusion.",
+      ),
+    };
+    const baselineCandidate = candidate({
+      candidateId: "candidate-baseline",
+      parentId: "bootstrap-champion",
+      parentPromptCommit: privateRepo.commit,
+      parentPromptFiles,
+      promptFiles: baselinePromptFiles,
     });
+    const baselinePromptCommit = commitCandidate(
+      privateRepo,
+      baselineCandidate,
+      baselinePromptFiles,
+    );
     const closure = {
       catalog_hash: HASH,
       schema_hash: HASH,
       contract_hash: HASH,
     };
     const codeRepo = initRepo({
-      [PROMPT_PATHS.zh]: "fallback zh\n",
-      [PROMPT_PATHS.en]: "fallback en\n",
+      [PROMPT_PATHS.zh]: parentPromptFiles[PROMPT_PATHS.zh] ?? "",
+      [PROMPT_PATHS.en]: parentPromptFiles[PROMPT_PATHS.en] ?? "",
       "registry/prompt_checks/prompt_release_contract_ref_v2.json": `${JSON.stringify({ evaluation_contract: closure })}\n`,
     });
     const registryRoot = mkdtempSync(join(tmpdir(), "mosaic-release-registry-"));
     roots.push(registryRoot);
-    const stageOptions = {
+    const baselineStageOptions = {
       registryRoot,
-      releaseId: "release-1",
-      candidate: promptCandidate,
-      promotionDecision: promotionDecision(),
+      releaseId: "baseline-1",
+      candidate: baselineCandidate,
+      promotionDecision: promotionDecision(baselineCandidate.candidateId),
       privatePromptRepo: privateRepo.root,
-      privatePromptCommit: privateRepo.commit,
+      privatePromptCommit: baselinePromptCommit,
       codeCommit: codeRepo.commit,
       codeRepo: codeRepo.root,
       cohort: "cohort_default",
@@ -294,13 +376,14 @@ describe("prompt release manager", () => {
     const deps = {
       specs: [SPEC],
       now: () => "2026-07-10T00:00:00.000Z",
+      verifyPromotionDecision: async () => undefined,
     };
 
     process.env.MOSAIC_PROMPT_RELEASE_AUTHORIZED_OPERATORS = "operator:test";
     const baselineRegistryRoot = mkdtempSync(join(tmpdir(), "mosaic-baseline-source-"));
     roots.push(baselineRegistryRoot);
     const baselineStaged = await stagePromptRelease(
-      { ...stageOptions, registryRoot: baselineRegistryRoot, releaseId: "baseline-1" },
+      { ...baselineStageOptions, registryRoot: baselineRegistryRoot },
       deps,
     );
     await provisionPromptReleaseBaseline({
@@ -312,8 +395,32 @@ describe("prompt release manager", () => {
       codeRepo: codeRepo.root,
       deps: {
         specs: [SPEC],
+        verifyPromotionDecision: async () => undefined,
       },
     });
+
+    const promptFiles = {
+      [PROMPT_PATHS.zh]: prompt("zh", "先核对时点、证据和最强反例，并明确传导路径后再形成结论。"),
+      [PROMPT_PATHS.en]: prompt(
+        "en",
+        "Check timing, evidence, and the strongest counter-case, then state the transmission path before concluding.",
+      ),
+    };
+    const promptCandidate = candidate({
+      candidateId: "candidate-1",
+      parentId: "baseline-1",
+      parentPromptCommit: baselinePromptCommit,
+      parentPromptFiles: baselinePromptFiles,
+      promptFiles,
+    });
+    const candidatePromptCommit = commitCandidate(privateRepo, promptCandidate, promptFiles);
+    const stageOptions = {
+      ...baselineStageOptions,
+      releaseId: "release-1",
+      candidate: promptCandidate,
+      promotionDecision: promotionDecision(promptCandidate.candidateId),
+      privatePromptCommit: candidatePromptCommit,
+    };
 
     const staged = await stagePromptRelease(stageOptions, deps);
     await stagePromptRelease(stageOptions, deps);

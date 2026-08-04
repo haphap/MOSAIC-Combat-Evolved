@@ -4,39 +4,12 @@
   "properties": {
     "schemaVersion": {
       "type": "string",
-      "const": "prompt_candidate_v1"
+      "const": "prompt_candidate_family_v1"
     },
-    "candidateId": {
+    "familyId": {
       "type": "string",
       "minLength": 1,
       "maxLength": 256
-    },
-    "parentId": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 256
-    },
-    "parentPromptCommit": {
-      "type": "string",
-      "pattern": "^[0-9a-f]{40}$"
-    },
-    "parentPromptHashes": {
-      "type": "object",
-      "properties": {
-        "zh": {
-          "type": "string",
-          "pattern": "^sha256:[0-9a-f]{64}$"
-        },
-        "en": {
-          "type": "string",
-          "pattern": "^sha256:[0-9a-f]{64}$"
-        }
-      },
-      "required": [
-        "zh",
-        "en"
-      ],
-      "additionalProperties": false
     },
     "target": {
       "type": "object",
@@ -97,98 +70,131 @@
       ],
       "additionalProperties": false
     },
-    "promptRefs": {
-      "type": "object",
-      "properties": {
-        "zh": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "pattern": "^[^\\r\\n]+$"
-        },
-        "en": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 512,
-          "pattern": "^[^\\r\\n]+$"
-        }
-      },
-      "required": [
-        "zh",
-        "en"
-      ],
-      "additionalProperties": false
-    },
-    "promptHashes": {
-      "type": "object",
-      "properties": {
-        "zh": {
-          "type": "string",
-          "pattern": "^sha256:[0-9a-f]{64}$"
-        },
-        "en": {
-          "type": "string",
-          "pattern": "^sha256:[0-9a-f]{64}$"
-        }
-      },
-      "required": [
-        "zh",
-        "en"
-      ],
-      "additionalProperties": false
-    },
-    "trainingSnapshotId": {
+    "championReleaseId": {
       "type": "string",
       "minLength": 1,
       "maxLength": 256
     },
-    "trainingSnapshotHash": {
-      "type": "string",
-      "pattern": "^sha256:[0-9a-f]{64}$"
-    },
-    "mutatorConfigHash": {
-      "type": "string",
-      "pattern": "^sha256:[0-9a-f]{64}$"
-    },
-    "mutatorCommit": {
+    "championPromptCommit": {
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
     },
-    "mutationCategories": {
-      "minItems": 1,
-      "maxItems": 6,
-      "type": "array",
-      "items": {
-        "type": "string",
-        "enum": [
-          "EVIDENCE_PRIORITY",
-          "TEMPORAL_DISCIPLINE",
-          "CONFLICT_RESOLUTION",
-          "TRANSMISSION_CLARITY",
-          "UNCERTAINTY_CALIBRATION",
-          "TAIL_RISK_CONTROL"
-        ]
-      }
+    "championPromptRefs": {
+      "type": "object",
+      "properties": {
+        "zh": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^\\r\\n]+$"
+        },
+        "en": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^\\r\\n]+$"
+        }
+      },
+      "required": [
+        "zh",
+        "en"
+      ],
+      "additionalProperties": false
     },
-    "mutationSummary": {
+    "championPromptHashes": {
+      "type": "object",
+      "properties": {
+        "zh": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "en": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "zh",
+        "en"
+      ],
+      "additionalProperties": false
+    },
+    "datasetSplitId": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 2000
+      "maxLength": 256
     },
-    "hypothesis": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 2000
-    },
-    "alignmentVerifierVersion": {
-      "type": "string",
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$"
-    },
-    "behaviorAlignmentHash": {
+    "datasetSplitManifestHash": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
+    "candidateIds": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      }
+    },
+    "validationExperimentIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      }
+    },
+    "selectedCandidateId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "selectedExperimentId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "holdoutExperimentId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "REGISTERED",
+        "SELECTED",
+        "COMPLETE"
+      ]
+    },
     "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "updatedAt": {
       "type": "string",
       "format": "date-time",
       "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
@@ -196,23 +202,22 @@
   },
   "required": [
     "schemaVersion",
-    "candidateId",
-    "parentId",
-    "parentPromptCommit",
-    "parentPromptHashes",
+    "familyId",
     "target",
-    "promptRefs",
-    "promptHashes",
-    "trainingSnapshotId",
-    "trainingSnapshotHash",
-    "mutatorConfigHash",
-    "mutatorCommit",
-    "mutationCategories",
-    "mutationSummary",
-    "hypothesis",
-    "alignmentVerifierVersion",
-    "behaviorAlignmentHash",
-    "createdAt"
+    "championReleaseId",
+    "championPromptCommit",
+    "championPromptRefs",
+    "championPromptHashes",
+    "datasetSplitId",
+    "datasetSplitManifestHash",
+    "candidateIds",
+    "validationExperimentIds",
+    "selectedCandidateId",
+    "selectedExperimentId",
+    "holdoutExperimentId",
+    "status",
+    "createdAt",
+    "updatedAt"
   ],
   "additionalProperties": false
 }

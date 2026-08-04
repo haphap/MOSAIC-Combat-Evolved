@@ -3,15 +3,21 @@ import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
 import { OUTCOME_LABEL_REGISTRY } from "../src/autoresearch/outcome_registry.js";
 import {
   DatasetSplitManifestSchema,
+  PromptCandidateSchema,
   type PromptExperimentRun,
   PromptExperimentRunSchema,
   PromptExperimentSchema,
+  promptBehaviorAlignmentHash,
+  promptMutationHypothesis,
+  promptMutationSummary,
 } from "../src/autoresearch/prompt_optimizer_contract.js";
+import { verifyStoredPromptPromotionDecision } from "../src/autoresearch/prompt_promotion_authority.js";
 import {
   createPromptPromotionDecision,
   type PromptPromotionPolicy,
   promptEvaluationBinding,
 } from "../src/autoresearch/prompt_promotion_policy.js";
+import type { BridgeApi } from "../src/bridge/types.js";
 
 const HASH_A = `sha256:${"a".repeat(64)}`;
 const HASH_B = `sha256:${"b".repeat(64)}`;
@@ -21,13 +27,16 @@ const evaluatorVersion = OUTCOME_LABEL_REGISTRY.china?.scoring_contract_version;
 if (!evaluatorVersion) throw new Error("missing china outcome fixture");
 
 function sample(sampleId: string, month: string) {
+  const ordinal = Number(sampleId.match(/(\d+)$/)?.[1] ?? "1");
+  const startDay = String(ordinal * 2 + 1).padStart(2, "0");
+  const endDay = String(ordinal * 2 + 2).padStart(2, "0");
   return {
     sampleId,
     inputRef: `snapshot://${sampleId}`,
     outcomeRef: `outcome://${sampleId}`,
     eventWindow: {
-      startAt: `2025-${month}-05T00:00:00Z`,
-      endAt: `2025-${month}-06T00:00:00Z`,
+      startAt: `2025-${month}-${startDay}T00:00:00Z`,
+      endAt: `2025-${month}-${endDay}T00:00:00Z`,
     },
     maturedAt: `2025-${month}-10T00:00:00Z`,
   };
@@ -38,6 +47,7 @@ function buildFixture(
     validationDeltas?: ReadonlyArray<number>;
     holdoutDeltas?: ReadonlyArray<number>;
     candidateFailure?: boolean;
+    familySize?: number;
   } = {},
 ) {
   const validationDeltas = options.validationDeltas ?? [0.2, 0.2, 0.2, 0.2];
@@ -117,11 +127,16 @@ function buildFixture(
   const experiment = PromptExperimentSchema.parse({
     schemaVersion: "prompt_experiment_v1",
     experimentId: "experiment-promotion",
+    familyId: "family-promotion",
     candidateId: "candidate-promotion",
     championId: "champion-promotion",
     target,
+    championPromptCommit: COMMIT,
+    championPromptRefs: { zh: "private://champion.zh", en: "private://champion.en" },
     championPromptHashes: { zh: HASH_A, en: HASH_A },
+    candidatePromptRefs: { zh: "private://candidate.zh", en: "private://candidate.en" },
     candidatePromptHashes: { zh: HASH_B, en: HASH_B },
+    datasetSplitId: split.splitId,
     datasetSplitManifestHash: canonicalJsonHash(split),
     validationSnapshotHash: split.validation.snapshotHash,
     holdoutSnapshotHash: split.holdout.snapshotHash,
@@ -139,7 +154,35 @@ function buildFixture(
     createdAt: "2025-04-01T00:00:00Z",
     completedAt: "2025-04-01T01:00:00Z",
   });
-  return { split, runs, experiment };
+  const familySize = options.familySize ?? 1;
+  const candidateIds = [
+    experiment.candidateId,
+    ...Array.from({ length: familySize - 1 }, (_, index) => `candidate-sibling-${index + 1}`),
+  ].sort();
+  const validationExperimentIds = [
+    experiment.experimentId,
+    ...Array.from({ length: familySize - 1 }, (_, index) => `experiment-sibling-${index + 1}`),
+  ].sort();
+  const family = {
+    schemaVersion: "prompt_candidate_family_v1" as const,
+    familyId: experiment.familyId,
+    target,
+    championReleaseId: experiment.championId,
+    championPromptCommit: experiment.championPromptCommit,
+    championPromptRefs: experiment.championPromptRefs,
+    championPromptHashes: experiment.championPromptHashes,
+    datasetSplitId: split.splitId,
+    datasetSplitManifestHash: canonicalJsonHash(split),
+    candidateIds,
+    validationExperimentIds,
+    selectedCandidateId: experiment.candidateId,
+    selectedExperimentId: experiment.experimentId,
+    holdoutExperimentId: experiment.experimentId,
+    status: "COMPLETE" as const,
+    createdAt: "2025-04-01T00:00:00Z",
+    updatedAt: "2025-04-01T01:00:00Z",
+  };
+  return { split, runs, experiment, family };
 }
 
 function policy(overrides: Partial<PromptPromotionPolicy> = {}): PromptPromotionPolicy {
@@ -149,7 +192,6 @@ function policy(overrides: Partial<PromptPromotionPolicy> = {}): PromptPromotion
     minimumRepeatSeeds: 2,
     minimumPairedDelta: 0.05,
     familyAlpha: 0.05,
-    candidateFamilySize: 1,
     bootstrapSamples: 999,
     blockLength: 1,
     tailQuantile: 0.25,
@@ -183,10 +225,68 @@ describe("Agent-specific Prompt promotion policy", () => {
   });
 
   it("applies Bonferroni correction for a Candidate family", () => {
-    const decision = decide(buildFixture(), policy({ candidateFamilySize: 100 }));
+    const decision = decide(buildFixture({ familySize: 100 }));
     expect(decision.decision).toBe("REJECTED");
     expect(decision.reasons).toContain("validation_multiple_comparison");
     expect(decision.reasons).toContain("holdout_multiple_comparison");
+  });
+
+  it("keeps block-bootstrap evidence invariant when sample IDs are renamed", () => {
+    const original = buildFixture({
+      validationDeltas: [0.3, -0.1, 0.2, 0.1],
+      holdoutDeltas: [0.2, -0.05, 0.15, 0.1],
+    });
+    const rename = new Map([
+      ["validation-1", "validation-z"],
+      ["validation-2", "validation-a"],
+      ["validation-3", "validation-y"],
+      ["validation-4", "validation-b"],
+      ["holdout-1", "holdout-z"],
+      ["holdout-2", "holdout-a"],
+      ["holdout-3", "holdout-y"],
+      ["holdout-4", "holdout-b"],
+    ]);
+    const split = {
+      ...original.split,
+      validation: {
+        ...original.split.validation,
+        samples: original.split.validation.samples.map((row) => ({
+          ...row,
+          sampleId: rename.get(row.sampleId) ?? row.sampleId,
+        })),
+      },
+      holdout: {
+        ...original.split.holdout,
+        samples: original.split.holdout.samples.map((row) => ({
+          ...row,
+          sampleId: rename.get(row.sampleId) ?? row.sampleId,
+        })),
+      },
+    };
+    const renamed = {
+      ...original,
+      split,
+      runs: original.runs.map((row) => ({
+        ...row,
+        sampleId: rename.get(row.sampleId) ?? row.sampleId,
+      })),
+      experiment: {
+        ...original.experiment,
+        datasetSplitManifestHash: canonicalJsonHash(split),
+      },
+      family: {
+        ...original.family,
+        datasetSplitManifestHash: canonicalJsonHash(split),
+      },
+    };
+    const renameInvariantPolicy = policy({
+      criticalValidationSampleIds: [],
+      criticalHoldoutSampleIds: [],
+    });
+    const originalDecision = decide(original, renameInvariantPolicy);
+    const renamedDecision = decide(renamed, renameInvariantPolicy);
+    expect(renamedDecision.decision).toBe(originalDecision.decision);
+    expect(renamedDecision.metricSummary).toEqual(originalDecision.metricSummary);
   });
 
   it("enforces minimum mature samples and repeated seeds on both partitions", () => {
@@ -245,5 +345,57 @@ describe("Agent-specific Prompt promotion policy", () => {
         },
       }),
     ).toThrow("prompt_promotion_agent_evaluator_drift");
+  });
+
+  it("reopens the persisted Candidate and rejects release-time Prompt rebinding", async () => {
+    const fixture = buildFixture();
+    const decision = decide(fixture);
+    const mutationCategories = ["CONFLICT_RESOLUTION"] as const;
+    const candidate = PromptCandidateSchema.parse({
+      schemaVersion: "prompt_candidate_v1",
+      candidateId: fixture.experiment.candidateId,
+      parentId: fixture.experiment.championId,
+      parentPromptCommit: fixture.experiment.championPromptCommit,
+      parentPromptHashes: fixture.experiment.championPromptHashes,
+      target,
+      promptRefs: fixture.experiment.candidatePromptRefs,
+      promptHashes: fixture.experiment.candidatePromptHashes,
+      trainingSnapshotId: fixture.split.training.snapshotId,
+      trainingSnapshotHash: fixture.split.training.snapshotHash,
+      mutatorConfigHash: HASH_A,
+      mutatorCommit: COMMIT,
+      mutationCategories,
+      mutationSummary: promptMutationSummary(mutationCategories),
+      hypothesis: promptMutationHypothesis(mutationCategories),
+      alignmentVerifierVersion: "bilingual-alignment-v1",
+      behaviorAlignmentHash: promptBehaviorAlignmentHash({
+        promptHashes: fixture.experiment.candidatePromptHashes,
+        alignmentVerifierVersion: "bilingual-alignment-v1",
+      }),
+      createdAt: "2025-04-01T00:00:00Z",
+    });
+    const api = {
+      promptOptimizerGetCandidate: async () => candidate,
+      promptOptimizerGetExperiment: async () => fixture.experiment,
+      promptOptimizerGetFamily: async () => fixture.family,
+      promptOptimizerGetSplit: async () => fixture.split,
+      promptOptimizerListRuns: async () => fixture.runs,
+    } as unknown as BridgeApi;
+    await expect(
+      verifyStoredPromptPromotionDecision({ api, candidate, decision }),
+    ).resolves.toBeUndefined();
+
+    const reboundHashes = { zh: HASH_A, en: HASH_A };
+    const rebound = PromptCandidateSchema.parse({
+      ...candidate,
+      promptHashes: reboundHashes,
+      behaviorAlignmentHash: promptBehaviorAlignmentHash({
+        promptHashes: reboundHashes,
+        alignmentVerifierVersion: candidate.alignmentVerifierVersion,
+      }),
+    });
+    await expect(
+      verifyStoredPromptPromotionDecision({ api, candidate: rebound, decision }),
+    ).rejects.toThrow("prompt_promotion_authority_binding_mismatch");
   });
 });

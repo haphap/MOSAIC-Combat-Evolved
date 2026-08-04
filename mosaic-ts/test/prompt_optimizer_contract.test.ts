@@ -4,12 +4,16 @@ import {
   assertCandidateMatchesSplit,
   assertCandidateMatchesTrainingSnapshot,
   DatasetSplitManifestSchema,
+  PromptCandidateFamilySchema,
   PromptCandidateSchema,
   PromptExperimentRunSchema,
   PromptExperimentSchema,
   PromptOptimizerTargetSchema,
   PromptPromotionDecisionSchema,
   PromptTrainingSnapshotSchema,
+  promptBehaviorAlignmentHash,
+  promptMutationHypothesis,
+  promptMutationSummary,
 } from "../src/autoresearch/prompt_optimizer_contract.js";
 
 const HASH = `sha256:${"a".repeat(64)}`;
@@ -71,19 +75,29 @@ function splitManifest() {
 }
 
 function candidate() {
+  const promptHashes = { zh: HASH, en: OTHER_HASH };
+  const mutationCategories = ["CONFLICT_RESOLUTION"] as const;
   return {
     schemaVersion: "prompt_candidate_v1" as const,
     candidateId: "candidate-1",
     parentId: "champion-1",
+    parentPromptCommit: COMMIT,
+    parentPromptHashes: { zh: OTHER_HASH, en: HASH },
     target,
     promptRefs: { zh: "private://candidate-1.zh", en: "private://candidate-1.en" },
-    promptHashes: { zh: HASH, en: OTHER_HASH },
+    promptHashes,
     trainingSnapshotId: "training-1",
     trainingSnapshotHash: HASH,
     mutatorConfigHash: HASH,
     mutatorCommit: COMMIT,
-    mutationSummary: "先检查反证，再形成结论。",
-    hypothesis: "This improves counter-evidence ordering.",
+    mutationCategories,
+    mutationSummary: promptMutationSummary(mutationCategories),
+    hypothesis: promptMutationHypothesis(mutationCategories),
+    alignmentVerifierVersion: "bilingual-alignment-v1",
+    behaviorAlignmentHash: promptBehaviorAlignmentHash({
+      promptHashes,
+      alignmentVerifierVersion: "bilingual-alignment-v1",
+    }),
     createdAt: "2025-04-01T00:00:00Z",
   };
 }
@@ -118,15 +132,47 @@ describe("prompt optimizer public contracts", () => {
     expect(() =>
       PromptCandidateSchema.parse({ ...candidate(), zh_prompt: "private body" }),
     ).toThrow();
+    expect(() =>
+      PromptCandidateSchema.parse({
+        ...candidate(),
+        alignmentVerifierVersion: "private verifier rationale must not cross",
+      }),
+    ).toThrow();
+    expect(
+      PromptCandidateFamilySchema.parse({
+        schemaVersion: "prompt_candidate_family_v1",
+        familyId: "family-1",
+        target,
+        championReleaseId: "champion-1",
+        championPromptCommit: COMMIT,
+        championPromptRefs: { zh: "private://champion.zh", en: "private://champion.en" },
+        championPromptHashes: { zh: OTHER_HASH, en: HASH },
+        datasetSplitId: "split-1",
+        datasetSplitManifestHash: HASH,
+        candidateIds: ["candidate-1"],
+        validationExperimentIds: [],
+        selectedCandidateId: null,
+        selectedExperimentId: null,
+        holdoutExperimentId: null,
+        status: "REGISTERED",
+        createdAt: "2025-04-01T00:00:00Z",
+        updatedAt: "2025-04-01T00:00:00Z",
+      }),
+    ).toBeDefined();
     expect(
       PromptExperimentSchema.parse({
         schemaVersion: "prompt_experiment_v1",
         experimentId: "experiment-1",
+        familyId: "family-1",
         candidateId: "candidate-1",
         championId: "champion-1",
         target,
+        championPromptCommit: COMMIT,
+        championPromptRefs: { zh: "private://champion.zh", en: "private://champion.en" },
         championPromptHashes: { zh: HASH, en: OTHER_HASH },
+        candidatePromptRefs: candidate().promptRefs,
         candidatePromptHashes: { zh: OTHER_HASH, en: HASH },
+        datasetSplitId: "split-1",
         datasetSplitManifestHash: HASH,
         validationSnapshotHash: OTHER_HASH,
         holdoutSnapshotHash: HASH,
@@ -150,12 +196,14 @@ describe("prompt optimizer public contracts", () => {
         schemaVersion: "prompt_promotion_decision_v1",
         decisionId: "decision-1",
         experimentId: "experiment-1",
+        familyId: "family-1",
         candidateId: "candidate-1",
         policyVersion: "policy-v1",
         policyConfigHash: HASH,
         decision: "REJECTED",
         reasons: ["validation_delta_below_threshold"],
         metricSummary: { paired_delta: 0 },
+        evidenceHash: HASH,
         decidedAt: "2025-04-01T00:00:00Z",
       }),
     ).toBeDefined();
@@ -201,6 +249,17 @@ describe("prompt optimizer public contracts", () => {
       maturedAt: "2025-05-01T00:00:00Z",
     };
     expect(() => DatasetSplitManifestSchema.parse(future)).toThrow(/immature/);
+  });
+
+  it("orders timestamp offsets by instant rather than source spelling", () => {
+    const value = splitManifest();
+    value.training.samples[0] = sample(
+      "train-1",
+      "2025-01-11T00:00:00-12:00",
+      "2025-01-11T01:00:00-12:00",
+      "2025-01-11T23:00:00+14:00",
+    );
+    expect(() => DatasetSplitManifestSchema.parse(value)).toThrow(/mature before/);
   });
 
   it("binds Candidate training identity to the frozen split", () => {
