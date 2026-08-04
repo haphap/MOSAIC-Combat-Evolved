@@ -23,6 +23,14 @@ const SafePublicVersionSchema = z
   .trim()
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$/);
 const FiniteMetricRecordSchema = z.record(z.string().trim().min(1), z.number().finite());
+const BehaviorFacetFeedbackSchema = z
+  .object({
+    matureSampleCount: z.number().int().min(30),
+    meanScore: z.number().finite().min(-1).max(1),
+    lowerTailScore: z.number().finite().min(-1).max(1),
+    failureCategoryCounts: z.record(z.string().trim().min(1), z.number().int().nonnegative()),
+  })
+  .strict();
 
 function instant(value: string): number {
   const parsed = Date.parse(value);
@@ -104,16 +112,49 @@ export const PromptTrainingSnapshotSchema = z
     target: PromptOptimizerTargetSchema,
     snapshotId: NonEmptyIdSchema,
     snapshotHash: PromptOptimizerSha256Schema,
+    datasetSnapshotHash: PromptOptimizerSha256Schema,
     cutoffAt: IsoDateTimeSchema,
     outcomeContractVersion: NonEmptyIdSchema,
     evaluatorVersion: NonEmptyIdSchema,
-    matureSampleCount: z.number().int().positive(),
+    matureSampleCount: z.number().int().min(30),
     scoreSummary: FiniteMetricRecordSchema,
     failureCategoryCounts: z.record(z.string().trim().min(1), z.number().int().nonnegative()),
     tailFailureCaseRefs: z.array(PublicRefSchema).max(100),
     evidenceGapSummaries: z.array(PublicSummarySchema).max(100),
+    behaviorFeedback: z
+      .object({
+        contractHash: PromptOptimizerSha256Schema,
+        facets: z.record(z.string().regex(/^[a-z][a-z0-9_]*$/), BehaviorFacetFeedbackSchema),
+      })
+      .strict(),
   })
-  .strict();
+  .strict()
+  .superRefine((snapshot, ctx) => {
+    const { snapshotHash, ...body } = snapshot;
+    if (snapshotHash !== canonicalJsonHash(body)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["snapshotHash"],
+        message: "training snapshot hash must bind the complete training projection",
+      });
+    }
+    if (Object.keys(snapshot.behaviorFeedback.facets).length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["behaviorFeedback", "facets"],
+        message: "behavior feedback must cover at least one role facet",
+      });
+    }
+    for (const [facetId, feedback] of Object.entries(snapshot.behaviorFeedback.facets)) {
+      if (feedback.matureSampleCount !== snapshot.matureSampleCount) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["behaviorFeedback", "facets", facetId, "matureSampleCount"],
+          message: "every facet must use the complete mature training sample set",
+        });
+      }
+    }
+  });
 
 export type PromptTrainingSnapshot = z.infer<typeof PromptTrainingSnapshotSchema>;
 
@@ -136,6 +177,7 @@ export const PromptCandidateSchema = z
     hypothesis: PublicSummarySchema,
     alignmentVerifierVersion: SafePublicVersionSchema,
     behaviorAlignmentHash: PromptOptimizerSha256Schema,
+    behaviorContractHash: PromptOptimizerSha256Schema,
     createdAt: IsoDateTimeSchema,
   })
   .strict()
@@ -529,7 +571,8 @@ export function assertCandidateMatchesTrainingSnapshot(
   if (
     JSON.stringify(candidate.target) !== JSON.stringify(training.target) ||
     candidate.trainingSnapshotId !== training.snapshotId ||
-    candidate.trainingSnapshotHash !== training.snapshotHash
+    candidate.trainingSnapshotHash !== training.snapshotHash ||
+    candidate.behaviorContractHash !== training.behaviorFeedback.contractHash
   ) {
     throw new Error("candidate_training_snapshot_mismatch");
   }
@@ -549,6 +592,7 @@ export function assertCandidateMatchesSplit(
 }
 
 export const PROMPT_OPTIMIZER_PUBLIC_SCHEMAS = Object.freeze({
+  prompt_training_snapshot_v1: PromptTrainingSnapshotSchema,
   prompt_candidate_v1: PromptCandidateSchema,
   prompt_candidate_family_v1: PromptCandidateFamilySchema,
   prompt_dataset_split_v1: DatasetSplitManifestSchema,

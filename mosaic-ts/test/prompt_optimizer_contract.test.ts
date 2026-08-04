@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
 import { RUNTIME_AGENT_STAGE_SPECS } from "../src/agents/prompts/runtime_agent_spec.js";
 import {
   assertCandidateMatchesSplit,
@@ -98,6 +99,7 @@ function candidate() {
       promptHashes,
       alignmentVerifierVersion: "bilingual-alignment-v1",
     }),
+    behaviorContractHash: HASH,
     createdAt: "2025-04-01T00:00:00Z",
   };
 }
@@ -210,11 +212,11 @@ describe("prompt optimizer public contracts", () => {
   });
 
   it("exposes only a strict training projection to KNOT", () => {
-    const training = PromptTrainingSnapshotSchema.parse({
+    const trainingBody = {
       schemaVersion: "prompt_training_snapshot_v1",
       target,
       snapshotId: "training-1",
-      snapshotHash: HASH,
+      datasetSnapshotHash: OTHER_HASH,
       cutoffAt: "2025-01-31T00:00:00Z",
       outcomeContractVersion: "china-outcome-v2",
       evaluatorVersion: "agent-outcome-v2",
@@ -223,11 +225,53 @@ describe("prompt optimizer public contracts", () => {
       failureCategoryCounts: { missing_counter_evidence: 4 },
       tailFailureCaseRefs: ["failure://train-1"],
       evidenceGapSummaries: ["Counter-evidence was not checked before conclusion."],
+      behaviorFeedback: {
+        contractHash: HASH,
+        facets: {
+          growth_production: {
+            matureSampleCount: 30,
+            meanScore: 0.1,
+            lowerTailScore: -0.2,
+            failureCategoryCounts: { missing_counter_evidence: 4 },
+          },
+        },
+      },
+    } as const;
+    const training = PromptTrainingSnapshotSchema.parse({
+      ...trainingBody,
+      snapshotHash: canonicalJsonHash(trainingBody),
     });
-    assertCandidateMatchesTrainingSnapshot(PromptCandidateSchema.parse(candidate()), training);
+    const boundCandidate = PromptCandidateSchema.parse({
+      ...candidate(),
+      trainingSnapshotHash: training.snapshotHash,
+    });
+    assertCandidateMatchesTrainingSnapshot(boundCandidate, training);
     expect(() =>
       PromptTrainingSnapshotSchema.parse({ ...training, validationSnapshotHash: OTHER_HASH }),
     ).toThrow();
+    expect(() =>
+      assertCandidateMatchesTrainingSnapshot(
+        { ...boundCandidate, behaviorContractHash: OTHER_HASH },
+        training,
+      ),
+    ).toThrow("candidate_training_snapshot_mismatch");
+    expect(() =>
+      PromptTrainingSnapshotSchema.parse({
+        ...training,
+        behaviorFeedback: {
+          ...training.behaviorFeedback,
+          facets: {
+            growth_production: {
+              ...training.behaviorFeedback.facets.growth_production,
+              matureSampleCount: 31,
+            },
+          },
+        },
+      }),
+    ).toThrow(/complete mature training sample set/);
+    expect(() =>
+      PromptTrainingSnapshotSchema.parse({ ...training, evaluatorVersion: "changed-evaluator" }),
+    ).toThrow(/hash must bind/);
   });
 
   it("rejects overlapping or future-leaking split samples", () => {

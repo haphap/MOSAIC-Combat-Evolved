@@ -3,9 +3,11 @@ import { resolve } from "node:path";
 import { z } from "zod";
 import { ActivePromptReleaseManifestSchema } from "../src/agents/prompts/prompt_release_contract.js";
 import { PROMPT_OPTIMIZER_PUBLIC_SCHEMAS } from "../src/autoresearch/prompt_optimizer_contract.js";
+import { PromptBehaviorTrainingObservationSchema } from "../src/autoresearch/prompt_training_snapshot.js";
 
 const schemas = {
   ...PROMPT_OPTIMIZER_PUBLIC_SCHEMAS,
+  prompt_behavior_evaluation_v1: PromptBehaviorTrainingObservationSchema,
   active_prompt_release_manifest_v2: ActivePromptReleaseManifestSchema,
 };
 

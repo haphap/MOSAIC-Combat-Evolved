@@ -102,6 +102,7 @@ function fakeApi() {
           "Preregistered hypothesis: CONFLICT_RESOLUTION improves the frozen Agent outcome score.",
         alignmentVerifierVersion: "bilingual-alignment-v1",
         behaviorAlignmentHash: `sha256:${"9".repeat(64)}`,
+        behaviorContractHash: `sha256:${"a".repeat(64)}`,
         createdAt: "2026-05-30T00:00:00Z",
       },
       experiment: {

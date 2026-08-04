@@ -372,6 +372,7 @@ describe("Agent-specific Prompt promotion policy", () => {
         promptHashes: fixture.experiment.candidatePromptHashes,
         alignmentVerifierVersion: "bilingual-alignment-v1",
       }),
+      behaviorContractHash: HASH_A,
       createdAt: "2025-04-01T00:00:00Z",
     });
     const api = {

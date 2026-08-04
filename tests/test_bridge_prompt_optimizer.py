@@ -52,6 +52,7 @@ def candidate() -> dict[str, object]:
         ),
         "alignmentVerifierVersion": "bilingual-alignment-v1",
         "behaviorAlignmentHash": alignment_hash,
+        "behaviorContractHash": HASH_A,
         "createdAt": "2025-04-01T00:00:00Z",
     }
 

@@ -115,6 +115,7 @@ function fixtures(experimentId = "experiment-1") {
       promptHashes: { zh: HASH_B, en: HASH_C },
       alignmentVerifierVersion: "bilingual-alignment-v1",
     }),
+    behaviorContractHash: HASH_A,
     createdAt: "2025-04-01T00:00:00Z",
   });
   const family = PromptCandidateFamilySchema.parse({

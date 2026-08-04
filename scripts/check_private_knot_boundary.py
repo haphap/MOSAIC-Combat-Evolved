@@ -25,8 +25,10 @@ PRIVATE_ENTRY_PATH = Path("runtime/typescript/src/index.ts")
 ACTIVE_PRIVATE_PACKAGE = "@mosaic/private-knot-prompt-mutator"
 ACTIVE_PRIVATE_EXPORTS = {
     'export * from "./autoresearch/prompt_candidate_repository.js";',
+    'export * from "./autoresearch/prompt_behavior_contract.js";',
     'export * from "./autoresearch/prompt_mutator.js";',
 }
+ACTIVE_PRIVATE_BUILD_ENTRIES = ["src/index.ts", "src/cli.ts"]
 FORBIDDEN_PUBLIC_ASSETS = (
     PROMPT_CHECKS / "knot_runtime_contract_manifest_v2.json",
     PROMPT_CHECKS / "domain_knob_catalog_v1.json",
@@ -151,7 +153,7 @@ def _check_private_repository(private_root: Path, expected_commit: str) -> None:
     build_config = _read_object(
         private_root / PRIVATE_BUILD_CONFIG_PATH, "private build config"
     )
-    if build_config.get("include") != ["src/index.ts"]:
+    if build_config.get("include") != ACTIVE_PRIVATE_BUILD_ENTRIES:
         raise ValueError("private build includes legacy KNOT runtime modules")
 
     entry_lines = {
