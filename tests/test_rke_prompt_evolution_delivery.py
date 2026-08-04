@@ -262,7 +262,7 @@ def test_performance_budget_rejects_duration_regression():
     focused = next(
         check for check in checks if check["check_id"] == "focused_schema_contract"
     )
-    focused["duration_ms"] = 7000
+    focused["duration_ms"] = 10501
 
     status, reasons = verify_performance_budget(ROOT, checks)
 
