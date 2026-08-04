@@ -314,6 +314,10 @@ def _classify_private_knot_regime(
     return result
 
 
+def _reject_legacy_knot_write() -> None:
+    raise RuntimeError("legacy_knot_protocol_read_only")
+
+
 KNOT_STRICT_VALIDATOR_CONTRACT_HASH: Final = _sha256(
     KNOT_STRICT_VALIDATOR_CONTRACT
 )
@@ -3007,6 +3011,7 @@ class AgentToolCapabilityStore:
         candidate_envelope: Mapping[str, Any],
     ) -> dict[str, Any]:
         """Verify two issued capabilities and reserve their shared KNOT root."""
+        _reject_legacy_knot_write()
         self._require_durable_knot_key()
         expected_binding_keys = {
             "knot_research_track_id",
@@ -3168,6 +3173,7 @@ class AgentToolCapabilityStore:
         source_snapshot: Mapping[str, Any],
     ) -> dict[str, Any]:
         """Reserve one opaque, pinned-private classification for a PIT snapshot."""
+        _reject_legacy_knot_write()
         self._require_durable_knot_key()
         date.fromisoformat(expected_as_of)
         binding = {
@@ -3332,6 +3338,7 @@ class AgentToolCapabilityStore:
         sector_inference_budget_contract: Mapping[str, Any] | None,
     ) -> None:
         """Bind a successful private freeze result to its public reservation."""
+        _reject_legacy_knot_write()
         reservation_id = _required_string(
             {"value": pair_root_reservation_id}, "value"
         )
@@ -3434,6 +3441,7 @@ class AgentToolCapabilityStore:
         conn: sqlite3.Connection,
         reservation_id: str,
     ) -> dict[str, Any]:
+        _reject_legacy_knot_write()
         row = conn.execute(
             "SELECT budget_contract_json FROM private_pair_sector_budget_bindings "
             "WHERE pair_root_reservation_id = ?",
@@ -3739,6 +3747,7 @@ class AgentToolCapabilityStore:
         capability_envelope: Mapping[str, Any],
         usage_report: Mapping[str, Any],
     ) -> dict[str, Any]:
+        _reject_legacy_knot_write()
         return self.record_sector_model_usage(
             capability_envelope=capability_envelope,
             usage_report=usage_report,
@@ -4001,6 +4010,7 @@ class AgentToolCapabilityStore:
         self, *, binding: Mapping[str, Any]
     ) -> dict[str, Any]:
         """Aggregate the server-owned Sector usage ledger and sign its receipt."""
+        _reject_legacy_knot_write()
         self._require_durable_knot_key()
         expected_binding_keys = {
             "schema_version",
@@ -4492,6 +4502,7 @@ class AgentToolCapabilityStore:
         schema_json: Mapping[str, Any],
     ) -> dict[str, Any]:
         """Strict-parse and sign one accepted KNOT side output."""
+        _reject_legacy_knot_write()
         self._require_durable_knot_key()
         if pair_side not in {"CHAMPION", "CANDIDATE"}:
             raise ValueError("KNOT pair_side must be CHAMPION or CANDIDATE")

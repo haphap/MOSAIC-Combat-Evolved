@@ -3,30 +3,20 @@ import { assertCioHoldCurrentTargetSet } from "../decision/decision_semantics.js
 import type { CurrentPositionsSnapshot } from "../types.js";
 import type { AgentContractIssue, ContractValidationResult } from "./agent_run_contract.js";
 import { type RuntimeEvidenceSnapshot, validateOutputByClaimEvidence } from "./evidence_runtime.js";
-import {
-  applyPrivateKnotPolicy,
-  type PrivateKnotSnapshot,
-  type ToolStatus,
-} from "./private_knot_boundary.js";
 
 export function validateStrictAgentOutput<T>(input: {
   output: T;
   schema: z.ZodType<T>;
   agent: string;
   stage: string;
-  cohort: string;
   runtimeEvidence: RuntimeEvidenceSnapshot | null;
-  knobSnapshot: PrivateKnotSnapshot | null;
-  toolStatuses: ReadonlyArray<ToolStatus>;
   /** Accept risk-flag-only claims for an explicitly neutral/no-action output. */
   allowRiskFlagOnly?: boolean;
   currentPositions?: CurrentPositionsSnapshot;
-  /** Deterministic role/stage checks that must pass before consuming one-use KNOT policy. */
-  validateBeforePrivatePolicy?: (output: T) => ReadonlyArray<AgentContractIssue>;
+  validateRoleContract?: (output: T) => ReadonlyArray<AgentContractIssue>;
 }): ContractValidationResult<T> {
   const issues: AgentContractIssue[] = [];
-  const privateLineageIssues = validateRuntimeLineage(input);
-  issues.push(...privateLineageIssues);
+  issues.push(...validateRuntimeLineage(input));
   const parsed = input.schema.safeParse(input.output);
   if (!parsed.success) {
     issues.push(
@@ -67,47 +57,8 @@ export function validateStrictAgentOutput<T>(input: {
   }
 
   issues.push(...validateDispositionAndCioCoverage(output, input.agent, input.currentPositions));
-  if (input.validateBeforePrivatePolicy) {
-    issues.push(...input.validateBeforePrivatePolicy(output));
-  }
-
-  if (input.knobSnapshot && privateLineageIssues.length === 0 && issues.length === 0) {
-    try {
-      const policyResult = applyPrivateKnotPolicy({
-        snapshot: input.knobSnapshot,
-        output,
-        toolStatuses: input.toolStatuses,
-      });
-      if (policyResult.audit.snapshot_hash !== input.knobSnapshot.snapshot_hash) {
-        issues.push(
-          issue(
-            "private_knot_runtime_v1",
-            "PRIVATE_KNOT_AUDIT_SNAPSHOT_MISMATCH",
-            "$.private_knot_audit.snapshot_hash",
-          ),
-        );
-      } else if (!policyResult.audit.accepted) {
-        for (const reason of policyResult.audit.reason_codes) {
-          issues.push(
-            issue("private_knot_runtime_v1", "PRIVATE_KNOT_POLICY_REJECTED", "$", reason),
-          );
-        }
-      } else if (issues.length === 0) {
-        output = {
-          ...(policyResult.output as object),
-          private_knot_audit: policyResult.audit,
-        } as T;
-      }
-    } catch (error) {
-      issues.push(
-        issue(
-          "private_knot_runtime_v1",
-          "PRIVATE_KNOT_RUNTIME_ERROR",
-          "$",
-          error instanceof Error ? error.message : String(error),
-        ),
-      );
-    }
+  if (input.validateRoleContract) {
+    issues.push(...input.validateRoleContract(output));
   }
 
   return { output, issues };
@@ -125,9 +76,7 @@ function zodJsonPath(path: ReadonlyArray<PropertyKey>): string {
 function validateRuntimeLineage(input: {
   agent: string;
   stage: string;
-  cohort: string;
   runtimeEvidence: RuntimeEvidenceSnapshot | null;
-  knobSnapshot: PrivateKnotSnapshot | null;
 }): AgentContractIssue[] {
   const issues: AgentContractIssue[] = [];
   if (
@@ -148,76 +97,6 @@ function validateRuntimeLineage(input: {
         "evidence_claim_graph_v1",
         "RUNTIME_EVIDENCE_STAGE_MISMATCH",
         "$.verified_claim_graph.stage",
-      ),
-    );
-  }
-  if (!input.knobSnapshot) return issues;
-  if (input.knobSnapshot.agent !== input.agent) {
-    issues.push(
-      issue(
-        "private_knot_runtime_v1",
-        "PRIVATE_KNOT_SNAPSHOT_AGENT_MISMATCH",
-        "$.private_knot_snapshot.agent",
-      ),
-    );
-  }
-  if (input.knobSnapshot.stage !== input.stage) {
-    issues.push(
-      issue(
-        "private_knot_runtime_v1",
-        "PRIVATE_KNOT_SNAPSHOT_STAGE_MISMATCH",
-        "$.private_knot_snapshot.stage",
-      ),
-    );
-  }
-  if (input.knobSnapshot.cohort !== input.cohort) {
-    issues.push(
-      issue(
-        "private_knot_runtime_v1",
-        "PRIVATE_KNOT_SNAPSHOT_COHORT_MISMATCH",
-        "$.private_knot_snapshot.cohort",
-      ),
-    );
-  }
-  if (input.knobSnapshot.snapshot_id !== input.knobSnapshot.snapshot_hash) {
-    issues.push(
-      issue(
-        "private_knot_runtime_v1",
-        "PRIVATE_KNOT_SNAPSHOT_ID_HASH_MISMATCH",
-        "$.private_knot_snapshot.snapshot_id",
-      ),
-    );
-  }
-  if (
-    input.runtimeEvidence &&
-    input.runtimeEvidence.snapshotHash !== input.knobSnapshot.snapshot_hash
-  ) {
-    issues.push(
-      issue(
-        "private_knot_runtime_v1",
-        "RUNTIME_EVIDENCE_PRIVATE_SNAPSHOT_MISMATCH",
-        "$.verified_claim_graph.snapshot_hash",
-      ),
-    );
-  }
-  if (input.runtimeEvidence && input.runtimeEvidence.runId !== input.knobSnapshot.graph_run_id) {
-    issues.push(
-      issue(
-        "private_knot_runtime_v1",
-        "RUNTIME_EVIDENCE_PRIVATE_GRAPH_RUN_MISMATCH",
-        "$.verified_claim_graph.run_id",
-      ),
-    );
-  }
-  if (
-    input.runtimeEvidence &&
-    input.runtimeEvidence.agentInvocationId !== input.knobSnapshot.agent_invocation_id
-  ) {
-    issues.push(
-      issue(
-        "private_knot_runtime_v1",
-        "RUNTIME_EVIDENCE_PRIVATE_INVOCATION_MISMATCH",
-        "$.verified_claim_graph.agent_invocation_id",
       ),
     );
   }

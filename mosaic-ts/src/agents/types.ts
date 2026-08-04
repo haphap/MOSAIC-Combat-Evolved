@@ -28,10 +28,9 @@ import type {
   MacroInputAttributionSubmission,
 } from "./helpers/macro_attribution.js";
 import type {
-  PrivateKnotSnapshot,
   RuntimeSourceEvidenceObservation,
   RuntimeSourceStatus,
-} from "./helpers/private_knot_boundary.js";
+} from "./helpers/runtime_evidence_types.js";
 
 // ============================================================ Layer 1: Macro
 
@@ -713,11 +712,10 @@ export interface L4RunPromptSnapshot {
   agent: "alpha_discovery" | "cio" | "cro" | "autonomous_execution";
   stage: "alpha_discovery" | "cio_proposal" | "cro_review" | "execution_feasibility" | "cio_final";
   prompt_source_hash: string;
-  private_knot_snapshot_hash: string | null;
 }
 
 export interface L4RunSnapshotBundle {
-  schema_version: "decision.l4_run_snapshot_bundle.v1";
+  schema_version: "decision.l4_run_snapshot_bundle.v2";
   run_id: string;
   cohort: string;
   as_of_date: string;
@@ -761,7 +759,6 @@ export interface Layer4RuntimeState {
   execution_feasibility_state: ExecutionFeasibilityState | null;
   final_target_state: FinalTargetState | null;
   portfolio_summary: PortfolioSummary | null;
-  cio_final_knob_snapshot: PrivateKnotSnapshot | null;
   resolved_source_statuses: RuntimeSourceStatus[];
   source_evidence_observations: RuntimeSourceEvidenceObservation[];
   stage_trace: Layer4RuntimeTraceEntry[];

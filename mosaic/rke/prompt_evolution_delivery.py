@@ -16,14 +16,16 @@ from typing import Any, Literal, Mapping, Sequence
 
 SCHEMA_VERSION = "prompt_evolution_delivery_status_v1"
 GENERATOR_ID = "prompt_evolution_delivery"
-GENERATOR_VERSION = "2"
-COMMAND_CONTRACT_VERSION = "prompt_evolution_delivery_commands_v2"
+GENERATOR_VERSION = "3"
+COMMAND_CONTRACT_VERSION = "prompt_evolution_delivery_commands_v3"
 
 Status = Literal["pass", "fail", "blocked"]
 
 PROMPT_CHECK_DIR = Path("registry/prompt_checks")
-RUNTIME_MANIFEST_PATH = PROMPT_CHECK_DIR / "runtime_agent_manifest_v4.json"
-PRIVATE_KNOT_ASSETS_REF_PATH = PROMPT_CHECK_DIR / "private_knot_assets_ref_v1.json"
+RUNTIME_MANIFEST_PATH = PROMPT_CHECK_DIR / "runtime_agent_manifest_v5.json"
+PROMPT_RELEASE_CONTRACT_REF_PATH = (
+    PROMPT_CHECK_DIR / "prompt_release_contract_ref_v2.json"
+)
 TOKEN_BUDGET_PATH = PROMPT_CHECK_DIR / "prompt_token_budget_manifest_v1.json"
 PERFORMANCE_BUDGET_PATH = (
     PROMPT_CHECK_DIR / "prompt_evolution_performance_budget_v1.json"
@@ -41,14 +43,14 @@ DELIVERY_INPUT_PATHS = (
     Path("mosaic-ts/package.json"),
     Path("mosaic-ts/pnpm-lock.yaml"),
     Path("pyproject.toml"),
-    PRIVATE_KNOT_ASSETS_REF_PATH,
+    PROMPT_RELEASE_CONTRACT_REF_PATH,
     PERFORMANCE_BUDGET_PATH,
     RUNTIME_MANIFEST_PATH,
     TOKEN_BUDGET_PATH,
     Path("schemas/prompt_evolution_delivery_status_v1.schema.json"),
     Path("schemas/prompt_evolution_performance_budget_v1.schema.json"),
     Path("schemas/prompt_token_budget_manifest_v1.schema.json"),
-    Path("schemas/runtime_agent_manifest_v4.schema.json"),
+    Path("schemas/runtime_agent_manifest_v5.schema.json"),
 )
 
 CHECK_IDS = (
@@ -66,8 +68,7 @@ CHECK_IDS = (
     "typescript_integration_contract_tests",
     "bundled_prompt_contract",
     "runtime_manifest_reproducible",
-    "domain_catalog_reproducible",
-    "evaluation_contract_reproducible",
+    "prompt_release_contract_reproducible",
     "prompt_budget_attestation",
     "performance_budget",
     "documentation_contract",
@@ -86,8 +87,7 @@ GATE_DEFINITIONS: Mapping[str, Mapping[str, Any]] = {
             "schema_artifact_tests",
             "typescript_gate_tests",
             "runtime_manifest_reproducible",
-            "domain_catalog_reproducible",
-            "evaluation_contract_reproducible",
+            "prompt_release_contract_reproducible",
         ),
         "gates": (),
     },
@@ -182,7 +182,9 @@ CONDITION_DEFINITIONS: Mapping[str, Mapping[str, Any]] = {
 }
 
 PYTHON_GATE_TESTS = (
-    "tests/test_knot_private_boundary.py",
+    "tests/test_knot_legacy_read_only.py",
+    "tests/test_prompt_optimizer_store.py",
+    "tests/test_bridge_prompt_optimizer.py",
     "tests/test_bridge_autoresearch.py",
     "tests/test_bridge_prompts.py",
     "tests/test_mirofish.py",
@@ -190,7 +192,8 @@ PYTHON_GATE_TESTS = (
 )
 
 REPRESENTATIVE_EVALUATION_TESTS = (
-    "tests/test_knot_private_boundary.py",
+    "tests/test_prompt_optimizer_store.py",
+    "tests/test_bridge_prompt_optimizer.py",
 )
 
 PYTHON_INTEGRATION_CONTRACT_TESTS = (
@@ -229,7 +232,9 @@ TYPESCRIPT_GATE_TESTS = (
     "test/prompt_release_manager.test.ts",
     "test/prompt_token_budget.test.ts",
     "test/release_prompt_loader.test.ts",
-    "test/knot_contract.test.ts",
+    "test/prompt_experiment_runner.test.ts",
+    "test/prompt_optimizer_contract.test.ts",
+    "test/prompt_promotion_policy.test.ts",
     "test/runtime_agent_spec.test.ts",
     "test/transaction_release_coordinator.test.ts",
 )
@@ -316,7 +321,9 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
                 "python",
                 "-m",
                 "pytest",
-                "tests/test_knot_private_boundary.py",
+                "tests/test_knot_legacy_read_only.py",
+                "tests/test_prompt_optimizer_store.py",
+                "tests/test_bridge_prompt_optimizer.py",
                 "tests/test_rke_prompt_evolution_delivery.py::test_delivery_artifact_validates_against_json_schema",
                 "-q",
                 "--junitxml",
@@ -326,10 +333,11 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
             ),
             root,
             (
-                "tests/test_knot_private_boundary.py",
+                "tests/test_knot_legacy_read_only.py",
+                "tests/test_prompt_optimizer_store.py",
+                "tests/test_bridge_prompt_optimizer.py",
                 "tests/test_rke_prompt_evolution_delivery.py::test_delivery_artifact_validates_against_json_schema",
             ),
-            junit_expected_tests=16,
             junit_path=run_dir / "focused-schema.xml",
         ),
         CommandSpec(
@@ -479,8 +487,7 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
             "export-runtime-agent-manifest",
             RUNTIME_MANIFEST_PATH,
         ),
-        _private_knot_ref_spec(root, "domain_catalog_reproducible"),
-        _private_knot_ref_spec(root, "evaluation_contract_reproducible"),
+        _prompt_release_contract_ref_spec(root, generated_dir),
         CommandSpec(
             "git_diff_check",
             ("git", "diff", "--check"),
@@ -490,12 +497,21 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
     )
 
 
-def _private_knot_ref_spec(root: Path, check_id: str) -> CommandSpec:
+def _prompt_release_contract_ref_spec(root: Path, generated_dir: Path) -> CommandSpec:
+    output = generated_dir / PROMPT_RELEASE_CONTRACT_REF_PATH.name
     return CommandSpec(
-        check_id,
-        ("uv", "run", "python", "scripts/check_private_knot_boundary.py"),
-        root,
-        (str(PRIVATE_KNOT_ASSETS_REF_PATH),),
+        "prompt_release_contract_reproducible",
+        (
+            "pnpm",
+            "exec",
+            "tsx",
+            "scripts/generate_prompt_release_contract_ref.ts",
+            "--out",
+            str(output),
+        ),
+        root / "mosaic-ts",
+        (str(PROMPT_RELEASE_CONTRACT_REF_PATH),),
+        compare_output_to=PROMPT_RELEASE_CONTRACT_REF_PATH,
     )
 
 
@@ -851,8 +867,8 @@ def verify_performance_budget(
 def verify_documentation_contract(root: Path) -> tuple[Status, list[str]]:
     requirements = {
         Path("docs/runbooks/position_aware_prompt_evolution.md"): (
-            "MOSAIC_KNOT_RUNTIME_ROOT",
-            "check_private_knot_boundary.py",
+            "Prompt Mutator",
+            "prompt_release_contract_ref_v2.json",
             "check_prompt_leaks.py",
             "canary",
             "rollback",

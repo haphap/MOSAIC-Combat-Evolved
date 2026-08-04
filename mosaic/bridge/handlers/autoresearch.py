@@ -609,77 +609,13 @@ def autoresearch_evaluate_pending(params: dict[str, Any]) -> dict[str, Any]:
             )
         )
         if is_contract_evaluated_mutation:
-            from mosaic.autoresearch.domain_evaluator import (
-                DomainEvaluationError,
+            results.append(
+                {
+                    "version_id": version_id,
+                    "status": "legacy_read_only",
+                    "detail": "legacy knob evaluation moved to the Prompt optimizer flow",
+                }
             )
-
-            lifecycle = store.get_prompt_version(version_id).get("mutation_lifecycle")
-            if lifecycle in ("eligible_for_promotion", "reverted", "invalid", "kept"):
-                results.append(
-                    {
-                        "version_id": version_id,
-                        "status": lifecycle,
-                        "evaluation_result": store.get_domain_evaluation_result(version_id),
-                    }
-                )
-                continue
-            if domain_sample_manifest is None:
-                if lifecycle == "validated":
-                    store.set_version_mutation_lifecycle(version_id, "shadow_evaluating")
-                    store.append_log(version_id, "shadow_evaluating", "awaiting PIT sample manifest")
-                    lifecycle = "shadow_evaluating"
-                if lifecycle == "shadow_evaluating":
-                    store.set_version_mutation_lifecycle(version_id, "needs_fill")
-                    store.append_log(version_id, "needs_fill", "missing PIT sample manifest")
-                results.append(
-                    {
-                        "version_id": version_id,
-                        "status": "needs_fill",
-                        "missing_domain_samples": True,
-                        "missing_paired_samples": True,
-                    }
-                )
-                continue
-            try:
-                if lifecycle == "validated":
-                    store.set_version_mutation_lifecycle(version_id, "shadow_evaluating")
-                elif lifecycle == "needs_fill":
-                    store.set_version_mutation_lifecycle(version_id, "shadow_evaluating")
-                evaluation_result = store.evaluate_domain_mutation(
-                    mutation_metadata,
-                    domain_sample_manifest,
-                )
-                store.set_domain_evaluation_result(version_id, evaluation_result)
-                evaluation_status = evaluation_result["status"]
-                store.set_version_mutation_lifecycle(version_id, evaluation_status)
-                store.append_log(
-                    version_id,
-                    evaluation_status,
-                    (
-                        f"metric={evaluation_result['metric_id']} "
-                        f"samples={evaluation_result['sample_count']} "
-                        f"effect={evaluation_result.get('effect_size')}"
-                    ),
-                )
-                results.append(
-                    {
-                        "version_id": version_id,
-                        "status": evaluation_status,
-                        "evaluation_result": evaluation_result,
-                    }
-                )
-            except DomainEvaluationError as exc:
-                current = store.get_prompt_version(version_id).get("mutation_lifecycle")
-                if current not in ("invalid", "reverted", "kept"):
-                    store.set_version_mutation_lifecycle(version_id, "invalid")
-                store.append_log(version_id, "invalid", str(exc))
-                results.append(
-                    {
-                        "version_id": version_id,
-                        "status": "invalid",
-                        "detail": str(exc),
-                    }
-                )
             continue
 
         cohort_info = cohorts_cfg.get(v_cohort, {})

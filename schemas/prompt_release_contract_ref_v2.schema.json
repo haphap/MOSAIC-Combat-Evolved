@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Prompt Release Contract Reference v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "sources", "evaluation_contract"],
+  "properties": {
+    "schema_version": { "const": "prompt_release_contract_ref_v2" },
+    "sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runtime_agent_manifest",
+        "execution_behavior_release_manifest",
+        "agent_outcome_contract_manifest"
+      ],
+      "properties": {
+        "runtime_agent_manifest": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "hash"],
+          "properties": {
+            "path": { "const": "registry/prompt_checks/runtime_agent_manifest_v5.json" },
+            "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+          }
+        },
+        "execution_behavior_release_manifest": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "release_id"],
+          "properties": {
+            "path": {
+              "const": "registry/prompt_checks/execution_behavior_release_manifest_v2.json"
+            },
+            "release_id": {
+              "type": "string",
+              "pattern": "^execution-behavior-release:[0-9a-f]{64}$"
+            }
+          }
+        },
+        "agent_outcome_contract_manifest": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "registry_hash"],
+          "properties": {
+            "path": {
+              "const": "registry/prompt_checks/agent_outcome_contract_manifest_v2.json"
+            },
+            "registry_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+          }
+        }
+      }
+    },
+    "evaluation_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["catalog_hash", "schema_hash", "contract_hash"],
+      "properties": {
+        "catalog_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "schema_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "contract_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

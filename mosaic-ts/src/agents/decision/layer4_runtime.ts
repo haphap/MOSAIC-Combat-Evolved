@@ -1,6 +1,6 @@
 import type { NoEvaluationObjectStageSkipRecord } from "../../autoresearch/outcome_stage_skip.js";
 import { canonicalJsonHash } from "../helpers/canonical_json.js";
-import type { RuntimeSourceStatus } from "../helpers/private_knot_boundary.js";
+import type { RuntimeSourceStatus } from "../helpers/runtime_evidence_types.js";
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType } from "../state.js";
 import type {
@@ -47,7 +47,6 @@ export function emptyLayer4RuntimeState(): Layer4RuntimeState {
     execution_feasibility_state: null,
     final_target_state: null,
     portfolio_summary: null,
-    cio_final_knob_snapshot: null,
     resolved_source_statuses: [],
     source_evidence_observations: [],
     stage_trace: [],
@@ -178,7 +177,7 @@ export function freezeL4RunSnapshotBundle(input: {
     mirofish_context_hash: input.mirofishContextHash,
   };
   return {
-    schema_version: "decision.l4_run_snapshot_bundle.v1",
+    schema_version: "decision.l4_run_snapshot_bundle.v2",
     ...payload,
     bundle_hash: stableHash(payload),
     frozen: true,
@@ -190,7 +189,6 @@ export function assertL4RunSnapshotStage(input: {
   agent: string;
   stage: RuntimeAgentStageId;
   promptSourceHash: string;
-  privateKnotSnapshotHash: string | null;
   mirofishContextHash: string | null;
 }): L4RunSnapshotBundle {
   const bundle = runtimeStateForLayer4(input.state).l4_run_snapshot_bundle;
@@ -217,11 +215,8 @@ export function assertL4RunSnapshotStage(input: {
   if (!prompt || prompt.agent !== input.agent) {
     throw new Layer4RuntimeContractError("L4 prompt snapshot stage/agent mismatch");
   }
-  if (
-    prompt.prompt_source_hash !== input.promptSourceHash ||
-    prompt.private_knot_snapshot_hash !== input.privateKnotSnapshotHash
-  ) {
-    throw new Layer4RuntimeContractError("L4 prompt or knob hash drifted during run");
+  if (prompt.prompt_source_hash !== input.promptSourceHash) {
+    throw new Layer4RuntimeContractError("L4 prompt hash drifted during run");
   }
   const currentSourceHashes = marketSourceHashes(
     runtimeStateForLayer4(input.state).resolved_source_statuses,

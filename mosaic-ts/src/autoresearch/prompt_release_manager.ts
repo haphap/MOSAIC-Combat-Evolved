@@ -1,9 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { clearPrivateKnotRuntime } from "../agents/helpers/private_knot_boundary.js";
-import { checkPrivateKnotPromptBoundary } from "../agents/prompts/private_knot_prompt_checker.js";
+import { canonicalJsonHash } from "../agents/helpers/canonical_json.js";
 import {
   type ActivePromptReleaseManifest,
   ActivePromptReleaseManifestSchema,
@@ -14,13 +10,16 @@ import {
 import {
   buildReleasePromptPairsAtCommit,
   loadPromptReleaseClosureAtCommit,
-  promptPairVersionShaAtCommit,
 } from "../agents/prompts/release_prompt_loader.js";
 import type { RuntimeAgentSpec } from "../agents/prompts/runtime_agent_spec.js";
 import { RUNTIME_AGENT_SPECS } from "../agents/prompts/runtime_agent_spec.js";
 import { findRepoRoot } from "../bridge/python.js";
-import type { PromptReleaseCheckResult } from "../bridge/types.js";
-import { initializePrivateKnotRuntime } from "./private_knot_runtime.js";
+import {
+  type PromptCandidate,
+  PromptCandidateSchema,
+  type PromptPromotionDecision,
+  PromptPromotionDecisionSchema,
+} from "./prompt_optimizer_contract.js";
 import {
   buildPromptReleaseCanarySloArtifact,
   PromptReleaseCanaryEventJournal,
@@ -29,8 +28,6 @@ import {
   stageSnapshotHashesHash,
 } from "./prompt_release_canary_slo.js";
 import { ActivePromptReleaseRegistry } from "./release_registry.js";
-
-const SHA256 = /^sha256:[0-9a-f]{64}$/;
 
 export const DEFAULT_PROMPT_RELEASE_ROLLBACK_TRIGGERS = [
   "schema_failure_rate_gt_0",
@@ -46,30 +43,19 @@ export const DEFAULT_PROMPT_RELEASE_ROLLBACK_TRIGGERS = [
 
 type RuntimeSloSummary = NonNullable<ActivePromptReleaseManifest["runtime_slo_summary"]>;
 
-interface CandidateCheckOptions {
-  repo: string;
-  commit: string;
-  cohort: string;
-  source: "private" | "bundled";
-  privateRuntimeRepo: string;
-  privateRuntimeCommit: string;
-}
-
-export interface PromptReleaseCandidateCheckResult {
-  snapshotHashes: Readonly<Record<string, string>>;
-}
-
 export interface PromptReleaseManagerDependencies {
   specs?: ReadonlyArray<RuntimeAgentSpec>;
-  checkCandidate?: (opts: CandidateCheckOptions) => Promise<PromptReleaseCandidateCheckResult>;
   now?: () => string;
 }
 
 export interface StagePromptReleaseOptions {
   registryRoot: string;
   releaseId: string;
-  verification: PromptReleaseCheckResult;
+  candidate: PromptCandidate;
+  promotionDecision: PromptPromotionDecision;
   privatePromptRepo: string;
+  privatePromptCommit: string;
+  codeCommit: string;
   codeRepo?: string;
   cohort: string;
   accountMode: "paper" | "backtest" | "live";
@@ -109,124 +95,42 @@ async function assertCleanCodeCheckout(repo: string, expectedCommit: string): Pr
   }
 }
 
-async function withDetachedWorktree<T>(
-  repo: string,
-  commit: string,
-  action: (root: string) => Promise<T>,
-): Promise<T> {
-  const parent = await mkdtemp(join(tmpdir(), "mosaic-prompt-release-"));
-  const worktree = join(parent, "candidate");
-  let added = false;
-  try {
-    await runGit(repo, ["worktree", "add", "--detach", worktree, commit]);
-    added = true;
-    return await action(worktree);
-  } finally {
-    if (added) await runGit(repo, ["worktree", "remove", "--force", worktree]).catch(() => null);
-    await rm(parent, { recursive: true, force: true });
-  }
-}
-
-async function checkCandidateAtCommit(
-  opts: CandidateCheckOptions,
-): Promise<PromptReleaseCandidateCheckResult> {
-  const check = async (promptRoot: string, privateRuntimeRoot: string) => {
-    try {
-      await initializePrivateKnotRuntime({ required: true, privateRoot: privateRuntimeRoot });
-      const report = await checkPrivateKnotPromptBoundary({
-        cohort: opts.cohort,
-        ...(opts.source === "private"
-          ? { privatePromptsRoot: join(promptRoot, "prompts", "mosaic") }
-          : { promptsRoot: join(promptRoot, "prompts", "mosaic") }),
-        requirePrivateKnot: true,
-        enabledAgentStages: new Set(["*"]),
-      });
-      if (
-        !report.ready ||
-        report.bundled_fallback_agent_stages.length > 0 ||
-        report.unavailable_agent_stages.length > 0
-      ) {
-        const failures = report.rows
-          .filter((row) => !row.ready)
-          .flatMap((row) => row.reasons.map((reason) => `${row.agent}:${row.stage}:${reason}`));
-        throw new Error(`prompt_release_candidate_check_failed:${failures.slice(0, 10).join("|")}`);
-      }
-      return {
-        snapshotHashes: Object.fromEntries(
-          report.rows.map((row) => [`${row.agent}:${row.stage}`, row.snapshot_hash ?? ""]),
-        ),
-      };
-    } finally {
-      clearPrivateKnotRuntime();
-    }
-  };
-  return withDetachedWorktree(opts.repo, opts.commit, async (promptRoot) => {
-    if (opts.repo === opts.privateRuntimeRepo && opts.commit === opts.privateRuntimeCommit) {
-      return check(promptRoot, promptRoot);
-    }
-    return withDetachedWorktree(
-      opts.privateRuntimeRepo,
-      opts.privateRuntimeCommit,
-      (privateRuntimeRoot) => check(promptRoot, privateRuntimeRoot),
-    );
-  });
-}
-
-function requirePin(
-  verification: PromptReleaseCheckResult,
+function requireEligibleCandidate(
+  rawCandidate: PromptCandidate,
+  rawDecision: PromptPromotionDecision,
   cohort: string,
-): {
-  agent: string;
-  promptCommit: string;
-  codeCommit: string;
-  promptSha: string;
-  keepDecisionHash: string;
-  versionId: number;
-  mutationId: string;
-  experimentId: string;
-  evaluationResultHash: string;
-  transactionManifestHash: string;
-} {
-  if (!verification.ready) throw new Error("prompt_release_verification_not_ready");
-  const pin = verification.pin;
-  if (pin.cohort !== cohort) throw new Error("prompt_release_verification_cohort_mismatch");
-  if (pin.prompt_repo_id !== "private") {
-    throw new Error("prompt_release_verification_not_private");
-  }
-  const promptCommit = pin.prompt_commit_hash?.trim() ?? "";
-  const codeCommit = pin.code_commit_hash?.trim() ?? "";
-  const promptSha = pin.prompt_sha256?.trim() ?? "";
-  const keepDecisionHash = pin.keep_decision_hash?.trim() ?? "";
-  const mutationId = pin.mutation_id?.trim() ?? "";
-  const experimentId = pin.experiment_id?.trim() ?? "";
-  const evaluationResultHash = pin.evaluation_result_hash?.trim() ?? "";
-  const transactionManifestHash = pin.transaction_manifest_hash?.trim() ?? "";
-  if (!promptCommit || !codeCommit || !/^[0-9a-f]{64}$/.test(promptSha)) {
-    throw new Error("prompt_release_verification_pin_incomplete");
-  }
+): { candidate: PromptCandidate; decision: PromptPromotionDecision } {
+  const candidate = PromptCandidateSchema.parse(rawCandidate);
+  const decision = PromptPromotionDecisionSchema.parse(rawDecision);
+  if (candidate.target.cohort !== cohort)
+    throw new Error("prompt_release_candidate_cohort_mismatch");
   if (
-    !SHA256.test(keepDecisionHash) ||
-    !Number.isInteger(pin.version_id) ||
-    pin.version_id < 1 ||
-    !mutationId ||
-    !experimentId ||
-    !SHA256.test(evaluationResultHash) ||
-    !SHA256.test(transactionManifestHash)
+    decision.decision !== "ELIGIBLE" ||
+    decision.candidateId !== candidate.candidateId ||
+    decision.experimentId.trim().length === 0
   ) {
-    throw new Error("prompt_release_evaluation_trace_incomplete");
+    throw new Error("prompt_release_candidate_not_eligible");
   }
-  return {
-    agent: pin.agent,
-    promptCommit,
-    codeCommit,
-    promptSha,
-    keepDecisionHash,
-    versionId: pin.version_id,
-    mutationId,
-    experimentId,
-    evaluationResultHash,
-    transactionManifestHash,
-  };
+  return { candidate, decision };
+}
+
+async function assertCandidateRecordAtCommit(input: {
+  repo: string;
+  commit: string;
+  candidate: PromptCandidate;
+}): Promise<void> {
+  const ref = `registry/prompt_candidates_v2/${input.candidate.candidateId}.json`;
+  let value: PromptCandidate;
+  try {
+    value = PromptCandidateSchema.parse(
+      JSON.parse((await runGit(input.repo, ["show", `${input.commit}:${ref}`])).toString("utf-8")),
+    );
+  } catch {
+    throw new Error("prompt_release_private_candidate_record_missing");
+  }
+  if (canonicalJsonHash(value) !== canonicalJsonHash(input.candidate)) {
+    throw new Error("prompt_release_private_candidate_record_mismatch");
+  }
 }
 
 function now(deps: PromptReleaseManagerDependencies): string {
@@ -256,29 +160,29 @@ export async function stagePromptRelease(
 ): Promise<ActivePromptReleaseManifest> {
   const codeRepo = opts.codeRepo ?? findRepoRoot();
   const specs = deps.specs ?? RUNTIME_AGENT_SPECS;
-  const pin = requirePin(opts.verification, opts.cohort);
+  const { candidate, decision } = requireEligibleCandidate(
+    opts.candidate,
+    opts.promotionDecision,
+    opts.cohort,
+  );
   if (
-    ["cro", "alpha_discovery", "autonomous_execution", "cio"].includes(pin.agent) &&
+    ["cro", "alpha_discovery", "autonomous_execution", "cio"].includes(candidate.target.agentId) &&
     opts.approvalPolicyId !== "decision_release_manual_v1"
   ) {
     throw new Error("prompt_release_decision_policy_required");
   }
   const [promptCommit, codeCommit] = await Promise.all([
-    fullCommit(opts.privatePromptRepo, pin.promptCommit),
-    fullCommit(codeRepo, pin.codeCommit),
+    fullCommit(opts.privatePromptRepo, opts.privatePromptCommit),
+    fullCommit(codeRepo, opts.codeCommit),
   ]);
-  if (promptCommit !== pin.promptCommit || codeCommit !== pin.codeCommit) {
+  if (promptCommit !== opts.privatePromptCommit || codeCommit !== opts.codeCommit) {
     throw new Error("prompt_release_requires_full_commit_ids");
   }
   await assertCleanCodeCheckout(codeRepo, codeCommit);
-  const candidateCheck = deps.checkCandidate ?? checkCandidateAtCommit;
-  const privateCheck = await candidateCheck({
+  await assertCandidateRecordAtCommit({
     repo: opts.privatePromptRepo,
     commit: promptCommit,
-    cohort: opts.cohort,
-    source: "private",
-    privateRuntimeRepo: opts.privatePromptRepo,
-    privateRuntimeCommit: promptCommit,
+    candidate,
   });
   const promptPairs = await buildReleasePromptPairsAtCommit({
     repo: opts.privatePromptRepo,
@@ -286,75 +190,25 @@ export async function stagePromptRelease(
     cohort: opts.cohort,
     specs,
   });
-  assertReleasePromptStageClosure(
-    {
-      schema_version: "active_prompt_release_manifest_v1",
-      release_id: opts.releaseId,
-      base_release_id: null,
-      lifecycle_state: "staged",
-      prompt_commit: promptCommit,
-      code_commit: codeCommit,
-      prompt_hash: releasePromptSetHash(promptPairs),
-      prompt_pairs: promptPairs,
-      stage_snapshot_hashes: privateCheck.snapshotHashes,
-      catalog_hash: `sha256:${"0".repeat(64)}`,
-      schema_hash: `sha256:${"0".repeat(64)}`,
-      evaluation_contract_hash: `sha256:${"0".repeat(64)}`,
-      keep_decision_hash: pin.keepDecisionHash,
-      keep_decision_state: "kept",
-      release_evidence: {
-        version_id: pin.versionId,
-        mutation_id: pin.mutationId,
-        experiment_id: pin.experimentId,
-        mutated_agent: pin.agent,
-        evaluation_result_hash: pin.evaluationResultHash,
-        transaction_manifest_hash: pin.transactionManifestHash,
-        prompt_pair_sha256: pin.promptSha,
-      },
-      activation_scope: { cohort: opts.cohort, account_mode: opts.accountMode, traffic_percent: 0 },
-      approval_policy_id: opts.approvalPolicyId,
-      approved_by: null,
-      canary_started_at: null,
-      canary_ended_at: null,
-      runtime_slo_summary: null,
-      runtime_slo_evidence: null,
-      rollback_triggers: ["pending"],
-      previous_approved_release_id: null,
-      bundled_fallback: null,
-      created_at: now(deps),
-      activated_at: null,
-      rolled_back_at: null,
-    },
-    specs.flatMap((spec) =>
-      spec.stages.map((stage) => ({ agent: spec.agent, layer: spec.layer, stage: stage.stage })),
+  const stageSnapshotHashes = Object.fromEntries(
+    promptPairs.flatMap((pair) =>
+      pair.stages.map((stage) => [`${pair.agent}:${stage}`, pair.pair_hash] as const),
     ),
   );
-  const mutatedPair = promptPairs.find((pair) => pair.agent === pin.agent);
+  const mutatedPair = promptPairs.find((pair) => pair.agent === candidate.target.agentId);
   if (!mutatedPair) throw new Error("prompt_release_mutated_agent_pair_missing");
   if (
-    (await promptPairVersionShaAtCommit({
-      repo: opts.privatePromptRepo,
-      commit: promptCommit,
-      pair: mutatedPair,
-    })) !== pin.promptSha
+    !mutatedPair.stages.includes(candidate.target.stage) ||
+    mutatedPair.cohort !== candidate.target.cohort ||
+    mutatedPair.zh.path !== candidate.promptRefs.zh ||
+    mutatedPair.en.path !== candidate.promptRefs.en ||
+    mutatedPair.zh.sha256 !== candidate.promptHashes.zh ||
+    mutatedPair.en.sha256 !== candidate.promptHashes.en
   ) {
-    throw new Error("prompt_release_verification_prompt_sha_mismatch");
+    throw new Error("prompt_release_candidate_prompt_pair_mismatch");
   }
 
   const closure = await loadPromptReleaseClosureAtCommit({ repo: codeRepo, commit: codeCommit });
-  const fallbackCheck = await candidateCheck({
-    repo: codeRepo,
-    commit: codeCommit,
-    cohort: opts.cohort,
-    source: "bundled",
-    privateRuntimeRepo: opts.privatePromptRepo,
-    privateRuntimeCommit: promptCommit,
-  });
-  if (
-    sortedObjectJson(privateCheck.snapshotHashes) !== sortedObjectJson(fallbackCheck.snapshotHashes)
-  ) {
-    throw new Error("prompt_release_bundled_fallback_snapshot_mismatch");
-  }
   const fallbackPairs = await buildReleasePromptPairsAtCommit({
     repo: codeRepo,
     commit: codeCommit,
@@ -372,8 +226,19 @@ export async function stagePromptRelease(
   const registry = new ActivePromptReleaseRegistry(opts.registryRoot);
   const pointer = await registry.pointer();
   const createdAt = now(deps);
+  const releaseEvidence = {
+    candidate_id: candidate.candidateId,
+    candidate_hash: canonicalJsonHash(candidate),
+    promotion_decision_id: decision.decisionId,
+    promotion_decision_hash: canonicalJsonHash(decision),
+    experiment_id: decision.experimentId,
+    mutated_agent: candidate.target.agentId,
+    policy_version: decision.policyVersion,
+    policy_config_hash: decision.policyConfigHash,
+    candidate_prompt_hashes: candidate.promptHashes,
+  };
   const manifest: ActivePromptReleaseManifest = {
-    schema_version: "active_prompt_release_manifest_v1",
+    schema_version: "active_prompt_release_manifest_v2",
     release_id: opts.releaseId,
     base_release_id: pointer.current_release_id,
     lifecycle_state: "staged",
@@ -381,21 +246,11 @@ export async function stagePromptRelease(
     code_commit: codeCommit,
     prompt_hash: releasePromptSetHash(promptPairs),
     prompt_pairs: promptPairs,
-    stage_snapshot_hashes: privateCheck.snapshotHashes,
+    stage_snapshot_hashes: stageSnapshotHashes,
     catalog_hash: closure.catalog_hash,
     schema_hash: closure.schema_hash,
     evaluation_contract_hash: closure.contract_hash,
-    keep_decision_hash: pin.keepDecisionHash,
-    keep_decision_state: "kept",
-    release_evidence: {
-      version_id: pin.versionId,
-      mutation_id: pin.mutationId,
-      experiment_id: pin.experimentId,
-      mutated_agent: pin.agent,
-      evaluation_result_hash: pin.evaluationResultHash,
-      transaction_manifest_hash: pin.transactionManifestHash,
-      prompt_pair_sha256: pin.promptSha,
-    },
+    release_evidence: releaseEvidence,
     activation_scope: {
       cohort: opts.cohort,
       account_mode: opts.accountMode,
@@ -414,6 +269,12 @@ export async function stagePromptRelease(
     activated_at: null,
     rolled_back_at: null,
   };
+  assertReleasePromptStageClosure(
+    manifest,
+    specs.flatMap((spec) =>
+      spec.stages.map((stage) => ({ agent: spec.agent, layer: spec.layer, stage: stage.stage })),
+    ),
+  );
   await registry.stage(manifest);
   return manifest;
 }
@@ -463,7 +324,6 @@ export async function provisionPromptReleaseBaseline(opts: {
     throw new Error("prompt_release_baseline_bundled_fallback_closure_mismatch");
   }
   const specs = opts.deps?.specs ?? RUNTIME_AGENT_SPECS;
-  const candidateCheck = opts.deps?.checkCandidate ?? checkCandidateAtCommit;
   const [privatePairs, fallbackPairs] = await Promise.all([
     buildReleasePromptPairsAtCommit({
       repo: opts.privatePromptRepo,
@@ -478,31 +338,15 @@ export async function provisionPromptReleaseBaseline(opts: {
       specs,
     }),
   ]);
-  // The adapter is process-global, so candidate checks must not race a worktree
-  // removal against another check that is still reading the same pinned runtime.
-  const privateCheck = await candidateCheck({
-    repo: opts.privatePromptRepo,
-    commit: promptCommit,
-    cohort: manifest.activation_scope.cohort,
-    source: "private",
-    privateRuntimeRepo: opts.privatePromptRepo,
-    privateRuntimeCommit: promptCommit,
-  });
-  const fallbackCheck = await candidateCheck({
-    repo: codeRepo,
-    commit: fallback.prompt_commit,
-    cohort: manifest.activation_scope.cohort,
-    source: "bundled",
-    privateRuntimeRepo: opts.privatePromptRepo,
-    privateRuntimeCommit: promptCommit,
-  });
+  const stageSnapshotHashes = Object.fromEntries(
+    privatePairs.flatMap((pair) =>
+      pair.stages.map((stage) => [`${pair.agent}:${stage}`, pair.pair_hash] as const),
+    ),
+  );
   if (
     sortedObjectJson(privatePairs) !== sortedObjectJson(manifest.prompt_pairs) ||
     sortedObjectJson(fallbackPairs) !== sortedObjectJson(fallback.prompt_pairs) ||
-    sortedObjectJson(privateCheck.snapshotHashes) !==
-      sortedObjectJson(manifest.stage_snapshot_hashes) ||
-    sortedObjectJson(fallbackCheck.snapshotHashes) !==
-      sortedObjectJson(manifest.stage_snapshot_hashes)
+    sortedObjectJson(stageSnapshotHashes) !== sortedObjectJson(manifest.stage_snapshot_hashes)
   ) {
     throw new Error("prompt_release_baseline_prompt_closure_mismatch");
   }

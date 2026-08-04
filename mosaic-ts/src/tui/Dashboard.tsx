@@ -3,7 +3,7 @@
  * Tabs: 1 Today (latest CIO picks) / 2 WinRate (per-ticker hit rate) / 3 Skill /
  * 4 Paper / 5 Cohorts / 6 MiroFish (scenario context + recent runs) /
  * 7 Settings (curated, editable, persisted config via config.save) /
- * 8 Agents (UI-only human-readable decision explanations); r=refresh
+ * 8 Agents (UI-only human-readable decision explanations) / 9 Optimizer; r=refresh
  * (manual; no auto-poll), q=quit. The BridgeApi is injected so it is testable.
  */
 
@@ -23,11 +23,21 @@ import type {
   PaperAccount,
   PaperPosition,
   PaperTrade,
+  PromptOptimizerSummary,
   SkillRow,
   WinRateRow,
 } from "../bridge/types.js";
 
-type Tab = "today" | "winrate" | "skill" | "paper" | "cohorts" | "mirofish" | "settings" | "agents";
+type Tab =
+  | "today"
+  | "winrate"
+  | "skill"
+  | "paper"
+  | "cohorts"
+  | "mirofish"
+  | "settings"
+  | "agents"
+  | "optimizer";
 const TABS: Tab[] = [
   "today",
   "winrate",
@@ -37,6 +47,7 @@ const TABS: Tab[] = [
   "mirofish",
   "settings",
   "agents",
+  "optimizer",
 ];
 
 interface Props {
@@ -57,6 +68,7 @@ interface Props {
     | "configGet"
     | "configDefault"
     | "configSave"
+    | "promptOptimizerLatestSummary"
   >;
   cohort: string;
   user?: string;
@@ -75,6 +87,7 @@ interface Data {
   mirofishContext: MirofishContext | null;
   mirofishRuns: MirofishHistoryEntry[];
   agentNarratives: AgentDisplayNarratives;
+  promptOptimizer: PromptOptimizerSummary;
 }
 
 export function Dashboard({ api, cohort, user }: Props) {
@@ -99,6 +112,7 @@ export function Dashboard({ api, cohort, user }: Props) {
         backtestRuns,
         cohorts,
         agentNarratives,
+        promptOptimizer,
       ] = await Promise.all([
         api.scorecardLatestCioActions(cohort),
         api.scorecardWinRate(cohort).then((r) => r.rows),
@@ -112,6 +126,7 @@ export function Dashboard({ api, cohort, user }: Props) {
           .catch(() => []),
         api.prismListCohorts().then((r) => r.cohorts),
         api.scorecardLatestAgentNarratives(cohort),
+        api.promptOptimizerLatestSummary(cohort),
       ]);
       const mirofishContext = await api
         .mirofishGetContext()
@@ -138,6 +153,7 @@ export function Dashboard({ api, cohort, user }: Props) {
           mirofishContext,
           mirofishRuns,
           agentNarratives,
+          promptOptimizer,
         });
     } catch (err) {
       if (mounted.current) setError((err as Error).message);
@@ -170,6 +186,7 @@ export function Dashboard({ api, cohort, user }: Props) {
     else if (input === "6") setTab("mirofish");
     else if (input === "7") setTab("settings");
     else if (input === "8") setTab("agents");
+    else if (input === "9") setTab("optimizer");
   });
 
   return (
@@ -207,15 +224,47 @@ export function Dashboard({ api, cohort, user }: Props) {
           <CohortsTab cohorts={data.cohorts} />
         ) : tab === "mirofish" ? (
           <MirofishTab context={data.mirofishContext} runs={data.mirofishRuns} />
-        ) : (
+        ) : tab === "agents" ? (
           <AgentNarrativesTab bundle={data.agentNarratives} index={agentNarrativeIndex} />
+        ) : (
+          <PromptOptimizerTab summary={data.promptOptimizer} />
         )}
       </Box>
       <Box marginTop={1}>
         <Text dimColor>
-          [1-8] switch · [j/k] Agent explanation · [r] refresh · [q] quit · cohort={cohort}
+          [1-9] switch · [j/k] Agent explanation · [r] refresh · [q] quit · cohort={cohort}
         </Text>
       </Box>
+    </Box>
+  );
+}
+
+function PromptOptimizerTab({ summary }: { summary: PromptOptimizerSummary }) {
+  const { candidate, experiment, decision, release } = summary;
+  if (!candidate) return <Text dimColor>no Prompt Candidate for this cohort</Text>;
+  const metrics = decision?.metricSummary ?? experiment?.metrics ?? {};
+  const metricRows = [
+    "validation_paired_delta",
+    "validation_confidence_lower",
+    "validation_tail_delta",
+    "holdout_paired_delta",
+    "holdout_confidence_lower",
+    "holdout_tail_delta",
+  ].flatMap((key) => (metrics[key] === undefined ? [] : [`${key}=${metrics[key]?.toFixed(4)}`]));
+  return (
+    <Box flexDirection="column">
+      <Text bold color="cyan">
+        Prompt optimizer
+      </Text>
+      <Text>{`${candidate.target.agentId}:${candidate.target.stage} · ${candidate.candidateId}`}</Text>
+      <Text>{`hypothesis: ${candidate.hypothesis}`}</Text>
+      <Text>{`mutation: ${candidate.mutationSummary}`}</Text>
+      <Text>{`experiment: ${experiment?.status ?? "not_started"}`}</Text>
+      <Text>{`decision: ${decision?.decision ?? "pending"} · ${(decision?.reasons ?? []).join(",") || "-"}`}</Text>
+      <Text>{`metrics: ${metricRows.join(" · ") || "-"}`}</Text>
+      <Text>{`tail failures: ${(experiment?.tailFailureCaseRefs ?? []).join(",") || "-"}`}</Text>
+      <Text>{`release: ${release ? `${release.release_id}:${release.lifecycle_state}` : "not_staged"}`}</Text>
+      <Text dimColor>summary only — Prompt bodies and raw traces are never displayed</Text>
     </Box>
   );
 }

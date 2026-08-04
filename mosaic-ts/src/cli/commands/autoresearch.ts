@@ -1,5 +1,5 @@
 /**
- * Legacy diagnostic CLI. Production v2 behavior promotion is KNOT-only.
+ * Legacy diagnostic CLI. Production Prompt changes use the Prompt Release flow.
  *
  * Subcommands:
  *   - trigger: run the autoresearch mutation cycle
@@ -59,7 +59,7 @@ interface RevertOptions {
 export function registerAutoresearch(program: Command): void {
   const cmd = program
     .command("autoresearch")
-    .description("Legacy prompt diagnostics; production v2 promotion is KNOT-only.");
+    .description("Legacy prompt diagnostics; production changes use Prompt Release.");
 
   // ── autoresearch trigger ──────────────────────────────────────────────
 
@@ -184,7 +184,7 @@ export function registerAutoresearch(program: Command): void {
 
   cmd
     .command("review-domain")
-    .description("Reject a legacy diagnostic mutation; KNOT is the only production promoter.")
+    .description("Reject a legacy diagnostic mutation; it cannot enter Prompt Release.")
     .requiredOption("--version-id <id>", "Prompt version id")
     .requiredOption("--decision <decision>", "revert")
     .requiredOption("--approved-by <operator>", "Operator identity, prefixed with operator:")
@@ -199,7 +199,7 @@ export function registerAutoresearch(program: Command): void {
       try {
         await client.start();
         if (opts.decision !== "revert") {
-          throw new Error("--decision must be revert; production promotion is KNOT-only");
+          throw new Error("--decision must be revert; this legacy path cannot promote");
         }
         if (
           !(["domain_release_manual_v1", "decision_release_manual_v1"] as const).includes(

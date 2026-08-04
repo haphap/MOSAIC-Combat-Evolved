@@ -94,7 +94,7 @@ function release(model = "fake-model"): ExecutionBehaviorReleaseManifest {
   const revision = "a".repeat(40);
   const releaseId = `execution-behavior-release:${canonicalHash({ model }).slice("sha256:".length)}`;
   return {
-    schema_version: "execution_behavior_release_manifest_v1",
+    schema_version: "execution_behavior_release_manifest_v2",
     execution_behavior_release_id: releaseId,
     execution_behavior_release_hash: canonicalHash({ releaseId }),
     private_prompt_commit: revision,
@@ -132,7 +132,7 @@ function release(model = "fake-model"): ExecutionBehaviorReleaseManifest {
           ],
           structured_output_schema_set_hash: canonicalHash({ agent, language, schema: true }),
           runtime_tool_manifest_hash: canonicalHash({ agent, tools: true }),
-          knot_champion_baseline_hash: canonicalHash({ agent, language, knot: true }),
+          prompt_execution_baseline_hash: canonicalHash({ agent, language, prompt: true }),
         };
       }),
     ) as ExecutionBehaviorReleaseManifest["variants"],

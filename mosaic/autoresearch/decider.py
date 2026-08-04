@@ -1,4 +1,4 @@
-"""Tombstone for the pre-KNOT Delta-Sharpe prompt promoter.
+"""Tombstone for the legacy Delta-Sharpe prompt promoter.
 
 The production promotion edge was removed in v2. Historical replay uses the
 explicit isolated-sandbox RPC and does not call this module.
@@ -15,10 +15,10 @@ def decide(
     version: dict[str, Any],
     config: Optional[Mapping[str, Any]] = None,
 ) -> str:
-    """Reject every direct promotion attempt; production promotion is KNOT-only."""
+    """Reject direct promotion; production changes use Prompt Release."""
     del store, git_ops, version, config
     raise RuntimeError(
-        "legacy Delta-Sharpe promotion is disabled; use a KNOT promotion batch"
+        "legacy Delta-Sharpe promotion is disabled; use Prompt Release"
     )
 
 

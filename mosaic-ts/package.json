@@ -19,7 +19,8 @@
     "typecheck": "tsc --noEmit",
     "prompt:check": "cd .. && uv run python scripts/check_prompt_leaks.py",
     "prompt:drift": "cd .. && uv run python scripts/check_prompt_drift.py",
-    "prompt:drift:scheduled": "cd .. && uv run python scripts/check_prompt_drift.py --state-file data/prompt-drift-state.json"
+    "prompt:drift:scheduled": "cd .. && uv run python scripts/check_prompt_drift.py --state-file data/prompt-drift-state.json",
+    "generate:prompt-optimizer-schemas": "tsx scripts/generate_prompt_optimizer_schemas.ts"
   },
   "bin": {
     "mosaic": "./dist/cli/index.js"

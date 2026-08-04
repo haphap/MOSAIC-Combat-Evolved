@@ -75,6 +75,16 @@ export const ALL_AGENTS: ReadonlyArray<string> = [
 ];
 
 export const DEFAULT_COHORT = "cohort_default";
+export const PROMPT_COHORT_IDS = [
+  DEFAULT_COHORT,
+  "cohort_bull_2007",
+  "cohort_bull_2016",
+  "cohort_crisis_2008",
+  "cohort_crisis_covid",
+  "cohort_euphoria_2021",
+  "cohort_rate_tightening",
+  "cohort_recovery_2020",
+] as const;
 
 export type ConfiguredPromptSource =
   | { kind: "private-root"; root: string }

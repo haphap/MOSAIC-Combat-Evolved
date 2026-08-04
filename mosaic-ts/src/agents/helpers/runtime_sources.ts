@@ -2,7 +2,7 @@ import { AGENTS_BY_LAYER } from "../prompts/cohorts.js";
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType } from "../state.js";
 import { canonicalJsonHash } from "./canonical_json.js";
-import type { RuntimeSourceStatus } from "./private_knot_boundary.js";
+import type { RuntimeSourceStatus } from "./runtime_evidence_types.js";
 
 export function resolveRuntimeSourceStatusesForAgent(
   state: DailyCycleStateType,

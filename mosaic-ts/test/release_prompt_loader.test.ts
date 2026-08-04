@@ -3,8 +3,8 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { clearPromptCache, loadPromptWithPrivateKnot } from "../src/agents/prompts/loader.js";
+import { afterEach, describe, expect, it } from "vitest";
+import { clearPromptCache, loadPromptWithReleaseMetadata } from "../src/agents/prompts/loader.js";
 import {
   type ActivePromptReleaseManifest,
   type ReleasePromptPair,
@@ -16,22 +16,13 @@ import {
   resolveConfiguredPromptReleaseContext,
 } from "../src/agents/prompts/release_prompt_loader.js";
 import { ActivePromptReleaseRegistry } from "../src/autoresearch/release_registry.js";
-import { installTestPrivateKnotRuntime } from "./helpers/private_knot.js";
 
 const HASH = `sha256:${"1".repeat(64)}`;
-const TEST_KNOT_INVOCATION = {
-  invocation_mode: "NON_PRODUCTION_TEST",
-  graph_run_id: "release-prompt-loader-test-run",
-  as_of: "2026-07-09",
-  execution_behavior_release_id: "non-production-test",
-} as const;
 const PROMPT_PATHS = {
   zh: "prompts/mosaic/cohort_default/macro/central_bank.zh.md",
   en: "prompts/mosaic/cohort_default/macro/central_bank.en.md",
 };
 const roots: string[] = [];
-
-beforeEach(() => installTestPrivateKnotRuntime());
 
 afterEach(() => {
   clearPromptCache();
@@ -108,7 +99,7 @@ function release(opts: {
   const promptPairs = [opts.promptPair];
   const fallbackPairs = opts.fallback ? [opts.fallback.promptPair] : null;
   return {
-    schema_version: "active_prompt_release_manifest_v1",
+    schema_version: "active_prompt_release_manifest_v2",
     release_id: "release-1",
     base_release_id: null,
     lifecycle_state: "active",
@@ -120,16 +111,16 @@ function release(opts: {
     catalog_hash: opts.closure?.catalogHash ?? HASH,
     schema_hash: opts.closure?.schemaHash ?? HASH,
     evaluation_contract_hash: opts.closure?.evaluationContractHash ?? HASH,
-    keep_decision_hash: HASH,
-    keep_decision_state: "kept",
     release_evidence: {
-      version_id: 1,
-      mutation_id: "mutation-1",
+      candidate_id: "candidate-1",
+      candidate_hash: HASH,
+      promotion_decision_id: "decision-1",
+      promotion_decision_hash: HASH,
       experiment_id: "experiment-1",
       mutated_agent: "central_bank",
-      evaluation_result_hash: HASH,
-      transaction_manifest_hash: HASH,
-      prompt_pair_sha256: "1".repeat(64),
+      policy_version: "policy-v1",
+      policy_config_hash: HASH,
+      candidate_prompt_hashes: { zh: HASH, en: HASH },
     },
     activation_scope: {
       cohort: "cohort_default",
@@ -209,8 +200,7 @@ describe("release-pinned prompt loading", () => {
     const previous = process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT;
     process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT = join(repo.root, "missing-registry");
     try {
-      const loaded = await loadPromptWithPrivateKnot({
-        invocationContext: TEST_KNOT_INVOCATION,
+      const loaded = await loadPromptWithReleaseMetadata({
         agent: "central_bank",
         cohort: "cohort_default",
         stage: "agent_run",
@@ -230,8 +220,7 @@ describe("release-pinned prompt loading", () => {
     const repo = gitRepo(contents);
     writeFileSync(join(repo.root, PROMPT_PATHS.zh), prompt("floating zh v2"), "utf-8");
 
-    const loaded = await loadPromptWithPrivateKnot({
-      invocationContext: TEST_KNOT_INVOCATION,
+    const loaded = await loadPromptWithReleaseMetadata({
       agent: "central_bank",
       cohort: "cohort_default",
       stage: "agent_run",
@@ -269,8 +258,7 @@ describe("release-pinned prompt loading", () => {
       activated_at: null,
     };
 
-    const loaded = await loadPromptWithPrivateKnot({
-      invocationContext: TEST_KNOT_INVOCATION,
+    const loaded = await loadPromptWithReleaseMetadata({
       agent: "central_bank",
       cohort: "cohort_default",
       stage: "agent_run",
@@ -303,15 +291,13 @@ describe("release-pinned prompt loading", () => {
       activated_at: null,
     };
 
-    const first = await loadPromptWithPrivateKnot({
-      invocationContext: TEST_KNOT_INVOCATION,
+    const first = await loadPromptWithReleaseMetadata({
       agent: "central_bank",
       cohort: "cohort_default",
       stage: "agent_run",
       releaseContext: { manifest: canary, privatePromptRepo: repo.root, accountMode: "paper" },
     });
-    const second = await loadPromptWithPrivateKnot({
-      invocationContext: TEST_KNOT_INVOCATION,
+    const second = await loadPromptWithReleaseMetadata({
       agent: "central_bank",
       cohort: "cohort_default",
       stage: "agent_run",
@@ -364,7 +350,13 @@ describe("release-pinned prompt loading", () => {
     roots.push(registryRoot);
     const localClosure = JSON.parse(
       readFileSync(
-        join(process.cwd(), "..", "registry", "prompt_checks", "private_knot_assets_ref_v1.json"),
+        join(
+          process.cwd(),
+          "..",
+          "registry",
+          "prompt_checks",
+          "prompt_release_contract_ref_v2.json",
+        ),
         "utf-8",
       ),
     ) as {
@@ -446,8 +438,7 @@ describe("release-pinned prompt loading", () => {
     const bundled = gitRepo(fallbackContents);
 
     await expect(
-      loadPromptWithPrivateKnot({
-        invocationContext: TEST_KNOT_INVOCATION,
+      loadPromptWithReleaseMetadata({
         agent: "central_bank",
         cohort: "cohort_default",
         stage: "agent_run",
@@ -471,8 +462,7 @@ describe("release-pinned prompt loading", () => {
     const privateContents = { zh: prompt("private zh"), en: prompt("private en") };
     const fallbackContents = { zh: prompt("fallback zh"), en: prompt("fallback en") };
     const bundled = gitRepo(fallbackContents);
-    const loaded = await loadPromptWithPrivateKnot({
-      invocationContext: TEST_KNOT_INVOCATION,
+    const loaded = await loadPromptWithReleaseMetadata({
       agent: "central_bank",
       cohort: "cohort_default",
       stage: "agent_run",
@@ -495,34 +485,6 @@ describe("release-pinned prompt loading", () => {
     expect(loaded.release?.source).toBe("bundled_fallback");
   });
 
-  it("rejects even an explicitly enabled bundled fallback for formal KNOT traffic", async () => {
-    const privateContents = { zh: prompt("private zh"), en: prompt("private en") };
-    const fallbackContents = { zh: prompt("fallback zh"), en: prompt("fallback en") };
-    const bundled = gitRepo(fallbackContents);
-    await expect(
-      loadPromptWithPrivateKnot({
-        invocationContext: TEST_KNOT_INVOCATION,
-        agent: "central_bank",
-        cohort: "cohort_default",
-        stage: "agent_run",
-        noCache: true,
-        requirePinnedPrivateRelease: true,
-        releaseContext: {
-          manifest: release({
-            promptCommit: "deadbee",
-            promptPair: pair(privateContents),
-            fallback: { promptCommit: bundled.commit, promptPair: pair(fallbackContents) },
-          }),
-          bundledRepo: bundled.root,
-          allowNonProductionBundledFallback: true,
-          expectedCatalogHash: HASH,
-          expectedSchemaHash: HASH,
-          expectedEvaluationContractHash: HASH,
-        },
-      }),
-    ).rejects.toThrow("private_knot_prompt_release_must_use_private_source");
-  });
-
   it("fails closed on hash drift instead of switching to fallback", async () => {
     const privateContents = { zh: prompt("private zh"), en: prompt("private en") };
     const fallbackContents = { zh: prompt("fallback zh"), en: prompt("fallback en") };
@@ -533,8 +495,7 @@ describe("release-pinned prompt loading", () => {
     driftedPair.pair_hash = releasePromptPairHash(driftedPair);
 
     await expect(
-      loadPromptWithPrivateKnot({
-        invocationContext: TEST_KNOT_INVOCATION,
+      loadPromptWithReleaseMetadata({
         agent: "central_bank",
         cohort: "cohort_default",
         stage: "agent_run",
@@ -559,7 +520,13 @@ describe("release-pinned prompt loading", () => {
     roots.push(registryRoot);
     const localClosure = JSON.parse(
       readFileSync(
-        join(process.cwd(), "..", "registry", "prompt_checks", "private_knot_assets_ref_v1.json"),
+        join(
+          process.cwd(),
+          "..",
+          "registry",
+          "prompt_checks",
+          "prompt_release_contract_ref_v2.json",
+        ),
         "utf-8",
       ),
     ) as {
@@ -596,8 +563,7 @@ describe("release-pinned prompt loading", () => {
       process.env.MOSAIC_CODE_COMMIT = active.code_commit;
       delete process.env.MOSAIC_PROMPTS_ROOT;
       delete process.env.MOSAIC_PRIVATE_PROMPT_REPO;
-      const loaded = await loadPromptWithPrivateKnot({
-        invocationContext: TEST_KNOT_INVOCATION,
+      const loaded = await loadPromptWithReleaseMetadata({
         agent: "central_bank",
         cohort: "cohort_default",
         stage: "agent_run",
@@ -610,8 +576,7 @@ describe("release-pinned prompt loading", () => {
       });
       process.env.MOSAIC_CODE_COMMIT = "abcdef0";
       await expect(
-        loadPromptWithPrivateKnot({
-          invocationContext: TEST_KNOT_INVOCATION,
+        loadPromptWithReleaseMetadata({
           agent: "central_bank",
           cohort: "cohort_default",
           stage: "agent_run",

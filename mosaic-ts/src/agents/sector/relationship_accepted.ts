@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { DarwinianAgentBehaviorBinding } from "../../autoresearch/production_variant.js";
 import { canonicalJsonHash } from "../helpers/canonical_json.js";
 import type { AcceptedMacroInputAttribution } from "../helpers/macro_attribution.js";
-import type { ToolStatus } from "../helpers/private_knot_boundary.js";
+import type { ToolStatus } from "../helpers/runtime_evidence_types.js";
 import type { RelationshipMapperOutput } from "../types.js";
 
 const Sha256 = z.string().regex(/^sha256:[0-9a-f]{64}$/);

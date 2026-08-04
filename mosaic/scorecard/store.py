@@ -35,6 +35,10 @@ from typing import Any, Iterable, Mapping, Optional, Sequence
 
 from mosaic.scorecard.macro_aggregation import MACRO_AGENTS as MACRO_AGENT_ORDER
 
+
+def _reject_legacy_knot_write() -> None:
+    raise RuntimeError("legacy_knot_protocol_read_only")
+
 _SCORECARD_SEAL_GUARDS_SQL = """
 CREATE TRIGGER IF NOT EXISTS sealed_recommendations_no_new_rows
     BEFORE INSERT ON recommendations
@@ -719,7 +723,7 @@ _EXECUTION_BEHAVIOR_RELEASE_PATH = (
     _REPO_ROOT
     / "registry"
     / "prompt_checks"
-    / "execution_behavior_release_manifest_v1.json"
+    / "execution_behavior_release_manifest_v2.json"
 )
 _EXECUTION_BEHAVIOR_RELEASE_ARCHIVE_ROOT = (
     _REPO_ROOT
@@ -802,7 +806,7 @@ def _load_trusted_execution_behavior_release(
         raise ValueError("trusted execution behavior release archive name mismatch")
     if (
         value.get("schema_version")
-        != "execution_behavior_release_manifest_v1"
+            != "execution_behavior_release_manifest_v2"
         or
         not isinstance(value.get("private_prompt_commit"), str)
         or not isinstance(value.get("provider_binding"), dict)
@@ -3169,6 +3173,7 @@ class ScorecardStore:
         cio_failure_phase: str | None = None,
         cio_output_phase: str | None = None,
     ) -> dict[str, Any]:
+        _reject_legacy_knot_write()
         from mosaic.scorecard.knot_v2 import append_knot_pair_side_execution_result
 
         with self._connect() as conn:
@@ -3203,6 +3208,7 @@ class ScorecardStore:
         cio_output_phase: str | None = None,
     ) -> dict[str, Any]:
         """Persist a CIO proposal and its dependency ref in one transaction."""
+        _reject_legacy_knot_write()
         from mosaic.scorecard.knot_v2 import (
             append_knot_cio_proposal_ref,
             append_knot_pair_side_execution_result,
@@ -3530,6 +3536,7 @@ class ScorecardStore:
         mutation_definition: Mapping[str, Any],
         created_at: str,
     ) -> dict[str, Any]:
+        _reject_legacy_knot_write()
         from mosaic.scorecard.knot_v2 import (
             build_knot_mutation_manifest,
             register_knot_research_track,
@@ -3565,24 +3572,28 @@ class ScorecardStore:
             )
 
     def publish_knot_nomination_audit(self, **kwargs: Any) -> dict[str, Any]:
+        _reject_legacy_knot_write()
         from mosaic.scorecard.knot_v2 import publish_knot_nomination_audit
 
         with self._connect() as conn:
             return publish_knot_nomination_audit(conn, **kwargs)
 
     def preregister_knot_pair_assignment(self, **kwargs: Any) -> dict[str, Any]:
+        _reject_legacy_knot_write()
         from mosaic.scorecard.knot_v2 import preregister_knot_pair_assignment
 
         with self._connect() as conn:
             return preregister_knot_pair_assignment(conn, **kwargs)
 
     def publish_knot_research_schedule(self, **kwargs: Any) -> dict[str, Any]:
+        _reject_legacy_knot_write()
         from mosaic.scorecard.knot_v2 import publish_knot_research_schedule
 
         with self._connect() as conn:
             return publish_knot_research_schedule(conn, **kwargs)
 
     def freeze_knot_pair_input(self, **kwargs: Any) -> dict[str, Any]:
+        _reject_legacy_knot_write()
         from mosaic.scorecard.knot_v2 import freeze_knot_pair_input
 
         with self._connect() as conn:
@@ -3605,6 +3616,7 @@ class ScorecardStore:
             return resolve_knot_control_strict_schema_binding(conn, **kwargs)
 
     def append_knot_research_score_record(self, **kwargs: Any) -> dict[str, Any]:
+        _reject_legacy_knot_write()
         from mosaic.scorecard.knot_v2 import append_knot_research_score_record
 
         with self._connect() as conn:
@@ -3613,6 +3625,7 @@ class ScorecardStore:
     def append_knot_sector_inference_cost_audit(
         self, **kwargs: Any
     ) -> dict[str, Any]:
+        _reject_legacy_knot_write()
         from mosaic.scorecard.knot_v2 import append_knot_sector_inference_cost_audit
 
         with self._connect() as conn:
@@ -3625,24 +3638,28 @@ class ScorecardStore:
             return resolve_knot_sector_usage_binding(conn, **kwargs)
 
     def append_knot_control_dependency_result(self, **kwargs: Any) -> dict[str, Any]:
+        _reject_legacy_knot_write()
         from mosaic.scorecard.knot_v2 import append_knot_control_dependency_result
 
         with self._connect() as conn:
             return append_knot_control_dependency_result(conn, **kwargs)
 
     def append_knot_cio_dependency_blocked_audit(self, **kwargs: Any) -> dict[str, Any]:
+        _reject_legacy_knot_write()
         from mosaic.scorecard.knot_v2 import append_knot_cio_dependency_blocked_audit
 
         with self._connect() as conn:
             return append_knot_cio_dependency_blocked_audit(conn, **kwargs)
 
     def finalize_knot_pair(self, **kwargs: Any) -> dict[str, Any]:
+        _reject_legacy_knot_write()
         from mosaic.scorecard.knot_v2 import finalize_knot_pair
 
         with self._connect() as conn:
             return finalize_knot_pair(conn, **kwargs)
 
     def publish_knot_promotion_revision(self, **kwargs: Any) -> dict[str, Any]:
+        _reject_legacy_knot_write()
         from mosaic.scorecard.knot_v2 import publish_knot_promotion_revision
 
         release_id = kwargs.get("new_execution_behavior_release_id")
@@ -3655,6 +3672,7 @@ class ScorecardStore:
             return publish_knot_promotion_revision(conn, **kwargs)
 
     def publish_knot_promotion_batch(self, **kwargs: Any) -> dict[str, Any]:
+        _reject_legacy_knot_write()
         from mosaic.scorecard.knot_v2 import publish_knot_promotion_batch
 
         release_id = kwargs.get("new_execution_behavior_release_id")
@@ -3665,6 +3683,7 @@ class ScorecardStore:
             return publish_knot_promotion_batch(conn, **kwargs)
 
     def publish_knot_rollback_revision(self, **kwargs: Any) -> dict[str, Any]:
+        _reject_legacy_knot_write()
         from mosaic.scorecard.knot_v2 import publish_knot_rollback_revision
 
         release_id = kwargs.get("new_execution_behavior_release_id")

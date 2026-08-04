@@ -10,7 +10,7 @@ def test_legacy_delta_sharpe_decider_has_no_production_promotion_edge() -> None:
         def __getattr__(self, name: str) -> object:
             raise AssertionError(f"legacy decider touched forbidden dependency: {name}")
 
-    with pytest.raises(RuntimeError, match="KNOT promotion batch"):
+    with pytest.raises(RuntimeError, match="Prompt Release"):
         decide(
             ForbiddenDependency(),
             ForbiddenDependency(),

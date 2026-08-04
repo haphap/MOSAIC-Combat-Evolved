@@ -150,6 +150,11 @@ JSON_SCHEMA_TARGETS = (
         "json",
     ),
     (
+        "schemas/runtime_agent_manifest_v5.schema.json",
+        "registry/prompt_checks/runtime_agent_manifest_v5.json",
+        "json",
+    ),
+    (
         "schemas/agent_tool_contract_manifest_v1.schema.json",
         "registry/prompt_checks/agent_tool_contract_manifest_v1.json",
         "json",
@@ -180,8 +185,13 @@ JSON_SCHEMA_TARGETS = (
         "json",
     ),
     (
-        "schemas/execution_behavior_release_manifest_v1.schema.json",
-        "registry/prompt_checks/execution_behavior_release_manifest_v1.json",
+        "schemas/execution_behavior_release_manifest_v2.schema.json",
+        "registry/prompt_checks/execution_behavior_release_manifest_v2.json",
+        "json",
+    ),
+    (
+        "schemas/prompt_release_contract_ref_v2.schema.json",
+        "registry/prompt_checks/prompt_release_contract_ref_v2.json",
         "json",
     ),
     (

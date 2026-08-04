@@ -1,4 +1,3 @@
-import { KNOT_RUNTIME_CONTRACT_REF } from "../../autoresearch/knot_contract.js";
 import { alphaDiscoverySpec } from "../decision/alpha_discovery.js";
 import { autonomousExecutionSpec } from "../decision/autonomous_execution.js";
 import { cioProposalSpec, cioSpec } from "../decision/cio.js";
@@ -29,14 +28,7 @@ import { druckenmillerSpec } from "../superinvestor/druckenmiller.js";
 import { mungerSpec } from "../superinvestor/munger.js";
 import { AGENT_LAYER_BY_ID, AgentIdSchema, agentToolsFor } from "../tool_contract.js";
 import type { Layer } from "./cohorts.js";
-import {
-  configuredPrivateKnotCohorts,
-  configuredPrivateKnotStageKeys,
-  DEFAULT_PRIVATE_KNOT_COHORT,
-  privateKnotStageEnablement,
-} from "./private_knot_stage_enablement.js";
-
-export const RUNTIME_AGENT_MANIFEST_VERSION = "runtime_agent_manifest_v4";
+export const RUNTIME_AGENT_MANIFEST_VERSION = "runtime_agent_manifest_v5";
 
 export const RUNTIME_AGENT_STAGE_IDS = [
   "agent_run",
@@ -101,25 +93,7 @@ export interface RuntimeAgentManifestArtifact {
   schema_version: typeof RUNTIME_AGENT_MANIFEST_VERSION;
   runtime_agent_count: number;
   runtime_stage_count: number;
-  default_cohort: string;
-  private_knot_cohort_enablement: ReadonlyArray<{
-    cohort: string;
-    enabled_agent_stages: ReadonlyArray<string>;
-    bundled_fallback_agent_stages: ReadonlyArray<string>;
-  }>;
   canonical_l4_sequence: ReadonlyArray<RuntimeAgentStageId>;
-  knot_runtime_contract_ref: {
-    knot_runtime_contract_manifest_id: string;
-    knot_runtime_contract_manifest_version: string;
-    knot_runtime_contract_manifest_hash: string;
-    private_runtime_manifest_hash: string;
-    research_score_contract_id: string;
-    research_score_contract_version: string;
-    research_score_contract_hash: string;
-    scheduler_contract_id: string;
-    scheduler_contract_version: string;
-    scheduler_contract_hash: string;
-  };
   agents: ReadonlyArray<{
     agent: string;
     layer: Layer;
@@ -152,29 +126,16 @@ function stageSpec(
   outputSchemaFields: ReadonlyArray<string>,
   requiredSourceIds: ReadonlyArray<string>,
   producedSourceIds: ReadonlyArray<string>,
-  enablement: RuntimeStageEnablement,
-  _promptIrAgentId: string,
 ): RuntimeAgentStageSpec {
   return {
     stage,
-    enablement,
+    enablement: "enabled",
     outputSchemaRef,
     outputSchemaFields,
     maxRepairAttempts: 3,
     requiredSourceIds,
     producedSourceIds,
   };
-}
-
-function enabledPrivateKnotStage(
-  agent: string,
-  stage: RuntimeAgentStageId,
-): RuntimeStageEnablement {
-  const enablement = privateKnotStageEnablement(DEFAULT_PRIVATE_KNOT_COHORT, agent, stage);
-  if (enablement !== "enabled") {
-    throw new Error(`private_knot_stage_unavailable:${agent}:${stage}`);
-  }
-  return enablement;
 }
 
 function stagesForAgent(
@@ -191,8 +152,6 @@ function stagesForAgent(
         outputSchemaFields,
         [],
         ["upstream_agent_outputs"],
-        enabledPrivateKnotStage(agent, "agent_run"),
-        promptIrAgentId,
       ),
     ];
   }
@@ -204,8 +163,6 @@ function stagesForAgent(
         outputSchemaFields,
         ["upstream_agent_outputs", "current_position_snapshot", "current_market_data"],
         ["upstream_agent_outputs"],
-        enabledPrivateKnotStage(agent, "alpha_discovery"),
-        promptIrAgentId,
       ),
     ];
   }
@@ -223,8 +180,6 @@ function stagesForAgent(
           "portfolio_exposure_state",
         ],
         ["cro_review_state"],
-        enabledPrivateKnotStage(agent, "cro_review"),
-        promptIrAgentId,
       ),
     ];
   }
@@ -242,8 +197,6 @@ function stagesForAgent(
           "execution_liquidity_state",
         ],
         ["execution_feasibility_state"],
-        enabledPrivateKnotStage(agent, "execution_feasibility"),
-        promptIrAgentId,
       ),
     ];
   }
@@ -261,8 +214,6 @@ function stagesForAgent(
           "position_thesis_state",
         ],
         ["candidate_target_state", "position_review_state"],
-        enabledPrivateKnotStage(agent, "cio_proposal"),
-        promptIrAgentId,
       ),
       stageSpec(
         "cio_final",
@@ -277,8 +228,6 @@ function stagesForAgent(
           "current_market_data",
         ],
         [],
-        enabledPrivateKnotStage(agent, "cio_final"),
-        promptIrAgentId,
       ),
     ];
   }
@@ -372,43 +321,11 @@ export const RUNTIME_AGENT_STAGE_SPEC_BY_KEY = new Map(
 export function buildRuntimeAgentManifestArtifact(
   specs: ReadonlyArray<RuntimeAgentSpec> = RUNTIME_AGENT_SPECS,
 ): RuntimeAgentManifestArtifact {
-  const allStageKeys = specs.flatMap((spec) =>
-    spec.stages.map((stage) => runtimeAgentStageKey(spec.agent, stage.stage)),
-  );
   return {
     schema_version: RUNTIME_AGENT_MANIFEST_VERSION,
     runtime_agent_count: specs.length,
     runtime_stage_count: specs.reduce((count, spec) => count + spec.stages.length, 0),
-    default_cohort: DEFAULT_PRIVATE_KNOT_COHORT,
-    private_knot_cohort_enablement: configuredPrivateKnotCohorts().map((cohort) => {
-      const enabled = configuredPrivateKnotStageKeys(cohort);
-      return {
-        cohort,
-        enabled_agent_stages: allStageKeys.filter((key) => enabled.has(key)),
-        bundled_fallback_agent_stages: allStageKeys.filter((key) => !enabled.has(key)),
-      };
-    }),
     canonical_l4_sequence: [...CANONICAL_L4_STAGE_SEQUENCE],
-    knot_runtime_contract_ref: {
-      knot_runtime_contract_manifest_id:
-        KNOT_RUNTIME_CONTRACT_REF.knot_runtime_contract_manifest_id,
-      knot_runtime_contract_manifest_version:
-        KNOT_RUNTIME_CONTRACT_REF.knot_runtime_contract_manifest_version,
-      knot_runtime_contract_manifest_hash:
-        KNOT_RUNTIME_CONTRACT_REF.knot_runtime_contract_manifest_hash,
-      private_runtime_manifest_hash: KNOT_RUNTIME_CONTRACT_REF.private_runtime_manifest_hash,
-      research_score_contract_id:
-        KNOT_RUNTIME_CONTRACT_REF.research_score_contract_ref.research_score_contract_id,
-      research_score_contract_version:
-        KNOT_RUNTIME_CONTRACT_REF.research_score_contract_ref.research_score_contract_version,
-      research_score_contract_hash:
-        KNOT_RUNTIME_CONTRACT_REF.research_score_contract_ref.research_score_contract_hash,
-      scheduler_contract_id: KNOT_RUNTIME_CONTRACT_REF.scheduler_contract_ref.scheduler_contract_id,
-      scheduler_contract_version:
-        KNOT_RUNTIME_CONTRACT_REF.scheduler_contract_ref.scheduler_contract_version,
-      scheduler_contract_hash:
-        KNOT_RUNTIME_CONTRACT_REF.scheduler_contract_ref.scheduler_contract_hash,
-    },
     agents: specs.map((spec) => ({
       agent: spec.agent,
       layer: spec.layer,
@@ -455,11 +372,6 @@ export function validateRuntimeAgentManifestArtifact(
   if (artifact.canonical_l4_sequence.join(",") !== CANONICAL_L4_STAGE_SEQUENCE.join(",")) {
     reasons.push("runtime_manifest_l4_sequence_mismatch");
   }
-  if (artifact.default_cohort !== DEFAULT_PRIVATE_KNOT_COHORT) {
-    reasons.push(
-      `runtime_manifest_default_cohort_mismatch:${artifact.default_cohort}:expected:${DEFAULT_PRIVATE_KNOT_COHORT}`,
-    );
-  }
   const seenStages = new Set<string>();
   const runtimeSpecByAgent = new Map(RUNTIME_AGENT_SPECS.map((spec) => [spec.agent, spec]));
   for (const agent of artifact.agents) {
@@ -500,34 +412,6 @@ export function validateRuntimeAgentManifestArtifact(
       if (stage.max_repair_attempts !== 3)
         reasons.push(`runtime_manifest_repair_budget_invalid:${key}`);
     }
-  }
-  const seenCohorts = new Set<string>();
-  for (const cohort of artifact.private_knot_cohort_enablement) {
-    if (seenCohorts.has(cohort.cohort)) {
-      reasons.push(`runtime_manifest_duplicate_cohort:${cohort.cohort}`);
-    }
-    seenCohorts.add(cohort.cohort);
-    const expectedEnabled = configuredPrivateKnotStageKeys(cohort.cohort);
-    const declaredEnabled = new Set(cohort.enabled_agent_stages);
-    const declaredFallback = new Set(cohort.bundled_fallback_agent_stages);
-    for (const key of declaredEnabled) {
-      if (!seenStages.has(key))
-        reasons.push(`runtime_manifest_enabled_stage_unknown:${cohort.cohort}:${key}`);
-      if (declaredFallback.has(key)) {
-        reasons.push(`runtime_manifest_stage_enabled_and_fallback:${cohort.cohort}:${key}`);
-      }
-    }
-    for (const key of seenStages) {
-      if (declaredEnabled.has(key) === declaredFallback.has(key)) {
-        reasons.push(`runtime_manifest_cohort_stage_partition_invalid:${cohort.cohort}:${key}`);
-      }
-      if (declaredEnabled.has(key) !== expectedEnabled.has(key)) {
-        reasons.push(`runtime_manifest_cohort_enablement_drift:${cohort.cohort}:${key}`);
-      }
-    }
-  }
-  for (const cohort of configuredPrivateKnotCohorts()) {
-    if (!seenCohorts.has(cohort)) reasons.push(`runtime_manifest_cohort_missing:${cohort}`);
   }
   const cio = artifact.agents.find((agent) => agent.agent === "cio");
   const cioStages = new Set(cio?.stages.map((stage) => stage.stage) ?? []);

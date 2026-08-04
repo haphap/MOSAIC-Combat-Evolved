@@ -6,6 +6,10 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ActivePromptReleaseManifest } from "../src/agents/prompts/prompt_release_contract.js";
 import type { RuntimeAgentSpec } from "../src/agents/prompts/runtime_agent_spec.js";
+import type {
+  PromptCandidate,
+  PromptPromotionDecision,
+} from "../src/autoresearch/prompt_optimizer_contract.js";
 import {
   buildPromptReleaseCanaryAssignmentEvent,
   buildPromptReleaseCanarySloArtifact,
@@ -20,7 +24,6 @@ import {
   startPromptReleaseCanary,
 } from "../src/autoresearch/prompt_release_manager.js";
 import { ActivePromptReleaseRegistry } from "../src/autoresearch/release_registry.js";
-import type { PromptReleaseCheckResult } from "../src/bridge/types.js";
 
 const HASH = `sha256:${"1".repeat(64)}`;
 const PROMPT_PATHS = {
@@ -81,40 +84,43 @@ function initRepo(files: Record<string, string>): { root: string; commit: string
   };
 }
 
-function versionSha(files: Record<string, string>): string {
-  const digest = createHash("sha256");
-  for (const path of Object.keys(files).sort()) {
-    digest.update(path);
-    digest.update("\0");
-    digest.update(files[path] ?? "");
-    digest.update("\0");
-  }
-  return digest.digest("hex");
+function sha256(value: string): string {
+  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
 
-function verification(opts: {
-  promptCommit: string;
-  codeCommit: string;
-  promptSha: string;
-}): PromptReleaseCheckResult {
+function candidate(promptFiles: Record<string, string>): PromptCandidate {
   return {
-    ready: true,
-    checks: { status_ok: true, metadata_ok: true, sha_ok: true, compatible: true },
-    details: {},
-    pin: {
-      version_id: 1,
-      cohort: "cohort_default",
-      agent: "central_bank",
-      prompt_repo_id: "private",
-      prompt_commit_hash: opts.promptCommit,
-      code_commit_hash: opts.codeCommit,
-      prompt_sha256: opts.promptSha,
-      mutation_id: "mutation-1",
-      experiment_id: "experiment-1",
-      keep_decision_hash: HASH,
-      evaluation_result_hash: HASH,
-      transaction_manifest_hash: HASH,
+    schemaVersion: "prompt_candidate_v1",
+    candidateId: "candidate-1",
+    parentId: "champion-1",
+    target: { agentId: "central_bank", stage: "agent_run", cohort: "cohort_default" },
+    promptRefs: PROMPT_PATHS,
+    promptHashes: {
+      zh: sha256(promptFiles[PROMPT_PATHS.zh] ?? ""),
+      en: sha256(promptFiles[PROMPT_PATHS.en] ?? ""),
     },
+    trainingSnapshotId: "training-1",
+    trainingSnapshotHash: HASH,
+    mutatorConfigHash: HASH,
+    mutatorCommit: "c".repeat(40),
+    mutationSummary: "test candidate",
+    hypothesis: "test hypothesis",
+    createdAt: "2026-07-10T00:00:00.000Z",
+  };
+}
+
+function promotionDecision(): PromptPromotionDecision {
+  return {
+    schemaVersion: "prompt_promotion_decision_v1",
+    decisionId: "decision-1",
+    experimentId: "experiment-1",
+    candidateId: "candidate-1",
+    policyVersion: "policy-v1",
+    policyConfigHash: HASH,
+    decision: "ELIGIBLE",
+    reasons: ["all_promotion_gates_passed"],
+    metricSummary: { holdout_paired_delta: 0.1 },
+    decidedAt: "2026-07-10T00:00:00.000Z",
   };
 }
 
@@ -186,6 +192,7 @@ function canaryRecords(
 
 function sloArtifact(overrides: Omit<Partial<PromptReleaseCanaryEvent>, "schema_version"> = {}) {
   const records = canaryRecords(overrides);
+  const stageSnapshotHash = overrides.stage_snapshot_hash ?? HASH;
   const eventJournalPath = join(
     mkdtempSync(join(tmpdir(), "mosaic-canary-activation-")),
     "events.jsonl",
@@ -203,7 +210,7 @@ function sloArtifact(overrides: Omit<Partial<PromptReleaseCanaryEvent>, "schema_
       trafficPercent: 10,
       canaryStartedAt: "2026-07-10T01:00:00.000Z",
       observationEndedAt: "2026-07-10T02:00:00.000Z",
-      stageSnapshotHashes: { "central_bank:agent_run": HASH },
+      stageSnapshotHashes: { "central_bank:agent_run": stageSnapshotHash },
       records,
     }),
   };
@@ -253,7 +260,12 @@ function approvedBaseline(staged: ActivePromptReleaseManifest): ActivePromptRele
 describe("prompt release manager", () => {
   it("stages a hash-closed aggregate release and runs audited idempotent lifecycle steps", async () => {
     const promptFiles = { [PROMPT_PATHS.zh]: "private zh\n", [PROMPT_PATHS.en]: "private en\n" };
-    const privateRepo = initRepo(promptFiles);
+    const promptCandidate = candidate(promptFiles);
+    const candidateRecordPath = `registry/prompt_candidates_v2/${promptCandidate.candidateId}.json`;
+    const privateRepo = initRepo({
+      ...promptFiles,
+      [candidateRecordPath]: `${JSON.stringify(promptCandidate, null, 2)}\n`,
+    });
     const closure = {
       catalog_hash: HASH,
       schema_hash: HASH,
@@ -262,21 +274,18 @@ describe("prompt release manager", () => {
     const codeRepo = initRepo({
       [PROMPT_PATHS.zh]: "fallback zh\n",
       [PROMPT_PATHS.en]: "fallback en\n",
-      "registry/prompt_checks/private_knot_assets_ref_v1.json": `${JSON.stringify({ evaluation_contract: closure })}\n`,
+      "registry/prompt_checks/prompt_release_contract_ref_v2.json": `${JSON.stringify({ evaluation_contract: closure })}\n`,
     });
     const registryRoot = mkdtempSync(join(tmpdir(), "mosaic-release-registry-"));
     roots.push(registryRoot);
-    const candidateSources: string[] = [];
-    const candidateRuntimePins: Array<{ repo: string; commit: string }> = [];
     const stageOptions = {
       registryRoot,
       releaseId: "release-1",
-      verification: verification({
-        promptCommit: privateRepo.commit,
-        codeCommit: codeRepo.commit,
-        promptSha: versionSha(promptFiles),
-      }),
+      candidate: promptCandidate,
+      promotionDecision: promotionDecision(),
       privatePromptRepo: privateRepo.root,
+      privatePromptCommit: privateRepo.commit,
+      codeCommit: codeRepo.commit,
       codeRepo: codeRepo.root,
       cohort: "cohort_default",
       accountMode: "paper" as const,
@@ -284,19 +293,6 @@ describe("prompt release manager", () => {
     };
     const deps = {
       specs: [SPEC],
-      checkCandidate: async ({
-        source,
-        privateRuntimeRepo,
-        privateRuntimeCommit,
-      }: {
-        source: string;
-        privateRuntimeRepo: string;
-        privateRuntimeCommit: string;
-      }) => {
-        candidateSources.push(source);
-        candidateRuntimePins.push({ repo: privateRuntimeRepo, commit: privateRuntimeCommit });
-        return { snapshotHashes: { "central_bank:agent_run": HASH } };
-      },
       now: () => "2026-07-10T00:00:00.000Z",
     };
 
@@ -305,12 +301,7 @@ describe("prompt release manager", () => {
     roots.push(baselineRegistryRoot);
     const baselineStaged = await stagePromptRelease(
       { ...stageOptions, registryRoot: baselineRegistryRoot, releaseId: "baseline-1" },
-      {
-        ...deps,
-        checkCandidate: async () => ({
-          snapshotHashes: { "central_bank:agent_run": HASH },
-        }),
-      },
+      deps,
     );
     await provisionPromptReleaseBaseline({
       registryRoot,
@@ -321,9 +312,6 @@ describe("prompt release manager", () => {
       codeRepo: codeRepo.root,
       deps: {
         specs: [SPEC],
-        checkCandidate: async () => ({
-          snapshotHashes: { "central_bank:agent_run": HASH },
-        }),
       },
     });
 
@@ -331,10 +319,8 @@ describe("prompt release manager", () => {
     await stagePromptRelease(stageOptions, deps);
     expect(staged.prompt_pairs).toHaveLength(1);
     expect(staged.bundled_fallback?.prompt_pairs).toHaveLength(1);
-    expect(candidateSources).toEqual(["private", "bundled", "private", "bundled"]);
-    expect(candidateRuntimePins).toEqual(
-      Array.from({ length: 4 }, () => ({ repo: privateRepo.root, commit: privateRepo.commit })),
-    );
+    expect(staged.release_evidence.candidate_id).toBe(promptCandidate.candidateId);
+    expect(staged.release_evidence.promotion_decision_id).toBe("decision-1");
 
     const canaryOptions = {
       registryRoot,
@@ -358,7 +344,9 @@ describe("prompt release manager", () => {
     );
     expect(assignments.some((manifest) => manifest?.lifecycle_state === "canary")).toBe(true);
     expect(assignments.some((manifest) => manifest?.release_id === "baseline-1")).toBe(true);
-    const failingSlo = sloArtifact({ latency_ms: 120_001 });
+    const stageSnapshotHash = staged.stage_snapshot_hashes["central_bank:agent_run"];
+    if (!stageSnapshotHash) throw new Error("stage snapshot hash missing");
+    const failingSlo = sloArtifact({ latency_ms: 120_001, stage_snapshot_hash: stageSnapshotHash });
     await expect(
       activatePromptRelease({
         registryRoot,
@@ -371,9 +359,9 @@ describe("prompt release manager", () => {
         deps: { now: () => "2026-07-10T02:00:00.000Z" },
       }),
     ).rejects.toThrow("prompt_release_runtime_slo_failed");
-    const staleSlo = sloArtifact();
+    const staleSlo = sloArtifact({ stage_snapshot_hash: stageSnapshotHash });
     await new PromptReleaseCanaryEventJournal(staleSlo.eventJournalPath).appendOnce(
-      canaryRecords({}, 100, 1),
+      canaryRecords({ stage_snapshot_hash: stageSnapshotHash }, 100, 1),
     );
     await expect(
       activatePromptRelease({
@@ -387,7 +375,7 @@ describe("prompt release manager", () => {
         deps: { now: () => "2026-07-10T02:00:00.000Z" },
       }),
     ).rejects.toThrow("prompt_release_canary_slo_journal_closure_mismatch");
-    const passingSlo = sloArtifact();
+    const passingSlo = sloArtifact({ stage_snapshot_hash: stageSnapshotHash });
     const activationOptions = {
       registryRoot,
       releaseId: "release-1",

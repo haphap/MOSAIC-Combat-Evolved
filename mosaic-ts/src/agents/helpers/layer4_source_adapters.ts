@@ -4,7 +4,7 @@ import { canonicalJsonHash } from "./canonical_json.js";
 import type {
   RuntimeSourceEvidenceObservation,
   RuntimeSourceStatus,
-} from "./private_knot_boundary.js";
+} from "./runtime_evidence_types.js";
 
 export type Layer4SourceResolutionStage =
   | "pre_candidate"
@@ -209,7 +209,7 @@ async function resolveTickerSource(opts: {
       evidence: {
         source_id: opts.sourceId,
         scope: `ticker:${opts.ticker}`,
-        metric: opts.sourceId,
+        metric: `${opts.sourceId}_snapshot`,
         value: normalized.value,
         unit: "market_record",
         as_of: observedAsOf,

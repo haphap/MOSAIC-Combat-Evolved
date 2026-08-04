@@ -12,20 +12,7 @@ import {
   promptPath,
   resolvePromptPath,
 } from "../src/agents/prompts/cohorts.js";
-import {
-  clearPromptCache,
-  loadPrompt,
-  loadPromptWithPrivateKnot,
-  PromptNotFoundError,
-} from "../src/agents/prompts/loader.js";
-import { installTestPrivateKnotRuntime } from "./helpers/private_knot.js";
-
-const TEST_KNOT_INVOCATION = {
-  invocation_mode: "NON_PRODUCTION_TEST",
-  graph_run_id: "prompt-loader-test-run",
-  as_of: "2026-07-09",
-  execution_behavior_release_id: "non-production-test",
-} as const;
+import { clearPromptCache, loadPrompt, PromptNotFoundError } from "../src/agents/prompts/loader.js";
 
 interface FakeRoot {
   root: string;
@@ -128,7 +115,6 @@ describe("resolvePromptPath fallback chain", () => {
     delete process.env.MOSAIC_PROMPTS_ROOT;
     fake = makeFakePromptsRoot();
     privateFake = makeFakePromptsRoot();
-    installTestPrivateKnotRuntime();
     clearPromptCache();
   });
   afterEach(() => {
@@ -514,142 +500,5 @@ describe("loadPrompt", () => {
 
     expect(baseline).toBe("baseline");
     expect(overlay).toBe("private");
-  });
-
-  it("binds a fence-free prompt pair to an opaque private snapshot", async () => {
-    fake.putPrompt({
-      cohort: "cohort_default",
-      layer: "macro",
-      agent: "central_bank",
-      language: "zh",
-      body: "ZH body",
-    });
-    fake.putPrompt({
-      cohort: "cohort_default",
-      layer: "macro",
-      agent: "central_bank",
-      language: "en",
-      body: "EN body",
-    });
-
-    const out = await loadPromptWithPrivateKnot({
-      invocationContext: TEST_KNOT_INVOCATION,
-      agent: "central_bank",
-      cohort: "cohort_default",
-      stage: "agent_run",
-      promptsRoot: fake.root,
-    });
-
-    expect(out.prompt).toContain("ZH body");
-    expect(out.prompt).toContain("EN body");
-    expect(out.prompt).not.toContain("```research-knobs");
-    expect(out.snapshot.snapshot_hash).toMatch(/^sha256:/);
-    expect(out.snapshot).not.toHaveProperty("knobs");
-  });
-
-  it("fails closed when one language is missing", async () => {
-    fake.putPrompt({
-      cohort: "cohort_default",
-      layer: "macro",
-      agent: "central_bank",
-      language: "zh",
-      body: "ZH body",
-    });
-
-    await expect(
-      loadPromptWithPrivateKnot({
-        invocationContext: TEST_KNOT_INVOCATION,
-        agent: "central_bank",
-        cohort: "cohort_default",
-        promptsRoot: fake.root,
-      }),
-    ).rejects.toBeInstanceOf(PromptNotFoundError);
-  });
-
-  it("never fills a missing private KNOT prompt leg from the bundled root", async () => {
-    privateFake.putPrompt({
-      cohort: "cohort_default",
-      layer: "macro",
-      agent: "central_bank",
-      language: "zh",
-      body: "private ZH",
-    });
-    fake.putPrompt({
-      cohort: "cohort_default",
-      layer: "macro",
-      agent: "central_bank",
-      language: "en",
-      body: "bundled EN",
-    });
-
-    await expect(
-      loadPromptWithPrivateKnot({
-        invocationContext: TEST_KNOT_INVOCATION,
-        agent: "central_bank",
-        cohort: "cohort_default",
-        promptsRoot: fake.root,
-        privatePromptsRoot: privateFake.root,
-      }),
-    ).rejects.toBeInstanceOf(PromptNotFoundError);
-  });
-
-  it("requires a pinned private release for formal KNOT traffic", async () => {
-    for (const language of ["zh", "en"] as const) {
-      fake.putPrompt({
-        cohort: "cohort_default",
-        layer: "macro",
-        agent: "central_bank",
-        language,
-        body: `${language} body`,
-      });
-    }
-    await expect(
-      loadPromptWithPrivateKnot({
-        invocationContext: TEST_KNOT_INVOCATION,
-        agent: "central_bank",
-        cohort: "cohort_default",
-        promptsRoot: fake.root,
-        requirePinnedPrivateRelease: true,
-      }),
-    ).rejects.toThrow("private_knot_prompt_release_required");
-  });
-
-  it.each([
-    "```research-knobs\nprivate: true\n```",
-    "confidence cap",
-    "evidence_weights",
-    "Darwinian",
-    "darwin",
-    "knot",
-    "mutation target",
-    "champion behavior",
-    "研究旋钮",
-    "研究规则 ID",
-    "证据权重",
-    "晋级门槛",
-  ])("rejects embedded private policy content: %s", async (marker) => {
-    fake.putPrompt({
-      cohort: "cohort_default",
-      layer: "macro",
-      agent: "central_bank",
-      language: "zh",
-      body: `${marker}\nZH body`,
-    });
-    fake.putPrompt({
-      cohort: "cohort_default",
-      layer: "macro",
-      agent: "central_bank",
-      language: "en",
-      body: "EN body",
-    });
-
-    await expect(
-      loadPromptWithPrivateKnot({
-        invocationContext: TEST_KNOT_INVOCATION,
-        agent: "central_bank",
-        cohort: "cohort_default",
-        promptsRoot: fake.root,
-      }),
-    ).rejects.toThrow(/private_knot_content_embedded/);
   });
 });

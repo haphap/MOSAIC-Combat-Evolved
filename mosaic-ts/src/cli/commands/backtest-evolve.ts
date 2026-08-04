@@ -561,7 +561,6 @@ async function prepareGraph(
     cohort,
     promptsRoot: worktree.prompts_root,
     privatePromptsRoot: worktree.path,
-    requirePrivateKnot: true,
   });
   return {
     path: worktree.path,

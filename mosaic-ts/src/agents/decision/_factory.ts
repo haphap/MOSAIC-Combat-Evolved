@@ -61,16 +61,7 @@ import {
 import { acceptedMacroOutputs } from "../helpers/macro_context.js";
 import { preModelOutcomeDisposition } from "../helpers/outcome_pre_model.js";
 import {
-  isPrivateKnotStageEnabled,
-  type PrivateKnotAuditSummary,
-  type PrivateKnotSnapshot,
-  privateKnotInvocationContextForState,
-  type RuntimeSourceStatus,
-  type ToolStatus,
-} from "../helpers/private_knot_boundary.js";
-import {
   type AgentCanaryEventContext,
-  agentCanaryEventContext,
   beginAgentPromptCanaryInvocation,
   buildAgentPromptCanaryEvent,
 } from "../helpers/prompt_canary.js";
@@ -85,6 +76,7 @@ import {
   summarizeAgentOutput,
   withAgentTimeout,
 } from "../helpers/runtime.js";
+import type { RuntimeSourceStatus, ToolStatus } from "../helpers/runtime_evidence_types.js";
 import { resolveRuntimeSourceStatusesForAgent } from "../helpers/runtime_sources.js";
 import { validateStrictAgentOutput } from "../helpers/strict_agent_validation.js";
 import {
@@ -93,7 +85,7 @@ import {
   prepareAgentToolCapability,
   terminateAgentToolCapability,
 } from "../helpers/tool_capability.js";
-import { type LoaderLanguage, loadPrompt, loadPromptWithPrivateKnot } from "../prompts/loader.js";
+import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type {
@@ -227,7 +219,6 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
     const onLog = deps.onLog ?? (() => undefined);
     const startedAt = Date.now();
     let canaryContext: AgentCanaryEventContext | null = null;
-    let canaryKnobSnapshot: PrivateKnotSnapshot | null = null;
     let canaryToolStatuses: ReadonlyArray<ToolStatus> = [];
     onLog(
       formatAgentEvent("start", "L4", spec.agentId, [
@@ -243,62 +234,36 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           onLog(formatAgentEvent("phase", "L4", spec.agentId, ["prepare"]));
           const mirofish = await maybeLoadMirofishContext(spec, deps, state);
 
-          // Phase 0: load prompt.
-          let knobSnapshot: PrivateKnotSnapshot | null = null;
-          let systemPrompt: string;
-          let promptSourceHash: string;
-          if (isPrivateKnotStageEnabled(spec.agentId, spec.runtimeStage, cohort)) {
-            const runtimeSourceStatuses = [
-              ...resolveRuntimeSourceStatusesForAgent(state, spec.agentId, spec.runtimeStage),
-              ...(mirofish.status ? [mirofish.status] : []),
-            ];
-            const loaded = await loadPromptWithPrivateKnot({
-              agent: spec.agentId,
-              cohort,
-              stage: spec.runtimeStage,
-              trafficAssignmentKey: state.trace_id || state.as_of_date,
-              runtimeSourceStatuses,
-              invocationContext: privateKnotInvocationContextForState(state),
-              ...(state.darwinian_runtime_binding
-                ? { requirePinnedPrivateRelease: true as const }
-                : {}),
-              onReleaseAssigned: async (release) => {
-                canaryContext = await beginAgentPromptCanaryInvocation({
-                  release,
-                  state,
-                  agent: spec.agentId,
-                  stage: spec.runtimeStage,
-                  cohort,
-                });
-              },
-              ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
-            });
-            knobSnapshot = loaded.snapshot;
-            systemPrompt = loaded.prompt;
-            promptSourceHash = layer4PromptSourceHash(loaded.bodies);
-            canaryKnobSnapshot = loaded.snapshot;
-            canaryContext = agentCanaryEventContext({
-              release: loaded.release,
-              state,
-              agentInvocationId: loaded.snapshot.agent_invocation_id,
-              systemPrompt,
-            });
-          } else {
-            systemPrompt = await loadPrompt({
-              agent: spec.agentId,
-              cohort,
-              language,
-              ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
-            });
-            promptSourceHash = layer4PromptSourceHash(systemPrompt);
-          }
+          // Phase 0: load the ordinary Prompt Release-pinned prompt.
+          const runtimeSourceStatuses = [
+            ...resolveRuntimeSourceStatusesForAgent(state, spec.agentId, spec.runtimeStage),
+            ...(mirofish.status ? [mirofish.status] : []),
+          ];
+          const systemPrompt = await loadPrompt({
+            agent: spec.agentId,
+            cohort,
+            language,
+            stage: spec.runtimeStage,
+            trafficAssignmentKey: state.trace_id || state.as_of_date,
+            onReleaseAssigned: async (release) => {
+              canaryContext = await beginAgentPromptCanaryInvocation({
+                release,
+                state,
+                agent: spec.agentId,
+                stage: spec.runtimeStage,
+                cohort,
+              });
+            },
+            ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
+          });
+          const promptSourceHash = layer4PromptSourceHash(systemPrompt);
+          if (canaryContext) canaryContext = { ...canaryContext, systemPrompt };
           if (deps.requireL4SnapshotBundle || runtimeStateForLayer4(state).l4_run_snapshot_bundle) {
             assertL4RunSnapshotStage({
               state,
               agent: spec.agentId,
               stage: spec.runtimeStage,
               promptSourceHash,
-              privateKnotSnapshotHash: knobSnapshot?.snapshot_hash ?? null,
               mirofishContextHash: layer4MirofishSnapshotHash(mirofish.context),
             });
           }
@@ -316,7 +281,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             state,
             agent: spec.agentId,
             stage: spec.runtimeStage,
-            knobSnapshot,
+            runtimeSourceStatuses,
           });
           const evidenceAugmentedContext = runtimeEvidence
             ? `${augmentedContext}\n\n${runtimeEvidence.visibleCatalog}`
@@ -405,8 +370,8 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               state,
               agent: spec.agentId,
               stage: spec.runtimeStage,
-              knobSnapshot,
               toolStatuses,
+              runtimeSourceStatuses,
             });
           } else if (requiredTools.length === 0) {
             onLog(formatAgentEvent("phase", "L4", spec.agentId, ["synthesis_llm=1"]));
@@ -490,12 +455,9 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
                 schema: extractionSchema,
                 agent: spec.agentId,
                 stage: spec.runtimeStage,
-                cohort: state.active_cohort,
                 runtimeEvidence,
-                knobSnapshot,
-                toolStatuses,
                 currentPositions: state.current_positions,
-                validateBeforePrivatePolicy: (output) => {
+                validateRoleContract: (output) => {
                   try {
                     validateLayer4StageSemantics(spec, state, output);
                     return [];
@@ -533,16 +495,12 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             startedAt,
             structuredAccepted: true,
             claimGraphAccepted: true,
-            knobSnapshot,
-            knobAudit:
-              (output as TOutput & { private_knot_audit?: PrivateKnotAuditSummary })
-                .private_knot_audit ?? null,
             toolStatuses,
+            runtimeSourceStatuses,
             output,
             validatorIds: [
               `${spec.agentId}.${spec.runtimeStage}.structured_output.v1`,
               "evidence_claim_graph_v1",
-              "private_knot_runtime_v1",
               ...(spec.stateUpdateField === "autonomous_execution"
                 ? ["decision.execution_submission_semantics_v2"]
                 : []),
@@ -575,7 +533,6 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             buildLlmCall(spec.agentId, structuredHandle, { promptTokens, completionTokens }),
             {
               state,
-              knobSnapshot,
               canaryEvent,
               audit: extractor.audit,
               acceptedOutputStore: deps.acceptedOutputStore,
@@ -599,14 +556,11 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
         startedAt,
         structuredAccepted: false,
         claimGraphAccepted: false,
-        knobSnapshot: canaryKnobSnapshot,
-        knobAudit: null,
         toolStatuses: canaryToolStatuses,
         output: null,
         validatorIds: [
           `${spec.agentId}.${spec.runtimeStage}.structured_output.v1`,
           "evidence_claim_graph_v1",
-          "private_knot_runtime_v1",
         ],
         forceFallback: true,
         forceSourceFailure: true,
@@ -1193,7 +1147,6 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
   llmCall: LlmCallRecord,
   opts: {
     state: DailyCycleStateType;
-    knobSnapshot: PrivateKnotSnapshot | null;
     canaryEvent: PromptReleaseCanaryEvent | null;
     audit: AgentRunAudit;
     acceptedOutputStore: AcceptedAgentOutputStore | undefined;
@@ -1236,7 +1189,7 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
     const finalOutput = runtimeOutput as CioOutput;
     const runtime = updateLayer4Runtime(
       currentRuntime,
-      { cio_final_knob_snapshot: opts.knobSnapshot },
+      {},
       {
         stage: "cio_final",
         operation: "agent_run",

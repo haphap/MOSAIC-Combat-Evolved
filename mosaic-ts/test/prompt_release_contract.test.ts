@@ -36,7 +36,7 @@ function release(
   const active = lifecycleState === "active";
   const pairs = promptPairs();
   return {
-    schema_version: "active_prompt_release_manifest_v1",
+    schema_version: "active_prompt_release_manifest_v2",
     release_id: "release-1",
     base_release_id: "release-0",
     lifecycle_state: lifecycleState,
@@ -48,16 +48,16 @@ function release(
     catalog_hash: HASH,
     schema_hash: HASH,
     evaluation_contract_hash: HASH,
-    keep_decision_hash: HASH,
-    keep_decision_state: "kept",
     release_evidence: {
-      version_id: 1,
-      mutation_id: "mutation-1",
+      candidate_id: "candidate-1",
+      candidate_hash: HASH,
+      promotion_decision_id: "decision-1",
+      promotion_decision_hash: HASH,
       experiment_id: "experiment-1",
       mutated_agent: "central_bank",
-      evaluation_result_hash: HASH,
-      transaction_manifest_hash: HASH,
-      prompt_pair_sha256: "1".repeat(64),
+      policy_version: "policy-v1",
+      policy_config_hash: HASH,
+      candidate_prompt_hashes: { zh: HASH, en: HASH },
     },
     activation_scope: {
       cohort: "cohort_default",

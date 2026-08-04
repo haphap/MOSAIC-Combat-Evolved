@@ -62,8 +62,9 @@ pnpm dev autoresearch log --cohort crisis_2008
 Subcommands: `trigger`, `evaluate`, `log`, `branches`, `revert`, and
 `review-domain`. This surface is audit-only: evaluation terminates as
 `legacy_unverified`, `review-domain` accepts only `--decision revert`, and no
-command can publish a production behavior. Production evolution is KNOT-only
-through the governed paired-research RPC/release workflow.
+command can publish a production behavior. New Prompt evolution uses the
+private training-only mutator, generic frozen Experiment Runner, and ordinary
+Prompt Release canary/rollback flow.
 
 ## Prompt Operations
 
@@ -81,8 +82,8 @@ pnpm dev prompts gc-worktrees --repo-target all --max-age-hours 24
 - `init-private-repo` creates the sparse private prompt repo. `--seed-baseline` is migration-only and creates broad override shadowing.
 - `audit-versions` prints metadata only: ids, hashes, repo id, status, metrics, and branches. It does not show prompt content.
 - `verify-release` checks the pinned release tuple (`code_commit_hash`, `prompt_repo_id`, `prompt_commit_hash`, `prompt_sha256`), recomputes the prompt SHA at the commit, and runs the tool compatibility gate.
-- Domain/research-knob catalogs are generated and tested only in the private
-  KNOT repository; the public CLI does not export their contents.
+- Legacy domain/research-knob catalogs remain private read-only audit data; the
+  active mutator does not load or export them.
 - `prompt-token-budget` measures all 116 private/bundled stage-language rows
   with the pinned tokenizer, validates semantic parity and absolute caps, and
   applies the 1.25x committed-baseline growth gate.

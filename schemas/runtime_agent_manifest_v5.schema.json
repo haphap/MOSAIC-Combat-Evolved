@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Runtime Agent Manifest v5",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "runtime_agent_count",
+    "runtime_stage_count",
+    "canonical_l4_sequence",
+    "agents"
+  ],
+  "properties": {
+    "schema_version": { "const": "runtime_agent_manifest_v5" },
+    "runtime_agent_count": { "const": 28 },
+    "runtime_stage_count": { "const": 29 },
+    "canonical_l4_sequence": {
+      "const": [
+        "alpha_discovery",
+        "cio_proposal",
+        "cro_review",
+        "execution_feasibility",
+        "cio_final"
+      ]
+    },
+    "agents": {
+      "type": "array",
+      "minItems": 28,
+      "maxItems": 28,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agent",
+          "layer",
+          "prompt_ir_agent_id",
+          "required_tools",
+          "output_schema_fields",
+          "stages"
+        ],
+        "properties": {
+          "agent": { "type": "string", "minLength": 1 },
+          "layer": { "enum": ["macro", "sector", "superinvestor", "decision"] },
+          "prompt_ir_agent_id": { "type": "string", "minLength": 1 },
+          "required_tools": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "output_schema_fields": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "stages": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "stage",
+                "enablement",
+                "output_schema_ref",
+                "output_schema_fields",
+                "max_repair_attempts",
+                "required_source_ids",
+                "produced_source_ids"
+              ],
+              "properties": {
+                "stage": {
+                  "enum": [
+                    "agent_run",
+                    "alpha_discovery",
+                    "cio_proposal",
+                    "cro_review",
+                    "execution_feasibility",
+                    "cio_final"
+                  ]
+                },
+                "enablement": { "const": "enabled" },
+                "output_schema_ref": { "type": "string", "minLength": 1 },
+                "output_schema_fields": {
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "max_repair_attempts": { "const": 3 },
+                "required_source_ids": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "produced_source_ids": {
+                  "type": "array",
+                  "uniqueItems": true,
+                  "items": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

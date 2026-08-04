@@ -92,8 +92,6 @@ function immutableReleaseClosure(manifest: ActivePromptReleaseManifest): unknown
     catalog_hash: manifest.catalog_hash,
     schema_hash: manifest.schema_hash,
     evaluation_contract_hash: manifest.evaluation_contract_hash,
-    keep_decision_hash: manifest.keep_decision_hash,
-    keep_decision_state: manifest.keep_decision_state,
     release_evidence: manifest.release_evidence,
     cohort: manifest.activation_scope.cohort,
     account_mode: manifest.activation_scope.account_mode,

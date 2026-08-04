@@ -1,8 +1,9 @@
 # Autoresearch Macro Agent Plan
 
 > **历史归档。** 本文描述的旧 10-Agent roster、Macro 聚合和 Delta-Sharpe
-> keep/revert 路径已停用。当前 28-Agent outcome 合同、Macro 直出、Darwinian v2 与
-> KNOT-only 生产演化以 `docs/plans/macro-agent-role-contracts-v2-plan.md` 为准。
+> keep/revert 路径已停用。当前 28-Agent outcome 合同、Macro 直出和 Darwinian v2
+> 以 `docs/plans/macro-agent-role-contracts-v2-plan.md` 为准；Prompt 演化边界以
+> `docs/plans/knot-prompt-optimizer-simplification-plan.md` 为准。
 
 ## 背景
 

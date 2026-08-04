@@ -14,7 +14,7 @@ for (let index = 2; index < process.argv.length; index += 2) {
 }
 const release = loadExecutionBehaviorReleaseManifest(
   resolve(
-    args.get("release") ?? "../registry/prompt_checks/execution_behavior_release_manifest_v1.json",
+    args.get("release") ?? "../registry/prompt_checks/execution_behavior_release_manifest_v2.json",
   ),
 );
 const treeRows = release.variants.map((variant) => ({

@@ -13,13 +13,12 @@ import type { DailyCycleStateType } from "../state.js";
 import { canonicalJsonHash } from "./canonical_json.js";
 import {
   buildAgentInvocationId,
-  type PrivateKnotSnapshot,
   type RuntimeSourceEvidenceObservation,
   type RuntimeSourceStatus,
   type ToolStatus,
-} from "./private_knot_boundary.js";
+} from "./runtime_evidence_types.js";
 
-export { buildAgentInvocationId } from "./private_knot_boundary.js";
+export { buildAgentInvocationId } from "./runtime_evidence_types.js";
 
 export interface RuntimeEvidenceSnapshot {
   runId: string;
@@ -139,70 +138,38 @@ export function buildRuntimeEvidenceSnapshot(input: {
   state: DailyCycleStateType;
   agent: string;
   stage: RuntimeAgentStageId;
-  knobSnapshot?: PrivateKnotSnapshot | null;
   toolStatuses?: ReadonlyArray<ToolStatus>;
+  runtimeSourceStatuses?: ReadonlyArray<RuntimeSourceStatus>;
+  allowedResearchRuleIds?: ReadonlyArray<string>;
 }): RuntimeEvidenceSnapshot {
   const runId = input.state.trace_id || input.state.as_of_date || "current_run";
-  if (input.knobSnapshot) {
-    const expectedExecutionRelease =
-      input.state.darwinian_runtime_binding?.execution_behavior_release_id;
-    for (const [field, actual, expected] of [
-      ["graph_run_id", input.knobSnapshot.graph_run_id, runId],
-      ["as_of", input.knobSnapshot.as_of, input.state.as_of_date],
-      ["agent", input.knobSnapshot.agent, input.agent],
-      ["stage", input.knobSnapshot.stage, input.stage],
-      ["cohort", input.knobSnapshot.cohort, input.state.active_cohort || "cohort_default"],
-      [
-        "execution_behavior_release_id",
-        input.knobSnapshot.execution_behavior_release_id,
-        expectedExecutionRelease ?? "non-production-test",
-      ],
-    ] as const) {
-      if (actual !== expected) throw new Error(`private_knot_snapshot_${field}_mismatch`);
-    }
-    const expectedMode = expectedExecutionRelease ? "PRODUCTION" : "NON_PRODUCTION_TEST";
-    if (input.knobSnapshot.invocation_mode !== expectedMode) {
-      throw new Error("private_knot_snapshot_invocation_mode_mismatch");
-    }
-  }
-  const snapshotHash =
-    input.knobSnapshot?.snapshot_hash ??
-    canonicalHash({
-      schema_version: "runtime_evidence_snapshot_v2",
-      run_id: runId,
-      agent: input.agent,
-      stage: input.stage,
-      tool_statuses: input.toolStatuses ?? [],
-    });
-  const agentInvocationId =
-    input.knobSnapshot?.agent_invocation_id ??
-    buildAgentInvocationId({
-      runId,
-      agent: input.agent,
-      stage: input.stage,
-      cohort: input.state.active_cohort || "cohort_default",
-      asOf: input.state.as_of_date || "live",
-      promptReleaseHash: snapshotHash,
-    });
+  const snapshotHash = canonicalHash({
+    schema_version: "runtime_evidence_snapshot_v3",
+    run_id: runId,
+    agent: input.agent,
+    stage: input.stage,
+    tool_statuses: input.toolStatuses ?? [],
+    runtime_source_statuses: input.runtimeSourceStatuses ?? [],
+  });
+  const agentInvocationId = buildAgentInvocationId({
+    runId,
+    agent: input.agent,
+    stage: input.stage,
+    cohort: input.state.active_cohort || "cohort_default",
+    asOf: input.state.as_of_date || "live",
+    promptReleaseHash: snapshotHash,
+  });
   const evidenceLedger: EvidenceLedgerEntry[] = [];
   const seen = new Set<string>();
-  const evidenceRegistry = input.knobSnapshot
-    ? Object.fromEntries(
-        input.knobSnapshot.evidence_bindings.map((binding) => [
-          binding.evidence_key,
-          {
-            metric: binding.metric,
-            ...(binding.tool ? { tool: binding.tool } : {}),
-            ...(binding.source ? { source: binding.source } : {}),
-          },
-        ]),
-      )
-    : Object.fromEntries(
-        [...new Set((input.toolStatuses ?? []).map((status) => status.name))].map((name) => [
-          name,
-          { tool: name, metric: `${name}_snapshot` },
-        ]),
-      );
+  const evidenceRegistry: Record<string, { metric: string; tool?: string; source?: string }> =
+    Object.fromEntries([
+      ...[...new Set((input.toolStatuses ?? []).map((status) => status.name))].map(
+        (name) => [name, { tool: name, metric: `${name}_snapshot` }] as const,
+      ),
+      ...[...new Set((input.runtimeSourceStatuses ?? []).map((status) => status.source_id))].map(
+        (sourceId) => [sourceId, { source: sourceId, metric: `${sourceId}_snapshot` }] as const,
+      ),
+    ]);
   for (const [evidenceKey, registryEntry] of Object.entries(evidenceRegistry)) {
     if (registryEntry.tool) {
       const statuses = (input.toolStatuses ?? []).filter(
@@ -223,7 +190,7 @@ export function buildRuntimeEvidenceSnapshot(input: {
       continue;
     }
     const sourceId = runtimeSourceId(evidenceKey, registryEntry.metric, registryEntry.source);
-    const statuses = (input.knobSnapshot?.runtime_source_statuses ?? []).filter(
+    const statuses = (input.runtimeSourceStatuses ?? []).filter(
       (status) => status.source_id === sourceId,
     );
     for (const status of statuses) {
@@ -241,7 +208,7 @@ export function buildRuntimeEvidenceSnapshot(input: {
   }
   evidenceLedger.sort((left, right) => left.evidence_id.localeCompare(right.evidence_id));
   const evidenceById = new Map(evidenceLedger.map((entry) => [entry.evidence_id, entry]));
-  const allowedResearchRuleIds = new Set(input.knobSnapshot?.allowed_research_rule_ids ?? []);
+  const allowedResearchRuleIds = new Set(input.allowedResearchRuleIds ?? []);
   return {
     runId,
     agentId: input.agent,

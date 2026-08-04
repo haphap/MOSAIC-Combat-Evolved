@@ -210,7 +210,7 @@ async function fillStage1(
       `prompt source preflight failed: ${promptSource.source_status.blocked_reason || "unknown"}`,
     );
   }
-  await assertRuntimePromptPreflight({ cohort, requirePrivateKnot: true });
+  await assertRuntimePromptPreflight({ cohort });
 
   const tradeDays = await enumerateTradingDays(api, opts.start, opts.end);
   const vetoThreshold = opts.vetoThreshold ? Number(opts.vetoThreshold) : 0.5;

@@ -118,7 +118,6 @@ describe("evaluateHistoricalDecisionHealth", () => {
       execution_feasibility_state: null,
       final_target_state: null,
       portfolio_summary: null,
-      cio_final_knob_snapshot: null,
       resolved_source_statuses: [],
       source_evidence_observations: [],
       stage_trace: [

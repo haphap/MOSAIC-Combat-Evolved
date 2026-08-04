@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { BaseMessage } from "@langchain/core/messages";
 import type { AgentContractIssue } from "../helpers/agent_run_contract.js";
-import type { ToolStatus } from "../helpers/private_knot_boundary.js";
+import type { ToolStatus } from "../helpers/runtime_evidence_types.js";
 import type { MacroAgentId, MacroAgentSubmission } from "../types.js";
 
 interface SnapshotRecord extends Record<string, unknown> {

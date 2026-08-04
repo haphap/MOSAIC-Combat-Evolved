@@ -1,20 +1,12 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { RUNTIME_AGENT_SPECS } from "../src/agents/prompts/runtime_agent_spec.js";
 import { assertRuntimePromptPreflight } from "../src/agents/prompts/runtime_prompt_preflight.js";
 
 const ROOT = resolve(process.cwd(), "..", "prompts", "mosaic", "cohort_default");
 
 describe("strict bilingual runtime prompt contracts", () => {
-  afterEach(async () => {
-    const { clearPrivateKnotRuntimeForTests } = await import(
-      "../src/agents/helpers/private_knot_boundary.js"
-    );
-    clearPrivateKnotRuntimeForTests();
-    delete process.env.MOSAIC_KNOT_RUNTIME_ROOT;
-  });
-
   it("passes the generated 28-agent/29-stage runtime preflight", async () => {
     const report = await assertRuntimePromptPreflight({
       cohort: "cohort_default",
@@ -22,36 +14,6 @@ describe("strict bilingual runtime prompt contracts", () => {
     });
     expect(report.ready).toBe(true);
     expect(report.rows).toHaveLength(29);
-  });
-
-  it("clears a stale live KNOT adapter before bundled non-production preflight", async () => {
-    const { installPrivateKnotRuntime, privateKnotRuntimeInstalled } = await import(
-      "../src/agents/helpers/private_knot_boundary.js"
-    );
-    installPrivateKnotRuntime({
-      describe: () => ({
-        knot_runtime_contract_manifest_hash: `sha256:${"1".repeat(64)}`,
-        private_runtime_manifest_hash: `sha256:${"2".repeat(64)}`,
-      }),
-      isStageEnabled: () => true,
-      prepareSnapshot: async () => {
-        throw new Error("stale adapter must not be called");
-      },
-      applyPolicy: (input) => {
-        throw new Error(`stale adapter must not be called: ${String(input.snapshot.snapshot_id)}`);
-      },
-    });
-    process.env.MOSAIC_KNOT_RUNTIME_ROOT = "/private/root/must-not-be-read-by-smoke";
-    expect(privateKnotRuntimeInstalled()).toBe(true);
-
-    const report = await assertRuntimePromptPreflight({
-      cohort: "cohort_default",
-      promptsRoot: resolve(ROOT, ".."),
-      requirePrivateKnot: false,
-    });
-
-    expect(report.ready).toBe(true);
-    expect(privateKnotRuntimeInstalled()).toBe(false);
   });
 
   it("keeps all 28 bilingual contracts generated from runtime fields without fallback ambiguity", () => {

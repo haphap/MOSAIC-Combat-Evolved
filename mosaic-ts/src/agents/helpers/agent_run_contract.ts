@@ -53,7 +53,6 @@ export interface AgentRunAudit {
     | "timeout"
     | "connection_error"
     | "model_service_error"
-    | "private_policy_failure"
     | "evidence_contract_failure";
   reason_codes: string[];
   prompt_hash: string;
@@ -233,7 +232,7 @@ export async function invokeStrictStructured<T>(
         };
         attempts.push(attemptAudit);
         if (opts.onAttempt) await opts.onAttempt(attemptAudit, null);
-        else persistPrivateAttemptTelemetry(opts, attemptAudit, null);
+        else persistAttemptDiagnosticTelemetry(opts, attemptAudit, null);
         const audit = failedAudit(opts, hashes, attempts, failure.status, failure.stopReason, [
           failure.reasonCode,
         ]);
@@ -261,20 +260,7 @@ export async function invokeStrictStructured<T>(
     };
     attempts.push(attemptAudit);
     if (opts.onAttempt) await opts.onAttempt(attemptAudit, raw);
-    else persistPrivateAttemptTelemetry(opts, attemptAudit, raw);
-
-    const privatePolicyIssues = issues.filter(
-      (issue) => issue.validator === "private_knot_runtime_v1",
-    );
-    if (privatePolicyIssues.length > 0) {
-      const reasonCodes = [
-        ...new Set(privatePolicyIssues.map((issue) => issue.reason_code)),
-      ].sort();
-      throw new AgentRunContractError(
-        `${opts.agent}/${opts.stage}: private KNOT policy failed: ${reasonCodes.join(",")}`,
-        failedAudit(opts, hashes, attempts, "error", "private_policy_failure", reasonCodes),
-      );
-    }
+    else persistAttemptDiagnosticTelemetry(opts, attemptAudit, raw);
 
     if (attemptAudit.accepted && candidate !== null) {
       const acceptedEmpty = opts.isAcceptedEmpty?.(candidate) ?? false;
@@ -319,7 +305,7 @@ export async function invokeStrictStructured<T>(
   throw rejectedError(opts, hashes, attempts, "repair_budget_exhausted");
 }
 
-function persistPrivateAttemptTelemetry<T>(
+function persistAttemptDiagnosticTelemetry<T>(
   opts: StrictStructuredRunOptions<T>,
   audit: AgentAttemptAudit,
   rawOutput: unknown,
@@ -335,7 +321,7 @@ function persistPrivateAttemptTelemetry<T>(
   appendFileSync(
     file,
     `${JSON.stringify({
-      schema_version: "agent_attempt_private_telemetry_v1",
+      schema_version: "agent_attempt_diagnostic_telemetry_v1",
       run_id: opts.runId,
       agent: opts.agent,
       stage: opts.stage,

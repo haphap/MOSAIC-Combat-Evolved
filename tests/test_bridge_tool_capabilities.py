@@ -1345,7 +1345,21 @@ def test_capability_ledger_tables_reject_update_and_delete(tmp_path):
                 conn.execute(f"DELETE FROM {table}")
 
 
-def test_knot_pair_root_is_authoritative_atomic_and_replay_safe(tmp_path):
+def test_legacy_knot_capability_writers_are_read_only(tmp_path):
+    now = [datetime(2026, 7, 9, 8, tzinfo=timezone.utc)]
+    store = _store(tmp_path, now)
+
+    with pytest.raises(RuntimeError, match="legacy_knot_protocol_read_only"):
+        store.classify_and_reserve_knot_regime(
+            knot_research_track_id="legacy-track",
+            research_slot_id="legacy-slot",
+            scheduled_sample_id="legacy-sample",
+            expected_as_of="2026-07-09",
+            source_snapshot={},
+        )
+
+
+def _legacy_knot_pair_root_is_authoritative_atomic_and_replay_safe(tmp_path):
     now = [datetime(2026, 7, 9, 8, tzinfo=timezone.utc)]
     store = _store(tmp_path, now)
     champion, candidate, binding = _paired_capabilities(store)
@@ -1397,7 +1411,7 @@ def test_knot_pair_root_is_authoritative_atomic_and_replay_safe(tmp_path):
         store.verify_knot_pair_root_receipt(tampered)
 
 
-def test_knot_pair_root_rejects_bad_signature_wrong_lineage_and_expiry(tmp_path):
+def _legacy_knot_pair_root_rejects_bad_signature_wrong_lineage_and_expiry(tmp_path):
     now = [datetime(2026, 7, 9, 8, tzinfo=timezone.utc)]
     store = _store(tmp_path, now)
     champion, candidate, binding = _paired_capabilities(store)
@@ -1429,7 +1443,7 @@ def test_knot_pair_root_rejects_bad_signature_wrong_lineage_and_expiry(tmp_path)
         )
 
 
-def test_knot_strict_output_receipt_requires_schema_claims_tools_and_timeline(
+def _legacy_knot_strict_output_receipt_requires_schema_claims_tools_and_timeline(
     tmp_path,
 ):
     now = [datetime(2026, 7, 9, 8, tzinfo=timezone.utc)]
@@ -1544,7 +1558,7 @@ def test_knot_strict_output_receipt_requires_schema_claims_tools_and_timeline(
         )
 
 
-def test_knot_pair_budget_binding_is_required_only_for_standard_sector(tmp_path):
+def _legacy_knot_pair_budget_binding_is_required_only_for_standard_sector(tmp_path):
     now = [datetime(2026, 7, 9, 8, tzinfo=timezone.utc)]
     store = _store(tmp_path, now)
     sector_champion, sector_candidate, sector_binding = _paired_sector_capabilities(
@@ -1599,7 +1613,7 @@ def test_knot_pair_budget_binding_is_required_only_for_standard_sector(tmp_path)
         )
 
 
-def test_knot_sector_usage_receipt_is_derived_from_server_owned_subcalls(tmp_path):
+def _legacy_knot_sector_usage_receipt_is_derived_from_server_owned_subcalls(tmp_path):
     now = [datetime(2026, 7, 9, 8, tzinfo=timezone.utc)]
     store = _store(tmp_path, now)
     request = _request("biotech")
@@ -1926,7 +1940,7 @@ def test_standard_sector_usage_summary_preserves_failed_attempt_path(tmp_path):
         ),
     ],
 )
-def test_knot_sector_budget_breaches_persist_incomplete_signed_summary(
+def _legacy_knot_sector_budget_breaches_persist_incomplete_signed_summary(
     tmp_path,
     suffix,
     budget_overrides,
@@ -2077,7 +2091,7 @@ def test_knot_sector_budget_breaches_persist_incomplete_signed_summary(
         )
 
 
-def test_knot_regime_receipt_is_deterministic_signed_and_source_bound(
+def _legacy_knot_regime_receipt_is_deterministic_signed_and_source_bound(
     tmp_path, monkeypatch
 ):
     now = [datetime(2026, 7, 9, 8, tzinfo=timezone.utc)]

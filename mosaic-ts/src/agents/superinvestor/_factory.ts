@@ -52,15 +52,7 @@ import {
 import { acceptedMacroOutputs, renderAcceptedMacroInputs } from "../helpers/macro_context.js";
 import { preModelOutcomeDisposition } from "../helpers/outcome_pre_model.js";
 import {
-  isPrivateKnotStageEnabled,
-  type PrivateKnotAuditSummary,
-  type PrivateKnotSnapshot,
-  privateKnotInvocationContextForState,
-  type ToolStatus,
-} from "../helpers/private_knot_boundary.js";
-import {
   type AgentCanaryEventContext,
-  agentCanaryEventContext,
   beginAgentPromptCanaryInvocation,
   buildAgentPromptCanaryEvent,
 } from "../helpers/prompt_canary.js";
@@ -74,6 +66,7 @@ import {
   summarizeAgentOutput,
   withAgentTimeout,
 } from "../helpers/runtime.js";
+import type { ToolStatus } from "../helpers/runtime_evidence_types.js";
 import { resolveRuntimeSourceStatusesForAgent } from "../helpers/runtime_sources.js";
 import { renderAcceptedSectorInputs } from "../helpers/source_layer_usage.js";
 import { validateStrictAgentOutput } from "../helpers/strict_agent_validation.js";
@@ -84,7 +77,7 @@ import {
   terminateAgentToolCapability,
 } from "../helpers/tool_capability.js";
 import { MACRO_AGENT_IDS } from "../macro/_contracts.js";
-import { type LoaderLanguage, loadPrompt, loadPromptWithPrivateKnot } from "../prompts/loader.js";
+import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type { SuperinvestorOutput } from "../types.js";
 import { buildRuntimeSuperinvestorSchema } from "./_schemas.js";
@@ -141,7 +134,6 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
     const onLog = deps.onLog ?? (() => undefined);
     const startedAt = Date.now();
     let canaryContext: AgentCanaryEventContext | null = null;
-    let canaryKnobSnapshot: PrivateKnotSnapshot | null = null;
     let canaryToolStatuses: ReadonlyArray<ToolStatus> = [];
     onLog(
       formatAgentEvent("start", "L3", spec.agentId, [
@@ -156,57 +148,30 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
           const language = pickPromptLanguage(deps.config);
           onLog(formatAgentEvent("phase", "L3", spec.agentId, ["prepare"]));
 
-          let knobSnapshot: PrivateKnotSnapshot | null = null;
-          let baseSystemPrompt: string;
-          let release: Parameters<typeof agentCanaryEventContext>[0]["release"];
-          if (isPrivateKnotStageEnabled(spec.agentId, "agent_run", cohort)) {
-            const runtimeSourceStatuses = resolveRuntimeSourceStatusesForAgent(
-              state,
-              spec.agentId,
-              "agent_run",
-            );
-            const loaded = await loadPromptWithPrivateKnot({
-              agent: spec.agentId,
-              cohort,
-              stage: "agent_run",
-              trafficAssignmentKey: state.trace_id || state.as_of_date,
-              runtimeSourceStatuses,
-              invocationContext: privateKnotInvocationContextForState(state),
-              ...(state.darwinian_runtime_binding
-                ? { requirePinnedPrivateRelease: true as const }
-                : {}),
-              onReleaseAssigned: async (assignedRelease) => {
-                canaryContext = await beginAgentPromptCanaryInvocation({
-                  release: assignedRelease,
-                  state,
-                  agent: spec.agentId,
-                  stage: "agent_run",
-                  cohort,
-                });
-              },
-              ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
-            });
-            knobSnapshot = loaded.snapshot;
-            baseSystemPrompt = loaded.prompt;
-            canaryKnobSnapshot = loaded.snapshot;
-            release = loaded.release;
-          } else {
-            baseSystemPrompt = await loadPrompt({
-              agent: spec.agentId,
-              cohort,
-              language,
-              ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
-            });
-          }
+          const runtimeSourceStatuses = resolveRuntimeSourceStatusesForAgent(
+            state,
+            spec.agentId,
+            "agent_run",
+          );
+          const baseSystemPrompt = await loadPrompt({
+            agent: spec.agentId,
+            cohort,
+            language,
+            stage: "agent_run",
+            trafficAssignmentKey: state.trace_id || state.as_of_date,
+            onReleaseAssigned: async (assignedRelease) => {
+              canaryContext = await beginAgentPromptCanaryInvocation({
+                release: assignedRelease,
+                state,
+                agent: spec.agentId,
+                stage: "agent_run",
+                cohort,
+              });
+            },
+            ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
+          });
           const systemPrompt = `${baseSystemPrompt}\n\n${buildLayerThreeCurrentToolContract(spec.requiredTools)}`;
-          if (knobSnapshot) {
-            canaryContext = agentCanaryEventContext({
-              release,
-              state,
-              agentInvocationId: knobSnapshot.agent_invocation_id,
-              systemPrompt,
-            });
-          }
+          if (canaryContext) canaryContext = { ...canaryContext, systemPrompt };
 
           const availableAcceptedSnapshotRefs = superinvestorAcceptedSnapshotRefs(state);
           const acceptedSnapshotRefs =
@@ -256,14 +221,12 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
             spec.agentId,
             deps.acceptedOutputStore,
           );
-          let runtimeEvidence: RuntimeEvidenceSnapshot | null = knobSnapshot
-            ? buildRuntimeEvidenceSnapshot({
-                state,
-                agent: spec.agentId,
-                stage: "agent_run",
-                knobSnapshot,
-              })
-            : null;
+          let runtimeEvidence: RuntimeEvidenceSnapshot | null = buildRuntimeEvidenceSnapshot({
+            state,
+            agent: spec.agentId,
+            stage: "agent_run",
+            runtimeSourceStatuses,
+          });
           const evidenceUserContext = runtimeEvidence
             ? `${userContext}\n\n${runtimeEvidence.visibleCatalog}`
             : userContext;
@@ -294,8 +257,8 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
             state,
             agent: spec.agentId,
             stage: "agent_run",
-            knobSnapshot,
             toolStatuses: loopResult.toolStatuses,
+            runtimeSourceStatuses,
           });
           canaryToolStatuses = loopResult.toolStatuses;
 
@@ -342,10 +305,7 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
                 schema: extractionSchema,
                 agent: spec.agentId,
                 stage: "agent_run",
-                cohort: state.active_cohort,
                 runtimeEvidence,
-                knobSnapshot,
-                toolStatuses: loopResult.toolStatuses,
               }),
             isAcceptedEmpty: (output) => output.selection_status === "NO_QUALIFIED_CANDIDATES",
             signal,
@@ -431,17 +391,10 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
             startedAt,
             structuredAccepted: true,
             claimGraphAccepted: true,
-            knobSnapshot,
-            knobAudit:
-              (output as TOutput & { private_knot_audit?: PrivateKnotAuditSummary })
-                .private_knot_audit ?? null,
             toolStatuses: loopResult.toolStatuses,
+            runtimeSourceStatuses,
             output,
-            validatorIds: [
-              `${spec.agentId}.structured_output.v1`,
-              "evidence_claim_graph_v1",
-              "private_knot_runtime_v1",
-            ],
+            validatorIds: [`${spec.agentId}.structured_output.v1`, "evidence_claim_graph_v1"],
           });
           if (canaryEvent) {
             llmCall.prompt_canary_event = canaryEvent;
@@ -497,15 +450,9 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
         startedAt,
         structuredAccepted: false,
         claimGraphAccepted: false,
-        knobSnapshot: canaryKnobSnapshot,
-        knobAudit: null,
         toolStatuses: canaryToolStatuses,
         output: null,
-        validatorIds: [
-          `${spec.agentId}.structured_output.v1`,
-          "evidence_claim_graph_v1",
-          "private_knot_runtime_v1",
-        ],
+        validatorIds: [`${spec.agentId}.structured_output.v1`, "evidence_claim_graph_v1"],
         forceFallback: true,
         forceSourceFailure: true,
       });

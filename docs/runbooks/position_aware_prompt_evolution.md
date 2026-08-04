@@ -1,29 +1,36 @@
 # Prompt Evolution Public Boundary
 
-Production prompt evolution is implemented in the private prompt/KNOT
-repository. This public repository intentionally contains no KNOT scoring,
-scheduling, mutation, promotion, rollback, or research-policy values.
+KNOT is a private, training-only Prompt Mutator. It reads a frozen summary of
+Agent-specific training outcomes and produces a bilingual Prompt Candidate,
+mutation summary, hypothesis, and parent lineage. Private Prompt bodies and
+mutation policy remain in the private prompt repository.
 
-The public runtime is responsible only for:
+The public repository owns the rest of the lifecycle:
 
-- loading a private runtime through a content-addressed reference;
-- rejecting a missing, stale, or hash-mismatched private release;
-- keeping research policy outside model-visible prompt text;
-- preserving public Agent, tool, output-schema, PIT, privacy, and RKE
-  shadow-only contracts;
-- exposing release-level `canary` and `rollback` operations without defining
-  private research decisions.
+- `prompt_experiment_runner.ts` runs Champion and Candidate against the same
+  frozen split, model, tool, and Evaluator configuration;
+- `prompt_promotion_policy.ts` applies Agent-specific outcome, minimum-sample,
+  significance, tail, and one-time holdout gates;
+- Prompt Release alone stages, starts a `canary`, activates, and performs
+  `rollback`;
+- `prompt_release_contract_ref_v2.json` binds the public Agent roster,
+  structured-output contracts, tools, and outcome contracts;
+- Darwinian weights remain a separate consumer of matured Agent outcomes, and
+  RKE remains shadow-only.
 
-Configure the private repository root through the operator environment, then
-verify the boundary from the public checkout:
+The runtime never loads a KNOT executable, research knob, capability, pair,
+receipt, replay capsule, or coordinator ledger. Those v1/v2 protocols are
+retained only under `registry/knot/legacy_read_only_v2.json` for audit.
+
+Verify the public boundary from the public checkout:
 
 ```bash
-rtk proxy env MOSAIC_KNOT_RUNTIME_ROOT=/path/to/private-repo \
-  uv run python scripts/check_private_knot_boundary.py --require-private
 rtk pnpm --dir mosaic-ts prompt:check
 rtk uv run python scripts/check_prompt_leaks.py
+rtk uv run python -m pytest tests/test_knot_legacy_read_only.py \
+  tests/test_prompt_optimizer_store.py tests/test_bridge_prompt_optimizer.py -q
 ```
 
-Bundled prompts are fake/offline fallbacks. They are not production champions
-and contain no private research controls. Detailed operating procedures and
-acceptance thresholds live only in the private repository.
+Bundled prompts remain fake/offline fallbacks. Production Prompt Candidates
+must be committed to the private Prompt repository and pass the ordinary
+Prompt Release canary before activation.

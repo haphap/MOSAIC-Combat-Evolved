@@ -988,16 +988,13 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     expect(final.replay_triggered).toBe(false);
     const runtime = final.layer4_outputs.runtime;
     expect(runtime?.l4_run_snapshot_bundle).toMatchObject({
-      schema_version: "decision.l4_run_snapshot_bundle.v1",
+      schema_version: "decision.l4_run_snapshot_bundle.v2",
       frozen: true,
     });
     expect(runtime?.l4_run_snapshot_bundle?.prompt_snapshots).toHaveLength(5);
     expect(runtime?.l4_run_snapshot_bundle?.bundle_hash).toMatch(/^sha256:/);
     for (const snapshot of runtime?.l4_run_snapshot_bundle?.prompt_snapshots ?? []) {
       expect(snapshot.prompt_source_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
-      if (snapshot.private_knot_snapshot_hash) {
-        expect(snapshot.private_knot_snapshot_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
-      }
     }
     expect(runtime?.l4_run_snapshot_bundle?.position_snapshot_hash).toMatch(
       /^sha256:[0-9a-f]{64}$/,

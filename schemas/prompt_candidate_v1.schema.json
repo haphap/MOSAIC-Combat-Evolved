@@ -1,0 +1,167 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "prompt_candidate_v1"
+    },
+    "candidateId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "parentId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "target": {
+      "type": "object",
+      "properties": {
+        "agentId": {
+          "type": "string",
+          "enum": [
+            "china",
+            "us_economy",
+            "eu_economy",
+            "central_bank",
+            "us_financial_conditions",
+            "euro_area_financial_conditions",
+            "commodities",
+            "geopolitical",
+            "market_breadth",
+            "institutional_flow",
+            "semiconductor",
+            "technology",
+            "energy",
+            "biotech",
+            "consumer",
+            "industrials",
+            "real_estate_construction",
+            "financials",
+            "agriculture",
+            "relationship_mapper",
+            "druckenmiller",
+            "munger",
+            "burry",
+            "ackman",
+            "cro",
+            "alpha_discovery",
+            "autonomous_execution",
+            "cio"
+          ]
+        },
+        "stage": {
+          "type": "string",
+          "enum": [
+            "agent_run",
+            "alpha_discovery",
+            "cio_proposal",
+            "cro_review",
+            "execution_feasibility",
+            "cio_final"
+          ]
+        },
+        "cohort": {
+          "type": "string",
+          "pattern": "^cohort_[a-z0-9_]+$"
+        }
+      },
+      "required": [
+        "agentId",
+        "stage",
+        "cohort"
+      ],
+      "additionalProperties": false
+    },
+    "promptRefs": {
+      "type": "object",
+      "properties": {
+        "zh": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^\\r\\n]+$"
+        },
+        "en": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[^\\r\\n]+$"
+        }
+      },
+      "required": [
+        "zh",
+        "en"
+      ],
+      "additionalProperties": false
+    },
+    "promptHashes": {
+      "type": "object",
+      "properties": {
+        "zh": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "en": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "zh",
+        "en"
+      ],
+      "additionalProperties": false
+    },
+    "trainingSnapshotId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "trainingSnapshotHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "mutatorConfigHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "mutatorCommit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "mutationSummary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "hypothesis": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "candidateId",
+    "parentId",
+    "target",
+    "promptRefs",
+    "promptHashes",
+    "trainingSnapshotId",
+    "trainingSnapshotHash",
+    "mutatorConfigHash",
+    "mutatorCommit",
+    "mutationSummary",
+    "hypothesis",
+    "createdAt"
+  ],
+  "additionalProperties": false
+}

@@ -32,14 +32,16 @@ import {
 import { assertStructuredOutputCapability } from "../../agents/helpers/agent_run_contract.js";
 import { canonicalJsonHash } from "../../agents/helpers/canonical_json.js";
 import { buildPositionAuditToolStatusSummary } from "../../agents/helpers/position_audit.js";
-import { privateKnotRuntimeInstalled } from "../../agents/helpers/private_knot_boundary.js";
 import {
   formatDurationMs,
   parseAgentTimeoutSeconds,
   resolveAgentTimeoutMs,
 } from "../../agents/helpers/runtime.js";
-import { findBundledPromptsRoot, formatPromptSourceLabel } from "../../agents/prompts/cohorts.js";
-import { PRIVATE_KNOT_COHORT_IDS } from "../../agents/prompts/private_knot_stage_enablement.js";
+import {
+  findBundledPromptsRoot,
+  formatPromptSourceLabel,
+  PROMPT_COHORT_IDS,
+} from "../../agents/prompts/cohorts.js";
 import { assertRuntimePromptPreflight } from "../../agents/prompts/runtime_prompt_preflight.js";
 import { captureDailyCycleRkeFootprints } from "../../agents/rke_footprints.js";
 import {
@@ -150,7 +152,6 @@ export function registerDailyCycle(program: Command): void {
       const inheritedRuntimeEnv = {
         sourceGapBypass: process.env.MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS,
         fixtureBundleHash: process.env.MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH,
-        knotRuntimeRoot: process.env.MOSAIC_KNOT_RUNTIME_ROOT,
       };
       let client: BridgeClient | null = null;
       try {
@@ -183,7 +184,6 @@ export function registerDailyCycle(program: Command): void {
           fixtureBundleHash = fixtureBundle.bundleHash;
           process.env.MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS = sourceGapBypass;
           process.env.MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH = fixtureBundle.bundleHash;
-          delete process.env.MOSAIC_KNOT_RUNTIME_ROOT;
         } else {
           delete process.env.MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS;
           delete process.env.MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH;
@@ -263,17 +263,13 @@ export function registerDailyCycle(program: Command): void {
                 "..",
                 "registry",
                 "prompt_checks",
-                "execution_behavior_release_manifest_v1.json",
+                "execution_behavior_release_manifest_v2.json",
               ),
             );
         await assertRuntimePromptPreflight({
           cohort,
-          requirePrivateKnot: !nonProductionSmoke,
           ...(runtimePromptsRoot ? { promptsRoot: runtimePromptsRoot } : {}),
         });
-        if (nonProductionSmoke && privateKnotRuntimeInstalled()) {
-          throw new Error("non-production smoke must not install a private KNOT runtime");
-        }
         const asOfTimestamp = `${asOfDate}T15:00:00+08:00`;
         let darwinianRuntimeBinding = null;
         if (!nonProductionSmoke) {
@@ -492,7 +488,7 @@ export function registerDailyCycle(program: Command): void {
                     production_eligible: false,
                     data_source: "HASH_BOUND_BRIDGE_FIXTURE",
                     fixture_bundle_hash: fixtureBundleHash,
-                    private_knot_runtime_installed: false,
+                    prompt_source: "bundled",
                   },
                 }
               : {}),
@@ -529,7 +525,6 @@ export function registerDailyCycle(program: Command): void {
           "MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH",
           inheritedRuntimeEnv.fixtureBundleHash,
         );
-        restoreOptionalEnv("MOSAIC_KNOT_RUNTIME_ROOT", inheritedRuntimeEnv.knotRuntimeRoot);
       }
     });
 }
@@ -554,11 +549,11 @@ export function resolveDailyCycleCohort(
   _config: { active_cohort?: string },
 ): string {
   // Bridge config still carries the legacy, unprefixed PRISM namespace. It
-  // cannot select a formal prompt/KNOT/Darwinian runtime cohort implicitly.
+  // cannot select a Prompt Release/Darwinian runtime cohort implicitly.
   const cohort = opts.cohort?.trim() || "cohort_default";
-  if (!(PRIVATE_KNOT_COHORT_IDS as readonly string[]).includes(cohort)) {
+  if (!(PROMPT_COHORT_IDS as readonly string[]).includes(cohort)) {
     throw new Error(
-      `unknown daily-cycle cohort '${cohort}'; expected one of ${PRIVATE_KNOT_COHORT_IDS.join(", ")}`,
+      `unknown daily-cycle cohort '${cohort}'; expected one of ${PROMPT_COHORT_IDS.join(", ")}`,
     );
   }
   return cohort;

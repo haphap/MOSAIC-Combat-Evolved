@@ -12,7 +12,7 @@
  *
  *   2. **Strict structured extraction**
  *      - Validate every answer against the Zod schema, frozen evidence,
- *        private policy constraints, and domain semantics, with at most three repairs.
+ *        and domain semantics, with at most three repairs.
  *      - Reject the stage when the repair budget is exhausted.
  *
  * Each Layer-1 macro agent file declares a ``LayerOneAgentSpec<TOutput>``
@@ -49,15 +49,7 @@ import {
   liveOutcomeCapabilityRuntimeInput,
 } from "../helpers/outcome_pre_model.js";
 import {
-  isPrivateKnotStageEnabled,
-  type PrivateKnotAuditSummary,
-  type PrivateKnotSnapshot,
-  privateKnotInvocationContextForState,
-  type ToolStatus,
-} from "../helpers/private_knot_boundary.js";
-import {
   type AgentCanaryEventContext,
-  agentCanaryEventContext,
   beginAgentPromptCanaryInvocation,
   buildAgentPromptCanaryEvent,
 } from "../helpers/prompt_canary.js";
@@ -71,6 +63,7 @@ import {
   summarizeAgentOutput,
   withAgentTimeout,
 } from "../helpers/runtime.js";
+import type { ToolStatus } from "../helpers/runtime_evidence_types.js";
 import { resolveRuntimeSourceStatusesForAgent } from "../helpers/runtime_sources.js";
 import { validateStrictAgentOutput } from "../helpers/strict_agent_validation.js";
 import { MACRO_PROVIDER_INSTRUCTION } from "../helpers/structured_provider_adapters.js";
@@ -79,7 +72,7 @@ import {
   prepareAgentToolCapability,
   terminateAgentToolCapability,
 } from "../helpers/tool_capability.js";
-import { type LoaderLanguage, loadPrompt, loadPromptWithPrivateKnot } from "../prompts/loader.js";
+import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type { AcceptedMacroTransmission, MacroAgentId, MacroAgentSubmission } from "../types.js";
 import {
@@ -166,7 +159,6 @@ export function buildLayerOneAgentNode(
     const onLog = deps.onLog ?? (() => undefined);
     const startedAt = Date.now();
     let canaryContext: AgentCanaryEventContext | null = null;
-    let canaryKnobSnapshot: PrivateKnotSnapshot | null = null;
     let canaryToolStatuses: ReadonlyArray<ToolStatus> = [];
     onLog(
       formatAgentEvent("start", "L1", spec.agentId, [
@@ -181,59 +173,33 @@ export function buildLayerOneAgentNode(
           const language = pickPromptLanguage(deps.config);
           onLog(formatAgentEvent("phase", "L1", spec.agentId, ["prepare"]));
 
-          // Phase 0: load prompt for this cohort. Private-policy-enabled
-          // agents fail closed on zh/en parity and share one immutable snapshot
-          // between prompt injection and runtime cap enforcement.
-          let knobSnapshot: PrivateKnotSnapshot | null = null;
-          let systemPrompt: string;
-          if (isPrivateKnotStageEnabled(spec.agentId, "agent_run", cohort)) {
-            const runtimeSourceStatuses = resolveRuntimeSourceStatusesForAgent(
-              state,
-              spec.agentId,
-              "agent_run",
-            );
-            const loaded = await loadPromptWithPrivateKnot({
-              agent: spec.agentId,
-              cohort,
-              stage: "agent_run",
-              trafficAssignmentKey: state.trace_id || state.as_of_date,
-              runtimeSourceStatuses,
-              invocationContext: privateKnotInvocationContextForState(state),
-              ...(state.darwinian_runtime_binding
-                ? { requirePinnedPrivateRelease: true as const }
-                : {}),
-              onReleaseAssigned: async (release) => {
-                canaryContext = await beginAgentPromptCanaryInvocation({
-                  release,
-                  state,
-                  agent: spec.agentId,
-                  stage: "agent_run",
-                  cohort,
-                });
-              },
-              ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
-            });
-            knobSnapshot = loaded.snapshot;
-            systemPrompt = loaded.prompt;
-            canaryKnobSnapshot = loaded.snapshot;
-            canaryContext = agentCanaryEventContext({
-              release: loaded.release,
-              state,
-              agentInvocationId: loaded.snapshot.agent_invocation_id,
-              systemPrompt,
-            });
-          } else {
-            systemPrompt = await loadPrompt({
-              agent: spec.agentId,
-              cohort,
-              language,
-              ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
-            });
-          }
+          const runtimeSourceStatuses = resolveRuntimeSourceStatusesForAgent(
+            state,
+            spec.agentId,
+            "agent_run",
+          );
+          let systemPrompt = await loadPrompt({
+            agent: spec.agentId,
+            cohort,
+            language,
+            stage: "agent_run",
+            trafficAssignmentKey: state.trace_id || state.as_of_date,
+            onReleaseAssigned: async (release) => {
+              canaryContext = await beginAgentPromptCanaryInvocation({
+                release,
+                state,
+                agent: spec.agentId,
+                stage: "agent_run",
+                cohort,
+              });
+            },
+            ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
+          });
           systemPrompt = `${systemPrompt}\n\n${renderMacroRuntimeContract(
             spec.agentId,
             language === "en" ? "en" : "zh",
           )}`;
+          if (canaryContext) canaryContext = { ...canaryContext, systemPrompt };
 
           // Phase 0b: pull the agent's tools from the bridge (with backtest
           // context attached so date-bound tools clamp end_date correctly).
@@ -258,14 +224,12 @@ export function buildLayerOneAgentNode(
 
           // Phase 1: tool-bound free-form analysis loop.
           const userContext = buildUserContext(state, spec.agentId);
-          let runtimeEvidence: RuntimeEvidenceSnapshot | null = knobSnapshot
-            ? buildRuntimeEvidenceSnapshot({
-                state,
-                agent: spec.agentId,
-                stage: "agent_run",
-                knobSnapshot,
-              })
-            : null;
+          let runtimeEvidence: RuntimeEvidenceSnapshot | null = buildRuntimeEvidenceSnapshot({
+            state,
+            agent: spec.agentId,
+            stage: "agent_run",
+            runtimeSourceStatuses,
+          });
           const evidenceUserContext = runtimeEvidence
             ? `${userContext}\n\n${runtimeEvidence.visibleCatalog}`
             : userContext;
@@ -296,8 +260,8 @@ export function buildLayerOneAgentNode(
             state,
             agent: spec.agentId,
             stage: "agent_run",
-            knobSnapshot,
             toolStatuses: loopResult.toolStatuses,
+            runtimeSourceStatuses,
           });
           canaryToolStatuses = loopResult.toolStatuses;
 
@@ -354,12 +318,9 @@ export function buildLayerOneAgentNode(
                 schema: spec.schema,
                 agent: spec.agentId,
                 stage: "agent_run",
-                cohort: state.active_cohort,
                 runtimeEvidence,
-                knobSnapshot,
-                toolStatuses: loopResult.toolStatuses,
                 allowRiskFlagOnly: submissionIsNeutral(output),
-                validateBeforePrivatePolicy: (candidate) => [
+                validateRoleContract: (candidate) => [
                   ...roleSnapshot.issues,
                   ...(roleSnapshot.snapshot
                     ? validateMacroSnapshotEchoes(candidate, roleSnapshot.snapshot)
@@ -483,20 +444,13 @@ export function buildLayerOneAgentNode(
             startedAt,
             structuredAccepted: true,
             claimGraphAccepted: true,
-            knobSnapshot,
-            knobAudit:
-              (
-                submission as MacroAgentSubmission & {
-                  private_knot_audit?: PrivateKnotAuditSummary;
-                }
-              ).private_knot_audit ?? null,
             toolStatuses: loopResult.toolStatuses,
+            runtimeSourceStatuses,
             output,
             validatorIds: [
               `${spec.agentId}.structured_output.v1`,
               "evidence_claim_graph_v1",
               MACRO_SNAPSHOT_SEMANTIC_VALIDATOR_ID,
-              "private_knot_runtime_v1",
             ],
           });
           if (canaryEvent) {
@@ -566,15 +520,9 @@ export function buildLayerOneAgentNode(
         startedAt,
         structuredAccepted: false,
         claimGraphAccepted: false,
-        knobSnapshot: canaryKnobSnapshot,
-        knobAudit: null,
         toolStatuses: canaryToolStatuses,
         output: null,
-        validatorIds: [
-          `${spec.agentId}.structured_output.v1`,
-          "evidence_claim_graph_v1",
-          "private_knot_runtime_v1",
-        ],
+        validatorIds: [`${spec.agentId}.structured_output.v1`, "evidence_claim_graph_v1"],
         forceFallback: true,
         forceSourceFailure: true,
       });

@@ -1,11 +1,11 @@
 {
   "schema_version": "agent_prompt_role_contract_manifest_v2",
   "private_prompt_repository": "haphap/MOSAIC-Prompts",
-  "private_prompt_branch": "codex/macro-agent-role-contracts-v2",
-  "private_prompt_commit": "2424fc6df03e92c31f150d2f3b25af59572a34bc",
+  "private_prompt_branch": "codex/knot-prompt-optimizer-simplification-private",
+  "private_prompt_commit": "16ef664ea2a63f007951dcf556421596c2f13b52",
   "prompt_tree_sha256": "009534b391ceb3f16db4eceedaea64b0abede6f85bb53ca59dfae8ab21342ef6",
-  "execution_behavior_release_id": "execution-behavior-release:8d452f7e0e701e3cfac934f7629b6091787be6a90bac6f48ca47023c05c3410a",
-  "execution_behavior_release_hash": "sha256:359e69668e4ed5d7339c8041828bb38531aa405646d5e86fde673fb806b45298",
+  "execution_behavior_release_id": "execution-behavior-release:4f7349e9a9e6ebf7907cab551aec058ceab671469058005c47815597765fedad",
+  "execution_behavior_release_hash": "sha256:89db8487b4b8facf2b2e830f991cded75e63f9a2dfd189f9716d6c99f8e9710c",
   "cohorts": [
     "cohort_bull_2007",
     "cohort_bull_2016",

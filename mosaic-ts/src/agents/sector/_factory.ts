@@ -65,15 +65,7 @@ import {
   liveOutcomeCapabilityRuntimeInput,
 } from "../helpers/outcome_pre_model.js";
 import {
-  isPrivateKnotStageEnabled,
-  type PrivateKnotAuditSummary,
-  type PrivateKnotSnapshot,
-  privateKnotInvocationContextForState,
-  type ToolStatus,
-} from "../helpers/private_knot_boundary.js";
-import {
   type AgentCanaryEventContext,
-  agentCanaryEventContext,
   beginAgentPromptCanaryInvocation,
   buildAgentPromptCanaryEvent,
 } from "../helpers/prompt_canary.js";
@@ -87,6 +79,7 @@ import {
   summarizeAgentOutput,
   withAgentTimeout,
 } from "../helpers/runtime.js";
+import type { RuntimeSourceStatus, ToolStatus } from "../helpers/runtime_evidence_types.js";
 import { resolveRuntimeSourceStatusesForAgent } from "../helpers/runtime_sources.js";
 import { SECTOR_DIRECTION_PROVIDER_INSTRUCTION } from "../helpers/sector_direction_provider_adapter.js";
 import { validateStrictAgentOutput } from "../helpers/strict_agent_validation.js";
@@ -99,7 +92,7 @@ import {
   prepareAgentToolCapability,
   terminateAgentToolCapability,
 } from "../helpers/tool_capability.js";
-import { type LoaderLanguage, loadPrompt, loadPromptWithPrivateKnot } from "../prompts/loader.js";
+import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type {
   RelationshipMapperOutput,
@@ -187,7 +180,6 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
     const onLog = deps.onLog ?? (() => undefined);
     const startedAt = Date.now();
     let canaryContext: AgentCanaryEventContext | null = null;
-    let canaryKnobSnapshot: PrivateKnotSnapshot | null = null;
     let canaryToolStatuses: ReadonlyArray<ToolStatus> = [];
     onLog(
       formatAgentEvent("start", "L2", spec.agentId, [
@@ -202,57 +194,30 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
           const language = pickPromptLanguage(deps.config);
           onLog(formatAgentEvent("phase", "L2", spec.agentId, ["prepare"]));
 
-          let knobSnapshot: PrivateKnotSnapshot | null = null;
-          let baseSystemPrompt: string;
-          let release: Parameters<typeof agentCanaryEventContext>[0]["release"];
-          if (isPrivateKnotStageEnabled(spec.agentId, "agent_run", cohort)) {
-            const runtimeSourceStatuses = resolveRuntimeSourceStatusesForAgent(
-              state,
-              spec.agentId,
-              "agent_run",
-            );
-            const loaded = await loadPromptWithPrivateKnot({
-              agent: spec.agentId,
-              cohort,
-              stage: "agent_run",
-              trafficAssignmentKey: state.trace_id || state.as_of_date,
-              runtimeSourceStatuses,
-              invocationContext: privateKnotInvocationContextForState(state),
-              ...(state.darwinian_runtime_binding
-                ? { requirePinnedPrivateRelease: true as const }
-                : {}),
-              onReleaseAssigned: async (assignedRelease) => {
-                canaryContext = await beginAgentPromptCanaryInvocation({
-                  release: assignedRelease,
-                  state,
-                  agent: spec.agentId,
-                  stage: "agent_run",
-                  cohort,
-                });
-              },
-              ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
-            });
-            knobSnapshot = loaded.snapshot;
-            baseSystemPrompt = loaded.prompt;
-            canaryKnobSnapshot = loaded.snapshot;
-            release = loaded.release;
-          } else {
-            baseSystemPrompt = await loadPrompt({
-              agent: spec.agentId,
-              cohort,
-              language,
-              ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
-            });
-          }
+          const runtimeSourceStatuses = resolveRuntimeSourceStatusesForAgent(
+            state,
+            spec.agentId,
+            "agent_run",
+          );
+          const baseSystemPrompt = await loadPrompt({
+            agent: spec.agentId,
+            cohort,
+            language,
+            stage: "agent_run",
+            trafficAssignmentKey: state.trace_id || state.as_of_date,
+            onReleaseAssigned: async (assignedRelease) => {
+              canaryContext = await beginAgentPromptCanaryInvocation({
+                release: assignedRelease,
+                state,
+                agent: spec.agentId,
+                stage: "agent_run",
+                cohort,
+              });
+            },
+            ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
+          });
           const systemPrompt = `${baseSystemPrompt}\n\n${buildCurrentToolContract(spec.requiredTools)}`;
-          if (knobSnapshot) {
-            canaryContext = agentCanaryEventContext({
-              release,
-              state,
-              agentInvocationId: knobSnapshot.agent_invocation_id,
-              systemPrompt,
-            });
-          }
+          if (canaryContext) canaryContext = { ...canaryContext, systemPrompt };
 
           const capabilityApi = hasAgentToolCapabilityApi(deps.api) ? deps.api : null;
           if (!capabilityApi && deps.llmHandle.provider !== "fake") {
@@ -297,7 +262,7 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
                   spec.agentId,
                   deps.acceptedOutputStore,
                 ),
-                knobSnapshot,
+                runtimeSourceStatuses,
                 canaryContext,
                 startedAt,
                 language,
@@ -336,14 +301,12 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
             spec.agentId,
             deps.acceptedOutputStore,
           );
-          let runtimeEvidence: RuntimeEvidenceSnapshot | null = knobSnapshot
-            ? buildRuntimeEvidenceSnapshot({
-                state,
-                agent: spec.agentId,
-                stage: "agent_run",
-                knobSnapshot,
-              })
-            : null;
+          let runtimeEvidence: RuntimeEvidenceSnapshot | null = buildRuntimeEvidenceSnapshot({
+            state,
+            agent: spec.agentId,
+            stage: "agent_run",
+            runtimeSourceStatuses,
+          });
           const evidenceUserContext = runtimeEvidence
             ? `${userContext}\n\n${runtimeEvidence.visibleCatalog}`
             : userContext;
@@ -375,8 +338,8 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
             state,
             agent: spec.agentId,
             stage: "agent_run",
-            knobSnapshot,
             toolStatuses: loopResult.toolStatuses,
+            runtimeSourceStatuses,
           });
           canaryToolStatuses = loopResult.toolStatuses;
           const relationshipSnapshot = state.darwinian_runtime_binding
@@ -452,14 +415,11 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
                 schema: extractionSchema,
                 agent: spec.agentId,
                 stage: "agent_run",
-                cohort: state.active_cohort,
                 runtimeEvidence,
-                knobSnapshot,
-                toolStatuses: loopResult.toolStatuses,
                 allowRiskFlagOnly:
                   "predictive_graph_status" in output &&
                   output.predictive_graph_status === "NO_QUALIFIED_PREDICTIVE_EDGE",
-                validateBeforePrivatePolicy: (candidate) =>
+                validateRoleContract: (candidate) =>
                   relationshipSnapshot
                     ? validateRelationshipOutputAgainstSnapshot(
                         candidate as RelationshipMapperOutput,
@@ -577,17 +537,10 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
             startedAt,
             structuredAccepted: true,
             claimGraphAccepted: true,
-            knobSnapshot,
-            knobAudit:
-              (output as TOutput & { private_knot_audit?: PrivateKnotAuditSummary })
-                .private_knot_audit ?? null,
             toolStatuses: loopResult.toolStatuses,
+            runtimeSourceStatuses,
             output,
-            validatorIds: [
-              `${spec.agentId}.structured_output.v1`,
-              "evidence_claim_graph_v1",
-              "private_knot_runtime_v1",
-            ],
+            validatorIds: [`${spec.agentId}.structured_output.v1`, "evidence_claim_graph_v1"],
           });
           if (canaryEvent) {
             llmCall.prompt_canary_event = canaryEvent;
@@ -644,15 +597,9 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
         startedAt,
         structuredAccepted: false,
         claimGraphAccepted: false,
-        knobSnapshot: canaryKnobSnapshot,
-        knobAudit: null,
         toolStatuses: canaryToolStatuses,
         output: null,
-        validatorIds: [
-          `${spec.agentId}.structured_output.v1`,
-          "evidence_claim_graph_v1",
-          "private_knot_runtime_v1",
-        ],
+        validatorIds: [`${spec.agentId}.structured_output.v1`, "evidence_claim_graph_v1"],
         forceFallback: true,
         forceSourceFailure: true,
       });
@@ -684,7 +631,7 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
   structuredHandle: LlmHandle;
   systemPrompt: string;
   userContext: string;
-  knobSnapshot: PrivateKnotSnapshot | null;
+  runtimeSourceStatuses: ReadonlyArray<RuntimeSourceStatus>;
   canaryContext: AgentCanaryEventContext | null;
   startedAt: number;
   language: LoaderLanguage;
@@ -700,8 +647,8 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
     state: input.state,
     agent: input.spec.agentId,
     stage: "agent_run",
-    knobSnapshot: input.knobSnapshot,
     toolStatuses: toolMaterialization.statuses,
+    runtimeSourceStatuses: input.runtimeSourceStatuses,
   });
   const snapshot = parseSectorRuntimeSnapshot(
     toolMaterialization.payloads,
@@ -1001,12 +948,9 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
         schema: finalSelectionSchema,
         agent: input.spec.agentId,
         stage: "agent_run",
-        cohort: input.state.active_cohort,
         runtimeEvidence,
-        knobSnapshot: input.knobSnapshot,
-        toolStatuses: toolMaterialization.statuses,
         allowRiskFlagOnly: false,
-        validateBeforePrivatePolicy: (candidate) =>
+        validateRoleContract: (candidate) =>
           validateFinalSelectionAgainstDirective(candidate, directive).map(
             (message): AgentContractIssue => ({
               validator: "sector_final_selection_directive_v1",
@@ -1189,11 +1133,8 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
     startedAt: input.startedAt,
     structuredAccepted: true,
     claimGraphAccepted: true,
-    knobSnapshot: input.knobSnapshot,
-    knobAudit:
-      (output as TOutput & { private_knot_audit?: PrivateKnotAuditSummary }).private_knot_audit ??
-      null,
     toolStatuses: toolMaterialization.statuses,
+    runtimeSourceStatuses: input.runtimeSourceStatuses,
     output,
     validatorIds: [
       `${input.spec.agentId}.structured_output.v2`,

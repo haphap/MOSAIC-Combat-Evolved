@@ -100,7 +100,6 @@ describe("Layer 4 runtime source adapters", () => {
         cro_review_state: null,
         execution_feasibility_state: null,
         final_target_state: null,
-        cio_final_knob_snapshot: null,
         resolved_source_statuses: [],
         stage_trace: [],
         candidate_target_state: {
@@ -174,7 +173,7 @@ describe("Layer 4 runtime source adapters", () => {
       expect.objectContaining({
         source_id: "current_market_data",
         scope: "ticker:600519.SH",
-        metric: "current_market_data",
+        metric: "current_market_data_snapshot",
         value: { date: "2026-07-09", close: 1500, volume: 1200 },
         freshness: "current",
         adapter_id: "market.scoped_snapshot_adapter.v1",

@@ -28,7 +28,15 @@ def test_superseded_runtime_and_macro_manifests_are_audit_only() -> None:
         assert payload["superseded_by"] == successor
 
 
-def test_production_runtime_manifest_consumers_pin_v4() -> None:
+def test_active_runtime_manifest_is_v5_and_knot_free() -> None:
+    payload = _read("runtime_agent_manifest_v5.json")
+    assert payload["schema_version"] == "runtime_agent_manifest_v5"
+    assert payload["runtime_agent_count"] == 28
+    assert payload["runtime_stage_count"] == 29
+    assert "knot" not in json.dumps(payload).lower()
+
+
+def test_production_runtime_manifest_consumers_pin_v5() -> None:
     consumers = (
         "mosaic/bridge/handlers/prompts.py",
         "mosaic/rke/prompt_evolution_delivery.py",
@@ -38,7 +46,7 @@ def test_production_runtime_manifest_consumers_pin_v4() -> None:
     )
     for relative_path in consumers:
         source = (ROOT / relative_path).read_text(encoding="utf-8")
-        assert "runtime_agent_manifest_v4" in source
+        assert "runtime_agent_manifest_v5" in source
         assert "runtime_agent_manifest_v1" not in source
         assert "runtime_agent_manifest_v2" not in source
         assert "runtime_agent_manifest_v3" not in source

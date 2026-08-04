@@ -924,7 +924,7 @@ class TestDarwinianGetWeights:
 # ===========================================================================
 
 
-def test_all_5_methods_registered():
+def test_scorecard_and_legacy_audit_methods_registered_without_knot_rpc():
     from mosaic.bridge.registry import all_methods
 
     methods = set(all_methods())
@@ -937,21 +937,9 @@ def test_all_5_methods_registered():
         "scorecard.win_rate",
         "darwinian.compute",
         "darwinian.get_weights",
-        "darwinian.knot_nominate",
-        "darwinian.knot_register_track",
-        "darwinian.knot_preregister_pair_assignment",
-        "darwinian.knot_freeze_pair",
-        "darwinian.knot_append_score",
-        "darwinian.knot_append_pair_side_result",
-        "darwinian.knot_append_sector_cost_audit",
-        "darwinian.knot_append_control_dependency",
-        "darwinian.knot_append_cio_dependency_blocked",
-        "darwinian.knot_finalize_pair",
-        "darwinian.knot_publish_promotion",
-        "darwinian.knot_publish_promotion_batch",
-        "darwinian.knot_publish_rollback",
     }
     assert expected.issubset(methods)
+    assert not any(method.startswith("darwinian.knot_") for method in methods)
 
 
 class TestSignalsRpc:

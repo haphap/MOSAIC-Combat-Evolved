@@ -9,7 +9,7 @@ import {
 
 const args = parseArgs(process.argv.slice(2));
 const schemaOut = resolve(
-  args.get("schema-out") ?? "../schemas/execution_behavior_release_manifest_v1.schema.json",
+  args.get("schema-out") ?? "../schemas/execution_behavior_release_manifest_v2.schema.json",
 );
 mkdirSync(dirname(schemaOut), { recursive: true });
 writeFileSync(
@@ -33,7 +33,7 @@ const manifest = buildExecutionBehaviorReleaseManifest({
       : "PROVIDER_DEFAULT",
 });
 const out = resolve(
-  args.get("out") ?? "../registry/prompt_checks/execution_behavior_release_manifest_v1.json",
+  args.get("out") ?? "../registry/prompt_checks/execution_behavior_release_manifest_v2.json",
 );
 const archiveRoot = resolve(
   args.get("archive-root") ?? "../registry/prompt_checks/execution_behavior_releases",

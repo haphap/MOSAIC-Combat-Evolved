@@ -278,36 +278,6 @@ describe("strict agent-run contract", () => {
     }
   });
 
-  it("terminates a private policy failure without replaying a consumed capability", async () => {
-    const llm = new SequenceLlm([
-      { disposition: "ITEMS", items: ["x"], claim_refs: ["claim-1"] },
-      { disposition: "ITEMS", items: ["retry"], claim_refs: ["claim-1"] },
-    ]);
-    await expect(
-      run(llm, {
-        validate: (output: z.infer<typeof Schema>) => ({
-          output,
-          issues: [
-            {
-              validator: "private_knot_runtime_v1",
-              reason_code: "PRIVATE_KNOT_POLICY_REJECTED",
-              json_path: "$",
-              message: "one-use private policy rejected the candidate",
-            },
-          ],
-        }),
-      }),
-    ).rejects.toMatchObject({
-      audit: {
-        status: "error",
-        stop_reason: "private_policy_failure",
-        attempt_count: 1,
-        reason_codes: ["PRIVATE_KNOT_POLICY_REJECTED"],
-      },
-    });
-    expect(llm.calls).toHaveLength(1);
-  });
-
   it("fails preflight when structured output is unsupported", async () => {
     const llm = new SequenceLlm([], new Error("unsupported"));
     await expect(run(llm)).rejects.toMatchObject({

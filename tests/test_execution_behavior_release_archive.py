@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-import mosaic.scorecard.knot_v2 as knot_runtime_adapter
 import pytest
 
 from mosaic.scorecard.darwinian_v2 import canonical_hash
@@ -16,7 +15,7 @@ from mosaic.scorecard.store import (
 
 def _release(seed: str) -> dict[str, Any]:
     release_content = {
-        "schema_version": "execution_behavior_release_manifest_v1",
+        "schema_version": "execution_behavior_release_manifest_v2",
         "private_prompt_commit": seed * 40,
         "provider_binding": {
             "provider": "provider",
@@ -72,7 +71,7 @@ def test_committed_active_release_has_an_exact_immutable_archive() -> None:
             root
             / "registry"
             / "prompt_checks"
-            / "execution_behavior_release_manifest_v1.json"
+            / "execution_behavior_release_manifest_v2.json"
         ).read_text(encoding="utf-8")
     )
 
@@ -145,42 +144,11 @@ def test_loader_rejects_release_id_or_archive_name_confusion(
         )
 
 
-def test_rollback_loads_old_champion_archive_after_active_release_advances(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    archive_root = tmp_path / "archive"
-    active_path = tmp_path / "active.json"
-    old_champion = _release("a")
-    active = _release("b")
-    _write_archive(archive_root, old_champion)
-    _write_archive(archive_root, active)
-    active_path.write_text(json.dumps(active), encoding="utf-8")
-    monkeypatch.setattr(
-        "mosaic.scorecard.store._EXECUTION_BEHAVIOR_RELEASE_ARCHIVE_ROOT",
-        archive_root,
-    )
-    monkeypatch.setattr(
-        "mosaic.scorecard.store._EXECUTION_BEHAVIOR_RELEASE_PATH",
-        active_path,
-    )
-
-    captured: dict[str, Any] = {}
-
-    def fake_rollback(_conn: Any, **kwargs: Any) -> dict[str, Any]:
-        captured.update(kwargs)
-        return kwargs
-
-    monkeypatch.setitem(
-        knot_runtime_adapter.__dict__,
-        "publish_knot_rollback_revision",
-        fake_rollback,
-    )
+def test_legacy_knot_rollback_writer_is_read_only(tmp_path: Path) -> None:
     store = ScorecardStore(tmp_path / "scorecard.db")
-    store.publish_knot_rollback_revision(
-        new_execution_behavior_release_id=old_champion[
-            "execution_behavior_release_id"
-        ]
-    )
-
-    assert captured["new_execution_release_manifest"] == old_champion
+    with pytest.raises(RuntimeError, match="legacy_knot_protocol_read_only"):
+        store.publish_knot_rollback_revision(
+            new_execution_behavior_release_id=_release("a")[
+                "execution_behavior_release_id"
+            ]
+        )

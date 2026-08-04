@@ -47,12 +47,12 @@ def _load_agents_by_layer() -> dict[str, tuple[str, ...]]:
         Path(__file__).resolve().parents[3]
         / "registry"
         / "prompt_checks"
-        / "runtime_agent_manifest_v4.json"
+        / "runtime_agent_manifest_v5.json"
     )
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise RuntimeError("runtime agent manifest is invalid")
-    if payload.get("schema_version") != "runtime_agent_manifest_v4":
+    if payload.get("schema_version") != "runtime_agent_manifest_v5":
         raise RuntimeError("runtime agent manifest schema version is invalid")
     layers = ("macro", "sector", "superinvestor", "decision")
     grouped: dict[str, list[str]] = {layer: [] for layer in layers}
@@ -192,13 +192,13 @@ def _load_runtime_prompt_contracts() -> dict[str, dict[str, tuple[str, ...]]]:
         Path(__file__).resolve().parents[3]
         / "registry"
         / "prompt_checks"
-        / "runtime_agent_manifest_v4.json"
+        / "runtime_agent_manifest_v5.json"
     )
     payload = json.loads(path.read_text(encoding="utf-8"))
     rows = payload.get("agents") if isinstance(payload, dict) else None
     if (
         not isinstance(payload, dict)
-        or payload.get("schema_version") != "runtime_agent_manifest_v4"
+        or payload.get("schema_version") != "runtime_agent_manifest_v5"
         or not isinstance(rows, list)
     ):
         raise RuntimeError("runtime prompt contract manifest is invalid")

@@ -4,8 +4,11 @@ MOSAIC keeps evaluation and prompt evolution separate:
 
 - Darwinian evaluates each Agent against its own point-in-time outcome contract
   and supplies per-Agent usage weights where that contract permits.
-- KNOT evolves production prompt behavior through a private, hash-pinned
-  runtime and private prompt release.
+- KNOT is a private, training-only mutator that proposes bilingual Prompt
+  Candidates from mature Agent-specific outcomes and failure summaries.
+- The generic Autoresearch Runner evaluates champion and Candidate in a frozen
+  validation/holdout environment; Prompt Release alone owns canary, activation,
+  and rollback.
 - Component calibration is a separate semiannual, shadow-gated release path
   for the seven composed Macro contracts. Its versioned weight releases apply
   prospectively and are append-only/rollback-capable; neither Darwinian nor
@@ -17,10 +20,10 @@ objects and do not copy CIO portfolio results back to upstream Agents.
 
 The public repository defines Agent roles, tools, output schemas, evidence
 lineage, release references, and fail-closed integrity checks. It does not
-contain KNOT algorithms, thresholds, candidate policy, mutation targets,
-scheduler policy, or research-knob values. Those details, their tests, and the
-operator runbook live in the private repository and stay outside model-visible
-prompts.
+contain Prompt bodies, training/failure-case prose, mutator policy, or private
+promotion thresholds. Those details and their tests live in the private
+repository and stay outside model-visible prompts. The public repository owns
+only the minimal Candidate/Experiment/Decision contracts and generic Runner.
 
 Production prompt releases still use bounded `canary` traffic and support
 `rollback`; those release operations do not reveal or redefine the private

@@ -60,15 +60,10 @@ import {
   resolveLayer4SourceBundle,
 } from "../agents/helpers/layer4_source_adapters.js";
 import {
-  isPrivateKnotStageEnabled,
-  privateKnotInvocationContextForState,
-} from "../agents/helpers/private_knot_boundary.js";
-import { resolveRuntimeSourceStatusesForAgent } from "../agents/helpers/runtime_sources.js";
-import {
   prepareAgentToolCapability,
   terminateAgentToolCapability,
 } from "../agents/helpers/tool_capability.js";
-import { loadPrompt, loadPromptWithPrivateKnot } from "../agents/prompts/loader.js";
+import { loadPrompt } from "../agents/prompts/loader.js";
 import {
   DailyCycleState,
   type DailyCycleStateType,
@@ -587,40 +582,18 @@ export function buildL4SnapshotFreezeNode(
     const language = pickPromptLanguage(deps.config);
     const promptSnapshots = await Promise.all(
       L4_PROMPT_INVOCATIONS.map(async ({ agent, stage }): Promise<L4RunPromptSnapshot> => {
-        if (isPrivateKnotStageEnabled(agent, stage, cohort)) {
-          const loaded = await loadPromptWithPrivateKnot({
-            agent,
-            cohort,
-            stage,
-            trafficAssignmentKey: state.trace_id || state.as_of_date,
-            invocationContext: privateKnotInvocationContextForState(state),
-            runtimeSourceStatuses: [
-              ...resolveRuntimeSourceStatusesForAgent(stateWithSources, agent, stage),
-              ...(mirofish.status ? [mirofish.status] : []),
-            ],
-            ...(state.darwinian_runtime_binding
-              ? { requirePinnedPrivateRelease: true as const }
-              : {}),
-            ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
-          });
-          return {
-            agent,
-            stage,
-            prompt_source_hash: layer4PromptSourceHash(loaded.bodies),
-            private_knot_snapshot_hash: loaded.snapshot.snapshot_hash,
-          };
-        }
         const prompt = await loadPrompt({
           agent,
           cohort,
           language,
+          stage,
+          trafficAssignmentKey: state.trace_id || state.as_of_date,
           ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
         });
         return {
           agent,
           stage,
           prompt_source_hash: layer4PromptSourceHash(prompt),
-          private_knot_snapshot_hash: null,
         };
       }),
     );

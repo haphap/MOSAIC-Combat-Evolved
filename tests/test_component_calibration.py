@@ -10,7 +10,6 @@ import pytest
 from mosaic.dataflows.outcome_runtime_inputs import (
     expected_qualification_predicate_version,
 )
-import mosaic.scorecard.component_calibration as component_calibration
 from mosaic.scorecard.component_calibration import (
     append_component_shadow_checkpoint,
     build_component_regime_snapshot,
@@ -31,25 +30,6 @@ from mosaic.scorecard.darwinian_v2 import (
 )
 from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
 from mosaic.scorecard.store import ScorecardStore
-
-
-@pytest.fixture(autouse=True)
-def _opaque_private_regime_classifier(monkeypatch) -> None:
-    def classify(snapshot, *, as_of):
-        observation = next(
-            item for item in snapshot["observations"] if item["as_of"] == as_of
-        )
-        return {
-            "regime_label": (
-                "stress" if observation["private_fixture_sequence"] % 2 else "normal"
-            ),
-            "classifier_contract_id": "opaque-private-classifier",
-            "classifier_contract_version": "opaque-private-classifier-v1",
-            "classifier_contract_hash": f"sha256:{'7' * 64}",
-            "pit_snapshot_hash": snapshot["snapshot_hash"],
-        }
-
-    monkeypatch.setattr(component_calibration, "_classify_private_regime", classify)
 
 
 def _trading_dates(start: date, end: date) -> list[str]:
@@ -552,7 +532,8 @@ def _regime_snapshot(as_of_dates: list[str], generated_at: str) -> dict:
             {
                 "as_of": as_of,
                 "available_at": f"{as_of}T15:00:00+08:00",
-                "private_fixture_sequence": index,
+                "realized_volatility_20d": 0.3 if index % 2 else 0.1,
+                "trailing_252d_p80": 0.2,
                 "source_evidence_ids": [f"market:volatility:{as_of}"],
             }
         )

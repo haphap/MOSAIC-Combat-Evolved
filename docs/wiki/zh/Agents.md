@@ -3,7 +3,7 @@
 MOSAIC 由四层 28 个逻辑 Agent、29 个可接受或跳过的执行阶段组成。CIO 包含
 proposal 与 final 两个阶段，其余逻辑 Agent 各一个阶段。标准 roster 来自
 `AGENTS_BY_LAYER`，提交后的运行时合同是
-`registry/prompt_checks/runtime_agent_manifest_v4.json`。
+`registry/prompt_checks/runtime_agent_manifest_v5.json`。
 
 ## 第一层：宏观（10）
 
@@ -44,7 +44,7 @@ Darwinian 样本。
 
 各角色拥有专属快照和 outcome 合同。CIO proposal 冻结候选目标与 pre-CIO lineage；
 CRO 只能审查该 proposal；Execution 只能判断经过 CRO 调整的订单意图；CIO final
-不得加入新候选或替换 proposal 快照。四个 Decision Agent 参与 KNOT 演化评价，但没有
+不得加入新候选或替换 proposal 快照。四个 Decision Agent 参与 Prompt 演化评价，但没有
 下游 Darwinian usage weight。
 
 MiroFish 始终为 simulation-only。RKE 报告上下文始终为 `RKE_SHADOW`，不得进入生产图
@@ -58,5 +58,5 @@ state、候选域、accepted output、Decision 输入、label 或 Darwinian 更�
 私有 cohort 的观察镜头。
 
 execution-behavior release manifest 原子绑定全部 prompt hash、结构化输出阶段、工具策略、
-provider/model 行为、16 个 active production roster 和 KNOT baseline。prompt 正文不暴露
-research knobs、Darwinian 排名、label 公式或 KNOT 阈值。
+provider/model 行为、16 个 active production roster 和 Prompt execution baseline。
+prompt 正文不暴露 mutator 策略、Darwinian 排名、label 公式或 promotion 阈值。

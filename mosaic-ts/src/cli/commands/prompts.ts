@@ -22,7 +22,6 @@ import {
   findPrivatePromptsRoot,
   promptPath,
 } from "../../agents/prompts/cohorts.js";
-import { checkPrivateKnotPromptBoundary } from "../../agents/prompts/private_knot_prompt_checker.js";
 import {
   buildPromptTokenBudgetManifest,
   PromptTokenBudgetManifestSchema,
@@ -35,11 +34,8 @@ import {
   renderRuntimeAgentManifestArtifact,
   validateRuntimeAgentManifestArtifact,
 } from "../../agents/prompts/runtime_agent_spec.js";
-import {
-  stripLegacyPrivatePolicyBlock,
-  upsertRuntimeEvidenceContract,
-} from "../../agents/prompts/runtime_evidence_contract.js";
-import { initializePrivateKnotRuntime } from "../../autoresearch/private_knot_runtime.js";
+import { upsertRuntimeEvidenceContract } from "../../agents/prompts/runtime_evidence_contract.js";
+import { checkRuntimePrompts } from "../../agents/prompts/runtime_prompt_checker.js";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
 import { redactSensitiveText } from "../../security/redaction.js";
 
@@ -64,7 +60,7 @@ interface GcWorktreesOpts {
   maxAgeHours?: string;
 }
 
-interface CheckPrivateKnotOpts {
+interface CheckRuntimePromptOpts {
   cohort?: string;
   promptsRoot?: string;
   privatePromptsRoot?: string;
@@ -73,25 +69,13 @@ interface CheckPrivateKnotOpts {
   json?: boolean;
 }
 
-type CheckBundledPromptOpts = Omit<CheckPrivateKnotOpts, "privatePromptsRoot">;
-
-interface StripPrivateKnotBlocksOpts {
-  cohort?: string;
-  privatePromptsRoot?: string;
-  promptsRoot?: string;
-  agents?: string;
-  write?: boolean;
-}
+type CheckBundledPromptOpts = Omit<CheckRuntimePromptOpts, "privatePromptsRoot">;
 
 interface SyncMacroPromptsOpts {
   cohorts?: string;
   privatePromptsRoot?: string;
   promptsRoot?: string;
   write?: boolean;
-}
-
-interface SyncPromptIrOpts {
-  privatePromptsRoot: string;
 }
 
 interface ExportRuntimeManifestOpts {
@@ -309,9 +293,7 @@ export function registerPrompts(program: Command): void {
 
   prompts
     .command("check-bundled-contract")
-    .description(
-      "Validate public bundled prompt privacy and runtime coverage without private KNOT.",
-    )
+    .description("Validate public bundled prompt privacy and runtime coverage.")
     .option("--cohort <name>", "Cohort to check (default cohort_default)")
     .option("--prompts-root <path>", "Bundled/baseline prompts root override")
     .option("--enabled-agents <list>", "Comma-separated agent ids; '*' checks all 28")
@@ -324,7 +306,7 @@ export function registerPrompts(program: Command): void {
       const enabledAgents = parseSelection(opts.enabledAgents);
       const enabledAgentStages = parseSelection(opts.enabledStages);
       try {
-        const result = await checkPrivateKnotPromptBoundary({
+        const result = await checkRuntimePrompts({
           cohort: opts.cohort ?? "cohort_default",
           ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
           ...(enabledAgents ? { enabledAgents } : {}),
@@ -340,7 +322,7 @@ export function registerPrompts(program: Command): void {
                 `stages=${result.total_runtime_stages}`,
             ),
           );
-          for (const row of result.rows.filter((item) => item.status === "failed")) {
+          for (const row of result.rows.filter((item) => !item.ready)) {
             for (const reason of row.reasons) {
               console.log(
                 pc.dim(
@@ -348,67 +330,6 @@ export function registerPrompts(program: Command): void {
                     redactSensitiveText(reason).slice(0, 220),
                 ),
               );
-            }
-          }
-        }
-        if (!result.ready) process.exitCode = 1;
-      } catch (err) {
-        console.error(pc.red(`error: ${redactSensitiveText((err as Error).message)}`));
-        process.exitCode = 1;
-      }
-    });
-
-  prompts
-    .command("check-private-knot")
-    .description("Validate prompt privacy and the opaque private KNOT adapter.")
-    .option("--cohort <name>", "Cohort to check (default cohort_default)")
-    .option("--prompts-root <path>", "Bundled/baseline prompts root override")
-    .option("--private-prompts-root <path>", "Private prompts root override")
-    .option(
-      "--enabled-agents <list>",
-      "Comma-separated agent ids to fail-closed check; '*' checks all 28. Defaults to the cohort rollout manifest.",
-    )
-    .option(
-      "--enabled-stages <list>",
-      "Comma-separated agent:stage ids; '*' checks all declared runtime stages.",
-    )
-    .option("--json", "Print the full machine-readable report")
-    .action(async (opts: CheckPrivateKnotOpts) => {
-      const enabledAgents = parseSelection(opts.enabledAgents);
-      const enabledAgentStages = parseSelection(opts.enabledStages);
-      try {
-        await initializePrivateKnotRuntime({
-          required: true,
-          ...(opts.privatePromptsRoot ? { privateRoot: opts.privatePromptsRoot } : {}),
-        });
-        const result = await checkPrivateKnotPromptBoundary({
-          cohort: opts.cohort ?? "cohort_default",
-          requirePrivateKnot: true,
-          ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
-          ...(opts.privatePromptsRoot ? { privatePromptsRoot: opts.privatePromptsRoot } : {}),
-          ...(enabledAgents ? { enabledAgents } : {}),
-          ...(enabledAgentStages ? { enabledAgentStages } : {}),
-        });
-        if (opts.json) {
-          console.log(JSON.stringify(result, null, 2));
-        } else {
-          const color = result.ready ? pc.green : pc.red;
-          console.log(
-            color(
-              `private-knot ${result.ready ? "ready" : "blocked"} ` +
-                `enabled_stages=${result.enabled_agent_stages.length} ` +
-                `fallback_stages=${result.bundled_fallback_agent_stages.length} ` +
-                `unavailable_stages=${result.unavailable_agent_stages.length}`,
-            ),
-          );
-          for (const row of result.rows.filter((item) => item.enabled || !item.ready)) {
-            const marker = row.ready ? pc.green("ok") : row.enabled ? pc.red("no") : pc.dim("--");
-            console.log(
-              `  ${marker} ${row.layer}/${row.agent}:${row.stage} ${row.status}` +
-                (row.snapshot_hash ? ` ${row.snapshot_hash.slice(0, 19)}` : ""),
-            );
-            for (const reason of row.reasons) {
-              console.log(pc.dim(`     ${redactSensitiveText(reason).slice(0, 220)}`));
             }
           }
         }
@@ -485,74 +406,6 @@ export function registerPrompts(program: Command): void {
         console.log(`  ${redactSensitiveText(path).slice(0, 220)}`);
       }
       if (changed.length > 50) console.log(`  ... ${changed.length - 50} more`);
-    });
-
-  prompts
-    .command("strip-private-knot-blocks")
-    .description("Remove legacy embedded policy blocks and refresh evidence contracts.")
-    .option("--private-prompts-root <path>", "Private prompts root to sanitize")
-    .option("--prompts-root <path>", "Bundled prompts root to update from code defaults")
-    .option("--cohort <name>", "Cohort to update (default cohort_default)")
-    .option("--agents <list>", "Comma-separated agent ids; defaults to all runtime agents")
-    .option("--write", "Write changes. Without this, only reports pending updates.", false)
-    .action(async (opts: StripPrivateKnotBlocksOpts) => {
-      const cohort = opts.cohort ?? "cohort_default";
-      if (Boolean(opts.privatePromptsRoot) === Boolean(opts.promptsRoot)) {
-        throw new Error("exactly one of --private-prompts-root or --prompts-root is required");
-      }
-      const promptsRoot = opts.privatePromptsRoot ?? opts.promptsRoot;
-      if (!promptsRoot) throw new Error("prompt root is required");
-      const selected = opts.agents
-        ? new Set(
-            opts.agents
-              .split(",")
-              .map((item) => item.trim())
-              .filter(Boolean),
-          )
-        : null;
-      const specs = RUNTIME_AGENT_SPECS.filter((spec) => !selected || selected.has(spec.agent));
-      const changed: string[] = [];
-      for (const spec of specs) {
-        for (const language of ["zh", "en"] as const) {
-          const path = promptPath({
-            agent: spec.agent,
-            layer: spec.layer,
-            cohort,
-            language,
-            promptsRoot,
-          });
-          const current = await readFile(path, "utf-8");
-          const next = upsertRuntimeEvidenceContract(
-            stripLegacyPrivatePolicyBlock(current),
-            spec,
-            language,
-          );
-          if (next === current) continue;
-          changed.push(path);
-          if (opts.write) {
-            await mkdir(dirname(path), { recursive: true });
-            await writeFile(path, next, "utf-8");
-          }
-        }
-      }
-      const label = opts.write ? "updated" : "pending";
-      console.log(`${label} prompt-contract files: ${changed.length}`);
-      for (const path of changed.slice(0, 50)) {
-        console.log(`  ${redactSensitiveText(path).slice(0, 220)}`);
-      }
-      if (changed.length > 50) console.log(`  ... ${changed.length - 50} more`);
-    });
-
-  prompts
-    .command("sync-prompt-ir")
-    .description(
-      "Deprecated: Prompt IR is generated in the public runtime contract, not the prompt repo.",
-    )
-    .requiredOption("--private-prompts-root <path>", "Private prompts root (read-only)")
-    .action((opts: SyncPromptIrOpts) => {
-      throw new Error(
-        `sync-prompt-ir is disabled; KNOT registries are generated in the private runtime: ${redactSensitiveText(opts.privatePromptsRoot)}`,
-      );
     });
 
   prompts

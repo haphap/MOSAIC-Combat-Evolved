@@ -913,31 +913,26 @@ const testL4PromptSnapshots = [
     agent: "alpha_discovery" as const,
     stage: "alpha_discovery" as const,
     prompt_source_hash: "p1",
-    private_knot_snapshot_hash: null,
   },
   {
     agent: "cio" as const,
     stage: "cio_proposal" as const,
     prompt_source_hash: "p2",
-    private_knot_snapshot_hash: null,
   },
   {
     agent: "cro" as const,
     stage: "cro_review" as const,
     prompt_source_hash: "p3",
-    private_knot_snapshot_hash: null,
   },
   {
     agent: "autonomous_execution" as const,
     stage: "execution_feasibility" as const,
     prompt_source_hash: "p4",
-    private_knot_snapshot_hash: null,
   },
   {
     agent: "cio" as const,
     stage: "cio_final" as const,
     prompt_source_hash: "p5",
-    private_knot_snapshot_hash: null,
   },
 ];
 
@@ -1518,7 +1513,6 @@ describe("Layer-4 runtime source envelopes", () => {
         agent: "cio",
         stage: "cio_proposal",
         promptSourceHash: "p2",
-        privateKnotSnapshotHash: null,
         mirofishContextHash: null,
       }).bundle_hash,
     ).toMatch(/^sha256:/);
@@ -1528,10 +1522,9 @@ describe("Layer-4 runtime source envelopes", () => {
         agent: "cio",
         stage: "cio_proposal",
         promptSourceHash: "prompt-drift",
-        privateKnotSnapshotHash: null,
         mirofishContextHash: null,
       }),
-    ).toThrow(/prompt or knob hash drifted/);
+    ).toThrow(/prompt hash drifted/);
 
     const originalPositions = state.current_positions;
     state.current_positions = { ...originalPositions, position_snapshot_hash: "sha256:changed" };
@@ -1541,7 +1534,6 @@ describe("Layer-4 runtime source envelopes", () => {
         agent: "cio",
         stage: "cio_proposal",
         promptSourceHash: "p2",
-        privateKnotSnapshotHash: null,
         mirofishContextHash: null,
       }),
     ).toThrow(/immutable input changed/);
@@ -1557,7 +1549,6 @@ describe("Layer-4 runtime source envelopes", () => {
         agent: "cio",
         stage: "cio_proposal",
         promptSourceHash: "p2",
-        privateKnotSnapshotHash: null,
         mirofishContextHash: null,
       }),
     ).toThrow(/base market source drifted/);
@@ -3261,144 +3252,151 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
   });
 
   it("passes runtime evidence ids to extraction and verifies action claim refs", async () => {
-    const previousEnabled = process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENT_STAGES;
-    process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENT_STAGES = "cio:cio_proposal";
-    try {
-      const prompt = "FAKE-CIO";
-      const dir = join(promptDir, "cohort_default", "decision");
-      writeFileSync(join(dir, "cio.zh.md"), prompt, "utf-8");
-      writeFileSync(join(dir, "cio.en.md"), prompt, "utf-8");
-      clearPromptCache();
+    const prompt = "FAKE-CIO";
+    const dir = join(promptDir, "cohort_default", "decision");
+    writeFileSync(join(dir, "cio.zh.md"), prompt, "utf-8");
+    writeFileSync(join(dir, "cio.en.md"), prompt, "utf-8");
+    clearPromptCache();
 
-      class EvidenceAwareLlm {
-        invokeCalls = 0;
-        structuredCalls = 0;
-        evidenceId: string | undefined;
-        async invoke(): Promise<AIMessage> {
-          this.invokeCalls++;
-          return new AIMessage("Hold the existing position on current account evidence.");
-        }
-        withStructuredOutput(): { invoke: (messages: BaseMessage[]) => Promise<unknown> } {
-          return {
-            invoke: async (messages) => {
-              this.structuredCalls++;
-              const text = messages.map((message) => String(message.content)).join("\n");
-              const marker = "Runtime-owned evidence catalog (use only these evidence_id values):";
-              const markerIndex = text.indexOf(marker);
-              if (!this.evidenceId && markerIndex >= 0) {
-                const catalog = JSON.parse(text.slice(markerIndex + marker.length).trim()) as {
-                  evidence: Array<{ evidence_id: string; freshness: string }>;
-                };
-                this.evidenceId = catalog.evidence.find(
-                  (entry) => entry.freshness === "current",
-                )?.evidence_id;
-              }
-              const evidenceId = this.evidenceId;
-              if (!evidenceId) throw new Error("current evidence missing from extraction catalog");
-              return {
-                agent_id: "cio",
-                decision_stage: "PROPOSAL",
-                decision_disposition: "HOLD_CURRENT",
-                decision_reason: "Current evidence supports holding the existing target.",
-                cash_weight: 0.8,
-                target_positions: [
-                  {
-                    position_local_id: "position-hold",
-                    ts_code: "600519.SH",
-                    position_decision: "HOLD",
-                    target_weight: 0.2,
-                    holding_period: "WEEKS",
-                    thesis_status: "INTACT",
-                    risk_flags: [],
-                    claim_refs: ["claim-hold"],
-                  },
-                ],
-                confidence: 0.5,
-                claims: [
-                  {
-                    claim_id: "claim-hold",
-                    claim_kind: "FACT",
-                    statement: "Keep the existing target unchanged.",
-                    structured_conclusion: { decision: "HOLD" },
-                    evidence_ids: [evidenceId ?? "missing"],
-                    research_rule_refs: [],
-                  },
-                ],
-                claim_refs: ["claim-hold"],
-                macro_input_attributions: MACRO_AGENT_IDS.map((agent_id) => ({
-                  agent_id,
-                  target_type: "SUBMISSION_SUMMARY",
-                  target_local_ref: "$SUBMISSION",
-                  claim_refs_used: [],
-                  effect: "NOT_MATERIAL",
-                })),
+    class EvidenceAwareLlm {
+      invokeCalls = 0;
+      structuredCalls = 0;
+      evidenceId: string | undefined;
+      async invoke(): Promise<AIMessage> {
+        this.invokeCalls++;
+        return new AIMessage("Hold the existing position on current account evidence.");
+      }
+      withStructuredOutput(): { invoke: (messages: BaseMessage[]) => Promise<unknown> } {
+        return {
+          invoke: async (messages) => {
+            this.structuredCalls++;
+            const text = messages.map((message) => String(message.content)).join("\n");
+            const marker = "Runtime-owned evidence catalog (use only these evidence_id values):";
+            const markerIndex = text.indexOf(marker);
+            if (!this.evidenceId && markerIndex >= 0) {
+              const catalog = JSON.parse(text.slice(markerIndex + marker.length).trim()) as {
+                evidence: Array<{ evidence_id: string; freshness: string }>;
               };
-            },
-          };
-        }
+              this.evidenceId = catalog.evidence.find(
+                (entry) => entry.freshness === "current",
+              )?.evidence_id;
+            }
+            const evidenceId = this.evidenceId;
+            if (!evidenceId) throw new Error("current evidence missing from extraction catalog");
+            return {
+              agent_id: "cio",
+              decision_stage: "PROPOSAL",
+              decision_disposition: "HOLD_CURRENT",
+              decision_reason: "Current evidence supports holding the existing target.",
+              cash_weight: 0.8,
+              target_positions: [
+                {
+                  position_local_id: "position-hold",
+                  ts_code: "600519.SH",
+                  position_decision: "HOLD",
+                  target_weight: 0.2,
+                  holding_period: "WEEKS",
+                  thesis_status: "INTACT",
+                  risk_flags: [],
+                  claim_refs: ["claim-hold"],
+                },
+              ],
+              confidence: 0.5,
+              claims: [
+                {
+                  claim_id: "claim-hold",
+                  claim_kind: "FACT",
+                  statement: "Keep the existing target unchanged.",
+                  structured_conclusion: { decision: "HOLD" },
+                  evidence_ids: [evidenceId ?? "missing"],
+                  research_rule_refs: [],
+                },
+              ],
+              claim_refs: ["claim-hold"],
+              macro_input_attributions: MACRO_AGENT_IDS.map((agent_id) => ({
+                agent_id,
+                target_type: "SUBMISSION_SUMMARY",
+                target_local_ref: "$SUBMISSION",
+                claim_refs_used: [],
+                effect: "NOT_MATERIAL",
+              })),
+            };
+          },
+        };
       }
-
-      const llm = new EvidenceAwareLlm();
-      const sample = baseState();
-      sample.trace_id = "claim-run";
-      sample.current_positions = loadedPositions([heldPosition]);
-      const runtime = emptyLayer4RuntimeState();
-      runtime.resolved_source_statuses = [
-        {
-          source_id: "current_market_data",
-          scope: "ticker:600519.SH",
-          status: "loaded",
-          as_of: sample.as_of_date,
-          snapshot_hash: `sha256:${"4".repeat(64)}`,
-          adapter_id: "market.scoped_snapshot_adapter.v1",
-        },
-      ];
-      sample.layer4_outputs = {
-        ...sample.layer4_outputs,
-        runtime,
-        previous_target_state: missingPreviousTargetState(),
-      };
-      const handle: LlmHandle = {
-        llm: llm as unknown as LlmHandle["llm"],
-        provider: "fake",
-        model: "fake-model",
-        baseUrl: undefined,
-      };
-
-      const update = await buildCioProposalNode({
-        llmHandle: handle,
-        config: testConfig(),
-        promptsRoot: promptDir,
-      })(sample);
-      const proposal = (update.layer4_outputs as Partial<Layer4Outputs> | undefined)?.runtime
-        ?.cio_proposal;
-
-      expect(proposal?.verified_claim_audit).toEqual({
-        raw_output_accepted: true,
-        rejection_reasons: [],
-      });
-      expect(proposal?.verified_claim_graph?.recommendation_claim_refs).toEqual([
-        {
-          output_id: "recommendation:0:cio",
-          output_type: "recommendation",
-          claim_refs: ["claim-hold"],
-        },
-        {
-          output_id: "target_position:0:600519.SH",
-          output_type: "portfolio_action",
-          claim_refs: ["claim-hold"],
-        },
-      ]);
-      expect(llm.invokeCalls).toBe(1);
-      expect(llm.structuredCalls).toBe(1);
-    } finally {
-      if (previousEnabled === undefined) {
-        delete process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENT_STAGES;
-      } else {
-        process.env.MOSAIC_RESEARCH_KNOBS_ENABLED_AGENT_STAGES = previousEnabled;
-      }
-      clearPromptCache();
     }
+
+    const llm = new EvidenceAwareLlm();
+    const sample = baseState();
+    sample.trace_id = "claim-run";
+    sample.current_positions = loadedPositions([heldPosition]);
+    const runtime = emptyLayer4RuntimeState();
+    runtime.resolved_source_statuses = [
+      {
+        source_id: "current_market_data",
+        scope: "ticker:600519.SH",
+        status: "loaded",
+        as_of: sample.as_of_date,
+        snapshot_hash: `sha256:${"4".repeat(64)}`,
+        adapter_id: "market.scoped_snapshot_adapter.v1",
+      },
+    ];
+    runtime.source_evidence_observations = [
+      {
+        source_id: "current_market_data",
+        scope: "ticker:600519.SH",
+        metric: "current_market_data_snapshot",
+        value: { ts_code: "600519.SH" },
+        unit: "snapshot",
+        as_of: sample.as_of_date,
+        lookback: "point_in_time",
+        freshness: "current",
+        source_fingerprint: `sha256:${"4".repeat(64)}`,
+        direction: "neutral",
+        privacy_class: "private_runtime",
+        adapter_id: "market.scoped_snapshot_adapter.v1",
+        adapter_version: "1",
+      },
+    ];
+    sample.layer4_outputs = {
+      ...sample.layer4_outputs,
+      runtime,
+      previous_target_state: missingPreviousTargetState(),
+    };
+    const handle: LlmHandle = {
+      llm: llm as unknown as LlmHandle["llm"],
+      provider: "fake",
+      model: "fake-model",
+      baseUrl: undefined,
+    };
+
+    const update = await buildCioProposalNode({
+      llmHandle: handle,
+      config: testConfig(),
+      promptsRoot: promptDir,
+    })(sample);
+    const proposal = (update.layer4_outputs as Partial<Layer4Outputs> | undefined)?.runtime
+      ?.cio_proposal;
+
+    expect(proposal?.verified_claim_audit).toEqual({
+      raw_output_accepted: true,
+      rejection_reasons: [],
+    });
+    expect(proposal?.verified_claim_graph?.recommendation_claim_refs).toEqual([
+      {
+        output_id: "recommendation:0:cio",
+        output_type: "recommendation",
+        claim_refs: ["claim-hold"],
+      },
+      {
+        output_id: "target_position:0:600519.SH",
+        output_type: "portfolio_action",
+        claim_refs: ["claim-hold"],
+      },
+    ]);
+    expect(llm.invokeCalls).toBe(1);
+    expect(llm.structuredCalls).toBe(1);
+    clearPromptCache();
   });
 });
 

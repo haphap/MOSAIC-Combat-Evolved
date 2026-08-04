@@ -62,5 +62,9 @@ MOSAIC-Combat-Evolved/
 ## Persistence
 
 - **SQLite** — scorecard recommendations + scoring, autoresearch metadata, backtest run cache, paper-trading DB (`~/.mosaic/paper_trading.db`).
-- **prompt repositories** — production loads a pinned private 448-prompt release. KNOT is the only production behavior promoter and publishes an atomic execution-behavior release; the old Delta-Sharpe branch path is diagnostic/historical only (see [Self-Improvement](Self-Improvement.md)).
+- **prompt repositories** — production loads a pinned private 448-prompt
+  release. KNOT proposes Prompt Candidates from training-only summaries, the
+  generic Runner evaluates them, and Prompt Release owns canary, activation,
+  and rollback. The old Delta-Sharpe branch path remains diagnostic/historical
+  only (see [Self-Improvement](Self-Improvement.md)).
 - **Config file** — `~/.mosaic/config.json` (optional; see [Configuration](Configuration.md)).

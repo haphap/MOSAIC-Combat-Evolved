@@ -1,39 +1,21 @@
-import { initializePrivateKnotRuntime } from "../../autoresearch/private_knot_runtime.js";
-import {
-  checkPrivateKnotPromptBoundary,
-  type PrivateKnotPromptCheckReport,
-} from "./private_knot_prompt_checker.js";
 import {
   buildRuntimeAgentManifestArtifact,
   validateRuntimeAgentManifestArtifact,
 } from "./runtime_agent_spec.js";
+import { checkRuntimePrompts, type RuntimePromptCheckReport } from "./runtime_prompt_checker.js";
 
 export async function assertRuntimePromptPreflight(opts: {
   cohort: string;
   promptsRoot?: string;
   privatePromptsRoot?: string;
-  requirePrivateKnot?: boolean;
-}): Promise<PrivateKnotPromptCheckReport> {
+}): Promise<RuntimePromptCheckReport> {
   const manifest = buildRuntimeAgentManifestArtifact();
   const manifestReasons = validateRuntimeAgentManifestArtifact(manifest);
   if (manifestReasons.length > 0) {
     throw new Error(`runtime manifest preflight failed: ${manifestReasons.join(",")}`);
   }
-  const requirePrivateKnot = opts.requirePrivateKnot ?? false;
-  if (requirePrivateKnot) {
-    await initializePrivateKnotRuntime({
-      required: true,
-      ...(opts.privatePromptsRoot ? { privateRoot: opts.privatePromptsRoot } : {}),
-    });
-  } else {
-    const { clearPrivateKnotRuntime } = await import("../helpers/private_knot_boundary.js");
-    clearPrivateKnotRuntime();
-    const { clearPromptCache } = await import("./loader.js");
-    clearPromptCache();
-  }
-  const report = await checkPrivateKnotPromptBoundary({
+  const report = await checkRuntimePrompts({
     cohort: opts.cohort,
-    requirePrivateKnot,
     ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
     ...(opts.privatePromptsRoot ? { privatePromptsRoot: opts.privatePromptsRoot } : {}),
   });

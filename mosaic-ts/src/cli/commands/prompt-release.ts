@@ -68,7 +68,10 @@ export function registerPromptRelease(program: Command): void {
 
   command
     .command("stage")
-    .requiredOption("--version-id <id>", "Kept domain mutation version id")
+    .requiredOption("--candidate-id <id>", "Eligible Prompt Candidate id")
+    .requiredOption("--decision-id <id>", "Promotion Decision id")
+    .requiredOption("--private-prompt-commit <hash>", "Private Prompt Git commit")
+    .requiredOption("--code-commit <hash>", "Public code Git commit")
     .requiredOption("--release-id <id>", "Immutable release id")
     .option("--registry-root <path>", "Release registry root")
     .option("--private-prompts-repo <path>", "Private prompt repository")
@@ -81,7 +84,10 @@ export function registerPromptRelease(program: Command): void {
     )
     .action(
       async (opts: {
-        versionId: string;
+        candidateId: string;
+        decisionId: string;
+        privatePromptCommit: string;
+        codeCommit: string;
         releaseId: string;
         registryRoot?: string;
         privatePromptsRepo?: string;
@@ -93,14 +99,19 @@ export function registerPromptRelease(program: Command): void {
         const api = new BridgeApi(client);
         try {
           await client.start();
-          const verification = await api.promptsVerifyRelease({
-            version_id: Number.parseInt(opts.versionId, 10),
-            require_kept: true,
-          });
+          const [candidate, promotionDecision] = await Promise.all([
+            api.promptOptimizerGetCandidate(opts.candidateId),
+            api.promptOptimizerGetDecision(opts.decisionId),
+          ]);
+          if (!candidate) throw new Error(`Prompt Candidate not found: ${opts.candidateId}`);
+          if (!promotionDecision) {
+            throw new Error(`Promotion Decision not found: ${opts.decisionId}`);
+          }
           const manifest = await stagePromptRelease({
             registryRoot: registryRoot(opts),
             releaseId: opts.releaseId,
-            verification,
+            candidate,
+            promotionDecision,
             privatePromptRepo:
               opts.privatePromptsRepo?.trim() ||
               process.env.MOSAIC_PROMPTS_REPO?.trim() ||
@@ -109,6 +120,8 @@ export function registerPromptRelease(program: Command): void {
                 "MOSAIC_PRIVATE_PROMPT_REPO",
                 "--private-prompts-repo",
               ),
+            privatePromptCommit: opts.privatePromptCommit,
+            codeCommit: opts.codeCommit,
             cohort: opts.cohort,
             accountMode: parseMode(opts.accountMode),
             approvalPolicyId: parsePolicy(opts.approvalPolicy),

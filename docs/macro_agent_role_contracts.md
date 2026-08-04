@@ -94,9 +94,9 @@ For the seven composed Macro contracts, the initial/current component weights
 are a versioned runtime contract rather than permanent constants. An
 independent semiannual calibration workflow may fit a candidate, evaluate it
 in shadow, and publish an append-only release with a prospective effective
-time (or roll it back). Darwinian usage weights and private KNOT prompt
-evolution do not directly modify component weights, and component calibration
-does not expose private KNOT values.
+time (or roll it back). Darwinian usage weights and private Prompt Candidate
+generation do not directly modify component weights. Component calibration
+uses only its public PIT market-regime contract.
 
 ## Data and tool boundary
 
@@ -208,15 +208,16 @@ The public tree contains exactly 56 concise bilingual `cohort_default` prompts
 for fake/offline use. Its seven non-default cohort directories contain only
 skeleton markers; public renderers and generators reject requests for their
 model-visible behavior. Production loads all eight cohorts from the pinned
-private prompt repository. Private prompt files contain the cohort stress-test
-lenses, while research knobs, Darwinian ranks, KNOT thresholds, endpoint
-catalogs, and handwritten JSON schemas remain runtime-private.
+private prompt repository. Private prompt files contain only the cohort
+stress-test lenses; mutator and promotion-policy configuration stays outside
+model-visible Prompt text, while Darwinian ranks, endpoint catalogs, and
+handwritten JSON schemas are never injected into it.
 
-`registry/prompt_checks/execution_behavior_release_manifest_v1.json` atomically
+`registry/prompt_checks/execution_behavior_release_manifest_v2.json` atomically
 binds all 448 private variants (8 cohorts × 28 Agents × 2 languages), the 16
 active cohort/language production rosters, prompt and immutable-block hashes,
-ordered structured-output phase bindings, tool-policy hashes, and KNOT champion
-baselines. `agent_prompt_role_contract_manifest_v2.json` pins the same private
+ordered structured-output phase bindings, tool-policy hashes, and Prompt
+execution baselines. `agent_prompt_role_contract_manifest_v2.json` pins the same private
 commit and release ID/hash. Production fails closed on a missing file, commit,
 content, language, provider/model, schema, tool, or release mismatch.
 Release and token-budget builders resolve every recorded Git revision and reject

@@ -24,8 +24,8 @@
       "required": ["id", "version", "command_contract_version"],
       "properties": {
         "id": {"const": "prompt_evolution_delivery"},
-        "version": {"const": "2"},
-        "command_contract_version": {"const": "prompt_evolution_delivery_commands_v2"}
+        "version": {"const": "3"},
+        "command_contract_version": {"const": "prompt_evolution_delivery_commands_v3"}
       }
     },
     "run": {
@@ -103,8 +103,8 @@
     },
     "checks": {
       "type": "array",
-      "minItems": 23,
-      "maxItems": 23,
+      "minItems": 22,
+      "maxItems": 22,
       "items": {"$ref": "#/$defs/check"}
     },
     "gates": {

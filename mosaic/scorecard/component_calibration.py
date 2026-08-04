@@ -19,6 +19,14 @@ from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
 
 _HORIZON_ORDER = {"DAYS": 0, "WEEKS": 1, "MONTHS": 2}
 _CALENDAR_ID = "cn_a_share_trading_calendar_v1"
+_COMPONENT_REGIME_CLASSIFIER_CONTRACT = {
+    "classifier_contract_id": "component-calibration-volatility-regime",
+    "classifier_contract_version": "component_calibration_volatility_regime_v1",
+    "rule": "stress iff realized_volatility_20d exceeds trailing_252d_p80",
+}
+_COMPONENT_REGIME_CLASSIFIER_HASH = canonical_hash(
+    _COMPONENT_REGIME_CLASSIFIER_CONTRACT
+)
 
 
 def _finite(value: Any, label: str) -> float:
@@ -641,13 +649,13 @@ def build_component_regime_snapshot(
     generated_at: str,
     source_evidence_ids: Sequence[str],
 ) -> dict[str, Any]:
-    """Build a redacted PIT snapshot from pinned-private opaque classifications."""
+    """Build a deterministic PIT volatility-regime snapshot."""
     generated = _timestamp(generated_at, "generated_at")
     if not source_evidence_ids or any(
         not isinstance(item, str) or not item for item in source_evidence_ids
     ):
         raise ValueError("component regime snapshot requires source evidence")
-    private_observations: list[dict[str, Any]] = []
+    source_observations: list[dict[str, Any]] = []
     seen: set[str] = set()
     for item in observations:
         as_of = _required_text(item.get("as_of"), "regime.as_of")
@@ -666,7 +674,7 @@ def build_component_regime_snapshot(
             raise ValueError("component regime observation requires source evidence")
         if "regime" in item:
             raise ValueError("component regime must be derived, not supplied")
-        private_observations.append(
+        source_observations.append(
             {
                 **dict(item),
                 "as_of": as_of,
@@ -675,22 +683,22 @@ def build_component_regime_snapshot(
                 "source_evidence_ids": sorted(set(evidence_ids)),
             }
         )
-    private_observations.sort(key=lambda row: row["as_of"])
-    private_body = {
+    source_observations.sort(key=lambda row: row["as_of"])
+    source_body = {
         "schema_version": "component_calibration_regime_snapshot_v1",
         "generated_at": generated.isoformat(),
         "pit_status": "VERIFIED",
         "source_evidence_ids": sorted(set(source_evidence_ids)),
-        "observations": private_observations,
+        "observations": source_observations,
     }
-    private_snapshot = {
-        **private_body,
-        "snapshot_hash": canonical_hash(private_body),
+    source_snapshot = {
+        **source_body,
+        "snapshot_hash": canonical_hash(source_body),
     }
     classified: list[dict[str, Any]] = []
     classifier_contract: dict[str, str] | None = None
-    for item in private_observations:
-        result = _classify_private_regime(private_snapshot, as_of=item["as_of"])
+    for item in source_observations:
+        result = _classify_component_regime(source_snapshot, as_of=item["as_of"])
         contract = {
             "classifier_contract_id": _required_text(
                 result.get("classifier_contract_id"), "classifier_contract_id"
@@ -704,16 +712,16 @@ def build_component_regime_snapshot(
             ),
         }
         if not contract["classifier_contract_hash"].startswith("sha256:"):
-            raise ValueError("private classifier contract hash is invalid")
+            raise ValueError("component classifier contract hash is invalid")
         if classifier_contract is None:
             classifier_contract = contract
         elif classifier_contract != contract:
-            raise ValueError("private classifier contract changed within one snapshot")
-        if result.get("pit_snapshot_hash") != private_snapshot["snapshot_hash"]:
-            raise ValueError("private classifier source snapshot binding mismatch")
+            raise ValueError("component classifier contract changed within one snapshot")
+        if result.get("pit_snapshot_hash") != source_snapshot["snapshot_hash"]:
+            raise ValueError("component classifier source snapshot binding mismatch")
         label = result.get("regime_label")
         if label not in {"normal", "stress"}:
-            raise ValueError("private classifier returned an invalid regime label")
+            raise ValueError("component classifier returned an invalid regime label")
         classified.append(
             {
                 "as_of": item["as_of"],
@@ -721,7 +729,7 @@ def build_component_regime_snapshot(
                 "regime": str(label).upper(),
                 "pit_status": "VERIFIED",
                 "source_evidence_ids": item["source_evidence_ids"],
-                "classifier_source_snapshot_hash": private_snapshot["snapshot_hash"],
+                "classifier_source_snapshot_hash": source_snapshot["snapshot_hash"],
             }
         )
     if classifier_contract is None:
@@ -732,27 +740,60 @@ def build_component_regime_snapshot(
         "pit_status": "VERIFIED",
         "source_evidence_ids": sorted(set(source_evidence_ids)),
         "classifier_contract": classifier_contract,
-        "classifier_source_snapshot_hash": private_snapshot["snapshot_hash"],
+        "classifier_source_snapshot_hash": source_snapshot["snapshot_hash"],
         "observations": classified,
     }
     return {**without_hash, "snapshot_hash": canonical_hash(without_hash)}
 
 
-def _classify_private_regime(
+def _classify_component_regime(
     snapshot: Mapping[str, Any], *, as_of: str
 ) -> Mapping[str, Any]:
-    from mosaic.scorecard import knot_v2 as private_knot
-
-    result = private_knot.classify_knot_regime(snapshot, as_of=as_of)
-    if not isinstance(result, Mapping) or set(result) != {
-        "regime_label",
-        "classifier_contract_id",
-        "classifier_contract_version",
-        "classifier_contract_hash",
-        "pit_snapshot_hash",
-    }:
-        raise ValueError("private classifier output contract mismatch")
-    return result
+    try:
+        datetime.strptime(as_of, "%Y-%m-%d")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("as_of must be an ISO-8601 date") from exc
+    _verify_hash(snapshot, "snapshot_hash", "component regime source snapshot")
+    if (
+        snapshot.get("schema_version")
+        != "component_calibration_regime_snapshot_v1"
+        or snapshot.get("pit_status") != "VERIFIED"
+    ):
+        raise ValueError("component regime source snapshot contract mismatch")
+    generated_at = _timestamp(snapshot.get("generated_at"), "snapshot.generated_at")
+    observations = snapshot.get("observations")
+    if not isinstance(observations, list):
+        raise ValueError("component regime observations must be an array")
+    matching = [
+        value
+        for value in observations
+        if isinstance(value, Mapping) and value.get("as_of") == as_of
+    ]
+    if len(matching) != 1:
+        raise ValueError("component regime snapshot must bind as_of exactly once")
+    observation = matching[0]
+    if observation.get("pit_status") != "VERIFIED":
+        raise ValueError("component regime observation is unverified")
+    available_at = _timestamp(observation.get("available_at"), "regime.available_at")
+    as_of_close = _timestamp(f"{as_of}T15:00:00+08:00", "regime.as_of_close")
+    if available_at > as_of_close or available_at > generated_at:
+        raise ValueError("component regime observation was unavailable at as_of")
+    volatility = _finite(
+        observation.get("realized_volatility_20d"),
+        "regime.realized_volatility_20d",
+    )
+    threshold = _finite(
+        observation.get("trailing_252d_p80"),
+        "regime.trailing_252d_p80",
+    )
+    if volatility < 0 or threshold < 0:
+        raise ValueError("component regime volatility inputs must be non-negative")
+    return {
+        "regime_label": "stress" if volatility > threshold else "normal",
+        **_COMPONENT_REGIME_CLASSIFIER_CONTRACT,
+        "classifier_contract_hash": _COMPONENT_REGIME_CLASSIFIER_HASH,
+        "pit_snapshot_hash": snapshot["snapshot_hash"],
+    }
 
 
 def _verified_calendar(

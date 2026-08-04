@@ -1285,7 +1285,6 @@ def darwinian_publish_v2_updates(params: dict[str, Any]) -> dict[str, Any]:
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
 
 
-@method("darwinian.knot_register_track")
 def darwinian_knot_register_track(params: dict[str, Any]) -> dict[str, Any]:
     _reject_unknown_params(
         params,
@@ -1319,7 +1318,6 @@ def darwinian_knot_register_track(params: dict[str, Any]) -> dict[str, Any]:
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
 
 
-@method("darwinian.knot_nominate")
 def darwinian_knot_nominate(params: dict[str, Any]) -> dict[str, Any]:
     _reject_unknown_params(
         params,
@@ -1349,7 +1347,6 @@ def darwinian_knot_nominate(params: dict[str, Any]) -> dict[str, Any]:
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
 
 
-@method("darwinian.knot_publish_schedule")
 def darwinian_knot_publish_schedule(params: dict[str, Any]) -> dict[str, Any]:
     _reject_unknown_params(
         params,
@@ -1398,7 +1395,6 @@ def darwinian_knot_publish_schedule(params: dict[str, Any]) -> dict[str, Any]:
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
 
 
-@method("darwinian.knot_preregister_pair_assignment")
 def darwinian_knot_preregister_pair_assignment(
     params: dict[str, Any],
 ) -> dict[str, Any]:
@@ -1453,7 +1449,6 @@ def darwinian_knot_preregister_pair_assignment(
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
 
 
-@method("darwinian.knot_freeze_pair")
 def darwinian_knot_freeze_pair(params: dict[str, Any]) -> dict[str, Any]:
     _reject_unknown_params(
         params,
@@ -1540,7 +1535,6 @@ def darwinian_knot_freeze_pair(params: dict[str, Any]) -> dict[str, Any]:
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
 
 
-@method("darwinian.knot_append_score")
 def darwinian_knot_append_score(params: dict[str, Any]) -> dict[str, Any]:
     _reject_unknown_params(
         params,
@@ -1600,7 +1594,6 @@ def darwinian_knot_append_score(params: dict[str, Any]) -> dict[str, Any]:
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
 
 
-@method("darwinian.knot_append_pair_side_result")
 def darwinian_knot_append_pair_side_result(
     params: dict[str, Any],
 ) -> dict[str, Any]:
@@ -1768,7 +1761,6 @@ def darwinian_knot_append_pair_side_result(
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
 
 
-@method("darwinian.knot_append_sector_cost_audit")
 def darwinian_knot_append_sector_cost_audit(
     params: dict[str, Any],
 ) -> dict[str, Any]:
@@ -1802,7 +1794,6 @@ def darwinian_knot_append_sector_cost_audit(
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
 
 
-@method("darwinian.knot_append_control_dependency")
 def darwinian_knot_append_control_dependency(
     params: dict[str, Any],
 ) -> dict[str, Any]:
@@ -1933,7 +1924,6 @@ def darwinian_knot_append_control_dependency(
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
 
 
-@method("darwinian.knot_finalize_pair")
 def darwinian_knot_finalize_pair(params: dict[str, Any]) -> dict[str, Any]:
     _reject_unknown_params(
         params,
@@ -1976,7 +1966,6 @@ def darwinian_knot_finalize_pair(params: dict[str, Any]) -> dict[str, Any]:
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
 
 
-@method("darwinian.knot_append_cio_dependency_blocked")
 def darwinian_knot_append_cio_dependency_blocked(
     params: dict[str, Any],
 ) -> dict[str, Any]:
@@ -2008,7 +1997,6 @@ def darwinian_knot_append_cio_dependency_blocked(
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
 
 
-@method("darwinian.knot_publish_promotion")
 def darwinian_knot_publish_promotion(params: dict[str, Any]) -> dict[str, Any]:
     _reject_unknown_params(
         params,
@@ -2050,7 +2038,6 @@ def darwinian_knot_publish_promotion(params: dict[str, Any]) -> dict[str, Any]:
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
 
 
-@method("darwinian.knot_publish_promotion_batch")
 def darwinian_knot_publish_promotion_batch(params: dict[str, Any]) -> dict[str, Any]:
     _reject_unknown_params(
         params,
@@ -2108,7 +2095,6 @@ def darwinian_knot_publish_promotion_batch(params: dict[str, Any]) -> dict[str, 
         raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
 
 
-@method("darwinian.knot_publish_rollback")
 def darwinian_knot_publish_rollback(params: dict[str, Any]) -> dict[str, Any]:
     _reject_unknown_params(
         params,

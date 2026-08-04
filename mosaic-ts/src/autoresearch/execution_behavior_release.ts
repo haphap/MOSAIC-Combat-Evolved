@@ -73,10 +73,8 @@ import {
   CAPABILITY_CONTRACT_VERSION,
   SNAPSHOT_BUNDLE_CONTRACT_VERSION,
 } from "../agents/tool_contract.js";
-import { KNOT_RUNTIME_CONTRACT_REF } from "./knot_contract.js";
-
-export const EXECUTION_BEHAVIOR_RELEASE_SCHEMA_VERSION = "execution_behavior_release_manifest_v1";
-export const EXECUTION_BEHAVIOR_RELEASE_CONTRACT_VERSION = "execution_behavior_release_v1";
+export const EXECUTION_BEHAVIOR_RELEASE_SCHEMA_VERSION = "execution_behavior_release_manifest_v2";
+export const EXECUTION_BEHAVIOR_RELEASE_CONTRACT_VERSION = "execution_behavior_release_v2";
 export const STRUCTURED_PROVIDER_CONTRACT_VERSION = "structured_provider_contract_v2";
 
 export const STRUCTURED_OUTPUT_SCHEMA_PHASES = [
@@ -120,7 +118,7 @@ export const ExecutionBehaviorReleaseVariantSchema = z
     structured_output_schema_set_hash: Sha256Schema,
     structured_provider_contract_hash: Sha256Schema,
     runtime_tool_manifest_hash: Sha256Schema,
-    knot_champion_baseline_hash: Sha256Schema,
+    prompt_execution_baseline_hash: Sha256Schema,
   })
   .strict();
 
@@ -341,9 +339,9 @@ export function validateExecutionBehaviorReleaseManifest(
     if (variant.execution_behavior_version !== currentExecutionVersion) {
       throw new Error(`${variant.variant_path}: execution behavior contract drift`);
     }
-    const expectedKnot = knotChampionBaselineHash(variant);
-    if (variant.knot_champion_baseline_hash !== expectedKnot) {
-      throw new Error(`${variant.variant_path}: KNOT champion baseline hash mismatch`);
+    const expectedBaseline = promptExecutionBaselineHash(variant);
+    if (variant.prompt_execution_baseline_hash !== expectedBaseline) {
+      throw new Error(`${variant.variant_path}: prompt execution baseline hash mismatch`);
     }
   }
   for (const key of expectedProductionKeys) {
@@ -580,7 +578,7 @@ function buildVariant(
   };
   return ExecutionBehaviorReleaseVariantSchema.parse({
     ...base,
-    knot_champion_baseline_hash: knotChampionBaselineHash(base),
+    prompt_execution_baseline_hash: promptExecutionBaselineHash(base),
   });
 }
 
@@ -765,11 +763,11 @@ function validateSchemaBindings(
     throw new Error(`${agent}: structured schema phase set mismatch`);
 }
 
-function knotChampionBaselineHash(
-  variant: Omit<ExecutionBehaviorReleaseVariant, "knot_champion_baseline_hash">,
+function promptExecutionBaselineHash(
+  variant: Omit<ExecutionBehaviorReleaseVariant, "prompt_execution_baseline_hash">,
 ): string {
   return canonicalHash({
-    contract: "knot_champion_baseline_v1",
+    contract: "prompt_execution_baseline_v1",
     agent_id: variant.agent_id,
     cohort_id: variant.cohort_id,
     language: variant.language,
@@ -778,8 +776,6 @@ function knotChampionBaselineHash(
     structured_output_schema_set_hash: variant.structured_output_schema_set_hash,
     structured_provider_contract_hash: variant.structured_provider_contract_hash,
     runtime_tool_manifest_hash: variant.runtime_tool_manifest_hash,
-    knot_runtime_contract_manifest_hash:
-      KNOT_RUNTIME_CONTRACT_REF.knot_runtime_contract_manifest_hash,
   });
 }
 

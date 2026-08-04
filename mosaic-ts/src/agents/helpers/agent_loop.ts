@@ -28,9 +28,9 @@ import {
 import type { StructuredToolInterface } from "@langchain/core/tools";
 import { canonicalJsonHash } from "./canonical_json.js";
 import { extractTextContent } from "./content.js";
-import type { ToolStatus } from "./private_knot_boundary.js";
 import { isProcessOnlyReportText, stripProcessOnlyReportPrefix } from "./process_narration.js";
 import { extractLlmTokenUsage } from "./runtime.js";
+import type { ToolStatus } from "./runtime_evidence_types.js";
 
 export interface AgentToolLoopOptions {
   llm: BaseChatModel;

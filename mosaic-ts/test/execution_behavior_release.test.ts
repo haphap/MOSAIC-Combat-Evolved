@@ -41,7 +41,7 @@ describe("execution behavior release", () => {
         "..",
         "registry",
         "prompt_checks",
-        "execution_behavior_release_manifest_v1.json",
+        "execution_behavior_release_manifest_v2.json",
       ),
     );
     expect(release.active_production_variants).toHaveLength(16);

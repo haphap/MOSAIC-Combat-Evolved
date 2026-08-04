@@ -314,13 +314,18 @@ export interface LocalEvaluationClosure {
   contract_hash: string;
 }
 
-interface PrivateKnotAssetsRef {
+interface PromptReleaseContractRef {
   evaluation_contract: LocalEvaluationClosure;
 }
 
 export async function loadLocalPromptReleaseClosure(): Promise<LocalEvaluationClosure> {
-  const path = join(findRepoRoot(), "registry", "prompt_checks", "private_knot_assets_ref_v1.json");
-  const value = JSON.parse(await readFile(path, "utf-8")) as PrivateKnotAssetsRef;
+  const path = join(
+    findRepoRoot(),
+    "registry",
+    "prompt_checks",
+    "prompt_release_contract_ref_v2.json",
+  );
+  const value = JSON.parse(await readFile(path, "utf-8")) as PromptReleaseContractRef;
   return parseLocalEvaluationClosure(value.evaluation_contract);
 }
 
@@ -333,10 +338,10 @@ export async function loadPromptReleaseClosureAtCommit(opts: {
       await gitShow(
         opts.repo,
         opts.commit,
-        "registry/prompt_checks/private_knot_assets_ref_v1.json",
+        "registry/prompt_checks/prompt_release_contract_ref_v2.json",
       )
     ).toString("utf-8"),
-  ) as Partial<PrivateKnotAssetsRef>;
+  ) as Partial<PromptReleaseContractRef>;
   return parseLocalEvaluationClosure(value.evaluation_contract);
 }
 

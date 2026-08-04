@@ -13,22 +13,12 @@
 
 import { readFile } from "node:fs/promises";
 import { redactSensitiveText } from "../../security/redaction.js";
-import { canonicalJsonHash } from "../helpers/canonical_json.js";
-import {
-  buildAgentInvocationId,
-  type PrivateKnotInvocationContext,
-  type PrivateKnotSnapshot,
-  preparePrivateKnotSnapshot,
-  type RuntimeSourceStatus,
-} from "../helpers/private_knot_boundary.js";
 import {
   findPrivatePromptsRoot,
   type Language,
-  promptPath,
   promptPathCandidates,
   resolvePromptPath,
 } from "./cohorts.js";
-import { containsPrivateKnotPromptContent } from "./private_knot_prompt_markers.js";
 import {
   clearReleasePromptCache,
   loadReleasePinnedPromptPair,
@@ -83,7 +73,7 @@ export interface PromptReleaseRuntimeAssignment {
 }
 
 const cache = new Map<string, string>();
-const privateKnotCache = new Map<string, LoadPromptWithPrivateKnotResult>();
+const runtimePairCache = new Map<string, RuntimePromptPairResult>();
 
 function releasePinnedPairCacheIdentity(pair: ReleasePinnedPromptPair): string {
   return JSON.stringify([
@@ -103,7 +93,7 @@ function releasePinnedPairCacheIdentity(pair: ReleasePinnedPromptPair): string {
  *  mutation rewrites prompt files on disk. */
 export function clearPromptCache(): void {
   cache.clear();
-  privateKnotCache.clear();
+  runtimePairCache.clear();
   clearReleasePromptCache();
 }
 
@@ -253,17 +243,10 @@ export async function loadPrompt(opts: LoadOptions): Promise<string> {
   return single.text;
 }
 
-export interface LoadPromptWithPrivateKnotResult {
+export interface RuntimePromptPairResult {
   prompt: string;
-  snapshot: PrivateKnotSnapshot;
-  paths: {
-    zh: string;
-    en: string;
-  };
-  bodies: {
-    zh: string;
-    en: string;
-  };
+  paths: { zh: string; en: string };
+  bodies: { zh: string; en: string };
   release?: {
     release_id: string;
     source: "private" | "bundled_fallback";
@@ -276,22 +259,10 @@ export interface LoadPromptWithPrivateKnotResult {
   };
 }
 
-/**
- * Load a zh/en prompt pair and bind it to an opaque private KNOT snapshot.
- *
- * Prompt text never contains KNOT policy fields. Production preparation fails
- * closed unless the hash-pinned private adapter has already been initialized.
- */
-export async function loadPromptWithPrivateKnot(
-  opts: Omit<LoadOptions, "language"> & {
-    language?: "Bilingual";
-    stage?: RuntimeAgentStageId;
-    runtimeSourceStatuses?: ReadonlyArray<RuntimeSourceStatus>;
-    /** Formal Darwinian traffic must use a commit/hash-pinned private release. */
-    requirePinnedPrivateRelease?: true;
-    invocationContext: PrivateKnotInvocationContext;
-  },
-): Promise<LoadPromptWithPrivateKnotResult> {
+/** Load the exact bilingual pair selected by the ordinary Prompt Release authority. */
+export async function loadPromptWithReleaseMetadata(
+  opts: Omit<LoadOptions, "language"> & { stage?: RuntimeAgentStageId },
+): Promise<RuntimePromptPairResult> {
   const pinnedPair = await releasePinnedPair(opts);
   const cacheKey = [
     opts.promptsRoot ?? "",
@@ -299,42 +270,21 @@ export async function loadPromptWithPrivateKnot(
     opts.cohort,
     opts.agent,
     opts.stage ?? "agent_run",
-    "PrivateKnotInvocationV2",
-    canonicalHash(opts.invocationContext),
-    canonicalHash(opts.runtimeSourceStatuses ?? []),
-    opts.requirePinnedPrivateRelease ? "pinned-required" : "unreleased-private-allowed",
     pinnedPair ? releasePinnedPairCacheIdentity(pinnedPair) : "unreleased",
   ].join("|");
   if (!opts.noCache) {
-    const cached = privateKnotCache.get(cacheKey);
-    if (cached !== undefined) return cached;
+    const cached = runtimePairCache.get(cacheKey);
+    if (cached) return cached;
   }
-
-  let zhBody: string;
-  let enBody: string;
+  let bodies: { zh: string; en: string };
   let paths: { zh: string; en: string };
   if (pinnedPair) {
-    if (
-      (opts.requirePinnedPrivateRelease ||
-        opts.invocationContext.invocation_mode === "PRODUCTION") &&
-      pinnedPair.source !== "private"
-    ) {
-      throw new Error("private_knot_prompt_release_must_use_private_source");
-    }
-    zhBody = pinnedPair.zh.trim();
-    enBody = pinnedPair.en.trim();
+    bodies = { zh: pinnedPair.zh.trim(), en: pinnedPair.en.trim() };
     paths = pinnedPair.paths;
   } else {
-    if (opts.requirePinnedPrivateRelease) {
-      throw new Error("private_knot_prompt_release_required");
-    }
-    const privateRoot = opts.privatePromptsRoot ?? opts.promptsRoot ?? findPrivatePromptsRoot();
-    if (!privateRoot) {
-      throw new Error("private_knot_private_prompt_root_required");
-    }
     const [zh, en] = await Promise.all([
-      readPrivateSingle({ ...opts, privateRoot, language: "zh" }),
-      readPrivateSingle({ ...opts, privateRoot, language: "en" }),
+      readSingle({ ...opts, language: "zh" }),
+      readSingle({ ...opts, language: "en" }),
     ]);
     if (zh.text === null || en.text === null) {
       throw new PromptNotFoundError(opts.agent, opts.cohort, "Bilingual", [
@@ -342,54 +292,13 @@ export async function loadPromptWithPrivateKnot(
         ...(en.text === null ? en.triedPaths : []),
       ]);
     }
-    zhBody = zh.text.trim();
-    enBody = en.text.trim();
+    bodies = { zh: zh.text.trim(), en: en.text.trim() };
     paths = { zh: zh.path, en: en.path };
   }
-  assertNoEmbeddedPrivateKnotContent(zhBody, "zh");
-  assertNoEmbeddedPrivateKnotContent(enBody, "en");
-  if (opts.invocationContext.invocation_mode === "PRODUCTION" && !pinnedPair) {
-    throw new Error("private_knot_prompt_release_required");
-  }
-  const promptPairHash = pinnedPair?.pairHash ?? canonicalHash({ zh: zhBody, en: enBody });
-  const promptReleaseHash =
-    pinnedPair?.stageSnapshotHash ??
-    canonicalHash({
-      schema_version: "non_production_prompt_release_v1",
-      agent: opts.agent,
-      cohort: opts.cohort,
-      stage: opts.stage ?? "agent_run",
-      prompt_pair_hash: promptPairHash,
-    });
-  const promptReleaseId =
-    pinnedPair?.releaseId ?? `non-production-prompt:${promptReleaseHash.slice("sha256:".length)}`;
-  const promptCommit = pinnedPair?.promptCommit ?? "non-production";
-  const agentInvocationId = buildAgentInvocationId({
-    runId: opts.invocationContext.graph_run_id,
-    agent: opts.agent,
-    stage: opts.stage ?? "agent_run",
-    cohort: opts.cohort,
-    asOf: opts.invocationContext.as_of,
-    promptReleaseHash,
-  });
-  const snapshot = await preparePrivateKnotSnapshot({
-    agent: opts.agent,
-    cohort: opts.cohort,
-    stage: opts.stage ?? "agent_run",
-    ...opts.invocationContext,
-    agent_invocation_id: agentInvocationId,
-    prompt_release_id: promptReleaseId,
-    prompt_release_hash: promptReleaseHash,
-    prompt_pair_hash: promptPairHash,
-    prompt_commit: promptCommit,
-    runtimeSourceStatuses: opts.runtimeSourceStatuses ?? [],
-  });
-  const prompt = [zhBody, "", "---", "", enBody].join("\n");
-  const result = {
-    prompt,
-    snapshot,
+  const result: RuntimePromptPairResult = {
+    prompt: `${bodies.zh}\n\n---\n\n${bodies.en}`,
+    bodies,
     paths,
-    bodies: { zh: zhBody, en: enBody },
     ...(pinnedPair
       ? {
           release: {
@@ -405,45 +314,6 @@ export async function loadPromptWithPrivateKnot(
         }
       : {}),
   };
-  if (!opts.noCache) privateKnotCache.set(cacheKey, result);
+  if (!opts.noCache) runtimePairCache.set(cacheKey, result);
   return result;
-}
-
-function canonicalHash(value: unknown): string {
-  return canonicalJsonHash(value);
-}
-
-async function readPrivateSingle(opts: {
-  agent: string;
-  cohort: string;
-  language: Language;
-  privateRoot: string;
-}): Promise<{ text: string; path: string } | { text: null; triedPaths: string[] }> {
-  const cohorts =
-    opts.cohort === "cohort_default" ? [opts.cohort] : [opts.cohort, "cohort_default"];
-  const triedPaths: string[] = [];
-  for (const cohort of cohorts) {
-    const path = promptPath({
-      agent: opts.agent,
-      cohort,
-      language: opts.language,
-      promptsRoot: opts.privateRoot,
-    });
-    triedPaths.push(path);
-    try {
-      return { text: await readFile(path, { encoding: "utf-8" }), path };
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "ENOENT" && code !== "ENOTDIR") {
-        return { text: null, triedPaths: [`${path} (${(error as Error).message})`] };
-      }
-    }
-  }
-  return { text: null, triedPaths };
-}
-
-function assertNoEmbeddedPrivateKnotContent(prompt: string, language: "zh" | "en"): void {
-  if (containsPrivateKnotPromptContent(prompt)) {
-    throw new Error(`private_knot_content_embedded_in_${language}_prompt`);
-  }
 }

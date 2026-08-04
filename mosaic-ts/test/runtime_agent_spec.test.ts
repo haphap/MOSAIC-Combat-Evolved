@@ -18,21 +18,8 @@ describe("stage-aware runtime agent manifest", () => {
 
     expect(artifact.runtime_agent_count).toBe(28);
     expect(artifact.runtime_stage_count).toBe(29);
-    expect(artifact.default_cohort).toBe("cohort_default");
-    expect(artifact.private_knot_cohort_enablement.map((row) => row.cohort)).toEqual([
-      "cohort_bull_2007",
-      "cohort_bull_2016",
-      "cohort_crisis_2008",
-      "cohort_crisis_covid",
-      "cohort_default",
-      "cohort_euphoria_2021",
-      "cohort_rate_tightening",
-      "cohort_recovery_2020",
-    ]);
-    for (const cohort of artifact.private_knot_cohort_enablement) {
-      expect(cohort.enabled_agent_stages).toHaveLength(29);
-      expect(cohort.bundled_fallback_agent_stages).toEqual([]);
-    }
+    expect(artifact).not.toHaveProperty("private_knot_cohort_enablement");
+    expect(artifact).not.toHaveProperty("knot_runtime_contract_ref");
     expect(artifact.canonical_l4_sequence).toEqual(CANONICAL_L4_STAGE_SEQUENCE);
     expect(validateRuntimeAgentManifestArtifact(artifact)).toEqual([]);
     expect(
@@ -132,7 +119,7 @@ describe("stage-aware runtime agent manifest", () => {
     const artifact = buildRuntimeAgentManifestArtifact();
     const committed = JSON.parse(
       readFileSync(
-        join(process.cwd(), "..", "registry", "prompt_checks", "runtime_agent_manifest_v4.json"),
+        join(process.cwd(), "..", "registry", "prompt_checks", "runtime_agent_manifest_v5.json"),
         "utf-8",
       ),
     );

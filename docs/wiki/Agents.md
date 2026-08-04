@@ -4,7 +4,7 @@ MOSAIC runs 28 logical Agents across four layers and 29 accepted-or-skipped
 execution stages. CIO has proposal and final stages; every other logical Agent
 has one stage. The canonical roster is `AGENTS_BY_LAYER`, and the committed
 runtime contract is
-`registry/prompt_checks/runtime_agent_manifest_v4.json`.
+`registry/prompt_checks/runtime_agent_manifest_v5.json`.
 
 ## Layer 1 — Macro (10)
 
@@ -51,7 +51,7 @@ Each role has a private snapshot tool and a dedicated outcome contract. CIO
 proposal freezes the candidate target and pre-CIO lineage. CRO may only review
 that proposal; Execution may only assess the CRO-adjusted order intents; CIO
 final may not add a new candidate or replace the proposal snapshot. Decision
-Agents are evaluated for KNOT evolution but never expose a downstream Darwinian
+Agents are evaluated for Prompt evolution but never expose a downstream Darwinian
 usage weight.
 
 MiroFish remains simulation-only. RKE report context remains `RKE_SHADOW` only
@@ -68,5 +68,5 @@ fake/offline prompts; public code cannot render the seven private cohort lenses.
 
 The execution-behavior release manifest atomically binds all prompt hashes,
 structured-output phases, tool policy, provider/model behavior, 16 active
-production rosters, and KNOT baselines. Prompt text does not expose research
-knobs, Darwinian ranks, label formulas, or KNOT thresholds.
+production rosters, and Prompt execution baselines. Prompt text does not expose
+mutator policy, Darwinian ranks, label formulas, or promotion thresholds.
