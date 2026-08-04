@@ -18,6 +18,49 @@
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
     },
+    "private_prompt_bootstrap": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "private_prompt_parameter_bootstrap_release_v1"
+        },
+        "release_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "parameter_contract_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "behavior_contract_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "state_tree_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "prompt_tree_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "state_count": {
+          "type": "number",
+          "const": 224
+        }
+      },
+      "required": [
+        "schema_version",
+        "release_hash",
+        "parameter_contract_hash",
+        "behavior_contract_hash",
+        "state_tree_hash",
+        "prompt_tree_hash",
+        "state_count"
+      ],
+      "additionalProperties": false
+    },
     "provider_binding": {
       "type": "object",
       "properties": {
@@ -207,6 +250,7 @@
     "execution_behavior_release_id",
     "execution_behavior_release_hash",
     "private_prompt_commit",
+    "private_prompt_bootstrap",
     "provider_binding",
     "active_production_variants",
     "variants"

@@ -40,6 +40,8 @@ import {
 } from "../agents/prompts/cohorts.js";
 import { containsPrivateKnotPromptContent } from "../agents/prompts/private_knot_prompt_markers.js";
 import {
+  listVerifiedPromptRepositoryFiles,
+  readVerifiedPromptRepositoryFile,
   readVerifiedPromptSourceFile,
   type VerifiedPromptSourceCommit,
   verifyPromptSourceCommit,
@@ -91,6 +93,18 @@ export type StructuredOutputSchemaPhase = (typeof STRUCTURED_OUTPUT_SCHEMA_PHASE
 const Sha256Schema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const VersionHashSchema = z.string().regex(/^(?:prompt-behavior|execution-behavior):[0-9a-f]{64}$/);
 
+const PrivatePromptBootstrapSchema = z
+  .object({
+    schema_version: z.literal("private_prompt_parameter_bootstrap_release_v1"),
+    release_hash: Sha256Schema,
+    parameter_contract_hash: Sha256Schema,
+    behavior_contract_hash: Sha256Schema,
+    state_tree_hash: Sha256Schema,
+    prompt_tree_hash: Sha256Schema,
+    state_count: z.literal(224),
+  })
+  .strict();
+
 export const StructuredOutputSchemaBindingSchema = z
   .object({
     phase: z.enum(STRUCTURED_OUTPUT_SCHEMA_PHASES),
@@ -136,6 +150,7 @@ export const ExecutionBehaviorReleaseManifestSchema = z
     execution_behavior_release_id: z.string().regex(/^execution-behavior-release:[0-9a-f]{64}$/),
     execution_behavior_release_hash: Sha256Schema,
     private_prompt_commit: z.string().regex(/^[0-9a-f]{40}$/),
+    private_prompt_bootstrap: PrivatePromptBootstrapSchema,
     provider_binding: z
       .object({
         provider: z.string().trim().min(1),
@@ -149,6 +164,10 @@ export const ExecutionBehaviorReleaseManifestSchema = z
     variants: z.array(ExecutionBehaviorReleaseVariantSchema).length(448),
   })
   .strict();
+
+const LegacyExecutionBehaviorReleaseManifestSchema = ExecutionBehaviorReleaseManifestSchema.omit({
+  private_prompt_bootstrap: true,
+});
 
 export type ExecutionBehaviorReleaseManifest = z.infer<
   typeof ExecutionBehaviorReleaseManifestSchema
@@ -239,9 +258,11 @@ export function buildExecutionBehaviorReleaseManifest(
   const sortedProductionVariants = activeProductionVariants.sort((left, right) =>
     `${left.cohort_id}:${left.language}`.localeCompare(`${right.cohort_id}:${right.language}`),
   );
+  const privatePromptBootstrap = verifyPrivatePromptBootstrap(privatePromptSource, sortedVariants);
   const releaseContent = {
     schema_version: EXECUTION_BEHAVIOR_RELEASE_SCHEMA_VERSION,
     private_prompt_commit: privatePromptCommit,
+    private_prompt_bootstrap: privatePromptBootstrap,
     provider_binding: providerBinding,
     active_production_variants: sortedProductionVariants,
     variants: sortedVariants,
@@ -251,6 +272,7 @@ export function buildExecutionBehaviorReleaseManifest(
     schema_version: releaseContent.schema_version,
     execution_behavior_release_id: releaseId,
     private_prompt_commit: releaseContent.private_prompt_commit,
+    private_prompt_bootstrap: releaseContent.private_prompt_bootstrap,
     provider_binding: releaseContent.provider_binding,
     active_production_variants: releaseContent.active_production_variants,
     variants: releaseContent.variants,
@@ -373,6 +395,7 @@ export function validateExecutionBehaviorReleaseArtifactIntegrity(
     schema_version: manifest.schema_version,
     execution_behavior_release_id: manifest.execution_behavior_release_id,
     private_prompt_commit: manifest.private_prompt_commit,
+    private_prompt_bootstrap: manifest.private_prompt_bootstrap,
     provider_binding: manifest.provider_binding,
     active_production_variants: manifest.active_production_variants,
     variants: manifest.variants,
@@ -383,6 +406,7 @@ export function validateExecutionBehaviorReleaseArtifactIntegrity(
   const releaseContent = {
     schema_version: manifest.schema_version,
     private_prompt_commit: manifest.private_prompt_commit,
+    private_prompt_bootstrap: manifest.private_prompt_bootstrap,
     provider_binding: manifest.provider_binding,
     active_production_variants: manifest.active_production_variants,
     variants: manifest.variants,
@@ -430,7 +454,7 @@ export function loadExecutionBehaviorReleaseManifest(
 }
 
 export function executionBehaviorReleaseArchiveFilename(value: unknown): string {
-  const manifest = validateExecutionBehaviorReleaseArtifactIntegrity(value);
+  const manifest = validateArchivableExecutionBehaviorReleaseArtifact(value);
   return `${manifest.execution_behavior_release_id.replace(
     /^execution-behavior-release:/,
     "",
@@ -468,18 +492,18 @@ export function writeExecutionBehaviorReleaseArtifacts(
   return { activeManifestPath, archivePath };
 }
 
-function parseExecutionBehaviorReleaseArtifact(path: string): ExecutionBehaviorReleaseManifest {
+function parseExecutionBehaviorReleaseArtifact(path: string): unknown {
   let payload: unknown;
   try {
     payload = JSON.parse(readFileSync(path, "utf8"));
   } catch (cause) {
     throw new Error(`cannot load execution behavior release artifact ${path}`, { cause });
   }
-  return validateExecutionBehaviorReleaseArtifactIntegrity(payload);
+  return validateArchivableExecutionBehaviorReleaseArtifact(payload);
 }
 
 function archiveExecutionBehaviorRelease(value: unknown, archiveRoot: string): string {
-  const manifest = validateExecutionBehaviorReleaseArtifactIntegrity(value);
+  const manifest = validateArchivableExecutionBehaviorReleaseArtifact(value);
   const rendered = `${JSON.stringify(manifest, null, 2)}\n`;
   const archivePath = resolve(archiveRoot, executionBehaviorReleaseArchiveFilename(manifest));
   if (existsSync(archivePath)) {
@@ -490,6 +514,39 @@ function archiveExecutionBehaviorRelease(value: unknown, archiveRoot: string): s
   }
   writeFileSync(archivePath, rendered, { flag: "wx" });
   return archivePath;
+}
+
+function validateArchivableExecutionBehaviorReleaseArtifact(
+  value: unknown,
+): ExecutionBehaviorReleaseManifest | z.infer<typeof LegacyExecutionBehaviorReleaseManifestSchema> {
+  const current = ExecutionBehaviorReleaseManifestSchema.safeParse(value);
+  if (current.success) return validateExecutionBehaviorReleaseArtifactIntegrity(current.data);
+  const legacy = LegacyExecutionBehaviorReleaseManifestSchema.parse(value);
+  const withoutHash = {
+    schema_version: legacy.schema_version,
+    execution_behavior_release_id: legacy.execution_behavior_release_id,
+    private_prompt_commit: legacy.private_prompt_commit,
+    provider_binding: legacy.provider_binding,
+    active_production_variants: legacy.active_production_variants,
+    variants: legacy.variants,
+  };
+  if (legacy.execution_behavior_release_hash !== canonicalHash(withoutHash)) {
+    throw new Error("legacy execution behavior release hash mismatch");
+  }
+  const releaseContent = {
+    schema_version: legacy.schema_version,
+    private_prompt_commit: legacy.private_prompt_commit,
+    provider_binding: legacy.provider_binding,
+    active_production_variants: legacy.active_production_variants,
+    variants: legacy.variants,
+  };
+  if (
+    legacy.execution_behavior_release_id !==
+    deterministicId("execution-behavior-release", releaseContent)
+  ) {
+    throw new Error("legacy execution behavior release id mismatch");
+  }
+  return legacy;
 }
 
 function buildVariant(
@@ -580,6 +637,78 @@ function buildVariant(
     ...base,
     prompt_execution_baseline_hash: promptExecutionBaselineHash(base),
   });
+}
+
+function verifyPrivatePromptBootstrap(
+  source: VerifiedPromptSourceCommit,
+  variants: ReadonlyArray<ExecutionBehaviorReleaseVariant>,
+): z.infer<typeof PrivatePromptBootstrapSchema> {
+  const raw = JSON.parse(
+    readVerifiedPromptRepositoryFile(
+      source,
+      "registry/knot/prompt_parameter_bootstrap_release_v1.json",
+    ),
+  ) as unknown;
+  const FullBootstrapSchema = PrivatePromptBootstrapSchema.extend({
+    agent_count: z.literal(28),
+    cohort_count: z.literal(8),
+    prompt_count: z.literal(448),
+  }).strict();
+  const parsed = FullBootstrapSchema.parse(raw);
+  const { release_hash: _releaseHash, ...body } = parsed;
+  if (parsed.release_hash !== canonicalHash(body)) {
+    throw new Error("private prompt bootstrap release hash mismatch");
+  }
+  const promptTreeHash = canonicalHash({
+    files: variants
+      .map((variant) => ({
+        ref: `prompts/mosaic/${variant.variant_path}`,
+        content_hash: variant.prompt_content_hash,
+      }))
+      .sort((left, right) => left.ref.localeCompare(right.ref)),
+  });
+  if (parsed.prompt_tree_hash !== promptTreeHash) {
+    throw new Error("private prompt bootstrap Prompt tree mismatch");
+  }
+  const expectedStateRefs = MACRO_PROMPT_COHORT_IDS.flatMap((cohort) =>
+    ALL_AGENTS.map(
+      (agent) =>
+        `registry/prompt_parameter_states_v1/${cohort}/${promptParameterStage(agent)}/${agent}.json`,
+    ),
+  ).sort();
+  const actualStateRefs = listVerifiedPromptRepositoryFiles(
+    source,
+    "registry/prompt_parameter_states_v1",
+  );
+  if (canonicalJson(actualStateRefs) !== canonicalJson(expectedStateRefs)) {
+    throw new Error("private prompt bootstrap state roster mismatch");
+  }
+  const stateTreeHash = canonicalHash({
+    files: actualStateRefs.map((ref) => ({
+      ref,
+      content_hash: canonicalTextHash(readVerifiedPromptRepositoryFile(source, ref)),
+    })),
+  });
+  if (parsed.state_tree_hash !== stateTreeHash) {
+    throw new Error("private prompt bootstrap state tree mismatch");
+  }
+  return PrivatePromptBootstrapSchema.parse({
+    schema_version: parsed.schema_version,
+    release_hash: parsed.release_hash,
+    parameter_contract_hash: parsed.parameter_contract_hash,
+    behavior_contract_hash: parsed.behavior_contract_hash,
+    state_tree_hash: parsed.state_tree_hash,
+    prompt_tree_hash: parsed.prompt_tree_hash,
+    state_count: parsed.state_count,
+  });
+}
+
+function promptParameterStage(agent: string): string {
+  if (agent === "alpha_discovery") return "alpha_discovery";
+  if (agent === "autonomous_execution") return "execution_feasibility";
+  if (agent === "cio") return "cio_final";
+  if (agent === "cro") return "cro_review";
+  return "agent_run";
 }
 
 function expectedPrompt(agent: string, language: Language): string {

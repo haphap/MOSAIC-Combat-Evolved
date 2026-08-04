@@ -98,6 +98,15 @@ function release(model = "fake-model"): ExecutionBehaviorReleaseManifest {
     execution_behavior_release_id: releaseId,
     execution_behavior_release_hash: canonicalHash({ releaseId }),
     private_prompt_commit: revision,
+    private_prompt_bootstrap: {
+      schema_version: "private_prompt_parameter_bootstrap_release_v1",
+      release_hash: `sha256:${"3".repeat(64)}`,
+      parameter_contract_hash: `sha256:${"4".repeat(64)}`,
+      behavior_contract_hash: `sha256:${"5".repeat(64)}`,
+      state_tree_hash: `sha256:${"6".repeat(64)}`,
+      prompt_tree_hash: `sha256:${"7".repeat(64)}`,
+      state_count: 224,
+    },
     provider_binding: {
       provider: "fake",
       model,

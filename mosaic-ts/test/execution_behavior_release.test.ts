@@ -1,8 +1,10 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
 import {
   MACRO_AGENT_IDS,
   MACRO_PROMPT_COHORT_IDS,
@@ -181,6 +183,27 @@ describe("execution behavior release", () => {
         baseUrlMode: "PROVIDER_DEFAULT",
       }),
     ).toThrow("prompt_source_tree_drift:private");
+  });
+
+  it("rejects a pinned private commit with an incomplete champion-state roster", () => {
+    const fixture = promptFixture();
+    const missing = join(
+      fixture.privateRepoRoot,
+      "registry/prompt_parameter_states_v1/cohort_default/agent_run/china.json",
+    );
+    rmSync(missing);
+    git(fixture.privateRepoRoot, "add", "-A");
+    git(fixture.privateRepoRoot, "commit", "-m", "remove one champion state");
+    fixture.privatePromptCommit = git(fixture.privateRepoRoot, "rev-parse", "HEAD");
+
+    expect(() =>
+      buildExecutionBehaviorReleaseManifest({
+        ...fixture,
+        provider: "anthropic",
+        model: "claude-sonnet-4",
+        baseUrlMode: "PROVIDER_DEFAULT",
+      }),
+    ).toThrow(/state roster mismatch/);
   });
 
   it("rejects prompt drift and manifest hash tampering", () => {
@@ -399,9 +422,61 @@ function commitPrivatePrompts(
   fixture: Pick<PromptFixture, "privateRepoRoot" | "privatePromptsRoot">,
   message: string,
 ): string {
-  git(fixture.privateRepoRoot, "add", "prompts/mosaic");
+  writeBootstrapFixture(fixture.privateRepoRoot, fixture.privatePromptsRoot);
+  git(fixture.privateRepoRoot, "add", "prompts/mosaic", "registry");
   git(fixture.privateRepoRoot, "commit", "-m", message);
   return git(fixture.privateRepoRoot, "rev-parse", "HEAD");
+}
+
+function writeBootstrapFixture(privateRepoRoot: string, privatePromptsRoot: string): void {
+  const stateFiles = MACRO_PROMPT_COHORT_IDS.flatMap((cohort) =>
+    ALL_AGENTS.map((agent) => {
+      const ref = `registry/prompt_parameter_states_v1/${cohort}/${parameterStage(agent)}/${agent}.json`;
+      const content = `${JSON.stringify({ agent, cohort, stage: parameterStage(agent) })}\n`;
+      const path = join(privateRepoRoot, ref);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, content);
+      return { ref, content_hash: textHash(content) };
+    }),
+  ).sort((left, right) => left.ref.localeCompare(right.ref));
+  const promptFiles = MACRO_PROMPT_COHORT_IDS.flatMap((cohort) =>
+    ALL_AGENTS.flatMap((agent) =>
+      (["en", "zh"] as const).map((language) => {
+        const path = promptPath({ agent, cohort, language, promptsRoot: privatePromptsRoot });
+        const ref = relative(privateRepoRoot, path).replaceAll("\\", "/");
+        return { ref, content_hash: textHash(readFileSync(path, "utf8")) };
+      }),
+    ),
+  ).sort((left, right) => left.ref.localeCompare(right.ref));
+  const body = {
+    schema_version: "private_prompt_parameter_bootstrap_release_v1" as const,
+    parameter_contract_hash: `sha256:${"1".repeat(64)}`,
+    behavior_contract_hash: `sha256:${"2".repeat(64)}`,
+    agent_count: 28 as const,
+    cohort_count: 8 as const,
+    state_count: 224 as const,
+    prompt_count: 448 as const,
+    state_tree_hash: canonicalJsonHash({ files: stateFiles }),
+    prompt_tree_hash: canonicalJsonHash({ files: promptFiles }),
+  };
+  const path = join(privateRepoRoot, "registry/knot/prompt_parameter_bootstrap_release_v1.json");
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(
+    path,
+    `${JSON.stringify({ ...body, release_hash: canonicalJsonHash(body) }, null, 2)}\n`,
+  );
+}
+
+function parameterStage(agent: string): string {
+  if (agent === "alpha_discovery") return "alpha_discovery";
+  if (agent === "autonomous_execution") return "execution_feasibility";
+  if (agent === "cio") return "cio_final";
+  if (agent === "cro") return "cro_review";
+  return "agent_run";
+}
+
+function textHash(value: string): string {
+  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
 
 function git(cwd: string, ...args: string[]): string {

@@ -90,6 +90,61 @@ export function readVerifiedPromptSourceFile(
   }
 }
 
+/** Read an opaque repository artifact from the same verified Git object. */
+export function readVerifiedPromptRepositoryFile(
+  verified: VerifiedPromptSourceCommit,
+  repositoryPath: string,
+): string {
+  const normalized = confinedRepositoryPath(repositoryPath, verified.source);
+  try {
+    return execFileSync(
+      "git",
+      ["-C", verified.repositoryRoot, "show", `${verified.commit}:${normalized}`],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+  } catch {
+    throw new Error(`prompt_source_repository_file_missing_at_commit:${verified.source}`);
+  }
+}
+
+/** List opaque repository artifacts without checking out or logging their contents. */
+export function listVerifiedPromptRepositoryFiles(
+  verified: VerifiedPromptSourceCommit,
+  repositoryPrefix: string,
+): string[] {
+  const prefix = confinedRepositoryPath(repositoryPrefix, verified.source).replace(/\/$/u, "");
+  const output = gitText(verified.repositoryRoot, verified.source, [
+    "ls-tree",
+    "-r",
+    "--name-only",
+    verified.commit,
+    "--",
+    prefix,
+  ]);
+  return output
+    .split("\n")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .sort();
+}
+
+function confinedRepositoryPath(
+  path: string,
+  source: PromptSourceProvenanceInput["source"],
+): string {
+  const normalized = path.trim().replaceAll("\\", "/");
+  if (
+    !normalized ||
+    normalized.startsWith("/") ||
+    normalized === ".." ||
+    normalized.startsWith("../") ||
+    normalized.includes("/../")
+  ) {
+    throw new Error(`prompt_source_repository_path_invalid:${source}`);
+  }
+  return normalized;
+}
+
 function gitText(
   cwd: string,
   source: PromptSourceProvenanceInput["source"],
