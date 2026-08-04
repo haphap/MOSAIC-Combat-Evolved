@@ -208,6 +208,10 @@
             "en"
           ],
           "additionalProperties": false
+        },
+        "private_state_artifact_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
         }
       },
       "required": [
@@ -219,7 +223,8 @@
         "mutated_agent",
         "policy_version",
         "policy_config_hash",
-        "candidate_prompt_hashes"
+        "candidate_prompt_hashes",
+        "private_state_artifact_hash"
       ],
       "additionalProperties": false
     },

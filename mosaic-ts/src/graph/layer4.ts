@@ -28,6 +28,7 @@ import { buildAlphaDiscoveryNode } from "../agents/decision/alpha_discovery.js";
 import { buildAutonomousExecutionNode } from "../agents/decision/autonomous_execution.js";
 import { buildCioNode, buildCioProposalNode } from "../agents/decision/cio.js";
 import { buildCroNode } from "../agents/decision/cro.js";
+import { ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE } from "../agents/decision/deterministic_policy.js";
 import {
   buildPortfolioSummary,
   freezeCioProposal,
@@ -442,12 +443,13 @@ function withDecisionOutcomeStageSkip(
             currentRuntime.candidate_target_state,
             currentRuntime.cro_review_state,
             output,
+            ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
             currentRuntime.resolved_source_statuses,
             state.as_of_date || "live",
           );
           return {
             layer4_outputs: {
-              autonomous_execution: output,
+              autonomous_execution: feasibility.output,
               runtime: updateLayer4Runtime(
                 currentRuntime,
                 { execution_feasibility_state: feasibility },
@@ -513,6 +515,7 @@ function withDecisionOutcomeStageSkip(
       currentRuntime.candidate_target_state,
       currentRuntime.cro_review_state,
       stageSkip,
+      ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
     );
     return {
       layer4_outputs: {
@@ -700,11 +703,13 @@ export function validateFinalTargetNode(state: DailyCycleStateType): DailyCycleS
   const runtime = runtimeStateForLayer4(state);
   const validatorHash = stableRuntimeHash({
     validator: "validateCioPositionActions.v1",
-    risk_policy: "fixed_public_risk_contract_v1",
+    deterministic_policy_release_id: ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE.policy_release_id,
+    deterministic_policy_release_hash: ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE.release_hash,
   });
   const validated = validateCioPositionActions({
     output,
     currentPositions: state.current_positions,
+    policy: ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
   });
   const preflightState: DailyCycleStateType = {
     ...state,

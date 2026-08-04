@@ -47,6 +47,8 @@ export const PromptOptimizerShadowPlanSchema = z
       .object({
         modelConfigHash: PromptOptimizerSha256Schema,
         toolConfigHash: PromptOptimizerSha256Schema,
+        componentCalibrationSnapshotHash: PromptOptimizerSha256Schema,
+        darwinianUsageSnapshotHash: PromptOptimizerSha256Schema,
         evaluatorVersion: z.string().trim().min(1),
         evaluatorConfigHash: PromptOptimizerSha256Schema,
         codeCommit: PromptOptimizerGitCommitSchema,

@@ -185,6 +185,7 @@ export const ActivePromptReleaseManifestSchema = z
         policy_version: z.string().min(1),
         policy_config_hash: Sha256Schema,
         candidate_prompt_hashes: z.object({ zh: Sha256Schema, en: Sha256Schema }).strict(),
+        private_state_artifact_hash: Sha256Schema,
       })
       .strict(),
     activation_scope: z

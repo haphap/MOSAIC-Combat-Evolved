@@ -147,6 +147,32 @@ async function promptTextAtCommit(repo: string, commit: string, path: string): P
   return (await runGit(repo, ["show", `${commit}:${path}`])).toString("utf-8");
 }
 
+function privateCandidateStateRef(candidate: PromptCandidate): string {
+  return (
+    `registry/prompt_parameter_states_v1/${candidate.target.cohort}/` +
+    `${candidate.target.stage}/${candidate.target.agentId}.json`
+  );
+}
+
+async function assertPrivateCandidateStateArtifact(input: {
+  repo: string;
+  commit: string;
+  candidate: PromptCandidate;
+}): Promise<void> {
+  const ref = privateCandidateStateRef(input.candidate);
+  let artifact: unknown;
+  try {
+    artifact = JSON.parse(
+      (await runGit(input.repo, ["show", `${input.commit}:${ref}`])).toString("utf-8"),
+    );
+  } catch {
+    throw new Error("prompt_release_private_state_artifact_missing");
+  }
+  if (canonicalJsonHash(artifact) !== input.candidate.privateStateArtifactHash) {
+    throw new Error("prompt_release_private_state_artifact_mismatch");
+  }
+}
+
 async function assertCandidateCommitScope(input: {
   repo: string;
   commit: string;
@@ -162,6 +188,7 @@ async function assertCandidateCommitScope(input: {
   }
   const recordRef = `registry/prompt_candidates_v2/${input.candidate.candidateId}.json`;
   const privateLineageRef = `registry/prompt_candidate_private_v1/${input.candidate.candidateId}.json`;
+  const privateStateRef = privateCandidateStateRef(input.candidate);
   const changed = (
     await runGit(input.repo, ["diff-tree", "--no-commit-id", "--name-only", "-r", input.commit])
   )
@@ -175,6 +202,7 @@ async function assertCandidateCommitScope(input: {
     input.candidate.promptRefs.en,
     recordRef,
     privateLineageRef,
+    privateStateRef,
   ].sort();
   if (JSON.stringify(changed) !== JSON.stringify(expected)) {
     throw new Error("prompt_release_candidate_commit_scope_invalid");
@@ -314,6 +342,11 @@ export async function stagePromptRelease(
     commit: promptCommit,
     candidate,
   });
+  await assertPrivateCandidateStateArtifact({
+    repo: opts.privatePromptRepo,
+    commit: promptCommit,
+    candidate,
+  });
   const registry = new ActivePromptReleaseRegistry(opts.registryRoot);
   const pointer = await registry.pointer();
   const base = pointer.current_release_id ? await registry.load(pointer.current_release_id) : null;
@@ -384,6 +417,7 @@ export async function stagePromptRelease(
     policy_version: decision.policyVersion,
     policy_config_hash: decision.policyConfigHash,
     candidate_prompt_hashes: candidate.promptHashes,
+    private_state_artifact_hash: candidate.privateStateArtifactHash,
   };
   const manifest: ActivePromptReleaseManifest = {
     schema_version: "active_prompt_release_manifest_v2",

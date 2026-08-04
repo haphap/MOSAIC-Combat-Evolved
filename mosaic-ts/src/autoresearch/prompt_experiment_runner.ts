@@ -80,6 +80,8 @@ export class BridgePromptExperimentRepository implements PromptExperimentReposit
 export interface FrozenPromptExperimentEnvironment {
   modelConfigHash: string;
   toolConfigHash: string;
+  componentCalibrationSnapshotHash: string;
+  darwinianUsageSnapshotHash: string;
   evaluatorVersion: string;
   evaluatorConfigHash: string;
   codeCommit: string;
@@ -96,6 +98,7 @@ export interface PromptExperimentAgentExecutor {
     partition: "VALIDATION" | "HOLDOUT";
     sample: PromptDatasetSampleRef;
     seed: number;
+    environment: Readonly<FrozenPromptExperimentEnvironment>;
     promptRefs: PromptRefPair;
     promptHashes: { zh: string; en: string };
   }): Promise<{
@@ -110,6 +113,7 @@ export interface PromptExperimentEvaluator {
   evaluate(input: {
     target: PromptOptimizerTarget;
     sample: PromptDatasetSampleRef;
+    environment: Readonly<FrozenPromptExperimentEnvironment>;
     acceptedOutputRef: string;
   }): Promise<{
     normalizedScore: number;
@@ -140,6 +144,8 @@ function assertEnvironment(
   for (const key of [
     "modelConfigHash",
     "toolConfigHash",
+    "componentCalibrationSnapshotHash",
+    "darwinianUsageSnapshotHash",
     "evaluatorVersion",
     "evaluatorConfigHash",
     "codeCommit",
@@ -222,6 +228,8 @@ function assertPersistedExperimentMatches(
     "holdoutSnapshotHash",
     "modelConfigHash",
     "toolConfigHash",
+    "componentCalibrationSnapshotHash",
+    "darwinianUsageSnapshotHash",
     "evaluatorVersion",
     "evaluatorConfigHash",
     "codeCommit",
@@ -313,6 +321,7 @@ async function executeRun(input: {
   sample: PromptDatasetSampleRef;
   target: PromptOptimizerTarget;
   binding: PromptExecutionBinding;
+  environment: FrozenPromptExperimentEnvironment;
   repository: PromptExperimentRepository;
   executor: PromptExperimentAgentExecutor;
   evaluator: PromptExperimentEvaluator;
@@ -343,12 +352,14 @@ async function executeRun(input: {
       partition: definition.partition,
       sample: input.sample,
       seed: definition.seed,
+      environment: input.environment,
       promptRefs: prompt.promptRefs,
       promptHashes: prompt.promptHashes,
     });
     const evaluation = await input.evaluator.evaluate({
       target: input.target,
       sample: input.sample,
+      environment: input.environment,
       acceptedOutputRef: execution.acceptedOutputRef,
     });
     await input.repository.putRun(
@@ -547,6 +558,7 @@ export async function runPromptExperimentPartition(
       sample: task.sample,
       target: experiment.target,
       binding: input.promptBinding,
+      environment: input.environment,
       repository: input.repository,
       executor: input.executor,
       evaluator: input.evaluator,

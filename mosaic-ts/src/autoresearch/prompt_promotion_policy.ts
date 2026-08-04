@@ -23,8 +23,8 @@ const Probability = z.number().finite().positive().max(0.5);
 export const PromptPromotionPolicySchema = z
   .object({
     policyVersion: NonEmptyId,
-    minimumMatureSamples: z.number().int().positive(),
-    minimumRepeatSeeds: z.number().int().positive(),
+    minimumMatureSamples: z.number().int().min(30),
+    minimumRepeatSeeds: z.number().int().min(2),
     minimumPairedDelta: z.number().finite(),
     familyAlpha: Probability,
     bootstrapSamples: z.number().int().min(99),

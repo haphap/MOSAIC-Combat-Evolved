@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
 import type { ActivePromptReleaseManifest } from "../src/agents/prompts/prompt_release_contract.js";
 import type { RuntimeAgentSpec } from "../src/agents/prompts/runtime_agent_spec.js";
 import {
@@ -113,12 +114,22 @@ function commitCandidate(
     repo.root,
     `registry/prompt_candidate_private_v1/${value.candidateId}.json`,
   );
+  const privateState = join(
+    repo.root,
+    `registry/prompt_parameter_states_v1/${value.target.cohort}/${value.target.stage}/${value.target.agentId}.json`,
+  );
   mkdirSync(dirname(record), { recursive: true });
   mkdirSync(dirname(privateLineage), { recursive: true });
+  mkdirSync(dirname(privateState), { recursive: true });
   writeFileSync(record, `${JSON.stringify(value, null, 2)}\n`, "utf8");
   writeFileSync(
     privateLineage,
     `${JSON.stringify({ schemaVersion: "private_prompt_candidate_facet_lineage_v1" })}\n`,
+    "utf8",
+  );
+  writeFileSync(
+    privateState,
+    `${JSON.stringify(privateStateArtifact(value.candidateId), null, 2)}\n`,
     "utf8",
   );
   execFileSync("git", ["-C", repo.root, "add", "."]);
@@ -136,6 +147,19 @@ function commitCandidate(
   return execFileSync("git", ["-C", repo.root, "rev-parse", "HEAD"], {
     encoding: "utf8",
   }).trim();
+}
+
+function privateStateArtifact(candidateId: string) {
+  return { schemaVersion: "opaque_private_state_test_v1", candidateId };
+}
+
+function privateStateAtCommit(repo: string, commit: string, value: PromptCandidate): unknown {
+  const ref =
+    `registry/prompt_parameter_states_v1/${value.target.cohort}/` +
+    `${value.target.stage}/${value.target.agentId}.json`;
+  return JSON.parse(
+    execFileSync("git", ["-C", repo, "show", `${commit}:${ref}`], { encoding: "utf8" }),
+  );
 }
 
 function sha256(value: string): string {
@@ -181,6 +205,7 @@ function candidate(input: {
     }),
     behaviorContractHash: HASH,
     privateLineageHash: HASH,
+    privateStateArtifactHash: canonicalJsonHash(privateStateArtifact(input.candidateId)),
     createdAt: "2026-07-10T00:00:00.000Z",
   };
 }
@@ -441,6 +466,24 @@ describe("prompt release manager", () => {
     expect(staged.bundled_fallback?.prompt_pairs).toHaveLength(1);
     expect(staged.release_evidence.candidate_id).toBe(promptCandidate.candidateId);
     expect(staged.release_evidence.promotion_decision_id).toBe("decision-1");
+    expect(staged.release_evidence.private_state_artifact_hash).toBe(
+      promptCandidate.privateStateArtifactHash,
+    );
+
+    delete process.env.MOSAIC_PROMPT_RELEASE_AUTHORIZED_OPERATORS;
+    await expect(
+      startPromptReleaseCanary({
+        registryRoot,
+        releaseId: "release-1",
+        approvedBy: "operator:test",
+        reason: "authorization is intentionally absent",
+        trafficPercent: 10,
+      }),
+    ).rejects.toThrow("prompt_release_operator_not_authorized");
+    const stagedRegistry = new ActivePromptReleaseRegistry(registryRoot);
+    expect((await stagedRegistry.load("release-1"))?.lifecycle_state).toBe("staged");
+    expect((await stagedRegistry.pointer()).current_release_id).toBe("baseline-1");
+    process.env.MOSAIC_PROMPT_RELEASE_AUTHORIZED_OPERATORS = "operator:test";
 
     const canaryOptions = {
       registryRoot,
@@ -508,9 +551,12 @@ describe("prompt release manager", () => {
     };
     await activatePromptRelease(activationOptions);
     await activatePromptRelease(activationOptions);
-    expect((await new ActivePromptReleaseRegistry(registryRoot).resolveActive())?.release_id).toBe(
-      "release-1",
-    );
+    const active = await new ActivePromptReleaseRegistry(registryRoot).resolveActive();
+    expect(active?.release_id).toBe("release-1");
+    expect(active?.prompt_commit).toBe(candidatePromptCommit);
+    expect(
+      privateStateAtCommit(privateRepo.root, active?.prompt_commit ?? "", promptCandidate),
+    ).toEqual(privateStateArtifact(promptCandidate.candidateId));
     expect((await canaryRegistry.canaryPointer()).current_release_id).toBeNull();
     const rollbackOptions = {
       registryRoot,
@@ -524,6 +570,11 @@ describe("prompt release manager", () => {
 
     const registry = new ActivePromptReleaseRegistry(registryRoot);
     expect((await registry.pointer()).current_release_id).toBe("baseline-1");
+    const restored = await registry.resolveActive();
+    expect(restored?.prompt_commit).toBe(baselinePromptCommit);
+    expect(
+      privateStateAtCommit(privateRepo.root, restored?.prompt_commit ?? "", baselineCandidate),
+    ).toEqual(privateStateArtifact(baselineCandidate.candidateId));
     const audit = readFileSync(join(registryRoot, "release-audit.jsonl"), "utf-8")
       .trim()
       .split("\n")

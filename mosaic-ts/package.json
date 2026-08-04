@@ -20,7 +20,8 @@
     "prompt:check": "cd .. && uv run python scripts/check_prompt_leaks.py",
     "prompt:drift": "cd .. && uv run python scripts/check_prompt_drift.py",
     "prompt:drift:scheduled": "cd .. && uv run python scripts/check_prompt_drift.py --state-file data/prompt-drift-state.json",
-    "generate:prompt-optimizer-schemas": "tsx scripts/generate_prompt_optimizer_schemas.ts"
+    "generate:prompt-optimizer-schemas": "tsx scripts/generate_prompt_optimizer_schemas.ts",
+    "generate:deterministic-decision-policy": "tsx scripts/generate_deterministic_decision_policy.ts"
   },
   "bin": {
     "mosaic": "./dist/cli/index.js"

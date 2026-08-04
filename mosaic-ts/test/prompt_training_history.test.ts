@@ -161,6 +161,7 @@ describe("Prompt training history transport", () => {
       behaviorAlignmentHash: HASH,
       behaviorContractHash: HASH,
       privateLineageHash: HASH,
+      privateStateArtifactHash: HASH,
       createdAt: request.createdAt,
     };
     expect(() => assertPrivateCandidateMatchesRequest(candidate, request)).not.toThrow();

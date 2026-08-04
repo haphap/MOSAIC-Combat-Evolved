@@ -211,6 +211,7 @@ export const PromptCandidateSchema = z
     behaviorAlignmentHash: PromptOptimizerSha256Schema,
     behaviorContractHash: PromptOptimizerSha256Schema,
     privateLineageHash: PromptOptimizerSha256Schema,
+    privateStateArtifactHash: PromptOptimizerSha256Schema,
     createdAt: IsoDateTimeSchema,
   })
   .strict()
@@ -487,6 +488,8 @@ export const PromptExperimentSchema = z
     holdoutSnapshotHash: PromptOptimizerSha256Schema,
     modelConfigHash: PromptOptimizerSha256Schema,
     toolConfigHash: PromptOptimizerSha256Schema,
+    componentCalibrationSnapshotHash: PromptOptimizerSha256Schema,
+    darwinianUsageSnapshotHash: PromptOptimizerSha256Schema,
     evaluatorVersion: NonEmptyIdSchema,
     evaluatorConfigHash: PromptOptimizerSha256Schema,
     codeCommit: PromptOptimizerGitCommitSchema,

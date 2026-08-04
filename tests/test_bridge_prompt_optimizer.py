@@ -56,6 +56,7 @@ def candidate() -> dict[str, object]:
         "behaviorAlignmentHash": alignment_hash,
         "behaviorContractHash": HASH_A,
         "privateLineageHash": HASH_A,
+        "privateStateArtifactHash": HASH_A,
         "createdAt": "2025-04-01T00:00:00Z",
     }
 

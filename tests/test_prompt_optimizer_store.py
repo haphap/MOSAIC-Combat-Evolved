@@ -52,6 +52,7 @@ def candidate() -> dict[str, object]:
         "behaviorAlignmentHash": canonical_hash(alignment),
         "behaviorContractHash": HASH_A,
         "privateLineageHash": HASH_A,
+        "privateStateArtifactHash": HASH_A,
         "createdAt": NOW,
     }
 
@@ -152,6 +153,8 @@ def experiment(status: str = "PENDING", run_ids: list[str] | None = None) -> dic
         "holdoutSnapshotHash": HASH_A,
         "modelConfigHash": HASH_A,
         "toolConfigHash": HASH_A,
+        "componentCalibrationSnapshotHash": HASH_B,
+        "darwinianUsageSnapshotHash": HASH_A,
         "evaluatorVersion": "agent-outcome-v2",
         "evaluatorConfigHash": HASH_B,
         "codeCommit": COMMIT,

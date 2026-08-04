@@ -7,6 +7,10 @@ import type {
   PositionReview,
 } from "../types.js";
 import { assertCioHoldCurrentTargetSet } from "./decision_semantics.js";
+import {
+  type DeterministicDecisionPolicyRelease,
+  validateDeterministicDecisionPolicyRelease,
+} from "./deterministic_policy.js";
 
 export interface PositionValidationResult {
   output: CioOutput;
@@ -18,24 +22,23 @@ export class PositionActionValidationError extends Error {
   override readonly name = "PositionActionValidationError";
 }
 
-const DEFAULT_MAX_SINGLE_NAME_WEIGHT = 0.12;
-const DEFAULT_MAX_SECTOR_WEIGHT = 0.3;
-
 export function validateCioPositionActions(opts: {
   output: CioOutput;
   currentPositions: CurrentPositionsSnapshot;
+  policy: DeterministicDecisionPolicyRelease;
 }): PositionValidationResult {
   const { output, currentPositions } = opts;
+  const policy = validateDeterministicDecisionPolicyRelease(opts.policy);
   if (currentPositions.snapshot_status === "missing" && output.portfolio_actions.length > 0) {
     throw new PositionActionValidationError(
       "current_positions snapshot is missing; CIO cannot emit portfolio_actions",
     );
   }
   assertUniqueActionTickers(output.portfolio_actions);
-  const stopLossPct = -0.08;
-  const maxSingleNameWeight = DEFAULT_MAX_SINGLE_NAME_WEIGHT;
-  const maxSectorWeight = DEFAULT_MAX_SECTOR_WEIGHT;
-  const staleThesisDays = 20;
+  const stopLossPct = policy.policies.cro.stop_loss_pct;
+  const maxSingleNameWeight = policy.policies.cro.max_single_name_weight;
+  const maxSectorWeight = policy.policies.cro.max_sector_weight;
+  const staleThesisDays = policy.policies.cio.stale_thesis_days;
   const actions = output.portfolio_actions.map((action) =>
     normalizeAction(action, currentPositions, staleThesisDays, stopLossPct),
   );
@@ -115,6 +118,7 @@ export function validateCioPositionActions(opts: {
       actions,
       stopLossPct,
       staleThesisDays,
+      policy,
     }),
   };
 }
@@ -385,6 +389,7 @@ function buildPositionAudit(opts: {
   actions: ReadonlyArray<PortfolioAction>;
   stopLossPct: number;
   staleThesisDays: number;
+  policy: DeterministicDecisionPolicyRelease;
 }): PositionAudit {
   const modelReviews = opts.reviews.filter(
     (review) => review.review_source !== "runtime_safety_fallback",
@@ -427,5 +432,7 @@ function buildPositionAudit(opts: {
     target_current_drift_count: opts.actions.filter(
       (action) => Math.abs(action.delta_weight ?? 0) > 0.01,
     ).length,
+    deterministic_policy_release_id: opts.policy.policy_release_id,
+    deterministic_policy_release_hash: opts.policy.release_hash,
   };
 }

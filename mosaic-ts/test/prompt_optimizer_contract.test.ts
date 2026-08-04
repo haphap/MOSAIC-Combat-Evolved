@@ -103,6 +103,7 @@ function candidate() {
     }),
     behaviorContractHash: HASH,
     privateLineageHash: HASH,
+    privateStateArtifactHash: HASH,
     createdAt: "2025-04-01T00:00:00Z",
   };
 }
@@ -136,6 +137,12 @@ describe("prompt optimizer public contracts", () => {
     expect(PromptCandidateSchema.parse(candidate())).toBeDefined();
     expect(() =>
       PromptCandidateSchema.parse({ ...candidate(), zh_prompt: "private body" }),
+    ).toThrow();
+    expect(() =>
+      PromptCandidateSchema.parse({
+        ...candidate(),
+        deterministic_policy: { "cro.stop_loss_pct": -0.2 },
+      }),
     ).toThrow();
     expect(() =>
       PromptCandidateSchema.parse({
@@ -183,6 +190,8 @@ describe("prompt optimizer public contracts", () => {
         holdoutSnapshotHash: HASH,
         modelConfigHash: HASH,
         toolConfigHash: HASH,
+        componentCalibrationSnapshotHash: HASH,
+        darwinianUsageSnapshotHash: OTHER_HASH,
         evaluatorVersion: "agent-outcome-v2",
         evaluatorConfigHash: HASH,
         codeCommit: COMMIT,

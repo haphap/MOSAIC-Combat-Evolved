@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "deterministic_decision_policy_release_v1"
+    },
+    "policy_release_id": {
+      "type": "string",
+      "pattern": "^decision-policy:[0-9a-f]{64}$"
+    },
+    "effective_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "owner_revisions": {
+      "type": "object",
+      "properties": {
+        "cro": {
+          "type": "string",
+          "const": "cro_risk_policy_v1"
+        },
+        "cio": {
+          "type": "string",
+          "const": "cio_portfolio_governance_policy_v1"
+        },
+        "autonomous_execution": {
+          "type": "string",
+          "const": "autonomous_execution_policy_v1"
+        }
+      },
+      "required": [
+        "cro",
+        "cio",
+        "autonomous_execution"
+      ],
+      "additionalProperties": false
+    },
+    "policies": {
+      "type": "object",
+      "properties": {
+        "cro": {
+          "type": "object",
+          "properties": {
+            "stop_loss_pct": {
+              "type": "number"
+            },
+            "max_single_name_weight": {
+              "type": "number"
+            },
+            "max_sector_weight": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "stop_loss_pct",
+            "max_single_name_weight",
+            "max_sector_weight"
+          ],
+          "additionalProperties": false
+        },
+        "cio": {
+          "type": "object",
+          "properties": {
+            "stale_thesis_days": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "stale_thesis_days"
+          ],
+          "additionalProperties": false
+        },
+        "autonomous_execution": {
+          "type": "object",
+          "properties": {
+            "min_delta_trade_weight": {
+              "type": "number"
+            },
+            "slippage_cap": {
+              "type": "number"
+            },
+            "liquidity_floor": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "min_delta_trade_weight",
+            "slippage_cap",
+            "liquidity_floor"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "cro",
+        "cio",
+        "autonomous_execution"
+      ],
+      "additionalProperties": false
+    },
+    "release_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "policy_release_id",
+    "effective_at",
+    "owner_revisions",
+    "policies",
+    "release_hash"
+  ],
+  "additionalProperties": false
+}

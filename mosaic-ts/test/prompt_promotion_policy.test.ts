@@ -28,15 +28,16 @@ if (!evaluatorVersion) throw new Error("missing china outcome fixture");
 
 function sample(sampleId: string, month: string) {
   const ordinal = Number(sampleId.match(/(\d+)$/)?.[1] ?? "1");
-  const startDay = String(ordinal * 2 + 1).padStart(2, "0");
-  const endDay = String(ordinal * 2 + 2).padStart(2, "0");
+  const day = String(Math.floor((ordinal - 1) / 12) + 1).padStart(2, "0");
+  const startHour = String(((ordinal - 1) % 12) * 2).padStart(2, "0");
+  const endHour = String(((ordinal - 1) % 12) * 2 + 1).padStart(2, "0");
   return {
     sampleId,
     inputRef: `snapshot://${sampleId}`,
     outcomeRef: `outcome://${sampleId}`,
     eventWindow: {
-      startAt: `2025-${month}-${startDay}T00:00:00Z`,
-      endAt: `2025-${month}-${endDay}T00:00:00Z`,
+      startAt: `2025-${month}-${day}T${startHour}:00:00Z`,
+      endAt: `2025-${month}-${day}T${endHour}:00:00Z`,
     },
     maturedAt: `2025-${month}-10T00:00:00Z`,
   };
@@ -50,8 +51,8 @@ function buildFixture(
     familySize?: number;
   } = {},
 ) {
-  const validationDeltas = options.validationDeltas ?? [0.2, 0.2, 0.2, 0.2];
-  const holdoutDeltas = options.holdoutDeltas ?? [0.2, 0.2, 0.2, 0.2];
+  const validationDeltas = options.validationDeltas ?? Array.from({ length: 30 }, () => 0.2);
+  const holdoutDeltas = options.holdoutDeltas ?? Array.from({ length: 30 }, () => 0.2);
   const split = DatasetSplitManifestSchema.parse({
     schemaVersion: "prompt_dataset_split_v1",
     splitId: "split-promotion",
@@ -142,6 +143,8 @@ function buildFixture(
     holdoutSnapshotHash: split.holdout.snapshotHash,
     modelConfigHash: HASH_A,
     toolConfigHash: HASH_A,
+    componentCalibrationSnapshotHash: HASH_B,
+    darwinianUsageSnapshotHash: HASH_A,
     evaluatorVersion,
     evaluatorConfigHash: HASH_B,
     codeCommit: COMMIT,
@@ -188,7 +191,7 @@ function buildFixture(
 function policy(overrides: Partial<PromptPromotionPolicy> = {}): PromptPromotionPolicy {
   return {
     policyVersion: "prompt-promotion-test-v1",
-    minimumMatureSamples: 4,
+    minimumMatureSamples: 30,
     minimumRepeatSeeds: 2,
     minimumPairedDelta: 0.05,
     familyAlpha: 0.05,
@@ -292,7 +295,7 @@ describe("Agent-specific Prompt promotion policy", () => {
   it("enforces minimum mature samples and repeated seeds on both partitions", () => {
     const decision = decide(
       buildFixture(),
-      policy({ minimumMatureSamples: 5, minimumRepeatSeeds: 3 }),
+      policy({ minimumMatureSamples: 31, minimumRepeatSeeds: 3 }),
     );
     expect(decision.decision).toBe("REJECTED");
     expect(decision.reasons).toEqual(
@@ -379,6 +382,7 @@ describe("Agent-specific Prompt promotion policy", () => {
       }),
       behaviorContractHash: HASH_A,
       privateLineageHash: HASH_A,
+      privateStateArtifactHash: HASH_A,
       createdAt: "2025-04-01T00:00:00Z",
     });
     const api = {

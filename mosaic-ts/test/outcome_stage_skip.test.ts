@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE } from "../src/agents/decision/deterministic_policy.js";
 import {
   freezeCroReview,
   freezeCroStageSkip,
@@ -72,6 +73,7 @@ describe("no-evaluation-object stage skip", () => {
       frozenCandidate,
       cro,
       stageSkip("autonomous_execution"),
+      ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
     );
     expect(execution.source_status).toBe("NO_EVALUATION_OBJECT");
     expect(execution.output.trades).toEqual([]);
@@ -104,7 +106,13 @@ describe("no-evaluation-object stage skip", () => {
       },
     ]);
     expect(() =>
-      freezeExecutionStageSkip("run-1", actionable, cro, stageSkip("autonomous_execution")),
+      freezeExecutionStageSkip(
+        "run-1",
+        actionable,
+        cro,
+        stageSkip("autonomous_execution"),
+        ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
+      ),
     ).toThrow(Layer4RuntimeContractError);
   });
 
@@ -139,8 +147,13 @@ describe("no-evaluation-object stage skip", () => {
     });
 
     expect(
-      freezeExecutionStageSkip("run-1", controlled, cro, stageSkip("autonomous_execution")).output
-        .execution_disposition,
+      freezeExecutionStageSkip(
+        "run-1",
+        controlled,
+        cro,
+        stageSkip("autonomous_execution"),
+        ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
+      ).output.execution_disposition,
     ).toBe("NO_DELTA");
   });
 });

@@ -31,11 +31,20 @@ const HASH_C = `sha256:${"c".repeat(64)}`;
 const COMMIT = "d".repeat(40);
 const NOW = "2025-05-01T00:00:00Z";
 const target = { agentId: "china", stage: "agent_run", cohort: "cohort_default" } as const;
-const evaluatorVersion = (() => {
-  const value = OUTCOME_LABEL_REGISTRY.china?.scoring_contract_version;
-  if (!value) throw new Error("missing china outcome fixture");
+const semiconductorTarget = {
+  agentId: "semiconductor",
+  stage: "agent_run",
+  cohort: "cohort_default",
+} as const;
+type TestTarget = typeof target | typeof semiconductorTarget;
+
+function evaluatorVersionFor(requestedTarget: TestTarget): string {
+  const value = OUTCOME_LABEL_REGISTRY[requestedTarget.agentId]?.scoring_contract_version;
+  if (!value) throw new Error(`missing ${requestedTarget.agentId} outcome fixture`);
   return value;
-})();
+}
+
+const evaluatorVersion = evaluatorVersionFor(target);
 
 function sample(sampleId: string, startAt: string, endAt: string, maturedAt: string) {
   return {
@@ -47,11 +56,27 @@ function sample(sampleId: string, startAt: string, endAt: string, maturedAt: str
   };
 }
 
-function fixtures(experimentId = "experiment-1") {
+function partitionSamples(prefix: "validation" | "holdout", month: "02" | "03") {
+  return Array.from({ length: 30 }, (_, index) => {
+    const ordinal = index + 1;
+    const day = String(Math.floor(index / 12) + 5).padStart(2, "0");
+    const startHour = String((index % 12) * 2).padStart(2, "0");
+    const endHour = String((index % 12) * 2 + 1).padStart(2, "0");
+    return sample(
+      `${prefix}-${ordinal}`,
+      `2025-${month}-${day}T${startHour}:00:00Z`,
+      `2025-${month}-${day}T${endHour}:00:00Z`,
+      `2025-${month}-20T00:00:00Z`,
+    );
+  });
+}
+
+function fixtures(experimentId = "experiment-1", requestedTarget: TestTarget = target) {
+  const requestedEvaluatorVersion = evaluatorVersionFor(requestedTarget);
   const split = DatasetSplitManifestSchema.parse({
     schemaVersion: "prompt_dataset_split_v1",
     splitId: "split-1",
-    target,
+    target: requestedTarget,
     cutoffAt: "2025-01-31T00:00:00Z",
     training: {
       snapshotId: "training-1",
@@ -67,31 +92,16 @@ function fixtures(experimentId = "experiment-1") {
       snapshotHash: HASH_B,
       windowStartAt: "2025-02-01T00:00:00Z",
       windowEndAt: "2025-02-28T00:00:00Z",
-      samples: [
-        sample(
-          "validation-1",
-          "2025-02-05T00:00:00Z",
-          "2025-02-06T00:00:00Z",
-          "2025-02-10T00:00:00Z",
-        ),
-        sample(
-          "validation-2",
-          "2025-02-15T00:00:00Z",
-          "2025-02-16T00:00:00Z",
-          "2025-02-20T00:00:00Z",
-        ),
-      ],
+      samples: partitionSamples("validation", "02"),
     },
     holdout: {
       snapshotId: "holdout-1",
       snapshotHash: HASH_C,
       windowStartAt: "2025-03-01T00:00:00Z",
       windowEndAt: "2025-03-31T00:00:00Z",
-      samples: [
-        sample("holdout-1", "2025-03-10T00:00:00Z", "2025-03-11T00:00:00Z", "2025-03-20T00:00:00Z"),
-      ],
+      samples: partitionSamples("holdout", "03"),
     },
-    evaluatorVersion,
+    evaluatorVersion: requestedEvaluatorVersion,
     createdAt: "2025-04-01T00:00:00Z",
   });
   const candidate = PromptCandidateSchema.parse({
@@ -100,7 +110,7 @@ function fixtures(experimentId = "experiment-1") {
     parentId: "champion-1",
     parentPromptCommit: COMMIT,
     parentPromptHashes: { zh: HASH_A, en: HASH_A },
-    target,
+    target: requestedTarget,
     promptRefs: { zh: "private://candidate.zh", en: "private://candidate.en" },
     promptHashes: { zh: HASH_B, en: HASH_C },
     trainingSnapshotId: split.training.snapshotId,
@@ -122,12 +132,13 @@ function fixtures(experimentId = "experiment-1") {
     }),
     behaviorContractHash: HASH_A,
     privateLineageHash: HASH_A,
+    privateStateArtifactHash: HASH_A,
     createdAt: "2025-04-01T00:00:00Z",
   });
   const family = PromptCandidateFamilySchema.parse({
     schemaVersion: "prompt_candidate_family_v1",
     familyId: `family-${experimentId}`,
-    target,
+    target: requestedTarget,
     championReleaseId: candidate.parentId,
     championPromptCommit: candidate.parentPromptCommit,
     championPromptRefs: { zh: "private://champion.zh", en: "private://champion.en" },
@@ -149,7 +160,7 @@ function fixtures(experimentId = "experiment-1") {
     familyId: family.familyId,
     candidateId: candidate.candidateId,
     championId: candidate.parentId,
-    target,
+    target: requestedTarget,
     championPromptCommit: candidate.parentPromptCommit,
     championPromptRefs: family.championPromptRefs,
     championPromptHashes: { zh: HASH_A, en: HASH_A },
@@ -161,6 +172,8 @@ function fixtures(experimentId = "experiment-1") {
     holdoutSnapshotHash: split.holdout.snapshotHash,
     modelConfigHash: HASH_A,
     toolConfigHash: HASH_B,
+    componentCalibrationSnapshotHash: HASH_C,
+    darwinianUsageSnapshotHash: HASH_A,
     evaluatorVersion: split.evaluatorVersion,
     evaluatorConfigHash: HASH_C,
     codeCommit: COMMIT,
@@ -248,11 +261,13 @@ class MemoryRepository implements PromptExperimentRepository {
   }
 }
 
-function environment() {
+function environment(version = evaluatorVersion) {
   return {
     modelConfigHash: HASH_A,
     toolConfigHash: HASH_B,
-    evaluatorVersion,
+    componentCalibrationSnapshotHash: HASH_C,
+    darwinianUsageSnapshotHash: HASH_A,
+    evaluatorVersion: version,
     evaluatorConfigHash: HASH_C,
     codeCommit: COMMIT,
   };
@@ -273,10 +288,12 @@ function binding() {
 
 function adapters(options: { failOnce?: boolean } = {}) {
   const calls = new Map<string, number>();
+  const executorInputs: unknown[] = [];
   const evaluatorInputs: unknown[] = [];
   let shouldFail = options.failOnce ?? false;
   const executor: PromptExperimentAgentExecutor = {
     async execute(input) {
+      executorInputs.push(structuredClone(input));
       const side = input.promptRefs.zh.includes("candidate") ? "candidate" : "champion";
       const key = `${input.partition}:${input.sample.sampleId}:${input.seed}:${side}`;
       calls.set(key, (calls.get(key) ?? 0) + 1);
@@ -301,7 +318,7 @@ function adapters(options: { failOnce?: boolean } = {}) {
       };
     },
   };
-  return { calls, evaluatorInputs, executor, evaluator };
+  return { calls, executorInputs, evaluatorInputs, executor, evaluator };
 }
 
 async function runBoth(maxConcurrency: number, experimentId: string) {
@@ -349,7 +366,7 @@ describe("frozen Prompt experiment runner", () => {
         environment: environment(),
         promotionPolicy: {
           policyVersion: "shadow-plan-v1",
-          minimumMatureSamples: 1,
+          minimumMatureSamples: 30,
           minimumRepeatSeeds: 2,
           minimumPairedDelta: 0.05,
           familyAlpha: 0.05,
@@ -374,22 +391,75 @@ describe("frozen Prompt experiment runner", () => {
     expect(repository.decision).toEqual(result.decision);
   });
 
+  it("runs an opaque Semiconductor atomic Candidate through the same shadow gate", async () => {
+    const values = fixtures("experiment-semiconductor-atomic", semiconductorTarget);
+    const repository = new MemoryRepository();
+    const adapter = adapters();
+    const frozenEnvironment = environment(values.split.evaluatorVersion);
+    const result = await runPromptOptimizerShadowPlan({
+      plan: {
+        schemaVersion: "prompt_optimizer_shadow_plan_v1",
+        family: values.family,
+        split: values.split,
+        candidates: [values.candidate],
+        experiments: [values.experiment],
+        promptBindings: { [values.candidate.candidateId]: binding() },
+        environment: frozenEnvironment,
+        promotionPolicy: {
+          policyVersion: "semiconductor-atomic-shadow-v1",
+          minimumMatureSamples: 30,
+          minimumRepeatSeeds: 2,
+          minimumPairedDelta: 0.05,
+          familyAlpha: 0.05,
+          bootstrapSamples: 99,
+          blockLength: 1,
+          tailQuantile: 0.25,
+          minimumTailDelta: 0.05,
+          maximumFailureRateIncrease: 0,
+          criticalValidationSampleIds: ["validation-1"],
+          criticalHoldoutSampleIds: ["holdout-1"],
+          minimumCriticalSampleDelta: 0,
+        },
+        maxConcurrency: 4,
+      },
+      repository,
+      executor: adapter.executor,
+      evaluator: adapter.evaluator,
+      now: () => NOW,
+    });
+    expect(result.family.target).toEqual(semiconductorTarget);
+    expect(result.family.status).toBe("COMPLETE");
+    expect(result.decision.decision).toBe("ELIGIBLE");
+    expect(repository.runs.size).toBe(240);
+    expect(
+      adapter.executorInputs.every(
+        (input) => (input as { target: { agentId: string } }).target.agentId === "semiconductor",
+      ),
+    ).toBe(true);
+  });
+
   it("runs a Candidate through paired shadow evaluation and an eligible Decision", async () => {
     const { complete, family, repository, adapter, common } = await runBoth(
       3,
       "experiment-success",
     );
     expect(complete.status).toBe("COMPLETE");
-    expect(repository.runs.size).toBe(12);
+    expect(repository.runs.size).toBe(240);
     expect(complete.metrics.validation_paired_delta).toBeCloseTo(0.2);
     expect(complete.metrics.holdout_paired_delta).toBeCloseTo(0.2);
-    expect(adapter.evaluatorInputs).toHaveLength(12);
+    expect(adapter.executorInputs).toHaveLength(240);
+    for (const input of adapter.executorInputs) {
+      expect((input as { environment: unknown }).environment).toEqual(environment());
+    }
+    expect(adapter.evaluatorInputs).toHaveLength(240);
     for (const input of adapter.evaluatorInputs) {
       expect(Object.keys(input as object).sort()).toEqual([
         "acceptedOutputRef",
+        "environment",
         "sample",
         "target",
       ]);
+      expect((input as { environment: unknown }).environment).toEqual(environment());
     }
     const decision = createPromptPromotionDecision({
       experiment: complete,
@@ -398,7 +468,7 @@ describe("frozen Prompt experiment runner", () => {
       runs: [...repository.runs.values()],
       policy: {
         policyVersion: "shadow-smoke-v1",
-        minimumMatureSamples: 1,
+        minimumMatureSamples: 30,
         minimumRepeatSeeds: 2,
         minimumPairedDelta: 0.05,
         familyAlpha: 0.05,
@@ -463,6 +533,38 @@ describe("frozen Prompt experiment runner", () => {
     ).rejects.toThrow("prompt_experiment_environment_drift:toolConfigHash");
     expect(repository.writeCount).toBe(0);
     expect(adapter.calls.size).toBe(0);
+
+    const darwinRepository = new MemoryRepository();
+    const darwinAdapter = adapters();
+    await expect(
+      runPromptExperimentPartition({
+        ...values,
+        partition: "VALIDATION",
+        environment: { ...environment(), darwinianUsageSnapshotHash: HASH_C },
+        promptBinding: binding(),
+        repository: darwinRepository,
+        executor: darwinAdapter.executor,
+        evaluator: darwinAdapter.evaluator,
+      }),
+    ).rejects.toThrow("prompt_experiment_environment_drift:darwinianUsageSnapshotHash");
+    expect(darwinRepository.writeCount).toBe(0);
+    expect(darwinAdapter.calls.size).toBe(0);
+
+    const componentRepository = new MemoryRepository();
+    const componentAdapter = adapters();
+    await expect(
+      runPromptExperimentPartition({
+        ...values,
+        partition: "VALIDATION",
+        environment: { ...environment(), componentCalibrationSnapshotHash: HASH_A },
+        promptBinding: binding(),
+        repository: componentRepository,
+        executor: componentAdapter.executor,
+        evaluator: componentAdapter.evaluator,
+      }),
+    ).rejects.toThrow("prompt_experiment_environment_drift:componentCalibrationSnapshotHash");
+    expect(componentRepository.writeCount).toBe(0);
+    expect(componentAdapter.calls.size).toBe(0);
   });
 
   it("rejects a Candidate whose reserved sample set differs from the frozen split", async () => {

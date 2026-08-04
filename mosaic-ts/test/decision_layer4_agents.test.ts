@@ -40,13 +40,14 @@ import {
   renderCio,
 } from "../src/agents/decision/cio.js";
 import { buildCroNode, croSpec, fallbackCro, renderCro } from "../src/agents/decision/cro.js";
+import { ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE } from "../src/agents/decision/deterministic_policy.js";
 import {
   assertL4RunSnapshotStage,
   emptyLayer4RuntimeState,
   freezeCioProposal,
   freezeCroReview,
-  freezeExecutionFeasibility,
-  freezeExecutionStageSkip,
+  freezeExecutionFeasibility as freezeExecutionFeasibilityWithPolicy,
+  freezeExecutionStageSkip as freezeExecutionStageSkipWithPolicy,
   freezeFinalTarget,
   freezeL4RunSnapshotBundle,
   Layer4RuntimeContractError,
@@ -56,7 +57,7 @@ import {
 } from "../src/agents/decision/layer4_runtime.js";
 import {
   PositionActionValidationError,
-  validateCioPositionActions,
+  validateCioPositionActions as validateCioPositionActionsWithPolicy,
 } from "../src/agents/decision/position_validator.js";
 import {
   executionSubmissionToRuntime,
@@ -95,6 +96,49 @@ import { validateFinalTargetNode } from "../src/graph/layer4.js";
 import type { LlmHandle } from "../src/llm/factory.js";
 import { macroOutput } from "./helpers/macro.js";
 import { sectorOutput } from "./helpers/sector.js";
+
+function freezeExecutionFeasibility(
+  runId: string,
+  candidate: Parameters<typeof freezeExecutionFeasibilityWithPolicy>[1],
+  croReview: Parameters<typeof freezeExecutionFeasibilityWithPolicy>[2],
+  output: Parameters<typeof freezeExecutionFeasibilityWithPolicy>[3],
+  sourceStatuses?: Parameters<typeof freezeExecutionFeasibilityWithPolicy>[5],
+  asOfDate?: Parameters<typeof freezeExecutionFeasibilityWithPolicy>[6],
+) {
+  return freezeExecutionFeasibilityWithPolicy(
+    runId,
+    candidate,
+    croReview,
+    output,
+    ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
+    sourceStatuses,
+    asOfDate,
+  );
+}
+
+function freezeExecutionStageSkip(
+  runId: string,
+  candidate: Parameters<typeof freezeExecutionStageSkipWithPolicy>[1],
+  croReview: Parameters<typeof freezeExecutionStageSkipWithPolicy>[2],
+  stageSkip: Parameters<typeof freezeExecutionStageSkipWithPolicy>[3],
+) {
+  return freezeExecutionStageSkipWithPolicy(
+    runId,
+    candidate,
+    croReview,
+    stageSkip,
+    ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
+  );
+}
+
+function validateCioPositionActions(
+  opts: Omit<Parameters<typeof validateCioPositionActionsWithPolicy>[0], "policy">,
+) {
+  return validateCioPositionActionsWithPolicy({
+    ...opts,
+    policy: ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
+  });
+}
 
 describe("frozen Alpha candidate snapshot", () => {
   it("extracts exact pairs and rejects constraint-conflicting domains", () => {
@@ -971,6 +1015,7 @@ function executableOutput(intent: {
         action: intent.action,
         size_pct: Math.abs(intent.requested_delta_weight),
         delta_weight: intent.requested_delta_weight,
+        estimated_slippage_pct: 0.0005,
         conviction: 0.6,
       },
     ],
@@ -2227,8 +2272,9 @@ describe("Layer-4 runtime source envelopes", () => {
           order_intent_ref: intent.order_intent_ref,
           ticker: intent.ts_code,
           action: intent.action,
-          size_pct: 0.1,
-          delta_weight: 0.1,
+          size_pct: 0.12,
+          delta_weight: 0.12,
+          estimated_slippage_pct: 0.001,
           conviction: 0.5,
         },
       ],
@@ -2240,7 +2286,7 @@ describe("Layer-4 runtime source envelopes", () => {
           requested_delta_weight: intent.requested_delta_weight,
           status: "partial",
           estimated_cost_bps: 10,
-          max_executable_delta_weight: 0.1,
+          max_executable_delta_weight: 0.12,
           reason: "bounded capacity",
         },
       ],
@@ -2250,7 +2296,7 @@ describe("Layer-4 runtime source envelopes", () => {
       {
         ticker: "600519.SH",
         action: "BUY",
-        target_weight: 0.1,
+        target_weight: 0.12,
         holding_period: "3M",
         dissent_notes: "applied execution cap",
       },
@@ -2270,7 +2316,7 @@ describe("Layer-4 runtime source envelopes", () => {
     ];
     expect(
       freezeFinalTarget(partial.state, partialFinal, []).portfolio_actions[0]?.target_weight,
-    ).toBe(0.1);
+    ).toBe(0.12);
     const partialAction = partialFinal.portfolio_actions[0];
     if (!partialAction) throw new Error("partial fixture requires one action");
     partialAction.target_weight = 0.15;
@@ -2749,6 +2795,11 @@ describe("CIO position validator", () => {
     ]);
     expect(result.position_audit.stop_loss_override_count).toBe(1);
     expect(result.position_audit.positions_unreviewed).toBe(0);
+    expect(result.position_audit).toMatchObject({
+      deterministic_policy_release_id:
+        ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE.policy_release_id,
+      deterministic_policy_release_hash: ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE.release_hash,
+    });
   });
 
   it("normalizes covered loaded positions into reviews and audit counts", () => {

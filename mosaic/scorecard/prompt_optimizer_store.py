@@ -217,6 +217,8 @@ def _assert_candidate_semantics(value: Mapping[str, Any]) -> None:
         raise ValueError("prompt_candidate_alignment_hash_mismatch")
     if not str(value.get("privateLineageHash", "")).startswith("sha256:"):
         raise ValueError("prompt_candidate_private_lineage_hash_missing")
+    if not str(value.get("privateStateArtifactHash", "")).startswith("sha256:"):
+        raise ValueError("prompt_candidate_private_state_artifact_hash_missing")
 
 
 class PromptOptimizerStore:

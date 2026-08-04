@@ -190,6 +190,11 @@ JSON_SCHEMA_TARGETS = (
         "json",
     ),
     (
+        "schemas/deterministic_decision_policy_release_v1.schema.json",
+        "registry/prompt_checks/deterministic_decision_policy_release_v1.json",
+        "json",
+    ),
+    (
         "schemas/prompt_release_contract_ref_v2.schema.json",
         "registry/prompt_checks/prompt_release_contract_ref_v2.json",
         "json",

@@ -460,10 +460,14 @@ export interface AutoExecOutput extends RuntimeOutputAuditFields {
   execution_enforcement?:
     | {
         checked_trade_count: number;
+        checked_assessment_count: number;
+        policy_release_id: string;
+        policy_release_hash: string;
         active_policy_ids: string[];
-        min_delta_trade_weight?: number | undefined;
-        slippage_cap?: number | undefined;
-        liquidity_floor?: number | undefined;
+        min_delta_trade_weight: number;
+        slippage_cap: number;
+        liquidity_floor: number;
+        policy_blocked_order_intent_refs: string[];
       }
     | undefined;
   /** Self-rated confidence in [0, 1]. */
@@ -784,6 +788,8 @@ export interface PositionAudit {
   stale_thesis_count: number;
   stop_loss_override_count: number;
   target_current_drift_count: number;
+  deterministic_policy_release_id?: string | undefined;
+  deterministic_policy_release_hash?: string | undefined;
 }
 
 export interface Layer4Outputs {

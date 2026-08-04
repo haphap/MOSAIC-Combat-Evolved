@@ -118,6 +118,7 @@ import {
   type DecisionStageSourceRef,
   decisionMacroAttributionTargets,
 } from "./accepted.js";
+import { ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE } from "./deterministic_policy.js";
 import {
   assertL4RunSnapshotStage,
   freezeCioProposal,
@@ -594,6 +595,7 @@ function validateLayer4StageSemantics<TOutput extends Layer4AgentOutput>(
       runtime.candidate_target_state,
       runtime.cro_review_state,
       runtimeOutput as AutoExecOutput,
+      ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
       runtime.resolved_source_statuses,
       state.as_of_date || "live",
     );
@@ -603,6 +605,7 @@ function validateLayer4StageSemantics<TOutput extends Layer4AgentOutput>(
     const validated = validateCioPositionActions({
       output: runtimeOutput as CioOutput,
       currentPositions: state.current_positions,
+      policy: ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
     });
     validateFinalTargetEnvelope(
       { ...state, layer4_outputs: { ...state.layer4_outputs, cio: validated.output } },
@@ -1243,6 +1246,7 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
       currentRuntime.candidate_target_state,
       currentRuntime.cro_review_state,
       runtimeOutput as AutoExecOutput,
+      ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
       currentRuntime.resolved_source_statuses,
       opts.state.as_of_date || "live",
     );

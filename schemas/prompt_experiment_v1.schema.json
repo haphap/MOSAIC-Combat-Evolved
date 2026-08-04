@@ -194,6 +194,14 @@
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
+    "componentCalibrationSnapshotHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "darwinianUsageSnapshotHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
     "evaluatorVersion": {
       "type": "string",
       "minLength": 1,
@@ -303,6 +311,8 @@
     "holdoutSnapshotHash",
     "modelConfigHash",
     "toolConfigHash",
+    "componentCalibrationSnapshotHash",
+    "darwinianUsageSnapshotHash",
     "evaluatorVersion",
     "evaluatorConfigHash",
     "codeCommit",

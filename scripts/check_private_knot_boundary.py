@@ -27,8 +27,40 @@ ACTIVE_PRIVATE_EXPORTS = {
     'export * from "./autoresearch/prompt_candidate_repository.js";',
     'export * from "./autoresearch/prompt_behavior_contract.js";',
     'export * from "./autoresearch/prompt_mutator.js";',
+    'export * from "./autoresearch/prompt_parameter_contract.js";',
+    'export * from "./autoresearch/prompt_parameter_renderer.js";',
+    'export * from "./autoresearch/prompt_parameter_state.js";',
 }
 ACTIVE_PRIVATE_BUILD_ENTRIES = ["src/index.ts", "src/cli.ts"]
+PRIVATE_ACTIVE_REQUIRED_SOURCES = {
+    "autoresearch/prompt_behavior_contract.ts",
+    "autoresearch/prompt_behavior_evaluation_contract.ts",
+    "autoresearch/prompt_candidate_repository.ts",
+    "autoresearch/prompt_mutator.ts",
+    "autoresearch/prompt_parameter_contract.ts",
+    "autoresearch/prompt_parameter_inventory.ts",
+    "autoresearch/prompt_parameter_renderer.ts",
+    "autoresearch/prompt_parameter_state.ts",
+    "autoresearch/prompt_training_evaluator.ts",
+}
+PRIVATE_LEGACY_IMPORT_MARKERS = (
+    "domain_evaluator",
+    "domain_metrics",
+    "effect_runtime",
+    "knot_cio_control_shadow",
+    "knot_contract",
+    "knot_v2",
+    "pair_assignment",
+    "private_runtime_manifest",
+    "public_adapter",
+    "replay_capsule",
+    "research_knobs",
+    "strict_receipt",
+    "transaction_coordinator",
+)
+PRIVATE_IMPORT_RE = re.compile(
+    r'(?:\bfrom\s+|\bimport\s*(?:\(\s*)?)["\']([^"\']+)["\']'
+)
 FORBIDDEN_PUBLIC_ASSETS = (
     PROMPT_CHECKS / "knot_runtime_contract_manifest_v2.json",
     PROMPT_CHECKS / "domain_knob_catalog_v1.json",
@@ -79,6 +111,38 @@ def _mapping(value: Any, label: str) -> Mapping[str, Any]:
 
 def _read_object(path: Path, label: str) -> Mapping[str, Any]:
     return _mapping(json.loads(path.read_text(encoding="utf-8")), label)
+
+
+def _private_active_source_closure(private_root: Path) -> set[str]:
+    source_root = (private_root / "runtime/typescript/src").resolve()
+    pending = [source_root / "index.ts", source_root / "cli.ts"]
+    visited: set[Path] = set()
+    while pending:
+        path = pending.pop()
+        if path in visited:
+            continue
+        if not path.is_file():
+            raise ValueError(f"active private source is missing: {path}")
+        visited.add(path)
+        source = path.read_text(encoding="utf-8")
+        for specifier in PRIVATE_IMPORT_RE.findall(source):
+            if any(marker in specifier for marker in PRIVATE_LEGACY_IMPORT_MARKERS):
+                raise ValueError(
+                    f"active private Prompt path imports legacy protocol: {specifier}"
+                )
+            if not specifier.startswith("."):
+                continue
+            candidate = (path.parent / specifier).resolve()
+            if candidate.suffix == ".js":
+                candidate = candidate.with_suffix(".ts")
+            elif not candidate.suffix:
+                candidate = candidate.with_suffix(".ts")
+            try:
+                candidate.relative_to(source_root)
+            except ValueError as exc:
+                raise ValueError("active private Prompt import escapes source root") from exc
+            pending.append(candidate)
+    return {str(path.relative_to(source_root)) for path in visited}
 
 
 def _private_root() -> Path | None:
@@ -163,6 +227,11 @@ def _check_private_repository(private_root: Path, expected_commit: str) -> None:
     }
     if entry_lines != ACTIVE_PRIVATE_EXPORTS:
         raise ValueError("private package exports exceed the Prompt Mutator boundary")
+
+    active_sources = _private_active_source_closure(private_root)
+    if not PRIVATE_ACTIVE_REQUIRED_SOURCES <= active_sources:
+        missing = sorted(PRIVATE_ACTIVE_REQUIRED_SOURCES - active_sources)
+        raise ValueError(f"private Prompt source closure is incomplete: {','.join(missing)}")
 
     legacy = _read_object(
         private_root / PRIVATE_LEGACY_INVENTORY_PATH, "private legacy inventory"

@@ -28,6 +28,8 @@ import {
   assertCioHoldCurrentTargetSet,
   assertExactExecutionResolutionSet,
 } from "./decision_semantics.js";
+import type { DeterministicDecisionPolicyRelease } from "./deterministic_policy.js";
+import { validateAutonomousExecutionActions } from "./execution_validator.js";
 import {
   assertMatchesFrozenOrderIntents,
   expectedFrozenOrderIntents,
@@ -412,6 +414,7 @@ export function freezeExecutionFeasibility(
   candidate: CandidateTargetState | null,
   croReview: CroReviewState | null,
   output: AutoExecOutput,
+  policy: DeterministicDecisionPolicyRelease,
   sourceStatuses: ReadonlyArray<RuntimeSourceStatus> = [],
   asOfDate = "live",
 ): ExecutionFeasibilityState {
@@ -426,9 +429,9 @@ export function freezeExecutionFeasibility(
   if (croReview.l4_run_snapshot_hash !== candidate.l4_run_snapshot_hash) {
     throw new Layer4RuntimeContractError("execution_feasibility L4 snapshot hash mismatch");
   }
-  const frozenOutput = output;
   const intentPlan = expectedFrozenOrderIntents(candidate, croReview);
-  validateExecutionOutput(intentPlan, frozenOutput);
+  validateExecutionOutput(intentPlan, output);
+  const frozenOutput = validateAutonomousExecutionActions({ output, policy });
   const payload = {
     run_id: runId,
     candidate_target_hash: candidate.candidate_target_hash,
@@ -458,6 +461,7 @@ export function freezeExecutionStageSkip(
   candidate: CandidateTargetState | null,
   croReview: CroReviewState | null,
   stageSkip: NoEvaluationObjectStageSkipRecord,
+  policy: DeterministicDecisionPolicyRelease,
 ): ExecutionFeasibilityState {
   if (!candidate || !croReview) {
     throw new Layer4RuntimeContractError(
@@ -483,13 +487,16 @@ export function freezeExecutionStageSkip(
       "execution stage skip cannot bypass non-empty order intents",
     );
   }
-  const output: AutoExecOutput = {
-    agent: "autonomous_execution",
-    execution_disposition: "NO_DELTA",
-    trades: [],
-    execution_checks: [],
-    confidence: 0,
-  };
+  const output = validateAutonomousExecutionActions({
+    output: {
+      agent: "autonomous_execution",
+      execution_disposition: "NO_DELTA",
+      trades: [],
+      execution_checks: [],
+      confidence: 0,
+    },
+    policy,
+  });
   const payload = {
     run_id: runId,
     candidate_target_hash: candidate.candidate_target_hash,

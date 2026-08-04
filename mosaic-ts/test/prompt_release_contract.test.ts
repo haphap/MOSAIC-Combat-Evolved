@@ -58,6 +58,7 @@ function release(
       policy_version: "policy-v1",
       policy_config_hash: HASH,
       candidate_prompt_hashes: { zh: HASH, en: HASH },
+      private_state_artifact_hash: HASH,
     },
     activation_scope: {
       cohort: "cohort_default",
