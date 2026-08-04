@@ -391,7 +391,7 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
             ),
             root,
             REPRESENTATIVE_EVALUATION_TESTS,
-            junit_expected_tests=11,
+            junit_expected_tests=12,
             junit_path=run_dir / "representative-evaluation.xml",
         ),
         CommandSpec(
