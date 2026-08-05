@@ -16,10 +16,10 @@
   "max_baseline_growth_ratio": 1.25,
   "runtime_manifest_hash": "sha256:c0d92c7eb970aa780c162918eaf5fd59cb3d22abab30ec17849c7d721a7b4b4f",
   "source_commits": {
-    "private": "1a92e8a4bea8d2eeaa2337bb1c75ea759c5fd000",
+    "private": "e8c6bb56f0d30162cb38b63f52c17a2793474c85",
     "bundled": "955dc565efe97c490696bf494e6feb6c1ce8549c"
   },
-  "baseline_manifest_hash": "sha256:ebba290f350b701cbc24bf17f396ab6da700d7cc5e3a6db305da8b12a8230ec8",
+  "baseline_manifest_hash": "sha256:ff8e4a73b97b17631d1025dadebf3a161771b2e3faebc4587c2416fd6955728f",
   "rows": [
     {
       "source": "bundled",
@@ -1611,14 +1611,14 @@
       "stage": "agent_run",
       "language": "en",
       "source_path": "cohort_default/macro/china.en.md",
-      "source_sha256": "sha256:1e2c8094261fcd75e53af46d8c60f7f64de6fe9b0063c1aa5c678ed60f88fbe2",
-      "source_bytes": 2198,
+      "source_sha256": "sha256:20cfb908390a377c17270d6677375bdd4c3543cfea39ad4e419401b1c74c0eb4",
+      "source_bytes": 2498,
       "parsed_projection_bytes": 0,
       "visible_contract_tokens": 0,
-      "final_system_prompt_tokens": 1152,
-      "reserved_context_tokens": 129920,
+      "final_system_prompt_tokens": 1294,
+      "reserved_context_tokens": 129778,
       "baseline_final_system_prompt_tokens": 1152,
-      "baseline_growth_ratio": 1,
+      "baseline_growth_ratio": 1.1232638888888888,
       "checks": {
         "visible_contract_within_cap": true,
         "system_prompt_within_cap": true,
@@ -1633,14 +1633,14 @@
       "stage": "agent_run",
       "language": "zh",
       "source_path": "cohort_default/macro/china.zh.md",
-      "source_sha256": "sha256:c2971f7a0cb12df183a70221310464c0645e702d267a8ca680ab7167d104658b",
-      "source_bytes": 2003,
+      "source_sha256": "sha256:6c65b5e58c6649d768d53132a6294131805f920f00abfcdf39283f70b6ec49da",
+      "source_bytes": 2199,
       "parsed_projection_bytes": 0,
       "visible_contract_tokens": 0,
-      "final_system_prompt_tokens": 1152,
-      "reserved_context_tokens": 129920,
+      "final_system_prompt_tokens": 1294,
+      "reserved_context_tokens": 129778,
       "baseline_final_system_prompt_tokens": 1152,
-      "baseline_growth_ratio": 1,
+      "baseline_growth_ratio": 1.1232638888888888,
       "checks": {
         "visible_contract_within_cap": true,
         "system_prompt_within_cap": true,
@@ -2582,5 +2582,5 @@
     "semantic_parity_passed": true,
     "ready": true
   },
-  "manifest_hash": "sha256:ff8e4a73b97b17631d1025dadebf3a161771b2e3faebc4587c2416fd6955728f"
+  "manifest_hash": "sha256:f30ac606be01b835cf09fd43634741ec91e2b1e9277ea93a8feac5d0f74c17e2"
 }
