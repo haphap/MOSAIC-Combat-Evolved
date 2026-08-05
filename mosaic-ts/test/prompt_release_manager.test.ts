@@ -132,6 +132,16 @@ function commitCandidate(
     `${JSON.stringify(privateStateArtifact(value.candidateId), null, 2)}\n`,
     "utf8",
   );
+  const bootstrapRelease = join(
+    repo.root,
+    "registry/knot/prompt_parameter_bootstrap_release_v1.json",
+  );
+  mkdirSync(dirname(bootstrapRelease), { recursive: true });
+  writeFileSync(
+    bootstrapRelease,
+    `${JSON.stringify({ candidateId: value.candidateId }, null, 2)}\n`,
+    "utf8",
+  );
   execFileSync("git", ["-C", repo.root, "add", "."]);
   execFileSync("git", [
     "-C",

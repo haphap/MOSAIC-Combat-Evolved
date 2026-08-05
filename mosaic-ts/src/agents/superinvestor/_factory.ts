@@ -78,6 +78,7 @@ import {
 } from "../helpers/tool_capability.js";
 import { MACRO_AGENT_IDS } from "../macro/_contracts.js";
 import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
+import type { PromptReleaseLoadContext } from "../prompts/release_prompt_loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type { SuperinvestorOutput } from "../types.js";
 import { buildRuntimeSuperinvestorSchema } from "./_schemas.js";
@@ -109,6 +110,7 @@ export interface LayerThreeAgentDeps {
   agentTimeoutSeconds?: number;
   /** Override prompt-root directory (tests inject a tmpdir). */
   promptsRoot?: string;
+  promptReleaseContext?: PromptReleaseLoadContext | null;
   acceptedOutputStore?: AcceptedAgentOutputStore;
 }
 
@@ -168,6 +170,9 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
                 cohort,
               });
             },
+            ...(deps.promptReleaseContext !== undefined
+              ? { releaseContext: deps.promptReleaseContext }
+              : {}),
             ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
           });
           const systemPrompt = `${baseSystemPrompt}\n\n${buildLayerThreeCurrentToolContract(spec.requiredTools)}`;

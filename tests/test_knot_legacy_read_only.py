@@ -54,6 +54,15 @@ def test_legacy_inventory_is_explicitly_read_only() -> None:
     assert inventory["active_runtime"] is False
     assert inventory["writes_enabled"] is False
     assert inventory["retired_rpc_prefixes"] == ["darwinian.knot_"]
+    assert inventory["public_tombstones"] == [
+        "mosaic/scorecard/knot_v2.py",
+        "mosaic/autoresearch/domain_evaluator.py",
+        "mosaic/autoresearch/domain_metrics.py",
+    ]
+    assert inventory["public_fail_closed_legacy_ports"] == [
+        "mosaic/bridge/handlers/darwinian.py",
+        "mosaic/bridge/tool_capabilities.py",
+    ]
 
 
 def test_public_legacy_module_rejects_direct_writes() -> None:

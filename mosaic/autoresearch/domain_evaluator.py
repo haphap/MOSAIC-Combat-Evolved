@@ -1,20 +1,15 @@
-"""Fail-closed public adapter for private domain-knob evaluation."""
+"""Read-only tombstone for the retired domain-knob evaluator protocol."""
 
 from __future__ import annotations
 
-from typing import Any
-
-from .private_knot_runtime import load_private_knot_module
+from typing import Any, NoReturn
 
 
-def _private_module():
-    return load_private_knot_module("domain_evaluator", "mosaic_knot.domain_evaluator")
+def _retired(*_args: Any, **_kwargs: Any) -> NoReturn:
+    raise RuntimeError("legacy_knot_protocol_read_only")
 
 
 def __getattr__(name: str) -> Any:
     if name.startswith("_"):
         raise AttributeError(name)
-    try:
-        return getattr(_private_module(), name)
-    except AttributeError as exc:
-        raise AttributeError(name) from exc
+    return _retired

@@ -65,6 +65,7 @@ import {
   terminateAgentToolCapability,
 } from "../agents/helpers/tool_capability.js";
 import { loadPrompt } from "../agents/prompts/loader.js";
+import type { PromptReleaseLoadContext } from "../agents/prompts/release_prompt_loader.js";
 import {
   DailyCycleState,
   type DailyCycleStateType,
@@ -87,6 +88,7 @@ export interface BuildLayer4GraphDeps {
   agentTimeoutSeconds?: number;
   /** Override prompt-root directory (tests inject a tmpdir). */
   promptsRoot?: string;
+  promptReleaseContext?: PromptReleaseLoadContext | null;
   acceptedOutputStore?: AcceptedAgentOutputStore;
 }
 
@@ -591,6 +593,9 @@ export function buildL4SnapshotFreezeNode(
           language,
           stage,
           trafficAssignmentKey: state.trace_id || state.as_of_date,
+          ...(deps.promptReleaseContext !== undefined
+            ? { releaseContext: deps.promptReleaseContext }
+            : {}),
           ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
         });
         return {

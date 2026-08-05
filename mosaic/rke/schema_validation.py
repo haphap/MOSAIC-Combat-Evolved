@@ -125,11 +125,6 @@ JSON_SCHEMA_TARGETS = (
     ),
     ("schemas/production_patch.schema.json", "registry/patches/central_bank_paper_trading_patch.json", "json"),
     (
-        "schemas/private_knot_assets_ref_v1.schema.json",
-        "registry/prompt_checks/private_knot_assets_ref_v1.json",
-        "json",
-    ),
-    (
         "schemas/runtime_agent_manifest_v1.schema.json",
         "registry/prompt_checks/runtime_agent_manifest_v1.json",
         "json",
@@ -177,11 +172,6 @@ JSON_SCHEMA_TARGETS = (
     (
         "schemas/agent_outcome_contract_manifest_v2.schema.json",
         "registry/prompt_checks/agent_outcome_contract_manifest_v2.json",
-        "json",
-    ),
-    (
-        "schemas/knot_runtime_contract_ref_v2.schema.json",
-        "registry/prompt_checks/knot_runtime_contract_ref_v2.json",
         "json",
     ),
     (

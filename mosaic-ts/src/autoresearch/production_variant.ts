@@ -4,6 +4,7 @@ import {
   MACRO_COMPONENT_WEIGHT_CONTRACT_VERSION,
   MACRO_ROLE_CONTRACTS,
 } from "../agents/macro/_contracts.js";
+import type { ActivePromptReleaseManifest } from "../agents/prompts/prompt_release_contract.js";
 import { RUNTIME_AGENT_SPECS } from "../agents/prompts/runtime_agent_spec.js";
 import type { MosaicConfig, PromptPreflightResult } from "../bridge/types.js";
 import type { LlmHandle } from "../llm/factory.js";
@@ -178,6 +179,7 @@ export function buildDarwinianRuntimeBinding(input: {
   llmHandle: Pick<LlmHandle, "provider" | "model" | "baseUrl">;
   promptPreflight: PromptPreflightResult;
   executionBehaviorRelease: ExecutionBehaviorReleaseManifest;
+  activePromptRelease?: ActivePromptReleaseManifest | null;
   effectiveAt: string;
 }): DarwinianRuntimeBinding {
   const language = resolveProductionLanguage(input.config);
@@ -194,6 +196,14 @@ export function buildDarwinianRuntimeBinding(input: {
     throw new Error("Darwinian runtime binding requires a READY matching prompt preflight");
   }
   const release = input.executionBehaviorRelease;
+  if (
+    input.activePromptRelease &&
+    (input.activePromptRelease.prompt_commit !== promptRepoRevision ||
+      input.activePromptRelease.activation_scope.cohort !== cohortId ||
+      !["canary", "active"].includes(input.activePromptRelease.lifecycle_state))
+  ) {
+    throw new Error("active Prompt Release does not match the runtime prompt identity");
+  }
   if (release.private_prompt_commit !== promptRepoRevision) {
     throw new Error(
       "prompt repository revision does not match the pinned execution behavior release",

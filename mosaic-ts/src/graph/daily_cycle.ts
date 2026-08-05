@@ -26,6 +26,7 @@
 
 import { END, START, StateGraph } from "@langchain/langgraph";
 import { AcceptedAgentOutputStore } from "../agents/accepted_output.js";
+import type { PromptReleaseLoadContext } from "../agents/prompts/release_prompt_loader.js";
 import {
   DailyCycleState,
   type DailyCycleStateType,
@@ -59,6 +60,8 @@ export interface BuildDailyCycleGraphDeps {
   vetoThreshold?: number;
   /** Override prompt-root directory (tests inject a tmpdir). */
   promptsRoot?: string;
+  /** Frozen once before graph construction so every stage reads one Prompt release. */
+  promptReleaseContext?: PromptReleaseLoadContext | null;
   /** Injectable for persistence adapters and contract tests; one store is shared by all layers. */
   acceptedOutputStore?: AcceptedAgentOutputStore;
 }

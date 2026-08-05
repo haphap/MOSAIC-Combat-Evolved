@@ -86,6 +86,7 @@ import {
   terminateAgentToolCapability,
 } from "../helpers/tool_capability.js";
 import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
+import type { PromptReleaseLoadContext } from "../prompts/release_prompt_loader.js";
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type {
@@ -185,6 +186,7 @@ export interface LayerFourAgentDeps {
   agentTimeoutSeconds?: number;
   /** Override prompt-root directory (tests inject a tmpdir). */
   promptsRoot?: string;
+  promptReleaseContext?: PromptReleaseLoadContext | null;
   /** Per-run cache so CRO, execution, and CIO consume the same MiroFish context. */
   mirofishContextCache?: Map<string, Promise<MirofishContextLoadResult>>;
   /** Canonical graph sets this; direct unit nodes may omit the graph-level bundle. */
@@ -255,6 +257,9 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
                 cohort,
               });
             },
+            ...(deps.promptReleaseContext !== undefined
+              ? { releaseContext: deps.promptReleaseContext }
+              : {}),
             ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
           });
           const promptSourceHash = layer4PromptSourceHash(systemPrompt);

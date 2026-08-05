@@ -30,6 +30,7 @@ import { buildInstitutionalFlowNode } from "../agents/macro/institutional_flow.j
 import { buildMarketBreadthNode } from "../agents/macro/market_breadth.js";
 import { buildUsEconomyNode } from "../agents/macro/us_economy.js";
 import { buildUsFinancialConditionsNode } from "../agents/macro/us_financial_conditions.js";
+import type { PromptReleaseLoadContext } from "../agents/prompts/release_prompt_loader.js";
 import { DailyCycleState } from "../agents/state.js";
 import type { BridgeApi, MosaicConfig } from "../bridge/index.js";
 import type { LlmHandle } from "../llm/factory.js";
@@ -52,6 +53,7 @@ export interface BuildLayer1GraphDeps {
   agentTimeoutSeconds?: number;
   /** Override prompt-root directory (tests inject a tmpdir). */
   promptsRoot?: string;
+  promptReleaseContext?: PromptReleaseLoadContext | null;
   acceptedOutputStore?: AcceptedAgentOutputStore;
 }
 

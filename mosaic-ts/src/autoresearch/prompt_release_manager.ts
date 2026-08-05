@@ -47,6 +47,9 @@ export const DEFAULT_PROMPT_RELEASE_ROLLBACK_TRIGGERS = [
   "exposure_breach_count_gt_0",
 ] as const;
 
+const PRIVATE_PROMPT_BOOTSTRAP_RELEASE_REF =
+  "registry/knot/prompt_parameter_bootstrap_release_v1.json";
+
 type RuntimeSloSummary = NonNullable<ActivePromptReleaseManifest["runtime_slo_summary"]>;
 
 export interface PromptReleaseManagerDependencies {
@@ -203,6 +206,7 @@ async function assertCandidateCommitScope(input: {
     recordRef,
     privateLineageRef,
     privateStateRef,
+    PRIVATE_PROMPT_BOOTSTRAP_RELEASE_REF,
   ].sort();
   if (JSON.stringify(changed) !== JSON.stringify(expected)) {
     throw new Error("prompt_release_candidate_commit_scope_invalid");

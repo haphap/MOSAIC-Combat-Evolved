@@ -14,6 +14,7 @@
 import { END, START, StateGraph } from "@langchain/langgraph";
 import { AcceptedAgentOutputStore } from "../agents/accepted_output.js";
 import { AGENTS_BY_LAYER } from "../agents/prompts/cohorts.js";
+import type { PromptReleaseLoadContext } from "../agents/prompts/release_prompt_loader.js";
 import {
   DailyCycleState,
   type DailyCycleStateType,
@@ -42,6 +43,7 @@ export interface BuildLayer3GraphDeps {
   agentTimeoutSeconds?: number;
   /** Override prompt-root directory (tests inject a tmpdir). */
   promptsRoot?: string;
+  promptReleaseContext?: PromptReleaseLoadContext | null;
   acceptedOutputStore?: AcceptedAgentOutputStore;
 }
 

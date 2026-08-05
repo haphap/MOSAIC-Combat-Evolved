@@ -514,6 +514,50 @@ def test_preflight_records_private_prompt_provenance(repo: Path, tmp_path: Path,
         assert "content" not in row
 
 
+def test_preflight_hashes_raw_prompt_at_the_requested_release_commit(
+    repo: Path, tmp_path: Path, monkeypatch
+):
+    private_repo = tmp_path / "MOSAIC-Prompts"
+    init_private_prompt_repo(private_repo, project_root=repo, seed_baseline=True)
+    _git(private_repo, "config", "user.name", "Test")
+    _git(private_repo, "config", "user.email", "test@example.com")
+    first_commit = _git(private_repo, "rev-parse", "HEAD").strip()
+    relative_path = (
+        "prompts/mosaic/cohort_default/macro/us_financial_conditions.zh.md"
+    )
+    first_text = _git(private_repo, "show", f"{first_commit}:{relative_path}")
+    (private_repo / relative_path).write_text("new head prompt\n", encoding="utf-8")
+    _git(private_repo, "add", relative_path)
+    _git(private_repo, "commit", "-m", "advance prompt head")
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    with pytest.raises(RpcError, match="verified release context"):
+        dispatch(
+            "prompts.preflight",
+            {
+                "agents": ["us_financial_conditions"],
+                "langs": ["zh"],
+                "prompt_repo_revision": first_commit,
+            },
+        )
+
+    result = dispatch(
+        "prompts.preflight",
+        {
+            "agents": ["us_financial_conditions"],
+            "langs": ["zh"],
+            "prompt_repo_revision": first_commit,
+            "allow_non_head_revision": True,
+        },
+    )
+
+    assert result["ready"] is True
+    assert result["source_status"]["prompt_repo_revision"] == first_commit
+    assert result["rows"][0]["prompt_sha256"] == hashlib.sha256(
+        first_text.encode("utf-8")
+    ).hexdigest()
+
+
 def test_preflight_blocks_dirty_private_prompt_repo(
     repo: Path, tmp_path: Path, monkeypatch
 ):

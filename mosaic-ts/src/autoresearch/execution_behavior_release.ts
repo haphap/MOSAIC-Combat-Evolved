@@ -659,6 +659,23 @@ function verifyPrivatePromptBootstrap(
   if (parsed.release_hash !== canonicalHash(body)) {
     throw new Error("private prompt bootstrap release hash mismatch");
   }
+  const parameterContract = JSON.parse(
+    readVerifiedPromptRepositoryFile(source, "registry/knot/prompt_parameter_contract_v1.json"),
+  ) as Record<string, unknown>;
+  const declaredParameterContractHash = parameterContract.contract_hash;
+  const { contract_hash: _parameterContractHash, ...parameterContractBody } = parameterContract;
+  if (
+    declaredParameterContractHash !== canonicalHash(parameterContractBody) ||
+    parsed.parameter_contract_hash !== declaredParameterContractHash
+  ) {
+    throw new Error("private prompt parameter contract hash mismatch");
+  }
+  const behaviorContract = JSON.parse(
+    readVerifiedPromptRepositoryFile(source, "registry/knot/prompt_behavior_contract_v1.json"),
+  ) as unknown;
+  if (parsed.behavior_contract_hash !== canonicalHash(behaviorContract)) {
+    throw new Error("private prompt behavior contract hash mismatch");
+  }
   const promptTreeHash = canonicalHash({
     files: variants
       .map((variant) => ({

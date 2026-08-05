@@ -93,6 +93,7 @@ import {
   terminateAgentToolCapability,
 } from "../helpers/tool_capability.js";
 import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
+import type { PromptReleaseLoadContext } from "../prompts/release_prompt_loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type {
   RelationshipMapperOutput,
@@ -159,6 +160,7 @@ export interface LayerTwoAgentDeps {
   agentTimeoutSeconds?: number;
   /** Override prompt-root directory (tests inject a tmpdir). */
   promptsRoot?: string;
+  promptReleaseContext?: PromptReleaseLoadContext | null;
   acceptedOutputStore?: AcceptedAgentOutputStore;
 }
 
@@ -214,6 +216,9 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
                 cohort,
               });
             },
+            ...(deps.promptReleaseContext !== undefined
+              ? { releaseContext: deps.promptReleaseContext }
+              : {}),
             ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
           });
           const systemPrompt = `${baseSystemPrompt}\n\n${buildCurrentToolContract(spec.requiredTools)}`;

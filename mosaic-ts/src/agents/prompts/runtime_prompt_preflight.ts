@@ -1,3 +1,4 @@
+import type { PromptReleaseLoadContext } from "./release_prompt_loader.js";
 import {
   buildRuntimeAgentManifestArtifact,
   validateRuntimeAgentManifestArtifact,
@@ -8,6 +9,7 @@ export async function assertRuntimePromptPreflight(opts: {
   cohort: string;
   promptsRoot?: string;
   privatePromptsRoot?: string;
+  releaseContext?: PromptReleaseLoadContext | null;
 }): Promise<RuntimePromptCheckReport> {
   const manifest = buildRuntimeAgentManifestArtifact();
   const manifestReasons = validateRuntimeAgentManifestArtifact(manifest);
@@ -18,6 +20,7 @@ export async function assertRuntimePromptPreflight(opts: {
     cohort: opts.cohort,
     ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
     ...(opts.privatePromptsRoot ? { privatePromptsRoot: opts.privatePromptsRoot } : {}),
+    ...(opts.releaseContext !== undefined ? { releaseContext: opts.releaseContext } : {}),
   });
   const failed = report.rows.filter((row) => !row.ready);
   if (

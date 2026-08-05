@@ -42,6 +42,7 @@ import {
   formatPromptSourceLabel,
   PROMPT_COHORT_IDS,
 } from "../../agents/prompts/cohorts.js";
+import { resolveConfiguredPromptReleaseContext } from "../../agents/prompts/release_prompt_loader.js";
 import { assertRuntimePromptPreflight } from "../../agents/prompts/runtime_prompt_preflight.js";
 import { captureDailyCycleRkeFootprints } from "../../agents/rke_footprints.js";
 import {
@@ -69,6 +70,7 @@ import {
   type PaperSuggestion,
   RpcError,
 } from "../../bridge/index.js";
+import type { PromptPreflightResult } from "../../bridge/types.js";
 import { buildDailyCycleGraph } from "../../graph/daily_cycle.js";
 import { createLlmFromConfig, type LlmHandle } from "../../llm/factory.js";
 import { redactSensitiveText } from "../../security/redaction.js";
@@ -246,14 +248,6 @@ export function registerDailyCycle(program: Command): void {
         };
         const currentPositions = await loadDailyCycleCurrentPositions(opts, api);
         await assertStructuredOutputCapability(llmHandle.llm);
-        const promptSource = nonProductionSmoke
-          ? null
-          : await api.promptsPreflight({ cohort, langs: ["zh", "en"] });
-        if (promptSource && !promptSource.ready) {
-          throw new Error(
-            `prompt source preflight failed: ${promptSource.source_status.blocked_reason || "unknown"}`,
-          );
-        }
         const executionBehaviorRelease = nonProductionSmoke
           ? null
           : loadExecutionBehaviorReleaseManifest(
@@ -266,9 +260,41 @@ export function registerDailyCycle(program: Command): void {
                 "execution_behavior_release_manifest_v2.json",
               ),
             );
+        const promptReleaseContext = nonProductionSmoke
+          ? null
+          : await resolveConfiguredPromptReleaseContext(`daily-cycle:${cohort}:${asOfDate}`);
+        let promptSource: PromptPreflightResult | null = null;
+        if (!nonProductionSmoke) {
+          if (!executionBehaviorRelease) {
+            throw new Error("execution behavior release is required for production prompt loading");
+          }
+          if (
+            promptReleaseContext &&
+            promptReleaseContext.manifest.prompt_commit !==
+              executionBehaviorRelease.private_prompt_commit
+          ) {
+            throw new Error(
+              "active Prompt Release commit does not match the execution behavior release",
+            );
+          }
+          promptSource = await api.promptsPreflight({
+            cohort,
+            langs: ["zh", "en"],
+            prompt_repo_revision:
+              promptReleaseContext?.manifest.prompt_commit ??
+              executionBehaviorRelease.private_prompt_commit,
+            ...(promptReleaseContext ? { allow_non_head_revision: true } : {}),
+          });
+          if (!promptSource.ready) {
+            throw new Error(
+              `prompt source preflight failed: ${promptSource.source_status.blocked_reason || "unknown"}`,
+            );
+          }
+        }
         await assertRuntimePromptPreflight({
           cohort,
           ...(runtimePromptsRoot ? { promptsRoot: runtimePromptsRoot } : {}),
+          ...(!nonProductionSmoke ? { releaseContext: promptReleaseContext } : {}),
         });
         const asOfTimestamp = `${asOfDate}T15:00:00+08:00`;
         let darwinianRuntimeBinding = null;
@@ -282,6 +308,7 @@ export function registerDailyCycle(program: Command): void {
             llmHandle,
             promptPreflight: promptSource,
             executionBehaviorRelease,
+            activePromptRelease: promptReleaseContext?.manifest ?? null,
             effectiveAt: asOfTimestamp,
           });
         }
@@ -330,6 +357,7 @@ export function registerDailyCycle(program: Command): void {
           vetoThreshold,
           acceptedOutputStore,
           onLog: onAgentLog,
+          ...(!nonProductionSmoke ? { promptReleaseContext } : {}),
           ...(agentTimeoutSeconds !== undefined ? { agentTimeoutSeconds } : {}),
         });
 

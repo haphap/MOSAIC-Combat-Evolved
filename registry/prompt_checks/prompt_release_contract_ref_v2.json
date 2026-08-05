@@ -7,7 +7,7 @@
     },
     "execution_behavior_release_manifest": {
       "path": "registry/prompt_checks/execution_behavior_release_manifest_v2.json",
-      "release_id": "execution-behavior-release:91d84e3feb6d9007a3d8f660d0613c3a14ac0caa14b15659723756fa188d91db"
+      "release_id": "execution-behavior-release:1077b78f89799f0b6b0d69e2fa099bff94436dea3e58c729850ea10edd5b2fb9"
     },
     "agent_outcome_contract_manifest": {
       "path": "registry/prompt_checks/agent_outcome_contract_manifest_v2.json",

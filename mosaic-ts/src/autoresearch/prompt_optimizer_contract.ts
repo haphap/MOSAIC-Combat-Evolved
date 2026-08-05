@@ -103,6 +103,14 @@ export const PromptOptimizerTargetSchema = z
   })
   .strict()
   .superRefine((target, ctx) => {
+    if (target.agentId === "cio" && target.stage === "cio_proposal") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["stage"],
+        message: "cio_proposal shares the cio_final Prompt champion and is not a mutation target",
+      });
+      return;
+    }
     if (!RUNTIME_AGENT_STAGE_SPEC_BY_KEY.has(runtimeAgentStageKey(target.agentId, target.stage))) {
       ctx.addIssue({
         code: "custom",

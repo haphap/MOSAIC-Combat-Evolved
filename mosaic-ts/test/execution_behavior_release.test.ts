@@ -60,10 +60,14 @@ describe("execution behavior release", () => {
         "utf8",
       ),
     ) as {
+      private_prompt_branch: string;
       private_prompt_commit: string;
       execution_behavior_release_id: string;
       execution_behavior_release_hash: string;
     };
+    expect(roleManifest.private_prompt_branch).toBe(
+      "codex/knot-prompt-optimizer-simplification-private",
+    );
     expect(release.private_prompt_commit).toBe(roleManifest.private_prompt_commit);
     expect(release.execution_behavior_release_id).toBe(roleManifest.execution_behavior_release_id);
     expect(release.execution_behavior_release_hash).toBe(
@@ -204,6 +208,53 @@ describe("execution behavior release", () => {
         baseUrlMode: "PROVIDER_DEFAULT",
       }),
     ).toThrow(/state roster mismatch/);
+  });
+
+  it("rehashes the private parameter and behavior contracts instead of trusting declarations", () => {
+    const parameterFixture = promptFixture();
+    const parameterPath = join(
+      parameterFixture.privateRepoRoot,
+      "registry/knot/prompt_parameter_contract_v1.json",
+    );
+    const parameterContract = JSON.parse(readFileSync(parameterPath, "utf8"));
+    writeFileSync(
+      parameterPath,
+      `${JSON.stringify({ ...parameterContract, contract_hash: `sha256:${"0".repeat(64)}` })}\n`,
+    );
+    git(parameterFixture.privateRepoRoot, "add", "registry/knot/prompt_parameter_contract_v1.json");
+    git(parameterFixture.privateRepoRoot, "commit", "-m", "tamper parameter contract hash");
+    parameterFixture.privatePromptCommit = git(
+      parameterFixture.privateRepoRoot,
+      "rev-parse",
+      "HEAD",
+    );
+    expect(() =>
+      buildExecutionBehaviorReleaseManifest({
+        ...parameterFixture,
+        provider: "anthropic",
+        model: "claude-sonnet-4",
+        baseUrlMode: "PROVIDER_DEFAULT",
+      }),
+    ).toThrow(/parameter contract hash mismatch/);
+
+    const behaviorFixture = promptFixture();
+    const behaviorPath = join(
+      behaviorFixture.privateRepoRoot,
+      "registry/knot/prompt_behavior_contract_v1.json",
+    );
+    const behaviorContract = JSON.parse(readFileSync(behaviorPath, "utf8"));
+    writeFileSync(behaviorPath, `${JSON.stringify({ ...behaviorContract, tampered: true })}\n`);
+    git(behaviorFixture.privateRepoRoot, "add", "registry/knot/prompt_behavior_contract_v1.json");
+    git(behaviorFixture.privateRepoRoot, "commit", "-m", "tamper behavior contract");
+    behaviorFixture.privatePromptCommit = git(behaviorFixture.privateRepoRoot, "rev-parse", "HEAD");
+    expect(() =>
+      buildExecutionBehaviorReleaseManifest({
+        ...behaviorFixture,
+        provider: "anthropic",
+        model: "claude-sonnet-4",
+        baseUrlMode: "PROVIDER_DEFAULT",
+      }),
+    ).toThrow(/behavior contract hash mismatch/);
   });
 
   it("rejects prompt drift and manifest hash tampering", () => {
@@ -429,6 +480,28 @@ function commitPrivatePrompts(
 }
 
 function writeBootstrapFixture(privateRepoRoot: string, privatePromptsRoot: string): void {
+  const parameterContractBody = {
+    schema_version: "prompt_parameter_contract_v1",
+    parameters: [],
+  };
+  const parameterContract = {
+    ...parameterContractBody,
+    contract_hash: canonicalJsonHash(parameterContractBody),
+  };
+  const behaviorContract = {
+    schema_version: "prompt_behavior_contract_v1",
+    contracts: [],
+  };
+  const knotRoot = join(privateRepoRoot, "registry/knot");
+  mkdirSync(knotRoot, { recursive: true });
+  writeFileSync(
+    join(knotRoot, "prompt_parameter_contract_v1.json"),
+    `${JSON.stringify(parameterContract, null, 2)}\n`,
+  );
+  writeFileSync(
+    join(knotRoot, "prompt_behavior_contract_v1.json"),
+    `${JSON.stringify(behaviorContract, null, 2)}\n`,
+  );
   const stateFiles = MACRO_PROMPT_COHORT_IDS.flatMap((cohort) =>
     ALL_AGENTS.map((agent) => {
       const ref = `registry/prompt_parameter_states_v1/${cohort}/${parameterStage(agent)}/${agent}.json`;
@@ -450,8 +523,8 @@ function writeBootstrapFixture(privateRepoRoot: string, privatePromptsRoot: stri
   ).sort((left, right) => left.ref.localeCompare(right.ref));
   const body = {
     schema_version: "private_prompt_parameter_bootstrap_release_v1" as const,
-    parameter_contract_hash: `sha256:${"1".repeat(64)}`,
-    behavior_contract_hash: `sha256:${"2".repeat(64)}`,
+    parameter_contract_hash: parameterContract.contract_hash,
+    behavior_contract_hash: canonicalJsonHash(behaviorContract),
     agent_count: 28 as const,
     cohort_count: 8 as const,
     state_count: 224 as const,

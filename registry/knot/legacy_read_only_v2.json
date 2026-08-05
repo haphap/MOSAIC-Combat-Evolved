@@ -4,17 +4,14 @@
   "active_runtime": false,
   "writes_enabled": false,
   "retention_purpose": "historical experiment audit only",
-  "public_adapters": [
+  "public_tombstones": [
     "mosaic/scorecard/knot_v2.py",
-    "mosaic/autoresearch/private_knot_runtime.py",
     "mosaic/autoresearch/domain_evaluator.py",
-    "mosaic/autoresearch/domain_metrics.py",
+    "mosaic/autoresearch/domain_metrics.py"
+  ],
+  "public_fail_closed_legacy_ports": [
     "mosaic/bridge/handlers/darwinian.py",
-    "mosaic/bridge/tool_capabilities.py",
-    "mosaic-ts/src/agents/helpers/private_knot_boundary.ts",
-    "mosaic-ts/src/autoresearch/knot_contract.ts",
-    "mosaic-ts/src/autoresearch/private_knot_runtime.ts",
-    "mosaic-ts/scripts/generate_knot_contract_ref.ts"
+    "mosaic/bridge/tool_capabilities.py"
   ],
   "retired_rpc_prefixes": [
     "darwinian.knot_"

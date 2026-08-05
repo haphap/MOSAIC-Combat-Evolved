@@ -25,7 +25,7 @@ const promptTreeSha256 = createHash("sha256").update(JSON.stringify(treeRows)).d
 const manifest = {
   schema_version: "agent_prompt_role_contract_manifest_v2",
   private_prompt_repository: args.get("repository") ?? "haphap/MOSAIC-Prompts",
-  private_prompt_branch: args.get("branch") ?? "codex/macro-agent-role-contracts-v2",
+  private_prompt_branch: args.get("branch") ?? "codex/knot-prompt-optimizer-simplification-private",
   private_prompt_commit: release.private_prompt_commit,
   prompt_tree_sha256: promptTreeSha256,
   execution_behavior_release_id: release.execution_behavior_release_id,

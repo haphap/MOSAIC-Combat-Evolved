@@ -1,6 +1,7 @@
 import { LAYER_BY_AGENT, type Layer } from "./cohorts.js";
 import { loadPrompt } from "./loader.js";
 import { containsPrivateKnotPromptContent } from "./private_knot_prompt_markers.js";
+import type { PromptReleaseLoadContext } from "./release_prompt_loader.js";
 import { RUNTIME_AGENT_SPECS, type RuntimeAgentStageId } from "./runtime_agent_spec.js";
 
 export interface RuntimePromptCheckRow {
@@ -24,6 +25,7 @@ export async function checkRuntimePrompts(opts: {
   cohort: string;
   promptsRoot?: string;
   privatePromptsRoot?: string;
+  releaseContext?: PromptReleaseLoadContext | null;
   enabledAgents?: ReadonlySet<string>;
   enabledAgentStages?: ReadonlySet<string>;
 }): Promise<RuntimePromptCheckReport> {
@@ -77,7 +79,12 @@ function validateSelection(
 }
 
 async function promptReasons(
-  opts: { cohort: string; promptsRoot?: string; privatePromptsRoot?: string },
+  opts: {
+    cohort: string;
+    promptsRoot?: string;
+    privatePromptsRoot?: string;
+    releaseContext?: PromptReleaseLoadContext | null;
+  },
   agent: string,
   stage: RuntimeAgentStageId,
 ): Promise<string[]> {
@@ -91,6 +98,7 @@ async function promptReasons(
           stage,
           ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
           ...(opts.privatePromptsRoot ? { privatePromptsRoot: opts.privatePromptsRoot } : {}),
+          ...(opts.releaseContext !== undefined ? { releaseContext: opts.releaseContext } : {}),
           noCache: true,
         }),
       ),

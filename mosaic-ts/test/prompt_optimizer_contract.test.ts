@@ -109,10 +109,12 @@ function candidate() {
 }
 
 describe("prompt optimizer public contracts", () => {
-  it("covers every one of the 28 Agents and 29 stage bindings", () => {
+  it("covers all 28 Agent-owned champions and rejects the shared CIO proposal stage", () => {
     expect(new Set(RUNTIME_AGENT_STAGE_SPECS.map((row) => row.agent)).size).toBe(28);
     expect(RUNTIME_AGENT_STAGE_SPECS).toHaveLength(29);
-    for (const row of RUNTIME_AGENT_STAGE_SPECS) {
+    for (const row of RUNTIME_AGENT_STAGE_SPECS.filter(
+      (value) => !(value.agent === "cio" && value.stage === "cio_proposal"),
+    )) {
       expect(
         PromptOptimizerTargetSchema.parse({
           agentId: row.agent,
@@ -121,6 +123,13 @@ describe("prompt optimizer public contracts", () => {
         }),
       ).toBeDefined();
     }
+    expect(() =>
+      PromptOptimizerTargetSchema.parse({
+        agentId: "cio",
+        stage: "cio_proposal",
+        cohort: "cohort_default",
+      }),
+    ).toThrow(/shares the cio_final Prompt champion/);
   });
 
   it("rejects a stage owned by a different Agent", () => {

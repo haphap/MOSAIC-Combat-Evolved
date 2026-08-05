@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { MACRO_ROLE_CONTRACTS } from "../src/agents/macro/_contracts.js";
 import { ALL_AGENTS } from "../src/agents/prompts/cohorts.js";
+import type { ActivePromptReleaseManifest } from "../src/agents/prompts/prompt_release_contract.js";
 import {
   type ExecutionBehaviorReleaseManifest,
   productionVariantRosterId,
@@ -266,6 +267,25 @@ describe("Darwinian production runtime binding", () => {
         executionBehaviorRelease: privateEndpointRelease,
       }),
     ).toThrow(/base URL mode/);
+  });
+
+  it("rejects an active Prompt Release that differs from the attested execution identity", () => {
+    const activePromptRelease = {
+      prompt_commit: "b".repeat(40),
+      lifecycle_state: "active",
+      activation_scope: { cohort: "cohort_default" },
+    } as ActivePromptReleaseManifest;
+    expect(() =>
+      buildDarwinianRuntimeBinding({
+        cohortId: "cohort_default",
+        config: config(),
+        llmHandle: { provider: "fake", model: "fake-model", baseUrl: undefined },
+        promptPreflight: preflight(),
+        executionBehaviorRelease: release(),
+        activePromptRelease,
+        effectiveAt: "2026-07-17T09:00:00.000Z",
+      }),
+    ).toThrow(/active Prompt Release/);
   });
 
   it("validates the complete component snapshot before graph execution", () => {

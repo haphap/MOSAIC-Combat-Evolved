@@ -51,7 +51,6 @@ REQUIRED_SCHEMA_FILES = {
     "agent_tool_contract_manifest_v1.schema.json",
     "sector_universe_manifest_v1.schema.json",
     "agent_outcome_contract_manifest_v2.schema.json",
-    "knot_runtime_contract_ref_v2.schema.json",
     "execution_behavior_release_manifest_v2.schema.json",
     "deterministic_decision_policy_release_v1.schema.json",
     "prompt_release_contract_ref_v2.schema.json",

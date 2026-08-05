@@ -20,6 +20,7 @@
 
 import { END, START, StateGraph } from "@langchain/langgraph";
 import { AcceptedAgentOutputStore } from "../agents/accepted_output.js";
+import type { PromptReleaseLoadContext } from "../agents/prompts/release_prompt_loader.js";
 import { buildAgricultureNode } from "../agents/sector/agriculture.js";
 import { buildBiotechNode } from "../agents/sector/biotech.js";
 import { buildConsumerNode } from "../agents/sector/consumer.js";
@@ -45,6 +46,7 @@ export interface BuildLayer2GraphDeps {
   agentTimeoutSeconds?: number;
   /** Override prompt-root directory (tests inject a tmpdir). */
   promptsRoot?: string;
+  promptReleaseContext?: PromptReleaseLoadContext | null;
   acceptedOutputStore?: AcceptedAgentOutputStore;
 }
 

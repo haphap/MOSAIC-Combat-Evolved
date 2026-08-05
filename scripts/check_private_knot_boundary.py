@@ -79,6 +79,26 @@ FORBIDDEN_PUBLIC_ASSETS = (
     ROOT / "mosaic-ts" / "src" / "agents" / "prompts" / "prompt_governance_registry.ts",
     ROOT / "mosaic-ts" / "src" / "agents" / "prompts" / "tool_metric_registry.ts",
     ROOT / "mosaic-ts" / "src" / "autoresearch" / "transaction_coordinator.ts",
+    ROOT / "mosaic-ts" / "src" / "agents" / "helpers" / "private_knot_boundary.ts",
+    ROOT
+    / "mosaic-ts"
+    / "src"
+    / "agents"
+    / "prompts"
+    / "private_knot_prompt_checker.ts",
+    ROOT
+    / "mosaic-ts"
+    / "src"
+    / "agents"
+    / "prompts"
+    / "private_knot_stage_enablement.ts",
+    ROOT / "mosaic-ts" / "src" / "autoresearch" / "knot_contract.ts",
+    ROOT / "mosaic-ts" / "src" / "autoresearch" / "private_knot_runtime.ts",
+    ROOT / "mosaic" / "autoresearch" / "private_knot_runtime.py",
+    PROMPT_CHECKS / "private_knot_assets_ref_v1.json",
+    PROMPT_CHECKS / "knot_runtime_contract_ref_v2.json",
+    ROOT / "schemas" / "private_knot_assets_ref_v1.schema.json",
+    ROOT / "schemas" / "knot_runtime_contract_ref_v2.schema.json",
 )
 FORBIDDEN_SOURCE_MARKERS = (
     "confidence_caps",
@@ -88,12 +108,6 @@ FORBIDDEN_SOURCE_MARKERS = (
 )
 SOURCE_MARKER_ALLOWLIST = {
     ROOT / "mosaic-ts" / "src" / "agents" / "prompts" / "loader.ts",
-    ROOT
-    / "mosaic-ts"
-    / "src"
-    / "agents"
-    / "prompts"
-    / "private_knot_prompt_checker.ts",
     ROOT
     / "mosaic-ts"
     / "src"

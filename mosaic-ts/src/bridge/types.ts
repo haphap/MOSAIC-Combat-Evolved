@@ -2344,6 +2344,8 @@ export class BridgeApi {
     cohort?: string;
     agents?: string[];
     langs?: PromptLang[];
+    prompt_repo_revision?: string;
+    allow_non_head_revision?: boolean;
   }): Promise<PromptPreflightResult> {
     return this.client.call<PromptPreflightResult>("prompts.preflight", params ?? {});
   }

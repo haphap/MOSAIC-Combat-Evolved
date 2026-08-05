@@ -73,6 +73,7 @@ import {
   terminateAgentToolCapability,
 } from "../helpers/tool_capability.js";
 import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
+import type { PromptReleaseLoadContext } from "../prompts/release_prompt_loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type { AcceptedMacroTransmission, MacroAgentId, MacroAgentSubmission } from "../types.js";
 import {
@@ -133,6 +134,8 @@ export interface LayerOneAgentDeps {
   /** Override the prompt-root directory (tests inject a tmpdir). Defaults to
    *  ``findPromptsRoot()`` resolution. */
   promptsRoot?: string;
+  /** Run-scoped Prompt Release identity; null explicitly selects the pinned checkout. */
+  promptReleaseContext?: PromptReleaseLoadContext | null;
   /** Shared run-scoped accepted-record store. Required for production runs. */
   acceptedOutputStore?: AcceptedAgentOutputStore;
 }
@@ -193,6 +196,9 @@ export function buildLayerOneAgentNode(
                 cohort,
               });
             },
+            ...(deps.promptReleaseContext !== undefined
+              ? { releaseContext: deps.promptReleaseContext }
+              : {}),
             ...(deps.promptsRoot ? { promptsRoot: deps.promptsRoot } : {}),
           });
           systemPrompt = `${systemPrompt}\n\n${renderMacroRuntimeContract(

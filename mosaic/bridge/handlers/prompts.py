@@ -331,6 +331,10 @@ def _prompt_sha256(files: dict[str, str]) -> str:
     return digest.hexdigest()
 
 
+def _raw_prompt_sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def _expected_base_hashes(value: Any, files: dict[str, str]) -> dict[str, str]:
     if value is None:
         return {}
@@ -416,6 +420,20 @@ def _git_run(cwd: Path, *args: str) -> str:
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or proc.stdout.strip())
     return proc.stdout.strip()
+
+
+def _git_show_utf8(cwd: Path, revision: str, relative_path: str) -> str:
+    proc = subprocess.run(
+        ["git", "show", f"{revision}:{relative_path}"],
+        cwd=str(cwd),
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        raise FileNotFoundError(relative_path)
+    try:
+        return proc.stdout.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RuntimeError("private prompt is not valid UTF-8") from exc
 
 
 def _git_dirty_count(repo: Path) -> int:
@@ -833,6 +851,33 @@ def prompts_preflight(params: dict[str, Any]) -> dict[str, Any]:
         default=_LANGS,
     )
     source = _formal_prompt_source()
+    requested_revision = _optional_str(params, "prompt_repo_revision")
+    allow_non_head_revision = params.get("allow_non_head_revision", False)
+    if not isinstance(allow_non_head_revision, bool):
+        raise RpcError(INVALID_PARAMS, "'allow_non_head_revision' must be boolean")
+    if source.get("ready") and requested_revision:
+        if re.fullmatch(r"[0-9a-f]{40}", requested_revision) is None:
+            raise RpcError(INVALID_PARAMS, "'prompt_repo_revision' must be a full commit hash")
+        try:
+            resolved_revision = _git_run(
+                Path(source["repo_root"]),
+                "rev-parse",
+                "--verify",
+                f"{requested_revision}^{{commit}}",
+            )
+        except Exception as exc:
+            raise RpcError(INVALID_PARAMS, "prompt repository revision is unavailable") from exc
+        if resolved_revision != requested_revision:
+            raise RpcError(INVALID_PARAMS, "prompt repository revision must be canonical")
+        if (
+            requested_revision != source["prompt_repo_revision"]
+            and not allow_non_head_revision
+        ):
+            raise RpcError(
+                INVALID_PARAMS,
+                "non-HEAD prompt revision requires a verified release context",
+            )
+        source = {**source, "prompt_repo_revision": requested_revision}
     rows: list[dict[str, Any]] = []
     for agent in agents:
         layer = _LAYER_BY_AGENT[agent]
@@ -850,7 +895,13 @@ def prompts_preflight(params: dict[str, Any]) -> dict[str, Any]:
 
             path = Path(source["prompts_root"]) / cohort / layer / f"{agent}.{lang}.md"
             rel = path.relative_to(Path(source["repo_root"]))
-            if not path.exists():
+            try:
+                text = _git_show_utf8(
+                    Path(source["repo_root"]),
+                    source["prompt_repo_revision"],
+                    rel.as_posix(),
+                )
+            except FileNotFoundError:
                 rows.append(
                     _blocked_prompt_preflight_row(
                         cohort=cohort,
@@ -861,7 +912,6 @@ def prompts_preflight(params: dict[str, Any]) -> dict[str, Any]:
                     )
                 )
                 continue
-            text = path.read_text(encoding="utf-8")
             rows.append({
                 "agent": agent,
                 "layer": layer,
@@ -871,7 +921,7 @@ def prompts_preflight(params: dict[str, Any]) -> dict[str, Any]:
                 "prompt_repo_id": source["prompt_repo_id"],
                 "prompt_repo_revision": source["prompt_repo_revision"],
                 "prompt_file_path": rel.as_posix(),
-                "prompt_sha256": _prompt_sha256({rel.as_posix(): text}),
+                "prompt_sha256": _raw_prompt_sha256(text),
                 "resolved_source": source["resolved_source"],
                 "fallback_used": False,
             })
@@ -1175,7 +1225,7 @@ def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
             if read_error:
                 blockers.append(read_error)
             elif text is not None:
-                computed_sha = _prompt_sha256({prompt_file_path: text})
+                computed_sha = _raw_prompt_sha256(text)
                 if not prompt_sha:
                     blockers.append("prompt_sha256_missing")
                     prompt_sha = computed_sha
