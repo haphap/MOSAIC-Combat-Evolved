@@ -10,13 +10,16 @@ import subprocess
 from pathlib import Path
 from typing import Any, Mapping
 
+from mosaic.scorecard.canonical_json import canonical_hash
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PROMPT_CHECKS = ROOT / "registry" / "prompt_checks"
 RUNTIME_AGENT_MANIFEST_PATH = PROMPT_CHECKS / "runtime_agent_manifest_v5.json"
-EXECUTION_RELEASE_PATH = (
-    PROMPT_CHECKS / "execution_behavior_release_manifest_v2.json"
+PROMPT_RELEASE_CONTRACT_REF_PATH = (
+    PROMPT_CHECKS / "prompt_release_contract_ref_v2.json"
 )
+EXECUTION_RELEASE_ARCHIVE_ROOT = PROMPT_CHECKS / "execution_behavior_releases"
 PUBLIC_LEGACY_INVENTORY_PATH = ROOT / "registry" / "knot" / "legacy_read_only_v2.json"
 PRIVATE_LEGACY_INVENTORY_PATH = Path("registry/knot/legacy_read_only_v1.json")
 PRIVATE_PACKAGE_PATH = Path("runtime/typescript/package.json")
@@ -34,11 +37,11 @@ ACTIVE_PRIVATE_EXPORTS = {
 ACTIVE_PRIVATE_BUILD_ENTRIES = ["src/index.ts", "src/cli.ts"]
 PRIVATE_ACTIVE_REQUIRED_SOURCES = {
     "autoresearch/prompt_behavior_contract.ts",
-    "autoresearch/prompt_behavior_evaluation_contract.ts",
     "autoresearch/prompt_candidate_repository.ts",
     "autoresearch/prompt_mutator.ts",
     "autoresearch/prompt_parameter_contract.ts",
     "autoresearch/prompt_parameter_inventory.ts",
+    "autoresearch/prompt_parameter_seed_inventory.ts",
     "autoresearch/prompt_parameter_renderer.ts",
     "autoresearch/prompt_parameter_state.ts",
     "autoresearch/prompt_training_evaluator.ts",
@@ -172,6 +175,104 @@ def _private_root() -> Path | None:
     return root
 
 
+def _execution_release_private_commit() -> str:
+    contract_ref = _read_object(
+        PROMPT_RELEASE_CONTRACT_REF_PATH, "Prompt Release contract ref"
+    )
+    if contract_ref.get("schema_version") != "prompt_release_contract_ref_v2":
+        raise ValueError("Prompt Release contract ref version mismatch")
+    sources = _mapping(contract_ref.get("sources"), "Prompt Release sources")
+    binding = _mapping(
+        sources.get("execution_behavior_release_archive"),
+        "execution behavior release binding",
+    )
+    archive_ref = binding.get("path")
+    release_id = binding.get("release_id")
+    release_hash = binding.get("release_hash")
+    if not all(isinstance(value, str) for value in (archive_ref, release_id, release_hash)):
+        raise ValueError("execution behavior release binding is incomplete")
+    match = re.fullmatch(
+        r"registry/prompt_checks/execution_behavior_releases/"
+        r"([0-9a-f]{64})--([0-9a-f]{64})\.json",
+        archive_ref,
+    )
+    if (
+        match is None
+        or release_id != f"execution-behavior-release:{match.group(1)}"
+        or release_hash != f"sha256:{match.group(2)}"
+    ):
+        raise ValueError("execution behavior release archive ref is not content-addressed")
+    archive_path = (ROOT / archive_ref).resolve()
+    if archive_path.parent != EXECUTION_RELEASE_ARCHIVE_ROOT.resolve():
+        raise ValueError("execution behavior release archive escapes its registry")
+    release = _read_object(archive_path, "execution behavior release archive")
+    expected_keys = {
+        "schema_version",
+        "execution_behavior_release_id",
+        "execution_behavior_release_hash",
+        "private_prompt_commit",
+        "private_prompt_bootstrap",
+        "provider_binding",
+        "active_production_variants",
+        "execution_contracts",
+    }
+    private_commit = release.get("private_prompt_commit")
+    if (
+        set(release) != expected_keys
+        or release.get("schema_version") != "execution_behavior_release_manifest_v3"
+        or release.get("execution_behavior_release_id") != release_id
+        or release.get("execution_behavior_release_hash") != release_hash
+        or not isinstance(private_commit, str)
+        or re.fullmatch(r"[0-9a-f]{40}", private_commit) is None
+    ):
+        raise ValueError("execution behavior release archive identity mismatch")
+    bootstrap = _mapping(
+        release.get("private_prompt_bootstrap"), "private Prompt bootstrap"
+    )
+    if (
+        bootstrap.get("schema_version")
+        != "private_prompt_parameter_bootstrap_release_v1"
+        or bootstrap.get("state_count") != 224
+        or not isinstance(release.get("active_production_variants"), list)
+        or len(release["active_production_variants"]) != 16
+        or not isinstance(release.get("execution_contracts"), list)
+        or len(release["execution_contracts"]) != 56
+    ):
+        raise ValueError("execution behavior release archive schema mismatch")
+    without_hash = {
+        key: release[key]
+        for key in (
+            "schema_version",
+            "execution_behavior_release_id",
+            "private_prompt_commit",
+            "private_prompt_bootstrap",
+            "provider_binding",
+            "active_production_variants",
+            "execution_contracts",
+        )
+    }
+    if canonical_hash(without_hash) != release_hash:
+        raise ValueError("execution behavior release archive hash mismatch")
+    release_content = {
+        key: release[key]
+        for key in (
+            "schema_version",
+            "private_prompt_commit",
+            "private_prompt_bootstrap",
+            "provider_binding",
+            "active_production_variants",
+            "execution_contracts",
+        )
+    }
+    expected_release_id = (
+        "execution-behavior-release:"
+        + canonical_hash(release_content).removeprefix("sha256:")
+    )
+    if expected_release_id != release_id:
+        raise ValueError("execution behavior release ID mismatch")
+    return private_commit
+
+
 def _check_public_boundary() -> str:
     for path in FORBIDDEN_PUBLIC_ASSETS:
         if path.exists():
@@ -212,15 +313,7 @@ def _check_public_boundary() -> str:
                     f" {','.join(markers)}"
                 )
 
-    release = _read_object(EXECUTION_RELEASE_PATH, "execution behavior release")
-    private_commit = release.get("private_prompt_commit")
-    if (
-        release.get("schema_version") != "execution_behavior_release_manifest_v2"
-        or not isinstance(private_commit, str)
-        or re.fullmatch(r"[0-9a-f]{40}", private_commit) is None
-    ):
-        raise ValueError("execution release does not pin a private Prompt commit")
-    return private_commit
+    return _execution_release_private_commit()
 
 
 def _check_private_repository(private_root: Path, expected_commit: str) -> None:
@@ -250,12 +343,22 @@ def _check_private_repository(private_root: Path, expected_commit: str) -> None:
     legacy = _read_object(
         private_root / PRIVATE_LEGACY_INVENTORY_PATH, "private legacy inventory"
     )
+    archive = _mapping(legacy.get("archive"), "private legacy archive")
+    seed_audit = _mapping(
+        legacy.get("seed_inventory_audit"), "private seed inventory audit"
+    )
     if (
         legacy.get("schema_version") != "knot_legacy_read_only_v1"
-        or legacy.get("status") != "legacy_read_only"
+        or legacy.get("status") != "archived_deleted"
         or legacy.get("writes_allowed") is not False
         or legacy.get("runtime_import_allowed") is not False
-        or legacy.get("active_package") != ACTIVE_PRIVATE_PACKAGE
+        or not isinstance(archive.get("commit"), str)
+        or re.fullmatch(r"[0-9a-f]{40}", archive["commit"]) is None
+        or archive.get("retrieval") != "git show <commit>:<historical-path>"
+        or seed_audit.get("numeric_seed_count") != 215
+        or seed_audit.get("runtime_authority") is not False
+        or not isinstance(seed_audit.get("sha256"), str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", seed_audit["sha256"]) is None
     ):
         raise ValueError("private legacy KNOT inventory is not fail-closed")
 

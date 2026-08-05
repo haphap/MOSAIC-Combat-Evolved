@@ -52,26 +52,29 @@ pnpm dev darwinian --cohort cohort_default
 
 > Forward-return back-fill is the `scorecard.score_pending` **RPC** (`BridgeApi.scorecardScorePending`), invoked programmatically / by the daily pipeline — it is not currently a standalone CLI subcommand. See [Scorecard & Paper Trading](Scorecard-and-Paper-Trading.md).
 
-## Legacy Autoresearch diagnostics
+## Prompt Autoresearch
 
 ```bash
-pnpm dev autoresearch trigger --cohort crisis_2008 --dry-run --fake-llm --eval-days 5
-pnpm dev autoresearch evaluate --cohort crisis_2008
+pnpm dev autoresearch generate-candidate --request REQUEST.json \
+  --private-cli /path/to/private/dist/cli.js \
+  --private-repo "$MOSAIC_PROMPTS_REPO" \
+  --mutation-adapter "$MOSAIC_PROMPTS_REPO/path/to/tracked-adapter.js"
+pnpm dev autoresearch shadow-run --plan SHADOW_PLAN.json --adapter EVALUATION_ADAPTER.js
 pnpm dev autoresearch log --cohort crisis_2008
 ```
-Subcommands: `trigger`, `evaluate`, `log`, `branches`, `revert`, and
-`review-domain`. This surface is audit-only: evaluation terminates as
-`legacy_unverified`, `review-domain` accepts only `--decision revert`, and no
-command can publish a production behavior. New Prompt evolution uses the
-private training-only mutator, generic frozen Experiment Runner, and ordinary
-Prompt Release canary/rollback flow.
+Subcommands: `generate-candidate`, `shadow-run`, `log`, and `branches`.
+Candidate generation sends only the frozen public training projection to the
+private Prompt mutator. The mutation adapter must be a tracked file inside the
+same private repository at its exact `HEAD`; mutator identity is derived from
+that committed state, not supplied by the caller. `shadow-run` freezes the
+model/tool/adapter/evaluator environment and has no release activation path.
+Promotion uses the separate Prompt Release canary/rollback flow.
 
 ## Prompt Operations
 
 ```bash
 pnpm dev prompts init-private-repo ~/private-mosaic-prompts
 pnpm dev prompts audit-versions --status keep
-pnpm dev prompts verify-release --version-id 123
 pnpm dev prompts prompt-token-budget \
   --private-prompts-root /path/to/MOSAIC-Prompts/prompts/mosaic \
   --baseline ../registry/prompt_checks/prompt_token_budget_manifest_v1.json \
@@ -81,7 +84,6 @@ pnpm dev prompts gc-worktrees --repo-target all --max-age-hours 24
 
 - `init-private-repo` creates the sparse private prompt repo. `--seed-baseline` is migration-only and creates broad override shadowing.
 - `audit-versions` prints metadata only: ids, hashes, repo id, status, metrics, and branches. It does not show prompt content.
-- `verify-release` checks the pinned release tuple (`code_commit_hash`, `prompt_repo_id`, `prompt_commit_hash`, `prompt_sha256`), recomputes the prompt SHA at the commit, and runs the tool compatibility gate.
 - Legacy domain/research-knob catalogs remain private read-only audit data; the
   active mutator does not load or export them.
 - `prompt-token-budget` measures all 116 private/bundled stage-language rows
@@ -94,6 +96,11 @@ pnpm dev prompts gc-worktrees --repo-target all --max-age-hours 24
 Release lifecycle commands are separate from prompt asset commands:
 
 ```bash
+pnpm dev prompt-release build-baseline --release-id BASELINE_ID \
+  --private-prompt-commit PRIVATE_COMMIT --code-commit CODE_COMMIT \
+  --execution-behavior-release-ref registry/prompt_checks/execution_behavior_releases/ID--HASH.json \
+  --approval-record REVIEWED_APPROVAL.json --out APPROVED_BASELINE.json \
+  --private-prompts-repo "$MOSAIC_PROMPTS_REPO"
 pnpm dev prompt-release provision-baseline --manifest APPROVED_BASELINE.json \
   --private-prompts-repo "$MOSAIC_PROMPTS_REPO" --approved-by operator:NAME \
   --reason 'import previously approved baseline'
@@ -109,17 +116,23 @@ pnpm dev prompt-release rollback --release-id RELEASE_ID \
   --approved-by operator:NAME --reason 'operator rollback'
 ```
 
+`build-baseline` computes all prompt pairs, fallback pairs, stage hashes, and
+contract closure. Its approval record must contain genuine previously reviewed
+canary/SLO evidence; the builder never manufactures approval evidence.
+
 Set `MOSAIC_PROMPT_CANARY_EVENT_LOG` before canary traffic and keep it set for
 summary and activation. Activation recomputes the assignment/terminal journal
 closure; handwritten, stale, or subset measurements are rejected.
 
-## PRISM (multi-regime training)
+## PRISM (historical audit)
 
 ```bash
 pnpm dev prism list
-pnpm dev prism train --cohort crisis_2008 --fake-llm
+pnpm dev prism status --cohort crisis_2008
+pnpm dev prism compare --metric sharpe
 ```
-Subcommands: `list`, `train`, `status`, `compare`. `train` options: `--cohort`/`--all`, `--start`/`--end`, `--dry-run`, `--fake-llm`, `--max-concurrent <n>`, `--max-mutations <n>`, LLM flags.
+Subcommands: `list`, `status`, and `compare`. They are read-only views of
+historical cohort runs; PRISM no longer writes Prompt Candidates.
 
 ## JANUS (cross-cohort meta-weights)
 
@@ -152,13 +165,10 @@ pnpm dev backtest --cohort cohort_default
 Options: `--cohort`, `--prompt-commit-hash <hash>`, `--fake-llm`, LLM flags, `--veto-threshold <num>`, `--initial-cash <amount>`, `--benchmark <ticker>`, `--force-refill`, `--log-every <n>`, `--out <path>`. Plus `backtest-fill` for the cache-fill stage.
 Stage-1 carry-over rebuilds `current_positions` from prior target weights and records holding days, entry thesis id, realized/unrealized PnL, residual drift, and closed-position exit reasons.
 
-For the resumable 2009→latest PIT walk-forward path, use `backtest-evolve` with a pinned
-private Prompt commit and a `.mosaic/` run directory. It resolves the current sndr
-`nvidia-qwen3.6-35b-a3b-nvfp4-5090` preset, keeps Fish context disabled, checkpoints every
-trading day, rejects sndr settings outside the operational 128K/0.85 envelope, and evaluates
-monthly historical Prompt candidates in isolated private branches. Sustained real-model runs
-must use the runbook's VRAM guard so the 256 MiB compute-card floor is measured and enforced.
-See [2009 Agents historical evolution runbook](../runbooks/agents_history_evolution_2009.md).
+The retired `backtest-evolve` writer is not part of the Prompt optimizer. Use
+the generic frozen Experiment Runner for Prompt comparisons and the ordinary
+backtest command for portfolio evaluation; neither path silently promotes a
+Prompt.
 
 > The `--out` flag writes the metrics JSON. Full ATLAS-isomorphic artifacts (`summary.json` / `portfolio_trajectory.csv` / `equity_curve.png`) are produced by the `backtest.run_historical` **RPC** when called with a `results_dir` (see [Bridge RPC](Bridge-RPC.md)); not yet a `backtest` CLI flag.
 

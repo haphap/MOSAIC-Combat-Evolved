@@ -1,8 +1,7 @@
 """Tests for prompts.* JSON-RPC handlers (Plan §11.5 4B).
 
 Uses MOSAIC_REPO_ROOT to point the handler at a throwaway git repo, then
-exercises read (working tree + ref), write (working tree + branch commit),
-and the cohort_default fallback.
+exercises read-only history and prompt-contract inspection.
 """
 
 from __future__ import annotations
@@ -18,7 +17,6 @@ from mosaic.bridge.handlers import prompts as _prompts
 from mosaic.bridge.protocol import RpcError
 from mosaic.bridge.registry import get_handler
 from mosaic.autoresearch.prompt_repo import init_private_prompt_repo
-from mosaic.scorecard.store import ScorecardStore
 
 DEFAULT_REL = "prompts/mosaic/cohort_default/macro/us_financial_conditions.zh.md"
 BRANCH = "cohort/crisis_2008/auto/us_financial_conditions/2008-09-15"
@@ -187,232 +185,24 @@ class TestRead:
             dispatch("prompts.read", {"agent": "cio", "cohort": "cohort_default", "lang": "zh"})
 
 
-# ── prompts.write ─────────────────────────────────────────────────────────
-
-
-class TestWrite:
-    def test_default_branch_routes_to_project_git(self, repo: Path):
-        # Orchestrator path: branch + no target → project feature-branch commit;
-        # no escape hatch / private repo required (keeps the autoresearch loop
-        # working until Phase 5 moves eval/read to the private repo).
-        r = dispatch("prompts.write", {
-            "agent": "us_financial_conditions", "cohort": "crisis_2008",
-            "contents": {"zh": "new zh\n## 输出 schema\n"},
-            "branch": BRANCH,
-        })
-        assert r["target"] == "project_git"
-        assert len(r["commit_hash"]) == 40
-        assert not (repo / "prompts/mosaic/crisis_2008").exists()
-
-    def test_private_git_requires_config(self, repo: Path):
-        with pytest.raises(RpcError, match="MOSAIC_PROMPTS_REPO"):
-            dispatch("prompts.write", {
-                "agent": "us_financial_conditions", "cohort": "crisis_2008",
-                "contents": {"zh": "new zh\n"},
-                "target": "private_git",
-                "branch": BRANCH,
-            })
-
-    def test_to_private_git_branch_commits(self, repo: Path, tmp_path: Path, monkeypatch):
-        private_repo = tmp_path / "private-prompts"
-        init_private_prompt_repo(private_repo, project_root=repo)
-        monkeypatch.setenv("MOSAIC_PRIVATE_PROMPT_REPO", str(private_repo))
-
-        r = dispatch("prompts.write", {
-            "agent": "us_financial_conditions", "cohort": "crisis_2008",
-            "contents": {"zh": "new zh\n## 输出 schema\n", "en": "new en\n## Output schema\n"},
-            "target": "private_git",
-            "branch": BRANCH,
-        })
-        assert r["target"] == "private_git"
-        assert r["prompt_repo_id"] == "private"
-        assert len(r["prompt_base_commit_hash"]) == 40
-        assert len(r["prompt_commit_hash"]) == 40
-        assert len(r["prompt_sha256"]) == 64
-        assert r["branch"] == BRANCH
-        assert len(r["paths"]) == 2
-        assert not (repo / "prompts/mosaic/crisis_2008").exists()
-        assert not (private_repo / "prompts/mosaic/crisis_2008").exists()
-        prompt_at_branch = _git(
-            private_repo,
-            "show",
-            f"{BRANCH}:prompts/mosaic/crisis_2008/macro/us_financial_conditions.zh.md",
-        )
-        assert prompt_at_branch.startswith("new zh")
-
-    def test_rejects_private_knot_extra_files(self, repo: Path):
-        with pytest.raises(RpcError, match="private KNOT files cannot cross"):
-            dispatch("prompts.write", {
-                "agent": "cio",
-                "cohort": "cohort_default",
-                "contents": {"zh": "new zh\n"},
-                "extra_files": {"registry/knot/private.json": "{}"},
-                "target": "project_git",
-                "branch": BRANCH,
-            })
-
-    def test_candidate_state_and_abort_are_hash_bound(
-        self, repo: Path, tmp_path: Path, monkeypatch
-    ):
-        private_repo = tmp_path / "private-prompts"
-        init_private_prompt_repo(private_repo, project_root=repo)
-        monkeypatch.setenv("MOSAIC_PRIVATE_PROMPT_REPO", str(private_repo))
-        content = "candidate prompt\n"
-        path = "prompts/mosaic/crisis_2008/macro/us_financial_conditions.zh.md"
-        dispatch(
-            "prompts.write",
-            {
-                "agent": "us_financial_conditions",
-                "cohort": "crisis_2008",
-                "contents": {"zh": content},
-                "target": "private_git",
-                "branch": BRANCH,
-            },
-        )
-        expected = f"sha256:{hashlib.sha256(content.encode('utf-8')).hexdigest()}"
-
-        state = dispatch(
-            "prompts.candidate_state",
-            {"branch": BRANCH, "expected_hashes": {path: expected}},
-        )
-        assert state["candidate_visible"] is True
-        assert len(state["new_commit"]) == 40
-
-        dispatch("prompts.abort_candidate", {"branch": BRANCH})
-        missing = dispatch(
-            "prompts.candidate_state",
-            {"branch": BRANCH, "expected_hashes": {path: expected}},
-        )
-        assert missing == {
-            "candidate_visible": False,
-            "new_commit": None,
-            "hashes_match": False,
-        }
-    def test_to_private_git_accepts_mosaic_prompts_repo(self, repo: Path, tmp_path: Path, monkeypatch):
-        private_repo = tmp_path / "MOSAIC-Prompts"
-        init_private_prompt_repo(private_repo, project_root=repo)
-        monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
-        monkeypatch.setenv("MOSAIC_PROMPTS_REPO_ID", "haphap/MOSAIC-Prompts")
-
-        r = dispatch("prompts.write", {
-            "agent": "us_financial_conditions", "cohort": "crisis_2008",
-            "contents": {"zh": "new zh\n"},
-            "target": "private_git",
-            "branch": BRANCH,
-        })
-
-        assert r["target"] == "private_git"
-        assert r["prompt_repo_id"] == "haphap/MOSAIC-Prompts"
-        assert len(r["prompt_commit_hash"]) == 40
-
-    def test_to_project_git_branch_commits(self, repo: Path):
-        base_ref = _git(repo, "rev-list", "--max-parents=0", "HEAD").strip()
-        zh_content = "new zh\n## 输出 schema\n"
-        en_content = "new en\n## Output schema\n"
-        r = dispatch("prompts.write", {
-            "agent": "us_financial_conditions", "cohort": "crisis_2008",
-            "contents": {"zh": zh_content, "en": en_content},
-            "target": "project_git",
-            "branch": BRANCH,
-            "base_ref": base_ref,
-        })
-        assert r["target"] == "project_git"
-        assert r["prompt_repo_id"] == "project"
-        assert len(r["commit_hash"]) == 40
-        assert len(r["prompt_sha256"]) == 64
-        assert r["branch"] == BRANCH
-        assert r["prompt_base_commit_hash"] == base_ref
-        assert len(r["paths"]) == 2
-        assert _git(repo, "rev-parse", f"{BRANCH}^").strip() == base_ref
-        # primary tree untouched (commit built in a worktree)
-        assert not (repo / "prompts/mosaic/crisis_2008").exists()
-        # readable back at the branch ref
-        back = dispatch("prompts.read", {
-            "agent": "us_financial_conditions", "cohort": "crisis_2008", "lang": "zh", "ref": BRANCH,
-        })
-        assert back["content"].startswith("new zh")
-        expected_hashes = {
-            "prompts/mosaic/crisis_2008/macro/us_financial_conditions.zh.md": (
-                f"sha256:{hashlib.sha256(zh_content.encode('utf-8')).hexdigest()}"
-            ),
-            "prompts/mosaic/crisis_2008/macro/us_financial_conditions.en.md": (
-                f"sha256:{hashlib.sha256(en_content.encode('utf-8')).hexdigest()}"
-            ),
-        }
-        state = dispatch(
-            "prompts.candidate_state",
-            {
-                "branch": BRANCH,
-                "target": "project_git",
-                "expected_hashes": expected_hashes,
-            },
-        )
-        assert state["candidate_visible"] is True
-        dispatch(
-            "prompts.abort_candidate",
-            {"branch": BRANCH, "target": "project_git"},
-        )
-        assert _git(repo, "branch", "--list", BRANCH).strip() == ""
-
-    def test_project_git_rejects_stale_candidate_base(self, repo: Path):
-        path = "prompts/mosaic/cohort_default/macro/us_financial_conditions.zh.md"
-        with pytest.raises(RpcError, match="base files do not match expected hashes"):
-            dispatch(
-                "prompts.write",
-                {
-                    "agent": "us_financial_conditions",
-                    "cohort": "cohort_default",
-                    "contents": {"zh": "candidate zh\n"},
-                    "target": "project_git",
-                    "branch": BRANCH,
-                    "base_ref": "main",
-                    "expected_base_hashes": {path: f"sha256:{'0' * 64}"},
-                },
-            )
-        assert _git(repo, "branch", "--list", BRANCH).strip() == ""
-
-    def test_to_working_tree(self, repo: Path):
-        r = dispatch("prompts.write", {
-            "agent": "us_financial_conditions", "cohort": "crisis_2008",
-            "contents": {"zh": "wt zh\n"},
-            "allow_public_prompt_write": True,
-        })
-        assert "commit_hash" not in r
-        assert r["target"] == "working_tree"
-        assert len(r["prompt_sha256"]) == 64
-        assert (
-            repo
-            / "prompts/mosaic/crisis_2008/macro/us_financial_conditions.zh.md"
-        ).exists()
-
-    def test_working_tree_requires_allow(self, repo: Path):
-        with pytest.raises(RpcError, match="allow_public_prompt_write"):
-            dispatch("prompts.write", {
-                "agent": "us_financial_conditions", "cohort": "crisis_2008",
-                "contents": {"zh": "wt zh\n"},
-            })
-
-    def test_bad_contents(self, repo: Path):
-        with pytest.raises(RpcError, match="contents"):
-            dispatch("prompts.write", {"agent": "us_financial_conditions", "cohort": "c", "contents": {}})
-
-    def test_bad_lang_key(self, repo: Path):
-        with pytest.raises(RpcError, match="contents"):
-            dispatch("prompts.write", {"agent": "us_financial_conditions", "cohort": "c", "contents": {"fr": "x"}})
-
-
-def test_prompts_methods_registered():
+def test_retired_prompt_writer_methods_are_absent():
     from mosaic.bridge.registry import all_methods
 
+    methods = set(all_methods())
+    assert {
+        "prompts.write",
+        "prompts.candidate_state",
+        "prompts.abort_candidate",
+        "prompts.verify_release",
+    }.isdisjoint(methods)
     assert {
         "prompts.read",
-        "prompts.write",
         "prompts.init_private_repo",
         "prompts.audit_versions",
         "prompts.preflight",
         "prompts.contract_check",
-        "prompts.verify_release",
-    }.issubset(set(all_methods()))
+        "prompts.formal_release_checks",
+    }.issubset(methods)
 
 
 def test_init_private_repo_rpc(repo: Path, tmp_path: Path):
@@ -439,27 +229,29 @@ def test_init_private_repo_rpc_can_seed_baseline(repo: Path, tmp_path: Path):
     ).read_text(encoding="utf-8").startswith("base zh")
 
 
-def test_audit_versions_returns_metadata_only(repo: Path, tmp_path: Path, monkeypatch):
-    store = ScorecardStore(tmp_path / "scorecard.db")
-    monkeypatch.setattr(_prompts, "_store", lambda: store)
-    vid = store.create_prompt_version(
-        cohort="cohort_default",
-        agent="us_financial_conditions",
-        branch_name=BRANCH,
-        base_commit_hash="a" * 40,
-    )
-    store.set_version_mutation(
-        vid,
-        "b" * 40,
-        "summary only",
-        prompt_repo_id="private",
-        prompt_sha256="f" * 64,
-        code_commit_hash="c" * 40,
-    )
+def test_audit_versions_returns_metadata_only(repo: Path, monkeypatch):
+    row = {
+        "id": 1,
+        "cohort": "cohort_default",
+        "agent": "us_financial_conditions",
+        "status": "keep",
+        "branch_name": BRANCH,
+        "base_commit_hash": "a" * 40,
+        "modification_commit_hash": "b" * 40,
+        "prompt_repo_id": "private",
+        "prompt_sha256": "f" * 64,
+        "code_commit_hash": "c" * 40,
+        "modification_summary": "summary only",
+    }
 
+    class AuditStore:
+        def list_prompt_versions(self, **_filters):
+            return [row]
+
+    monkeypatch.setattr(_prompts, "_store", AuditStore)
     result = dispatch("prompts.audit_versions", {"limit": 5})
 
-    assert result["versions"][0]["id"] == vid
+    assert result["versions"][0]["id"] == 1
     assert "content" not in result["versions"][0]
     assert "zh_prompt" not in result["versions"][0]
 
@@ -656,48 +448,6 @@ def test_preflight_rejects_project_prompt_root(repo: Path, monkeypatch):
     assert result["source_status"]["blocked_reason"] == "prompt_provenance_unavailable"
     assert result["rows"][0]["blocked_reason"] == "prompt_provenance_unavailable"
 
-
-def test_verify_release_checks_pin_metadata(repo: Path, tmp_path: Path, monkeypatch):
-    store = ScorecardStore(tmp_path / "scorecard.db")
-    monkeypatch.setattr(_prompts, "_store", lambda: store)
-    private_repo = tmp_path / "private-prompts"
-    init_private_prompt_repo(private_repo, project_root=repo)
-    monkeypatch.setenv("MOSAIC_PRIVATE_PROMPT_REPO", str(private_repo))
-    write = dispatch("prompts.write", {
-        "agent": "us_financial_conditions",
-        "cohort": "cohort_default",
-        "contents": {
-            "zh": "release zh\n## 输出 schema\n",
-            "en": "release en\n## Output schema\n",
-        },
-        "target": "private_git",
-        "branch": BRANCH,
-    })
-    vid = store.create_prompt_version(
-        cohort="cohort_default",
-        agent="us_financial_conditions",
-        branch_name=BRANCH,
-        base_commit_hash="a" * 40,
-        code_commit_hash="c" * 40,
-    )
-    store.set_version_mutation(
-        vid,
-        write["prompt_commit_hash"],
-        "release candidate",
-        prompt_repo_id="private",
-        prompt_base_commit_hash=write["prompt_base_commit_hash"],
-        prompt_sha256=write["prompt_sha256"],
-        code_commit_hash="c" * 40,
-    )
-    store.decide_version(vid, "keep")
-
-    result = dispatch("prompts.verify_release", {"version_id": vid})
-
-    assert result["ready"] is True
-    assert result["checks"]["sha_ok"] is True
-    assert result["checks"]["compatible"] is True
-    assert result["pin"]["prompt_commit_hash"] == write["prompt_commit_hash"]
-    assert "content" not in result
 
 
 def test_contract_check_accepts_valid_private_prompts_by_layer(

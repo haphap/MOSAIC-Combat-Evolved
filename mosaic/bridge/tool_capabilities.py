@@ -175,42 +175,15 @@ if set(TOOL_DESCRIPTIONS) != set(AGENT_TOOL_IDS):
 SNAPSHOT_BUNDLE_CONTRACT_VERSION: Final = "agent_snapshot_bundle_v1"
 CAPABILITY_CONTRACT_VERSION: Final = "agent_tool_capability_v1"
 DEFAULT_CAPABILITY_TTL_SECONDS: Final = 900
-KNOT_PAIR_ROOT_RECEIPT_VERSION: Final = "knot_verified_pair_root_receipt_v2"
-KNOT_REGIME_RECEIPT_VERSION: Final = "knot_regime_classification_receipt_v2"
-KNOT_STRICT_OUTPUT_RECEIPT_VERSION: Final = (
-    "knot_strict_output_validation_receipt_v2"
-)
-KNOT_SECTOR_USAGE_RECEIPT_VERSION: Final = (
-    "knot_sector_inference_usage_receipt_v2"
-)
 SECTOR_USAGE_SUMMARY_RECEIPT_VERSION: Final = (
     "sector_model_usage_summary_receipt_v1"
 )
-KNOT_STRICT_VALIDATOR_CONTRACT: Final[dict[str, str]] = {
-    "validator_contract_id": "public_json_schema_claim_graph_validator",
-    "validator_contract_version": "public_json_schema_claim_graph_validator_v2",
-}
-KNOT_SECTOR_USAGE_INSTRUMENTATION_CONTRACT: Final[dict[str, str]] = {
+SECTOR_USAGE_INSTRUMENTATION_CONTRACT: Final[dict[str, str]] = {
     "instrumentation_contract_id": "sector_inference_usage_instrumentation",
     "instrumentation_contract_version": "sector_inference_usage_instrumentation_v1",
     "source_contract_version": "server_owned_model_usage_ledger_v1",
     "measurement_rule": "sum_provider_reported_tokens_and_count_attempted_model_subcalls",
 }
-SECTOR_INFERENCE_BUDGET_CONTRACT_FIELDS: Final[frozenset[str]] = frozenset(
-    {
-        "budget_contract_id",
-        "budget_contract_version",
-        "direction_research_output_token_cap",
-        "conflict_review_output_token_reserve",
-        "final_selection_output_token_cap",
-        "total_stage_input_token_cap",
-        "total_stage_output_token_cap",
-        "maximum_model_subcalls",
-        "review_reserve_transfer_policy",
-        "budget_breach_policy",
-        "budget_contract_hash",
-    }
-)
 
 
 def _canonical_json(value: Any) -> str:
@@ -225,104 +198,8 @@ def _sha256_text(value: str) -> str:
     return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _validate_sector_inference_budget_contract(
-    value: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Validate an opaque private budget without embedding its parameter values."""
-    contract = dict(value)
-    if set(contract) != SECTOR_INFERENCE_BUDGET_CONTRACT_FIELDS:
-        raise ValueError("Sector inference budget contract fields mismatch")
-    if contract.get("budget_contract_id") != "sector-inference-budget":
-        raise ValueError("Sector inference budget contract ID mismatch")
-    if contract.get("budget_contract_version") != "sector_inference_budget_v3":
-        raise ValueError("Sector inference budget contract version mismatch")
-    for field in (
-        "direction_research_output_token_cap",
-        "conflict_review_output_token_reserve",
-        "final_selection_output_token_cap",
-        "total_stage_input_token_cap",
-        "total_stage_output_token_cap",
-        "maximum_model_subcalls",
-    ):
-        item = contract.get(field)
-        if isinstance(item, bool) or not isinstance(item, int) or item <= 0:
-            raise ValueError(f"Sector inference budget {field} is invalid")
-    if contract["maximum_model_subcalls"] > 3:
-        raise ValueError("Sector inference budget exceeds the public subcall ceiling")
-    if contract.get("review_reserve_transfer_policy") != "NON_TRANSFERABLE":
-        raise ValueError("Sector inference review reserve must be non-transferable")
-    if contract.get("budget_breach_policy") != "STAGE_REJECT":
-        raise ValueError("Sector inference budget breach policy must reject the stage")
-    supplied_hash = contract.get("budget_contract_hash")
-    body = {
-        key: item for key, item in contract.items() if key != "budget_contract_hash"
-    }
-    if not _is_sha256(supplied_hash) or supplied_hash != _sha256(body):
-        raise ValueError("Sector inference budget contract hash mismatch")
-    return contract
-
-
-def _sector_inference_budget_ref(contract: Mapping[str, Any]) -> dict[str, str]:
-    return {
-        "budget_contract_id": _required_string(contract, "budget_contract_id"),
-        "budget_contract_version": _required_string(
-            contract, "budget_contract_version"
-        ),
-        "budget_contract_hash": cast(str, contract["budget_contract_hash"]),
-    }
-
-
-def _sector_inference_budget_violations(
-    reports: Sequence[Mapping[str, Any]], contract: Mapping[str, Any]
-) -> tuple[str, ...]:
-    """Return deterministic breach codes for a measured private-budget path."""
-    violations: list[str] = []
-    if len(reports) > contract["maximum_model_subcalls"]:
-        violations.append("MODEL_SUBCALL_COUNT_EXCEEDED")
-    stage_caps = {
-        "DIRECTION_RESEARCH": contract["direction_research_output_token_cap"],
-        "CONFLICT_REVIEW": contract["conflict_review_output_token_reserve"],
-        "FINAL_SELECTION": contract["final_selection_output_token_cap"],
-    }
-    for stage, cap in stage_caps.items():
-        stage_output_tokens = sum(
-            cast(int, report["output_tokens"])
-            for report in reports
-            if report.get("attempted_stage") == stage
-        )
-        if stage_output_tokens > cap:
-            violations.append(f"{stage}_OUTPUT_TOKENS_EXCEEDED")
-    if sum(cast(int, report["input_tokens"]) for report in reports) > contract[
-        "total_stage_input_token_cap"
-    ]:
-        violations.append("TOTAL_STAGE_INPUT_TOKENS_EXCEEDED")
-    if sum(cast(int, report["output_tokens"]) for report in reports) > contract[
-        "total_stage_output_token_cap"
-    ]:
-        violations.append("TOTAL_STAGE_OUTPUT_TOKENS_EXCEEDED")
-    return tuple(violations)
-
-
-def _classify_private_knot_regime(
-    snapshot: Mapping[str, Any], *, as_of: str
-) -> Mapping[str, Any]:
-    from mosaic.scorecard import knot_v2 as private_knot
-
-    result = private_knot.classify_knot_regime(snapshot, as_of=as_of)
-    if not isinstance(result, Mapping):
-        raise ValueError("private KNOT regime classification must be an object")
-    return result
-
-
-def _reject_legacy_knot_write() -> None:
-    raise RuntimeError("legacy_knot_protocol_read_only")
-
-
-KNOT_STRICT_VALIDATOR_CONTRACT_HASH: Final = _sha256(
-    KNOT_STRICT_VALIDATOR_CONTRACT
-)
-KNOT_SECTOR_USAGE_INSTRUMENTATION_CONTRACT_HASH: Final = _sha256(
-    KNOT_SECTOR_USAGE_INSTRUMENTATION_CONTRACT
+SECTOR_USAGE_INSTRUMENTATION_CONTRACT_HASH: Final = _sha256(
+    SECTOR_USAGE_INSTRUMENTATION_CONTRACT
 )
 
 BOUND_RUNTIME_SNAPSHOT_CONTRACTS: Final[dict[AgentToolId, str]] = {
@@ -377,142 +254,6 @@ def _aware_timestamp(value: Any, field: str) -> datetime:
     if parsed.tzinfo is None:
         raise ValueError(f"{field} must be timezone-aware")
     return parsed.astimezone(timezone.utc)
-
-
-def _knot_payload_claim_container(
-    payload: Mapping[str, Any], accepted_output_kind: str
-) -> Mapping[str, Any]:
-    field = {
-        "STANDARD_SECTOR_SELECTION": "selection",
-        "SUPERINVESTOR_SELECTION": "selection",
-        "CRO_RISK_REVIEW": "review",
-        "ALPHA_DISCOVERY": "selection",
-        "EXECUTION_ASSESSMENT": "assessment",
-        "CIO_PROPOSAL": "decision",
-        "CIO_FINAL": "decision",
-    }.get(accepted_output_kind)
-    if field is None:
-        return payload
-    nested = payload.get(field)
-    if not isinstance(nested, Mapping):
-        raise ValueError(f"KNOT accepted output requires {field}")
-    return nested
-
-
-def _validate_knot_claim_graph(
-    graph_value: Mapping[str, Any],
-    *,
-    accepted_output_record: Mapping[str, Any],
-    accepted_output_kind: str,
-    graph_run_id: str,
-    snapshot_bundle_hash: str,
-    allowed_tools: Sequence[str],
-) -> None:
-    graph = dict(graph_value)
-    if set(graph) != {
-        "schema_version",
-        "run_id",
-        "snapshot_hash",
-        "evidence_ledger",
-        "claims",
-        "recommendation_claim_refs",
-    }:
-        raise ValueError("KNOT verified claim graph fields mismatch")
-    if graph.get("schema_version") != "evidence_claim_graph_v1":
-        raise ValueError("KNOT verified claim graph version mismatch")
-    if (
-        graph.get("run_id") != graph_run_id
-        or graph.get("snapshot_hash") != snapshot_bundle_hash
-    ):
-        raise ValueError("KNOT verified claim graph run/snapshot mismatch")
-    evidence_rows = graph.get("evidence_ledger")
-    if not isinstance(evidence_rows, list) or not evidence_rows:
-        raise ValueError("KNOT verified claim graph evidence is empty")
-    evidence_by_id: dict[str, Mapping[str, Any]] = {}
-    for index, evidence in enumerate(evidence_rows):
-        if not isinstance(evidence, Mapping):
-            raise ValueError(f"KNOT evidence_ledger[{index}] must be an object")
-        evidence_id = _required_string(evidence, "evidence_id")
-        if evidence_id in evidence_by_id:
-            raise ValueError("KNOT verified claim graph has duplicate evidence IDs")
-        if (
-            evidence.get("run_id") != graph_run_id
-            or evidence.get("snapshot_hash") != snapshot_bundle_hash
-        ):
-            raise ValueError("KNOT evidence lineage run/snapshot mismatch")
-        source_kind = evidence.get("source_kind")
-        source = _required_string(evidence, "tool_or_source")
-        if source_kind not in {"tool", "runtime_source", "derived_metric"}:
-            raise ValueError("KNOT evidence source kind is invalid")
-        if source_kind == "tool" and source not in allowed_tools:
-            raise ValueError("KNOT evidence used a tool outside the capability")
-        if not _is_sha256(evidence.get("source_fingerprint")):
-            raise ValueError("KNOT evidence source fingerprint is invalid")
-        evidence_by_id[evidence_id] = evidence
-    payload_container = _knot_payload_claim_container(
-        accepted_output_record, accepted_output_kind
-    )
-    payload_claims = payload_container.get("claims")
-    payload_claim_refs = payload_container.get("claim_refs")
-    graph_claims = graph.get("claims")
-    if (
-        not isinstance(payload_claims, list)
-        or not payload_claims
-        or not isinstance(payload_claim_refs, list)
-        or not payload_claim_refs
-        or not isinstance(graph_claims, list)
-        or not graph_claims
-        or _canonical_json(payload_claims) != _canonical_json(graph_claims)
-    ):
-        raise ValueError("KNOT accepted output claims differ from the claim graph")
-    claims_by_id: dict[str, Mapping[str, Any]] = {}
-    for index, claim in enumerate(graph_claims):
-        if not isinstance(claim, Mapping):
-            raise ValueError(f"KNOT graph claim[{index}] must be an object")
-        claim_id = _required_string(claim, "claim_id")
-        if claim_id in claims_by_id:
-            raise ValueError("KNOT verified claim graph has duplicate claim IDs")
-        evidence_ids = claim.get("evidence_ids")
-        if (
-            not isinstance(evidence_ids, list)
-            or not evidence_ids
-            or any(
-                not isinstance(evidence_id, str) or evidence_id not in evidence_by_id
-                for evidence_id in evidence_ids
-            )
-        ):
-            raise ValueError("KNOT claim references unknown evidence")
-        if claim.get("claim_kind") != "RISK_FLAG" and any(
-            evidence_by_id[evidence_id].get("freshness")
-            in {"stale", "missing", "fallback", "tool_failed"}
-            for evidence_id in evidence_ids
-        ):
-            raise ValueError("KNOT claim relies on unsupported evidence")
-        claims_by_id[claim_id] = claim
-    if (
-        any(not isinstance(ref, str) or ref not in claims_by_id for ref in payload_claim_refs)
-        or len(set(payload_claim_refs)) != len(payload_claim_refs)
-    ):
-        raise ValueError("KNOT accepted output claim_refs are invalid")
-    recommendation_refs = graph.get("recommendation_claim_refs")
-    if not isinstance(recommendation_refs, list):
-        raise ValueError("KNOT recommendation claim refs must be an array")
-    output_ids: set[str] = set()
-    for index, reference in enumerate(recommendation_refs):
-        if not isinstance(reference, Mapping):
-            raise ValueError(
-                f"KNOT recommendation_claim_refs[{index}] must be an object"
-            )
-        output_id = _required_string(reference, "output_id")
-        claim_refs = reference.get("claim_refs")
-        if (
-            output_id in output_ids
-            or not isinstance(claim_refs, list)
-            or not claim_refs
-            or any(ref not in claims_by_id for ref in claim_refs)
-        ):
-            raise ValueError("KNOT recommendation references unknown claims")
-        output_ids.add(output_id)
 
 
 def execution_stage_for_agent(agent_id: str, requested_stage: str | None = None) -> str:
@@ -2311,14 +2052,12 @@ class AgentToolCapabilityStore:
         signing_key: bytes,
         signing_key_id: str,
         clock: Callable[[], datetime] | None = None,
-        signing_key_is_durable: bool = True,
     ) -> None:
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.signing_key = signing_key
         self.signing_key_id = signing_key_id
         self.clock = clock or (lambda: datetime.now(timezone.utc))
-        self.signing_key_is_durable = signing_key_is_durable
         self._initialise()
 
     def _connect(self) -> sqlite3.Connection:
@@ -2375,72 +2114,6 @@ class AgentToolCapabilityStore:
                     PRIMARY KEY(capability_id, tool_id),
                     FOREIGN KEY(capability_id) REFERENCES capabilities(capability_id)
                 );
-                CREATE TABLE IF NOT EXISTS verified_pair_root_receipts (
-                    pair_root_reservation_id TEXT PRIMARY KEY,
-                    pair_binding_hash TEXT NOT NULL UNIQUE,
-                    receipt_json TEXT NOT NULL,
-                    pair_root_receipt_hash TEXT NOT NULL UNIQUE,
-                    receipt_signature TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS regime_classification_receipts (
-                    regime_classification_receipt_id TEXT PRIMARY KEY,
-                    assignment_binding_hash TEXT NOT NULL UNIQUE,
-                    source_snapshot_hash TEXT NOT NULL,
-                    classifier_ledger_record_json TEXT NOT NULL,
-                    classifier_ledger_record_hash TEXT NOT NULL UNIQUE,
-                    receipt_json TEXT NOT NULL,
-                    regime_classification_receipt_hash TEXT NOT NULL UNIQUE,
-                    receipt_signature TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS capability_reservations (
-                    capability_id TEXT PRIMARY KEY,
-                    pair_root_reservation_id TEXT NOT NULL,
-                    pair_side TEXT NOT NULL CHECK(pair_side IN ('CHAMPION', 'CANDIDATE')),
-                    FOREIGN KEY(capability_id) REFERENCES capabilities(capability_id),
-                    FOREIGN KEY(pair_root_reservation_id)
-                      REFERENCES verified_pair_root_receipts(pair_root_reservation_id),
-                    UNIQUE(pair_root_reservation_id, pair_side)
-                );
-                CREATE TABLE IF NOT EXISTS private_pair_bindings (
-                    knot_pair_id TEXT PRIMARY KEY,
-                    knot_pair_input_hash TEXT NOT NULL UNIQUE,
-                    pair_root_reservation_id TEXT NOT NULL UNIQUE,
-                    bound_at TEXT NOT NULL,
-                    FOREIGN KEY(pair_root_reservation_id)
-                      REFERENCES verified_pair_root_receipts(pair_root_reservation_id)
-                );
-                CREATE TABLE IF NOT EXISTS private_pair_sector_budget_bindings (
-                    knot_pair_id TEXT PRIMARY KEY,
-                    pair_root_reservation_id TEXT NOT NULL UNIQUE,
-                    agent_id TEXT NOT NULL,
-                    budget_contract_json TEXT NOT NULL,
-                    budget_contract_hash TEXT NOT NULL,
-                    bound_at TEXT NOT NULL,
-                    FOREIGN KEY(knot_pair_id) REFERENCES private_pair_bindings(knot_pair_id),
-                    FOREIGN KEY(pair_root_reservation_id)
-                      REFERENCES verified_pair_root_receipts(pair_root_reservation_id)
-                );
-                CREATE TABLE IF NOT EXISTS strict_output_validation_receipts (
-                    strict_validation_receipt_id TEXT PRIMARY KEY,
-                    pair_root_reservation_id TEXT NOT NULL,
-                    capability_id TEXT NOT NULL,
-                    accepted_output_kind TEXT NOT NULL,
-                    accepted_output_record_hash TEXT NOT NULL,
-                    verified_claim_graph_hash TEXT NOT NULL,
-                    schema_hash TEXT NOT NULL,
-                    validator_ledger_record_json TEXT NOT NULL,
-                    validator_ledger_record_hash TEXT NOT NULL UNIQUE,
-                    receipt_json TEXT NOT NULL,
-                    strict_validation_receipt_hash TEXT NOT NULL UNIQUE,
-                    receipt_signature TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY(pair_root_reservation_id)
-                      REFERENCES verified_pair_root_receipts(pair_root_reservation_id),
-                    FOREIGN KEY(capability_id) REFERENCES capabilities(capability_id),
-                    UNIQUE(pair_root_reservation_id, capability_id, accepted_output_kind)
-                );
                 CREATE TABLE IF NOT EXISTS sector_model_usage_events (
                     usage_event_id TEXT PRIMARY KEY,
                     capability_id TEXT NOT NULL,
@@ -2464,20 +2137,6 @@ class AgentToolCapabilityStore:
                     usage_summary_receipt_hash TEXT NOT NULL UNIQUE,
                     receipt_signature TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    FOREIGN KEY(capability_id) REFERENCES capabilities(capability_id)
-                );
-                CREATE TABLE IF NOT EXISTS sector_inference_usage_receipts (
-                    usage_receipt_id TEXT PRIMARY KEY,
-                    pair_root_reservation_id TEXT NOT NULL,
-                    capability_id TEXT NOT NULL UNIQUE,
-                    usage_ledger_record_json TEXT NOT NULL,
-                    usage_ledger_record_hash TEXT NOT NULL UNIQUE,
-                    receipt_json TEXT NOT NULL,
-                    usage_receipt_hash TEXT NOT NULL UNIQUE,
-                    receipt_signature TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY(pair_root_reservation_id)
-                      REFERENCES verified_pair_root_receipts(pair_root_reservation_id),
                     FOREIGN KEY(capability_id) REFERENCES capabilities(capability_id)
                 );
                 CREATE TRIGGER IF NOT EXISTS snapshot_bundles_no_update
@@ -2520,61 +2179,13 @@ class AgentToolCapabilityStore:
                   BEFORE DELETE ON capability_tool_uses BEGIN
                     SELECT RAISE(ABORT, 'capability_tool_uses is append-only');
                   END;
-                CREATE TRIGGER IF NOT EXISTS verified_pair_root_receipts_no_update
-                  BEFORE UPDATE ON verified_pair_root_receipts BEGIN
-                    SELECT RAISE(ABORT, 'verified_pair_root_receipts is append-only');
-                  END;
-                CREATE TRIGGER IF NOT EXISTS regime_receipts_no_update
-                  BEFORE UPDATE ON regime_classification_receipts BEGIN
-                    SELECT RAISE(ABORT, 'knot regime receipts are append-only');
-                  END;
-                CREATE TRIGGER IF NOT EXISTS regime_receipts_no_delete
-                  BEFORE DELETE ON regime_classification_receipts BEGIN
-                    SELECT RAISE(ABORT, 'knot regime receipts are append-only');
-                  END;
-                CREATE TRIGGER IF NOT EXISTS verified_pair_root_receipts_no_delete
-                  BEFORE DELETE ON verified_pair_root_receipts BEGIN
-                    SELECT RAISE(ABORT, 'verified_pair_root_receipts is append-only');
-                  END;
-                CREATE TRIGGER IF NOT EXISTS capability_reservations_no_update
-                  BEFORE UPDATE ON capability_reservations BEGIN
-                    SELECT RAISE(ABORT, 'capability_reservations is append-only');
-                  END;
-                CREATE TRIGGER IF NOT EXISTS capability_reservations_no_delete
-                  BEFORE DELETE ON capability_reservations BEGIN
-                    SELECT RAISE(ABORT, 'capability_reservations is append-only');
-                  END;
-                CREATE TRIGGER IF NOT EXISTS private_pair_bindings_no_update
-                  BEFORE UPDATE ON private_pair_bindings BEGIN
-                    SELECT RAISE(ABORT, 'private_pair_bindings is append-only');
-                  END;
-                CREATE TRIGGER IF NOT EXISTS private_pair_bindings_no_delete
-                  BEFORE DELETE ON private_pair_bindings BEGIN
-                    SELECT RAISE(ABORT, 'private_pair_bindings is append-only');
-                  END;
-                CREATE TRIGGER IF NOT EXISTS private_pair_sector_budgets_no_update
-                  BEFORE UPDATE ON private_pair_sector_budget_bindings BEGIN
-                    SELECT RAISE(ABORT, 'private_pair_sector_budget_bindings is append-only');
-                  END;
-                CREATE TRIGGER IF NOT EXISTS private_pair_sector_budgets_no_delete
-                  BEFORE DELETE ON private_pair_sector_budget_bindings BEGIN
-                    SELECT RAISE(ABORT, 'private_pair_sector_budget_bindings is append-only');
-                  END;
-                CREATE TRIGGER IF NOT EXISTS strict_output_receipts_no_update
-                  BEFORE UPDATE ON strict_output_validation_receipts BEGIN
-                    SELECT RAISE(ABORT, 'knot strict output receipts are append-only');
-                  END;
-                CREATE TRIGGER IF NOT EXISTS strict_output_receipts_no_delete
-                  BEFORE DELETE ON strict_output_validation_receipts BEGIN
-                    SELECT RAISE(ABORT, 'knot strict output receipts are append-only');
-                  END;
                 CREATE TRIGGER IF NOT EXISTS sector_usage_events_no_update
                   BEFORE UPDATE ON sector_model_usage_events BEGIN
-                    SELECT RAISE(ABORT, 'knot sector usage events are append-only');
+                    SELECT RAISE(ABORT, 'sector usage events are append-only');
                   END;
                 CREATE TRIGGER IF NOT EXISTS sector_usage_events_no_delete
                   BEFORE DELETE ON sector_model_usage_events BEGIN
-                    SELECT RAISE(ABORT, 'knot sector usage events are append-only');
+                    SELECT RAISE(ABORT, 'sector usage events are append-only');
                   END;
                 CREATE TRIGGER IF NOT EXISTS sector_usage_summaries_no_update
                   BEFORE UPDATE ON sector_model_usage_summaries BEGIN
@@ -2583,14 +2194,6 @@ class AgentToolCapabilityStore:
                 CREATE TRIGGER IF NOT EXISTS sector_usage_summaries_no_delete
                   BEFORE DELETE ON sector_model_usage_summaries BEGIN
                     SELECT RAISE(ABORT, 'sector usage summaries are append-only');
-                  END;
-                CREATE TRIGGER IF NOT EXISTS sector_usage_receipts_no_update
-                  BEFORE UPDATE ON sector_inference_usage_receipts BEGIN
-                    SELECT RAISE(ABORT, 'knot sector usage receipts are append-only');
-                  END;
-                CREATE TRIGGER IF NOT EXISTS sector_usage_receipts_no_delete
-                  BEFORE DELETE ON sector_inference_usage_receipts BEGIN
-                    SELECT RAISE(ABORT, 'knot sector usage receipts are append-only');
                   END;
                 """
             )
@@ -3003,459 +2606,11 @@ class AgentToolCapabilityStore:
                 raise ValueError("snapshot bundle payload hash mismatch")
         return manifest, row
 
-    def verify_and_reserve_knot_pair_root(
-        self,
-        *,
-        pair_binding: Mapping[str, Any],
-        champion_envelope: Mapping[str, Any],
-        candidate_envelope: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        """Verify two issued capabilities and reserve their shared KNOT root."""
-        _reject_legacy_knot_write()
-        self._require_durable_knot_key()
-        expected_binding_keys = {
-            "knot_research_track_id",
-            "knot_pair_assignment_id",
-            "research_slot_id",
-            "evaluation_opportunity_set_id",
-        }
-        if set(pair_binding) != expected_binding_keys:
-            raise ValueError("KNOT pair binding fields mismatch")
-        binding = {
-            key: _required_string(pair_binding, key)
-            for key in (
-                "knot_research_track_id",
-                "knot_pair_assignment_id",
-                "research_slot_id",
-                "evaluation_opportunity_set_id",
-            )
-        }
-        binding_hash = _sha256(binding)
-        verified_at = self.clock().astimezone(timezone.utc)
-        with self._connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                existing = conn.execute(
-                    "SELECT receipt_json FROM verified_pair_root_receipts "
-                    "WHERE pair_binding_hash = ?",
-                    (binding_hash,),
-                ).fetchone()
-                if existing is not None:
-                    receipt = json.loads(existing["receipt_json"])
-                    receipt_verified_at = _aware_timestamp(
-                        receipt.get("verified_at"), "pair_root.verified_at"
-                    )
-                    champion_manifest, _ = self._verify(
-                        champion_envelope,
-                        conn=conn,
-                        allow_terminated=True,
-                        verified_at=receipt_verified_at,
-                    )
-                    candidate_manifest, _ = self._verify(
-                        candidate_envelope,
-                        conn=conn,
-                        allow_terminated=True,
-                        verified_at=receipt_verified_at,
-                    )
-                    expected_ids = {
-                        "CHAMPION": champion_manifest["capability_id"],
-                        "CANDIDATE": candidate_manifest["capability_id"],
-                    }
-                    actual_ids = {
-                        side: receipt.get("capabilities", {}).get(side, {}).get(
-                            "capability_id"
-                        )
-                        for side in ("CHAMPION", "CANDIDATE")
-                    }
-                    if actual_ids != expected_ids or receipt.get("pair_binding") != binding:
-                        raise ValueError("KNOT pair-root retry changed immutable inputs")
-                    self._verify_knot_pair_root_receipt_with_conn(
-                        conn,
-                        receipt,
-                        require_active_capabilities=False,
-                    )
-                    conn.execute("COMMIT")
-                    return receipt
 
-                champion_manifest, champion_row = self._verify(
-                    champion_envelope,
-                    conn=conn,
-                    verified_at=verified_at,
-                )
-                candidate_manifest, candidate_row = self._verify(
-                    candidate_envelope,
-                    conn=conn,
-                    verified_at=verified_at,
-                )
-                manifests = {
-                    "CHAMPION": champion_manifest,
-                    "CANDIDATE": candidate_manifest,
-                }
-                rows = {
-                    "CHAMPION": champion_row,
-                    "CANDIDATE": candidate_row,
-                }
-                self._validate_knot_pair_capabilities(conn, manifests, rows)
-                bundle = json.loads(champion_row["bundle_json"])
-                reservation_id = f"knot-pair-root:{uuid.uuid4().hex}"
-                unsigned_body = {
-                    "schema_version": KNOT_PAIR_ROOT_RECEIPT_VERSION,
-                    "pair_root_reservation_id": reservation_id,
-                    "pair_binding": binding,
-                    "pair_binding_hash": binding_hash,
-                    "agent_id": champion_manifest["agent_id"],
-                    "stage": champion_manifest["stage"],
-                    "as_of": champion_manifest["as_of"],
-                    "snapshot_bundle_contract_version": bundle[
-                        "snapshot_bundle_contract_version"
-                    ],
-                    "snapshot_bundle_id": bundle["snapshot_bundle_id"],
-                    "snapshot_bundle_hash": bundle["snapshot_bundle_hash"],
-                    "runtime_input_hash": bundle["runtime_input_hash"],
-                    "candidate_scope_hash": bundle.get("candidate_scope_hash"),
-                    "allowed_tools": list(champion_manifest["allowed_tools"]),
-                    "tool_payload_hashes": dict(bundle["tool_payload_hashes"]),
-                    "capabilities": {
-                        side: self._knot_capability_projection(
-                            manifests[side], rows[side]
-                        )
-                        for side in ("CHAMPION", "CANDIDATE")
-                    },
-                    "verified_at": verified_at.isoformat(),
-                    "reservation_status": "ACTIVE",
-                    "receipt_signing_key_id": self.signing_key_id,
-                }
-                receipt_hash = _sha256(unsigned_body)
-                signed_body = {
-                    **unsigned_body,
-                    "pair_root_receipt_hash": receipt_hash,
-                }
-                receipt = {
-                    **signed_body,
-                    "receipt_signature": self._sign_domain(
-                        "knot-pair-root-receipt-v2\0", signed_body
-                    ),
-                }
-                conn.execute(
-                    "INSERT INTO verified_pair_root_receipts VALUES (?, ?, ?, ?, ?, ?)",
-                    (
-                        reservation_id,
-                        binding_hash,
-                        _canonical_json(receipt),
-                        receipt_hash,
-                        receipt["receipt_signature"],
-                        verified_at.isoformat(),
-                    ),
-                )
-                for side in ("CHAMPION", "CANDIDATE"):
-                    conn.execute(
-                        "INSERT INTO capability_reservations VALUES (?, ?, ?)",
-                        (manifests[side]["capability_id"], reservation_id, side),
-                    )
-                conn.execute("COMMIT")
-                return receipt
-            except sqlite3.IntegrityError as exc:
-                conn.execute("ROLLBACK")
-                raise ValueError(
-                    "KNOT capability or pair root has already been reserved"
-                ) from exc
-            except Exception:
-                conn.execute("ROLLBACK")
-                raise
 
-    def classify_and_reserve_knot_regime(
-        self,
-        *,
-        knot_research_track_id: str,
-        research_slot_id: str,
-        scheduled_sample_id: str,
-        expected_as_of: str,
-        source_snapshot: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        """Reserve one opaque, pinned-private classification for a PIT snapshot."""
-        _reject_legacy_knot_write()
-        self._require_durable_knot_key()
-        date.fromisoformat(expected_as_of)
-        binding = {
-            "knot_research_track_id": _required_string(
-                {"value": knot_research_track_id}, "value"
-            ),
-            "research_slot_id": _required_string(
-                {"value": research_slot_id}, "value"
-            ),
-            "scheduled_sample_id": _required_string(
-                {"value": scheduled_sample_id}, "value"
-            ),
-            "as_of": expected_as_of,
-        }
-        binding_hash = _sha256(binding)
-        snapshot = dict(source_snapshot)
-        supplied_snapshot_hash = snapshot.get("snapshot_hash")
-        if not _is_sha256(supplied_snapshot_hash) or supplied_snapshot_hash != _sha256(
-            {key: item for key, item in snapshot.items() if key != "snapshot_hash"}
-        ):
-            raise ValueError("KNOT regime source snapshot hash mismatch")
-        classification = _classify_private_knot_regime(
-            snapshot, as_of=expected_as_of
-        )
-        if not isinstance(classification, Mapping) or set(classification) != {
-            "regime_label",
-            "classifier_contract_id",
-            "classifier_contract_version",
-            "classifier_contract_hash",
-            "pit_snapshot_hash",
-        }:
-            raise ValueError("private KNOT regime classification contract mismatch")
-        evaluation_regime = classification.get("regime_label")
-        if evaluation_regime not in {"normal", "stress"}:
-            raise ValueError("private KNOT regime label is invalid")
-        classifier_contract_id = _required_string(
-            classification, "classifier_contract_id"
-        )
-        classifier_contract_version = _required_string(
-            classification, "classifier_contract_version"
-        )
-        classifier_contract_hash = classification.get("classifier_contract_hash")
-        if not _is_sha256(classifier_contract_hash):
-            raise ValueError("private KNOT classifier contract hash is invalid")
-        if classification.get("pit_snapshot_hash") != supplied_snapshot_hash:
-            raise ValueError("private KNOT classification snapshot binding mismatch")
-        as_of_timestamp = f"{expected_as_of}T15:00:00+08:00"
-        classified_at = self.clock().astimezone(timezone.utc)
-        source_snapshot_id = (
-            "private-regime-source:"
-            + supplied_snapshot_hash.removeprefix("sha256:")
-        )
-        with self._connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                existing = conn.execute(
-                    "SELECT * FROM regime_classification_receipts "
-                    "WHERE assignment_binding_hash = ?",
-                    (binding_hash,),
-                ).fetchone()
-                if existing is not None:
-                    if existing["source_snapshot_hash"] != supplied_snapshot_hash:
-                        raise ValueError(
-                            "KNOT regime classification retry changed its source"
-                        )
-                    receipt = json.loads(existing["receipt_json"])
-                    self._verify_knot_regime_receipt_with_conn(conn, receipt)
-                    conn.execute("COMMIT")
-                    return receipt
-                receipt_id = f"knot-regime-receipt:{uuid.uuid4().hex}"
-                ledger_id = f"knot-regime-ledger:{uuid.uuid4().hex}"
-                ledger_without_hash = {
-                    "classifier_ledger_record_id": ledger_id,
-                    "classifier_contract_id": classifier_contract_id,
-                    "classifier_contract_version": classifier_contract_version,
-                    "classifier_contract_hash": classifier_contract_hash,
-                    "assignment_binding": binding,
-                    "assignment_binding_hash": binding_hash,
-                    "source_snapshot_hash": supplied_snapshot_hash,
-                    "evaluation_regime": evaluation_regime,
-                    "classified_at": classified_at.isoformat(),
-                }
-                ledger_hash = _sha256(ledger_without_hash)
-                ledger_record = {
-                    **ledger_without_hash,
-                    "classifier_ledger_record_hash": ledger_hash,
-                }
-                unsigned_body = {
-                    "schema_version": KNOT_REGIME_RECEIPT_VERSION,
-                    "regime_classification_receipt_id": receipt_id,
-                    "knot_research_track_id": binding["knot_research_track_id"],
-                    "research_slot_id": binding["research_slot_id"],
-                    "scheduled_sample_id": binding["scheduled_sample_id"],
-                    "evaluation_regime": evaluation_regime,
-                    "source_snapshot_id": source_snapshot_id,
-                    "source_snapshot_hash": supplied_snapshot_hash,
-                    "classifier_contract_id": classifier_contract_id,
-                    "classifier_contract_version": classifier_contract_version,
-                    "classifier_contract_hash": classifier_contract_hash,
-                    "as_of": as_of_timestamp,
-                    "classified_at": classified_at.isoformat(),
-                    "classifier_ledger_record_id": ledger_id,
-                    "classifier_ledger_record_hash": ledger_hash,
-                    "receipt_signing_key_id": self.signing_key_id,
-                }
-                receipt_hash = _sha256(unsigned_body)
-                signed_body = {
-                    **unsigned_body,
-                    "regime_classification_receipt_hash": receipt_hash,
-                }
-                receipt = {
-                    **signed_body,
-                    "receipt_signature": self._sign_domain(
-                        "knot-regime-classification-receipt-v2\0", signed_body
-                    ),
-                }
-                conn.execute(
-                    "INSERT INTO regime_classification_receipts "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        receipt_id,
-                        binding_hash,
-                        supplied_snapshot_hash,
-                        _canonical_json(ledger_record),
-                        ledger_hash,
-                        _canonical_json(receipt),
-                        receipt_hash,
-                        receipt["receipt_signature"],
-                        classified_at.isoformat(),
-                    ),
-                )
-                conn.execute("COMMIT")
-                return receipt
-            except sqlite3.IntegrityError as exc:
-                conn.execute("ROLLBACK")
-                raise ValueError("KNOT regime receipt collision") from exc
-            except Exception:
-                conn.execute("ROLLBACK")
-                raise
 
-    def verify_knot_regime_classification_receipt(
-        self, receipt: Mapping[str, Any]
-    ) -> dict[str, Any]:
-        self._require_durable_knot_key()
-        with self._connect() as conn:
-            return self._verify_knot_regime_receipt_with_conn(conn, receipt)
 
-    def verify_knot_pair_root_receipt(
-        self, receipt: Mapping[str, Any]
-    ) -> dict[str, Any]:
-        """Dereference and revalidate one public KNOT pair-root receipt."""
-        self._require_durable_knot_key()
-        with self._connect() as conn:
-            return self._verify_knot_pair_root_receipt_with_conn(conn, receipt)
 
-    def bind_knot_private_pair(
-        self,
-        *,
-        pair_root_reservation_id: str,
-        knot_pair_id: str,
-        knot_pair_input_hash: str,
-        sector_inference_budget_contract: Mapping[str, Any] | None,
-    ) -> None:
-        """Bind a successful private freeze result to its public reservation."""
-        _reject_legacy_knot_write()
-        reservation_id = _required_string(
-            {"value": pair_root_reservation_id}, "value"
-        )
-        pair_id = _required_string({"value": knot_pair_id}, "value")
-        if not _is_sha256(knot_pair_input_hash):
-            raise ValueError("knot_pair_input_hash must be sha256")
-        now = self.clock().astimezone(timezone.utc).isoformat()
-        with self._connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                row = conn.execute(
-                    "SELECT receipt_json FROM verified_pair_root_receipts "
-                    "WHERE pair_root_reservation_id = ?",
-                    (reservation_id,),
-                ).fetchone()
-                if row is None:
-                    raise ValueError("unknown KNOT pair-root reservation")
-                pair_receipt = self._verify_knot_pair_root_receipt_with_conn(
-                    conn,
-                    json.loads(row["receipt_json"]),
-                    require_active_capabilities=False,
-                )
-                agent_id = pair_receipt["agent_id"]
-                budget_contract = (
-                    _validate_sector_inference_budget_contract(
-                        sector_inference_budget_contract
-                    )
-                    if sector_inference_budget_contract is not None
-                    else None
-                )
-                if agent_id in STANDARD_SECTOR_AGENTS and budget_contract is None:
-                    raise ValueError(
-                        "standard Sector KNOT pair requires an inference budget contract"
-                    )
-                if agent_id not in STANDARD_SECTOR_AGENTS and budget_contract is not None:
-                    raise ValueError(
-                        "Sector inference budget contract is restricted to standard Sector"
-                    )
-                existing = conn.execute(
-                    "SELECT * FROM private_pair_bindings "
-                    "WHERE knot_pair_id = ? OR pair_root_reservation_id = ?",
-                    (pair_id, reservation_id),
-                ).fetchall()
-                if existing:
-                    if len(existing) != 1 or any(
-                        item["knot_pair_id"] != pair_id
-                        or item["knot_pair_input_hash"] != knot_pair_input_hash
-                        or item["pair_root_reservation_id"] != reservation_id
-                        for item in existing
-                    ):
-                        raise ValueError("KNOT private pair binding collision")
-                else:
-                    conn.execute(
-                        "INSERT INTO private_pair_bindings VALUES (?, ?, ?, ?)",
-                        (pair_id, knot_pair_input_hash, reservation_id, now),
-                    )
-                budget_row = conn.execute(
-                    "SELECT * FROM private_pair_sector_budget_bindings "
-                    "WHERE knot_pair_id = ? OR pair_root_reservation_id = ?",
-                    (pair_id, reservation_id),
-                ).fetchall()
-                if budget_contract is None:
-                    if budget_row:
-                        raise ValueError("KNOT private Sector budget binding collision")
-                elif budget_row:
-                    if len(budget_row) != 1 or any(
-                        item["knot_pair_id"] != pair_id
-                        or item["pair_root_reservation_id"] != reservation_id
-                        or item["agent_id"] != agent_id
-                        or item["budget_contract_json"]
-                        != _canonical_json(budget_contract)
-                        or item["budget_contract_hash"]
-                        != budget_contract["budget_contract_hash"]
-                        for item in budget_row
-                    ):
-                        raise ValueError("KNOT private Sector budget binding collision")
-                else:
-                    conn.execute(
-                        "INSERT INTO private_pair_sector_budget_bindings "
-                        "VALUES (?, ?, ?, ?, ?, ?)",
-                        (
-                            pair_id,
-                            reservation_id,
-                            agent_id,
-                            _canonical_json(budget_contract),
-                            budget_contract["budget_contract_hash"],
-                            now,
-                        ),
-                    )
-                conn.execute("COMMIT")
-            except sqlite3.IntegrityError as exc:
-                conn.execute("ROLLBACK")
-                raise ValueError("KNOT private pair binding collision") from exc
-            except Exception:
-                conn.execute("ROLLBACK")
-                raise
-
-    def _sector_budget_for_reservation(
-        self,
-        conn: sqlite3.Connection,
-        reservation_id: str,
-    ) -> dict[str, Any]:
-        _reject_legacy_knot_write()
-        row = conn.execute(
-            "SELECT budget_contract_json FROM private_pair_sector_budget_bindings "
-            "WHERE pair_root_reservation_id = ?",
-            (reservation_id,),
-        ).fetchone()
-        if row is None:
-            raise ValueError("standard Sector KNOT budget is not pre-bound")
-        try:
-            value = json.loads(row["budget_contract_json"])
-        except json.JSONDecodeError as exc:
-            raise ValueError("stored Sector inference budget is unreadable") from exc
-        if not isinstance(value, dict):
-            raise ValueError("stored Sector inference budget is invalid")
-        return _validate_sector_inference_budget_contract(value)
 
     def record_sector_model_usage(
         self,
@@ -3571,11 +2726,6 @@ class AgentToolCapabilityStore:
                     raise ValueError(
                         "model usage instrumentation is restricted to standard Sector"
                     )
-                reservation = conn.execute(
-                    "SELECT pair_root_reservation_id, pair_side "
-                    "FROM capability_reservations WHERE capability_id = ?",
-                    (manifest["capability_id"],),
-                ).fetchone()
                 uses = conn.execute(
                     "SELECT tool_id FROM capability_tool_uses "
                     "WHERE capability_id = ? ORDER BY tool_id",
@@ -3692,12 +2842,6 @@ class AgentToolCapabilityStore:
                 event_without_hash = {
                     "schema_version": "sector_model_usage_event_v1",
                     "usage_event_id": f"sector-usage-event:{uuid.uuid4().hex}",
-                    "pair_root_reservation_id": (
-                        reservation["pair_root_reservation_id"]
-                        if reservation is not None
-                        else None
-                    ),
-                    "pair_side": reservation["pair_side"] if reservation is not None else None,
                     "capability_id": manifest["capability_id"],
                     "capability_manifest_hash": _sha256(manifest),
                     "graph_run_id": manifest["graph_run_id"],
@@ -3741,17 +2885,6 @@ class AgentToolCapabilityStore:
 
     # Compatibility for the private evaluator while it migrates to the generic
     # usage summary receipt. New runtime callers use ``record_sector_model_usage``.
-    def record_knot_sector_model_usage(
-        self,
-        *,
-        capability_envelope: Mapping[str, Any],
-        usage_report: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        _reject_legacy_knot_write()
-        return self.record_sector_model_usage(
-            capability_envelope=capability_envelope,
-            usage_report=usage_report,
-        )
 
     def finalize_sector_model_usage(
         self, *, capability_envelope: Mapping[str, Any]
@@ -3822,40 +2955,9 @@ class AgentToolCapabilityStore:
                 reports = [event["usage_report"] for event in events]
                 stages = [report["attempted_stage"] for report in reports]
                 conflict_review_triggered = "CONFLICT_REVIEW" in stages
-                reservation = conn.execute(
-                    "SELECT pair_root_reservation_id, pair_side "
-                    "FROM capability_reservations WHERE capability_id = ?",
-                    (capability_id,),
-                ).fetchone()
-                budget_contract = (
-                    self._sector_budget_for_reservation(
-                        conn, reservation["pair_root_reservation_id"]
-                    )
-                    if reservation is not None
-                    else None
-                )
-                budget_violations = (
-                    _sector_inference_budget_violations(reports, budget_contract)
-                    if budget_contract is not None
-                    else ()
-                )
-                budget_contract_ref = (
-                    _sector_inference_budget_ref(budget_contract)
-                    if budget_contract is not None
-                    else None
-                )
-                ordinary_completed = bool(reports) and (
+                completed = bool(reports) and (
                     reports[-1]["attempted_stage"] == "FINAL_SELECTION"
                     and reports[-1]["attempt_status"] == "ACCEPTED"
-                )
-                exact_knot_path = stages in (
-                    ["DIRECTION_RESEARCH", "FINAL_SELECTION"],
-                    ["DIRECTION_RESEARCH", "CONFLICT_REVIEW", "FINAL_SELECTION"],
-                ) and all(report["attempt_status"] == "ACCEPTED" for report in reports)
-                completed = (
-                    ordinary_completed
-                    if budget_contract is None
-                    else exact_knot_path and not budget_violations
                 )
                 last_attempted_stage = (
                     "COMPLETED"
@@ -3900,19 +3002,6 @@ class AgentToolCapabilityStore:
                     "model_path_disposition": (
                         "COMPLETED" if completed else "INCOMPLETE"
                     ),
-                    "budget_contract_ref": budget_contract_ref,
-                    "budget_decision": (
-                        {
-                            "disposition": (
-                                "STAGE_REJECT"
-                                if budget_violations
-                                else "WITHIN_BUDGET"
-                            ),
-                            "violation_codes": list(budget_violations),
-                        }
-                        if budget_contract is not None
-                        else None
-                    ),
                     "measured_at": measured_at,
                     "finalized_at": finalized_at.isoformat(),
                 }
@@ -3936,13 +3025,6 @@ class AgentToolCapabilityStore:
                     "as_of": manifest["as_of"],
                     "snapshot_bundle_id": manifest["snapshot_bundle_id"],
                     "snapshot_bundle_hash": manifest["snapshot_bundle_hash"],
-                    "pair_root_reservation_id": (
-                        reservation["pair_root_reservation_id"]
-                        if reservation is not None
-                        else None
-                    ),
-                    "pair_side": reservation["pair_side"] if reservation is not None else None,
-                    "budget_contract_ref": budget_contract_ref,
                     "model_subcall_count": len(events),
                     "last_attempted_stage": last_attempted_stage,
                     "conflict_review_triggered": conflict_review_triggered,
@@ -3955,9 +3037,9 @@ class AgentToolCapabilityStore:
                     "direction_comparison_audit_hash": direction_hash,
                     "conflict_review_id": conflict_id,
                     "conflict_review_hash": conflict_hash,
-                    **KNOT_SECTOR_USAGE_INSTRUMENTATION_CONTRACT,
+                    **SECTOR_USAGE_INSTRUMENTATION_CONTRACT,
                     "instrumentation_contract_hash": (
-                        KNOT_SECTOR_USAGE_INSTRUMENTATION_CONTRACT_HASH
+                        SECTOR_USAGE_INSTRUMENTATION_CONTRACT_HASH
                     ),
                     "usage_ledger_record_id": ledger_id,
                     "usage_ledger_record_hash": ledger_hash,
@@ -4006,1270 +3088,10 @@ class AgentToolCapabilityStore:
         with self._connect() as conn:
             return self._verify_sector_model_usage_summary_with_conn(conn, receipt)
 
-    def mint_knot_sector_inference_usage_receipt(
-        self, *, binding: Mapping[str, Any]
-    ) -> dict[str, Any]:
-        """Aggregate the server-owned Sector usage ledger and sign its receipt."""
-        _reject_legacy_knot_write()
-        self._require_durable_knot_key()
-        expected_binding_keys = {
-            "schema_version",
-            "knot_pair_id",
-            "knot_pair_input_hash",
-            "pair_side",
-            "production_variant_roster_id",
-            "production_variant_roster_revision_id",
-            "execution_behavior_release_id",
-            "cohort_id",
-            "language",
-            "pair_root_reservation_id",
-            "pair_root_receipt_hash",
-            "capability_id",
-            "capability_manifest_hash",
-            "graph_run_id",
-            "run_slot_id",
-            "run_id",
-            "node_id",
-            "agent_id",
-            "stage",
-            "as_of",
-            "snapshot_bundle_hash",
-            "operational_opportunity_audit_id",
-            "operational_opportunity_audit_hash",
-            "accepted_output_id",
-            "accepted_output_hash",
-            "accepted_direction_comparison_audit_id",
-            "accepted_direction_comparison_audit_hash",
-            "accepted_runtime_inference_cost_audit_id",
-            "accepted_runtime_inference_cost_audit_hash",
-            "budget_contract_id",
-            "budget_contract_version",
-            "budget_contract_hash",
-            "expected_result_disposition",
-            "sector_usage_binding_hash",
-        }
-        normalized_binding = dict(binding)
-        if set(normalized_binding) != expected_binding_keys:
-            raise ValueError("KNOT Sector usage binding fields mismatch")
-        if normalized_binding.get("schema_version") != "knot_sector_usage_binding_v2":
-            raise ValueError("KNOT Sector usage binding version mismatch")
-        supplied_binding_hash = normalized_binding.get("sector_usage_binding_hash")
-        if not _is_sha256(supplied_binding_hash) or supplied_binding_hash != _sha256(
-            {
-                key: item
-                for key, item in normalized_binding.items()
-                if key != "sector_usage_binding_hash"
-            }
-        ):
-            raise ValueError("KNOT Sector usage binding hash mismatch")
-        for field in (
-            "knot_pair_id",
-            "production_variant_roster_id",
-            "production_variant_roster_revision_id",
-            "execution_behavior_release_id",
-            "cohort_id",
-            "language",
-            "pair_root_reservation_id",
-            "capability_id",
-            "graph_run_id",
-            "run_slot_id",
-            "run_id",
-            "node_id",
-            "agent_id",
-            "stage",
-            "as_of",
-            "operational_opportunity_audit_id",
-            "budget_contract_id",
-            "budget_contract_version",
-        ):
-            _required_string(normalized_binding, field)
-        for field in (
-            "knot_pair_input_hash",
-            "pair_root_receipt_hash",
-            "capability_manifest_hash",
-            "snapshot_bundle_hash",
-            "operational_opportunity_audit_hash",
-            "budget_contract_hash",
-        ):
-            if not _is_sha256(normalized_binding.get(field)):
-                raise ValueError(f"KNOT Sector {field} is invalid")
-        if normalized_binding["pair_side"] not in {"CHAMPION", "CANDIDATE"}:
-            raise ValueError("KNOT Sector usage binding pair side is invalid")
-        disposition = normalized_binding["expected_result_disposition"]
-        if disposition not in {"ACCEPTED", "AGENT_FAILURE"}:
-            raise ValueError("KNOT Sector usage binding disposition is invalid")
-        nullable_pairs = (
-            ("accepted_output_id", "accepted_output_hash"),
-            (
-                "accepted_direction_comparison_audit_id",
-                "accepted_direction_comparison_audit_hash",
-            ),
-            (
-                "accepted_runtime_inference_cost_audit_id",
-                "accepted_runtime_inference_cost_audit_hash",
-            ),
-        )
-        for id_field, hash_field in nullable_pairs:
-            identifier = normalized_binding[id_field]
-            digest = normalized_binding[hash_field]
-            if (identifier is None) != (digest is None):
-                raise ValueError(f"KNOT Sector {id_field}/{hash_field} must be paired")
-            if identifier is not None:
-                _required_string(normalized_binding, id_field)
-                if not _is_sha256(digest):
-                    raise ValueError(f"KNOT Sector {hash_field} is invalid")
-        if disposition == "ACCEPTED" and any(
-            normalized_binding[id_field] is None for id_field, _ in nullable_pairs
-        ):
-            raise ValueError("accepted KNOT Sector usage binding is incomplete")
-        if disposition == "AGENT_FAILURE" and normalized_binding["accepted_output_id"]:
-            raise ValueError("failed KNOT Sector usage binding has accepted output")
-
-        verified_at = self.clock().astimezone(timezone.utc)
-        with self._connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                pair_row = conn.execute(
-                    "SELECT receipt_json FROM verified_pair_root_receipts "
-                    "WHERE pair_root_reservation_id = ?",
-                    (normalized_binding["pair_root_reservation_id"],),
-                ).fetchone()
-                if pair_row is None:
-                    raise ValueError("KNOT Sector pair-root receipt is unavailable")
-                pair_receipt = self._verify_knot_pair_root_receipt_with_conn(
-                    conn,
-                    json.loads(pair_row["receipt_json"]),
-                    require_active_capabilities=False,
-                )
-                capability = pair_receipt["capabilities"][
-                    normalized_binding["pair_side"]
-                ]
-                budget_contract = self._sector_budget_for_reservation(
-                    conn, normalized_binding["pair_root_reservation_id"]
-                )
-                budget_ref = _sector_inference_budget_ref(budget_contract)
-                for binding_field, ref_field in (
-                    ("budget_contract_id", "budget_contract_id"),
-                    ("budget_contract_version", "budget_contract_version"),
-                    ("budget_contract_hash", "budget_contract_hash"),
-                ):
-                    if normalized_binding[binding_field] != budget_ref[ref_field]:
-                        raise ValueError(
-                            "KNOT Sector usage binding budget differs from pre-bound contract"
-                        )
-                expected_lineage = {
-                    "pair_root_receipt_hash": pair_receipt["pair_root_receipt_hash"],
-                    "capability_id": capability["capability_id"],
-                    "capability_manifest_hash": capability[
-                        "capability_manifest_hash"
-                    ],
-                    "graph_run_id": capability["graph_run_id"],
-                    "run_slot_id": capability["run_slot_id"],
-                    "run_id": capability["run_id"],
-                    "node_id": capability["node_id"],
-                    "agent_id": capability["agent_id"],
-                    "stage": capability["stage"],
-                    "as_of": capability["as_of"],
-                    "snapshot_bundle_hash": pair_receipt["snapshot_bundle_hash"],
-                }
-                for field, expected in expected_lineage.items():
-                    if normalized_binding.get(field) != expected:
-                        raise ValueError(
-                            f"KNOT Sector usage binding {field} mismatch"
-                        )
-                if capability["agent_id"] not in STANDARD_SECTOR_AGENTS:
-                    raise ValueError("KNOT usage receipt is restricted to standard Sector")
-                self._validate_knot_capability_completion(
-                    conn,
-                    capability=capability,
-                    allowed_tools=pair_receipt["allowed_tools"],
-                    validated_at=verified_at,
-                )
-                existing = conn.execute(
-                    "SELECT receipt_json, usage_ledger_record_json "
-                    "FROM sector_inference_usage_receipts "
-                    "WHERE capability_id = ?",
-                    (capability["capability_id"],),
-                ).fetchone()
-                if existing is not None:
-                    receipt = json.loads(existing["receipt_json"])
-                    self._verify_knot_sector_usage_receipt_with_conn(conn, receipt)
-                    existing_ledger = json.loads(
-                        existing["usage_ledger_record_json"]
-                    )
-                    if (
-                        existing_ledger.get("sector_usage_binding_hash")
-                        != supplied_binding_hash
-                    ):
-                        raise ValueError(
-                            "KNOT Sector usage retry changed immutable binding"
-                        )
-                    conn.execute("COMMIT")
-                    return receipt
-
-                event_rows = conn.execute(
-                    "SELECT event_json FROM sector_model_usage_events "
-                    "WHERE capability_id = ? ORDER BY subcall_sequence",
-                    (capability["capability_id"],),
-                ).fetchall()
-                events = [json.loads(row["event_json"]) for row in event_rows]
-                for sequence, event in enumerate(events, start=1):
-                    body = {
-                        key: item
-                        for key, item in event.items()
-                        if key != "usage_event_hash"
-                    }
-                    if (
-                        event.get("usage_event_hash") != _sha256(body)
-                        or event.get("subcall_sequence") != sequence
-                        or event.get("capability_id") != capability["capability_id"]
-                        or event.get("pair_root_reservation_id")
-                        != normalized_binding["pair_root_reservation_id"]
-                        or event.get("pair_side") != normalized_binding["pair_side"]
-                    ):
-                        raise ValueError("KNOT Sector usage event ledger mismatch")
-                reports = [event["usage_report"] for event in events]
-                budget_violations = _sector_inference_budget_violations(
-                    reports, budget_contract
-                )
-                stages = [report["attempted_stage"] for report in reports]
-                conflict_review_triggered = "CONFLICT_REVIEW" in stages
-                if disposition == "ACCEPTED":
-                    expected_stages = [
-                        "DIRECTION_RESEARCH",
-                        *(["CONFLICT_REVIEW"] if conflict_review_triggered else []),
-                        "FINAL_SELECTION",
-                    ]
-                    if stages != expected_stages or any(
-                        report["attempt_status"] != "ACCEPTED" for report in reports
-                    ) or budget_violations:
-                        raise ValueError(
-                            "accepted KNOT Sector usage path is incomplete or over budget"
-                        )
-                    last_attempted_stage = "COMPLETED"
-                else:
-                    last_attempted_stage = stages[-1] if stages else "PRE_MODEL"
-                model_subcall_count = len(events)
-                if disposition == "ACCEPTED" and model_subcall_count not in {2, 3}:
-                    raise ValueError("accepted KNOT Sector usage count is invalid")
-                input_tokens = sum(report["input_tokens"] for report in reports)
-                output_tokens = sum(report["output_tokens"] for report in reports)
-                final_report = reports[-1] if reports else {}
-                direction_id = final_report.get("direction_comparison_audit_id")
-                direction_hash = final_report.get("direction_comparison_audit_hash")
-                conflict_id = final_report.get("conflict_review_id")
-                conflict_hash = final_report.get("conflict_review_hash")
-                if disposition == "ACCEPTED" and (
-                    direction_id
-                    != normalized_binding["accepted_direction_comparison_audit_id"]
-                    or direction_hash
-                    != normalized_binding["accepted_direction_comparison_audit_hash"]
-                ):
-                    raise ValueError(
-                        "accepted KNOT Sector direction audit differs from usage ledger"
-                    )
-                summary_row = conn.execute(
-                    "SELECT receipt_json FROM sector_model_usage_summaries "
-                    "WHERE capability_id = ?",
-                    (capability["capability_id"],),
-                ).fetchone()
-                if summary_row is None:
-                    raise ValueError("KNOT Sector signed model usage summary is unavailable")
-                usage_summary = self._verify_sector_model_usage_summary_with_conn(
-                    conn, json.loads(summary_row["receipt_json"])
-                )
-                if (
-                    usage_summary["budget_contract_ref"] != budget_ref
-                    or usage_summary["model_subcall_count"] != model_subcall_count
-                    or usage_summary["input_tokens"] != input_tokens
-                    or usage_summary["output_tokens"] != output_tokens
-                    or usage_summary["conflict_review_triggered"]
-                    != conflict_review_triggered
-                ):
-                    raise ValueError("KNOT Sector signed usage summary differs from ledger")
-                if disposition == "ACCEPTED" and (
-                    usage_summary["model_path_disposition"] != "COMPLETED"
-                    or usage_summary["last_attempted_stage"] != "COMPLETED"
-                ):
-                    raise ValueError("accepted KNOT Sector usage summary is incomplete")
-                if disposition == "AGENT_FAILURE":
-                    last_attempted_stage = usage_summary["last_attempted_stage"]
-                runtime_audit_body = {
-                    "schema_version": "sector_runtime_inference_cost_audit_v3",
-                    "evidence_source": "SIGNED_SERVER_MODEL_USAGE_SUMMARY",
-                    "sector_agent_id": normalized_binding["agent_id"],
-                    "snapshot_bundle_hash": normalized_binding[
-                        "snapshot_bundle_hash"
-                    ],
-                    "usage_summary_receipt_id": usage_summary[
-                        "usage_summary_receipt_id"
-                    ],
-                    "usage_summary_receipt_hash": usage_summary[
-                        "usage_summary_receipt_hash"
-                    ],
-                    "usage_summary_receipt": usage_summary,
-                    "model_subcall_count": model_subcall_count,
-                    "last_attempted_stage": last_attempted_stage,
-                    "conflict_review_triggered": conflict_review_triggered,
-                    "input_tokens": input_tokens,
-                    "output_tokens": output_tokens,
-                    "disposition": (
-                        "SUCCESS" if disposition == "ACCEPTED" else "AGENT_FAILURE"
-                    ),
-                }
-                runtime_audit_hash = _sha256(runtime_audit_body)
-                runtime_audit_id = (
-                    "sector-inference-cost:"
-                    + runtime_audit_hash.removeprefix("sha256:")
-                )
-                if disposition == "ACCEPTED" and (
-                    runtime_audit_id
-                    != normalized_binding["accepted_runtime_inference_cost_audit_id"]
-                    or runtime_audit_hash
-                    != normalized_binding["accepted_runtime_inference_cost_audit_hash"]
-                ):
-                    raise ValueError(
-                        "accepted KNOT Sector cost audit differs from usage ledger"
-                    )
-                measured_at = (
-                    events[-1]["recorded_at"]
-                    if events
-                    else pair_receipt["verified_at"]
-                )
-                ledger_id = f"sector-usage-ledger:{uuid.uuid4().hex}"
-                ledger_without_hash = {
-                    "schema_version": "server_owned_model_usage_ledger_v1",
-                    "usage_ledger_record_id": ledger_id,
-                    "sector_usage_binding_hash": supplied_binding_hash,
-                    "pair_root_reservation_id": normalized_binding[
-                        "pair_root_reservation_id"
-                    ],
-                    "capability_id": capability["capability_id"],
-                    "usage_event_refs": [
-                        {
-                            "usage_event_id": event["usage_event_id"],
-                            "usage_event_hash": event["usage_event_hash"],
-                        }
-                        for event in events
-                    ],
-                    "model_subcall_count": model_subcall_count,
-                    "last_attempted_stage": last_attempted_stage,
-                    "conflict_review_triggered": conflict_review_triggered,
-                    "input_tokens": input_tokens,
-                    "output_tokens": output_tokens,
-                    "budget_decision": {
-                        "disposition": (
-                            "STAGE_REJECT"
-                            if budget_violations
-                            else "WITHIN_BUDGET"
-                        ),
-                        "violation_codes": list(budget_violations),
-                    },
-                    "runtime_inference_cost_audit_id": runtime_audit_id,
-                    "runtime_inference_cost_audit_hash": runtime_audit_hash,
-                    "runtime_inference_cost_audit": runtime_audit_body,
-                    "measured_at": measured_at,
-                    "verified_at": verified_at.isoformat(),
-                }
-                ledger_hash = _sha256(ledger_without_hash)
-                ledger = {
-                    **ledger_without_hash,
-                    "usage_ledger_record_hash": ledger_hash,
-                }
-                receipt_id = f"sector-usage-receipt:{uuid.uuid4().hex}"
-                unsigned_body = {
-                    "schema_version": KNOT_SECTOR_USAGE_RECEIPT_VERSION,
-                    "usage_receipt_id": receipt_id,
-                    "pair_root_reservation_id": normalized_binding[
-                        "pair_root_reservation_id"
-                    ],
-                    "pair_root_receipt_hash": pair_receipt[
-                        "pair_root_receipt_hash"
-                    ],
-                    "knot_pair_id": normalized_binding["knot_pair_id"],
-                    "pair_side": normalized_binding["pair_side"],
-                    "capability_id": capability["capability_id"],
-                    "capability_manifest_hash": capability[
-                        "capability_manifest_hash"
-                    ],
-                    "graph_run_id": capability["graph_run_id"],
-                    "run_slot_id": capability["run_slot_id"],
-                    "run_id": capability["run_id"],
-                    "node_id": capability["node_id"],
-                    "agent_id": capability["agent_id"],
-                    "stage": capability["stage"],
-                    "as_of": capability["as_of"],
-                    "budget_contract_id": normalized_binding[
-                        "budget_contract_id"
-                    ],
-                    "budget_contract_version": normalized_binding[
-                        "budget_contract_version"
-                    ],
-                    "budget_contract_hash": normalized_binding[
-                        "budget_contract_hash"
-                    ],
-                    "budget_decision": {
-                        "disposition": (
-                            "STAGE_REJECT"
-                            if budget_violations
-                            else "WITHIN_BUDGET"
-                        ),
-                        "violation_codes": list(budget_violations),
-                    },
-                    "operational_opportunity_audit_id": normalized_binding[
-                        "operational_opportunity_audit_id"
-                    ],
-                    "operational_opportunity_audit_hash": normalized_binding[
-                        "operational_opportunity_audit_hash"
-                    ],
-                    "accepted_output_id": normalized_binding[
-                        "accepted_output_id"
-                    ],
-                    "accepted_output_hash": normalized_binding[
-                        "accepted_output_hash"
-                    ],
-                    "model_subcall_count": model_subcall_count,
-                    "last_attempted_stage": last_attempted_stage,
-                    "conflict_review_triggered": conflict_review_triggered,
-                    "direction_comparison_audit_id": direction_id,
-                    "direction_comparison_audit_hash": direction_hash,
-                    "conflict_review_id": conflict_id,
-                    "conflict_review_hash": conflict_hash,
-                    "input_tokens": input_tokens,
-                    "output_tokens": output_tokens,
-                    "runtime_inference_cost_audit_id": runtime_audit_id,
-                    "runtime_inference_cost_audit_hash": runtime_audit_hash,
-                    **KNOT_SECTOR_USAGE_INSTRUMENTATION_CONTRACT,
-                    "instrumentation_contract_hash": (
-                        KNOT_SECTOR_USAGE_INSTRUMENTATION_CONTRACT_HASH
-                    ),
-                    "usage_ledger_record_id": ledger_id,
-                    "usage_ledger_record_hash": ledger_hash,
-                    "measured_at": measured_at,
-                    "verified_at": verified_at.isoformat(),
-                    "receipt_signing_key_id": self.signing_key_id,
-                }
-                receipt_hash = _sha256(unsigned_body)
-                signed_body = {**unsigned_body, "usage_receipt_hash": receipt_hash}
-                receipt = {
-                    **signed_body,
-                    "receipt_signature": self._sign_domain(
-                        "knot-sector-inference-usage-receipt-v2\0",
-                        signed_body,
-                    ),
-                }
-                conn.execute(
-                    "INSERT INTO sector_inference_usage_receipts "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        receipt_id,
-                        normalized_binding["pair_root_reservation_id"],
-                        capability["capability_id"],
-                        _canonical_json(ledger),
-                        ledger_hash,
-                        _canonical_json(receipt),
-                        receipt_hash,
-                        receipt["receipt_signature"],
-                        verified_at.isoformat(),
-                    ),
-                )
-                conn.execute("COMMIT")
-                return receipt
-            except sqlite3.IntegrityError as exc:
-                conn.execute("ROLLBACK")
-                raise ValueError("KNOT Sector usage receipt collision") from exc
-            except Exception:
-                conn.execute("ROLLBACK")
-                raise
-
-    def verify_knot_sector_inference_usage_receipt(
-        self, receipt: Mapping[str, Any]
-    ) -> dict[str, Any]:
-        """Dereference and revalidate one server-owned Sector usage receipt."""
-        self._require_durable_knot_key()
-        with self._connect() as conn:
-            return self._verify_knot_sector_usage_receipt_with_conn(conn, receipt)
-
-    def mint_knot_strict_output_validation_receipt(
-        self,
-        *,
-        knot_pair_id: str,
-        pair_side: str,
-        accepted_output_kind: str,
-        accepted_output_record: Mapping[str, Any],
-        verified_claim_graph: Mapping[str, Any],
-        schema_binding: Mapping[str, Any],
-        schema_json: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        """Strict-parse and sign one accepted KNOT side output."""
-        _reject_legacy_knot_write()
-        self._require_durable_knot_key()
-        if pair_side not in {"CHAMPION", "CANDIDATE"}:
-            raise ValueError("KNOT pair_side must be CHAMPION or CANDIDATE")
-        if set(schema_binding) != {
-            "accepted_output_kind",
-            "schema_phase",
-            "schema_id",
-            "schema_hash",
-            "immutable_phase_instruction_hash",
-            "structured_output_schema_binding_set_hash",
-        }:
-            raise ValueError("KNOT schema binding fields mismatch")
-        if schema_binding.get("accepted_output_kind") != accepted_output_kind:
-            raise ValueError("KNOT accepted output kind/schema binding mismatch")
-        for field in ("schema_id", "schema_phase"):
-            _required_string(schema_binding, field)
-        for field in (
-            "schema_hash",
-            "immutable_phase_instruction_hash",
-            "structured_output_schema_binding_set_hash",
-        ):
-            if not _is_sha256(schema_binding.get(field)):
-                raise ValueError(f"KNOT {field} must be sha256")
-        if _sha256(schema_json) != schema_binding["schema_hash"]:
-            raise ValueError("KNOT supplied schema does not match the immutable binding")
-        try:
-            Draft202012Validator.check_schema(dict(schema_json))
-            Draft202012Validator(dict(schema_json)).validate(
-                dict(accepted_output_record)
-            )
-        except (SchemaError, ValidationError) as exc:
-            raise ValueError(f"KNOT strict output schema validation failed: {exc.message}") from exc
-
-        validated_at = self.clock().astimezone(timezone.utc)
-        with self._connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                binding_row = conn.execute(
-                    "SELECT pair_root_reservation_id FROM private_pair_bindings "
-                    "WHERE knot_pair_id = ?",
-                    (knot_pair_id,),
-                ).fetchone()
-                if binding_row is None:
-                    raise ValueError("unknown public binding for KNOT pair")
-                reservation_id = binding_row["pair_root_reservation_id"]
-                pair_row = conn.execute(
-                    "SELECT receipt_json FROM verified_pair_root_receipts "
-                    "WHERE pair_root_reservation_id = ?",
-                    (reservation_id,),
-                ).fetchone()
-                if pair_row is None:
-                    raise ValueError("unknown KNOT pair-root reservation")
-                pair_receipt = self._verify_knot_pair_root_receipt_with_conn(
-                    conn,
-                    json.loads(pair_row["receipt_json"]),
-                    require_active_capabilities=False,
-                )
-                capability = pair_receipt["capabilities"][pair_side]
-                capability_id = capability["capability_id"]
-                self._validate_knot_capability_completion(
-                    conn,
-                    capability=capability,
-                    allowed_tools=pair_receipt["allowed_tools"],
-                    validated_at=validated_at,
-                )
-                _validate_knot_claim_graph(
-                    verified_claim_graph,
-                    accepted_output_record=accepted_output_record,
-                    accepted_output_kind=accepted_output_kind,
-                    graph_run_id=capability["graph_run_id"],
-                    snapshot_bundle_hash=pair_receipt["snapshot_bundle_hash"],
-                    allowed_tools=pair_receipt["allowed_tools"],
-                )
-                output_hash = _sha256(accepted_output_record)
-                graph_hash = _sha256(verified_claim_graph)
-                existing = conn.execute(
-                    "SELECT * FROM strict_output_validation_receipts "
-                    "WHERE pair_root_reservation_id = ? AND capability_id = ? "
-                    "AND accepted_output_kind = ?",
-                    (reservation_id, capability_id, accepted_output_kind),
-                ).fetchone()
-                if existing is not None:
-                    if (
-                        existing["accepted_output_record_hash"] != output_hash
-                        or existing["verified_claim_graph_hash"] != graph_hash
-                        or existing["schema_hash"] != schema_binding["schema_hash"]
-                    ):
-                        raise ValueError(
-                            "KNOT strict validation retry changed immutable inputs"
-                        )
-                    receipt = json.loads(existing["receipt_json"])
-                    self._verify_knot_strict_output_receipt_with_conn(conn, receipt)
-                    conn.execute("COMMIT")
-                    return receipt
-
-                validation_id = f"knot-strict-validation:{uuid.uuid4().hex}"
-                ledger_id = f"knot-validator-ledger:{uuid.uuid4().hex}"
-                validator_record_without_hash = {
-                    "validator_ledger_record_id": ledger_id,
-                    **KNOT_STRICT_VALIDATOR_CONTRACT,
-                    "validator_contract_hash": KNOT_STRICT_VALIDATOR_CONTRACT_HASH,
-                    "pair_root_reservation_id": reservation_id,
-                    "capability_id": capability_id,
-                    "accepted_output_kind": accepted_output_kind,
-                    "schema_binding": dict(schema_binding),
-                    "accepted_output_record_hash": output_hash,
-                    "verified_claim_graph_hash": graph_hash,
-                    "validation_status": "ACCEPTED",
-                    "validated_at": validated_at.isoformat(),
-                }
-                ledger_hash = _sha256(validator_record_without_hash)
-                validator_record = {
-                    **validator_record_without_hash,
-                    "validator_ledger_record_hash": ledger_hash,
-                }
-                unsigned_body = {
-                    "schema_version": KNOT_STRICT_OUTPUT_RECEIPT_VERSION,
-                    "strict_validation_receipt_id": validation_id,
-                    **KNOT_STRICT_VALIDATOR_CONTRACT,
-                    "validator_contract_hash": KNOT_STRICT_VALIDATOR_CONTRACT_HASH,
-                    "validator_ledger_record_id": ledger_id,
-                    "validator_ledger_record_hash": ledger_hash,
-                    "pair_root_reservation_id": reservation_id,
-                    "pair_root_receipt_hash": pair_receipt[
-                        "pair_root_receipt_hash"
-                    ],
-                    "capability_id": capability_id,
-                    "capability_manifest_hash": capability[
-                        "capability_manifest_hash"
-                    ],
-                    "graph_run_id": capability["graph_run_id"],
-                    "run_slot_id": capability["run_slot_id"],
-                    "run_id": capability["run_id"],
-                    "node_id": capability["node_id"],
-                    "agent_id": capability["agent_id"],
-                    "stage": capability["stage"],
-                    "as_of": capability["as_of"],
-                    "accepted_output_kind": accepted_output_kind,
-                    "schema_phase": schema_binding["schema_phase"],
-                    "schema_id": schema_binding["schema_id"],
-                    "schema_hash": schema_binding["schema_hash"],
-                    "immutable_phase_instruction_hash": schema_binding[
-                        "immutable_phase_instruction_hash"
-                    ],
-                    "structured_output_schema_binding_set_hash": schema_binding[
-                        "structured_output_schema_binding_set_hash"
-                    ],
-                    "accepted_output_record_hash": output_hash,
-                    "verified_claim_graph_hash": graph_hash,
-                    "validation_status": "ACCEPTED",
-                    "validated_at": validated_at.isoformat(),
-                    "receipt_signing_key_id": self.signing_key_id,
-                }
-                receipt_hash = _sha256(unsigned_body)
-                signed_body = {
-                    **unsigned_body,
-                    "strict_validation_receipt_hash": receipt_hash,
-                }
-                receipt = {
-                    **signed_body,
-                    "receipt_signature": self._sign_domain(
-                        "knot-strict-output-receipt-v2\0", signed_body
-                    ),
-                }
-                conn.execute(
-                    "INSERT INTO strict_output_validation_receipts "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        validation_id,
-                        reservation_id,
-                        capability_id,
-                        accepted_output_kind,
-                        output_hash,
-                        graph_hash,
-                        schema_binding["schema_hash"],
-                        _canonical_json(validator_record),
-                        ledger_hash,
-                        _canonical_json(receipt),
-                        receipt_hash,
-                        receipt["receipt_signature"],
-                        validated_at.isoformat(),
-                    ),
-                )
-                conn.execute("COMMIT")
-                return receipt
-            except sqlite3.IntegrityError as exc:
-                conn.execute("ROLLBACK")
-                raise ValueError("KNOT strict validation receipt collision") from exc
-            except Exception:
-                conn.execute("ROLLBACK")
-                raise
-
-    def resolve_knot_pair_side_capability(
-        self, *, knot_pair_id: str, pair_side: str
-    ) -> dict[str, Any]:
-        if pair_side not in {"CHAMPION", "CANDIDATE"}:
-            raise ValueError("KNOT pair_side must be CHAMPION or CANDIDATE")
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT r.receipt_json FROM private_pair_bindings b "
-                "JOIN verified_pair_root_receipts r USING(pair_root_reservation_id) "
-                "WHERE b.knot_pair_id = ?",
-                (knot_pair_id,),
-            ).fetchone()
-            if row is None:
-                raise ValueError("unknown public binding for KNOT pair")
-            receipt = self._verify_knot_pair_root_receipt_with_conn(
-                conn,
-                json.loads(row["receipt_json"]),
-                require_active_capabilities=False,
-            )
-            return dict(receipt["capabilities"][pair_side])
-
-    def verify_knot_strict_output_validation_receipt(
-        self, receipt: Mapping[str, Any]
-    ) -> dict[str, Any]:
-        self._require_durable_knot_key()
-        with self._connect() as conn:
-            return self._verify_knot_strict_output_receipt_with_conn(conn, receipt)
-
-    def _require_durable_knot_key(self) -> None:
-        if not self.signing_key_is_durable:
-            raise ValueError(
-                "KNOT receipts require MOSAIC_AGENT_CAPABILITY_SIGNING_KEY"
-            )
-
-    def _validate_knot_pair_capabilities(
-        self,
-        conn: sqlite3.Connection,
-        manifests: Mapping[str, Mapping[str, Any]],
-        rows: Mapping[str, sqlite3.Row],
-        *,
-        require_unused: bool = True,
-    ) -> None:
-        champion = manifests["CHAMPION"]
-        candidate = manifests["CANDIDATE"]
-        shared_fields = (
-            "graph_run_id",
-            "agent_id",
-            "stage",
-            "as_of",
-            "candidate_scope_hash",
-            "snapshot_bundle_id",
-            "snapshot_bundle_hash",
-            "allowed_tools",
-        )
-        for field in shared_fields:
-            if champion.get(field) != candidate.get(field):
-                raise ValueError(f"KNOT pair capabilities have different {field}")
-        distinct_fields = (
-            "capability_id",
-            "run_slot_id",
-            "run_id",
-            "node_id",
-            "nonce",
-        )
-        for field in distinct_fields:
-            if champion.get(field) == candidate.get(field):
-                raise ValueError(f"KNOT pair capabilities reused {field}")
-        if rows["CHAMPION"]["signature"] == rows["CANDIDATE"]["signature"]:
-            raise ValueError("KNOT pair capabilities reused a signature")
-        for side, manifest in manifests.items():
-            used = conn.execute(
-                "SELECT 1 FROM capability_tool_uses WHERE capability_id = ? LIMIT 1",
-                (manifest["capability_id"],),
-            ).fetchone()
-            if require_unused and used is not None:
-                raise ValueError(f"{side} KNOT capability was used before pair freeze")
-
-    def _knot_capability_projection(
-        self, manifest: Mapping[str, Any], row: sqlite3.Row
-    ) -> dict[str, Any]:
-        ledger_record = {
-            "capability_id": row["capability_id"],
-            "snapshot_bundle_id": row["snapshot_bundle_id"],
-            "manifest_json": row["manifest_json"],
-            "signing_key_id": row["signing_key_id"],
-            "signature": row["signature"],
-            "created_at": row["created_at"],
-        }
-        return {
-            "capability_contract_version": manifest["capability_contract_version"],
-            "capability_id": manifest["capability_id"],
-            "capability_manifest_hash": _sha256(manifest),
-            "graph_run_id": manifest["graph_run_id"],
-            "run_slot_id": manifest["run_slot_id"],
-            "run_id": manifest["run_id"],
-            "node_id": manifest["node_id"],
-            "agent_id": manifest["agent_id"],
-            "stage": manifest["stage"],
-            "as_of": manifest["as_of"],
-            "candidate_scope_hash": manifest.get("candidate_scope_hash"),
-            "snapshot_bundle_id": manifest["snapshot_bundle_id"],
-            "snapshot_bundle_hash": manifest["snapshot_bundle_hash"],
-            "allowed_tools": list(manifest["allowed_tools"]),
-            "issued_at": manifest["issued_at"],
-            "expires_at": manifest["expires_at"],
-            "nonce": manifest["nonce"],
-            "capability_signing_key_id": row["signing_key_id"],
-            "capability_signature_hash": _sha256(
-                {
-                    "signing_key_id": row["signing_key_id"],
-                    "signature": row["signature"],
-                }
-            ),
-            "ledger_record_hash": _sha256(ledger_record),
-        }
-
-    def _verify_knot_pair_root_receipt_with_conn(
+    def _verify_sector_model_usage_summary_with_conn(
         self,
         conn: sqlite3.Connection,
         value: Mapping[str, Any],
-        *,
-        require_active_capabilities: bool = True,
-    ) -> dict[str, Any]:
-        receipt = dict(value)
-        expected_keys = {
-            "schema_version",
-            "pair_root_reservation_id",
-            "pair_binding",
-            "pair_binding_hash",
-            "agent_id",
-            "stage",
-            "as_of",
-            "snapshot_bundle_contract_version",
-            "snapshot_bundle_id",
-            "snapshot_bundle_hash",
-            "runtime_input_hash",
-            "candidate_scope_hash",
-            "allowed_tools",
-            "tool_payload_hashes",
-            "capabilities",
-            "verified_at",
-            "reservation_status",
-            "receipt_signing_key_id",
-            "pair_root_receipt_hash",
-            "receipt_signature",
-        }
-        if set(receipt) != expected_keys:
-            raise ValueError("KNOT pair-root receipt fields mismatch")
-        if receipt.get("schema_version") != KNOT_PAIR_ROOT_RECEIPT_VERSION:
-            raise ValueError("KNOT pair-root receipt version mismatch")
-        if (
-            receipt.get("reservation_status") != "ACTIVE"
-            or receipt.get("receipt_signing_key_id") != self.signing_key_id
-        ):
-            raise ValueError("KNOT pair-root receipt is not active")
-        signature = _required_string(receipt, "receipt_signature")
-        supplied_hash = receipt.get("pair_root_receipt_hash")
-        if not _is_sha256(supplied_hash):
-            raise ValueError("KNOT pair-root receipt hash is invalid")
-        unsigned_body = {
-            key: item
-            for key, item in receipt.items()
-            if key not in {"pair_root_receipt_hash", "receipt_signature"}
-        }
-        if supplied_hash != _sha256(unsigned_body):
-            raise ValueError("KNOT pair-root receipt hash mismatch")
-        expected_signature = self._sign_domain(
-            "knot-pair-root-receipt-v2\0",
-            {**unsigned_body, "pair_root_receipt_hash": supplied_hash},
-        )
-        if not hmac.compare_digest(signature, expected_signature):
-            raise ValueError("KNOT pair-root receipt signature mismatch")
-        reservation_id = _required_string(receipt, "pair_root_reservation_id")
-        stored = conn.execute(
-            "SELECT * FROM verified_pair_root_receipts "
-            "WHERE pair_root_reservation_id = ?",
-            (reservation_id,),
-        ).fetchone()
-        if stored is None:
-            raise ValueError("unknown KNOT pair-root receipt")
-        if (
-            stored["receipt_json"] != _canonical_json(receipt)
-            or stored["pair_root_receipt_hash"] != supplied_hash
-            or stored["receipt_signature"] != signature
-        ):
-            raise ValueError("KNOT pair-root receipt differs from its ledger record")
-        binding = receipt.get("pair_binding")
-        if not isinstance(binding, dict) or set(binding) != {
-            "knot_research_track_id",
-            "knot_pair_assignment_id",
-            "research_slot_id",
-            "evaluation_opportunity_set_id",
-        }:
-            raise ValueError("KNOT pair-root binding fields mismatch")
-        for field in binding:
-            _required_string(binding, field)
-        if receipt.get("pair_binding_hash") != _sha256(binding):
-            raise ValueError("KNOT pair-root binding hash mismatch")
-        verified_at = _aware_timestamp(receipt.get("verified_at"), "verified_at")
-        capabilities = receipt.get("capabilities")
-        if not isinstance(capabilities, dict) or set(capabilities) != {
-            "CHAMPION",
-            "CANDIDATE",
-        }:
-            raise ValueError("KNOT pair-root capabilities are incomplete")
-        manifests: dict[str, dict[str, Any]] = {}
-        rows: dict[str, sqlite3.Row] = {}
-        reservation_rows = conn.execute(
-            "SELECT capability_id, pair_side FROM capability_reservations "
-            "WHERE pair_root_reservation_id = ? ORDER BY pair_side",
-            (reservation_id,),
-        ).fetchall()
-        if len(reservation_rows) != 2:
-            raise ValueError("KNOT pair-root capability reservations are incomplete")
-        reserved = {row["pair_side"]: row["capability_id"] for row in reservation_rows}
-        for side in ("CHAMPION", "CANDIDATE"):
-            projection = capabilities.get(side)
-            if not isinstance(projection, dict):
-                raise ValueError(f"KNOT {side} capability receipt is invalid")
-            capability_id = _required_string(projection, "capability_id")
-            if reserved.get(side) != capability_id:
-                raise ValueError("KNOT capability reservation side mismatch")
-            capability_row = conn.execute(
-                "SELECT c.*, b.bundle_json, b.payloads_json FROM capabilities c "
-                "JOIN snapshot_bundles b USING(snapshot_bundle_id) "
-                "WHERE c.capability_id = ?",
-                (capability_id,),
-            ).fetchone()
-            if capability_row is None:
-                raise ValueError("KNOT reserved capability is unavailable")
-            manifest = json.loads(capability_row["manifest_json"])
-            envelope = {
-                "manifest": manifest,
-                "signing_key_id": capability_row["signing_key_id"],
-                "signature": capability_row["signature"],
-            }
-            verified_manifest, verified_row = self._verify(
-                envelope,
-                conn=conn,
-                allow_terminated=not require_active_capabilities,
-                verified_at=verified_at,
-            )
-            expected_projection = self._knot_capability_projection(
-                verified_manifest, verified_row
-            )
-            if projection != expected_projection:
-                raise ValueError("KNOT capability projection differs from the ledger")
-            manifests[side] = verified_manifest
-            rows[side] = verified_row
-        self._validate_knot_pair_capabilities(
-            conn,
-            manifests,
-            rows,
-            require_unused=require_active_capabilities,
-        )
-        bundle = json.loads(rows["CHAMPION"]["bundle_json"])
-        root_expected = {
-            "agent_id": manifests["CHAMPION"]["agent_id"],
-            "stage": manifests["CHAMPION"]["stage"],
-            "as_of": manifests["CHAMPION"]["as_of"],
-            "snapshot_bundle_contract_version": bundle[
-                "snapshot_bundle_contract_version"
-            ],
-            "snapshot_bundle_id": bundle["snapshot_bundle_id"],
-            "snapshot_bundle_hash": bundle["snapshot_bundle_hash"],
-            "runtime_input_hash": bundle["runtime_input_hash"],
-            "candidate_scope_hash": bundle.get("candidate_scope_hash"),
-            "allowed_tools": list(manifests["CHAMPION"]["allowed_tools"]),
-            "tool_payload_hashes": dict(bundle["tool_payload_hashes"]),
-        }
-        for field, expected in root_expected.items():
-            if receipt.get(field) != expected:
-                raise ValueError(f"KNOT pair-root receipt {field} mismatch")
-        return receipt
-
-    def _verify_knot_regime_receipt_with_conn(
-        self, conn: sqlite3.Connection, value: Mapping[str, Any]
-    ) -> dict[str, Any]:
-        receipt = dict(value)
-        expected_keys = {
-            "schema_version",
-            "regime_classification_receipt_id",
-            "knot_research_track_id",
-            "research_slot_id",
-            "scheduled_sample_id",
-            "evaluation_regime",
-            "source_snapshot_id",
-            "source_snapshot_hash",
-            "classifier_contract_id",
-            "classifier_contract_version",
-            "classifier_contract_hash",
-            "as_of",
-            "classified_at",
-            "classifier_ledger_record_id",
-            "classifier_ledger_record_hash",
-            "receipt_signing_key_id",
-            "regime_classification_receipt_hash",
-            "receipt_signature",
-        }
-        if set(receipt) != expected_keys:
-            raise ValueError("KNOT regime receipt fields mismatch")
-        if (
-            receipt.get("schema_version") != KNOT_REGIME_RECEIPT_VERSION
-            or receipt.get("evaluation_regime") not in {"normal", "stress"}
-            or receipt.get("receipt_signing_key_id") != self.signing_key_id
-        ):
-            raise ValueError("KNOT regime receipt contract mismatch")
-        _required_string(receipt, "classifier_contract_id")
-        _required_string(receipt, "classifier_contract_version")
-        if not _is_sha256(receipt.get("classifier_contract_hash")):
-            raise ValueError("KNOT regime receipt classifier hash is invalid")
-        supplied_hash = receipt.get("regime_classification_receipt_hash")
-        if not _is_sha256(supplied_hash):
-            raise ValueError("KNOT regime receipt hash is invalid")
-        unsigned_body = {
-            key: item
-            for key, item in receipt.items()
-            if key
-            not in {"regime_classification_receipt_hash", "receipt_signature"}
-        }
-        if supplied_hash != _sha256(unsigned_body):
-            raise ValueError("KNOT regime receipt hash mismatch")
-        expected_signature = self._sign_domain(
-            "knot-regime-classification-receipt-v2\0",
-            {
-                **unsigned_body,
-                "regime_classification_receipt_hash": supplied_hash,
-            },
-        )
-        signature = _required_string(receipt, "receipt_signature")
-        if not hmac.compare_digest(signature, expected_signature):
-            raise ValueError("KNOT regime receipt signature mismatch")
-        receipt_id = _required_string(
-            receipt, "regime_classification_receipt_id"
-        )
-        row = conn.execute(
-            "SELECT * FROM regime_classification_receipts "
-            "WHERE regime_classification_receipt_id = ?",
-            (receipt_id,),
-        ).fetchone()
-        if row is None:
-            raise ValueError("unknown KNOT regime receipt")
-        if (
-            row["receipt_json"] != _canonical_json(receipt)
-            or row["regime_classification_receipt_hash"] != supplied_hash
-            or row["receipt_signature"] != signature
-            or row["source_snapshot_hash"] != receipt["source_snapshot_hash"]
-        ):
-            raise ValueError("KNOT regime receipt differs from its ledger record")
-        ledger_record = json.loads(row["classifier_ledger_record_json"])
-        ledger_hash = ledger_record.pop("classifier_ledger_record_hash", None)
-        if (
-            ledger_hash != _sha256(ledger_record)
-            or ledger_hash != receipt.get("classifier_ledger_record_hash")
-            or row["classifier_ledger_record_hash"] != ledger_hash
-            or ledger_record.get("classifier_ledger_record_id")
-            != receipt.get("classifier_ledger_record_id")
-            or ledger_record.get("evaluation_regime")
-            != receipt.get("evaluation_regime")
-            or ledger_record.get("source_snapshot_hash")
-            != receipt.get("source_snapshot_hash")
-            or ledger_record.get("classifier_contract_id")
-            != receipt.get("classifier_contract_id")
-            or ledger_record.get("classifier_contract_version")
-            != receipt.get("classifier_contract_version")
-            or ledger_record.get("classifier_contract_hash")
-            != receipt.get("classifier_contract_hash")
-        ):
-            raise ValueError("KNOT regime classifier ledger record mismatch")
-        binding = ledger_record.get("assignment_binding")
-        if not isinstance(binding, dict):
-            raise ValueError("KNOT regime assignment binding is invalid")
-        expected_binding = {
-            "knot_research_track_id": receipt["knot_research_track_id"],
-            "research_slot_id": receipt["research_slot_id"],
-            "scheduled_sample_id": receipt["scheduled_sample_id"],
-            "as_of": receipt["as_of"][:10],
-        }
-        if (
-            binding != expected_binding
-            or ledger_record.get("assignment_binding_hash") != _sha256(binding)
-            or row["assignment_binding_hash"] != _sha256(binding)
-        ):
-            raise ValueError("KNOT regime assignment binding mismatch")
-        if _aware_timestamp(receipt["as_of"], "regime.as_of") > _aware_timestamp(
-            receipt["classified_at"], "regime.classified_at"
-        ):
-            raise ValueError("KNOT regime receipt predates its source")
-        return receipt
-
-    def _validate_knot_capability_completion(
-        self,
-        conn: sqlite3.Connection,
-        *,
-        capability: Mapping[str, Any],
-        allowed_tools: Sequence[str],
-        validated_at: datetime,
-    ) -> None:
-        capability_id = _required_string(capability, "capability_id")
-        issued_at = _aware_timestamp(capability.get("issued_at"), "issued_at")
-        expires_at = _aware_timestamp(capability.get("expires_at"), "expires_at")
-        if not issued_at <= validated_at < expires_at:
-            raise ValueError("KNOT strict validation is outside capability lifetime")
-        termination = conn.execute(
-            "SELECT event_at FROM capability_events "
-            "WHERE capability_id = ? AND event_type = 'TERMINATED'",
-            (capability_id,),
-        ).fetchone()
-        if termination is None:
-            raise ValueError("KNOT strict validation requires a terminated capability")
-        terminated_at = _aware_timestamp(termination["event_at"], "terminated_at")
-        uses = conn.execute(
-            "SELECT tool_id, used_at FROM capability_tool_uses "
-            "WHERE capability_id = ? ORDER BY tool_id",
-            (capability_id,),
-        ).fetchall()
-        if [row["tool_id"] for row in uses] != sorted(allowed_tools):
-            raise ValueError("KNOT accepted output did not use the exact tool whitelist")
-        pair_verified = conn.execute(
-            "SELECT r.receipt_json FROM verified_pair_root_receipts r "
-            "JOIN capability_reservations c USING(pair_root_reservation_id) "
-            "WHERE c.capability_id = ?",
-            (capability_id,),
-        ).fetchone()
-        if pair_verified is None:
-            raise ValueError("KNOT capability has no pair-root reservation")
-        root_verified_at = _aware_timestamp(
-            json.loads(pair_verified["receipt_json"])["verified_at"],
-            "pair_root.verified_at",
-        )
-        use_times = [
-            _aware_timestamp(row["used_at"], f"tool_use.{row['tool_id']}")
-            for row in uses
-        ]
-        if (
-            terminated_at > validated_at
-            or any(not root_verified_at <= used_at <= terminated_at for used_at in use_times)
-        ):
-            raise ValueError("KNOT capability use/termination timeline is invalid")
-
-    def _verify_knot_strict_output_receipt_with_conn(
-        self, conn: sqlite3.Connection, value: Mapping[str, Any]
-    ) -> dict[str, Any]:
-        receipt = dict(value)
-        expected_keys = {
-            "schema_version",
-            "strict_validation_receipt_id",
-            "validator_contract_id",
-            "validator_contract_version",
-            "validator_contract_hash",
-            "validator_ledger_record_id",
-            "validator_ledger_record_hash",
-            "pair_root_reservation_id",
-            "pair_root_receipt_hash",
-            "capability_id",
-            "capability_manifest_hash",
-            "graph_run_id",
-            "run_slot_id",
-            "run_id",
-            "node_id",
-            "agent_id",
-            "stage",
-            "as_of",
-            "accepted_output_kind",
-            "schema_phase",
-            "schema_id",
-            "schema_hash",
-            "immutable_phase_instruction_hash",
-            "structured_output_schema_binding_set_hash",
-            "accepted_output_record_hash",
-            "verified_claim_graph_hash",
-            "validation_status",
-            "validated_at",
-            "receipt_signing_key_id",
-            "strict_validation_receipt_hash",
-            "receipt_signature",
-        }
-        if set(receipt) != expected_keys:
-            raise ValueError("KNOT strict output receipt fields mismatch")
-        if receipt.get("schema_version") != KNOT_STRICT_OUTPUT_RECEIPT_VERSION:
-            raise ValueError("KNOT strict output receipt version mismatch")
-        if (
-            receipt.get("validation_status") != "ACCEPTED"
-            or receipt.get("receipt_signing_key_id") != self.signing_key_id
-            or receipt.get("validator_contract_id")
-            != KNOT_STRICT_VALIDATOR_CONTRACT["validator_contract_id"]
-            or receipt.get("validator_contract_version")
-            != KNOT_STRICT_VALIDATOR_CONTRACT["validator_contract_version"]
-            or receipt.get("validator_contract_hash")
-            != KNOT_STRICT_VALIDATOR_CONTRACT_HASH
-        ):
-            raise ValueError("KNOT strict output receipt contract mismatch")
-        supplied_hash = receipt.get("strict_validation_receipt_hash")
-        if not _is_sha256(supplied_hash):
-            raise ValueError("KNOT strict output receipt hash is invalid")
-        unsigned_body = {
-            key: item
-            for key, item in receipt.items()
-            if key not in {"strict_validation_receipt_hash", "receipt_signature"}
-        }
-        if supplied_hash != _sha256(unsigned_body):
-            raise ValueError("KNOT strict output receipt hash mismatch")
-        expected_signature = self._sign_domain(
-            "knot-strict-output-receipt-v2\0",
-            {**unsigned_body, "strict_validation_receipt_hash": supplied_hash},
-        )
-        signature = _required_string(receipt, "receipt_signature")
-        if not hmac.compare_digest(signature, expected_signature):
-            raise ValueError("KNOT strict output receipt signature mismatch")
-        receipt_id = _required_string(receipt, "strict_validation_receipt_id")
-        row = conn.execute(
-            "SELECT * FROM strict_output_validation_receipts "
-            "WHERE strict_validation_receipt_id = ?",
-            (receipt_id,),
-        ).fetchone()
-        if row is None:
-            raise ValueError("unknown KNOT strict output receipt")
-        if (
-            row["receipt_json"] != _canonical_json(receipt)
-            or row["strict_validation_receipt_hash"] != supplied_hash
-            or row["receipt_signature"] != signature
-        ):
-            raise ValueError("KNOT strict output receipt differs from its ledger record")
-        validator_record = json.loads(row["validator_ledger_record_json"])
-        ledger_hash = validator_record.pop("validator_ledger_record_hash", None)
-        if (
-            ledger_hash != _sha256(validator_record)
-            or ledger_hash != receipt.get("validator_ledger_record_hash")
-            or row["validator_ledger_record_hash"] != ledger_hash
-            or validator_record.get("validator_ledger_record_id")
-            != receipt.get("validator_ledger_record_id")
-        ):
-            raise ValueError("KNOT strict validator ledger record mismatch")
-        pair_row = conn.execute(
-            "SELECT receipt_json FROM verified_pair_root_receipts "
-            "WHERE pair_root_reservation_id = ?",
-            (receipt["pair_root_reservation_id"],),
-        ).fetchone()
-        if pair_row is None:
-            raise ValueError("KNOT strict receipt pair root is unavailable")
-        pair_receipt = self._verify_knot_pair_root_receipt_with_conn(
-            conn,
-            json.loads(pair_row["receipt_json"]),
-            require_active_capabilities=False,
-        )
-        capabilities = pair_receipt["capabilities"]
-        matching = [
-            capability
-            for capability in capabilities.values()
-            if capability["capability_id"] == receipt["capability_id"]
-        ]
-        if len(matching) != 1:
-            raise ValueError("KNOT strict receipt capability is not pair-bound")
-        capability = matching[0]
-        expected_lineage = {
-            "pair_root_receipt_hash": pair_receipt["pair_root_receipt_hash"],
-            "capability_manifest_hash": capability["capability_manifest_hash"],
-            "graph_run_id": capability["graph_run_id"],
-            "run_slot_id": capability["run_slot_id"],
-            "run_id": capability["run_id"],
-            "node_id": capability["node_id"],
-            "agent_id": capability["agent_id"],
-            "stage": capability["stage"],
-            "as_of": capability["as_of"],
-            "accepted_output_record_hash": row["accepted_output_record_hash"],
-            "verified_claim_graph_hash": row["verified_claim_graph_hash"],
-            "schema_hash": row["schema_hash"],
-        }
-        for field, expected in expected_lineage.items():
-            if receipt.get(field) != expected:
-                raise ValueError(f"KNOT strict output receipt {field} mismatch")
-        return receipt
-
-    def _verify_sector_model_usage_summary_with_conn(
-        self, conn: sqlite3.Connection, value: Mapping[str, Any]
     ) -> dict[str, Any]:
         receipt = dict(value)
         expected_keys = {
@@ -5286,9 +3108,6 @@ class AgentToolCapabilityStore:
             "as_of",
             "snapshot_bundle_id",
             "snapshot_bundle_hash",
-            "pair_root_reservation_id",
-            "pair_side",
-            "budget_contract_ref",
             "model_subcall_count",
             "last_attempted_stage",
             "conflict_review_triggered",
@@ -5301,9 +3120,9 @@ class AgentToolCapabilityStore:
             "conflict_review_hash",
             "instrumentation_contract_id",
             "instrumentation_contract_version",
-            "instrumentation_contract_hash",
             "source_contract_version",
             "measurement_rule",
+            "instrumentation_contract_hash",
             "usage_ledger_record_id",
             "usage_ledger_record_hash",
             "measured_at",
@@ -5319,46 +3138,30 @@ class AgentToolCapabilityStore:
             or receipt.get("receipt_signing_key_id") != self.signing_key_id
             or any(
                 receipt.get(field) != expected
-                for field, expected in KNOT_SECTOR_USAGE_INSTRUMENTATION_CONTRACT.items()
+                for field, expected in SECTOR_USAGE_INSTRUMENTATION_CONTRACT.items()
             )
             or receipt.get("instrumentation_contract_hash")
-            != KNOT_SECTOR_USAGE_INSTRUMENTATION_CONTRACT_HASH
+            != SECTOR_USAGE_INSTRUMENTATION_CONTRACT_HASH
         ):
             raise ValueError("Sector model usage summary contract mismatch")
-        budget_ref = receipt.get("budget_contract_ref")
-        if budget_ref is not None and (
-            not isinstance(budget_ref, dict)
-            or set(budget_ref)
-            != {
-                "budget_contract_id",
-                "budget_contract_version",
-                "budget_contract_hash",
-            }
-            or not _is_sha256(budget_ref.get("budget_contract_hash"))
-        ):
-            raise ValueError("Sector model usage summary budget ref is invalid")
-        if isinstance(budget_ref, dict):
-            _required_string(budget_ref, "budget_contract_id")
-            _required_string(budget_ref, "budget_contract_version")
-        supplied_hash = receipt.get("usage_summary_receipt_hash")
-        if not _is_sha256(supplied_hash):
+        receipt_hash = receipt.get("usage_summary_receipt_hash")
+        if not _is_sha256(receipt_hash):
             raise ValueError("Sector model usage summary hash is invalid")
         unsigned_body = {
             key: item
             for key, item in receipt.items()
             if key not in {"usage_summary_receipt_hash", "receipt_signature"}
         }
-        if supplied_hash != _sha256(unsigned_body):
+        if receipt_hash != _sha256(unsigned_body):
             raise ValueError("Sector model usage summary hash mismatch")
+        signed_body = {**unsigned_body, "usage_summary_receipt_hash": receipt_hash}
         signature = _required_string(receipt, "receipt_signature")
         if not hmac.compare_digest(
             signature,
-            self._sign_domain(
-                "sector-model-usage-summary-receipt-v1\0",
-                {**unsigned_body, "usage_summary_receipt_hash": supplied_hash},
-            ),
+            self._sign_domain("sector-model-usage-summary-receipt-v1\0", signed_body),
         ):
             raise ValueError("Sector model usage summary signature mismatch")
+
         for field in (
             "capability_manifest_hash",
             "snapshot_bundle_hash",
@@ -5375,12 +3178,6 @@ class AgentToolCapabilityStore:
                 raise ValueError(f"Sector model usage summary {id_field} is unpaired")
             if receipt[hash_field] is not None and not _is_sha256(receipt[hash_field]):
                 raise ValueError(f"Sector model usage summary {hash_field} is invalid")
-        if (receipt["pair_root_reservation_id"] is None) != (
-            receipt["pair_side"] is None
-        ):
-            raise ValueError("Sector model usage summary pair reservation is unpaired")
-        if receipt["pair_side"] not in {None, "CHAMPION", "CANDIDATE"}:
-            raise ValueError("Sector model usage summary pair side is invalid")
 
         receipt_id = _required_string(receipt, "usage_summary_receipt_id")
         row = conn.execute(
@@ -5392,20 +3189,19 @@ class AgentToolCapabilityStore:
             raise ValueError("unknown Sector model usage summary")
         if (
             row["receipt_json"] != _canonical_json(receipt)
-            or row["usage_summary_receipt_hash"] != supplied_hash
+            or row["usage_summary_receipt_hash"] != receipt_hash
             or row["receipt_signature"] != signature
         ):
             raise ValueError("Sector model usage summary differs from its ledger")
-        ledger = json.loads(row["usage_ledger_record_json"])
-        ledger_hash = ledger.pop("usage_ledger_record_hash", None)
-        if (
-            ledger_hash != _sha256(ledger)
-            or ledger_hash != receipt["usage_ledger_record_hash"]
-            or row["usage_ledger_record_hash"] != ledger_hash
-            or ledger.get("usage_ledger_record_id")
-            != receipt["usage_ledger_record_id"]
-        ):
-            raise ValueError("Sector model usage summary ledger mismatch")
+
+        finalized_at = _aware_timestamp(
+            receipt["finalized_at"], "usage_summary.finalized_at"
+        )
+        measured_at = _aware_timestamp(
+            receipt["measured_at"], "usage_summary.measured_at"
+        )
+        if measured_at > finalized_at:
+            raise ValueError("Sector model usage summary timeline is invalid")
 
         capability_row = conn.execute(
             "SELECT manifest_json, signing_key_id, signature FROM capabilities "
@@ -5414,13 +3210,9 @@ class AgentToolCapabilityStore:
         ).fetchone()
         if capability_row is None:
             raise ValueError("Sector model usage summary capability is unavailable")
-        manifest = json.loads(capability_row["manifest_json"])
-        finalized_at = _aware_timestamp(
-            receipt["finalized_at"], "usage_summary.finalized_at"
-        )
-        self._verify(
+        manifest, _ = self._verify(
             {
-                "manifest": manifest,
+                "manifest": json.loads(capability_row["manifest_json"]),
                 "signing_key_id": capability_row["signing_key_id"],
                 "signature": capability_row["signature"],
             },
@@ -5440,89 +3232,45 @@ class AgentToolCapabilityStore:
             "snapshot_bundle_id": manifest["snapshot_bundle_id"],
             "snapshot_bundle_hash": manifest["snapshot_bundle_hash"],
         }
-        for field, expected in expected_lineage.items():
-            if receipt.get(field) != expected:
-                raise ValueError(f"Sector model usage summary {field} mismatch")
-        if manifest["agent_id"] not in STANDARD_SECTOR_AGENTS:
-            raise ValueError("model usage summary is not for standard Sector")
-        uses = conn.execute(
-            "SELECT tool_id FROM capability_tool_uses "
-            "WHERE capability_id = ? ORDER BY tool_id",
-            (receipt["capability_id"],),
-        ).fetchall()
-        if [item["tool_id"] for item in uses] != sorted(manifest["allowed_tools"]):
-            raise ValueError("Sector model usage summary tool closure mismatch")
-        reservation = conn.execute(
-            "SELECT pair_root_reservation_id, pair_side FROM capability_reservations "
-            "WHERE capability_id = ?",
-            (receipt["capability_id"],),
-        ).fetchone()
-        expected_reservation_id = (
-            reservation["pair_root_reservation_id"] if reservation is not None else None
-        )
-        expected_pair_side = reservation["pair_side"] if reservation is not None else None
-        if (
-            receipt["pair_root_reservation_id"] != expected_reservation_id
-            or receipt["pair_side"] != expected_pair_side
+        if manifest["agent_id"] not in STANDARD_SECTOR_AGENTS or any(
+            receipt.get(field) != expected for field, expected in expected_lineage.items()
         ):
-            raise ValueError("Sector model usage summary pair reservation mismatch")
-        expected_budget = (
-            self._sector_budget_for_reservation(conn, expected_reservation_id)
-            if expected_reservation_id is not None
-            else None
-        )
-        expected_budget_ref = (
-            _sector_inference_budget_ref(expected_budget)
-            if expected_budget is not None
-            else None
-        )
-        if budget_ref != expected_budget_ref:
-            raise ValueError("Sector model usage summary budget binding mismatch")
+            raise ValueError("Sector model usage summary capability lineage mismatch")
 
         event_rows = conn.execute(
             "SELECT event_json FROM sector_model_usage_events "
             "WHERE capability_id = ? ORDER BY subcall_sequence",
             (receipt["capability_id"],),
         ).fetchall()
-        events = [json.loads(item["event_json"]) for item in event_rows]
-        expected_refs = [
-            {
-                "usage_event_id": event["usage_event_id"],
-                "usage_event_hash": event["usage_event_hash"],
+        events = [json.loads(event_row["event_json"]) for event_row in event_rows]
+        for sequence, event in enumerate(events, start=1):
+            event_body = {
+                key: item for key, item in event.items() if key != "usage_event_hash"
             }
-            for event in events
-        ]
+            if (
+                event.get("schema_version") != "sector_model_usage_event_v1"
+                or event.get("usage_event_hash") != _sha256(event_body)
+                or event.get("subcall_sequence") != sequence
+                or event.get("capability_id") != receipt["capability_id"]
+                or event.get("capability_manifest_hash") != _sha256(manifest)
+            ):
+                raise ValueError("Sector model usage event ledger mismatch")
         reports = [event["usage_report"] for event in events]
         stages = [report["attempted_stage"] for report in reports]
-        budget_violations = (
-            _sector_inference_budget_violations(reports, expected_budget)
-            if expected_budget is not None
-            else ()
-        )
-        ordinary_completed = bool(reports) and (
+        completed = bool(reports) and (
             reports[-1]["attempted_stage"] == "FINAL_SELECTION"
             and reports[-1]["attempt_status"] == "ACCEPTED"
         )
-        exact_knot_path = stages in (
-            ["DIRECTION_RESEARCH", "FINAL_SELECTION"],
-            ["DIRECTION_RESEARCH", "CONFLICT_REVIEW", "FINAL_SELECTION"],
-        ) and all(report["attempt_status"] == "ACCEPTED" for report in reports)
-        completed = (
-            ordinary_completed
-            if expected_budget is None
-            else exact_knot_path and not budget_violations
-        )
-        expected_last = "COMPLETED" if completed else (stages[-1] if stages else "PRE_MODEL")
-        expected_conflict = "CONFLICT_REVIEW" in stages
-        input_tokens = sum(report["input_tokens"] for report in reports)
-        output_tokens = sum(report["output_tokens"] for report in reports)
+        conflict_review_triggered = "CONFLICT_REVIEW" in stages
         final_report = reports[-1] if completed else {}
-        aggregate = {
+        expected_summary = {
             "model_subcall_count": len(events),
-            "last_attempted_stage": expected_last,
-            "conflict_review_triggered": expected_conflict,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
+            "last_attempted_stage": (
+                "COMPLETED" if completed else (stages[-1] if stages else "PRE_MODEL")
+            ),
+            "conflict_review_triggered": conflict_review_triggered,
+            "input_tokens": sum(report["input_tokens"] for report in reports),
+            "output_tokens": sum(report["output_tokens"] for report in reports),
             "model_path_disposition": "COMPLETED" if completed else "INCOMPLETE",
             "direction_comparison_audit_id": final_report.get(
                 "direction_comparison_audit_id"
@@ -5532,338 +3280,48 @@ class AgentToolCapabilityStore:
             ),
             "conflict_review_id": final_report.get("conflict_review_id"),
             "conflict_review_hash": final_report.get("conflict_review_hash"),
+            "measured_at": events[-1]["recorded_at"] if events else manifest["issued_at"],
         }
-        if ledger.get("usage_event_refs") != expected_refs:
-            raise ValueError("Sector model usage summary event refs mismatch")
-        if ledger.get("budget_contract_ref") != expected_budget_ref:
-            raise ValueError("Sector model usage summary ledger budget mismatch")
-        expected_budget_decision = (
-            {
-                "disposition": (
-                    "STAGE_REJECT" if budget_violations else "WITHIN_BUDGET"
-                ),
-                "violation_codes": list(budget_violations),
-            }
-            if expected_budget is not None
-            else None
-        )
-        if ledger.get("budget_decision") != expected_budget_decision:
-            raise ValueError("Sector model usage summary ledger budget decision mismatch")
-        for field, expected in aggregate.items():
-            if receipt.get(field) != expected or ledger.get(field) != expected:
-                # Finalized audit aliases are intentionally receipt-only.
-                if field in {
-                    "direction_comparison_audit_id",
-                    "direction_comparison_audit_hash",
-                    "conflict_review_id",
-                    "conflict_review_hash",
-                } and receipt.get(field) == expected:
-                    continue
-                raise ValueError(f"Sector model usage summary {field} mismatch")
-        measured_at = _aware_timestamp(
-            receipt["measured_at"], "usage_summary.measured_at"
-        )
-        if measured_at > finalized_at or ledger.get("measured_at") != receipt["measured_at"]:
-            raise ValueError("Sector model usage summary timeline mismatch")
-        if ledger.get("finalized_at") != receipt["finalized_at"]:
-            raise ValueError("Sector model usage summary finalization mismatch")
-        return receipt
+        if any(
+            receipt.get(field) != expected for field, expected in expected_summary.items()
+        ):
+            raise ValueError("Sector model usage summary aggregate mismatch")
+        if completed and (
+            receipt["direction_comparison_audit_id"] is None
+            or receipt["direction_comparison_audit_hash"] is None
+            or ((receipt["conflict_review_id"] is not None) != conflict_review_triggered)
+        ):
+            raise ValueError("completed Sector usage summary lacks audit aliases")
 
-    def _verify_knot_sector_usage_receipt_with_conn(
-        self, conn: sqlite3.Connection, value: Mapping[str, Any]
-    ) -> dict[str, Any]:
-        receipt = dict(value)
-        expected_keys = {
-            "schema_version",
-            "usage_receipt_id",
-            "pair_root_reservation_id",
-            "pair_root_receipt_hash",
-            "knot_pair_id",
-            "pair_side",
-            "capability_id",
-            "capability_manifest_hash",
-            "graph_run_id",
-            "run_slot_id",
-            "run_id",
-            "node_id",
-            "agent_id",
-            "stage",
-            "as_of",
-            "budget_contract_id",
-            "budget_contract_version",
-            "budget_contract_hash",
-            "budget_decision",
-            "operational_opportunity_audit_id",
-            "operational_opportunity_audit_hash",
-            "accepted_output_id",
-            "accepted_output_hash",
-            "model_subcall_count",
-            "last_attempted_stage",
-            "conflict_review_triggered",
-            "direction_comparison_audit_id",
-            "direction_comparison_audit_hash",
-            "conflict_review_id",
-            "conflict_review_hash",
-            "input_tokens",
-            "output_tokens",
-            "runtime_inference_cost_audit_id",
-            "runtime_inference_cost_audit_hash",
-            "instrumentation_contract_id",
-            "instrumentation_contract_version",
-            "instrumentation_contract_hash",
-            "source_contract_version",
-            "measurement_rule",
-            "usage_ledger_record_id",
-            "usage_ledger_record_hash",
-            "measured_at",
-            "verified_at",
-            "receipt_signing_key_id",
-            "usage_receipt_hash",
-            "receipt_signature",
-        }
-        if set(receipt) != expected_keys:
-            raise ValueError("KNOT Sector usage receipt fields mismatch")
-        if (
-            receipt.get("schema_version") != KNOT_SECTOR_USAGE_RECEIPT_VERSION
-            or receipt.get("receipt_signing_key_id") != self.signing_key_id
-            or any(
-                receipt.get(field) != expected
-                for field, expected in KNOT_SECTOR_USAGE_INSTRUMENTATION_CONTRACT.items()
-            )
-            or receipt.get("instrumentation_contract_hash")
-            != KNOT_SECTOR_USAGE_INSTRUMENTATION_CONTRACT_HASH
-        ):
-            raise ValueError("KNOT Sector usage receipt contract mismatch")
-        supplied_hash = receipt.get("usage_receipt_hash")
-        if not _is_sha256(supplied_hash):
-            raise ValueError("KNOT Sector usage receipt hash is invalid")
-        unsigned_body = {
-            key: item
-            for key, item in receipt.items()
-            if key not in {"usage_receipt_hash", "receipt_signature"}
-        }
-        if supplied_hash != _sha256(unsigned_body):
-            raise ValueError("KNOT Sector usage receipt hash mismatch")
-        signature = _required_string(receipt, "receipt_signature")
-        if not hmac.compare_digest(
-            signature,
-            self._sign_domain(
-                "knot-sector-inference-usage-receipt-v2\0",
-                {**unsigned_body, "usage_receipt_hash": supplied_hash},
-            ),
-        ):
-            raise ValueError("KNOT Sector usage receipt signature mismatch")
-        for field in (
-            "budget_contract_hash",
-            "operational_opportunity_audit_hash",
-            "runtime_inference_cost_audit_hash",
-            "usage_ledger_record_hash",
-        ):
-            if not _is_sha256(receipt.get(field)):
-                raise ValueError(f"KNOT Sector usage receipt {field} is invalid")
-        budget_decision = receipt.get("budget_decision")
-        if (
-            not isinstance(budget_decision, dict)
-            or set(budget_decision) != {"disposition", "violation_codes"}
-            or budget_decision.get("disposition")
-            not in {"WITHIN_BUDGET", "STAGE_REJECT"}
-            or not isinstance(budget_decision.get("violation_codes"), list)
-            or any(
-                not isinstance(code, str) or not code
-                for code in budget_decision["violation_codes"]
-            )
-        ):
-            raise ValueError("KNOT Sector usage receipt budget decision is invalid")
-        for id_field, hash_field in (
-            ("accepted_output_id", "accepted_output_hash"),
-            ("direction_comparison_audit_id", "direction_comparison_audit_hash"),
-            ("conflict_review_id", "conflict_review_hash"),
-        ):
-            if (receipt[id_field] is None) != (receipt[hash_field] is None):
-                raise ValueError(f"KNOT Sector usage receipt {id_field} is unpaired")
-            if receipt[hash_field] is not None and not _is_sha256(receipt[hash_field]):
-                raise ValueError(f"KNOT Sector usage receipt {hash_field} is invalid")
-        receipt_id = _required_string(receipt, "usage_receipt_id")
-        row = conn.execute(
-            "SELECT * FROM sector_inference_usage_receipts "
-            "WHERE usage_receipt_id = ?",
-            (receipt_id,),
-        ).fetchone()
-        if row is None:
-            raise ValueError("unknown KNOT Sector usage receipt")
-        if (
-            row["receipt_json"] != _canonical_json(receipt)
-            or row["usage_receipt_hash"] != supplied_hash
-            or row["receipt_signature"] != signature
-        ):
-            raise ValueError("KNOT Sector usage receipt differs from its ledger")
         ledger = json.loads(row["usage_ledger_record_json"])
         ledger_hash = ledger.pop("usage_ledger_record_hash", None)
+        expected_ledger = {
+            "schema_version": "server_owned_model_usage_ledger_v1",
+            "usage_ledger_record_id": receipt["usage_ledger_record_id"],
+            "capability_id": receipt["capability_id"],
+            "usage_event_refs": [
+                {
+                    "usage_event_id": event["usage_event_id"],
+                    "usage_event_hash": event["usage_event_hash"],
+                }
+                for event in events
+            ],
+            "model_subcall_count": expected_summary["model_subcall_count"],
+            "last_attempted_stage": expected_summary["last_attempted_stage"],
+            "conflict_review_triggered": conflict_review_triggered,
+            "input_tokens": expected_summary["input_tokens"],
+            "output_tokens": expected_summary["output_tokens"],
+            "model_path_disposition": expected_summary["model_path_disposition"],
+            "measured_at": expected_summary["measured_at"],
+            "finalized_at": receipt["finalized_at"],
+        }
         if (
-            ledger_hash != _sha256(ledger)
+            ledger != expected_ledger
+            or ledger_hash != _sha256(expected_ledger)
             or ledger_hash != receipt["usage_ledger_record_hash"]
             or row["usage_ledger_record_hash"] != ledger_hash
-            or ledger.get("usage_ledger_record_id")
-            != receipt["usage_ledger_record_id"]
         ):
-            raise ValueError("KNOT Sector usage ledger record mismatch")
-        runtime_audit = ledger.get("runtime_inference_cost_audit")
-        if not isinstance(runtime_audit, dict):
-            raise ValueError("KNOT Sector runtime cost audit is unavailable")
-        budget_contract = self._sector_budget_for_reservation(
-            conn, receipt["pair_root_reservation_id"]
-        )
-        budget_ref = _sector_inference_budget_ref(budget_contract)
-        if any(
-            receipt[field] != budget_ref[field]
-            for field in (
-                "budget_contract_id",
-                "budget_contract_version",
-                "budget_contract_hash",
-            )
-        ):
-            raise ValueError("KNOT Sector usage receipt budget binding mismatch")
-        runtime_hash = _sha256(runtime_audit)
-        runtime_id = "sector-inference-cost:" + runtime_hash.removeprefix("sha256:")
-        if (
-            runtime_hash != receipt["runtime_inference_cost_audit_hash"]
-            or runtime_id != receipt["runtime_inference_cost_audit_id"]
-            or ledger.get("runtime_inference_cost_audit_hash") != runtime_hash
-            or ledger.get("runtime_inference_cost_audit_id") != runtime_id
-        ):
-            raise ValueError("KNOT Sector runtime cost audit mismatch")
-        event_refs = ledger.get("usage_event_refs")
-        if not isinstance(event_refs, list):
-            raise ValueError("KNOT Sector usage event refs are invalid")
-        event_rows = conn.execute(
-            "SELECT event_json FROM sector_model_usage_events "
-            "WHERE capability_id = ? ORDER BY subcall_sequence",
-            (receipt["capability_id"],),
-        ).fetchall()
-        events = [json.loads(item["event_json"]) for item in event_rows]
-        expected_refs = [
-            {
-                "usage_event_id": event["usage_event_id"],
-                "usage_event_hash": event["usage_event_hash"],
-            }
-            for event in events
-        ]
-        reports = [event["usage_report"] for event in events]
-        budget_violations = _sector_inference_budget_violations(
-            reports, budget_contract
-        )
-        expected_budget_decision = {
-            "disposition": (
-                "STAGE_REJECT" if budget_violations else "WITHIN_BUDGET"
-            ),
-            "violation_codes": list(budget_violations),
-        }
-        if ledger.get("budget_decision") != expected_budget_decision:
-            raise ValueError("KNOT Sector usage budget decision mismatch")
-        if budget_decision != expected_budget_decision:
-            raise ValueError("KNOT Sector usage receipt budget decision mismatch")
-        if receipt["accepted_output_id"] is not None and budget_violations:
-            raise ValueError("accepted KNOT Sector usage receipt is over budget")
-        input_tokens = sum(report["input_tokens"] for report in reports)
-        output_tokens = sum(report["output_tokens"] for report in reports)
-        if (
-            event_refs != expected_refs
-            or len(events) != receipt["model_subcall_count"]
-            or ledger.get("model_subcall_count") != len(events)
-            or input_tokens != receipt["input_tokens"]
-            or output_tokens != receipt["output_tokens"]
-            or ledger.get("input_tokens") != input_tokens
-            or ledger.get("output_tokens") != output_tokens
-        ):
-            raise ValueError("KNOT Sector usage aggregate mismatch")
-        summary_row = conn.execute(
-            "SELECT receipt_json FROM sector_model_usage_summaries "
-            "WHERE capability_id = ?",
-            (receipt["capability_id"],),
-        ).fetchone()
-        if summary_row is None:
-            raise ValueError("KNOT Sector signed model usage summary is unavailable")
-        usage_summary = self._verify_sector_model_usage_summary_with_conn(
-            conn, json.loads(summary_row["receipt_json"])
-        )
-        if (
-            usage_summary["budget_contract_ref"] != budget_ref
-            or usage_summary["model_subcall_count"] != receipt["model_subcall_count"]
-            or usage_summary["last_attempted_stage"]
-            != receipt["last_attempted_stage"]
-            or usage_summary["input_tokens"] != receipt["input_tokens"]
-            or usage_summary["output_tokens"] != receipt["output_tokens"]
-            or usage_summary["conflict_review_triggered"]
-            != receipt["conflict_review_triggered"]
-            or (
-                receipt["accepted_output_id"] is not None
-                and usage_summary["model_path_disposition"] != "COMPLETED"
-            )
-        ):
-            raise ValueError("KNOT Sector usage receipt summary mismatch")
-        expected_runtime_audit = {
-            "schema_version": "sector_runtime_inference_cost_audit_v3",
-            "evidence_source": "SIGNED_SERVER_MODEL_USAGE_SUMMARY",
-            "sector_agent_id": receipt["agent_id"],
-            "snapshot_bundle_hash": usage_summary["snapshot_bundle_hash"],
-            "usage_summary_receipt_id": usage_summary["usage_summary_receipt_id"],
-            "usage_summary_receipt_hash": usage_summary[
-                "usage_summary_receipt_hash"
-            ],
-            "usage_summary_receipt": usage_summary,
-            "model_subcall_count": receipt["model_subcall_count"],
-            "last_attempted_stage": receipt["last_attempted_stage"],
-            "conflict_review_triggered": receipt["conflict_review_triggered"],
-            "input_tokens": receipt["input_tokens"],
-            "output_tokens": receipt["output_tokens"],
-            "disposition": (
-                "SUCCESS"
-                if receipt["accepted_output_id"] is not None
-                else "AGENT_FAILURE"
-            ),
-        }
-        if runtime_audit != expected_runtime_audit:
-            raise ValueError("KNOT Sector runtime cost audit body mismatch")
-        pair_row = conn.execute(
-            "SELECT receipt_json FROM verified_pair_root_receipts "
-            "WHERE pair_root_reservation_id = ?",
-            (receipt["pair_root_reservation_id"],),
-        ).fetchone()
-        if pair_row is None:
-            raise ValueError("KNOT Sector usage pair root is unavailable")
-        pair_receipt = self._verify_knot_pair_root_receipt_with_conn(
-            conn,
-            json.loads(pair_row["receipt_json"]),
-            require_active_capabilities=False,
-        )
-        capability = pair_receipt["capabilities"].get(receipt["pair_side"])
-        if not isinstance(capability, dict):
-            raise ValueError("KNOT Sector usage receipt pair side is invalid")
-        expected_lineage = {
-            "pair_root_receipt_hash": pair_receipt["pair_root_receipt_hash"],
-            "capability_id": capability["capability_id"],
-            "capability_manifest_hash": capability["capability_manifest_hash"],
-            "graph_run_id": capability["graph_run_id"],
-            "run_slot_id": capability["run_slot_id"],
-            "run_id": capability["run_id"],
-            "node_id": capability["node_id"],
-            "agent_id": capability["agent_id"],
-            "stage": capability["stage"],
-            "as_of": capability["as_of"],
-        }
-        for field, expected in expected_lineage.items():
-            if receipt.get(field) != expected:
-                raise ValueError(f"KNOT Sector usage receipt {field} mismatch")
-        measured_at = _aware_timestamp(receipt["measured_at"], "usage.measured_at")
-        verified_at = _aware_timestamp(receipt["verified_at"], "usage.verified_at")
-        if measured_at > verified_at:
-            raise ValueError("KNOT Sector usage receipt timeline is invalid")
-        self._validate_knot_capability_completion(
-            conn,
-            capability=capability,
-            allowed_tools=pair_receipt["allowed_tools"],
-            validated_at=verified_at,
-        )
+            raise ValueError("Sector model usage summary ledger mismatch")
         return receipt
 
     def list_tools(self, envelope: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -5975,7 +3433,6 @@ def get_capability_store() -> AgentToolCapabilityStore:
                 path,
                 signing_key=key,
                 signing_key_id=key_id,
-                signing_key_is_durable=raw_key is not None,
             )
             _STORE_BY_PATH[path] = store
         return store

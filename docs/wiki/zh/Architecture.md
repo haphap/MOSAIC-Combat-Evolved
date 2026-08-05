@@ -62,5 +62,5 @@ MOSAIC-Combat-Evolved/
 ## 持久化
 
 - **SQLite** —— scorecard 推荐 + 评分、autoresearch 元数据、回测 run 缓存、纸交易 DB(`~/.mosaic/paper_trading.db`)。
-- **prompt 仓库** —— 生产加载固定 commit 的私有 448 份 prompt release。KNOT 是唯一生产行为晋级器，并原子发布 execution-behavior release；旧 Delta-Sharpe 分支路径只供诊断和历史回放(见[自我改进](Self-Improvement.md))。
+- **prompt 仓库** —— 生产加载固定 commit 的私有 448 份 prompt。KNOT 只提出 Prompt Candidate，通用 Runner 负责冻结实验，Prompt Release 独占 canary、激活与 rollback，并同时绑定所选 prompt pair 与 content-addressed execution-behavior archive；旧 Delta-Sharpe 分支路径只供诊断和历史回放(见[自我改进](Self-Improvement.md))。
 - **配置文件** —— `~/.mosaic/config.json`(可选;见[配置](Configuration.md))。

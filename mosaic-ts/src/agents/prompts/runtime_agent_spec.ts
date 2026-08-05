@@ -1,31 +1,27 @@
-import { alphaDiscoverySpec } from "../decision/alpha_discovery.js";
-import { autonomousExecutionSpec } from "../decision/autonomous_execution.js";
-import { cioProposalSpec, cioSpec } from "../decision/cio.js";
-import { croSpec } from "../decision/cro.js";
-import { centralBankSpec } from "../macro/central_bank.js";
-import { chinaSpec } from "../macro/china.js";
-import { commoditiesSpec } from "../macro/commodities.js";
-import { euEconomySpec } from "../macro/eu_economy.js";
-import { euroAreaFinancialConditionsSpec } from "../macro/euro_area_financial_conditions.js";
-import { geopoliticalSpec } from "../macro/geopolitical.js";
-import { institutionalFlowSpec } from "../macro/institutional_flow.js";
-import { marketBreadthSpec } from "../macro/market_breadth.js";
-import { usEconomySpec } from "../macro/us_economy.js";
-import { usFinancialConditionsSpec } from "../macro/us_financial_conditions.js";
-import { agricultureSpec } from "../sector/agriculture.js";
-import { biotechSpec } from "../sector/biotech.js";
-import { consumerSpec } from "../sector/consumer.js";
-import { energySpec } from "../sector/energy.js";
-import { financialsSpec } from "../sector/financials.js";
-import { industrialsSpec } from "../sector/industrials.js";
-import { realEstateConstructionSpec } from "../sector/real_estate_construction.js";
-import { relationshipMapperSpec } from "../sector/relationship_mapper.js";
-import { semiconductorSpec } from "../sector/semiconductor.js";
-import { technologySpec } from "../sector/technology.js";
-import { ackmanSpec } from "../superinvestor/ackman.js";
-import { burrySpec } from "../superinvestor/burry.js";
-import { druckenmillerSpec } from "../superinvestor/druckenmiller.js";
-import { mungerSpec } from "../superinvestor/munger.js";
+import {
+  ALPHA_DISCOVERY_FIELD_NAMES,
+  AUTONOMOUS_EXECUTION_FIELD_NAMES,
+  CIO_FINAL_FIELD_NAMES,
+  CIO_PROPOSAL_FIELD_NAMES,
+  CRO_FIELD_NAMES,
+} from "../decision/_schemas.js";
+import {
+  CENTRAL_BANK_FIELD_NAMES,
+  CHINA_FIELD_NAMES,
+  COMMODITIES_FIELD_NAMES,
+  EU_ECONOMY_FIELD_NAMES,
+  EURO_AREA_FINANCIAL_CONDITIONS_FIELD_NAMES,
+  GEOPOLITICAL_FIELD_NAMES,
+  INSTITUTIONAL_FLOW_FIELD_NAMES,
+  MARKET_BREADTH_FIELD_NAMES,
+  US_ECONOMY_FIELD_NAMES,
+  US_FINANCIAL_CONDITIONS_FIELD_NAMES,
+} from "../macro/_schemas.js";
+import {
+  RELATIONSHIP_MAPPER_FIELD_NAMES,
+  STANDARD_SECTOR_FIELD_NAMES,
+} from "../sector/_schemas.js";
+import { SUPERINVESTOR_FIELD_NAMES } from "../superinvestor/_schemas.js";
 import { AGENT_LAYER_BY_ID, AgentIdSchema, agentToolsFor } from "../tool_contract.js";
 import type { Layer } from "./cohorts.js";
 export const RUNTIME_AGENT_MANIFEST_VERSION = "runtime_agent_manifest_v5";
@@ -205,7 +201,7 @@ function stagesForAgent(
       stageSpec(
         "cio_proposal",
         "decision.cio.proposal.v1",
-        cioProposalSpec.fieldNames,
+        CIO_PROPOSAL_FIELD_NAMES,
         [
           "upstream_agent_outputs",
           "current_position_snapshot",
@@ -218,7 +214,7 @@ function stagesForAgent(
       stageSpec(
         "cio_final",
         "decision.cio.final.v1",
-        cioSpec.fieldNames,
+        CIO_FINAL_FIELD_NAMES,
         [
           "candidate_target_state",
           "position_review_state",
@@ -236,63 +232,58 @@ function stagesForAgent(
 
 function runtimeSpec(
   layer: Layer,
-  spec: {
-    agentId: string;
-    fieldNames: ReadonlyArray<string>;
-    requiredTools?: ReadonlyArray<string>;
-  },
+  rawAgentId: string,
+  fieldNames: ReadonlyArray<string>,
 ): RuntimeAgentSpec {
-  const agentId = AgentIdSchema.parse(spec.agentId);
+  const agentId = AgentIdSchema.parse(rawAgentId);
   if (AGENT_LAYER_BY_ID[agentId] !== layer) {
     throw new Error(`runtime layer mismatch for ${agentId}`);
   }
   const requiredTools = agentToolsFor(agentId);
-  if (
-    spec.requiredTools &&
-    [...spec.requiredTools].sort().join("\0") !== [...requiredTools].sort().join("\0")
-  ) {
-    throw new Error(`runtime tool contract drift for ${agentId}`);
-  }
-  const promptIrAgentId = `${layer}.${spec.agentId}`;
+  const promptIrAgentId = `${layer}.${agentId}`;
   return {
-    agent: spec.agentId,
+    agent: agentId,
     layer,
     promptIrAgentId,
-    fieldNames: spec.fieldNames,
+    fieldNames,
     requiredTools,
-    stages: stagesForAgent(layer, spec.agentId, promptIrAgentId, spec.fieldNames),
+    stages: stagesForAgent(layer, agentId, promptIrAgentId, fieldNames),
   };
 }
 
 export const RUNTIME_AGENT_SPECS: ReadonlyArray<RuntimeAgentSpec> = [
-  runtimeSpec("macro", chinaSpec),
-  runtimeSpec("macro", usEconomySpec),
-  runtimeSpec("macro", euEconomySpec),
-  runtimeSpec("macro", centralBankSpec),
-  runtimeSpec("macro", usFinancialConditionsSpec),
-  runtimeSpec("macro", euroAreaFinancialConditionsSpec),
-  runtimeSpec("macro", commoditiesSpec),
-  runtimeSpec("macro", geopoliticalSpec),
-  runtimeSpec("macro", marketBreadthSpec),
-  runtimeSpec("macro", institutionalFlowSpec),
-  runtimeSpec("sector", semiconductorSpec),
-  runtimeSpec("sector", technologySpec),
-  runtimeSpec("sector", energySpec),
-  runtimeSpec("sector", biotechSpec),
-  runtimeSpec("sector", consumerSpec),
-  runtimeSpec("sector", industrialsSpec),
-  runtimeSpec("sector", realEstateConstructionSpec),
-  runtimeSpec("sector", financialsSpec),
-  runtimeSpec("sector", agricultureSpec),
-  runtimeSpec("sector", relationshipMapperSpec),
-  runtimeSpec("superinvestor", druckenmillerSpec),
-  runtimeSpec("superinvestor", mungerSpec),
-  runtimeSpec("superinvestor", burrySpec),
-  runtimeSpec("superinvestor", ackmanSpec),
-  runtimeSpec("decision", croSpec),
-  runtimeSpec("decision", alphaDiscoverySpec),
-  runtimeSpec("decision", autonomousExecutionSpec),
-  runtimeSpec("decision", cioSpec),
+  runtimeSpec("macro", "china", CHINA_FIELD_NAMES),
+  runtimeSpec("macro", "us_economy", US_ECONOMY_FIELD_NAMES),
+  runtimeSpec("macro", "eu_economy", EU_ECONOMY_FIELD_NAMES),
+  runtimeSpec("macro", "central_bank", CENTRAL_BANK_FIELD_NAMES),
+  runtimeSpec("macro", "us_financial_conditions", US_FINANCIAL_CONDITIONS_FIELD_NAMES),
+  runtimeSpec(
+    "macro",
+    "euro_area_financial_conditions",
+    EURO_AREA_FINANCIAL_CONDITIONS_FIELD_NAMES,
+  ),
+  runtimeSpec("macro", "commodities", COMMODITIES_FIELD_NAMES),
+  runtimeSpec("macro", "geopolitical", GEOPOLITICAL_FIELD_NAMES),
+  runtimeSpec("macro", "market_breadth", MARKET_BREADTH_FIELD_NAMES),
+  runtimeSpec("macro", "institutional_flow", INSTITUTIONAL_FLOW_FIELD_NAMES),
+  runtimeSpec("sector", "semiconductor", STANDARD_SECTOR_FIELD_NAMES),
+  runtimeSpec("sector", "technology", STANDARD_SECTOR_FIELD_NAMES),
+  runtimeSpec("sector", "energy", STANDARD_SECTOR_FIELD_NAMES),
+  runtimeSpec("sector", "biotech", STANDARD_SECTOR_FIELD_NAMES),
+  runtimeSpec("sector", "consumer", STANDARD_SECTOR_FIELD_NAMES),
+  runtimeSpec("sector", "industrials", STANDARD_SECTOR_FIELD_NAMES),
+  runtimeSpec("sector", "real_estate_construction", STANDARD_SECTOR_FIELD_NAMES),
+  runtimeSpec("sector", "financials", STANDARD_SECTOR_FIELD_NAMES),
+  runtimeSpec("sector", "agriculture", STANDARD_SECTOR_FIELD_NAMES),
+  runtimeSpec("sector", "relationship_mapper", RELATIONSHIP_MAPPER_FIELD_NAMES),
+  runtimeSpec("superinvestor", "druckenmiller", SUPERINVESTOR_FIELD_NAMES),
+  runtimeSpec("superinvestor", "munger", SUPERINVESTOR_FIELD_NAMES),
+  runtimeSpec("superinvestor", "burry", SUPERINVESTOR_FIELD_NAMES),
+  runtimeSpec("superinvestor", "ackman", SUPERINVESTOR_FIELD_NAMES),
+  runtimeSpec("decision", "cro", CRO_FIELD_NAMES),
+  runtimeSpec("decision", "alpha_discovery", ALPHA_DISCOVERY_FIELD_NAMES),
+  runtimeSpec("decision", "autonomous_execution", AUTONOMOUS_EXECUTION_FIELD_NAMES),
+  runtimeSpec("decision", "cio", CIO_FINAL_FIELD_NAMES),
 ];
 
 export const RUNTIME_AGENT_SPEC_BY_AGENT: ReadonlyMap<string, RuntimeAgentSpec> = new Map(

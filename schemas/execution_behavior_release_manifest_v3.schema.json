@@ -4,7 +4,7 @@
   "properties": {
     "schema_version": {
       "type": "string",
-      "const": "execution_behavior_release_manifest_v2"
+      "const": "execution_behavior_release_manifest_v3"
     },
     "execution_behavior_release_id": {
       "type": "string",
@@ -128,22 +128,18 @@
         "additionalProperties": false
       }
     },
-    "variants": {
-      "minItems": 448,
-      "maxItems": 448,
+    "execution_contracts": {
+      "minItems": 56,
+      "maxItems": 56,
       "type": "array",
       "items": {
         "type": "object",
         "properties": {
-          "variant_path": {
+          "execution_contract_id": {
             "type": "string",
-            "pattern": "^cohort_[a-z0-9_]+\\/(?:macro|sector|superinvestor|decision)\\/[a-z0-9_]+\\.(?:en|zh)\\.md$"
+            "pattern": "^execution-contract:[0-9a-f]{64}$"
           },
           "agent_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "cohort_id": {
             "type": "string",
             "minLength": 1
           },
@@ -154,17 +150,9 @@
               "zh"
             ]
           },
-          "prompt_content_hash": {
-            "type": "string",
-            "pattern": "^sha256:[0-9a-f]{64}$"
-          },
           "immutable_contract_block_hash": {
             "type": "string",
             "pattern": "^sha256:[0-9a-f]{64}$"
-          },
-          "prompt_behavior_version": {
-            "type": "string",
-            "pattern": "^(?:prompt-behavior|execution-behavior):[0-9a-f]{64}$"
           },
           "execution_behavior_version": {
             "type": "string",
@@ -220,26 +208,18 @@
           "runtime_tool_manifest_hash": {
             "type": "string",
             "pattern": "^sha256:[0-9a-f]{64}$"
-          },
-          "prompt_execution_baseline_hash": {
-            "type": "string",
-            "pattern": "^sha256:[0-9a-f]{64}$"
           }
         },
         "required": [
-          "variant_path",
+          "execution_contract_id",
           "agent_id",
-          "cohort_id",
           "language",
-          "prompt_content_hash",
           "immutable_contract_block_hash",
-          "prompt_behavior_version",
           "execution_behavior_version",
           "structured_output_schema_bindings",
           "structured_output_schema_set_hash",
           "structured_provider_contract_hash",
-          "runtime_tool_manifest_hash",
-          "prompt_execution_baseline_hash"
+          "runtime_tool_manifest_hash"
         ],
         "additionalProperties": false
       }
@@ -253,7 +233,7 @@
     "private_prompt_bootstrap",
     "provider_binding",
     "active_production_variants",
-    "variants"
+    "execution_contracts"
   ],
   "additionalProperties": false
 }

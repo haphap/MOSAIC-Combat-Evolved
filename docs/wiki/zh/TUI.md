@@ -27,13 +27,13 @@
 
 常用配置的精选可编辑视图,经 `config.save` 持久化到 `~/.mosaic/config.json`。控制:**↑↓** 选择 · **enter** 编辑(字符串/数字)· **space** 切 bool / 循环枚举 · **s** 保存 · **esc** 取消。编辑态下该标签独占所有按键(故打 `q` 不会退出)。
 
-可编辑字段:`llm_provider`、`deep_think_llm`、`quick_think_llm`、`output_language`、`active_cohort`;`autoresearch.*` 五个数值;`autoresearch.git.push` / `remote`;`mirofish.engine` / `scorer` / `inject_context`。
+可编辑字段:`llm_provider`、`deep_think_llm`、`quick_think_llm`、`output_language`、`active_cohort`;`mirofish.engine` / `scorer` / `inject_context`。
 
 字段含义与持久化机制见[配置](Configuration.md)。
 
 ## 持仓感知审查
 
-Dashboard 展示与 `daily-cycle` 同源的持仓循环:已加载/已审查持仓数、stale thesis 与 stop-loss override 计数、显式 warning label、target-current delta、逐 action fired caps、declared knob influence ids、决策 agent 审计摘要,以及 MiroFish 逐持仓压力。stale-thesis action 应带 `stale_thesis` risk flag 和明确复盘原因;stop-loss override 计数读取规范化后的 `stop_loss_breached` risk flag。CIO action 行也会校验 `position_decision` 语义,确保 `ADD`/`REDUCE`/`EXIT` 与 action、target/current/delta 权重一致。操作步骤和迁移检查见
+Dashboard 展示与 `daily-cycle` 同源的持仓循环:已加载/已审查持仓数、stale thesis 与 stop-loss override 计数、显式 warning label、target-current delta,以及 MiroFish 逐持仓压力。stale-thesis action 应带 `stale_thesis` risk flag 和明确复盘原因;stop-loss override 计数读取规范化后的 `stop_loss_breached` risk flag。CIO action 行也会校验 `position_decision` 语义,确保 `ADD`/`REDUCE`/`EXIT` 与 action、target/current/delta 权重一致。操作步骤和迁移检查见
 [`docs/runbooks/position_aware_prompt_evolution.md`](../../runbooks/position_aware_prompt_evolution.md)。
 
 回测诊断是 stage-1 cache 摘要:turnover proxy、observed holding-day proxy、stale-thesis proxy 和 action mix 来自缓存的 `backtest_actions`;alpha/drawdown opportunity 指标仍明确标记为需要 stage-2 scored positions。

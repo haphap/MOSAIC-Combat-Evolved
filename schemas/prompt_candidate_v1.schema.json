@@ -9,12 +9,14 @@
     "candidateId": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 256
+      "maxLength": 256,
+      "pattern": "^(?![\\u0009-\\u000d\\u0020\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff])[\\s\\S]*[^\\u0009-\\u000d\\u0020\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff](?![\\s\\S])"
     },
     "parentId": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 256
+      "maxLength": 256,
+      "pattern": "^(?![\\u0009-\\u000d\\u0020\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff])[\\s\\S]*[^\\u0009-\\u000d\\u0020\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff](?![\\s\\S])"
     },
     "parentPromptCommit": {
       "type": "string",
@@ -104,13 +106,27 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 512,
-          "pattern": "^[^\\r\\n]+$"
+          "allOf": [
+            {
+              "pattern": "^(?![\\u0009-\\u000d\\u0020\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff])[\\s\\S]*[^\\u0009-\\u000d\\u0020\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff](?![\\s\\S])"
+            },
+            {
+              "pattern": "^[^\\r\\n]+$"
+            }
+          ]
         },
         "en": {
           "type": "string",
           "minLength": 1,
           "maxLength": 512,
-          "pattern": "^[^\\r\\n]+$"
+          "allOf": [
+            {
+              "pattern": "^(?![\\u0009-\\u000d\\u0020\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff])[\\s\\S]*[^\\u0009-\\u000d\\u0020\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff](?![\\s\\S])"
+            },
+            {
+              "pattern": "^[^\\r\\n]+$"
+            }
+          ]
         }
       },
       "required": [
@@ -137,12 +153,7 @@
       ],
       "additionalProperties": false
     },
-    "trainingSnapshotId": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 256
-    },
-    "trainingSnapshotHash": {
+    "trainingProjectionHash": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
@@ -177,20 +188,14 @@
     "mutationSummary": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 2000
+      "maxLength": 2000,
+      "pattern": "^(?![\\u0009-\\u000d\\u0020\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff])[\\s\\S]*[^\\u0009-\\u000d\\u0020\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff](?![\\s\\S])"
     },
     "hypothesis": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 2000
-    },
-    "alignmentVerifierVersion": {
-      "type": "string",
-      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$"
-    },
-    "behaviorAlignmentHash": {
-      "type": "string",
-      "pattern": "^sha256:[0-9a-f]{64}$"
+      "maxLength": 2000,
+      "pattern": "^(?![\\u0009-\\u000d\\u0020\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff])[\\s\\S]*[^\\u0009-\\u000d\\u0020\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff](?![\\s\\S])"
     },
     "behaviorContractHash": {
       "type": "string",
@@ -205,9 +210,28 @@
       "pattern": "^sha256:[0-9a-f]{64}$"
     },
     "createdAt": {
-      "type": "string",
-      "format": "date-time",
-      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{1}(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{2}(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        }
+      ]
     }
   },
   "required": [
@@ -219,16 +243,13 @@
     "target",
     "promptRefs",
     "promptHashes",
-    "trainingSnapshotId",
-    "trainingSnapshotHash",
+    "trainingProjectionHash",
     "excludedSampleIdsHash",
     "mutatorConfigHash",
     "mutatorCommit",
     "mutationCategories",
     "mutationSummary",
     "hypothesis",
-    "alignmentVerifierVersion",
-    "behaviorAlignmentHash",
     "behaviorContractHash",
     "privateLineageHash",
     "privateStateArtifactHash",

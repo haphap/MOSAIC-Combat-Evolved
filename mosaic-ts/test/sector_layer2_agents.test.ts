@@ -1140,9 +1140,6 @@ function instrumentedSectorApi(
         as_of: capability.manifest.as_of,
         snapshot_bundle_id: capability.manifest.snapshot_bundle_id,
         snapshot_bundle_hash: capability.manifest.snapshot_bundle_hash,
-        pair_root_reservation_id: null,
-        pair_side: null,
-        budget_contract_ref: null,
         model_subcall_count: events.reports.length,
         last_attempted_stage: completed
           ? ("COMPLETED" as const)
@@ -1229,13 +1226,6 @@ describe("standard Sector usage lifecycle", () => {
     research_depth_name: "标准",
     active_cohort: "cohort_default",
     cohorts: { cohort_default: { start: "2000-01-01", end: "2099-12-31" } },
-    autoresearch: {
-      agent_mutation_cooldown_hours: 24,
-      keep_revert_lockout_days: 3,
-      keep_threshold_delta_sharpe: 0.1,
-      monthly_modification_cap_per_cohort: 100,
-      evaluation_horizon_trading_days: 5,
-    },
     data_vendors: {},
     tool_vendors: {},
   };

@@ -4,6 +4,7 @@ import { RUNTIME_AGENT_STAGE_SPECS } from "../src/agents/prompts/runtime_agent_s
 import {
   assertCandidateMatchesSplit,
   assertCandidateMatchesTrainingSnapshot,
+  assertTrainingProjectionMatchesSplit,
   DatasetSplitManifestSchema,
   PromptCandidateFamilySchema,
   PromptCandidateSchema,
@@ -11,37 +12,61 @@ import {
   PromptExperimentSchema,
   PromptOptimizerTargetSchema,
   PromptPromotionDecisionSchema,
-  PromptTrainingSnapshotSchema,
-  promptBehaviorAlignmentHash,
+  PromptTrainingProjectionSchema,
+  promptCandidateFamilyId,
+  promptDatasetPartitionSnapshotHash,
+  promptDatasetSampleId,
+  promptDatasetSplitId,
+  promptExperimentId,
+  promptExperimentRunId,
   promptMutationHypothesis,
   promptMutationSummary,
+  promptSplitExcludedSampleIdsHash,
 } from "../src/autoresearch/prompt_optimizer_contract.js";
 
 const HASH = `sha256:${"a".repeat(64)}`;
 const OTHER_HASH = `sha256:${"b".repeat(64)}`;
-const EXCLUDED_SAMPLE_IDS_HASH = canonicalJsonHash(["holdout-1", "validation-1"]);
 const COMMIT = "c".repeat(40);
 const target = { agentId: "china", stage: "agent_run", cohort: "cohort_default" } as const;
 
 function sample(sampleId: string, startAt: string, endAt: string, maturedAt: string) {
-  return {
-    sampleId,
+  const value = {
     inputRef: `snapshot://${sampleId}`,
+    inputHash: HASH,
     outcomeRef: `outcome://${sampleId}`,
+    outcomeHash: OTHER_HASH,
     eventWindow: { startAt, endAt },
     maturedAt,
   };
+  return { ...value, sampleId: promptDatasetSampleId(value) };
 }
 
-function splitManifest() {
+function canonicalSplit<T extends ReturnType<typeof splitBody>>(value: T) {
+  const withPartitionHashes = {
+    ...value,
+    training: {
+      ...value.training,
+      snapshotHash: promptDatasetPartitionSnapshotHash(value.training),
+    },
+    validation: {
+      ...value.validation,
+      snapshotHash: promptDatasetPartitionSnapshotHash(value.validation),
+    },
+    holdout: {
+      ...value.holdout,
+      snapshotHash: promptDatasetPartitionSnapshotHash(value.holdout),
+    },
+  };
+  return { ...withPartitionHashes, splitId: promptDatasetSplitId(withPartitionHashes) };
+}
+
+function splitBody() {
   return {
     schemaVersion: "prompt_dataset_split_v1" as const,
-    splitId: "split-1",
     target,
+    trainingProjectionHash: HASH,
     cutoffAt: "2025-01-31T00:00:00Z",
     training: {
-      snapshotId: "training-1",
-      snapshotHash: HASH,
       windowStartAt: "2025-01-01T00:00:00Z",
       windowEndAt: "2025-01-31T00:00:00Z",
       samples: [
@@ -49,8 +74,6 @@ function splitManifest() {
       ],
     },
     validation: {
-      snapshotId: "validation-1",
-      snapshotHash: OTHER_HASH,
       windowStartAt: "2025-02-01T00:00:00Z",
       windowEndAt: "2025-02-28T00:00:00Z",
       samples: [
@@ -63,8 +86,6 @@ function splitManifest() {
       ],
     },
     holdout: {
-      snapshotId: "holdout-1",
-      snapshotHash: `sha256:${"d".repeat(64)}`,
       windowStartAt: "2025-03-01T00:00:00Z",
       windowEndAt: "2025-03-31T00:00:00Z",
       samples: [
@@ -76,7 +97,11 @@ function splitManifest() {
   };
 }
 
-function candidate() {
+function splitManifest() {
+  return canonicalSplit(splitBody());
+}
+
+function candidate(split = DatasetSplitManifestSchema.parse(splitManifest())) {
   const promptHashes = { zh: HASH, en: OTHER_HASH };
   const mutationCategories = ["CONFLICT_RESOLUTION"] as const;
   return {
@@ -88,19 +113,13 @@ function candidate() {
     target,
     promptRefs: { zh: "private://candidate-1.zh", en: "private://candidate-1.en" },
     promptHashes,
-    trainingSnapshotId: "training-1",
-    trainingSnapshotHash: HASH,
-    excludedSampleIdsHash: EXCLUDED_SAMPLE_IDS_HASH,
+    trainingProjectionHash: split.trainingProjectionHash,
+    excludedSampleIdsHash: promptSplitExcludedSampleIdsHash(split),
     mutatorConfigHash: HASH,
     mutatorCommit: COMMIT,
     mutationCategories,
     mutationSummary: promptMutationSummary(mutationCategories),
     hypothesis: promptMutationHypothesis(mutationCategories),
-    alignmentVerifierVersion: "bilingual-alignment-v1",
-    behaviorAlignmentHash: promptBehaviorAlignmentHash({
-      promptHashes,
-      alignmentVerifierVersion: "bilingual-alignment-v1",
-    }),
     behaviorContractHash: HASH,
     privateLineageHash: HASH,
     privateStateArtifactHash: HASH,
@@ -144,6 +163,23 @@ describe("prompt optimizer public contracts", () => {
 
   it("accepts the minimal public objects and rejects prompt bodies", () => {
     expect(PromptCandidateSchema.parse(candidate())).toBeDefined();
+    expect(
+      PromptCandidateSchema.safeParse({ ...candidate(), candidateId: " candidate-1 " }).success,
+    ).toBe(false);
+    for (const suffix of ["\n", "\r", "\r\n", "\u2028", "\uFEFF"]) {
+      expect(
+        PromptCandidateSchema.safeParse({
+          ...candidate(),
+          candidateId: `candidate-1${suffix}`,
+        }).success,
+      ).toBe(false);
+    }
+    expect(
+      PromptCandidateSchema.safeParse({
+        ...candidate(),
+        promptRefs: { ...candidate().promptRefs, zh: " private://candidate-1.zh " },
+      }).success,
+    ).toBe(false);
     expect(() =>
       PromptCandidateSchema.parse({ ...candidate(), zh_prompt: "private body" }),
     ).toThrow();
@@ -156,64 +192,90 @@ describe("prompt optimizer public contracts", () => {
     expect(() =>
       PromptCandidateSchema.parse({
         ...candidate(),
-        alignmentVerifierVersion: "private verifier rationale must not cross",
+        behaviorContractHash: "private verifier rationale must not cross",
       }),
     ).toThrow();
+    const split = DatasetSplitManifestSchema.parse(splitManifest());
+    const parsedCandidate = PromptCandidateSchema.parse(candidate(split));
+    const familyBody = {
+      schemaVersion: "prompt_candidate_family_v1" as const,
+      target,
+      championReleaseId: "champion-1",
+      championPromptCommit: COMMIT,
+      championPromptRefs: { zh: "private://champion.zh", en: "private://champion.en" },
+      championPromptHashes: { zh: OTHER_HASH, en: HASH },
+      datasetSplitId: split.splitId,
+      datasetSplitManifestHash: canonicalJsonHash(split),
+      promotionPolicyVersion: "policy-v1",
+      promotionPolicyConfigHash: HASH,
+      candidateIds: [parsedCandidate.candidateId],
+      createdAt: "2025-04-01T00:00:00Z",
+    };
+    const family = PromptCandidateFamilySchema.parse({
+      ...familyBody,
+      familyId: promptCandidateFamilyId(familyBody),
+    });
+    expect(family).toBeDefined();
+    const paddedFamilyBody = { ...familyBody, championReleaseId: " champion-1 " };
     expect(
-      PromptCandidateFamilySchema.parse({
-        schemaVersion: "prompt_candidate_family_v1",
-        familyId: "family-1",
-        target,
-        championReleaseId: "champion-1",
-        championPromptCommit: COMMIT,
-        championPromptRefs: { zh: "private://champion.zh", en: "private://champion.en" },
-        championPromptHashes: { zh: OTHER_HASH, en: HASH },
-        datasetSplitId: "split-1",
-        datasetSplitManifestHash: HASH,
-        candidateIds: ["candidate-1"],
-        validationExperimentIds: [],
-        selectedCandidateId: null,
-        selectedExperimentId: null,
-        holdoutExperimentId: null,
-        status: "REGISTERED",
-        createdAt: "2025-04-01T00:00:00Z",
-        updatedAt: "2025-04-01T00:00:00Z",
-      }),
-    ).toBeDefined();
+      PromptCandidateFamilySchema.safeParse({
+        ...paddedFamilyBody,
+        familyId: promptCandidateFamilyId(paddedFamilyBody),
+      }).success,
+    ).toBe(false);
+    const experimentBody = {
+      schemaVersion: "prompt_experiment_v1" as const,
+      familyId: family.familyId,
+      candidateId: parsedCandidate.candidateId,
+      championId: "champion-1",
+      target,
+      championPromptCommit: COMMIT,
+      championPromptRefs: family.championPromptRefs,
+      championPromptHashes: { zh: OTHER_HASH, en: HASH },
+      candidatePromptRefs: parsedCandidate.promptRefs,
+      candidatePromptHashes: parsedCandidate.promptHashes,
+      datasetSplitId: split.splitId,
+      datasetSplitManifestHash: canonicalJsonHash(split),
+      promotionPolicyVersion: family.promotionPolicyVersion,
+      promotionPolicyConfigHash: family.promotionPolicyConfigHash,
+      modelConfigHash: HASH,
+      toolConfigHash: HASH,
+      componentCalibrationSnapshotHash: HASH,
+      darwinianUsageSnapshotHash: OTHER_HASH,
+      executorAdapterHash: HASH,
+      evaluatorAdapterHash: OTHER_HASH,
+      evaluationBinding: {
+        evaluationObject: "AcceptedMacroTransmission",
+        evaluationObjectSchemaVersion: "accepted_macro_transmission_v2",
+        primaryLabelId: "china_macro_transmission_a_share_path_5d",
+        scoringContractVersion: "score_china_macro_transmission_a_share_path_5d_v1",
+        outcomeContractVersion: "macro_transmission_outcome_v2",
+      },
+      evaluatorVersion: "agent-outcome-v2",
+      evaluatorConfigHash: HASH,
+      codeCommit: COMMIT,
+      repeatSeeds: [1, 2],
+      runIds: [],
+      metrics: {},
+      tailFailureCaseRefs: [],
+      status: "PENDING" as const,
+      holdoutOpenedAt: null,
+      createdAt: "2025-04-01T00:00:00Z",
+      completedAt: null,
+    };
     expect(
       PromptExperimentSchema.parse({
-        schemaVersion: "prompt_experiment_v1",
-        experimentId: "experiment-1",
-        familyId: "family-1",
-        candidateId: "candidate-1",
-        championId: "champion-1",
-        target,
-        championPromptCommit: COMMIT,
-        championPromptRefs: { zh: "private://champion.zh", en: "private://champion.en" },
-        championPromptHashes: { zh: HASH, en: OTHER_HASH },
-        candidatePromptRefs: candidate().promptRefs,
-        candidatePromptHashes: { zh: OTHER_HASH, en: HASH },
-        datasetSplitId: "split-1",
-        datasetSplitManifestHash: HASH,
-        validationSnapshotHash: OTHER_HASH,
-        holdoutSnapshotHash: HASH,
-        modelConfigHash: HASH,
-        toolConfigHash: HASH,
-        componentCalibrationSnapshotHash: HASH,
-        darwinianUsageSnapshotHash: OTHER_HASH,
-        evaluatorVersion: "agent-outcome-v2",
-        evaluatorConfigHash: HASH,
-        codeCommit: COMMIT,
-        repeatSeeds: [1, 2],
-        runIds: [],
-        metrics: {},
-        tailFailureCaseRefs: [],
-        status: "PENDING",
-        holdoutOpenedAt: null,
-        createdAt: "2025-04-01T00:00:00Z",
-        completedAt: null,
+        ...experimentBody,
+        experimentId: promptExperimentId(experimentBody),
       }),
     ).toBeDefined();
+    const paddedExperimentBody = { ...experimentBody, championId: " champion-1 " };
+    expect(
+      PromptExperimentSchema.safeParse({
+        ...paddedExperimentBody,
+        experimentId: promptExperimentId(paddedExperimentBody),
+      }).success,
+    ).toBe(false);
     expect(
       PromptPromotionDecisionSchema.parse({
         schemaVersion: "prompt_promotion_decision_v1",
@@ -233,102 +295,204 @@ describe("prompt optimizer public contracts", () => {
   });
 
   it("exposes only a strict training projection to KNOT", () => {
+    const reservedSplit = DatasetSplitManifestSchema.parse(splitManifest());
     const trainingBody = {
-      schemaVersion: "prompt_training_snapshot_v1",
+      schemaVersion: "prompt_training_projection_v1",
       target,
-      snapshotId: "training-1",
+      projectionId: "training-1",
       datasetSnapshotHash: OTHER_HASH,
-      excludedSampleIdsHash: EXCLUDED_SAMPLE_IDS_HASH,
+      excludedSampleIdsHash: promptSplitExcludedSampleIdsHash(reservedSplit),
       cutoffAt: "2025-01-31T00:00:00Z",
-      outcomeContractVersion: "china-outcome-v2",
-      evaluatorVersion: "agent-outcome-v2",
+      outcomeContract: {
+        evaluationObject: "AcceptedMacroTransmission",
+        outcomeContractVersion: "macro_transmission_outcome_v2",
+        primaryLabelId: "china_macro_transmission_a_share_path_5d",
+        maturityHorizon: "TRADING_DAYS_5",
+        maturityTradingDays: 5,
+      },
+      evaluator: {
+        version: "score_china_macro_transmission_a_share_path_5d_v1",
+        configHash: HASH,
+        implementationHash: HASH,
+        executorAdapterHash: HASH,
+        evaluatorAdapterHash: OTHER_HASH,
+      },
       matureSampleCount: 30,
       scoreSummary: { mean: 0.1 },
       failureCategoryCounts: { missing_counter_evidence: 4 },
       tailFailureCaseRefs: ["failure://train-1"],
       evidenceGapSummaries: ["Counter-evidence was not checked before conclusion."],
-      behaviorFeedback: {
-        contractHash: HASH,
-        facets: {
-          growth_production: {
-            evaluationMode: "DIRECT_OUTCOME",
-            observationStatus: "OBSERVED",
+      directComponents: Array.from(
+        { length: 6 },
+        (_, ordinal) =>
+          ({
+            componentRef: `role_component_v1:china:${ordinal.toString().padStart(3, "0")}`,
             directMatureSampleCount: 30,
-            experimentPairCount: 0,
-            meanScore: 0.1,
-            lowerTailScore: -0.2,
+            meanScore: 0.1 - ordinal * 0.01,
+            lowerTailScore: -0.2 - ordinal * 0.01,
             failureCategoryCounts: { missing_counter_evidence: 4 },
-          },
+          }) as const,
+      ),
+      controlledExperiments: [
+        {
+          candidateId: "candidate-history-1",
+          candidatePrivateLineageHash: HASH,
+          experimentId: "experiment-history-1",
+          status: "COMPLETE",
+          evaluatorVersion: "agent-outcome-v2",
+          evaluatorConfigHash: HASH,
+          executorAdapterHash: HASH,
+          evaluatorAdapterHash: OTHER_HASH,
+          codeCommit: COMMIT,
+          pairDeltas: [0.1, -0.05],
+          failureCaseRefs: [],
+          completedAt: "2025-01-20T00:00:00Z",
         },
-      },
+      ],
     } as const;
-    const training = PromptTrainingSnapshotSchema.parse({
+    const training = PromptTrainingProjectionSchema.parse({
       ...trainingBody,
-      snapshotHash: canonicalJsonHash(trainingBody),
+      projectionHash: canonicalJsonHash(trainingBody),
     });
+    const matchingSplit = DatasetSplitManifestSchema.parse(
+      canonicalSplit({
+        ...splitBody(),
+        training: reservedSplit.training,
+        validation: reservedSplit.validation,
+        holdout: reservedSplit.holdout,
+        trainingProjectionHash: training.projectionHash,
+      }),
+    );
+    expect(() => assertTrainingProjectionMatchesSplit(training, matchingSplit)).not.toThrow();
+    expect(() =>
+      assertTrainingProjectionMatchesSplit(training, {
+        ...matchingSplit,
+        trainingProjectionHash: OTHER_HASH,
+      }),
+    ).toThrow("training_projection_dataset_split_mismatch");
     const boundCandidate = PromptCandidateSchema.parse({
-      ...candidate(),
-      trainingSnapshotHash: training.snapshotHash,
+      ...candidate(matchingSplit),
+      trainingProjectionHash: training.projectionHash,
     });
     assertCandidateMatchesTrainingSnapshot(boundCandidate, training);
+    const coldComponents = [{ ...trainingBody.directComponents[0], directMatureSampleCount: 29 }];
+    const coldBody = {
+      ...trainingBody,
+      matureSampleCount: 29,
+      directComponents: coldComponents,
+    };
+    const coldTraining = PromptTrainingProjectionSchema.parse({
+      ...coldBody,
+      projectionHash: canonicalJsonHash(coldBody),
+    });
+    expect(() => assertCandidateMatchesTrainingSnapshot(boundCandidate, coldTraining)).toThrow(
+      "candidate_training_sample_count_insufficient",
+    );
     expect(() =>
-      PromptTrainingSnapshotSchema.parse({ ...training, validationSnapshotHash: OTHER_HASH }),
+      PromptTrainingProjectionSchema.parse({ ...training, validationSnapshotHash: OTHER_HASH }),
     ).toThrow();
     expect(() =>
       assertCandidateMatchesTrainingSnapshot(
-        { ...boundCandidate, behaviorContractHash: OTHER_HASH },
+        { ...boundCandidate, trainingProjectionHash: OTHER_HASH },
         training,
       ),
     ).toThrow("candidate_training_snapshot_mismatch");
     expect(() =>
-      PromptTrainingSnapshotSchema.parse({
+      PromptTrainingProjectionSchema.parse({
         ...training,
-        behaviorFeedback: {
-          ...training.behaviorFeedback,
-          facets: {
-            growth_production: {
-              ...training.behaviorFeedback.facets.growth_production,
-              directMatureSampleCount: 31,
-            },
-          },
-        },
+        directComponents: [{ ...training.directComponents[0], directMatureSampleCount: 31 }],
       }),
-    ).toThrow(/complete mature training sample set/);
+    ).toThrow(/complete mature sample set/);
     expect(() =>
-      PromptTrainingSnapshotSchema.parse({ ...training, evaluatorVersion: "changed-evaluator" }),
+      PromptTrainingProjectionSchema.parse({
+        ...training,
+        evaluator: { ...training.evaluator, version: "changed-evaluator" },
+      }),
     ).toThrow(/hash must bind/);
+    const wrongComponentBody = {
+      ...trainingBody,
+      directComponents: [
+        { ...trainingBody.directComponents[0], componentRef: "role_component_v1:cio:001" },
+      ],
+    };
+    expect(() =>
+      PromptTrainingProjectionSchema.parse({
+        ...wrongComponentBody,
+        projectionHash: canonicalJsonHash(wrongComponentBody),
+      }),
+    ).toThrow(/must belong to the projection target/);
   });
 
-  it("rejects overlapping or future-leaking split samples", () => {
+  it("binds sample and split identities while rejecting overlap or future leakage", () => {
     expect(DatasetSplitManifestSchema.parse(splitManifest())).toBeDefined();
-    const overlap = splitManifest();
-    const overlapSample = overlap.holdout.samples.at(0);
-    if (!overlapSample) throw new Error("missing overlap fixture sample");
-    overlap.holdout.samples[0] = {
-      ...overlapSample,
-      sampleId: "validation-1",
-    };
-    expect(() => DatasetSplitManifestSchema.parse(overlap)).toThrow(/cannot overlap/);
+    expect(() =>
+      DatasetSplitManifestSchema.parse({ ...splitManifest(), splitId: "split-alias" }),
+    ).toThrow(/derived from the immutable split definition/);
+    const aliasedSample = splitManifest();
+    const firstHoldout = aliasedSample.holdout.samples[0];
+    if (!firstHoldout) throw new Error("missing holdout sample");
+    aliasedSample.holdout.samples[0] = { ...firstHoldout, sampleId: "sample-alias" };
+    expect(() => DatasetSplitManifestSchema.parse(aliasedSample)).toThrow(
+      /derived from the immutable sample content/,
+    );
+    const aliasedPartition = splitManifest();
+    expect(() =>
+      DatasetSplitManifestSchema.parse({
+        ...aliasedPartition,
+        training: { ...aliasedPartition.training, snapshotId: "training-alias" },
+      }),
+    ).toThrow();
 
-    const future = splitManifest();
+    const createdBeforeCutoff = splitBody();
+    createdBeforeCutoff.createdAt = "2025-01-01T00:00:00Z";
+    expect(() => DatasetSplitManifestSchema.parse(canonicalSplit(createdBeforeCutoff))).toThrow(
+      /before its training cutoff/,
+    );
+
+    const intervalOverlap = splitBody();
+    intervalOverlap.validation.samples.push(
+      sample(
+        "validation-2",
+        "2025-02-10T12:00:00Z",
+        "2025-02-11T12:00:00Z",
+        "2025-02-20T00:00:00Z",
+      ),
+    );
+    expect(() => DatasetSplitManifestSchema.parse(canonicalSplit(intervalOverlap))).toThrow(
+      /cannot overlap/,
+    );
+
+    const touching = splitBody();
+    touching.validation.samples.push(
+      sample(
+        "validation-2",
+        "2025-02-11T00:00:00Z",
+        "2025-02-12T00:00:00Z",
+        "2025-02-20T00:00:00Z",
+      ),
+    );
+    expect(DatasetSplitManifestSchema.parse(canonicalSplit(touching))).toBeDefined();
+
+    const future = splitBody();
     const futureSample = future.holdout.samples.at(0);
     if (!futureSample) throw new Error("missing future fixture sample");
     future.holdout.samples[0] = {
       ...futureSample,
       maturedAt: "2025-05-01T00:00:00Z",
     };
-    expect(() => DatasetSplitManifestSchema.parse(future)).toThrow(/immature/);
+    future.holdout.samples[0].sampleId = promptDatasetSampleId(future.holdout.samples[0]);
+    expect(() => DatasetSplitManifestSchema.parse(canonicalSplit(future))).toThrow(/immature/);
   });
 
   it("orders timestamp offsets by instant rather than source spelling", () => {
-    const value = splitManifest();
+    const value = splitBody();
     value.training.samples[0] = sample(
       "train-1",
       "2025-01-11T00:00:00-12:00",
       "2025-01-11T01:00:00-12:00",
       "2025-01-11T23:00:00+14:00",
     );
-    expect(() => DatasetSplitManifestSchema.parse(value)).toThrow(/mature before/);
+    expect(() => DatasetSplitManifestSchema.parse(canonicalSplit(value))).toThrow(/mature before/);
   });
 
   it("binds Candidate training identity to the frozen split", () => {
@@ -337,7 +501,7 @@ describe("prompt optimizer public contracts", () => {
     expect(() => assertCandidateMatchesSplit(parsedCandidate, parsedSplit)).not.toThrow();
     expect(() =>
       assertCandidateMatchesSplit(
-        { ...parsedCandidate, trainingSnapshotHash: OTHER_HASH },
+        { ...parsedCandidate, trainingProjectionHash: OTHER_HASH },
         parsedSplit,
       ),
     ).toThrow("candidate_dataset_split_mismatch");
@@ -352,13 +516,17 @@ describe("prompt optimizer public contracts", () => {
   it("requires complete runs to carry one normalized Agent-specific score", () => {
     const base = {
       schemaVersion: "prompt_experiment_run_v1" as const,
-      runId: "run-1",
       experimentId: "experiment-1",
       partition: "VALIDATION" as const,
       side: "CHAMPION" as const,
       sampleId: "validation-1",
       seed: 1,
       status: "COMPLETE" as const,
+      leaseOwner: "worker-1",
+      leaseExpiresAt: "2025-04-01T00:05:00Z",
+      attempt: 1,
+      retryable: false,
+      attemptFailureCodes: [],
       agentOutputRef: "accepted://output-1",
       metrics: { normalized_score: 0.2 },
       failureCaseRefs: [],
@@ -368,7 +536,11 @@ describe("prompt optimizer public contracts", () => {
       startedAt: "2025-04-01T00:00:00Z",
       completedAt: "2025-04-01T00:01:00Z",
     };
-    expect(PromptExperimentRunSchema.parse(base)).toBeDefined();
-    expect(() => PromptExperimentRunSchema.parse({ ...base, metrics: {} })).toThrow(/score/);
+    const canonical = { ...base, runId: promptExperimentRunId(base) };
+    expect(PromptExperimentRunSchema.parse(canonical)).toBeDefined();
+    expect(() => PromptExperimentRunSchema.parse({ ...canonical, metrics: {} })).toThrow(/score/);
+    expect(() => PromptExperimentRunSchema.parse({ ...canonical, runId: "run-alias" })).toThrow(
+      /immutable run coordinates/,
+    );
   });
 });

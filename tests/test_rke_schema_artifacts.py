@@ -43,21 +43,16 @@ REQUIRED_SCHEMA_FILES = {
     "validation_experiment_v2.schema.json",
     "production_patch.schema.json",
     "prompt_ir_runtime_contract_v1.schema.json",
-    "runtime_agent_manifest_v1.schema.json",
-    "runtime_agent_manifest_v2.schema.json",
-    "runtime_agent_manifest_v3.schema.json",
-    "runtime_agent_manifest_v4.schema.json",
     "runtime_agent_manifest_v5.schema.json",
     "agent_tool_contract_manifest_v1.schema.json",
     "sector_universe_manifest_v1.schema.json",
     "agent_outcome_contract_manifest_v2.schema.json",
-    "execution_behavior_release_manifest_v2.schema.json",
+    "execution_behavior_release_manifest_v3.schema.json",
     "deterministic_decision_policy_release_v1.schema.json",
     "prompt_release_contract_ref_v2.schema.json",
     "rke_shadow_agent_migration_manifest_v1.schema.json",
     "agent_snapshot_bundle_v1.schema.json",
     "signed_agent_tool_capability_v1.schema.json",
-    "agent_prompt_role_contract_manifest_v2.schema.json",
     "macro_prompt_role_contract_manifest_v1.schema.json",
     "macro_role_snapshot_v2.schema.json",
     "commodity_conditions_v1.schema.json",
@@ -6926,108 +6921,6 @@ def test_prompt_ir_runtime_contract_schema_requires_output_fields(tmp_path: Path
 
     assert not record.accepted
     assert any(".output_schema_fields: required" in failure for failure in record.failures)
-
-
-
-def _runtime_agent_manifest_fixture() -> dict:
-    return {
-        "schema_version": "runtime_agent_manifest_v1",
-        "lifecycle_status": "legacy_unverified",
-        "production_selectable": False,
-        "superseded_by": "runtime_agent_manifest_v4",
-        "runtime_agent_count": 1,
-        "runtime_stage_count": 2,
-        "default_cohort": "cohort_default",
-        "private_knot_cohort_enablement": [
-            {
-                "cohort": "cohort_default",
-                "enabled_agent_stages": ["cio:cio_proposal"],
-                "legacy_agent_stages": ["cio:cio_final"],
-            }
-        ],
-        "canonical_l4_sequence": [
-            "alpha_discovery",
-            "cio_proposal",
-            "cro_review",
-            "execution_feasibility",
-            "cio_final",
-        ],
-        "agents": [
-            {
-                "agent": "cio",
-                "layer": "decision",
-                "prompt_ir_agent_id": "decision.cio",
-                "required_tools": ["get_rke_research_context"],
-                "output_schema_fields": ["portfolio_actions", "confidence"],
-                "stages": [
-                    {
-                        "stage": "cio_proposal",
-                        "enablement": "declared",
-                        "output_schema_ref": "decision.cio.proposal.v1",
-                        "fallback_factory_id": "decision.cio.cio_proposal.fallback",
-                        "fallback_factory_version": "1",
-                        "required_source_ids": ["current_position_snapshot"],
-                        "produced_source_ids": [
-                            "candidate_target_state",
-                            "position_review_state",
-                        ],
-                    },
-                    {
-                        "stage": "cio_final",
-                        "enablement": "legacy",
-                        "output_schema_ref": "decision.cio.final.v1",
-                        "fallback_factory_id": "decision.cio.cio_final.fallback",
-                        "fallback_factory_version": "1",
-                        "required_source_ids": [
-                            "candidate_target_state",
-                            "cro_review_state",
-                            "execution_feasibility_state",
-                        ],
-                        "produced_source_ids": [],
-                    },
-                ],
-            }
-        ],
-    }
-
-
-def _write_runtime_agent_manifest_fixture(tmp_path: Path, manifest: dict) -> SchemaValidationRecord:
-    schema_dir = tmp_path / "schemas"
-    artifact_dir = tmp_path / "registry/prompt_checks"
-    schema_dir.mkdir(parents=True)
-    artifact_dir.mkdir(parents=True)
-    shutil.copyfile(
-        "schemas/runtime_agent_manifest_v1.schema.json",
-        schema_dir / "runtime_agent_manifest_v1.schema.json",
-    )
-    (artifact_dir / "runtime_agent_manifest_v1.json").write_text(
-        json.dumps(manifest, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return validate_json_schema_artifact(
-        root=tmp_path,
-        schema_path="schemas/runtime_agent_manifest_v1.schema.json",
-        artifact_path="registry/prompt_checks/runtime_agent_manifest_v1.json",
-        artifact_kind="json",
-    )
-
-
-def test_runtime_agent_manifest_schema_accepts_stage_contract(tmp_path: Path):
-    record = _write_runtime_agent_manifest_fixture(tmp_path, _runtime_agent_manifest_fixture())
-
-    assert record.accepted
-    assert record.item_count == 1
-
-
-def test_runtime_agent_manifest_schema_requires_fallback_factory(tmp_path: Path):
-    manifest = _runtime_agent_manifest_fixture()
-    del manifest["agents"][0]["stages"][0]["fallback_factory_id"]
-
-    record = _write_runtime_agent_manifest_fixture(tmp_path, manifest)
-
-    assert not record.accepted
-    assert any("fallback_factory_id: required" in failure for failure in record.failures)
-
 
 def test_evidence_claim_graph_schema_accepts_contract_shape(tmp_path: Path):
     schema_dir = tmp_path / "schemas"

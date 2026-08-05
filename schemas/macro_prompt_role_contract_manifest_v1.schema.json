@@ -22,7 +22,7 @@
     "schema_version": { "const": "macro_prompt_role_contract_manifest_v1" },
     "lifecycle_status": { "const": "legacy_unverified" },
     "production_selectable": { "const": false },
-    "superseded_by": { "const": "agent_prompt_role_contract_manifest_v2" },
+    "superseded_by": { "const": "execution_behavior_release_manifest_v3" },
     "private_prompt_repository": { "const": "haphap/MOSAIC-Prompts" },
     "private_prompt_branch": { "const": "codex/macro-agent-role-contracts" },
     "private_prompt_commit": {

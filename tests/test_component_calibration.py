@@ -360,10 +360,10 @@ def _seed_component_sample(
         INSERT INTO agent_outcome_eligibility_revisions_v2 (
             audit_revision_id, audit_revision_hash, audit_id,
             supersedes_revision_id, scheduled_sample_id, track_key_hash,
-            agent_id, sample_origin, research_pair_side, disposition,
+            agent_id, sample_origin, disposition,
             accepted_output_id, opportunity_set_status, audit_sequence,
             recorded_at, record_json
-        ) VALUES (?, ?, ?, NULL, ?, ?, ?, 'PRODUCTION_ACTIVE', NULL,
+        ) VALUES (?, ?, ?, NULL, ?, ?, ?, 'PRODUCTION_ACTIVE',
                   'SCORE', ?, 'AVAILABLE', 1, ?, ?)
         """,
         (

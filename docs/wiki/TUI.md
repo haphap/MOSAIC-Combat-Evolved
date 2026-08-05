@@ -27,7 +27,7 @@ These explanations are a separately persisted **UI-only sidecar**. They are not 
 
 A curated, editable view of the commonly-tuned config, persisted to `~/.mosaic/config.json` via `config.save`. Controls: **↑↓** select · **enter** edit (string/number) · **space** toggle bool / cycle enum · **s** save · **esc** cancel. While editing, the tab owns all keystrokes (so typing `q` doesn't quit).
 
-Editable fields: `llm_provider`, `deep_think_llm`, `quick_think_llm`, `output_language`, `active_cohort`; the five `autoresearch.*` numbers; `autoresearch.git.push` / `remote`; `mirofish.engine` / `scorer` / `inject_context`.
+Editable fields: `llm_provider`, `deep_think_llm`, `quick_think_llm`, `output_language`, `active_cohort`; `mirofish.engine` / `scorer` / `inject_context`.
 
 See [Configuration](Configuration.md) for what these mean and how persistence works.
 
@@ -35,8 +35,7 @@ See [Configuration](Configuration.md) for what these mean and how persistence wo
 
 The dashboard surfaces the same position loop used by `daily-cycle`: loaded and
 reviewed position counts, stale thesis and stop-loss override counts, explicit
-warning labels, target-current deltas, per-action fired caps, declared knob
-influence ids, decision-agent audit summaries, and MiroFish per-position stress.
+warning labels, target-current deltas, and MiroFish per-position stress.
 Each action shows the target/current/delta triple from the same frozen final
 target used by paper execution and backtest carry-over.
 Stale-thesis actions are expected to carry the `stale_thesis` risk flag and an

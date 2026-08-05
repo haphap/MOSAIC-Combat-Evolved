@@ -18,6 +18,8 @@ import {
 import { ActivePromptReleaseRegistry } from "../src/autoresearch/release_registry.js";
 
 const HASH = `sha256:${"1".repeat(64)}`;
+const EXECUTION_RELEASE_ID = `execution-behavior-release:${"2".repeat(64)}`;
+const EXECUTION_RELEASE_REF = `registry/prompt_checks/execution_behavior_releases/${"2".repeat(64)}--${"1".repeat(64)}.json`;
 const PROMPT_PATHS = {
   zh: "prompts/mosaic/cohort_default/macro/central_bank.zh.md",
   en: "prompts/mosaic/cohort_default/macro/central_bank.en.md",
@@ -105,6 +107,11 @@ function release(opts: {
     lifecycle_state: "active",
     prompt_commit: opts.promptCommit,
     code_commit: "7654321",
+    execution_behavior_release: {
+      release_id: EXECUTION_RELEASE_ID,
+      release_hash: HASH,
+      archive_ref: EXECUTION_RELEASE_REF,
+    },
     prompt_hash: releasePromptSetHash(promptPairs),
     prompt_pairs: promptPairs,
     stage_snapshot_hashes: { "central_bank:agent_run": HASH },

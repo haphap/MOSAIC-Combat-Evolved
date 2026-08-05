@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { canonicalJsonHash } from "../agents/helpers/canonical_json.js";
+import { canonicalJsonHash, compareCanonicalStrings } from "../agents/helpers/canonical_json.js";
 import { OUTCOME_LABEL_REGISTRY } from "./outcome_registry.js";
 import {
   type DatasetSplitManifest,
   DatasetSplitManifestSchema,
+  PROMPT_OPTIMIZER_CANONICAL_STRING_PATTERN,
   type PromptCandidateFamily,
   PromptCandidateFamilySchema,
   type PromptExperiment,
@@ -16,7 +17,11 @@ import {
   PromptPromotionDecisionSchema,
 } from "./prompt_optimizer_contract.js";
 
-const NonEmptyId = z.string().trim().min(1).max(256);
+const NonEmptyId = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(PROMPT_OPTIMIZER_CANONICAL_STRING_PATTERN, "surrounding whitespace is not canonical");
 const Probability = z.number().finite().positive().max(0.5);
 
 /** Values live in the private policy package; only its version and hash are persisted. */
@@ -90,7 +95,7 @@ interface PairedRow {
   candidate: PromptExperimentRun;
 }
 
-interface PartitionEvidence {
+export interface PromptPartitionGateEvidence {
   metrics: Record<string, number>;
   reasons: string[];
 }
@@ -110,7 +115,7 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-function mean(values: ReadonlyArray<number>): number {
+export function promptOrderedMean(values: ReadonlyArray<number>): number {
   if (values.length === 0) throw new Error("prompt_promotion_empty_metric_series");
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
@@ -187,7 +192,6 @@ function pairedRows(input: {
     byKey.set(key, pair);
   }
   return [...byKey.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, pair]) => {
       if (!pair.CHAMPION || !pair.CANDIDATE) throw new Error("prompt_promotion_pair_incomplete");
       const [sampleId, seedText] = key.split("\0");
@@ -198,11 +202,15 @@ function pairedRows(input: {
         champion: pair.CHAMPION,
         candidate: pair.CANDIDATE,
       };
-    });
+    })
+    .sort(
+      (left, right) =>
+        compareCanonicalStrings(left.sampleId, right.sampleId) || left.seed - right.seed,
+    );
 }
 
 function failureRate(runs: ReadonlyArray<PromptExperimentRun>): number {
-  return mean(
+  return promptOrderedMean(
     runs.map((run) => (FAILURE_METRICS.some((metric) => (run.metrics[metric] ?? 0) > 0) ? 1 : 0)),
   );
 }
@@ -215,7 +223,7 @@ function evaluatePartition(input: {
   policy: PromptPromotionPolicy;
   policyHash: string;
   partition: "VALIDATION" | "HOLDOUT";
-}): PartitionEvidence {
+}): PromptPartitionGateEvidence {
   const prefix = input.partition.toLowerCase();
   const pairs = pairedRows(input);
   const grouped = new Map<string, number[]>();
@@ -241,7 +249,7 @@ function evaluatePartition(input: {
   const sampleDeltas = chronologicalSamples.map((sample) => {
     const deltas = grouped.get(sample.sampleId);
     if (!deltas) throw new Error("prompt_promotion_sample_delta_missing");
-    return { sampleId: sample.sampleId, delta: mean(deltas) };
+    return { sampleId: sample.sampleId, delta: promptOrderedMean(deltas) };
   });
   const deltas = sampleDeltas.map((row) => row.delta);
   const adjustedAlpha = input.policy.familyAlpha / input.family.candidateIds.length;
@@ -253,7 +261,9 @@ function evaluatePartition(input: {
     seed: `${input.experiment.experimentId}:${input.partition}:${input.policyHash}`,
   });
   const tailCount = Math.max(1, Math.ceil(deltas.length * input.policy.tailQuantile));
-  const tailDelta = mean([...deltas].sort((left, right) => left - right).slice(0, tailCount));
+  const tailDelta = promptOrderedMean(
+    [...deltas].sort((left, right) => left - right).slice(0, tailCount),
+  );
   const championRuns = pairs.map((row) => row.champion);
   const candidateRuns = pairs.map((row) => row.candidate);
   const championFailureRate = failureRate(championRuns);
@@ -276,7 +286,8 @@ function evaluatePartition(input: {
   if (input.experiment.repeatSeeds.length < input.policy.minimumRepeatSeeds) {
     reasons.push(`${prefix}_repeat_seed_count`);
   }
-  if (mean(deltas) < input.policy.minimumPairedDelta) reasons.push(`${prefix}_paired_delta`);
+  if (promptOrderedMean(deltas) < input.policy.minimumPairedDelta)
+    reasons.push(`${prefix}_paired_delta`);
   if (bootstrap.lower < input.policy.minimumPairedDelta) reasons.push(`${prefix}_confidence_lower`);
   if (bootstrap.pValue > adjustedAlpha) reasons.push(`${prefix}_multiple_comparison`);
   if (tailDelta < input.policy.minimumTailDelta) reasons.push(`${prefix}_tail_regression`);
@@ -291,7 +302,7 @@ function evaluatePartition(input: {
     metrics: {
       [`${prefix}_sample_count`]: sampleDeltas.length,
       [`${prefix}_repeat_seed_count`]: input.experiment.repeatSeeds.length,
-      [`${prefix}_paired_delta`]: mean(deltas),
+      [`${prefix}_paired_delta`]: promptOrderedMean(deltas),
       [`${prefix}_confidence_lower`]: bootstrap.lower,
       [`${prefix}_confidence_upper`]: bootstrap.upper,
       [`${prefix}_bootstrap_p_value`]: bootstrap.pValue,
@@ -302,6 +313,70 @@ function evaluatePartition(input: {
       [`${prefix}_critical_min_delta`]: criticalMinimum,
     },
   };
+}
+
+/** Evaluate every preregistered validation gate before holdout is opened. */
+export function evaluatePromptValidationGates(input: {
+  experiment: PromptExperiment;
+  family: PromptCandidateFamily;
+  split: DatasetSplitManifest;
+  runs: ReadonlyArray<PromptExperimentRun>;
+  policy: PromptPromotionPolicy;
+}): PromptPartitionGateEvidence & { eligible: boolean; policyConfigHash: string } {
+  const experiment = PromptExperimentSchema.parse(input.experiment);
+  const family = PromptCandidateFamilySchema.parse(input.family);
+  const split = DatasetSplitManifestSchema.parse(input.split);
+  const runs = input.runs.map((run) => PromptExperimentRunSchema.parse(run));
+  const policy = PromptPromotionPolicySchema.parse(input.policy);
+  const policyConfigHash = canonicalJsonHash(policy);
+  if (
+    !["VALIDATION_COMPLETE", "HOLDOUT_RUNNING", "COMPLETE"].includes(experiment.status) ||
+    experiment.familyId !== family.familyId ||
+    !family.candidateIds.includes(experiment.candidateId)
+  ) {
+    throw new Error("prompt_validation_gate_experiment_not_complete");
+  }
+  if (
+    canonicalJsonHash(split) !== experiment.datasetSplitManifestHash ||
+    canonicalJsonHash(split.target) !== canonicalJsonHash(experiment.target) ||
+    family.datasetSplitId !== split.splitId ||
+    family.datasetSplitManifestHash !== experiment.datasetSplitManifestHash
+  ) {
+    throw new Error("prompt_validation_gate_split_drift");
+  }
+  if (
+    family.promotionPolicyVersion !== policy.policyVersion ||
+    family.promotionPolicyConfigHash !== policyConfigHash ||
+    experiment.promotionPolicyVersion !== policy.policyVersion ||
+    experiment.promotionPolicyConfigHash !== policyConfigHash
+  ) {
+    throw new Error("prompt_validation_gate_policy_drift");
+  }
+  const binding = promptEvaluationBinding(experiment.target);
+  if (
+    experiment.evaluatorVersion !== binding.scoringContractVersion ||
+    split.evaluatorVersion !== binding.scoringContractVersion ||
+    canonicalJsonHash(experiment.evaluationBinding) !==
+      canonicalJsonHash({
+        evaluationObject: binding.evaluationObject,
+        evaluationObjectSchemaVersion: binding.evaluationObjectSchemaVersion,
+        primaryLabelId: binding.primaryLabelId,
+        scoringContractVersion: binding.scoringContractVersion,
+        outcomeContractVersion: binding.outcomeContractVersion,
+      })
+  ) {
+    throw new Error("prompt_validation_gate_evaluator_drift");
+  }
+  const evidence = evaluatePartition({
+    experiment,
+    family,
+    split,
+    runs,
+    policy,
+    policyHash: policyConfigHash,
+    partition: "VALIDATION",
+  });
+  return { ...evidence, eligible: evidence.reasons.length === 0, policyConfigHash };
 }
 
 export function createPromptPromotionDecision(input: {
@@ -317,30 +392,44 @@ export function createPromptPromotionDecision(input: {
   const split = DatasetSplitManifestSchema.parse(input.split);
   const runs = input.runs.map((run) => PromptExperimentRunSchema.parse(run));
   const policy = PromptPromotionPolicySchema.parse(input.policy);
+  const policyHash = canonicalJsonHash(policy);
   if (experiment.status !== "COMPLETE" || experiment.holdoutOpenedAt === null) {
     throw new Error("prompt_promotion_experiment_not_complete");
   }
   if (
-    family.status !== "COMPLETE" ||
     family.familyId !== experiment.familyId ||
-    family.selectedCandidateId !== experiment.candidateId ||
-    family.selectedExperimentId !== experiment.experimentId ||
-    family.holdoutExperimentId !== experiment.experimentId
+    !family.candidateIds.includes(experiment.candidateId)
   ) {
-    throw new Error("prompt_promotion_candidate_family_not_complete");
+    throw new Error("prompt_promotion_candidate_family_mismatch");
   }
   if (
     canonicalJsonHash(split) !== experiment.datasetSplitManifestHash ||
     canonicalJsonHash(split.target) !== canonicalJsonHash(experiment.target) ||
-    split.validation.snapshotHash !== experiment.validationSnapshotHash ||
-    split.holdout.snapshotHash !== experiment.holdoutSnapshotHash
+    family.datasetSplitId !== split.splitId ||
+    family.datasetSplitManifestHash !== experiment.datasetSplitManifestHash
   ) {
     throw new Error("prompt_promotion_split_drift");
+  }
+  if (
+    family.promotionPolicyVersion !== policy.policyVersion ||
+    family.promotionPolicyConfigHash !== policyHash ||
+    experiment.promotionPolicyVersion !== policy.policyVersion ||
+    experiment.promotionPolicyConfigHash !== policyHash
+  ) {
+    throw new Error("prompt_promotion_policy_drift");
   }
   const binding = promptEvaluationBinding(experiment.target);
   if (
     experiment.evaluatorVersion !== binding.scoringContractVersion ||
-    split.evaluatorVersion !== binding.scoringContractVersion
+    split.evaluatorVersion !== binding.scoringContractVersion ||
+    canonicalJsonHash(experiment.evaluationBinding) !==
+      canonicalJsonHash({
+        evaluationObject: binding.evaluationObject,
+        evaluationObjectSchemaVersion: binding.evaluationObjectSchemaVersion,
+        primaryLabelId: binding.primaryLabelId,
+        scoringContractVersion: binding.scoringContractVersion,
+        outcomeContractVersion: binding.outcomeContractVersion,
+      })
   ) {
     throw new Error("prompt_promotion_agent_evaluator_drift");
   }
@@ -350,7 +439,6 @@ export function createPromptPromotionDecision(input: {
   if (new Set(experiment.runIds).size !== runs.length || experiment.runIds.length !== runs.length) {
     throw new Error("prompt_promotion_run_manifest_mismatch");
   }
-  const policyHash = canonicalJsonHash(policy);
   const validation = evaluatePartition({
     experiment,
     family,

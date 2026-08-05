@@ -125,26 +125,6 @@ JSON_SCHEMA_TARGETS = (
     ),
     ("schemas/production_patch.schema.json", "registry/patches/central_bank_paper_trading_patch.json", "json"),
     (
-        "schemas/runtime_agent_manifest_v1.schema.json",
-        "registry/prompt_checks/runtime_agent_manifest_v1.json",
-        "json",
-    ),
-    (
-        "schemas/runtime_agent_manifest_v2.schema.json",
-        "registry/prompt_checks/runtime_agent_manifest_v2.json",
-        "json",
-    ),
-    (
-        "schemas/runtime_agent_manifest_v3.schema.json",
-        "registry/prompt_checks/runtime_agent_manifest_v3.json",
-        "json",
-    ),
-    (
-        "schemas/runtime_agent_manifest_v4.schema.json",
-        "registry/prompt_checks/runtime_agent_manifest_v4.json",
-        "json",
-    ),
-    (
         "schemas/runtime_agent_manifest_v5.schema.json",
         "registry/prompt_checks/runtime_agent_manifest_v5.json",
         "json",
@@ -152,11 +132,6 @@ JSON_SCHEMA_TARGETS = (
     (
         "schemas/agent_tool_contract_manifest_v1.schema.json",
         "registry/prompt_checks/agent_tool_contract_manifest_v1.json",
-        "json",
-    ),
-    (
-        "schemas/agent_prompt_role_contract_manifest_v2.schema.json",
-        "registry/prompt_checks/agent_prompt_role_contract_manifest_v2.json",
         "json",
     ),
     (
@@ -172,11 +147,6 @@ JSON_SCHEMA_TARGETS = (
     (
         "schemas/agent_outcome_contract_manifest_v2.schema.json",
         "registry/prompt_checks/agent_outcome_contract_manifest_v2.json",
-        "json",
-    ),
-    (
-        "schemas/execution_behavior_release_manifest_v2.schema.json",
-        "registry/prompt_checks/execution_behavior_release_manifest_v2.json",
         "json",
     ),
     (

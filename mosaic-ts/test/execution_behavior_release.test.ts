@@ -1,6 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -22,7 +30,6 @@ import {
   buildExecutionBehaviorReleaseManifest,
   executionBehaviorReleaseArchiveFilename,
   loadExecutionBehaviorReleaseManifest,
-  releaseVariantFor,
   STRUCTURED_PROVIDER_CONTRACT_VERSION,
   validateExecutionBehaviorReleaseManifest,
   writeExecutionBehaviorReleaseArtifacts,
@@ -37,45 +44,17 @@ afterEach(() => {
 
 describe("execution behavior release", () => {
   it("validates the committed atomic release", () => {
-    const release = loadExecutionBehaviorReleaseManifest(
-      resolve(
-        process.cwd(),
-        "..",
-        "registry",
-        "prompt_checks",
-        "execution_behavior_release_manifest_v2.json",
-      ),
-    );
+    const release = loadExecutionBehaviorReleaseManifest(committedExecutionReleasePath());
     expect(release.active_production_variants).toHaveLength(16);
-    expect(release.variants).toHaveLength(448);
-    const roleManifest = JSON.parse(
-      readFileSync(
-        resolve(
-          process.cwd(),
-          "..",
-          "registry",
-          "prompt_checks",
-          "agent_prompt_role_contract_manifest_v2.json",
-        ),
-        "utf8",
-      ),
-    ) as {
-      private_prompt_branch: string;
-      private_prompt_commit: string;
-      execution_behavior_release_id: string;
-      execution_behavior_release_hash: string;
-    };
-    expect(roleManifest.private_prompt_branch).toBe(
-      "codex/knot-prompt-optimizer-simplification-private",
+    expect(release.execution_contracts).toHaveLength(56);
+    expect(release.private_prompt_commit).toMatch(/^[0-9a-f]{40}$/);
+    expect(release.execution_behavior_release_id).toMatch(
+      /^execution-behavior-release:[0-9a-f]{64}$/,
     );
-    expect(release.private_prompt_commit).toBe(roleManifest.private_prompt_commit);
-    expect(release.execution_behavior_release_id).toBe(roleManifest.execution_behavior_release_id);
-    expect(release.execution_behavior_release_hash).toBe(
-      roleManifest.execution_behavior_release_hash,
-    );
+    expect(release.execution_behavior_release_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 
-  it("atomically binds all 448 prompt variants and 16 production rosters", () => {
+  it("validates all prompt variants while persisting only 56 execution contracts", () => {
     const fixture = promptFixture();
     const manifest = buildExecutionBehaviorReleaseManifest({
       ...fixture,
@@ -85,50 +64,32 @@ describe("execution behavior release", () => {
     });
 
     expect(manifest.active_production_variants).toHaveLength(16);
-    expect(manifest.variants).toHaveLength(448);
-    expect(new Set(manifest.variants.map((variant) => variant.variant_path)).size).toBe(448);
+    expect(manifest.execution_contracts).toHaveLength(56);
     expect(
-      manifest.variants.every((variant) =>
-        /^sha256:[0-9a-f]{64}$/.test(variant.structured_provider_contract_hash),
+      manifest.execution_contracts.every((contract) =>
+        /^sha256:[0-9a-f]{64}$/.test(contract.structured_provider_contract_hash),
       ),
     ).toBe(true);
     expect(STRUCTURED_PROVIDER_CONTRACT_VERSION).toBe("structured_provider_contract_v2");
-    expect(
-      releaseVariantFor(manifest, "cohort_default", "zh", "china")
-        .structured_provider_contract_hash,
-    ).not.toBe(
-      releaseVariantFor(manifest, "cohort_default", "zh", "geopolitical")
-        .structured_provider_contract_hash,
+    const contractFor = (agent: string, language: "en" | "zh") => {
+      const contract = manifest.execution_contracts.find(
+        (candidate) => candidate.agent_id === agent && candidate.language === language,
+      );
+      if (!contract) throw new Error(`execution contract fixture missing: ${agent}:${language}`);
+      return contract;
+    };
+    expect(contractFor("china", "zh").structured_provider_contract_hash).not.toBe(
+      contractFor("geopolitical", "zh").structured_provider_contract_hash,
     );
     expect(
-      releaseVariantFor(
-        manifest,
-        "cohort_default",
-        "zh",
-        "energy",
-      ).structured_output_schema_bindings.map((binding) => binding.phase),
+      contractFor("energy", "zh").structured_output_schema_bindings.map((binding) => binding.phase),
     ).toEqual(["DIRECTION_RESEARCH", "CONFLICT_REVIEW", "FINAL_SELECTION"]);
     expect(
-      releaseVariantFor(
-        manifest,
-        "cohort_default",
-        "en",
-        "cio",
-      ).structured_output_schema_bindings.map((binding) => binding.phase),
+      contractFor("cio", "en").structured_output_schema_bindings.map((binding) => binding.phase),
     ).toEqual(["CIO_PROPOSAL", "CIO_FINAL"]);
-    expect(
-      releaseVariantFor(manifest, "cohort_default", "zh", "china")
-        .structured_output_schema_bindings,
-    ).toHaveLength(1);
-    expect(
-      releaseVariantFor(manifest, "cohort_default", "zh", "china").execution_behavior_version,
-    ).not.toBe(
-      releaseVariantFor(manifest, "cohort_default", "en", "china").execution_behavior_version,
-    );
-    expect(
-      releaseVariantFor(manifest, "cohort_default", "zh", "china").execution_behavior_version,
-    ).toBe(
-      releaseVariantFor(manifest, "cohort_bull_2007", "zh", "china").execution_behavior_version,
+    expect(contractFor("china", "zh").structured_output_schema_bindings).toHaveLength(1);
+    expect(contractFor("china", "zh").execution_behavior_version).not.toBe(
+      contractFor("china", "en").execution_behavior_version,
     );
     expect(validateExecutionBehaviorReleaseManifest(manifest)).toEqual(manifest);
   });
@@ -162,11 +123,16 @@ describe("execution behavior release", () => {
       model: "claude-sonnet-4",
       baseUrlMode: "PROVIDER_DEFAULT",
     });
-    const before = releaseVariantFor(baseline, "cohort_default", "zh", "china");
-    const after = releaseVariantFor(candidate, "cohort_default", "zh", "china");
-    expect(after.prompt_behavior_version).not.toBe(before.prompt_behavior_version);
-    expect(after.execution_behavior_version).toBe(before.execution_behavior_version);
-    expect(after.immutable_contract_block_hash).toBe(before.immutable_contract_block_hash);
+    const before = baseline.execution_contracts.find(
+      (contract) => contract.agent_id === "china" && contract.language === "zh",
+    );
+    const after = candidate.execution_contracts.find(
+      (contract) => contract.agent_id === "china" && contract.language === "zh",
+    );
+    expect(candidate.private_prompt_bootstrap.prompt_tree_hash).not.toBe(
+      baseline.private_prompt_bootstrap.prompt_tree_hash,
+    );
+    expect(after).toEqual(before);
   });
 
   it("rejects a private prompt tree that does not match the attributed commit", () => {
@@ -285,15 +251,13 @@ describe("execution behavior release", () => {
       baseUrlMode: "PROVIDER_DEFAULT",
     });
     const tampered = structuredClone(manifest);
-    const firstVariant = tampered.variants[0];
-    if (!firstVariant) throw new Error("expected a release variant");
-    firstVariant.prompt_content_hash = `sha256:${"0".repeat(64)}`;
+    tampered.private_prompt_bootstrap.prompt_tree_hash = `sha256:${"0".repeat(64)}`;
     expect(() => validateExecutionBehaviorReleaseManifest(tampered)).toThrow();
 
     const providerTampered = structuredClone(manifest);
-    const providerVariant = providerTampered.variants[0];
-    if (!providerVariant) throw new Error("expected a release variant");
-    providerVariant.structured_provider_contract_hash = `sha256:${"0".repeat(64)}`;
+    const providerContract = providerTampered.execution_contracts[0];
+    if (!providerContract) throw new Error("expected an execution contract");
+    providerContract.structured_provider_contract_hash = `sha256:${"0".repeat(64)}`;
     expect(() => validateExecutionBehaviorReleaseManifest(providerTampered)).toThrow(
       /structured provider contract drift/,
     );
@@ -350,7 +314,7 @@ describe("execution behavior release", () => {
         model: "claude-sonnet-4",
         baseUrlMode: "PROVIDER_DEFAULT",
       }),
-    ).toThrow(/every production cohort must have distinct cohort behavior/);
+    ).toThrow(/every cohort must have distinct prompt behavior/);
   });
 
   it("rejects disguised private evolution policy content", () => {
@@ -380,7 +344,7 @@ describe("execution behavior release", () => {
     ).toThrow(/private KNOT policy must remain hidden/);
   });
 
-  it("archives every immutable release before advancing the active pointer", () => {
+  it("writes immutable candidates without creating a second production pointer", () => {
     const fixture = promptFixture();
     const root = mkdtempSync(join(tmpdir(), "mosaic-behavior-archive-"));
     roots.push(root);
@@ -403,16 +367,14 @@ describe("execution behavior release", () => {
 
     writeExecutionBehaviorReleaseArtifacts({
       manifest: baseline,
-      activeManifestPath,
       archiveRoot,
     });
     writeExecutionBehaviorReleaseArtifacts({
       manifest: prepared,
-      activeManifestPath,
       archiveRoot,
     });
 
-    expect(loadExecutionBehaviorReleaseManifest(activeManifestPath)).toEqual(prepared);
+    expect(existsSync(activeManifestPath)).toBe(false);
     expect(readdirSync(archiveRoot).sort()).toEqual(
       [
         executionBehaviorReleaseArchiveFilename(baseline),
@@ -426,13 +388,22 @@ describe("execution behavior release", () => {
     expect(() =>
       writeExecutionBehaviorReleaseArtifacts({
         manifest: baseline,
-        activeManifestPath,
         archiveRoot,
       }),
     ).toThrow(/immutable execution behavior release archive collision/);
-    expect(loadExecutionBehaviorReleaseManifest(activeManifestPath)).toEqual(prepared);
   });
 });
+
+function committedExecutionReleasePath(): string {
+  const root = resolve(process.cwd(), "..");
+  const contractRef = JSON.parse(
+    readFileSync(
+      resolve(root, "registry", "prompt_checks", "prompt_release_contract_ref_v2.json"),
+      "utf8",
+    ),
+  ) as { sources: { execution_behavior_release_archive: { path: string } } };
+  return resolve(root, contractRef.sources.execution_behavior_release_archive.path);
+}
 
 interface PromptFixture {
   privatePromptsRoot: string;

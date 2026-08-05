@@ -2,6 +2,10 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import {
+  type ExecutionBehaviorReleaseManifest,
+  loadExecutionBehaviorReleaseAtCommit,
+} from "../../autoresearch/execution_behavior_release.js";
 import { ActivePromptReleaseRegistry } from "../../autoresearch/release_registry.js";
 import { findRepoRoot } from "../../bridge/python.js";
 import { getConfiguredPromptSource } from "./cohorts.js";
@@ -26,6 +30,10 @@ export interface PromptReleaseLoadContext {
   expectedSchemaHash?: string;
   expectedEvaluationContractHash?: string;
   expectedCodeCommit?: string;
+}
+
+export interface ProductionPromptReleaseContext extends PromptReleaseLoadContext {
+  executionBehaviorRelease: ExecutionBehaviorReleaseManifest;
 }
 
 export interface ReleasePinnedPromptPair {
@@ -384,4 +392,22 @@ export async function resolveConfiguredPromptReleaseContext(
     expectedEvaluationContractHash: closure.contract_hash,
     ...(expectedCodeCommit ? { expectedCodeCommit } : {}),
   };
+}
+
+export async function resolveProductionPromptReleaseContext(
+  trafficAssignmentKey?: string,
+  onReleaseAssigned?: (manifest: ActivePromptReleaseManifest) => Promise<void> | void,
+): Promise<ProductionPromptReleaseContext> {
+  const context = await resolveConfiguredPromptReleaseContext(
+    trafficAssignmentKey,
+    onReleaseAssigned,
+  );
+  if (!context) throw new Error("active_prompt_release_registry_required");
+  const executionBehaviorRelease = await loadExecutionBehaviorReleaseAtCommit({
+    repo: findRepoRoot(),
+    commit: context.manifest.code_commit,
+    binding: context.manifest.execution_behavior_release,
+    promptCommit: context.manifest.prompt_commit,
+  });
+  return { ...context, executionBehaviorRelease };
 }

@@ -42,7 +42,7 @@ import {
   formatPromptSourceLabel,
   PROMPT_COHORT_IDS,
 } from "../../agents/prompts/cohorts.js";
-import { resolveConfiguredPromptReleaseContext } from "../../agents/prompts/release_prompt_loader.js";
+import { resolveProductionPromptReleaseContext } from "../../agents/prompts/release_prompt_loader.js";
 import { assertRuntimePromptPreflight } from "../../agents/prompts/runtime_prompt_preflight.js";
 import { captureDailyCycleRkeFootprints } from "../../agents/rke_footprints.js";
 import {
@@ -56,7 +56,6 @@ import type {
   PortfolioAction,
   PositionAudit,
 } from "../../agents/types.js";
-import { loadExecutionBehaviorReleaseManifest } from "../../autoresearch/execution_behavior_release.js";
 import { parseOutcomeStageSkips } from "../../autoresearch/outcome_stage_skip.js";
 import {
   buildDarwinianRuntimeBinding,
@@ -248,42 +247,20 @@ export function registerDailyCycle(program: Command): void {
         };
         const currentPositions = await loadDailyCycleCurrentPositions(opts, api);
         await assertStructuredOutputCapability(llmHandle.llm);
-        const executionBehaviorRelease = nonProductionSmoke
-          ? null
-          : loadExecutionBehaviorReleaseManifest(
-              resolve(
-                findBundledPromptsRoot(),
-                "..",
-                "..",
-                "registry",
-                "prompt_checks",
-                "execution_behavior_release_manifest_v2.json",
-              ),
-            );
         const promptReleaseContext = nonProductionSmoke
           ? null
-          : await resolveConfiguredPromptReleaseContext(`daily-cycle:${cohort}:${asOfDate}`);
+          : await resolveProductionPromptReleaseContext(`daily-cycle:${cohort}:${asOfDate}`);
+        const executionBehaviorRelease = promptReleaseContext?.executionBehaviorRelease ?? null;
         let promptSource: PromptPreflightResult | null = null;
         if (!nonProductionSmoke) {
-          if (!executionBehaviorRelease) {
-            throw new Error("execution behavior release is required for production prompt loading");
-          }
-          if (
-            promptReleaseContext &&
-            promptReleaseContext.manifest.prompt_commit !==
-              executionBehaviorRelease.private_prompt_commit
-          ) {
-            throw new Error(
-              "active Prompt Release commit does not match the execution behavior release",
-            );
+          if (!promptReleaseContext || !executionBehaviorRelease) {
+            throw new Error("production daily-cycle requires an active Prompt Release");
           }
           promptSource = await api.promptsPreflight({
             cohort,
             langs: ["zh", "en"],
-            prompt_repo_revision:
-              promptReleaseContext?.manifest.prompt_commit ??
-              executionBehaviorRelease.private_prompt_commit,
-            ...(promptReleaseContext ? { allow_non_head_revision: true } : {}),
+            prompt_repo_revision: promptReleaseContext.manifest.prompt_commit,
+            allow_non_head_revision: true,
           });
           if (!promptSource.ready) {
             throw new Error(
@@ -299,7 +276,7 @@ export function registerDailyCycle(program: Command): void {
         const asOfTimestamp = `${asOfDate}T15:00:00+08:00`;
         let darwinianRuntimeBinding = null;
         if (!nonProductionSmoke) {
-          if (!promptSource || !executionBehaviorRelease) {
+          if (!promptSource || !executionBehaviorRelease || !promptReleaseContext) {
             throw new Error("live execution requires pinned prompt and behavior releases");
           }
           darwinianRuntimeBinding = buildDarwinianRuntimeBinding({
@@ -308,7 +285,7 @@ export function registerDailyCycle(program: Command): void {
             llmHandle,
             promptPreflight: promptSource,
             executionBehaviorRelease,
-            activePromptRelease: promptReleaseContext?.manifest ?? null,
+            activePromptRelease: promptReleaseContext.manifest,
             effectiveAt: asOfTimestamp,
           });
         }

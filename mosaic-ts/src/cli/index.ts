@@ -9,7 +9,6 @@
 import { Command } from "commander";
 import { registerAutoresearch } from "./commands/autoresearch.js";
 import { registerBacktest } from "./commands/backtest.js";
-import { registerBacktestEvolve } from "./commands/backtest-evolve.js";
 import { registerBacktestFill } from "./commands/backtest-fill.js";
 import { registerBridgePing } from "./commands/bridge-ping.js";
 import { registerDailyCycle } from "./commands/daily-cycle.js";
@@ -51,7 +50,6 @@ registerScorecard(program);
 registerDarwinian(program);
 registerBacktestFill(program);
 registerBacktest(program);
-registerBacktestEvolve(program);
 registerAutoresearch(program);
 registerPrism(program);
 registerJanus(program);

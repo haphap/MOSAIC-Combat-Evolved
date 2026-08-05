@@ -16,7 +16,7 @@ interface Target {
 }
 
 const args = process.argv.slice(2);
-const targets = parseTargets(args.filter((arg) => arg !== "--hide-research-knobs"));
+const targets = parseTargets(args);
 if (targets.length === 0) {
   throw new Error("usage: generate_macro_prompts.ts <prompts/mosaic root>:<cohort,...> [...]");
 }

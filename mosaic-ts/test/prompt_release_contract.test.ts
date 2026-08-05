@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   type ActivePromptReleaseManifest,
@@ -8,8 +11,11 @@ import {
   releasePromptPairHash,
   releasePromptSetHash,
 } from "../src/agents/prompts/prompt_release_contract.js";
+import { ActivePromptReleaseRegistry } from "../src/autoresearch/release_registry.js";
 
 const HASH = `sha256:${"1".repeat(64)}`;
+const EXECUTION_RELEASE_ID = `execution-behavior-release:${"2".repeat(64)}`;
+const EXECUTION_RELEASE_REF = `registry/prompt_checks/execution_behavior_releases/${"2".repeat(64)}--${"1".repeat(64)}.json`;
 
 function promptPairs(): ReleasePromptPair[] {
   const pair = {
@@ -42,6 +48,11 @@ function release(
     lifecycle_state: lifecycleState,
     prompt_commit: "1234567",
     code_commit: "7654321",
+    execution_behavior_release: {
+      release_id: EXECUTION_RELEASE_ID,
+      release_hash: HASH,
+      archive_ref: EXECUTION_RELEASE_REF,
+    },
     prompt_hash: releasePromptSetHash(pairs),
     prompt_pairs: pairs,
     stage_snapshot_hashes: { "central_bank:agent_run": HASH },
@@ -154,6 +165,45 @@ describe("aggregate prompt release contract", () => {
     if (!driftedPair) throw new Error("test fixture prompt pair missing");
     driftedPair.zh.sha256 = `sha256:${"2".repeat(64)}`;
     expect(ActivePromptReleaseManifestSchema.safeParse(drifted).success).toBe(false);
+  });
+
+  it("requires a content-addressed execution archive binding", () => {
+    const drifted = release("active");
+    drifted.execution_behavior_release.archive_ref = `registry/prompt_checks/execution_behavior_releases/${"3".repeat(64)}--${"1".repeat(64)}.json`;
+    expect(ActivePromptReleaseManifestSchema.safeParse(drifted).success).toBe(false);
+  });
+
+  it("rejects execution behavior binding changes during lifecycle transitions", async () => {
+    const root = mkdtempSync(join(tmpdir(), "mosaic-release-registry-"));
+    const registry = new ActivePromptReleaseRegistry(root);
+    const audit = {
+      operator: "operator:test",
+      reason: "execution behavior binding must remain immutable",
+    };
+    const baseline = release("active");
+    baseline.release_id = "release-0";
+    baseline.base_release_id = null;
+    baseline.previous_approved_release_id = null;
+    if (!baseline.runtime_slo_evidence) throw new Error("active fixture requires SLO evidence");
+    baseline.runtime_slo_evidence.release_id = baseline.release_id;
+
+    try {
+      await registry.provisionBaseline(baseline, audit);
+      await registry.stage(release("staged"));
+      const tampered = release("canary");
+      tampered.execution_behavior_release = {
+        release_id: `execution-behavior-release:${"3".repeat(64)}`,
+        release_hash: `sha256:${"4".repeat(64)}`,
+        archive_ref: `registry/prompt_checks/execution_behavior_releases/${"3".repeat(64)}--${"4".repeat(64)}.json`,
+      };
+
+      await expect(registry.transition(tampered, { audit })).rejects.toThrow(
+        "prompt_release_immutable_closure_changed",
+      );
+      expect((await registry.load("release-1"))?.lifecycle_state).toBe("staged");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("binds SLO evidence versions to their journal and aggregator contracts", () => {

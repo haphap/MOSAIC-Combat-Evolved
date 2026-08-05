@@ -1,13 +1,7 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { dirname, relative, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { relative, resolve } from "node:path";
 import { z } from "zod";
 import {
   AlphaDiscoverySchema,
@@ -17,7 +11,11 @@ import {
   CroSchema,
 } from "../agents/decision/_schemas.js";
 import { STRICT_PROVIDER_EXTRACTION_DESCRIPTOR } from "../agents/helpers/agent_run_contract.js";
-import { canonicalJson, canonicalJsonHash } from "../agents/helpers/canonical_json.js";
+import {
+  canonicalJson,
+  canonicalJsonHash,
+  compareCanonicalStrings,
+} from "../agents/helpers/canonical_json.js";
 import { STRUCTURED_PROVIDER_ADAPTER_DESCRIPTOR } from "../agents/helpers/structured_provider_adapters.js";
 import {
   createMacroSubmissionSchema,
@@ -39,6 +37,7 @@ import {
   promptPath,
 } from "../agents/prompts/cohorts.js";
 import { containsPrivateKnotPromptContent } from "../agents/prompts/private_knot_prompt_markers.js";
+import type { PromptReleaseExecutionBehaviorBinding } from "../agents/prompts/prompt_release_contract.js";
 import {
   listVerifiedPromptRepositoryFiles,
   readVerifiedPromptRepositoryFile,
@@ -75,7 +74,7 @@ import {
   CAPABILITY_CONTRACT_VERSION,
   SNAPSHOT_BUNDLE_CONTRACT_VERSION,
 } from "../agents/tool_contract.js";
-export const EXECUTION_BEHAVIOR_RELEASE_SCHEMA_VERSION = "execution_behavior_release_manifest_v2";
+export const EXECUTION_BEHAVIOR_RELEASE_SCHEMA_VERSION = "execution_behavior_release_manifest_v3";
 export const EXECUTION_BEHAVIOR_RELEASE_CONTRACT_VERSION = "execution_behavior_release_v2";
 export const STRUCTURED_PROVIDER_CONTRACT_VERSION = "structured_provider_contract_v2";
 
@@ -114,25 +113,27 @@ export const StructuredOutputSchemaBindingSchema = z
   })
   .strict();
 
-export const ExecutionBehaviorReleaseVariantSchema = z
+const ProviderBindingSchema = z
   .object({
-    variant_path: z
-      .string()
-      .regex(
-        /^cohort_[a-z0-9_]+\/(?:macro|sector|superinvestor|decision)\/[a-z0-9_]+\.(?:en|zh)\.md$/,
-      ),
+    provider: z.string().trim().min(1),
+    model: z.string().trim().min(1),
+    base_url_mode: z.enum(["PROVIDER_DEFAULT", "CONFIGURED_PRIVATE_ENDPOINT"]),
+    structured_output_mode: z.literal("JSON_SCHEMA_STRICT"),
+    repair_policy: z.literal("BOUNDED_SCHEMA_REPAIR_V1"),
+  })
+  .strict();
+
+export const ExecutionBehaviorAgentContractSchema = z
+  .object({
+    execution_contract_id: z.string().regex(/^execution-contract:[0-9a-f]{64}$/),
     agent_id: z.string().trim().min(1),
-    cohort_id: z.string().trim().min(1),
     language: z.enum(["en", "zh"]),
-    prompt_content_hash: Sha256Schema,
     immutable_contract_block_hash: Sha256Schema,
-    prompt_behavior_version: VersionHashSchema,
     execution_behavior_version: VersionHashSchema,
     structured_output_schema_bindings: z.array(StructuredOutputSchemaBindingSchema).min(1),
     structured_output_schema_set_hash: Sha256Schema,
     structured_provider_contract_hash: Sha256Schema,
     runtime_tool_manifest_hash: Sha256Schema,
-    prompt_execution_baseline_hash: Sha256Schema,
   })
   .strict();
 
@@ -151,28 +152,16 @@ export const ExecutionBehaviorReleaseManifestSchema = z
     execution_behavior_release_hash: Sha256Schema,
     private_prompt_commit: z.string().regex(/^[0-9a-f]{40}$/),
     private_prompt_bootstrap: PrivatePromptBootstrapSchema,
-    provider_binding: z
-      .object({
-        provider: z.string().trim().min(1),
-        model: z.string().trim().min(1),
-        base_url_mode: z.enum(["PROVIDER_DEFAULT", "CONFIGURED_PRIVATE_ENDPOINT"]),
-        structured_output_mode: z.literal("JSON_SCHEMA_STRICT"),
-        repair_policy: z.literal("BOUNDED_SCHEMA_REPAIR_V1"),
-      })
-      .strict(),
+    provider_binding: ProviderBindingSchema,
     active_production_variants: z.array(ExecutionBehaviorProductionVariantSchema).length(16),
-    variants: z.array(ExecutionBehaviorReleaseVariantSchema).length(448),
+    execution_contracts: z.array(ExecutionBehaviorAgentContractSchema).length(56),
   })
   .strict();
-
-const LegacyExecutionBehaviorReleaseManifestSchema = ExecutionBehaviorReleaseManifestSchema.omit({
-  private_prompt_bootstrap: true,
-});
 
 export type ExecutionBehaviorReleaseManifest = z.infer<
   typeof ExecutionBehaviorReleaseManifestSchema
 >;
-export type ExecutionBehaviorReleaseVariant = z.infer<typeof ExecutionBehaviorReleaseVariantSchema>;
+export type ExecutionBehaviorAgentContract = z.infer<typeof ExecutionBehaviorAgentContractSchema>;
 
 export interface BuildExecutionBehaviorReleaseInput {
   privatePromptsRoot: string;
@@ -185,7 +174,6 @@ export interface BuildExecutionBehaviorReleaseInput {
 
 export interface WriteExecutionBehaviorReleaseArtifactsInput {
   manifest: ExecutionBehaviorReleaseManifest;
-  activeManifestPath: string;
   archiveRoot: string;
 }
 
@@ -227,7 +215,7 @@ export function buildExecutionBehaviorReleaseManifest(
     structured_output_mode: "JSON_SCHEMA_STRICT" as const,
     repair_policy: "BOUNDED_SCHEMA_REPAIR_V1" as const,
   };
-  const variants: ExecutionBehaviorReleaseVariant[] = [];
+  const builtVariants: BuiltExecutionBehaviorReleaseVariant[] = [];
   const activeProductionVariants: z.infer<typeof ExecutionBehaviorProductionVariantSchema>[] = [];
 
   for (const cohort of MACRO_PROMPT_COHORT_IDS) {
@@ -238,7 +226,7 @@ export function buildExecutionBehaviorReleaseManifest(
         language,
       });
       for (const agent of ALL_AGENTS) {
-        variants.push(
+        builtVariants.push(
           buildVariant({
             ...input,
             privatePromptSource,
@@ -252,20 +240,37 @@ export function buildExecutionBehaviorReleaseManifest(
     }
   }
 
-  const sortedVariants = variants.sort((left, right) =>
-    left.variant_path.localeCompare(right.variant_path),
+  assertBuiltVariantClosure(builtVariants);
+  const executionContractsByKey = new Map<string, ExecutionBehaviorAgentContract>();
+  for (const variant of builtVariants) {
+    const contract = executionBehaviorAgentContract(variant);
+    const key = `${contract.agent_id}:${contract.language}`;
+    const previous = executionContractsByKey.get(key);
+    if (previous && canonicalJson(previous) !== canonicalJson(contract)) {
+      throw new Error(`${key}: cohort variants disagree on their execution contract`);
+    }
+    executionContractsByKey.set(key, contract);
+  }
+  const sortedExecutionContracts = [...executionContractsByKey.values()].sort((left, right) =>
+    compareCanonicalStrings(
+      `${left.agent_id}:${left.language}`,
+      `${right.agent_id}:${right.language}`,
+    ),
   );
   const sortedProductionVariants = activeProductionVariants.sort((left, right) =>
-    `${left.cohort_id}:${left.language}`.localeCompare(`${right.cohort_id}:${right.language}`),
+    compareCanonicalStrings(
+      `${left.cohort_id}:${left.language}`,
+      `${right.cohort_id}:${right.language}`,
+    ),
   );
-  const privatePromptBootstrap = verifyPrivatePromptBootstrap(privatePromptSource, sortedVariants);
+  const privatePromptBootstrap = verifyPrivatePromptBootstrap(privatePromptSource, builtVariants);
   const releaseContent = {
     schema_version: EXECUTION_BEHAVIOR_RELEASE_SCHEMA_VERSION,
     private_prompt_commit: privatePromptCommit,
     private_prompt_bootstrap: privatePromptBootstrap,
     provider_binding: providerBinding,
     active_production_variants: sortedProductionVariants,
-    variants: sortedVariants,
+    execution_contracts: sortedExecutionContracts,
   } as const;
   const releaseId = deterministicId("execution-behavior-release", releaseContent);
   const withId = {
@@ -275,7 +280,7 @@ export function buildExecutionBehaviorReleaseManifest(
     private_prompt_bootstrap: releaseContent.private_prompt_bootstrap,
     provider_binding: releaseContent.provider_binding,
     active_production_variants: releaseContent.active_production_variants,
-    variants: releaseContent.variants,
+    execution_contracts: releaseContent.execution_contracts,
   };
   return validateExecutionBehaviorReleaseManifest({
     ...withId,
@@ -308,79 +313,58 @@ export function validateExecutionBehaviorReleaseManifest(
     throw new Error("active production variants must cover exactly 8 cohorts x 2 languages");
   }
 
-  const variantPaths = new Set<string>();
-  const agentsByProductionKey = new Map<string, string[]>();
-  const promptHashesByAgentLanguage = new Map<string, Set<string>>();
-  for (const variant of manifest.variants) {
-    if (variantPaths.has(variant.variant_path))
-      throw new Error(`duplicate variant path ${variant.variant_path}`);
-    variantPaths.add(variant.variant_path);
-    const expectedPath = `${variant.cohort_id}/${LAYER_BY_AGENT[variant.agent_id]}/${variant.agent_id}.${variant.language}.md`;
-    if (variant.variant_path !== expectedPath)
-      throw new Error(`variant path mismatch: ${variant.variant_path}`);
-    const key = `${variant.cohort_id}:${variant.language}`;
-    agentsByProductionKey.set(key, [...(agentsByProductionKey.get(key) ?? []), variant.agent_id]);
-    const behaviorKey = `${variant.agent_id}:${variant.language}`;
-    const promptHashes = promptHashesByAgentLanguage.get(behaviorKey) ?? new Set<string>();
-    promptHashes.add(variant.prompt_content_hash);
-    promptHashesByAgentLanguage.set(behaviorKey, promptHashes);
-    validateSchemaBindings(variant.agent_id, variant.structured_output_schema_bindings);
+  const contractIds = new Set<string>();
+  const contractKeys = new Set<string>();
+  for (const contract of manifest.execution_contracts) {
+    if (contractIds.has(contract.execution_contract_id)) {
+      throw new Error(`duplicate execution contract ${contract.execution_contract_id}`);
+    }
+    const key = `${contract.agent_id}:${contract.language}`;
+    if (contractKeys.has(key)) throw new Error(`duplicate agent execution contract ${key}`);
+    contractIds.add(contract.execution_contract_id);
+    contractKeys.add(key);
+    validateSchemaBindings(contract.agent_id, contract.structured_output_schema_bindings);
     if (
-      variant.structured_output_schema_set_hash !==
-      canonicalHash(variant.structured_output_schema_bindings)
+      contract.structured_output_schema_set_hash !==
+      canonicalHash(contract.structured_output_schema_bindings)
     ) {
-      throw new Error(`${variant.variant_path}: schema binding set hash mismatch`);
+      throw new Error(`${key}: schema binding set hash mismatch`);
     }
-    const currentBindings = structuredSchemaBindings(variant.agent_id, variant.language);
+    const currentBindings = structuredSchemaBindings(contract.agent_id, contract.language);
     if (
-      canonicalJson(variant.structured_output_schema_bindings) !== canonicalJson(currentBindings)
+      canonicalJson(contract.structured_output_schema_bindings) !== canonicalJson(currentBindings)
     ) {
-      throw new Error(`${variant.variant_path}: structured output contract drift`);
+      throw new Error(`${key}: structured output contract drift`);
     }
-    const currentToolManifestHash = computeRuntimeToolManifestHash(variant.agent_id);
-    if (variant.runtime_tool_manifest_hash !== currentToolManifestHash) {
-      throw new Error(`${variant.variant_path}: runtime tool contract drift`);
-    }
-    const currentProviderContractHash = computeStructuredProviderContractHash(variant.agent_id);
-    if (variant.structured_provider_contract_hash !== currentProviderContractHash) {
-      throw new Error(`${variant.variant_path}: structured provider contract drift`);
+    if (contract.runtime_tool_manifest_hash !== computeRuntimeToolManifestHash(contract.agent_id)) {
+      throw new Error(`${key}: runtime tool contract drift`);
     }
     if (
-      variant.prompt_behavior_version !== `prompt-behavior:${stripSha(variant.prompt_content_hash)}`
+      contract.structured_provider_contract_hash !==
+      computeStructuredProviderContractHash(contract.agent_id)
     ) {
-      throw new Error(`${variant.variant_path}: prompt behavior version mismatch`);
+      throw new Error(`${key}: structured provider contract drift`);
     }
     const currentExecutionVersion = computeExecutionBehaviorVersion({
-      agentId: variant.agent_id,
-      language: variant.language,
+      agentId: contract.agent_id,
+      language: contract.language,
       providerBinding: manifest.provider_binding,
-      schemaSetHash: variant.structured_output_schema_set_hash,
-      structuredProviderContractHash: variant.structured_provider_contract_hash,
-      runtimeToolManifestHash: variant.runtime_tool_manifest_hash,
+      schemaSetHash: contract.structured_output_schema_set_hash,
+      structuredProviderContractHash: contract.structured_provider_contract_hash,
+      runtimeToolManifestHash: contract.runtime_tool_manifest_hash,
     });
-    if (variant.execution_behavior_version !== currentExecutionVersion) {
-      throw new Error(`${variant.variant_path}: execution behavior contract drift`);
+    if (contract.execution_behavior_version !== currentExecutionVersion) {
+      throw new Error(`${key}: execution behavior contract drift`);
     }
-    const expectedBaseline = promptExecutionBaselineHash(variant);
-    if (variant.prompt_execution_baseline_hash !== expectedBaseline) {
-      throw new Error(`${variant.variant_path}: prompt execution baseline hash mismatch`);
-    }
-  }
-  for (const key of expectedProductionKeys) {
-    const agents = (agentsByProductionKey.get(key) ?? []).sort();
-    if (agents.join("\0") !== expectedAgents.join("\0")) {
-      throw new Error(`${key}: production variant must resolve exactly 28 Agents`);
+    if (contract.execution_contract_id !== executionBehaviorAgentContractId(contract)) {
+      throw new Error(`${key}: execution contract id mismatch`);
     }
   }
-  for (const agent of expectedAgents) {
-    for (const language of ["en", "zh"] as const) {
-      const hashes = promptHashesByAgentLanguage.get(`${agent}:${language}`);
-      if (hashes?.size !== MACRO_PROMPT_COHORT_IDS.length) {
-        throw new Error(
-          `${agent}:${language}: every production cohort must have distinct cohort behavior`,
-        );
-      }
-    }
+  const expectedContractKeys = new Set(
+    expectedAgents.flatMap((agent) => ["en", "zh"].map((language) => `${agent}:${language}`)),
+  );
+  if (!setEqual(contractKeys, expectedContractKeys)) {
+    throw new Error("execution contracts must cover exactly 28 Agents x 2 languages");
   }
 
   return validateExecutionBehaviorReleaseArtifactIntegrity(manifest);
@@ -398,7 +382,7 @@ export function validateExecutionBehaviorReleaseArtifactIntegrity(
     private_prompt_bootstrap: manifest.private_prompt_bootstrap,
     provider_binding: manifest.provider_binding,
     active_production_variants: manifest.active_production_variants,
-    variants: manifest.variants,
+    execution_contracts: manifest.execution_contracts,
   };
   if (manifest.execution_behavior_release_hash !== canonicalHash(withoutHash)) {
     throw new Error("execution behavior release hash mismatch");
@@ -409,7 +393,7 @@ export function validateExecutionBehaviorReleaseArtifactIntegrity(
     private_prompt_bootstrap: manifest.private_prompt_bootstrap,
     provider_binding: manifest.provider_binding,
     active_production_variants: manifest.active_production_variants,
-    variants: manifest.variants,
+    execution_contracts: manifest.execution_contracts,
   };
   if (
     manifest.execution_behavior_release_id !==
@@ -418,21 +402,6 @@ export function validateExecutionBehaviorReleaseArtifactIntegrity(
     throw new Error("execution behavior release id mismatch");
   }
   return manifest;
-}
-
-export function releaseVariantFor(
-  manifest: ExecutionBehaviorReleaseManifest,
-  cohort: string,
-  language: Language,
-  agentId: string,
-): ExecutionBehaviorReleaseVariant {
-  const found = manifest.variants.find(
-    (variant) =>
-      variant.cohort_id === cohort && variant.language === language && variant.agent_id === agentId,
-  );
-  if (!found)
-    throw new Error(`execution behavior variant missing: ${cohort}:${language}:${agentId}`);
-  return found;
 }
 
 export function renderExecutionBehaviorReleaseManifest(
@@ -461,45 +430,74 @@ export function executionBehaviorReleaseArchiveFilename(value: unknown): string 
   )}--${stripSha(manifest.execution_behavior_release_hash)}.json`;
 }
 
-/**
- * Preserve the previous active release, persist the new immutable archive, and
- * only then atomically advance the mutable active pointer.
- */
-export function writeExecutionBehaviorReleaseArtifacts(
-  input: WriteExecutionBehaviorReleaseArtifactsInput,
-): { activeManifestPath: string; archivePath: string } {
-  const manifest = validateExecutionBehaviorReleaseManifest(input.manifest);
-  const activeManifestPath = resolve(input.activeManifestPath);
-  const archiveRoot = resolve(input.archiveRoot);
-  mkdirSync(archiveRoot, { recursive: true });
-  if (existsSync(activeManifestPath)) {
-    archiveExecutionBehaviorRelease(
-      parseExecutionBehaviorReleaseArtifact(activeManifestPath),
-      archiveRoot,
-    );
-  }
-  const archivePath = archiveExecutionBehaviorRelease(manifest, archiveRoot);
-  mkdirSync(dirname(activeManifestPath), { recursive: true });
-  const temporaryPath = `${activeManifestPath}.${process.pid}.tmp`;
-  try {
-    writeFileSync(temporaryPath, renderExecutionBehaviorReleaseManifest(manifest), {
-      flag: "wx",
-    });
-    renameSync(temporaryPath, activeManifestPath);
-  } finally {
-    if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
-  }
-  return { activeManifestPath, archivePath };
+export function executionBehaviorReleaseArchiveRef(value: unknown): string {
+  return `registry/prompt_checks/execution_behavior_releases/${executionBehaviorReleaseArchiveFilename(value)}`;
 }
 
-function parseExecutionBehaviorReleaseArtifact(path: string): unknown {
+/** Persist a content-addressed candidate. Prompt Release is the only production selector. */
+export function writeExecutionBehaviorReleaseArtifacts(
+  input: WriteExecutionBehaviorReleaseArtifactsInput,
+): { archivePath: string } {
+  const manifest = validateExecutionBehaviorReleaseManifest(input.manifest);
+  const archiveRoot = resolve(input.archiveRoot);
+  mkdirSync(archiveRoot, { recursive: true });
+  const archivePath = archiveExecutionBehaviorRelease(manifest, archiveRoot);
+  return { archivePath };
+}
+
+export async function loadExecutionBehaviorReleaseAtCommit(opts: {
+  repo: string;
+  commit: string;
+  binding: PromptReleaseExecutionBehaviorBinding;
+  promptCommit: string;
+}): Promise<ExecutionBehaviorReleaseManifest> {
+  const manifest = await loadExecutionBehaviorReleaseArchiveAtCommit({
+    repo: opts.repo,
+    commit: opts.commit,
+    archiveRef: opts.binding.archive_ref,
+  });
+  if (
+    manifest.execution_behavior_release_id !== opts.binding.release_id ||
+    manifest.execution_behavior_release_hash !== opts.binding.release_hash
+  ) {
+    throw new Error("prompt_release_execution_behavior_binding_mismatch");
+  }
+  if (manifest.private_prompt_commit !== opts.promptCommit) {
+    throw new Error("prompt_release_execution_behavior_prompt_commit_mismatch");
+  }
+  return manifest;
+}
+
+export async function loadExecutionBehaviorReleaseArchiveAtCommit(opts: {
+  repo: string;
+  commit: string;
+  archiveRef: string;
+}): Promise<ExecutionBehaviorReleaseManifest> {
   let payload: unknown;
   try {
-    payload = JSON.parse(readFileSync(path, "utf8"));
+    payload = JSON.parse((await gitShow(opts.repo, opts.commit, opts.archiveRef)).toString("utf8"));
   } catch (cause) {
-    throw new Error(`cannot load execution behavior release artifact ${path}`, { cause });
+    throw new Error("prompt_release_execution_behavior_archive_unavailable", { cause });
   }
-  return validateArchivableExecutionBehaviorReleaseArtifact(payload);
+  const manifest = validateExecutionBehaviorReleaseManifest(payload);
+  if (executionBehaviorReleaseArchiveRef(manifest) !== opts.archiveRef) {
+    throw new Error("prompt_release_execution_behavior_archive_ref_mismatch");
+  }
+  return manifest;
+}
+
+function gitShow(repo: string, commit: string, ref: string): Promise<Buffer> {
+  return new Promise((resolvePromise, reject) => {
+    execFile(
+      "git",
+      ["-C", repo, "show", `${commit}:${ref}`],
+      { encoding: "buffer", maxBuffer: 64 * 1024 * 1024 },
+      (error, stdout) => {
+        if (error) reject(error);
+        else resolvePromise(stdout);
+      },
+    );
+  });
 }
 
 function archiveExecutionBehaviorRelease(value: unknown, archiveRoot: string): string {
@@ -518,35 +516,65 @@ function archiveExecutionBehaviorRelease(value: unknown, archiveRoot: string): s
 
 function validateArchivableExecutionBehaviorReleaseArtifact(
   value: unknown,
-): ExecutionBehaviorReleaseManifest | z.infer<typeof LegacyExecutionBehaviorReleaseManifestSchema> {
-  const current = ExecutionBehaviorReleaseManifestSchema.safeParse(value);
-  if (current.success) return validateExecutionBehaviorReleaseArtifactIntegrity(current.data);
-  const legacy = LegacyExecutionBehaviorReleaseManifestSchema.parse(value);
-  const withoutHash = {
-    schema_version: legacy.schema_version,
-    execution_behavior_release_id: legacy.execution_behavior_release_id,
-    private_prompt_commit: legacy.private_prompt_commit,
-    provider_binding: legacy.provider_binding,
-    active_production_variants: legacy.active_production_variants,
-    variants: legacy.variants,
-  };
-  if (legacy.execution_behavior_release_hash !== canonicalHash(withoutHash)) {
-    throw new Error("legacy execution behavior release hash mismatch");
+): ExecutionBehaviorReleaseManifest {
+  return validateExecutionBehaviorReleaseArtifactIntegrity(value);
+}
+
+interface BuiltExecutionBehaviorReleaseVariant {
+  variant_path: string;
+  agent_id: string;
+  cohort_id: string;
+  language: Language;
+  prompt_content_hash: string;
+  immutable_contract_block_hash: string;
+  prompt_behavior_version: string;
+  execution_behavior_version: string;
+  structured_output_schema_bindings: ExecutionBehaviorAgentContract["structured_output_schema_bindings"];
+  structured_output_schema_set_hash: string;
+  structured_provider_contract_hash: string;
+  runtime_tool_manifest_hash: string;
+}
+
+function assertBuiltVariantClosure(
+  variants: ReadonlyArray<BuiltExecutionBehaviorReleaseVariant>,
+): void {
+  const expectedAgents = [...ALL_AGENTS].sort();
+  const agentsByCohortLanguage = new Map<string, string[]>();
+  const promptHashesByAgentLanguage = new Map<string, Set<string>>();
+  const paths = new Set<string>();
+  for (const variant of variants) {
+    if (paths.has(variant.variant_path)) {
+      throw new Error(`duplicate built prompt variant ${variant.variant_path}`);
+    }
+    paths.add(variant.variant_path);
+    const cohortLanguage = `${variant.cohort_id}:${variant.language}`;
+    agentsByCohortLanguage.set(cohortLanguage, [
+      ...(agentsByCohortLanguage.get(cohortLanguage) ?? []),
+      variant.agent_id,
+    ]);
+    const agentLanguage = `${variant.agent_id}:${variant.language}`;
+    const promptHashes = promptHashesByAgentLanguage.get(agentLanguage) ?? new Set<string>();
+    promptHashes.add(variant.prompt_content_hash);
+    promptHashesByAgentLanguage.set(agentLanguage, promptHashes);
   }
-  const releaseContent = {
-    schema_version: legacy.schema_version,
-    private_prompt_commit: legacy.private_prompt_commit,
-    provider_binding: legacy.provider_binding,
-    active_production_variants: legacy.active_production_variants,
-    variants: legacy.variants,
-  };
-  if (
-    legacy.execution_behavior_release_id !==
-    deterministicId("execution-behavior-release", releaseContent)
-  ) {
-    throw new Error("legacy execution behavior release id mismatch");
+  for (const cohort of MACRO_PROMPT_COHORT_IDS) {
+    for (const language of ["en", "zh"] as const) {
+      const agents = (agentsByCohortLanguage.get(`${cohort}:${language}`) ?? []).sort();
+      if (agents.join("\0") !== expectedAgents.join("\0")) {
+        throw new Error(`${cohort}:${language}: prompt build must resolve exactly 28 Agents`);
+      }
+    }
   }
-  return legacy;
+  for (const agent of expectedAgents) {
+    for (const language of ["en", "zh"] as const) {
+      if (
+        promptHashesByAgentLanguage.get(`${agent}:${language}`)?.size !==
+        MACRO_PROMPT_COHORT_IDS.length
+      ) {
+        throw new Error(`${agent}:${language}: every cohort must have distinct prompt behavior`);
+      }
+    }
+  }
 }
 
 function buildVariant(
@@ -557,7 +585,7 @@ function buildVariant(
     language: Language;
     agent: string;
   },
-): ExecutionBehaviorReleaseVariant {
+): BuiltExecutionBehaviorReleaseVariant {
   const layer = LAYER_BY_AGENT[input.agent];
   if (!layer) throw new Error(`unknown Agent ${input.agent}`);
   const spec = RUNTIME_AGENT_SPEC_BY_AGENT.get(input.agent);
@@ -633,15 +661,36 @@ function buildVariant(
     structured_provider_contract_hash: structuredProviderContractHash,
     runtime_tool_manifest_hash: runtimeToolManifestHash,
   };
-  return ExecutionBehaviorReleaseVariantSchema.parse({
-    ...base,
-    prompt_execution_baseline_hash: promptExecutionBaselineHash(base),
+  return base;
+}
+
+function executionBehaviorAgentContract(
+  variant: BuiltExecutionBehaviorReleaseVariant,
+): ExecutionBehaviorAgentContract {
+  const body = {
+    agent_id: variant.agent_id,
+    language: variant.language,
+    immutable_contract_block_hash: variant.immutable_contract_block_hash,
+    execution_behavior_version: variant.execution_behavior_version,
+    structured_output_schema_bindings: variant.structured_output_schema_bindings,
+    structured_output_schema_set_hash: variant.structured_output_schema_set_hash,
+    structured_provider_contract_hash: variant.structured_provider_contract_hash,
+    runtime_tool_manifest_hash: variant.runtime_tool_manifest_hash,
+  };
+  return ExecutionBehaviorAgentContractSchema.parse({
+    execution_contract_id: deterministicId("execution-contract", body),
+    ...body,
   });
+}
+
+function executionBehaviorAgentContractId(contract: ExecutionBehaviorAgentContract): string {
+  const { execution_contract_id: _executionContractId, ...body } = contract;
+  return deterministicId("execution-contract", body);
 }
 
 function verifyPrivatePromptBootstrap(
   source: VerifiedPromptSourceCommit,
-  variants: ReadonlyArray<ExecutionBehaviorReleaseVariant>,
+  variants: ReadonlyArray<BuiltExecutionBehaviorReleaseVariant>,
 ): z.infer<typeof PrivatePromptBootstrapSchema> {
   const raw = JSON.parse(
     readVerifiedPromptRepositoryFile(
@@ -682,7 +731,7 @@ function verifyPrivatePromptBootstrap(
         ref: `prompts/mosaic/${variant.variant_path}`,
         content_hash: variant.prompt_content_hash,
       }))
-      .sort((left, right) => left.ref.localeCompare(right.ref)),
+      .sort((left, right) => compareCanonicalStrings(left.ref, right.ref)),
   });
   if (parsed.prompt_tree_hash !== promptTreeHash) {
     throw new Error("private prompt bootstrap Prompt tree mismatch");
@@ -744,7 +793,7 @@ function immutablePromptContractHash(prompt: string): string {
 function structuredSchemaBindings(
   agent: string,
   language: Language,
-): ExecutionBehaviorReleaseVariant["structured_output_schema_bindings"] {
+): ExecutionBehaviorAgentContract["structured_output_schema_bindings"] {
   if (STANDARD_SECTOR_IDS.includes(agent)) {
     const directions =
       STANDARD_SECTOR_ROLE_CONTRACTS[agent as keyof typeof STANDARD_SECTOR_ROLE_CONTRACTS]
@@ -891,7 +940,7 @@ function computeExecutionBehaviorVersion(input: {
 
 function validateSchemaBindings(
   agent: string,
-  bindings: ExecutionBehaviorReleaseVariant["structured_output_schema_bindings"],
+  bindings: ExecutionBehaviorAgentContract["structured_output_schema_bindings"],
 ): void {
   const phases = bindings.map((binding) => binding.phase);
   if (new Set(phases).size !== phases.length)
@@ -907,22 +956,6 @@ function validateSchemaBindings(
       : ["DEFAULT"];
   if (phases.join("\0") !== expected.join("\0"))
     throw new Error(`${agent}: structured schema phase set mismatch`);
-}
-
-function promptExecutionBaselineHash(
-  variant: Omit<ExecutionBehaviorReleaseVariant, "prompt_execution_baseline_hash">,
-): string {
-  return canonicalHash({
-    contract: "prompt_execution_baseline_v1",
-    agent_id: variant.agent_id,
-    cohort_id: variant.cohort_id,
-    language: variant.language,
-    prompt_behavior_version: variant.prompt_behavior_version,
-    execution_behavior_version: variant.execution_behavior_version,
-    structured_output_schema_set_hash: variant.structured_output_schema_set_hash,
-    structured_provider_contract_hash: variant.structured_provider_contract_hash,
-    runtime_tool_manifest_hash: variant.runtime_tool_manifest_hash,
-  });
 }
 
 function computeStructuredProviderContractHash(agent: string): string {

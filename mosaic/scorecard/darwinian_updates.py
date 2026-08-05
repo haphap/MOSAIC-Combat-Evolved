@@ -12,7 +12,7 @@ import math
 import sqlite3
 from collections import defaultdict
 from datetime import date, datetime, timezone
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 from jsonschema import Draft7Validator
 
@@ -83,61 +83,6 @@ TERMINAL_ELIGIBILITY_DISPOSITIONS = {
     "AGENT_FAILURE",
     "EXOGENOUS_EXCLUSION",
 }
-KNOT_SAMPLE_ORIGINS = {
-    "KNOT_RESEARCH_SHADOW",
-    "KNOT_POST_PROMOTION_CHAMPION_SHADOW",
-}
-EXTERNAL_SCHEDULE_AUTHORITY_FIELDS = frozenset(
-    {
-        "schema_version",
-        "schedule_authority_id",
-        "schedule_authority_hash",
-        "authority_namespace",
-        "sample_origin",
-        "scheduled_sample_id",
-        "track_key_hash",
-        "agent_id",
-        "evaluation_opportunity_set_id",
-        "evaluation_opportunity_set_hash",
-        "opportunity_as_of",
-        "outcome_due_at",
-        "external_schedule_manifest_id",
-        "external_schedule_manifest_hash",
-        "external_schedule_slot_id",
-        "external_schedule_slot_hash",
-        "external_run_id",
-        "external_run_hash",
-        "trading_calendar_id",
-        "trading_calendar_snapshot_hash",
-        "authority_published_at",
-        "external_run_frozen_at",
-        "verified_at",
-    }
-)
-KNOT_LINEAGE_FIELDS = (
-    "knot_pair_id",
-    "knot_pair_input_hash",
-    "research_pair_side",
-    "capability_id",
-    "capability_signature_hash",
-    "snapshot_bundle_id",
-    "snapshot_bundle_hash",
-    "runtime_input_hash",
-    "prompt_behavior_version",
-    "execution_behavior_version",
-    "evaluation_object_hash",
-)
-KNOT_EXECUTION_CONTEXT_FIELDS = frozenset(
-    {
-        "production_variant_roster_id",
-        "production_variant_roster_revision_id",
-        "execution_behavior_release_id",
-        "cohort_id",
-        "language",
-        "track_key_hash",
-        "agent_id",
-    }
-)
 EVALUATION_TRACK_KEY_FIELDS = (
     "production_variant_roster_id",
     "cohort_id",
@@ -437,138 +382,6 @@ def _validated_schedule_context(
     return slot, plan
 
 
-def _validated_external_schedule_authority(
-    *,
-    authority: Mapping[str, Any],
-    verifier: Callable[[Mapping[str, Any]], Mapping[str, Any]],
-    opportunity: Mapping[str, Any],
-    outcome_due_at: str,
-    matured_at: str,
-) -> dict[str, Any]:
-    """Validate an opaque, hash-bound schedule authority supplied by private runtime."""
-    if not isinstance(authority, Mapping):
-        raise ValueError("external schedule authority must be an object")
-    if not callable(verifier):
-        raise ValueError("external schedule authority verifier is required")
-    supplied = dict(authority)
-    verified = verifier(dict(supplied))
-    if not isinstance(verified, Mapping) or canonical_json(dict(verified)) != canonical_json(
-        supplied
-    ):
-        raise ValueError("external schedule authority verifier changed the receipt")
-    if set(supplied) != EXTERNAL_SCHEDULE_AUTHORITY_FIELDS:
-        raise ValueError("external schedule authority fields mismatch")
-    if supplied.get("schema_version") != "external_outcome_schedule_authority_v1":
-        raise ValueError("external schedule authority schema_version mismatch")
-
-    sample_origin = opportunity.get("sample_origin")
-    if sample_origin not in KNOT_SAMPLE_ORIGINS:
-        raise ValueError("external schedule authority is restricted to KNOT shadow samples")
-    expected_bindings = {
-        "sample_origin": sample_origin,
-        "scheduled_sample_id": opportunity.get("scheduled_sample_id"),
-        "track_key_hash": opportunity.get("track_key_hash"),
-        "agent_id": opportunity.get("agent_id"),
-        "evaluation_opportunity_set_id": opportunity.get(
-            "evaluation_opportunity_set_id"
-        ),
-        "evaluation_opportunity_set_hash": opportunity.get(
-            "evaluation_opportunity_set_hash"
-        ),
-        "opportunity_as_of": opportunity.get("as_of"),
-        "outcome_due_at": outcome_due_at,
-        "trading_calendar_id": OUTCOME_CONTRACTS[str(opportunity.get("agent_id"))][
-            "maturity"
-        ]["trading_calendar_id"],
-    }
-    for field, expected in expected_bindings.items():
-        if supplied.get(field) != expected:
-            raise ValueError(f"external schedule authority {field} mismatch")
-
-    for field in (
-        "schedule_authority_hash",
-        "track_key_hash",
-        "evaluation_opportunity_set_hash",
-        "external_schedule_manifest_hash",
-        "external_schedule_slot_hash",
-        "external_run_hash",
-        "trading_calendar_snapshot_hash",
-    ):
-        _required_sha256(supplied.get(field), f"external_schedule_authority.{field}")
-    for field in (
-        "schedule_authority_id",
-        "authority_namespace",
-        "scheduled_sample_id",
-        "agent_id",
-        "evaluation_opportunity_set_id",
-        "external_schedule_manifest_id",
-        "external_schedule_slot_id",
-        "external_run_id",
-        "trading_calendar_id",
-    ):
-        _required_text(supplied.get(field), f"external_schedule_authority.{field}")
-
-    expected_authority_id = deterministic_id(
-        "external-outcome-schedule-authority",
-        {
-            "authority_namespace": supplied["authority_namespace"],
-            "external_schedule_manifest_id": supplied[
-                "external_schedule_manifest_id"
-            ],
-            "external_schedule_manifest_hash": supplied[
-                "external_schedule_manifest_hash"
-            ],
-            "external_schedule_slot_id": supplied["external_schedule_slot_id"],
-            "external_schedule_slot_hash": supplied[
-                "external_schedule_slot_hash"
-            ],
-            "external_run_id": supplied["external_run_id"],
-            "external_run_hash": supplied["external_run_hash"],
-            "evaluation_opportunity_set_id": supplied[
-                "evaluation_opportunity_set_id"
-            ],
-            "evaluation_opportunity_set_hash": supplied[
-                "evaluation_opportunity_set_hash"
-            ],
-            "outcome_due_at": supplied["outcome_due_at"],
-            "trading_calendar_snapshot_hash": supplied[
-                "trading_calendar_snapshot_hash"
-            ],
-        },
-    )
-    if supplied["schedule_authority_id"] != expected_authority_id:
-        raise ValueError("external schedule authority identity mismatch")
-    if supplied["schedule_authority_hash"] != canonical_hash(
-        {
-            key: value
-            for key, value in supplied.items()
-            if key != "schedule_authority_hash"
-        }
-    ):
-        raise ValueError("external schedule authority hash mismatch")
-
-    published = _timestamp(
-        supplied["authority_published_at"],
-        "external_schedule_authority.authority_published_at",
-    )
-    opportunity_time = _timestamp(
-        supplied["opportunity_as_of"],
-        "external_schedule_authority.opportunity_as_of",
-    )
-    run_frozen = _timestamp(
-        supplied["external_run_frozen_at"],
-        "external_schedule_authority.external_run_frozen_at",
-    )
-    due = _timestamp(outcome_due_at, "outcome_due_at")
-    verified_at = _timestamp(
-        supplied["verified_at"], "external_schedule_authority.verified_at"
-    )
-    matured = _timestamp(matured_at, "matured_at")
-    if not published <= opportunity_time <= run_frozen <= due <= verified_at <= matured:
-        raise ValueError("external schedule authority chronology is invalid")
-    return supplied
-
-
 def _insert_immutable(
     conn: sqlite3.Connection,
     *,
@@ -593,437 +406,6 @@ def _insert_immutable(
     if existing is None or existing[0] != record_json:
         raise ValueError(f"immutable record collision in {table}: {record_id}")
     return False
-
-
-def _load_record_json(
-    conn: sqlite3.Connection,
-    *,
-    table: str,
-    id_column: str,
-    record_id: str,
-) -> dict[str, Any]:
-    try:
-        row = conn.execute(
-            f"SELECT record_json FROM {table} WHERE {id_column} = ?",
-            (record_id,),
-        ).fetchone()
-    except sqlite3.OperationalError as exc:
-        raise ValueError(f"required KNOT ledger is unavailable: {table}") from exc
-    if row is None:
-        raise ValueError(f"unknown immutable record in {table}: {record_id}")
-    record = json.loads(row[0])
-    if not isinstance(record, dict):
-        raise ValueError(f"invalid immutable record in {table}: {record_id}")
-    return record
-
-
-def _load_ready_roster_revision(
-    conn: sqlite3.Connection,
-    *,
-    execution_context: Mapping[str, Any],
-    context_name: str,
-) -> dict[str, Any]:
-    revision_id = _required_text(
-        execution_context.get("production_variant_roster_revision_id"),
-        f"{context_name}.production_variant_roster_revision_id",
-    )
-    revision = _load_record_json(
-        conn,
-        table="darwinian_v2_production_variant_roster_revisions",
-        id_column="production_variant_roster_revision_id",
-        record_id=revision_id,
-    )
-    if revision.get("production_variant_roster_revision_id") != revision_id:
-        raise ValueError(f"{context_name} roster revision identity mismatch")
-    revision_hash = _required_sha256(
-        revision.get("production_variant_roster_revision_hash"),
-        "production_variant_roster_revision_hash",
-    )
-    if revision_hash != canonical_hash(
-        {
-            key: value
-            for key, value in revision.items()
-            if key != "production_variant_roster_revision_hash"
-        }
-    ):
-        raise ValueError(f"{context_name} roster revision hash mismatch")
-    if revision.get("readiness") != "READY":
-        raise ValueError(f"{context_name} roster revision is not READY")
-    for field in (
-        "production_variant_roster_id",
-        "production_variant_roster_revision_id",
-        "execution_behavior_release_id",
-        "cohort_id",
-        "language",
-    ):
-        if revision.get(field) != execution_context.get(field):
-            raise ValueError(f"{context_name} execution context {field} mismatch")
-    evaluation_track_hashes = revision.get("evaluation_track_key_hashes")
-    if not isinstance(evaluation_track_hashes, list) or (
-        execution_context.get("track_key_hash") not in evaluation_track_hashes
-    ):
-        raise ValueError(f"{context_name} execution track is outside the roster")
-    return revision
-
-
-def _load_knot_pair_context(
-    conn: sqlite3.Connection,
-    *,
-    knot_pair_id: str,
-    research_pair_side: str,
-) -> tuple[
-    dict[str, Any],
-    dict[str, Any],
-    dict[str, Any],
-    dict[str, Any],
-    dict[str, Any],
-]:
-    if research_pair_side not in {"CHAMPION", "CANDIDATE"}:
-        raise ValueError("KNOT research_pair_side must be CHAMPION or CANDIDATE")
-    knot_pair_id = _required_text(knot_pair_id, "knot_pair_id")
-    pair = _load_record_json(
-        conn,
-        table="knot_pair_input_sets_v2",
-        id_column="knot_pair_id",
-        record_id=knot_pair_id,
-    )
-    if pair.get("knot_pair_id") != knot_pair_id:
-        raise ValueError("KNOT pair record identity mismatch")
-    pair_hash = _required_sha256(
-        pair.get("knot_pair_input_hash"), "knot_pair_input_hash"
-    )
-    if pair_hash != canonical_hash(
-        {key: value for key, value in pair.items() if key != "knot_pair_input_hash"}
-    ):
-        raise ValueError("KNOT pair input hash mismatch")
-    sample_origin = pair.get("sample_origin")
-    if sample_origin not in KNOT_SAMPLE_ORIGINS:
-        raise ValueError("KNOT pair has an invalid sample origin")
-    research_track = _load_record_json(
-        conn,
-        table="knot_research_tracks_v2",
-        id_column="knot_research_track_id",
-        record_id=_required_text(
-            pair.get("knot_research_track_id"), "knot_research_track_id"
-        ),
-    )
-    if research_track.get("knot_research_track_id") != pair.get(
-        "knot_research_track_id"
-    ):
-        raise ValueError("KNOT research track record identity mismatch")
-    research_track_hash = _required_sha256(
-        research_track.get("knot_research_track_hash"),
-        "knot_research_track_hash",
-    )
-    if research_track_hash != canonical_hash(
-        {
-            key: value
-            for key, value in research_track.items()
-            if key != "knot_research_track_hash"
-        }
-    ):
-        raise ValueError("KNOT research track hash mismatch")
-    if pair.get("knot_research_track_hash") != research_track_hash:
-        raise ValueError("KNOT pair research track hash mismatch")
-    original_context = {
-        "production_variant_roster_id": research_track.get(
-            "production_variant_roster_id"
-        ),
-        "production_variant_roster_revision_id": research_track.get(
-            "production_variant_roster_revision_id"
-        ),
-        "execution_behavior_release_id": research_track.get(
-            "execution_behavior_release_id"
-        ),
-        "cohort_id": research_track.get("cohort_id"),
-        "language": research_track.get("language"),
-        "track_key_hash": research_track.get(
-            "target_evaluation_track_key_hash"
-        ),
-        "agent_id": research_track.get("agent_id"),
-    }
-    for field in KNOT_EXECUTION_CONTEXT_FIELDS - {"track_key_hash"}:
-        _required_text(original_context.get(field), f"research_track.{field}")
-    _required_sha256(
-        original_context.get("track_key_hash"),
-        "research_track.target_evaluation_track_key_hash",
-    )
-    if original_context["language"] not in {"en", "zh"}:
-        raise ValueError("KNOT research track language is invalid")
-    _load_ready_roster_revision(
-        conn,
-        execution_context=original_context,
-        context_name="KNOT research",
-    )
-    original_evaluation_track = _track_record(
-        conn, str(original_context["track_key_hash"])
-    )
-    for field in (
-        "production_variant_roster_id",
-        "cohort_id",
-        "language",
-        "agent_id",
-    ):
-        if original_evaluation_track.get(field) != original_context.get(field):
-            raise ValueError(f"KNOT research evaluation track {field} mismatch")
-    if (
-        research_track.get("champion_prompt_behavior_version")
-        != original_evaluation_track.get("prompt_behavior_version")
-        or research_track.get("champion_execution_behavior_version")
-        != original_evaluation_track.get("execution_behavior_version")
-    ):
-        raise ValueError("KNOT champion behavior does not match the research track")
-    pair_phase = pair.get("pair_phase", "RESEARCH")
-    raw_context = pair.get("execution_context")
-    if raw_context is None:
-        if pair_phase != "RESEARCH":
-            raise ValueError("post-promotion KNOT pair has no execution context")
-        execution_context = original_context
-    else:
-        if not isinstance(raw_context, Mapping) or set(raw_context) != (
-            KNOT_EXECUTION_CONTEXT_FIELDS
-        ):
-            raise ValueError("KNOT pair execution context fields mismatch")
-        execution_context = dict(raw_context)
-        for field in KNOT_EXECUTION_CONTEXT_FIELDS - {"track_key_hash"}:
-            _required_text(
-                execution_context.get(field), f"execution_context.{field}"
-            )
-        _required_sha256(
-            execution_context.get("track_key_hash"),
-            "execution_context.track_key_hash",
-        )
-        if execution_context["language"] not in {"en", "zh"}:
-            raise ValueError("KNOT pair execution context language is invalid")
-    if execution_context.get("agent_id") != research_track.get("agent_id"):
-        raise ValueError("KNOT pair execution context Agent mismatch")
-    if pair_phase == "RESEARCH":
-        if sample_origin != "KNOT_RESEARCH_SHADOW":
-            raise ValueError("research KNOT pair sample origin mismatch")
-        if execution_context != original_context:
-            raise ValueError("research KNOT pair changed its execution context")
-        if pair.get("promotion_revision_id") not in {None, ""}:
-            raise ValueError("research KNOT pair cannot carry a promotion revision")
-    elif pair_phase == "POST_PROMOTION_SHADOW":
-        if sample_origin != "KNOT_POST_PROMOTION_CHAMPION_SHADOW":
-            raise ValueError("post-promotion KNOT pair sample origin mismatch")
-        for field in (
-            "production_variant_roster_id",
-            "cohort_id",
-            "language",
-            "agent_id",
-        ):
-            if execution_context.get(field) != original_context.get(field):
-                raise ValueError(
-                    f"post-promotion KNOT pair changed {field} identity"
-                )
-        promotion_revision_id = _required_text(
-            pair.get("promotion_revision_id"), "promotion_revision_id"
-        )
-        promotion = _load_record_json(
-            conn,
-            table="knot_promotion_revisions_v2",
-            id_column="knot_promotion_revision_id",
-            record_id=promotion_revision_id,
-        )
-        promotion_hash = _required_sha256(
-            promotion.get("knot_promotion_revision_hash"),
-            "knot_promotion_revision_hash",
-        )
-        if promotion_hash != canonical_hash(
-            {
-                key: value
-                for key, value in promotion.items()
-                if key != "knot_promotion_revision_hash"
-            }
-        ):
-            raise ValueError("KNOT promotion revision hash mismatch")
-        for field, expected in (
-            ("knot_promotion_revision_id", promotion_revision_id),
-            ("knot_research_track_id", research_track["knot_research_track_id"]),
-            ("knot_research_track_hash", research_track_hash),
-            ("disposition", "PROMOTE"),
-            (
-                "new_production_variant_roster_revision_id",
-                execution_context["production_variant_roster_revision_id"],
-            ),
-            (
-                "new_execution_behavior_release_id",
-                execution_context["execution_behavior_release_id"],
-            ),
-        ):
-            if promotion.get(field) != expected:
-                raise ValueError(f"KNOT promotion revision {field} mismatch")
-        promoted_revision = _load_ready_roster_revision(
-            conn,
-            execution_context=execution_context,
-            context_name="KNOT promoted",
-        )
-        promoted_revision_hash = _required_sha256(
-            promoted_revision.get("production_variant_roster_revision_hash"),
-            "production_variant_roster_revision_hash",
-        )
-        if promotion.get("new_production_variant_roster_revision_hash") != (
-            promoted_revision_hash
-        ):
-            raise ValueError("KNOT promotion revision roster hash mismatch")
-    else:
-        raise ValueError("KNOT pair has an invalid pair phase")
-    track_key_hash = _required_sha256(
-        execution_context.get("track_key_hash"), "execution_context.track_key_hash"
-    )
-    evaluation_track = _track_record(conn, track_key_hash)
-    for field in (
-        "production_variant_roster_id",
-        "cohort_id",
-        "language",
-        "agent_id",
-    ):
-        if evaluation_track.get(field) != execution_context.get(field):
-            raise ValueError(f"KNOT execution/evaluation track {field} mismatch")
-    for field in EVALUATION_TRACK_KEY_FIELDS:
-        if field in {"prompt_behavior_version", "execution_behavior_version"}:
-            continue
-        if evaluation_track.get(field) != original_evaluation_track.get(field):
-            raise ValueError(f"KNOT promoted evaluation track changed {field}")
-    capability_key = f"{research_pair_side.lower()}_capability"
-    capability = pair.get(capability_key)
-    if not isinstance(capability, dict):
-        raise ValueError(f"KNOT pair has no {research_pair_side} capability")
-    for field in ("snapshot_bundle_id", "snapshot_bundle_hash"):
-        if capability.get(field) != pair.get(field):
-            raise ValueError(f"KNOT {research_pair_side} capability {field} mismatch")
-    _required_text(capability.get("capability_id"), "capability_id")
-    _required_sha256(
-        capability.get("capability_signature_hash"),
-        "capability_signature_hash",
-    )
-    _required_text(
-        research_track.get(
-            f"{research_pair_side.lower()}_prompt_behavior_version"
-        ),
-        "prompt_behavior_version",
-    )
-    _required_text(
-        research_track.get(
-            f"{research_pair_side.lower()}_execution_behavior_version"
-        ),
-        "execution_behavior_version",
-    )
-    if pair_phase == "POST_PROMOTION_SHADOW" and (
-        research_track.get("candidate_prompt_behavior_version")
-        != evaluation_track.get("prompt_behavior_version")
-        or research_track.get("candidate_execution_behavior_version")
-        != evaluation_track.get("execution_behavior_version")
-    ):
-        raise ValueError("KNOT promoted behavior does not match the execution track")
-    opportunity = _load_record_json(
-        conn,
-        table="evaluation_opportunity_sets_v2",
-        id_column="evaluation_opportunity_set_id",
-        record_id=_required_text(
-            pair.get("evaluation_opportunity_set_id"),
-            "evaluation_opportunity_set_id",
-        ),
-    )
-    for field, expected in (
-        ("evaluation_opportunity_set_id", pair.get("evaluation_opportunity_set_id")),
-        ("evaluation_opportunity_set_hash", pair.get("evaluation_opportunity_set_hash")),
-        ("scheduled_sample_id", pair.get("scheduled_sample_id")),
-        ("sample_origin", sample_origin),
-        ("opportunity_set_status", "AVAILABLE"),
-        *tuple(execution_context.items()),
-    ):
-        if opportunity.get(field) != expected:
-            raise ValueError(f"KNOT opportunity set {field} mismatch")
-    opportunity_hash = _required_sha256(
-        opportunity.get("evaluation_opportunity_set_hash"),
-        "evaluation_opportunity_set_hash",
-    )
-    if opportunity_hash != canonical_hash(
-        {
-            key: value
-            for key, value in opportunity.items()
-            if key != "evaluation_opportunity_set_hash"
-        }
-    ):
-        raise ValueError("KNOT evaluation opportunity set hash mismatch")
-    if opportunity.get("member_state") == "EMPTY":
-        raise ValueError("KNOT accepted output cannot use an empty opportunity set")
-    return pair, research_track, evaluation_track, capability, execution_context
-
-
-def _knot_lineage(
-    *,
-    pair: Mapping[str, Any],
-    research_track: Mapping[str, Any],
-    capability: Mapping[str, Any],
-    research_pair_side: str,
-    evaluation_object_hash: str | None,
-) -> dict[str, Any]:
-    return {
-        "knot_pair_id": pair["knot_pair_id"],
-        "knot_pair_input_hash": pair["knot_pair_input_hash"],
-        "research_pair_side": research_pair_side,
-        "capability_id": capability["capability_id"],
-        "capability_signature_hash": capability["capability_signature_hash"],
-        "snapshot_bundle_id": pair["snapshot_bundle_id"],
-        "snapshot_bundle_hash": pair["snapshot_bundle_hash"],
-        "runtime_input_hash": pair["runtime_input_hash"],
-        "prompt_behavior_version": research_track[
-            f"{research_pair_side.lower()}_prompt_behavior_version"
-        ],
-        "execution_behavior_version": research_track[
-            f"{research_pair_side.lower()}_execution_behavior_version"
-        ],
-        "evaluation_object_hash": evaluation_object_hash,
-    }
-
-
-def _validated_knot_operational_audit(
-    conn: sqlite3.Connection,
-    *,
-    operational_opportunity_audit_id: str,
-    knot_lineage: Mapping[str, Any],
-    expected_fields: Mapping[str, Any],
-) -> dict[str, Any]:
-    operational = _load_record_json(
-        conn,
-        table="operational_opportunity_audits_v2",
-        id_column="operational_opportunity_audit_id",
-        record_id=_required_text(
-            operational_opportunity_audit_id,
-            "operational_opportunity_audit_id",
-        ),
-    )
-    operational_hash = _required_sha256(
-        operational.get("operational_opportunity_audit_hash"),
-        "operational_opportunity_audit_hash",
-    )
-    if operational_hash != canonical_hash(
-        {
-            key: value
-            for key, value in operational.items()
-            if key != "operational_opportunity_audit_hash"
-        }
-    ):
-        raise ValueError("KNOT operational audit hash mismatch")
-    for field, expected in {**knot_lineage, **expected_fields}.items():
-        if operational.get(field) != expected:
-            raise ValueError(f"KNOT operational audit {field} mismatch")
-    stored_lineage = conn.execute(
-        "SELECT "
-        + ", ".join(KNOT_LINEAGE_FIELDS)
-        + " FROM operational_opportunity_audits_v2 "
-        "WHERE operational_opportunity_audit_id = ?",
-        (operational_opportunity_audit_id,),
-    ).fetchone()
-    if stored_lineage is None or any(
-        stored_lineage[index] != operational.get(field)
-        for index, field in enumerate(KNOT_LINEAGE_FIELDS)
-    ):
-        raise ValueError("KNOT operational columns/record lineage mismatch")
-    return operational
 
 
 def _append_evaluation_freeze_authority_event(
@@ -1120,12 +502,8 @@ def freeze_evaluation_opportunity_set(
     revision = json.loads(revision_row[0])
     if track_key_hash not in revision["evaluation_track_key_hashes"]:
         raise ValueError("evaluation track is outside the roster revision")
-    if sample_origin not in {
-        "PRODUCTION_ACTIVE",
-        "KNOT_RESEARCH_SHADOW",
-        "KNOT_POST_PROMOTION_CHAMPION_SHADOW",
-    }:
-        raise ValueError("outcome opportunity set has invalid sample_origin")
+    if sample_origin != "PRODUCTION_ACTIVE":
+        raise ValueError("outcome opportunity set requires PRODUCTION_ACTIVE")
     if not required_source_evidence_ids or any(
         not isinstance(item, str) or not item for item in required_source_evidence_ids
     ):
@@ -1365,60 +743,15 @@ def append_outcome_eligibility_revision(
     evaluation_opportunity_set_id: str | None,
     accepted_output_id: str | None = None,
     exclusion_or_failure_reason: str | None = None,
-    research_pair_side: str | None = None,
-    knot_pair_id: str | None = None,
-    operational_opportunity_audit_id: str | None = None,
 ) -> dict[str, Any]:
-    """Append one immutable audit revision; terminal revisions cannot be replaced."""
+    """Append one immutable production eligibility audit revision."""
+    if sample_origin != "PRODUCTION_ACTIVE":
+        raise ValueError("outcome eligibility requires PRODUCTION_ACTIVE")
     if disposition not in {"PENDING", *TERMINAL_ELIGIBILITY_DISPOSITIONS}:
         raise ValueError(f"unsupported eligibility disposition: {disposition}")
+
     track = _track_record(conn, track_key_hash)
     agent_id = str(track["agent_id"])
-    knot_origin = sample_origin in KNOT_SAMPLE_ORIGINS
-    if knot_origin and research_pair_side not in {"CHAMPION", "CANDIDATE"}:
-        raise ValueError("KNOT outcome eligibility requires research_pair_side")
-    if knot_origin and knot_pair_id is None:
-        raise ValueError("KNOT outcome eligibility requires knot_pair_id")
-    if knot_origin and operational_opportunity_audit_id is None:
-        raise ValueError("KNOT outcome eligibility requires an operational audit")
-    if not knot_origin and (
-        research_pair_side is not None
-        or knot_pair_id is not None
-        or operational_opportunity_audit_id is not None
-    ):
-        raise ValueError("production outcome eligibility cannot carry KNOT lineage")
-    knot_context: tuple[
-        dict[str, Any],
-        dict[str, Any],
-        dict[str, Any],
-        dict[str, Any],
-        dict[str, Any],
-    ] | None = None
-    knot_lineage: dict[str, Any] = {}
-    if knot_origin:
-        knot_context = _load_knot_pair_context(
-            conn,
-            knot_pair_id=str(knot_pair_id),
-            research_pair_side=str(research_pair_side),
-        )
-        pair, research_track, evaluation_track, capability, _ = knot_context
-        for field, expected in (
-            ("scheduled_sample_id", scheduled_sample_id),
-            ("sample_origin", sample_origin),
-        ):
-            if pair.get(field) != expected:
-                raise ValueError(f"KNOT pair {field} mismatch")
-        if evaluation_track.get("track_key_hash") != track_key_hash:
-            raise ValueError("KNOT pair evaluation track mismatch")
-        if evaluation_opportunity_set_id != pair.get("evaluation_opportunity_set_id"):
-            raise ValueError("KNOT eligibility opportunity set mismatch")
-        knot_lineage = _knot_lineage(
-            pair=pair,
-            research_track=research_track,
-            capability=capability,
-            research_pair_side=str(research_pair_side),
-            evaluation_object_hash=None,
-        )
     set_record: dict[str, Any] | None = None
     if evaluation_opportunity_set_id is not None:
         row = conn.execute(
@@ -1429,26 +762,41 @@ def append_outcome_eligibility_revision(
         if row is None:
             raise ValueError("evaluation opportunity set is unavailable")
         set_record = json.loads(row[0])
+        if not isinstance(set_record, dict):
+            raise ValueError("evaluation opportunity set must be an object")
         for field, expected in (
             ("scheduled_sample_id", scheduled_sample_id),
             ("track_key_hash", track_key_hash),
             ("agent_id", agent_id),
             ("sample_origin", sample_origin),
+            ("opportunity_set_status", "AVAILABLE"),
         ):
             if set_record.get(field) != expected:
                 raise ValueError(f"opportunity set {field} mismatch")
+        expected_set_hash = canonical_hash(
+            {
+                key: value
+                for key, value in set_record.items()
+                if key != "evaluation_opportunity_set_hash"
+            }
+        )
+        if set_record.get("evaluation_opportunity_set_hash") != expected_set_hash:
+            raise ValueError("evaluation opportunity set hash mismatch")
     elif disposition in {"PENDING", "SCORE"}:
         raise ValueError(f"{disposition} requires an AVAILABLE opportunity set")
 
     accepted_record: dict[str, Any] | None = None
     if accepted_output_id is not None:
         row = conn.execute(
-            "SELECT record_json FROM accepted_agent_outputs_v2 WHERE accepted_output_id = ?",
+            "SELECT record_json FROM accepted_agent_outputs_v2 "
+            "WHERE accepted_output_id = ?",
             (accepted_output_id,),
         ).fetchone()
         if row is None:
             raise ValueError("accepted output is unavailable")
         accepted_record = json.loads(row[0])
+        if not isinstance(accepted_record, dict):
+            raise ValueError("accepted output must be an object")
         for field, expected in (
             ("scheduled_sample_id", scheduled_sample_id),
             ("track_key_hash", track_key_hash),
@@ -1473,81 +821,25 @@ def append_outcome_eligibility_revision(
             }
         ):
             raise ValueError("accepted output hash mismatch")
-        if knot_context is not None:
-            pair, research_track, _, capability, execution_context = knot_context
+        if set_record is not None:
             for field, expected in (
+                ("evaluation_opportunity_set_id", evaluation_opportunity_set_id),
                 (
-                    "production_variant_roster_id",
-                    execution_context.get("production_variant_roster_id"),
+                    "evaluation_opportunity_set_hash",
+                    set_record.get("evaluation_opportunity_set_hash"),
                 ),
+                ("frozen_object_set_id", set_record.get("frozen_object_set_id")),
+                ("frozen_object_set_hash", set_record.get("frozen_object_set_hash")),
                 (
-                    "production_variant_roster_revision_id",
-                    execution_context.get("production_variant_roster_revision_id"),
+                    "runtime_opportunity_authority",
+                    set_record.get("runtime_authority_binding"),
                 ),
-                (
-                    "execution_behavior_release_id",
-                    execution_context.get("execution_behavior_release_id"),
-                ),
-                ("cohort_id", execution_context.get("cohort_id")),
-                ("language", execution_context.get("language")),
-                ("as_of", pair.get("as_of")),
             ):
                 if accepted_record.get(field) != expected:
-                    raise ValueError(f"KNOT accepted output {field} mismatch")
-            evaluation_object_hash = _required_sha256(
-                accepted_record.get("evaluation_object_hash"),
-                "evaluation_object_hash",
-            )
-            knot_lineage = _knot_lineage(
-                pair=pair,
-                research_track=research_track,
-                capability=capability,
-                research_pair_side=str(research_pair_side),
-                evaluation_object_hash=evaluation_object_hash,
-            )
-            for field, expected in knot_lineage.items():
-                if accepted_record.get(field) != expected:
-                    raise ValueError(f"KNOT accepted output {field} mismatch")
-            stored_lineage = conn.execute(
-                "SELECT "
-                + ", ".join(KNOT_LINEAGE_FIELDS)
-                + " FROM accepted_agent_outputs_v2 WHERE accepted_output_id = ?",
-                (accepted_output_id,),
-            ).fetchone()
-            if stored_lineage is None or any(
-                stored_lineage[index] != accepted_record.get(field)
-                for index, field in enumerate(KNOT_LINEAGE_FIELDS)
-            ):
-                raise ValueError("KNOT accepted output columns/record lineage mismatch")
-            if (
-                accepted_record.get("operational_opportunity_audit_id")
-                != operational_opportunity_audit_id
-            ):
-                raise ValueError("KNOT accepted output operational audit mismatch")
+                    raise ValueError(f"accepted output {field} mismatch")
+
     if disposition in {"PENDING", "SCORE"} and accepted_record is None:
         raise ValueError(f"{disposition} requires the role-matched accepted output")
-    if (
-        accepted_record is not None
-        and set_record is not None
-        and sample_origin == "PRODUCTION_ACTIVE"
-    ):
-        expected_frozen_id = set_record.get("frozen_object_set_id")
-        expected_frozen_hash = set_record.get("frozen_object_set_hash")
-        for field, expected in (
-            ("evaluation_opportunity_set_id", evaluation_opportunity_set_id),
-            (
-                "evaluation_opportunity_set_hash",
-                set_record.get("evaluation_opportunity_set_hash"),
-            ),
-            ("frozen_object_set_id", expected_frozen_id),
-            ("frozen_object_set_hash", expected_frozen_hash),
-            (
-                "runtime_opportunity_authority",
-                set_record.get("runtime_authority_binding"),
-            ),
-        ):
-            if accepted_record.get(field) != expected:
-                raise ValueError(f"accepted output {field} mismatch")
     if disposition == "AGENT_FAILURE" and accepted_record is not None:
         raise ValueError("AGENT_FAILURE cannot carry an accepted output")
     if disposition in {"AGENT_FAILURE", "EXOGENOUS_EXCLUSION"} and not (
@@ -1555,55 +847,11 @@ def append_outcome_eligibility_revision(
     ):
         raise ValueError(f"{disposition} requires an explicit reason")
 
-    operational_record: dict[str, Any] | None = None
-    if knot_origin:
-        operational_record = _validated_knot_operational_audit(
-            conn,
-            operational_opportunity_audit_id=str(
-                operational_opportunity_audit_id
-            ),
-            knot_lineage=knot_lineage,
-            expected_fields={
-                "accepted_output_id": accepted_output_id,
-                "accepted_output_hash": (
-                    accepted_record.get("accepted_output_hash")
-                    if accepted_record
-                    else None
-                ),
-                "scheduled_sample_id": scheduled_sample_id,
-                "track_key_hash": track_key_hash,
-                "agent_id": agent_id,
-                "sample_origin": sample_origin,
-                "run_slot_kind": "OUTCOME_SCHEDULED",
-                "production_reliability_eligible": False,
-                "disposition": (
-                    "ACCEPTED"
-                    if disposition in {"PENDING", "SCORE"}
-                    else disposition
-                ),
-                "production_variant_roster_id": knot_context[4][
-                    "production_variant_roster_id"
-                ],
-                "production_variant_roster_revision_id": knot_context[4][
-                    "production_variant_roster_revision_id"
-                ],
-                "execution_behavior_release_id": knot_context[4][
-                    "execution_behavior_release_id"
-                ],
-                "cohort_id": knot_context[4]["cohort_id"],
-                "language": knot_context[4]["language"],
-                "as_of": knot_context[0]["as_of"],
-            },
-        )
-
     audit_identity = {
         "scheduled_sample_id": scheduled_sample_id,
         "track_key_hash": track_key_hash,
         "sample_origin": sample_origin,
-        "research_pair_side": research_pair_side,
     }
-    if knot_origin:
-        audit_identity["knot_pair_id"] = knot_pair_id
     audit_id = deterministic_id("outcome-eligibility-audit", audit_identity)
     previous_rows = conn.execute(
         "SELECT audit_revision_id, audit_sequence, disposition FROM "
@@ -1611,82 +859,51 @@ def append_outcome_eligibility_revision(
         "ORDER BY audit_sequence",
         (audit_id,),
     ).fetchall()
+    accepted_hash = (
+        accepted_record.get("accepted_output_hash") if accepted_record else None
+    )
+
+    def matches_existing(record: Mapping[str, Any]) -> bool:
+        return (
+            record.get("accepted_output_id") == accepted_output_id
+            and record.get("accepted_output_hash") == accepted_hash
+            and record.get("evaluation_opportunity_set_id")
+            == evaluation_opportunity_set_id
+            and record.get("exclusion_or_failure_reason")
+            == exclusion_or_failure_reason
+        )
+
     if previous_rows and previous_rows[-1][2] == "PENDING" and disposition == "PENDING":
-        existing_row = conn.execute(
+        row = conn.execute(
             "SELECT record_json FROM agent_outcome_eligibility_revisions_v2 "
             "WHERE audit_revision_id = ?",
             (previous_rows[-1][0],),
         ).fetchone()
-        if existing_row is not None:
-            existing = json.loads(existing_row[0])
-            if (
-                existing.get("accepted_output_id") == accepted_output_id
-                and existing.get("accepted_output_hash")
-                == (
-                    accepted_record.get("accepted_output_hash")
-                    if accepted_record
-                    else None
-                )
-                and existing.get("evaluation_opportunity_set_id")
-                == evaluation_opportunity_set_id
-                and existing.get("exclusion_or_failure_reason")
-                == exclusion_or_failure_reason
-                and existing.get("operational_opportunity_audit_id")
-                == operational_opportunity_audit_id
-                and existing.get("operational_opportunity_audit_hash")
-                == (
-                    operational_record.get("operational_opportunity_audit_hash")
-                    if operational_record
-                    else None
-                )
-                and all(
-                    existing.get(field) == knot_lineage.get(field)
-                    for field in KNOT_LINEAGE_FIELDS
-                )
-            ):
+        if row is not None:
+            existing = json.loads(row[0])
+            if isinstance(existing, dict) and matches_existing(existing):
                 return existing
         raise ValueError("PENDING eligibility retry changed immutable inputs")
     if previous_rows and previous_rows[-1][2] in TERMINAL_ELIGIBILITY_DISPOSITIONS:
-        terminal = conn.execute(
+        row = conn.execute(
             "SELECT record_json FROM agent_outcome_eligibility_revisions_v2 "
             "WHERE audit_revision_id = ?",
             (previous_rows[-1][0],),
         ).fetchone()
-        if terminal is not None:
-            existing = json.loads(terminal[0])
+        if row is not None:
+            existing = json.loads(row[0])
             if (
-                existing.get("disposition") == disposition
-                and existing.get("accepted_output_id") == accepted_output_id
-                and existing.get("accepted_output_hash")
-                == (
-                    accepted_record.get("accepted_output_hash")
-                    if accepted_record
-                    else None
-                )
-                and existing.get("evaluation_opportunity_set_id")
-                == evaluation_opportunity_set_id
-                and existing.get("exclusion_or_failure_reason")
-                == exclusion_or_failure_reason
-                and existing.get("operational_opportunity_audit_id")
-                == operational_opportunity_audit_id
-                and existing.get("operational_opportunity_audit_hash")
-                == (
-                    operational_record.get("operational_opportunity_audit_hash")
-                    if operational_record
-                    else None
-                )
-                and all(
-                    existing.get(field) == knot_lineage.get(field)
-                    for field in KNOT_LINEAGE_FIELDS
-                )
+                isinstance(existing, dict)
+                and existing.get("disposition") == disposition
+                and matches_existing(existing)
             ):
                 return existing
         raise ValueError("terminal eligibility audit revision is immutable")
     if previous_rows and previous_rows[-1][2] != "PENDING":
         raise ValueError("invalid eligibility audit transition")
+
     audit_sequence = len(previous_rows) + 1
     supersedes = previous_rows[-1][0] if previous_rows else None
-    accepted_hash = accepted_record.get("accepted_output_hash") if accepted_record else None
     versions = {
         key: track["outcome_contract"][key]
         for key in (
@@ -1698,7 +915,11 @@ def append_outcome_eligibility_revision(
     }
     revision_id = deterministic_id(
         "outcome-eligibility-revision",
-        {**audit_identity, "audit_sequence": audit_sequence, "disposition": disposition},
+        {
+            **audit_identity,
+            "audit_sequence": audit_sequence,
+            "disposition": disposition,
+        },
     )
     without_hash = {
         "audit_revision_id": revision_id,
@@ -1709,22 +930,9 @@ def append_outcome_eligibility_revision(
         "track_key_hash": track_key_hash,
         "agent_id": agent_id,
         "sample_origin": sample_origin,
-        **knot_lineage,
         "disposition": disposition,
         "accepted_output_id": accepted_output_id,
         "accepted_output_hash": accepted_hash,
-        **(
-            {
-                "operational_opportunity_audit_id": (
-                    operational_opportunity_audit_id
-                ),
-                "operational_opportunity_audit_hash": operational_record[
-                    "operational_opportunity_audit_hash"
-                ],
-            }
-            if operational_record
-            else {}
-        ),
         "evaluation_opportunity_set_id": evaluation_opportunity_set_id,
         "evaluation_opportunity_set_hash": (
             set_record.get("evaluation_opportunity_set_hash") if set_record else None
@@ -1737,13 +945,9 @@ def append_outcome_eligibility_revision(
         ),
         "opportunity_set_status": "AVAILABLE" if set_record else "UNAVAILABLE",
         "exclusion_or_failure_reason": exclusion_or_failure_reason,
-        "darwin_evaluation_eligible": (
-            sample_origin == "PRODUCTION_ACTIVE"
-            and disposition != "EXOGENOUS_EXCLUSION"
-        ),
+        "darwin_evaluation_eligible": disposition != "EXOGENOUS_EXCLUSION",
         "usage_weight_eligible": (
-            sample_origin == "PRODUCTION_ACTIVE"
-            and disposition != "EXOGENOUS_EXCLUSION"
+            disposition != "EXOGENOUS_EXCLUSION"
             and track["darwin_application_mode"] == "DOWNSTREAM_USAGE_WEIGHT"
         ),
         "contract_versions": versions,
@@ -1765,20 +969,7 @@ def append_outcome_eligibility_revision(
             "track_key_hash",
             "agent_id",
             "sample_origin",
-            "research_pair_side",
-            "knot_pair_id",
-            "knot_pair_input_hash",
-            "capability_id",
-            "capability_signature_hash",
-            "snapshot_bundle_id",
-            "snapshot_bundle_hash",
-            "runtime_input_hash",
-            "prompt_behavior_version",
-            "execution_behavior_version",
-            "evaluation_object_hash",
             "accepted_output_hash",
-            "operational_opportunity_audit_id",
-            "operational_opportunity_audit_hash",
             "disposition",
             "accepted_output_id",
             "opportunity_set_status",
@@ -1795,24 +986,7 @@ def append_outcome_eligibility_revision(
             track_key_hash,
             agent_id,
             sample_origin,
-            research_pair_side,
-            knot_lineage.get("knot_pair_id"),
-            knot_lineage.get("knot_pair_input_hash"),
-            knot_lineage.get("capability_id"),
-            knot_lineage.get("capability_signature_hash"),
-            knot_lineage.get("snapshot_bundle_id"),
-            knot_lineage.get("snapshot_bundle_hash"),
-            knot_lineage.get("runtime_input_hash"),
-            knot_lineage.get("prompt_behavior_version"),
-            knot_lineage.get("execution_behavior_version"),
-            knot_lineage.get("evaluation_object_hash"),
             accepted_hash,
-            operational_opportunity_audit_id,
-            (
-                operational_record.get("operational_opportunity_audit_hash")
-                if operational_record
-                else None
-            ),
             disposition,
             accepted_output_id,
             without_hash["opportunity_set_status"],
@@ -1836,10 +1010,6 @@ def append_realized_outcome_observation(
     projection_status: str = "SCORE",
     realized_projection_hash: str | None = None,
     production_cutoff_at: str | None = None,
-    external_schedule_authority: Mapping[str, Any] | None = None,
-    external_schedule_authority_verifier: (
-        Callable[[Mapping[str, Any]], Mapping[str, Any]] | None
-    ) = None,
 ) -> dict[str, Any]:
     """Persist shared market/event realization without Agent forecasts or utility."""
     row = conn.execute(
@@ -1865,48 +1035,14 @@ def append_realized_outcome_observation(
     due = _timestamp(outcome_due_at, "outcome_due_at")
     matured = _timestamp(matured_at, "matured_at")
     sample_origin = opportunity.get("sample_origin")
-    validated_external_authority: dict[str, Any] | None = None
-    if sample_origin == "PRODUCTION_ACTIVE":
-        if (
-            external_schedule_authority is not None
-            or external_schedule_authority_verifier is not None
-        ):
-            raise ValueError(
-                "production outcome observation cannot use external schedule authority"
-            )
-        slot, plan = _validated_schedule_context(
-            conn,
-            scheduled_sample_id=opportunity["scheduled_sample_id"],
-            track_key_hash=opportunity["track_key_hash"],
-            agent_id=opportunity["agent_id"],
-        )
-    elif sample_origin in KNOT_SAMPLE_ORIGINS:
-        if (
-            external_schedule_authority is None
-            or external_schedule_authority_verifier is None
-        ):
-            raise ValueError(
-                "KNOT outcome observation requires external schedule authority and verifier"
-            )
-        validated_external_authority = _validated_external_schedule_authority(
-            authority=external_schedule_authority,
-            verifier=external_schedule_authority_verifier,
-            opportunity=opportunity,
-            outcome_due_at=outcome_due_at,
-            matured_at=matured_at,
-        )
-        slot = {
-            "outcome_schedule_slot_id": validated_external_authority[
-                "external_schedule_slot_id"
-            ],
-            "outcome_schedule_slot_hash": validated_external_authority[
-                "external_schedule_slot_hash"
-            ],
-            "outcome_due_at": validated_external_authority["outcome_due_at"],
-        }
-        plan = {"as_of": validated_external_authority["opportunity_as_of"]}
-    else:
-        raise ValueError("outcome observation has an unsupported sample origin")
+    if sample_origin != "PRODUCTION_ACTIVE":
+        raise ValueError("outcome observation requires PRODUCTION_ACTIVE")
+    slot, plan = _validated_schedule_context(
+        conn,
+        scheduled_sample_id=opportunity["scheduled_sample_id"],
+        track_key_hash=opportunity["track_key_hash"],
+        agent_id=opportunity["agent_id"],
+    )
     if slot.get("outcome_due_at") != outcome_due_at:
         raise ValueError("outcome_due_at is not the authoritative schedule boundary")
     if matured < due:
@@ -2000,13 +1136,6 @@ def append_realized_outcome_observation(
             ],
             cutoff_at=str(production_cutoff_at),
         )
-    elif realized_projection_hash is not None:
-        realized_projection_hash = _required_sha256(
-            realized_projection_hash,
-            "realized_projection_hash",
-        )
-        if production_cutoff_at is not None:
-            _timestamp(production_cutoff_at, "production_cutoff_at")
     if projection_status not in {"SCORE", "ABSTAIN"}:
         raise ValueError("realized observation projection_status is invalid")
     from mosaic.dataflows.outcome_runtime_inputs import (
@@ -2050,11 +1179,6 @@ def append_realized_outcome_observation(
         "source_evidence_ids": sorted(set(source_evidence_ids)),
         "realized_projection_hash": realized_projection_hash,
         "production_cutoff_at": production_cutoff_at,
-        "external_schedule_authority_hash": (
-            validated_external_authority["schedule_authority_hash"]
-            if validated_external_authority is not None
-            else None
-        ),
         "source_batch_id": (
             production_batch["source_batch_id"] if production_batch is not None else None
         ),
@@ -2085,7 +1209,6 @@ def append_realized_outcome_observation(
         "source_evidence_hash": canonical_hash(sorted(set(source_evidence_ids))),
         "realized_projection_hash": realized_projection_hash,
         "production_cutoff_at": production_cutoff_at,
-        "external_schedule_authority": validated_external_authority,
         "source_batch_id": (
             production_batch["source_batch_id"] if production_batch is not None else None
         ),
@@ -3248,7 +2371,6 @@ def materialize_due_outcomes(
             ("outcome_schedule_slot_id", slot["outcome_schedule_slot_id"]),
             ("outcome_schedule_slot_hash", slot["outcome_schedule_slot_hash"]),
             ("outcome_due_at", slot["outcome_due_at"]),
-            ("external_schedule_authority", None),
         ):
             if observation.get(field) != expected:
                 raise ValueError(f"realized outcome observation {field} mismatch")
@@ -3948,7 +3070,7 @@ def refresh_evaluation_windows(
             **calendar_window,
             **state,
             "performance_band": performance_band,
-            "knot_deficit": (
+            "evolution_deficit": (
                 max(0.0, -state["mean_normalized_score"])
                 if track["darwin_application_mode"] == "EVOLUTION_ONLY"
                 and state["maturity_state"] == "MATURE"

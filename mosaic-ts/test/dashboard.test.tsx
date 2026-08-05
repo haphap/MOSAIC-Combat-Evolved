@@ -22,24 +22,6 @@ function fakeApi() {
             "stop_loss_breached",
             "stale_thesis",
           ]),
-          verified_knob_audit_json: JSON.stringify({
-            accepted: true,
-            reason_codes: [],
-          }),
-          decision_agent_audits_json: JSON.stringify({
-            cro: {
-              accepted: true,
-              reason_codes: [],
-            },
-            autonomous_execution: {
-              accepted: true,
-              reason_codes: [],
-            },
-            cio: {
-              accepted: true,
-              reason_codes: [],
-            },
-          }),
           override_reason: "CRO reviewed current data",
           dissent_notes: "",
           rationale_snapshot: "券商β",
@@ -92,8 +74,7 @@ function fakeApi() {
         target: { agentId: "china", stage: "agent_run", cohort: "cohort_default" },
         promptRefs: { zh: "private://hidden.zh", en: "private://hidden.en" },
         promptHashes: { zh: `sha256:${"1".repeat(64)}`, en: `sha256:${"2".repeat(64)}` },
-        trainingSnapshotId: "training-1",
-        trainingSnapshotHash: `sha256:${"3".repeat(64)}`,
+        trainingProjectionHash: `sha256:${"4".repeat(64)}`,
         excludedSampleIdsHash: `sha256:${"c".repeat(64)}`,
         mutatorConfigHash: `sha256:${"4".repeat(64)}`,
         mutatorCommit: "5".repeat(40),
@@ -101,21 +82,13 @@ function fakeApi() {
         mutationSummary: "Behavior focus: CONFLICT_RESOLUTION.",
         hypothesis:
           "Preregistered hypothesis: CONFLICT_RESOLUTION improves the frozen Agent outcome score.",
-        alignmentVerifierVersion: "bilingual-alignment-v1",
-        behaviorAlignmentHash: `sha256:${"9".repeat(64)}`,
         behaviorContractHash: `sha256:${"a".repeat(64)}`,
         privateLineageHash: `sha256:${"b".repeat(64)}`,
         createdAt: "2026-05-30T00:00:00Z",
       },
       experiment: {
         status: "COMPLETE",
-        metrics: {},
-        tailFailureCaseRefs: ["failure://tail-1"],
-      },
-      decision: {
-        decision: "ELIGIBLE",
-        reasons: ["all_promotion_gates_passed"],
-        metricSummary: {
+        metrics: {
           validation_paired_delta: 0.12,
           validation_confidence_lower: 0.04,
           validation_tail_delta: 0.02,
@@ -123,6 +96,7 @@ function fakeApi() {
           holdout_confidence_lower: 0.03,
           holdout_tail_delta: 0.01,
         },
+        tailFailureCaseRefs: ["failure://tail-1"],
       },
       release: { release_id: "release-optimizer-1", lifecycle_state: "canary" },
     }),
@@ -269,14 +243,6 @@ function fakeApi() {
       quick_think_llm: "claude-haiku",
       output_language: "Chinese",
       active_cohort: "euphoria_2021",
-      autoresearch: {
-        agent_mutation_cooldown_hours: 24,
-        keep_revert_lockout_days: 3,
-        keep_threshold_delta_sharpe: 0.1,
-        monthly_modification_cap_per_cohort: 100,
-        evaluation_horizon_trading_days: 5,
-        git: { push: false, remote: "origin" },
-      },
       mirofish: { engine: "montecarlo", scorer: "terminal", inject_context: false },
     }),
     configDefault: vi.fn().mockResolvedValue({}),
@@ -304,7 +270,6 @@ describe("Dashboard", () => {
     expect(lastFrame()).toContain("ADD");
     expect(lastFrame()).toContain("intact");
     expect(lastFrame()).toContain("target_current_drift");
-    expect(lastFrame()).toContain("agent detail cro accepted reasons=-");
     expect(lastFrame()).toContain("CRO reviewed current data");
     expect(lastFrame()).toContain("512880.SH");
   });
@@ -454,14 +419,14 @@ describe("Dashboard", () => {
     expect(lastFrame()).toContain("anthropic");
   });
 
-  it("toggles a bool field with space and persists on 's'", async () => {
+  it("toggles a live bool field with space and persists on 's'", async () => {
     const api = fakeApi();
     const { stdin, lastFrame } = mount(api);
     await flush();
     stdin.write("7");
     await flush();
-    // Move to "AR git push" (a bool) and toggle it on, then save.
-    for (let i = 0; i < 10; i++) stdin.write("\u001B[B"); // down arrow ×10 → AR git push
+    // Move to "MiroFish inject ctx" (a bool) and toggle it on, then save.
+    for (let i = 0; i < 7; i++) stdin.write("\u001B[B");
     await flush();
     stdin.write(" ");
     await flush();
@@ -469,7 +434,7 @@ describe("Dashboard", () => {
     await flush();
     expect(api.configSave).toHaveBeenCalledWith(
       expect.objectContaining({
-        autoresearch: expect.objectContaining({ git: { push: true, remote: "origin" } }),
+        mirofish: expect.objectContaining({ inject_context: true }),
       }),
     );
     expect(lastFrame()).toContain("saved");

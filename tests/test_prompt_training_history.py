@@ -6,14 +6,19 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator, FormatChecker
 
 from mosaic.scorecard.canonical_json import canonical_hash
 from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
-from mosaic.scorecard.prompt_optimizer_store import PromptOptimizerStore
-from mosaic.scorecard.prompt_training_history import _cio_proposal
+from mosaic.scorecard.prompt_training_history import (
+    _build_direct_components,
+    _cio_proposal,
+    _format_timestamp,
+    _timestamp,
+)
 from mosaic.scorecard.store import ScorecardStore
 from tests.test_component_calibration import _registered, _seed_component_sample
-from tests.test_prompt_optimizer_store import advance_complete
+from tests.test_prompt_optimizer_store import advance_complete, store as optimizer_store
 
 
 def _stage(agent_id: str) -> str:
@@ -35,30 +40,84 @@ def _weekdays(start: date, count: int) -> list[date]:
     return values
 
 
-def test_training_history_declares_all_28_role_owned_targets(tmp_path: Path) -> None:
+def test_training_timestamp_round_trip_keeps_millisecond_precision() -> None:
+    completed_at = _timestamp(
+        "2025-04-01T02:00:00.123Z", "Prompt experiment completedAt"
+    )
+
+    assert _format_timestamp(completed_at) == "2025-04-01T02:00:00.123Z"
+
+
+EXPECTED_DIRECT_ORDINALS = {
+    "china": [0, 1, 2, 3, 4, 5],
+    "us_economy": [0, 1, 2, 3, 4],
+    "eu_economy": [0, 1, 2, 3, 4],
+    "central_bank": [0, 1, 2, 3, 4],
+    "us_financial_conditions": [0, 1, 2, 3, 4],
+    "euro_area_financial_conditions": [0, 1, 2, 3, 4],
+    "commodities": [0, 1, 2, 3, 4],
+    "geopolitical": [5],
+    "market_breadth": [5],
+    "institutional_flow": [5],
+    "semiconductor": [2, 3, 4, 5],
+    "technology": [2, 3, 4, 5],
+    "energy": [2, 3, 4, 5],
+    "biotech": [2, 3, 4, 5],
+    "consumer": [2, 3, 4, 5],
+    "industrials": [2, 3, 4, 5],
+    "real_estate_construction": [2, 3, 4, 5],
+    "financials": [2, 3, 4, 5],
+    "agriculture": [2, 3, 4, 5],
+    "relationship_mapper": [1, 2, 4],
+    "druckenmiller": [4],
+    "munger": [4],
+    "burry": [4],
+    "ackman": [4],
+    "cro": [0, 1, 4],
+    "alpha_discovery": [2, 3, 4],
+    "autonomous_execution": [0, 1, 2, 4],
+    "cio": [3, 4],
+}
+
+
+def test_training_projection_declares_all_28_role_owned_targets(tmp_path: Path) -> None:
     store = ScorecardStore(tmp_path / "scorecard.sqlite3")
     assert len(OUTCOME_CONTRACTS) == 28
     for agent_id, contract in OUTCOME_CONTRACTS.items():
-        history = store.build_prompt_training_history(
+        projection = store.build_prompt_training_projection(
             agent_id=agent_id,
             stage=_stage(agent_id),
             cohort="cohort_default",
             cutoff_at="2026-08-01T00:00:00+08:00",
         )
-        assert history["target"] == {
+        assert projection["target"] == {
             "agentId": agent_id,
             "stage": _stage(agent_id),
             "cohort": "cohort_default",
         }
-        assert history["outcomeContractVersion"] == contract["outcome_contract_version"]
-        assert history["primaryLabelId"] == contract["primary_label_id"]
-        assert history["records"] == []
-        assert history["validationExperiments"] == []
-        assert history["historyHash"] == canonical_hash(
-            {key: value for key, value in history.items() if key != "historyHash"}
+        assert projection["outcomeContract"]["outcomeContractVersion"] == contract[
+            "outcome_contract_version"
+        ]
+        assert projection["outcomeContract"]["primaryLabelId"] == contract[
+            "primary_label_id"
+        ]
+        assert projection["matureSampleCount"] == 0
+        assert projection["controlledExperiments"] == []
+        assert [
+            component["componentRef"] for component in projection["directComponents"]
+        ] == [
+            f"role_component_v1:{agent_id}:{ordinal:03d}"
+            for ordinal in EXPECTED_DIRECT_ORDINALS[agent_id]
+        ]
+        assert projection["projectionHash"] == canonical_hash(
+            {
+                key: value
+                for key, value in projection.items()
+                if key != "projectionHash"
+            }
         )
     with pytest.raises(ValueError, match="stage does not belong"):
-        store.build_prompt_training_history(
+        store.build_prompt_training_projection(
             agent_id="cio",
             stage="agent_run",
             cohort="cohort_default",
@@ -66,7 +125,79 @@ def test_training_history_declares_all_28_role_owned_targets(tmp_path: Path) -> 
         )
 
 
-def test_training_history_exports_pit_component_records_and_exclusions(
+def test_role_component_scoring_keeps_china_and_sector_components_distinct() -> None:
+    macro_selectors = [
+        "growth_production",
+        "prices",
+        "credit",
+        "external_demand_trade",
+        "fiscal",
+    ]
+    china = _build_direct_components(
+        "china",
+        [
+            {
+                "normalizedScore": 0.8,
+                "rawMetrics": {"realized_scaled_path": 0.5},
+                "componentSignals": [
+                    {
+                        "component": selector,
+                        "signal": signal,
+                        "effective_confidence": 1.0,
+                    }
+                    for selector, signal in zip(
+                        macro_selectors, [-1.0, -0.5, 0.0, 0.25, 0.8], strict=True
+                    )
+                ],
+            }
+        ],
+    )
+    assert len(china) == 6
+    assert len({component["meanScore"] for component in china}) == 6
+
+    sector = _build_direct_components(
+        "semiconductor",
+        [
+            {
+                "normalizedScore": 0.0,
+                "rawMetrics": {
+                    "direction_metrics": [
+                        {
+                            "selected_role": "PREFERRED",
+                            "realized_scaled_path": 0.5,
+                            "predicted_tilt": 0.5,
+                        },
+                        {
+                            "selected_role": "LEAST_PREFERRED",
+                            "realized_scaled_path": -0.5,
+                            "predicted_tilt": 0.5,
+                        },
+                    ],
+                    "security_leg_metrics": [
+                        {
+                            "side": "PREFERRED",
+                            "side_security_utility_delta": 0.4,
+                        },
+                        {
+                            "side": "LEAST_PREFERRED",
+                            "side_security_utility_delta": -0.4,
+                        },
+                    ],
+                },
+                "componentSignals": [],
+            }
+        ],
+    )
+    assert [component["componentRef"] for component in sector] == [
+        "role_component_v1:semiconductor:002",
+        "role_component_v1:semiconductor:003",
+        "role_component_v1:semiconductor:004",
+        "role_component_v1:semiconductor:005",
+    ]
+    assert len({component["meanScore"] for component in sector}) == 4
+
+
+def test_training_projection_exports_pit_scores_and_exclusions(
     tmp_path: Path,
 ) -> None:
     store, revision, track = _registered(tmp_path)
@@ -84,76 +215,88 @@ def test_training_history_exports_pit_component_records_and_exclusions(
                 target=0.2 if index % 2 == 0 else -0.2,
             )
     excluded_sample = f"component-sample:{days[0].isoformat()}"
-    history = store.build_prompt_training_history(
+    projection = store.build_prompt_training_projection(
         agent_id="us_economy",
         stage="agent_run",
         cohort="cohort_default",
         cutoff_at="2024-04-30T23:59:59+08:00",
         excluded_sample_ids=[excluded_sample],
     )
-    assert len(history["records"]) == 30
-    assert excluded_sample not in {record["sampleId"] for record in history["records"]}
-    assert history["excludedSampleIds"] == [excluded_sample]
-    assert {
-        signal["component"] for signal in history["records"][0]["componentSignals"]
-    } == {"growth_production", "prices", "employment", "demand_trade"}
-    assert all("acceptedPayload" not in record for record in history["records"])
-    assert all(
-        record["supportingAcceptedOutputs"] == {} for record in history["records"]
+    assert projection["matureSampleCount"] == 30
+    assert projection["excludedSampleIdsHash"] == canonical_hash([excluded_sample])
+    assert projection["directComponents"][0]["componentRef"] == (
+        "role_component_v1:us_economy:000"
     )
-    assert all(
-        record["maturedAt"] <= history["cutoffAt"] for record in history["records"]
-    )
+    assert projection["directComponents"][0]["directMatureSampleCount"] == 30
+    assert projection["scoreSummary"]["mean"] == pytest.approx(1.0)
+    assert "records" not in projection
+    assert "componentSignals" not in json.dumps(projection)
 
-    historical = store.build_prompt_training_history(
+    historical = store.build_prompt_training_projection(
         agent_id="us_economy",
         stage="agent_run",
         cohort="cohort_default",
         cutoff_at=f"{(days[10] + timedelta(days=10)).isoformat()}T23:59:59+08:00",
     )
-    assert 0 < len(historical["records"]) < len(history["records"])
-    assert all(
-        record["maturedAt"] <= historical["cutoffAt"]
-        for record in historical["records"]
-    )
+    assert 0 < historical["matureSampleCount"] < projection["matureSampleCount"]
 
 
-def test_training_history_exports_validation_only_without_holdout(
+def test_training_projection_exports_validation_only_without_holdout(
     tmp_path: Path,
 ) -> None:
     database = tmp_path / "scorecard.sqlite3"
     scorecard = ScorecardStore(database)
-    optimizer = PromptOptimizerStore(database)
-    advance_complete(optimizer)
-    history = scorecard.build_prompt_training_history(
+    optimizer = optimizer_store(tmp_path)
+    completed, _, _ = advance_complete(optimizer)
+    cutoff_at = _format_timestamp(
+        _timestamp(completed["completedAt"], "completedAt")
+        + timedelta(seconds=1)
+    )
+    projection = scorecard.build_prompt_training_projection(
         agent_id="china",
         stage="agent_run",
         cohort="cohort_default",
-        cutoff_at="2025-04-02T00:00:00Z",
+        cutoff_at=cutoff_at,
     )
-    assert len(history["validationExperiments"]) == 1
-    validation = history["validationExperiments"][0]
+    assert len(projection["controlledExperiments"]) == 1
+    validation = projection["controlledExperiments"][0]
     assert validation["candidatePrivateLineageHash"].startswith("sha256:")
-    assert validation["validationPairCount"] == 1
-    assert validation["validationPairDeltas"] == pytest.approx([0.1])
-    assert "holdout" not in json.dumps(history).lower()
+    assert validation["pairDeltas"] == pytest.approx([0.1] * 60)
+    assert validation["status"] == "COMPLETE"
+    assert validation["evaluatorVersion"] == OUTCOME_CONTRACTS["china"][
+        "scoring_contract_version"
+    ]
+    assert validation["evaluatorConfigHash"].startswith("sha256:")
+    assert validation["executorAdapterHash"].startswith("sha256:")
+    assert validation["evaluatorAdapterHash"].startswith("sha256:")
+    assert len(validation["codeCommit"]) == 40
+    assert "holdout" not in json.dumps(projection).lower()
+    schema = json.loads(
+        (Path(__file__).parents[1] / "schemas/prompt_training_projection_v1.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    Draft202012Validator(schema, format_checker=FormatChecker()).validate(projection)
 
-    reserved = scorecard.build_prompt_training_history(
+    frozen_split = optimizer.get_split(str(completed["datasetSplitId"]))
+    assert frozen_split is not None
+    reserved_sample_id = frozen_split["validation"]["samples"][0]["sampleId"]
+    reserved = scorecard.build_prompt_training_projection(
         agent_id="china",
         stage="agent_run",
         cohort="cohort_default",
-        cutoff_at="2025-04-02T00:00:00Z",
-        excluded_sample_ids=["validation-1"],
+        cutoff_at=cutoff_at,
+        excluded_sample_ids=[reserved_sample_id],
     )
-    assert reserved["validationExperiments"] == []
+    assert reserved["controlledExperiments"] == []
 
-    before_validation = scorecard.build_prompt_training_history(
+    before_validation = scorecard.build_prompt_training_projection(
         agent_id="china",
         stage="agent_run",
         cohort="cohort_default",
         cutoff_at="2025-03-31T00:00:00Z",
     )
-    assert before_validation["validationExperiments"] == []
+    assert before_validation["controlledExperiments"] == []
 
     with scorecard._connect() as conn:
         row = conn.execute(
@@ -161,21 +304,43 @@ def test_training_history_exports_validation_only_without_holdout(
             "WHERE status = 'COMPLETE'"
         ).fetchone()
         experiment = json.loads(row["record_json"])
+        experiment["status"] = "VALIDATION_COMPLETE"
+        conn.execute(
+            "UPDATE prompt_experiments_v3 SET status = ?, record_json = ? "
+            "WHERE experiment_id = ?",
+            ("VALIDATION_COMPLETE", json.dumps(experiment), row["experiment_id"]),
+        )
+    validation_only = scorecard.build_prompt_training_projection(
+        agent_id="china",
+        stage="agent_run",
+        cohort="cohort_default",
+        cutoff_at=cutoff_at,
+    )
+    assert validation_only["controlledExperiments"] == []
+
+    with scorecard._connect() as conn:
+        row = conn.execute(
+            "SELECT experiment_id, record_json FROM prompt_experiments_v3 "
+            "WHERE status = 'VALIDATION_COMPLETE'"
+        ).fetchone()
+        experiment = json.loads(row["record_json"])
+        experiment["status"] = "COMPLETE"
         experiment["metrics"]["validation_candidate_mean"] += 0.01
         conn.execute(
-            "UPDATE prompt_experiments_v3 SET record_json = ? WHERE experiment_id = ?",
-            (json.dumps(experiment), row["experiment_id"]),
+            "UPDATE prompt_experiments_v3 SET status = ?, record_json = ? "
+            "WHERE experiment_id = ?",
+            ("COMPLETE", json.dumps(experiment), row["experiment_id"]),
         )
     with pytest.raises(ValueError, match="validation aggregate mismatch"):
-        scorecard.build_prompt_training_history(
+        scorecard.build_prompt_training_projection(
             agent_id="china",
             stage="agent_run",
             cohort="cohort_default",
-            cutoff_at="2025-04-02T00:00:00Z",
+            cutoff_at=cutoff_at,
         )
 
 
-def test_training_history_binds_cio_proposal_to_the_same_run() -> None:
+def test_training_projection_binds_cio_proposal_to_the_same_run() -> None:
     conn = sqlite3.connect(":memory:")
     conn.execute(
         "CREATE TABLE accepted_agent_outputs_v2 ("

@@ -50,17 +50,21 @@ pnpm build                   # emit dist/
 pnpm dev bridge-ping
 pnpm dev tool-loop [--model name] [--question text] [--as-of-date YYYY-MM-DD]
 
-# Legacy autoresearch diagnostics (never a v2 production promotion path)
-pnpm dev autoresearch trigger --cohort crisis_2008 --dry-run --fake-llm           # generate only, no branch/DB side effects
-pnpm dev autoresearch evaluate --cohort crisis_2008                               # legacy audit; terminal result is legacy_unverified
-pnpm dev autoresearch log --cohort crisis_2008 --days 7                           # audit log
-pnpm dev autoresearch branches --cohort crisis_2008                               # active feature branches
-pnpm dev autoresearch revert --version-id 12                                      # manual revert (respects 3-day keep-lockout)
+# Prompt autoresearch: private Candidate generation, public frozen experiment,
+# then a separate Prompt Release canary/rollback decision.
+pnpm dev autoresearch generate-candidate --request REQUEST.json \
+  --private-cli /path/to/private/dist/cli.js \
+  --private-repo "$MOSAIC_PROMPTS_REPO" \
+  --mutation-adapter "$MOSAIC_PROMPTS_REPO/path/to/tracked-adapter.js"
+pnpm dev autoresearch shadow-run --plan SHADOW_PLAN.json --adapter EVALUATION_ADAPTER.js
+pnpm dev autoresearch log --cohort crisis_2008 --days 7
+pnpm dev autoresearch branches --cohort crisis_2008
 
-# PRISM (7-cohort training orchestration)
-pnpm dev prism list                                  # 7 cohorts + branch/run status
-pnpm dev prism train --cohort crisis_2008 --fake-llm [--max-concurrent 5] [--max-mutations 1] [--dry-run]
-pnpm dev prism train --all --fake-llm                # train all 7 cohorts sequentially (layers sequential, ≤5 agents/layer concurrent)
+# The mutation adapter must be tracked inside the private repository at its exact
+# HEAD; the private runtime derives mutator identity from that committed state.
+
+# PRISM is retained as read-only historical audit views.
+pnpm dev prism list
 pnpm dev prism status --cohort crisis_2008
 pnpm dev prism compare [--metric sharpe] [--since YYYY-MM-DD]
 

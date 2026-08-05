@@ -43,21 +43,27 @@ Error envelopes map to `RpcError` with a numeric code (`mosaic/bridge/protocol.p
   `audit_only=true`, return `legacy_unverified`, and never feed production.
 
 ### prompts
-- `prompts.read` (file at a git ref), `prompts.write` (commit on a branch via git_ops).
+- Read/preflight only: `prompts.read`, `prompts.init_private_repo`,
+  `prompts.audit_versions`, `prompts.preflight`, `prompts.contract_check`, and
+  `prompts.formal_release_checks`. Candidate rendering and commits belong to
+  the private Prompt repository CLI.
 
 ### autoresearch
-- `autoresearch.trigger`, `autoresearch.evaluate_pending`, `autoresearch.record_mutation`,
-  `autoresearch.revert_modification`, `autoresearch.get_log`, `autoresearch.list_active_branches`,
-  `autoresearch.prepare_worktree`, `autoresearch.cleanup_worktree`,
-  `autoresearch.historical_validate`, `autoresearch.historical_decide`.
+- Read/worktree diagnostics only: `autoresearch.get_log`,
+  `autoresearch.list_active_branches`, `autoresearch.prepare_worktree`,
+  `autoresearch.cleanup_worktree`, and `autoresearch.gc_worktrees`.
 
-`autoresearch.trigger` accepts a simulated `as_of_date`, run-scoped branch id, and pinned private
-Prompt base only when `historical_sandbox=true`. `autoresearch.historical_decide` is restricted to
-`history/*` candidates and copies kept files only to an isolated `history/*/active/*` branch; it
-never merges or deletes the private Prompt default branch.
+### prompt_optimizer
+- Immutable experiment storage: `prompt_optimizer.put_candidate`,
+  `get_candidate`, `put_split`, `get_split`, `put_family`, `get_family`,
+  `put_experiment`, `get_experiment`, `put_run`, `claim_run`, `list_runs`,
+  and `latest_summary`.
+- `prompt_optimizer.training_projection` is the only training-data projection
+  exported to the private Prompt mutator.
 
 ### prism
-- `prism.list_cohorts`, `prism.train_cohort`, `prism.cohort_status`, `prism.complete_cohort_run`, `prism.compare_cohorts`.
+- Read-only historical views: `prism.list_cohorts`, `prism.cohort_status`, and
+  `prism.compare_cohorts`.
 
 ### janus
 - `janus.run_daily`, `janus.get_weights`, `janus.regime`, `janus.get_history`.

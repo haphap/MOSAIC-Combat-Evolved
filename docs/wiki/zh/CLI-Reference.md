@@ -52,24 +52,27 @@ pnpm dev darwinian --cohort cohort_default
 
 > forward-return 回填是 `scorecard.score_pending` **RPC**(`BridgeApi.scorecardScorePending`),由程序/日常流水线调用 —— 目前不是独立 CLI 子命令。见[评分与纸上交易](Scorecard-and-Paper-Trading.md)。
 
-## 旧 Autoresearch 诊断
+## Prompt Autoresearch
 
 ```bash
-pnpm dev autoresearch trigger --cohort crisis_2008 --dry-run --fake-llm --eval-days 5
-pnpm dev autoresearch evaluate --cohort crisis_2008
+pnpm dev autoresearch generate-candidate --request REQUEST.json \
+  --private-cli /path/to/private/dist/cli.js \
+  --private-repo "$MOSAIC_PROMPTS_REPO" \
+  --mutation-adapter "$MOSAIC_PROMPTS_REPO/path/to/tracked-adapter.js"
+pnpm dev autoresearch shadow-run --plan SHADOW_PLAN.json --adapter EVALUATION_ADAPTER.js
 pnpm dev autoresearch log --cohort crisis_2008
 ```
-子命令:`trigger`、`evaluate`、`log`、`branches`、`revert`、`review-domain`。
-该接口只供审计：评价终态为 `legacy_unverified`，`review-domain` 只接受
-`--decision revert`，任何子命令都不能发布生产行为。生产演化只能走 KNOT 配对研究与
-受治理的 release RPC 流程。
+子命令：`generate-candidate`、`shadow-run`、`log`、`branches`。
+Candidate 生成只把公开侧冻结的 training projection 交给私有 Prompt mutator；
+mutation adapter 必须是同一私有仓库 exact `HEAD` 中的 tracked 文件，mutator identity
+由该提交状态推导，调用方不能提供。`shadow-run` 冻结模型、工具、adapter 与 evaluator，
+且没有 release 激活权限。晋升必须另行通过 Prompt Release 的 canary/rollback 流程。
 
 ## Prompt 运维
 
 ```bash
 pnpm dev prompts init-private-repo ~/private-mosaic-prompts
 pnpm dev prompts audit-versions --status keep
-pnpm dev prompts verify-release --version-id 123
 pnpm dev prompts prompt-token-budget \
   --private-prompts-root /path/to/MOSAIC-Prompts/prompts/mosaic \
   --baseline ../registry/prompt_checks/prompt_token_budget_manifest_v1.json \
@@ -79,7 +82,6 @@ pnpm dev prompts gc-worktrees --repo-target all --max-age-hours 24
 
 - `init-private-repo` 创建 sparse private prompt repo。`--seed-baseline` 仅用于迁移,会制造大面积 override shadowing。
 - `audit-versions` 只打印 metadata: id、hash、repo id、状态、指标和分支,不展示 prompt 正文。
-- `verify-release` 检查 pinned release tuple(`code_commit_hash`、`prompt_repo_id`、`prompt_commit_hash`、`prompt_sha256`),在 commit 上重算 prompt SHA,并运行工具兼容性 gate。
 - Domain/research-knob catalog 只在私有 KNOT 仓库中生成和校验；公开 CLI 不导出其内容。
 - `prompt-token-budget` 使用固定 tokenizer 测量 116 条
   private/bundled stage-language 记录,校验语义 parity、绝对上限及相对已提交
@@ -91,6 +93,11 @@ pnpm dev prompts gc-worktrees --repo-target all --max-age-hours 24
 Release lifecycle 使用独立命令:
 
 ```bash
+pnpm dev prompt-release build-baseline --release-id BASELINE_ID \
+  --private-prompt-commit PRIVATE_COMMIT --code-commit CODE_COMMIT \
+  --execution-behavior-release-ref registry/prompt_checks/execution_behavior_releases/ID--HASH.json \
+  --approval-record REVIEWED_APPROVAL.json --out APPROVED_BASELINE.json \
+  --private-prompts-repo "$MOSAIC_PROMPTS_REPO"
 pnpm dev prompt-release provision-baseline --manifest APPROVED_BASELINE.json \
   --private-prompts-repo "$MOSAIC_PROMPTS_REPO" --approved-by operator:NAME \
   --reason 'import previously approved baseline'
@@ -106,17 +113,22 @@ pnpm dev prompt-release rollback --release-id RELEASE_ID \
   --approved-by operator:NAME --reason 'operator rollback'
 ```
 
+`build-baseline` 自动计算全部 prompt pair、fallback pair、stage hash 与合同闭包。
+approval record 必须包含已经人工复核的真实 canary/SLO 证据；builder 不会伪造审批证据。
+
 Canary 流量、summary 与 activation 必须使用同一个
 `MOSAIC_PROMPT_CANARY_EVENT_LOG`;activation 会重算 assignment/terminal journal
 closure，拒绝手写、过期或抽样 measurements。
 
-## PRISM(多周期训练)
+## PRISM（历史审计）
 
 ```bash
 pnpm dev prism list
-pnpm dev prism train --cohort crisis_2008 --fake-llm
+pnpm dev prism status --cohort crisis_2008
+pnpm dev prism compare --metric sharpe
 ```
-子命令:`list`、`train`、`status`、`compare`。`train` 选项:`--cohort`/`--all`、`--start`/`--end`、`--dry-run`、`--fake-llm`、`--max-concurrent <n>`、`--max-mutations <n>`、LLM 选项。
+子命令：`list`、`status`、`compare`。它们只读取历史 cohort 运行记录；PRISM 不再写入
+Prompt Candidate。
 
 ## JANUS(跨 cohort 元权重)
 

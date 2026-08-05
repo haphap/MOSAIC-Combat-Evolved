@@ -23,7 +23,6 @@ from mosaic.scorecard.darwinian_updates import (
 )
 from mosaic.scorecard.darwinian_v2 import (
     canonical_hash,
-    deterministic_id,
     get_production_weight_snapshot,
 )
 from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
@@ -409,21 +408,6 @@ def test_macro_outcome_label_uses_sealed_forecast_and_registry_owned_scale(
             matured_at="2024-01-09T16:00:00+08:00",
             realized_metrics=realized_metrics,
         )
-        with pytest.raises(ValueError, match="cannot use external schedule authority"):
-            append_realized_outcome_observation(
-                conn,
-                evaluation_opportunity_set_id=opportunity[
-                    "evaluation_opportunity_set_id"
-                ],
-                outcome_due_at="2024-01-09T15:00:00+08:00",
-                matured_at="2024-01-09T16:00:00+08:00",
-                realized_metrics=realized_metrics,
-                source_evidence_ids=source_evidence_ids,
-                realized_projection_hash=realized_projection_hash,
-                production_cutoff_at="2024-01-09T16:00:00+08:00",
-                external_schedule_authority={},
-                external_schedule_authority_verifier=lambda value: value,
-            )
         with pytest.raises(ValueError, match="realized_projection_hash"):
             append_realized_outcome_observation(
                 conn,
@@ -584,112 +568,6 @@ def test_macro_outcome_label_uses_sealed_forecast_and_registry_owned_scale(
             ],
             realized_projection_hash=realized_projection_hash,
         )["outcome_label_id"] == label["outcome_label_id"]
-
-
-def test_knot_outcome_requires_unchanged_hash_bound_external_schedule_authority(
-    tmp_path: Path,
-) -> None:
-    store, revision = _registered(tmp_path)
-    with store._connect() as conn:
-        track_hash = _track_by_agent(conn, revision)["china"]
-        opportunity = freeze_evaluation_opportunity_set(
-            conn,
-            production_variant_roster_revision_id=revision[
-                "production_variant_roster_revision_id"
-            ],
-            track_key_hash=track_hash,
-            scheduled_sample_id="knot:china:external-authority",
-            sample_origin="KNOT_RESEARCH_SHADOW",
-            as_of="2024-01-02T08:00:00+08:00",
-            member_refs=[{"event_id": "cn-release-external-authority"}],
-            required_source_evidence_ids=["official:cn-release-external-authority"],
-            qualification_predicate_version=expected_qualification_predicate_version(
-                "china"
-            ),
-        )
-        due_at = "2024-01-09T15:00:00+08:00"
-        matured_at = "2024-01-09T16:00:00+08:00"
-        authority_identity = {
-            "authority_namespace": "test-private-runtime",
-            "external_schedule_manifest_id": "private-manifest:china:1",
-            "external_schedule_manifest_hash": canonical_hash(
-                {"private_manifest": 1}
-            ),
-            "external_schedule_slot_id": "private-slot:china:1",
-            "external_schedule_slot_hash": canonical_hash({"private_slot": 1}),
-            "external_run_id": "private-run:china:1",
-            "external_run_hash": canonical_hash({"private_run": 1}),
-            "evaluation_opportunity_set_id": opportunity[
-                "evaluation_opportunity_set_id"
-            ],
-            "evaluation_opportunity_set_hash": opportunity[
-                "evaluation_opportunity_set_hash"
-            ],
-            "outcome_due_at": due_at,
-            "trading_calendar_snapshot_hash": canonical_hash(
-                ["2024-01-02", "2024-01-09"]
-            ),
-        }
-        authority_without_hash = {
-            "schema_version": "external_outcome_schedule_authority_v1",
-            "schedule_authority_id": deterministic_id(
-                "external-outcome-schedule-authority", authority_identity
-            ),
-            **authority_identity,
-            "sample_origin": "KNOT_RESEARCH_SHADOW",
-            "scheduled_sample_id": opportunity["scheduled_sample_id"],
-            "track_key_hash": track_hash,
-            "agent_id": "china",
-            "opportunity_as_of": opportunity["as_of"],
-            "trading_calendar_id": "cn_a_share_trading_calendar_v1",
-            "authority_published_at": "2024-01-02T07:00:00+08:00",
-            "external_run_frozen_at": "2024-01-02T09:00:00+08:00",
-            "verified_at": matured_at,
-        }
-        authority = {
-            **authority_without_hash,
-            "schedule_authority_hash": canonical_hash(authority_without_hash),
-        }
-        call = {
-            "evaluation_opportunity_set_id": opportunity[
-                "evaluation_opportunity_set_id"
-            ],
-            "outcome_due_at": due_at,
-            "matured_at": matured_at,
-            "realized_metrics": {
-                "role_path_metric": 0.5,
-                "pit_volatility_scale": 1.0,
-            },
-            "source_evidence_ids": ["official:china:realized"],
-        }
-        with pytest.raises(ValueError, match="requires external schedule authority"):
-            append_realized_outcome_observation(conn, **call)
-        with pytest.raises(ValueError, match="verifier changed"):
-            append_realized_outcome_observation(
-                conn,
-                **call,
-                external_schedule_authority=authority,
-                external_schedule_authority_verifier=lambda value: {
-                    **value,
-                    "external_schedule_slot_id": "private-slot:forged",
-                },
-            )
-        forged = {**authority, "outcome_due_at": "2024-01-10T15:00:00+08:00"}
-        with pytest.raises(ValueError, match="outcome_due_at mismatch"):
-            append_realized_outcome_observation(
-                conn,
-                **call,
-                external_schedule_authority=forged,
-                external_schedule_authority_verifier=lambda value: value,
-            )
-        observation = append_realized_outcome_observation(
-            conn,
-            **call,
-            external_schedule_authority=authority,
-            external_schedule_authority_verifier=lambda value: value,
-        )
-        assert observation["outcome_schedule_slot_id"] == "private-slot:china:1"
-        assert observation["external_schedule_authority"] == authority
 
 
 def test_decision_components_are_closed_and_weighted() -> None:

@@ -145,9 +145,9 @@ All development CLI commands run from `mosaic-ts/`:
 pnpm dev scorecard --cohort cohort_default --since 2024-01-01
 pnpm dev darwinian --cohort cohort_default
 
-# Legacy prompt diagnostics (no v2 promotion)
-pnpm dev autoresearch trigger --cohort crisis_2008 --fake-llm --eval-days 5 --dry-run
-pnpm dev autoresearch log --cohort crisis_2008
+# Read-only Prompt experiment diagnostics. Candidate generation and frozen
+# shadow-run inputs are documented in docs/runbooks/position_aware_prompt_evolution.md.
+pnpm dev autoresearch log --cohort cohort_crisis_2008
 
 # Regime training and meta-weighting
 pnpm dev prism list

@@ -183,14 +183,7 @@ describe("AcceptedAgentOutputRecord", () => {
     ).toThrow(/hash mismatch/);
   });
 
-  it("enforces the scheduled/downstream-only sample-origin matrix", () => {
-    expect(() =>
-      context({
-        sample_origin: "KNOT_RESEARCH_SHADOW",
-        run_slot_kind: "DOWNSTREAM_ONLY" as never,
-        scheduled_sample_id: null as never,
-      }),
-    ).not.toThrow();
+  it("accepts only production scheduled/downstream-only bindings", () => {
     expect(() =>
       buildAcceptedAgentOutputRecord({
         kind: "MACRO_TRANSMISSION",
@@ -201,12 +194,12 @@ describe("AcceptedAgentOutputRecord", () => {
         claimGraph: claimGraph(),
         sourceAgentOutputHash: SOURCE_OUTPUT_HASH,
         context: context({
-          sample_origin: "KNOT_RESEARCH_SHADOW",
-          run_slot_kind: "DOWNSTREAM_ONLY" as never,
-          scheduled_sample_id: null as never,
+          sample_origin: "EXPERIMENT_SHADOW" as never,
+          run_slot_kind: "DOWNSTREAM_ONLY",
+          scheduled_sample_id: null,
         }),
       }),
-    ).toThrow(/must be outcome scheduled/);
+    ).toThrow(/sample_origin must be PRODUCTION_ACTIVE/);
   });
 
   it("stores idempotently and resolves only exact id/hash/kind/owner refs", () => {

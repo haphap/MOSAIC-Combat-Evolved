@@ -5,12 +5,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
-import type { ActivePromptReleaseManifest } from "../src/agents/prompts/prompt_release_contract.js";
+import { releasePromptPairHash } from "../src/agents/prompts/prompt_release_contract.js";
 import type { RuntimeAgentSpec } from "../src/agents/prompts/runtime_agent_spec.js";
 import {
   type PromptCandidate,
   type PromptPromotionDecision,
-  promptBehaviorAlignmentHash,
   promptMutationHypothesis,
   promptMutationSummary,
 } from "../src/autoresearch/prompt_optimizer_contract.js";
@@ -19,9 +18,11 @@ import {
   buildPromptReleaseCanarySloArtifact,
   type PromptReleaseCanaryEvent,
   PromptReleaseCanaryEventJournal,
+  stageSnapshotHashesHash,
 } from "../src/autoresearch/prompt_release_canary_slo.js";
 import {
   activatePromptRelease,
+  buildPromptReleaseBaselineManifest,
   provisionPromptReleaseBaseline,
   rollbackPromptRelease,
   stagePromptRelease,
@@ -30,6 +31,8 @@ import {
 import { ActivePromptReleaseRegistry } from "../src/autoresearch/release_registry.js";
 
 const HASH = `sha256:${"1".repeat(64)}`;
+const EXECUTION_RELEASE_ID = `execution-behavior-release:${"2".repeat(64)}`;
+const EXECUTION_RELEASE_REF = `registry/prompt_checks/execution_behavior_releases/${"2".repeat(64)}--${"1".repeat(64)}.json`;
 const PROMPT_PATHS = {
   zh: "prompts/mosaic/cohort_default/macro/central_bank.zh.md",
   en: "prompts/mosaic/cohort_default/macro/central_bank.en.md",
@@ -200,19 +203,13 @@ function candidate(input: {
     target: { agentId: "central_bank", stage: "agent_run", cohort: "cohort_default" },
     promptRefs: PROMPT_PATHS,
     promptHashes,
-    trainingSnapshotId: "training-1",
-    trainingSnapshotHash: HASH,
+    trainingProjectionHash: HASH,
     excludedSampleIdsHash: HASH,
     mutatorConfigHash: HASH,
     mutatorCommit: "c".repeat(40),
     mutationCategories: [...mutationCategories],
     mutationSummary: promptMutationSummary(mutationCategories),
     hypothesis: promptMutationHypothesis(mutationCategories),
-    alignmentVerifierVersion: "bilingual-alignment-v1",
-    behaviorAlignmentHash: promptBehaviorAlignmentHash({
-      promptHashes,
-      alignmentVerifierVersion: "bilingual-alignment-v1",
-    }),
     behaviorContractHash: HASH,
     privateLineageHash: HASH,
     privateStateArtifactHash: canonicalJsonHash(privateStateArtifact(input.candidateId)),
@@ -329,47 +326,6 @@ function sloArtifact(overrides: Omit<Partial<PromptReleaseCanaryEvent>, "schema_
   };
 }
 
-function approvedBaseline(staged: ActivePromptReleaseManifest): ActivePromptReleaseManifest {
-  return {
-    ...staged,
-    lifecycle_state: "active",
-    activation_scope: { ...staged.activation_scope, traffic_percent: 100 },
-    approved_by: "operator:test",
-    canary_started_at: "2026-07-09T00:00:00.000Z",
-    canary_ended_at: "2026-07-09T01:00:00.000Z",
-    runtime_slo_summary: {
-      passed: true,
-      sample_count: 20,
-      schema_failure_rate: 0,
-      fallback_rate: 0,
-      source_failure_rate: 0,
-      unsupported_influence_rejection_rate: 0,
-      validator_rejection_rate: 0,
-      latency_p95_ms: 100,
-      token_budget_breach_count: 0,
-      duplicate_order_intent_count: 0,
-      exposure_breach_count: 0,
-    },
-    runtime_slo_evidence: {
-      schema_version: "prompt_release_canary_slo_evidence_v1",
-      release_id: staged.release_id,
-      account_mode: staged.activation_scope.account_mode,
-      traffic_percent: 10,
-      canary_started_at: "2026-07-09T00:00:00.000Z",
-      observation_ended_at: "2026-07-09T01:00:00.000Z",
-      eligible_event_count: 20,
-      excluded_event_count: 0,
-      excluded_count_by_reason: {},
-      event_set_hash: HASH,
-      stage_snapshot_hashes_hash: HASH,
-      aggregator_id: "prompt_release_canary_slo",
-      aggregator_version: "1",
-      artifact_hash: HASH,
-    },
-    activated_at: "2026-07-09T01:00:00.000Z",
-  };
-}
-
 describe("prompt release manager", () => {
   it("stages a hash-closed aggregate release and runs audited idempotent lifecycle steps", async () => {
     const parentPromptFiles = {
@@ -420,23 +376,110 @@ describe("prompt release manager", () => {
       cohort: "cohort_default",
       accountMode: "paper" as const,
       approvalPolicyId: "decision_release_manual_v1" as const,
+      executionBehaviorReleaseRef: EXECUTION_RELEASE_REF,
     };
+    let executionPromptCommit = baselinePromptCommit;
     const deps = {
       specs: [SPEC],
       now: () => "2026-07-10T00:00:00.000Z",
       verifyPromotionDecision: async () => undefined,
+      loadExecutionBehaviorRelease: async () => ({
+        execution_behavior_release_id: EXECUTION_RELEASE_ID,
+        execution_behavior_release_hash: HASH,
+        private_prompt_commit: executionPromptCommit,
+      }),
     };
 
     process.env.MOSAIC_PROMPT_RELEASE_AUTHORIZED_OPERATORS = "operator:test";
     const baselineRegistryRoot = mkdtempSync(join(tmpdir(), "mosaic-baseline-source-"));
     roots.push(baselineRegistryRoot);
-    const baselineStaged = await stagePromptRelease(
-      { ...baselineStageOptions, registryRoot: baselineRegistryRoot },
+    executionPromptCommit = "0".repeat(40);
+    await expect(
+      stagePromptRelease({ ...baselineStageOptions, registryRoot: baselineRegistryRoot }, deps),
+    ).rejects.toThrow("prompt_release_execution_behavior_prompt_commit_mismatch");
+    executionPromptCommit = baselinePromptCommit;
+    const baselinePairWithoutHash = {
+      agent: "central_bank",
+      layer: "macro" as const,
+      cohort: "cohort_default",
+      stages: ["agent_run" as const],
+      zh: { path: PROMPT_PATHS.zh, sha256: baselineCandidate.promptHashes.zh },
+      en: { path: PROMPT_PATHS.en, sha256: baselineCandidate.promptHashes.en },
+    };
+    const baselinePairHash = releasePromptPairHash(baselinePairWithoutHash);
+    const baselineDecision = promotionDecision(baselineCandidate.candidateId);
+    const baseline = await buildPromptReleaseBaselineManifest(
+      {
+        releaseId: "baseline-1",
+        privatePromptRepo: privateRepo.root,
+        privatePromptCommit: baselinePromptCommit,
+        codeCommit: codeRepo.commit,
+        codeRepo: codeRepo.root,
+        cohort: "cohort_default",
+        accountMode: "paper",
+        executionBehaviorReleaseRef: EXECUTION_RELEASE_REF,
+        approvalRecord: {
+          schema_version: "prompt_release_baseline_approval_record_v1",
+          approval_policy_id: "decision_release_manual_v1",
+          approved_by: "operator:test",
+          release_evidence: {
+            candidate_id: baselineCandidate.candidateId,
+            candidate_hash: canonicalJsonHash(baselineCandidate),
+            promotion_decision_id: baselineDecision.decisionId,
+            promotion_decision_hash: canonicalJsonHash(baselineDecision),
+            experiment_id: baselineDecision.experimentId,
+            mutated_agent: baselineCandidate.target.agentId,
+            policy_version: baselineDecision.policyVersion,
+            policy_config_hash: baselineDecision.policyConfigHash,
+            candidate_prompt_hashes: baselineCandidate.promptHashes,
+            private_state_artifact_hash: baselineCandidate.privateStateArtifactHash,
+          },
+          canary_started_at: "2026-07-09T00:00:00.000Z",
+          canary_ended_at: "2026-07-09T01:00:00.000Z",
+          runtime_slo_summary: {
+            passed: true,
+            sample_count: 20,
+            schema_failure_rate: 0,
+            fallback_rate: 0,
+            source_failure_rate: 0,
+            unsupported_influence_rejection_rate: 0,
+            validator_rejection_rate: 0,
+            latency_p95_ms: 100,
+            token_budget_breach_count: 0,
+            duplicate_order_intent_count: 0,
+            exposure_breach_count: 0,
+          },
+          runtime_slo_evidence: {
+            schema_version: "prompt_release_canary_slo_evidence_v1",
+            release_id: "baseline-1",
+            account_mode: "paper",
+            traffic_percent: 10,
+            canary_started_at: "2026-07-09T00:00:00.000Z",
+            observation_ended_at: "2026-07-09T01:00:00.000Z",
+            eligible_event_count: 20,
+            excluded_event_count: 0,
+            excluded_count_by_reason: {},
+            event_set_hash: HASH,
+            stage_snapshot_hashes_hash: stageSnapshotHashesHash({
+              "central_bank:agent_run": baselinePairHash,
+            }),
+            aggregator_id: "prompt_release_canary_slo",
+            aggregator_version: "1",
+            artifact_hash: HASH,
+          },
+          created_at: "2026-07-08T00:00:00.000Z",
+          activated_at: "2026-07-09T01:00:00.000Z",
+        },
+      },
       deps,
     );
+    expect(baseline.prompt_pairs).toHaveLength(1);
+    expect(baseline.stage_snapshot_hashes).toEqual({
+      "central_bank:agent_run": baselinePairHash,
+    });
     await provisionPromptReleaseBaseline({
       registryRoot,
-      manifest: approvedBaseline(baselineStaged),
+      manifest: baseline,
       privatePromptRepo: privateRepo.root,
       approvedBy: "operator:test",
       reason: "import previously approved deployment baseline",
@@ -444,6 +487,7 @@ describe("prompt release manager", () => {
       deps: {
         specs: [SPEC],
         verifyPromotionDecision: async () => undefined,
+        loadExecutionBehaviorRelease: deps.loadExecutionBehaviorRelease,
       },
     });
 
@@ -462,6 +506,7 @@ describe("prompt release manager", () => {
       promptFiles,
     });
     const candidatePromptCommit = commitCandidate(privateRepo, promptCandidate, promptFiles);
+    executionPromptCommit = candidatePromptCommit;
     const stageOptions = {
       ...baselineStageOptions,
       releaseId: "release-1",
@@ -529,7 +574,10 @@ describe("prompt release manager", () => {
         sloArtifact: failingSlo.artifact,
         eventJournalPath: failingSlo.eventJournalPath,
         codeRepo: codeRepo.root,
-        deps: { now: () => "2026-07-10T02:00:00.000Z" },
+        deps: {
+          now: () => "2026-07-10T02:00:00.000Z",
+          loadExecutionBehaviorRelease: deps.loadExecutionBehaviorRelease,
+        },
       }),
     ).rejects.toThrow("prompt_release_runtime_slo_failed");
     const staleSlo = sloArtifact({ stage_snapshot_hash: stageSnapshotHash });
@@ -545,7 +593,10 @@ describe("prompt release manager", () => {
         sloArtifact: staleSlo.artifact,
         eventJournalPath: staleSlo.eventJournalPath,
         codeRepo: codeRepo.root,
-        deps: { now: () => "2026-07-10T02:00:00.000Z" },
+        deps: {
+          now: () => "2026-07-10T02:00:00.000Z",
+          loadExecutionBehaviorRelease: deps.loadExecutionBehaviorRelease,
+        },
       }),
     ).rejects.toThrow("prompt_release_canary_slo_journal_closure_mismatch");
     const passingSlo = sloArtifact({ stage_snapshot_hash: stageSnapshotHash });
@@ -557,7 +608,10 @@ describe("prompt release manager", () => {
       sloArtifact: passingSlo.artifact,
       eventJournalPath: passingSlo.eventJournalPath,
       codeRepo: codeRepo.root,
-      deps: { now: () => "2026-07-10T02:00:00.000Z" },
+      deps: {
+        now: () => "2026-07-10T02:00:00.000Z",
+        loadExecutionBehaviorRelease: deps.loadExecutionBehaviorRelease,
+      },
     };
     await activatePromptRelease(activationOptions);
     await activatePromptRelease(activationOptions);

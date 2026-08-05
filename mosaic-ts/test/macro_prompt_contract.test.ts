@@ -6,6 +6,7 @@ import {
   MACRO_PROMPT_COHORT_IDS,
   MACRO_ROLE_CONTRACTS,
   renderMacroPromptBody,
+  TOMBSTONED_MACRO_AGENT_IDS,
 } from "../src/agents/macro/_contracts.js";
 import { renderBundledPrompt } from "../src/agents/prompts/bundled_prompt_renderer.js";
 import { ALL_AGENTS, LAYER_BY_AGENT } from "../src/agents/prompts/cohorts.js";
@@ -13,27 +14,27 @@ import { RUNTIME_AGENT_SPECS } from "../src/agents/prompts/runtime_agent_spec.js
 import { upsertRuntimeEvidenceContract } from "../src/agents/prompts/runtime_evidence_contract.js";
 
 const root = resolve(process.cwd(), "..", "prompts", "mosaic", "cohort_default", "macro");
-const privateManifest = JSON.parse(
+const repositoryRoot = resolve(process.cwd(), "..");
+const promptReleaseContractRef = JSON.parse(
+  readFileSync(
+    resolve(repositoryRoot, "registry", "prompt_checks", "prompt_release_contract_ref_v2.json"),
+    "utf8",
+  ),
+) as { sources: { execution_behavior_release_archive: { path: string } } };
+const executionRelease = JSON.parse(
   readFileSync(
     resolve(
-      process.cwd(),
-      "..",
-      "registry",
-      "prompt_checks",
-      "agent_prompt_role_contract_manifest_v2.json",
+      repositoryRoot,
+      promptReleaseContractRef.sources.execution_behavior_release_archive.path,
     ),
     "utf8",
   ),
 ) as {
-  agents: string[];
-  cohort_count: number;
-  languages: string[];
-  tombstoned_macro_agents: Array<{ agent: string; status: string }>;
   private_prompt_commit: string;
-  prompt_count: number;
-  prompt_tree_sha256: string;
+  private_prompt_bootstrap: { prompt_tree_hash: string };
   execution_behavior_release_id: string;
   execution_behavior_release_hash: string;
+  execution_contracts: Array<{ agent_id: string; language: string }>;
 };
 
 function prompt(agent: string, language: "zh" | "en") {
@@ -50,22 +51,27 @@ describe("generated bundled macro prompts", () => {
   });
 
   it("pins the rebuilt private prompt tree", () => {
-    expect(privateManifest.agents).toEqual(ALL_AGENTS);
-    expect(privateManifest.languages).toEqual(["en", "zh"]);
-    expect(privateManifest.cohort_count).toBe(8);
-    expect(privateManifest.prompt_count).toBe(448);
-    expect(privateManifest.private_prompt_commit).toMatch(/^[0-9a-f]{40}$/);
-    expect(privateManifest.prompt_tree_sha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(privateManifest.execution_behavior_release_id).toMatch(
+    expect(executionRelease.execution_contracts).toHaveLength(56);
+    expect(
+      [...new Set(executionRelease.execution_contracts.map((row) => row.agent_id))].sort(),
+    ).toEqual([...ALL_AGENTS].sort());
+    expect(
+      [...new Set(executionRelease.execution_contracts.map((row) => row.language))].sort(),
+    ).toEqual(["en", "zh"]);
+    expect(executionRelease.private_prompt_commit).toMatch(/^[0-9a-f]{40}$/);
+    expect(executionRelease.private_prompt_bootstrap.prompt_tree_hash).toMatch(
+      /^sha256:[0-9a-f]{64}$/,
+    );
+    expect(executionRelease.execution_behavior_release_id).toMatch(
       /^execution-behavior-release:[0-9a-f]{64}$/,
     );
-    expect(privateManifest.execution_behavior_release_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
-    expect(privateManifest.tombstoned_macro_agents).toEqual([
-      { agent: "dollar", status: "legacy_unverified" },
-      { agent: "yield_curve", status: "legacy_unverified" },
-      { agent: "volatility", status: "legacy_unverified" },
-      { agent: "emerging_markets", status: "legacy_unverified" },
-      { agent: "news_sentiment", status: "legacy_unverified" },
+    expect(executionRelease.execution_behavior_release_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(TOMBSTONED_MACRO_AGENT_IDS).toEqual([
+      "dollar",
+      "yield_curve",
+      "volatility",
+      "emerging_markets",
+      "news_sentiment",
     ]);
   });
 

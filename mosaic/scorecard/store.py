@@ -21,7 +21,6 @@ columns once they're populated).
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import math
@@ -34,10 +33,6 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
 from mosaic.scorecard.macro_aggregation import MACRO_AGENTS as MACRO_AGENT_ORDER
-
-
-def _reject_legacy_knot_write() -> None:
-    raise RuntimeError("legacy_knot_protocol_read_only")
 
 _SCORECARD_SEAL_GUARDS_SQL = """
 CREATE TRIGGER IF NOT EXISTS sealed_recommendations_no_new_rows
@@ -719,12 +714,6 @@ def _render_decision_display_parts(
 
 # Resolve <repoRoot>/data/scorecard.db at import time.
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-_EXECUTION_BEHAVIOR_RELEASE_PATH = (
-    _REPO_ROOT
-    / "registry"
-    / "prompt_checks"
-    / "execution_behavior_release_manifest_v2.json"
-)
 _EXECUTION_BEHAVIOR_RELEASE_ARCHIVE_ROOT = (
     _REPO_ROOT
     / "registry"
@@ -806,13 +795,13 @@ def _load_trusted_execution_behavior_release(
         raise ValueError("trusted execution behavior release archive name mismatch")
     if (
         value.get("schema_version")
-            != "execution_behavior_release_manifest_v2"
-        or
-        not isinstance(value.get("private_prompt_commit"), str)
+        != "execution_behavior_release_manifest_v3"
+        or not isinstance(value.get("private_prompt_bootstrap"), dict)
+        or not isinstance(value.get("private_prompt_commit"), str)
         or not isinstance(value.get("provider_binding"), dict)
         or not isinstance(value.get("active_production_variants"), list)
-        or not isinstance(value.get("variants"), list)
-        or not value["variants"]
+        or not isinstance(value.get("execution_contracts"), list)
+        or not value["execution_contracts"]
     ):
         raise ValueError("trusted execution behavior release is incomplete")
     return value
@@ -853,8 +842,8 @@ CREATE TABLE IF NOT EXISTS recommendations (
     risk_flags_json TEXT,                       -- JSON array of CIO position risk flags
     declared_knob_influence_ids_json TEXT,      -- legacy audit only; new writes are NULL
     declared_influence_rationale TEXT,          -- legacy audit only; new writes are NULL
-    verified_knob_audit_json TEXT,              -- stores the value-free private KNOT audit
-    decision_agent_audits_json TEXT,            -- compact CRO/execution/CIO audit summary
+    verified_knob_audit_json TEXT,              -- legacy audit only; new writes are NULL
+    decision_agent_audits_json TEXT,            -- legacy audit only; new writes are NULL
     dissent_notes TEXT,
     rationale_snapshot TEXT,
     replay_triggered INTEGER NOT NULL DEFAULT 0,  -- 1 = produced by a CRO-veto replay cycle (R-A1)
@@ -1076,15 +1065,6 @@ CREATE INDEX IF NOT EXISTS idx_pv_pending
 
 CREATE INDEX IF NOT EXISTS idx_pv_cohort_agent
     ON prompt_versions(cohort, agent, created_at);
-
-CREATE TABLE IF NOT EXISTS domain_holdout_consumptions (
-    holdout_id TEXT PRIMARY KEY,                -- preregistered untouched holdout hash
-    mutation_id TEXT NOT NULL,
-    prompt_version_id INTEGER NOT NULL,
-    result_hash TEXT NOT NULL,
-    consumed_at TEXT NOT NULL,
-    UNIQUE(mutation_id, holdout_id)
-);
 
 CREATE TABLE IF NOT EXISTS autoresearch_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1353,23 +1333,9 @@ CREATE TABLE IF NOT EXISTS accepted_agent_outputs_v2 (
     track_key_hash TEXT NOT NULL REFERENCES darwinian_v2_evaluation_tracks(track_key_hash),
     agent_id TEXT NOT NULL,
     accepted_output_kind TEXT NOT NULL,
-    sample_origin TEXT NOT NULL CHECK(sample_origin IN (
-        'PRODUCTION_ACTIVE', 'KNOT_RESEARCH_SHADOW',
-        'KNOT_POST_PROMOTION_CHAMPION_SHADOW', 'KNOT_CONTROL_SHADOW'
-    )),
+    sample_origin TEXT NOT NULL CHECK(sample_origin = 'PRODUCTION_ACTIVE'),
     run_slot_kind TEXT NOT NULL CHECK(run_slot_kind IN ('OUTCOME_SCHEDULED', 'DOWNSTREAM_ONLY')),
     scheduled_sample_id TEXT,
-    knot_pair_id TEXT,
-    knot_pair_input_hash TEXT,
-    research_pair_side TEXT CHECK(research_pair_side IN ('CHAMPION', 'CANDIDATE')),
-    capability_id TEXT,
-    capability_signature_hash TEXT,
-    snapshot_bundle_id TEXT,
-    snapshot_bundle_hash TEXT,
-    runtime_input_hash TEXT,
-    prompt_behavior_version TEXT,
-    execution_behavior_version TEXT,
-    evaluation_object_hash TEXT,
     as_of TEXT NOT NULL,
     accepted_at TEXT NOT NULL,
     record_json TEXT NOT NULL,
@@ -1391,17 +1357,6 @@ CREATE TABLE IF NOT EXISTS operational_opportunity_audits_v2 (
     sample_origin TEXT NOT NULL,
     run_slot_kind TEXT NOT NULL CHECK(run_slot_kind IN ('OUTCOME_SCHEDULED', 'DOWNSTREAM_ONLY')),
     scheduled_sample_id TEXT,
-    knot_pair_id TEXT,
-    knot_pair_input_hash TEXT,
-    research_pair_side TEXT CHECK(research_pair_side IN ('CHAMPION', 'CANDIDATE')),
-    capability_id TEXT,
-    capability_signature_hash TEXT,
-    snapshot_bundle_id TEXT,
-    snapshot_bundle_hash TEXT,
-    runtime_input_hash TEXT,
-    prompt_behavior_version TEXT,
-    execution_behavior_version TEXT,
-    evaluation_object_hash TEXT,
     production_reliability_eligible INTEGER NOT NULL CHECK(production_reliability_eligible IN (0, 1)),
     disposition TEXT NOT NULL CHECK(disposition IN (
         'ACCEPTED', 'AGENT_FAILURE', 'EXOGENOUS_EXCLUSION',
@@ -1447,17 +1402,6 @@ CREATE TABLE IF NOT EXISTS agent_outcome_eligibility_revisions_v2 (
     track_key_hash TEXT NOT NULL REFERENCES darwinian_v2_evaluation_tracks(track_key_hash),
     agent_id TEXT NOT NULL,
     sample_origin TEXT NOT NULL,
-    research_pair_side TEXT CHECK(research_pair_side IN ('CHAMPION', 'CANDIDATE')),
-    knot_pair_id TEXT,
-    knot_pair_input_hash TEXT,
-    capability_id TEXT,
-    capability_signature_hash TEXT,
-    snapshot_bundle_id TEXT,
-    snapshot_bundle_hash TEXT,
-    runtime_input_hash TEXT,
-    prompt_behavior_version TEXT,
-    execution_behavior_version TEXT,
-    evaluation_object_hash TEXT,
     accepted_output_hash TEXT,
     operational_opportunity_audit_id TEXT,
     operational_opportunity_audit_hash TEXT,
@@ -2151,9 +2095,6 @@ def expand_state_to_recommendations(state: dict[str, Any]) -> list[dict[str, Any
     # ── Layer 4 cio only (other L4 agents don't carry tickers per se) ────
     layer4 = state.get("layer4_outputs") or {}
     cio = layer4.get("cio") if isinstance(layer4, dict) else None
-    decision_agent_audits_json = (
-        _decision_agent_audits_json(layer4) if isinstance(layer4, dict) else None
-    )
     if isinstance(cio, dict):
         for action_obj in cio.get("portfolio_actions", []) or []:
             ticker = action_obj.get("ticker")
@@ -2188,10 +2129,8 @@ def expand_state_to_recommendations(state: dict[str, Any]) -> list[dict[str, Any
                     # private KNOT identifiers never cross the runtime boundary.
                     "declared_knob_influence_ids_json": None,
                     "declared_influence_rationale": None,
-                    "verified_knob_audit_json": _json_object_or_none(
-                        cio.get("private_knot_audit")
-                    ),
-                    "decision_agent_audits_json": decision_agent_audits_json,
+                    "verified_knob_audit_json": None,
+                    "decision_agent_audits_json": None,
                     "dissent_notes": action_obj.get("dissent_notes"),
                     "rationale_snapshot": _truncate(
                         action_obj.get("dissent_notes") or action_obj.get("thesis"),
@@ -2356,15 +2295,7 @@ def _expand_formal_accepted_recommendations(
                         "declared_knob_influence_ids_json": None,
                         "declared_influence_rationale": None,
                         "verified_knob_audit_json": None,
-                        "decision_agent_audits_json": _json_list_or_none(
-                            [
-                                audit
-                                for audit in state.get("agent_run_audits") or []
-                                if isinstance(audit, dict)
-                                and audit.get("agent")
-                                in {"alpha_discovery", "cro", "autonomous_execution", "cio"}
-                            ]
-                        ),
+                        "decision_agent_audits_json": None,
                         "dissent_notes": None,
                         "rationale_snapshot": _truncate(
                             decision.get("decision_reason"), 200
@@ -2407,38 +2338,6 @@ def _json_list_or_none(value: Any) -> str | None:
     if not isinstance(value, list):
         return None
     return json.dumps([str(item) for item in value], ensure_ascii=False)
-
-
-def _json_object_or_none(value: Any) -> str | None:
-    if not isinstance(value, dict):
-        return None
-    return json.dumps(value, ensure_ascii=False, sort_keys=True)
-
-
-def _decision_agent_audits_json(layer4: dict[str, Any]) -> str | None:
-    rows: dict[str, dict[str, Any]] = {}
-    for agent in ("cro", "autonomous_execution", "cio"):
-        output = layer4.get(agent)
-        if not isinstance(output, dict):
-            continue
-        row: dict[str, Any] = {}
-        audit = output.get("private_knot_audit")
-        if isinstance(audit, dict):
-            for key in (
-                "snapshot_hash",
-                "accepted",
-                "output_selection",
-                "reason_codes",
-                "tool_status_summary",
-                "runtime_source_status_summary",
-            ):
-                if key in audit:
-                    row[key] = audit[key]
-        if row:
-            rows[agent] = row
-    if not rows:
-        return None
-    return json.dumps(rows, ensure_ascii=False, sort_keys=True)
 
 
 # ---------------------------------------------------------------------------
@@ -2717,41 +2616,6 @@ class ScorecardStore:
             self._ensure_column(
                 conn,
                 "agent_outcome_eligibility_revisions_v2",
-                "research_pair_side",
-                "TEXT CHECK(research_pair_side IN ('CHAMPION', 'CANDIDATE'))",
-            )
-            knot_lineage_columns = (
-                ("knot_pair_id", "TEXT"),
-                ("knot_pair_input_hash", "TEXT"),
-                (
-                    "research_pair_side",
-                    "TEXT CHECK(research_pair_side IN ('CHAMPION', 'CANDIDATE'))",
-                ),
-                ("capability_id", "TEXT"),
-                ("capability_signature_hash", "TEXT"),
-                ("snapshot_bundle_id", "TEXT"),
-                ("snapshot_bundle_hash", "TEXT"),
-                ("runtime_input_hash", "TEXT"),
-                ("prompt_behavior_version", "TEXT"),
-                ("execution_behavior_version", "TEXT"),
-                ("evaluation_object_hash", "TEXT"),
-            )
-            for table in (
-                "accepted_agent_outputs_v2",
-                "operational_opportunity_audits_v2",
-            ):
-                for column, ddl in knot_lineage_columns:
-                    self._ensure_column(conn, table, column, ddl)
-            for column, ddl in knot_lineage_columns:
-                self._ensure_column(
-                    conn,
-                    "agent_outcome_eligibility_revisions_v2",
-                    column,
-                    ddl,
-                )
-            self._ensure_column(
-                conn,
-                "agent_outcome_eligibility_revisions_v2",
                 "accepted_output_hash",
                 "TEXT",
             )
@@ -2767,7 +2631,6 @@ class ScorecardStore:
                 "operational_opportunity_audit_hash",
                 "TEXT",
             )
-            self._install_knot_lineage_guards(conn)
 
     def _ensure_column(
         self, conn: sqlite3.Connection, table: str, column: str, ddl: str
@@ -2775,165 +2638,6 @@ class ScorecardStore:
         cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
         if column not in cols:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
-
-    @staticmethod
-    def _install_knot_lineage_guards(conn: sqlite3.Connection) -> None:
-        conn.executescript(
-            """
-            DROP INDEX IF EXISTS uq_accepted_knot_pair_side_v2;
-            DROP INDEX IF EXISTS uq_operational_knot_pair_side_v2;
-            CREATE UNIQUE INDEX IF NOT EXISTS uq_accepted_knot_pair_side_v2
-                ON accepted_agent_outputs_v2(knot_pair_id, research_pair_side)
-                WHERE knot_pair_id IS NOT NULL AND agent_id <> 'cio';
-            CREATE UNIQUE INDEX IF NOT EXISTS uq_accepted_knot_cio_phase_v2
-                ON accepted_agent_outputs_v2(
-                    knot_pair_id, research_pair_side, accepted_output_kind
-                )
-                WHERE knot_pair_id IS NOT NULL AND agent_id = 'cio';
-            CREATE UNIQUE INDEX IF NOT EXISTS uq_operational_knot_pair_side_v2
-                ON operational_opportunity_audits_v2(knot_pair_id, research_pair_side)
-                WHERE knot_pair_id IS NOT NULL AND agent_id <> 'cio';
-            CREATE UNIQUE INDEX IF NOT EXISTS uq_operational_knot_cio_phase_v2
-                ON operational_opportunity_audits_v2(
-                    knot_pair_id,
-                    research_pair_side,
-                    COALESCE(json_extract(record_json, '$.accepted_output_kind'), '')
-                )
-                WHERE knot_pair_id IS NOT NULL AND agent_id = 'cio';
-
-            CREATE TRIGGER IF NOT EXISTS require_accepted_knot_lineage_v2
-            BEFORE INSERT ON accepted_agent_outputs_v2
-            WHEN NEW.sample_origin IN (
-                'KNOT_RESEARCH_SHADOW', 'KNOT_POST_PROMOTION_CHAMPION_SHADOW'
-            ) AND (
-                NEW.knot_pair_id IS NULL OR NEW.knot_pair_input_hash IS NULL OR
-                NEW.research_pair_side IS NULL OR NEW.capability_id IS NULL OR
-                NEW.capability_signature_hash IS NULL OR
-                NEW.snapshot_bundle_id IS NULL OR NEW.snapshot_bundle_hash IS NULL OR
-                NEW.runtime_input_hash IS NULL OR
-                NEW.prompt_behavior_version IS NULL OR
-                NEW.execution_behavior_version IS NULL OR
-                NEW.evaluation_object_hash IS NULL
-            ) BEGIN
-                SELECT RAISE(ABORT, 'KNOT accepted output requires complete lineage');
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS forbid_production_accepted_knot_lineage_v2
-            BEFORE INSERT ON accepted_agent_outputs_v2
-            WHEN NEW.sample_origin = 'PRODUCTION_ACTIVE' AND (
-                NEW.knot_pair_id IS NOT NULL OR NEW.knot_pair_input_hash IS NOT NULL OR
-                NEW.research_pair_side IS NOT NULL OR NEW.capability_id IS NOT NULL OR
-                NEW.capability_signature_hash IS NOT NULL OR
-                NEW.snapshot_bundle_id IS NOT NULL OR NEW.snapshot_bundle_hash IS NOT NULL OR
-                NEW.runtime_input_hash IS NOT NULL OR
-                NEW.evaluation_object_hash IS NOT NULL OR
-                json_type(NEW.record_json, '$.knot_pair_id') IS NOT NULL OR
-                json_type(NEW.record_json, '$.knot_pair_input_hash') IS NOT NULL OR
-                json_type(NEW.record_json, '$.research_pair_side') IS NOT NULL OR
-                json_type(NEW.record_json, '$.capability_id') IS NOT NULL OR
-                json_type(NEW.record_json, '$.capability_signature_hash') IS NOT NULL OR
-                json_type(NEW.record_json, '$.snapshot_bundle_id') IS NOT NULL OR
-                json_type(NEW.record_json, '$.snapshot_bundle_hash') IS NOT NULL OR
-                json_type(NEW.record_json, '$.runtime_input_hash') IS NOT NULL OR
-                json_type(NEW.record_json, '$.evaluation_object_hash') IS NOT NULL
-            ) BEGIN
-                SELECT RAISE(ABORT, 'production accepted output cannot carry KNOT lineage');
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS require_operational_knot_lineage_v2
-            BEFORE INSERT ON operational_opportunity_audits_v2
-            WHEN NEW.sample_origin IN (
-                'KNOT_RESEARCH_SHADOW', 'KNOT_POST_PROMOTION_CHAMPION_SHADOW'
-            ) AND NEW.disposition IN ('ACCEPTED', 'AGENT_FAILURE') AND (
-                NEW.knot_pair_id IS NULL OR NEW.knot_pair_input_hash IS NULL OR
-                NEW.research_pair_side IS NULL OR NEW.capability_id IS NULL OR
-                NEW.capability_signature_hash IS NULL OR
-                NEW.snapshot_bundle_id IS NULL OR NEW.snapshot_bundle_hash IS NULL OR
-                NEW.runtime_input_hash IS NULL OR
-                NEW.prompt_behavior_version IS NULL OR
-                NEW.execution_behavior_version IS NULL OR
-                (NEW.disposition = 'ACCEPTED' AND NEW.evaluation_object_hash IS NULL)
-            ) BEGIN
-                SELECT RAISE(ABORT, 'KNOT operational audit requires complete lineage');
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS forbid_production_operational_knot_lineage_v2
-            BEFORE INSERT ON operational_opportunity_audits_v2
-            WHEN NEW.sample_origin = 'PRODUCTION_ACTIVE' AND (
-                NEW.knot_pair_id IS NOT NULL OR NEW.knot_pair_input_hash IS NOT NULL OR
-                NEW.research_pair_side IS NOT NULL OR NEW.capability_id IS NOT NULL OR
-                NEW.capability_signature_hash IS NOT NULL OR
-                NEW.snapshot_bundle_id IS NOT NULL OR NEW.snapshot_bundle_hash IS NOT NULL OR
-                NEW.runtime_input_hash IS NOT NULL OR
-                NEW.evaluation_object_hash IS NOT NULL OR
-                json_type(NEW.record_json, '$.knot_pair_id') IS NOT NULL OR
-                json_type(NEW.record_json, '$.knot_pair_input_hash') IS NOT NULL OR
-                json_type(NEW.record_json, '$.research_pair_side') IS NOT NULL OR
-                json_type(NEW.record_json, '$.capability_id') IS NOT NULL OR
-                json_type(NEW.record_json, '$.capability_signature_hash') IS NOT NULL OR
-                json_type(NEW.record_json, '$.snapshot_bundle_id') IS NOT NULL OR
-                json_type(NEW.record_json, '$.snapshot_bundle_hash') IS NOT NULL OR
-                json_type(NEW.record_json, '$.runtime_input_hash') IS NOT NULL OR
-                json_type(NEW.record_json, '$.evaluation_object_hash') IS NOT NULL
-            ) BEGIN
-                SELECT RAISE(ABORT, 'production operational audit cannot carry KNOT lineage');
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS require_eligibility_knot_lineage_v2
-            BEFORE INSERT ON agent_outcome_eligibility_revisions_v2
-            WHEN NEW.sample_origin IN (
-                'KNOT_RESEARCH_SHADOW', 'KNOT_POST_PROMOTION_CHAMPION_SHADOW'
-            ) AND (
-                NEW.knot_pair_id IS NULL OR NEW.knot_pair_input_hash IS NULL OR
-                NEW.research_pair_side IS NULL OR NEW.capability_id IS NULL OR
-                NEW.capability_signature_hash IS NULL OR
-                NEW.snapshot_bundle_id IS NULL OR NEW.snapshot_bundle_hash IS NULL OR
-                NEW.runtime_input_hash IS NULL OR
-                NEW.prompt_behavior_version IS NULL OR
-                NEW.execution_behavior_version IS NULL OR
-                NEW.operational_opportunity_audit_id IS NULL OR
-                NEW.operational_opportunity_audit_hash IS NULL OR
-                (NEW.disposition IN ('PENDING', 'SCORE') AND (
-                    NEW.evaluation_object_hash IS NULL OR
-                    NEW.accepted_output_hash IS NULL
-                ))
-            ) BEGIN
-                SELECT RAISE(ABORT, 'KNOT eligibility requires complete lineage');
-            END;
-
-            CREATE TRIGGER IF NOT EXISTS forbid_production_eligibility_knot_lineage_v2
-            BEFORE INSERT ON agent_outcome_eligibility_revisions_v2
-            WHEN NEW.sample_origin = 'PRODUCTION_ACTIVE' AND (
-                NEW.knot_pair_id IS NOT NULL OR NEW.knot_pair_input_hash IS NOT NULL OR
-                NEW.research_pair_side IS NOT NULL OR NEW.capability_id IS NOT NULL OR
-                NEW.capability_signature_hash IS NOT NULL OR
-                NEW.snapshot_bundle_id IS NOT NULL OR NEW.snapshot_bundle_hash IS NOT NULL OR
-                NEW.runtime_input_hash IS NOT NULL OR
-                NEW.evaluation_object_hash IS NOT NULL OR
-                NEW.operational_opportunity_audit_id IS NOT NULL OR
-                NEW.operational_opportunity_audit_hash IS NOT NULL OR
-                json_type(NEW.record_json, '$.knot_pair_id') IS NOT NULL OR
-                json_type(NEW.record_json, '$.knot_pair_input_hash') IS NOT NULL OR
-                json_type(NEW.record_json, '$.research_pair_side') IS NOT NULL OR
-                json_type(NEW.record_json, '$.capability_id') IS NOT NULL OR
-                json_type(NEW.record_json, '$.capability_signature_hash') IS NOT NULL OR
-                json_type(NEW.record_json, '$.snapshot_bundle_id') IS NOT NULL OR
-                json_type(NEW.record_json, '$.snapshot_bundle_hash') IS NOT NULL OR
-                json_type(NEW.record_json, '$.runtime_input_hash') IS NOT NULL OR
-                json_type(NEW.record_json, '$.evaluation_object_hash') IS NOT NULL OR
-                json_type(
-                    NEW.record_json, '$.operational_opportunity_audit_id'
-                ) IS NOT NULL OR
-                json_type(
-                    NEW.record_json, '$.operational_opportunity_audit_hash'
-                ) IS NOT NULL
-            ) BEGIN
-                SELECT RAISE(ABORT, 'production eligibility cannot carry KNOT lineage');
-            END;
-            """
-        )
-
-    # ── Darwinian v2 immutable contracts ────────────────────────────────
 
     def register_darwinian_production_variant(
         self,
@@ -3157,90 +2861,6 @@ class ScorecardStore:
             if existing is None or existing[0] != record_json:
                 raise ValueError("conflicting immutable accepted scorecard run")
         return record
-
-    def append_knot_pair_side_execution_result(
-        self,
-        *,
-        knot_pair_id: str,
-        pair_side: str,
-        graph_run_id: str,
-        run_id: str,
-        result_disposition: str,
-        recorded_at: str,
-        validated_output: Mapping[str, Any] | None = None,
-        strict_receipt_verifier: Any | None = None,
-        failure_reason: str | None = None,
-        cio_failure_phase: str | None = None,
-        cio_output_phase: str | None = None,
-    ) -> dict[str, Any]:
-        _reject_legacy_knot_write()
-        from mosaic.scorecard.knot_v2 import append_knot_pair_side_execution_result
-
-        with self._connect() as conn:
-            return append_knot_pair_side_execution_result(
-                conn,
-                knot_pair_id=knot_pair_id,
-                pair_side=pair_side,
-                graph_run_id=graph_run_id,
-                run_id=run_id,
-                result_disposition=result_disposition,
-                recorded_at=recorded_at,
-                validated_output=validated_output,
-                strict_receipt_verifier=strict_receipt_verifier,
-                failure_reason=failure_reason,
-                cio_failure_phase=cio_failure_phase,
-                cio_output_phase=cio_output_phase,
-            )
-
-    def append_knot_cio_proposal_execution_result(
-        self,
-        *,
-        knot_pair_id: str,
-        pair_side: str,
-        graph_run_id: str,
-        run_id: str,
-        result_disposition: str,
-        recorded_at: str,
-        validated_output: Mapping[str, Any],
-        strict_receipt_verifier: Any,
-        failure_reason: str | None = None,
-        cio_failure_phase: str | None = None,
-        cio_output_phase: str | None = None,
-    ) -> dict[str, Any]:
-        """Persist a CIO proposal and its dependency ref in one transaction."""
-        _reject_legacy_knot_write()
-        from mosaic.scorecard.knot_v2 import (
-            append_knot_cio_proposal_ref,
-            append_knot_pair_side_execution_result,
-        )
-
-        with self._connect() as conn:
-            result = append_knot_pair_side_execution_result(
-                conn,
-                knot_pair_id=knot_pair_id,
-                pair_side=pair_side,
-                graph_run_id=graph_run_id,
-                run_id=run_id,
-                result_disposition=result_disposition,
-                recorded_at=recorded_at,
-                validated_output=validated_output,
-                strict_receipt_verifier=strict_receipt_verifier,
-                failure_reason=failure_reason,
-                cio_failure_phase=cio_failure_phase,
-                cio_output_phase=cio_output_phase,
-            )
-            proposal_output_id = result.get("proposal_output_id")
-            if not isinstance(proposal_output_id, str) or not proposal_output_id:
-                raise ValueError("accepted CIO proposal did not persist a proposal ID")
-            proposal_ref = append_knot_cio_proposal_ref(
-                conn,
-                knot_pair_id=knot_pair_id,
-                pair_side=pair_side,
-                graph_run_id=graph_run_id,
-                proposal_accepted_output_id=proposal_output_id,
-                recorded_at=recorded_at,
-            )
-            return {**result, "cio_proposal_ref": proposal_ref}
 
     def append_and_seal_outcome_source_batch(
         self,
@@ -3527,7 +3147,7 @@ class ScorecardStore:
                 trading_dates=trading_dates,
             )
 
-    def build_prompt_training_history(
+    def build_prompt_training_projection(
         self,
         *,
         agent_id: str,
@@ -3536,13 +3156,13 @@ class ScorecardStore:
         cutoff_at: str,
         excluded_sample_ids: Sequence[str] = (),
     ) -> dict[str, Any]:
-        """Export sealed training-only history for the private KNOT mutator."""
+        """Export the frozen public evaluation projection consumed by KNOT."""
         from mosaic.scorecard.prompt_training_history import (
-            build_prompt_training_history,
+            build_prompt_training_projection,
         )
 
         with self._connect() as conn:
-            return build_prompt_training_history(
+            return build_prompt_training_projection(
                 conn,
                 agent_id=agent_id,
                 stage=stage,
@@ -3550,174 +3170,6 @@ class ScorecardStore:
                 cutoff_at=cutoff_at,
                 excluded_sample_ids=excluded_sample_ids,
             )
-
-    def register_knot_research_track(
-        self,
-        *,
-        knot_nomination_audit_id: str,
-        production_variant_roster_revision_id: str,
-        target_evaluation_track_key_hash: str,
-        mutation_definition: Mapping[str, Any],
-        created_at: str,
-    ) -> dict[str, Any]:
-        _reject_legacy_knot_write()
-        from mosaic.scorecard.knot_v2 import (
-            build_knot_mutation_manifest,
-            register_knot_research_track,
-        )
-
-        with self._connect() as conn:
-            revision_row = conn.execute(
-                "SELECT execution_behavior_release_id "
-                "FROM darwinian_v2_production_variant_roster_revisions "
-                "WHERE production_variant_roster_revision_id = ?",
-                (production_variant_roster_revision_id,),
-            ).fetchone()
-            if revision_row is None:
-                raise ValueError("unknown production variant roster revision")
-            release = _load_trusted_execution_behavior_release(
-                str(revision_row["execution_behavior_release_id"])
-            )
-            mutation_manifest = build_knot_mutation_manifest(
-                mutation_definition=mutation_definition,
-                execution_release_manifest=release,
-                built_at=created_at,
-            )
-            return register_knot_research_track(
-                conn,
-                knot_nomination_audit_id=knot_nomination_audit_id,
-                production_variant_roster_revision_id=(
-                    production_variant_roster_revision_id
-                ),
-                target_evaluation_track_key_hash=target_evaluation_track_key_hash,
-                mutation_manifest=mutation_manifest,
-                execution_release_manifest=release,
-                created_at=created_at,
-            )
-
-    def publish_knot_nomination_audit(self, **kwargs: Any) -> dict[str, Any]:
-        _reject_legacy_knot_write()
-        from mosaic.scorecard.knot_v2 import publish_knot_nomination_audit
-
-        with self._connect() as conn:
-            return publish_knot_nomination_audit(conn, **kwargs)
-
-    def preregister_knot_pair_assignment(self, **kwargs: Any) -> dict[str, Any]:
-        _reject_legacy_knot_write()
-        from mosaic.scorecard.knot_v2 import preregister_knot_pair_assignment
-
-        with self._connect() as conn:
-            return preregister_knot_pair_assignment(conn, **kwargs)
-
-    def publish_knot_research_schedule(self, **kwargs: Any) -> dict[str, Any]:
-        _reject_legacy_knot_write()
-        from mosaic.scorecard.knot_v2 import publish_knot_research_schedule
-
-        with self._connect() as conn:
-            return publish_knot_research_schedule(conn, **kwargs)
-
-    def freeze_knot_pair_input(self, **kwargs: Any) -> dict[str, Any]:
-        _reject_legacy_knot_write()
-        from mosaic.scorecard.knot_v2 import freeze_knot_pair_input
-
-        with self._connect() as conn:
-            return freeze_knot_pair_input(conn, **kwargs)
-
-    def resolve_knot_strict_schema_binding(self, **kwargs: Any) -> dict[str, Any]:
-        from mosaic.scorecard.knot_v2 import resolve_knot_strict_schema_binding
-
-        with self._connect() as conn:
-            return resolve_knot_strict_schema_binding(conn, **kwargs)
-
-    def resolve_knot_control_strict_schema_binding(
-        self, **kwargs: Any
-    ) -> dict[str, Any]:
-        from mosaic.scorecard.knot_v2 import (
-            resolve_knot_control_strict_schema_binding,
-        )
-
-        with self._connect() as conn:
-            return resolve_knot_control_strict_schema_binding(conn, **kwargs)
-
-    def append_knot_research_score_record(self, **kwargs: Any) -> dict[str, Any]:
-        _reject_legacy_knot_write()
-        from mosaic.scorecard.knot_v2 import append_knot_research_score_record
-
-        with self._connect() as conn:
-            return append_knot_research_score_record(conn, **kwargs)
-
-    def append_knot_sector_inference_cost_audit(
-        self, **kwargs: Any
-    ) -> dict[str, Any]:
-        _reject_legacy_knot_write()
-        from mosaic.scorecard.knot_v2 import append_knot_sector_inference_cost_audit
-
-        with self._connect() as conn:
-            return append_knot_sector_inference_cost_audit(conn, **kwargs)
-
-    def resolve_knot_sector_usage_binding(self, **kwargs: Any) -> dict[str, Any]:
-        from mosaic.scorecard.knot_v2 import resolve_knot_sector_usage_binding
-
-        with self._connect() as conn:
-            return resolve_knot_sector_usage_binding(conn, **kwargs)
-
-    def append_knot_control_dependency_result(self, **kwargs: Any) -> dict[str, Any]:
-        _reject_legacy_knot_write()
-        from mosaic.scorecard.knot_v2 import append_knot_control_dependency_result
-
-        with self._connect() as conn:
-            return append_knot_control_dependency_result(conn, **kwargs)
-
-    def append_knot_cio_dependency_blocked_audit(self, **kwargs: Any) -> dict[str, Any]:
-        _reject_legacy_knot_write()
-        from mosaic.scorecard.knot_v2 import append_knot_cio_dependency_blocked_audit
-
-        with self._connect() as conn:
-            return append_knot_cio_dependency_blocked_audit(conn, **kwargs)
-
-    def finalize_knot_pair(self, **kwargs: Any) -> dict[str, Any]:
-        _reject_legacy_knot_write()
-        from mosaic.scorecard.knot_v2 import finalize_knot_pair
-
-        with self._connect() as conn:
-            return finalize_knot_pair(conn, **kwargs)
-
-    def publish_knot_promotion_revision(self, **kwargs: Any) -> dict[str, Any]:
-        _reject_legacy_knot_write()
-        from mosaic.scorecard.knot_v2 import publish_knot_promotion_revision
-
-        release_id = kwargs.get("new_execution_behavior_release_id")
-        kwargs["new_execution_release_manifest"] = (
-            _load_trusted_execution_behavior_release(release_id)
-            if isinstance(release_id, str) and release_id
-            else None
-        )
-        with self._connect() as conn:
-            return publish_knot_promotion_revision(conn, **kwargs)
-
-    def publish_knot_promotion_batch(self, **kwargs: Any) -> dict[str, Any]:
-        _reject_legacy_knot_write()
-        from mosaic.scorecard.knot_v2 import publish_knot_promotion_batch
-
-        release_id = kwargs.get("new_execution_behavior_release_id")
-        kwargs["new_execution_release_manifest"] = (
-            _load_trusted_execution_behavior_release(str(release_id))
-        )
-        with self._connect() as conn:
-            return publish_knot_promotion_batch(conn, **kwargs)
-
-    def publish_knot_rollback_revision(self, **kwargs: Any) -> dict[str, Any]:
-        _reject_legacy_knot_write()
-        from mosaic.scorecard.knot_v2 import publish_knot_rollback_revision
-
-        release_id = kwargs.get("new_execution_behavior_release_id")
-        kwargs["new_execution_release_manifest"] = (
-            _load_trusted_execution_behavior_release(str(release_id))
-        )
-        with self._connect() as conn:
-            return publish_knot_rollback_revision(conn, **kwargs)
-
-    # ── recommendations ──────────────────────────────────────────────────
 
     def append_from_state(
         self,
@@ -3796,8 +3248,8 @@ class ScorecardStore:
         """Persist the exact 28-Agent UI narrative sidecar for one live run.
 
         The bundle is derived by TypeScript from accepted structured outputs.
-        It is intentionally stored outside recommendation, outcome, Darwinian,
-        and KNOT tables so no decision or evaluation path can consume it.
+        It is intentionally stored outside recommendation, outcome, and
+        Darwinian inputs so no decision or evaluation path can consume it.
         """
         bundle = state.get("agent_display_narratives")
         if not isinstance(bundle, dict):
@@ -5445,443 +4897,7 @@ class ScorecardStore:
                 )
             return cur.rowcount
 
-    # ── prompt_versions (Phase 4 autoresearch, Plan §7 / §11.5 4A) ────────
-
-    def create_prompt_version(
-        self,
-        *,
-        cohort: str,
-        agent: str,
-        branch_name: str,
-        base_commit_hash: str,
-        code_commit_hash: Optional[str] = None,
-        created_at: Optional[str] = None,
-    ) -> int:
-        """Open a pending prompt-version row (the "shell" created by
-        ``autoresearch.trigger`` before the TS mutator has produced content).
-
-        Idempotent on ``branch_name``: re-calling with an existing branch
-        returns the existing row's id (so a re-triggered cycle for the same
-        (cohort, agent, date) doesn't create duplicates).
-        """
-        created_at = created_at or _utcnow_iso()
-        with self._connect() as conn:
-            cur = conn.execute(
-                """
-                INSERT INTO prompt_versions (
-                    cohort, agent, branch_name, base_commit_hash,
-                    code_commit_hash, created_at, status
-                ) VALUES (?, ?, ?, ?, ?, ?, 'pending')
-                ON CONFLICT(branch_name) DO UPDATE SET branch_name = branch_name
-                RETURNING id
-                """,
-                (
-                    cohort,
-                    agent,
-                    branch_name,
-                    base_commit_hash,
-                    code_commit_hash or base_commit_hash,
-                    created_at,
-                ),
-            )
-            return int(cur.fetchone()["id"])
-
-    def set_version_mutation(
-        self,
-        version_id: int,
-        modification_commit_hash: str,
-        modification_summary: Optional[str] = None,
-        *,
-        prompt_repo_id: Optional[str] = None,
-        prompt_base_commit_hash: Optional[str] = None,
-        prompt_sha256: Optional[str] = None,
-        code_commit_hash: Optional[str] = None,
-        mutation_metadata: Optional[dict[str, Any]] = None,
-    ) -> None:
-        """Back-fill the mutation commit + summary once the TS mutator has
-        written and committed the rewrite (``autoresearch.record_mutation``)."""
-        metadata_json = _json_object_or_none(mutation_metadata)
-        mutation_id = None
-        transaction_id = None
-        experiment_id = None
-        mutation_lifecycle = None
-        if mutation_metadata is not None:
-            mutation_id = mutation_metadata.get("mutation_id")
-            transaction_id = mutation_metadata.get("transaction_id")
-            experiment_id = mutation_metadata.get("experiment_id")
-            for field, value in (
-                ("mutation_id", mutation_id),
-                ("transaction_id", transaction_id),
-                ("experiment_id", experiment_id),
-            ):
-                if not isinstance(value, str) or not value:
-                    raise ValueError(f"mutation metadata {field} must be a non-empty string")
-            mutation_lifecycle = "proposed"
-        with self._connect() as conn:
-            cur = conn.execute(
-                """
-                UPDATE prompt_versions
-                SET modification_commit_hash = :mod,
-                    modification_summary = :summary,
-                    prompt_repo_id = COALESCE(:prompt_repo_id, prompt_repo_id),
-                    prompt_base_commit_hash = COALESCE(:prompt_base_commit_hash, prompt_base_commit_hash),
-                    prompt_sha256 = COALESCE(:prompt_sha256, prompt_sha256),
-                    code_commit_hash = COALESCE(:code_commit_hash, code_commit_hash),
-                    mutation_id = COALESCE(:mutation_id, mutation_id),
-                    transaction_id = COALESCE(:transaction_id, transaction_id),
-                    experiment_id = COALESCE(:experiment_id, experiment_id),
-                    mutation_metadata_json = COALESCE(:mutation_metadata_json, mutation_metadata_json),
-                    mutation_lifecycle = COALESCE(:mutation_lifecycle, mutation_lifecycle)
-                WHERE id = :id
-                """,
-                {
-                    "id": version_id,
-                    "mod": modification_commit_hash,
-                    "summary": _truncate(modification_summary, 1000),
-                    "prompt_repo_id": prompt_repo_id,
-                    "prompt_base_commit_hash": prompt_base_commit_hash,
-                    "prompt_sha256": prompt_sha256,
-                    "code_commit_hash": code_commit_hash,
-                    "mutation_id": mutation_id,
-                    "transaction_id": transaction_id,
-                    "experiment_id": experiment_id,
-                    "mutation_metadata_json": metadata_json,
-                    "mutation_lifecycle": mutation_lifecycle,
-                },
-            )
-            if cur.rowcount == 0:
-                logger.warning(
-                    "set_version_mutation: no prompt_version id=%s", version_id
-                )
-
-    def set_version_eval(
-        self,
-        version_id: int,
-        pre_sharpe: Optional[float],
-        post_sharpe: Optional[float],
-        delta_sharpe: Optional[float],
-    ) -> None:
-        """Record the backtest evaluation (Plan §11.5 4C ``compute_delta``)."""
-        with self._connect() as conn:
-            cur = conn.execute(
-                """
-                UPDATE prompt_versions
-                SET pre_sharpe = :pre, post_sharpe = :post, delta_sharpe = :delta
-                WHERE id = :id
-                """,
-                {
-                    "id": version_id,
-                    "pre": pre_sharpe,
-                    "post": post_sharpe,
-                    "delta": delta_sharpe,
-                },
-            )
-            if cur.rowcount == 0:
-                logger.warning("set_version_eval: no prompt_version id=%s", version_id)
-
-    def set_version_mutation_lifecycle(
-        self,
-        version_id: int,
-        lifecycle: str,
-        *,
-        decided_at: Optional[str] = None,
-    ) -> None:
-        """Apply one legal domain mutation lifecycle transition."""
-        if lifecycle not in _DOMAIN_MUTATION_LIFECYCLE_TRANSITIONS:
-            raise ValueError(f"unknown domain mutation lifecycle: {lifecycle!r}")
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT mutation_lifecycle FROM prompt_versions WHERE id = ?",
-                (version_id,),
-            ).fetchone()
-            if row is None:
-                raise ValueError(f"prompt_version {version_id} not found")
-            current = row["mutation_lifecycle"]
-            if current == lifecycle:
-                return
-            allowed = _DOMAIN_MUTATION_LIFECYCLE_TRANSITIONS.get(current, set())
-            if lifecycle not in allowed:
-                raise ValueError(
-                    f"illegal domain mutation lifecycle transition: {current!r} -> {lifecycle!r}"
-                )
-            status = None
-            if lifecycle == "kept":
-                status = "keep"
-            elif lifecycle == "reverted":
-                status = "revert"
-            elif lifecycle == "invalid":
-                status = "invalid"
-            terminal_at = decided_at or (_utcnow_iso() if status else None)
-            conn.execute(
-                """
-                UPDATE prompt_versions
-                SET mutation_lifecycle = ?,
-                    status = COALESCE(?, status),
-                    decided_at = COALESCE(?, decided_at)
-                WHERE id = ?
-                """,
-                (lifecycle, status, terminal_at, version_id),
-            )
-
-    def set_domain_evaluation_result(
-        self, version_id: int, result: dict[str, Any]
-    ) -> None:
-        """Persist the language-neutral EvaluationResult for one mutation."""
-        encoded = _json_object_or_none(result)
-        if encoded is None:
-            raise ValueError("domain evaluation result must be an object")
-        with self._connect() as conn:
-            cur = conn.execute(
-                "UPDATE prompt_versions SET evaluation_result_json = ? WHERE id = ?",
-                (encoded, version_id),
-            )
-            if cur.rowcount == 0:
-                raise ValueError(f"prompt_version {version_id} not found")
-
-    def evaluate_domain_mutation(
-        self,
-        mutation_metadata: Mapping[str, Any],
-        sample_manifest: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        """Evaluate and consume holdout state in this server-owned database."""
-        from mosaic.autoresearch.domain_evaluator import evaluate_domain_mutation
-
-        with self._connect() as conn:
-            return evaluate_domain_mutation(
-                mutation_metadata,
-                sample_manifest,
-                holdout_consumption_ledger=conn,
-            )
-
-    def consume_domain_holdout(
-        self,
-        version_id: int,
-        *,
-        holdout_id: str,
-        mutation_id: str,
-        result_hash: str,
-    ) -> bool:
-        """Consume an untouched holdout once; exact retries are idempotent."""
-        for value, field in (
-            (holdout_id, "holdout_id"),
-            (result_hash, "result_hash"),
-        ):
-            if (
-                not isinstance(value, str)
-                or not value.startswith("sha256:")
-                or len(value) != 71
-                or any(character not in "0123456789abcdef" for character in value[7:])
-            ):
-                raise ValueError(f"{field} must be a sha256 digest")
-        if not isinstance(mutation_id, str) or not mutation_id:
-            raise ValueError("mutation_id must be a non-empty string")
-        with self._connect() as conn:
-            version = conn.execute(
-                "SELECT mutation_id FROM prompt_versions WHERE id = ?", (version_id,)
-            ).fetchone()
-            if version is None:
-                raise ValueError(f"prompt_version {version_id} not found")
-            if version["mutation_id"] != mutation_id:
-                raise ValueError("holdout mutation_id does not match prompt version")
-            existing = conn.execute(
-                "SELECT mutation_id, prompt_version_id, result_hash "
-                "FROM domain_holdout_consumptions WHERE holdout_id = ?",
-                (holdout_id,),
-            ).fetchone()
-            if existing is not None:
-                if (
-                    existing["mutation_id"] == mutation_id
-                    and existing["prompt_version_id"] == version_id
-                    and existing["result_hash"] == result_hash
-                ):
-                    return False
-                raise ValueError("untouched holdout has already been consumed")
-            conn.execute(
-                "INSERT INTO domain_holdout_consumptions "
-                "(holdout_id, mutation_id, prompt_version_id, result_hash, consumed_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (holdout_id, mutation_id, version_id, result_hash, _utcnow_iso()),
-            )
-        return True
-
-    def get_domain_holdout_consumption(self, holdout_id: str) -> Optional[dict[str, Any]]:
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT holdout_id, mutation_id, prompt_version_id, result_hash, consumed_at "
-                "FROM domain_holdout_consumptions WHERE holdout_id = ?",
-                (holdout_id,),
-            ).fetchone()
-        return dict(row) if row is not None else None
-
-    def get_version_mutation_metadata(self, version_id: int) -> Optional[dict[str, Any]]:
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT mutation_metadata_json FROM prompt_versions WHERE id = ?",
-                (version_id,),
-            ).fetchone()
-        if row is None or row["mutation_metadata_json"] is None:
-            return None
-        value = json.loads(row["mutation_metadata_json"])
-        return value if isinstance(value, dict) else None
-
-    def get_domain_evaluation_result(self, version_id: int) -> Optional[dict[str, Any]]:
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT evaluation_result_json FROM prompt_versions WHERE id = ?",
-                (version_id,),
-            ).fetchone()
-        if row is None or row["evaluation_result_json"] is None:
-            return None
-        value = json.loads(row["evaluation_result_json"])
-        return value if isinstance(value, dict) else None
-
-    def record_domain_promotion_decision(
-        self,
-        version_id: int,
-        decision: dict[str, Any],
-        *,
-        decision_hash: str,
-    ) -> bool:
-        """Atomically persist one authorized promotion decision."""
-        encoded = _json_object_or_none(decision)
-        if encoded is None:
-            raise ValueError("domain promotion decision must be an object")
-        if (
-            not isinstance(decision_hash, str)
-            or len(decision_hash) != 71
-            or not decision_hash.startswith("sha256:")
-            or any(
-                character not in "0123456789abcdef" for character in decision_hash[7:]
-            )
-        ):
-            raise ValueError("domain promotion decision_hash must be a sha256 digest")
-        action = decision.get("decision")
-        if action not in ("keep", "revert"):
-            raise ValueError("domain promotion decision must be keep or revert")
-        approved_by = decision.get("approved_by")
-        approval_policy_id = decision.get("approval_policy_id")
-        if not isinstance(approved_by, str) or not approved_by:
-            raise ValueError("domain promotion approved_by is required")
-        if not isinstance(approval_policy_id, str) or not approval_policy_id:
-            raise ValueError("domain promotion approval_policy_id is required")
-        canonical = json.dumps(
-            decision,
-            ensure_ascii=False,
-            allow_nan=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        expected_hash = f"sha256:{hashlib.sha256(canonical).hexdigest()}"
-        if decision_hash != expected_hash:
-            raise ValueError("domain promotion decision_hash does not match decision")
-        with self._connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute(
-                "SELECT mutation_lifecycle, promotion_decision_json, "
-                "promotion_decision_hash FROM prompt_versions WHERE id = ?",
-                (version_id,),
-            ).fetchone()
-            if row is None:
-                raise ValueError(f"prompt_version {version_id} not found")
-            if row["promotion_decision_json"] is not None:
-                if (
-                    row["promotion_decision_json"] == encoded
-                    and row["promotion_decision_hash"] == decision_hash
-                ):
-                    return False
-                raise ValueError("domain promotion decision already exists")
-            if row["mutation_lifecycle"] != "eligible_for_promotion":
-                raise ValueError("domain mutation is not eligible for promotion review")
-            conn.execute(
-                """
-                UPDATE prompt_versions
-                SET mutation_lifecycle = ?, status = ?, decided_at = ?,
-                    promotion_decision_json = ?, promotion_decision_hash = ?,
-                    promotion_approved_by = ?, promotion_approval_policy_id = ?
-                WHERE id = ?
-                """,
-                (
-                    "kept" if action == "keep" else "reverted",
-                    action,
-                    decision.get("decided_at") or _utcnow_iso(),
-                    encoded,
-                    decision_hash,
-                    approved_by,
-                    approval_policy_id,
-                    version_id,
-                ),
-            )
-        return True
-
-    def get_domain_promotion_decision(self, version_id: int) -> Optional[dict[str, Any]]:
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT promotion_decision_json FROM prompt_versions WHERE id = ?",
-                (version_id,),
-            ).fetchone()
-        if row is None or row["promotion_decision_json"] is None:
-            return None
-        value = json.loads(row["promotion_decision_json"])
-        return value if isinstance(value, dict) else None
-
-    def decide_version(
-        self,
-        version_id: int,
-        status: str,
-        decided_at: Optional[str] = None,
-    ) -> None:
-        """Terminal transition: ``status`` ∈ {keep, revert}."""
-        if status not in ("keep", "revert"):
-            raise ValueError(f"status must be 'keep' or 'revert', got {status!r}")
-        decided_at = decided_at or _utcnow_iso()
-        with self._connect() as conn:
-            cur = conn.execute(
-                "UPDATE prompt_versions SET status = ?, decided_at = ? WHERE id = ?",
-                (status, decided_at, version_id),
-            )
-            if cur.rowcount == 0:
-                logger.warning("decide_version: no prompt_version id=%s", version_id)
-
-    def mark_version_incompatible(
-        self,
-        version_id: int,
-        detail: str,
-        decided_at: Optional[str] = None,
-    ) -> None:
-        """Terminal transition for a code↔prompt compatibility failure."""
-        decided_at = decided_at or _utcnow_iso()
-        with self._connect() as conn:
-            cur = conn.execute(
-                """
-                UPDATE prompt_versions
-                SET status = 'incompatible',
-                    decided_at = ?,
-                    modification_summary = COALESCE(modification_summary, ?)
-                WHERE id = ?
-                """,
-                (decided_at, _truncate(detail, 1000), version_id),
-            )
-            if cur.rowcount == 0:
-                logger.warning(
-                    "mark_version_incompatible: no prompt_version id=%s", version_id
-                )
-
-    def get_prompt_version(self, version_id: int) -> Optional[dict[str, Any]]:
-        with self._connect() as conn:
-            cur = conn.execute(
-                "SELECT * FROM prompt_versions WHERE id = ?", (version_id,)
-            )
-            row = cur.fetchone()
-            return dict(row) if row else None
-
-    def get_version_by_branch(self, branch_name: str) -> Optional[dict[str, Any]]:
-        """Lookup used by ``autoresearch.trigger`` for idempotency."""
-        with self._connect() as conn:
-            cur = conn.execute(
-                "SELECT * FROM prompt_versions WHERE branch_name = ?", (branch_name,)
-            )
-            row = cur.fetchone()
-            return dict(row) if row else None
+    # ── legacy prompt-version audit (read-only) ──────────────────────────
 
     def list_prompt_versions(
         self,
@@ -5922,77 +4938,6 @@ class ScorecardStore:
         with self._connect() as conn:
             return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
-    def last_mutation_at(self, cohort: str, agent: str) -> Optional[str]:
-        """Most recent prompt_version created_at for (cohort, agent), any
-        status. Feeds the 24h cooldown check."""
-        with self._connect() as conn:
-            cur = conn.execute(
-                "SELECT MAX(created_at) AS m FROM prompt_versions "
-                "WHERE cohort = ? AND agent = ?",
-                (cohort, agent),
-            )
-            row = cur.fetchone()
-            return row["m"] if row and row["m"] else None
-
-    def last_mutation_at_any(self, cohort: str, agents: Iterable[str]) -> Optional[str]:
-        """Most recent prompt_version created_at across ``agents`` (any status).
-
-        Feeds the macro-layer interval gate (autoresearch macro plan Phase 4)."""
-        agents = list(agents)
-        if not agents:
-            return None
-        placeholders = ",".join("?" for _ in agents)
-        with self._connect() as conn:
-            row = conn.execute(
-                f"SELECT MAX(created_at) AS m FROM prompt_versions "
-                f"WHERE cohort = ? AND agent IN ({placeholders})",
-                (cohort, *agents),
-            ).fetchone()
-            return row["m"] if row and row["m"] else None
-
-    def recently_reverted_agents(self, cohort: str, since_iso: str) -> set[str]:
-        """Agents with a ``revert`` decision at/after ``since_iso`` (recent-revert
-        penalty, autoresearch macro plan Phase 4)."""
-        with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT DISTINCT agent FROM prompt_versions "
-                "WHERE cohort = ? AND status = 'revert' AND decided_at >= ?",
-                (cohort, since_iso),
-            ).fetchall()
-            return {r["agent"] for r in rows}
-
-    def count_mutations_this_month(self, cohort: str, now_iso: str) -> int:
-        """Count prompt_versions created in the same calendar month as
-        ``now_iso`` (YYYY-MM prefix match). Feeds the monthly cap check."""
-        month_prefix = now_iso[:7]  # YYYY-MM
-        with self._connect() as conn:
-            cur = conn.execute(
-                "SELECT COUNT(*) AS c FROM prompt_versions "
-                "WHERE cohort = ? AND substr(created_at, 1, 7) = ?",
-                (cohort, month_prefix),
-            )
-            return int(cur.fetchone()["c"])
-
-    # ── autoresearch_log ──────────────────────────────────────────────────
-
-    def append_log(
-        self,
-        version_id: Optional[int],
-        event: str,
-        detail: Optional[str] = None,
-        created_at: Optional[str] = None,
-    ) -> int:
-        created_at = created_at or _utcnow_iso()
-        with self._connect() as conn:
-            cur = conn.execute(
-                """
-                INSERT INTO autoresearch_log (prompt_version_id, event, detail, created_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (version_id, event, _truncate(detail, 1000), created_at),
-            )
-            return int(cur.lastrowid)
-
     def get_log(
         self,
         cohort: Optional[str] = None,
@@ -6029,50 +4974,6 @@ class ScorecardStore:
             return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
     # ── cohort_runs (Phase 5 PRISM) ──────────────────────────────────────
-
-    def create_cohort_run(
-        self,
-        cohort: str,
-        date: str,
-        notes: Optional[str] = None,
-    ) -> int:
-        """INSERT OR IGNORE a cohort run entry and return its id."""
-        now = _utcnow_iso()
-        with self._connect() as conn:
-            cur = conn.execute(
-                """
-                INSERT INTO cohort_runs (cohort, date, cycle_started_at, notes)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(cohort, date) DO UPDATE SET cohort = cohort
-                RETURNING id
-                """,
-                (cohort, date, now, _truncate(notes, 500)),
-            )
-            return int(cur.fetchone()["id"])
-
-    def complete_cohort_run(
-        self,
-        run_id: int,
-        llm_calls: Optional[int] = None,
-        llm_cost_usd: Optional[float] = None,
-        cio_action: Optional[str] = None,
-        cio_target_weight: Optional[float] = None,
-    ) -> None:
-        """Mark a cohort run as completed with optional metrics."""
-        now = _utcnow_iso()
-        with self._connect() as conn:
-            conn.execute(
-                """
-                UPDATE cohort_runs SET
-                    cycle_completed_at = ?,
-                    llm_calls = ?,
-                    llm_cost_usd = ?,
-                    cio_action = ?,
-                    cio_target_weight = ?
-                WHERE id = ?
-                """,
-                (now, llm_calls, llm_cost_usd, cio_action, cio_target_weight, run_id),
-            )
 
     def get_cohort_runs(
         self,

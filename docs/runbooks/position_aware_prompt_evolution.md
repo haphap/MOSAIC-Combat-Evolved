@@ -21,9 +21,11 @@ The public repository owns the rest of the lifecycle:
 - Darwinian weights remain a separate consumer of matured Agent outcomes, and
   RKE remains shadow-only.
 
-The runtime never loads a KNOT executable, research knob, capability, pair,
-receipt, replay capsule, or coordinator ledger. Those v1/v2 protocols are
-retained only under `registry/knot/legacy_read_only_v2.json` for audit.
+The runtime never loads a KNOT executable, research knob, or KNOT-specific
+capability, pair, receipt, replay capsule, or coordinator ledger. Those v1/v2
+KNOT protocols are retained only under
+`registry/knot/legacy_read_only_v2.json` for audit. Generic signed Agent tool
+capabilities remain a separate production safety contract.
 
 Run a preregistered experiment with a local, uncommitted plan and
 Agent/Evaluator adapter. The plan may contain private promotion-policy values;

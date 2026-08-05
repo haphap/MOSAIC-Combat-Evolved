@@ -1,14 +1,27 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
+import {
+  canonicalJsonHash,
+  compareCanonicalStrings,
+} from "../src/agents/helpers/canonical_json.js";
 
 const runtimeManifestPath = resolve("../registry/prompt_checks/runtime_agent_manifest_v5.json");
-const executionManifestPath = resolve(
-  "../registry/prompt_checks/execution_behavior_release_manifest_v2.json",
-);
 const outcomeManifestPath = resolve(
   "../registry/prompt_checks/agent_outcome_contract_manifest_v2.json",
 );
+const executionRefArgIndex = process.argv.indexOf("--execution-release-ref");
+const executionManifestRef =
+  executionRefArgIndex >= 0
+    ? requiredArg(process.argv[executionRefArgIndex + 1], "--execution-release-ref")
+    : currentExecutionManifestRef();
+if (
+  !/^registry\/prompt_checks\/execution_behavior_releases\/[0-9a-f]{64}--[0-9a-f]{64}\.json$/.test(
+    executionManifestRef,
+  )
+) {
+  throw new Error("--execution-release-ref must be a content-addressed execution archive ref");
+}
+const executionManifestPath = resolve("..", executionManifestRef);
 const outArgIndex = process.argv.indexOf("--out");
 const outPath = resolve(
   outArgIndex >= 0
@@ -19,11 +32,11 @@ const outPath = resolve(
 const runtimeManifest = readJson(runtimeManifestPath);
 const executionManifest = readJson(executionManifestPath);
 const outcomeManifest = readJson(outcomeManifestPath);
-const variants = requiredArray(executionManifest, "variants");
+const executionContracts = requiredArray(executionManifest, "execution_contracts");
 
-const structuredContracts = variants
-  .map((variant) => {
-    const value = requiredObject(variant, "execution behavior variant");
+const structuredContracts = executionContracts
+  .map((contract) => {
+    const value = requiredObject(contract, "execution behavior agent contract");
     return {
       agent_id: requiredString(value, "agent_id"),
       language: requiredString(value, "language"),
@@ -33,7 +46,10 @@ const structuredContracts = variants
     };
   })
   .sort((left, right) =>
-    `${left.agent_id}:${left.language}`.localeCompare(`${right.agent_id}:${right.language}`),
+    compareCanonicalStrings(
+      `${left.agent_id}:${left.language}`,
+      `${right.agent_id}:${right.language}`,
+    ),
   );
 
 const artifact = {
@@ -43,9 +59,10 @@ const artifact = {
       path: "registry/prompt_checks/runtime_agent_manifest_v5.json",
       hash: canonicalJsonHash(runtimeManifest),
     },
-    execution_behavior_release_manifest: {
-      path: "registry/prompt_checks/execution_behavior_release_manifest_v2.json",
+    execution_behavior_release_archive: {
+      path: executionManifestRef,
       release_id: requiredString(executionManifest, "execution_behavior_release_id"),
+      release_hash: requiredString(executionManifest, "execution_behavior_release_hash"),
     },
     agent_outcome_contract_manifest: {
       path: "registry/prompt_checks/agent_outcome_contract_manifest_v2.json",
@@ -60,6 +77,18 @@ const artifact = {
 };
 
 writeFileSync(outPath, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
+
+function currentExecutionManifestRef(): string {
+  const current = readJson(
+    resolve("../registry/prompt_checks/prompt_release_contract_ref_v2.json"),
+  );
+  const sources = requiredObject(current.sources, "prompt release contract sources");
+  const execution = requiredObject(
+    sources.execution_behavior_release_archive,
+    "execution behavior release archive source",
+  );
+  return requiredString(execution, "path");
+}
 
 function readJson(path: string): Record<string, unknown> {
   return requiredObject(JSON.parse(readFileSync(path, "utf8")), path);

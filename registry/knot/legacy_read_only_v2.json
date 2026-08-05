@@ -4,15 +4,8 @@
   "active_runtime": false,
   "writes_enabled": false,
   "retention_purpose": "historical experiment audit only",
-  "public_tombstones": [
-    "mosaic/scorecard/knot_v2.py",
-    "mosaic/autoresearch/domain_evaluator.py",
-    "mosaic/autoresearch/domain_metrics.py"
-  ],
-  "public_fail_closed_legacy_ports": [
-    "mosaic/bridge/handlers/darwinian.py",
-    "mosaic/bridge/tool_capabilities.py"
-  ],
+  "public_tombstones": [],
+  "public_fail_closed_legacy_ports": [],
   "retired_rpc_prefixes": [
     "darwinian.knot_"
   ],

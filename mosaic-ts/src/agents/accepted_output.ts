@@ -20,10 +20,7 @@ export const ACCEPTED_OUTPUT_KINDS = [
 
 export type AcceptedOutputKind = (typeof ACCEPTED_OUTPUT_KINDS)[number];
 
-export type OutcomeSampleOrigin =
-  | "PRODUCTION_ACTIVE"
-  | "KNOT_RESEARCH_SHADOW"
-  | "KNOT_POST_PROMOTION_CHAMPION_SHADOW";
+export type OutcomeSampleOrigin = "PRODUCTION_ACTIVE";
 
 export type AcceptedOutputAgentByKind = {
   MACRO_TRANSMISSION:
@@ -174,16 +171,6 @@ export type AcceptedOutputRunBinding =
     }
   | {
       sample_origin: "PRODUCTION_ACTIVE";
-      run_slot_kind: "DOWNSTREAM_ONLY";
-      scheduled_sample_id: null;
-    }
-  | {
-      sample_origin: Exclude<OutcomeSampleOrigin, "PRODUCTION_ACTIVE">;
-      run_slot_kind: "OUTCOME_SCHEDULED";
-      scheduled_sample_id: string;
-    }
-  | {
-      sample_origin: "KNOT_CONTROL_SHADOW";
       run_slot_kind: "DOWNSTREAM_ONLY";
       scheduled_sample_id: null;
     };
@@ -905,11 +892,8 @@ function validateRunBinding(binding: AcceptedOutputRunBinding): void {
   if (binding.scheduled_sample_id !== null) {
     throw new Error("DOWNSTREAM_ONLY requires scheduled_sample_id=null");
   }
-  if (
-    binding.sample_origin !== "PRODUCTION_ACTIVE" &&
-    binding.sample_origin !== "KNOT_CONTROL_SHADOW"
-  ) {
-    throw new Error("research and post-promotion shadows must be outcome scheduled");
+  if (binding.sample_origin !== "PRODUCTION_ACTIVE") {
+    throw new Error("accepted output sample_origin must be PRODUCTION_ACTIVE");
   }
 }
 

@@ -108,12 +108,32 @@ def get_family(params: dict[str, Any]) -> dict[str, Any]:
 
 @method("prompt_optimizer.put_experiment")
 def put_experiment(params: dict[str, Any]) -> dict[str, Any]:
-    return _write(params, _store().put_experiment)
+    if not {"record"}.issubset(params) or not set(params).issubset(
+        {"record", "promotion_policy"}
+    ):
+        raise RpcError(INVALID_PARAMS, "expected record and optional promotion_policy")
+    record = params.get("record")
+    policy = params.get("promotion_policy")
+    if not isinstance(record, dict) or (policy is not None and not isinstance(policy, dict)):
+        raise RpcError(INVALID_PARAMS, "invalid experiment persistence parameters")
+    try:
+        return _store().put_experiment(record, policy)
+    except ValueError as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(
+            INTERNAL_ERROR, f"prompt optimizer persistence failed: {exc}"
+        ) from exc
 
 
 @method("prompt_optimizer.get_experiment")
 def get_experiment(params: dict[str, Any]) -> dict[str, Any]:
     return {"record": _store().get_experiment(_id(params, "experiment_id"))}
+
+
+@method("prompt_optimizer.list_experiments")
+def list_experiments(params: dict[str, Any]) -> dict[str, Any]:
+    return {"records": _store().list_experiments(_id(params, "family_id"))}
 
 
 @method("prompt_optimizer.put_run")
@@ -123,8 +143,14 @@ def put_run(params: dict[str, Any]) -> dict[str, Any]:
 
 @method("prompt_optimizer.claim_run")
 def claim_run(params: dict[str, Any]) -> dict[str, Any]:
+    if set(params) != {"record", "lease_duration_ms"}:
+        raise RpcError(INVALID_PARAMS, "expected record and lease_duration_ms")
+    record = params.get("record")
+    duration = params.get("lease_duration_ms")
+    if not isinstance(record, dict) or isinstance(duration, bool) or not isinstance(duration, int):
+        raise RpcError(INVALID_PARAMS, "invalid run claim parameters")
     try:
-        return {"record": _store().claim_run(_record(params))}
+        return {"record": _store().claim_run(record, duration)}
     except ValueError as exc:
         raise RpcError(INVALID_PARAMS, str(exc)) from exc
     except Exception as exc:
@@ -134,16 +160,6 @@ def claim_run(params: dict[str, Any]) -> dict[str, Any]:
 @method("prompt_optimizer.list_runs")
 def list_runs(params: dict[str, Any]) -> dict[str, Any]:
     return {"records": _store().list_runs(_id(params, "experiment_id"))}
-
-
-@method("prompt_optimizer.put_decision")
-def put_decision(params: dict[str, Any]) -> dict[str, Any]:
-    return _write(params, _store().put_decision)
-
-
-@method("prompt_optimizer.get_decision")
-def get_decision(params: dict[str, Any]) -> dict[str, Any]:
-    return {"record": _store().get_decision(_id(params, "decision_id"))}
 
 
 @method("prompt_optimizer.latest_summary")
@@ -156,8 +172,8 @@ def latest_summary(params: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
-@method("prompt_optimizer.training_history")
-def training_history(params: dict[str, Any]) -> dict[str, Any]:
+@method("prompt_optimizer.training_projection")
+def training_projection(params: dict[str, Any]) -> dict[str, Any]:
     required = {"agent_id", "stage", "cohort", "cutoff_at"}
     optional = {"excluded_sample_ids"}
     if not required.issubset(params) or not set(params).issubset(required | optional):
@@ -180,7 +196,7 @@ def training_history(params: dict[str, Any]) -> dict[str, Any]:
         from mosaic.scorecard import get_store
 
         return {
-            "history": get_store().build_prompt_training_history(
+            "projection": get_store().build_prompt_training_projection(
                 **values,
                 excluded_sample_ids=[value.strip() for value in excluded],
             )
@@ -188,4 +204,4 @@ def training_history(params: dict[str, Any]) -> dict[str, Any]:
     except ValueError as exc:
         raise RpcError(INVALID_PARAMS, str(exc)) from exc
     except Exception as exc:
-        raise RpcError(INTERNAL_ERROR, f"Prompt training export failed: {exc}") from exc
+        raise RpcError(INTERNAL_ERROR, f"Prompt training projection failed: {exc}") from exc

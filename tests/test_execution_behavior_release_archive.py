@@ -8,15 +8,15 @@ import pytest
 
 from mosaic.scorecard.darwinian_v2 import canonical_hash
 from mosaic.scorecard.store import (
-    ScorecardStore,
     _load_trusted_execution_behavior_release,
 )
 
 
 def _release(seed: str) -> dict[str, Any]:
     release_content = {
-        "schema_version": "execution_behavior_release_manifest_v2",
+        "schema_version": "execution_behavior_release_manifest_v3",
         "private_prompt_commit": seed * 40,
+        "private_prompt_bootstrap": {"seed": seed},
         "provider_binding": {
             "provider": "provider",
             "model": f"model-{seed}",
@@ -25,7 +25,7 @@ def _release(seed: str) -> dict[str, Any]:
             "repair_policy": "BOUNDED_SCHEMA_REPAIR_V1",
         },
         "active_production_variants": [{"seed": seed}],
-        "variants": [{"seed": seed}],
+        "execution_contracts": [{"seed": seed}],
     }
     release_id = (
         "execution-behavior-release:"
@@ -35,11 +35,12 @@ def _release(seed: str) -> dict[str, Any]:
         "schema_version": release_content["schema_version"],
         "execution_behavior_release_id": release_id,
         "private_prompt_commit": release_content["private_prompt_commit"],
+        "private_prompt_bootstrap": release_content["private_prompt_bootstrap"],
         "provider_binding": release_content["provider_binding"],
         "active_production_variants": release_content[
             "active_production_variants"
         ],
-        "variants": release_content["variants"],
+        "execution_contracts": release_content["execution_contracts"],
     }
     return {
         **without_hash,
@@ -64,17 +65,23 @@ def _write_archive(root: Path, release: dict[str, Any]) -> Path:
     return path
 
 
-def test_committed_active_release_has_an_exact_immutable_archive() -> None:
+def test_committed_prompt_release_contract_points_to_an_exact_immutable_archive() -> None:
     root = Path(__file__).resolve().parents[1]
-    active = json.loads(
+    contract_ref = json.loads(
         (
             root
             / "registry"
             / "prompt_checks"
-            / "execution_behavior_release_manifest_v2.json"
+            / "prompt_release_contract_ref_v2.json"
         ).read_text(encoding="utf-8")
     )
+    execution_ref = contract_ref["sources"]["execution_behavior_release_archive"]
+    active = json.loads(
+        (root / execution_ref["path"]).read_text(encoding="utf-8")
+    )
 
+    assert active["execution_behavior_release_id"] == execution_ref["release_id"]
+    assert active["execution_behavior_release_hash"] == execution_ref["release_hash"]
     assert (
         _load_trusted_execution_behavior_release(
             active["execution_behavior_release_id"]
@@ -88,21 +95,14 @@ def test_loader_resolves_future_prepared_release_without_trusting_active_pointer
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     archive_root = tmp_path / "archive"
-    active_path = tmp_path / "active.json"
     active = _release("a")
     prepared = _release("b")
     _write_archive(archive_root, active)
     _write_archive(archive_root, prepared)
-    active_path.write_text("{\"drifted\":true}\n", encoding="utf-8")
     monkeypatch.setattr(
         "mosaic.scorecard.store._EXECUTION_BEHAVIOR_RELEASE_ARCHIVE_ROOT",
         archive_root,
     )
-    monkeypatch.setattr(
-        "mosaic.scorecard.store._EXECUTION_BEHAVIOR_RELEASE_PATH",
-        active_path,
-    )
-
     assert (
         _load_trusted_execution_behavior_release(
             prepared["execution_behavior_release_id"]
@@ -141,14 +141,4 @@ def test_loader_rejects_release_id_or_archive_name_confusion(
     with pytest.raises(ValueError, match="ambiguous"):
         _load_trusted_execution_behavior_release(
             requested["execution_behavior_release_id"]
-        )
-
-
-def test_legacy_knot_rollback_writer_is_read_only(tmp_path: Path) -> None:
-    store = ScorecardStore(tmp_path / "scorecard.db")
-    with pytest.raises(RuntimeError, match="legacy_knot_protocol_read_only"):
-        store.publish_knot_rollback_revision(
-            new_execution_behavior_release_id=_release("a")[
-                "execution_behavior_release_id"
-            ]
         )

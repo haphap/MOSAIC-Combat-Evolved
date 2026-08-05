@@ -9,7 +9,7 @@ import {
 
 const args = parseArgs(process.argv.slice(2));
 const schemaOut = resolve(
-  args.get("schema-out") ?? "../schemas/execution_behavior_release_manifest_v2.schema.json",
+  args.get("schema-out") ?? "../schemas/execution_behavior_release_manifest_v3.schema.json",
 );
 mkdirSync(dirname(schemaOut), { recursive: true });
 writeFileSync(
@@ -32,17 +32,14 @@ const manifest = buildExecutionBehaviorReleaseManifest({
       ? "CONFIGURED_PRIVATE_ENDPOINT"
       : "PROVIDER_DEFAULT",
 });
-const out = resolve(
-  args.get("out") ?? "../registry/prompt_checks/execution_behavior_release_manifest_v2.json",
-);
 const archiveRoot = resolve(
   args.get("archive-root") ?? "../registry/prompt_checks/execution_behavior_releases",
 );
-writeExecutionBehaviorReleaseArtifacts({
+const written = writeExecutionBehaviorReleaseArtifacts({
   manifest,
-  activeManifestPath: out,
   archiveRoot,
 });
+console.log(written.archivePath);
 
 function parseArgs(values: string[]): Map<string, string> {
   const parsed = new Map<string, string>();

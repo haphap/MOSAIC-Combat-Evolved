@@ -50,11 +50,6 @@ interface AuditVersionsOpts {
   limit?: string;
 }
 
-interface VerifyReleaseOpts {
-  versionId: string;
-  allowUnkept?: boolean;
-}
-
 interface GcWorktreesOpts {
   repoTarget?: "project_git" | "private_git" | "all";
   maxAgeHours?: string;
@@ -170,40 +165,6 @@ export function registerPrompts(program: Command): void {
             ),
           );
         }
-      } catch (err) {
-        reportError(err, client);
-      } finally {
-        await client.close();
-      }
-    });
-
-  prompts
-    .command("verify-release")
-    .requiredOption("--version-id <id>", "Prompt version id to verify")
-    .option("--allow-unkept", "Do not require status=keep")
-    .description("Verify prompt metadata, content hash, and compatibility before release.")
-    .action(async (opts: VerifyReleaseOpts) => {
-      const client = new BridgeClient();
-      const api = new BridgeApi(client);
-      try {
-        await client.start();
-        const result = await api.promptsVerifyRelease({
-          version_id: Number.parseInt(opts.versionId, 10),
-          require_kept: !opts.allowUnkept,
-        });
-        const color = result.ready ? pc.green : pc.red;
-        console.log(color(`release ${result.ready ? "ready" : "blocked"}`));
-        for (const [name, ok] of Object.entries(result.checks)) {
-          console.log(`  ${ok ? pc.green("ok") : pc.red("no")} ${name}`);
-        }
-        console.log(
-          pc.dim(
-            `pin code=${result.pin.code_commit_hash?.slice(0, 12) ?? "-"} ` +
-              `prompt=${result.pin.prompt_commit_hash?.slice(0, 12) ?? "-"} ` +
-              `repo=${result.pin.prompt_repo_id ?? "-"} sha=${result.pin.prompt_sha256?.slice(0, 12) ?? "-"}`,
-          ),
-        );
-        if (!result.ready) process.exitCode = 1;
       } catch (err) {
         reportError(err, client);
       } finally {

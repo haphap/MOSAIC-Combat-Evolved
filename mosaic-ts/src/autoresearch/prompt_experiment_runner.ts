@@ -1,9 +1,11 @@
-import { canonicalJsonHash } from "../agents/helpers/canonical_json.js";
+import { canonicalJsonHash, compareCanonicalStrings } from "../agents/helpers/canonical_json.js";
 import type { BridgeApi } from "../bridge/types.js";
+import { selectPromptCandidateFamily } from "./prompt_candidate_family.js";
 import {
   assertCandidateMatchesSplit,
   type DatasetSplitManifest,
   DatasetSplitManifestSchema,
+  PROMPT_EXPERIMENT_MAX_ATTEMPTS,
   type PromptCandidate,
   type PromptCandidateFamily,
   PromptCandidateFamilySchema,
@@ -13,12 +15,17 @@ import {
   type PromptExperimentRun,
   PromptExperimentRunSchema,
   PromptExperimentSchema,
-  PromptHashPairSchema,
+  PromptOptimizerSha256Schema,
   type PromptOptimizerTarget,
-  type PromptPromotionDecision,
   type PromptRefPair,
-  PromptRefPairSchema,
+  promptExperimentRunId,
 } from "./prompt_optimizer_contract.js";
+import {
+  type PromptPromotionPolicy,
+  PromptPromotionPolicySchema,
+  promptEvaluationBinding,
+  promptOrderedMean,
+} from "./prompt_promotion_policy.js";
 
 export interface PromptExperimentRepository {
   putCandidate(record: PromptCandidate): Promise<PromptCandidate>;
@@ -26,11 +33,17 @@ export interface PromptExperimentRepository {
   putFamily(record: PromptCandidateFamily): Promise<PromptCandidateFamily>;
   getFamily(familyId: string): Promise<PromptCandidateFamily | null>;
   getExperiment(experimentId: string): Promise<PromptExperiment | null>;
-  putExperiment(record: PromptExperiment): Promise<PromptExperiment>;
+  listExperiments(familyId: string): Promise<PromptExperiment[]>;
+  putExperiment(
+    record: PromptExperiment,
+    promotionPolicy?: PromptPromotionPolicy,
+  ): Promise<PromptExperiment>;
   listRuns(experimentId: string): Promise<PromptExperimentRun[]>;
   putRun(record: PromptExperimentRun): Promise<PromptExperimentRun>;
-  claimRun(record: PromptExperimentRun): Promise<PromptExperimentRun | null>;
-  putDecision(record: PromptPromotionDecision): Promise<PromptPromotionDecision>;
+  claimRun(
+    record: PromptExperimentRun,
+    leaseDurationMs: number,
+  ): Promise<PromptExperimentRun | null>;
 }
 
 export class BridgePromptExperimentRepository implements PromptExperimentRepository {
@@ -56,8 +69,15 @@ export class BridgePromptExperimentRepository implements PromptExperimentReposit
     return this.api.promptOptimizerGetExperiment(experimentId);
   }
 
-  putExperiment(record: PromptExperiment): Promise<PromptExperiment> {
-    return this.api.promptOptimizerPutExperiment(record);
+  listExperiments(familyId: string): Promise<PromptExperiment[]> {
+    return this.api.promptOptimizerListExperiments(familyId);
+  }
+
+  putExperiment(
+    record: PromptExperiment,
+    promotionPolicy?: PromptPromotionPolicy,
+  ): Promise<PromptExperiment> {
+    return this.api.promptOptimizerPutExperiment(record, promotionPolicy);
   }
 
   listRuns(experimentId: string): Promise<PromptExperimentRun[]> {
@@ -68,12 +88,11 @@ export class BridgePromptExperimentRepository implements PromptExperimentReposit
     return this.api.promptOptimizerPutRun(record);
   }
 
-  claimRun(record: PromptExperimentRun): Promise<PromptExperimentRun | null> {
-    return this.api.promptOptimizerClaimRun(record);
-  }
-
-  putDecision(record: PromptPromotionDecision): Promise<PromptPromotionDecision> {
-    return this.api.promptOptimizerPutDecision(record);
+  claimRun(
+    record: PromptExperimentRun,
+    leaseDurationMs: number,
+  ): Promise<PromptExperimentRun | null> {
+    return this.api.promptOptimizerClaimRun(record, leaseDurationMs);
   }
 }
 
@@ -82,28 +101,26 @@ export interface FrozenPromptExperimentEnvironment {
   toolConfigHash: string;
   componentCalibrationSnapshotHash: string;
   darwinianUsageSnapshotHash: string;
+  executorAdapterHash: string;
+  evaluatorAdapterHash: string;
   evaluatorVersion: string;
   evaluatorConfigHash: string;
   codeCommit: string;
-}
-
-export interface PromptExecutionBinding {
-  champion: { promptRefs: PromptRefPair; promptHashes: { zh: string; en: string } };
-  candidate: { promptRefs: PromptRefPair; promptHashes: { zh: string; en: string } };
 }
 
 export interface PromptExperimentAgentExecutor {
   execute(input: {
     target: PromptOptimizerTarget;
     partition: "VALIDATION" | "HOLDOUT";
-    sample: PromptDatasetSampleRef;
+    sample: Pick<PromptDatasetSampleRef, "sampleId" | "inputRef" | "inputHash" | "eventWindow">;
     seed: number;
     environment: Readonly<FrozenPromptExperimentEnvironment>;
     promptRefs: PromptRefPair;
     promptHashes: { zh: string; en: string };
   }): Promise<{
     acceptedOutputRef: string;
-    effectiveInputHash?: string | null;
+    effectiveInputHash: string;
+    consumedPromptHashes: { zh: string; en: string };
     traceRef?: string | null;
   }>;
 }
@@ -129,11 +146,14 @@ export interface RunPromptExperimentPartitionInput {
   split: DatasetSplitManifest;
   partition: "VALIDATION" | "HOLDOUT";
   environment: FrozenPromptExperimentEnvironment;
-  promptBinding: PromptExecutionBinding;
+  promotionPolicy: PromptPromotionPolicy;
+  authorizedPolicyHashes: ReadonlySet<string>;
   repository: PromptExperimentRepository;
   executor: PromptExperimentAgentExecutor;
   evaluator: PromptExperimentEvaluator;
   maxConcurrency?: number;
+  runOwnerId: string;
+  leaseDurationMs?: number;
   now?: () => string;
 }
 
@@ -146,6 +166,8 @@ function assertEnvironment(
     "toolConfigHash",
     "componentCalibrationSnapshotHash",
     "darwinianUsageSnapshotHash",
+    "executorAdapterHash",
+    "evaluatorAdapterHash",
     "evaluatorVersion",
     "evaluatorConfigHash",
     "codeCommit",
@@ -170,14 +192,6 @@ function assertBindings(input: RunPromptExperimentPartitionInput): void {
     input.candidate.candidateId !== input.experiment.candidateId ||
     canonicalJsonHash(input.candidate.promptHashes) !==
       canonicalJsonHash(input.experiment.candidatePromptHashes) ||
-    canonicalJsonHash(input.promptBinding.candidate.promptHashes) !==
-      canonicalJsonHash(input.experiment.candidatePromptHashes) ||
-    canonicalJsonHash(input.promptBinding.champion.promptHashes) !==
-      canonicalJsonHash(input.experiment.championPromptHashes) ||
-    canonicalJsonHash(input.promptBinding.champion.promptRefs) !==
-      canonicalJsonHash(input.experiment.championPromptRefs) ||
-    canonicalJsonHash(input.promptBinding.candidate.promptRefs) !==
-      canonicalJsonHash(input.experiment.candidatePromptRefs) ||
     canonicalJsonHash(input.candidate.promptRefs) !==
       canonicalJsonHash(input.experiment.candidatePromptRefs)
   ) {
@@ -193,16 +207,38 @@ function assertBindings(input: RunPromptExperimentPartitionInput): void {
     canonicalJsonHash(input.family.championPromptHashes) !==
       canonicalJsonHash(input.experiment.championPromptHashes) ||
     input.family.datasetSplitId !== input.split.splitId ||
-    input.family.datasetSplitManifestHash !== input.experiment.datasetSplitManifestHash
+    input.family.datasetSplitManifestHash !== input.experiment.datasetSplitManifestHash ||
+    input.family.promotionPolicyVersion !== input.experiment.promotionPolicyVersion ||
+    input.family.promotionPolicyConfigHash !== input.experiment.promotionPolicyConfigHash
   ) {
     throw new Error("prompt_experiment_family_binding_drift");
   }
-  if (
-    input.split.validation.snapshotHash !== input.experiment.validationSnapshotHash ||
-    input.split.holdout.snapshotHash !== input.experiment.holdoutSnapshotHash ||
-    input.split.evaluatorVersion !== input.experiment.evaluatorVersion
-  ) {
+  if (input.split.evaluatorVersion !== input.experiment.evaluatorVersion) {
     throw new Error("prompt_experiment_split_environment_drift");
+  }
+  const policy = PromptPromotionPolicySchema.parse(input.promotionPolicy);
+  const policyConfigHash = canonicalJsonHash(policy);
+  if (
+    !input.authorizedPolicyHashes.has(policyConfigHash) ||
+    input.family.promotionPolicyVersion !== policy.policyVersion ||
+    input.family.promotionPolicyConfigHash !== policyConfigHash ||
+    input.experiment.promotionPolicyVersion !== policy.policyVersion ||
+    input.experiment.promotionPolicyConfigHash !== policyConfigHash
+  ) {
+    throw new Error("prompt_experiment_promotion_policy_not_authorized");
+  }
+  const evaluationBinding = promptEvaluationBinding(input.experiment.target);
+  const expectedBinding = {
+    evaluationObject: evaluationBinding.evaluationObject,
+    evaluationObjectSchemaVersion: evaluationBinding.evaluationObjectSchemaVersion,
+    primaryLabelId: evaluationBinding.primaryLabelId,
+    scoringContractVersion: evaluationBinding.scoringContractVersion,
+    outcomeContractVersion: evaluationBinding.outcomeContractVersion,
+  };
+  if (
+    canonicalJsonHash(input.experiment.evaluationBinding) !== canonicalJsonHash(expectedBinding)
+  ) {
+    throw new Error("prompt_experiment_evaluation_binding_drift");
   }
   assertEnvironment(input.experiment, input.environment);
 }
@@ -224,12 +260,15 @@ function assertPersistedExperimentMatches(
     "candidatePromptHashes",
     "datasetSplitId",
     "datasetSplitManifestHash",
-    "validationSnapshotHash",
-    "holdoutSnapshotHash",
+    "promotionPolicyVersion",
+    "promotionPolicyConfigHash",
     "modelConfigHash",
     "toolConfigHash",
     "componentCalibrationSnapshotHash",
     "darwinianUsageSnapshotHash",
+    "executorAdapterHash",
+    "evaluatorAdapterHash",
+    "evaluationBinding",
     "evaluatorVersion",
     "evaluatorConfigHash",
     "codeCommit",
@@ -242,16 +281,6 @@ function assertPersistedExperimentMatches(
   }
 }
 
-function runId(input: {
-  experimentId: string;
-  partition: "VALIDATION" | "HOLDOUT";
-  side: "CHAMPION" | "CANDIDATE";
-  sampleId: string;
-  seed: number;
-}): string {
-  return `run-${canonicalJsonHash(input).slice("sha256:".length, "sha256:".length + 24)}`;
-}
-
 function pendingRun(
   experimentId: string,
   partition: "VALIDATION" | "HOLDOUT",
@@ -261,7 +290,7 @@ function pendingRun(
 ): PromptExperimentRun {
   return PromptExperimentRunSchema.parse({
     schemaVersion: "prompt_experiment_run_v1",
-    runId: runId({ experimentId, partition, side, sampleId, seed }),
+    runId: promptExperimentRunId({ experimentId, partition, side, sampleId, seed }),
     experimentId,
     partition,
     side,
@@ -273,6 +302,11 @@ function pendingRun(
     failureCaseRefs: [],
     traceRef: null,
     effectiveInputHash: null,
+    leaseOwner: null,
+    leaseExpiresAt: null,
+    attempt: 0,
+    retryable: false,
+    attemptFailureCodes: [],
     errorCode: null,
     startedAt: null,
     completedAt: null,
@@ -285,15 +319,22 @@ async function mapLimit<T>(
   task: (item: T) => Promise<void>,
 ): Promise<void> {
   let next = 0;
+  const failures: Array<{ value: unknown }> = [];
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
+    while (next < items.length && failures.length === 0) {
       const index = next;
       next += 1;
       const item = items[index];
-      if (item !== undefined) await task(item);
+      if (item === undefined) continue;
+      try {
+        await task(item);
+      } catch (error) {
+        if (failures.length === 0) failures.push({ value: error });
+      }
     }
   });
   await Promise.all(workers);
+  if (failures.length > 0) throw failures[0]?.value;
 }
 
 function errorCode(error: unknown): string {
@@ -302,33 +343,99 @@ function errorCode(error: unknown): string {
   return normalized || "prompt_experiment_execution_failed";
 }
 
+function safePublicRef(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? "";
+  return trimmed.length > 0 && trimmed.length <= 512 && !/[\r\n]/.test(trimmed) ? trimmed : null;
+}
+
+function boundedFailureCaseRefs(refs: ReadonlyArray<string>, syntheticRef: string): string[] {
+  const supplied = refs
+    .map((ref) => safePublicRef(ref))
+    .filter((ref): ref is string => ref !== null && ref !== syntheticRef);
+  return [...new Set(supplied)]
+    .sort(compareCanonicalStrings)
+    .slice(0, 99)
+    .concat(syntheticRef)
+    .sort(compareCanonicalStrings);
+}
+
+export type PromptExperimentScoredFailureCategory =
+  | "schema_failure"
+  | "contract_failure"
+  | "tool_failure";
+
+/** A model attempt that completed but must receive the deterministic worst score. */
+export class PromptExperimentScoredFailure extends Error {
+  readonly failureCategory: PromptExperimentScoredFailureCategory;
+  readonly effectiveInputHash: string;
+  readonly agentOutputRef: string | null;
+  readonly failureCaseRefs: ReadonlyArray<string>;
+  readonly traceRef: string | null;
+
+  constructor(input: {
+    failureCategory: PromptExperimentScoredFailureCategory;
+    effectiveInputHash: string;
+    agentOutputRef?: string | null;
+    failureCaseRefs?: ReadonlyArray<string>;
+    traceRef?: string | null;
+  }) {
+    super(input.failureCategory);
+    this.name = "PromptExperimentScoredFailure";
+    this.failureCategory = input.failureCategory;
+    this.effectiveInputHash = input.effectiveInputHash;
+    this.agentOutputRef = input.agentOutputRef ?? null;
+    this.failureCaseRefs = input.failureCaseRefs ?? [];
+    this.traceRef = input.traceRef ?? null;
+  }
+}
+
+/** Only this explicit error class can authorize a bounded infrastructure retry. */
+export class PromptExperimentTransientInfrastructureError extends Error {
+  constructor(code: string) {
+    super(code);
+    this.name = "PromptExperimentTransientInfrastructureError";
+  }
+}
+
 function mergedMetrics(
   normalizedScore: number,
   metrics: Readonly<Record<string, number>> | undefined,
 ): Record<string, number> {
-  if (!Number.isFinite(normalizedScore)) throw new Error("prompt_experiment_score_not_finite");
+  if (!Number.isFinite(normalizedScore) || normalizedScore < -1 || normalizedScore > 1) {
+    throw new Error("prompt_experiment_score_out_of_range");
+  }
   const result = { ...(metrics ?? {}), normalized_score: normalizedScore };
   if (Object.values(result).some((value) => !Number.isFinite(value))) {
     throw new Error("prompt_experiment_metric_not_finite");
   }
   return Object.fromEntries(
-    Object.entries(result).sort(([left], [right]) => left.localeCompare(right)),
+    Object.entries(result).sort(([left], [right]) => compareCanonicalStrings(left, right)),
   );
 }
 
 async function executeRun(input: {
   definition: PromptExperimentRun;
   sample: PromptDatasetSampleRef;
-  target: PromptOptimizerTarget;
-  binding: PromptExecutionBinding;
+  experiment: PromptExperiment;
   environment: FrozenPromptExperimentEnvironment;
   repository: PromptExperimentRepository;
   executor: PromptExperimentAgentExecutor;
   evaluator: PromptExperimentEvaluator;
+  runOwnerId: string;
+  leaseDurationMs: number;
   now: () => string;
 }): Promise<void> {
   const { definition } = input;
+  const finalAttemptLeaseReclaim =
+    definition.status === "RUNNING" && definition.attempt >= PROMPT_EXPERIMENT_MAX_ATTEMPTS;
+  if (
+    (definition.attempt >= PROMPT_EXPERIMENT_MAX_ATTEMPTS && !finalAttemptLeaseReclaim) ||
+    (definition.status === "FAILED" && !definition.retryable)
+  ) {
+    return;
+  }
   const startedAt = input.now();
+  const leaseExpiresAt = new Date(Date.parse(startedAt) + input.leaseDurationMs).toISOString();
   const claimed = await input.repository.claimRun(
     PromptExperimentRunSchema.parse({
       ...definition,
@@ -338,61 +445,149 @@ async function executeRun(input: {
       failureCaseRefs: [],
       traceRef: null,
       effectiveInputHash: null,
+      leaseOwner: input.runOwnerId,
+      leaseExpiresAt,
+      attempt: finalAttemptLeaseReclaim ? definition.attempt : definition.attempt + 1,
+      retryable: false,
+      attemptFailureCodes: definition.attemptFailureCodes,
       errorCode: null,
       startedAt,
       completedAt: null,
     }),
+    input.leaseDurationMs,
   );
   if (claimed === null) return;
+  const prompt =
+    claimed.side === "CHAMPION"
+      ? {
+          promptRefs: input.experiment.championPromptRefs,
+          promptHashes: input.experiment.championPromptHashes,
+        }
+      : {
+          promptRefs: input.experiment.candidatePromptRefs,
+          promptHashes: input.experiment.candidatePromptHashes,
+        };
+  let acceptedOutputRef: string | null = null;
+  let effectiveInputHash: string | null = null;
+  let traceRef: string | null = null;
+  let deterministicFailureCategory: PromptExperimentScoredFailureCategory = "tool_failure";
+  const requestedInputHash = canonicalJsonHash({
+    environment: input.environment,
+    partition: claimed.partition,
+    promptHashes: prompt.promptHashes,
+    promptRefs: prompt.promptRefs,
+    sample: {
+      sampleId: input.sample.sampleId,
+      inputRef: input.sample.inputRef,
+      inputHash: input.sample.inputHash,
+      eventWindow: input.sample.eventWindow,
+    },
+    seed: claimed.seed,
+    target: input.experiment.target,
+  });
+  let completeRecord: PromptExperimentRun;
   try {
-    const prompt =
-      definition.side === "CHAMPION" ? input.binding.champion : input.binding.candidate;
     const execution = await input.executor.execute({
-      target: input.target,
-      partition: definition.partition,
-      sample: input.sample,
-      seed: definition.seed,
+      target: input.experiment.target,
+      partition: claimed.partition,
+      sample: {
+        sampleId: input.sample.sampleId,
+        inputRef: input.sample.inputRef,
+        inputHash: input.sample.inputHash,
+        eventWindow: input.sample.eventWindow,
+      },
+      seed: claimed.seed,
       environment: input.environment,
       promptRefs: prompt.promptRefs,
       promptHashes: prompt.promptHashes,
     });
+    deterministicFailureCategory = "contract_failure";
+    acceptedOutputRef = safePublicRef(execution.acceptedOutputRef);
+    if (acceptedOutputRef === null) throw new Error("prompt_experiment_agent_output_ref_invalid");
+    effectiveInputHash = PromptOptimizerSha256Schema.parse(execution.effectiveInputHash);
+    traceRef = safePublicRef(execution.traceRef);
+    if (
+      canonicalJsonHash(execution.consumedPromptHashes) !== canonicalJsonHash(prompt.promptHashes)
+    ) {
+      throw new PromptExperimentScoredFailure({
+        failureCategory: "contract_failure",
+        effectiveInputHash,
+        agentOutputRef: acceptedOutputRef,
+        traceRef,
+      });
+    }
     const evaluation = await input.evaluator.evaluate({
-      target: input.target,
+      target: input.experiment.target,
       sample: input.sample,
       environment: input.environment,
-      acceptedOutputRef: execution.acceptedOutputRef,
+      acceptedOutputRef,
     });
-    await input.repository.putRun(
-      PromptExperimentRunSchema.parse({
-        ...claimed,
-        status: "COMPLETE",
-        agentOutputRef: execution.acceptedOutputRef,
-        metrics: mergedMetrics(evaluation.normalizedScore, evaluation.metrics),
-        failureCaseRefs: [...(evaluation.failureCaseRefs ?? [])].sort(),
-        traceRef: execution.traceRef ?? null,
-        effectiveInputHash: execution.effectiveInputHash ?? null,
-        errorCode: null,
-        startedAt,
-        completedAt: input.now(),
-      }),
-    );
+    completeRecord = PromptExperimentRunSchema.parse({
+      ...claimed,
+      status: "COMPLETE",
+      agentOutputRef: acceptedOutputRef,
+      metrics: mergedMetrics(evaluation.normalizedScore, evaluation.metrics),
+      failureCaseRefs: [...(evaluation.failureCaseRefs ?? [])].sort(compareCanonicalStrings),
+      traceRef,
+      effectiveInputHash,
+      retryable: false,
+      errorCode: null,
+      startedAt: claimed.startedAt,
+      completedAt: input.now(),
+    });
   } catch (error) {
-    await input.repository.putRun(
-      PromptExperimentRunSchema.parse({
-        ...claimed,
-        status: "FAILED",
-        agentOutputRef: null,
-        metrics: {},
-        failureCaseRefs: [],
-        traceRef: null,
-        effectiveInputHash: null,
-        errorCode: errorCode(error),
-        startedAt,
-        completedAt: input.now(),
-      }),
-    );
-    throw error;
+    const code = errorCode(error);
+    if (error instanceof PromptExperimentTransientInfrastructureError) {
+      const retryable = claimed.attempt < PROMPT_EXPERIMENT_MAX_ATTEMPTS;
+      await input.repository.putRun(
+        PromptExperimentRunSchema.parse({
+          ...claimed,
+          status: "FAILED",
+          agentOutputRef: acceptedOutputRef,
+          metrics: {},
+          failureCaseRefs: [],
+          traceRef,
+          effectiveInputHash,
+          retryable,
+          attemptFailureCodes: [...claimed.attemptFailureCodes, code],
+          errorCode: code,
+          startedAt: claimed.startedAt,
+          completedAt: input.now(),
+        }),
+      );
+      if (retryable) throw error;
+      return;
+    }
+    const scoredFailure = error instanceof PromptExperimentScoredFailure ? error : null;
+    const suppliedInputHash = scoredFailure
+      ? PromptOptimizerSha256Schema.safeParse(scoredFailure.effectiveInputHash)
+      : null;
+    const failureCategory = scoredFailure?.failureCategory ?? deterministicFailureCategory;
+    const syntheticFailureRef = `failure://prompt-experiment/${claimed.runId}/${code}`;
+    completeRecord = PromptExperimentRunSchema.parse({
+      ...claimed,
+      status: "COMPLETE",
+      agentOutputRef:
+        safePublicRef(scoredFailure?.agentOutputRef) ??
+        acceptedOutputRef ??
+        `failure://prompt-experiment/${claimed.runId}/attempt-${claimed.attempt}`,
+      metrics: mergedMetrics(-1, { [failureCategory]: 1 }),
+      failureCaseRefs: boundedFailureCaseRefs(
+        scoredFailure?.failureCaseRefs ?? [],
+        syntheticFailureRef,
+      ),
+      traceRef: safePublicRef(scoredFailure?.traceRef) ?? traceRef,
+      effectiveInputHash:
+        suppliedInputHash?.success === true
+          ? suppliedInputHash.data
+          : (effectiveInputHash ?? requestedInputHash),
+      retryable: false,
+      errorCode: null,
+      startedAt: claimed.startedAt,
+      completedAt: input.now(),
+    });
   }
+  await input.repository.putRun(completeRecord);
 }
 
 function aggregateRuns(
@@ -401,10 +596,11 @@ function aggregateRuns(
 ): { metrics: Record<string, number>; failureCaseRefs: string[] } {
   const complete = runs
     .filter((run) => run.partition === partition && run.status === "COMPLETE")
-    .sort((left, right) =>
-      `${left.sampleId}:${left.seed}:${left.side}`.localeCompare(
-        `${right.sampleId}:${right.seed}:${right.side}`,
-      ),
+    .sort(
+      (left, right) =>
+        compareCanonicalStrings(left.sampleId, right.sampleId) ||
+        left.seed - right.seed ||
+        compareCanonicalStrings(left.side, right.side),
     );
   const pairs = new Map<string, Partial<Record<"CHAMPION" | "CANDIDATE", PromptExperimentRun>>>();
   for (const run of complete) {
@@ -419,8 +615,7 @@ function aggregateRuns(
   const championScores: number[] = [];
   const candidateScores: number[] = [];
   const deltas: number[] = [];
-  for (const key of [...pairs.keys()].sort()) {
-    const pair = pairs.get(key);
+  for (const pair of pairs.values()) {
     const champion = pair?.CHAMPION?.metrics.normalized_score;
     const candidate = pair?.CANDIDATE?.metrics.normalized_score;
     if (champion === undefined || candidate === undefined) {
@@ -430,40 +625,35 @@ function aggregateRuns(
     candidateScores.push(candidate);
     deltas.push(candidate - champion);
   }
-  const mean = (values: ReadonlyArray<number>) =>
-    values.reduce((sum, value) => sum + value, 0) / values.length;
   const prefix = partition.toLowerCase();
   return {
     metrics: {
-      [`${prefix}_candidate_mean`]: mean(candidateScores),
-      [`${prefix}_champion_mean`]: mean(championScores),
-      [`${prefix}_paired_delta`]: mean(deltas),
+      [`${prefix}_candidate_mean`]: promptOrderedMean(candidateScores),
+      [`${prefix}_champion_mean`]: promptOrderedMean(championScores),
+      [`${prefix}_paired_delta`]: promptOrderedMean(deltas),
       [`${prefix}_pair_count`]: pairs.size,
     },
-    failureCaseRefs: [...new Set(complete.flatMap((run) => run.failureCaseRefs))].sort(),
+    failureCaseRefs: [...new Set(complete.flatMap((run) => run.failureCaseRefs))].sort(
+      compareCanonicalStrings,
+    ),
   };
 }
 
 export async function runPromptExperimentPartition(
   rawInput: RunPromptExperimentPartitionInput,
 ): Promise<PromptExperiment> {
+  const now = rawInput.now ?? (() => new Date().toISOString());
   const input = {
     ...rawInput,
     candidate: PromptCandidateSchema.parse(rawInput.candidate),
     family: PromptCandidateFamilySchema.parse(rawInput.family),
     experiment: PromptExperimentSchema.parse(rawInput.experiment),
     split: DatasetSplitManifestSchema.parse(rawInput.split),
-    promptBinding: {
-      champion: {
-        promptRefs: PromptRefPairSchema.parse(rawInput.promptBinding.champion.promptRefs),
-        promptHashes: PromptHashPairSchema.parse(rawInput.promptBinding.champion.promptHashes),
-      },
-      candidate: {
-        promptRefs: PromptRefPairSchema.parse(rawInput.promptBinding.candidate.promptRefs),
-        promptHashes: PromptHashPairSchema.parse(rawInput.promptBinding.candidate.promptHashes),
-      },
-    },
+    promotionPolicy: PromptPromotionPolicySchema.parse(rawInput.promotionPolicy),
   };
+  if (Date.parse(input.split.createdAt) > Date.parse(now())) {
+    throw new Error("prompt_experiment_split_created_in_future");
+  }
   assertBindings(input);
   await input.repository.putCandidate(input.candidate);
   await input.repository.putSplit(input.split);
@@ -479,6 +669,8 @@ export async function runPromptExperimentPartition(
       championPromptHashes: persistedFamily.championPromptHashes,
       datasetSplitId: persistedFamily.datasetSplitId,
       datasetSplitManifestHash: persistedFamily.datasetSplitManifestHash,
+      promotionPolicyVersion: persistedFamily.promotionPolicyVersion,
+      promotionPolicyConfigHash: persistedFamily.promotionPolicyConfigHash,
       candidateIds: persistedFamily.candidateIds,
     }) !==
     canonicalJsonHash({
@@ -489,6 +681,8 @@ export async function runPromptExperimentPartition(
       championPromptHashes: input.family.championPromptHashes,
       datasetSplitId: input.family.datasetSplitId,
       datasetSplitManifestHash: input.family.datasetSplitManifestHash,
+      promotionPolicyVersion: input.family.promotionPolicyVersion,
+      promotionPolicyConfigHash: input.family.promotionPolicyConfigHash,
       candidateIds: input.family.candidateIds,
     })
   ) {
@@ -496,35 +690,58 @@ export async function runPromptExperimentPartition(
   }
   const persisted = await input.repository.getExperiment(input.experiment.experimentId);
   if (persisted !== null) assertPersistedExperimentMatches(input.experiment, persisted);
-  let experiment = persisted ?? (await input.repository.putExperiment(input.experiment));
-  const now = input.now ?? (() => new Date().toISOString());
+  let experiment =
+    persisted ?? (await input.repository.putExperiment(input.experiment, input.promotionPolicy));
   if (input.partition === "VALIDATION") {
     if (experiment.status === "PENDING") {
-      experiment = await input.repository.putExperiment({
-        ...experiment,
-        status: "VALIDATION_RUNNING",
-      });
-    } else if (experiment.status === "VALIDATION_COMPLETE") {
+      experiment = await input.repository.putExperiment(
+        {
+          ...experiment,
+          status: "VALIDATION_RUNNING",
+        },
+        input.promotionPolicy,
+      );
+    } else if (["VALIDATION_COMPLETE", "HOLDOUT_RUNNING", "COMPLETE"].includes(experiment.status)) {
       return experiment;
     } else if (experiment.status !== "VALIDATION_RUNNING") {
       throw new Error(`prompt_experiment_validation_state_invalid:${experiment.status}`);
     }
   } else {
     const currentFamily = await input.repository.getFamily(experiment.familyId);
+    if (currentFamily === null) {
+      throw new Error("prompt_experiment_holdout_winner_required");
+    }
+    const familyExperiments = await input.repository.listExperiments(currentFamily.familyId);
+    const validationRuns = await Promise.all(
+      familyExperiments.map(async (sibling) => ({
+        experimentId: sibling.experimentId,
+        runs: (await input.repository.listRuns(sibling.experimentId)).filter(
+          (run) => run.partition === "VALIDATION",
+        ),
+      })),
+    );
+    const selection = selectPromptCandidateFamily({
+      family: currentFamily,
+      validationExperiments: familyExperiments,
+      validationRuns,
+      split: input.split,
+      policy: input.promotionPolicy,
+    });
     if (
-      currentFamily === null ||
-      !["SELECTED", "COMPLETE"].includes(currentFamily.status) ||
-      currentFamily.selectedExperimentId !== experiment.experimentId ||
-      currentFamily.selectedCandidateId !== experiment.candidateId
+      selection.selectedExperimentId !== experiment.experimentId ||
+      selection.selectedCandidateId !== experiment.candidateId
     ) {
       throw new Error("prompt_experiment_holdout_winner_required");
     }
     if (experiment.status === "VALIDATION_COMPLETE") {
-      experiment = await input.repository.putExperiment({
-        ...experiment,
-        status: "HOLDOUT_RUNNING",
-        holdoutOpenedAt: now(),
-      });
+      experiment = await input.repository.putExperiment(
+        {
+          ...experiment,
+          status: "HOLDOUT_RUNNING",
+          holdoutOpenedAt: now(),
+        },
+        input.promotionPolicy,
+      );
     } else if (experiment.status === "COMPLETE") {
       return experiment;
     } else if (experiment.status !== "HOLDOUT_RUNNING") {
@@ -550,24 +767,45 @@ export async function runPromptExperimentPartition(
       })),
     ),
   );
-  await mapLimit(tasks, Math.max(1, input.maxConcurrency ?? 1), async (task) => {
-    const existing = existingById.get(task.definition.runId);
-    if (existing?.status === "COMPLETE") return;
-    await executeRun({
-      definition: existing ?? task.definition,
-      sample: task.sample,
-      target: experiment.target,
-      binding: input.promptBinding,
-      environment: input.environment,
-      repository: input.repository,
-      executor: input.executor,
-      evaluator: input.evaluator,
-      now,
+  let executionError: { value: unknown } | null = null;
+  try {
+    await mapLimit(tasks, Math.max(1, input.maxConcurrency ?? 1), async (task) => {
+      const existing = existingById.get(task.definition.runId);
+      if (existing?.status === "COMPLETE") return;
+      await executeRun({
+        definition: existing ?? task.definition,
+        sample: task.sample,
+        experiment,
+        environment: input.environment,
+        repository: input.repository,
+        executor: input.executor,
+        evaluator: input.evaluator,
+        runOwnerId: input.runOwnerId,
+        leaseDurationMs: input.leaseDurationMs ?? 300_000,
+        now,
+      });
     });
-  });
+  } catch (error) {
+    executionError = { value: error };
+  }
   const allRuns = await input.repository.listRuns(experiment.experimentId);
   const expectedIds = new Set(tasks.map((task) => task.definition.runId));
   const partitionRuns = allRuns.filter((run) => expectedIds.has(run.runId));
+  const terminalRun = partitionRuns
+    .filter((run) => run.status === "FAILED" && !run.retryable)
+    .sort((left, right) => compareCanonicalStrings(left.runId, right.runId))[0];
+  if (terminalRun !== undefined) {
+    await input.repository.putExperiment(
+      PromptExperimentSchema.parse({
+        ...experiment,
+        status: "FAILED",
+        completedAt: now(),
+      }),
+      input.promotionPolicy,
+    );
+    throw new Error(`prompt_experiment_run_terminal:${terminalRun.runId}`);
+  }
+  if (executionError !== null) throw executionError.value;
   if (
     partitionRuns.length !== expectedIds.size ||
     partitionRuns.some((run) => run.status !== "COMPLETE")
@@ -577,7 +815,7 @@ export async function runPromptExperimentPartition(
   const aggregate = aggregateRuns(input.partition, partitionRuns);
   const runIds = [
     ...new Set([...experiment.runIds, ...partitionRuns.map((run) => run.runId)]),
-  ].sort();
+  ].sort(compareCanonicalStrings);
   return input.repository.putExperiment(
     PromptExperimentSchema.parse({
       ...experiment,
@@ -588,9 +826,10 @@ export async function runPromptExperimentPartition(
       },
       tailFailureCaseRefs: [
         ...new Set([...experiment.tailFailureCaseRefs, ...aggregate.failureCaseRefs]),
-      ].sort(),
+      ].sort(compareCanonicalStrings),
       status: input.partition === "VALIDATION" ? "VALIDATION_COMPLETE" : "COMPLETE",
       completedAt: input.partition === "HOLDOUT" ? now() : null,
     }),
+    input.promotionPolicy,
   );
 }

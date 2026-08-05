@@ -42,15 +42,24 @@ TypeScript 前端经 stdio 上的行分隔 JSON-RPC 驱动 Python sidecar。方�
   `legacy_unverified`，不得进入生产。
 
 ### prompts
-- `prompts.read`(某 git ref 处的文件)、`prompts.write`(经 git_ops 在分支上提交)。
+- 只读/预检：`prompts.read`、`prompts.init_private_repo`、
+  `prompts.audit_versions`、`prompts.preflight`、`prompts.contract_check`、
+  `prompts.formal_release_checks`。Candidate 渲染和提交由私有 Prompt 仓库 CLI 负责。
 
 ### autoresearch
-- `autoresearch.trigger`、`autoresearch.evaluate_pending`、`autoresearch.record_mutation`、
-  `autoresearch.revert_modification`、`autoresearch.get_log`、`autoresearch.list_active_branches`、
-  `autoresearch.prepare_worktree`、`autoresearch.cleanup_worktree`。
+- 只读/工作树诊断：`autoresearch.get_log`、
+  `autoresearch.list_active_branches`、`autoresearch.prepare_worktree`、
+  `autoresearch.cleanup_worktree`、`autoresearch.gc_worktrees`。
+
+### prompt_optimizer
+- 不可变实验存储：`prompt_optimizer.put_candidate`、`get_candidate`、
+  `put_split`、`get_split`、`put_family`、`get_family`、`put_experiment`、
+  `get_experiment`、`put_run`、`claim_run`、`list_runs`、`latest_summary`。
+- `prompt_optimizer.training_projection` 是私有 Prompt mutator 唯一可读取的训练数据投影。
 
 ### prism
-- `prism.list_cohorts`、`prism.train_cohort`、`prism.cohort_status`、`prism.complete_cohort_run`、`prism.compare_cohorts`。
+- 只读历史视图：`prism.list_cohorts`、`prism.cohort_status`、
+  `prism.compare_cohorts`。
 
 ### janus
 - `janus.run_daily`、`janus.get_weights`、`janus.regime`、`janus.get_history`。

@@ -1,5 +1,6 @@
-import { canonicalJsonHash } from "../agents/helpers/canonical_json.js";
+import { canonicalJsonHash, compareCanonicalStrings } from "../agents/helpers/canonical_json.js";
 import type { BridgeApi } from "../bridge/types.js";
+import { selectPromptCandidateFamily } from "./prompt_candidate_family.js";
 import {
   DatasetSplitManifestSchema,
   type PromptCandidate,
@@ -7,26 +8,36 @@ import {
   PromptCandidateSchema,
   PromptExperimentRunSchema,
   PromptExperimentSchema,
-  type PromptPromotionDecision,
-  PromptPromotionDecisionSchema,
 } from "./prompt_optimizer_contract.js";
+import {
+  createPromptPromotionDecision,
+  type PromptPromotionPolicy,
+  PromptPromotionPolicySchema,
+} from "./prompt_promotion_policy.js";
 
-/** Re-open persisted evidence before release; a standalone Decision DTO is never authority. */
-export async function verifyStoredPromptPromotionDecision(input: {
+/** Re-open persisted evidence and recompute authority from an installed policy. */
+export async function authorizeStoredPromptPromotion(input: {
   api: BridgeApi;
   candidate: PromptCandidate;
-  decision: PromptPromotionDecision;
-}): Promise<void> {
+  experimentId: string;
+  policy: PromptPromotionPolicy;
+  authorizedPolicyHashes: ReadonlySet<string>;
+  decidedAt: string;
+}) {
   const candidate = PromptCandidateSchema.parse(input.candidate);
-  const decision = PromptPromotionDecisionSchema.parse(input.decision);
+  const policy = PromptPromotionPolicySchema.parse(input.policy);
+  const policyConfigHash = canonicalJsonHash(policy);
+  if (!input.authorizedPolicyHashes.has(policyConfigHash)) {
+    throw new Error("prompt_promotion_policy_not_authorized");
+  }
   const persistedCandidate = PromptCandidateSchema.parse(
     await input.api.promptOptimizerGetCandidate(candidate.candidateId),
   );
   const experiment = PromptExperimentSchema.parse(
-    await input.api.promptOptimizerGetExperiment(decision.experimentId),
+    await input.api.promptOptimizerGetExperiment(input.experimentId),
   );
   const family = PromptCandidateFamilySchema.parse(
-    await input.api.promptOptimizerGetFamily(decision.familyId),
+    await input.api.promptOptimizerGetFamily(experiment.familyId),
   );
   const split = DatasetSplitManifestSchema.parse(
     await input.api.promptOptimizerGetSplit(experiment.datasetSplitId),
@@ -34,18 +45,15 @@ export async function verifyStoredPromptPromotionDecision(input: {
   const runs = (await input.api.promptOptimizerListRuns(experiment.experimentId)).map((value) =>
     PromptExperimentRunSchema.parse(value),
   );
+  const familyExperiments = (
+    await input.api.promptOptimizerListExperiments(experiment.familyId)
+  ).map((value) => PromptExperimentSchema.parse(value));
   if (
     canonicalJsonHash(persistedCandidate) !== canonicalJsonHash(candidate) ||
-    decision.decision !== "ELIGIBLE" ||
-    canonicalJsonHash(decision.reasons) !== canonicalJsonHash(["all_promotion_gates_passed"]) ||
     experiment.status !== "COMPLETE" ||
-    family.status !== "COMPLETE" ||
     experiment.candidateId !== candidate.candidateId ||
     experiment.familyId !== family.familyId ||
-    family.selectedCandidateId !== candidate.candidateId ||
-    family.selectedExperimentId !== experiment.experimentId ||
-    family.holdoutExperimentId !== experiment.experimentId ||
-    decision.candidateId !== candidate.candidateId ||
+    !family.candidateIds.includes(candidate.candidateId) ||
     candidate.parentId !== experiment.championId ||
     candidate.parentPromptCommit !== experiment.championPromptCommit ||
     canonicalJsonHash(candidate.parentPromptHashes) !==
@@ -53,26 +61,60 @@ export async function verifyStoredPromptPromotionDecision(input: {
     canonicalJsonHash(candidate.target) !== canonicalJsonHash(experiment.target) ||
     canonicalJsonHash(candidate.promptRefs) !== canonicalJsonHash(experiment.candidatePromptRefs) ||
     canonicalJsonHash(candidate.promptHashes) !==
-      canonicalJsonHash(experiment.candidatePromptHashes)
+      canonicalJsonHash(experiment.candidatePromptHashes) ||
+    family.promotionPolicyVersion !== policy.policyVersion ||
+    family.promotionPolicyConfigHash !== policyConfigHash ||
+    experiment.promotionPolicyVersion !== policy.policyVersion ||
+    experiment.promotionPolicyConfigHash !== policyConfigHash
   ) {
     throw new Error("prompt_promotion_authority_binding_mismatch");
   }
-  const sortedRuns = [...runs].sort((left, right) => left.runId.localeCompare(right.runId));
+  const validationRuns = await Promise.all(
+    familyExperiments.map(async (sibling) => ({
+      experimentId: sibling.experimentId,
+      runs: (await input.api.promptOptimizerListRuns(sibling.experimentId))
+        .map((value) => PromptExperimentRunSchema.parse(value))
+        .filter((run) => run.partition === "VALIDATION"),
+    })),
+  );
+  const recomputedSelection = selectPromptCandidateFamily({
+    family,
+    validationExperiments: familyExperiments,
+    validationRuns,
+    split,
+    policy,
+  });
+  const holdoutConsumers = familyExperiments.filter((value) =>
+    ["HOLDOUT_RUNNING", "COMPLETE"].includes(value.status),
+  );
+  if (
+    recomputedSelection.selectedCandidateId !== candidate.candidateId ||
+    recomputedSelection.selectedExperimentId !== experiment.experimentId ||
+    holdoutConsumers.length !== 1 ||
+    holdoutConsumers[0]?.experimentId !== experiment.experimentId
+  ) {
+    throw new Error("prompt_promotion_authority_family_selection_drift");
+  }
+  const sortedRuns = [...runs].sort((left, right) =>
+    compareCanonicalStrings(left.runId, right.runId),
+  );
   if (
     sortedRuns.some((run) => run.status !== "COMPLETE") ||
-    canonicalJsonHash(sortedRuns.map((run) => run.runId).sort()) !==
+    canonicalJsonHash(sortedRuns.map((run) => run.runId).sort(compareCanonicalStrings)) !==
       canonicalJsonHash(experiment.runIds)
   ) {
     throw new Error("prompt_promotion_authority_run_manifest_mismatch");
   }
-  const evidenceHash = canonicalJsonHash({
+  const decision = createPromptPromotionDecision({
     experiment,
     family,
     split,
     runs: sortedRuns,
-    policyConfigHash: decision.policyConfigHash,
+    policy,
+    decidedAt: input.decidedAt,
   });
-  if (evidenceHash !== decision.evidenceHash) {
-    throw new Error("prompt_promotion_authority_evidence_hash_mismatch");
+  if (decision.decision !== "ELIGIBLE") {
+    throw new Error(`prompt_promotion_authority_rejected:${decision.reasons.join(",")}`);
   }
+  return decision;
 }

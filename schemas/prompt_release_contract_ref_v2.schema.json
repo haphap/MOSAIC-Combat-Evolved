@@ -11,7 +11,7 @@
       "additionalProperties": false,
       "required": [
         "runtime_agent_manifest",
-        "execution_behavior_release_manifest",
+        "execution_behavior_release_archive",
         "agent_outcome_contract_manifest"
       ],
       "properties": {
@@ -24,17 +24,22 @@
             "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
           }
         },
-        "execution_behavior_release_manifest": {
+        "execution_behavior_release_archive": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["path", "release_id"],
+          "required": ["path", "release_id", "release_hash"],
           "properties": {
             "path": {
-              "const": "registry/prompt_checks/execution_behavior_release_manifest_v2.json"
+              "type": "string",
+              "pattern": "^registry/prompt_checks/execution_behavior_releases/[0-9a-f]{64}--[0-9a-f]{64}\\.json$"
             },
             "release_id": {
               "type": "string",
               "pattern": "^execution-behavior-release:[0-9a-f]{64}$"
+            },
+            "release_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
             }
           }
         },

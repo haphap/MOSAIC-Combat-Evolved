@@ -2,7 +2,7 @@
 
 日期：2026-08-04
 
-状态：已完成（2026-08-04）
+状态：实施校正中（2026-08-05，PR7/PR18 复审收口）
 
 ## 1. 决策与范围
 
@@ -18,6 +18,11 @@ KNOT 的唯一产品职责是：
 maturity、Darwinian owner、私有 Prompt 和 RKE shadow-only 等合同继续有效。仅其中“私有 KNOT
 在生产 Agent runtime 应用 effect/projection”的要求被本计划替代。
 
+本计划所禁止的“数值 knob”是能直接改写数据门、接受/拒绝、限仓、执行、确定性组件合成或
+Darwinian usage 的 runtime effect。只影响模型如何权衡证据、比较 facet、选择分析期限或形成判断
+门槛的数值假设，可以作为私有 Prompt 参数参加 Candidate 变异，但只能渲染进私有
+`cohort-behavior`，不得获得第二条 runtime 写路径。
+
 本计划不重构通用 Agent outcome 生产、Darwinian usage weight、Model Adapter 的 structured
 output、现有 Prompt Release canary/rollback 或 RKE。KNOT 只读取这些系统提供的稳定结果，不取得
 它们的写权限。
@@ -29,7 +34,7 @@ KNOT 不再负责或拥有：
 - Agent 模型调用、工具 capability、provider invocation 审计或 HMAC 签发；
 - provider schema、raw response、repair、normalization 或 accepted-output persistence；
 - blind pair root、candidate capability、strict receipt、replay capsule 或 authority ledger；
-- domain feature、confidence policy、execution policy、角色、工具、schema 或数值 knob 变异；
+- domain feature、确定性 confidence/execution policy、角色、工具、schema 或 runtime effect 变异；
 - evaluation object、realized label、normalized score 或 Darwinian weight 生产；
 - production release 激活、canary 流量、rollback 或 operator approval；
 - 通过 CIO 总收益反向评价上游 Agent；
@@ -93,6 +98,8 @@ interface PromptCandidate {
   schemaVersion: "prompt_candidate_v1";
   candidateId: string;
   parentId: string;
+  parentPromptCommit: string;
+  parentPromptHashes: { zh: string; en: string };
   target: {
     agentId: string;
     stage: string;
@@ -100,13 +107,23 @@ interface PromptCandidate {
   };
   promptRefs: { zh: string; en: string };
   promptHashes: { zh: string; en: string };
-  trainingSnapshotId: string;
-  trainingSnapshotHash: string;
+  trainingProjectionHash: string;
   excludedSampleIdsHash: string;
   mutatorConfigHash: string;
   mutatorCommit: string;
+  mutationCategories: Array<
+    | "EVIDENCE_PRIORITY"
+    | "TEMPORAL_DISCIPLINE"
+    | "CONFLICT_RESOLUTION"
+    | "TRANSMISSION_CLARITY"
+    | "UNCERTAINTY_CALIBRATION"
+    | "TAIL_RISK_CONTROL"
+  >;
   mutationSummary: string;
   hypothesis: string;
+  behaviorContractHash: string;
+  privateLineageHash: string;
+  privateStateArtifactHash: string;
   createdAt: string;
 }
 ```
@@ -119,14 +136,32 @@ Candidate 生成前由 Runner 持有最小 split manifest。KNOT API 只接收�
 而不是完整 manifest：
 
 ```ts
+interface PromptDatasetSampleRef {
+  sampleId: string;
+  inputRef: string;
+  inputHash: string;
+  outcomeRef: string;
+  outcomeHash: string;
+  eventWindow: { startAt: string; endAt: string };
+  maturedAt: string;
+}
+
+interface DatasetPartition {
+  snapshotHash: string;
+  windowStartAt: string;
+  windowEndAt: string;
+  samples: PromptDatasetSampleRef[];
+}
+
 interface DatasetSplitManifest {
   schemaVersion: "prompt_dataset_split_v1";
   splitId: string;
   target: { agentId: string; stage: string; cohort: string };
+  trainingProjectionHash: string;
   cutoffAt: string;
-  trainingSnapshotHash: string;
-  validationSnapshotHash: string;
-  holdoutSnapshotHash: string;
+  training: DatasetPartition;
+  validation: DatasetPartition;
+  holdout: DatasetPartition;
   evaluatorVersion: string;
   createdAt: string;
 }
@@ -135,16 +170,35 @@ interface DatasetSplitManifest {
 ### 4.2 冻结实验环境与结果
 
 ```ts
-interface ExperimentRecord {
+interface PromptExperiment {
   schemaVersion: "prompt_experiment_v1";
   experimentId: string;
+  familyId: string;
+  candidateId: string;
+  championId: string;
+  target: { agentId: string; stage: string; cohort: string };
+  championPromptCommit: string;
+  championPromptRefs: { zh: string; en: string };
   championPromptHashes: { zh: string; en: string };
+  candidatePromptRefs: { zh: string; en: string };
   candidatePromptHashes: { zh: string; en: string };
+  datasetSplitId: string;
   datasetSplitManifestHash: string;
-  validationSnapshotHash: string;
-  holdoutSnapshotHash: string;
+  promotionPolicyVersion: string;
+  promotionPolicyConfigHash: string;
   modelConfigHash: string;
   toolConfigHash: string;
+  componentCalibrationSnapshotHash: string;
+  darwinianUsageSnapshotHash: string;
+  executorAdapterHash: string;
+  evaluatorAdapterHash: string;
+  evaluationBinding: {
+    evaluationObject: string;
+    evaluationObjectSchemaVersion: string;
+    primaryLabelId: string;
+    scoringContractVersion: string;
+    outcomeContractVersion: string;
+  };
   evaluatorVersion: string;
   evaluatorConfigHash: string;
   codeCommit: string;
@@ -152,14 +206,22 @@ interface ExperimentRecord {
   runIds: string[];
   metrics: Record<string, number>;
   tailFailureCaseRefs: string[];
-  status: "PENDING" | "COMPLETE" | "FAILED";
+  status:
+    | "PENDING"
+    | "VALIDATION_RUNNING"
+    | "VALIDATION_COMPLETE"
+    | "HOLDOUT_RUNNING"
+    | "COMPLETE"
+    | "FAILED";
+  holdoutOpenedAt: string | null;
+  createdAt: string;
   completedAt: string | null;
 }
 ```
 
-每个 run 只需要 `runId`、`experimentId`、`side`、`sampleId`、`seed`、状态、Agent 输出引用、指标和
-可选 `traceRef/effectiveInputHash`。数据库唯一约束负责幂等；不为每个中间对象创建 hash、receipt 或
-签名链。
+每个 run 只需要 `runId`、`experimentId`、`side`、`sampleId`、`seed`、状态、Agent 输出引用、指标、
+非空 `effectiveInputHash` 和可选 `traceRef`。包括确定性计分失败在内，任何 `COMPLETE` run 都必须绑定
+实际有效输入；数据库唯一约束负责幂等，不为每个中间对象创建 hash、receipt 或签名链。
 
 provider schema/raw/normalized 数据只属于 Model Adapter 的可选私有诊断 trace。trace 关闭或过期
 不影响已完成 Experiment 的身份；若某个 promotion policy 明确要求保留 trace，则由该 policy 将其
@@ -226,12 +288,22 @@ KNOT 的训练输入应优先提供确定性摘要：分数分布、常见失败
 
 ## 7. 存储与隐私边界
 
-新路径只保留四类持久化对象：
+新路径只保留两类不可变预注册 manifest 和三类实验结果记录：
 
-1. `prompt_candidates_v2`；
-2. `prompt_experiments_v2`；
-3. `prompt_experiment_runs_v2`；
-4. `prompt_promotion_decisions_v2`。
+1. 内容寻址的 Dataset Split manifest；
+2. 内容寻址的 Candidate Family manifest，用于冻结同轮候选集合、multiple-comparison policy
+   和一次性 holdout 归属；
+3. Prompt Candidate；
+4. Prompt Experiment；
+5. Prompt Experiment Run。
+
+Split 与 Family 不是第二套评估结果或晋升状态：写入后不可修改，不保存 metrics、Decision 或
+Prompt 正文。把两者重复内嵌到每个 Experiment 会扩大重复面，也无法用数据库约束唯一的
+`split -> family` 与一次性 holdout 消费，因此保留各一份 canonical manifest。
+
+Promotion Authority 必须从上述冻结记录重算选择结论，并把通过的结论作为 Prompt Release evidence
+交给既有 release 流程；不再建立一张可与 Experiment 漂移的重复 decision 表。TUI 的 decision
+展示同样来自可重算的当前 Experiment/Release 状态。
 
 可在现有 Scorecard SQLite 中实现，使用事务、外键和唯一约束；不引入新的 ledger 数据库。Prompt
 正文、训练案例正文、失败案例详情和 raw trace 位于私库或本地私有缓存。公开提交物只包含 schema、
@@ -250,7 +322,8 @@ KNOT 的训练输入应优先提供确定性摘要：分数分布、常见失败
 
 ### 保留并复用
 
-- `mosaic-ts/src/autoresearch/mutator.ts` 中 Prompt 加载、双语改写和 invariant 检查；
+- 私库 `runtime/typescript/src/autoresearch/prompt_mutator.ts` 中的单 facet 参数变异、确定性双语渲染
+  和 invariant 检查；
 - 普通 Agent runner、Model Adapter structured-output 与 accepted-output/outcome 系统；
 - Agent-specific evaluation object、maturity、label 与 normalized score；
 - `prompt_release_manager.ts`、`release_registry.ts` 的通用 canary/activation/rollback；
@@ -291,7 +364,8 @@ KNOT 的训练输入应优先提供确定性摘要：分数分布、常见失败
 
 ### WP1：建立唯一合同源
 
-- 新增 Candidate、split manifest、Experiment、run 和 PromotionDecision 的 Zod/JSON schema；
+- 新增 Candidate、split manifest、Candidate Family manifest、Experiment、run 和派生
+  PromotionDecision 的 Zod/JSON schema；PromotionDecision 不建立独立持久化表；
 - TypeScript 为运行时唯一 DTO 合同源，生成 bridge/Python 验证合同，禁止手写重复字段表；
 - 明确 public/private 字段和 trace retention；
 - 给所有 28 Agent/29 stage 绑定既有 outcome contract，不新增 KNOT effect registry。
@@ -305,7 +379,8 @@ KNOT 的训练输入应优先提供确定性摘要：分数分布、常见失败
 - 生成双语 Prompt Candidate、mutation summary 与 hypothesis；
 - 只允许 cohort-behavior Prompt-only diff，角色、工具、schema 和 immutable block 不可变；
 - Candidate 写入私有 Prompt Git，记录 parent/candidate/training/mutator lineage；
-- 删除 numerical effect、confidence/execution policy 和 production runtime projection 的生成入口。
+- 删除 numerical runtime effect、确定性 confidence/execution policy 和 production runtime
+  projection 的生成入口；Prompt-only 数值参数只通过私有 renderer 改变 Candidate 正文。
 
 验收：KNOT 无当前轮原始 validation/holdout API；Candidate 正文/hash、冻结训练输入与 lineage 可验证；不要求
 重新调用随机 mutator 得到逐字相同输出；Prompt invariants 和 private leak gate 通过。
@@ -396,7 +471,7 @@ Agent、Darwinian、outcome 和 release 功能不回归。
 ## 12. Facet 评价闭环补充
 
 生产链路不再使用无调用方的公开 `prompt_behavior_evaluation_v1` facet-score builder。公开仓只导出
-严格、hash-bound 的 `prompt_training_history_v1`：目标 Agent 自己的 accepted-output ref/hash、成熟 outcome、
+严格、hash-bound 的 `prompt_training_projection_v1`：目标 Agent 自己的 accepted-output ref/hash、成熟 outcome、
 七个可组合 Macro Agent 的 component signals、CIO 同 run proposal，以及已经完成旧轮次的 validation
 paired deltas。当前 validation/holdout 的 sample IDs 必须作为 exclusions 传入；任何重叠实验整轮排除，
 当前轮原始 validation 数据以及所有 holdout 字段和结果永不进入 KNOT 请求。accepted-output 与 CIO
@@ -421,3 +496,20 @@ pnpm --dir mosaic-ts dev autoresearch generate-candidate \
 该入口依次完成 bridge 历史导出、私有 facet snapshot 构造、单 facet 双语变异、私有 Git 发布和公开
 Candidate 持久化。少于 30 个角色匹配成熟样本、未来数据、reserved split 重叠、CIO proposal 缺失、
 facet mode/lineage/hash 漂移均 fail closed。
+
+## 13. 私有 Prompt 数值参数补充
+
+复审确认旧数值并非同一种权限。最终私有合同按用途分为：234 个 Prompt-only 参数、7 个确定性
+owner policy、0 个缺消费者的确定性参数和 4 个退役权重。公开仓只允许保存这组无语义计数及私有
+release/contract hash，不保存参数 ID、值、范围、步长、经济解释或 Prompt 正文。
+
+- Prompt-only 参数只改变一个 Agent、一个 cohort、一个 facet 的证据显著性、分析期限或判断门槛；
+- 确定性 policy 由其公开 owner/validator 执行，KNOT 只读且不得变异；
+- 退役的重复大类权重既不进入 Prompt，也不与 Darwinian usage 再次相乘；
+- 每次 Candidate 只能改变一个 scalar 或一个声明过的 atomic normalized group，并由私库从 parent
+  state 确定性重放；
+- 28 Agent × 8 cohort 的 champion state、双语 Prompt pair 和私有 release manifest 必须原子更新，
+  缺 state、越界、步长错误、跨 cohort 写入或 immutable block 变化一律拒绝。
+
+这项补充不恢复旧 effect runtime。KNOT 仍只生成 Prompt Candidate；公开 Runner 仍独立冻结和评分，
+Promotion Authority 仍独立负责 canary、activation 与 rollback，Darwinian 仍只调整下游 usage。

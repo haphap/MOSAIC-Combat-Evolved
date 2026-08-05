@@ -80,13 +80,6 @@ const config: MosaicConfig = {
   research_depth_name: "标准",
   active_cohort: "cohort_default",
   cohorts: { cohort_default: { start: "2000-01-01", end: "2099-12-31" } },
-  autoresearch: {
-    agent_mutation_cooldown_hours: 24,
-    keep_revert_lockout_days: 3,
-    keep_threshold_delta_sharpe: 0.1,
-    monthly_modification_cap_per_cohort: 100,
-    evaluation_horizon_trading_days: 5,
-  },
   data_vendors: {},
   tool_vendors: {},
 };

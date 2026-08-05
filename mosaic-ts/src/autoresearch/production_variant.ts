@@ -4,14 +4,14 @@ import {
   MACRO_COMPONENT_WEIGHT_CONTRACT_VERSION,
   MACRO_ROLE_CONTRACTS,
 } from "../agents/macro/_contracts.js";
-import type { ActivePromptReleaseManifest } from "../agents/prompts/prompt_release_contract.js";
+import {
+  type ActivePromptReleaseManifest,
+  ActivePromptReleaseManifestSchema,
+} from "../agents/prompts/prompt_release_contract.js";
 import { RUNTIME_AGENT_SPECS } from "../agents/prompts/runtime_agent_spec.js";
 import type { MosaicConfig, PromptPreflightResult } from "../bridge/types.js";
 import type { LlmHandle } from "../llm/factory.js";
-import {
-  type ExecutionBehaviorReleaseManifest,
-  releaseVariantFor,
-} from "./execution_behavior_release.js";
+import type { ExecutionBehaviorReleaseManifest } from "./execution_behavior_release.js";
 import { OUTCOME_LABEL_REGISTRY } from "./outcome_registry.js";
 
 export interface DarwinianAgentBehaviorBinding {
@@ -179,7 +179,7 @@ export function buildDarwinianRuntimeBinding(input: {
   llmHandle: Pick<LlmHandle, "provider" | "model" | "baseUrl">;
   promptPreflight: PromptPreflightResult;
   executionBehaviorRelease: ExecutionBehaviorReleaseManifest;
-  activePromptRelease?: ActivePromptReleaseManifest | null;
+  activePromptRelease: ActivePromptReleaseManifest;
   effectiveAt: string;
 }): DarwinianRuntimeBinding {
   const language = resolveProductionLanguage(input.config);
@@ -196,13 +196,21 @@ export function buildDarwinianRuntimeBinding(input: {
     throw new Error("Darwinian runtime binding requires a READY matching prompt preflight");
   }
   const release = input.executionBehaviorRelease;
+  const activePromptRelease = ActivePromptReleaseManifestSchema.parse(input.activePromptRelease);
   if (
-    input.activePromptRelease &&
-    (input.activePromptRelease.prompt_commit !== promptRepoRevision ||
-      input.activePromptRelease.activation_scope.cohort !== cohortId ||
-      !["canary", "active"].includes(input.activePromptRelease.lifecycle_state))
+    activePromptRelease.prompt_commit !== promptRepoRevision ||
+    activePromptRelease.activation_scope.cohort !== cohortId ||
+    !["canary", "active"].includes(activePromptRelease.lifecycle_state)
   ) {
     throw new Error("active Prompt Release does not match the runtime prompt identity");
+  }
+  if (
+    activePromptRelease.execution_behavior_release.release_id !==
+      release.execution_behavior_release_id ||
+    activePromptRelease.execution_behavior_release.release_hash !==
+      release.execution_behavior_release_hash
+  ) {
+    throw new Error("active Prompt Release does not bind the supplied execution behavior release");
   }
   if (release.private_prompt_commit !== promptRepoRevision) {
     throw new Error(
@@ -253,10 +261,25 @@ export function buildDarwinianRuntimeBinding(input: {
     if (!outcome || !spec) throw new Error(`missing runtime/outcome contract for ${agentId}`);
     const promptSha = promptShaByAgent.get(agentId);
     if (!promptSha) throw new Error(`missing prompt SHA for ${agentId}:${language}`);
-    const releaseVariant = releaseVariantFor(release, cohortId, language, agentId);
-    if (releaseVariant.prompt_content_hash !== promptSha) {
+    const promptPairs = activePromptRelease.prompt_pairs.filter(
+      (pair) => pair.cohort === cohortId && pair.agent === agentId,
+    );
+    if (promptPairs.length !== 1) {
+      throw new Error(`active Prompt Release must bind one prompt pair for ${agentId}`);
+    }
+    const promptContentHash = promptPairs[0]?.[language].sha256;
+    if (promptContentHash !== promptSha) {
       throw new Error(`prompt content does not match release for ${agentId}:${language}`);
     }
+    const executionContracts = release.execution_contracts.filter(
+      (contract) => contract.agent_id === agentId && contract.language === language,
+    );
+    if (executionContracts.length !== 1) {
+      throw new Error(`execution contract missing or duplicated for ${agentId}:${language}`);
+    }
+    const executionContract = executionContracts[0];
+    if (!executionContract)
+      throw new Error(`execution contract missing for ${agentId}:${language}`);
     const dimensions = outcome.track_contract_dimensions;
     const agentContractVersion =
       spec.layer === "macro"
@@ -305,8 +328,8 @@ export function buildDarwinianRuntimeBinding(input: {
         : null;
     bindings[agentId] = {
       agent_contract_version: agentContractVersion,
-      prompt_behavior_version: releaseVariant.prompt_behavior_version,
-      execution_behavior_version: releaseVariant.execution_behavior_version,
+      prompt_behavior_version: `prompt-behavior:${promptContentHash.slice("sha256:".length)}`,
+      execution_behavior_version: executionContract.execution_behavior_version,
       component_weight_contract_version: componentVersion,
       reliability_adapter_contract_version: reliabilityVersion,
       confidence_semantics_contract_version: confidenceVersion,

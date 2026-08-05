@@ -1,8 +1,12 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { MACRO_ROLE_CONTRACTS } from "../src/agents/macro/_contracts.js";
-import { ALL_AGENTS } from "../src/agents/prompts/cohorts.js";
-import type { ActivePromptReleaseManifest } from "../src/agents/prompts/prompt_release_contract.js";
+import { ALL_AGENTS, LAYER_BY_AGENT } from "../src/agents/prompts/cohorts.js";
+import {
+  type ActivePromptReleaseManifest,
+  releasePromptPairHash,
+  releasePromptSetHash,
+} from "../src/agents/prompts/prompt_release_contract.js";
 import {
   type ExecutionBehaviorReleaseManifest,
   productionVariantRosterId,
@@ -28,13 +32,6 @@ function config(outputLanguage = "Chinese"): MosaicConfig {
     research_depth_name: "deep",
     active_cohort: "cohort_default",
     cohorts: {},
-    autoresearch: {
-      agent_mutation_cooldown_hours: 24,
-      keep_revert_lockout_days: 3,
-      keep_threshold_delta_sharpe: 0.1,
-      monthly_modification_cap_per_cohort: 4,
-      evaluation_horizon_trading_days: 5,
-    },
     data_vendors: {},
     tool_vendors: {},
   };
@@ -94,8 +91,28 @@ function canonicalHash(value: unknown): string {
 function release(model = "fake-model"): ExecutionBehaviorReleaseManifest {
   const revision = "a".repeat(40);
   const releaseId = `execution-behavior-release:${canonicalHash({ model }).slice("sha256:".length)}`;
+  const executionContracts = ALL_AGENTS.flatMap((agent) =>
+    (["en", "zh"] as const).map((language) => ({
+      execution_contract_id: `execution-contract:${canonicalHash({ agent, language }).slice("sha256:".length)}`,
+      agent_id: agent,
+      language,
+      immutable_contract_block_hash: canonicalHash({ agent, language }),
+      execution_behavior_version: `execution-behavior:${canonicalHash({ agent, language, model }).slice("sha256:".length)}`,
+      structured_output_schema_bindings: [
+        {
+          phase: "DEFAULT" as const,
+          schema_id: "test",
+          schema_hash: canonicalHash({ agent }),
+          immutable_phase_instruction_hash: canonicalHash({ agent, language }),
+        },
+      ],
+      structured_output_schema_set_hash: canonicalHash({ agent, language, schema: true }),
+      structured_provider_contract_hash: canonicalHash({ agent, provider: true }),
+      runtime_tool_manifest_hash: canonicalHash({ agent, tools: true }),
+    })),
+  ) as ExecutionBehaviorReleaseManifest["execution_contracts"];
   return {
-    schema_version: "execution_behavior_release_manifest_v2",
+    schema_version: "execution_behavior_release_manifest_v3",
     execution_behavior_release_id: releaseId,
     execution_behavior_release_hash: canonicalHash({ releaseId }),
     private_prompt_commit: revision,
@@ -120,32 +137,83 @@ function release(model = "fake-model"): ExecutionBehaviorReleaseManifest {
       cohort_id: "cohort_default",
       language,
     })) as ExecutionBehaviorReleaseManifest["active_production_variants"],
-    variants: ALL_AGENTS.flatMap((agent) =>
-      (["en", "zh"] as const).map((language) => {
-        const contentHash = `sha256:${language === "zh" ? "1" : "2"}${"0".repeat(63)}`;
-        return {
-          variant_path: `cohort_default/test/${agent}.${language}.md`,
-          agent_id: agent,
-          cohort_id: "cohort_default",
-          language,
-          prompt_content_hash: contentHash,
-          immutable_contract_block_hash: canonicalHash({ agent, language }),
-          prompt_behavior_version: `prompt-behavior:${contentHash.slice("sha256:".length)}`,
-          execution_behavior_version: `execution-behavior:${canonicalHash({ agent, language, model }).slice("sha256:".length)}`,
-          structured_output_schema_bindings: [
-            {
-              phase: "DEFAULT" as const,
-              schema_id: "test",
-              schema_hash: canonicalHash({ agent }),
-              immutable_phase_instruction_hash: canonicalHash({ agent, language }),
-            },
-          ],
-          structured_output_schema_set_hash: canonicalHash({ agent, language, schema: true }),
-          runtime_tool_manifest_hash: canonicalHash({ agent, tools: true }),
-          prompt_execution_baseline_hash: canonicalHash({ agent, language, prompt: true }),
-        };
-      }),
-    ) as ExecutionBehaviorReleaseManifest["variants"],
+    execution_contracts: executionContracts,
+  };
+}
+
+function promptReleaseFor(
+  behaviorRelease: ExecutionBehaviorReleaseManifest,
+): ActivePromptReleaseManifest {
+  const promptPairs = ALL_AGENTS.map((agent) => {
+    const layer = LAYER_BY_AGENT[agent];
+    if (!layer) throw new Error(`missing test layer for ${agent}`);
+    const pairWithoutHash = {
+      agent,
+      layer,
+      cohort: "cohort_default",
+      stages: ["agent_run" as const],
+      zh: {
+        path: `prompts/mosaic/cohort_default/${layer}/${agent}.zh.md`,
+        sha256: `sha256:1${"0".repeat(63)}`,
+      },
+      en: {
+        path: `prompts/mosaic/cohort_default/${layer}/${agent}.en.md`,
+        sha256: `sha256:2${"0".repeat(63)}`,
+      },
+    };
+    return { ...pairWithoutHash, pair_hash: releasePromptPairHash(pairWithoutHash) };
+  });
+  const archiveStem =
+    `${behaviorRelease.execution_behavior_release_id.slice("execution-behavior-release:".length)}--` +
+    `${behaviorRelease.execution_behavior_release_hash.slice("sha256:".length)}.json`;
+  return {
+    schema_version: "active_prompt_release_manifest_v2",
+    release_id: "release:test-canary",
+    base_release_id: "release:test-active",
+    lifecycle_state: "canary",
+    prompt_commit: behaviorRelease.private_prompt_commit,
+    code_commit: "b".repeat(40),
+    execution_behavior_release: {
+      release_id: behaviorRelease.execution_behavior_release_id,
+      release_hash: behaviorRelease.execution_behavior_release_hash,
+      archive_ref: `registry/prompt_checks/execution_behavior_releases/${archiveStem}`,
+    },
+    prompt_hash: releasePromptSetHash(promptPairs),
+    prompt_pairs: promptPairs,
+    stage_snapshot_hashes: Object.fromEntries(
+      ALL_AGENTS.map((agent) => [`${agent}:agent_run`, canonicalHash({ agent, stage: true })]),
+    ),
+    catalog_hash: canonicalHash({ catalog: true }),
+    schema_hash: canonicalHash({ schema: true }),
+    evaluation_contract_hash: canonicalHash({ evaluation: true }),
+    release_evidence: {
+      candidate_id: "candidate:test",
+      candidate_hash: canonicalHash({ candidate: true }),
+      promotion_decision_id: "decision:test",
+      promotion_decision_hash: canonicalHash({ decision: true }),
+      experiment_id: "experiment:test",
+      mutated_agent: ALL_AGENTS[0] ?? "china",
+      policy_version: "test-policy-v1",
+      policy_config_hash: canonicalHash({ policy: true }),
+      candidate_prompt_hashes: {
+        zh: `sha256:1${"0".repeat(63)}`,
+        en: `sha256:2${"0".repeat(63)}`,
+      },
+      private_state_artifact_hash: canonicalHash({ state: true }),
+    },
+    activation_scope: { cohort: "cohort_default", account_mode: "paper", traffic_percent: 10 },
+    approval_policy_id: "manual-test",
+    approved_by: "operator:test",
+    canary_started_at: "2026-07-17T08:00:00.000Z",
+    canary_ended_at: null,
+    runtime_slo_summary: null,
+    runtime_slo_evidence: null,
+    rollback_triggers: ["manual"],
+    previous_approved_release_id: "release:test-active",
+    bundled_fallback: null,
+    created_at: "2026-07-17T08:00:00.000Z",
+    activated_at: null,
+    rolled_back_at: null,
   };
 }
 
@@ -177,12 +245,14 @@ function componentSnapshot(
 
 describe("Darwinian production runtime binding", () => {
   it("freezes exactly 28 behavior bindings with 24/4 dimension semantics", () => {
+    const behaviorRelease = release();
     const binding = buildDarwinianRuntimeBinding({
       cohortId: "cohort_default",
       config: config(),
       llmHandle: { provider: "fake", model: "fake-model", baseUrl: undefined },
       promptPreflight: preflight(),
-      executionBehaviorRelease: release(),
+      executionBehaviorRelease: behaviorRelease,
+      activePromptRelease: promptReleaseFor(behaviorRelease),
       effectiveAt: "2026-07-17T09:00:00.000Z",
     });
     expect(binding.language).toBe("zh");
@@ -212,23 +282,29 @@ describe("Darwinian production runtime binding", () => {
       promptPreflight: preflight(),
       effectiveAt: "2026-07-17T09:00:00.000Z",
     };
+    const zhRelease = release("model-a");
     const zh = buildDarwinianRuntimeBinding({
       ...base,
       config: config("Chinese"),
       llmHandle: { provider: "fake", model: "model-a", baseUrl: undefined },
-      executionBehaviorRelease: release("model-a"),
+      executionBehaviorRelease: zhRelease,
+      activePromptRelease: promptReleaseFor(zhRelease),
     });
+    const enRelease = release("model-a");
     const en = buildDarwinianRuntimeBinding({
       ...base,
       config: config("English"),
       llmHandle: { provider: "fake", model: "model-a", baseUrl: undefined },
-      executionBehaviorRelease: release("model-a"),
+      executionBehaviorRelease: enRelease,
+      activePromptRelease: promptReleaseFor(enRelease),
     });
+    const modelBRelease = release("model-b");
     const otherModel = buildDarwinianRuntimeBinding({
       ...base,
       config: config("Chinese"),
       llmHandle: { provider: "fake", model: "model-b", baseUrl: undefined },
-      executionBehaviorRelease: release("model-b"),
+      executionBehaviorRelease: modelBRelease,
+      activePromptRelease: promptReleaseFor(modelBRelease),
     });
     expect(en.production_variant_roster_id).not.toBe(zh.production_variant_roster_id);
     expect(en.agent_behavior_bindings.china?.prompt_behavior_version).not.toBe(
@@ -250,11 +326,13 @@ describe("Darwinian production runtime binding", () => {
       promptPreflight: preflight(),
       effectiveAt: "2026-07-17T09:00:00.000Z",
     };
+    const defaultRelease = release();
     expect(() =>
       buildDarwinianRuntimeBinding({
         ...base,
         llmHandle: { provider: "fake", model: "fake-model", baseUrl: "https://private.test" },
-        executionBehaviorRelease: release(),
+        executionBehaviorRelease: defaultRelease,
+        activePromptRelease: promptReleaseFor(defaultRelease),
       }),
     ).toThrow(/base URL mode/);
 
@@ -265,23 +343,24 @@ describe("Darwinian production runtime binding", () => {
         ...base,
         llmHandle: { provider: "fake", model: "fake-model", baseUrl: undefined },
         executionBehaviorRelease: privateEndpointRelease,
+        activePromptRelease: promptReleaseFor(privateEndpointRelease),
       }),
     ).toThrow(/base URL mode/);
   });
 
   it("rejects an active Prompt Release that differs from the attested execution identity", () => {
+    const behaviorRelease = release();
     const activePromptRelease = {
+      ...promptReleaseFor(behaviorRelease),
       prompt_commit: "b".repeat(40),
-      lifecycle_state: "active",
-      activation_scope: { cohort: "cohort_default" },
-    } as ActivePromptReleaseManifest;
+    };
     expect(() =>
       buildDarwinianRuntimeBinding({
         cohortId: "cohort_default",
         config: config(),
         llmHandle: { provider: "fake", model: "fake-model", baseUrl: undefined },
         promptPreflight: preflight(),
-        executionBehaviorRelease: release(),
+        executionBehaviorRelease: behaviorRelease,
         activePromptRelease,
         effectiveAt: "2026-07-17T09:00:00.000Z",
       }),
@@ -290,12 +369,14 @@ describe("Darwinian production runtime binding", () => {
 
   it("validates the complete component snapshot before graph execution", () => {
     const asOf = "2026-07-17T09:00:00.000Z";
+    const behaviorRelease = release();
     const binding = buildDarwinianRuntimeBinding({
       cohortId: "cohort_default",
       config: config(),
       llmHandle: { provider: "fake", model: "fake-model", baseUrl: undefined },
       promptPreflight: preflight(),
-      executionBehaviorRelease: release(),
+      executionBehaviorRelease: behaviorRelease,
+      activePromptRelease: promptReleaseFor(behaviorRelease),
       effectiveAt: asOf,
     });
     const snapshot = componentSnapshot(binding, asOf);

@@ -6,19 +6,27 @@ import {
   type PromptExperimentAgentExecutor,
   type PromptExperimentEvaluator,
   type PromptExperimentRepository,
+  PromptExperimentScoredFailure,
+  PromptExperimentTransientInfrastructureError,
   runPromptExperimentPartition,
 } from "../src/autoresearch/prompt_experiment_runner.js";
 import {
   DatasetSplitManifestSchema,
+  PROMPT_EXPERIMENT_MAX_ATTEMPTS,
   type PromptCandidate,
   type PromptCandidateFamily,
   PromptCandidateFamilySchema,
   PromptCandidateSchema,
   type PromptExperiment,
   type PromptExperimentRun,
+  PromptExperimentRunSchema,
   PromptExperimentSchema,
-  type PromptPromotionDecision,
-  promptBehaviorAlignmentHash,
+  PromptTrainingProjectionSchema,
+  promptCandidateFamilyId,
+  promptDatasetPartitionSnapshotHash,
+  promptDatasetSampleId,
+  promptDatasetSplitId,
+  promptExperimentId,
   promptMutationHypothesis,
   promptMutationSummary,
 } from "../src/autoresearch/prompt_optimizer_contract.js";
@@ -47,13 +55,15 @@ function evaluatorVersionFor(requestedTarget: TestTarget): string {
 const evaluatorVersion = evaluatorVersionFor(target);
 
 function sample(sampleId: string, startAt: string, endAt: string, maturedAt: string) {
-  return {
-    sampleId,
+  const value = {
     inputRef: `snapshot://${sampleId}`,
+    inputHash: HASH_A,
     outcomeRef: `outcome://${sampleId}`,
+    outcomeHash: HASH_B,
     eventWindow: { startAt, endAt },
     maturedAt,
   };
+  return { ...value, sampleId: promptDatasetSampleId(value) };
 }
 
 function partitionSamples(prefix: "validation" | "holdout", month: "02" | "03") {
@@ -71,73 +81,117 @@ function partitionSamples(prefix: "validation" | "holdout", month: "02" | "03") 
   });
 }
 
-function fixtures(experimentId = "experiment-1", requestedTarget: TestTarget = target) {
+function fixtures(candidateSuffix = "1", requestedTarget: TestTarget = target) {
   const requestedEvaluatorVersion = evaluatorVersionFor(requestedTarget);
-  const split = DatasetSplitManifestSchema.parse({
-    schemaVersion: "prompt_dataset_split_v1",
-    splitId: "split-1",
+  const contract = OUTCOME_LABEL_REGISTRY[requestedTarget.agentId];
+  if (!contract) throw new Error("missing training projection fixture contract");
+  const validationSamples = partitionSamples("validation", "02");
+  const holdoutSamples = partitionSamples("holdout", "03");
+  const excludedSampleIdsHash = canonicalJsonHash(
+    [...validationSamples, ...holdoutSamples].map((value) => value.sampleId).sort(),
+  );
+  const maturityTradingDays =
+    contract.maturity_horizon === "T1_CLOSE"
+      ? 1
+      : Number(contract.maturity_horizon.replace("TRADING_DAYS_", ""));
+  const trainingProjectionBody = {
+    schemaVersion: "prompt_training_projection_v1" as const,
     target: requestedTarget,
+    projectionId: `projection-${requestedTarget.agentId}`,
+    datasetSnapshotHash: HASH_A,
+    excludedSampleIdsHash,
+    cutoffAt: "2025-01-31T00:00:00Z",
+    outcomeContract: {
+      evaluationObject: contract.evaluation_object,
+      outcomeContractVersion: contract.outcome_contract_version,
+      primaryLabelId: contract.primary_label_id,
+      maturityHorizon: contract.maturity_horizon,
+      maturityTradingDays,
+    },
+    evaluator: {
+      version: contract.scoring_contract_version,
+      configHash: HASH_A,
+      implementationHash: HASH_B,
+      executorAdapterHash: HASH_A,
+      evaluatorAdapterHash: HASH_A,
+    },
+    matureSampleCount: 30,
+    scoreSummary: { mean: 0.1, lower_tail: 0.05 },
+    failureCategoryCounts: {},
+    tailFailureCaseRefs: [],
+    evidenceGapSummaries: [],
+    directComponents: [
+      {
+        componentRef: `role_component_v1:${requestedTarget.agentId}:001`,
+        directMatureSampleCount: 30,
+        meanScore: 0.1,
+        lowerTailScore: 0.05,
+        failureCategoryCounts: {},
+      },
+    ],
+    controlledExperiments: [],
+  };
+  const trainingProjection = PromptTrainingProjectionSchema.parse({
+    ...trainingProjectionBody,
+    projectionHash: canonicalJsonHash(trainingProjectionBody),
+  });
+  const trainingSamples = [
+    sample("train-1", "2025-01-10T00:00:00Z", "2025-01-11T00:00:00Z", "2025-01-20T00:00:00Z"),
+  ];
+  const splitBody = {
+    schemaVersion: "prompt_dataset_split_v1",
+    target: requestedTarget,
+    trainingProjectionHash: trainingProjection.projectionHash,
     cutoffAt: "2025-01-31T00:00:00Z",
     training: {
-      snapshotId: "training-1",
-      snapshotHash: HASH_A,
+      snapshotHash: promptDatasetPartitionSnapshotHash({ samples: trainingSamples }),
       windowStartAt: "2025-01-01T00:00:00Z",
       windowEndAt: "2025-01-31T00:00:00Z",
-      samples: [
-        sample("train-1", "2025-01-10T00:00:00Z", "2025-01-11T00:00:00Z", "2025-01-20T00:00:00Z"),
-      ],
+      samples: trainingSamples,
     },
     validation: {
-      snapshotId: "validation-1",
-      snapshotHash: HASH_B,
+      snapshotHash: promptDatasetPartitionSnapshotHash({ samples: validationSamples }),
       windowStartAt: "2025-02-01T00:00:00Z",
       windowEndAt: "2025-02-28T00:00:00Z",
-      samples: partitionSamples("validation", "02"),
+      samples: validationSamples,
     },
     holdout: {
-      snapshotId: "holdout-1",
-      snapshotHash: HASH_C,
+      snapshotHash: promptDatasetPartitionSnapshotHash({ samples: holdoutSamples }),
       windowStartAt: "2025-03-01T00:00:00Z",
       windowEndAt: "2025-03-31T00:00:00Z",
-      samples: partitionSamples("holdout", "03"),
+      samples: holdoutSamples,
     },
     evaluatorVersion: requestedEvaluatorVersion,
     createdAt: "2025-04-01T00:00:00Z",
+  };
+  const split = DatasetSplitManifestSchema.parse({
+    ...splitBody,
+    splitId: promptDatasetSplitId(splitBody),
   });
   const candidate = PromptCandidateSchema.parse({
     schemaVersion: "prompt_candidate_v1",
-    candidateId: "candidate-1",
+    candidateId: `candidate-${candidateSuffix}`,
     parentId: "champion-1",
     parentPromptCommit: COMMIT,
     parentPromptHashes: { zh: HASH_A, en: HASH_A },
     target: requestedTarget,
     promptRefs: { zh: "private://candidate.zh", en: "private://candidate.en" },
     promptHashes: { zh: HASH_B, en: HASH_C },
-    trainingSnapshotId: split.training.snapshotId,
-    trainingSnapshotHash: split.training.snapshotHash,
-    excludedSampleIdsHash: canonicalJsonHash(
-      [...split.validation.samples, ...split.holdout.samples]
-        .map((sample) => sample.sampleId)
-        .sort(),
-    ),
+    trainingProjectionHash: split.trainingProjectionHash,
+    excludedSampleIdsHash,
     mutatorConfigHash: HASH_A,
     mutatorCommit: COMMIT,
     mutationCategories: ["CONFLICT_RESOLUTION"],
     mutationSummary: promptMutationSummary(["CONFLICT_RESOLUTION"]),
     hypothesis: promptMutationHypothesis(["CONFLICT_RESOLUTION"]),
-    alignmentVerifierVersion: "bilingual-alignment-v1",
-    behaviorAlignmentHash: promptBehaviorAlignmentHash({
-      promptHashes: { zh: HASH_B, en: HASH_C },
-      alignmentVerifierVersion: "bilingual-alignment-v1",
-    }),
     behaviorContractHash: HASH_A,
     privateLineageHash: HASH_A,
     privateStateArtifactHash: HASH_A,
     createdAt: "2025-04-01T00:00:00Z",
   });
-  const family = PromptCandidateFamilySchema.parse({
+  const policy = promotionPolicy(split);
+  const familyBody = {
     schemaVersion: "prompt_candidate_family_v1",
-    familyId: `family-${experimentId}`,
     target: requestedTarget,
     championReleaseId: candidate.parentId,
     championPromptCommit: candidate.parentPromptCommit,
@@ -145,18 +199,17 @@ function fixtures(experimentId = "experiment-1", requestedTarget: TestTarget = t
     championPromptHashes: candidate.parentPromptHashes,
     datasetSplitId: split.splitId,
     datasetSplitManifestHash: canonicalJsonHash(split),
+    promotionPolicyVersion: policy.policyVersion,
+    promotionPolicyConfigHash: canonicalJsonHash(policy),
     candidateIds: [candidate.candidateId],
-    validationExperimentIds: [],
-    selectedCandidateId: null,
-    selectedExperimentId: null,
-    holdoutExperimentId: null,
-    status: "REGISTERED",
     createdAt: "2025-04-01T00:00:00Z",
-    updatedAt: "2025-04-01T00:00:00Z",
+  };
+  const family = PromptCandidateFamilySchema.parse({
+    ...familyBody,
+    familyId: promptCandidateFamilyId(familyBody),
   });
-  const experiment = PromptExperimentSchema.parse({
+  const experimentBody = {
     schemaVersion: "prompt_experiment_v1",
-    experimentId,
     familyId: family.familyId,
     candidateId: candidate.candidateId,
     championId: candidate.parentId,
@@ -168,12 +221,25 @@ function fixtures(experimentId = "experiment-1", requestedTarget: TestTarget = t
     candidatePromptHashes: candidate.promptHashes,
     datasetSplitId: split.splitId,
     datasetSplitManifestHash: canonicalJsonHash(split),
-    validationSnapshotHash: split.validation.snapshotHash,
-    holdoutSnapshotHash: split.holdout.snapshotHash,
+    promotionPolicyVersion: policy.policyVersion,
+    promotionPolicyConfigHash: canonicalJsonHash(policy),
     modelConfigHash: HASH_A,
     toolConfigHash: HASH_B,
     componentCalibrationSnapshotHash: HASH_C,
     darwinianUsageSnapshotHash: HASH_A,
+    executorAdapterHash: HASH_A,
+    evaluatorAdapterHash: HASH_A,
+    evaluationBinding: (() => {
+      const contract = OUTCOME_LABEL_REGISTRY[requestedTarget.agentId];
+      if (!contract) throw new Error("missing evaluation binding fixture");
+      return {
+        evaluationObject: contract.evaluation_object,
+        evaluationObjectSchemaVersion: contract.evaluation_object_schema_version,
+        primaryLabelId: contract.primary_label_id,
+        scoringContractVersion: contract.scoring_contract_version,
+        outcomeContractVersion: contract.outcome_contract_version,
+      };
+    })(),
     evaluatorVersion: split.evaluatorVersion,
     evaluatorConfigHash: HASH_C,
     codeCommit: COMMIT,
@@ -185,8 +251,21 @@ function fixtures(experimentId = "experiment-1", requestedTarget: TestTarget = t
     holdoutOpenedAt: null,
     createdAt: "2025-04-01T00:00:00Z",
     completedAt: null,
+  };
+  const experiment = PromptExperimentSchema.parse({
+    ...experimentBody,
+    experimentId: promptExperimentId(experimentBody),
   });
-  return { split, candidate, family, experiment };
+  return {
+    trainingProjection,
+    split,
+    candidate,
+    family,
+    experiment,
+    promotionPolicy: policy,
+    authorizedPolicyHashes: new Set([canonicalJsonHash(policy)]),
+    runOwnerId: "test-worker",
+  };
 }
 
 class MemoryRepository implements PromptExperimentRepository {
@@ -195,7 +274,6 @@ class MemoryRepository implements PromptExperimentRepository {
   family: PromptCandidateFamily | null = null;
   experiment: PromptExperiment | null = null;
   runs = new Map<string, PromptExperimentRun>();
-  decision: PromptPromotionDecision | null = null;
   writeCount = 0;
 
   async putCandidate(record: PromptCandidate) {
@@ -222,17 +300,13 @@ class MemoryRepository implements PromptExperimentRepository {
     return this.experiment?.experimentId === experimentId ? structuredClone(this.experiment) : null;
   }
 
+  async listExperiments(familyId: string) {
+    return this.experiment?.familyId === familyId ? [structuredClone(this.experiment)] : [];
+  }
+
   async putExperiment(record: PromptExperiment) {
     this.writeCount += 1;
     this.experiment = structuredClone(record);
-    if (record.status === "HOLDOUT_RUNNING" && this.family) {
-      this.family = PromptCandidateFamilySchema.parse({
-        ...this.family,
-        status: "COMPLETE",
-        holdoutExperimentId: record.experimentId,
-        updatedAt: record.holdoutOpenedAt,
-      });
-    }
     return structuredClone(record);
   }
 
@@ -248,15 +322,36 @@ class MemoryRepository implements PromptExperimentRepository {
     return structuredClone(record);
   }
 
-  async claimRun(record: PromptExperimentRun) {
+  async claimRun(record: PromptExperimentRun, _leaseDurationMs: number) {
     const existing = this.runs.get(record.runId);
-    if (existing && existing.status !== "FAILED") return null;
+    if (existing?.status === "COMPLETE") return null;
+    if (
+      existing?.status === "RUNNING" &&
+      Date.parse(existing.leaseExpiresAt ?? "") > Date.parse(record.startedAt ?? "")
+    ) {
+      return null;
+    }
+    if (
+      existing?.status === "RUNNING" &&
+      existing.attempt >= PROMPT_EXPERIMENT_MAX_ATTEMPTS &&
+      record.attempt === existing.attempt
+    ) {
+      const errorCode = "prompt_experiment_lease_expired_max_attempts";
+      this.runs.set(
+        existing.runId,
+        PromptExperimentRunSchema.parse({
+          ...existing,
+          status: "FAILED",
+          retryable: false,
+          attemptFailureCodes: [...existing.attemptFailureCodes, errorCode],
+          errorCode,
+          completedAt: record.startedAt,
+        }),
+      );
+      return null;
+    }
+    if (existing?.status === "FAILED" && !existing.retryable) return null;
     this.runs.set(record.runId, structuredClone(record));
-    return structuredClone(record);
-  }
-
-  async putDecision(record: PromptPromotionDecision) {
-    this.decision = structuredClone(record);
     return structuredClone(record);
   }
 }
@@ -267,26 +362,45 @@ function environment(version = evaluatorVersion) {
     toolConfigHash: HASH_B,
     componentCalibrationSnapshotHash: HASH_C,
     darwinianUsageSnapshotHash: HASH_A,
+    executorAdapterHash: HASH_A,
+    evaluatorAdapterHash: HASH_A,
     evaluatorVersion: version,
     evaluatorConfigHash: HASH_C,
     codeCommit: COMMIT,
   };
 }
 
-function binding() {
+function promotionPolicy(split: ReturnType<typeof DatasetSplitManifestSchema.parse>) {
   return {
-    champion: {
-      promptRefs: { zh: "private://champion.zh", en: "private://champion.en" },
-      promptHashes: { zh: HASH_A, en: HASH_A },
-    },
-    candidate: {
-      promptRefs: { zh: "private://candidate.zh", en: "private://candidate.en" },
-      promptHashes: { zh: HASH_B, en: HASH_C },
-    },
+    policyVersion: "shadow-plan-v1",
+    minimumMatureSamples: 30,
+    minimumRepeatSeeds: 2,
+    minimumPairedDelta: 0.05,
+    familyAlpha: 0.05,
+    bootstrapSamples: 99,
+    blockLength: 1,
+    tailQuantile: 0.25,
+    minimumTailDelta: 0.05,
+    maximumFailureRateIncrease: 0,
+    criticalValidationSampleIds: [split.validation.samples[0]?.sampleId ?? "missing"],
+    criticalHoldoutSampleIds: [split.holdout.samples[0]?.sampleId ?? "missing"],
+    minimumCriticalSampleDelta: 0,
   };
 }
 
-function adapters(options: { failOnce?: boolean } = {}) {
+function adapters(
+  options: {
+    failOnce?: boolean;
+    alwaysTransientFailure?: boolean;
+    schemaFailure?: boolean;
+    plainToolFailure?: boolean;
+    invalidEffectiveInputHash?: boolean;
+    evaluatorThrows?: boolean;
+    invalidEvaluatorScore?: boolean;
+    wrongPromptConsumption?: boolean;
+    scoredFailureRefCount?: number;
+  } = {},
+) {
   const calls = new Map<string, number>();
   const executorInputs: unknown[] = [];
   const evaluatorInputs: unknown[] = [];
@@ -297,22 +411,39 @@ function adapters(options: { failOnce?: boolean } = {}) {
       const side = input.promptRefs.zh.includes("candidate") ? "candidate" : "champion";
       const key = `${input.partition}:${input.sample.sampleId}:${input.seed}:${side}`;
       calls.set(key, (calls.get(key) ?? 0) + 1);
-      if (shouldFail && side === "candidate") {
+      if (options.alwaysTransientFailure || (shouldFail && side === "candidate")) {
         shouldFail = false;
-        throw new Error("transient_adapter_failure");
+        throw new PromptExperimentTransientInfrastructureError("transient_adapter_failure");
       }
+      if (options.schemaFailure) {
+        throw new PromptExperimentScoredFailure({
+          failureCategory: "schema_failure",
+          effectiveInputHash: canonicalJsonHash({ key }),
+          failureCaseRefs: Array.from(
+            { length: options.scoredFailureRefCount ?? 0 },
+            (_, index) => `failure://adapter/${index.toString().padStart(3, "0")}`,
+          ),
+        });
+      }
+      if (options.plainToolFailure) throw new Error("deterministic_tool_failure");
       return {
         acceptedOutputRef: `accepted://${key}`,
-        effectiveInputHash: canonicalJsonHash({ key }),
+        effectiveInputHash: options.invalidEffectiveInputHash
+          ? "not-a-sha256"
+          : canonicalJsonHash({ key }),
+        consumedPromptHashes: options.wrongPromptConsumption
+          ? { zh: HASH_C, en: HASH_C }
+          : input.promptHashes,
       };
     },
   };
   const evaluator: PromptExperimentEvaluator = {
     async evaluate(input) {
       evaluatorInputs.push(structuredClone(input));
+      if (options.evaluatorThrows) throw new Error("evaluator_contract_failure");
       const candidate = input.acceptedOutputRef.endsWith(":candidate");
       return {
-        normalizedScore: candidate ? 0.7 : 0.5,
+        normalizedScore: options.invalidEvaluatorScore ? 2 : candidate ? 0.7 : 0.5,
         metrics: { contract_failure: 0, tool_failure: 0 },
         failureCaseRefs: candidate ? [] : [`failure://${input.sample.sampleId}`],
       };
@@ -328,11 +459,11 @@ async function runBoth(maxConcurrency: number, experimentId: string) {
   const common = {
     ...values,
     environment: environment(),
-    promptBinding: binding(),
     repository,
     executor: adapter.executor,
     evaluator: adapter.evaluator,
     maxConcurrency,
+    runOwnerId: "test-worker",
     now: () => NOW,
   };
   await runPromptExperimentPartition({ ...common, partition: "VALIDATION" });
@@ -341,9 +472,16 @@ async function runBoth(maxConcurrency: number, experimentId: string) {
   const selected = selectPromptCandidateFamily({
     family: values.family,
     validationExperiments: [validation],
-    selectedAt: NOW,
+    validationRuns: [
+      {
+        experimentId: validation.experimentId,
+        runs: await repository.listRuns(validation.experimentId),
+      },
+    ],
+    split: values.split,
+    policy: values.promotionPolicy,
   });
-  await repository.putFamily(selected);
+  expect(selected.selectedExperimentId).toBe(validation.experimentId);
   const complete = await runPromptExperimentPartition({ ...common, partition: "HOLDOUT" });
   const family = await repository.getFamily(values.family.familyId);
   if (!family) throw new Error("missing completed family");
@@ -351,44 +489,76 @@ async function runBoth(maxConcurrency: number, experimentId: string) {
 }
 
 describe("frozen Prompt experiment runner", () => {
-  it("runs the operational shadow plan from Candidate family through persisted Decision", async () => {
+  it("runs the operational shadow plan through a recomputed Decision", async () => {
     const values = fixtures("experiment-shadow-plan");
     const repository = new MemoryRepository();
     const adapter = adapters();
+    const plan = {
+      schemaVersion: "prompt_optimizer_shadow_plan_v1" as const,
+      trainingProjection: values.trainingProjection,
+      family: values.family,
+      split: values.split,
+      candidates: [values.candidate],
+      experiments: [values.experiment],
+      environment: environment(),
+      promotionPolicy: values.promotionPolicy,
+      runOwnerId: "shadow-worker",
+      leaseDurationMs: 300_000,
+      maxConcurrency: 3,
+    };
     const result = await runPromptOptimizerShadowPlan({
-      plan: {
-        schemaVersion: "prompt_optimizer_shadow_plan_v1",
-        family: values.family,
-        split: values.split,
-        candidates: [values.candidate],
-        experiments: [values.experiment],
-        promptBindings: { [values.candidate.candidateId]: binding() },
-        environment: environment(),
-        promotionPolicy: {
-          policyVersion: "shadow-plan-v1",
-          minimumMatureSamples: 30,
-          minimumRepeatSeeds: 2,
-          minimumPairedDelta: 0.05,
-          familyAlpha: 0.05,
-          bootstrapSamples: 99,
-          blockLength: 1,
-          tailQuantile: 0.25,
-          minimumTailDelta: 0.05,
-          maximumFailureRateIncrease: 0,
-          criticalValidationSampleIds: ["validation-1"],
-          criticalHoldoutSampleIds: ["holdout-1"],
-          minimumCriticalSampleDelta: 0,
-        },
-        maxConcurrency: 3,
-      },
+      plan,
       repository,
       executor: adapter.executor,
       evaluator: adapter.evaluator,
+      authorizedPolicyHashes: values.authorizedPolicyHashes,
       now: () => NOW,
     });
-    expect(result.family.status).toBe("COMPLETE");
+    expect(result.family).toEqual(values.family);
     expect(result.decision.decision).toBe("ELIGIBLE");
-    expect(repository.decision).toEqual(result.decision);
+    expect(result.decision.evidenceHash).toMatch(/^sha256:/);
+    const calls = adapter.executorInputs.length;
+    const replay = await runPromptOptimizerShadowPlan({
+      plan,
+      repository,
+      executor: adapter.executor,
+      evaluator: adapter.evaluator,
+      authorizedPolicyHashes: values.authorizedPolicyHashes,
+      now: () => NOW,
+    });
+    expect(replay.family).toEqual(values.family);
+    expect(replay.decision.evidenceHash).toBe(result.decision.evidenceHash);
+    expect(adapter.executorInputs).toHaveLength(calls);
+  });
+
+  it("rejects an unauthorized promotion policy before any shadow write or execution", async () => {
+    const values = fixtures("experiment-unauthorized-policy");
+    const repository = new MemoryRepository();
+    const adapter = adapters();
+    await expect(
+      runPromptOptimizerShadowPlan({
+        plan: {
+          schemaVersion: "prompt_optimizer_shadow_plan_v1",
+          trainingProjection: values.trainingProjection,
+          family: values.family,
+          split: values.split,
+          candidates: [values.candidate],
+          experiments: [values.experiment],
+          environment: environment(),
+          promotionPolicy: values.promotionPolicy,
+          runOwnerId: "shadow-worker",
+          leaseDurationMs: 300_000,
+          maxConcurrency: 1,
+        },
+        repository,
+        executor: adapter.executor,
+        evaluator: adapter.evaluator,
+        authorizedPolicyHashes: new Set(),
+        now: () => NOW,
+      }),
+    ).rejects.toThrow("prompt_optimizer_shadow_policy_not_authorized");
+    expect(repository.writeCount).toBe(0);
+    expect(adapter.executorInputs).toHaveLength(0);
   });
 
   it("runs an opaque Semiconductor atomic Candidate through the same shadow gate", async () => {
@@ -399,36 +569,25 @@ describe("frozen Prompt experiment runner", () => {
     const result = await runPromptOptimizerShadowPlan({
       plan: {
         schemaVersion: "prompt_optimizer_shadow_plan_v1",
+        trainingProjection: values.trainingProjection,
         family: values.family,
         split: values.split,
         candidates: [values.candidate],
         experiments: [values.experiment],
-        promptBindings: { [values.candidate.candidateId]: binding() },
         environment: frozenEnvironment,
-        promotionPolicy: {
-          policyVersion: "semiconductor-atomic-shadow-v1",
-          minimumMatureSamples: 30,
-          minimumRepeatSeeds: 2,
-          minimumPairedDelta: 0.05,
-          familyAlpha: 0.05,
-          bootstrapSamples: 99,
-          blockLength: 1,
-          tailQuantile: 0.25,
-          minimumTailDelta: 0.05,
-          maximumFailureRateIncrease: 0,
-          criticalValidationSampleIds: ["validation-1"],
-          criticalHoldoutSampleIds: ["holdout-1"],
-          minimumCriticalSampleDelta: 0,
-        },
+        promotionPolicy: values.promotionPolicy,
+        runOwnerId: "semiconductor-shadow-worker",
+        leaseDurationMs: 300_000,
         maxConcurrency: 4,
       },
       repository,
       executor: adapter.executor,
       evaluator: adapter.evaluator,
+      authorizedPolicyHashes: values.authorizedPolicyHashes,
       now: () => NOW,
     });
     expect(result.family.target).toEqual(semiconductorTarget);
-    expect(result.family.status).toBe("COMPLETE");
+    expect(result.family).toEqual(values.family);
     expect(result.decision.decision).toBe("ELIGIBLE");
     expect(repository.runs.size).toBe(240);
     expect(
@@ -450,6 +609,16 @@ describe("frozen Prompt experiment runner", () => {
     expect(adapter.executorInputs).toHaveLength(240);
     for (const input of adapter.executorInputs) {
       expect((input as { environment: unknown }).environment).toEqual(environment());
+      const executorSample = (input as { sample: Record<string, unknown> }).sample;
+      expect(Object.keys(executorSample).sort()).toEqual([
+        "eventWindow",
+        "inputHash",
+        "inputRef",
+        "sampleId",
+      ]);
+      expect(executorSample).not.toHaveProperty("outcomeRef");
+      expect(executorSample).not.toHaveProperty("outcomeHash");
+      expect(executorSample).not.toHaveProperty("maturedAt");
     }
     expect(adapter.evaluatorInputs).toHaveLength(240);
     for (const input of adapter.evaluatorInputs) {
@@ -460,27 +629,14 @@ describe("frozen Prompt experiment runner", () => {
         "target",
       ]);
       expect((input as { environment: unknown }).environment).toEqual(environment());
+      expect((input as { sample: Record<string, unknown> }).sample).toHaveProperty("outcomeHash");
     }
     const decision = createPromptPromotionDecision({
       experiment: complete,
       family,
       split: common.split,
       runs: [...repository.runs.values()],
-      policy: {
-        policyVersion: "shadow-smoke-v1",
-        minimumMatureSamples: 30,
-        minimumRepeatSeeds: 2,
-        minimumPairedDelta: 0.05,
-        familyAlpha: 0.05,
-        bootstrapSamples: 99,
-        blockLength: 1,
-        tailQuantile: 0.25,
-        minimumTailDelta: 0.05,
-        maximumFailureRateIncrease: 0,
-        criticalValidationSampleIds: ["validation-1"],
-        criticalHoldoutSampleIds: ["holdout-1"],
-        minimumCriticalSampleDelta: 0,
-      },
+      policy: common.promotionPolicy,
       decidedAt: NOW,
     });
     expect(decision.decision).toBe("ELIGIBLE");
@@ -498,7 +654,6 @@ describe("frozen Prompt experiment runner", () => {
       ...values,
       partition: "VALIDATION" as const,
       environment: environment(),
-      promptBinding: binding(),
       repository,
       executor: adapter.executor,
       evaluator: adapter.evaluator,
@@ -506,14 +661,227 @@ describe("frozen Prompt experiment runner", () => {
       now: () => NOW,
     };
     await expect(runPromptExperimentPartition(input)).rejects.toThrow("transient_adapter_failure");
-    expect([...repository.runs.values()].some((run) => run.status === "FAILED")).toBe(true);
-    const completedBefore = new Map(
-      [...adapter.calls].filter(([key]) => key !== "VALIDATION:validation-1:1:candidate"),
-    );
+    const failed = [...repository.runs.values()].find((run) => run.status === "FAILED");
+    expect(failed?.retryable).toBe(true);
+    if (!failed) throw new Error("missing failed run");
+    const failedKey = `${failed.partition}:${failed.sampleId}:${failed.seed}:${failed.side.toLowerCase()}`;
+    const completedBefore = new Map([...adapter.calls].filter(([key]) => key !== failedKey));
     const resumed = await runPromptExperimentPartition(input);
     expect(resumed.status).toBe("VALIDATION_COMPLETE");
     for (const [key, count] of completedBefore) expect(adapter.calls.get(key)).toBe(count);
-    expect(adapter.calls.get("VALIDATION:validation-1:1:candidate")).toBe(2);
+    expect(adapter.calls.get(failedKey)).toBe(2);
+    expect(repository.runs.get(failed.runId)?.attemptFailureCodes).toEqual([
+      "transient_adapter_failure",
+    ]);
+  });
+
+  it("bounds explicit transient retries at three attempts and then makes the run terminal", async () => {
+    const values = fixtures("experiment-bounded-retry");
+    const repository = new MemoryRepository();
+    const adapter = adapters({ alwaysTransientFailure: true });
+    const input = {
+      ...values,
+      partition: "VALIDATION" as const,
+      environment: environment(),
+      repository,
+      executor: adapter.executor,
+      evaluator: adapter.evaluator,
+      maxConcurrency: 1,
+      now: () => NOW,
+    };
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      await expect(runPromptExperimentPartition(input)).rejects.toThrow(
+        "transient_adapter_failure",
+      );
+      const failed = [...repository.runs.values()].find((run) => run.status === "FAILED");
+      expect(failed?.attempt).toBe(attempt);
+      expect(failed?.retryable).toBe(true);
+      expect(failed?.attemptFailureCodes).toHaveLength(attempt);
+    }
+    await expect(runPromptExperimentPartition(input)).rejects.toThrow(
+      "prompt_experiment_run_terminal",
+    );
+    const terminal = [...repository.runs.values()].find(
+      (run) => run.status === "FAILED" && !run.retryable,
+    );
+    expect(terminal?.attempt).toBe(3);
+    expect(terminal?.attemptFailureCodes).toHaveLength(3);
+    expect(repository.experiment?.status).toBe("FAILED");
+  });
+
+  it("reclaims an expired RUNNING lease after a worker crash", async () => {
+    class CrashAfterClaimRepository extends MemoryRepository {
+      crashed = false;
+
+      override async claimRun(record: PromptExperimentRun, leaseDurationMs: number) {
+        const claimed = await super.claimRun(record, leaseDurationMs);
+        if (claimed && !this.crashed) {
+          this.crashed = true;
+          throw new Error("simulated_worker_crash");
+        }
+        return claimed;
+      }
+    }
+    const values = fixtures("experiment-expired-lease");
+    const repository = new CrashAfterClaimRepository();
+    const adapter = adapters();
+    const input = {
+      ...values,
+      partition: "VALIDATION" as const,
+      environment: environment(),
+      repository,
+      executor: adapter.executor,
+      evaluator: adapter.evaluator,
+      maxConcurrency: 1,
+      leaseDurationMs: 60_000,
+      now: () => NOW,
+    };
+    await expect(runPromptExperimentPartition(input)).rejects.toThrow("simulated_worker_crash");
+    expect([...repository.runs.values()].some((run) => run.status === "RUNNING")).toBe(true);
+    const resumed = await runPromptExperimentPartition({
+      ...input,
+      runOwnerId: "replacement-worker",
+      now: () => "2025-05-01T00:02:00Z",
+    });
+    expect(resumed.status).toBe("VALIDATION_COMPLETE");
+    expect(Math.max(...[...repository.runs.values()].map((run) => run.attempt))).toBe(2);
+  });
+
+  it("terminalizes an expired third-attempt lease and closes its Experiment", async () => {
+    class CrashThreeClaimsRepository extends MemoryRepository {
+      crashes = 0;
+
+      override async claimRun(record: PromptExperimentRun, leaseDurationMs: number) {
+        const claimed = await super.claimRun(record, leaseDurationMs);
+        if (claimed && this.crashes < 3) {
+          this.crashes += 1;
+          throw new Error(`simulated_worker_crash_${this.crashes}`);
+        }
+        return claimed;
+      }
+    }
+    const values = fixtures("experiment-expired-final-lease");
+    const repository = new CrashThreeClaimsRepository();
+    const adapter = adapters();
+    const input = {
+      ...values,
+      partition: "VALIDATION" as const,
+      environment: environment(),
+      repository,
+      executor: adapter.executor,
+      evaluator: adapter.evaluator,
+      maxConcurrency: 1,
+      leaseDurationMs: 60_000,
+    };
+    for (const [index, now] of [
+      "2025-05-01T00:00:00Z",
+      "2025-05-01T00:02:00Z",
+      "2025-05-01T00:04:00Z",
+    ].entries()) {
+      await expect(runPromptExperimentPartition({ ...input, now: () => now })).rejects.toThrow(
+        `simulated_worker_crash_${index + 1}`,
+      );
+    }
+    await expect(
+      runPromptExperimentPartition({
+        ...input,
+        runOwnerId: "final-lease-recovery-worker",
+        now: () => "2025-05-01T00:06:00Z",
+      }),
+    ).rejects.toThrow("prompt_experiment_run_terminal");
+    const terminal = [...repository.runs.values()].find(
+      (run) => run.errorCode === "prompt_experiment_lease_expired_max_attempts",
+    );
+    expect(terminal).toMatchObject({ status: "FAILED", attempt: 3, retryable: false });
+    expect(repository.experiment?.status).toBe("FAILED");
+  });
+
+  it("scores an unconsumed Prompt as a terminal contract failure", async () => {
+    const values = fixtures("experiment-unconsumed-prompt");
+    const repository = new MemoryRepository();
+    const adapter = adapters({ wrongPromptConsumption: true });
+    const result = await runPromptExperimentPartition({
+      ...values,
+      partition: "VALIDATION",
+      environment: environment(),
+      repository,
+      executor: adapter.executor,
+      evaluator: adapter.evaluator,
+      maxConcurrency: 1,
+      now: () => NOW,
+    });
+    expect(result.status).toBe("VALIDATION_COMPLETE");
+    expect(
+      [...repository.runs.values()].every(
+        (run) =>
+          run.status === "COMPLETE" &&
+          run.metrics.normalized_score === -1 &&
+          run.metrics.contract_failure === 1 &&
+          !run.retryable,
+      ),
+    ).toBe(true);
+    expect(adapter.evaluatorInputs).toHaveLength(0);
+  });
+
+  it.each([
+    [{ schemaFailure: true }, "schema_failure"],
+    [{ plainToolFailure: true }, "tool_failure"],
+    [{ invalidEffectiveInputHash: true }, "contract_failure"],
+    [{ evaluatorThrows: true }, "contract_failure"],
+    [{ invalidEvaluatorScore: true }, "contract_failure"],
+  ] as const)("scores deterministic adapter/evaluator failure %j as terminal evidence", async (options, failureMetric) => {
+    const values = fixtures(`experiment-scored-${failureMetric}-${Object.keys(options)[0]}`);
+    const repository = new MemoryRepository();
+    const adapter = adapters(options);
+    const result = await runPromptExperimentPartition({
+      ...values,
+      partition: "VALIDATION",
+      environment: environment(),
+      repository,
+      executor: adapter.executor,
+      evaluator: adapter.evaluator,
+      maxConcurrency: 4,
+      now: () => NOW,
+    });
+    expect(result.status).toBe("VALIDATION_COMPLETE");
+    expect(
+      [...repository.runs.values()].every(
+        (run) =>
+          run.status === "COMPLETE" &&
+          run.metrics.normalized_score === -1 &&
+          run.metrics[failureMetric] === 1 &&
+          run.effectiveInputHash?.startsWith("sha256:") &&
+          !run.retryable,
+      ),
+    ).toBe(true);
+  });
+
+  it("reserves one failure-ref slot when an adapter supplies the schema maximum", async () => {
+    const values = fixtures("experiment-scored-ref-bound");
+    const repository = new MemoryRepository();
+    const adapter = adapters({ schemaFailure: true, scoredFailureRefCount: 100 });
+    const result = await runPromptExperimentPartition({
+      ...values,
+      partition: "VALIDATION",
+      environment: environment(),
+      repository,
+      executor: adapter.executor,
+      evaluator: adapter.evaluator,
+      maxConcurrency: 4,
+      now: () => NOW,
+    });
+    expect(result.status).toBe("VALIDATION_COMPLETE");
+    for (const run of repository.runs.values()) {
+      expect(run.failureCaseRefs).toHaveLength(100);
+      expect(
+        run.failureCaseRefs.filter((ref) => ref.startsWith("failure://adapter/")),
+      ).toHaveLength(99);
+      expect(
+        run.failureCaseRefs.some((ref) =>
+          ref.startsWith(`failure://prompt-experiment/${run.runId}/`),
+        ),
+      ).toBe(true);
+    }
   });
 
   it("rejects frozen-environment drift before any persistence or execution", async () => {
@@ -525,7 +893,6 @@ describe("frozen Prompt experiment runner", () => {
         ...values,
         partition: "VALIDATION",
         environment: { ...environment(), toolConfigHash: HASH_C },
-        promptBinding: binding(),
         repository,
         executor: adapter.executor,
         evaluator: adapter.evaluator,
@@ -541,7 +908,6 @@ describe("frozen Prompt experiment runner", () => {
         ...values,
         partition: "VALIDATION",
         environment: { ...environment(), darwinianUsageSnapshotHash: HASH_C },
-        promptBinding: binding(),
         repository: darwinRepository,
         executor: darwinAdapter.executor,
         evaluator: darwinAdapter.evaluator,
@@ -557,7 +923,6 @@ describe("frozen Prompt experiment runner", () => {
         ...values,
         partition: "VALIDATION",
         environment: { ...environment(), componentCalibrationSnapshotHash: HASH_A },
-        promptBinding: binding(),
         repository: componentRepository,
         executor: componentAdapter.executor,
         evaluator: componentAdapter.evaluator,
@@ -565,6 +930,26 @@ describe("frozen Prompt experiment runner", () => {
     ).rejects.toThrow("prompt_experiment_environment_drift:componentCalibrationSnapshotHash");
     expect(componentRepository.writeCount).toBe(0);
     expect(componentAdapter.calls.size).toBe(0);
+  });
+
+  it("rejects a split manifest created after the runner clock before persistence", async () => {
+    const values = fixtures("experiment-future-split");
+    const repository = new MemoryRepository();
+    const adapter = adapters();
+    await expect(
+      runPromptExperimentPartition({
+        ...values,
+        split: { ...values.split, createdAt: "2999-01-01T00:00:00Z" },
+        partition: "VALIDATION",
+        environment: environment(),
+        repository,
+        executor: adapter.executor,
+        evaluator: adapter.evaluator,
+        now: () => NOW,
+      }),
+    ).rejects.toThrow("prompt_experiment_split_created_in_future");
+    expect(repository.writeCount).toBe(0);
+    expect(adapter.executorInputs).toHaveLength(0);
   });
 
   it("rejects a Candidate whose reserved sample set differs from the frozen split", async () => {
@@ -577,7 +962,6 @@ describe("frozen Prompt experiment runner", () => {
         candidate: { ...values.candidate, excludedSampleIdsHash: HASH_C },
         partition: "VALIDATION",
         environment: environment(),
-        promptBinding: binding(),
         repository,
         executor: adapter.executor,
         evaluator: adapter.evaluator,
@@ -585,6 +969,22 @@ describe("frozen Prompt experiment runner", () => {
     ).rejects.toThrow("candidate_dataset_split_mismatch");
     expect(repository.writeCount).toBe(0);
     expect(adapter.calls.size).toBe(0);
+
+    const trainingRepository = new MemoryRepository();
+    const trainingAdapter = adapters();
+    await expect(
+      runPromptExperimentPartition({
+        ...values,
+        candidate: { ...values.candidate, trainingProjectionHash: HASH_C },
+        partition: "VALIDATION",
+        environment: environment(),
+        repository: trainingRepository,
+        executor: trainingAdapter.executor,
+        evaluator: trainingAdapter.evaluator,
+      }),
+    ).rejects.toThrow("candidate_dataset_split_mismatch");
+    expect(trainingRepository.writeCount).toBe(0);
+    expect(trainingAdapter.calls.size).toBe(0);
   });
 
   it("produces identical aggregate metrics under serial and concurrent execution", async () => {

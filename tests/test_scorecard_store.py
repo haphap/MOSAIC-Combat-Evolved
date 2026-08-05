@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -106,33 +105,15 @@ def _sample_state(date: str = "2024-06-24", cohort: str = "cohort_default") -> d
                 "correlated_risks": [],
                 "black_swan_scenarios": [],
                 "confidence": 0.5,
-                "private_knot_audit": {
-                    "snapshot_hash": f"sha256:{'1' * 64}",
-                    "accepted": True,
-                    "output_selection": "raw",
-                    "reason_codes": [],
-                },
             },
             "alpha_discovery": None,
             "autonomous_execution": {
                 "agent": "autonomous_execution",
                 "trades": [],
                 "confidence": 0.4,
-                "private_knot_audit": {
-                    "snapshot_hash": f"sha256:{'2' * 64}",
-                    "accepted": True,
-                    "output_selection": "raw",
-                    "reason_codes": [],
-                },
             },
             "cio": {
                 "agent": "cio",
-                "private_knot_audit": {
-                    "snapshot_hash": f"sha256:{'3' * 64}",
-                    "accepted": True,
-                    "output_selection": "raw",
-                    "reason_codes": [],
-                },
                 "portfolio_actions": [
                     {
                         "ticker": "688981.SH",
@@ -226,10 +207,8 @@ class TestExpandState:
         assert first["risk_flags_json"] == '["target_current_drift"]'
         assert first["declared_knob_influence_ids_json"] is None
         assert first["declared_influence_rationale"] is None
-        assert json.loads(first["verified_knob_audit_json"])["accepted"] is True
-        audits = json.loads(first["decision_agent_audits_json"])
-        assert audits["cro"]["accepted"] is True
-        assert audits["autonomous_execution"]["reason_codes"] == []
+        assert first["verified_knob_audit_json"] is None
+        assert first["decision_agent_audits_json"] is None
         # §14 R-A2: CIO has no per-pick conviction → stored as None (not the
         # target_weight proxy), so it isn't falsely comparable to L2/L3.
         assert first["conviction"] is None
@@ -291,6 +270,7 @@ class TestScorecardStore:
             }
         assert "recommendations" in tables
         assert "darwinian_weights" in tables
+        assert "domain_holdout_consumptions" not in tables
 
     def test_append_from_state_writes_expected_rows(self, store: ScorecardStore):
         n = store.append_from_state(_sample_state())

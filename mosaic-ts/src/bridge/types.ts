@@ -25,9 +25,9 @@ import type {
   PromptCandidateFamily,
   PromptExperiment,
   PromptExperimentRun,
-  PromptPromotionDecision,
+  PromptTrainingProjection,
 } from "../autoresearch/prompt_optimizer_contract.js";
-import type { PromptTrainingHistory } from "../autoresearch/prompt_training_history.js";
+import type { PromptPromotionPolicy } from "../autoresearch/prompt_promotion_policy.js";
 import type { BridgeClient } from "./client.js";
 
 export type {
@@ -57,7 +57,6 @@ export interface JsonSchemaProperty {
 export interface PromptOptimizerSummary {
   candidate: PromptCandidate | null;
   experiment: PromptExperiment | null;
-  decision: PromptPromotionDecision | null;
   release: { release_id: string; lifecycle_state: string } | null;
 }
 
@@ -132,13 +131,6 @@ export interface SectorModelUsageSummaryReceipt {
   as_of: string;
   snapshot_bundle_id: string;
   snapshot_bundle_hash: string;
-  pair_root_reservation_id: string | null;
-  pair_side: "CHAMPION" | "CANDIDATE" | null;
-  budget_contract_ref: {
-    budget_contract_id: string;
-    budget_contract_version: string;
-    budget_contract_hash: string;
-  } | null;
   model_subcall_count: number;
   last_attempted_stage:
     | "PRE_MODEL"
@@ -208,17 +200,6 @@ export interface MosaicConfig {
   active_cohort: string;
   /** 8 cohorts × {start, end} ISO date strings. */
   cohorts: Record<string, { start: string; end: string }>;
-
-  // ----- Autoresearch (Plan §1, §8) -----
-  autoresearch: {
-    agent_mutation_cooldown_hours: number;
-    keep_revert_lockout_days: number;
-    keep_threshold_delta_sharpe: number;
-    monthly_modification_cap_per_cohort: number;
-    evaluation_horizon_trading_days: number;
-    /** Opt-in mirror of kept mutations to a self-hosted git server (default off). */
-    git?: { push?: boolean; remote?: string };
-  };
 
   // ----- Data vendors (Phase 0) -----
   data_vendors: Record<string, string>;
@@ -483,8 +464,6 @@ export interface CioAction {
   override_reason?: string | null;
   thesis_status?: "intact" | "weakened" | "broken" | "expired" | null;
   risk_flags_json?: string | null;
-  verified_knob_audit_json?: string | null;
-  decision_agent_audits_json?: string | null;
   dissent_notes?: string | null;
   rationale_snapshot: string | null;
   forward_return_5d: number | null;
@@ -626,19 +605,6 @@ export interface PromptReadResult {
   path: string;
 }
 
-/** Returned by ``prompts.write``: commit fields present only when a branch
- *  was given (the mutation path); working-tree writes return just ``paths``. */
-export interface PromptWriteResult {
-  target?: "private_git" | "project_git" | "working_tree";
-  prompt_repo_id?: string;
-  prompt_base_commit_hash?: string;
-  prompt_commit_hash?: string;
-  prompt_sha256?: string;
-  commit_hash?: string;
-  branch?: string;
-  paths: string[];
-}
-
 export interface PromptInitPrivateRepoResult {
   repo_root: string;
   prompts_root: string;
@@ -765,26 +731,6 @@ export interface PromptFormalReleaseChecksResult {
   blocked_reasons: string[];
   prompt_source_status: PromptPreflightResult["source_status"];
   rows: PromptFormalReleaseCheckRow[];
-}
-
-export interface PromptReleaseCheckResult {
-  ready: boolean;
-  checks: Record<string, boolean>;
-  details: Record<string, unknown>;
-  pin: {
-    version_id: number;
-    cohort: string;
-    agent: string;
-    code_commit_hash?: string | null;
-    prompt_repo_id?: string | null;
-    prompt_commit_hash?: string | null;
-    prompt_sha256?: string | null;
-    mutation_id?: string | null;
-    experiment_id?: string | null;
-    keep_decision_hash?: string | null;
-    evaluation_result_hash?: string | null;
-    transaction_manifest_hash?: string | null;
-  };
 }
 
 // --------------------------------------------------------- rke (Part 1 context/export)
@@ -1429,70 +1375,9 @@ export interface RkeDeliveryEvidenceAuditResult {
   delivery_blocked_reasons: string[];
 }
 
-// --------------------------------------------------------- autoresearch (Phase 4C/4D)
+// --------------------------------------------------------- legacy autoresearch audit
 
-/** Returned by ``autoresearch.trigger``. */
-export interface AutoresearchTriggerResult {
-  /** Null when triggered with dry_run=true (no version row was created). */
-  version_id: number | null;
-  agent: string;
-  branch_name: string;
-  base_commit: string;
-  dry_run?: boolean;
-  existing?: boolean;
-  prompt_commit_hash?: string | null;
-  prompt_sha256?: string | null;
-  prompt_base_commit_hash?: string | null;
-}
-
-export interface AutoresearchHistoricalDecisionResult {
-  version_id: number;
-  decision: "keep" | "revert";
-  active_commit: string;
-  created: boolean;
-}
-
-export interface AutoresearchHistoricalValidationResult {
-  version_id: number;
-  compatible: boolean;
-  unknown_tools: string[];
-  missing_files: string[];
-  dropped_output_sections: string[];
-}
-
-/** One entry in the ``autoresearch.evaluate_pending`` results array. */
-export interface AutoresearchMissingRun {
-  kind: "base" | "mod";
-  cohort: string;
-  start_date: string;
-  end_date: string;
-  prompt_commit_hash: string;
-  prompt_repo_id?: string;
-  prompt_sha256?: string;
-  code_commit_hash?: string;
-  private_prompt_commit?: string;
-}
-
-export interface AutoresearchEvalResult {
-  version_id: number;
-  mutation_id?: string;
-  status: string;
-  delta_sharpe?: number;
-  detail?: string;
-  missing_runs?: AutoresearchMissingRun[];
-  missing_domain_samples?: boolean;
-  evaluation_result?: Record<string, unknown> | null;
-}
-
-export interface AutoresearchDomainPromotionResult {
-  version_id: number;
-  status: "reverted";
-  decision_hash: string;
-  decision: Record<string, unknown>;
-  created: boolean;
-}
-
-/** A single autoresearch log row from ``autoresearch.get_log``. */
+/** A single immutable historical row from ``autoresearch.get_log``. */
 export interface AutoresearchLogEntry {
   id: number;
   prompt_version_id: number | null;
@@ -1504,7 +1389,7 @@ export interface AutoresearchLogEntry {
   branch_name: string | null;
 }
 
-/** A pending feature branch from ``autoresearch.list_active_branches``. */
+/** An unresolved historical branch from ``autoresearch.list_active_branches``. */
 export interface AutoresearchActiveBranch {
   id: number;
   cohort: string;
@@ -1525,13 +1410,6 @@ export interface CohortInfo {
   has_branch: boolean;
   n_runs: number;
   last_run_date: string | null;
-}
-
-export interface CohortTrainResult {
-  started: boolean;
-  cohort: string;
-  message: string;
-  run_id?: number;
 }
 
 export interface CohortStatus {
@@ -2292,35 +2170,6 @@ export class BridgeApi {
     });
   }
 
-  promptsWrite(params: {
-    agent: string;
-    cohort: string;
-    contents: Partial<Record<PromptLang, string>>;
-    expected_base_hashes?: Record<string, string>;
-    target?: "private_git" | "project_git" | "working_tree";
-    branch?: string;
-    base_ref?: string;
-    message?: string;
-    allow_public_prompt_write?: boolean;
-  }): Promise<PromptWriteResult> {
-    return this.client.call<PromptWriteResult>("prompts.write", params);
-  }
-
-  promptsCandidateState(params: {
-    branch: string;
-    target?: "private_git" | "project_git";
-    expected_hashes: Record<string, string>;
-  }): Promise<{ candidate_visible: boolean; new_commit: string | null; hashes_match: boolean }> {
-    return this.client.call("prompts.candidate_state", params);
-  }
-
-  promptsAbortCandidate(params: {
-    branch: string;
-    target?: "private_git" | "project_git";
-  }): Promise<{ ok: boolean }> {
-    return this.client.call("prompts.abort_candidate", params);
-  }
-
   promptsInitPrivateRepo(params: {
     path: string;
     seed_baseline?: boolean;
@@ -2370,13 +2219,6 @@ export class BridgeApi {
       "prompts.formal_release_checks",
       params ?? {},
     );
-  }
-
-  promptsVerifyRelease(params: {
-    version_id: number;
-    require_kept?: boolean;
-  }): Promise<PromptReleaseCheckResult> {
-    return this.client.call<PromptReleaseCheckResult>("prompts.verify_release", params);
   }
 
   // rke.* (Part 1 context/export)
@@ -2721,8 +2563,14 @@ export class BridgeApi {
       .then((result) => result.record);
   }
 
-  promptOptimizerPutExperiment(record: PromptExperiment): Promise<PromptExperiment> {
-    return this.client.call<PromptExperiment>("prompt_optimizer.put_experiment", { record });
+  promptOptimizerPutExperiment(
+    record: PromptExperiment,
+    promotionPolicy?: PromptPromotionPolicy,
+  ): Promise<PromptExperiment> {
+    return this.client.call<PromptExperiment>("prompt_optimizer.put_experiment", {
+      record,
+      ...(promotionPolicy ? { promotion_policy: promotionPolicy } : {}),
+    });
   }
 
   promptOptimizerGetExperiment(experimentId: string): Promise<PromptExperiment | null> {
@@ -2733,13 +2581,27 @@ export class BridgeApi {
       .then((result) => result.record);
   }
 
+  promptOptimizerListExperiments(familyId: string): Promise<PromptExperiment[]> {
+    return this.client
+      .call<{ records: PromptExperiment[] }>("prompt_optimizer.list_experiments", {
+        family_id: familyId,
+      })
+      .then((result) => result.records);
+  }
+
   promptOptimizerPutRun(record: PromptExperimentRun): Promise<PromptExperimentRun> {
     return this.client.call<PromptExperimentRun>("prompt_optimizer.put_run", { record });
   }
 
-  promptOptimizerClaimRun(record: PromptExperimentRun): Promise<PromptExperimentRun | null> {
+  promptOptimizerClaimRun(
+    record: PromptExperimentRun,
+    leaseDurationMs: number,
+  ): Promise<PromptExperimentRun | null> {
     return this.client
-      .call<{ record: PromptExperimentRun | null }>("prompt_optimizer.claim_run", { record })
+      .call<{ record: PromptExperimentRun | null }>("prompt_optimizer.claim_run", {
+        record,
+        lease_duration_ms: leaseDurationMs,
+      })
       .then((result) => result.record);
   }
 
@@ -2751,109 +2613,25 @@ export class BridgeApi {
       .then((result) => result.records);
   }
 
-  promptOptimizerPutDecision(record: PromptPromotionDecision): Promise<PromptPromotionDecision> {
-    return this.client.call<PromptPromotionDecision>("prompt_optimizer.put_decision", { record });
-  }
-
-  promptOptimizerGetDecision(decisionId: string): Promise<PromptPromotionDecision | null> {
-    return this.client
-      .call<{ record: PromptPromotionDecision | null }>("prompt_optimizer.get_decision", {
-        decision_id: decisionId,
-      })
-      .then((result) => result.record);
-  }
-
   promptOptimizerLatestSummary(cohort: string): Promise<PromptOptimizerSummary> {
     return this.client.call<PromptOptimizerSummary>("prompt_optimizer.latest_summary", { cohort });
   }
 
-  async promptOptimizerTrainingHistory(params: {
+  async promptOptimizerTrainingProjection(params: {
     agent_id: string;
     stage: string;
     cohort: string;
     cutoff_at: string;
     excluded_sample_ids?: string[];
-  }): Promise<PromptTrainingHistory> {
-    const result = await this.client.call<{ history: PromptTrainingHistory }>(
-      "prompt_optimizer.training_history",
+  }): Promise<PromptTrainingProjection> {
+    const result = await this.client.call<{ projection: PromptTrainingProjection }>(
+      "prompt_optimizer.training_projection",
       params,
     );
-    const { PromptTrainingHistorySchema } = await import(
-      "../autoresearch/prompt_training_history.js"
+    const { PromptTrainingProjectionSchema } = await import(
+      "../autoresearch/prompt_optimizer_contract.js"
     );
-    return PromptTrainingHistorySchema.parse(result.history);
-  }
-
-  autoresearchTrigger(params: {
-    cohort: string;
-    force_agent?: string;
-    dry_run?: boolean;
-    historical_sandbox?: boolean;
-    historical_run_id?: string;
-    as_of_date?: string;
-    base_prompt_commit?: string;
-    code_commit_hash?: string;
-  }): Promise<AutoresearchTriggerResult> {
-    return this.client.call<AutoresearchTriggerResult>("autoresearch.trigger", params);
-  }
-
-  autoresearchHistoricalDecide(params: {
-    version_id: number;
-    decision: "keep" | "revert";
-    decided_at: string;
-    base_ref: string;
-    active_branch?: string;
-  }): Promise<AutoresearchHistoricalDecisionResult> {
-    return this.client.call<AutoresearchHistoricalDecisionResult>(
-      "autoresearch.historical_decide",
-      params,
-    );
-  }
-
-  autoresearchHistoricalValidate(params: {
-    version_id: number;
-  }): Promise<AutoresearchHistoricalValidationResult> {
-    return this.client.call<AutoresearchHistoricalValidationResult>(
-      "autoresearch.historical_validate",
-      params,
-    );
-  }
-
-  autoresearchRecordMutation(params: {
-    version_id: number;
-    commit_hash: string;
-    summary?: string;
-    prompt_repo_id?: string;
-    prompt_base_commit_hash?: string;
-    prompt_sha256?: string;
-    code_commit_hash?: string;
-    mutation_metadata?: object;
-  }): Promise<{ ok: boolean }> {
-    return this.client.call<{ ok: boolean }>("autoresearch.record_mutation", params);
-  }
-
-  autoresearchEvaluatePending(params?: {
-    cohort?: string;
-    version_id?: number;
-    domain_sample_manifest?: Record<string, unknown>;
-  }): Promise<{ results: AutoresearchEvalResult[] }> {
-    return this.client.call<{ results: AutoresearchEvalResult[] }>(
-      "autoresearch.evaluate_pending",
-      params ?? {},
-    );
-  }
-
-  autoresearchReviewDomainPromotion(params: {
-    version_id: number;
-    decision: "revert";
-    approved_by: string;
-    approval_policy_id: "domain_release_manual_v1" | "decision_release_manual_v1";
-    review_reason: string;
-  }): Promise<AutoresearchDomainPromotionResult> {
-    return this.client.call<AutoresearchDomainPromotionResult>(
-      "autoresearch.review_domain_promotion",
-      params,
-    );
+    return PromptTrainingProjectionSchema.parse(result.projection);
   }
 
   autoresearchGetLog(params?: {
@@ -2873,10 +2651,6 @@ export class BridgeApi {
       "autoresearch.list_active_branches",
       params ?? {},
     );
-  }
-
-  autoresearchRevertModification(params: { version_id: number }): Promise<{ ok: boolean }> {
-    return this.client.call<{ ok: boolean }>("autoresearch.revert_modification", params);
   }
 
   autoresearchPrepareWorktree(params: {
@@ -2918,15 +2692,6 @@ export class BridgeApi {
     return this.client.call<{ cohorts: CohortInfo[] }>("prism.list_cohorts", {});
   }
 
-  prismTrainCohort(params: {
-    cohort_name: string;
-    start_date?: string;
-    end_date?: string;
-    dry_run?: boolean;
-  }): Promise<CohortTrainResult> {
-    return this.client.call<CohortTrainResult>("prism.train_cohort", params);
-  }
-
   prismCohortStatus(params: { cohort_name: string }): Promise<CohortStatus> {
     return this.client.call<CohortStatus>("prism.cohort_status", params);
   }
@@ -2939,16 +2704,6 @@ export class BridgeApi {
       "prism.compare_cohorts",
       params ?? {},
     );
-  }
-
-  prismCompleteCohortRun(params: {
-    run_id: number;
-    llm_calls?: number;
-    llm_cost_usd?: number;
-    cio_action?: string;
-    cio_target_weight?: number;
-  }): Promise<{ ok: boolean }> {
-    return this.client.call<{ ok: boolean }>("prism.complete_cohort_run", params);
   }
 
   // janus.* (Phase 6)

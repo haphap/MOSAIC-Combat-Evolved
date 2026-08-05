@@ -76,7 +76,7 @@ def canonical_json(value: Any) -> str:
     if isinstance(value, Mapping):
         if any(not isinstance(key, str) for key in value):
             raise TypeError("canonical JSON object keys must be strings")
-        keys = sorted(value, key=_utf16_sort_key)
+        keys = sorted(value, key=canonical_string_sort_key)
         return "{" + ",".join(
             f"{json.dumps(key, ensure_ascii=False)}:{canonical_json(value[key])}"
             for key in keys
@@ -89,7 +89,8 @@ def _assert_valid_unicode(value: str) -> None:
         raise ValueError("canonical JSON rejects unpaired Unicode surrogates")
 
 
-def _utf16_sort_key(value: str) -> bytes:
+def canonical_string_sort_key(value: str) -> bytes:
+    """Return the RFC 8785 UTF-16 code-unit ordering key for a string."""
     _assert_valid_unicode(value)
     return value.encode("utf-16-be")
 
@@ -103,4 +104,5 @@ __all__ = [
     "CANONICAL_JSON_CONTRACT_VERSION",
     "canonical_hash",
     "canonical_json",
+    "canonical_string_sort_key",
 ]

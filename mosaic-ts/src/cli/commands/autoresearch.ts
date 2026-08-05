@@ -2,15 +2,12 @@
  * Prompt Autoresearch CLI. Candidate generation and shadow experiments remain
  * separate from the existing Prompt Release activation authority.
  *
- * Subcommands:
- *   - trigger: run the autoresearch mutation cycle
- *   - evaluate: evaluate pending mutations
- *   - log: view autoresearch event log
- *   - branches: list active feature branches
- *   - revert: manually revert a modification
+ * The active surface generates private Candidates, runs frozen shadow
+ * experiments, and exposes read-only legacy diagnostics.
  */
 
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -19,13 +16,13 @@ import type { Command } from "commander";
 import pc from "picocolors";
 import { z } from "zod";
 import { canonicalJsonHash } from "../../agents/helpers/canonical_json.js";
-import { runAutoresearchCycle } from "../../autoresearch/orchestrator.js";
 import {
   BridgePromptExperimentRepository,
   type PromptExperimentAgentExecutor,
   type PromptExperimentEvaluator,
 } from "../../autoresearch/prompt_experiment_runner.js";
 import {
+  assertCandidateMatchesTrainingSnapshot,
   PromptCandidateSchema,
   PromptOptimizerTargetSchema,
 } from "../../autoresearch/prompt_optimizer_contract.js";
@@ -34,35 +31,8 @@ import {
   runPromptOptimizerShadowPlan,
 } from "../../autoresearch/prompt_optimizer_shadow_runner.js";
 import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
-import { createLlmFromConfig } from "../../llm/factory.js";
 import { redactSensitiveText } from "../../security/redaction.js";
-import { buildFakeLlmHandle } from "../_backtest_helpers.js";
 import { pad } from "../_format.js";
-
-interface TriggerOptions {
-  cohort?: string;
-  agent?: string;
-  max?: string;
-  dryRun?: boolean;
-  fakeLlm?: boolean;
-  mutationMode?: "auto" | "prompt_rewrite";
-  evalDays?: string;
-  llmProvider?: string;
-  model?: string;
-  baseUrl?: string;
-}
-
-interface EvaluateOptions {
-  cohort?: string;
-}
-
-interface PromotionOptions {
-  versionId: string;
-  decision: "revert";
-  approvedBy: string;
-  approvalPolicy: "domain_release_manual_v1" | "decision_release_manual_v1";
-  reason: string;
-}
 
 interface LogOptions {
   cohort?: string;
@@ -73,11 +43,7 @@ interface BranchesOptions {
   cohort?: string;
 }
 
-interface RevertOptions {
-  versionId: string;
-}
-
-const PromptCandidateGenerationRequestSchema = z
+export const PromptCandidateGenerationRequestSchema = z
   .object({
     parentId: z.string().trim().min(1),
     parentPromptCommit: z.string().regex(/^[0-9a-f]{40}$/),
@@ -91,13 +57,27 @@ const PromptCandidateGenerationRequestSchema = z
         (values) => new Set(values).size === values.length,
         "excluded sample IDs must be unique",
       ),
-    mutatorConfigHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
-    mutatorCommit: z.string().regex(/^[0-9a-f]{40}$/),
     createdAt: z.iso.datetime({ offset: true }),
   })
   .strict();
 
-type PromptCandidateGenerationRequest = z.infer<typeof PromptCandidateGenerationRequestSchema>;
+export type PromptCandidateGenerationRequest = z.infer<
+  typeof PromptCandidateGenerationRequestSchema
+>;
+
+export function buildPrivateCandidateRequest(
+  request: PromptCandidateGenerationRequest,
+  trainingProjection: unknown,
+) {
+  return {
+    parentId: request.parentId,
+    parentPromptCommit: request.parentPromptCommit,
+    target: request.target,
+    promptRefs: request.promptRefs,
+    trainingProjection,
+    createdAt: request.createdAt,
+  };
+}
 
 export function assertPrivateCandidateMatchesRequest(
   candidate: z.infer<typeof PromptCandidateSchema>,
@@ -109,8 +89,6 @@ export function assertPrivateCandidateMatchesRequest(
     target: request.target,
     promptRefs: request.promptRefs,
     excludedSampleIdsHash: canonicalJsonHash([...request.excludedSampleIds].sort()),
-    mutatorConfigHash: request.mutatorConfigHash,
-    mutatorCommit: request.mutatorCommit,
     createdAt: request.createdAt,
   };
   const actual = {
@@ -119,8 +97,6 @@ export function assertPrivateCandidateMatchesRequest(
     target: candidate.target,
     promptRefs: candidate.promptRefs,
     excludedSampleIdsHash: candidate.excludedSampleIdsHash,
-    mutatorConfigHash: candidate.mutatorConfigHash,
-    mutatorCommit: candidate.mutatorCommit,
     createdAt: candidate.createdAt,
   };
   if (canonicalJsonHash(actual) !== canonicalJsonHash(expected)) {
@@ -128,27 +104,22 @@ export function assertPrivateCandidateMatchesRequest(
   }
 }
 
-function runPrivateCandidateCli(privateCli: string, args: string[]): Promise<string> {
+export function runPrivateCandidateCli(privateCli: string, args: string[]): Promise<string> {
   return new Promise((resolveOutput, reject) => {
-    execFile(
-      process.execPath,
-      [privateCli, ...args],
-      { encoding: "utf8" },
-      (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error(`private Prompt candidate failed: ${stderr.trim() || error.message}`));
-        } else {
-          resolveOutput(stdout.trim());
-        }
-      },
-    );
+    execFile(process.execPath, [privateCli, ...args], { encoding: "utf8" }, (error, stdout) => {
+      if (error) {
+        reject(new Error("private Prompt candidate execution failed"));
+      } else {
+        resolveOutput(stdout.trim());
+      }
+    });
   });
 }
 
 export function registerAutoresearch(program: Command): void {
   const cmd = program
     .command("autoresearch")
-    .description("Prompt Candidate generation, experiments, and legacy diagnostics.");
+    .description("Prompt Candidate generation, frozen experiments, and diagnostics.");
 
   cmd
     .command("generate-candidate")
@@ -158,7 +129,10 @@ export function registerAutoresearch(program: Command): void {
     .requiredOption("--request <path>", "Public-safe Candidate request JSON")
     .requiredOption("--private-cli <path>", "Built private Prompt mutator CLI")
     .requiredOption("--private-repo <path>", "Private Prompt Git repository")
-    .requiredOption("--mutation-adapter <path>", "Private mutation/alignment adapter module")
+    .requiredOption(
+      "--mutation-adapter <path>",
+      "Tracked adapter inside --private-repo at that repository's exact HEAD",
+    )
     .action(
       async (opts: {
         request: string;
@@ -174,7 +148,7 @@ export function registerAutoresearch(program: Command): void {
           );
           await client.start();
           const api = new BridgeApi(client);
-          const history = await api.promptOptimizerTrainingHistory({
+          const projection = await api.promptOptimizerTrainingProjection({
             agent_id: request.target.agentId,
             stage: request.target.stage,
             cohort: request.target.cohort,
@@ -184,16 +158,7 @@ export function registerAutoresearch(program: Command): void {
           const privateRequestPath = resolve(temporaryRoot, "candidate-request.json");
           await writeFile(
             privateRequestPath,
-            `${JSON.stringify({
-              parentId: request.parentId,
-              parentPromptCommit: request.parentPromptCommit,
-              target: request.target,
-              promptRefs: request.promptRefs,
-              trainingHistory: history,
-              mutatorConfigHash: request.mutatorConfigHash,
-              mutatorCommit: request.mutatorCommit,
-              createdAt: request.createdAt,
-            })}\n`,
+            `${JSON.stringify(buildPrivateCandidateRequest(request, projection))}\n`,
             { encoding: "utf8", mode: 0o600 },
           );
           const output = JSON.parse(
@@ -208,6 +173,7 @@ export function registerAutoresearch(program: Command): void {
           ) as { candidate?: unknown; promptCommit?: unknown };
           const candidate = PromptCandidateSchema.parse(output.candidate);
           assertPrivateCandidateMatchesRequest(candidate, request);
+          assertCandidateMatchesTrainingSnapshot(candidate, projection);
           if (
             typeof output.promptCommit !== "string" ||
             !/^[0-9a-f]{40}$/.test(output.promptCommit)
@@ -217,7 +183,7 @@ export function registerAutoresearch(program: Command): void {
           await api.promptOptimizerPutCandidate(candidate);
           console.log(
             `candidate=${candidate.candidateId} prompt_commit=${output.promptCommit} ` +
-              `training_snapshot=${candidate.trainingSnapshotId}`,
+              `training_projection=${candidate.trainingProjectionHash}`,
           );
         } catch (error) {
           console.error(`error: ${redactSensitiveText((error as Error).message)}`);
@@ -245,7 +211,17 @@ export function registerAutoresearch(program: Command): void {
         const plan = PromptOptimizerShadowPlanSchema.parse(
           JSON.parse(await readFile(resolve(opts.plan), "utf8")),
         );
-        const adapter = (await import(pathToFileURL(resolve(opts.adapter)).href)) as {
+        const adapterPath = resolve(opts.adapter);
+        const adapterHash = `sha256:${createHash("sha256")
+          .update(await readFile(adapterPath))
+          .digest("hex")}`;
+        if (
+          plan.environment.executorAdapterHash !== adapterHash ||
+          plan.environment.evaluatorAdapterHash !== adapterHash
+        ) {
+          throw new Error("shadow adapter content hash does not match the frozen plan");
+        }
+        const adapter = (await import(pathToFileURL(adapterPath).href)) as {
           executor?: PromptExperimentAgentExecutor;
           evaluator?: PromptExperimentEvaluator;
         };
@@ -258,6 +234,12 @@ export function registerAutoresearch(program: Command): void {
           repository: new BridgePromptExperimentRepository(new BridgeApi(client)),
           executor: adapter.executor,
           evaluator: adapter.evaluator,
+          authorizedPolicyHashes: new Set(
+            (process.env.MOSAIC_PROMPT_PROMOTION_POLICY_HASHES ?? "")
+              .split(",")
+              .map((value) => value.trim())
+              .filter(Boolean),
+          ),
         });
         console.log(
           `shadow decision=${result.decision.decision} candidate=${result.decision.candidateId} ` +
@@ -266,170 +248,6 @@ export function registerAutoresearch(program: Command): void {
       } catch (error) {
         console.error(`error: ${redactSensitiveText((error as Error).message)}`);
         process.exitCode = 1;
-      } finally {
-        await client.close();
-      }
-    });
-
-  // ── autoresearch trigger ──────────────────────────────────────────────
-
-  cmd
-    .command("trigger")
-    .description("Generate a legacy research candidate; it cannot promote a v2 prompt.")
-    .option("--cohort <name>", "Cohort id (default cohort_default)")
-    .option("--agent <name>", "Force a specific agent (skip constraint selection)")
-    .option("--max <n>", "Max mutations per cycle (default 1)")
-    .option("--dry-run", "Generate mutation but do not commit")
-    .option("--fake-llm", "Use in-memory mock LLM (zero cost)")
-    .option("--mutation-mode <mode>", "auto | prompt_rewrite")
-    .option("--eval-days <n>", "Evaluation window in trading days (default 60)")
-    .option("--llm-provider <name>", "Override LLM provider")
-    .option("--model <name>", "Override LLM model")
-    .option("--base-url <url>", "Override LLM base URL")
-    .action(async (opts: TriggerOptions) => {
-      const client = new BridgeClient();
-      const api = new BridgeApi(client);
-      const cohort = opts.cohort ?? "cohort_default";
-
-      try {
-        await client.start();
-        const config = await api.configGet();
-
-        const llmHandle = opts.fakeLlm
-          ? buildFakeLlmHandle()
-          : createLlmFromConfig(config, {
-              tier: "deep",
-              ...(opts.llmProvider ? { provider: opts.llmProvider } : {}),
-              ...(opts.model ? { model: opts.model } : {}),
-              ...(opts.baseUrl ? { baseUrl: opts.baseUrl } : {}),
-            });
-
-        const maxMutations = opts.max ? Number.parseInt(opts.max, 10) : 1;
-        const evalDays = opts.evalDays ? Number.parseInt(opts.evalDays, 10) : 60;
-
-        console.log(
-          pc.bold(
-            `\nautoresearch trigger -- cohort=${cohort} max=${maxMutations}` +
-              `${opts.dryRun ? " [DRY RUN]" : ""}`,
-          ),
-        );
-
-        const result = await runAutoresearchCycle({
-          cohort,
-          evalDays,
-          maxMutations,
-          dryRun: opts.dryRun ?? false,
-          ...(opts.agent ? { forceAgent: opts.agent } : {}),
-          ...(opts.fakeLlm ? { fakeLlm: true } : {}),
-          ...(opts.mutationMode ? { mutationMode: opts.mutationMode } : {}),
-          deps: { llm: llmHandle.llm, api },
-          onLog: (msg) => console.log(pc.dim(`  ${msg}`)),
-        });
-
-        // Print results
-        console.log(pc.cyan(`\n=== Results (${result.mutations.length} mutations) ===`));
-        for (const m of result.mutations) {
-          const statusColor =
-            m.status === "kept"
-              ? pc.green
-              : m.status === "reverted"
-                ? pc.red
-                : m.status === "error"
-                  ? pc.red
-                  : pc.yellow;
-          console.log(
-            `  ${pad(m.agent, 20)} ${statusColor(pad(m.status, 12))} ` +
-              `${m.version_id != null ? `v${m.version_id}` : "(dry-run)"}` +
-              (m.delta_sharpe != null ? ` delta=${m.delta_sharpe.toFixed(4)}` : "") +
-              (m.summary ? ` -- ${m.summary}` : "") +
-              (m.error ? ` [${m.error}]` : ""),
-          );
-        }
-      } catch (err) {
-        handleError(err, client);
-      } finally {
-        await client.close();
-      }
-    });
-
-  // ── autoresearch evaluate ─────────────────────────────────────────────
-
-  cmd
-    .command("evaluate")
-    .description("Evaluate pending legacy candidates for audit; never keep or promote.")
-    .option("--cohort <name>", "Cohort id (default cohort_default)")
-    .action(async (opts: EvaluateOptions) => {
-      const client = new BridgeClient();
-      const api = new BridgeApi(client);
-      const cohort = opts.cohort ?? "cohort_default";
-
-      try {
-        await client.start();
-        console.log(pc.bold(`\nautoresearch evaluate -- cohort=${cohort}`));
-
-        const { results } = await api.autoresearchEvaluatePending({ cohort });
-
-        if (results.length === 0) {
-          console.log(pc.dim("  no pending mutations to evaluate"));
-        } else {
-          console.log(pc.cyan(`\n  ${pad("version_id", 12)} ${pad("status", 12)} delta_sharpe`));
-          console.log(pc.dim(`  ${"─".repeat(44)}`));
-          for (const r of results) {
-            const statusColor =
-              r.status === "kept" ? pc.green : r.status === "reverted" ? pc.red : pc.yellow;
-            console.log(
-              `  ${pad(String(r.version_id), 12)} ${statusColor(pad(r.status, 12))} ` +
-                (r.delta_sharpe != null ? r.delta_sharpe.toFixed(4) : "n/a"),
-            );
-          }
-        }
-      } catch (err) {
-        handleError(err, client);
-      } finally {
-        await client.close();
-      }
-    });
-
-  // ── autoresearch domain promotion review ──────────────────────────────
-
-  cmd
-    .command("review-domain")
-    .description("Reject a legacy diagnostic mutation; it cannot enter Prompt Release.")
-    .requiredOption("--version-id <id>", "Prompt version id")
-    .requiredOption("--decision <decision>", "revert")
-    .requiredOption("--approved-by <operator>", "Operator identity, prefixed with operator:")
-    .requiredOption(
-      "--approval-policy <policy>",
-      "domain_release_manual_v1 | decision_release_manual_v1",
-    )
-    .requiredOption("--reason <text>", "Review rationale")
-    .action(async (opts: PromotionOptions) => {
-      const client = new BridgeClient();
-      const api = new BridgeApi(client);
-      try {
-        await client.start();
-        if (opts.decision !== "revert") {
-          throw new Error("--decision must be revert; this legacy path cannot promote");
-        }
-        if (
-          !(["domain_release_manual_v1", "decision_release_manual_v1"] as const).includes(
-            opts.approvalPolicy,
-          )
-        ) {
-          throw new Error("--approval-policy is unsupported");
-        }
-        const result = await api.autoresearchReviewDomainPromotion({
-          version_id: Number.parseInt(opts.versionId, 10),
-          decision: "revert",
-          approved_by: opts.approvedBy,
-          approval_policy_id: opts.approvalPolicy,
-          review_reason: opts.reason,
-        });
-        console.log(
-          `${result.status} version=${result.version_id} decision=${result.decision_hash}`,
-        );
-      } catch (err) {
-        handleError(err, client);
       } finally {
         await client.close();
       }
@@ -505,35 +323,6 @@ export function registerAutoresearch(program: Command): void {
               `  ${pad(String(b.id), 6)} ${pad(b.agent, 16)} ${pad(b.branch_name, 36)} ${time}`,
             );
           }
-        }
-      } catch (err) {
-        handleError(err, client);
-      } finally {
-        await client.close();
-      }
-    });
-
-  // ── autoresearch revert ───────────────────────────────────────────────
-
-  cmd
-    .command("revert")
-    .description("Manually revert a specific modification by version ID.")
-    .requiredOption("--version-id <id>", "Version ID to revert")
-    .action(async (opts: RevertOptions) => {
-      const client = new BridgeClient();
-      const api = new BridgeApi(client);
-      const versionId = Number.parseInt(opts.versionId, 10);
-
-      try {
-        await client.start();
-        console.log(pc.bold(`\nautoresearch revert -- version_id=${versionId}`));
-
-        const result = await api.autoresearchRevertModification({ version_id: versionId });
-
-        if (result.ok) {
-          console.log(pc.green(`  version ${versionId} reverted successfully`));
-        } else {
-          console.log(pc.yellow(`  revert returned ok=false for version ${versionId}`));
         }
       } catch (err) {
         handleError(err, client);

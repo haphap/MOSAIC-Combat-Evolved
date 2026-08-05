@@ -1,8 +1,40 @@
 import { z } from "zod";
-import { canonicalJsonHash } from "../helpers/canonical_json.js";
+import { canonicalJsonHash, compareCanonicalStrings } from "../helpers/canonical_json.js";
 
 const Sha256Schema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const CommitRefSchema = z.string().min(7);
+const ExecutionBehaviorReleaseIdSchema = z
+  .string()
+  .regex(/^execution-behavior-release:[0-9a-f]{64}$/);
+
+export const PromptReleaseExecutionBehaviorBindingSchema = z
+  .object({
+    release_id: ExecutionBehaviorReleaseIdSchema,
+    release_hash: Sha256Schema,
+    archive_ref: z
+      .string()
+      .regex(
+        /^registry\/prompt_checks\/execution_behavior_releases\/[0-9a-f]{64}--[0-9a-f]{64}\.json$/,
+      ),
+  })
+  .strict()
+  .superRefine((binding, ctx) => {
+    const expected =
+      `registry/prompt_checks/execution_behavior_releases/` +
+      `${binding.release_id.slice("execution-behavior-release:".length)}--` +
+      `${binding.release_hash.slice("sha256:".length)}.json`;
+    if (binding.archive_ref !== expected) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["archive_ref"],
+        message: "execution behavior archive ref must match the bound release id and hash",
+      });
+    }
+  });
+
+export type PromptReleaseExecutionBehaviorBinding = z.infer<
+  typeof PromptReleaseExecutionBehaviorBindingSchema
+>;
 
 export const ReleasePromptStageSchema = z.enum([
   "agent_run",
@@ -34,6 +66,83 @@ export const ReleasePromptPairSchema = z
 
 export type ReleasePromptPair = z.infer<typeof ReleasePromptPairSchema>;
 
+export const PromptReleaseEvidenceSchema = z
+  .object({
+    candidate_id: z.string().min(1),
+    candidate_hash: Sha256Schema,
+    promotion_decision_id: z.string().min(1),
+    promotion_decision_hash: Sha256Schema,
+    experiment_id: z.string().min(1),
+    mutated_agent: z.string().min(1),
+    policy_version: z.string().min(1),
+    policy_config_hash: Sha256Schema,
+    candidate_prompt_hashes: z.object({ zh: Sha256Schema, en: Sha256Schema }).strict(),
+    private_state_artifact_hash: Sha256Schema,
+  })
+  .strict();
+
+export const PromptReleaseRuntimeSloSummarySchema = z
+  .object({
+    passed: z.boolean(),
+    sample_count: z.number().int().min(20),
+    schema_failure_rate: z.number().min(0).max(1),
+    fallback_rate: z.number().min(0).max(1),
+    source_failure_rate: z.number().min(0).max(1),
+    unsupported_influence_rejection_rate: z.number().min(0).max(1),
+    validator_rejection_rate: z.number().min(0).max(1),
+    latency_p95_ms: z.number().nonnegative(),
+    token_budget_breach_count: z.number().int().min(0),
+    duplicate_order_intent_count: z.number().int().min(0),
+    exposure_breach_count: z.number().int().min(0),
+  })
+  .strict();
+
+export const PromptReleaseRuntimeSloEvidenceSchema = z
+  .object({
+    schema_version: z.enum([
+      "prompt_release_canary_slo_evidence_v1",
+      "prompt_release_canary_slo_evidence_v2",
+    ]),
+    release_id: z.string().min(1),
+    account_mode: z.enum(["paper", "backtest", "live"]),
+    traffic_percent: z.number().gt(0).lt(100),
+    canary_started_at: z.string().min(1),
+    observation_ended_at: z.string().min(1),
+    eligible_event_count: z.number().int().min(1),
+    excluded_event_count: z.number().int().min(0),
+    excluded_count_by_reason: z.record(z.string(), z.number().int().min(0)),
+    event_set_hash: Sha256Schema,
+    journal_closure_hash: Sha256Schema.optional(),
+    journal_record_count: z.number().int().min(1).optional(),
+    stage_snapshot_hashes_hash: Sha256Schema,
+    aggregator_id: z.string().min(1),
+    aggregator_version: z.string().min(1),
+    artifact_hash: Sha256Schema,
+  })
+  .strict()
+  .superRefine((evidence, ctx) => {
+    const isV2 = evidence.schema_version === "prompt_release_canary_slo_evidence_v2";
+    const hasJournalClosure =
+      evidence.journal_closure_hash !== undefined && evidence.journal_record_count !== undefined;
+    if (isV2 !== hasJournalClosure) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["journal_closure_hash"],
+        message: "v2 SLO evidence requires a closed journal snapshot",
+      });
+    }
+    if (
+      evidence.aggregator_id !== "prompt_release_canary_slo" ||
+      evidence.aggregator_version !== (isV2 ? "2" : "1")
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["aggregator_version"],
+        message: "SLO evidence aggregator identity does not match its schema version",
+      });
+    }
+  });
+
 function canonicalHash(value: unknown): string {
   return canonicalJsonHash(value);
 }
@@ -52,7 +161,7 @@ export function releasePromptPairHash(pair: Omit<ReleasePromptPair, "pair_hash">
 
 export function releasePromptSetHash(pairs: ReadonlyArray<ReleasePromptPair>): string {
   const ordered = [...pairs].sort((left, right) =>
-    `${left.cohort}:${left.agent}`.localeCompare(`${right.cohort}:${right.agent}`),
+    compareCanonicalStrings(`${left.cohort}:${left.agent}`, `${right.cohort}:${right.agent}`),
   );
   return canonicalHash({
     schema_version: "release_prompt_set_v1",
@@ -168,26 +277,14 @@ export const ActivePromptReleaseManifestSchema = z
     lifecycle_state: z.enum(["staged", "canary", "active", "rolled_back"]),
     prompt_commit: CommitRefSchema,
     code_commit: CommitRefSchema,
+    execution_behavior_release: PromptReleaseExecutionBehaviorBindingSchema,
     prompt_hash: Sha256Schema,
     prompt_pairs: z.array(ReleasePromptPairSchema).min(1),
     stage_snapshot_hashes: z.record(z.string().min(1), Sha256Schema),
     catalog_hash: Sha256Schema,
     schema_hash: Sha256Schema,
     evaluation_contract_hash: Sha256Schema,
-    release_evidence: z
-      .object({
-        candidate_id: z.string().min(1),
-        candidate_hash: Sha256Schema,
-        promotion_decision_id: z.string().min(1),
-        promotion_decision_hash: Sha256Schema,
-        experiment_id: z.string().min(1),
-        mutated_agent: z.string().min(1),
-        policy_version: z.string().min(1),
-        policy_config_hash: Sha256Schema,
-        candidate_prompt_hashes: z.object({ zh: Sha256Schema, en: Sha256Schema }).strict(),
-        private_state_artifact_hash: Sha256Schema,
-      })
-      .strict(),
+    release_evidence: PromptReleaseEvidenceSchema,
     activation_scope: z
       .object({
         cohort: z.string().min(1),
@@ -199,69 +296,8 @@ export const ActivePromptReleaseManifestSchema = z
     approved_by: z.string().min(1).nullable(),
     canary_started_at: z.string().min(1).nullable(),
     canary_ended_at: z.string().min(1).nullable(),
-    runtime_slo_summary: z
-      .object({
-        passed: z.boolean(),
-        sample_count: z.number().int().min(20),
-        schema_failure_rate: z.number().min(0).max(1),
-        fallback_rate: z.number().min(0).max(1),
-        source_failure_rate: z.number().min(0).max(1),
-        unsupported_influence_rejection_rate: z.number().min(0).max(1),
-        validator_rejection_rate: z.number().min(0).max(1),
-        latency_p95_ms: z.number().nonnegative(),
-        token_budget_breach_count: z.number().int().min(0),
-        duplicate_order_intent_count: z.number().int().min(0),
-        exposure_breach_count: z.number().int().min(0),
-      })
-      .strict()
-      .nullable(),
-    runtime_slo_evidence: z
-      .object({
-        schema_version: z.enum([
-          "prompt_release_canary_slo_evidence_v1",
-          "prompt_release_canary_slo_evidence_v2",
-        ]),
-        release_id: z.string().min(1),
-        account_mode: z.enum(["paper", "backtest", "live"]),
-        traffic_percent: z.number().gt(0).lt(100),
-        canary_started_at: z.string().min(1),
-        observation_ended_at: z.string().min(1),
-        eligible_event_count: z.number().int().min(1),
-        excluded_event_count: z.number().int().min(0),
-        excluded_count_by_reason: z.record(z.string(), z.number().int().min(0)),
-        event_set_hash: Sha256Schema,
-        journal_closure_hash: Sha256Schema.optional(),
-        journal_record_count: z.number().int().min(1).optional(),
-        stage_snapshot_hashes_hash: Sha256Schema,
-        aggregator_id: z.string().min(1),
-        aggregator_version: z.string().min(1),
-        artifact_hash: Sha256Schema,
-      })
-      .strict()
-      .superRefine((evidence, ctx) => {
-        const isV2 = evidence.schema_version === "prompt_release_canary_slo_evidence_v2";
-        const hasJournalClosure =
-          evidence.journal_closure_hash !== undefined &&
-          evidence.journal_record_count !== undefined;
-        if (isV2 !== hasJournalClosure) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["journal_closure_hash"],
-            message: "v2 SLO evidence requires a closed journal snapshot",
-          });
-        }
-        if (
-          evidence.aggregator_id !== "prompt_release_canary_slo" ||
-          evidence.aggregator_version !== (isV2 ? "2" : "1")
-        ) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["aggregator_version"],
-            message: "SLO evidence aggregator identity does not match its schema version",
-          });
-        }
-      })
-      .nullable(),
+    runtime_slo_summary: PromptReleaseRuntimeSloSummarySchema.nullable(),
+    runtime_slo_evidence: PromptReleaseRuntimeSloEvidenceSchema.nullable(),
     rollback_triggers: z.array(z.string().min(1)).min(1),
     previous_approved_release_id: z.string().min(1).nullable(),
     bundled_fallback: z

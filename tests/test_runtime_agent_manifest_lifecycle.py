@@ -14,11 +14,8 @@ def _read(name: str) -> dict:
 
 def test_superseded_runtime_and_macro_manifests_are_audit_only() -> None:
     expected = {
-        "runtime_agent_manifest_v1.json": "runtime_agent_manifest_v4",
-        "runtime_agent_manifest_v2.json": "runtime_agent_manifest_v4",
-        "runtime_agent_manifest_v3.json": "runtime_agent_manifest_v4",
         "macro_prompt_role_contract_manifest_v1.json": (
-            "agent_prompt_role_contract_manifest_v2"
+            "execution_behavior_release_manifest_v3"
         ),
     }
     for filename, successor in expected.items():
@@ -26,6 +23,15 @@ def test_superseded_runtime_and_macro_manifests_are_audit_only() -> None:
         assert payload["lifecycle_status"] == "legacy_unverified"
         assert payload["production_selectable"] is False
         assert payload["superseded_by"] == successor
+
+    for removed_intermediate in (
+        "runtime_agent_manifest_v1.json",
+        "runtime_agent_manifest_v2.json",
+        "runtime_agent_manifest_v3.json",
+        "runtime_agent_manifest_v4.json",
+        "agent_prompt_role_contract_manifest_v2.json",
+    ):
+        assert not (PROMPT_CHECKS / removed_intermediate).exists()
 
 
 def test_active_runtime_manifest_is_v5_and_knot_free() -> None:
@@ -50,3 +56,4 @@ def test_production_runtime_manifest_consumers_pin_v5() -> None:
         assert "runtime_agent_manifest_v1" not in source
         assert "runtime_agent_manifest_v2" not in source
         assert "runtime_agent_manifest_v3" not in source
+        assert "runtime_agent_manifest_v4" not in source

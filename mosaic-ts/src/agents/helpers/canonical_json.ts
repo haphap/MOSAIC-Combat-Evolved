@@ -42,6 +42,13 @@ export function canonicalJsonHash(value: unknown): string {
   return `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
 }
 
+/** RFC 8785/JCS string order: lexicographic UTF-16 code units, never locale order. */
+export function compareCanonicalStrings(left: string, right: string): number {
+  assertValidUnicode(left);
+  assertValidUnicode(right);
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function assertValidUnicode(value: string): void {
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index);

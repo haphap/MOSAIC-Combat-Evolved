@@ -196,35 +196,16 @@ DEFAULT_CONFIG = {
         "euphoria_2021":    {"start": "2020-07-01", "end": "2021-02-18"},
         "rate_tightening":  {"start": "2022-04-01", "end": "2023-12-31"},
     },
-    # Autoresearch constraints (Plan §1, §8)
+    # Deterministic Macro outcome-label controls. Prompt experiments own their
+    # policy in immutable family manifests rather than mutable global config.
     "autoresearch": {
-        "agent_mutation_cooldown_hours": 24,
-        "keep_revert_lockout_days": 3,
-        "keep_threshold_delta_sharpe": 0.1,
-        "monthly_modification_cap_per_cohort": 100,
-        "evaluation_horizon_trading_days": 5,
-        # Macro layer-aware selection (autoresearch macro plan MVP). macro agents
-        # are ranked within their own layer; the interval gates how often macro
-        # is picked (~the 20% quota in steady state). macro_neutral_band is the
-        # single source for both the macro scorer and selection.
-        "macro_quota": 0.2,
-        "min_macro_interval_days": 5,
+        # Single source for the Macro scorer and deterministic label projection.
         "macro_neutral_band": 0.005,
         "macro_agent_specific_labels_enabled": True,
         # P6 rollout gate opened: use the validated proxy/relative/basket path
         # labels by default. Set false to roll back to the conservative PR #73
         # label set.
         "macro_full_label_sources_enabled": True,
-        "recent_revert_penalty_days": 14,
-        # Mirror kept (merged-to-main) prompt mutations to a self-hosted git
-        # server. OPT-IN; default OFF keeps autoresearch 100% local. When push
-        # is True, the keep-path runs `git push <remote> main` after the merge
-        # (operator must pre-configure the remote + credentials). A push failure
-        # never aborts the keep decision — it is logged and swallowed.
-        "git": {
-            "push": False,
-            "remote": "origin",
-        },
     },
     "darwinian": {
         # Legacy-unverified v1 audit/replay table only. Production usage weights

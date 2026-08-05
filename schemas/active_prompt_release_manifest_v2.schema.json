@@ -38,6 +38,29 @@
       "type": "string",
       "minLength": 7
     },
+    "execution_behavior_release": {
+      "type": "object",
+      "properties": {
+        "release_id": {
+          "type": "string",
+          "pattern": "^execution-behavior-release:[0-9a-f]{64}$"
+        },
+        "release_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "archive_ref": {
+          "type": "string",
+          "pattern": "^registry\\/prompt_checks\\/execution_behavior_releases\\/[0-9a-f]{64}--[0-9a-f]{64}\\.json$"
+        }
+      },
+      "required": [
+        "release_id",
+        "release_hash",
+        "archive_ref"
+      ],
+      "additionalProperties": false
+    },
     "prompt_hash": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
@@ -662,6 +685,7 @@
     "lifecycle_state",
     "prompt_commit",
     "code_commit",
+    "execution_behavior_release",
     "prompt_hash",
     "prompt_pairs",
     "stage_snapshot_hashes",

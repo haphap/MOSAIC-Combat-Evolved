@@ -240,9 +240,9 @@ export function Dashboard({ api, cohort, user }: Props) {
 }
 
 function PromptOptimizerTab({ summary }: { summary: PromptOptimizerSummary }) {
-  const { candidate, experiment, decision, release } = summary;
+  const { candidate, experiment, release } = summary;
   if (!candidate) return <Text dimColor>no Prompt Candidate for this cohort</Text>;
-  const metrics = decision?.metricSummary ?? experiment?.metrics ?? {};
+  const metrics = experiment?.metrics ?? {};
   const metricRows = [
     "validation_paired_delta",
     "validation_confidence_lower",
@@ -260,7 +260,6 @@ function PromptOptimizerTab({ summary }: { summary: PromptOptimizerSummary }) {
       <Text>{`hypothesis: ${candidate.hypothesis}`}</Text>
       <Text>{`mutation: ${candidate.mutationSummary}`}</Text>
       <Text>{`experiment: ${experiment?.status ?? "not_started"}`}</Text>
-      <Text>{`decision: ${decision?.decision ?? "pending"} · ${(decision?.reasons ?? []).join(",") || "-"}`}</Text>
       <Text>{`metrics: ${metricRows.join(" · ") || "-"}`}</Text>
       <Text>{`tail failures: ${(experiment?.tailFailureCaseRefs ?? []).join(",") || "-"}`}</Text>
       <Text>{`release: ${release ? `${release.release_id}:${release.lifecycle_state}` : "not_staged"}`}</Text>
@@ -318,7 +317,6 @@ function TodayTab({
   const staleCount = rows.filter(
     (row) => row.riskFlags.includes("stale_thesis") || row.thesisStatus === "expired",
   ).length;
-  const agentAuditSummary = formatDecisionAgentAudits(today.actions);
   const stopLossOverrideCount = rows.filter(
     (row) =>
       row.riskFlags.includes("stop_loss_breached") &&
@@ -347,7 +345,6 @@ function TodayTab({
           `stop_loss_overrides ${stopLossOverrideCount} drift ${driftCount}` +
           (warnings.length > 0 ? `  warnings=${warnings.join(",")}` : "")}
       </Text>
-      {agentAuditSummary ? <Text dimColor>{agentAuditSummary}</Text> : null}
       {rows.map((row) => (
         <Text key={row.ticker}>
           {row.ticker.padEnd(11)} {row.action.padEnd(6)} {row.positionDecision.padEnd(7)}{" "}
@@ -647,31 +644,6 @@ function firstNonEmpty(...values: Array<string | null | undefined>): string {
   return values.find((value) => value != null && value.trim().length > 0) ?? "";
 }
 
-function formatDecisionAgentAudits(actions: ReadonlyArray<CioAction>): string | null {
-  const raw = actions.find(
-    (action) => action.decision_agent_audits_json,
-  )?.decision_agent_audits_json;
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as Record<string, Record<string, unknown>>;
-    const parts = ["cro", "autonomous_execution", "cio"].flatMap((agent) => {
-      const audit = parsed[agent];
-      if (!audit) return [];
-      const accepted = audit.accepted === true ? "accepted" : "rejected";
-      const reasons = stringArrayField(audit, "reason_codes").join("|") || "-";
-      return [`${agent} ${accepted} reasons=${reasons}`];
-    });
-    return parts.length > 0 ? `agent detail ${parts.join(" ; ")}` : null;
-  } catch {
-    return null;
-  }
-}
-
-function stringArrayField(obj: Record<string, unknown>, key: string): string[] {
-  const raw = obj[key];
-  return Array.isArray(raw) ? raw.map((item) => String(item)) : [];
-}
-
 function isPositionStale(position: PaperPosition, runDate: string | null): boolean {
   if (!runDate || !position.updated_at) return false;
   const updatedDate = position.updated_at.slice(0, 10);
@@ -747,7 +719,7 @@ function MirofishTab({
 type FieldKind = "string" | "number" | "bool" | "enum";
 
 interface FieldSpec {
-  /** Dotted path into the config object, e.g. "autoresearch.git.push". */
+  /** Dotted path into the config object, e.g. "mirofish.engine". */
   path: string;
   label: string;
   kind: FieldKind;
@@ -771,21 +743,6 @@ const FIELDS: FieldSpec[] = [
     options: ["Chinese", "English", "Bilingual"],
   },
   { path: "active_cohort", label: "Active cohort", kind: "string" },
-  { path: "autoresearch.keep_threshold_delta_sharpe", label: "AR keep ΔSharpe", kind: "number" },
-  { path: "autoresearch.agent_mutation_cooldown_hours", label: "AR cooldown (h)", kind: "number" },
-  { path: "autoresearch.keep_revert_lockout_days", label: "AR lockout (d)", kind: "number" },
-  {
-    path: "autoresearch.monthly_modification_cap_per_cohort",
-    label: "AR monthly cap",
-    kind: "number",
-  },
-  {
-    path: "autoresearch.evaluation_horizon_trading_days",
-    label: "AR eval horizon (d)",
-    kind: "number",
-  },
-  { path: "autoresearch.git.push", label: "AR git push", kind: "bool" },
-  { path: "autoresearch.git.remote", label: "AR git remote", kind: "string" },
   {
     path: "mirofish.engine",
     label: "MiroFish engine",
