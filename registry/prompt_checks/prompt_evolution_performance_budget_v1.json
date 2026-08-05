@@ -36,7 +36,7 @@
   ],
   "fixture_budget": {
     "test_id": "tests/test_pytest_registry_fixture.py::test_registry_copy_excludes_private_cache_and_stays_within_budget",
-    "max_copied_bytes": 9437184,
+    "max_copied_bytes": 11534336,
     "max_copied_files": 256,
     "forbidden_private_prefixes": [
       "report_intelligence/pdfs",
@@ -45,5 +45,5 @@
     ],
     "private_fixture_opt_in_env": "MOSAIC_TEST_PRIVATE_REPORT_INTELLIGENCE_FIXTURES"
   },
-  "manifest_hash": "sha256:3f058e03ae316fbf640930b8b45351b05c37de1b975bd6cc57306952bb593ce8"
+  "manifest_hash": "sha256:93d9ba0fc1d6cf6a8fa94955a6b9233de1bfd42dfb9f8b3c7a330cea80a278be"
 }
