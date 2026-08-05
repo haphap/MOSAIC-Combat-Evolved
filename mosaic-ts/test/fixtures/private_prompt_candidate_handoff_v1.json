@@ -88,7 +88,7 @@
         "parentId": "champion-handoff-v1",
         "parentPromptCommit": "3333333333333333333333333333333333333333",
         "parentPromptHashes": {
-          "zh": "sha256:fd154977b5c41e4953c3344b08305bbae45f6ca24fbf2daddf31f2529957875a",
+          "zh": "sha256:1e70c0e9102c9aa6c13edb22bd5b519cd0194ca138b7dce63e24746fb284b3fe",
           "en": "sha256:210e58e72e156cbf402df3d401103889e3660535c7c0e78ac2bbb71c9c6b34ed"
         },
         "target": {
@@ -101,7 +101,7 @@
           "en": "prompts/mosaic/cohort_default/macro/china.en.md"
         },
         "promptHashes": {
-          "zh": "sha256:e63615ad9a50b8be7c3a6fd139bd1398533c27f2d86c20541e9716904b5b5e51",
+          "zh": "sha256:303b47a66159a3223517da4566d35deb804c3c1628f29de1976c7003e2568c7f",
           "en": "sha256:b1f15bc40a40cce90b98436fb212be481c8b7857f5877f4433c7a02728c1ce9f"
         },
         "trainingProjectionHash": "sha256:44e1893f02616c016e3b73ac28c83676e72b839b8c73180ba33187c2200f71df",
@@ -112,10 +112,10 @@
         "mutationSummary": "Behavior focus: CONFLICT_RESOLUTION.",
         "hypothesis": "Preregistered hypothesis: CONFLICT_RESOLUTION improves the frozen Agent outcome score.",
         "behaviorContractHash": "sha256:9253ed793a2bd30325a028d731807de42c2c336c562462a49586f6b6a8914571",
-        "privateLineageHash": "sha256:540da5f30298ff28448a28383abc53d3b89163731282d32d557875d98c4beaab",
+        "privateLineageHash": "sha256:dbce45effc070b2dcadb9afc1838417af4f585efa7f8a5a4083315ff7a967466",
         "privateStateArtifactHash": "sha256:6261b0dc8b3456f1c8255235dfd472e1776657a6173ce224c86bb3b54954c6b6",
         "createdAt": "2025-04-01T00:00:00Z",
-        "candidateId": "candidate-2bd4ec7ac605bfad3382f406"
+        "candidateId": "candidate-4498e74bd0273cc30577c980"
       }
     },
     {
@@ -205,7 +205,7 @@
         "parentId": "champion-handoff-v1",
         "parentPromptCommit": "3333333333333333333333333333333333333333",
         "parentPromptHashes": {
-          "zh": "sha256:fd154977b5c41e4953c3344b08305bbae45f6ca24fbf2daddf31f2529957875a",
+          "zh": "sha256:1e70c0e9102c9aa6c13edb22bd5b519cd0194ca138b7dce63e24746fb284b3fe",
           "en": "sha256:210e58e72e156cbf402df3d401103889e3660535c7c0e78ac2bbb71c9c6b34ed"
         },
         "target": {
@@ -218,7 +218,7 @@
           "en": "prompts/mosaic/cohort_default/macro/china.en.md"
         },
         "promptHashes": {
-          "zh": "sha256:0f400aafdb576ac17d445711ead4c8210cd7505a6ddf1b7a3f53f60d3afcb656",
+          "zh": "sha256:b8557116ccf773d4a58ee867612e4dfd57c372eb37e079145e2a540bf3354b88",
           "en": "sha256:dad8137241a660acaa8b3543c0cdd5421420905061f1f2019e9139b11b3b6db2"
         },
         "trainingProjectionHash": "sha256:d64a260e0372c5e5d90890c332b1ba699c657ff980837faa5837d4c02326ec2c",
@@ -229,10 +229,10 @@
         "mutationSummary": "Behavior focus: CONFLICT_RESOLUTION.",
         "hypothesis": "Preregistered hypothesis: CONFLICT_RESOLUTION improves the frozen Agent outcome score.",
         "behaviorContractHash": "sha256:9253ed793a2bd30325a028d731807de42c2c336c562462a49586f6b6a8914571",
-        "privateLineageHash": "sha256:f6e53e0e0d2e28edd0a445c73912e4bbc3ceba992de02fd4c4a60e199cec8b55",
+        "privateLineageHash": "sha256:cba54f56411879a1a8e117c85b97d73b33b0b54714888d19cb8b9b5ee9545397",
         "privateStateArtifactHash": "sha256:1128e0ad20e705587376d38b0ffedd6fc1cb35d818cf443fd4f3b8674244ec8e",
         "createdAt": "2025-04-01T00:00:00Z",
-        "candidateId": "candidate-aecaabbbf6baf2c6ce79855b"
+        "candidateId": "candidate-f0f6cd86bb23ef4dcc8a2fd2"
       }
     },
     {
@@ -322,7 +322,7 @@
         "parentId": "champion-handoff-v1",
         "parentPromptCommit": "3333333333333333333333333333333333333333",
         "parentPromptHashes": {
-          "zh": "sha256:fd154977b5c41e4953c3344b08305bbae45f6ca24fbf2daddf31f2529957875a",
+          "zh": "sha256:1e70c0e9102c9aa6c13edb22bd5b519cd0194ca138b7dce63e24746fb284b3fe",
           "en": "sha256:210e58e72e156cbf402df3d401103889e3660535c7c0e78ac2bbb71c9c6b34ed"
         },
         "target": {
@@ -335,7 +335,7 @@
           "en": "prompts/mosaic/cohort_default/macro/china.en.md"
         },
         "promptHashes": {
-          "zh": "sha256:f79cbb7f682af3b2dac82eddfe6e45a2212e3e7a609ea375b967c662adc0e3af",
+          "zh": "sha256:9db42beab9fb2214dc45543df96c2341e57f861259dc731b82a6740493c04af5",
           "en": "sha256:4c6f461c4bd42c3aa8248da64f0f56fc632f89543bcc3a7cc604484d14fad59b"
         },
         "trainingProjectionHash": "sha256:6082f89a4dd70c2f340b3f8f3fb252835fc4b84faa28cbc147f28b6729e6bc74",
@@ -346,10 +346,10 @@
         "mutationSummary": "Behavior focus: CONFLICT_RESOLUTION.",
         "hypothesis": "Preregistered hypothesis: CONFLICT_RESOLUTION improves the frozen Agent outcome score.",
         "behaviorContractHash": "sha256:9253ed793a2bd30325a028d731807de42c2c336c562462a49586f6b6a8914571",
-        "privateLineageHash": "sha256:53834e9858d3aca14ac449aba583196c2991a3d0b5ede2030756335f8d1ffc1c",
+        "privateLineageHash": "sha256:869570b4c62112003afc6f3c5c2f9ceac7bf90bd213d1bf9575659a8fae0b80a",
         "privateStateArtifactHash": "sha256:a0aedb03b6f40d1fc46d7e1953ae45aeea20e202cb14ff838bee522771299746",
         "createdAt": "2025-04-01T00:00:00Z",
-        "candidateId": "candidate-50359be68bf9d9c613030e36"
+        "candidateId": "candidate-e10e274333e5d707c945ec68"
       }
     },
     {
@@ -482,7 +482,7 @@
         "parentId": "champion-handoff-v1",
         "parentPromptCommit": "3333333333333333333333333333333333333333",
         "parentPromptHashes": {
-          "zh": "sha256:de78286df8238991a3a3ecd18afe000b95a48440fd082fd1532eb813adf23c45",
+          "zh": "sha256:5f77d1f39990c379d028fb08605f12e25622e63c348d395589118d91d3b574e6",
           "en": "sha256:2392c65ff04ca350c933d3d182c997896598a51bdbe86fd096e8a0bb75c97a97"
         },
         "target": {
@@ -495,8 +495,8 @@
           "en": "prompts/mosaic/cohort_default/sector/semiconductor.en.md"
         },
         "promptHashes": {
-          "zh": "sha256:8d3b3cae56a77a7dee01dcf54e46a29c6570ddf9df94d682eff10f2cfd544e02",
-          "en": "sha256:02b7eb91d0c9f2b12909b6ece401d08365c07a735e8ff49fbbfb319798413b9f"
+          "zh": "sha256:c742998cf21ae80a48fd4efe22ea9f157b2a312e0c935bd2b9fed5a0fc5ae9b6",
+          "en": "sha256:639a856db96c0e621a42cbb5ecc762f402473a9e76fdd78a8dd673ad40c8bac0"
         },
         "trainingProjectionHash": "sha256:864f429b13e3b44bf5d42046c2722badfcc869039ad6ac281b2d0c900f986bed",
         "excludedSampleIdsHash": "sha256:f3f308b6c10de1ceca39841aac98a7112d6fe3618f092664b7a24fb836ffd249",
@@ -506,10 +506,10 @@
         "mutationSummary": "Behavior focus: CONFLICT_RESOLUTION.",
         "hypothesis": "Preregistered hypothesis: CONFLICT_RESOLUTION improves the frozen Agent outcome score.",
         "behaviorContractHash": "sha256:589baf7f8901c375eaaf8ab9cfbec39ba27597b16ef03cc6dab0a4b0e5a48316",
-        "privateLineageHash": "sha256:9130d438deaacb16c601115834a92065696fed8b552321a535d58a8bc99c4891",
+        "privateLineageHash": "sha256:7e93d05601520fc6c59a55c30ddd38914e3c2dc25f9b40488736ec6b70375f57",
         "privateStateArtifactHash": "sha256:8ef1a912a28149caa2f66bbc5c3c7a77401ac3b49ea989713098b492f8d5f60e",
         "createdAt": "2025-04-01T00:00:00Z",
-        "candidateId": "candidate-c71339fc372ffb78a5e01b40"
+        "candidateId": "candidate-4011bfd73c1aca696c7f1ad2"
       }
     }
   ]

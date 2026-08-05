@@ -431,6 +431,49 @@ def _sha256_bytes(value: bytes) -> str:
     return f"sha256:{hashlib.sha256(value).hexdigest()}"
 
 
+def _check_private_token_budget_rows(private_root: Path) -> None:
+    manifest = _read_object(
+        PROMPT_TOKEN_BUDGET_MANIFEST_PATH, "Prompt token budget manifest"
+    )
+    if manifest.get("schema_version") != "prompt_token_budget_manifest_v1":
+        raise ValueError("Prompt token budget manifest version mismatch")
+    rows = manifest.get("rows")
+    if not isinstance(rows, list):
+        raise ValueError("Prompt token budget rows are invalid")
+
+    prompts_root = (private_root / "prompts/mosaic").resolve()
+    private_row_count = 0
+    for raw_row in rows:
+        row = _mapping(raw_row, "Prompt token budget row")
+        if row.get("source") != "private":
+            continue
+        private_row_count += 1
+        source_path = row.get("source_path")
+        source_sha256 = row.get("source_sha256")
+        source_bytes = row.get("source_bytes")
+        if (
+            not isinstance(source_path, str)
+            or not source_path
+            or not isinstance(source_sha256, str)
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", source_sha256) is None
+            or not isinstance(source_bytes, int)
+            or source_bytes < 0
+        ):
+            raise ValueError("private Prompt token budget row is invalid")
+        prompt_path = (prompts_root / source_path).resolve()
+        try:
+            prompt_path.relative_to(prompts_root)
+        except ValueError as exc:
+            raise ValueError("private Prompt token budget path escapes prompt root") from exc
+        if not prompt_path.is_file():
+            raise ValueError("private Prompt token budget source is missing")
+        content = prompt_path.read_bytes()
+        if _sha256_bytes(content) != source_sha256 or len(content) != source_bytes:
+            raise ValueError("private Prompt token budget row mismatch")
+    if private_row_count == 0:
+        raise ValueError("private Prompt token budget rows are missing")
+
+
 def _check_private_prompt_bootstrap(private_root: Path) -> None:
     bootstrap = _read_object(
         private_root / PRIVATE_PROMPT_BOOTSTRAP_PATH,
@@ -595,6 +638,7 @@ def _check_private_repository(
     expected_commit: str,
 ) -> None:
     _require_private_git_state(private_root, expected_commit)
+    _check_private_token_budget_rows(private_root)
     _check_private_prompt_bootstrap(private_root)
     package = _read_object(private_root / PRIVATE_PACKAGE_PATH, "private package")
     if package.get("name") != ACTIVE_PRIVATE_PACKAGE or package.get("private") is not True:

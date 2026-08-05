@@ -208,6 +208,99 @@ def test_private_checkout_rejects_token_manifest_commit_mismatch(
         )
 
 
+def test_private_token_budget_rows_reject_stale_source_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    private_root = tmp_path / "private"
+    prompt_path = private_root / "prompts/mosaic/cohort_default/macro/china.zh.md"
+    prompt_path.parent.mkdir(parents=True)
+    prompt_content = b"private prompt fixture\n"
+    prompt_path.write_bytes(prompt_content)
+    manifest_path = tmp_path / "prompt_token_budget_manifest_v1.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "prompt_token_budget_manifest_v1",
+                "rows": [
+                    {
+                        "source": "private",
+                        "source_path": "cohort_default/macro/china.zh.md",
+                        "source_sha256": check_private_knot_boundary._sha256_bytes(
+                            prompt_content
+                        ),
+                        "source_bytes": len(prompt_content),
+                    },
+                    {
+                        "source": "bundled",
+                        "source_path": "cohort_default/macro/china.zh.md",
+                        "source_sha256": "sha256:" + "a" * 64,
+                        "source_bytes": 1,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        check_private_knot_boundary,
+        "PROMPT_TOKEN_BUDGET_MANIFEST_PATH",
+        manifest_path,
+    )
+
+    check_private_knot_boundary._check_private_token_budget_rows(private_root)
+    prompt_path.write_text("stale private prompt fixture\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="private Prompt token budget row mismatch"):
+        check_private_knot_boundary._check_private_token_budget_rows(private_root)
+
+
+@pytest.mark.parametrize(
+    ("source", "source_path", "expected_error"),
+    [
+        ("private", "../escaped.md", "path escapes prompt root"),
+        (
+            "private",
+            "cohort_default/macro/missing.zh.md",
+            "source is missing",
+        ),
+        ("bundled", "cohort_default/macro/china.zh.md", "rows are missing"),
+    ],
+)
+def test_private_token_budget_rows_fail_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    source: str,
+    source_path: str,
+    expected_error: str,
+) -> None:
+    private_root = tmp_path / "private"
+    (private_root / "prompts/mosaic").mkdir(parents=True)
+    manifest_path = tmp_path / "prompt_token_budget_manifest_v1.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "prompt_token_budget_manifest_v1",
+                "rows": [
+                    {
+                        "source": source,
+                        "source_path": source_path,
+                        "source_sha256": "sha256:" + "a" * 64,
+                        "source_bytes": 1,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        check_private_knot_boundary,
+        "PROMPT_TOKEN_BUDGET_MANIFEST_PATH",
+        manifest_path,
+    )
+
+    with pytest.raises(ValueError, match=expected_error):
+        check_private_knot_boundary._check_private_token_budget_rows(private_root)
+
+
 def test_private_bootstrap_closes_private_prompt_and_state_trees(tmp_path: Path) -> None:
     private_root = tmp_path / "private"
     parameter_path = private_root / "registry/knot/prompt_parameter_contract_v1.json"
