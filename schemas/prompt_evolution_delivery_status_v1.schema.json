@@ -25,7 +25,7 @@
       "properties": {
         "id": {"const": "prompt_evolution_delivery"},
         "version": {"const": "3"},
-        "command_contract_version": {"const": "prompt_evolution_delivery_commands_v5"}
+        "command_contract_version": {"const": "prompt_evolution_delivery_commands_v6"}
       }
     },
     "run": {

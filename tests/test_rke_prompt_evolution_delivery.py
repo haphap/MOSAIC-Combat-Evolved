@@ -180,9 +180,15 @@ def test_run_directory_prepares_pytest_basetemp_parent(tmp_path: Path):
 def test_public_delivery_gate_does_not_require_private_knot_runtime(tmp_path: Path):
     specs = {spec.check_id: spec for spec in command_specs(ROOT, tmp_path)}
     bundled = specs["bundled_prompt_contract"]
+    focused = specs["focused_schema_contract"]
 
     assert "check-bundled-contract" in bundled.argv
     assert "check-private-knot" not in bundled.argv
+    assert focused.evidence_refs == (
+        "tests/test_rke_prompt_evolution_delivery.py::test_delivery_artifact_validates_against_json_schema",
+    )
+    assert focused.junit_expected_tests == 1
+    assert focused.junit_minimum_tests is None
     assert specs["representative_evaluation_tests"].junit_expected_tests is None
     assert specs["representative_evaluation_tests"].junit_minimum_tests == 36
 

@@ -17,7 +17,7 @@ from typing import Any, Literal, Mapping, Sequence
 SCHEMA_VERSION = "prompt_evolution_delivery_status_v1"
 GENERATOR_ID = "prompt_evolution_delivery"
 GENERATOR_VERSION = "3"
-COMMAND_CONTRACT_VERSION = "prompt_evolution_delivery_commands_v5"
+COMMAND_CONTRACT_VERSION = "prompt_evolution_delivery_commands_v6"
 
 Status = Literal["pass", "fail", "blocked"]
 
@@ -322,9 +322,6 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
                 "python",
                 "-m",
                 "pytest",
-                "tests/test_knot_legacy_read_only.py",
-                "tests/test_prompt_optimizer_store.py",
-                "tests/test_bridge_prompt_optimizer.py",
                 "tests/test_rke_prompt_evolution_delivery.py::test_delivery_artifact_validates_against_json_schema",
                 "-q",
                 "--junitxml",
@@ -334,11 +331,9 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
             ),
             root,
             (
-                "tests/test_knot_legacy_read_only.py",
-                "tests/test_prompt_optimizer_store.py",
-                "tests/test_bridge_prompt_optimizer.py",
                 "tests/test_rke_prompt_evolution_delivery.py::test_delivery_artifact_validates_against_json_schema",
             ),
+            junit_expected_tests=1,
             junit_path=run_dir / "focused-schema.xml",
         ),
         CommandSpec(
