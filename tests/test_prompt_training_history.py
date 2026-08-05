@@ -40,6 +40,30 @@ def _weekdays(start: date, count: int) -> list[date]:
     return values
 
 
+def _seed_one_prompt_training_sample(
+    tmp_path: Path,
+    *,
+    eligibility_disposition: str = "SCORE",
+    audit_darwin_evaluation_eligible: bool = True,
+    label_darwin_evaluation_eligible: bool = True,
+) -> ScorecardStore:
+    store, revision, track = _registered(tmp_path)
+    with store._connect() as conn:
+        _seed_component_sample(
+            conn,
+            revision=revision,
+            track=track,
+            as_of="2024-01-02",
+            outcome_due_at="2024-01-12T15:00:00+08:00",
+            sequence=1,
+            target=0.2,
+            eligibility_disposition=eligibility_disposition,
+            audit_darwin_evaluation_eligible=audit_darwin_evaluation_eligible,
+            label_darwin_evaluation_eligible=label_darwin_evaluation_eligible,
+        )
+    return store
+
+
 def test_training_timestamp_round_trip_keeps_millisecond_precision() -> None:
     completed_at = _timestamp(
         "2025-04-01T02:00:00.123Z", "Prompt experiment completedAt"
@@ -239,6 +263,69 @@ def test_training_projection_exports_pit_scores_and_exclusions(
         cutoff_at=f"{(days[10] + timedelta(days=10)).isoformat()}T23:59:59+08:00",
     )
     assert 0 < historical["matureSampleCount"] < projection["matureSampleCount"]
+
+
+def test_training_projection_includes_the_exact_pit_maturity_boundary(
+    tmp_path: Path,
+) -> None:
+    store = _seed_one_prompt_training_sample(tmp_path)
+
+    before = store.build_prompt_training_projection(
+        agent_id="us_economy",
+        stage="agent_run",
+        cohort="cohort_default",
+        cutoff_at="2024-01-12T15:59:59+08:00",
+    )
+    at_boundary = store.build_prompt_training_projection(
+        agent_id="us_economy",
+        stage="agent_run",
+        cohort="cohort_default",
+        cutoff_at="2024-01-12T16:00:00+08:00",
+    )
+
+    assert before["matureSampleCount"] == 0
+    assert at_boundary["matureSampleCount"] == 1
+
+
+@pytest.mark.parametrize(
+    "seed_options",
+    [
+        {"eligibility_disposition": "PENDING"},
+        {"audit_darwin_evaluation_eligible": False},
+    ],
+    ids=["non_score_disposition", "audit_not_darwin_eligible"],
+)
+def test_training_projection_rejects_non_score_or_ineligible_audit_lineage(
+    tmp_path: Path,
+    seed_options: dict[str, object],
+) -> None:
+    store = _seed_one_prompt_training_sample(tmp_path, **seed_options)
+
+    with pytest.raises(ValueError, match="Prompt training history lineage mismatch"):
+        store.build_prompt_training_projection(
+            agent_id="us_economy",
+            stage="agent_run",
+            cohort="cohort_default",
+            cutoff_at="2024-01-12T16:00:00+08:00",
+        )
+
+
+def test_training_projection_excludes_a_label_not_marked_darwin_eligible(
+    tmp_path: Path,
+) -> None:
+    store = _seed_one_prompt_training_sample(
+        tmp_path,
+        label_darwin_evaluation_eligible=False,
+    )
+
+    projection = store.build_prompt_training_projection(
+        agent_id="us_economy",
+        stage="agent_run",
+        cohort="cohort_default",
+        cutoff_at="2024-01-12T16:00:00+08:00",
+    )
+
+    assert projection["matureSampleCount"] == 0
 
 
 def test_training_projection_exports_validation_only_without_holdout(

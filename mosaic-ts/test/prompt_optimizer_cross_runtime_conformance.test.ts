@@ -3,7 +3,38 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { compareCanonicalStrings } from "../src/agents/helpers/canonical_json.js";
 import { PromptPromotionDecisionSchema } from "../src/autoresearch/prompt_optimizer_contract.js";
-import { promptOrderedMean } from "../src/autoresearch/prompt_promotion_policy.js";
+import {
+  evaluatePromptPromotionSeries,
+  promptOrderedMean,
+} from "../src/autoresearch/prompt_promotion_policy.js";
+
+interface PromotionGateExpectedMetrics {
+  sampleCount: number;
+  repeatSeedCount: number;
+  pairedDelta: number;
+  adjustedAlpha: number;
+  confidenceLower: number;
+  confidenceUpper: number;
+  bootstrapPValue: number;
+  tailDelta: number;
+  championFailureRate: number;
+  candidateFailureRate: number;
+  criticalMinimum: number;
+}
+
+interface PromotionGateCase {
+  name: string;
+  familyCandidateCount: number;
+  deltaSegments: Array<{ count: number; value: number }>;
+  championFailureIndexes: number[];
+  candidateFailureIndexes: number[];
+  criticalIndexes: number[];
+  expected: {
+    eligible: boolean;
+    reasons: string[];
+    metrics: PromotionGateExpectedMetrics;
+  };
+}
 
 interface ConformanceFixture {
   schemaVersion: "prompt_optimizer_cross_runtime_conformance_v1";
@@ -26,6 +57,18 @@ interface ConformanceFixture {
     accepted: string[];
     rejectedMinute: string;
     rejectedSubMillisecond: string;
+  };
+  promotionGates: {
+    bootstrapSamples: number;
+    blockLength: number;
+    familyAlpha: number;
+    tailQuantile: number;
+    minimumPairedDelta: number;
+    minimumTailDelta: number;
+    maximumFailureRateIncrease: number;
+    minimumCriticalSampleDelta: number;
+    seed: string;
+    cases: PromotionGateCase[];
   };
 }
 
@@ -77,6 +120,46 @@ describe("Prompt Optimizer cross-runtime conformance fixture", () => {
     expect(promptOrderedMean(candidateScores)).toBe(row.expectedCandidateMean);
     expect(promptOrderedMean(championScores)).toBe(row.expectedChampionMean);
     expect(promptOrderedMean(deltas)).toBe(row.expectedPairedDelta);
+  });
+
+  it("matches the shared promotion-gate golden cases", () => {
+    const contract = fixture.promotionGates;
+    for (const scenario of contract.cases) {
+      const deltas = scenario.deltaSegments.flatMap(({ count, value }) =>
+        Array.from({ length: count }, () => value),
+      );
+      const championFailureIndexes = new Set(scenario.championFailureIndexes);
+      const candidateFailureIndexes = new Set(scenario.candidateFailureIndexes);
+      const evidence = evaluatePromptPromotionSeries({
+        deltas,
+        championFailures: deltas.map((_, index) => championFailureIndexes.has(index)),
+        candidateFailures: deltas.map((_, index) => candidateFailureIndexes.has(index)),
+        criticalDeltas: scenario.criticalIndexes.map((index) => deltas[index] ?? Number.NaN),
+        repeatSeedCount: 2,
+        familyCandidateCount: scenario.familyCandidateCount,
+        policy: {
+          minimumMatureSamples: 30,
+          minimumRepeatSeeds: 2,
+          minimumPairedDelta: contract.minimumPairedDelta,
+          familyAlpha: contract.familyAlpha,
+          bootstrapSamples: contract.bootstrapSamples,
+          blockLength: contract.blockLength,
+          tailQuantile: contract.tailQuantile,
+          minimumTailDelta: contract.minimumTailDelta,
+          maximumFailureRateIncrease: contract.maximumFailureRateIncrease,
+          minimumCriticalSampleDelta: contract.minimumCriticalSampleDelta,
+        },
+        seed: contract.seed,
+      });
+      expect(
+        {
+          eligible: evidence.reasons.length === 0,
+          reasons: evidence.reasons,
+          metrics: evidence.metrics,
+        },
+        scenario.name,
+      ).toEqual(scenario.expected);
+    }
   });
 
   it("uses JCS UTF-16 order for refs and equal-score candidate ties", () => {

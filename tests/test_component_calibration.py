@@ -142,6 +142,9 @@ def _seed_component_sample(
     sequence: int,
     target: float,
     cached_target: float | None = None,
+    eligibility_disposition: str = "SCORE",
+    audit_darwin_evaluation_eligible: bool = True,
+    label_darwin_evaluation_eligible: bool = True,
 ) -> None:
     agent_id = "us_economy"
     contract = OUTCOME_CONTRACTS[agent_id]
@@ -336,7 +339,7 @@ def _seed_component_sample(
         "track_key_hash": track["track_key_hash"],
         "agent_id": agent_id,
         "sample_origin": "PRODUCTION_ACTIVE",
-        "disposition": "SCORE",
+        "disposition": eligibility_disposition,
         "accepted_output_id": accepted_id,
         "accepted_output_hash": accepted["accepted_output_hash"],
         "evaluation_opportunity_set_id": opportunity_id,
@@ -345,7 +348,7 @@ def _seed_component_sample(
         ],
         "opportunity_set_status": "AVAILABLE",
         "exclusion_or_failure_reason": None,
-        "darwin_evaluation_eligible": True,
+        "darwin_evaluation_eligible": audit_darwin_evaluation_eligible,
         "usage_weight_eligible": True,
         "contract_versions": versions,
         "recorded_at": outcome_due_at,
@@ -364,7 +367,7 @@ def _seed_component_sample(
             accepted_output_id, opportunity_set_status, audit_sequence,
             recorded_at, record_json
         ) VALUES (?, ?, ?, NULL, ?, ?, ?, 'PRODUCTION_ACTIVE',
-                  'SCORE', ?, 'AVAILABLE', 1, ?, ?)
+                  ?, ?, 'AVAILABLE', 1, ?, ?)
         """,
         (
             audit_id,
@@ -373,6 +376,7 @@ def _seed_component_sample(
             sample_id,
             track["track_key_hash"],
             agent_id,
+            eligibility_disposition,
             accepted_id,
             outcome_due_at,
             canonical_json(audit),
@@ -401,7 +405,7 @@ def _seed_component_sample(
         "agent_id": agent_id,
         "primary_label_id": contract["primary_label_id"],
         "sample_origin": "PRODUCTION_ACTIVE",
-        "darwin_evaluation_eligible": True,
+        "darwin_evaluation_eligible": label_darwin_evaluation_eligible,
         "usage_weight_eligible": True,
         "realized_outcome_observation_id": f"observation:{sample_id}",
         "realized_outcome_observation_hash": canonical_hash(sample_id),
@@ -426,7 +430,7 @@ def _seed_component_sample(
             primary_label_id, sample_origin, darwin_evaluation_eligible,
             usage_weight_eligible, normalized_score, outcome_due_at, matured_at,
             record_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PRODUCTION_ACTIVE', 1, 1, 1, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PRODUCTION_ACTIVE', ?, ?, 1, ?, ?, ?)
         """,
         (
             sequence,
@@ -437,6 +441,8 @@ def _seed_component_sample(
             track["track_key_hash"],
             agent_id,
             contract["primary_label_id"],
+            int(label_darwin_evaluation_eligible),
+            1,
             outcome_due_at,
             label_without_hash["matured_at"],
             canonical_json(label),

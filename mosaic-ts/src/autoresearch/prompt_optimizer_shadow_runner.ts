@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { canonicalJsonHash } from "../agents/helpers/canonical_json.js";
+import { PromptReleaseExecutionBehaviorBindingSchema } from "../agents/prompts/prompt_release_contract.js";
 import { selectPromptCandidateFamily } from "./prompt_candidate_family.js";
 import {
   type FrozenPromptExperimentEnvironment,
@@ -13,6 +14,7 @@ import {
   assertTrainingProjectionMatchesSplit,
   DatasetSplitManifestSchema,
   PromptCandidateFamilySchema,
+  PromptCandidatePublicationSchema,
   PromptCandidateSchema,
   PromptExperimentSchema,
   PromptOptimizerGitCommitSchema,
@@ -27,11 +29,12 @@ import {
 
 export const PromptOptimizerShadowPlanSchema = z
   .object({
-    schemaVersion: z.literal("prompt_optimizer_shadow_plan_v1"),
+    schemaVersion: z.literal("prompt_optimizer_shadow_plan_v2"),
     trainingProjection: PromptTrainingProjectionSchema,
     family: PromptCandidateFamilySchema,
     split: DatasetSplitManifestSchema,
     candidates: z.array(PromptCandidateSchema).min(1),
+    candidatePublications: z.array(PromptCandidatePublicationSchema).min(1),
     experiments: z.array(PromptExperimentSchema).min(1),
     environment: z
       .object({
@@ -44,6 +47,7 @@ export const PromptOptimizerShadowPlanSchema = z
         evaluatorVersion: z.string().trim().min(1),
         evaluatorConfigHash: PromptOptimizerSha256Schema,
         codeCommit: PromptOptimizerGitCommitSchema,
+        executionBehaviorRelease: PromptReleaseExecutionBehaviorBindingSchema,
       })
       .strict(),
     promotionPolicy: PromptPromotionPolicySchema,
@@ -72,11 +76,19 @@ export async function runPromptOptimizerShadowPlan(input: {
   assertTrainingProjectionMatchesSplit(plan.trainingProjection, plan.split);
   if (
     plan.candidates.length !== plan.family.candidateIds.length ||
+    plan.candidatePublications.length !== plan.family.candidateIds.length ||
     plan.experiments.length !== plan.family.candidateIds.length
   ) {
     throw new Error("prompt_optimizer_shadow_family_manifest_invalid");
   }
+  const persistedProjection = await input.repository.putTrainingProjection(plan.trainingProjection);
+  if (canonicalJsonHash(persistedProjection) !== canonicalJsonHash(plan.trainingProjection)) {
+    throw new Error("prompt_optimizer_shadow_training_projection_drift");
+  }
   const candidates = new Map(plan.candidates.map((value) => [value.candidateId, value]));
+  const publications = new Map(
+    plan.candidatePublications.map((value) => [value.candidateId, value]),
+  );
   for (const candidate of plan.candidates) {
     assertCandidateMatchesTrainingSnapshot(candidate, plan.trainingProjection);
   }
@@ -84,13 +96,15 @@ export async function runPromptOptimizerShadowPlan(input: {
   const validationComplete = [];
   for (const candidateId of plan.family.candidateIds) {
     const candidate = candidates.get(candidateId);
+    const candidatePublication = publications.get(candidateId);
     const experiment = experiments.get(candidateId);
-    if (!candidate || !experiment) {
+    if (!candidate || !candidatePublication || !experiment) {
       throw new Error(`prompt_optimizer_shadow_candidate_manifest_missing:${candidateId}`);
     }
     validationComplete.push(
       await runPromptExperimentPartition({
         candidate,
+        candidatePublication,
         family: plan.family,
         experiment,
         split: plan.split,
@@ -129,14 +143,16 @@ export async function runPromptOptimizerShadowPlan(input: {
     throw new Error("prompt_optimizer_shadow_family_drift");
   }
   const winnerCandidate = candidates.get(expectedSelection.selectedCandidateId);
+  const winnerPublication = publications.get(expectedSelection.selectedCandidateId);
   const winnerExperiment = validationComplete.find(
     (value) => value.experimentId === expectedSelection.selectedExperimentId,
   );
-  if (!winnerCandidate || !winnerExperiment) {
+  if (!winnerCandidate || !winnerPublication || !winnerExperiment) {
     throw new Error("prompt_optimizer_shadow_winner_missing");
   }
   const complete = await runPromptExperimentPartition({
     candidate: winnerCandidate,
+    candidatePublication: winnerPublication,
     family: persistedFamily,
     experiment: winnerExperiment,
     split: plan.split,

@@ -8,9 +8,9 @@
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Command } from "commander";
 import pc from "picocolors";
@@ -23,14 +23,16 @@ import {
 } from "../../autoresearch/prompt_experiment_runner.js";
 import {
   assertCandidateMatchesTrainingSnapshot,
+  buildPromptCandidatePublication,
   PromptCandidateSchema,
   PromptOptimizerTargetSchema,
+  PromptSourceIdSchema,
 } from "../../autoresearch/prompt_optimizer_contract.js";
 import {
   PromptOptimizerShadowPlanSchema,
   runPromptOptimizerShadowPlan,
 } from "../../autoresearch/prompt_optimizer_shadow_runner.js";
-import { BridgeApi, BridgeClient, RpcError } from "../../bridge/index.js";
+import { BridgeApi, BridgeClient, findRepoRoot, RpcError } from "../../bridge/index.js";
 import { redactSensitiveText } from "../../security/redaction.js";
 import { pad } from "../_format.js";
 
@@ -47,6 +49,7 @@ export const PromptCandidateGenerationRequestSchema = z
   .object({
     parentId: z.string().trim().min(1),
     parentPromptCommit: z.string().regex(/^[0-9a-f]{40}$/),
+    promptSourceId: PromptSourceIdSchema,
     target: PromptOptimizerTargetSchema,
     promptRefs: z.object({ zh: z.string().trim().min(1), en: z.string().trim().min(1) }).strict(),
     cutoffAt: z.iso.datetime({ offset: true }),
@@ -116,6 +119,141 @@ export function runPrivateCandidateCli(privateCli: string, args: string[]): Prom
   });
 }
 
+export function buildPrivateCandidateCliArgs(input: {
+  requestPath: string;
+  mutationAdapter: string;
+  privateRepo: string;
+  publicationRemote: string;
+}): string[] {
+  return [
+    "--request",
+    input.requestPath,
+    "--adapter",
+    resolve(input.mutationAdapter),
+    "--repo",
+    resolve(input.privateRepo),
+    "--publication-remote",
+    input.publicationRemote,
+  ];
+}
+
+function runGit(repo: string, args: ReadonlyArray<string>): Promise<string> {
+  return new Promise((resolveOutput, reject) => {
+    execFile(
+      "git",
+      ["-C", repo, ...args],
+      { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 },
+      (error, stdout) => {
+        if (error) {
+          reject(new Error(`shadow public checkout Git command failed: ${args[0]}`));
+        } else {
+          resolveOutput(stdout.trim());
+        }
+      },
+    );
+  });
+}
+
+function adapterEntryPath(repo: string, adapter: string, kind: "executor" | "evaluator"): string {
+  const entryPath = relative(repo, adapter);
+  if (
+    entryPath === "" ||
+    entryPath === ".." ||
+    entryPath.startsWith(`..${sep}`) ||
+    isAbsolute(entryPath)
+  ) {
+    throw new Error(`shadow ${kind} adapter must be inside the frozen public checkout`);
+  }
+  return entryPath.split(sep).join("/");
+}
+
+async function resolveFrozenAdapterPath(input: {
+  repoPath: string;
+  repoRealPath: string;
+  codeCommit: string;
+  adapter: string;
+  kind: "executor" | "evaluator";
+}): Promise<string> {
+  const adapterPath = resolve(input.adapter);
+  const entryPath = adapterEntryPath(input.repoPath, adapterPath, input.kind);
+  const adapterRealPath = await realpath(adapterPath);
+  adapterEntryPath(input.repoRealPath, adapterRealPath, input.kind);
+  await runGit(input.repoRealPath, ["cat-file", "-e", `${input.codeCommit}:${entryPath}`]).catch(
+    () => {
+      throw new Error(
+        `shadow ${input.kind} adapter must be tracked by the frozen public checkout commit`,
+      );
+    },
+  );
+  return adapterRealPath;
+}
+
+export async function loadFrozenShadowAdapters(input: {
+  publicRepo: string;
+  executorAdapter: string;
+  evaluatorAdapter: string;
+  environment: {
+    codeCommit: string;
+    executorAdapterHash: string;
+    evaluatorAdapterHash: string;
+  };
+}): Promise<{
+  executor: PromptExperimentAgentExecutor;
+  evaluator: PromptExperimentEvaluator;
+}> {
+  const repoPath = resolve(input.publicRepo);
+  const repoRealPath = await realpath(repoPath);
+  const head = await runGit(repoRealPath, ["rev-parse", "--verify", "HEAD^{commit}"]);
+  if (head !== input.environment.codeCommit) {
+    throw new Error("shadow public checkout does not match the frozen code commit");
+  }
+  if (await runGit(repoRealPath, ["status", "--porcelain=v1", "--untracked-files=all"])) {
+    throw new Error("shadow public checkout must be clean, including untracked files");
+  }
+  const [executorPath, evaluatorPath] = await Promise.all([
+    resolveFrozenAdapterPath({
+      repoPath,
+      repoRealPath,
+      codeCommit: input.environment.codeCommit,
+      adapter: input.executorAdapter,
+      kind: "executor",
+    }),
+    resolveFrozenAdapterPath({
+      repoPath,
+      repoRealPath,
+      codeCommit: input.environment.codeCommit,
+      adapter: input.evaluatorAdapter,
+      kind: "evaluator",
+    }),
+  ]);
+  if (executorPath === evaluatorPath) {
+    throw new Error("shadow executor and evaluator adapters must be separate modules");
+  }
+  const [executorBytes, evaluatorBytes] = await Promise.all([
+    readFile(executorPath),
+    readFile(evaluatorPath),
+  ]);
+  const executorHash = `sha256:${createHash("sha256").update(executorBytes).digest("hex")}`;
+  const evaluatorHash = `sha256:${createHash("sha256").update(evaluatorBytes).digest("hex")}`;
+  if (input.environment.executorAdapterHash !== executorHash) {
+    throw new Error("shadow executor adapter content hash does not match the frozen plan");
+  }
+  if (input.environment.evaluatorAdapterHash !== evaluatorHash) {
+    throw new Error("shadow evaluator adapter content hash does not match the frozen plan");
+  }
+  const [executorModule, evaluatorModule] = (await Promise.all([
+    import(pathToFileURL(executorPath).href),
+    import(pathToFileURL(evaluatorPath).href),
+  ])) as [{ executor?: PromptExperimentAgentExecutor }, { evaluator?: PromptExperimentEvaluator }];
+  if (!executorModule.executor?.execute) {
+    throw new Error("shadow executor adapter must export executor.execute");
+  }
+  if (!evaluatorModule.evaluator?.evaluate) {
+    throw new Error("shadow evaluator adapter must export evaluator.evaluate");
+  }
+  return { executor: executorModule.executor, evaluator: evaluatorModule.evaluator };
+}
+
 export function registerAutoresearch(program: Command): void {
   const cmd = program
     .command("autoresearch")
@@ -130,6 +268,10 @@ export function registerAutoresearch(program: Command): void {
     .requiredOption("--private-cli <path>", "Built private Prompt mutator CLI")
     .requiredOption("--private-repo <path>", "Private Prompt Git repository")
     .requiredOption(
+      "--publication-remote <name>",
+      "Private Git remote used to durably publish the Candidate commit",
+    )
+    .requiredOption(
       "--mutation-adapter <path>",
       "Tracked adapter inside --private-repo at that repository's exact HEAD",
     )
@@ -138,6 +280,7 @@ export function registerAutoresearch(program: Command): void {
         request: string;
         privateCli: string;
         privateRepo: string;
+        publicationRemote: string;
         mutationAdapter: string;
       }) => {
         const client = new BridgeClient();
@@ -162,14 +305,15 @@ export function registerAutoresearch(program: Command): void {
             { encoding: "utf8", mode: 0o600 },
           );
           const output = JSON.parse(
-            await runPrivateCandidateCli(resolve(opts.privateCli), [
-              "--request",
-              privateRequestPath,
-              "--adapter",
-              resolve(opts.mutationAdapter),
-              "--repo",
-              resolve(opts.privateRepo),
-            ]),
+            await runPrivateCandidateCli(
+              resolve(opts.privateCli),
+              buildPrivateCandidateCliArgs({
+                requestPath: privateRequestPath,
+                mutationAdapter: opts.mutationAdapter,
+                privateRepo: opts.privateRepo,
+                publicationRemote: opts.publicationRemote,
+              }),
+            ),
           ) as { candidate?: unknown; promptCommit?: unknown };
           const candidate = PromptCandidateSchema.parse(output.candidate);
           assertPrivateCandidateMatchesRequest(candidate, request);
@@ -180,9 +324,17 @@ export function registerAutoresearch(program: Command): void {
           ) {
             throw new Error("private Prompt candidate commit is invalid");
           }
+          const publication = buildPromptCandidatePublication({
+            candidate,
+            promptSourceId: request.promptSourceId,
+            candidatePromptCommit: output.promptCommit,
+          });
+          await api.promptOptimizerPutTrainingProjection(projection);
           await api.promptOptimizerPutCandidate(candidate);
+          await api.promptOptimizerPutCandidatePublication(publication);
           console.log(
             `candidate=${candidate.candidateId} prompt_commit=${output.promptCommit} ` +
+              `publication=${publication.publicationHash} ` +
               `training_projection=${candidate.trainingProjectionHash}`,
           );
         } catch (error) {
@@ -204,36 +356,26 @@ export function registerAutoresearch(program: Command): void {
       "--plan <path>",
       "Local uncommitted shadow-plan JSON; it may contain private policy values",
     )
-    .requiredOption("--adapter <path>", "Local module exporting executor and evaluator adapters")
-    .action(async (opts: { plan: string; adapter: string }) => {
+    .requiredOption("--executor-adapter <path>", "Local module exporting executor.execute")
+    .requiredOption("--evaluator-adapter <path>", "Separate module exporting evaluator.evaluate")
+    .action(async (opts: { plan: string; executorAdapter: string; evaluatorAdapter: string }) => {
       const client = new BridgeClient();
       try {
         const plan = PromptOptimizerShadowPlanSchema.parse(
           JSON.parse(await readFile(resolve(opts.plan), "utf8")),
         );
-        const adapterPath = resolve(opts.adapter);
-        const adapterHash = `sha256:${createHash("sha256")
-          .update(await readFile(adapterPath))
-          .digest("hex")}`;
-        if (
-          plan.environment.executorAdapterHash !== adapterHash ||
-          plan.environment.evaluatorAdapterHash !== adapterHash
-        ) {
-          throw new Error("shadow adapter content hash does not match the frozen plan");
-        }
-        const adapter = (await import(pathToFileURL(adapterPath).href)) as {
-          executor?: PromptExperimentAgentExecutor;
-          evaluator?: PromptExperimentEvaluator;
-        };
-        if (!adapter.executor?.execute || !adapter.evaluator?.evaluate) {
-          throw new Error("shadow adapter must export executor.execute and evaluator.evaluate");
-        }
+        const adapters = await loadFrozenShadowAdapters({
+          publicRepo: findRepoRoot(),
+          executorAdapter: opts.executorAdapter,
+          evaluatorAdapter: opts.evaluatorAdapter,
+          environment: plan.environment,
+        });
         await client.start();
         const result = await runPromptOptimizerShadowPlan({
           plan,
           repository: new BridgePromptExperimentRepository(new BridgeApi(client)),
-          executor: adapter.executor,
-          evaluator: adapter.evaluator,
+          executor: adapters.executor,
+          evaluator: adapters.evaluator,
           authorizedPolicyHashes: new Set(
             (process.env.MOSAIC_PROMPT_PROMOTION_POLICY_HASHES ?? "")
               .split(",")

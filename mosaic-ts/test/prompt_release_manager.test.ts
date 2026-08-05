@@ -7,7 +7,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
 import { releasePromptPairHash } from "../src/agents/prompts/prompt_release_contract.js";
 import type { RuntimeAgentSpec } from "../src/agents/prompts/runtime_agent_spec.js";
+import { immutablePromptContractHash } from "../src/autoresearch/execution_behavior_release.js";
 import {
+  buildPromptCandidatePublication,
   type PromptCandidate,
   type PromptPromotionDecision,
   promptMutationHypothesis,
@@ -33,6 +35,14 @@ import { ActivePromptReleaseRegistry } from "../src/autoresearch/release_registr
 const HASH = `sha256:${"1".repeat(64)}`;
 const EXECUTION_RELEASE_ID = `execution-behavior-release:${"2".repeat(64)}`;
 const EXECUTION_RELEASE_REF = `registry/prompt_checks/execution_behavior_releases/${"2".repeat(64)}--${"1".repeat(64)}.json`;
+const executionReleaseEnvironment = (codeCommit: string) => ({
+  codeCommit,
+  executionBehaviorRelease: {
+    release_id: EXECUTION_RELEASE_ID,
+    release_hash: HASH,
+    archive_ref: EXECUTION_RELEASE_REF,
+  },
+});
 const PROMPT_PATHS = {
   zh: "prompts/mosaic/cohort_default/macro/central_bank.zh.md",
   en: "prompts/mosaic/cohort_default/macro/central_bank.en.md",
@@ -54,6 +64,30 @@ const SPEC: RuntimeAgentSpec = {
       producedSourceIds: ["upstream_agent_outputs"],
     },
   ],
+};
+const BEHAVIOR_TARGET_CONTRACT = {
+  target: { agentId: "central_bank", stage: "agent_run" },
+  role_objective: "Assess the PBOC reaction function and liquidity stance.",
+  required_facets: [
+    {
+      id: "policy_stance",
+      purpose: "Assess policy stance.",
+      evaluation_mode: "DIRECT_OUTCOME",
+      allowed_mutations: ["EVIDENCE_PRIORITY"],
+    },
+  ],
+  protected_policy_ids: ["contract.role_tools_schema"],
+  comparison_universe: [],
+  evaluation: {
+    evaluation_object: "AcceptedMacroTransmission",
+    primary_label_id: "central_bank_policy_path",
+    maturity_horizon: "TRADING_DAYS_5",
+    maturity_trading_days: 5,
+  },
+};
+const BEHAVIOR_CONTRACT_ARTIFACT = {
+  schema_version: "prompt_behavior_contract_v1",
+  contracts: [BEHAVIOR_TARGET_CONTRACT],
 };
 const roots: string[] = [];
 
@@ -108,6 +142,7 @@ function commitCandidate(
   repo: { root: string; commit: string },
   value: PromptCandidate,
   promptFiles: Record<string, string>,
+  options: { privateLineage?: unknown; extraFiles?: Record<string, string> } = {},
 ): string {
   for (const [path, content] of Object.entries(promptFiles)) {
     writeFileSync(join(repo.root, path), content, "utf8");
@@ -127,7 +162,7 @@ function commitCandidate(
   writeFileSync(record, `${JSON.stringify(value, null, 2)}\n`, "utf8");
   writeFileSync(
     privateLineage,
-    `${JSON.stringify({ schemaVersion: "private_prompt_candidate_facet_lineage_v1" })}\n`,
+    `${JSON.stringify(options.privateLineage ?? privateLineageArtifact(value), null, 2)}\n`,
     "utf8",
   );
   writeFileSync(
@@ -135,6 +170,11 @@ function commitCandidate(
     `${JSON.stringify(privateStateArtifact(value.candidateId), null, 2)}\n`,
     "utf8",
   );
+  for (const [path, content] of Object.entries(options.extraFiles ?? {})) {
+    const absolute = join(repo.root, path);
+    mkdirSync(dirname(absolute), { recursive: true });
+    writeFileSync(absolute, content, "utf8");
+  }
   const bootstrapRelease = join(
     repo.root,
     "registry/knot/prompt_parameter_bootstrap_release_v1.json",
@@ -166,6 +206,29 @@ function privateStateArtifact(candidateId: string) {
   return { schemaVersion: "opaque_private_state_test_v1", candidateId };
 }
 
+function privateLineageBody(value: Omit<PromptCandidate, "privateLineageHash">) {
+  return {
+    schemaVersion: "private_prompt_candidate_parameter_lineage_v1" as const,
+    parentId: value.parentId,
+    parentPromptCommit: value.parentPromptCommit,
+    target: value.target,
+    behaviorContractHash: value.behaviorContractHash,
+    trainingProjectionHash: value.trainingProjectionHash,
+    promptHashes: value.promptHashes,
+    mutatorConfigHash: value.mutatorConfigHash,
+    mutatorCommit: value.mutatorCommit,
+  };
+}
+
+function privateLineageArtifact(value: PromptCandidate) {
+  const { privateLineageHash: _privateLineageHash, ...withoutLineageHash } = value;
+  return {
+    ...privateLineageBody(withoutLineageHash),
+    candidateId: value.candidateId,
+    privateLineageHash: value.privateLineageHash,
+  };
+}
+
 function privateStateAtCommit(repo: string, commit: string, value: PromptCandidate): unknown {
   const ref =
     `registry/prompt_parameter_states_v1/${value.target.cohort}/` +
@@ -177,6 +240,22 @@ function privateStateAtCommit(repo: string, commit: string, value: PromptCandida
 
 function sha256(value: string): string {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+
+function executionContracts(promptFiles: Record<string, string>) {
+  return (["zh", "en"] as const).map((language) => ({
+    execution_contract_id: `execution-contract:${language === "zh" ? "3" : "4"}${"0".repeat(63)}`,
+    agent_id: "central_bank",
+    language,
+    immutable_contract_block_hash: immutablePromptContractHash(
+      promptFiles[PROMPT_PATHS[language]] ?? "",
+    ),
+    execution_behavior_version: `execution-behavior:${language === "zh" ? "5" : "6"}${"0".repeat(63)}`,
+    structured_output_schema_bindings: [],
+    structured_output_schema_set_hash: HASH,
+    structured_provider_contract_hash: HASH,
+    runtime_tool_manifest_hash: HASH,
+  }));
 }
 
 function candidate(input: {
@@ -191,7 +270,7 @@ function candidate(input: {
     en: sha256(input.promptFiles[PROMPT_PATHS.en] ?? ""),
   };
   const mutationCategories = ["EVIDENCE_PRIORITY"] as const;
-  return {
+  const withoutLineageHash: Omit<PromptCandidate, "privateLineageHash"> = {
     schemaVersion: "prompt_candidate_v1",
     candidateId: input.candidateId,
     parentId: input.parentId,
@@ -206,14 +285,119 @@ function candidate(input: {
     trainingProjectionHash: HASH,
     excludedSampleIdsHash: HASH,
     mutatorConfigHash: HASH,
-    mutatorCommit: "c".repeat(40),
+    mutatorCommit: input.parentPromptCommit,
     mutationCategories: [...mutationCategories],
     mutationSummary: promptMutationSummary(mutationCategories),
     hypothesis: promptMutationHypothesis(mutationCategories),
-    behaviorContractHash: HASH,
-    privateLineageHash: HASH,
+    behaviorContractHash: canonicalJsonHash(BEHAVIOR_TARGET_CONTRACT),
     privateStateArtifactHash: canonicalJsonHash(privateStateArtifact(input.candidateId)),
     createdAt: "2026-07-10T00:00:00.000Z",
+  };
+  return {
+    ...withoutLineageHash,
+    privateLineageHash: canonicalJsonHash(privateLineageBody(withoutLineageHash)),
+  };
+}
+
+function candidateWithOverrides(
+  value: PromptCandidate,
+  overrides: Partial<PromptCandidate>,
+): PromptCandidate {
+  const { privateLineageHash: _privateLineageHash, ...withoutLineageHash } = {
+    ...value,
+    ...overrides,
+  };
+  return {
+    ...withoutLineageHash,
+    privateLineageHash: canonicalJsonHash(privateLineageBody(withoutLineageHash)),
+  };
+}
+
+function stageFixture(
+  options: {
+    candidateOverrides?: Partial<PromptCandidate>;
+    tamperLineage?: boolean;
+    extraScopePath?: string;
+    executionContractMismatch?: boolean;
+  } = {},
+) {
+  const parentPromptFiles = {
+    [PROMPT_PATHS.zh]: prompt("zh", "先核对时点与证据，再形成结论。"),
+    [PROMPT_PATHS.en]: prompt("en", "Check timing and evidence before forming the conclusion."),
+  };
+  const privateRepo = initRepo({
+    ...parentPromptFiles,
+    "registry/knot/prompt_behavior_contract_v1.json": `${JSON.stringify(BEHAVIOR_CONTRACT_ARTIFACT, null, 2)}\n`,
+  });
+  const promptFiles = {
+    [PROMPT_PATHS.zh]: prompt("zh", "先核对时点、证据和反例，再形成结论。"),
+    [PROMPT_PATHS.en]: prompt(
+      "en",
+      "Check timing, evidence, and counter-cases before forming the conclusion.",
+    ),
+  };
+  const baseCandidate = candidate({
+    candidateId: "candidate-guard",
+    parentId: "bootstrap-champion",
+    parentPromptCommit: privateRepo.commit,
+    parentPromptFiles,
+    promptFiles,
+  });
+  const promptCandidate = candidateWithOverrides(baseCandidate, options.candidateOverrides ?? {});
+  const lineage = privateLineageArtifact(promptCandidate);
+  const tamperedLineage = options.tamperLineage
+    ? { ...lineage, mutatorConfigHash: `sha256:${"9".repeat(64)}` }
+    : lineage;
+  const candidatePromptCommit = commitCandidate(privateRepo, promptCandidate, promptFiles, {
+    privateLineage: tamperedLineage,
+    ...(options.extraScopePath ? { extraFiles: { [options.extraScopePath]: "unexpected\n" } } : {}),
+  });
+  const closure = { catalog_hash: HASH, schema_hash: HASH, contract_hash: HASH };
+  const codeRepo = initRepo({
+    ...parentPromptFiles,
+    "registry/prompt_checks/prompt_release_contract_ref_v2.json": `${JSON.stringify({ evaluation_contract: closure })}\n`,
+  });
+  const contracts = executionContracts(parentPromptFiles);
+  if (options.executionContractMismatch && contracts[0]) {
+    contracts[0].immutable_contract_block_hash = `sha256:${"8".repeat(64)}`;
+  }
+  const candidatePublication = buildPromptCandidatePublication({
+    candidate: promptCandidate,
+    promptSourceId: "private-prompts",
+    candidatePromptCommit,
+  });
+  const registryRoot = mkdtempSync(join(tmpdir(), "mosaic-release-guard-"));
+  roots.push(registryRoot);
+  return {
+    promptCandidate,
+    candidatePromptCommit,
+    candidatePublication,
+    privateRepo,
+    codeRepo,
+    stageOptions: {
+      registryRoot,
+      releaseId: "release-guard",
+      candidate: promptCandidate,
+      candidatePublication,
+      promotionDecision: promotionDecision(promptCandidate.candidateId),
+      privatePromptRepo: privateRepo.root,
+      privatePromptCommit: candidatePromptCommit,
+      codeCommit: codeRepo.commit,
+      codeRepo: codeRepo.root,
+      cohort: "cohort_default",
+      accountMode: "paper" as const,
+      approvalPolicyId: "decision_release_manual_v1" as const,
+      executionBehaviorReleaseRef: EXECUTION_RELEASE_REF,
+    },
+    deps: {
+      specs: [SPEC],
+      verifyPromotionDecision: async () => executionReleaseEnvironment(codeRepo.commit),
+      loadExecutionBehaviorRelease: async () => ({
+        execution_behavior_release_id: EXECUTION_RELEASE_ID,
+        execution_behavior_release_hash: HASH,
+        execution_contracts: contracts,
+      }),
+    },
   };
 }
 
@@ -327,12 +511,153 @@ function sloArtifact(overrides: Omit<Partial<PromptReleaseCanaryEvent>, "schema_
 }
 
 describe("prompt release manager", () => {
+  it.each([
+    [
+      "behavior contract",
+      () => stageFixture({ candidateOverrides: { behaviorContractHash: HASH } }),
+      "prompt_release_candidate_behavior_contract_mismatch",
+    ],
+    [
+      "private lineage",
+      () => stageFixture({ tamperLineage: true }),
+      "prompt_release_private_candidate_lineage_mismatch",
+    ],
+    [
+      "mutator parent",
+      () => stageFixture({ candidateOverrides: { mutatorCommit: "0".repeat(40) } }),
+      "prompt_release_candidate_mutator_parent_commit_mismatch",
+    ],
+    [
+      "extra Candidate commit path",
+      () => stageFixture({ extraScopePath: "unexpected.txt" }),
+      "prompt_release_candidate_commit_scope_invalid",
+    ],
+    [
+      "execution immutable contract",
+      () => stageFixture({ executionContractMismatch: true }),
+      "prompt_release_execution_contract_mismatch",
+    ],
+  ] as const)("rejects tampered %s evidence", async (_name, build, expectedError) => {
+    const fixture = build();
+    await expect(stagePromptRelease(fixture.stageOptions, fixture.deps)).rejects.toThrow(
+      expectedError,
+    );
+  });
+
+  it("rejects a Candidate publication rebound to a different commit", async () => {
+    const fixture = stageFixture();
+    const rebound = buildPromptCandidatePublication({
+      candidate: fixture.promptCandidate,
+      promptSourceId: fixture.candidatePublication.promptSourceId,
+      candidatePromptCommit: fixture.promptCandidate.parentPromptCommit,
+    });
+    await expect(
+      stagePromptRelease({ ...fixture.stageOptions, candidatePublication: rebound }, fixture.deps),
+    ).rejects.toThrow("prompt_release_candidate_publication_commit_mismatch");
+  });
+
+  it("rejects a caller code commit that differs from the authorized experiment", async () => {
+    const fixture = stageFixture();
+    await expect(
+      stagePromptRelease(fixture.stageOptions, {
+        ...fixture.deps,
+        verifyPromotionDecision: async () => executionReleaseEnvironment("0".repeat(40)),
+      }),
+    ).rejects.toThrow("prompt_release_authorized_code_commit_mismatch");
+  });
+
+  it("rejects an execution archive that differs from the authorized experiment", async () => {
+    const fixture = stageFixture();
+    const alternateReleaseId = `execution-behavior-release:${"3".repeat(64)}`;
+    const alternateArchiveRef = `registry/prompt_checks/execution_behavior_releases/${"3".repeat(64)}--${"1".repeat(64)}.json`;
+    await expect(
+      stagePromptRelease(fixture.stageOptions, {
+        ...fixture.deps,
+        verifyPromotionDecision: async () => ({
+          codeCommit: fixture.codeRepo.commit,
+          executionBehaviorRelease: {
+            release_id: alternateReleaseId,
+            release_hash: HASH,
+            archive_ref: alternateArchiveRef,
+          },
+        }),
+      }),
+    ).rejects.toThrow("prompt_release_authorized_execution_behavior_ref_mismatch");
+  });
+
+  it("rejects a merge commit as Candidate publication scope", async () => {
+    const fixture = stageFixture();
+    const currentBranch = execFileSync(
+      "git",
+      ["-C", fixture.privateRepo.root, "branch", "--show-current"],
+      { encoding: "utf8" },
+    ).trim();
+    execFileSync("git", [
+      "-C",
+      fixture.privateRepo.root,
+      "switch",
+      "-q",
+      "-c",
+      "candidate-side-parent",
+      fixture.promptCandidate.parentPromptCommit,
+    ]);
+    writeFileSync(join(fixture.privateRepo.root, "side.txt"), "side parent\n", "utf8");
+    execFileSync("git", ["-C", fixture.privateRepo.root, "add", "side.txt"]);
+    execFileSync("git", [
+      "-C",
+      fixture.privateRepo.root,
+      "-c",
+      "user.name=Codex Test",
+      "-c",
+      "user.email=codex@example.invalid",
+      "commit",
+      "-qm",
+      "side parent",
+    ]);
+    execFileSync("git", ["-C", fixture.privateRepo.root, "switch", "-q", currentBranch]);
+    execFileSync("git", [
+      "-C",
+      fixture.privateRepo.root,
+      "-c",
+      "user.name=Codex Test",
+      "-c",
+      "user.email=codex@example.invalid",
+      "merge",
+      "-q",
+      "--no-ff",
+      "candidate-side-parent",
+      "-m",
+      "merge candidate",
+    ]);
+    const mergeCommit = execFileSync("git", ["-C", fixture.privateRepo.root, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).trim();
+    const publication = buildPromptCandidatePublication({
+      candidate: fixture.promptCandidate,
+      promptSourceId: fixture.candidatePublication.promptSourceId,
+      candidatePromptCommit: mergeCommit,
+    });
+    await expect(
+      stagePromptRelease(
+        {
+          ...fixture.stageOptions,
+          candidatePublication: publication,
+          privatePromptCommit: mergeCommit,
+        },
+        fixture.deps,
+      ),
+    ).rejects.toThrow("prompt_release_candidate_parent_commit_mismatch");
+  });
+
   it("stages a hash-closed aggregate release and runs audited idempotent lifecycle steps", async () => {
     const parentPromptFiles = {
       [PROMPT_PATHS.zh]: prompt("zh", "先核对时点与证据，再形成结论。"),
       [PROMPT_PATHS.en]: prompt("en", "Check timing and evidence before forming the conclusion."),
     };
-    const privateRepo = initRepo(parentPromptFiles);
+    const privateRepo = initRepo({
+      ...parentPromptFiles,
+      "registry/knot/prompt_behavior_contract_v1.json": `${JSON.stringify(BEHAVIOR_CONTRACT_ARTIFACT, null, 2)}\n`,
+    });
     const baselinePromptFiles = {
       [PROMPT_PATHS.zh]: prompt("zh", "先核对时点、证据与反例，再形成结论。"),
       [PROMPT_PATHS.en]: prompt(
@@ -368,6 +693,11 @@ describe("prompt release manager", () => {
       registryRoot,
       releaseId: "baseline-1",
       candidate: baselineCandidate,
+      candidatePublication: buildPromptCandidatePublication({
+        candidate: baselineCandidate,
+        promptSourceId: "private-prompts",
+        candidatePromptCommit: baselinePromptCommit,
+      }),
       promotionDecision: promotionDecision(baselineCandidate.candidateId),
       privatePromptRepo: privateRepo.root,
       privatePromptCommit: baselinePromptCommit,
@@ -378,26 +708,18 @@ describe("prompt release manager", () => {
       approvalPolicyId: "decision_release_manual_v1" as const,
       executionBehaviorReleaseRef: EXECUTION_RELEASE_REF,
     };
-    let executionPromptCommit = baselinePromptCommit;
     const deps = {
       specs: [SPEC],
       now: () => "2026-07-10T00:00:00.000Z",
-      verifyPromotionDecision: async () => undefined,
+      verifyPromotionDecision: async () => executionReleaseEnvironment(codeRepo.commit),
       loadExecutionBehaviorRelease: async () => ({
         execution_behavior_release_id: EXECUTION_RELEASE_ID,
         execution_behavior_release_hash: HASH,
-        private_prompt_commit: executionPromptCommit,
+        execution_contracts: executionContracts(parentPromptFiles),
       }),
     };
 
     process.env.MOSAIC_PROMPT_RELEASE_AUTHORIZED_OPERATORS = "operator:test";
-    const baselineRegistryRoot = mkdtempSync(join(tmpdir(), "mosaic-baseline-source-"));
-    roots.push(baselineRegistryRoot);
-    executionPromptCommit = "0".repeat(40);
-    await expect(
-      stagePromptRelease({ ...baselineStageOptions, registryRoot: baselineRegistryRoot }, deps),
-    ).rejects.toThrow("prompt_release_execution_behavior_prompt_commit_mismatch");
-    executionPromptCommit = baselinePromptCommit;
     const baselinePairWithoutHash = {
       agent: "central_bank",
       layer: "macro" as const,
@@ -419,12 +741,14 @@ describe("prompt release manager", () => {
         accountMode: "paper",
         executionBehaviorReleaseRef: EXECUTION_RELEASE_REF,
         approvalRecord: {
-          schema_version: "prompt_release_baseline_approval_record_v1",
+          schema_version: "prompt_release_baseline_approval_record_v2",
           approval_policy_id: "decision_release_manual_v1",
           approved_by: "operator:test",
           release_evidence: {
             candidate_id: baselineCandidate.candidateId,
             candidate_hash: canonicalJsonHash(baselineCandidate),
+            candidate_publication_hash: baselineStageOptions.candidatePublication.publicationHash,
+            prompt_source_id: baselineStageOptions.candidatePublication.promptSourceId,
             promotion_decision_id: baselineDecision.decisionId,
             promotion_decision_hash: canonicalJsonHash(baselineDecision),
             experiment_id: baselineDecision.experimentId,
@@ -433,6 +757,9 @@ describe("prompt release manager", () => {
             policy_config_hash: baselineDecision.policyConfigHash,
             candidate_prompt_hashes: baselineCandidate.promptHashes,
             private_state_artifact_hash: baselineCandidate.privateStateArtifactHash,
+            behavior_contract_hash: baselineCandidate.behaviorContractHash,
+            mutator_commit: baselineCandidate.mutatorCommit,
+            mutator_config_hash: baselineCandidate.mutatorConfigHash,
           },
           canary_started_at: "2026-07-09T00:00:00.000Z",
           canary_ended_at: "2026-07-09T01:00:00.000Z",
@@ -486,7 +813,6 @@ describe("prompt release manager", () => {
       codeRepo: codeRepo.root,
       deps: {
         specs: [SPEC],
-        verifyPromotionDecision: async () => undefined,
         loadExecutionBehaviorRelease: deps.loadExecutionBehaviorRelease,
       },
     });
@@ -506,11 +832,42 @@ describe("prompt release manager", () => {
       promptFiles,
     });
     const candidatePromptCommit = commitCandidate(privateRepo, promptCandidate, promptFiles);
-    executionPromptCommit = candidatePromptCommit;
+    expect(
+      execFileSync(
+        "git",
+        [
+          "-C",
+          privateRepo.root,
+          "diff-tree",
+          "--no-commit-id",
+          "--name-only",
+          "-r",
+          candidatePromptCommit,
+        ],
+        { encoding: "utf8" },
+      )
+        .trim()
+        .split("\n")
+        .sort(),
+    ).toEqual(
+      [
+        PROMPT_PATHS.zh,
+        PROMPT_PATHS.en,
+        `registry/prompt_candidates_v2/${promptCandidate.candidateId}.json`,
+        `registry/prompt_candidate_private_v1/${promptCandidate.candidateId}.json`,
+        `registry/prompt_parameter_states_v1/${promptCandidate.target.cohort}/${promptCandidate.target.stage}/${promptCandidate.target.agentId}.json`,
+        "registry/knot/prompt_parameter_bootstrap_release_v1.json",
+      ].sort(),
+    );
     const stageOptions = {
       ...baselineStageOptions,
       releaseId: "release-1",
       candidate: promptCandidate,
+      candidatePublication: buildPromptCandidatePublication({
+        candidate: promptCandidate,
+        promptSourceId: "private-prompts",
+        candidatePromptCommit,
+      }),
       promotionDecision: promotionDecision(promptCandidate.candidateId),
       privatePromptCommit: candidatePromptCommit,
     };

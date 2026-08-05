@@ -101,7 +101,7 @@ function release(opts: {
   const promptPairs = [opts.promptPair];
   const fallbackPairs = opts.fallback ? [opts.fallback.promptPair] : null;
   return {
-    schema_version: "active_prompt_release_manifest_v2",
+    schema_version: "active_prompt_release_manifest_v3",
     release_id: "release-1",
     base_release_id: null,
     lifecycle_state: "active",
@@ -121,6 +121,8 @@ function release(opts: {
     release_evidence: {
       candidate_id: "candidate-1",
       candidate_hash: HASH,
+      candidate_publication_hash: HASH,
+      prompt_source_id: "private-prompts",
       promotion_decision_id: "decision-1",
       promotion_decision_hash: HASH,
       experiment_id: "experiment-1",
@@ -129,6 +131,9 @@ function release(opts: {
       policy_config_hash: HASH,
       candidate_prompt_hashes: { zh: HASH, en: HASH },
       private_state_artifact_hash: HASH,
+      behavior_contract_hash: HASH,
+      mutator_commit: "1".repeat(40),
+      mutator_config_hash: HASH,
     },
     activation_scope: {
       cohort: "cohort_default",

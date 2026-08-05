@@ -159,6 +159,108 @@ function blockBootstrap(input: {
   };
 }
 
+export interface PromptPromotionSeriesEvidence {
+  reasons: string[];
+  metrics: {
+    sampleCount: number;
+    repeatSeedCount: number;
+    pairedDelta: number;
+    confidenceLower: number;
+    confidenceUpper: number;
+    bootstrapPValue: number;
+    adjustedAlpha: number;
+    tailDelta: number;
+    championFailureRate: number;
+    candidateFailureRate: number;
+    criticalMinimum: number;
+  };
+}
+
+/** Pure statistical gate shared by persisted validation/holdout evaluation and parity tests. */
+export function evaluatePromptPromotionSeries(input: {
+  deltas: ReadonlyArray<number>;
+  championFailures: ReadonlyArray<boolean>;
+  candidateFailures: ReadonlyArray<boolean>;
+  criticalDeltas: ReadonlyArray<number>;
+  repeatSeedCount: number;
+  familyCandidateCount: number;
+  policy: Pick<
+    PromptPromotionPolicy,
+    | "minimumMatureSamples"
+    | "minimumRepeatSeeds"
+    | "minimumPairedDelta"
+    | "familyAlpha"
+    | "bootstrapSamples"
+    | "blockLength"
+    | "tailQuantile"
+    | "minimumTailDelta"
+    | "maximumFailureRateIncrease"
+    | "minimumCriticalSampleDelta"
+  >;
+  seed: string;
+}): PromptPromotionSeriesEvidence {
+  if (
+    input.deltas.length === 0 ||
+    input.championFailures.length === 0 ||
+    input.championFailures.length !== input.candidateFailures.length ||
+    input.familyCandidateCount < 1
+  ) {
+    throw new Error("prompt_promotion_series_shape_invalid");
+  }
+  const adjustedAlpha = input.policy.familyAlpha / input.familyCandidateCount;
+  const bootstrap = blockBootstrap({
+    deltas: input.deltas,
+    samples: input.policy.bootstrapSamples,
+    blockLength: input.policy.blockLength,
+    alpha: adjustedAlpha,
+    seed: input.seed,
+  });
+  const tailCount = Math.max(1, Math.ceil(input.deltas.length * input.policy.tailQuantile));
+  const tailDelta = promptOrderedMean(
+    [...input.deltas].sort((left, right) => left - right).slice(0, tailCount),
+  );
+  const championFailureRate = promptOrderedMean(
+    input.championFailures.map((failed) => (failed ? 1 : 0)),
+  );
+  const candidateFailureRate = promptOrderedMean(
+    input.candidateFailures.map((failed) => (failed ? 1 : 0)),
+  );
+  const criticalMinimum = input.criticalDeltas.length > 0 ? Math.min(...input.criticalDeltas) : 0;
+  const pairedDelta = promptOrderedMean(input.deltas);
+  const reasons: string[] = [];
+  if (input.deltas.length < input.policy.minimumMatureSamples) reasons.push("sample_count");
+  if (input.repeatSeedCount < input.policy.minimumRepeatSeeds) reasons.push("repeat_seed_count");
+  if (pairedDelta < input.policy.minimumPairedDelta) reasons.push("paired_delta");
+  if (bootstrap.lower < input.policy.minimumPairedDelta) reasons.push("confidence_lower");
+  if (bootstrap.pValue > adjustedAlpha) reasons.push("multiple_comparison");
+  if (tailDelta < input.policy.minimumTailDelta) reasons.push("tail_regression");
+  if (candidateFailureRate - championFailureRate > input.policy.maximumFailureRateIncrease) {
+    reasons.push("failure_rate_regression");
+  }
+  if (
+    input.criticalDeltas.length > 0 &&
+    criticalMinimum < input.policy.minimumCriticalSampleDelta
+  ) {
+    reasons.push("critical_suite_regression");
+  }
+  return {
+    reasons,
+    metrics: {
+      sampleCount: input.deltas.length,
+      repeatSeedCount: input.repeatSeedCount,
+      pairedDelta,
+      confidenceLower: bootstrap.lower,
+      confidenceUpper: bootstrap.upper,
+      bootstrapPValue: bootstrap.pValue,
+      adjustedAlpha,
+      tailDelta,
+      championFailureRate,
+      candidateFailureRate,
+      criticalMinimum,
+    },
+  };
+}
+
 function pairedRows(input: {
   experiment: PromptExperiment;
   split: DatasetSplitManifest;
@@ -209,12 +311,6 @@ function pairedRows(input: {
     );
 }
 
-function failureRate(runs: ReadonlyArray<PromptExperimentRun>): number {
-  return promptOrderedMean(
-    runs.map((run) => (FAILURE_METRICS.some((metric) => (run.metrics[metric] ?? 0) > 0) ? 1 : 0)),
-  );
-}
-
 function evaluatePartition(input: {
   experiment: PromptExperiment;
   family: PromptCandidateFamily;
@@ -252,22 +348,8 @@ function evaluatePartition(input: {
     return { sampleId: sample.sampleId, delta: promptOrderedMean(deltas) };
   });
   const deltas = sampleDeltas.map((row) => row.delta);
-  const adjustedAlpha = input.policy.familyAlpha / input.family.candidateIds.length;
-  const bootstrap = blockBootstrap({
-    deltas,
-    samples: input.policy.bootstrapSamples,
-    blockLength: input.policy.blockLength,
-    alpha: adjustedAlpha,
-    seed: `${input.experiment.experimentId}:${input.partition}:${input.policyHash}`,
-  });
-  const tailCount = Math.max(1, Math.ceil(deltas.length * input.policy.tailQuantile));
-  const tailDelta = promptOrderedMean(
-    [...deltas].sort((left, right) => left - right).slice(0, tailCount),
-  );
   const championRuns = pairs.map((row) => row.champion);
   const candidateRuns = pairs.map((row) => row.candidate);
-  const championFailureRate = failureRate(championRuns);
-  const candidateFailureRate = failureRate(candidateRuns);
   const criticalIds =
     input.partition === "VALIDATION"
       ? input.policy.criticalValidationSampleIds
@@ -279,38 +361,36 @@ function evaluatePartition(input: {
       throw new Error(`prompt_promotion_critical_sample_missing:${sampleId}`);
     return delta;
   });
-  const criticalMinimum = criticalDeltas.length > 0 ? Math.min(...criticalDeltas) : 0;
-  const reasons: string[] = [];
-  if (sampleDeltas.length < input.policy.minimumMatureSamples)
-    reasons.push(`${prefix}_sample_count`);
-  if (input.experiment.repeatSeeds.length < input.policy.minimumRepeatSeeds) {
-    reasons.push(`${prefix}_repeat_seed_count`);
-  }
-  if (promptOrderedMean(deltas) < input.policy.minimumPairedDelta)
-    reasons.push(`${prefix}_paired_delta`);
-  if (bootstrap.lower < input.policy.minimumPairedDelta) reasons.push(`${prefix}_confidence_lower`);
-  if (bootstrap.pValue > adjustedAlpha) reasons.push(`${prefix}_multiple_comparison`);
-  if (tailDelta < input.policy.minimumTailDelta) reasons.push(`${prefix}_tail_regression`);
-  if (candidateFailureRate - championFailureRate > input.policy.maximumFailureRateIncrease) {
-    reasons.push(`${prefix}_failure_rate_regression`);
-  }
-  if (criticalDeltas.length > 0 && criticalMinimum < input.policy.minimumCriticalSampleDelta) {
-    reasons.push(`${prefix}_critical_suite_regression`);
-  }
+  const gate = evaluatePromptPromotionSeries({
+    deltas,
+    championFailures: championRuns.map((run) =>
+      FAILURE_METRICS.some((metric) => (run.metrics[metric] ?? 0) > 0),
+    ),
+    candidateFailures: candidateRuns.map((run) =>
+      FAILURE_METRICS.some((metric) => (run.metrics[metric] ?? 0) > 0),
+    ),
+    criticalDeltas,
+    repeatSeedCount: input.experiment.repeatSeeds.length,
+    familyCandidateCount: input.family.candidateIds.length,
+    policy: input.policy,
+    seed: `${input.experiment.experimentId}:${input.partition}:${input.policyHash}`,
+  });
+  const reasons = gate.reasons.map((reason) => `${prefix}_${reason}`);
+  const metrics = gate.metrics;
   return {
     reasons,
     metrics: {
-      [`${prefix}_sample_count`]: sampleDeltas.length,
-      [`${prefix}_repeat_seed_count`]: input.experiment.repeatSeeds.length,
-      [`${prefix}_paired_delta`]: promptOrderedMean(deltas),
-      [`${prefix}_confidence_lower`]: bootstrap.lower,
-      [`${prefix}_confidence_upper`]: bootstrap.upper,
-      [`${prefix}_bootstrap_p_value`]: bootstrap.pValue,
-      [`${prefix}_adjusted_alpha`]: adjustedAlpha,
-      [`${prefix}_tail_delta`]: tailDelta,
-      [`${prefix}_champion_failure_rate`]: championFailureRate,
-      [`${prefix}_candidate_failure_rate`]: candidateFailureRate,
-      [`${prefix}_critical_min_delta`]: criticalMinimum,
+      [`${prefix}_sample_count`]: metrics.sampleCount,
+      [`${prefix}_repeat_seed_count`]: metrics.repeatSeedCount,
+      [`${prefix}_paired_delta`]: metrics.pairedDelta,
+      [`${prefix}_confidence_lower`]: metrics.confidenceLower,
+      [`${prefix}_confidence_upper`]: metrics.confidenceUpper,
+      [`${prefix}_bootstrap_p_value`]: metrics.bootstrapPValue,
+      [`${prefix}_adjusted_alpha`]: metrics.adjustedAlpha,
+      [`${prefix}_tail_delta`]: metrics.tailDelta,
+      [`${prefix}_champion_failure_rate`]: metrics.championFailureRate,
+      [`${prefix}_candidate_failure_rate`]: metrics.candidateFailureRate,
+      [`${prefix}_critical_min_delta`]: metrics.criticalMinimum,
     },
   };
 }

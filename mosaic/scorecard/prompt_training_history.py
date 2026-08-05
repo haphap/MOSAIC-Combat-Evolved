@@ -224,6 +224,16 @@ def _role_component_ref(agent_id: str, ordinal: int) -> str:
     return f"role_component_v1:{agent_id}:{ordinal:03d}"
 
 
+def prompt_role_component_refs(agent_id: str) -> tuple[str, ...]:
+    """Return the exact public role-component roster owned by an Agent."""
+
+    try:
+        specs = _ROLE_COMPONENT_SPECS[agent_id]
+    except KeyError as exc:
+        raise ValueError(f"unknown Prompt role component Agent: {agent_id}") from exc
+    return tuple(_role_component_ref(agent_id, ordinal) for ordinal, _, _ in specs)
+
+
 def _validate_role_component_specs() -> None:
     if set(_ROLE_COMPONENT_SPECS) != set(OUTCOME_CONTRACTS):
         raise ValueError("Prompt role component contract must cover all 28 Agents")
@@ -938,4 +948,5 @@ __all__ = [
     "PROMPT_TRAINING_PROJECTION_VERSION",
     "PROMPT_ROLE_COMPONENT_EVALUATOR_VERSION",
     "build_prompt_training_projection",
+    "prompt_role_component_refs",
 ]

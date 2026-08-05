@@ -9,6 +9,7 @@ import {
   adaptStrictProviderJsonSchema,
   normalizeStrictProviderPayload,
 } from "./structured_provider_adapters.js";
+import { buildStructuredRepairDirectiveMessages } from "./structured_repair_directives.js";
 
 export const MAX_AGENT_REPAIRS = 3;
 
@@ -348,56 +349,17 @@ function buildRepairMessages<T>(input: {
   const issuePayload = dedupeIssues(input.cumulativeIssues);
   const contract = providerJsonSchema(input.schema);
   const originalUser = input.originalMessages[1].content;
-  if (input.attempt === 1) {
-    return [
-      new SystemMessage(
-        "Structured repair 1/3. Correct the complete prior object directly. Return a complete object; do not omit disposition fields or add prose. Copy exact evidence_id and opaque permitted citation identifiers from the immutable catalog: every claim needs evidence_ids, and every INTERPRETATION also needs research_rule_refs.",
-      ),
-      new HumanMessage(
-        JSON.stringify({
-          immutable_evidence_hash: input.evidenceHash,
-          ...input.repairEvidenceCatalog,
-          original_evidence_and_task: originalUser,
-          prior_output: input.originalOutput,
-          validation_errors: issuePayload,
-        }),
-      ),
-    ];
-  }
-  if (input.attempt === 2) {
-    return [
-      new SystemMessage(
-        "Structured repair 2/3. Regenerate one complete object from the original immutable evidence. Satisfy every machine constraint and all cumulative errors. Use only exact catalog ids; all claims require evidence_ids and INTERPRETATION claims require research_rule_refs.",
-      ),
-      new HumanMessage(
-        JSON.stringify({
-          immutable_evidence_hash: input.evidenceHash,
-          ...input.repairEvidenceCatalog,
-          original_evidence_and_task: originalUser,
-          cumulative_validation_errors: issuePayload,
-          complete_json_schema: contract,
-        }),
-      ),
-    ];
-  }
-  return [
-    new SystemMessage(
-      "FINAL structured repair 3/3. Rebuild the complete object under the strict contract. Use only exact catalog ids; all claims require evidence_ids and INTERPRETATION claims require research_rule_refs. You may choose an explicitly supported empty disposition, but disposition and conclusion references are mandatory. Return no prose.",
-    ),
-    new HumanMessage(
-      JSON.stringify({
-        immutable_evidence_hash: input.evidenceHash,
-        ...input.repairEvidenceCatalog,
-        original_evidence_and_task: originalUser,
-        normalized_errors: issuePayload.map(({ validator, reason_code, json_path }) => ({
-          validator,
-          reason_code,
-          json_path,
-        })),
-        complete_json_schema: contract,
-      }),
-    ),
-  ];
+  const messages = buildStructuredRepairDirectiveMessages({
+    attempt: input.attempt,
+    immutableEvidenceHash: input.evidenceHash,
+    allowedEvidenceIds: input.repairEvidenceCatalog.allowed_evidence_ids,
+    allowedCitationIds: input.repairEvidenceCatalog.allowed_citation_ids,
+    originalEvidenceAndTask: originalUser,
+    priorOutput: input.originalOutput,
+    validationErrors: issuePayload,
+    completeJsonSchema: contract,
+  });
+  return [new SystemMessage(messages.systemMessage), new HumanMessage(messages.userMessage)];
 }
 
 interface RepairEvidenceCatalog {

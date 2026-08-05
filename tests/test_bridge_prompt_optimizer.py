@@ -8,7 +8,7 @@ import pytest
 from mosaic.bridge.handlers import prompt_optimizer
 from mosaic.bridge.protocol import RpcError
 from mosaic.bridge.registry import all_methods, get_handler
-from mosaic.scorecard.canonical_json import canonical_string_sort_key
+from mosaic.scorecard.canonical_json import canonical_hash, canonical_string_sort_key
 from mosaic.scorecard.prompt_optimizer_store import PromptOptimizerStore
 from mosaic.scorecard.store import ScorecardStore
 
@@ -17,8 +17,15 @@ HASH_A = "sha256:" + "a" * 64
 HASH_B = "sha256:" + "b" * 64
 
 
+def projection() -> dict[str, object]:
+    from tests.test_prompt_optimizer_store import training_projection
+
+    return training_projection(projection_id="projection-bridge")
+
+
 def candidate() -> dict[str, object]:
     prompt_hashes = {"zh": HASH_A, "en": HASH_B}
+    training = projection()
     return {
         "schemaVersion": "prompt_candidate_v1",
         "candidateId": "candidate-bridge",
@@ -35,8 +42,8 @@ def candidate() -> dict[str, object]:
             "en": "private://candidate-bridge.en",
         },
         "promptHashes": prompt_hashes,
-        "trainingProjectionHash": HASH_A,
-        "excludedSampleIdsHash": HASH_A,
+        "trainingProjectionHash": training["projectionHash"],
+        "excludedSampleIdsHash": training["excludedSampleIdsHash"],
         "mutatorConfigHash": HASH_B,
         "mutatorCommit": "c" * 40,
         "mutationCategories": ["EVIDENCE_PRIORITY"],
@@ -49,6 +56,17 @@ def candidate() -> dict[str, object]:
         "privateStateArtifactHash": HASH_A,
         "createdAt": "2025-04-01T00:00:00Z",
     }
+
+
+def candidate_publication() -> dict[str, object]:
+    body: dict[str, object] = {
+        "schemaVersion": "prompt_candidate_publication_v1",
+        "candidateId": "candidate-bridge",
+        "candidateHash": canonical_hash(candidate()),
+        "promptSourceId": "private-prompts-primary",
+        "candidatePromptCommit": "e" * 40,
+    }
+    return {**body, "publicationHash": canonical_hash(body)}
 
 
 @pytest.fixture
@@ -69,7 +87,9 @@ def test_prompt_optimizer_bridge_registers_minimal_surface_and_round_trips(
     isolated_store: PromptOptimizerStore,
 ) -> None:
     expected = {
+        "prompt_optimizer.get_training_projection",
         "prompt_optimizer.get_candidate",
+        "prompt_optimizer.get_candidate_publication",
         "prompt_optimizer.get_family",
         "prompt_optimizer.get_split",
         "prompt_optimizer.get_experiment",
@@ -78,6 +98,8 @@ def test_prompt_optimizer_bridge_registers_minimal_surface_and_round_trips(
         "prompt_optimizer.latest_summary",
         "prompt_optimizer.training_projection",
         "prompt_optimizer.put_candidate",
+        "prompt_optimizer.put_training_projection",
+        "prompt_optimizer.put_candidate_publication",
         "prompt_optimizer.put_family",
         "prompt_optimizer.put_split",
         "prompt_optimizer.put_experiment",
@@ -85,10 +107,25 @@ def test_prompt_optimizer_bridge_registers_minimal_surface_and_round_trips(
         "prompt_optimizer.claim_run",
     }
     assert expected <= set(all_methods())
+    assert dispatch(
+        "prompt_optimizer.put_training_projection", {"record": projection()}
+    ) == projection()
+    assert dispatch(
+        "prompt_optimizer.get_training_projection",
+        {"projection_hash": projection()["projectionHash"]},
+    ) == {"record": projection()}
     assert dispatch("prompt_optimizer.put_candidate", {"record": candidate()}) == candidate()
     assert dispatch(
         "prompt_optimizer.get_candidate", {"candidate_id": "candidate-bridge"}
     ) == {"record": candidate()}
+    assert dispatch(
+        "prompt_optimizer.put_candidate_publication",
+        {"record": candidate_publication()},
+    ) == candidate_publication()
+    assert dispatch(
+        "prompt_optimizer.get_candidate_publication",
+        {"candidate_id": "candidate-bridge"},
+    ) == {"record": candidate_publication()}
     assert dispatch(
         "prompt_optimizer.latest_summary", {"cohort": "cohort_default"}
     ) == {
@@ -162,6 +199,11 @@ def test_prompt_optimizer_bridge_rejects_private_body_and_extra_rpc_params(
             "prompt_optimizer.put_candidate",
             {"record": {**candidate(), "candidateId": " candidate-bridge "}},
         )
+    with pytest.raises(RpcError, match="projection_hash_mismatch"):
+        dispatch(
+            "prompt_optimizer.put_training_projection",
+            {"record": {**projection(), "projectionHash": HASH_A}},
+        )
 
 
 def test_prompt_optimizer_bridge_rejects_invalid_agent_stage_pair(
@@ -182,16 +224,26 @@ def test_prompt_optimizer_bridge_rejects_evaluator_and_outcome_binding_drift(
 ) -> None:
     from tests.test_prompt_optimizer_store import (
         candidate as store_candidate,
+        candidate_publication as store_candidate_publication,
         experiment as store_experiment,
         family as store_family,
         recanonicalize_experiment,
         split as store_split,
+        training_projection,
     )
 
+    dispatch(
+        "prompt_optimizer.put_training_projection",
+        {"record": training_projection()},
+    )
     split_record = store_split()
     candidate_record = store_candidate(split_record=split_record)
     family_record = store_family(split_record)
     dispatch("prompt_optimizer.put_candidate", {"record": candidate_record})
+    dispatch(
+        "prompt_optimizer.put_candidate_publication",
+        {"record": store_candidate_publication(candidate_record)},
+    )
     dispatch("prompt_optimizer.put_split", {"record": split_record})
     dispatch("prompt_optimizer.put_family", {"record": family_record})
     pending = store_experiment(family_record, candidate_record)
@@ -223,8 +275,13 @@ def test_prompt_optimizer_bridge_rejects_noncanonical_family_candidate_order(
         family as store_family,
         recanonicalize_family,
         split as store_split,
+        training_projection,
     )
 
+    dispatch(
+        "prompt_optimizer.put_training_projection",
+        {"record": training_projection()},
+    )
     split_record = store_split()
     supplementary_id = "candidate-\U00010000"
     bmp_id = "candidate-\ue000"
@@ -313,7 +370,13 @@ def test_prompt_optimizer_bridge_replays_store_semantics_on_direct_writes(
         register,
         run_proposal,
         split as store_split,
+        training_projection,
         validation_sample_id,
+    )
+
+    dispatch(
+        "prompt_optimizer.put_training_projection",
+        {"record": training_projection()},
     )
 
     overlapping = store_split()
@@ -332,17 +395,8 @@ def test_prompt_optimizer_bridge_replays_store_semantics_on_direct_writes(
         **store_candidate("candidate-bridge-drift", split_record=split_record),
         "excludedSampleIdsHash": HASH_A,
     }
-    dispatch("prompt_optimizer.put_candidate", {"record": drifted_candidate})
-    dispatch("prompt_optimizer.put_split", {"record": split_record})
-    with pytest.raises(RpcError, match="training_split_mismatch"):
-        dispatch(
-            "prompt_optimizer.put_family",
-            {
-                "record": store_family(
-                    split_record, [str(drifted_candidate["candidateId"])]
-                )
-            },
-        )
+    with pytest.raises(RpcError, match="candidate_training_projection_mismatch"):
+        dispatch("prompt_optimizer.put_candidate", {"record": drifted_candidate})
 
     family_record = store_family(split_record)
     candidate_record = store_candidate(split_record=split_record)

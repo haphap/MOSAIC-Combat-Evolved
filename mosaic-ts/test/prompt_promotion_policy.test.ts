@@ -6,6 +6,7 @@ import {
 import { OUTCOME_LABEL_REGISTRY } from "../src/autoresearch/outcome_registry.js";
 import { selectPromptCandidateFamily } from "../src/autoresearch/prompt_candidate_family.js";
 import {
+  buildPromptCandidatePublication,
   DatasetSplitManifestSchema,
   type PromptCandidateFamily,
   PromptCandidateFamilySchema,
@@ -14,6 +15,7 @@ import {
   type PromptExperimentRun,
   PromptExperimentRunSchema,
   PromptExperimentSchema,
+  PromptTrainingProjectionSchema,
   promptCandidateFamilyId,
   promptDatasetPartitionSnapshotHash,
   promptDatasetSampleId,
@@ -22,6 +24,7 @@ import {
   promptExperimentRunId,
   promptMutationHypothesis,
   promptMutationSummary,
+  promptRoleComponentRefs,
 } from "../src/autoresearch/prompt_optimizer_contract.js";
 import { authorizeStoredPromptPromotion } from "../src/autoresearch/prompt_promotion_authority.js";
 import {
@@ -35,6 +38,11 @@ import type { BridgeApi } from "../src/bridge/types.js";
 const HASH_A = `sha256:${"a".repeat(64)}`;
 const HASH_B = `sha256:${"b".repeat(64)}`;
 const COMMIT = "c".repeat(40);
+const EXECUTION_BEHAVIOR_RELEASE = {
+  release_id: `execution-behavior-release:${"d".repeat(64)}`,
+  release_hash: HASH_A,
+  archive_ref: `registry/prompt_checks/execution_behavior_releases/${"d".repeat(64)}--${"a".repeat(64)}.json`,
+} as const;
 const target = { agentId: "china", stage: "agent_run", cohort: "cohort_default" } as const;
 const evaluatorVersion = OUTCOME_LABEL_REGISTRY.china?.scoring_contract_version;
 if (!evaluatorVersion) throw new Error("missing china outcome fixture");
@@ -96,10 +104,55 @@ function buildFixture(
     sample(`validation-${index + 1}`, "02"),
   );
   const holdoutSamples = holdoutDeltas.map((_, index) => sample(`holdout-${index + 1}`, "03"));
+  const excludedSampleIdsHash = canonicalJsonHash(
+    [...validationSamples, ...holdoutSamples].map((value) => value.sampleId).sort(),
+  );
+  const outcome = OUTCOME_LABEL_REGISTRY.china;
+  if (!outcome) throw new Error("missing China outcome fixture");
+  const maturityTradingDays = Number(outcome.maturity_horizon.replace("TRADING_DAYS_", ""));
+  const projectionBody = {
+    schemaVersion: "prompt_training_projection_v1" as const,
+    target,
+    projectionId: "projection-promotion",
+    datasetSnapshotHash: HASH_A,
+    excludedSampleIdsHash,
+    cutoffAt: "2025-01-31T00:00:00Z",
+    outcomeContract: {
+      evaluationObject: outcome.evaluation_object,
+      outcomeContractVersion: outcome.outcome_contract_version,
+      primaryLabelId: outcome.primary_label_id,
+      maturityHorizon: outcome.maturity_horizon,
+      maturityTradingDays,
+    },
+    evaluator: {
+      version: "prompt_role_component_evaluator_v1",
+      configHash: HASH_A,
+      implementationHash: HASH_B,
+      executorAdapterHash: HASH_A,
+      evaluatorAdapterHash: HASH_B,
+    },
+    matureSampleCount: 30,
+    scoreSummary: { mean: 0.1, lower_tail: 0.05 },
+    failureCategoryCounts: {},
+    tailFailureCaseRefs: [],
+    evidenceGapSummaries: [],
+    directComponents: promptRoleComponentRefs("china").map((componentRef) => ({
+      componentRef,
+      directMatureSampleCount: 30,
+      meanScore: 0.1,
+      lowerTailScore: 0.05,
+      failureCategoryCounts: {},
+    })),
+    controlledExperiments: [],
+  };
+  const trainingProjection = PromptTrainingProjectionSchema.parse({
+    ...projectionBody,
+    projectionHash: canonicalJsonHash(projectionBody),
+  });
   const splitBody = {
     schemaVersion: "prompt_dataset_split_v1",
     target,
-    trainingProjectionHash: HASH_B,
+    trainingProjectionHash: trainingProjection.projectionHash,
     cutoffAt: "2025-01-31T00:00:00Z",
     training: {
       snapshotHash: promptDatasetPartitionSnapshotHash({ samples: trainingSamples }),
@@ -133,9 +186,10 @@ function buildFixture(
     ...Array.from({ length: familySize - 1 }, (_, index) => `candidate-sibling-${index + 1}`),
   ].sort();
   const familyBody = {
-    schemaVersion: "prompt_candidate_family_v1" as const,
+    schemaVersion: "prompt_candidate_family_v2" as const,
     target,
     championReleaseId: "champion-promotion",
+    championPromptSourceId: "private-prompts",
     championPromptCommit: COMMIT,
     championPromptRefs: { zh: "private://champion.zh", en: "private://champion.en" },
     championPromptHashes: { zh: HASH_A, en: HASH_A },
@@ -150,17 +204,48 @@ function buildFixture(
     ...familyBody,
     familyId: promptCandidateFamilyId(familyBody),
   });
+  const mutationCategories = ["CONFLICT_RESOLUTION"] as const;
+  const candidate = PromptCandidateSchema.parse({
+    schemaVersion: "prompt_candidate_v1",
+    candidateId: "candidate-promotion",
+    parentId: family.championReleaseId,
+    parentPromptCommit: family.championPromptCommit,
+    parentPromptHashes: family.championPromptHashes,
+    target,
+    promptRefs: { zh: "private://candidate.zh", en: "private://candidate.en" },
+    promptHashes: { zh: HASH_B, en: HASH_B },
+    trainingProjectionHash: split.trainingProjectionHash,
+    excludedSampleIdsHash,
+    mutatorConfigHash: HASH_A,
+    mutatorCommit: COMMIT,
+    mutationCategories,
+    mutationSummary: promptMutationSummary(mutationCategories),
+    hypothesis: promptMutationHypothesis(mutationCategories),
+    behaviorContractHash: HASH_A,
+    privateLineageHash: HASH_A,
+    privateStateArtifactHash: HASH_A,
+    createdAt: "2025-04-01T00:00:00Z",
+  });
+  const candidatePublication = buildPromptCandidatePublication({
+    candidate,
+    promptSourceId: "private-prompts",
+    candidatePromptCommit: "d".repeat(40),
+  });
   const experimentBody = {
-    schemaVersion: "prompt_experiment_v1" as const,
+    schemaVersion: "prompt_experiment_v2" as const,
     familyId: family.familyId,
     candidateId: "candidate-promotion",
     championId: family.championReleaseId,
     target,
     championPromptCommit: COMMIT,
+    championPromptSourceId: family.championPromptSourceId,
     championPromptRefs: family.championPromptRefs,
     championPromptHashes: family.championPromptHashes,
-    candidatePromptRefs: { zh: "private://candidate.zh", en: "private://candidate.en" },
-    candidatePromptHashes: { zh: HASH_B, en: HASH_B },
+    candidatePromptRefs: candidate.promptRefs,
+    candidatePromptHashes: candidate.promptHashes,
+    candidatePromptSourceId: candidatePublication.promptSourceId,
+    candidatePromptCommit: candidatePublication.candidatePromptCommit,
+    candidatePublicationHash: candidatePublication.publicationHash,
     datasetSplitId: split.splitId,
     datasetSplitManifestHash: canonicalJsonHash(split),
     promotionPolicyVersion: promotionPolicy.policyVersion,
@@ -181,6 +266,7 @@ function buildFixture(
     evaluatorVersion,
     evaluatorConfigHash: HASH_B,
     codeCommit: COMMIT,
+    executionBehaviorRelease: EXECUTION_BEHAVIOR_RELEASE,
     repeatSeeds: [1, 2],
     runIds: [],
     metrics: {},
@@ -258,7 +344,16 @@ function buildFixture(
         holdoutDeltas.reduce((sum, value) => sum + value, 0) / holdoutDeltas.length,
     },
   });
-  return { split, runs, experiment, family, promotionPolicy };
+  return {
+    trainingProjection,
+    split,
+    runs,
+    experiment,
+    family,
+    candidate,
+    candidatePublication,
+    promotionPolicy,
+  };
 }
 
 function decide(fixture: ReturnType<typeof buildFixture>) {
@@ -567,37 +662,14 @@ describe("Agent-specific Prompt promotion policy", () => {
   it("reopens the persisted Candidate and rejects release-time Prompt rebinding", async () => {
     const fixture = buildFixture();
     const decision = decide(fixture);
-    const mutationCategories = ["CONFLICT_RESOLUTION"] as const;
-    const candidate = PromptCandidateSchema.parse({
-      schemaVersion: "prompt_candidate_v1",
-      candidateId: fixture.experiment.candidateId,
-      parentId: fixture.experiment.championId,
-      parentPromptCommit: fixture.experiment.championPromptCommit,
-      parentPromptHashes: fixture.experiment.championPromptHashes,
-      target,
-      promptRefs: fixture.experiment.candidatePromptRefs,
-      promptHashes: fixture.experiment.candidatePromptHashes,
-      trainingProjectionHash: fixture.split.trainingProjectionHash,
-      excludedSampleIdsHash: canonicalJsonHash(
-        [...fixture.split.validation.samples, ...fixture.split.holdout.samples]
-          .map((sample) => sample.sampleId)
-          .sort(),
-      ),
-      mutatorConfigHash: HASH_A,
-      mutatorCommit: COMMIT,
-      mutationCategories,
-      mutationSummary: promptMutationSummary(mutationCategories),
-      hypothesis: promptMutationHypothesis(mutationCategories),
-      behaviorContractHash: HASH_A,
-      privateLineageHash: HASH_A,
-      privateStateArtifactHash: HASH_A,
-      createdAt: "2025-04-01T00:00:00Z",
-    });
+    const candidate = fixture.candidate;
     const api = {
       promptOptimizerGetCandidate: async () => candidate,
+      promptOptimizerGetCandidatePublication: async () => fixture.candidatePublication,
       promptOptimizerGetExperiment: async () => fixture.experiment,
       promptOptimizerGetFamily: async () => fixture.family,
       promptOptimizerGetSplit: async () => fixture.split,
+      promptOptimizerGetTrainingProjection: async () => fixture.trainingProjection,
       promptOptimizerListExperiments: async () => [fixture.experiment],
       promptOptimizerListRuns: async () => fixture.runs,
     } as unknown as BridgeApi;
@@ -610,7 +682,13 @@ describe("Agent-specific Prompt promotion policy", () => {
         authorizedPolicyHashes: new Set([decision.policyConfigHash]),
         decidedAt: decision.decidedAt,
       }),
-    ).resolves.toEqual(decision);
+    ).resolves.toEqual({
+      decision,
+      releaseEnvironment: {
+        codeCommit: fixture.experiment.codeCommit,
+        executionBehaviorRelease: fixture.experiment.executionBehaviorRelease,
+      },
+    });
     await expect(
       authorizeStoredPromptPromotion({
         api,
@@ -621,6 +699,40 @@ describe("Agent-specific Prompt promotion policy", () => {
         decidedAt: decision.decidedAt,
       }),
     ).rejects.toThrow("prompt_promotion_policy_not_authorized");
+
+    await expect(
+      authorizeStoredPromptPromotion({
+        api: {
+          ...api,
+          promptOptimizerGetTrainingProjection: async () => null,
+        } as unknown as BridgeApi,
+        candidate,
+        experimentId: fixture.experiment.experimentId,
+        policy: fixture.promotionPolicy,
+        authorizedPolicyHashes: new Set([decision.policyConfigHash]),
+        decidedAt: decision.decidedAt,
+      }),
+    ).rejects.toThrow("prompt_promotion_training_projection_not_found");
+
+    const { projectionHash: _projectionHash, ...projectionBody } = fixture.trainingProjection;
+    const driftedProjectionBody = { ...projectionBody, datasetSnapshotHash: HASH_B };
+    const driftedProjection = PromptTrainingProjectionSchema.parse({
+      ...driftedProjectionBody,
+      projectionHash: canonicalJsonHash(driftedProjectionBody),
+    });
+    await expect(
+      authorizeStoredPromptPromotion({
+        api: {
+          ...api,
+          promptOptimizerGetTrainingProjection: async () => driftedProjection,
+        } as unknown as BridgeApi,
+        candidate,
+        experimentId: fixture.experiment.experimentId,
+        policy: fixture.promotionPolicy,
+        authorizedPolicyHashes: new Set([decision.policyConfigHash]),
+        decidedAt: decision.decidedAt,
+      }),
+    ).rejects.toThrow("candidate_training_snapshot_mismatch");
 
     const reboundHashes = { zh: HASH_A, en: HASH_A };
     const rebound = PromptCandidateSchema.parse({
@@ -636,6 +748,6 @@ describe("Agent-specific Prompt promotion policy", () => {
         authorizedPolicyHashes: new Set([decision.policyConfigHash]),
         decidedAt: decision.decidedAt,
       }),
-    ).rejects.toThrow("prompt_promotion_authority_binding_mismatch");
+    ).rejects.toThrow("prompt_candidate_publication_candidate_mismatch");
   });
 });

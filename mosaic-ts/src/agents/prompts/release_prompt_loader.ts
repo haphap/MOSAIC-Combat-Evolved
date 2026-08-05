@@ -86,24 +86,6 @@ export async function buildReleasePromptPairsAtCommit(opts: {
   );
 }
 
-export async function promptPairVersionShaAtCommit(opts: {
-  repo: string;
-  commit: string;
-  pair: ReleasePromptPair;
-}): Promise<string> {
-  const digest = createHash("sha256");
-  for (const file of [opts.pair.zh, opts.pair.en].sort((left, right) =>
-    left.path.localeCompare(right.path),
-  )) {
-    const content = await gitShow(opts.repo, opts.commit, file.path);
-    digest.update(file.path, "utf-8");
-    digest.update("\0");
-    digest.update(content);
-    digest.update("\0");
-  }
-  return digest.digest("hex");
-}
-
 function sha256(value: Buffer): string {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
@@ -407,7 +389,6 @@ export async function resolveProductionPromptReleaseContext(
     repo: findRepoRoot(),
     commit: context.manifest.code_commit,
     binding: context.manifest.execution_behavior_release,
-    promptCommit: context.manifest.prompt_commit,
   });
   return { ...context, executionBehaviorRelease };
 }

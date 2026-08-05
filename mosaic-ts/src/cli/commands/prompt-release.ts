@@ -113,6 +113,12 @@ export function registerPromptRelease(program: Command): void {
           await client.start();
           const candidate = await api.promptOptimizerGetCandidate(opts.candidateId);
           if (!candidate) throw new Error(`Prompt Candidate not found: ${opts.candidateId}`);
+          const candidatePublication = await api.promptOptimizerGetCandidatePublication(
+            opts.candidateId,
+          );
+          if (!candidatePublication) {
+            throw new Error(`Prompt Candidate publication not found: ${opts.candidateId}`);
+          }
           const promotionPolicy = PromptPromotionPolicySchema.parse(
             JSON.parse(await readFile(opts.promotionPolicy, "utf-8")),
           );
@@ -126,7 +132,7 @@ export function registerPromptRelease(program: Command): void {
               .map((value) => value.trim())
               .filter(Boolean),
           );
-          const promotionDecision = await authorizeStoredPromptPromotion({
+          const promotionAuthorization = await authorizeStoredPromptPromotion({
             api,
             candidate,
             experimentId: opts.experimentId,
@@ -134,14 +140,25 @@ export function registerPromptRelease(program: Command): void {
             authorizedPolicyHashes,
             decidedAt: new Date().toISOString(),
           });
+          const { decision: promotionDecision, releaseEnvironment } = promotionAuthorization;
           if (promotionDecision.decision !== "ELIGIBLE") {
             throw new Error("Prompt Promotion Authority rejected the Candidate");
+          }
+          if (opts.codeCommit !== releaseEnvironment.codeCommit) {
+            throw new Error("prompt_release_authorized_code_commit_mismatch");
+          }
+          if (
+            opts.executionBehaviorReleaseRef !==
+            releaseEnvironment.executionBehaviorRelease.archive_ref
+          ) {
+            throw new Error("prompt_release_authorized_execution_behavior_ref_mismatch");
           }
           const manifest = await stagePromptRelease(
             {
               registryRoot: registryRoot(opts),
               releaseId: opts.releaseId,
               candidate,
+              candidatePublication,
               promotionDecision,
               privatePromptRepo:
                 opts.privatePromptsRepo?.trim() ||
@@ -166,6 +183,7 @@ export function registerPromptRelease(program: Command): void {
                 ) {
                   throw new Error("prompt_promotion_authority_binding_mismatch");
                 }
+                return releaseEnvironment;
               },
             },
           );

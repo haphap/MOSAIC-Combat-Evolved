@@ -16,6 +16,7 @@ from mosaic.scorecard.canonical_json import (
 )
 from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
 from mosaic.scorecard.prompt_optimizer_store import PromptOptimizerStore
+from mosaic.scorecard.prompt_training_history import prompt_role_component_refs
 
 
 HASH_A = "sha256:" + "a" * 64
@@ -24,6 +25,17 @@ COMMIT = "c" * 40
 NOW = "2025-04-01T00:00:00Z"
 TARGET = {"agentId": "china", "stage": "agent_run", "cohort": "cohort_default"}
 CHINA_OUTCOME = OUTCOME_CONTRACTS["china"]
+EXECUTION_RELEASE = {
+    "release_id": "execution-behavior-release:" + "e" * 64,
+    "release_hash": "sha256:" + "f" * 64,
+    "archive_ref": (
+        "registry/prompt_checks/execution_behavior_releases/"
+        + "e" * 64
+        + "--"
+        + "f" * 64
+        + ".json"
+    ),
+}
 
 
 def content_id(prefix: str, value: object) -> str:
@@ -53,7 +65,7 @@ def sample(label: str, start: str, end: str) -> dict[str, object]:
     return {**body, "sampleId": content_id("sample", identity)}
 
 
-def split(*, training_projection_hash: str = HASH_B) -> dict[str, object]:
+def split(*, training_projection_hash: str | None = None) -> dict[str, object]:
     training = sample(
         "training-1", "2025-01-10T00:00:00Z", "2025-01-11T00:00:00Z"
     )
@@ -62,7 +74,11 @@ def split(*, training_projection_hash: str = HASH_B) -> dict[str, object]:
     body: dict[str, object] = {
         "schemaVersion": "prompt_dataset_split_v1",
         "target": TARGET,
-        "trainingProjectionHash": training_projection_hash,
+        "trainingProjectionHash": (
+            training_projection_hash
+            if training_projection_hash is not None
+            else training_projection()["projectionHash"]
+        ),
         "cutoffAt": "2025-01-31T00:00:00Z",
         "training": {
             "snapshotHash": canonical_hash([training["sampleId"]]),
@@ -106,6 +122,80 @@ def partition_samples(prefix: str, month: str) -> list[dict[str, object]]:
             )
         )
     return values
+
+
+def training_projection(
+    *,
+    projection_id: str | None = None,
+    dataset_snapshot_hash: str = HASH_A,
+    target: dict[str, str] | None = None,
+) -> dict[str, object]:
+    target_value = TARGET if target is None else target
+    agent_id = target_value["agentId"]
+    outcome_contract = OUTCOME_CONTRACTS[agent_id]
+    if projection_id is None:
+        projection_id = (
+            "projection-china-default"
+            if target_value == TARGET
+            else f"projection-{agent_id}-{target_value['stage']}"
+        )
+    excluded_hash = canonical_hash(
+        sorted(
+            str(value["sampleId"])
+            for value in [
+                *partition_samples("validation", "02"),
+                *partition_samples("holdout", "03"),
+            ]
+        )
+    )
+    evaluator = {
+        "version": "prompt_role_component_evaluator_v1",
+        "configHash": HASH_A,
+        "executorAdapterHash": HASH_A,
+        "evaluatorAdapterHash": HASH_B,
+    }
+    evaluator["implementationHash"] = canonical_hash(
+        {
+            "executorAdapterHash": evaluator["executorAdapterHash"],
+            "evaluatorAdapterHash": evaluator["evaluatorAdapterHash"],
+            "configHash": evaluator["configHash"],
+        }
+    )
+    body: dict[str, object] = {
+        "schemaVersion": "prompt_training_projection_v1",
+        "target": target_value,
+        "projectionId": projection_id,
+        "datasetSnapshotHash": dataset_snapshot_hash,
+        "excludedSampleIdsHash": excluded_hash,
+        "cutoffAt": "2025-01-31T00:00:00Z",
+        "outcomeContract": {
+            "evaluationObject": outcome_contract["evaluation_object"],
+            "outcomeContractVersion": outcome_contract["outcome_contract_version"],
+            "primaryLabelId": outcome_contract["primary_label_id"],
+            "maturityHorizon": outcome_contract["maturity_horizon"],
+            "maturityTradingDays": outcome_contract["maturity"][
+                "horizon_trading_days"
+            ],
+        },
+        "evaluator": evaluator,
+        "matureSampleCount": 30,
+        "scoreSummary": {"mean": 0.1, "lower_tail": 0.05},
+        "failureCategoryCounts": {},
+        "tailFailureCaseRefs": [],
+        "evidenceGapSummaries": [],
+        "directComponents": [
+            {
+                "componentRef": component_ref,
+                "directMatureSampleCount": 30,
+                "meanScore": 0.1,
+                "lowerTailScore": 0.05,
+                "failureCategoryCounts": {},
+            }
+            for component_ref in prompt_role_component_refs(agent_id)
+        ],
+        "controlledExperiments": [],
+    }
+    return {**body, "projectionHash": canonical_hash(body)}
 
 
 def recanonicalize_split(value: dict[str, object]) -> dict[str, object]:
@@ -171,6 +261,20 @@ def candidate(
     }
 
 
+def candidate_publication(
+    candidate_record: dict[str, object] | None = None,
+) -> dict[str, object]:
+    candidate_value = candidate_record or candidate()
+    body: dict[str, object] = {
+        "schemaVersion": "prompt_candidate_publication_v1",
+        "candidateId": candidate_value["candidateId"],
+        "candidateHash": canonical_hash(candidate_value),
+        "promptSourceId": "private-prompts-primary",
+        "candidatePromptCommit": "d" * 40,
+    }
+    return {**body, "publicationHash": canonical_hash(body)}
+
+
 def promotion_policy(
     split_record: dict[str, object], *, minimum_paired_delta: float = 0.05
 ) -> dict[str, object]:
@@ -204,9 +308,10 @@ def family(
     ids = sorted(candidate_ids or ["candidate-1"])
     policy = policy_record or promotion_policy(split_record)
     body: dict[str, object] = {
-        "schemaVersion": "prompt_candidate_family_v1",
+        "schemaVersion": "prompt_candidate_family_v2",
         "target": TARGET,
         "championReleaseId": "champion-1",
+        "championPromptSourceId": "private-prompts-primary",
         "championPromptCommit": COMMIT,
         "championPromptRefs": {
             "zh": "private://champion.zh",
@@ -271,16 +376,26 @@ def experiment(
             **aggregate_metrics("HOLDOUT", candidate_score),
         }
     body: dict[str, object] = {
-        "schemaVersion": "prompt_experiment_v1",
+        "schemaVersion": "prompt_experiment_v2",
         "familyId": family_record["familyId"],
         "candidateId": candidate_record["candidateId"],
         "championId": "champion-1",
         "target": TARGET,
+        "championPromptSourceId": family_record["championPromptSourceId"],
         "championPromptCommit": COMMIT,
         "championPromptRefs": family_record["championPromptRefs"],
         "championPromptHashes": family_record["championPromptHashes"],
         "candidatePromptRefs": candidate_record["promptRefs"],
         "candidatePromptHashes": candidate_record["promptHashes"],
+        "candidatePromptSourceId": candidate_publication(candidate_record)[
+            "promptSourceId"
+        ],
+        "candidatePromptCommit": candidate_publication(candidate_record)[
+            "candidatePromptCommit"
+        ],
+        "candidatePublicationHash": candidate_publication(candidate_record)[
+            "publicationHash"
+        ],
         "datasetSplitId": family_record["datasetSplitId"],
         "datasetSplitManifestHash": family_record["datasetSplitManifestHash"],
         "promotionPolicyVersion": family_record["promotionPolicyVersion"],
@@ -307,6 +422,7 @@ def experiment(
         "evaluatorVersion": CHINA_OUTCOME["scoring_contract_version"],
         "evaluatorConfigHash": HASH_B,
         "codeCommit": COMMIT,
+        "executionBehaviorRelease": EXECUTION_RELEASE,
         "repeatSeeds": [1, 2],
         "runIds": sorted(run_ids or []),
         "metrics": metrics,
@@ -439,10 +555,12 @@ def store(
     policy_hash = canonical_hash(
         promotion_policy(split(), minimum_paired_delta=minimum_paired_delta)
     )
-    return PromptOptimizerStore(
+    result = PromptOptimizerStore(
         tmp_path / "scorecard.sqlite3",
         authorized_policy_hashes={policy_hash} if authorized else set(),
     )
+    result.put_training_projection(training_projection())
+    return result
 
 
 def register(
@@ -451,6 +569,7 @@ def register(
     candidate_ids: list[str] | None = None,
     minimum_paired_delta: float = 0.05,
 ) -> tuple[dict[str, object], dict[str, object], list[dict[str, object]]]:
+    prompt_store.put_training_projection(training_projection())
     split_record = split()
     policy = promotion_policy(
         split_record, minimum_paired_delta=minimum_paired_delta
@@ -458,6 +577,7 @@ def register(
     candidates = [candidate(value, split_record=split_record) for value in (candidate_ids or ["candidate-1"])]
     for candidate_record in candidates:
         prompt_store.put_candidate(candidate_record)
+        prompt_store.put_candidate_publication(candidate_publication(candidate_record))
     prompt_store.put_split(split_record)
     family_record = family(
         split_record,
@@ -466,6 +586,166 @@ def register(
     )
     prompt_store.put_family(family_record)
     return split_record, family_record, candidates
+
+
+def test_training_projection_is_content_addressed_and_reopened(tmp_path: Path) -> None:
+    prompt_store = store(tmp_path)
+    projection = training_projection()
+
+    assert prompt_store.put_training_projection(projection) == projection
+    assert prompt_store.get_training_projection(projection["projectionHash"]) == projection
+
+    forged_hash = {**projection, "projectionHash": HASH_A}
+    with pytest.raises(ValueError, match="projection_hash_mismatch"):
+        prompt_store.put_training_projection(forged_hash)
+
+    incomplete_body = {
+        key: value for key, value in projection.items() if key != "projectionHash"
+    }
+    incomplete_body["directComponents"] = projection["directComponents"][:1]
+    incomplete = {
+        **incomplete_body,
+        "projectionHash": canonical_hash(incomplete_body),
+    }
+    with pytest.raises(ValueError, match="component_roster_mismatch"):
+        prompt_store.put_training_projection(incomplete)
+
+
+def test_candidate_and_split_require_the_persisted_projection(tmp_path: Path) -> None:
+    prompt_store = PromptOptimizerStore(tmp_path / "scorecard.sqlite3")
+    split_record = split()
+    candidate_record = candidate(split_record=split_record)
+
+    with pytest.raises(ValueError, match="training_projection_not_found"):
+        prompt_store.put_candidate(candidate_record)
+    with pytest.raises(ValueError, match="training_projection_not_found"):
+        prompt_store.put_split(split_record)
+
+    projection = training_projection()
+    prompt_store.put_training_projection(projection)
+    assert prompt_store.put_candidate(candidate_record) == candidate_record
+    assert prompt_store.put_split(split_record) == split_record
+
+
+def test_split_rejects_persisted_projection_with_inconsistent_exclusions(
+    tmp_path: Path,
+) -> None:
+    prompt_store = PromptOptimizerStore(tmp_path / "scorecard.sqlite3")
+    projection = training_projection(
+        projection_id="projection-china-exclusion-drift",
+        dataset_snapshot_hash=HASH_B,
+    )
+    body = {key: value for key, value in projection.items() if key != "projectionHash"}
+    body["excludedSampleIdsHash"] = HASH_A
+    drifted_projection = {**body, "projectionHash": canonical_hash(body)}
+    prompt_store.put_training_projection(drifted_projection)
+    split_record = split(
+        training_projection_hash=str(drifted_projection["projectionHash"])
+    )
+
+    with pytest.raises(ValueError, match="split_training_projection_mismatch"):
+        prompt_store.put_split(split_record)
+
+
+def test_candidate_split_and_family_reopen_projection_on_every_write(
+    tmp_path: Path,
+) -> None:
+    prompt_store = store(tmp_path)
+    split_record = split()
+    candidate_record = candidate(split_record=split_record)
+    family_record = family(split_record)
+    prompt_store.put_candidate(candidate_record)
+    prompt_store.put_split(split_record)
+    with sqlite3.connect(prompt_store.db_path) as conn:
+        conn.execute("DELETE FROM prompt_training_projections_v1")
+
+    for write in (
+        lambda: prompt_store.put_candidate(candidate_record),
+        lambda: prompt_store.put_split(split_record),
+        lambda: prompt_store.put_family(family_record),
+    ):
+        with pytest.raises(ValueError, match="training_projection_not_found"):
+            write()
+
+
+def test_candidate_publication_is_hash_bound_idempotent_and_one_to_one(
+    tmp_path: Path,
+) -> None:
+    prompt_store = store(tmp_path)
+    candidate_record = candidate()
+    publication = candidate_publication(candidate_record)
+
+    with pytest.raises(ValueError, match="publication_candidate_not_found"):
+        prompt_store.put_candidate_publication(publication)
+
+    prompt_store.put_candidate(candidate_record)
+    assert prompt_store.put_candidate_publication(publication) == publication
+    assert prompt_store.put_candidate_publication(publication) == publication
+    assert prompt_store.get_candidate_publication("candidate-1") == publication
+
+    changed_body = {
+        **publication,
+        "candidatePromptCommit": "e" * 40,
+    }
+    changed = {
+        **changed_body,
+        "publicationHash": canonical_hash(
+            {key: value for key, value in changed_body.items() if key != "publicationHash"}
+        ),
+    }
+    with pytest.raises(ValueError, match="prompt_optimizer_id_conflict:candidate-1"):
+        prompt_store.put_candidate_publication(changed)
+
+
+def test_candidate_publication_rejects_candidate_or_publication_hash_drift(
+    tmp_path: Path,
+) -> None:
+    prompt_store = store(tmp_path)
+    candidate_record = candidate()
+    prompt_store.put_candidate(candidate_record)
+    publication = candidate_publication(candidate_record)
+
+    stale_candidate_body = {**publication, "candidateHash": HASH_A}
+    stale_candidate = {
+        **stale_candidate_body,
+        "publicationHash": canonical_hash(
+            {
+                key: value
+                for key, value in stale_candidate_body.items()
+                if key != "publicationHash"
+            }
+        ),
+    }
+    with pytest.raises(ValueError, match="publication_candidate_hash_mismatch"):
+        prompt_store.put_candidate_publication(stale_candidate)
+
+    with pytest.raises(ValueError, match="publication_hash_mismatch"):
+        prompt_store.put_candidate_publication(
+            {**publication, "publicationHash": HASH_B}
+        )
+
+
+def test_experiment_requires_the_persisted_candidate_publication(
+    tmp_path: Path,
+) -> None:
+    prompt_store = store(tmp_path)
+    split_record = split()
+    candidate_record = candidate(split_record=split_record)
+    family_record = family(split_record)
+    prompt_store.put_candidate(candidate_record)
+    prompt_store.put_split(split_record)
+    prompt_store.put_family(family_record)
+    experiment_record = experiment(family_record, candidate_record)
+
+    with pytest.raises(ValueError, match="candidate_publication_not_found"):
+        prompt_store.put_experiment(experiment_record)
+
+    prompt_store.put_candidate_publication(candidate_publication(candidate_record))
+    drifted = recanonicalize_experiment(
+        {**experiment_record, "candidatePromptCommit": "e" * 40}
+    )
+    with pytest.raises(ValueError, match="candidate_publication_mismatch"):
+        prompt_store.put_experiment(drifted)
 
 
 def validation_sample_id(split_record: dict[str, object]) -> str:
@@ -608,6 +888,45 @@ def test_complete_experiment_cannot_be_inserted_without_runs(tmp_path: Path) -> 
     _, family_record, candidates = register(prompt_store)
     with pytest.raises(ValueError, match="initial_status_invalid"):
         prompt_store.put_experiment(experiment(family_record, candidates[0], "COMPLETE"))
+
+
+@pytest.mark.parametrize(
+    "invalid_status",
+    ["VALIDATION_COMPLETE", "HOLDOUT_RUNNING", "COMPLETE"],
+)
+def test_pending_experiment_rejects_non_adjacent_transitions(
+    tmp_path: Path,
+    invalid_status: str,
+) -> None:
+    prompt_store = store(tmp_path)
+    _, family_record, candidates = register(prompt_store)
+    pending = experiment(family_record, candidates[0])
+    prompt_store.put_experiment(pending)
+
+    with pytest.raises(
+        ValueError,
+        match=f"transition_invalid:PENDING:{invalid_status}",
+    ):
+        prompt_store.put_experiment(
+            experiment(family_record, candidates[0], invalid_status)
+        )
+
+
+def test_run_cannot_complete_without_a_persisted_claim(tmp_path: Path) -> None:
+    prompt_store = store(tmp_path)
+    split_record, family_record, candidates = register(prompt_store)
+    pending = experiment(family_record, candidates[0])
+    prompt_store.put_experiment(pending)
+    prompt_store.put_experiment({**pending, "status": "VALIDATION_RUNNING"})
+    unclaimed = run_proposal(
+        str(pending["experimentId"]),
+        "VALIDATION",
+        "CHAMPION",
+        validation_sample_id(split_record),
+    )
+
+    with pytest.raises(ValueError, match="run_must_be_claimed"):
+        prompt_store.put_run(complete_run(unclaimed))
 
 
 def test_atomic_run_claim_uses_database_clock_and_has_one_winner(tmp_path: Path) -> None:
@@ -970,6 +1289,96 @@ def test_store_recomputes_authorized_validation_winner_with_jcs_policy_hash(
     assert stored_winner["holdoutOpenedAt"] != winner["holdoutOpenedAt"]
 
 
+def test_complete_experiment_rejects_a_second_holdout_consumer(
+    tmp_path: Path,
+) -> None:
+    prompt_store = store(tmp_path)
+    split_record, family_record, candidates = register(prompt_store)
+    pending = experiment(family_record, candidates[0])
+    prompt_store.put_experiment(pending)
+    running = {**pending, "status": "VALIDATION_RUNNING"}
+    prompt_store.put_experiment(running)
+    validation_runs = complete_partition(
+        prompt_store,
+        running,
+        "VALIDATION",
+        split_record["validation"]["samples"],
+    )
+    validation_ids = sorted(str(run["runId"]) for run in validation_runs)
+    validation_complete = experiment(
+        family_record,
+        candidates[0],
+        "VALIDATION_COMPLETE",
+        validation_ids,
+    )
+    prompt_store.put_experiment(validation_complete)
+    holdout_running = experiment(
+        family_record,
+        candidates[0],
+        "HOLDOUT_RUNNING",
+        validation_ids,
+    )
+    holdout_running = prompt_store.put_experiment(
+        holdout_running,
+        promotion_policy(split_record),
+    )
+    holdout_runs = complete_partition(
+        prompt_store,
+        holdout_running,
+        "HOLDOUT",
+        split_record["holdout"]["samples"],
+    )
+    conflicting_candidate = candidate(
+        "candidate-conflicting-consumer",
+        split_record=split_record,
+    )
+    prompt_store.put_candidate(conflicting_candidate)
+    prompt_store.put_candidate_publication(
+        candidate_publication(conflicting_candidate)
+    )
+    conflicting_experiment = experiment(
+        family_record,
+        conflicting_candidate,
+        "HOLDOUT_RUNNING",
+        validation_ids,
+    )
+    with sqlite3.connect(prompt_store.db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO prompt_experiments_v3 (
+                experiment_id, candidate_id, family_id, status,
+                dataset_split_manifest_hash, model_config_hash, tool_config_hash,
+                evaluator_version, evaluator_config_hash, code_commit,
+                record_json, created_at, completed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            """,
+            (
+                conflicting_experiment["experimentId"],
+                conflicting_candidate["candidateId"],
+                family_record["familyId"],
+                conflicting_experiment["status"],
+                conflicting_experiment["datasetSplitManifestHash"],
+                conflicting_experiment["modelConfigHash"],
+                conflicting_experiment["toolConfigHash"],
+                conflicting_experiment["evaluatorVersion"],
+                conflicting_experiment["evaluatorConfigHash"],
+                conflicting_experiment["codeCommit"],
+                canonical_json(conflicting_experiment),
+                conflicting_experiment["createdAt"],
+            ),
+        )
+    completed = experiment(
+        family_record,
+        candidates[0],
+        "COMPLETE",
+        [str(run["runId"]) for run in validation_runs + holdout_runs],
+    )
+    completed["holdoutOpenedAt"] = holdout_running["holdoutOpenedAt"]
+
+    with pytest.raises(ValueError, match="holdout_consumer_conflict"):
+        prompt_store.put_experiment(completed)
+
+
 def test_validation_aggregate_is_recomputed_from_accepted_runs(tmp_path: Path) -> None:
     prompt_store = store(tmp_path)
     split_record, family_record, candidates = register(prompt_store)
@@ -1002,7 +1411,14 @@ def test_family_is_an_immutable_manifest_not_a_mutable_selection_record(tmp_path
 def test_holdout_snapshot_cannot_be_reused_under_a_changed_training_split(tmp_path: Path) -> None:
     prompt_store = store(tmp_path)
     register(prompt_store)
-    changed_split = split(training_projection_hash=HASH_A)
+    changed_projection = training_projection(
+        projection_id="projection-china-changed-split",
+        dataset_snapshot_hash=HASH_B,
+    )
+    prompt_store.put_training_projection(changed_projection)
+    changed_split = split(
+        training_projection_hash=str(changed_projection["projectionHash"])
+    )
     changed_candidate = candidate("candidate-2", split_record=changed_split)
     prompt_store.put_candidate(changed_candidate)
     prompt_store.put_split(changed_split)
@@ -1014,9 +1430,14 @@ def test_family_rejects_candidate_training_or_reserved_sample_drift(tmp_path: Pa
     prompt_store = store(tmp_path)
     split_record = split()
     prompt_store.put_split(split_record)
+    changed_projection = training_projection(
+        projection_id="projection-china-family-drift",
+        dataset_snapshot_hash=HASH_B,
+    )
+    prompt_store.put_training_projection(changed_projection)
     training_drift = {
         **candidate("candidate-training-drift", split_record=split_record),
-        "trainingProjectionHash": HASH_A,
+        "trainingProjectionHash": changed_projection["projectionHash"],
     }
     prompt_store.put_candidate(training_drift)
     with pytest.raises(ValueError, match="training_split_mismatch"):
@@ -1025,9 +1446,8 @@ def test_family_rejects_candidate_training_or_reserved_sample_drift(tmp_path: Pa
         **candidate("candidate-exclusion-drift", split_record=split_record),
         "excludedSampleIdsHash": HASH_A,
     }
-    prompt_store.put_candidate(exclusion_drift)
-    with pytest.raises(ValueError, match="training_split_mismatch"):
-        prompt_store.put_family(family(split_record, ["candidate-exclusion-drift"]))
+    with pytest.raises(ValueError, match="candidate_training_projection_mismatch"):
+        prompt_store.put_candidate(exclusion_drift)
 
 
 def test_python_boundary_replays_split_experiment_and_run_semantics(tmp_path: Path) -> None:
@@ -1098,13 +1518,17 @@ def test_store_accepts_only_manifest_owned_agent_stages(tmp_path: Path) -> None:
             if agent["agent"] == "cio" and stage["stage"] == "cio_proposal":
                 continue
             candidate_id = f"candidate-{agent['agent']}-{stage['stage']}"
+            target = {
+                "agentId": agent["agent"],
+                "stage": stage["stage"],
+                "cohort": "cohort_default",
+            }
+            projection = training_projection(target=target)
+            prompt_store.put_training_projection(projection)
             record = {
                 **candidate(candidate_id),
-                "target": {
-                    "agentId": agent["agent"],
-                    "stage": stage["stage"],
-                    "cohort": "cohort_default",
-                },
+                "target": target,
+                "trainingProjectionHash": projection["projectionHash"],
             }
             assert prompt_store.put_candidate(record) == record
             accepted += 1
@@ -1162,6 +1586,22 @@ def test_store_binds_evaluator_and_sibling_experiment_environment(tmp_path: Path
     with pytest.raises(ValueError, match="family_environment_drift"):
         prompt_store.put_experiment(environment_drift)
 
+    execution_release_drift = recanonicalize_experiment(
+        {
+            **experiment(family_record, candidates[1]),
+            "executionBehaviorRelease": {
+                "release_id": f"execution-behavior-release:{'b' * 64}",
+                "release_hash": HASH_B,
+                "archive_ref": (
+                    "registry/prompt_checks/execution_behavior_releases/"
+                    f"{'b' * 64}--{'b' * 64}.json"
+                ),
+            },
+        }
+    )
+    with pytest.raises(ValueError, match="family_environment_drift"):
+        prompt_store.put_experiment(execution_release_drift)
+
 
 def test_store_rejects_noncanonical_family_order_and_unfrozen_run_coordinates(
     tmp_path: Path,
@@ -1174,6 +1614,7 @@ def test_store_rejects_noncanonical_family_order_and_unfrozen_run_coordinates(
     ]
     for record in candidates:
         prompt_store.put_candidate(record)
+        prompt_store.put_candidate_publication(candidate_publication(record))
     prompt_store.put_split(split_record)
     canonical_family = family(
         split_record, [str(record["candidateId"]) for record in candidates]
@@ -1365,6 +1806,45 @@ def test_generated_schema_and_semantics_reject_private_or_free_form_text(tmp_pat
         prompt_store.put_candidate(
             {**candidate(), "mutationSummary": "private evidence prose"}
         )
+
+
+@pytest.mark.parametrize(
+    ("changes", "reason"),
+    [
+        (
+            {
+                "mutationCategories": [
+                    "CONFLICT_RESOLUTION",
+                    "CONFLICT_RESOLUTION",
+                ]
+            },
+            "mutation_categories_not_canonical",
+        ),
+        ({"hypothesis": "free-form private hypothesis"}, "hypothesis_not_safe_projection"),
+        ({"privateLineageHash": "not-a-sha256"}, "schema_invalid"),
+        ({"privateStateArtifactHash": "sha256:short"}, "schema_invalid"),
+        (
+            {"promptHashes": {"zh": "sha256:" + "A" * 64, "en": HASH_B}},
+            "schema_invalid",
+        ),
+    ],
+    ids=[
+        "duplicate_mutation_category",
+        "free_form_hypothesis",
+        "invalid_private_lineage_hash",
+        "invalid_private_state_hash",
+        "invalid_prompt_hash",
+    ],
+)
+def test_candidate_rejects_invalid_mutation_or_hash_contracts(
+    tmp_path: Path,
+    changes: dict[str, object],
+    reason: str,
+) -> None:
+    prompt_store = store(tmp_path)
+
+    with pytest.raises(ValueError, match=reason):
+        prompt_store.put_candidate({**candidate(), **changes})
 
 
 def test_store_rejects_surrounding_whitespace_without_normalizing_ids_or_refs(

@@ -213,13 +213,14 @@ stress-test lenses; mutator and promotion-policy configuration stays outside
 model-visible Prompt text, while Darwinian ranks, endpoint catalogs, and
 handwritten JSON schemas are never injected into it.
 
-Each content-addressed `execution_behavior_releases/*.json` v3 archive binds the
-private commit/bootstrap tree, 16 cohort/language rosters, and 56
-Agent/language execution contracts. Generation validates all 448 private prompts
-but does not persist their derivable per-cohort rows. The active Prompt Release
-selects one archive and its 28 bilingual prompt pairs; it is the only production
-authority. Production fails closed on a missing file, commit, content, language,
-provider/model, schema, tool, or release mismatch.
+Each content-addressed `execution_behavior_releases/*.json` v4 archive binds the
+provider, 16 cohort/language production rosters, and 56 Agent/language execution
+contracts, including the exact runtime schema, tool, repair, and phase directives.
+It is execution-only: the token-budget manifest and private-boundary verifier
+separately bind the private Prompt commit, bootstrap state, and all 448 private
+Prompt variants. The active Prompt Release selects both authorities and its 28
+bilingual prompt pairs. Production fails closed on a missing file, commit,
+content, language, provider/model, schema, tool, directive, or release mismatch.
 Release and token-budget builders resolve every recorded Git revision and reject
 tracked or untracked changes inside the measured prompt subtree. Unrelated
 working-tree changes outside that subtree do not invalidate the attribution;

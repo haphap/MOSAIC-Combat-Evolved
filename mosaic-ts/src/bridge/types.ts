@@ -23,6 +23,7 @@ import type {
   DatasetSplitManifest,
   PromptCandidate,
   PromptCandidateFamily,
+  PromptCandidatePublication,
   PromptExperiment,
   PromptExperimentRun,
   PromptTrainingProjection,
@@ -2527,6 +2528,25 @@ export class BridgeApi {
 
   // autoresearch.* (Phase 4C/4D)
 
+  promptOptimizerPutTrainingProjection(
+    record: PromptTrainingProjection,
+  ): Promise<PromptTrainingProjection> {
+    return this.client.call<PromptTrainingProjection>("prompt_optimizer.put_training_projection", {
+      record,
+    });
+  }
+
+  promptOptimizerGetTrainingProjection(
+    projectionHash: string,
+  ): Promise<PromptTrainingProjection | null> {
+    return this.client
+      .call<{ record: PromptTrainingProjection | null }>(
+        "prompt_optimizer.get_training_projection",
+        { projection_hash: projectionHash },
+      )
+      .then((result) => result.record);
+  }
+
   promptOptimizerPutCandidate(record: PromptCandidate): Promise<PromptCandidate> {
     return this.client.call<PromptCandidate>("prompt_optimizer.put_candidate", { record });
   }
@@ -2536,6 +2556,26 @@ export class BridgeApi {
       .call<{ record: PromptCandidate | null }>("prompt_optimizer.get_candidate", {
         candidate_id: candidateId,
       })
+      .then((result) => result.record);
+  }
+
+  promptOptimizerPutCandidatePublication(
+    record: PromptCandidatePublication,
+  ): Promise<PromptCandidatePublication> {
+    return this.client.call<PromptCandidatePublication>(
+      "prompt_optimizer.put_candidate_publication",
+      { record },
+    );
+  }
+
+  promptOptimizerGetCandidatePublication(
+    candidateId: string,
+  ): Promise<PromptCandidatePublication | null> {
+    return this.client
+      .call<{ record: PromptCandidatePublication | null }>(
+        "prompt_optimizer.get_candidate_publication",
+        { candidate_id: candidateId },
+      )
       .then((result) => result.record);
   }
 

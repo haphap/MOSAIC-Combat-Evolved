@@ -42,7 +42,7 @@ function release(
   const active = lifecycleState === "active";
   const pairs = promptPairs();
   return {
-    schema_version: "active_prompt_release_manifest_v2",
+    schema_version: "active_prompt_release_manifest_v3",
     release_id: "release-1",
     base_release_id: "release-0",
     lifecycle_state: lifecycleState,
@@ -62,6 +62,8 @@ function release(
     release_evidence: {
       candidate_id: "candidate-1",
       candidate_hash: HASH,
+      candidate_publication_hash: HASH,
+      prompt_source_id: "private-prompts",
       promotion_decision_id: "decision-1",
       promotion_decision_hash: HASH,
       experiment_id: "experiment-1",
@@ -70,6 +72,9 @@ function release(
       policy_config_hash: HASH,
       candidate_prompt_hashes: { zh: HASH, en: HASH },
       private_state_artifact_hash: HASH,
+      behavior_contract_hash: HASH,
+      mutator_commit: "1".repeat(40),
+      mutator_config_hash: HASH,
     },
     activation_scope: {
       cohort: "cohort_default",
@@ -201,6 +206,97 @@ describe("aggregate prompt release contract", () => {
         "prompt_release_immutable_closure_changed",
       );
       expect((await registry.load("release-1"))?.lifecycle_state).toBe("staged");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("serializes competing canaries and keeps identical activation retries idempotent", async () => {
+    const root = mkdtempSync(join(tmpdir(), "mosaic-release-cas-race-"));
+    const leftRegistry = new ActivePromptReleaseRegistry(root);
+    const rightRegistry = new ActivePromptReleaseRegistry(root);
+    const audit = { operator: "operator:test", reason: "CAS race fixture" };
+    const withId = (state: ActivePromptReleaseManifest["lifecycle_state"], releaseId: string) => {
+      const value = release(state);
+      value.release_id = releaseId;
+      value.base_release_id = "release-0";
+      value.previous_approved_release_id = "release-0";
+      if (value.runtime_slo_evidence) value.runtime_slo_evidence.release_id = releaseId;
+      return value;
+    };
+    const baseline = release("active");
+    baseline.release_id = "release-0";
+    baseline.base_release_id = null;
+    baseline.previous_approved_release_id = null;
+    if (!baseline.runtime_slo_evidence) throw new Error("active fixture requires SLO evidence");
+    baseline.runtime_slo_evidence.release_id = baseline.release_id;
+    try {
+      await leftRegistry.provisionBaseline(baseline, audit);
+      await leftRegistry.stage(withId("staged", "release-left"));
+      await rightRegistry.stage(withId("staged", "release-right"));
+      const race = await Promise.allSettled([
+        leftRegistry.transition(withId("canary", "release-left"), { audit }),
+        rightRegistry.transition(withId("canary", "release-right"), { audit }),
+      ]);
+      expect(race.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      const rejection = race.find((result) => result.status === "rejected");
+      expect(rejection?.status === "rejected" ? String(rejection.reason) : "").toContain(
+        "prompt_release_canary_pointer_conflict",
+      );
+      const canaryPointer = await leftRegistry.canaryPointer();
+      expect(canaryPointer.pointer_version).toBe(1);
+      const winner = canaryPointer.current_release_id;
+      if (!winner) throw new Error("CAS race did not select a canary");
+      const active = withId("active", winner);
+      await Promise.all([
+        leftRegistry.transition(active, { expectedBaseReleaseId: "release-0", audit }),
+        rightRegistry.transition(active, { expectedBaseReleaseId: "release-0", audit }),
+      ]);
+      expect(await leftRegistry.pointer()).toMatchObject({
+        current_release_id: winner,
+        pointer_version: 2,
+      });
+      expect(await rightRegistry.canaryPointer()).toMatchObject({
+        current_release_id: null,
+        pointer_version: 2,
+      });
+
+      const successorStaged = withId("staged", "release-successor");
+      successorStaged.base_release_id = winner;
+      successorStaged.previous_approved_release_id = winner;
+      await leftRegistry.stage(successorStaged);
+      const successorCanary = withId("canary", "release-successor");
+      successorCanary.base_release_id = winner;
+      successorCanary.previous_approved_release_id = winner;
+      await leftRegistry.transition(successorCanary, { audit });
+      const successorActive = withId("active", "release-successor");
+      successorActive.base_release_id = winner;
+      successorActive.previous_approved_release_id = winner;
+      await expect(
+        rightRegistry.transition(successorActive, {
+          expectedBaseReleaseId: "release-0",
+          audit,
+        }),
+      ).rejects.toThrow("prompt_release_active_pointer_compare_and_swap_failed");
+      expect(await leftRegistry.pointer()).toMatchObject({ current_release_id: winner });
+      expect((await leftRegistry.load("release-successor"))?.lifecycle_state).toBe("canary");
+
+      await leftRegistry.transition(successorActive, {
+        expectedBaseReleaseId: winner,
+        audit,
+      });
+      const staleRollback: ActivePromptReleaseManifest = {
+        ...active,
+        lifecycle_state: "rolled_back",
+        rolled_back_at: "2026-07-10T03:00:00Z",
+      };
+      await expect(rightRegistry.transition(staleRollback, { audit })).rejects.toThrow(
+        "prompt_release_rollback_pointer_compare_and_swap_failed",
+      );
+      expect(await leftRegistry.pointer()).toMatchObject({
+        current_release_id: "release-successor",
+      });
+      expect((await leftRegistry.load(winner))?.lifecycle_state).toBe("active");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

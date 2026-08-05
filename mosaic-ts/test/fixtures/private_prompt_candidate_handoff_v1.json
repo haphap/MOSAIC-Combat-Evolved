@@ -85,9 +85,8 @@
       },
       "candidate": {
         "schemaVersion": "prompt_candidate_v1",
-        "candidateId": "candidate-0b38a91f40e5424c7eef6707",
         "parentId": "champion-handoff-v1",
-        "parentPromptCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+        "parentPromptCommit": "3333333333333333333333333333333333333333",
         "parentPromptHashes": {
           "zh": "sha256:c2971f7a0cb12df183a70221310464c0645e702d267a8ca680ab7167d104658b",
           "en": "sha256:1e2c8094261fcd75e53af46d8c60f7f64de6fe9b0063c1aa5c678ed60f88fbe2"
@@ -108,14 +107,15 @@
         "trainingProjectionHash": "sha256:44e1893f02616c016e3b73ac28c83676e72b839b8c73180ba33187c2200f71df",
         "excludedSampleIdsHash": "sha256:f3f308b6c10de1ceca39841aac98a7112d6fe3618f092664b7a24fb836ffd249",
         "mutatorConfigHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-        "mutatorCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+        "mutatorCommit": "3333333333333333333333333333333333333333",
         "mutationCategories": ["CONFLICT_RESOLUTION"],
         "mutationSummary": "Behavior focus: CONFLICT_RESOLUTION.",
         "hypothesis": "Preregistered hypothesis: CONFLICT_RESOLUTION improves the frozen Agent outcome score.",
         "behaviorContractHash": "sha256:9253ed793a2bd30325a028d731807de42c2c336c562462a49586f6b6a8914571",
-        "privateLineageHash": "sha256:478b42b122d7b1218a7216ff3fb473f76fb6394eecf4bde8dc6e6cfa3cba05de",
+        "privateLineageHash": "sha256:c41e08ed2a8acaf82163d8a450fbae5627d5e844080bfc3ff08ca220a72e834a",
         "privateStateArtifactHash": "sha256:6261b0dc8b3456f1c8255235dfd472e1776657a6173ce224c86bb3b54954c6b6",
-        "createdAt": "2025-04-01T00:00:00Z"
+        "createdAt": "2025-04-01T00:00:00Z",
+        "candidateId": "candidate-284d73358e7915cb2fb517f9"
       }
     },
     {
@@ -202,9 +202,8 @@
       },
       "candidate": {
         "schemaVersion": "prompt_candidate_v1",
-        "candidateId": "candidate-0a0112ad43fe39425fd30a11",
         "parentId": "champion-handoff-v1",
-        "parentPromptCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+        "parentPromptCommit": "3333333333333333333333333333333333333333",
         "parentPromptHashes": {
           "zh": "sha256:c2971f7a0cb12df183a70221310464c0645e702d267a8ca680ab7167d104658b",
           "en": "sha256:1e2c8094261fcd75e53af46d8c60f7f64de6fe9b0063c1aa5c678ed60f88fbe2"
@@ -225,14 +224,15 @@
         "trainingProjectionHash": "sha256:d64a260e0372c5e5d90890c332b1ba699c657ff980837faa5837d4c02326ec2c",
         "excludedSampleIdsHash": "sha256:f3f308b6c10de1ceca39841aac98a7112d6fe3618f092664b7a24fb836ffd249",
         "mutatorConfigHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-        "mutatorCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+        "mutatorCommit": "3333333333333333333333333333333333333333",
         "mutationCategories": ["CONFLICT_RESOLUTION"],
         "mutationSummary": "Behavior focus: CONFLICT_RESOLUTION.",
         "hypothesis": "Preregistered hypothesis: CONFLICT_RESOLUTION improves the frozen Agent outcome score.",
         "behaviorContractHash": "sha256:9253ed793a2bd30325a028d731807de42c2c336c562462a49586f6b6a8914571",
-        "privateLineageHash": "sha256:b16aab06fa02422f51831e9289123d916acb40e7fd3dd0712a564497f52eb6c6",
+        "privateLineageHash": "sha256:eadd97bde623b0b8063df65b1d49604302ed9c9d5150e18cb0d329738272c5cd",
         "privateStateArtifactHash": "sha256:1128e0ad20e705587376d38b0ffedd6fc1cb35d818cf443fd4f3b8674244ec8e",
-        "createdAt": "2025-04-01T00:00:00Z"
+        "createdAt": "2025-04-01T00:00:00Z",
+        "candidateId": "candidate-ffde6ecd893f20fb55893082"
       }
     },
     {
@@ -319,9 +319,8 @@
       },
       "candidate": {
         "schemaVersion": "prompt_candidate_v1",
-        "candidateId": "candidate-b4c4fbd96a3a16dbe822dac7",
         "parentId": "champion-handoff-v1",
-        "parentPromptCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+        "parentPromptCommit": "3333333333333333333333333333333333333333",
         "parentPromptHashes": {
           "zh": "sha256:c2971f7a0cb12df183a70221310464c0645e702d267a8ca680ab7167d104658b",
           "en": "sha256:1e2c8094261fcd75e53af46d8c60f7f64de6fe9b0063c1aa5c678ed60f88fbe2"
@@ -342,14 +341,15 @@
         "trainingProjectionHash": "sha256:6082f89a4dd70c2f340b3f8f3fb252835fc4b84faa28cbc147f28b6729e6bc74",
         "excludedSampleIdsHash": "sha256:f3f308b6c10de1ceca39841aac98a7112d6fe3618f092664b7a24fb836ffd249",
         "mutatorConfigHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-        "mutatorCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+        "mutatorCommit": "3333333333333333333333333333333333333333",
         "mutationCategories": ["CONFLICT_RESOLUTION"],
         "mutationSummary": "Behavior focus: CONFLICT_RESOLUTION.",
         "hypothesis": "Preregistered hypothesis: CONFLICT_RESOLUTION improves the frozen Agent outcome score.",
         "behaviorContractHash": "sha256:9253ed793a2bd30325a028d731807de42c2c336c562462a49586f6b6a8914571",
-        "privateLineageHash": "sha256:791ab29c689cb218755f666b799e121a52d8104bb9a2423143c1553c3b7c7b2e",
+        "privateLineageHash": "sha256:0ca95630903f4e520d2de665bc3fbd5215909abc9aa8b9b5046ee11cfb80821f",
         "privateStateArtifactHash": "sha256:a0aedb03b6f40d1fc46d7e1953ae45aeea20e202cb14ff838bee522771299746",
-        "createdAt": "2025-04-01T00:00:00Z"
+        "createdAt": "2025-04-01T00:00:00Z",
+        "candidateId": "candidate-0fbbb60e94e7ddbbabf0e15a"
       }
     },
     {
@@ -420,68 +420,67 @@
         "controlledExperiments": [
           {
             "candidateId": "historical-semiconductor-direct-001-0",
-            "candidatePrivateLineageHash": "sha256:54f163afa0b17926d0375cf722c366ebe23eca0401fe035d9e18d11aadd16614",
+            "candidatePrivateLineageHash": "sha256:b4133a66b31fd561195263ba04dc4bcccd4078620f198caf918ad1f071fbf3de",
             "experimentId": "historical-experiment-semiconductor-direct-001-0",
             "status": "COMPLETE",
             "evaluatorVersion": "score_semiconductor_direction_pick_v3",
             "evaluatorConfigHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "executorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "evaluatorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "codeCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+            "codeCommit": "4444444444444444444444444444444444444444",
             "pairDeltas": [0.2, 0.1],
             "failureCaseRefs": [],
             "completedAt": "2025-01-20T00:00:00Z"
           },
           {
             "candidateId": "historical-semiconductor-direct-001-1",
-            "candidatePrivateLineageHash": "sha256:2c22c54a1ac27b884131a0dea7f10bcf172d859546e2284d345384cef961d410",
+            "candidatePrivateLineageHash": "sha256:5aa8bff3a0386127e88b85d383d4f403d9286480222007f3d16cdf565b8689b8",
             "experimentId": "historical-experiment-semiconductor-direct-001-1",
             "status": "COMPLETE",
             "evaluatorVersion": "score_semiconductor_direction_pick_v3",
             "evaluatorConfigHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "executorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "evaluatorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "codeCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+            "codeCommit": "4444444444444444444444444444444444444444",
             "pairDeltas": [0.2, 0.1],
             "failureCaseRefs": [],
             "completedAt": "2025-01-20T00:00:00Z"
           },
           {
             "candidateId": "historical-semiconductor-direct-001-2",
-            "candidatePrivateLineageHash": "sha256:2d3e716b9ec9fabc4e4b22a658da4968af61db4816356957bba16a590efb0158",
+            "candidatePrivateLineageHash": "sha256:4213609fa08812da8f274f5d18bfb4cfd01920c39ee569fa1a37ea80e2ebacab",
             "experimentId": "historical-experiment-semiconductor-direct-001-2",
             "status": "COMPLETE",
             "evaluatorVersion": "score_semiconductor_direction_pick_v3",
             "evaluatorConfigHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "executorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "evaluatorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "codeCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+            "codeCommit": "4444444444444444444444444444444444444444",
             "pairDeltas": [0.2, 0.1],
             "failureCaseRefs": [],
             "completedAt": "2025-01-20T00:00:00Z"
           },
           {
             "candidateId": "historical-semiconductor-direct-001-3",
-            "candidatePrivateLineageHash": "sha256:6a0d1c5c6c8a48994f376d77083d1a101b5a491f6a5539afd226bae6211f5dfd",
+            "candidatePrivateLineageHash": "sha256:4a8556db816170b837fe8077acdfddde53eb9a8c9c164f7d1ddd7cc6886c78b6",
             "experimentId": "historical-experiment-semiconductor-direct-001-3",
             "status": "COMPLETE",
             "evaluatorVersion": "score_semiconductor_direction_pick_v3",
             "evaluatorConfigHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "executorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "evaluatorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "codeCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+            "codeCommit": "4444444444444444444444444444444444444444",
             "pairDeltas": [0.2, 0.1],
             "failureCaseRefs": [],
             "completedAt": "2025-01-20T00:00:00Z"
           }
         ],
-        "projectionHash": "sha256:3e3b61d72016b6c2d5786c4caaa9b1e95baca5af1129448880b64620af6f5adb"
+        "projectionHash": "sha256:864f429b13e3b44bf5d42046c2722badfcc869039ad6ac281b2d0c900f986bed"
       },
       "candidate": {
         "schemaVersion": "prompt_candidate_v1",
-        "candidateId": "candidate-1f98973a8d998cadd6c2c2ad",
         "parentId": "champion-handoff-v1",
-        "parentPromptCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+        "parentPromptCommit": "3333333333333333333333333333333333333333",
         "parentPromptHashes": {
           "zh": "sha256:ecdf2ec014c19dd203d4dcf21e679d70be4a0e50cc1272e0ea8286c1a54a4c2c",
           "en": "sha256:4d17e768cd7b06eff2840c5aa70f4754e0cb70e1bdc2c124eae21054bb7d2f02"
@@ -499,17 +498,18 @@
           "zh": "sha256:a9dfebfa06fb7442164d0c81335d9c20467125921050b60ef3d299388c0c85be",
           "en": "sha256:6a8483ed929a678a8c3cad849099cefb962263f32545635d397eb4eb97e8fd98"
         },
-        "trainingProjectionHash": "sha256:3e3b61d72016b6c2d5786c4caaa9b1e95baca5af1129448880b64620af6f5adb",
+        "trainingProjectionHash": "sha256:864f429b13e3b44bf5d42046c2722badfcc869039ad6ac281b2d0c900f986bed",
         "excludedSampleIdsHash": "sha256:f3f308b6c10de1ceca39841aac98a7112d6fe3618f092664b7a24fb836ffd249",
         "mutatorConfigHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-        "mutatorCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+        "mutatorCommit": "3333333333333333333333333333333333333333",
         "mutationCategories": ["CONFLICT_RESOLUTION"],
         "mutationSummary": "Behavior focus: CONFLICT_RESOLUTION.",
         "hypothesis": "Preregistered hypothesis: CONFLICT_RESOLUTION improves the frozen Agent outcome score.",
         "behaviorContractHash": "sha256:589baf7f8901c375eaaf8ab9cfbec39ba27597b16ef03cc6dab0a4b0e5a48316",
-        "privateLineageHash": "sha256:5b9960719fbc95b8d30a6d396b53644ead694094a07f5fae7e7213dbdfd1cc3e",
+        "privateLineageHash": "sha256:85b2708c9c3d4737bbdabd3042304a93fc07d47efbf190ebea40f94318dcbafa",
         "privateStateArtifactHash": "sha256:8ef1a912a28149caa2f66bbc5c3c7a77401ac3b49ea989713098b492f8d5f60e",
-        "createdAt": "2025-04-01T00:00:00Z"
+        "createdAt": "2025-04-01T00:00:00Z",
+        "candidateId": "candidate-8f38817201cae10e1971283d"
       }
     }
   ]

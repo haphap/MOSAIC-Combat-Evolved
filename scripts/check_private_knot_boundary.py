@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -20,6 +21,12 @@ PROMPT_RELEASE_CONTRACT_REF_PATH = (
     PROMPT_CHECKS / "prompt_release_contract_ref_v2.json"
 )
 EXECUTION_RELEASE_ARCHIVE_ROOT = PROMPT_CHECKS / "execution_behavior_releases"
+PROMPT_TOKEN_BUDGET_MANIFEST_PATH = (
+    PROMPT_CHECKS / "prompt_token_budget_manifest_v1.json"
+)
+PRIVATE_PROMPT_BOOTSTRAP_PATH = Path(
+    "registry/knot/prompt_parameter_bootstrap_release_v1.json"
+)
 PUBLIC_LEGACY_INVENTORY_PATH = ROOT / "registry" / "knot" / "legacy_read_only_v2.json"
 PRIVATE_LEGACY_INVENTORY_PATH = Path("registry/knot/legacy_read_only_v1.json")
 PRIVATE_PACKAGE_PATH = Path("runtime/typescript/package.json")
@@ -187,7 +194,16 @@ def _normalized_text(value: str) -> str:
 
 def _tracked_public_texts(public_root: Path) -> list[tuple[str, str, str]]:
     result = subprocess.run(
-        ["git", "-C", str(public_root), "ls-files", "-z"],
+        [
+            "git",
+            "-C",
+            str(public_root),
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+        ],
         check=True,
         capture_output=True,
     )
@@ -201,7 +217,7 @@ def _tracked_public_texts(public_root: Path) -> list[tuple[str, str, str]]:
         try:
             path.resolve().relative_to(root)
         except ValueError as exc:
-            raise ValueError("tracked public path escapes repository") from exc
+            raise ValueError("public path escapes repository") from exc
         if not path.is_file():
             continue
         try:
@@ -305,7 +321,7 @@ def _check_cross_repository_content_boundary(
             )
 
 
-def _execution_release_private_commit() -> str:
+def _check_execution_release() -> Mapping[str, str]:
     contract_ref = _read_object(
         PROMPT_RELEASE_CONTRACT_REF_PATH, "Prompt Release contract ref"
     )
@@ -340,30 +356,19 @@ def _execution_release_private_commit() -> str:
         "schema_version",
         "execution_behavior_release_id",
         "execution_behavior_release_hash",
-        "private_prompt_commit",
-        "private_prompt_bootstrap",
         "provider_binding",
         "active_production_variants",
         "execution_contracts",
     }
-    private_commit = release.get("private_prompt_commit")
     if (
         set(release) != expected_keys
-        or release.get("schema_version") != "execution_behavior_release_manifest_v3"
+        or release.get("schema_version") != "execution_behavior_release_manifest_v4"
         or release.get("execution_behavior_release_id") != release_id
         or release.get("execution_behavior_release_hash") != release_hash
-        or not isinstance(private_commit, str)
-        or re.fullmatch(r"[0-9a-f]{40}", private_commit) is None
     ):
         raise ValueError("execution behavior release archive identity mismatch")
-    bootstrap = _mapping(
-        release.get("private_prompt_bootstrap"), "private Prompt bootstrap"
-    )
     if (
-        bootstrap.get("schema_version")
-        != "private_prompt_parameter_bootstrap_release_v1"
-        or bootstrap.get("state_count") != 224
-        or not isinstance(release.get("active_production_variants"), list)
+        not isinstance(release.get("active_production_variants"), list)
         or len(release["active_production_variants"]) != 16
         or not isinstance(release.get("execution_contracts"), list)
         or len(release["execution_contracts"]) != 56
@@ -374,8 +379,6 @@ def _execution_release_private_commit() -> str:
         for key in (
             "schema_version",
             "execution_behavior_release_id",
-            "private_prompt_commit",
-            "private_prompt_bootstrap",
             "provider_binding",
             "active_production_variants",
             "execution_contracts",
@@ -387,8 +390,6 @@ def _execution_release_private_commit() -> str:
         key: release[key]
         for key in (
             "schema_version",
-            "private_prompt_commit",
-            "private_prompt_bootstrap",
             "provider_binding",
             "active_production_variants",
             "execution_contracts",
@@ -400,7 +401,130 @@ def _execution_release_private_commit() -> str:
     )
     if expected_release_id != release_id:
         raise ValueError("execution behavior release ID mismatch")
+    return {
+        "archive_ref": archive_ref,
+        "release_id": release_id,
+        "release_hash": release_hash,
+    }
+
+
+def _private_prompt_build_commit() -> str:
+    manifest = _read_object(
+        PROMPT_TOKEN_BUDGET_MANIFEST_PATH, "Prompt token budget manifest"
+    )
+    if manifest.get("schema_version") != "prompt_token_budget_manifest_v1":
+        raise ValueError("Prompt token budget manifest version mismatch")
+    source_commits = _mapping(
+        manifest.get("source_commits"), "Prompt token budget source commits"
+    )
+    private_commit = source_commits.get("private")
+    if (
+        set(source_commits) != {"private", "bundled"}
+        or not isinstance(private_commit, str)
+        or re.fullmatch(r"[0-9a-f]{40}", private_commit) is None
+    ):
+        raise ValueError("Prompt token budget private commit is invalid")
     return private_commit
+
+
+def _sha256_bytes(value: bytes) -> str:
+    return f"sha256:{hashlib.sha256(value).hexdigest()}"
+
+
+def _check_private_prompt_bootstrap(private_root: Path) -> None:
+    bootstrap = _read_object(
+        private_root / PRIVATE_PROMPT_BOOTSTRAP_PATH,
+        "private Prompt bootstrap",
+    )
+    expected_keys = {
+        "schema_version",
+        "release_hash",
+        "parameter_contract_hash",
+        "behavior_contract_hash",
+        "state_tree_hash",
+        "prompt_tree_hash",
+        "state_count",
+        "agent_count",
+        "cohort_count",
+        "prompt_count",
+    }
+    if (
+        set(bootstrap) != expected_keys
+        or bootstrap.get("schema_version")
+        != "private_prompt_parameter_bootstrap_release_v1"
+        or bootstrap.get("state_count") != 224
+        or bootstrap.get("agent_count") != 28
+        or bootstrap.get("cohort_count") != 8
+        or bootstrap.get("prompt_count") != 448
+        or any(
+            not isinstance(bootstrap.get(key), str)
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", bootstrap[key]) is None
+            for key in (
+                "release_hash",
+                "parameter_contract_hash",
+                "behavior_contract_hash",
+                "state_tree_hash",
+                "prompt_tree_hash",
+            )
+        )
+    ):
+        raise ValueError("private Prompt bootstrap schema mismatch")
+    bootstrap_body = dict(bootstrap)
+    declared_release_hash = bootstrap_body.pop("release_hash")
+    if declared_release_hash != canonical_hash(bootstrap_body):
+        raise ValueError("private Prompt bootstrap release hash mismatch")
+
+    parameter_contract = dict(
+        _read_object(
+            private_root / "registry/knot/prompt_parameter_contract_v1.json",
+            "private Prompt parameter contract",
+        )
+    )
+    declared_parameter_hash = parameter_contract.pop("contract_hash", None)
+    if (
+        declared_parameter_hash != canonical_hash(parameter_contract)
+        or bootstrap["parameter_contract_hash"] != declared_parameter_hash
+    ):
+        raise ValueError("private Prompt parameter contract hash mismatch")
+    behavior_contract = _read_object(
+        private_root / "registry/knot/prompt_behavior_contract_v1.json",
+        "private Prompt behavior contract",
+    )
+    if bootstrap["behavior_contract_hash"] != canonical_hash(behavior_contract):
+        raise ValueError("private Prompt behavior contract hash mismatch")
+
+    prompt_paths = sorted((private_root / "prompts/mosaic").rglob("*.md"))
+    state_paths = sorted(
+        (private_root / "registry/prompt_parameter_states_v1").rglob("*.json")
+    )
+    if len(prompt_paths) != 448 or len(state_paths) != 224:
+        raise ValueError("private Prompt bootstrap roster mismatch")
+    prompt_tree_hash = canonical_hash(
+        {
+            "files": [
+                {
+                    "ref": path.relative_to(private_root).as_posix(),
+                    "content_hash": _sha256_bytes(path.read_bytes()),
+                }
+                for path in prompt_paths
+            ]
+        }
+    )
+    state_tree_hash = canonical_hash(
+        {
+            "files": [
+                {
+                    "ref": path.relative_to(private_root).as_posix(),
+                    "content_hash": _sha256_bytes(path.read_bytes()),
+                }
+                for path in state_paths
+            ]
+        }
+    )
+    if bootstrap["prompt_tree_hash"] != prompt_tree_hash:
+        raise ValueError("private Prompt bootstrap Prompt tree mismatch")
+    if bootstrap["state_tree_hash"] != state_tree_hash:
+        raise ValueError("private Prompt bootstrap state tree mismatch")
 
 
 def _check_public_boundary() -> str:
@@ -443,7 +567,8 @@ def _check_public_boundary() -> str:
                     f" {','.join(markers)}"
                 )
 
-    return _execution_release_private_commit()
+    _check_execution_release()
+    return _private_prompt_build_commit()
 
 
 def _require_private_git_state(private_root: Path, expected_commit: str) -> None:
@@ -454,7 +579,7 @@ def _require_private_git_state(private_root: Path, expected_commit: str) -> None
         text=True,
     ).stdout.strip()
     if head != expected_commit:
-        raise ValueError("private Prompt repository commit does not match public release")
+        raise ValueError("private Prompt repository commit does not match public build-source pin")
     status = subprocess.run(
         ["git", "-C", str(private_root), "status", "--porcelain"],
         check=True,
@@ -465,8 +590,12 @@ def _require_private_git_state(private_root: Path, expected_commit: str) -> None
         raise ValueError("private Prompt repository must be clean")
 
 
-def _check_private_repository(private_root: Path, expected_commit: str) -> None:
+def _check_private_repository(
+    private_root: Path,
+    expected_commit: str,
+) -> None:
     _require_private_git_state(private_root, expected_commit)
+    _check_private_prompt_bootstrap(private_root)
     package = _read_object(private_root / PRIVATE_PACKAGE_PATH, "private package")
     if package.get("name") != ACTIVE_PRIVATE_PACKAGE or package.get("private") is not True:
         raise ValueError("active private package identity mismatch")

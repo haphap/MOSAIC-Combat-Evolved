@@ -4,6 +4,9 @@ import json
 import shutil
 from pathlib import Path
 
+import pytest
+
+import mosaic.rke.prompt_evolution_delivery as delivery_module
 from mosaic.rke.prompt_evolution_delivery import (
     CHECK_IDS,
     CommandSpec,
@@ -23,6 +26,7 @@ from mosaic.rke.prompt_evolution_delivery import (
     git_value,
     internal_receipt,
     prepare_run_dir,
+    validate_delivery_artifact_schema,
     validate_delivery_status,
     verify_performance_budget,
     verify_prompt_budget_attestation,
@@ -185,12 +189,26 @@ def test_public_delivery_gate_does_not_require_private_knot_runtime(tmp_path: Pa
     assert "check-bundled-contract" in bundled.argv
     assert "check-private-knot" not in bundled.argv
     assert focused.evidence_refs == (
-        "tests/test_rke_prompt_evolution_delivery.py::test_delivery_artifact_validates_against_json_schema",
+        "tests/test_rke_prompt_evolution_delivery.py::test_delivery_verifier_enforces_json_schema",
     )
     assert focused.junit_expected_tests == 1
     assert focused.junit_minimum_tests is None
     assert specs["representative_evaluation_tests"].junit_expected_tests is None
     assert specs["representative_evaluation_tests"].junit_minimum_tests == 36
+
+
+def test_delivery_command_rejects_a_missing_declared_test_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        delivery_module,
+        "TYPESCRIPT_GATE_TESTS",
+        (*delivery_module.TYPESCRIPT_GATE_TESTS, "test/deleted.test.ts"),
+    )
+
+    with pytest.raises(FileNotFoundError, match="test/deleted.test.ts"):
+        command_specs(ROOT, tmp_path)
 
 
 def test_upstream_ci_block_propagates_without_self_assertion():
@@ -342,28 +360,29 @@ def test_exact_vitest_evidence_rejects_missing_target_assertion(tmp_path: Path):
     assert _validate_json_test_receipt(spec) == ["JSON_TEST_PASS_COUNT_MISMATCH"]
 
 
-def test_delivery_artifact_validates_against_json_schema(tmp_path: Path):
-    schema_dir = tmp_path / "schemas"
-    artifact_dir = tmp_path / "registry/prompt_checks"
-    schema_dir.mkdir(parents=True)
-    artifact_dir.mkdir(parents=True)
-    shutil.copyfile(
-        ROOT / "schemas/prompt_evolution_delivery_status_v1.schema.json",
-        schema_dir / "prompt_evolution_delivery_status_v1.schema.json",
-    )
-    (artifact_dir / "prompt_evolution_delivery_status_v1.json").write_text(
-        json.dumps(_artifact()),
-        encoding="utf-8",
-    )
+def test_delivery_verifier_enforces_json_schema():
+    artifact = _artifact()
+    assert validate_delivery_artifact_schema(ROOT, artifact) == []
+    artifact["summary"].pop("ready")
 
-    record = validate_json_schema_artifact(
-        root=tmp_path,
-        schema_path="schemas/prompt_evolution_delivery_status_v1.schema.json",
-        artifact_path="registry/prompt_checks/prompt_evolution_delivery_status_v1.json",
-        artifact_kind="json",
-    )
+    reasons = validate_delivery_status(ROOT, artifact, check_current_inputs=False)
 
-    assert record.accepted, record.failures
+    assert "delivery_schema_invalid:summary:required" in reasons
+
+
+def test_delivery_schema_reads_v6_but_active_verifier_requires_v7():
+    artifact = _artifact()
+    artifact["generator"]["command_contract_version"] = (
+        "prompt_evolution_delivery_commands_v6"
+    )
+    without_hash = dict(artifact)
+    without_hash.pop("manifest_hash")
+    artifact["manifest_hash"] = canonical_hash(without_hash)
+
+    assert validate_delivery_artifact_schema(ROOT, artifact) == []
+    assert "generator_contract_mismatch" in validate_delivery_status(
+        ROOT, artifact, check_current_inputs=False
+    )
 
 
 def test_performance_budget_validates_against_json_schema(tmp_path: Path):

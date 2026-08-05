@@ -58,16 +58,20 @@ pnpm dev darwinian --cohort cohort_default
 pnpm dev autoresearch generate-candidate --request REQUEST.json \
   --private-cli /path/to/private/dist/cli.js \
   --private-repo "$MOSAIC_PROMPTS_REPO" \
+  --publication-remote origin \
   --mutation-adapter "$MOSAIC_PROMPTS_REPO/path/to/tracked-adapter.js"
-pnpm dev autoresearch shadow-run --plan SHADOW_PLAN.json --adapter EVALUATION_ADAPTER.js
+pnpm dev autoresearch shadow-run --plan SHADOW_PLAN.json \
+  --executor-adapter EXECUTOR_ADAPTER.js \
+  --evaluator-adapter EVALUATOR_ADAPTER.js
 pnpm dev autoresearch log --cohort crisis_2008
 ```
 Subcommands: `generate-candidate`, `shadow-run`, `log`, and `branches`.
 Candidate generation sends only the frozen public training projection to the
 private Prompt mutator. The mutation adapter must be a tracked file inside the
 same private repository at its exact `HEAD`; mutator identity is derived from
-that committed state, not supplied by the caller. `shadow-run` freezes the
-model/tool/adapter/evaluator environment and has no release activation path.
+that committed state, not supplied by the caller. `shadow-run` requires a clean
+public checkout at the frozen `codeCommit`; its separate executor/evaluator
+adapters must be tracked by that exact commit. It has no release activation path.
 Promotion uses the separate Prompt Release canary/rollback flow.
 
 ## Prompt Operations

@@ -1,32 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
+import { canonicalJson } from "../src/agents/helpers/canonical_json.js";
+import { canonicalStructuredRepairDirectiveManifest } from "../src/agents/helpers/structured_repair_directives.js";
+import { canonicalSectorPhaseDirectiveBundle } from "../src/agents/sector/phase_directives.js";
 import {
-  MACRO_AGENT_IDS,
-  MACRO_PROMPT_COHORT_IDS,
-  renderMacroPromptBody,
-} from "../src/agents/macro/_contracts.js";
-import { renderBundledPrompt } from "../src/agents/prompts/bundled_prompt_renderer.js";
-import {
-  extractCohortBehavior,
-  replaceCohortBehavior,
-} from "../src/agents/prompts/cohort_behavior.js";
-import { ALL_AGENTS, promptPath } from "../src/agents/prompts/cohorts.js";
-import { RUNTIME_AGENT_SPEC_BY_AGENT } from "../src/agents/prompts/runtime_agent_spec.js";
-import { upsertRuntimeEvidenceContract } from "../src/agents/prompts/runtime_evidence_contract.js";
-import {
+  type BuildExecutionBehaviorReleaseInput,
   buildExecutionBehaviorReleaseManifest,
   executionBehaviorReleaseArchiveFilename,
   loadExecutionBehaviorReleaseManifest,
@@ -47,21 +29,15 @@ describe("execution behavior release", () => {
     const release = loadExecutionBehaviorReleaseManifest(committedExecutionReleasePath());
     expect(release.active_production_variants).toHaveLength(16);
     expect(release.execution_contracts).toHaveLength(56);
-    expect(release.private_prompt_commit).toMatch(/^[0-9a-f]{40}$/);
+    expect(release.schema_version).toBe("execution_behavior_release_manifest_v4");
     expect(release.execution_behavior_release_id).toMatch(
       /^execution-behavior-release:[0-9a-f]{64}$/,
     );
     expect(release.execution_behavior_release_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 
-  it("validates all prompt variants while persisting only 56 execution contracts", () => {
-    const fixture = promptFixture();
-    const manifest = buildExecutionBehaviorReleaseManifest({
-      ...fixture,
-      provider: "anthropic",
-      model: "claude-sonnet-4",
-      baseUrlMode: "PROVIDER_DEFAULT",
-    });
+  it("builds the execution-only roster from public runtime contracts", () => {
+    const manifest = buildExecutionBehaviorReleaseManifest(releaseInput());
 
     expect(manifest.active_production_variants).toHaveLength(16);
     expect(manifest.execution_contracts).toHaveLength(56);
@@ -94,165 +70,57 @@ describe("execution behavior release", () => {
     expect(validateExecutionBehaviorReleaseManifest(manifest)).toEqual(manifest);
   });
 
-  it("accepts a private cohort-behavior mutation without changing execution behavior", () => {
-    const fixture = promptFixture();
-    const baseline = buildExecutionBehaviorReleaseManifest({
-      ...fixture,
-      provider: "anthropic",
-      model: "claude-sonnet-4",
-      baseUrlMode: "PROVIDER_DEFAULT",
-    });
-    const path = promptPath({
-      agent: "china",
-      cohort: "cohort_default",
-      language: "zh",
-      promptsRoot: fixture.privatePromptsRoot,
-    });
-    const original = readFileSync(path, "utf8");
-    writeFileSync(
-      path,
-      replaceCohortBehavior(
-        original,
-        `${extractCohortBehavior(original)} 对比 MSCI China 与 Federal Reserve，再检查最强反证。`,
-      ),
-    );
-    fixture.privatePromptCommit = commitPrivatePrompts(fixture, "mutate cohort behavior");
-    const candidate = buildExecutionBehaviorReleaseManifest({
-      ...fixture,
-      provider: "anthropic",
-      model: "claude-sonnet-4",
-      baseUrlMode: "PROVIDER_DEFAULT",
-    });
-    const before = baseline.execution_contracts.find(
-      (contract) => contract.agent_id === "china" && contract.language === "zh",
-    );
-    const after = candidate.execution_contracts.find(
-      (contract) => contract.agent_id === "china" && contract.language === "zh",
-    );
-    expect(candidate.private_prompt_bootstrap.prompt_tree_hash).not.toBe(
-      baseline.private_prompt_bootstrap.prompt_tree_hash,
-    );
-    expect(after).toEqual(before);
+  it("does not require or bind a private Prompt commit", () => {
+    const baseline = buildExecutionBehaviorReleaseManifest(releaseInput());
+    const firstLegacyInput: BuildExecutionBehaviorReleaseInput & {
+      privatePromptCommit: string;
+      privatePromptsRoot: string;
+    } = {
+      ...releaseInput(),
+      privatePromptCommit: "a".repeat(40),
+      privatePromptsRoot: "/missing/private-a",
+    };
+    const secondLegacyInput: BuildExecutionBehaviorReleaseInput & {
+      privatePromptCommit: string;
+      privatePromptsRoot: string;
+    } = {
+      ...releaseInput(),
+      privatePromptCommit: "b".repeat(40),
+      privatePromptsRoot: "/missing/private-b",
+    };
+
+    expect(buildExecutionBehaviorReleaseManifest(firstLegacyInput)).toEqual(baseline);
+    expect(buildExecutionBehaviorReleaseManifest(secondLegacyInput)).toEqual(baseline);
+    expect(JSON.stringify(baseline)).not.toContain("private_prompt");
   });
 
-  it("rejects a private prompt tree that does not match the attributed commit", () => {
-    const fixture = promptFixture();
-    const path = promptPath({
-      agent: "china",
-      cohort: "cohort_default",
-      language: "zh",
-      promptsRoot: fixture.privatePromptsRoot,
-    });
-    writeFileSync(path, `${readFileSync(path, "utf8")}\nuncommitted change\n`);
+  it("hashes the exact canonical Sector phase and repair directives", () => {
+    const manifest = buildExecutionBehaviorReleaseManifest(releaseInput());
+    const energy = manifest.execution_contracts.find(
+      (contract) => contract.agent_id === "energy" && contract.language === "zh",
+    );
+    if (!energy) throw new Error("energy:zh execution contract is missing");
 
-    expect(() =>
-      buildExecutionBehaviorReleaseManifest({
-        ...fixture,
-        provider: "anthropic",
-        model: "claude-sonnet-4",
-        baseUrlMode: "PROVIDER_DEFAULT",
-      }),
-    ).toThrow("prompt_source_tree_drift:private");
+    for (const binding of energy.structured_output_schema_bindings) {
+      const bundle = canonicalSectorPhaseDirectiveBundle({
+        agentId: "energy",
+        phase: binding.phase as "DIRECTION_RESEARCH" | "CONFLICT_REVIEW" | "FINAL_SELECTION",
+        language: "zh",
+      });
+      expect(bundle.repair_directives).toEqual(canonicalStructuredRepairDirectiveManifest());
+      expect(binding.immutable_phase_instruction_hash).toBe(textHash(canonicalJson(bundle)));
+    }
   });
 
-  it("rejects a pinned private commit with an incomplete champion-state roster", () => {
-    const fixture = promptFixture();
-    const missing = join(
-      fixture.privateRepoRoot,
-      "registry/prompt_parameter_states_v1/cohort_default/agent_run/china.json",
+  it("rejects immutable public contract and provider-contract drift", () => {
+    const manifest = buildExecutionBehaviorReleaseManifest(releaseInput());
+    const immutableTampered = structuredClone(manifest);
+    const immutableContract = immutableTampered.execution_contracts[0];
+    if (!immutableContract) throw new Error("expected an execution contract");
+    immutableContract.immutable_contract_block_hash = `sha256:${"0".repeat(64)}`;
+    expect(() => validateExecutionBehaviorReleaseManifest(immutableTampered)).toThrow(
+      /immutable prompt contract drift/,
     );
-    rmSync(missing);
-    git(fixture.privateRepoRoot, "add", "-A");
-    git(fixture.privateRepoRoot, "commit", "-m", "remove one champion state");
-    fixture.privatePromptCommit = git(fixture.privateRepoRoot, "rev-parse", "HEAD");
-
-    expect(() =>
-      buildExecutionBehaviorReleaseManifest({
-        ...fixture,
-        provider: "anthropic",
-        model: "claude-sonnet-4",
-        baseUrlMode: "PROVIDER_DEFAULT",
-      }),
-    ).toThrow(/state roster mismatch/);
-  });
-
-  it("rehashes the private parameter and behavior contracts instead of trusting declarations", () => {
-    const parameterFixture = promptFixture();
-    const parameterPath = join(
-      parameterFixture.privateRepoRoot,
-      "registry/knot/prompt_parameter_contract_v1.json",
-    );
-    const parameterContract = JSON.parse(readFileSync(parameterPath, "utf8"));
-    writeFileSync(
-      parameterPath,
-      `${JSON.stringify({ ...parameterContract, contract_hash: `sha256:${"0".repeat(64)}` })}\n`,
-    );
-    git(parameterFixture.privateRepoRoot, "add", "registry/knot/prompt_parameter_contract_v1.json");
-    git(parameterFixture.privateRepoRoot, "commit", "-m", "tamper parameter contract hash");
-    parameterFixture.privatePromptCommit = git(
-      parameterFixture.privateRepoRoot,
-      "rev-parse",
-      "HEAD",
-    );
-    expect(() =>
-      buildExecutionBehaviorReleaseManifest({
-        ...parameterFixture,
-        provider: "anthropic",
-        model: "claude-sonnet-4",
-        baseUrlMode: "PROVIDER_DEFAULT",
-      }),
-    ).toThrow(/parameter contract hash mismatch/);
-
-    const behaviorFixture = promptFixture();
-    const behaviorPath = join(
-      behaviorFixture.privateRepoRoot,
-      "registry/knot/prompt_behavior_contract_v1.json",
-    );
-    const behaviorContract = JSON.parse(readFileSync(behaviorPath, "utf8"));
-    writeFileSync(behaviorPath, `${JSON.stringify({ ...behaviorContract, tampered: true })}\n`);
-    git(behaviorFixture.privateRepoRoot, "add", "registry/knot/prompt_behavior_contract_v1.json");
-    git(behaviorFixture.privateRepoRoot, "commit", "-m", "tamper behavior contract");
-    behaviorFixture.privatePromptCommit = git(behaviorFixture.privateRepoRoot, "rev-parse", "HEAD");
-    expect(() =>
-      buildExecutionBehaviorReleaseManifest({
-        ...behaviorFixture,
-        provider: "anthropic",
-        model: "claude-sonnet-4",
-        baseUrlMode: "PROVIDER_DEFAULT",
-      }),
-    ).toThrow(/behavior contract hash mismatch/);
-  });
-
-  it("rejects prompt drift and manifest hash tampering", () => {
-    const fixture = promptFixture();
-    const path = promptPath({
-      agent: "china",
-      cohort: "cohort_default",
-      language: "zh",
-      promptsRoot: fixture.privatePromptsRoot,
-    });
-    writeFileSync(path, `${readFileSync(path, "utf8")}\nresearch_knobs: leaked\n`);
-    fixture.privatePromptCommit = commitPrivatePrompts(fixture, "commit rejected prompt");
-    expect(() =>
-      buildExecutionBehaviorReleaseManifest({
-        ...fixture,
-        provider: "anthropic",
-        model: "claude-sonnet-4",
-        baseUrlMode: "PROVIDER_DEFAULT",
-      }),
-    ).toThrow(/not canonical|private KNOT/);
-
-    writeCanonicalPrompt(fixture.privatePromptsRoot, "china", "cohort_default", "zh");
-    fixture.privatePromptCommit = commitPrivatePrompts(fixture, "restore canonical prompt");
-    const manifest = buildExecutionBehaviorReleaseManifest({
-      ...fixture,
-      provider: "anthropic",
-      model: "claude-sonnet-4",
-      baseUrlMode: "PROVIDER_DEFAULT",
-    });
-    const tampered = structuredClone(manifest);
-    tampered.private_prompt_bootstrap.prompt_tree_hash = `sha256:${"0".repeat(64)}`;
-    expect(() => validateExecutionBehaviorReleaseManifest(tampered)).toThrow();
 
     const providerTampered = structuredClone(manifest);
     const providerContract = providerTampered.execution_contracts[0];
@@ -263,139 +131,67 @@ describe("execution behavior release", () => {
     );
   });
 
-  it("rejects a complete English sentence hidden inside otherwise Chinese behavior", () => {
-    const fixture = promptFixture();
-    const path = promptPath({
-      agent: "china",
-      cohort: "cohort_bull_2007",
-      language: "zh",
-      promptsRoot: fixture.privatePromptsRoot,
-    });
-    writeFileSync(
-      path,
-      replaceCohortBehavior(
-        readFileSync(path, "utf8"),
-        "这段中文足以通过原有比例检查，但后面混入完整正文。This is a complete English sentence.",
-      ),
+  it("generates schema and archive without private Prompt CLI arguments", () => {
+    const root = mkdtempSync(join(tmpdir(), "mosaic-behavior-generator-"));
+    roots.push(root);
+    const schemaOut = join(root, "execution-release.schema.json");
+    const archiveRoot = join(root, "archive");
+    execFileSync(
+      process.execPath,
+      [
+        resolve(process.cwd(), "node_modules/tsx/dist/cli.mjs"),
+        resolve(process.cwd(), "scripts/generate_execution_behavior_release.ts"),
+        "--schema-out",
+        schemaOut,
+        "--archive-root",
+        archiveRoot,
+        "--provider",
+        "fixture-provider",
+        "--model",
+        "fixture-model",
+      ],
+      { cwd: process.cwd(), encoding: "utf8" },
     );
-    fixture.privatePromptCommit = commitPrivatePrompts(fixture, "commit invalid zh behavior");
 
-    expect(() =>
-      buildExecutionBehaviorReleaseManifest({
-        ...fixture,
-        provider: "anthropic",
-        model: "claude-sonnet-4",
-        baseUrlMode: "PROVIDER_DEFAULT",
-      }),
-    ).toThrow(/Chinese cohort behavior must not contain English prose/);
-  });
-
-  it("rejects identical behavior across all eight cohorts", () => {
-    const fixture = promptFixture();
-    const defaultPath = promptPath({
-      agent: "china",
-      cohort: "cohort_default",
-      language: "zh",
-      promptsRoot: fixture.privatePromptsRoot,
+    expect(existsSync(schemaOut)).toBe(true);
+    const archives = readdirSync(archiveRoot);
+    expect(archives).toHaveLength(1);
+    expect(
+      loadExecutionBehaviorReleaseManifest(join(archiveRoot, archives[0] ?? "")),
+    ).toMatchObject({
+      provider_binding: { provider: "fixture-provider", model: "fixture-model" },
     });
-    const behavior = extractCohortBehavior(readFileSync(defaultPath, "utf8"));
-    for (const cohort of MACRO_PROMPT_COHORT_IDS) {
-      const path = promptPath({
-        agent: "china",
-        cohort,
-        language: "zh",
-        promptsRoot: fixture.privatePromptsRoot,
-      });
-      writeFileSync(path, replaceCohortBehavior(readFileSync(path, "utf8"), behavior));
-    }
-    fixture.privatePromptCommit = commitPrivatePrompts(fixture, "commit identical cohorts");
-
-    expect(() =>
-      buildExecutionBehaviorReleaseManifest({
-        ...fixture,
-        provider: "anthropic",
-        model: "claude-sonnet-4",
-        baseUrlMode: "PROVIDER_DEFAULT",
-      }),
-    ).toThrow(/every cohort must have distinct prompt behavior/);
   });
 
-  it("rejects disguised private evolution policy content", () => {
-    const fixture = promptFixture();
-    const path = promptPath({
-      agent: "china",
-      cohort: "cohort_bull_2007",
-      language: "en",
-      promptsRoot: fixture.privatePromptsRoot,
-    });
-    writeFileSync(
-      path,
-      replaceCohortBehavior(
-        readFileSync(path, "utf8"),
-        "Use the Darwinian evolution state before interpreting evidence.",
-      ),
-    );
-    fixture.privatePromptCommit = commitPrivatePrompts(fixture, "commit private policy leak");
-
-    expect(() =>
-      buildExecutionBehaviorReleaseManifest({
-        ...fixture,
-        provider: "anthropic",
-        model: "claude-sonnet-4",
-        baseUrlMode: "PROVIDER_DEFAULT",
-      }),
-    ).toThrow(/private KNOT policy must remain hidden/);
-  });
-
-  it("writes immutable candidates without creating a second production pointer", () => {
-    const fixture = promptFixture();
+  it("writes immutable candidates without creating a production pointer", () => {
     const root = mkdtempSync(join(tmpdir(), "mosaic-behavior-archive-"));
     roots.push(root);
     const activeManifestPath = join(root, "active.json");
     const archiveRoot = join(root, "archive");
-    const baseline = buildExecutionBehaviorReleaseManifest({
-      ...fixture,
-      provider: "anthropic",
-      model: "claude-sonnet-4",
-      baseUrlMode: "PROVIDER_DEFAULT",
-    });
-    git(fixture.privateRepoRoot, "commit", "--allow-empty", "-m", "advance private release");
-    fixture.privatePromptCommit = git(fixture.privateRepoRoot, "rev-parse", "HEAD");
-    const prepared = buildExecutionBehaviorReleaseManifest({
-      ...fixture,
-      provider: "anthropic",
-      model: "claude-sonnet-4",
-      baseUrlMode: "PROVIDER_DEFAULT",
-    });
+    const manifest = buildExecutionBehaviorReleaseManifest(releaseInput());
 
-    writeExecutionBehaviorReleaseArtifacts({
-      manifest: baseline,
-      archiveRoot,
-    });
-    writeExecutionBehaviorReleaseArtifacts({
-      manifest: prepared,
-      archiveRoot,
-    });
+    writeExecutionBehaviorReleaseArtifacts({ manifest, archiveRoot });
+    writeExecutionBehaviorReleaseArtifacts({ manifest, archiveRoot });
 
     expect(existsSync(activeManifestPath)).toBe(false);
-    expect(readdirSync(archiveRoot).sort()).toEqual(
-      [
-        executionBehaviorReleaseArchiveFilename(baseline),
-        executionBehaviorReleaseArchiveFilename(prepared),
-      ].sort(),
-    );
-    const baselineArchive = join(archiveRoot, executionBehaviorReleaseArchiveFilename(baseline));
-    expect(JSON.parse(readFileSync(baselineArchive, "utf8"))).toEqual(baseline);
+    expect(readdirSync(archiveRoot)).toEqual([executionBehaviorReleaseArchiveFilename(manifest)]);
+    const archive = join(archiveRoot, executionBehaviorReleaseArchiveFilename(manifest));
+    expect(JSON.parse(readFileSync(archive, "utf8"))).toEqual(manifest);
 
-    writeFileSync(baselineArchive, "{}\n");
-    expect(() =>
-      writeExecutionBehaviorReleaseArtifacts({
-        manifest: baseline,
-        archiveRoot,
-      }),
-    ).toThrow(/immutable execution behavior release archive collision/);
+    writeFileSync(archive, "{}\n");
+    expect(() => writeExecutionBehaviorReleaseArtifacts({ manifest, archiveRoot })).toThrow(
+      /immutable execution behavior release archive collision/,
+    );
   });
 });
+
+function releaseInput(): BuildExecutionBehaviorReleaseInput {
+  return {
+    provider: "anthropic",
+    model: "claude-sonnet-4",
+    baseUrlMode: "PROVIDER_DEFAULT",
+  };
+}
 
 function committedExecutionReleasePath(): string {
   const root = resolve(process.cwd(), "..");
@@ -408,158 +204,6 @@ function committedExecutionReleasePath(): string {
   return resolve(root, contractRef.sources.execution_behavior_release_archive.path);
 }
 
-interface PromptFixture {
-  privatePromptsRoot: string;
-  bundledPromptsRoot: string;
-  privateRepoRoot: string;
-  privatePromptCommit: string;
-}
-
-function promptFixture(): PromptFixture {
-  const root = mkdtempSync(join(tmpdir(), "mosaic-behavior-release-"));
-  roots.push(root);
-  const privatePromptsRoot = join(root, "private", "prompts", "mosaic");
-  const bundledPromptsRoot = join(root, "bundled", "prompts", "mosaic");
-  for (const cohort of MACRO_PROMPT_COHORT_IDS) {
-    for (const language of ["en", "zh"] as const) {
-      for (const agent of ALL_AGENTS) {
-        writeCanonicalPrompt(privatePromptsRoot, agent, cohort, language);
-      }
-    }
-  }
-  for (const language of ["en", "zh"] as const) {
-    for (const agent of ALL_AGENTS) {
-      writeCanonicalPrompt(bundledPromptsRoot, agent, "cohort_default", language);
-    }
-  }
-  const privateRepoRoot = join(root, "private");
-  git(privateRepoRoot, "init", "-b", "main");
-  git(privateRepoRoot, "config", "user.name", "Test");
-  git(privateRepoRoot, "config", "user.email", "test@example.com");
-  const privatePromptCommit = commitPrivatePrompts(
-    { privateRepoRoot, privatePromptsRoot },
-    "seed private prompts",
-  );
-  return { privatePromptsRoot, bundledPromptsRoot, privateRepoRoot, privatePromptCommit };
-}
-
-function commitPrivatePrompts(
-  fixture: Pick<PromptFixture, "privateRepoRoot" | "privatePromptsRoot">,
-  message: string,
-): string {
-  writeBootstrapFixture(fixture.privateRepoRoot, fixture.privatePromptsRoot);
-  git(fixture.privateRepoRoot, "add", "prompts/mosaic", "registry");
-  git(fixture.privateRepoRoot, "commit", "-m", message);
-  return git(fixture.privateRepoRoot, "rev-parse", "HEAD");
-}
-
-function writeBootstrapFixture(privateRepoRoot: string, privatePromptsRoot: string): void {
-  const parameterContractBody = {
-    schema_version: "prompt_parameter_contract_v1",
-    parameters: [],
-  };
-  const parameterContract = {
-    ...parameterContractBody,
-    contract_hash: canonicalJsonHash(parameterContractBody),
-  };
-  const behaviorContract = {
-    schema_version: "prompt_behavior_contract_v1",
-    contracts: [],
-  };
-  const knotRoot = join(privateRepoRoot, "registry/knot");
-  mkdirSync(knotRoot, { recursive: true });
-  writeFileSync(
-    join(knotRoot, "prompt_parameter_contract_v1.json"),
-    `${JSON.stringify(parameterContract, null, 2)}\n`,
-  );
-  writeFileSync(
-    join(knotRoot, "prompt_behavior_contract_v1.json"),
-    `${JSON.stringify(behaviorContract, null, 2)}\n`,
-  );
-  const stateFiles = MACRO_PROMPT_COHORT_IDS.flatMap((cohort) =>
-    ALL_AGENTS.map((agent) => {
-      const ref = `registry/prompt_parameter_states_v1/${cohort}/${parameterStage(agent)}/${agent}.json`;
-      const content = `${JSON.stringify({ agent, cohort, stage: parameterStage(agent) })}\n`;
-      const path = join(privateRepoRoot, ref);
-      mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, content);
-      return { ref, content_hash: textHash(content) };
-    }),
-  ).sort((left, right) => left.ref.localeCompare(right.ref));
-  const promptFiles = MACRO_PROMPT_COHORT_IDS.flatMap((cohort) =>
-    ALL_AGENTS.flatMap((agent) =>
-      (["en", "zh"] as const).map((language) => {
-        const path = promptPath({ agent, cohort, language, promptsRoot: privatePromptsRoot });
-        const ref = relative(privateRepoRoot, path).replaceAll("\\", "/");
-        return { ref, content_hash: textHash(readFileSync(path, "utf8")) };
-      }),
-    ),
-  ).sort((left, right) => left.ref.localeCompare(right.ref));
-  const body = {
-    schema_version: "private_prompt_parameter_bootstrap_release_v1" as const,
-    parameter_contract_hash: parameterContract.contract_hash,
-    behavior_contract_hash: canonicalJsonHash(behaviorContract),
-    agent_count: 28 as const,
-    cohort_count: 8 as const,
-    state_count: 224 as const,
-    prompt_count: 448 as const,
-    state_tree_hash: canonicalJsonHash({ files: stateFiles }),
-    prompt_tree_hash: canonicalJsonHash({ files: promptFiles }),
-  };
-  const path = join(privateRepoRoot, "registry/knot/prompt_parameter_bootstrap_release_v1.json");
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(
-    path,
-    `${JSON.stringify({ ...body, release_hash: canonicalJsonHash(body) }, null, 2)}\n`,
-  );
-}
-
-function parameterStage(agent: string): string {
-  if (agent === "alpha_discovery") return "alpha_discovery";
-  if (agent === "autonomous_execution") return "execution_feasibility";
-  if (agent === "cio") return "cio_final";
-  if (agent === "cro") return "cro_review";
-  return "agent_run";
-}
-
 function textHash(value: string): string {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
-}
-
-function git(cwd: string, ...args: string[]): string {
-  return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
-}
-
-function writeCanonicalPrompt(
-  root: string,
-  agent: string,
-  cohort: string,
-  language: "en" | "zh",
-): void {
-  const spec = RUNTIME_AGENT_SPEC_BY_AGENT.get(agent);
-  if (!spec) throw new Error(`missing runtime spec ${agent}`);
-  const body = MACRO_AGENT_IDS.includes(agent as (typeof MACRO_AGENT_IDS)[number])
-    ? renderMacroPromptBody(agent as (typeof MACRO_AGENT_IDS)[number], language, "cohort_default")
-    : renderBundledPrompt(agent, language, "cohort_default");
-  const baseline = upsertRuntimeEvidenceContract(body, spec, language);
-  const cohortIndex = MACRO_PROMPT_COHORT_IDS.indexOf(
-    cohort as (typeof MACRO_PROMPT_COHORT_IDS)[number],
-  );
-  const prompt =
-    cohort === "cohort_default"
-      ? baseline
-      : replaceCohortBehavior(
-          baseline,
-          language === "zh"
-            ? `这是仅用于验证发布契约的中文场景行为，场景编号为 ${cohortIndex}。`
-            : `Opaque fixture behavior for scenario ${cohortIndex}.`,
-        );
-  const path = promptPath({
-    agent,
-    cohort,
-    language,
-    promptsRoot: root,
-  });
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, prompt);
 }

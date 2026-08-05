@@ -81,12 +81,8 @@ import {
 } from "../helpers/runtime.js";
 import type { RuntimeSourceStatus, ToolStatus } from "../helpers/runtime_evidence_types.js";
 import { resolveRuntimeSourceStatusesForAgent } from "../helpers/runtime_sources.js";
-import { SECTOR_DIRECTION_PROVIDER_INSTRUCTION } from "../helpers/sector_direction_provider_adapter.js";
 import { validateStrictAgentOutput } from "../helpers/strict_agent_validation.js";
-import {
-  RELATIONSHIP_MAPPER_PROVIDER_INSTRUCTION,
-  SECTOR_SELECTED_PROVIDER_INSTRUCTION,
-} from "../helpers/structured_provider_adapters.js";
+import { RELATIONSHIP_MAPPER_PROVIDER_INSTRUCTION } from "../helpers/structured_provider_adapters.js";
 import {
   hasAgentToolCapabilityApi,
   prepareAgentToolCapability,
@@ -120,6 +116,11 @@ import {
   SECTOR_DIRECTION_REDUCER_CONTRACT_VERSION,
   type SectorCoverageDirective,
 } from "./comparison.js";
+import {
+  buildSectorConflictReviewSystemMessage,
+  buildSectorDirectionResearchSystemMessage,
+  buildSectorFinalSelectionSystemMessage,
+} from "./phase_directives.js";
 import { SECTOR_DIRECTION_CONFLICT_RESOLVER_CONTRACT } from "./registry.js";
 import {
   buildAcceptedRelationshipGraph,
@@ -698,17 +699,10 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
     schema: researchSchema,
     messages: [
       new SystemMessage(
-        `Runtime agent id: ${input.spec.agentId}\nRuntime substage: direction_research\n\n` +
-          `${input.systemPrompt}\n\nYou are conducting direction research for the ${input.spec.agentId} sector agent. ` +
-          `${SECTOR_DIRECTION_PROVIDER_INSTRUCTION} ` +
-          `Submit only the runtime schema's complete pairwise comparison matrix. ` +
-          `comparison_claims[].evidence_ids may use only exact ids from the runtime-owned ` +
-          `evidence catalog. Each available or confirmed-no-event coverage criterion must reference ` +
-          `claims whose evidence_ids collectively include every exact coverage_evidence_id. ` +
-          `Copy the exact runtime-owned coverage states and complete ordered coverage evidence-id list. ` +
-          `For every comparison, top-level claim_refs must equal exactly the ` +
-          `deduplicated union of criterion_results[].claim_refs; omit claims that no criterion uses. ` +
-          `Do not submit preferred/least directions, security picks, final_selection, scores, or rankings.`,
+        buildSectorDirectionResearchSystemMessage({
+          agentId: input.spec.agentId,
+          systemPrompt: input.systemPrompt,
+        }),
       ),
       new HumanMessage(
         [
@@ -780,14 +774,7 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
       llm: input.structuredHandle.llm,
       schema: reviewSchema,
       messages: [
-        new SystemMessage(
-          `Runtime agent id: ${input.spec.agentId}\nRuntime substage: conflict_review\n\n` +
-            `You are performing the one permitted conflict review for the ${input.spec.agentId} sector agent. ` +
-            `${SECTOR_DIRECTION_PROVIDER_INSTRUCTION} ` +
-            `Use only the frozen projection below. Submit every conflict-internal pair exactly once. ` +
-            `Create new review claims with claim_id values that do not reuse any reserved claim id. ` +
-            `Do not use tools and do not submit a final selection, direction ranking, or security picks.`,
-        ),
+        new SystemMessage(buildSectorConflictReviewSystemMessage(input.spec.agentId)),
         new HumanMessage(
           JSON.stringify({
             review_id: conflictReviewId,
@@ -903,22 +890,10 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
     schema: finalEnvelopeSchema,
     messages: [
       new SystemMessage(
-        `Runtime agent id: ${input.spec.agentId}\nRuntime substage: final_selection\n\n` +
-          `You are making the final selection for the ${input.spec.agentId} sector agent. ` +
-          `Obey the runtime directive exactly. Do not submit comparisons, review rows, scores, hashes, ` +
-          `rankings, or unlisted securities. Keep the payload compact: use one to three key drivers, ` +
-          `one to three risks, no more than fourteen reusable claims, and no more than five picks per side; ` +
-          `do not restate the same evidence in multiple claims. Author only local Sector claims: upstream ` +
-          `Macro claim ids may appear only in macro_input_attributions.claim_refs_used and must never be ` +
-          `copied into claims or top-level claim_refs. Every claim_refs field outside ` +
-          `macro_input_attributions—including directions, picks, drivers, risks, and the submission—must ` +
-          `reference only ids authored in the local claims array. macro_input_attributions must contain exactly one ` +
-          `SUBMISSION_SUMMARY row for each of the ten Macro agents with target_local_ref=$SUBMISSION; ` +
-          `NOT_MATERIAL rows use an empty claim_refs_used array. Add target-specific rows only for material ` +
-          `links to an exact directive target, with no more than six such rows. ` +
-          `${SECTOR_SELECTED_PROVIDER_INSTRUCTION} ` +
-          `${MACRO_ATTRIBUTION_PROVIDER_INSTRUCTION} ` +
-          `${finalLanguageInstruction(input.language)}`,
+        buildSectorFinalSelectionSystemMessage({
+          agentId: input.spec.agentId,
+          language: input.language,
+        }),
       ),
       new HumanMessage(
         [
@@ -2184,12 +2159,6 @@ function buildFakeSectorUsageSummary(input: {
     usage_summary_receipt_hash: receiptHash,
     receipt_signature: `fake-runtime-only:${receiptHash.slice("sha256:".length)}`,
   };
-}
-
-function finalLanguageInstruction(language: LoaderLanguage): string {
-  return language === "en"
-    ? "Write prose fields in English."
-    : "Write prose fields in Chinese; keep numbers numeric.";
 }
 
 function canonicalHash(value: unknown): string {

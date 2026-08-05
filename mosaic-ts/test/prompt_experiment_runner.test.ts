@@ -1,4 +1,7 @@
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
@@ -13,16 +16,19 @@ import {
   runPromptExperimentPartition,
 } from "../src/autoresearch/prompt_experiment_runner.js";
 import {
+  buildPromptCandidatePublication,
   DatasetSplitManifestSchema,
   PROMPT_EXPERIMENT_MAX_ATTEMPTS,
   type PromptCandidate,
   type PromptCandidateFamily,
   PromptCandidateFamilySchema,
+  type PromptCandidatePublication,
   PromptCandidateSchema,
   type PromptExperiment,
   type PromptExperimentRun,
   PromptExperimentRunSchema,
   PromptExperimentSchema,
+  type PromptTrainingProjection,
   PromptTrainingProjectionSchema,
   promptCandidateFamilyId,
   promptDatasetPartitionSnapshotHash,
@@ -31,6 +37,7 @@ import {
   promptExperimentId,
   promptMutationHypothesis,
   promptMutationSummary,
+  promptRoleComponentRefs,
 } from "../src/autoresearch/prompt_optimizer_contract.js";
 import { runPromptOptimizerShadowPlan } from "../src/autoresearch/prompt_optimizer_shadow_runner.js";
 import { createPromptPromotionDecision } from "../src/autoresearch/prompt_promotion_policy.js";
@@ -39,6 +46,11 @@ const HASH_A = `sha256:${"a".repeat(64)}`;
 const HASH_B = `sha256:${"b".repeat(64)}`;
 const HASH_C = `sha256:${"c".repeat(64)}`;
 const COMMIT = "d".repeat(40);
+const EXECUTION_BEHAVIOR_RELEASE = {
+  release_id: `execution-behavior-release:${"e".repeat(64)}`,
+  release_hash: HASH_A,
+  archive_ref: `registry/prompt_checks/execution_behavior_releases/${"e".repeat(64)}--${"a".repeat(64)}.json`,
+} as const;
 const NOW = "2025-05-01T00:00:00Z";
 const target = { agentId: "china", stage: "agent_run", cohort: "cohort_default" } as const;
 const semiconductorTarget = {
@@ -168,15 +180,13 @@ function fixtures(
     failureCategoryCounts: {},
     tailFailureCaseRefs: [],
     evidenceGapSummaries: [],
-    directComponents: [
-      {
-        componentRef: `role_component_v1:${requestedTarget.agentId}:001`,
-        directMatureSampleCount: 30,
-        meanScore: 0.1,
-        lowerTailScore: 0.05,
-        failureCategoryCounts: {},
-      },
-    ],
+    directComponents: promptRoleComponentRefs(requestedTarget.agentId).map((componentRef) => ({
+      directMatureSampleCount: 30,
+      meanScore: 0.1,
+      lowerTailScore: 0.05,
+      failureCategoryCounts: {},
+      componentRef,
+    })),
     controlledExperiments: [],
   };
   const trainingProjection = handoff
@@ -247,11 +257,17 @@ function fixtures(
   if (JSON.stringify(candidate.target) !== JSON.stringify(requestedTarget)) {
     throw new Error("handoff Prompt Candidate target mismatch");
   }
+  const candidatePublication = buildPromptCandidatePublication({
+    candidate,
+    promptSourceId: "private-prompts",
+    candidatePromptCommit: "e".repeat(40),
+  });
   const policy = promotionPolicy(split);
   const familyBody = {
-    schemaVersion: "prompt_candidate_family_v1",
+    schemaVersion: "prompt_candidate_family_v2",
     target: requestedTarget,
     championReleaseId: candidate.parentId,
+    championPromptSourceId: "private-prompts",
     championPromptCommit: candidate.parentPromptCommit,
     championPromptRefs: { zh: "private://champion.zh", en: "private://champion.en" },
     championPromptHashes: candidate.parentPromptHashes,
@@ -267,16 +283,20 @@ function fixtures(
     familyId: promptCandidateFamilyId(familyBody),
   });
   const experimentBody = {
-    schemaVersion: "prompt_experiment_v1",
+    schemaVersion: "prompt_experiment_v2",
     familyId: family.familyId,
     candidateId: candidate.candidateId,
     championId: candidate.parentId,
     target: requestedTarget,
     championPromptCommit: candidate.parentPromptCommit,
+    championPromptSourceId: family.championPromptSourceId,
     championPromptRefs: family.championPromptRefs,
     championPromptHashes: candidate.parentPromptHashes,
     candidatePromptRefs: candidate.promptRefs,
     candidatePromptHashes: candidate.promptHashes,
+    candidatePromptSourceId: candidatePublication.promptSourceId,
+    candidatePromptCommit: candidatePublication.candidatePromptCommit,
+    candidatePublicationHash: candidatePublication.publicationHash,
     datasetSplitId: split.splitId,
     datasetSplitManifestHash: canonicalJsonHash(split),
     promotionPolicyVersion: policy.policyVersion,
@@ -301,6 +321,7 @@ function fixtures(
     evaluatorVersion: split.evaluatorVersion,
     evaluatorConfigHash: HASH_C,
     codeCommit: COMMIT,
+    executionBehaviorRelease: EXECUTION_BEHAVIOR_RELEASE,
     repeatSeeds: [1, 2],
     runIds: [],
     metrics: {},
@@ -318,6 +339,7 @@ function fixtures(
     trainingProjection,
     split,
     candidate,
+    candidatePublication,
     family,
     experiment,
     promotionPolicy: policy,
@@ -327,17 +349,36 @@ function fixtures(
 }
 
 class MemoryRepository implements PromptExperimentRepository {
+  trainingProjection: PromptTrainingProjection | null = null;
   candidate: PromptCandidate | null = null;
+  candidatePublication: PromptCandidatePublication | null = null;
   split = null as ReturnType<typeof DatasetSplitManifestSchema.parse> | null;
   family: PromptCandidateFamily | null = null;
   experiment: PromptExperiment | null = null;
   runs = new Map<string, PromptExperimentRun>();
   writeCount = 0;
 
+  async putTrainingProjection(record: PromptTrainingProjection) {
+    this.writeCount += 1;
+    this.trainingProjection = structuredClone(record);
+    return structuredClone(record);
+  }
+
   async putCandidate(record: PromptCandidate) {
     this.writeCount += 1;
     this.candidate = structuredClone(record);
     return structuredClone(record);
+  }
+
+  async putCandidatePublication(record: PromptCandidatePublication) {
+    this.candidatePublication = structuredClone(record);
+    return structuredClone(record);
+  }
+
+  async getCandidatePublication(candidateId: string) {
+    return this.candidatePublication?.candidateId === candidateId
+      ? structuredClone(this.candidatePublication)
+      : null;
   }
 
   async putSplit(record: ReturnType<typeof DatasetSplitManifestSchema.parse>) {
@@ -414,6 +455,28 @@ class MemoryRepository implements PromptExperimentRepository {
   }
 }
 
+class MultiExperimentRepository extends MemoryRepository {
+  experiments = new Map<string, PromptExperiment>();
+
+  override async getExperiment(experimentId: string) {
+    const value = this.experiments.get(experimentId);
+    return value ? structuredClone(value) : null;
+  }
+
+  override async listExperiments(familyId: string) {
+    return [...this.experiments.values()]
+      .filter((value) => value.familyId === familyId)
+      .map((value) => structuredClone(value));
+  }
+
+  override async putExperiment(record: PromptExperiment) {
+    this.writeCount += 1;
+    this.experiment = structuredClone(record);
+    this.experiments.set(record.experimentId, structuredClone(record));
+    return structuredClone(record);
+  }
+}
+
 function environment(version = evaluatorVersion) {
   return {
     modelConfigHash: HASH_A,
@@ -425,6 +488,7 @@ function environment(version = evaluatorVersion) {
     evaluatorVersion: version,
     evaluatorConfigHash: HASH_C,
     codeCommit: COMMIT,
+    executionBehaviorRelease: EXECUTION_BEHAVIOR_RELEASE,
   };
 }
 
@@ -555,16 +619,229 @@ async function runBoth(maxConcurrency: number, experimentId: string) {
 }
 
 describe("frozen Prompt experiment runner", () => {
+  it("reads the same Prompt paths from the side-specific Git commits", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "mosaic-prompt-side-commits-"));
+    const refs = {
+      zh: "prompts/mosaic/cohort_default/macro/china.zh.md",
+      en: "prompts/mosaic/cohort_default/macro/china.en.md",
+    };
+    const bodies = {
+      champion: { zh: "champion zh\n", en: "champion en\n" },
+      candidate: { zh: "candidate zh\n", en: "candidate en\n" },
+    };
+    const git = (...args: string[]) =>
+      execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
+    const writePrompts = (value: { zh: string; en: string }) => {
+      for (const language of ["zh", "en"] as const) {
+        const path = join(repo, refs[language]);
+        mkdirSync(join(path, ".."), { recursive: true });
+        writeFileSync(path, value[language], "utf8");
+      }
+    };
+    const hash = (value: string) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
+    try {
+      execFileSync("git", ["init", "-q", repo]);
+      writePrompts(bodies.champion);
+      git("add", ".");
+      execFileSync("git", [
+        "-C",
+        repo,
+        "-c",
+        "user.name=Codex Test",
+        "-c",
+        "user.email=codex@example.invalid",
+        "commit",
+        "-qm",
+        "champion",
+      ]);
+      const championCommit = git("rev-parse", "HEAD");
+      writePrompts(bodies.candidate);
+      git("add", ".");
+      execFileSync("git", [
+        "-C",
+        repo,
+        "-c",
+        "user.name=Codex Test",
+        "-c",
+        "user.email=codex@example.invalid",
+        "commit",
+        "-qm",
+        "candidate",
+      ]);
+      const candidateCommit = git("rev-parse", "HEAD");
+      const base = fixtures("git-side-binding");
+      const candidate = PromptCandidateSchema.parse({
+        ...base.candidate,
+        parentPromptCommit: championCommit,
+        mutatorCommit: championCommit,
+        parentPromptHashes: {
+          zh: hash(bodies.champion.zh),
+          en: hash(bodies.champion.en),
+        },
+        promptRefs: refs,
+        promptHashes: {
+          zh: hash(bodies.candidate.zh),
+          en: hash(bodies.candidate.en),
+        },
+      });
+      const candidatePublication = buildPromptCandidatePublication({
+        candidate,
+        promptSourceId: "git-fixture",
+        candidatePromptCommit: candidateCommit,
+      });
+      const { familyId: _familyId, ...existingFamily } = base.family;
+      const familyBody = {
+        ...existingFamily,
+        championPromptSourceId: "git-fixture",
+        championPromptCommit: championCommit,
+        championPromptRefs: refs,
+        championPromptHashes: candidate.parentPromptHashes,
+        candidateIds: [candidate.candidateId],
+      };
+      const family = PromptCandidateFamilySchema.parse({
+        ...familyBody,
+        familyId: promptCandidateFamilyId(familyBody),
+      });
+      const { experimentId: _experimentId, ...existingExperiment } = base.experiment;
+      const experimentBody = {
+        ...existingExperiment,
+        familyId: family.familyId,
+        championPromptSourceId: family.championPromptSourceId,
+        championPromptCommit: championCommit,
+        championPromptRefs: refs,
+        championPromptHashes: candidate.parentPromptHashes,
+        candidatePromptSourceId: candidatePublication.promptSourceId,
+        candidatePromptCommit: candidatePublication.candidatePromptCommit,
+        candidatePromptRefs: refs,
+        candidatePromptHashes: candidate.promptHashes,
+        candidatePublicationHash: candidatePublication.publicationHash,
+      };
+      const experiment = PromptExperimentSchema.parse({
+        ...experimentBody,
+        experimentId: promptExperimentId(experimentBody),
+      });
+      const seen = new Map<string, { zh: string; en: string }>();
+      const executor: PromptExperimentAgentExecutor = {
+        async execute(input) {
+          const loaded = Object.fromEntries(
+            (["zh", "en"] as const).map((language) => [
+              language,
+              execFileSync(
+                "git",
+                ["-C", repo, "show", `${input.promptCommit}:${input.promptRefs[language]}`],
+                { encoding: "utf8" },
+              ),
+            ]),
+          ) as { zh: string; en: string };
+          seen.set(input.promptCommit, loaded);
+          return {
+            acceptedOutputRef: `accepted://${input.promptCommit === candidateCommit ? "candidate" : "champion"}`,
+            effectiveInputHash: canonicalJsonHash({ loaded, inputHash: input.sample.inputHash }),
+            consumedPromptHashes: { zh: hash(loaded.zh), en: hash(loaded.en) },
+          };
+        },
+      };
+      const evaluator: PromptExperimentEvaluator = {
+        async evaluate(input) {
+          return {
+            normalizedScore: input.acceptedOutputRef.endsWith("candidate") ? 0.7 : 0.5,
+            metrics: {},
+            failureCaseRefs: [],
+          };
+        },
+      };
+      await runPromptExperimentPartition({
+        ...base,
+        candidate,
+        candidatePublication,
+        family,
+        experiment,
+        partition: "VALIDATION",
+        environment: environment(),
+        repository: new MemoryRepository(),
+        executor,
+        evaluator,
+        maxConcurrency: 4,
+        now: () => NOW,
+      });
+      expect(seen.get(championCommit)).toEqual(bodies.champion);
+      expect(seen.get(candidateCommit)).toEqual(bodies.candidate);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a non-winning family Candidate before opening holdout", async () => {
+    const winnerValues = fixtures("a");
+    const loserValues = fixtures("z");
+    const { familyId: _familyId, ...familyWithoutId } = winnerValues.family;
+    const familyBody = {
+      ...familyWithoutId,
+      candidateIds: [winnerValues.candidate.candidateId, loserValues.candidate.candidateId].sort(),
+    };
+    const family = PromptCandidateFamilySchema.parse({
+      ...familyBody,
+      familyId: promptCandidateFamilyId(familyBody),
+    });
+    const bindExperiment = (value: ReturnType<typeof fixtures>) => {
+      const { experimentId: _experimentId, ...withoutId } = value.experiment;
+      const body = { ...withoutId, familyId: family.familyId };
+      return PromptExperimentSchema.parse({
+        ...body,
+        experimentId: promptExperimentId(body),
+      });
+    };
+    const winnerExperiment = bindExperiment(winnerValues);
+    const loserExperiment = bindExperiment(loserValues);
+    const repository = new MultiExperimentRepository();
+    const adapter = adapters();
+    const runValidation = async (
+      value: ReturnType<typeof fixtures>,
+      experiment: PromptExperiment,
+    ) =>
+      runPromptExperimentPartition({
+        ...value,
+        family,
+        experiment,
+        partition: "VALIDATION",
+        environment: environment(),
+        repository,
+        executor: adapter.executor,
+        evaluator: adapter.evaluator,
+        maxConcurrency: 4,
+        now: () => NOW,
+      });
+    await runValidation(winnerValues, winnerExperiment);
+    await runValidation(loserValues, loserExperiment);
+    const callsBeforeHoldout = adapter.executorInputs.length;
+    await expect(
+      runPromptExperimentPartition({
+        ...loserValues,
+        family,
+        experiment: loserExperiment,
+        partition: "HOLDOUT",
+        environment: environment(),
+        repository,
+        executor: adapter.executor,
+        evaluator: adapter.evaluator,
+        maxConcurrency: 4,
+        now: () => NOW,
+      }),
+    ).rejects.toThrow("prompt_experiment_holdout_winner_required");
+    expect(adapter.executorInputs).toHaveLength(callsBeforeHoldout);
+  });
+
   it("runs the operational shadow plan through a recomputed Decision", async () => {
     const values = fixtures("experiment-shadow-plan");
     const repository = new MemoryRepository();
     const adapter = adapters();
     const plan = {
-      schemaVersion: "prompt_optimizer_shadow_plan_v1" as const,
+      schemaVersion: "prompt_optimizer_shadow_plan_v2" as const,
       trainingProjection: values.trainingProjection,
       family: values.family,
       split: values.split,
       candidates: [values.candidate],
+      candidatePublications: [values.candidatePublication],
       experiments: [values.experiment],
       environment: environment(),
       promotionPolicy: values.promotionPolicy,
@@ -604,11 +881,12 @@ describe("frozen Prompt experiment runner", () => {
     await expect(
       runPromptOptimizerShadowPlan({
         plan: {
-          schemaVersion: "prompt_optimizer_shadow_plan_v1",
+          schemaVersion: "prompt_optimizer_shadow_plan_v2",
           trainingProjection: values.trainingProjection,
           family: values.family,
           split: values.split,
           candidates: [values.candidate],
+          candidatePublications: [values.candidatePublication],
           experiments: [values.experiment],
           environment: environment(),
           promotionPolicy: values.promotionPolicy,
@@ -640,11 +918,12 @@ describe("frozen Prompt experiment runner", () => {
     const frozenEnvironment = environment(values.split.evaluatorVersion);
     const result = await runPromptOptimizerShadowPlan({
       plan: {
-        schemaVersion: "prompt_optimizer_shadow_plan_v1",
+        schemaVersion: "prompt_optimizer_shadow_plan_v2",
         trainingProjection: values.trainingProjection,
         family: values.family,
         split: values.split,
         candidates: [values.candidate],
+        candidatePublications: [values.candidatePublication],
         experiments: [values.experiment],
         environment: frozenEnvironment,
         promotionPolicy: values.promotionPolicy,
@@ -686,6 +965,8 @@ describe("frozen Prompt experiment runner", () => {
       expect(input).toMatchObject({
         promptRefs: values.candidate.promptRefs,
         promptHashes: values.candidate.promptHashes,
+        promptSourceId: values.candidatePublication.promptSourceId,
+        promptCommit: values.candidatePublication.candidatePromptCommit,
       });
     }
   });
@@ -1023,6 +1304,28 @@ describe("frozen Prompt experiment runner", () => {
     ).rejects.toThrow("prompt_experiment_environment_drift:componentCalibrationSnapshotHash");
     expect(componentRepository.writeCount).toBe(0);
     expect(componentAdapter.calls.size).toBe(0);
+
+    const executionReleaseRepository = new MemoryRepository();
+    const executionReleaseAdapter = adapters();
+    await expect(
+      runPromptExperimentPartition({
+        ...values,
+        partition: "VALIDATION",
+        environment: {
+          ...environment(),
+          executionBehaviorRelease: {
+            release_id: `execution-behavior-release:${"f".repeat(64)}`,
+            release_hash: HASH_B,
+            archive_ref: `registry/prompt_checks/execution_behavior_releases/${"f".repeat(64)}--${"b".repeat(64)}.json`,
+          },
+        },
+        repository: executionReleaseRepository,
+        executor: executionReleaseAdapter.executor,
+        evaluator: executionReleaseAdapter.evaluator,
+      }),
+    ).rejects.toThrow("prompt_experiment_environment_drift:executionBehaviorRelease");
+    expect(executionReleaseRepository.writeCount).toBe(0);
+    expect(executionReleaseAdapter.calls.size).toBe(0);
   });
 
   it("rejects a split manifest created after the runner clock before persistence", async () => {

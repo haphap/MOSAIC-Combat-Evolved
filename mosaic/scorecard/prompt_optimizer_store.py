@@ -26,18 +26,34 @@ from mosaic.scorecard.canonical_json import (
     canonical_string_sort_key as _canonical_string_sort_key,
 )
 from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
+from mosaic.scorecard.prompt_training_history import prompt_role_component_refs
 from mosaic.scorecard.store import DEFAULT_DB_PATH
 
 
 _SCHEMA_FILE_BY_VERSION = {
+    "prompt_training_projection_v1": "prompt_training_projection_v1.schema.json",
     "prompt_candidate_v1": "prompt_candidate_v1.schema.json",
+    "prompt_candidate_publication_v1": "prompt_candidate_publication_v1.schema.json",
     "prompt_candidate_family_v1": "prompt_candidate_family_v1.schema.json",
+    "prompt_candidate_family_v2": "prompt_candidate_family_v2.schema.json",
     "prompt_dataset_split_v1": "prompt_dataset_split_v1.schema.json",
     "prompt_experiment_v1": "prompt_experiment_v1.schema.json",
+    "prompt_experiment_v2": "prompt_experiment_v2.schema.json",
     "prompt_experiment_run_v1": "prompt_experiment_run_v1.schema.json",
 }
 
 _DDL = """
+CREATE TABLE IF NOT EXISTS prompt_training_projections_v1 (
+    projection_hash TEXT PRIMARY KEY,
+    projection_id TEXT NOT NULL UNIQUE,
+    agent_id TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    cohort TEXT NOT NULL,
+    cutoff_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    persisted_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS prompt_candidates_v3 (
     candidate_id TEXT PRIMARY KEY,
     parent_id TEXT NOT NULL,
@@ -48,6 +64,15 @@ CREATE TABLE IF NOT EXISTS prompt_candidates_v3 (
     en_prompt_hash TEXT NOT NULL,
     record_json TEXT NOT NULL,
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS prompt_candidate_publications_v1 (
+    candidate_id TEXT PRIMARY KEY REFERENCES prompt_candidates_v3(candidate_id),
+    candidate_hash TEXT NOT NULL,
+    prompt_source_id TEXT NOT NULL,
+    candidate_prompt_commit TEXT NOT NULL,
+    publication_hash TEXT NOT NULL UNIQUE,
+    record_json TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS prompt_dataset_splits_v3 (
@@ -201,6 +226,7 @@ def _experiment_family_environment(value: Mapping[str, Any]) -> dict[str, Any]:
     keys = (
         "target",
         "championId",
+        "championPromptSourceId",
         "championPromptCommit",
         "championPromptRefs",
         "championPromptHashes",
@@ -218,6 +244,7 @@ def _experiment_family_environment(value: Mapping[str, Any]) -> dict[str, Any]:
         "evaluatorVersion",
         "evaluatorConfigHash",
         "codeCommit",
+        "executionBehaviorRelease",
         "repeatSeeds",
     )
     return {key: value[key] for key in keys}
@@ -349,6 +376,14 @@ def _assert_experiment_semantics(value: Mapping[str, Any]) -> None:
     terminal = value["status"] in {"COMPLETE", "FAILED"}
     if terminal != (value["completedAt"] is not None):
         raise ValueError("prompt_experiment_completion_timestamp_invalid")
+    execution_release = value["executionBehaviorRelease"]
+    expected_archive_ref = (
+        "registry/prompt_checks/execution_behavior_releases/"
+        f"{str(execution_release['release_id']).removeprefix('execution-behavior-release:')}--"
+        f"{str(execution_release['release_hash']).removeprefix('sha256:')}.json"
+    )
+    if execution_release["archive_ref"] != expected_archive_ref:
+        raise ValueError("prompt_experiment_execution_behavior_binding_mismatch")
 
 
 def _assert_experiment_evaluator_binding(
@@ -637,7 +672,7 @@ def _quantile(values: list[float], probability: float) -> float:
 
 def _block_bootstrap(
     deltas: list[float], *, samples: int, block_length: int, alpha: float, seed: str
-) -> tuple[float, float]:
+) -> tuple[float, float, float]:
     seed_value = int(hashlib.sha256(seed.encode()).hexdigest()[:8], 16)
     random = _mulberry32(seed_value)
     means: list[float] = []
@@ -654,8 +689,83 @@ def _block_bootstrap(
         means.append(total / len(deltas))
     means.sort()
     lower = _quantile(means, alpha)
+    upper = _quantile(means, 1 - alpha)
     p_value = (sum(value <= 0 for value in means) + 1) / (len(means) + 1)
-    return lower, p_value
+    return lower, upper, p_value
+
+
+def _evaluate_promotion_series(
+    *,
+    deltas: list[float],
+    champion_failures: list[bool],
+    candidate_failures: list[bool],
+    critical_deltas: list[float],
+    repeat_seed_count: int,
+    family_candidate_count: int,
+    policy: Mapping[str, Any],
+    seed: str,
+) -> dict[str, Any]:
+    """Evaluate the pure statistical gate shared by persistence and parity tests."""
+    if (
+        not deltas
+        or not champion_failures
+        or len(champion_failures) != len(candidate_failures)
+        or family_candidate_count < 1
+    ):
+        raise ValueError("prompt_promotion_series_shape_invalid")
+    adjusted_alpha = float(policy["familyAlpha"]) / family_candidate_count
+    confidence_lower, confidence_upper, bootstrap_p_value = _block_bootstrap(
+        deltas,
+        samples=int(policy["bootstrapSamples"]),
+        block_length=int(policy["blockLength"]),
+        alpha=adjusted_alpha,
+        seed=seed,
+    )
+    tail_count = max(1, math.ceil(len(deltas) * float(policy["tailQuantile"])))
+    tail_delta = _mean(sorted(deltas)[:tail_count])
+    champion_failure_rate = _mean([float(failed) for failed in champion_failures])
+    candidate_failure_rate = _mean([float(failed) for failed in candidate_failures])
+    critical_minimum = min(critical_deltas) if critical_deltas else 0
+    paired_delta = _mean(deltas)
+    reasons: list[str] = []
+    if len(deltas) < int(policy["minimumMatureSamples"]):
+        reasons.append("sample_count")
+    if repeat_seed_count < int(policy["minimumRepeatSeeds"]):
+        reasons.append("repeat_seed_count")
+    if paired_delta < float(policy["minimumPairedDelta"]):
+        reasons.append("paired_delta")
+    if confidence_lower < float(policy["minimumPairedDelta"]):
+        reasons.append("confidence_lower")
+    if bootstrap_p_value > adjusted_alpha:
+        reasons.append("multiple_comparison")
+    if tail_delta < float(policy["minimumTailDelta"]):
+        reasons.append("tail_regression")
+    if (
+        candidate_failure_rate - champion_failure_rate
+        > float(policy["maximumFailureRateIncrease"])
+    ):
+        reasons.append("failure_rate_regression")
+    if critical_deltas and critical_minimum < float(
+        policy["minimumCriticalSampleDelta"]
+    ):
+        reasons.append("critical_suite_regression")
+    return {
+        "eligible": not reasons,
+        "reasons": reasons,
+        "metrics": {
+            "sampleCount": len(deltas),
+            "repeatSeedCount": repeat_seed_count,
+            "pairedDelta": paired_delta,
+            "confidenceLower": confidence_lower,
+            "confidenceUpper": confidence_upper,
+            "bootstrapPValue": bootstrap_p_value,
+            "adjustedAlpha": adjusted_alpha,
+            "tailDelta": tail_delta,
+            "championFailureRate": champion_failure_rate,
+            "candidateFailureRate": candidate_failure_rate,
+            "criticalMinimum": critical_minimum,
+        },
+    }
 
 
 def _validation_gate_eligible(
@@ -733,16 +843,6 @@ def _validation_gate_eligible(
         for sample in ordered_samples
     ]
     deltas = [value for _, value in sample_deltas]
-    adjusted_alpha = float(policy["familyAlpha"]) / len(family["candidateIds"])
-    confidence_lower, p_value = _block_bootstrap(
-        deltas,
-        samples=int(policy["bootstrapSamples"]),
-        block_length=int(policy["blockLength"]),
-        alpha=adjusted_alpha,
-        seed=f"{experiment['experimentId']}:VALIDATION:{policy_hash}",
-    )
-    tail_count = max(1, math.ceil(len(deltas) * float(policy["tailQuantile"])))
-    tail_delta = _mean(sorted(deltas)[:tail_count])
     critical_by_id = dict(sample_deltas)
     try:
         critical_deltas = [
@@ -751,21 +851,17 @@ def _validation_gate_eligible(
         ]
     except KeyError as exc:
         raise ValueError("prompt_experiment_holdout_policy_critical_sample_missing") from exc
-    critical_minimum = min(critical_deltas) if critical_deltas else 0
-    return not (
-        len(sample_deltas) < int(policy["minimumMatureSamples"])
-        or len(experiment["repeatSeeds"]) < int(policy["minimumRepeatSeeds"])
-        or _mean(deltas) < float(policy["minimumPairedDelta"])
-        or confidence_lower < float(policy["minimumPairedDelta"])
-        or p_value > adjusted_alpha
-        or tail_delta < float(policy["minimumTailDelta"])
-        or _mean(candidate_failures) - _mean(champion_failures)
-        > float(policy["maximumFailureRateIncrease"])
-        or (
-            critical_deltas
-            and critical_minimum < float(policy["minimumCriticalSampleDelta"])
-        )
+    evidence = _evaluate_promotion_series(
+        deltas=deltas,
+        champion_failures=[bool(value) for value in champion_failures],
+        candidate_failures=[bool(value) for value in candidate_failures],
+        critical_deltas=critical_deltas,
+        repeat_seed_count=len(experiment["repeatSeeds"]),
+        family_candidate_count=len(family["candidateIds"]),
+        policy=policy,
+        seed=f"{experiment['experimentId']}:VALIDATION:{policy_hash}",
     )
+    return bool(evidence["eligible"])
 
 
 def _assert_candidate_semantics(value: Mapping[str, Any]) -> None:
@@ -783,6 +879,117 @@ def _assert_candidate_semantics(value: Mapping[str, Any]) -> None:
         raise ValueError("prompt_candidate_private_lineage_hash_missing")
     if not str(value.get("privateStateArtifactHash", "")).startswith("sha256:"):
         raise ValueError("prompt_candidate_private_state_artifact_hash_missing")
+
+
+def _assert_training_projection_semantics(value: Mapping[str, Any]) -> None:
+    body = {key: item for key, item in value.items() if key != "projectionHash"}
+    if value["projectionHash"] != _canonical_hash(body):
+        raise ValueError("prompt_training_projection_hash_mismatch")
+    agent_id = str(value["target"]["agentId"])
+    expected_refs = prompt_role_component_refs(agent_id)
+    actual_refs = tuple(
+        str(component["componentRef"]) for component in value["directComponents"]
+    )
+    if actual_refs != expected_refs:
+        raise ValueError("prompt_training_projection_component_roster_mismatch")
+    mature_count = int(value["matureSampleCount"])
+    if any(
+        int(component["directMatureSampleCount"]) != mature_count
+        for component in value["directComponents"]
+    ):
+        raise ValueError("prompt_training_projection_component_sample_count_mismatch")
+    experiment_ids = [
+        str(experiment["experimentId"])
+        for experiment in value["controlledExperiments"]
+    ]
+    if len(experiment_ids) != len(set(experiment_ids)):
+        raise ValueError("prompt_training_projection_experiment_duplicate")
+    cutoff = _instant(str(value["cutoffAt"]))
+    if any(
+        _instant(str(experiment["completedAt"])) > cutoff
+        for experiment in value["controlledExperiments"]
+    ):
+        raise ValueError("prompt_training_projection_experiment_after_cutoff")
+    contract = OUTCOME_CONTRACTS[agent_id]
+    expected_outcome = {
+        "evaluationObject": contract["evaluation_object"],
+        "outcomeContractVersion": contract["outcome_contract_version"],
+        "primaryLabelId": contract["primary_label_id"],
+        "maturityHorizon": contract["maturity_horizon"],
+        "maturityTradingDays": contract["maturity"]["horizon_trading_days"],
+    }
+    if value["outcomeContract"] != expected_outcome:
+        raise ValueError("prompt_training_projection_outcome_contract_mismatch")
+    evaluator = value["evaluator"]
+    expected_implementation_hash = _canonical_hash(
+        {
+            "executorAdapterHash": evaluator["executorAdapterHash"],
+            "evaluatorAdapterHash": evaluator["evaluatorAdapterHash"],
+            "configHash": evaluator["configHash"],
+        }
+    )
+    if evaluator["implementationHash"] != expected_implementation_hash:
+        raise ValueError("prompt_training_projection_evaluator_binding_mismatch")
+
+
+def _load_training_projection(
+    conn: sqlite3.Connection, projection_hash: str
+) -> dict[str, Any]:
+    row = conn.execute(
+        """
+        SELECT record_json FROM prompt_training_projections_v1
+        WHERE projection_hash = ?
+        """,
+        (projection_hash,),
+    ).fetchone()
+    if row is None:
+        raise ValueError("prompt_training_projection_not_found")
+    return json.loads(str(row["record_json"]))
+
+
+def _excluded_split_sample_ids_hash(split: Mapping[str, Any]) -> str:
+    return _canonical_hash(
+        sorted(
+            (
+                str(sample["sampleId"])
+                for partition_name in ("validation", "holdout")
+                for sample in split[partition_name]["samples"]
+            ),
+            key=_canonical_string_sort_key,
+        )
+    )
+
+
+def _assert_candidate_training_projection_binding(
+    candidate: Mapping[str, Any], projection: Mapping[str, Any]
+) -> None:
+    if int(projection["matureSampleCount"]) < 30:
+        raise ValueError("prompt_candidate_training_sample_count_insufficient")
+    if (
+        candidate["target"] != projection["target"]
+        or candidate["trainingProjectionHash"] != projection["projectionHash"]
+        or candidate["excludedSampleIdsHash"] != projection["excludedSampleIdsHash"]
+    ):
+        raise ValueError("prompt_candidate_training_projection_mismatch")
+
+
+def _assert_split_training_projection_binding(
+    split: Mapping[str, Any], projection: Mapping[str, Any]
+) -> None:
+    if (
+        split["target"] != projection["target"]
+        or split["trainingProjectionHash"] != projection["projectionHash"]
+        or _instant(str(split["cutoffAt"])) != _instant(str(projection["cutoffAt"]))
+        or _excluded_split_sample_ids_hash(split)
+        != projection["excludedSampleIdsHash"]
+    ):
+        raise ValueError("prompt_dataset_split_training_projection_mismatch")
+
+
+def _assert_candidate_publication_semantics(value: Mapping[str, Any]) -> None:
+    body = {key: item for key, item in value.items() if key != "publicationHash"}
+    if value["publicationHash"] != _canonical_hash(body):
+        raise ValueError("prompt_candidate_publication_hash_mismatch")
 
 
 class PromptOptimizerStore:
@@ -890,12 +1097,85 @@ class PromptOptimizerStore:
         if str(existing["record_json"]) != _canonical_json(record):
             raise ValueError(f"prompt_optimizer_id_conflict:{object_id}")
 
+    def put_training_projection(
+        self, record: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        value = self._validate("prompt_training_projection_v1", record)
+        _assert_target_semantics(value)
+        _assert_training_projection_semantics(value)
+        target = value["target"]
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            db_now = _db_now(conn)
+            if _instant(str(value["cutoffAt"])) > db_now:
+                raise ValueError("prompt_training_projection_cutoff_in_future")
+            existing = conn.execute(
+                """
+                SELECT record_json FROM prompt_training_projections_v1
+                WHERE projection_hash = ?
+                """,
+                (value["projectionHash"],),
+            ).fetchone()
+            if existing is not None:
+                self._assert_idempotent(
+                    existing, value, str(value["projectionHash"])
+                )
+                return value
+            conflicting_id = conn.execute(
+                """
+                SELECT record_json FROM prompt_training_projections_v1
+                WHERE projection_id = ?
+                """,
+                (value["projectionId"],),
+            ).fetchone()
+            if conflicting_id is not None:
+                raise ValueError(
+                    f"prompt_optimizer_id_conflict:{value['projectionId']}"
+                )
+            conn.execute(
+                """
+                INSERT INTO prompt_training_projections_v1 (
+                    projection_hash, projection_id, agent_id, stage, cohort,
+                    cutoff_at, record_json, persisted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    value["projectionHash"],
+                    value["projectionId"],
+                    target["agentId"],
+                    target["stage"],
+                    target["cohort"],
+                    value["cutoffAt"],
+                    _canonical_json(value),
+                    _format_instant(db_now),
+                ),
+            )
+        return value
+
+    def get_training_projection(
+        self, projection_hash: str
+    ) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            return self._load_json(
+                conn.execute(
+                    """
+                    SELECT record_json FROM prompt_training_projections_v1
+                    WHERE projection_hash = ?
+                    """,
+                    (projection_hash,),
+                ).fetchone()
+            )
+
     def put_candidate(self, record: Mapping[str, Any]) -> dict[str, Any]:
         value = self._validate("prompt_candidate_v1", record)
         _assert_target_semantics(value)
         _assert_candidate_semantics(value)
         target = value["target"]
         with self._connect() as conn:
+            projection = _load_training_projection(
+                conn, str(value["trainingProjectionHash"])
+            )
+            _assert_candidate_training_projection_binding(value, projection)
             existing = conn.execute(
                 "SELECT record_json FROM prompt_candidates_v3 WHERE candidate_id = ?",
                 (value["candidateId"],),
@@ -933,6 +1213,61 @@ class PromptOptimizerStore:
                 ).fetchone()
             )
 
+    def put_candidate_publication(
+        self, record: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        value = self._validate("prompt_candidate_publication_v1", record)
+        _assert_candidate_publication_semantics(value)
+        with self._connect() as conn:
+            candidate = conn.execute(
+                "SELECT record_json FROM prompt_candidates_v3 WHERE candidate_id = ?",
+                (value["candidateId"],),
+            ).fetchone()
+            if candidate is None:
+                raise ValueError("prompt_candidate_publication_candidate_not_found")
+            candidate_record = json.loads(str(candidate["record_json"]))
+            if value["candidateHash"] != _canonical_hash(candidate_record):
+                raise ValueError("prompt_candidate_publication_candidate_hash_mismatch")
+            existing = conn.execute(
+                """
+                SELECT record_json FROM prompt_candidate_publications_v1
+                WHERE candidate_id = ?
+                """,
+                (value["candidateId"],),
+            ).fetchone()
+            if existing is not None:
+                self._assert_idempotent(existing, value, value["candidateId"])
+                return value
+            conn.execute(
+                """
+                INSERT INTO prompt_candidate_publications_v1 (
+                    candidate_id, candidate_hash, prompt_source_id,
+                    candidate_prompt_commit, publication_hash, record_json
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    value["candidateId"],
+                    value["candidateHash"],
+                    value["promptSourceId"],
+                    value["candidatePromptCommit"],
+                    value["publicationHash"],
+                    _canonical_json(value),
+                ),
+            )
+        return value
+
+    def get_candidate_publication(self, candidate_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            return self._load_json(
+                conn.execute(
+                    """
+                    SELECT record_json FROM prompt_candidate_publications_v1
+                    WHERE candidate_id = ?
+                    """,
+                    (candidate_id,),
+                ).fetchone()
+            )
+
     def put_split(self, record: Mapping[str, Any]) -> dict[str, Any]:
         value = self._validate("prompt_dataset_split_v1", record)
         _assert_target_semantics(value)
@@ -942,6 +1277,10 @@ class PromptOptimizerStore:
         with self._connect() as conn:
             if _instant(str(value["createdAt"])) > _db_now(conn):
                 raise ValueError("prompt_dataset_split_created_in_future")
+            projection = _load_training_projection(
+                conn, str(value["trainingProjectionHash"])
+            )
+            _assert_split_training_projection_binding(value, projection)
             existing = conn.execute(
                 "SELECT record_json FROM prompt_dataset_splits_v3 WHERE split_id = ?",
                 (value["splitId"],),
@@ -977,7 +1316,7 @@ class PromptOptimizerStore:
             )
 
     def put_family(self, record: Mapping[str, Any]) -> dict[str, Any]:
-        value = self._validate("prompt_candidate_family_v1", record)
+        value = self._validate("prompt_candidate_family_v2", record)
         _assert_target_semantics(value)
         _assert_family_semantics(value)
         with self._connect() as conn:
@@ -993,6 +1332,10 @@ class PromptOptimizerStore:
                 or split["target"] != value["target"]
             ):
                 raise ValueError("prompt_candidate_family_split_mismatch")
+            projection = _load_training_projection(
+                conn, str(split["trainingProjectionHash"])
+            )
+            _assert_split_training_projection_binding(split, projection)
             candidates = conn.execute(
                 "SELECT candidate_id, record_json FROM prompt_candidates_v3 WHERE candidate_id IN ({})".format(
                     ",".join("?" for _ in value["candidateIds"])
@@ -1078,7 +1421,7 @@ class PromptOptimizerStore:
         record: Mapping[str, Any],
         promotion_policy: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        value = self._validate("prompt_experiment_v1", record)
+        value = self._validate("prompt_experiment_v2", record)
         _assert_target_semantics(value)
         _assert_experiment_semantics(value)
         with self._connect() as conn:
@@ -1100,6 +1443,25 @@ class PromptOptimizerStore:
                 or candidate["promptHashes"] != value["candidatePromptHashes"]
             ):
                 raise ValueError("prompt_experiment_candidate_mismatch")
+            publication_row = conn.execute(
+                """
+                SELECT record_json FROM prompt_candidate_publications_v1
+                WHERE candidate_id = ?
+                """,
+                (value["candidateId"],),
+            ).fetchone()
+            if publication_row is None:
+                raise ValueError("prompt_experiment_candidate_publication_not_found")
+            publication = json.loads(str(publication_row["record_json"]))
+            if (
+                publication["candidateHash"] != _canonical_hash(candidate)
+                or publication["promptSourceId"] != value["candidatePromptSourceId"]
+                or publication["candidatePromptCommit"]
+                != value["candidatePromptCommit"]
+                or publication["publicationHash"]
+                != value["candidatePublicationHash"]
+            ):
+                raise ValueError("prompt_experiment_candidate_publication_mismatch")
             family_row = conn.execute(
                 "SELECT record_json FROM prompt_candidate_families_v3 WHERE family_id = ?",
                 (value["familyId"],),
@@ -1111,6 +1473,8 @@ class PromptOptimizerStore:
                 value["candidateId"] not in family["candidateIds"]
                 or family["target"] != value["target"]
                 or family["championReleaseId"] != value["championId"]
+                or family["championPromptSourceId"]
+                != value["championPromptSourceId"]
                 or family["championPromptCommit"] != value["championPromptCommit"]
                 or family["championPromptRefs"] != value["championPromptRefs"]
                 or family["championPromptHashes"] != value["championPromptHashes"]
@@ -1191,6 +1555,7 @@ class PromptOptimizerStore:
                     "evaluatorVersion",
                     "evaluatorConfigHash",
                     "codeCommit",
+                    "executionBehaviorRelease",
                     "repeatSeeds",
                     "createdAt",
                 )

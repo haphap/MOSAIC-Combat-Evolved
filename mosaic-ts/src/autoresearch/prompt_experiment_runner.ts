@@ -1,14 +1,18 @@
 import { canonicalJsonHash, compareCanonicalStrings } from "../agents/helpers/canonical_json.js";
+import type { PromptReleaseExecutionBehaviorBinding } from "../agents/prompts/prompt_release_contract.js";
 import type { BridgeApi } from "../bridge/types.js";
 import { selectPromptCandidateFamily } from "./prompt_candidate_family.js";
 import {
   assertCandidateMatchesSplit,
+  assertCandidatePublicationMatches,
   type DatasetSplitManifest,
   DatasetSplitManifestSchema,
   PROMPT_EXPERIMENT_MAX_ATTEMPTS,
   type PromptCandidate,
   type PromptCandidateFamily,
   PromptCandidateFamilySchema,
+  type PromptCandidatePublication,
+  PromptCandidatePublicationSchema,
   PromptCandidateSchema,
   type PromptDatasetSampleRef,
   type PromptExperiment,
@@ -18,6 +22,7 @@ import {
   PromptOptimizerSha256Schema,
   type PromptOptimizerTarget,
   type PromptRefPair,
+  type PromptTrainingProjection,
   promptExperimentRunId,
 } from "./prompt_optimizer_contract.js";
 import {
@@ -28,7 +33,10 @@ import {
 } from "./prompt_promotion_policy.js";
 
 export interface PromptExperimentRepository {
+  putTrainingProjection(record: PromptTrainingProjection): Promise<PromptTrainingProjection>;
   putCandidate(record: PromptCandidate): Promise<PromptCandidate>;
+  putCandidatePublication(record: PromptCandidatePublication): Promise<PromptCandidatePublication>;
+  getCandidatePublication(candidateId: string): Promise<PromptCandidatePublication | null>;
   putSplit(record: DatasetSplitManifest): Promise<DatasetSplitManifest>;
   putFamily(record: PromptCandidateFamily): Promise<PromptCandidateFamily>;
   getFamily(familyId: string): Promise<PromptCandidateFamily | null>;
@@ -49,8 +57,20 @@ export interface PromptExperimentRepository {
 export class BridgePromptExperimentRepository implements PromptExperimentRepository {
   constructor(private readonly api: BridgeApi) {}
 
+  putTrainingProjection(record: PromptTrainingProjection): Promise<PromptTrainingProjection> {
+    return this.api.promptOptimizerPutTrainingProjection(record);
+  }
+
   putCandidate(record: PromptCandidate): Promise<PromptCandidate> {
     return this.api.promptOptimizerPutCandidate(record);
+  }
+
+  putCandidatePublication(record: PromptCandidatePublication): Promise<PromptCandidatePublication> {
+    return this.api.promptOptimizerPutCandidatePublication(record);
+  }
+
+  getCandidatePublication(candidateId: string): Promise<PromptCandidatePublication | null> {
+    return this.api.promptOptimizerGetCandidatePublication(candidateId);
   }
 
   putSplit(record: DatasetSplitManifest): Promise<DatasetSplitManifest> {
@@ -106,6 +126,7 @@ export interface FrozenPromptExperimentEnvironment {
   evaluatorVersion: string;
   evaluatorConfigHash: string;
   codeCommit: string;
+  executionBehaviorRelease: PromptReleaseExecutionBehaviorBinding;
 }
 
 export interface PromptExperimentAgentExecutor {
@@ -115,6 +136,8 @@ export interface PromptExperimentAgentExecutor {
     sample: Pick<PromptDatasetSampleRef, "sampleId" | "inputRef" | "inputHash" | "eventWindow">;
     seed: number;
     environment: Readonly<FrozenPromptExperimentEnvironment>;
+    promptSourceId: string;
+    promptCommit: string;
     promptRefs: PromptRefPair;
     promptHashes: { zh: string; en: string };
   }): Promise<{
@@ -125,7 +148,11 @@ export interface PromptExperimentAgentExecutor {
   }>;
 }
 
-/** The evaluator never receives side, Candidate identity, or Prompt content. */
+/**
+ * The evaluation protocol omits explicit side, Candidate identity, and Prompt
+ * content. Evaluator adapters are still trusted code and may infer context from
+ * an output reference, so this interface does not claim process-level blindness.
+ */
 export interface PromptExperimentEvaluator {
   evaluate(input: {
     target: PromptOptimizerTarget;
@@ -141,6 +168,7 @@ export interface PromptExperimentEvaluator {
 
 export interface RunPromptExperimentPartitionInput {
   candidate: PromptCandidate;
+  candidatePublication: PromptCandidatePublication;
   family: PromptCandidateFamily;
   experiment: PromptExperiment;
   split: DatasetSplitManifest;
@@ -171,8 +199,9 @@ function assertEnvironment(
     "evaluatorVersion",
     "evaluatorConfigHash",
     "codeCommit",
+    "executionBehaviorRelease",
   ] as const) {
-    if (experiment[key] !== environment[key]) {
+    if (canonicalJsonHash(experiment[key]) !== canonicalJsonHash(environment[key])) {
       throw new Error(`prompt_experiment_environment_drift:${key}`);
     }
   }
@@ -183,6 +212,7 @@ function assertBindings(input: RunPromptExperimentPartitionInput): void {
     throw new Error("prompt_experiment_split_manifest_drift");
   }
   assertCandidateMatchesSplit(input.candidate, input.split);
+  assertCandidatePublicationMatches(input.candidate, input.candidatePublication);
   if (
     input.candidate.parentId !== input.experiment.championId ||
     input.candidate.parentPromptCommit !== input.experiment.championPromptCommit ||
@@ -193,7 +223,10 @@ function assertBindings(input: RunPromptExperimentPartitionInput): void {
     canonicalJsonHash(input.candidate.promptHashes) !==
       canonicalJsonHash(input.experiment.candidatePromptHashes) ||
     canonicalJsonHash(input.candidate.promptRefs) !==
-      canonicalJsonHash(input.experiment.candidatePromptRefs)
+      canonicalJsonHash(input.experiment.candidatePromptRefs) ||
+    input.candidatePublication.promptSourceId !== input.experiment.candidatePromptSourceId ||
+    input.candidatePublication.candidatePromptCommit !== input.experiment.candidatePromptCommit ||
+    input.candidatePublication.publicationHash !== input.experiment.candidatePublicationHash
   ) {
     throw new Error("prompt_experiment_prompt_binding_drift");
   }
@@ -201,6 +234,7 @@ function assertBindings(input: RunPromptExperimentPartitionInput): void {
     input.family.familyId !== input.experiment.familyId ||
     !input.family.candidateIds.includes(input.candidate.candidateId) ||
     input.family.championReleaseId !== input.experiment.championId ||
+    input.family.championPromptSourceId !== input.experiment.championPromptSourceId ||
     input.family.championPromptCommit !== input.experiment.championPromptCommit ||
     canonicalJsonHash(input.family.championPromptRefs) !==
       canonicalJsonHash(input.experiment.championPromptRefs) ||
@@ -253,11 +287,15 @@ function assertPersistedExperimentMatches(
     "candidateId",
     "championId",
     "target",
+    "championPromptSourceId",
     "championPromptCommit",
     "championPromptRefs",
     "championPromptHashes",
     "candidatePromptRefs",
     "candidatePromptHashes",
+    "candidatePromptSourceId",
+    "candidatePromptCommit",
+    "candidatePublicationHash",
     "datasetSplitId",
     "datasetSplitManifestHash",
     "promotionPolicyVersion",
@@ -272,6 +310,7 @@ function assertPersistedExperimentMatches(
     "evaluatorVersion",
     "evaluatorConfigHash",
     "codeCommit",
+    "executionBehaviorRelease",
     "repeatSeeds",
     "createdAt",
   ] as const) {
@@ -460,10 +499,14 @@ async function executeRun(input: {
   const prompt =
     claimed.side === "CHAMPION"
       ? {
+          promptSourceId: input.experiment.championPromptSourceId,
+          promptCommit: input.experiment.championPromptCommit,
           promptRefs: input.experiment.championPromptRefs,
           promptHashes: input.experiment.championPromptHashes,
         }
       : {
+          promptSourceId: input.experiment.candidatePromptSourceId,
+          promptCommit: input.experiment.candidatePromptCommit,
           promptRefs: input.experiment.candidatePromptRefs,
           promptHashes: input.experiment.candidatePromptHashes,
         };
@@ -475,6 +518,8 @@ async function executeRun(input: {
     environment: input.environment,
     partition: claimed.partition,
     promptHashes: prompt.promptHashes,
+    promptSourceId: prompt.promptSourceId,
+    promptCommit: prompt.promptCommit,
     promptRefs: prompt.promptRefs,
     sample: {
       sampleId: input.sample.sampleId,
@@ -498,6 +543,8 @@ async function executeRun(input: {
       },
       seed: claimed.seed,
       environment: input.environment,
+      promptSourceId: prompt.promptSourceId,
+      promptCommit: prompt.promptCommit,
       promptRefs: prompt.promptRefs,
       promptHashes: prompt.promptHashes,
     });
@@ -646,6 +693,7 @@ export async function runPromptExperimentPartition(
   const input = {
     ...rawInput,
     candidate: PromptCandidateSchema.parse(rawInput.candidate),
+    candidatePublication: PromptCandidatePublicationSchema.parse(rawInput.candidatePublication),
     family: PromptCandidateFamilySchema.parse(rawInput.family),
     experiment: PromptExperimentSchema.parse(rawInput.experiment),
     split: DatasetSplitManifestSchema.parse(rawInput.split),
@@ -656,6 +704,16 @@ export async function runPromptExperimentPartition(
   }
   assertBindings(input);
   await input.repository.putCandidate(input.candidate);
+  const persistedPublication = await input.repository.getCandidatePublication(
+    input.candidate.candidateId,
+  );
+  if (persistedPublication === null) {
+    await input.repository.putCandidatePublication(input.candidatePublication);
+  } else if (
+    canonicalJsonHash(persistedPublication) !== canonicalJsonHash(input.candidatePublication)
+  ) {
+    throw new Error("prompt_candidate_publication_persisted_definition_drift");
+  }
   await input.repository.putSplit(input.split);
   const persistedFamily = await input.repository.getFamily(input.family.familyId);
   if (persistedFamily === null) {
@@ -664,6 +722,7 @@ export async function runPromptExperimentPartition(
     canonicalJsonHash({
       target: persistedFamily.target,
       championReleaseId: persistedFamily.championReleaseId,
+      championPromptSourceId: persistedFamily.championPromptSourceId,
       championPromptCommit: persistedFamily.championPromptCommit,
       championPromptRefs: persistedFamily.championPromptRefs,
       championPromptHashes: persistedFamily.championPromptHashes,
@@ -676,6 +735,7 @@ export async function runPromptExperimentPartition(
     canonicalJsonHash({
       target: input.family.target,
       championReleaseId: input.family.championReleaseId,
+      championPromptSourceId: input.family.championPromptSourceId,
       championPromptCommit: input.family.championPromptCommit,
       championPromptRefs: input.family.championPromptRefs,
       championPromptHashes: input.family.championPromptHashes,

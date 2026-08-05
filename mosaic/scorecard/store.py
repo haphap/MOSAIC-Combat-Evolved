@@ -714,97 +714,9 @@ def _render_decision_display_parts(
 
 # Resolve <repoRoot>/data/scorecard.db at import time.
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-_EXECUTION_BEHAVIOR_RELEASE_ARCHIVE_ROOT = (
-    _REPO_ROOT
-    / "registry"
-    / "prompt_checks"
-    / "execution_behavior_releases"
-)
 DEFAULT_DB_PATH = (
     Path(os.getenv("MOSAIC_DATA_DIR", str(_REPO_ROOT / "data"))) / "scorecard.db"
 )
-
-
-def _load_trusted_execution_behavior_release(
-    expected_release_id: str,
-) -> dict[str, Any]:
-    """Load one immutable, hash-valid release archive by exact release ID."""
-    from mosaic.scorecard.darwinian_v2 import canonical_hash
-
-    prefix = "execution-behavior-release:"
-    if (
-        not isinstance(expected_release_id, str)
-        or not expected_release_id.startswith(prefix)
-        or len(expected_release_id) != len(prefix) + 64
-        or any(
-            character not in "0123456789abcdef"
-            for character in expected_release_id[len(prefix) :]
-        )
-    ):
-        raise ValueError("execution behavior release ID is invalid")
-    release_digest = expected_release_id[len(prefix) :]
-    archive_root = _EXECUTION_BEHAVIOR_RELEASE_ARCHIVE_ROOT.resolve()
-    try:
-        candidates = sorted(
-            path.resolve()
-            for path in archive_root.glob(f"{release_digest}--*.json")
-            if path.is_file()
-        )
-    except OSError as exc:
-        raise ValueError("trusted execution behavior release is unavailable") from exc
-    if len(candidates) != 1:
-        detail = "unavailable" if not candidates else "ambiguous"
-        raise ValueError(f"trusted execution behavior release is {detail}")
-    release_path = candidates[0]
-    if not release_path.is_relative_to(archive_root):
-        raise ValueError("trusted execution behavior release escaped its archive")
-    try:
-        value = json.loads(release_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError("trusted execution behavior release is unavailable") from exc
-    if not isinstance(value, dict):
-        raise ValueError("trusted execution behavior release must be an object")
-    supplied_hash = value.get("execution_behavior_release_hash")
-    body = {
-        key: item
-        for key, item in value.items()
-        if key != "execution_behavior_release_hash"
-    }
-    if not _is_sha256(supplied_hash) or supplied_hash != canonical_hash(body):
-        raise ValueError("trusted execution behavior release hash mismatch")
-    if value.get("execution_behavior_release_id") != expected_release_id:
-        raise ValueError("trusted execution behavior release ID mismatch")
-    release_content = {
-        key: item
-        for key, item in value.items()
-        if key
-        not in {
-            "execution_behavior_release_id",
-            "execution_behavior_release_hash",
-        }
-    }
-    derived_release_id = (
-        f"{prefix}{canonical_hash(release_content).removeprefix('sha256:')}"
-    )
-    if derived_release_id != expected_release_id:
-        raise ValueError("trusted execution behavior release ID hash mismatch")
-    expected_filename = (
-        f"{release_digest}--{supplied_hash.removeprefix('sha256:')}.json"
-    )
-    if release_path.name != expected_filename:
-        raise ValueError("trusted execution behavior release archive name mismatch")
-    if (
-        value.get("schema_version")
-        != "execution_behavior_release_manifest_v3"
-        or not isinstance(value.get("private_prompt_bootstrap"), dict)
-        or not isinstance(value.get("private_prompt_commit"), str)
-        or not isinstance(value.get("provider_binding"), dict)
-        or not isinstance(value.get("active_production_variants"), list)
-        or not isinstance(value.get("execution_contracts"), list)
-        or not value["execution_contracts"]
-    ):
-        raise ValueError("trusted execution behavior release is incomplete")
-    return value
 
 _DOMAIN_MUTATION_LIFECYCLE_TRANSITIONS: dict[str | None, set[str]] = {
     None: {"proposed"},

@@ -70,6 +70,8 @@ export const PromptReleaseEvidenceSchema = z
   .object({
     candidate_id: z.string().min(1),
     candidate_hash: Sha256Schema,
+    candidate_publication_hash: Sha256Schema,
+    prompt_source_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$/),
     promotion_decision_id: z.string().min(1),
     promotion_decision_hash: Sha256Schema,
     experiment_id: z.string().min(1),
@@ -78,6 +80,9 @@ export const PromptReleaseEvidenceSchema = z
     policy_config_hash: Sha256Schema,
     candidate_prompt_hashes: z.object({ zh: Sha256Schema, en: Sha256Schema }).strict(),
     private_state_artifact_hash: Sha256Schema,
+    behavior_contract_hash: Sha256Schema,
+    mutator_commit: z.string().regex(/^[0-9a-f]{40}$/),
+    mutator_config_hash: Sha256Schema,
   })
   .strict();
 
@@ -271,7 +276,7 @@ function validatePromptPairs(
 
 export const ActivePromptReleaseManifestSchema = z
   .object({
-    schema_version: z.literal("active_prompt_release_manifest_v2"),
+    schema_version: z.literal("active_prompt_release_manifest_v3"),
     release_id: z.string().min(1),
     base_release_id: z.string().min(1).nullable(),
     lifecycle_state: z.enum(["staged", "canary", "active", "rolled_back"]),

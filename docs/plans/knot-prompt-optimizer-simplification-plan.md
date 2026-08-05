@@ -171,7 +171,7 @@ interface DatasetSplitManifest {
 
 ```ts
 interface PromptExperiment {
-  schemaVersion: "prompt_experiment_v1";
+  schemaVersion: "prompt_experiment_v2";
   experimentId: string;
   familyId: string;
   candidateId: string;

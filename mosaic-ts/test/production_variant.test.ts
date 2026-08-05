@@ -89,7 +89,6 @@ function canonicalHash(value: unknown): string {
 }
 
 function release(model = "fake-model"): ExecutionBehaviorReleaseManifest {
-  const revision = "a".repeat(40);
   const releaseId = `execution-behavior-release:${canonicalHash({ model }).slice("sha256:".length)}`;
   const executionContracts = ALL_AGENTS.flatMap((agent) =>
     (["en", "zh"] as const).map((language) => ({
@@ -112,19 +111,9 @@ function release(model = "fake-model"): ExecutionBehaviorReleaseManifest {
     })),
   ) as ExecutionBehaviorReleaseManifest["execution_contracts"];
   return {
-    schema_version: "execution_behavior_release_manifest_v3",
+    schema_version: "execution_behavior_release_manifest_v4",
     execution_behavior_release_id: releaseId,
     execution_behavior_release_hash: canonicalHash({ releaseId }),
-    private_prompt_commit: revision,
-    private_prompt_bootstrap: {
-      schema_version: "private_prompt_parameter_bootstrap_release_v1",
-      release_hash: `sha256:${"3".repeat(64)}`,
-      parameter_contract_hash: `sha256:${"4".repeat(64)}`,
-      behavior_contract_hash: `sha256:${"5".repeat(64)}`,
-      state_tree_hash: `sha256:${"6".repeat(64)}`,
-      prompt_tree_hash: `sha256:${"7".repeat(64)}`,
-      state_count: 224,
-    },
     provider_binding: {
       provider: "fake",
       model,
@@ -167,11 +156,11 @@ function promptReleaseFor(
     `${behaviorRelease.execution_behavior_release_id.slice("execution-behavior-release:".length)}--` +
     `${behaviorRelease.execution_behavior_release_hash.slice("sha256:".length)}.json`;
   return {
-    schema_version: "active_prompt_release_manifest_v2",
+    schema_version: "active_prompt_release_manifest_v3",
     release_id: "release:test-canary",
     base_release_id: "release:test-active",
     lifecycle_state: "canary",
-    prompt_commit: behaviorRelease.private_prompt_commit,
+    prompt_commit: "a".repeat(40),
     code_commit: "b".repeat(40),
     execution_behavior_release: {
       release_id: behaviorRelease.execution_behavior_release_id,
@@ -189,6 +178,8 @@ function promptReleaseFor(
     release_evidence: {
       candidate_id: "candidate:test",
       candidate_hash: canonicalHash({ candidate: true }),
+      candidate_publication_hash: canonicalHash({ publication: true }),
+      prompt_source_id: "private-prompts",
       promotion_decision_id: "decision:test",
       promotion_decision_hash: canonicalHash({ decision: true }),
       experiment_id: "experiment:test",
@@ -200,6 +191,9 @@ function promptReleaseFor(
         en: `sha256:2${"0".repeat(63)}`,
       },
       private_state_artifact_hash: canonicalHash({ state: true }),
+      behavior_contract_hash: canonicalHash({ behavior: true }),
+      mutator_commit: "a".repeat(40),
+      mutator_config_hash: canonicalHash({ mutator: true }),
     },
     activation_scope: { cohort: "cohort_default", account_mode: "paper", traffic_percent: 10 },
     approval_policy_id: "manual-test",

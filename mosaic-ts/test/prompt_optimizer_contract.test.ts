@@ -5,7 +5,9 @@ import {
   assertCandidateMatchesSplit,
   assertCandidateMatchesTrainingSnapshot,
   assertTrainingProjectionMatchesSplit,
+  buildPromptCandidatePublication,
   DatasetSplitManifestSchema,
+  PROMPT_ROLE_COMPONENT_ORDINALS,
   PromptCandidateFamilySchema,
   PromptCandidateSchema,
   PromptExperimentRunSchema,
@@ -21,12 +23,18 @@ import {
   promptExperimentRunId,
   promptMutationHypothesis,
   promptMutationSummary,
+  promptRoleComponentRefs,
   promptSplitExcludedSampleIdsHash,
 } from "../src/autoresearch/prompt_optimizer_contract.js";
 
 const HASH = `sha256:${"a".repeat(64)}`;
 const OTHER_HASH = `sha256:${"b".repeat(64)}`;
 const COMMIT = "c".repeat(40);
+const EXECUTION_BEHAVIOR_RELEASE = {
+  release_id: `execution-behavior-release:${"d".repeat(64)}`,
+  release_hash: HASH,
+  archive_ref: `registry/prompt_checks/execution_behavior_releases/${"d".repeat(64)}--${"a".repeat(64)}.json`,
+} as const;
 const target = { agentId: "china", stage: "agent_run", cohort: "cohort_default" } as const;
 
 function sample(sampleId: string, startAt: string, endAt: string, maturedAt: string) {
@@ -197,10 +205,17 @@ describe("prompt optimizer public contracts", () => {
     ).toThrow();
     const split = DatasetSplitManifestSchema.parse(splitManifest());
     const parsedCandidate = PromptCandidateSchema.parse(candidate(split));
+    const publication = buildPromptCandidatePublication({
+      candidate: parsedCandidate,
+      promptSourceId: "private-prompts",
+      candidatePromptCommit: "d".repeat(40),
+    });
+    expect(publication.publicationHash).toMatch(/^sha256:/);
     const familyBody = {
-      schemaVersion: "prompt_candidate_family_v1" as const,
+      schemaVersion: "prompt_candidate_family_v2" as const,
       target,
       championReleaseId: "champion-1",
+      championPromptSourceId: "private-prompts",
       championPromptCommit: COMMIT,
       championPromptRefs: { zh: "private://champion.zh", en: "private://champion.en" },
       championPromptHashes: { zh: OTHER_HASH, en: HASH },
@@ -224,16 +239,20 @@ describe("prompt optimizer public contracts", () => {
       }).success,
     ).toBe(false);
     const experimentBody = {
-      schemaVersion: "prompt_experiment_v1" as const,
+      schemaVersion: "prompt_experiment_v2" as const,
       familyId: family.familyId,
       candidateId: parsedCandidate.candidateId,
       championId: "champion-1",
       target,
       championPromptCommit: COMMIT,
+      championPromptSourceId: family.championPromptSourceId,
       championPromptRefs: family.championPromptRefs,
       championPromptHashes: { zh: OTHER_HASH, en: HASH },
       candidatePromptRefs: parsedCandidate.promptRefs,
       candidatePromptHashes: parsedCandidate.promptHashes,
+      candidatePromptSourceId: publication.promptSourceId,
+      candidatePromptCommit: publication.candidatePromptCommit,
+      candidatePublicationHash: publication.publicationHash,
       datasetSplitId: split.splitId,
       datasetSplitManifestHash: canonicalJsonHash(split),
       promotionPolicyVersion: family.promotionPolicyVersion,
@@ -254,6 +273,7 @@ describe("prompt optimizer public contracts", () => {
       evaluatorVersion: "agent-outcome-v2",
       evaluatorConfigHash: HASH,
       codeCommit: COMMIT,
+      executionBehaviorRelease: EXECUTION_BEHAVIOR_RELEASE,
       repeatSeeds: [1, 2],
       runIds: [],
       metrics: {},
@@ -375,7 +395,10 @@ describe("prompt optimizer public contracts", () => {
       trainingProjectionHash: training.projectionHash,
     });
     assertCandidateMatchesTrainingSnapshot(boundCandidate, training);
-    const coldComponents = [{ ...trainingBody.directComponents[0], directMatureSampleCount: 29 }];
+    const coldComponents = trainingBody.directComponents.map((component) => ({
+      ...component,
+      directMatureSampleCount: 29,
+    }));
     const coldBody = {
       ...trainingBody,
       matureSampleCount: 29,
@@ -421,6 +444,39 @@ describe("prompt optimizer public contracts", () => {
         projectionHash: canonicalJsonHash(wrongComponentBody),
       }),
     ).toThrow(/must belong to the projection target/);
+    const lastDirectComponent = training.directComponents.at(-1);
+    if (!lastDirectComponent) throw new Error("missing direct component fixture");
+    for (const directComponents of [
+      training.directComponents.slice(0, -1),
+      [
+        ...training.directComponents.slice(0, -1),
+        { ...lastDirectComponent, componentRef: "role_component_v1:china:999" },
+      ],
+      [...training.directComponents].reverse(),
+    ]) {
+      const invalidBody = { ...trainingBody, directComponents };
+      expect(() =>
+        PromptTrainingProjectionSchema.parse({
+          ...invalidBody,
+          projectionHash: canonicalJsonHash(invalidBody),
+        }),
+      ).toThrow(/complete ordered role roster/);
+    }
+  });
+
+  it("defines one exact public role-component roster for every Agent", () => {
+    const agentIds = new Set(RUNTIME_AGENT_STAGE_SPECS.map((row) => row.agent));
+    const rosterAgentIds = Object.keys(PROMPT_ROLE_COMPONENT_ORDINALS) as Array<
+      keyof typeof PROMPT_ROLE_COMPONENT_ORDINALS
+    >;
+    expect(new Set(rosterAgentIds)).toEqual(agentIds);
+    for (const agentId of rosterAgentIds) {
+      expect(promptRoleComponentRefs(agentId)).toEqual(
+        PROMPT_ROLE_COMPONENT_ORDINALS[agentId].map(
+          (ordinal) => `role_component_v1:${agentId}:${ordinal.toString().padStart(3, "0")}`,
+        ),
+      );
+    }
   });
 
   it("binds sample and split identities while rejecting overlap or future leakage", () => {

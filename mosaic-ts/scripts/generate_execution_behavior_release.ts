@@ -9,7 +9,7 @@ import {
 
 const args = parseArgs(process.argv.slice(2));
 const schemaOut = resolve(
-  args.get("schema-out") ?? "../schemas/execution_behavior_release_manifest_v3.schema.json",
+  args.get("schema-out") ?? "../schemas/execution_behavior_release_manifest_v4.schema.json",
 );
 mkdirSync(dirname(schemaOut), { recursive: true });
 writeFileSync(
@@ -19,12 +19,7 @@ writeFileSync(
 
 if (args.has("schema-only")) process.exit(0);
 
-const privatePromptsRoot = required(args, "private-prompts-root");
-const privatePromptCommit = required(args, "private-prompt-commit");
 const manifest = buildExecutionBehaviorReleaseManifest({
-  privatePromptsRoot,
-  bundledPromptsRoot: args.get("bundled-prompts-root") ?? "../prompts/mosaic",
-  privatePromptCommit,
   provider: args.get("provider") ?? "anthropic",
   model: args.get("model") ?? "claude-sonnet-4",
   baseUrlMode:
@@ -57,10 +52,4 @@ function parseArgs(values: string[]): Map<string, string> {
     index += 1;
   }
   return parsed;
-}
-
-function required(args: ReadonlyMap<string, string>, key: string): string {
-  const value = args.get(key)?.trim();
-  if (!value) throw new Error(`--${key} is required`);
-  return value;
 }

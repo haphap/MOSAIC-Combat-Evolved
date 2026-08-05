@@ -84,6 +84,38 @@ def test_prompt_optimizer_timestamp_precision_matches_fixture() -> None:
         prompt_optimizer_store._instant(row["rejectedSubMillisecond"])
 
 
+def test_prompt_promotion_gates_match_cross_runtime_golden() -> None:
+    contract = _fixture()["promotionGates"]
+
+    for case in contract["cases"]:
+        deltas = [
+            float(segment["value"])
+            for segment in case["deltaSegments"]
+            for _ in range(int(segment["count"]))
+        ]
+        champion_failure_indexes = set(case["championFailureIndexes"])
+        candidate_failure_indexes = set(case["candidateFailureIndexes"])
+        evidence = prompt_optimizer_store._evaluate_promotion_series(
+            deltas=deltas,
+            champion_failures=[
+                index in champion_failure_indexes for index in range(len(deltas))
+            ],
+            candidate_failures=[
+                index in candidate_failure_indexes for index in range(len(deltas))
+            ],
+            critical_deltas=[deltas[index] for index in case["criticalIndexes"]],
+            repeat_seed_count=2,
+            family_candidate_count=int(case["familyCandidateCount"]),
+            policy={
+                **contract,
+                "minimumMatureSamples": 30,
+                "minimumRepeatSeeds": 2,
+            },
+            seed=str(contract["seed"]),
+        )
+        assert evidence == case["expected"], case["name"]
+
+
 def test_generated_prompt_optimizer_schema_uses_strict_string_boundaries() -> None:
     candidate_schema = json.loads(
         (SCHEMA_ROOT / "prompt_candidate_v1.schema.json").read_text(encoding="utf-8")

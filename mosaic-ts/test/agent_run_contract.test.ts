@@ -14,6 +14,7 @@ import {
   assertStructuredOutputCapability,
   invokeStrictStructured,
 } from "../src/agents/helpers/agent_run_contract.js";
+import { canonicalStructuredRepairDirectiveManifest } from "../src/agents/helpers/structured_repair_directives.js";
 import { createMacroSubmissionSchema } from "../src/agents/macro/_contracts.js";
 import { macroSubmission } from "./helpers/macro.js";
 
@@ -190,7 +191,13 @@ describe("strict agent-run contract", () => {
     expect(result.audit.attempts[1]?.validation_issues).toEqual([
       expect.objectContaining({ reason_code: "DISPOSITION_MISMATCH" }),
     ]);
-    expect(JSON.stringify(llm.calls[1])).toContain("Structured repair 1/3");
+    const repairDirectives = canonicalStructuredRepairDirectiveManifest();
+    expect((llm.calls[1] as [SystemMessage, HumanMessage])[0].content).toBe(
+      repairDirectives[0]?.system_message,
+    );
+    expect((llm.calls[2] as [SystemMessage, HumanMessage])[0].content).toBe(
+      repairDirectives[1]?.system_message,
+    );
     expect(JSON.stringify(llm.calls[2])).toContain("complete_json_schema");
   });
 

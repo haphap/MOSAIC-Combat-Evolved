@@ -27,14 +27,16 @@ KNOT protocols are retained only under
 `registry/knot/legacy_read_only_v2.json` for audit. Generic signed Agent tool
 capabilities remain a separate production safety contract.
 
-Run a preregistered experiment with a local, uncommitted plan and
-Agent/Evaluator adapter. The plan may contain private promotion-policy values;
+Run a preregistered experiment from a clean public checkout whose `HEAD` is the
+plan's frozen `codeCommit`. The executor and evaluator must be separate tracked
+modules in that commit. The plan may contain private promotion-policy values;
 keep it outside both repositories and commit only its hash-bearing result:
 
 ```bash
 rtk pnpm --dir mosaic-ts dev autoresearch shadow-run \
   --plan /private/path/shadow-plan.json \
-  --adapter /private/path/shadow-adapter.mjs
+  --executor-adapter mosaic-ts/path/to/tracked-executor-adapter.mjs \
+  --evaluator-adapter mosaic-ts/path/to/tracked-evaluator-adapter.mjs
 ```
 
 Before the Runner may persist an `ELIGIBLE` Decision, configure the exact hash

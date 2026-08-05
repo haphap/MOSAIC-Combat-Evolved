@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import { z } from "zod";
 import {
   AlphaDiscoverySchema,
@@ -18,6 +18,10 @@ import {
 } from "../agents/helpers/canonical_json.js";
 import { STRUCTURED_PROVIDER_ADAPTER_DESCRIPTOR } from "../agents/helpers/structured_provider_adapters.js";
 import {
+  canonicalStructuredRepairDirectiveManifest,
+  STRUCTURED_REPAIR_DIRECTIVE_CONTRACT_VERSION,
+} from "../agents/helpers/structured_repair_directives.js";
+import {
   createMacroSubmissionSchema,
   MACRO_AGENT_IDS,
   MACRO_PROMPT_COHORT_IDS,
@@ -25,26 +29,9 @@ import {
   renderMacroPromptBody,
 } from "../agents/macro/_contracts.js";
 import { renderBundledPrompt } from "../agents/prompts/bundled_prompt_renderer.js";
-import {
-  extractCohortBehavior,
-  immutablePromptContractText,
-  validateCohortBehaviorLanguage,
-} from "../agents/prompts/cohort_behavior.js";
-import {
-  ALL_AGENTS,
-  LAYER_BY_AGENT,
-  type Language,
-  promptPath,
-} from "../agents/prompts/cohorts.js";
-import { containsPrivateKnotPromptContent } from "../agents/prompts/private_knot_prompt_markers.js";
+import { immutablePromptContractText } from "../agents/prompts/cohort_behavior.js";
+import { ALL_AGENTS, type Language } from "../agents/prompts/cohorts.js";
 import type { PromptReleaseExecutionBehaviorBinding } from "../agents/prompts/prompt_release_contract.js";
-import {
-  listVerifiedPromptRepositoryFiles,
-  readVerifiedPromptRepositoryFile,
-  readVerifiedPromptSourceFile,
-  type VerifiedPromptSourceCommit,
-  verifyPromptSourceCommit,
-} from "../agents/prompts/prompt_source_provenance.js";
 import { RUNTIME_AGENT_SPEC_BY_AGENT } from "../agents/prompts/runtime_agent_spec.js";
 import { upsertRuntimeEvidenceContract } from "../agents/prompts/runtime_evidence_contract.js";
 import { STANDARD_SECTOR_ROLE_CONTRACTS } from "../agents/sector/_contracts.js";
@@ -65,6 +52,10 @@ import {
   SECTOR_DIRECTION_COMPARISON_CONTRACT_VERSION,
 } from "../agents/sector/comparison.js";
 import {
+  canonicalSectorPhaseDirectiveBundle,
+  type SectorStructuredPhase,
+} from "../agents/sector/phase_directives.js";
+import {
   AckmanSchema,
   BurrySchema,
   DruckenmillerSchema,
@@ -74,7 +65,7 @@ import {
   CAPABILITY_CONTRACT_VERSION,
   SNAPSHOT_BUNDLE_CONTRACT_VERSION,
 } from "../agents/tool_contract.js";
-export const EXECUTION_BEHAVIOR_RELEASE_SCHEMA_VERSION = "execution_behavior_release_manifest_v3";
+export const EXECUTION_BEHAVIOR_RELEASE_SCHEMA_VERSION = "execution_behavior_release_manifest_v4";
 export const EXECUTION_BEHAVIOR_RELEASE_CONTRACT_VERSION = "execution_behavior_release_v2";
 export const STRUCTURED_PROVIDER_CONTRACT_VERSION = "structured_provider_contract_v2";
 
@@ -90,19 +81,7 @@ export const STRUCTURED_OUTPUT_SCHEMA_PHASES = [
 export type StructuredOutputSchemaPhase = (typeof STRUCTURED_OUTPUT_SCHEMA_PHASES)[number];
 
 const Sha256Schema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
-const VersionHashSchema = z.string().regex(/^(?:prompt-behavior|execution-behavior):[0-9a-f]{64}$/);
-
-const PrivatePromptBootstrapSchema = z
-  .object({
-    schema_version: z.literal("private_prompt_parameter_bootstrap_release_v1"),
-    release_hash: Sha256Schema,
-    parameter_contract_hash: Sha256Schema,
-    behavior_contract_hash: Sha256Schema,
-    state_tree_hash: Sha256Schema,
-    prompt_tree_hash: Sha256Schema,
-    state_count: z.literal(224),
-  })
-  .strict();
+const VersionHashSchema = z.string().regex(/^execution-behavior:[0-9a-f]{64}$/);
 
 export const StructuredOutputSchemaBindingSchema = z
   .object({
@@ -150,8 +129,6 @@ export const ExecutionBehaviorReleaseManifestSchema = z
     schema_version: z.literal(EXECUTION_BEHAVIOR_RELEASE_SCHEMA_VERSION),
     execution_behavior_release_id: z.string().regex(/^execution-behavior-release:[0-9a-f]{64}$/),
     execution_behavior_release_hash: Sha256Schema,
-    private_prompt_commit: z.string().regex(/^[0-9a-f]{40}$/),
-    private_prompt_bootstrap: PrivatePromptBootstrapSchema,
     provider_binding: ProviderBindingSchema,
     active_production_variants: z.array(ExecutionBehaviorProductionVariantSchema).length(16),
     execution_contracts: z.array(ExecutionBehaviorAgentContractSchema).length(56),
@@ -164,9 +141,6 @@ export type ExecutionBehaviorReleaseManifest = z.infer<
 export type ExecutionBehaviorAgentContract = z.infer<typeof ExecutionBehaviorAgentContractSchema>;
 
 export interface BuildExecutionBehaviorReleaseInput {
-  privatePromptsRoot: string;
-  bundledPromptsRoot: string;
-  privatePromptCommit: string;
   provider: string;
   model: string;
   baseUrlMode: "PROVIDER_DEFAULT" | "CONFIGURED_PRIVATE_ENDPOINT";
@@ -202,12 +176,6 @@ const OUTPUT_SCHEMA_BY_AGENT: Readonly<Record<string, z.ZodType>> = {
 export function buildExecutionBehaviorReleaseManifest(
   input: BuildExecutionBehaviorReleaseInput,
 ): ExecutionBehaviorReleaseManifest {
-  const privatePromptSource = verifyPromptSourceCommit({
-    promptsRoot: input.privatePromptsRoot,
-    commit: requiredCommit(input.privatePromptCommit),
-    source: "private",
-  });
-  const privatePromptCommit = privatePromptSource.commit;
   const providerBinding = {
     provider: requiredText(input.provider, "provider"),
     model: requiredText(input.model, "model"),
@@ -215,7 +183,6 @@ export function buildExecutionBehaviorReleaseManifest(
     structured_output_mode: "JSON_SCHEMA_STRICT" as const,
     repair_policy: "BOUNDED_SCHEMA_REPAIR_V1" as const,
   };
-  const builtVariants: BuiltExecutionBehaviorReleaseVariant[] = [];
   const activeProductionVariants: z.infer<typeof ExecutionBehaviorProductionVariantSchema>[] = [];
 
   for (const cohort of MACRO_PROMPT_COHORT_IDS) {
@@ -225,33 +192,14 @@ export function buildExecutionBehaviorReleaseManifest(
         cohort_id: cohort,
         language,
       });
-      for (const agent of ALL_AGENTS) {
-        builtVariants.push(
-          buildVariant({
-            ...input,
-            privatePromptSource,
-            providerBinding,
-            cohort,
-            language,
-            agent,
-          }),
-        );
-      }
     }
   }
 
-  assertBuiltVariantClosure(builtVariants);
-  const executionContractsByKey = new Map<string, ExecutionBehaviorAgentContract>();
-  for (const variant of builtVariants) {
-    const contract = executionBehaviorAgentContract(variant);
-    const key = `${contract.agent_id}:${contract.language}`;
-    const previous = executionContractsByKey.get(key);
-    if (previous && canonicalJson(previous) !== canonicalJson(contract)) {
-      throw new Error(`${key}: cohort variants disagree on their execution contract`);
-    }
-    executionContractsByKey.set(key, contract);
-  }
-  const sortedExecutionContracts = [...executionContractsByKey.values()].sort((left, right) =>
+  const sortedExecutionContracts = ALL_AGENTS.flatMap((agent) =>
+    (["en", "zh"] as const).map((language) =>
+      buildExecutionBehaviorAgentContract({ agent, language, providerBinding }),
+    ),
+  ).sort((left, right) =>
     compareCanonicalStrings(
       `${left.agent_id}:${left.language}`,
       `${right.agent_id}:${right.language}`,
@@ -263,11 +211,8 @@ export function buildExecutionBehaviorReleaseManifest(
       `${right.cohort_id}:${right.language}`,
     ),
   );
-  const privatePromptBootstrap = verifyPrivatePromptBootstrap(privatePromptSource, builtVariants);
   const releaseContent = {
     schema_version: EXECUTION_BEHAVIOR_RELEASE_SCHEMA_VERSION,
-    private_prompt_commit: privatePromptCommit,
-    private_prompt_bootstrap: privatePromptBootstrap,
     provider_binding: providerBinding,
     active_production_variants: sortedProductionVariants,
     execution_contracts: sortedExecutionContracts,
@@ -276,8 +221,6 @@ export function buildExecutionBehaviorReleaseManifest(
   const withId = {
     schema_version: releaseContent.schema_version,
     execution_behavior_release_id: releaseId,
-    private_prompt_commit: releaseContent.private_prompt_commit,
-    private_prompt_bootstrap: releaseContent.private_prompt_bootstrap,
     provider_binding: releaseContent.provider_binding,
     active_production_variants: releaseContent.active_production_variants,
     execution_contracts: releaseContent.execution_contracts,
@@ -345,6 +288,12 @@ export function validateExecutionBehaviorReleaseManifest(
     ) {
       throw new Error(`${key}: structured provider contract drift`);
     }
+    if (
+      contract.immutable_contract_block_hash !==
+      immutablePromptContractHash(expectedPrompt(contract.agent_id, contract.language))
+    ) {
+      throw new Error(`${key}: immutable prompt contract drift`);
+    }
     const currentExecutionVersion = computeExecutionBehaviorVersion({
       agentId: contract.agent_id,
       language: contract.language,
@@ -378,8 +327,6 @@ export function validateExecutionBehaviorReleaseArtifactIntegrity(
   const withoutHash = {
     schema_version: manifest.schema_version,
     execution_behavior_release_id: manifest.execution_behavior_release_id,
-    private_prompt_commit: manifest.private_prompt_commit,
-    private_prompt_bootstrap: manifest.private_prompt_bootstrap,
     provider_binding: manifest.provider_binding,
     active_production_variants: manifest.active_production_variants,
     execution_contracts: manifest.execution_contracts,
@@ -389,8 +336,6 @@ export function validateExecutionBehaviorReleaseArtifactIntegrity(
   }
   const releaseContent = {
     schema_version: manifest.schema_version,
-    private_prompt_commit: manifest.private_prompt_commit,
-    private_prompt_bootstrap: manifest.private_prompt_bootstrap,
     provider_binding: manifest.provider_binding,
     active_production_variants: manifest.active_production_variants,
     execution_contracts: manifest.execution_contracts,
@@ -402,12 +347,6 @@ export function validateExecutionBehaviorReleaseArtifactIntegrity(
     throw new Error("execution behavior release id mismatch");
   }
   return manifest;
-}
-
-export function renderExecutionBehaviorReleaseManifest(
-  manifest: ExecutionBehaviorReleaseManifest,
-): string {
-  return `${JSON.stringify(validateExecutionBehaviorReleaseManifest(manifest), null, 2)}\n`;
 }
 
 export function loadExecutionBehaviorReleaseManifest(
@@ -449,7 +388,6 @@ export async function loadExecutionBehaviorReleaseAtCommit(opts: {
   repo: string;
   commit: string;
   binding: PromptReleaseExecutionBehaviorBinding;
-  promptCommit: string;
 }): Promise<ExecutionBehaviorReleaseManifest> {
   const manifest = await loadExecutionBehaviorReleaseArchiveAtCommit({
     repo: opts.repo,
@@ -461,9 +399,6 @@ export async function loadExecutionBehaviorReleaseAtCommit(opts: {
     manifest.execution_behavior_release_hash !== opts.binding.release_hash
   ) {
     throw new Error("prompt_release_execution_behavior_binding_mismatch");
-  }
-  if (manifest.private_prompt_commit !== opts.promptCommit) {
-    throw new Error("prompt_release_execution_behavior_prompt_commit_mismatch");
   }
   return manifest;
 }
@@ -520,125 +455,15 @@ function validateArchivableExecutionBehaviorReleaseArtifact(
   return validateExecutionBehaviorReleaseArtifactIntegrity(value);
 }
 
-interface BuiltExecutionBehaviorReleaseVariant {
-  variant_path: string;
-  agent_id: string;
-  cohort_id: string;
+function buildExecutionBehaviorAgentContract(input: {
+  agent: string;
   language: Language;
-  prompt_content_hash: string;
-  immutable_contract_block_hash: string;
-  prompt_behavior_version: string;
-  execution_behavior_version: string;
-  structured_output_schema_bindings: ExecutionBehaviorAgentContract["structured_output_schema_bindings"];
-  structured_output_schema_set_hash: string;
-  structured_provider_contract_hash: string;
-  runtime_tool_manifest_hash: string;
-}
-
-function assertBuiltVariantClosure(
-  variants: ReadonlyArray<BuiltExecutionBehaviorReleaseVariant>,
-): void {
-  const expectedAgents = [...ALL_AGENTS].sort();
-  const agentsByCohortLanguage = new Map<string, string[]>();
-  const promptHashesByAgentLanguage = new Map<string, Set<string>>();
-  const paths = new Set<string>();
-  for (const variant of variants) {
-    if (paths.has(variant.variant_path)) {
-      throw new Error(`duplicate built prompt variant ${variant.variant_path}`);
-    }
-    paths.add(variant.variant_path);
-    const cohortLanguage = `${variant.cohort_id}:${variant.language}`;
-    agentsByCohortLanguage.set(cohortLanguage, [
-      ...(agentsByCohortLanguage.get(cohortLanguage) ?? []),
-      variant.agent_id,
-    ]);
-    const agentLanguage = `${variant.agent_id}:${variant.language}`;
-    const promptHashes = promptHashesByAgentLanguage.get(agentLanguage) ?? new Set<string>();
-    promptHashes.add(variant.prompt_content_hash);
-    promptHashesByAgentLanguage.set(agentLanguage, promptHashes);
-  }
-  for (const cohort of MACRO_PROMPT_COHORT_IDS) {
-    for (const language of ["en", "zh"] as const) {
-      const agents = (agentsByCohortLanguage.get(`${cohort}:${language}`) ?? []).sort();
-      if (agents.join("\0") !== expectedAgents.join("\0")) {
-        throw new Error(`${cohort}:${language}: prompt build must resolve exactly 28 Agents`);
-      }
-    }
-  }
-  for (const agent of expectedAgents) {
-    for (const language of ["en", "zh"] as const) {
-      if (
-        promptHashesByAgentLanguage.get(`${agent}:${language}`)?.size !==
-        MACRO_PROMPT_COHORT_IDS.length
-      ) {
-        throw new Error(`${agent}:${language}: every cohort must have distinct prompt behavior`);
-      }
-    }
-  }
-}
-
-function buildVariant(
-  input: BuildExecutionBehaviorReleaseInput & {
-    privatePromptSource: VerifiedPromptSourceCommit;
-    providerBinding: ExecutionBehaviorReleaseManifest["provider_binding"];
-    cohort: string;
-    language: Language;
-    agent: string;
-  },
-): BuiltExecutionBehaviorReleaseVariant {
-  const layer = LAYER_BY_AGENT[input.agent];
-  if (!layer) throw new Error(`unknown Agent ${input.agent}`);
-  const spec = RUNTIME_AGENT_SPEC_BY_AGENT.get(input.agent);
-  if (!spec) throw new Error(`runtime spec missing for ${input.agent}`);
-  const path = promptPath({
-    agent: input.agent,
-    cohort: input.cohort,
-    language: input.language,
-    promptsRoot: input.privatePromptsRoot,
-  });
-  const prompt = readVerifiedPromptSourceFile(input.privatePromptSource, path);
-  const expected = expectedPrompt(input.agent, input.language);
-  const cohortBehavior = extractCohortBehavior(prompt);
-  if (containsPrivateKnotPromptContent(prompt)) {
-    throw new Error(
-      `${relative(input.privatePromptsRoot, path)}: private KNOT policy must remain hidden`,
-    );
-  }
-  try {
-    validateCohortBehaviorLanguage(cohortBehavior, input.language);
-  } catch (error) {
-    throw new Error(`${relative(input.privatePromptsRoot, path)}: ${(error as Error).message}`);
-  }
-  const bundledPath = promptPath({
-    agent: input.agent,
-    cohort: "cohort_default",
-    language: input.language,
-    promptsRoot: input.bundledPromptsRoot,
-  });
-  const bundledPrompt = readFileSync(bundledPath, "utf8");
-  const canonicalDefault = expectedPrompt(input.agent, input.language);
-  if (bundledPrompt !== canonicalDefault) {
-    throw new Error(
-      `${relative(resolve(input.bundledPromptsRoot, ".."), bundledPath)}: bundled prompt drift`,
-    );
-  }
-  const promptContentHash = canonicalTextHash(prompt);
-  const immutableContractBlockHash = immutablePromptContractHash(prompt);
-  const expectedImmutableHash = immutablePromptContractHash(expected);
-  const bundledImmutableHash = immutablePromptContractHash(bundledPrompt);
-  if (
-    immutableContractBlockHash !== expectedImmutableHash ||
-    immutableContractBlockHash !== bundledImmutableHash
-  ) {
-    throw new Error(
-      `${input.agent}:${input.cohort}:${input.language}: immutable prompt contract drift`,
-    );
-  }
+  providerBinding: ExecutionBehaviorReleaseManifest["provider_binding"];
+}): ExecutionBehaviorAgentContract {
   const bindings = structuredSchemaBindings(input.agent, input.language);
   const schemaSetHash = canonicalHash(bindings);
   const runtimeToolManifestHash = computeRuntimeToolManifestHash(input.agent);
   const structuredProviderContractHash = computeStructuredProviderContractHash(input.agent);
-  const promptBehaviorVersion = `prompt-behavior:${stripSha(promptContentHash)}`;
   const executionBehaviorVersion = computeExecutionBehaviorVersion({
     agentId: input.agent,
     language: input.language,
@@ -647,35 +472,17 @@ function buildVariant(
     structuredProviderContractHash,
     runtimeToolManifestHash,
   });
-  const base = {
-    variant_path: `${input.cohort}/${layer}/${input.agent}.${input.language}.md`,
+  const body = {
     agent_id: input.agent,
-    cohort_id: input.cohort,
     language: input.language,
-    prompt_content_hash: promptContentHash,
-    immutable_contract_block_hash: immutableContractBlockHash,
-    prompt_behavior_version: promptBehaviorVersion,
+    immutable_contract_block_hash: immutablePromptContractHash(
+      expectedPrompt(input.agent, input.language),
+    ),
     execution_behavior_version: executionBehaviorVersion,
     structured_output_schema_bindings: bindings,
     structured_output_schema_set_hash: schemaSetHash,
     structured_provider_contract_hash: structuredProviderContractHash,
     runtime_tool_manifest_hash: runtimeToolManifestHash,
-  };
-  return base;
-}
-
-function executionBehaviorAgentContract(
-  variant: BuiltExecutionBehaviorReleaseVariant,
-): ExecutionBehaviorAgentContract {
-  const body = {
-    agent_id: variant.agent_id,
-    language: variant.language,
-    immutable_contract_block_hash: variant.immutable_contract_block_hash,
-    execution_behavior_version: variant.execution_behavior_version,
-    structured_output_schema_bindings: variant.structured_output_schema_bindings,
-    structured_output_schema_set_hash: variant.structured_output_schema_set_hash,
-    structured_provider_contract_hash: variant.structured_provider_contract_hash,
-    runtime_tool_manifest_hash: variant.runtime_tool_manifest_hash,
   };
   return ExecutionBehaviorAgentContractSchema.parse({
     execution_contract_id: deterministicId("execution-contract", body),
@@ -688,95 +495,6 @@ function executionBehaviorAgentContractId(contract: ExecutionBehaviorAgentContra
   return deterministicId("execution-contract", body);
 }
 
-function verifyPrivatePromptBootstrap(
-  source: VerifiedPromptSourceCommit,
-  variants: ReadonlyArray<BuiltExecutionBehaviorReleaseVariant>,
-): z.infer<typeof PrivatePromptBootstrapSchema> {
-  const raw = JSON.parse(
-    readVerifiedPromptRepositoryFile(
-      source,
-      "registry/knot/prompt_parameter_bootstrap_release_v1.json",
-    ),
-  ) as unknown;
-  const FullBootstrapSchema = PrivatePromptBootstrapSchema.extend({
-    agent_count: z.literal(28),
-    cohort_count: z.literal(8),
-    prompt_count: z.literal(448),
-  }).strict();
-  const parsed = FullBootstrapSchema.parse(raw);
-  const { release_hash: _releaseHash, ...body } = parsed;
-  if (parsed.release_hash !== canonicalHash(body)) {
-    throw new Error("private prompt bootstrap release hash mismatch");
-  }
-  const parameterContract = JSON.parse(
-    readVerifiedPromptRepositoryFile(source, "registry/knot/prompt_parameter_contract_v1.json"),
-  ) as Record<string, unknown>;
-  const declaredParameterContractHash = parameterContract.contract_hash;
-  const { contract_hash: _parameterContractHash, ...parameterContractBody } = parameterContract;
-  if (
-    declaredParameterContractHash !== canonicalHash(parameterContractBody) ||
-    parsed.parameter_contract_hash !== declaredParameterContractHash
-  ) {
-    throw new Error("private prompt parameter contract hash mismatch");
-  }
-  const behaviorContract = JSON.parse(
-    readVerifiedPromptRepositoryFile(source, "registry/knot/prompt_behavior_contract_v1.json"),
-  ) as unknown;
-  if (parsed.behavior_contract_hash !== canonicalHash(behaviorContract)) {
-    throw new Error("private prompt behavior contract hash mismatch");
-  }
-  const promptTreeHash = canonicalHash({
-    files: variants
-      .map((variant) => ({
-        ref: `prompts/mosaic/${variant.variant_path}`,
-        content_hash: variant.prompt_content_hash,
-      }))
-      .sort((left, right) => compareCanonicalStrings(left.ref, right.ref)),
-  });
-  if (parsed.prompt_tree_hash !== promptTreeHash) {
-    throw new Error("private prompt bootstrap Prompt tree mismatch");
-  }
-  const expectedStateRefs = MACRO_PROMPT_COHORT_IDS.flatMap((cohort) =>
-    ALL_AGENTS.map(
-      (agent) =>
-        `registry/prompt_parameter_states_v1/${cohort}/${promptParameterStage(agent)}/${agent}.json`,
-    ),
-  ).sort();
-  const actualStateRefs = listVerifiedPromptRepositoryFiles(
-    source,
-    "registry/prompt_parameter_states_v1",
-  );
-  if (canonicalJson(actualStateRefs) !== canonicalJson(expectedStateRefs)) {
-    throw new Error("private prompt bootstrap state roster mismatch");
-  }
-  const stateTreeHash = canonicalHash({
-    files: actualStateRefs.map((ref) => ({
-      ref,
-      content_hash: canonicalTextHash(readVerifiedPromptRepositoryFile(source, ref)),
-    })),
-  });
-  if (parsed.state_tree_hash !== stateTreeHash) {
-    throw new Error("private prompt bootstrap state tree mismatch");
-  }
-  return PrivatePromptBootstrapSchema.parse({
-    schema_version: parsed.schema_version,
-    release_hash: parsed.release_hash,
-    parameter_contract_hash: parsed.parameter_contract_hash,
-    behavior_contract_hash: parsed.behavior_contract_hash,
-    state_tree_hash: parsed.state_tree_hash,
-    prompt_tree_hash: parsed.prompt_tree_hash,
-    state_count: parsed.state_count,
-  });
-}
-
-function promptParameterStage(agent: string): string {
-  if (agent === "alpha_discovery") return "alpha_discovery";
-  if (agent === "autonomous_execution") return "execution_feasibility";
-  if (agent === "cio") return "cio_final";
-  if (agent === "cro") return "cro_review";
-  return "agent_run";
-}
-
 function expectedPrompt(agent: string, language: Language): string {
   const spec = RUNTIME_AGENT_SPEC_BY_AGENT.get(agent);
   if (!spec) throw new Error(`runtime spec missing for ${agent}`);
@@ -786,7 +504,7 @@ function expectedPrompt(agent: string, language: Language): string {
   return upsertRuntimeEvidenceContract(body, spec, language);
 }
 
-function immutablePromptContractHash(prompt: string): string {
+export function immutablePromptContractHash(prompt: string): string {
   return canonicalTextHash(immutablePromptContractText(prompt));
 }
 
@@ -878,6 +596,12 @@ function phaseInstruction(
   phase: StructuredOutputSchemaPhase,
   language: Language,
 ): string {
+  if (STANDARD_SECTOR_IDS.includes(agent)) {
+    if (!isSectorStructuredPhase(phase)) {
+      throw new Error(`${agent}: unsupported Sector structured phase ${phase}`);
+    }
+    return canonicalJson(canonicalSectorPhaseDirectiveBundle({ agentId: agent, phase, language }));
+  }
   const languageInstruction = language === "zh" ? "prose=zh;numbers=numeric" : "prose=en";
   const instructions: Record<StructuredOutputSchemaPhase, string> = {
     DEFAULT: "populate-runtime-json-schema;cite-only-frozen-evidence;explicit-empty-disposition",
@@ -888,7 +612,23 @@ function phaseInstruction(
     CIO_PROPOSAL: "freeze-candidate-target-from-pre-cio-snapshot;bind-alpha-source",
     CIO_FINAL: "reuse-proposal-pre-cio-snapshot;apply-cro-and-execution;no-new-candidate",
   };
-  return `${agent};${phase};${instructions[phase]};${languageInstruction}`;
+  return canonicalJson({
+    contract_version: "structured_phase_directive_bundle_v1",
+    agent_id: agent,
+    phase,
+    primary_system_instruction: instructions[phase],
+    language_instruction: languageInstruction,
+    repair_contract_version: STRUCTURED_REPAIR_DIRECTIVE_CONTRACT_VERSION,
+    repair_directives: canonicalStructuredRepairDirectiveManifest(),
+  });
+}
+
+function isSectorStructuredPhase(
+  phase: StructuredOutputSchemaPhase,
+): phase is SectorStructuredPhase {
+  return (
+    phase === "DIRECTION_RESEARCH" || phase === "CONFLICT_REVIEW" || phase === "FINAL_SELECTION"
+  );
 }
 
 function computeRuntimeToolManifestHash(agent: string): string {
@@ -1022,13 +762,6 @@ function toJsonSchema(schema: z.ZodType | undefined): unknown {
 function requiredText(value: string, label: string): string {
   const normalized = value.trim();
   if (!normalized) throw new Error(`${label} must be non-empty`);
-  return normalized;
-}
-
-function requiredCommit(value: string): string {
-  const normalized = value.trim();
-  if (!/^[0-9a-f]{40}$/.test(normalized))
-    throw new Error("private prompt commit must be 40 lowercase hex characters");
   return normalized;
 }
 

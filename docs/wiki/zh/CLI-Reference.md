@@ -58,15 +58,20 @@ pnpm dev darwinian --cohort cohort_default
 pnpm dev autoresearch generate-candidate --request REQUEST.json \
   --private-cli /path/to/private/dist/cli.js \
   --private-repo "$MOSAIC_PROMPTS_REPO" \
+  --publication-remote origin \
   --mutation-adapter "$MOSAIC_PROMPTS_REPO/path/to/tracked-adapter.js"
-pnpm dev autoresearch shadow-run --plan SHADOW_PLAN.json --adapter EVALUATION_ADAPTER.js
+pnpm dev autoresearch shadow-run --plan SHADOW_PLAN.json \
+  --executor-adapter EXECUTOR_ADAPTER.js \
+  --evaluator-adapter EVALUATOR_ADAPTER.js
 pnpm dev autoresearch log --cohort crisis_2008
 ```
 子命令：`generate-candidate`、`shadow-run`、`log`、`branches`。
 Candidate 生成只把公开侧冻结的 training projection 交给私有 Prompt mutator；
 mutation adapter 必须是同一私有仓库 exact `HEAD` 中的 tracked 文件，mutator identity
-由该提交状态推导，调用方不能提供。`shadow-run` 冻结模型、工具、adapter 与 evaluator，
-且没有 release 激活权限。晋升必须另行通过 Prompt Release 的 canary/rollback 流程。
+由该提交状态推导，调用方不能提供。`shadow-run` 必须从 `HEAD` 等于冻结
+`codeCommit` 的洁净公开 checkout 运行；executor 与 evaluator 必须是该提交内分别跟踪的
+adapter 模块，且没有 release 激活权限。晋升必须另行通过 Prompt Release 的
+canary/rollback 流程。
 
 ## Prompt 运维
 

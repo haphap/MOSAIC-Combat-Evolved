@@ -2,12 +2,18 @@ import { canonicalJsonHash, compareCanonicalStrings } from "../agents/helpers/ca
 import type { BridgeApi } from "../bridge/types.js";
 import { selectPromptCandidateFamily } from "./prompt_candidate_family.js";
 import {
+  assertCandidateMatchesTrainingSnapshot,
+  assertCandidatePublicationMatches,
+  assertTrainingProjectionMatchesSplit,
   DatasetSplitManifestSchema,
   type PromptCandidate,
   PromptCandidateFamilySchema,
+  PromptCandidatePublicationSchema,
   PromptCandidateSchema,
   PromptExperimentRunSchema,
   PromptExperimentSchema,
+  PromptTrainingProjectionSchema,
+  promptExperimentReleaseEnvironment,
 } from "./prompt_optimizer_contract.js";
 import {
   createPromptPromotionDecision,
@@ -33,6 +39,10 @@ export async function authorizeStoredPromptPromotion(input: {
   const persistedCandidate = PromptCandidateSchema.parse(
     await input.api.promptOptimizerGetCandidate(candidate.candidateId),
   );
+  const publication = PromptCandidatePublicationSchema.parse(
+    await input.api.promptOptimizerGetCandidatePublication(candidate.candidateId),
+  );
+  assertCandidatePublicationMatches(candidate, publication);
   const experiment = PromptExperimentSchema.parse(
     await input.api.promptOptimizerGetExperiment(input.experimentId),
   );
@@ -42,6 +52,15 @@ export async function authorizeStoredPromptPromotion(input: {
   const split = DatasetSplitManifestSchema.parse(
     await input.api.promptOptimizerGetSplit(experiment.datasetSplitId),
   );
+  const storedTrainingProjection = await input.api.promptOptimizerGetTrainingProjection(
+    candidate.trainingProjectionHash,
+  );
+  if (storedTrainingProjection === null) {
+    throw new Error("prompt_promotion_training_projection_not_found");
+  }
+  const trainingProjection = PromptTrainingProjectionSchema.parse(storedTrainingProjection);
+  assertCandidateMatchesTrainingSnapshot(candidate, trainingProjection);
+  assertTrainingProjectionMatchesSplit(trainingProjection, split);
   const runs = (await input.api.promptOptimizerListRuns(experiment.experimentId)).map((value) =>
     PromptExperimentRunSchema.parse(value),
   );
@@ -55,6 +74,9 @@ export async function authorizeStoredPromptPromotion(input: {
     experiment.familyId !== family.familyId ||
     !family.candidateIds.includes(candidate.candidateId) ||
     candidate.parentId !== experiment.championId ||
+    publication.promptSourceId !== experiment.candidatePromptSourceId ||
+    publication.candidatePromptCommit !== experiment.candidatePromptCommit ||
+    publication.publicationHash !== experiment.candidatePublicationHash ||
     candidate.parentPromptCommit !== experiment.championPromptCommit ||
     canonicalJsonHash(candidate.parentPromptHashes) !==
       canonicalJsonHash(experiment.championPromptHashes) ||
@@ -116,5 +138,8 @@ export async function authorizeStoredPromptPromotion(input: {
   if (decision.decision !== "ELIGIBLE") {
     throw new Error(`prompt_promotion_authority_rejected:${decision.reasons.join(",")}`);
   }
-  return decision;
+  return {
+    decision,
+    releaseEnvironment: promptExperimentReleaseEnvironment(experiment),
+  };
 }

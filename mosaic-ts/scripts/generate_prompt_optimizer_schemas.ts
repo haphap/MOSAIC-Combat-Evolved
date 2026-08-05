@@ -6,7 +6,7 @@ import { PROMPT_OPTIMIZER_PUBLIC_SCHEMAS } from "../src/autoresearch/prompt_opti
 
 const schemas = {
   ...PROMPT_OPTIMIZER_PUBLIC_SCHEMAS,
-  active_prompt_release_manifest_v2: ActivePromptReleaseManifestSchema,
+  active_prompt_release_manifest_v3: ActivePromptReleaseManifestSchema,
 };
 
 for (const [schemaId, schema] of Object.entries(schemas)) {

@@ -81,9 +81,33 @@ def put_candidate(params: dict[str, Any]) -> dict[str, Any]:
     return _write(params, _store().put_candidate)
 
 
+@method("prompt_optimizer.put_training_projection")
+def put_training_projection(params: dict[str, Any]) -> dict[str, Any]:
+    return _write(params, _store().put_training_projection)
+
+
+@method("prompt_optimizer.get_training_projection")
+def get_training_projection(params: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "record": _store().get_training_projection(_id(params, "projection_hash"))
+    }
+
+
 @method("prompt_optimizer.get_candidate")
 def get_candidate(params: dict[str, Any]) -> dict[str, Any]:
     return {"record": _store().get_candidate(_id(params, "candidate_id"))}
+
+
+@method("prompt_optimizer.put_candidate_publication")
+def put_candidate_publication(params: dict[str, Any]) -> dict[str, Any]:
+    return _write(params, _store().put_candidate_publication)
+
+
+@method("prompt_optimizer.get_candidate_publication")
+def get_candidate_publication(params: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "record": _store().get_candidate_publication(_id(params, "candidate_id"))
+    }
 
 
 @method("prompt_optimizer.put_split")

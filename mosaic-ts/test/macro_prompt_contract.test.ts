@@ -30,8 +30,7 @@ const executionRelease = JSON.parse(
     "utf8",
   ),
 ) as {
-  private_prompt_commit: string;
-  private_prompt_bootstrap: { prompt_tree_hash: string };
+  schema_version: string;
   execution_behavior_release_id: string;
   execution_behavior_release_hash: string;
   execution_contracts: Array<{ agent_id: string; language: string }>;
@@ -50,7 +49,8 @@ describe("generated bundled macro prompts", () => {
     ).toEqual(MACRO_AGENT_IDS.flatMap((agent) => [`${agent}.en.md`, `${agent}.zh.md`]).sort());
   });
 
-  it("pins the rebuilt private prompt tree", () => {
+  it("pins the rebuilt execution behavior contracts", () => {
+    expect(executionRelease.schema_version).toBe("execution_behavior_release_manifest_v4");
     expect(executionRelease.execution_contracts).toHaveLength(56);
     expect(
       [...new Set(executionRelease.execution_contracts.map((row) => row.agent_id))].sort(),
@@ -58,10 +58,6 @@ describe("generated bundled macro prompts", () => {
     expect(
       [...new Set(executionRelease.execution_contracts.map((row) => row.language))].sort(),
     ).toEqual(["en", "zh"]);
-    expect(executionRelease.private_prompt_commit).toMatch(/^[0-9a-f]{40}$/);
-    expect(executionRelease.private_prompt_bootstrap.prompt_tree_hash).toMatch(
-      /^sha256:[0-9a-f]{64}$/,
-    );
     expect(executionRelease.execution_behavior_release_id).toMatch(
       /^execution-behavior-release:[0-9a-f]{64}$/,
     );

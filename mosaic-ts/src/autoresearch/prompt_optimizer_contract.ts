@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { canonicalJsonHash, compareCanonicalStrings } from "../agents/helpers/canonical_json.js";
+import { PromptReleaseExecutionBehaviorBindingSchema } from "../agents/prompts/prompt_release_contract.js";
 import {
   RUNTIME_AGENT_STAGE_IDS,
   RUNTIME_AGENT_STAGE_SPEC_BY_KEY,
   runtimeAgentStageKey,
 } from "../agents/prompts/runtime_agent_spec.js";
-import { AgentIdSchema } from "../agents/tool_contract.js";
+import { type AgentId, AgentIdSchema } from "../agents/tool_contract.js";
 
 export const PromptOptimizerSha256Schema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 export const PromptOptimizerGitCommitSchema = z.string().regex(/^[0-9a-f]{40}$/);
@@ -32,6 +33,7 @@ const NonEmptyIdSchema = canonicalNonEmptyString(256);
 const PublicRefSchema = canonicalNonEmptyString(512).regex(/^[^\r\n]+$/);
 const PublicSummarySchema = canonicalNonEmptyString(2_000);
 const SafePublicVersionSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$/);
+export const PromptSourceIdSchema = SafePublicVersionSchema;
 const FiniteMetricRecordSchema = z.record(canonicalNonEmptyString(), z.number().finite());
 const UnitScoreSchema = z.number().finite().min(-1).max(1);
 
@@ -174,6 +176,44 @@ export const PromptRefPairSchema = z
   .strict();
 export type PromptRefPair = z.infer<typeof PromptRefPairSchema>;
 
+/** Public outcome-component identities emitted by the deterministic training builder. */
+export const PROMPT_ROLE_COMPONENT_ORDINALS = {
+  china: [0, 1, 2, 3, 4, 5],
+  us_economy: [0, 1, 2, 3, 4],
+  eu_economy: [0, 1, 2, 3, 4],
+  central_bank: [0, 1, 2, 3, 4],
+  us_financial_conditions: [0, 1, 2, 3, 4],
+  euro_area_financial_conditions: [0, 1, 2, 3, 4],
+  commodities: [0, 1, 2, 3, 4],
+  geopolitical: [5],
+  market_breadth: [5],
+  institutional_flow: [5],
+  semiconductor: [2, 3, 4, 5],
+  technology: [2, 3, 4, 5],
+  energy: [2, 3, 4, 5],
+  biotech: [2, 3, 4, 5],
+  consumer: [2, 3, 4, 5],
+  industrials: [2, 3, 4, 5],
+  real_estate_construction: [2, 3, 4, 5],
+  financials: [2, 3, 4, 5],
+  agriculture: [2, 3, 4, 5],
+  relationship_mapper: [1, 2, 4],
+  druckenmiller: [4],
+  munger: [4],
+  burry: [4],
+  ackman: [4],
+  cro: [0, 1, 4],
+  alpha_discovery: [2, 3, 4],
+  autonomous_execution: [0, 1, 2, 4],
+  cio: [3, 4],
+} as const satisfies Record<AgentId, readonly number[]>;
+
+export function promptRoleComponentRefs(agentId: AgentId): string[] {
+  return PROMPT_ROLE_COMPONENT_ORDINALS[agentId].map(
+    (ordinal) => `role_component_v1:${agentId}:${ordinal.toString().padStart(3, "0")}`,
+  );
+}
+
 const PromptDirectEvaluationComponentSchema = z
   .object({
     componentRef: z.string().regex(/^role_component_v1:[a-z0-9_]+:[0-9]{3}$/),
@@ -263,6 +303,17 @@ export const PromptTrainingProjectionSchema = z
     if (new Set(componentRefs).size !== componentRefs.length) {
       ctx.addIssue({ code: "custom", path: ["directComponents"], message: "duplicate component" });
     }
+    const expectedComponentRefs = promptRoleComponentRefs(projection.target.agentId);
+    if (
+      componentRefs.length !== expectedComponentRefs.length ||
+      componentRefs.some((value, index) => value !== expectedComponentRefs[index])
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["directComponents"],
+        message: "direct components must match the complete ordered role roster",
+      });
+    }
     for (const [index, component] of projection.directComponents.entries()) {
       if (!component.componentRef.startsWith(`role_component_v1:${projection.target.agentId}:`)) {
         ctx.addIssue({
@@ -349,6 +400,62 @@ export const PromptCandidateSchema = z
   });
 
 export type PromptCandidate = z.infer<typeof PromptCandidateSchema>;
+
+export const PromptCandidatePublicationSchema = z
+  .object({
+    schemaVersion: z.literal("prompt_candidate_publication_v1"),
+    candidateId: NonEmptyIdSchema,
+    candidateHash: PromptOptimizerSha256Schema,
+    promptSourceId: PromptSourceIdSchema,
+    candidatePromptCommit: PromptOptimizerGitCommitSchema,
+    publicationHash: PromptOptimizerSha256Schema,
+  })
+  .strict()
+  .superRefine((publication, ctx) => {
+    const { publicationHash, ...body } = publication;
+    if (publicationHash !== canonicalJsonHash(body)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["publicationHash"],
+        message: "publicationHash must bind the complete Candidate publication",
+      });
+    }
+  });
+
+export type PromptCandidatePublication = z.infer<typeof PromptCandidatePublicationSchema>;
+
+export function buildPromptCandidatePublication(input: {
+  candidate: PromptCandidate;
+  promptSourceId: string;
+  candidatePromptCommit: string;
+}): PromptCandidatePublication {
+  const candidate = PromptCandidateSchema.parse(input.candidate);
+  const body = {
+    schemaVersion: "prompt_candidate_publication_v1" as const,
+    candidateId: candidate.candidateId,
+    candidateHash: canonicalJsonHash(candidate),
+    promptSourceId: PromptSourceIdSchema.parse(input.promptSourceId),
+    candidatePromptCommit: PromptOptimizerGitCommitSchema.parse(input.candidatePromptCommit),
+  };
+  return PromptCandidatePublicationSchema.parse({
+    ...body,
+    publicationHash: canonicalJsonHash(body),
+  });
+}
+
+export function assertCandidatePublicationMatches(
+  candidate: PromptCandidate,
+  publication: PromptCandidatePublication,
+): void {
+  const parsedCandidate = PromptCandidateSchema.parse(candidate);
+  const parsedPublication = PromptCandidatePublicationSchema.parse(publication);
+  if (
+    parsedPublication.candidateId !== parsedCandidate.candidateId ||
+    parsedPublication.candidateHash !== canonicalJsonHash(parsedCandidate)
+  ) {
+    throw new Error("prompt_candidate_publication_candidate_mismatch");
+  }
+}
 
 export const PromptDatasetSampleRefSchema = z
   .object({
@@ -515,10 +622,11 @@ export function promptSplitExcludedSampleIdsHash(split: DatasetSplitManifest): s
 
 export const PromptCandidateFamilySchema = z
   .object({
-    schemaVersion: z.literal("prompt_candidate_family_v1"),
+    schemaVersion: z.literal("prompt_candidate_family_v2"),
     familyId: NonEmptyIdSchema,
     target: PromptOptimizerTargetSchema,
     championReleaseId: NonEmptyIdSchema,
+    championPromptSourceId: PromptSourceIdSchema,
     championPromptCommit: PromptOptimizerGitCommitSchema,
     championPromptRefs: PromptRefPairSchema,
     championPromptHashes: PromptHashPairSchema,
@@ -559,19 +667,34 @@ export const PromptExperimentStatusSchema = z.enum([
   "FAILED",
 ]);
 
+export const PromptExperimentReleaseEnvironmentSchema = z
+  .object({
+    codeCommit: PromptOptimizerGitCommitSchema,
+    executionBehaviorRelease: PromptReleaseExecutionBehaviorBindingSchema,
+  })
+  .strict();
+
+export type PromptExperimentReleaseEnvironment = z.infer<
+  typeof PromptExperimentReleaseEnvironmentSchema
+>;
+
 export const PromptExperimentSchema = z
   .object({
-    schemaVersion: z.literal("prompt_experiment_v1"),
+    schemaVersion: z.literal("prompt_experiment_v2"),
     experimentId: NonEmptyIdSchema,
     familyId: NonEmptyIdSchema,
     candidateId: NonEmptyIdSchema,
     championId: NonEmptyIdSchema,
     target: PromptOptimizerTargetSchema,
+    championPromptSourceId: PromptSourceIdSchema,
     championPromptCommit: PromptOptimizerGitCommitSchema,
     championPromptRefs: PromptRefPairSchema,
     championPromptHashes: PromptHashPairSchema,
     candidatePromptRefs: PromptRefPairSchema,
     candidatePromptHashes: PromptHashPairSchema,
+    candidatePromptSourceId: PromptSourceIdSchema,
+    candidatePromptCommit: PromptOptimizerGitCommitSchema,
+    candidatePublicationHash: PromptOptimizerSha256Schema,
     datasetSplitId: NonEmptyIdSchema,
     datasetSplitManifestHash: PromptOptimizerSha256Schema,
     promotionPolicyVersion: NonEmptyIdSchema,
@@ -594,6 +717,7 @@ export const PromptExperimentSchema = z
     evaluatorVersion: NonEmptyIdSchema,
     evaluatorConfigHash: PromptOptimizerSha256Schema,
     codeCommit: PromptOptimizerGitCommitSchema,
+    executionBehaviorRelease: PromptReleaseExecutionBehaviorBindingSchema,
     repeatSeeds: z.array(z.number().int().nonnegative()).min(1),
     runIds: z.array(NonEmptyIdSchema),
     metrics: FiniteMetricRecordSchema,
@@ -645,11 +769,21 @@ export const PromptExperimentSchema = z
 
 export type PromptExperiment = z.infer<typeof PromptExperimentSchema>;
 
+export function promptExperimentReleaseEnvironment(
+  experiment: Pick<PromptExperiment, "codeCommit" | "executionBehaviorRelease">,
+): PromptExperimentReleaseEnvironment {
+  return PromptExperimentReleaseEnvironmentSchema.parse({
+    codeCommit: experiment.codeCommit,
+    executionBehaviorRelease: experiment.executionBehaviorRelease,
+  });
+}
+
 /** Existing immutable fields that must be identical for every sibling experiment. */
 export function promptExperimentFamilyEnvironment(experiment: PromptExperiment) {
   return {
     target: experiment.target,
     championId: experiment.championId,
+    championPromptSourceId: experiment.championPromptSourceId,
     championPromptCommit: experiment.championPromptCommit,
     championPromptRefs: experiment.championPromptRefs,
     championPromptHashes: experiment.championPromptHashes,
@@ -667,6 +801,7 @@ export function promptExperimentFamilyEnvironment(experiment: PromptExperiment) 
     evaluatorVersion: experiment.evaluatorVersion,
     evaluatorConfigHash: experiment.evaluatorConfigHash,
     codeCommit: experiment.codeCommit,
+    executionBehaviorRelease: experiment.executionBehaviorRelease,
     repeatSeeds: experiment.repeatSeeds,
   };
 }
@@ -845,9 +980,10 @@ export function assertTrainingProjectionMatchesSplit(
 export const PROMPT_OPTIMIZER_PUBLIC_SCHEMAS = Object.freeze({
   prompt_training_projection_v1: PromptTrainingProjectionSchema,
   prompt_candidate_v1: PromptCandidateSchema,
-  prompt_candidate_family_v1: PromptCandidateFamilySchema,
+  prompt_candidate_publication_v1: PromptCandidatePublicationSchema,
+  prompt_candidate_family_v2: PromptCandidateFamilySchema,
   prompt_dataset_split_v1: DatasetSplitManifestSchema,
-  prompt_experiment_v1: PromptExperimentSchema,
+  prompt_experiment_v2: PromptExperimentSchema,
   prompt_experiment_run_v1: PromptExperimentRunSchema,
   prompt_promotion_decision_v1: PromptPromotionDecisionSchema,
 });

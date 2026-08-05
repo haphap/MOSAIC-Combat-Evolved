@@ -32,6 +32,10 @@ import {
 import { standardSectorSpec } from "../src/agents/sector/_spec.js";
 import { MAX_SECTOR_COVERAGE_EVIDENCE_IDS } from "../src/agents/sector/comparison.js";
 import { buildEnergyNode } from "../src/agents/sector/energy.js";
+import {
+  buildSectorConflictReviewSystemMessage,
+  buildSectorFinalSelectionSystemMessage,
+} from "../src/agents/sector/phase_directives.js";
 import { SECTOR_DIRECTION_CONFLICT_RESOLVER_CONTRACT } from "../src/agents/sector/registry.js";
 import { relationshipMapperSpec } from "../src/agents/sector/relationship_mapper.js";
 import {
@@ -728,6 +732,7 @@ describe("relationship mapper", () => {
 
 class InstrumentedSectorLlm {
   readonly prompts: string[] = [];
+  readonly systemMessages: string[] = [];
   private neutralResearch: Record<string, unknown> | null = null;
 
   constructor(
@@ -747,6 +752,10 @@ class InstrumentedSectorLlm {
     return {
       invoke: async (input) => {
         this.prompts.push(JSON.stringify(input));
+        if (Array.isArray(input)) {
+          const content = (input[0] as { content?: unknown } | undefined)?.content;
+          if (typeof content === "string") this.systemMessages.push(content);
+        }
         const name = options?.name ?? "energy";
         if (this.failFinal && name === "energy_final_selection") {
           throw new Error("503 service unavailable");
@@ -1325,6 +1334,9 @@ describe("standard Sector usage lifecycle", () => {
     expect(events.lifecycle.at(-2)).toBe("finalize");
     expect(events.lifecycle.at(-1)).toBe("terminate");
     const finalPrompt = llm.prompts.at(-1) ?? "";
+    expect(llm.systemMessages.at(-1)).toBe(
+      buildSectorFinalSelectionSystemMessage({ agentId: "energy", language: "zh" }),
+    );
     expect(finalPrompt).toContain("sector_final_grounding_projection_v1");
     expect(finalPrompt).toContain("ETF_RELATIVE_RETURN_20D");
     expect(finalPrompt).toContain("0.42");
@@ -1370,6 +1382,10 @@ describe("standard Sector usage lifecycle", () => {
       "CONFLICT_REVIEW",
       "FINAL_SELECTION",
     ]);
+    expect(llm.systemMessages[1]).toBe(buildSectorConflictReviewSystemMessage("energy"));
+    expect(llm.systemMessages[2]).toBe(
+      buildSectorFinalSelectionSystemMessage({ agentId: "energy", language: "zh" }),
+    );
     const calls = update.llm_calls as
       | Array<{
           sector_inference_audit?: {

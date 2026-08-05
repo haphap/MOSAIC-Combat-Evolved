@@ -212,11 +212,6 @@ export function buildDarwinianRuntimeBinding(input: {
   ) {
     throw new Error("active Prompt Release does not bind the supplied execution behavior release");
   }
-  if (release.private_prompt_commit !== promptRepoRevision) {
-    throw new Error(
-      "prompt repository revision does not match the pinned execution behavior release",
-    );
-  }
   if (
     release.provider_binding.provider !== input.llmHandle.provider ||
     release.provider_binding.model !== input.llmHandle.model

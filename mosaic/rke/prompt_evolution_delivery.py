@@ -13,11 +13,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
+from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema.exceptions import SchemaError
+
 
 SCHEMA_VERSION = "prompt_evolution_delivery_status_v1"
 GENERATOR_ID = "prompt_evolution_delivery"
 GENERATOR_VERSION = "3"
-COMMAND_CONTRACT_VERSION = "prompt_evolution_delivery_commands_v6"
+COMMAND_CONTRACT_VERSION = "prompt_evolution_delivery_commands_v7"
 
 Status = Literal["pass", "fail", "blocked"]
 
@@ -30,6 +33,7 @@ TOKEN_BUDGET_PATH = PROMPT_CHECK_DIR / "prompt_token_budget_manifest_v1.json"
 PERFORMANCE_BUDGET_PATH = (
     PROMPT_CHECK_DIR / "prompt_evolution_performance_budget_v1.json"
 )
+DELIVERY_SCHEMA_PATH = Path("schemas/prompt_evolution_delivery_status_v1.schema.json")
 
 DELIVERY_INPUT_PATHS = (
     Path(".github/workflows/ci.yml"),
@@ -47,7 +51,7 @@ DELIVERY_INPUT_PATHS = (
     PERFORMANCE_BUDGET_PATH,
     RUNTIME_MANIFEST_PATH,
     TOKEN_BUDGET_PATH,
-    Path("schemas/prompt_evolution_delivery_status_v1.schema.json"),
+    DELIVERY_SCHEMA_PATH,
     Path("schemas/prompt_evolution_performance_budget_v1.schema.json"),
     Path("schemas/prompt_token_budget_manifest_v1.schema.json"),
     Path("schemas/runtime_agent_manifest_v5.schema.json"),
@@ -226,7 +230,6 @@ TYPESCRIPT_GATE_TESTS = (
     "test/layer4_source_adapters.test.ts",
     "test/mirofish_context_inject.test.ts",
     "test/mirofish_trainer.test.ts",
-    "test/orchestrator.test.ts",
     "test/prompt_loader.test.ts",
     "test/prompt_release_canary_runtime.test.ts",
     "test/prompt_release_manager.test.ts",
@@ -236,7 +239,6 @@ TYPESCRIPT_GATE_TESTS = (
     "test/prompt_optimizer_contract.test.ts",
     "test/prompt_promotion_policy.test.ts",
     "test/runtime_agent_spec.test.ts",
-    "test/transaction_release_coordinator.test.ts",
 )
 
 
@@ -301,7 +303,7 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
     python_basetemp = run_dir / "pytest"
     generated_dir = run_dir / "generated"
     prompts_root = root / "prompts/mosaic"
-    return (
+    specs = (
         CommandSpec(
             "ruff",
             ("uvx", "ruff@0.15.15", "check", "mosaic", "tests"),
@@ -322,7 +324,7 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
                 "python",
                 "-m",
                 "pytest",
-                "tests/test_rke_prompt_evolution_delivery.py::test_delivery_artifact_validates_against_json_schema",
+                "tests/test_rke_prompt_evolution_delivery.py::test_delivery_verifier_enforces_json_schema",
                 "-q",
                 "--junitxml",
                 str(run_dir / "focused-schema.xml"),
@@ -331,7 +333,7 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
             ),
             root,
             (
-                "tests/test_rke_prompt_evolution_delivery.py::test_delivery_artifact_validates_against_json_schema",
+                "tests/test_rke_prompt_evolution_delivery.py::test_delivery_verifier_enforces_json_schema",
             ),
             junit_expected_tests=1,
             junit_path=run_dir / "focused-schema.xml",
@@ -491,6 +493,30 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
             ("git:working-tree",),
         ),
     )
+    _assert_declared_test_files_exist(specs)
+    return specs
+
+
+def _assert_declared_test_files_exist(specs: Sequence[CommandSpec]) -> None:
+    missing: set[str] = set()
+    for spec in specs:
+        for argument in spec.argv:
+            test_path = argument.split("::", 1)[0]
+            if not (
+                (test_path.startswith("tests/") and test_path.endswith(".py"))
+                or (
+                    test_path.startswith("test/")
+                    and test_path.endswith((".ts", ".tsx"))
+                )
+            ):
+                continue
+            declared = spec.cwd / test_path
+            if not declared.is_file():
+                missing.add(declared.as_posix())
+    if missing:
+        raise FileNotFoundError(
+            "declared delivery test files are missing: " + ", ".join(sorted(missing))
+        )
 
 
 def _prompt_release_contract_ref_spec(root: Path, generated_dir: Path) -> CommandSpec:
@@ -1187,7 +1213,7 @@ def validate_delivery_status(
     *,
     check_current_inputs: bool = True,
 ) -> list[str]:
-    reasons: list[str] = []
+    reasons = validate_delivery_artifact_schema(root, artifact)
     if artifact.get("schema_version") != SCHEMA_VERSION:
         reasons.append("schema_version_mismatch")
     generator = artifact.get("generator")
@@ -1354,6 +1380,28 @@ def validate_delivery_status(
     return sorted(set(reasons))
 
 
+def validate_delivery_artifact_schema(
+    root: Path,
+    artifact: Mapping[str, Any],
+) -> list[str]:
+    try:
+        schema = _load_json(root / DELIVERY_SCHEMA_PATH)
+        Draft202012Validator.check_schema(schema)
+    except (OSError, ValueError, json.JSONDecodeError, SchemaError) as exc:
+        return [f"delivery_schema_unreadable:{type(exc).__name__}"]
+    validator = Draft202012Validator(schema, format_checker=FormatChecker())
+    errors = sorted(
+        validator.iter_errors(artifact),
+        key=lambda error: tuple(str(part) for part in error.absolute_path),
+    )
+    return [
+        "delivery_schema_invalid:"
+        + (".".join(str(part) for part in error.absolute_path) or "$")
+        + f":{error.validator}"
+        for error in errors
+    ]
+
+
 def generate_delivery_status(
     root: Path,
     *,
@@ -1443,6 +1491,12 @@ def generate_delivery_status(
         checks=checks,
         upstream_ci=upstream_ci,
     )
+    schema_reasons = validate_delivery_artifact_schema(root, artifact)
+    if schema_reasons:
+        raise ValueError(
+            "generated delivery artifact failed schema validation: "
+            + ", ".join(schema_reasons)
+        )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
         json.dumps(artifact, ensure_ascii=False, indent=2) + "\n",
