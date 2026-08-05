@@ -1,0 +1,178 @@
+{
+  "schemaVersion": "prompt_optimizer_cross_runtime_conformance_v1",
+  "numericSeedOrder": {
+    "input": [10, 2],
+    "expected": [2, 10]
+  },
+  "orderedAggregation": {
+    "repeatCount": 60,
+    "candidateScore": 0.6,
+    "championScore": 0.5,
+    "expectedCandidateMean": 0.6000000000000008,
+    "expectedChampionMean": 0.5,
+    "expectedPairedDelta": 0.09999999999999991
+  },
+  "unicodeRefOrder": {
+    "input": ["failure://\uE000", "failure://😀"],
+    "expected": ["failure://😀", "failure://\uE000"]
+  },
+  "equalScoreTie": {
+    "inputCandidateIds": ["candidate-a", "candidate-Z"],
+    "score": 0.2,
+    "expectedWinner": "candidate-Z"
+  },
+  "timestampPrecision": {
+    "accepted": [
+      "2025-04-01T00:00:00Z",
+      "2025-04-01T00:00:00.1Z",
+      "2025-04-01T00:00:00.12Z",
+      "2025-04-01T00:00:00.123Z"
+    ],
+    "rejectedMinute": "2025-04-01T00:00Z",
+    "rejectedSubMillisecond": "2025-04-01T00:00:00.1234Z"
+  },
+  "promotionGates": {
+    "bootstrapSamples": 99,
+    "blockLength": 3,
+    "familyAlpha": 0.05,
+    "tailQuantile": 0.25,
+    "minimumPairedDelta": 0.05,
+    "minimumTailDelta": 0.05,
+    "maximumFailureRateIncrease": 0.0,
+    "minimumCriticalSampleDelta": 0.0,
+    "seed": "promotion-golden-v1:VALIDATION",
+    "cases": [
+      {
+        "name": "eligible",
+        "familyCandidateCount": 2,
+        "deltaSegments": [{"count": 30, "value": 0.2}],
+        "championFailureIndexes": [],
+        "candidateFailureIndexes": [],
+        "criticalIndexes": [0],
+        "expected": {
+          "eligible": true,
+          "reasons": [],
+          "metrics": {
+            "sampleCount": 30,
+            "repeatSeedCount": 2,
+            "pairedDelta": 0.2000000000000001,
+            "adjustedAlpha": 0.025,
+            "confidenceLower": 0.2000000000000001,
+            "confidenceUpper": 0.2000000000000001,
+            "bootstrapPValue": 0.01,
+            "tailDelta": 0.19999999999999998,
+            "championFailureRate": 0.0,
+            "candidateFailureRate": 0.0,
+            "criticalMinimum": 0.2
+          }
+        }
+      },
+      {
+        "name": "multiple_comparison",
+        "familyCandidateCount": 10,
+        "deltaSegments": [{"count": 30, "value": 0.2}],
+        "championFailureIndexes": [],
+        "candidateFailureIndexes": [],
+        "criticalIndexes": [0],
+        "expected": {
+          "eligible": false,
+          "reasons": ["multiple_comparison"],
+          "metrics": {
+            "sampleCount": 30,
+            "repeatSeedCount": 2,
+            "pairedDelta": 0.2000000000000001,
+            "adjustedAlpha": 0.005,
+            "confidenceLower": 0.2000000000000001,
+            "confidenceUpper": 0.2000000000000001,
+            "bootstrapPValue": 0.01,
+            "tailDelta": 0.19999999999999998,
+            "championFailureRate": 0.0,
+            "candidateFailureRate": 0.0,
+            "criticalMinimum": 0.2
+          }
+        }
+      },
+      {
+        "name": "tail_regression",
+        "familyCandidateCount": 2,
+        "deltaSegments": [
+          {"count": 8, "value": -0.01},
+          {"count": 22, "value": 0.2}
+        ],
+        "championFailureIndexes": [],
+        "candidateFailureIndexes": [],
+        "criticalIndexes": [29],
+        "expected": {
+          "eligible": false,
+          "reasons": ["tail_regression"],
+          "metrics": {
+            "sampleCount": 30,
+            "repeatSeedCount": 2,
+            "pairedDelta": 0.14400000000000004,
+            "adjustedAlpha": 0.025,
+            "confidenceLower": 0.08030000000000005,
+            "confidenceUpper": 0.1930000000000001,
+            "bootstrapPValue": 0.01,
+            "tailDelta": -0.01,
+            "championFailureRate": 0.0,
+            "candidateFailureRate": 0.0,
+            "criticalMinimum": 0.2
+          }
+        }
+      },
+      {
+        "name": "critical_suite_regression",
+        "familyCandidateCount": 2,
+        "deltaSegments": [
+          {"count": 1, "value": -0.01},
+          {"count": 29, "value": 0.2}
+        ],
+        "championFailureIndexes": [],
+        "candidateFailureIndexes": [],
+        "criticalIndexes": [0],
+        "expected": {
+          "eligible": false,
+          "reasons": ["critical_suite_regression"],
+          "metrics": {
+            "sampleCount": 30,
+            "repeatSeedCount": 2,
+            "pairedDelta": 0.1930000000000001,
+            "adjustedAlpha": 0.025,
+            "confidenceLower": 0.1790000000000001,
+            "confidenceUpper": 0.2000000000000001,
+            "bootstrapPValue": 0.01,
+            "tailDelta": 0.17375,
+            "championFailureRate": 0.0,
+            "candidateFailureRate": 0.0,
+            "criticalMinimum": -0.01
+          }
+        }
+      },
+      {
+        "name": "failure_rate_regression",
+        "familyCandidateCount": 2,
+        "deltaSegments": [{"count": 30, "value": 0.2}],
+        "championFailureIndexes": [],
+        "candidateFailureIndexes": [0],
+        "criticalIndexes": [0],
+        "expected": {
+          "eligible": false,
+          "reasons": ["failure_rate_regression"],
+          "metrics": {
+            "sampleCount": 30,
+            "repeatSeedCount": 2,
+            "pairedDelta": 0.2000000000000001,
+            "adjustedAlpha": 0.025,
+            "confidenceLower": 0.2000000000000001,
+            "confidenceUpper": 0.2000000000000001,
+            "bootstrapPValue": 0.01,
+            "tailDelta": 0.19999999999999998,
+            "championFailureRate": 0.0,
+            "candidateFailureRate": 0.03333333333333333,
+            "criticalMinimum": 0.2
+          }
+        }
+      }
+    ]
+  }
+}

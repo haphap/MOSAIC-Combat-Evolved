@@ -5,7 +5,7 @@
   ],
   "after_next_state": "paper_trading",
   "before_blockers": [],
-  "before_next_state": "production",
+  "before_next_state": "paper_trading",
   "mutated_original_registry": false,
   "production_allowed_after_simulation": false,
   "report_id": "RKE-PROMOTION-DRY-RUN-REPORT-20260606",

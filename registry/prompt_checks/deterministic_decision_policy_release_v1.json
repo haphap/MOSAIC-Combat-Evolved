@@ -1,0 +1,26 @@
+{
+  "schema_version": "deterministic_decision_policy_release_v1",
+  "policy_release_id": "decision-policy:7eb65005fd42e1f7ddd0c304a4507809ab7c900d0c4aa057511c3810cc9a7378",
+  "effective_at": "2026-08-05T00:00:00+08:00",
+  "owner_revisions": {
+    "cro": "cro_risk_policy_v1",
+    "cio": "cio_portfolio_governance_policy_v1",
+    "autonomous_execution": "autonomous_execution_policy_v1"
+  },
+  "policies": {
+    "cro": {
+      "stop_loss_pct": -0.08,
+      "max_single_name_weight": 0.12,
+      "max_sector_weight": 0.3
+    },
+    "cio": {
+      "stale_thesis_days": 20
+    },
+    "autonomous_execution": {
+      "min_delta_trade_weight": 0.01,
+      "slippage_cap": 0.003,
+      "liquidity_floor": 0.6
+    }
+  },
+  "release_hash": "sha256:f3da18e884427a184860ca3ebf0a966bd7a005db3144823251f1cf707d694c5d"
+}

@@ -1,18 +1,16 @@
 """Integration test for the ``mosaic.bridge`` JSON-RPC sidecar.
 
-Drives the bridge as an external subprocess and never imports ``mosaic``
-directly — proves the bridge is usable as an opaque black box from another
-runtime (the Phase 1+ TypeScript CLI).
+Drives the bridge as an external subprocess; fixture setup uses the local
+deterministic calendar collector, while all assertions treat the bridge as an
+opaque JSON-RPC sidecar from another runtime (the TypeScript CLI).
 
 Two layers:
 
-1. **Protocol contract** — 14 tests covering tools.* / config.* / cache.* /
+1. **Protocol contract** — tests covering capability-bound tools.* / config.* / cache.* /
    paper.* / backtest.* / parse-error / unknown-method shape. Hermetic; no
    network or vendor keys required.
-2. **Macro-tool subprocess** — 5 tests covering tool registration, schema
-   validation, vendor-unavailable error mapping, and backtest-mode blocking
-   for the Layer-1 macro tools. Plus one live smoke case gated on
-   ``TUSHARE_TOKEN``.
+2. **Capability subprocess** — tests covering pre-materialisation, the closed
+   role tool list, zero-argument calls, one-use semantics, and termination.
 
 Tests that need real vendor data (Tushare / FRED / akshare) are skipped
 unless the relevant token is set; that lets CI run hermetically while local
@@ -31,6 +29,8 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+from scripts.build_structured_smoke_fixtures import build_structured_smoke_fixtures
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -73,19 +73,25 @@ def _resolve_python() -> str:
 
 PYTHON = _resolve_python()
 
-# Expected macro tools surfaced by tools.list.
-EXPECTED_MACRO_TOOLS = {
-    "get_fred_series",
-    "get_pboc_ops",
-    "get_lhb_ranking",
-    "get_yield_curve_cn",
-    "get_us_china_spread",
-    "get_xueqiu_heat",
-    "get_news",
-    "get_industry_policy",
-    "get_policy_uncertainty",
-    "get_realized_volatility",
-}
+EXPECTED_CHINA_TOOL = "get_china_macro_snapshot"
+_SHARED_FIXTURE_TMP: tempfile.TemporaryDirectory[str] | None = None
+_SHARED_FIXTURE_BINDINGS: dict[str, str] = {}
+
+
+def setUpModule() -> None:
+    global _SHARED_FIXTURE_TMP, _SHARED_FIXTURE_BINDINGS
+    _SHARED_FIXTURE_TMP = tempfile.TemporaryDirectory()
+    _SHARED_FIXTURE_BINDINGS = build_structured_smoke_fixtures(
+        Path(_SHARED_FIXTURE_TMP.name) / "cache", "2024-06-30"
+    )
+
+
+def tearDownModule() -> None:
+    global _SHARED_FIXTURE_TMP, _SHARED_FIXTURE_BINDINGS
+    if _SHARED_FIXTURE_TMP is not None:
+        _SHARED_FIXTURE_TMP.cleanup()
+    _SHARED_FIXTURE_TMP = None
+    _SHARED_FIXTURE_BINDINGS = {}
 
 
 class _BridgeTestCase(unittest.TestCase):
@@ -94,18 +100,20 @@ class _BridgeTestCase(unittest.TestCase):
     def setUp(self) -> None:
         # Isolate cache/results to a tempdir so tests don't touch ~/.mosaic.
         self._tmp = tempfile.TemporaryDirectory()
-        self._cache_dir = Path(self._tmp.name) / "cache"
         self._results_dir = Path(self._tmp.name) / "results"
-        self._cache_dir.mkdir()
         self._results_dir.mkdir()
         self._paper_db = Path(self._tmp.name) / "paper_trading.db"
         self._config_file = Path(self._tmp.name) / "config.json"
+        self.assertTrue(_SHARED_FIXTURE_BINDINGS)
 
         env = {
             **os.environ,
-            "MOSAIC_CACHE_DIR": str(self._cache_dir),
+            **_SHARED_FIXTURE_BINDINGS,
             "MOSAIC_RESULTS_DIR": str(self._results_dir),
             "MOSAIC_CONFIG": str(self._config_file),
+            "MOSAIC_AGENT_TOOL_LEDGER_PATH": str(
+                Path(self._tmp.name) / "agent_tool_capabilities.sqlite3"
+            ),
             "PYTHONUNBUFFERED": "1",
         }
         self._proc = subprocess.Popen(
@@ -151,7 +159,9 @@ class _BridgeTestCase(unittest.TestCase):
             self.fail(f"Bridge closed stdout unexpectedly. stderr:\n{stderr}")
         return json.loads(line)
 
-    def call_ok(self, method: str, params: dict | None = None, *, req_id: int = 1) -> object:
+    def call_ok(
+        self, method: str, params: dict | None = None, *, req_id: int = 1
+    ) -> object:
         response = self.call(method, params, req_id=req_id)
         self.assertNotIn(
             "error",
@@ -160,7 +170,9 @@ class _BridgeTestCase(unittest.TestCase):
         )
         return response["result"]
 
-    def call_err(self, method: str, params: dict | None = None, *, req_id: int = 1) -> dict:
+    def call_err(
+        self, method: str, params: dict | None = None, *, req_id: int = 1
+    ) -> dict:
         response = self.call(method, params, req_id=req_id)
         self.assertIn(
             "error",
@@ -168,6 +180,29 @@ class _BridgeTestCase(unittest.TestCase):
             msg=f"Expected error but got result: {response.get('result')}",
         )
         return response["error"]
+
+    def prepare_china(self) -> dict:
+        prepared = self.call_ok(
+            "tools.prepare_capability",
+            {
+                "graph_run_id": "graph-protocol-1",
+                "run_slot_id": "slot-china-1",
+                "run_id": "run-china-1",
+                "node_id": "node-china-1",
+                "agent_id": "china",
+                "stage": "china",
+                "as_of": "2024-06-30",
+                "materialization_request_id": "materialize-china-protocol-1",
+                "runtime_inputs": {},
+                "candidate_scope": None,
+                "ttl_seconds": 60,
+            },
+        )
+        self.assertIsInstance(prepared, dict)
+        return prepared
+
+    def prepare_china_capability(self) -> dict:
+        return self.prepare_china()["capability"]
 
 
 # ====================================================================
@@ -178,58 +213,34 @@ class _BridgeTestCase(unittest.TestCase):
 class BridgeProtocolTests(_BridgeTestCase):
     # ------------------------------------------------------- tools.* tests
 
-    def test_tools_list_returns_metadata_for_each_macro_tool(self) -> None:
-        """tools.list must surface macro tools with name/description/schema.
-
-        Phase 0 Day 4 landed the macro_tools module. Later phases add more
-        modules; assert a lower bound so this test stays green as the surface
-        grows.
-        """
-        tools = self.call_ok("tools.list", {})
-        self.assertIsInstance(tools, list)
-        self.assertGreaterEqual(
-            len(tools),
-            len(EXPECTED_MACRO_TOOLS),
-            "expected every required macro @tool function",
-        )
-        names = {t["name"] for t in tools}
-        # Every macro tool must be present
-        self.assertTrue(EXPECTED_MACRO_TOOLS.issubset(names))
-        for tool in tools:
-            self.assertIn("name", tool)
-            self.assertIn("description", tool)
-            self.assertIn("args_schema", tool)
-            schema = tool["args_schema"]
-            self.assertEqual(schema.get("type"), "object")
-            self.assertIn("properties", schema)
-            # Each tool's description is non-trivial
-            self.assertGreater(len(tool["description"]), 20)
+    def test_tools_list_requires_signed_capability(self) -> None:
+        err = self.call_err("tools.list", {})
+        self.assertEqual(err["code"], -32602)
+        self.assertIn("capability", err["message"])
 
     def test_tools_call_unknown_name_returns_method_not_found(self) -> None:
-        err = self.call_err("tools.call", {"name": "nonexistent_tool", "args": {}})
+        capability = self.prepare_china_capability()
+        err = self.call_err(
+            "tools.call",
+            {"capability": capability, "name": "nonexistent_tool", "args": {}},
+        )
         self.assertEqual(err["code"], -32601)
 
     def test_tools_call_invalid_params_returns_invalid_params(self) -> None:
         err = self.call_err("tools.call", {"args": {}})  # missing 'name'
         self.assertEqual(err["code"], -32602)
 
-    def test_tools_call_in_backtest_mode_blocks_unbounded_call(self) -> None:
-        """Backtest-mode date-bounds must reject get_xueqiu_heat (no date arg).
-
-        Proves the bridge wires the existing ``backtest_context`` correctly:
-        ``_UNBOUNDED_BACKTEST_METHODS`` intercepts the call before the akshare
-        side-effect runs.
-        """
+    def test_unscoped_xueqiu_tool_is_not_model_callable(self) -> None:
+        capability = self.prepare_china_capability()
         err = self.call_err(
             "tools.call",
             {
+                "capability": capability,
                 "name": "get_xueqiu_heat",
-                "args": {"top_n": 5},
-                "context": {"mode": "backtest", "as_of_date": "2020-06-01"},
+                "args": {},
             },
         )
-        self.assertIn(err["code"], (-32001, -32003))
-        self.assertIn("Backtest mode", err["message"])
+        self.assertEqual(err["code"], -32601)
         self.assertIn("get_xueqiu_heat", err["message"])
 
     # ------------------------------------------------------- config.* tests
@@ -340,104 +351,95 @@ class BridgeProtocolTests(_BridgeTestCase):
 
 
 # ====================================================================
-# Layer 2 — macro-tool subprocess tests (5 hermetic + 1 live smoke)
+# Layer 2 — capability-bound snapshot subprocess tests
 # ====================================================================
 
 
 class MacroToolBridgeTests(_BridgeTestCase):
-    """End-to-end macro-tool tests over the JSON-RPC subprocess.
+    """End-to-end capability lifecycle over the JSON-RPC subprocess."""
 
-    These exercise the full path bridge → @tool wrapper → ``route_to_vendor``
-    → underlying dataflow. Vendor calls without API keys are expected to
-    fall through to ``DataVendorUnavailable`` / ``RuntimeError`` and surface
-    as ``-32001 TOOL_EXECUTION_ERROR`` or ``-32003 DATA_VENDOR_UNAVAILABLE``.
-    """
-
-    def test_each_macro_tool_has_complete_args_schema(self) -> None:
-        """Every Day-4 macro tool surfaces the expected fields."""
-        tools = {t["name"]: t for t in self.call_ok("tools.list", {})}
-        for name in EXPECTED_MACRO_TOOLS:
-            self.assertIn(name, tools, f"missing {name}")
-            schema = tools[name]["args_schema"]
-            self.assertEqual(schema["type"], "object")
-            for prop, prop_schema in schema["properties"].items():
-                self.assertIn("description", prop_schema, f"{name}.{prop} missing description")
-                self.assertTrue(
-                    prop_schema["description"].strip(),
-                    f"{name}.{prop} description is empty",
-                )
-
-    def test_get_fred_series_rejects_missing_required_args(self) -> None:
-        """Pydantic v2 schema rejects missing required args before vendor call."""
-        err = self.call_err(
-            "tools.call",
-            {"name": "get_fred_series", "args": {"series_id": "FEDFUNDS"}},
-        )
-        # langchain wraps the schema error -> tools_call wraps to TOOL_EXECUTION_ERROR
-        self.assertEqual(err["code"], -32001)
-        self.assertIn("ValidationError", err["message"])
-        self.assertIn("start_date", err["message"])
-        self.assertIn("end_date", err["message"])
-
-    def test_get_pboc_ops_empty_cache_returns_clean_error(self) -> None:
-        """With network disabled and no local mirror, the call must surface a
-        clear vendor-unavailable error, not crash the bridge."""
-        self.tearDown()
-        self._tmp = tempfile.TemporaryDirectory()
-        self._cache_dir = Path(self._tmp.name) / "cache"
-        self._results_dir = Path(self._tmp.name) / "results"
-        self._cache_dir.mkdir()
-        self._results_dir.mkdir()
-
-        env = dict(os.environ)
-        env.update(
+    def test_role_capability_lists_only_one_zero_argument_snapshot(self) -> None:
+        capability = self.prepare_china_capability()
+        tools = self.call_ok("tools.list", {"capability": capability})
+        self.assertEqual([tool["name"] for tool in tools], [EXPECTED_CHINA_TOOL])
+        self.assertEqual(
+            tools[0]["args_schema"],
             {
-                "MOSAIC_CACHE_DIR": str(self._cache_dir),
-                "MOSAIC_RESULTS_DIR": str(self._results_dir),
-                "MOSAIC_PBOC_OPS_DISABLE_NETWORK": "1",
-                "PYTHONUNBUFFERED": "1",
-            }
-        )
-        self._proc = subprocess.Popen(
-            [PYTHON, "-m", "mosaic.bridge"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=str(PROJECT_ROOT),
-            env=env,
-            text=True,
-            encoding="utf-8",
-        )
-
-        err = self.call_err(
-            "tools.call",
-            {
-                "name": "get_pboc_ops",
-                "args": {"curr_date": "2024-06-30", "look_back_days": 7},
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": False,
             },
         )
-        # Either TOOL_EXECUTION_ERROR (RuntimeError from fallback exhaustion)
-        # or DATA_VENDOR_UNAVAILABLE (raised directly by the vendor).
-        self.assertIn(err["code"], (-32001, -32003))
-        self.assertIn("PBOC open-market cache is empty", err["message"])
 
-        # Bridge must still serve subsequent calls.
-        result = self.call_ok("tools.list", {}, req_id=99)
-        self.assertGreaterEqual(len(result), 8)
+    def test_snapshot_call_returns_pre_materialized_payload_once(self) -> None:
+        capability = self.prepare_china_capability()
+        result = self.call_ok(
+            "tools.call",
+            {"capability": capability, "name": EXPECTED_CHINA_TOOL, "args": {}},
+        )
+        payload = json.loads(result["text"])
+        self.assertEqual(payload["role"], "china")
+        self.assertEqual(payload["as_of_date"], "2024-06-30")
+        self.assertEqual(len(payload["observations"]), 5)
 
-    def test_get_xueqiu_heat_blocked_in_backtest_mode(self) -> None:
-        """``get_xueqiu_heat`` is in ``_UNBOUNDED_BACKTEST_METHODS`` — should be
-        rejected before akshare is touched."""
+        err = self.call_err(
+            "tools.call",
+            {"capability": capability, "name": EXPECTED_CHINA_TOOL, "args": {}},
+        )
+        self.assertEqual(err["code"], -32602)
+        self.assertIn("already been used", err["message"])
+
+    def test_snapshot_tool_rejects_model_arguments(self) -> None:
+        capability = self.prepare_china_capability()
         err = self.call_err(
             "tools.call",
             {
-                "name": "get_xueqiu_heat",
-                "args": {"top_n": 3},
-                "context": {"mode": "backtest", "as_of_date": "2020-06-01"},
+                "capability": capability,
+                "name": EXPECTED_CHINA_TOOL,
+                "args": {"as_of": "2099-01-01"},
             },
         )
-        self.assertIn(err["code"], (-32001, -32003))
-        self.assertIn("Backtest mode", err["message"])
+        self.assertEqual(err["code"], -32602)
+        self.assertIn("no arguments", err["message"])
+
+    def test_terminated_capability_fails_closed(self) -> None:
+        capability = self.prepare_china_capability()
+        self.assertEqual(
+            self.call_ok(
+                "tools.terminate_capability",
+                {"capability": capability, "reason": "node_finished"},
+            ),
+            {"terminated": True},
+        )
+        err = self.call_err(
+            "tools.list",
+            {"capability": capability},
+        )
+        self.assertEqual(err["code"], -32602)
+        self.assertIn("terminated", err["message"])
+
+    def test_paired_capability_reuses_the_materialized_bundle(self) -> None:
+        root = self.prepare_china()
+        issued = self.call_ok(
+            "tools.issue_capability",
+            {
+                "graph_run_id": "graph-protocol-1",
+                "run_slot_id": "slot-china-candidate",
+                "run_id": "run-china-candidate",
+                "node_id": "node-china-candidate",
+                "agent_id": "china",
+                "stage": "china",
+                "as_of": "2024-06-30",
+                "snapshot_bundle_id": root["bundle"]["snapshot_bundle_id"],
+                "snapshot_bundle_hash": root["bundle"]["snapshot_bundle_hash"],
+            },
+        )
+        self.assertEqual(issued["bundle"], root["bundle"])
+        self.assertNotEqual(
+            issued["capability"]["manifest"]["capability_id"],
+            root["capability"]["manifest"]["capability_id"],
+        )
 
 
 # ====================================================================
@@ -461,12 +463,14 @@ class BrokenPipeRegressionTests(unittest.TestCase):
 
     def test_consumer_crash_does_not_leak_traceback(self) -> None:
         """Consumer dies before reading any output → bridge exits 0, no traceback."""
-        request = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools.list",
-            "params": {},
-        })
+        request = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools.list",
+                "params": {},
+            }
+        )
         # Pipeline: bridge writes a single response, then a consumer that
         # exits *before reading anything* closes its stdin pipe.
         cmd = (
@@ -496,12 +500,14 @@ class BrokenPipeRegressionTests(unittest.TestCase):
 
     def test_consumer_exits_after_one_response_is_clean(self) -> None:
         """Healthy single-shot pipeline (consumer reads one response then exits)."""
-        request = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools.list",
-            "params": {},
-        })
+        request = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools.list",
+                "params": {},
+            }
+        )
         cmd = (
             f"echo '{request}' | "
             f"{PYTHON} -m mosaic.bridge 2>/tmp/_mosaic_bridge_stderr.log"
@@ -514,7 +520,7 @@ class BrokenPipeRegressionTests(unittest.TestCase):
         line = result.stdout.decode("utf-8").strip()
         response = json.loads(line)
         self.assertEqual(response["id"], 1)
-        self.assertIsInstance(response["result"], list)
+        self.assertEqual(response["error"]["code"], -32602)
         with open("/tmp/_mosaic_bridge_stderr.log", "r", encoding="utf-8") as fh:
             bridge_stderr = fh.read()
         self.assertNotIn("Traceback", bridge_stderr)

@@ -1,18 +1,16 @@
-"""Macro-agent label inventory for autoresearch scoring.
-
-The inventory is deliberately explicit: an agent-specific label may enter the
-primary scoring path only when the data source is already wired and the
-implementation status is ``implemented``. Everything else falls back to the
-benchmark label while preserving provenance in ``macro_signals.label_type``.
-"""
+"""Role-matched primary outcome inventory for the ten v2 Macro agents."""
 
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from typing import Optional
 
+from mosaic.scorecard.macro_aggregation import MACRO_AGENTS
 
-BENCHMARK_FALLBACK_LABEL = "benchmark_fallback_5d"
+
+# Kept only so old stored rows remain readable.  V2 primary contracts do not
+# silently fall back to it when a role path is unavailable.
+BENCHMARK_FALLBACK_LABEL = "legacy_benchmark_fallback_5d"
 
 
 @dataclass(frozen=True)
@@ -21,9 +19,12 @@ class MacroLabelSpec:
     label_type: str
     data_source: str
     available_now: bool
-    fallback_label: str
+    fallback_label: Optional[str]
     implementation_status: str
-    primary_order: int = 100
+    primary_order: int = 0
+    maturity_horizon_trading_days: int = 5
+    rank_scope: str = ""
+    outcome_contract_version: str = "macro_transmission_outcome_v2"
 
     @property
     def primary_ready(self) -> bool:
@@ -33,320 +34,75 @@ class MacroLabelSpec:
         return asdict(self)
 
 
-_DEFERRED = "deferred"
-_IMPLEMENTED = "implemented"
+def _spec(agent: str, label: str, source: str) -> MacroLabelSpec:
+    return MacroLabelSpec(
+        agent=agent,
+        label_type=label,
+        data_source=source,
+        available_now=True,
+        fallback_label=None,
+        implementation_status="implemented",
+        rank_scope=f"macro_{agent}",
+    )
 
 
 MACRO_LABEL_INVENTORY: tuple[MacroLabelSpec, ...] = (
-    MacroLabelSpec(
-        "central_bank",
-        "rate_sensitive_path_5d",
-        "Tushare fund_daily/index_daily rate-sensitive proxy path; fallback benchmark path",
-        True,
-        BENCHMARK_FALLBACK_LABEL,
-        _IMPLEMENTED,
-        0,
-    ),
-    MacroLabelSpec(
+    _spec(
         "china",
-        "china_growth_proxy_path_5d",
-        "Tushare index_daily/fund_daily China growth proxy relative path; policy events deferred",
-        True,
-        BENCHMARK_FALLBACK_LABEL,
-        _IMPLEMENTED,
-        0,
+        "china_macro_transmission_a_share_path_5d",
+        "five equal PIT China transmission subpaths",
     ),
-    MacroLabelSpec(
+    _spec(
         "us_economy",
-        "us_demand_transmission_path_5d",
-        "pre-registered ALFRED releases plus Tushare US proxy path",
-        True,
-        BENCHMARK_FALLBACK_LABEL,
-        _IMPLEMENTED,
-        0,
+        "us_economic_cycle_a_share_path_5d",
+        "four equal PIT US real-economy A-share transmission subpaths",
     ),
-    MacroLabelSpec(
-        "geopolitical",
-        "risk_off_path_5d",
-        "benchmark/HK/commodity/FX risk-off path; current implementation uses benchmark path",
-        True,
-        BENCHMARK_FALLBACK_LABEL,
-        _IMPLEMENTED,
-        0,
+    _spec(
+        "eu_economy",
+        "eu_economic_cycle_a_share_path_5d",
+        "four equal PIT EU27 real-economy A-share transmission subpaths",
     ),
-    MacroLabelSpec(
-        "dollar",
-        "cny_pressure_path_5d",
-        "Tushare fx_daily USDCNH inverse path; fallback benchmark path",
-        True,
-        BENCHMARK_FALLBACK_LABEL,
-        _IMPLEMENTED,
-        0,
+    _spec(
+        "central_bank",
+        "pboc_rate_liquidity_a_share_path_5d",
+        "four equal PIT PBOC/rates/liquidity/credit A-share subpaths",
     ),
-    MacroLabelSpec(
-        "yield_curve",
-        "curve_sensitive_path_5d",
-        "Tushare fund_daily/index_daily rate-sensitive proxy relative path",
-        True,
-        BENCHMARK_FALLBACK_LABEL,
-        _IMPLEMENTED,
-        0,
+    _spec(
+        "us_financial_conditions",
+        "us_financial_conditions_a_share_path_5d",
+        "Fed, US curve, credit stress, and USD/CNY PIT subpaths",
     ),
-    MacroLabelSpec(
+    _spec(
+        "euro_area_financial_conditions",
+        "euro_area_financial_conditions_a_share_path_5d",
+        "ECB, euro curve, bank credit, and EUR stress PIT subpaths",
+    ),
+    _spec(
         "commodities",
-        "commodity_basket_path_5d",
-        "Tushare fut_daily commodity basket path; fallback benchmark path",
-        True,
-        BENCHMARK_FALLBACK_LABEL,
-        _IMPLEMENTED,
-        0,
+        "commodity_a_share_transmission_path_5d",
+        "energy, industrial metals, gold, and agriculture PIT subpaths",
     ),
-    MacroLabelSpec(
-        "volatility",
-        "volatility_shock_path_5d",
-        "benchmark close path with drawdown/volatility penalty; direct option data deferred",
-        True,
-        BENCHMARK_FALLBACK_LABEL,
-        _IMPLEMENTED,
-        0,
+    _spec(
+        "geopolitical",
+        "geopolitical_transmission_a_share_path_5d",
+        "verified affected-channel basket and equal-weight risk-appetite path",
     ),
-    MacroLabelSpec(
+    _spec(
         "market_breadth",
         "market_breadth_confirmation_5d",
-        "private PIT breadth composite and equal-weight A-share relative path, 50/50",
-        True,
-        BENCHMARK_FALLBACK_LABEL,
-        _IMPLEMENTED,
-        0,
+        "50% breadth composite change plus 50% PIT equal-weight relative return",
     ),
-    MacroLabelSpec(
+    _spec(
         "institutional_flow",
-        "flow_followthrough_path_5d",
-        "Tushare moneyflow_ind_ths/fund_share evidence plus flow-sensitive proxy path; no northbound fallback",
-        True,
-        BENCHMARK_FALLBACK_LABEL,
-        _IMPLEMENTED,
-        0,
-    ),
-    # Available now: derived from the same benchmark close series already used
-    # by MacroScorer, so no new vendor path or look-ahead surface is introduced.
-    MacroLabelSpec(
-        "volatility",
-        "max_drawdown_5d",
-        "benchmark close series via scorer._fetch_benchmark_series",
-        True,
-        BENCHMARK_FALLBACK_LABEL,
-        _IMPLEMENTED,
-        1,
-    ),
-    MacroLabelSpec(
-        "volatility",
-        "realized_volatility_5d",
-        "benchmark close series via scorer._fetch_benchmark_series",
-        True,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-        2,
-    ),
-    MacroLabelSpec(
-        "volatility",
-        "risk_off_label",
-        "benchmark OHLC/close shock detector",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-        3,
-    ),
-    MacroLabelSpec(
-        "geopolitical",
-        "max_drawdown_5d",
-        "benchmark close series via scorer._fetch_benchmark_series",
-        True,
-        BENCHMARK_FALLBACK_LABEL,
-        _IMPLEMENTED,
-        1,
-    ),
-    MacroLabelSpec(
-        "geopolitical",
-        "risk_off_label",
-        "benchmark drawdown / volatility shock detector",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-        2,
-    ),
-    MacroLabelSpec(
-        "geopolitical",
-        "oil_or_gold_shock_label",
-        "commodity proxy instruments; mapping not wired",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-        3,
-    ),
-    MacroLabelSpec(
-        "central_bank",
-        "rate_sensitive_assets_return_5d",
-        "rate-sensitive ETF/index proxy mapping not wired",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-    ),
-    MacroLabelSpec(
-        "central_bank",
-        "growth_vs_value_relative_return_5d",
-        "growth/value proxy mapping not wired",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-    ),
-    MacroLabelSpec(
-        "central_bank",
-        "liquidity_condition_label",
-        "liquidity condition time series not wired",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-    ),
-    MacroLabelSpec(
-        "yield_curve",
-        "rate_sensitive_assets_return_5d",
-        "rate-sensitive ETF/index proxy mapping not wired",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-    ),
-    MacroLabelSpec(
-        "yield_curve",
-        "growth_vs_value_relative_return_5d",
-        "growth/value proxy mapping not wired",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-    ),
-    MacroLabelSpec(
-        "yield_curve",
-        "recession_risk_label",
-        "recession-risk event series not wired",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-    ),
-    MacroLabelSpec(
-        "china",
-        "cyclical_sector_relative_return_5d",
-        "sector ETF/index proxy mapping not wired",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-    ),
-    MacroLabelSpec(
-        "china",
-        "china_growth_proxy_return_5d",
-        "China growth proxy mapping not wired",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-    ),
-    MacroLabelSpec(
-        "china",
-        "policy_support_label",
-        "policy-event classifier not wired",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-    ),
-    MacroLabelSpec(
-        "commodities",
-        "commodity_index_return_5d",
-        "commodity proxy instruments not wired",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-    ),
-    MacroLabelSpec(
-        "commodities",
-        "industrial_metals_return_5d",
-        "industrial metals proxy instruments not wired",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-    ),
-    MacroLabelSpec(
-        "commodities",
-        "cyclical_sector_relative_return_5d",
-        "sector ETF/index proxy mapping not wired",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-    ),
-    MacroLabelSpec(
-        "dollar",
-        "cnh_or_cny_move_5d",
-        "FX close series not wired into scorecard labels",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-    ),
-    MacroLabelSpec(
-        "dollar",
-        "hk_or_em_relative_return_5d",
-        "HK/EM proxy mapping not wired",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-    ),
-    MacroLabelSpec(
-        "dollar",
-        "dollar_pressure_label",
-        "dollar-pressure event classifier not wired",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-    ),
-    MacroLabelSpec(
-        "us_economy",
-        "us_release_surprise_5d",
-        "pre-registered ALFRED release vintages and official release timestamps",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-    ),
-    MacroLabelSpec(
-        "institutional_flow",
-        "flow_continuation_5d",
-        "主力资金流 get_stock_moneyflow; scorecard time series parser not wired",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-    ),
-    MacroLabelSpec(
-        "institutional_flow",
-        "sector_flow_follow_through_5d",
-        "行业资金流 get_industry_moneyflow; scorecard time series parser not wired",
-        False,
-        BENCHMARK_FALLBACK_LABEL,
-        _DEFERRED,
-    ),
-    MacroLabelSpec(
-        "market_breadth",
-        "breadth_composite_change_5d",
-        "private deterministic PIT market-breadth snapshots",
-        True,
-        BENCHMARK_FALLBACK_LABEL,
-        _IMPLEMENTED,
-        1,
-    ),
-    MacroLabelSpec(
-        "market_breadth",
-        "equal_weight_relative_return_5d",
-        "PIT eligible A-share equal-weight path relative to CSI300",
-        True,
-        BENCHMARK_FALLBACK_LABEL,
-        _IMPLEMENTED,
-        2,
+        "institutional_flow_followthrough_5d",
+        "50% deterministic flow continuation plus 50% top-minus-bottom flow basket",
     ),
 )
+
+if tuple(spec.agent for spec in MACRO_LABEL_INVENTORY) != MACRO_AGENTS:
+    raise RuntimeError("Macro label inventory must match the canonical v2 roster")
+if len({spec.label_type for spec in MACRO_LABEL_INVENTORY}) != len(MACRO_LABEL_INVENTORY):
+    raise RuntimeError("Macro primary labels must be unique")
 
 
 def list_macro_label_inventory() -> list[dict]:
@@ -356,20 +112,9 @@ def list_macro_label_inventory() -> list[dict]:
 def primary_label_for_agent(
     agent: str, full_label_sources_enabled: bool = True
 ) -> Optional[MacroLabelSpec]:
-    """Best ready primary label for ``agent``.
-
-    P6 rollout gate: when ``full_label_sources_enabled`` is False, the new
-    proxy/relative/basket path labels (those backed by ``macro_path_labels``)
-    are excluded, so scoring rolls back to the validated PR #73 set
-    (benchmark-derived labels) — unvalidated data sources stay out of primary.
-    """
-    specs = [s for s in MACRO_LABEL_INVENTORY if s.agent == agent and s.primary_ready]
     if not full_label_sources_enabled:
-        from mosaic.scorecard.macro_path_labels import PRIMARY_LABEL_CONFIGS
-
-        specs = [s for s in specs if s.label_type not in PRIMARY_LABEL_CONFIGS]
-    specs.sort(key=lambda s: (s.primary_order, s.label_type))
-    return specs[0] if specs else None
+        return None
+    return next((spec for spec in MACRO_LABEL_INVENTORY if spec.agent == agent), None)
 
 
 __all__ = [

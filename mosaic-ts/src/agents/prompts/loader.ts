@@ -1,5 +1,5 @@
 /**
- * Loads prompt markdown files for the 25 agents (Plan §10).
+ * Loads prompt markdown files for the 28 logical agents (plan v2 §12).
  *
  * Convention:
  *   * Returns the raw markdown text as a UTF-8 string. The caller's prompt
@@ -12,17 +12,7 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
 import { redactSensitiveText } from "../../security/redaction.js";
-import {
-  assertResearchKnobsParity,
-  buildResearchKnobsSnapshot,
-  type ParsedResearchKnobsPrompt,
-  parseResearchKnobsPrompt,
-  type ResearchKnobs,
-  type ResearchKnobsSnapshot,
-  type RuntimeSourceStatus,
-} from "../helpers/research_knobs.js";
 import {
   findPrivatePromptsRoot,
   type Language,
@@ -83,9 +73,7 @@ export interface PromptReleaseRuntimeAssignment {
 }
 
 const cache = new Map<string, string>();
-const knobsCache = new Map<string, LoadPromptWithKnobsResult>();
-const knobsSourceCache = new Map<string, ParsedPromptPair>();
-const bundledDefaultKnobsCache = new Map<string, ResearchKnobs>();
+const runtimePairCache = new Map<string, RuntimePromptPairResult>();
 
 function releasePinnedPairCacheIdentity(pair: ReleasePinnedPromptPair): string {
   return JSON.stringify([
@@ -105,9 +93,7 @@ function releasePinnedPairCacheIdentity(pair: ReleasePinnedPromptPair): string {
  *  mutation rewrites prompt files on disk. */
 export function clearPromptCache(): void {
   cache.clear();
-  knobsCache.clear();
-  knobsSourceCache.clear();
-  bundledDefaultKnobsCache.clear();
+  runtimePairCache.clear();
   clearReleasePromptCache();
 }
 
@@ -257,17 +243,10 @@ export async function loadPrompt(opts: LoadOptions): Promise<string> {
   return single.text;
 }
 
-export interface LoadPromptWithKnobsResult {
+export interface RuntimePromptPairResult {
   prompt: string;
-  snapshot: ResearchKnobsSnapshot;
-  paths: {
-    zh: string;
-    en: string;
-  };
-  bodies: {
-    zh: string;
-    en: string;
-  };
+  paths: { zh: string; en: string };
+  bodies: { zh: string; en: string };
   release?: {
     release_id: string;
     source: "private" | "bundled_fallback";
@@ -280,61 +259,46 @@ export interface LoadPromptWithKnobsResult {
   };
 }
 
-interface ParsedPromptPair {
-  zhParsed: ReturnType<typeof parseResearchKnobsPrompt>;
-  enParsed: ReturnType<typeof parseResearchKnobsPrompt>;
-  paths: { zh: string; en: string };
-}
-
-/**
- * Load zh/en prompt pair with a required research-knobs projection.
- *
- * Unlike legacy ``loadPrompt({ language: "Bilingual" })``, this fails closed
- * if either language is missing or the parsed knobs differ.
- */
-export async function loadPromptWithKnobs(
-  opts: Omit<LoadOptions, "language"> & {
-    language?: "Bilingual";
-    stage?: RuntimeAgentStageId;
-    runtimeSourceStatuses?: ReadonlyArray<RuntimeSourceStatus>;
-  },
-): Promise<LoadPromptWithKnobsResult> {
+/** Load the exact bilingual pair selected by the ordinary Prompt Release authority. */
+export async function loadPromptWithReleaseMetadata(
+  opts: Omit<LoadOptions, "language"> & { stage?: RuntimeAgentStageId },
+): Promise<RuntimePromptPairResult> {
   const pinnedPair = await releasePinnedPair(opts);
-  const privateRoot =
-    opts.privatePromptsRoot ?? (opts.promptsRoot ? "" : (findPrivatePromptsRoot() ?? ""));
-  const runtimeSourceStatusKey = JSON.stringify(opts.runtimeSourceStatuses ?? []);
   const cacheKey = [
     opts.promptsRoot ?? "",
-    privateRoot,
+    opts.privatePromptsRoot ?? "",
     opts.cohort,
     opts.agent,
-    opts.stage ?? "legacy_unscoped",
-    "ResearchKnobs",
-    runtimeSourceStatusKey,
+    opts.stage ?? "agent_run",
     pinnedPair ? releasePinnedPairCacheIdentity(pinnedPair) : "unreleased",
   ].join("|");
   if (!opts.noCache) {
-    const cached = knobsCache.get(cacheKey);
-    if (cached !== undefined) return cached;
+    const cached = runtimePairCache.get(cacheKey);
+    if (cached) return cached;
   }
-
-  const { zhParsed, enParsed, paths } = await loadParsedPromptPair(opts, privateRoot, pinnedPair);
-  assertResearchKnobsParity(zhParsed.knobs, enParsed.knobs);
-  const snapshot = buildResearchKnobsSnapshot({
-    agent: opts.agent,
-    cohort: opts.cohort,
-    knobs: zhParsed.knobs,
-    ...(opts.stage ? { stage: opts.stage } : {}),
-    runtimeSourceStatuses: opts.runtimeSourceStatuses ?? [],
-  });
-  const prompt = [snapshot.visibleContract, "", zhParsed.body, "", "---", "", enParsed.body].join(
-    "\n",
-  );
-  const result = {
-    prompt,
-    snapshot,
+  let bodies: { zh: string; en: string };
+  let paths: { zh: string; en: string };
+  if (pinnedPair) {
+    bodies = { zh: pinnedPair.zh.trim(), en: pinnedPair.en.trim() };
+    paths = pinnedPair.paths;
+  } else {
+    const [zh, en] = await Promise.all([
+      readSingle({ ...opts, language: "zh" }),
+      readSingle({ ...opts, language: "en" }),
+    ]);
+    if (zh.text === null || en.text === null) {
+      throw new PromptNotFoundError(opts.agent, opts.cohort, "Bilingual", [
+        ...(zh.text === null ? zh.triedPaths : []),
+        ...(en.text === null ? en.triedPaths : []),
+      ]);
+    }
+    bodies = { zh: zh.text.trim(), en: en.text.trim() };
+    paths = { zh: zh.path, en: en.path };
+  }
+  const result: RuntimePromptPairResult = {
+    prompt: `${bodies.zh}\n\n---\n\n${bodies.en}`,
+    bodies,
     paths,
-    bodies: { zh: zhParsed.body, en: enParsed.body },
     ...(pinnedPair
       ? {
           release: {
@@ -350,105 +314,6 @@ export async function loadPromptWithKnobs(
         }
       : {}),
   };
-  if (!opts.noCache) knobsCache.set(cacheKey, result);
+  if (!opts.noCache) runtimePairCache.set(cacheKey, result);
   return result;
-}
-
-async function loadParsedPromptPair(
-  opts: Omit<LoadOptions, "language">,
-  privateRoot: string,
-  pinnedPair: ReleasePinnedPromptPair | null,
-): Promise<ParsedPromptPair> {
-  const sourceCacheKey = [
-    opts.promptsRoot ?? "",
-    privateRoot,
-    opts.cohort,
-    opts.agent,
-    "ResearchKnobsSource",
-    pinnedPair ? releasePinnedPairCacheIdentity(pinnedPair) : "unreleased",
-  ].join("|");
-  if (!opts.noCache) {
-    const cached = knobsSourceCache.get(sourceCacheKey);
-    if (cached) return cached;
-  }
-  if (pinnedPair) {
-    const result = {
-      zhParsed: await parsePromptKnobsSource({
-        text: pinnedPair.zh,
-        agent: opts.agent,
-        allowBundledDefault: pinnedPair.source === "bundled_fallback",
-      }),
-      enParsed: await parsePromptKnobsSource({
-        text: pinnedPair.en,
-        agent: opts.agent,
-        allowBundledDefault: pinnedPair.source === "bundled_fallback",
-      }),
-      paths: pinnedPair.paths,
-    };
-    if (!opts.noCache) knobsSourceCache.set(sourceCacheKey, result);
-    return result;
-  }
-  const [zh, en] = await Promise.all([
-    readSingle({ ...opts, language: "zh" }),
-    readSingle({ ...opts, language: "en" }),
-  ]);
-  if (zh.text === null || en.text === null) {
-    throw new PromptNotFoundError(opts.agent, opts.cohort, "Bilingual", [
-      ...(zh.text === null ? zh.triedPaths : []),
-      ...(en.text === null ? en.triedPaths : []),
-    ]);
-  }
-  const result = {
-    zhParsed: await parsePromptKnobsSource({
-      text: zh.text,
-      agent: opts.agent,
-      allowBundledDefault: !isPrivatePromptPath(zh.path, privateRoot),
-    }),
-    enParsed: await parsePromptKnobsSource({
-      text: en.text,
-      agent: opts.agent,
-      allowBundledDefault: !isPrivatePromptPath(en.path, privateRoot),
-    }),
-    paths: { zh: zh.path, en: en.path },
-  };
-  if (!opts.noCache) knobsSourceCache.set(sourceCacheKey, result);
-  return result;
-}
-
-async function parsePromptKnobsSource(input: {
-  text: string;
-  agent: string;
-  allowBundledDefault: boolean;
-}): Promise<ParsedResearchKnobsPrompt> {
-  const fences = [...input.text.matchAll(/```research-knobs\s*\n([\s\S]*?)```/g)];
-  if (fences.length !== 0 || !input.allowBundledDefault) {
-    return parseResearchKnobsPrompt(input.text);
-  }
-  return {
-    body: input.text.trim(),
-    knobs: await bundledDefaultResearchKnobs(input.agent),
-  };
-}
-
-async function bundledDefaultResearchKnobs(agent: string): Promise<ResearchKnobs> {
-  const cached = bundledDefaultKnobsCache.get(agent);
-  if (cached) return cached;
-  // Dynamic imports avoid a static loader -> runtime spec -> agent factory ->
-  // loader cycle. Bundled prompts intentionally contain only readable role
-  // instructions; the default policy projection remains runtime-owned.
-  const [{ buildRuntimeResearchKnobs }, { RUNTIME_AGENT_SPEC_BY_AGENT }] = await Promise.all([
-    import("./research_knobs_projection.js"),
-    import("./runtime_agent_spec.js"),
-  ]);
-  const spec = RUNTIME_AGENT_SPEC_BY_AGENT.get(agent);
-  if (!spec) throw new Error(`runtime spec missing for bundled prompt agent ${agent}`);
-  const knobs = buildRuntimeResearchKnobs(spec);
-  bundledDefaultKnobsCache.set(agent, knobs);
-  return knobs;
-}
-
-function isPrivatePromptPath(path: string, privateRoot: string): boolean {
-  if (!privateRoot || !isAbsolute(path)) return false;
-  const rel = relative(resolve(privateRoot), resolve(path));
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }

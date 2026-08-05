@@ -7,13 +7,35 @@
  * here in the same commit.
  *
  * The :class:`BridgeApi` helper at the bottom provides typed wrappers for the
- * bridge namespaces used by the TS runtime. The only registered method without
- * a typed wrapper today is `cache.details` — reachable via
+ * bridge namespaces used by the TS runtime. Diagnostic-only `cache.details`
+ * and fail-closed rejection stubs for retired RPCs remain reachable only via
  * ``client.call(method, params)``.
  */
 
+import type {
+  AgentExecutionStageId,
+  AgentId,
+  AgentSnapshotBundle,
+  SignedAgentToolCapability,
+} from "../agents/tool_contract.js";
 import type { LlmCallRecord } from "../agents/types.js";
+import type {
+  DatasetSplitManifest,
+  PromptCandidate,
+  PromptCandidateFamily,
+  PromptCandidatePublication,
+  PromptExperiment,
+  PromptExperimentRun,
+  PromptTrainingProjection,
+} from "../autoresearch/prompt_optimizer_contract.js";
+import type { PromptPromotionPolicy } from "../autoresearch/prompt_promotion_policy.js";
 import type { BridgeClient } from "./client.js";
+
+export type {
+  AgentSnapshotBundle,
+  AgentToolCapabilityManifest,
+  SignedAgentToolCapability,
+} from "../agents/tool_contract.js";
 
 /** JSON Schema as produced by Pydantic v2 `model_json_schema()`. */
 export interface JsonSchemaObject {
@@ -33,21 +55,110 @@ export interface JsonSchemaProperty {
   anyOf?: Array<{ type?: string }>;
 }
 
+export interface PromptOptimizerSummary {
+  candidate: PromptCandidate | null;
+  experiment: PromptExperiment | null;
+  release: { release_id: string; lifecycle_state: string } | null;
+}
+
 export interface ToolMetadata {
   name: string;
   description: string;
   args_schema: JsonSchemaObject;
 }
 
-export interface ToolCallContext {
-  /** ISO yyyy-mm-dd; activates backtest-mode date clamping when set. */
-  as_of_date?: string | null;
-  /** "live" (default) or "backtest". */
-  mode?: "live" | "backtest";
+export interface ToolCapabilityPrepareRequest {
+  graph_run_id: string;
+  run_slot_id: string;
+  run_id: string;
+  node_id: string;
+  agent_id: AgentId;
+  stage: AgentExecutionStageId;
+  as_of: string;
+  materialization_request_id: string;
+  runtime_inputs: Record<string, unknown>;
+  candidate_scope: Record<string, unknown> | null;
+  ttl_seconds?: number;
+}
+
+export interface ToolCapabilityIssueRequest {
+  graph_run_id: string;
+  run_slot_id: string;
+  run_id: string;
+  node_id: string;
+  agent_id: AgentId;
+  stage: AgentExecutionStageId;
+  as_of: string;
+  snapshot_bundle_id: string;
+  snapshot_bundle_hash: string;
+  ttl_seconds?: number;
+}
+
+export interface PreparedAgentToolCapability {
+  bundle: AgentSnapshotBundle;
+  capability: SignedAgentToolCapability;
 }
 
 export interface ToolCallResult {
   text: string;
+}
+
+export interface SectorModelUsageReport {
+  model_subcall_id: string;
+  attempted_stage: "DIRECTION_RESEARCH" | "CONFLICT_REVIEW" | "FINAL_SELECTION";
+  attempt_index: number;
+  attempt_status: "ACCEPTED" | "REJECTED" | "OPERATIONAL_FAILURE";
+  input_tokens: number;
+  output_tokens: number;
+  provider_usage_evidence_id: string;
+  provider_usage_evidence_hash: string;
+  direction_comparison_audit_id: string | null;
+  direction_comparison_audit_hash: string | null;
+  conflict_review_id: string | null;
+  conflict_review_hash: string | null;
+}
+
+export interface SectorModelUsageSummaryReceipt {
+  schema_version: "sector_model_usage_summary_receipt_v1";
+  usage_summary_receipt_id: string;
+  capability_id: string;
+  capability_manifest_hash: string;
+  graph_run_id: string;
+  run_slot_id: string;
+  run_id: string;
+  node_id: string;
+  agent_id: string;
+  stage: string;
+  as_of: string;
+  snapshot_bundle_id: string;
+  snapshot_bundle_hash: string;
+  model_subcall_count: number;
+  last_attempted_stage:
+    | "PRE_MODEL"
+    | "DIRECTION_RESEARCH"
+    | "CONFLICT_REVIEW"
+    | "FINAL_SELECTION"
+    | "COMPLETED";
+  conflict_review_triggered: boolean;
+  input_tokens: number;
+  output_tokens: number;
+  model_path_disposition: "COMPLETED" | "INCOMPLETE";
+  direction_comparison_audit_id: string | null;
+  direction_comparison_audit_hash: string | null;
+  conflict_review_id: string | null;
+  conflict_review_hash: string | null;
+  instrumentation_contract_id: string;
+  instrumentation_contract_version: string;
+  instrumentation_contract_hash: string;
+  source_contract_version: string;
+  measurement_rule: string;
+  usage_ledger_record_id: string;
+  usage_ledger_record_hash: string;
+  measured_at: string;
+  finalized_at: string;
+  receipt_signing_key_id: string;
+  usage_summary_receipt_hash: string;
+  receipt_signature: string;
 }
 
 export interface CacheStats {
@@ -62,12 +173,10 @@ export interface CacheStats {
 export type CacheCategory = "api" | "agent_data" | "signals" | "snapshots" | "checkpoints";
 
 /**
- * MOSAIC config — the canonical Phase 0 fields are typed below; the bridge
- * exposes other keys (e.g. tool_vendors, role_brief_specs, memory_log_path)
- * that vary by phase, so the index signature keeps the shape open.
- *
- * Phase 2+ will tighten further (cohort state, agent debate budgets, etc.) —
- * follow up in plan §14 #7 when those land.
+ * MOSAIC config — fields consumed by the TypeScript runtime are typed below.
+ * The bridge also exposes deployment-specific keys, so the index signature
+ * keeps only this configuration DTO open. Agent tools themselves are closed
+ * by the current signed capability and runtime manifest contracts.
  */
 export interface MosaicConfig {
   // ----- LLM (Plan §1, §13.3) -----
@@ -90,19 +199,8 @@ export interface MosaicConfig {
   // ----- Cohort (Plan §1, §9) -----
   /** Active cohort key, must exist in `cohorts` below. */
   active_cohort: string;
-  /** 7 cohorts × {start, end} ISO date strings (Plan §9). */
+  /** 8 cohorts × {start, end} ISO date strings. */
   cohorts: Record<string, { start: string; end: string }>;
-
-  // ----- Autoresearch (Plan §1, §8) -----
-  autoresearch: {
-    agent_mutation_cooldown_hours: number;
-    keep_revert_lockout_days: number;
-    keep_threshold_delta_sharpe: number;
-    monthly_modification_cap_per_cohort: number;
-    evaluation_horizon_trading_days: number;
-    /** Opt-in mirror of kept mutations to a self-hosted git server (default off). */
-    git?: { push?: boolean; remote?: string };
-  };
 
   // ----- Data vendors (Phase 0) -----
   data_vendors: Record<string, string>;
@@ -125,7 +223,7 @@ export interface MosaicConfig {
     inject_context?: boolean;
   };
 
-  // ----- Darwinian weights (Phase 9 evolution, rollback-gated) -----
+  // ----- Legacy Darwinian-v1 audit/replay configuration -----
   darwinian?: {
     weight_rewrite_enabled?: boolean;
     weight_start?: number;
@@ -367,10 +465,6 @@ export interface CioAction {
   override_reason?: string | null;
   thesis_status?: "intact" | "weakened" | "broken" | "expired" | null;
   risk_flags_json?: string | null;
-  declared_knob_influence_ids_json?: string | null;
-  declared_influence_rationale?: string | null;
-  verified_knob_audit_json?: string | null;
-  decision_agent_audits_json?: string | null;
   dissent_notes?: string | null;
   rationale_snapshot: string | null;
   forward_return_5d: number | null;
@@ -383,6 +477,29 @@ export interface CioActions {
   actions: CioAction[];
 }
 
+export interface AgentDisplayNarrativeRow {
+  schema_version: "agent_display_narrative_v1";
+  narrative_id: string;
+  agent_id: string;
+  layer: "macro" | "sector" | "superinvestor" | "decision";
+  language: "zh" | "en";
+  source: "ACCEPTED_OUTPUT" | "NO_EVALUATION_OBJECT" | "NON_PRODUCTION_STRUCTURED_OUTPUT";
+  source_output_id: string | null;
+  source_output_hash: string;
+  narrative_text: string;
+  ui_only: true;
+}
+
+export interface AgentDisplayNarratives {
+  schema_version: "agent_display_narrative_bundle_v1";
+  cohort: string;
+  date: string | null;
+  trace_id: string | null;
+  bundle_hash: string | null;
+  language: "zh" | "en" | null;
+  narratives: AgentDisplayNarrativeRow[];
+}
+
 export interface WinRateRow {
   ticker: string;
   win_rate: number;
@@ -390,15 +507,17 @@ export interface WinRateRow {
   avg_dir_return_5d: number;
 }
 
-/** Outcome of a ``darwinian.compute`` call. */
+/** Audit-only outcome of the legacy-unverified ``darwinian.compute`` call. */
 export interface DarwinianComputeOutcome {
+  status: "legacy_unverified";
+  audit_only: true;
   /** Rows upserted into ``darwinian_weights``. */
   written: number;
   /** Of which, how many fell back to weight=1.0 (insufficient observations). */
   agents_uniform_fallback: number;
 }
 
-/** Per-agent Darwinian weight payload returned by ``darwinian.get_weights``. */
+/** Legacy-unverified weight payload returned only for audit/replay. */
 export interface DarwinianAgentWeight {
   /** Continuous multiplier in [0.3, 2.5] (Plan §11.3 design decision #6). */
   weight: number;
@@ -425,6 +544,58 @@ export interface DarwinianAgentWeight {
 /** ``{ <agent>: DarwinianAgentWeight }``; empty object means no weights computed yet. */
 export type DarwinianWeightTable = Record<string, DarwinianAgentWeight>;
 
+export interface DarwinianOutcomeMaturationResult {
+  agent_id: string;
+  scheduled_sample_id: string;
+  outcome_schedule_slot_id: string;
+  outcome_schedule_slot_hash: string;
+  outcome_due_at: string;
+  maturation_status:
+    | "SCORE"
+    | "ABSTAIN"
+    | "PENDING_INPUT_UNAVAILABLE"
+    | "PENDING_ELIGIBILITY_AUDIT_MISSING"
+    | "PENDING_PREPARATION_UNAVAILABLE"
+    | "PENDING_TERMINAL_COMPANION_UNAVAILABLE";
+  matured_at?: string;
+  failure_code?:
+    | "REQUIRED_OUTCOME_PROJECTION_UNAVAILABLE"
+    | "REQUIRED_ELIGIBILITY_AUDIT_UNAVAILABLE"
+    | "REQUIRED_OUTCOME_PREPARATION_UNAVAILABLE"
+    | "REQUIRED_TERMINAL_OUTCOME_COMPANION_UNAVAILABLE";
+  audit_revision_id?: string;
+  realized_outcome_observation_id?: string;
+  outcome_label_id?: string | null;
+  darwin_application_mode?: "DOWNSTREAM_USAGE_WEIGHT" | "EVOLUTION_ONLY";
+}
+
+export interface DarwinianOutcomeMaturationBatch {
+  schema_version: "outcome_maturation_batch_v2";
+  production_variant_roster_revision_id: string;
+  production_variant_roster_id: string;
+  cutoff_at: string;
+  due_pending_count: number;
+  scored_count: number;
+  abstained_count: number;
+  unresolved_count: number;
+  not_due_count: number;
+  results: DarwinianOutcomeMaturationResult[];
+  maturation_batch_hash: string;
+}
+
+export interface DarwinianMaterializeDueOutcomesResult {
+  outcome_maturation: DarwinianOutcomeMaturationBatch;
+}
+
+export interface DarwinianRefreshV2WindowsResult extends DarwinianMaterializeDueOutcomesResult {
+  evaluation_windows: Array<Record<string, unknown>>;
+}
+
+export interface DarwinianPublishV2UpdatesResult extends DarwinianMaterializeDueOutcomesResult {
+  published_batches: Array<Record<string, unknown>>;
+  publication_status: "PUBLISHED" | "BLOCKED_UNRESOLVED_DUE_OUTCOMES";
+}
+
 // --------------------------------------------------------- prompts (Phase 4B)
 
 export type PromptLang = "zh" | "en";
@@ -433,20 +604,6 @@ export type PromptLang = "zh" | "en";
 export interface PromptReadResult {
   content: string;
   path: string;
-}
-
-/** Returned by ``prompts.write``: commit fields present only when a branch
- *  was given (the mutation path); working-tree writes return just ``paths``. */
-export interface PromptWriteResult {
-  target?: "private_git" | "project_git" | "working_tree";
-  prompt_repo_id?: string;
-  prompt_base_commit_hash?: string;
-  prompt_commit_hash?: string;
-  prompt_sha256?: string;
-  extra_files_sha256?: string | null;
-  commit_hash?: string;
-  branch?: string;
-  paths: string[];
 }
 
 export interface PromptInitPrivateRepoResult {
@@ -524,8 +681,6 @@ export interface PromptContractCheckRow {
   ready: boolean;
   blockers: string[];
   contract_categories: Record<string, boolean>;
-  research_knobs_required?: boolean;
-  research_knobs_check_passed?: boolean;
 }
 
 export interface PromptContractCheckResult {
@@ -562,8 +717,6 @@ export interface PromptFormalReleaseCheckRow {
   verify_release_passed: boolean;
   leak_drift_passed: boolean;
   prompt_contract_check_passed: boolean;
-  research_knobs_required?: boolean;
-  research_knobs_check_passed?: boolean;
   ready: boolean;
   blockers: string[];
 }
@@ -579,26 +732,6 @@ export interface PromptFormalReleaseChecksResult {
   blocked_reasons: string[];
   prompt_source_status: PromptPreflightResult["source_status"];
   rows: PromptFormalReleaseCheckRow[];
-}
-
-export interface PromptReleaseCheckResult {
-  ready: boolean;
-  checks: Record<string, boolean>;
-  details: Record<string, unknown>;
-  pin: {
-    version_id: number;
-    cohort: string;
-    agent: string;
-    code_commit_hash?: string | null;
-    prompt_repo_id?: string | null;
-    prompt_commit_hash?: string | null;
-    prompt_sha256?: string | null;
-    mutation_id?: string | null;
-    experiment_id?: string | null;
-    keep_decision_hash?: string | null;
-    evaluation_result_hash?: string | null;
-    transaction_manifest_hash?: string | null;
-  };
 }
 
 // --------------------------------------------------------- rke (Part 1 context/export)
@@ -1243,70 +1376,9 @@ export interface RkeDeliveryEvidenceAuditResult {
   delivery_blocked_reasons: string[];
 }
 
-// --------------------------------------------------------- autoresearch (Phase 4C/4D)
+// --------------------------------------------------------- legacy autoresearch audit
 
-/** Returned by ``autoresearch.trigger``. */
-export interface AutoresearchTriggerResult {
-  /** Null when triggered with dry_run=true (no version row was created). */
-  version_id: number | null;
-  agent: string;
-  branch_name: string;
-  base_commit: string;
-  dry_run?: boolean;
-  existing?: boolean;
-  prompt_commit_hash?: string | null;
-  prompt_sha256?: string | null;
-  prompt_base_commit_hash?: string | null;
-}
-
-export interface AutoresearchHistoricalDecisionResult {
-  version_id: number;
-  decision: "keep" | "revert";
-  active_commit: string;
-  created: boolean;
-}
-
-export interface AutoresearchHistoricalValidationResult {
-  version_id: number;
-  compatible: boolean;
-  unknown_tools: string[];
-  missing_files: string[];
-  dropped_output_sections: string[];
-}
-
-/** One entry in the ``autoresearch.evaluate_pending`` results array. */
-export interface AutoresearchMissingRun {
-  kind: "base" | "mod";
-  cohort: string;
-  start_date: string;
-  end_date: string;
-  prompt_commit_hash: string;
-  prompt_repo_id?: string;
-  prompt_sha256?: string;
-  code_commit_hash?: string;
-  private_prompt_commit?: string;
-}
-
-export interface AutoresearchEvalResult {
-  version_id: number;
-  mutation_id?: string;
-  status: string;
-  delta_sharpe?: number;
-  detail?: string;
-  missing_runs?: AutoresearchMissingRun[];
-  missing_domain_samples?: boolean;
-  evaluation_result?: Record<string, unknown> | null;
-}
-
-export interface AutoresearchDomainPromotionResult {
-  version_id: number;
-  status: "kept" | "reverted";
-  decision_hash: string;
-  decision: Record<string, unknown>;
-  created: boolean;
-}
-
-/** A single autoresearch log row from ``autoresearch.get_log``. */
+/** A single immutable historical row from ``autoresearch.get_log``. */
 export interface AutoresearchLogEntry {
   id: number;
   prompt_version_id: number | null;
@@ -1318,7 +1390,7 @@ export interface AutoresearchLogEntry {
   branch_name: string | null;
 }
 
-/** A pending feature branch from ``autoresearch.list_active_branches``. */
+/** An unresolved historical branch from ``autoresearch.list_active_branches``. */
 export interface AutoresearchActiveBranch {
   id: number;
   cohort: string;
@@ -1339,13 +1411,6 @@ export interface CohortInfo {
   has_branch: boolean;
   n_runs: number;
   last_run_date: string | null;
-}
-
-export interface CohortTrainResult {
-  started: boolean;
-  cohort: string;
-  message: string;
-  run_id?: number;
 }
 
 export interface CohortStatus {
@@ -1544,20 +1609,67 @@ export class BridgeApi {
   constructor(private readonly client: BridgeClient) {}
 
   // tools.*
-  toolsList(): Promise<ToolMetadata[]> {
-    return this.client.call<ToolMetadata[]>("tools.list", {});
+  toolsPrepareCapability(
+    request: ToolCapabilityPrepareRequest,
+  ): Promise<PreparedAgentToolCapability> {
+    return this.client.call<PreparedAgentToolCapability>("tools.prepare_capability", request);
+  }
+
+  toolsIssueCapability(request: ToolCapabilityIssueRequest): Promise<PreparedAgentToolCapability> {
+    return this.client.call<PreparedAgentToolCapability>("tools.issue_capability", request);
+  }
+
+  toolsList(capability: SignedAgentToolCapability): Promise<ToolMetadata[]> {
+    return this.client.call<ToolMetadata[]>("tools.list", { capability });
   }
 
   toolsCall(
     name: string,
     args: Record<string, unknown>,
-    context?: ToolCallContext,
+    capability: SignedAgentToolCapability,
   ): Promise<ToolCallResult> {
     return this.client.call<ToolCallResult>("tools.call", {
       name,
       args,
-      ...(context ? { context } : {}),
+      capability,
     });
+  }
+
+  toolsTerminateCapability(
+    capability: SignedAgentToolCapability,
+    reason = "node_finished",
+  ): Promise<{ terminated: true }> {
+    return this.client.call<{ terminated: true }>("tools.terminate_capability", {
+      capability,
+      reason,
+    });
+  }
+
+  toolsRecordModelUsage(
+    capability: SignedAgentToolCapability,
+    usageReport: SectorModelUsageReport,
+  ): Promise<Record<string, unknown>> {
+    return this.client.call<Record<string, unknown>>("tools.record_model_usage", {
+      capability,
+      usage_report: usageReport,
+    });
+  }
+
+  toolsFinalizeModelUsage(
+    capability: SignedAgentToolCapability,
+  ): Promise<SectorModelUsageSummaryReceipt> {
+    return this.client.call<SectorModelUsageSummaryReceipt>("tools.finalize_model_usage", {
+      capability,
+    });
+  }
+
+  runtimeStockMarketSnapshot(params: {
+    ticker: string;
+    start_date: string;
+    as_of_date: string;
+    mode: "live" | "backtest";
+  }): Promise<ToolCallResult> {
+    return this.client.call<ToolCallResult>("runtime_data.stock_market_snapshot", params);
   }
 
   // config.*
@@ -1786,6 +1898,14 @@ export class BridgeApi {
     });
   }
 
+  calendarVerifiedSnapshot(params: {
+    start: string;
+    end: string;
+    as_of: string;
+  }): Promise<Record<string, unknown>> {
+    return this.client.call("calendar.verified_snapshot", params);
+  }
+
   calendarIsTradingDay(date: string): Promise<{ is_trading: boolean }> {
     return this.client.call<{ is_trading: boolean }>("calendar.is_trading_day", { date });
   }
@@ -1795,12 +1915,20 @@ export class BridgeApi {
   }
 
   // scorecard.* (Phase 3D)
-  scorecardAppend(
-    state: Record<string, unknown>,
-  ): Promise<{ ingested: number; macro_ingested: number }> {
-    return this.client.call<{ ingested: number; macro_ingested: number }>("scorecard.append", {
-      state,
-    });
+  scorecardAppend(state: Record<string, unknown>): Promise<{
+    ingested: number;
+    macro_ingested: number;
+    agent_narratives_ingested?: number;
+    darwinian_v2?: {
+      production_variant_roster_revision_id: string;
+      accepted_output_records: number;
+      operational_opportunity_audits: number;
+      evaluation_tracks_inserted: number;
+      usage_tracks_inserted: number;
+      cold_start_weights_inserted: number;
+    };
+  }> {
+    return this.client.call("scorecard.append", { state });
   }
 
   scorecardScorePending(cohort: string, today: string): Promise<ScorecardScoreOutcome> {
@@ -1859,6 +1987,12 @@ export class BridgeApi {
     return this.client.call<CioActions>("scorecard.latest_cio_actions", { cohort });
   }
 
+  scorecardLatestAgentNarratives(cohort: string): Promise<AgentDisplayNarratives> {
+    return this.client.call<AgentDisplayNarratives>("scorecard.latest_agent_narratives", {
+      cohort,
+    });
+  }
+
   scorecardWinRate(cohort: string, since?: string): Promise<{ rows: WinRateRow[] }> {
     return this.client.call<{ rows: WinRateRow[] }>("scorecard.win_rate", {
       cohort,
@@ -1871,14 +2005,155 @@ export class BridgeApi {
     return this.client.call<DarwinianComputeOutcome>("darwinian.compute", {
       cohort,
       today,
+      audit_only: true,
     });
   }
 
-  darwinianGetWeights(cohort: string, date?: string): Promise<{ weights: DarwinianWeightTable }> {
-    return this.client.call<{ weights: DarwinianWeightTable }>("darwinian.get_weights", {
+  darwinianGetWeights(
+    cohort: string,
+    date?: string,
+  ): Promise<{
+    status: "legacy_unverified";
+    audit_only: true;
+    weights: DarwinianWeightTable;
+  }> {
+    return this.client.call("darwinian.get_weights", {
       cohort,
       ...(date ? { date } : {}),
+      audit_only: true,
     });
+  }
+
+  darwinianPrepareVariant(
+    binding: import("../autoresearch/production_variant.js").DarwinianRuntimeBinding,
+    asOf: string,
+  ): Promise<{
+    runtime_binding: import("../autoresearch/production_variant.js").DarwinianRuntimeBinding;
+    roster_revision: Record<string, unknown>;
+    weight_snapshot: import("../autoresearch/production_variant.js").DarwinianUsageWeightSnapshot;
+    component_weight_snapshot: import("../autoresearch/production_variant.js").ComponentWeightRuntimeSnapshot;
+  }> {
+    return this.client.call("darwinian.prepare_variant", { binding, as_of: asOf });
+  }
+
+  darwinianPrepareDailyCycleOutcomes(params: {
+    production_variant_roster_revision_id: string;
+    graph_run_id: string;
+    as_of: string;
+    prepared_at: string;
+  }): Promise<{
+    outcome_schedule_plan: {
+      outcome_schedule_plan_id: string;
+      outcome_schedule_plan_hash: string;
+      schema_version: string;
+      graph_run_id: string;
+      production_variant_roster_id: string;
+      production_variant_roster_revision_id: string;
+      execution_behavior_release_id: string;
+      cohort_id: string;
+      language: "en" | "zh";
+      as_of: string;
+      prepared_at: string;
+      slots: import("../agents/state.js").OutcomeRunSlot[];
+    };
+    scheduled_opportunity_decisions: Array<Record<string, unknown>>;
+    stage_skips: Record<string, unknown>;
+    run_blockers: Array<{ agent_id: string; reason: string }>;
+    trading_calendar_snapshot_hash: string;
+    event_candidate_input_hash: string;
+    deferred_opportunity_agent_ids: string[];
+  }> {
+    return this.client.call("darwinian.prepare_daily_cycle_outcomes", params);
+  }
+
+  darwinianFreezeOutcomeOpportunity(params: {
+    outcome_schedule_plan_id: string;
+    scheduled_sample_id: string;
+    agent_id: AgentId;
+  }): Promise<{
+    run_allowed: boolean;
+    blocker_reason?: string;
+    scheduled_sample_id: string;
+    evaluation_opportunity_set_id?: string;
+    evaluation_opportunity_set_hash?: string;
+    frozen_object_set_id?: null;
+    frozen_object_set_hash?: null;
+    runtime_authority_binding?: import("../agents/state.js").OutcomeLiveSourceAuthorityBinding;
+  }> {
+    return this.client.call("darwinian.freeze_outcome_opportunity", params);
+  }
+
+  darwinianFreezeStageOutcomeOpportunity(params: {
+    outcome_schedule_plan_id: string;
+    scheduled_sample_id: string;
+    agent_id: "alpha_discovery" | "cro" | "autonomous_execution" | "cio";
+    recorded_at: string;
+    frozen_object?: Record<string, unknown>;
+  }): Promise<{
+    run_allowed: boolean;
+    blocker_reason?: string;
+    scheduled_sample_id: string;
+    evaluation_opportunity_set_id?: string;
+    evaluation_opportunity_set_hash?: string;
+    frozen_object_set_id?: string;
+    frozen_object_set_hash?: string;
+    runtime_authority_binding?: import("../agents/state.js").OutcomeRuntimeAuthorityBinding;
+    frozen_object?: Record<string, unknown>;
+    stage_skip?: Record<string, unknown>;
+  }> {
+    return this.client.call("darwinian.freeze_stage_outcome_opportunity", params);
+  }
+
+  darwinianFreezeSuperinvestorOutcomeOpportunity(params: {
+    outcome_schedule_plan_id: string;
+    scheduled_sample_id: string;
+    agent_id: "druckenmiller" | "munger" | "burry" | "ackman";
+    recorded_at: string;
+    accepted_output_refs: Array<Record<string, unknown>>;
+  }): Promise<{
+    run_allowed: boolean;
+    blocker_reason?: string;
+    scheduled_sample_id: string;
+    evaluation_opportunity_set_id?: string;
+    evaluation_opportunity_set_hash?: string;
+    frozen_object_set_id?: string;
+    frozen_object_set_hash?: string;
+    runtime_candidate_scope_hash?: string;
+    runtime_candidate_universe_hash?: string;
+    runtime_source_snapshot_hash?: string;
+    stage_skip?: Record<string, unknown>;
+  }> {
+    return this.client.call("darwinian.freeze_superinvestor_outcome_opportunity", params);
+  }
+
+  darwinianRefreshV2Windows(params: {
+    production_variant_roster_revision_id: string;
+    cutoff_at: string;
+  }): Promise<DarwinianRefreshV2WindowsResult> {
+    return this.client.call<DarwinianRefreshV2WindowsResult>(
+      "darwinian.refresh_v2_windows",
+      params,
+    );
+  }
+
+  darwinianMaterializeDueOutcomes(params: {
+    production_variant_roster_revision_id: string;
+    cutoff_at: string;
+  }): Promise<DarwinianMaterializeDueOutcomesResult> {
+    return this.client.call<DarwinianMaterializeDueOutcomesResult>(
+      "darwinian.materialize_due_outcomes",
+      params,
+    );
+  }
+
+  darwinianPublishV2Updates(params: {
+    production_variant_roster_revision_id: string;
+    cutoff_at: string;
+  }): Promise<DarwinianPublishV2UpdatesResult> {
+    return this.client.call<DarwinianPublishV2UpdatesResult>(
+      "darwinian.publish_v2_updates",
+      params,
+    );
   }
 
   // prompts.* (Phase 4B)
@@ -1894,36 +2169,6 @@ export class BridgeApi {
       lang,
       ...(ref ? { ref } : {}),
     });
-  }
-
-  promptsWrite(params: {
-    agent: string;
-    cohort: string;
-    contents: Partial<Record<PromptLang, string>>;
-    extra_files?: Record<string, string>;
-    expected_base_hashes?: Record<string, string>;
-    target?: "private_git" | "project_git" | "working_tree";
-    branch?: string;
-    base_ref?: string;
-    message?: string;
-    allow_public_prompt_write?: boolean;
-  }): Promise<PromptWriteResult> {
-    return this.client.call<PromptWriteResult>("prompts.write", params);
-  }
-
-  promptsCandidateState(params: {
-    branch: string;
-    target?: "private_git" | "project_git";
-    expected_hashes: Record<string, string>;
-  }): Promise<{ candidate_visible: boolean; new_commit: string | null; hashes_match: boolean }> {
-    return this.client.call("prompts.candidate_state", params);
-  }
-
-  promptsAbortCandidate(params: {
-    branch: string;
-    target?: "private_git" | "project_git";
-  }): Promise<{ ok: boolean }> {
-    return this.client.call("prompts.abort_candidate", params);
   }
 
   promptsInitPrivateRepo(params: {
@@ -1949,6 +2194,8 @@ export class BridgeApi {
     cohort?: string;
     agents?: string[];
     langs?: PromptLang[];
+    prompt_repo_revision?: string;
+    allow_non_head_revision?: boolean;
   }): Promise<PromptPreflightResult> {
     return this.client.call<PromptPreflightResult>("prompts.preflight", params ?? {});
   }
@@ -1973,13 +2220,6 @@ export class BridgeApi {
       "prompts.formal_release_checks",
       params ?? {},
     );
-  }
-
-  promptsVerifyRelease(params: {
-    version_id: number;
-    require_kept?: boolean;
-  }): Promise<PromptReleaseCheckResult> {
-    return this.client.call<PromptReleaseCheckResult>("prompts.verify_release", params);
   }
 
   // rke.* (Part 1 context/export)
@@ -2287,76 +2527,151 @@ export class BridgeApi {
   }
 
   // autoresearch.* (Phase 4C/4D)
-  autoresearchTrigger(params: {
+
+  promptOptimizerPutTrainingProjection(
+    record: PromptTrainingProjection,
+  ): Promise<PromptTrainingProjection> {
+    return this.client.call<PromptTrainingProjection>("prompt_optimizer.put_training_projection", {
+      record,
+    });
+  }
+
+  promptOptimizerGetTrainingProjection(
+    projectionHash: string,
+  ): Promise<PromptTrainingProjection | null> {
+    return this.client
+      .call<{ record: PromptTrainingProjection | null }>(
+        "prompt_optimizer.get_training_projection",
+        { projection_hash: projectionHash },
+      )
+      .then((result) => result.record);
+  }
+
+  promptOptimizerPutCandidate(record: PromptCandidate): Promise<PromptCandidate> {
+    return this.client.call<PromptCandidate>("prompt_optimizer.put_candidate", { record });
+  }
+
+  promptOptimizerGetCandidate(candidateId: string): Promise<PromptCandidate | null> {
+    return this.client
+      .call<{ record: PromptCandidate | null }>("prompt_optimizer.get_candidate", {
+        candidate_id: candidateId,
+      })
+      .then((result) => result.record);
+  }
+
+  promptOptimizerPutCandidatePublication(
+    record: PromptCandidatePublication,
+  ): Promise<PromptCandidatePublication> {
+    return this.client.call<PromptCandidatePublication>(
+      "prompt_optimizer.put_candidate_publication",
+      { record },
+    );
+  }
+
+  promptOptimizerGetCandidatePublication(
+    candidateId: string,
+  ): Promise<PromptCandidatePublication | null> {
+    return this.client
+      .call<{ record: PromptCandidatePublication | null }>(
+        "prompt_optimizer.get_candidate_publication",
+        { candidate_id: candidateId },
+      )
+      .then((result) => result.record);
+  }
+
+  promptOptimizerPutSplit(record: DatasetSplitManifest): Promise<DatasetSplitManifest> {
+    return this.client.call<DatasetSplitManifest>("prompt_optimizer.put_split", { record });
+  }
+
+  promptOptimizerGetSplit(splitId: string): Promise<DatasetSplitManifest | null> {
+    return this.client
+      .call<{ record: DatasetSplitManifest | null }>("prompt_optimizer.get_split", {
+        split_id: splitId,
+      })
+      .then((result) => result.record);
+  }
+
+  promptOptimizerPutFamily(record: PromptCandidateFamily): Promise<PromptCandidateFamily> {
+    return this.client.call<PromptCandidateFamily>("prompt_optimizer.put_family", { record });
+  }
+
+  promptOptimizerGetFamily(familyId: string): Promise<PromptCandidateFamily | null> {
+    return this.client
+      .call<{ record: PromptCandidateFamily | null }>("prompt_optimizer.get_family", {
+        family_id: familyId,
+      })
+      .then((result) => result.record);
+  }
+
+  promptOptimizerPutExperiment(
+    record: PromptExperiment,
+    promotionPolicy?: PromptPromotionPolicy,
+  ): Promise<PromptExperiment> {
+    return this.client.call<PromptExperiment>("prompt_optimizer.put_experiment", {
+      record,
+      ...(promotionPolicy ? { promotion_policy: promotionPolicy } : {}),
+    });
+  }
+
+  promptOptimizerGetExperiment(experimentId: string): Promise<PromptExperiment | null> {
+    return this.client
+      .call<{ record: PromptExperiment | null }>("prompt_optimizer.get_experiment", {
+        experiment_id: experimentId,
+      })
+      .then((result) => result.record);
+  }
+
+  promptOptimizerListExperiments(familyId: string): Promise<PromptExperiment[]> {
+    return this.client
+      .call<{ records: PromptExperiment[] }>("prompt_optimizer.list_experiments", {
+        family_id: familyId,
+      })
+      .then((result) => result.records);
+  }
+
+  promptOptimizerPutRun(record: PromptExperimentRun): Promise<PromptExperimentRun> {
+    return this.client.call<PromptExperimentRun>("prompt_optimizer.put_run", { record });
+  }
+
+  promptOptimizerClaimRun(
+    record: PromptExperimentRun,
+    leaseDurationMs: number,
+  ): Promise<PromptExperimentRun | null> {
+    return this.client
+      .call<{ record: PromptExperimentRun | null }>("prompt_optimizer.claim_run", {
+        record,
+        lease_duration_ms: leaseDurationMs,
+      })
+      .then((result) => result.record);
+  }
+
+  promptOptimizerListRuns(experimentId: string): Promise<PromptExperimentRun[]> {
+    return this.client
+      .call<{ records: PromptExperimentRun[] }>("prompt_optimizer.list_runs", {
+        experiment_id: experimentId,
+      })
+      .then((result) => result.records);
+  }
+
+  promptOptimizerLatestSummary(cohort: string): Promise<PromptOptimizerSummary> {
+    return this.client.call<PromptOptimizerSummary>("prompt_optimizer.latest_summary", { cohort });
+  }
+
+  async promptOptimizerTrainingProjection(params: {
+    agent_id: string;
+    stage: string;
     cohort: string;
-    force_agent?: string;
-    dry_run?: boolean;
-    historical_sandbox?: boolean;
-    historical_run_id?: string;
-    as_of_date?: string;
-    base_prompt_commit?: string;
-    code_commit_hash?: string;
-  }): Promise<AutoresearchTriggerResult> {
-    return this.client.call<AutoresearchTriggerResult>("autoresearch.trigger", params);
-  }
-
-  autoresearchHistoricalDecide(params: {
-    version_id: number;
-    decision: "keep" | "revert";
-    decided_at: string;
-    base_ref: string;
-    active_branch?: string;
-  }): Promise<AutoresearchHistoricalDecisionResult> {
-    return this.client.call<AutoresearchHistoricalDecisionResult>(
-      "autoresearch.historical_decide",
+    cutoff_at: string;
+    excluded_sample_ids?: string[];
+  }): Promise<PromptTrainingProjection> {
+    const result = await this.client.call<{ projection: PromptTrainingProjection }>(
+      "prompt_optimizer.training_projection",
       params,
     );
-  }
-
-  autoresearchHistoricalValidate(params: {
-    version_id: number;
-  }): Promise<AutoresearchHistoricalValidationResult> {
-    return this.client.call<AutoresearchHistoricalValidationResult>(
-      "autoresearch.historical_validate",
-      params,
+    const { PromptTrainingProjectionSchema } = await import(
+      "../autoresearch/prompt_optimizer_contract.js"
     );
-  }
-
-  autoresearchRecordMutation(params: {
-    version_id: number;
-    commit_hash: string;
-    summary?: string;
-    prompt_repo_id?: string;
-    prompt_base_commit_hash?: string;
-    prompt_sha256?: string;
-    code_commit_hash?: string;
-    mutation_metadata?: object;
-  }): Promise<{ ok: boolean }> {
-    return this.client.call<{ ok: boolean }>("autoresearch.record_mutation", params);
-  }
-
-  autoresearchEvaluatePending(params?: {
-    cohort?: string;
-    version_id?: number;
-    domain_sample_manifest?: Record<string, unknown>;
-  }): Promise<{ results: AutoresearchEvalResult[] }> {
-    return this.client.call<{ results: AutoresearchEvalResult[] }>(
-      "autoresearch.evaluate_pending",
-      params ?? {},
-    );
-  }
-
-  autoresearchReviewDomainPromotion(params: {
-    version_id: number;
-    decision: "keep" | "revert";
-    approved_by: string;
-    approval_policy_id: "domain_release_manual_v1" | "decision_release_manual_v1";
-    review_reason: string;
-  }): Promise<AutoresearchDomainPromotionResult> {
-    return this.client.call<AutoresearchDomainPromotionResult>(
-      "autoresearch.review_domain_promotion",
-      params,
-    );
+    return PromptTrainingProjectionSchema.parse(result.projection);
   }
 
   autoresearchGetLog(params?: {
@@ -2376,10 +2691,6 @@ export class BridgeApi {
       "autoresearch.list_active_branches",
       params ?? {},
     );
-  }
-
-  autoresearchRevertModification(params: { version_id: number }): Promise<{ ok: boolean }> {
-    return this.client.call<{ ok: boolean }>("autoresearch.revert_modification", params);
   }
 
   autoresearchPrepareWorktree(params: {
@@ -2421,15 +2732,6 @@ export class BridgeApi {
     return this.client.call<{ cohorts: CohortInfo[] }>("prism.list_cohorts", {});
   }
 
-  prismTrainCohort(params: {
-    cohort_name: string;
-    start_date?: string;
-    end_date?: string;
-    dry_run?: boolean;
-  }): Promise<CohortTrainResult> {
-    return this.client.call<CohortTrainResult>("prism.train_cohort", params);
-  }
-
   prismCohortStatus(params: { cohort_name: string }): Promise<CohortStatus> {
     return this.client.call<CohortStatus>("prism.cohort_status", params);
   }
@@ -2442,16 +2744,6 @@ export class BridgeApi {
       "prism.compare_cohorts",
       params ?? {},
     );
-  }
-
-  prismCompleteCohortRun(params: {
-    run_id: number;
-    llm_calls?: number;
-    llm_cost_usd?: number;
-    cio_action?: string;
-    cio_target_weight?: number;
-  }): Promise<{ ok: boolean }> {
-    return this.client.call<{ ok: boolean }>("prism.complete_cohort_run", params);
   }
 
   // janus.* (Phase 6)

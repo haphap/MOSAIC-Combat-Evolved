@@ -1,18 +1,21 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   type ActivePromptReleaseManifest,
   ActivePromptReleaseManifestSchema,
-  assertMutationTransactionTransition,
   assertPromptReleaseTransition,
   assertReleasePromptStageClosure,
-  type MutationTransactionManifest,
-  MutationTransactionManifestSchema,
   type ReleasePromptPair,
   releasePromptPairHash,
   releasePromptSetHash,
 } from "../src/agents/prompts/prompt_release_contract.js";
+import { ActivePromptReleaseRegistry } from "../src/autoresearch/release_registry.js";
 
 const HASH = `sha256:${"1".repeat(64)}`;
+const EXECUTION_RELEASE_ID = `execution-behavior-release:${"2".repeat(64)}`;
+const EXECUTION_RELEASE_REF = `registry/prompt_checks/execution_behavior_releases/${"2".repeat(64)}--${"1".repeat(64)}.json`;
 
 function promptPairs(): ReleasePromptPair[] {
   const pair = {
@@ -32,52 +35,6 @@ function promptPairs(): ReleasePromptPair[] {
   return [{ ...pair, pair_hash: releasePromptPairHash(pair) }];
 }
 
-function transaction(state: MutationTransactionManifest["state"]): MutationTransactionManifest {
-  const prepared = ["prepared", "committed_log_pending", "committed"].includes(state);
-  const committedComponent = ["committed_log_pending", "committed"].includes(state);
-  return {
-    schema_version: "prompt_mutation_transaction_v1",
-    mutation_id: "mutation-1",
-    transaction_id: "transaction-1",
-    experiment_id: "experiment-1",
-    state,
-    recovery_state: "not_needed",
-    base_release_id: "release-0",
-    catalog_hash: HASH,
-    schema_hash: HASH,
-    evaluation_contract_hash: HASH,
-    recovery_descriptor_hash: HASH,
-    target_paths: ["/rule_packs/test/value"],
-    components: [
-      {
-        repo_id: "MOSAIC-Prompts",
-        base_commit: "1234567",
-        new_commit: committedComponent ? "7654321" : null,
-        candidate_ref: "refs/mosaic-candidates/mutation-1",
-        prepare_status: prepared ? "prepared" : "pending",
-        files: [
-          {
-            path: "registry/domain_knobs/cohort_default/cio.json",
-            old_hash: HASH,
-            new_hash: HASH,
-            staging_path_hash: HASH,
-          },
-        ],
-      },
-    ],
-    metadata_log: {
-      path: "mutation_patches/knob_mutations.jsonl",
-      entry_hash: HASH,
-      appended: state === "committed",
-    },
-    created_at: "2026-07-10T00:00:00Z",
-    prepared_at: prepared ? "2026-07-10T00:01:00Z" : null,
-    committed_at: state === "committed" ? "2026-07-10T00:02:00Z" : null,
-    aborted_at: state === "aborted" ? "2026-07-10T00:02:00Z" : null,
-    recovery_decision: null,
-  };
-}
-
 function release(
   lifecycleState: ActivePromptReleaseManifest["lifecycle_state"],
 ): ActivePromptReleaseManifest {
@@ -85,28 +42,39 @@ function release(
   const active = lifecycleState === "active";
   const pairs = promptPairs();
   return {
-    schema_version: "active_prompt_release_manifest_v1",
+    schema_version: "active_prompt_release_manifest_v3",
     release_id: "release-1",
     base_release_id: "release-0",
     lifecycle_state: lifecycleState,
     prompt_commit: "1234567",
     code_commit: "7654321",
+    execution_behavior_release: {
+      release_id: EXECUTION_RELEASE_ID,
+      release_hash: HASH,
+      archive_ref: EXECUTION_RELEASE_REF,
+    },
     prompt_hash: releasePromptSetHash(pairs),
     prompt_pairs: pairs,
     stage_snapshot_hashes: { "central_bank:agent_run": HASH },
     catalog_hash: HASH,
     schema_hash: HASH,
     evaluation_contract_hash: HASH,
-    keep_decision_hash: HASH,
-    keep_decision_state: "kept",
     release_evidence: {
-      version_id: 1,
-      mutation_id: "mutation-1",
+      candidate_id: "candidate-1",
+      candidate_hash: HASH,
+      candidate_publication_hash: HASH,
+      prompt_source_id: "private-prompts",
+      promotion_decision_id: "decision-1",
+      promotion_decision_hash: HASH,
       experiment_id: "experiment-1",
       mutated_agent: "central_bank",
-      evaluation_result_hash: HASH,
-      transaction_manifest_hash: HASH,
-      prompt_pair_sha256: "1".repeat(64),
+      policy_version: "policy-v1",
+      policy_config_hash: HASH,
+      candidate_prompt_hashes: { zh: HASH, en: HASH },
+      private_state_artifact_hash: HASH,
+      behavior_contract_hash: HASH,
+      mutator_commit: "1".repeat(40),
+      mutator_config_hash: HASH,
     },
     activation_scope: {
       cohort: "cohort_default",
@@ -159,38 +127,6 @@ function release(
   };
 }
 
-describe("prompt mutation transaction contract", () => {
-  it("accepts the prepared and log-pending state sequence", () => {
-    const created = MutationTransactionManifestSchema.parse(transaction("created"));
-    const prepared = MutationTransactionManifestSchema.parse(transaction("prepared"));
-    const logPending = MutationTransactionManifestSchema.parse(
-      transaction("committed_log_pending"),
-    );
-    const committed = MutationTransactionManifestSchema.parse(transaction("committed"));
-
-    expect(() => assertMutationTransactionTransition(created, prepared)).not.toThrow();
-    expect(() => assertMutationTransactionTransition(prepared, logPending)).not.toThrow();
-    expect(() => assertMutationTransactionTransition(logPending, committed)).not.toThrow();
-  });
-
-  it("rejects skipping the durable-log state or aborting after component commit", () => {
-    expect(() =>
-      assertMutationTransactionTransition(transaction("prepared"), transaction("committed")),
-    ).toThrow("mutation_transaction_transition_invalid:prepared:committed");
-    expect(() =>
-      assertMutationTransactionTransition(
-        transaction("committed_log_pending"),
-        transaction("aborted"),
-      ),
-    ).toThrow("mutation_transaction_transition_invalid:committed_log_pending:aborted");
-  });
-
-  it("requires final factual state after reconciliation", () => {
-    const invalid = { ...transaction("prepared"), recovery_state: "reconciled" as const };
-    expect(MutationTransactionManifestSchema.safeParse(invalid).success).toBe(false);
-  });
-});
-
 describe("aggregate prompt release contract", () => {
   it("allows staged to canary to active only with approval and passing SLOs", () => {
     const staged = ActivePromptReleaseManifestSchema.parse(release("staged"));
@@ -234,6 +170,136 @@ describe("aggregate prompt release contract", () => {
     if (!driftedPair) throw new Error("test fixture prompt pair missing");
     driftedPair.zh.sha256 = `sha256:${"2".repeat(64)}`;
     expect(ActivePromptReleaseManifestSchema.safeParse(drifted).success).toBe(false);
+  });
+
+  it("requires a content-addressed execution archive binding", () => {
+    const drifted = release("active");
+    drifted.execution_behavior_release.archive_ref = `registry/prompt_checks/execution_behavior_releases/${"3".repeat(64)}--${"1".repeat(64)}.json`;
+    expect(ActivePromptReleaseManifestSchema.safeParse(drifted).success).toBe(false);
+  });
+
+  it("rejects execution behavior binding changes during lifecycle transitions", async () => {
+    const root = mkdtempSync(join(tmpdir(), "mosaic-release-registry-"));
+    const registry = new ActivePromptReleaseRegistry(root);
+    const audit = {
+      operator: "operator:test",
+      reason: "execution behavior binding must remain immutable",
+    };
+    const baseline = release("active");
+    baseline.release_id = "release-0";
+    baseline.base_release_id = null;
+    baseline.previous_approved_release_id = null;
+    if (!baseline.runtime_slo_evidence) throw new Error("active fixture requires SLO evidence");
+    baseline.runtime_slo_evidence.release_id = baseline.release_id;
+
+    try {
+      await registry.provisionBaseline(baseline, audit);
+      await registry.stage(release("staged"));
+      const tampered = release("canary");
+      tampered.execution_behavior_release = {
+        release_id: `execution-behavior-release:${"3".repeat(64)}`,
+        release_hash: `sha256:${"4".repeat(64)}`,
+        archive_ref: `registry/prompt_checks/execution_behavior_releases/${"3".repeat(64)}--${"4".repeat(64)}.json`,
+      };
+
+      await expect(registry.transition(tampered, { audit })).rejects.toThrow(
+        "prompt_release_immutable_closure_changed",
+      );
+      expect((await registry.load("release-1"))?.lifecycle_state).toBe("staged");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("serializes competing canaries and keeps identical activation retries idempotent", async () => {
+    const root = mkdtempSync(join(tmpdir(), "mosaic-release-cas-race-"));
+    const leftRegistry = new ActivePromptReleaseRegistry(root);
+    const rightRegistry = new ActivePromptReleaseRegistry(root);
+    const audit = { operator: "operator:test", reason: "CAS race fixture" };
+    const withId = (state: ActivePromptReleaseManifest["lifecycle_state"], releaseId: string) => {
+      const value = release(state);
+      value.release_id = releaseId;
+      value.base_release_id = "release-0";
+      value.previous_approved_release_id = "release-0";
+      if (value.runtime_slo_evidence) value.runtime_slo_evidence.release_id = releaseId;
+      return value;
+    };
+    const baseline = release("active");
+    baseline.release_id = "release-0";
+    baseline.base_release_id = null;
+    baseline.previous_approved_release_id = null;
+    if (!baseline.runtime_slo_evidence) throw new Error("active fixture requires SLO evidence");
+    baseline.runtime_slo_evidence.release_id = baseline.release_id;
+    try {
+      await leftRegistry.provisionBaseline(baseline, audit);
+      await leftRegistry.stage(withId("staged", "release-left"));
+      await rightRegistry.stage(withId("staged", "release-right"));
+      const race = await Promise.allSettled([
+        leftRegistry.transition(withId("canary", "release-left"), { audit }),
+        rightRegistry.transition(withId("canary", "release-right"), { audit }),
+      ]);
+      expect(race.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      const rejection = race.find((result) => result.status === "rejected");
+      expect(rejection?.status === "rejected" ? String(rejection.reason) : "").toContain(
+        "prompt_release_canary_pointer_conflict",
+      );
+      const canaryPointer = await leftRegistry.canaryPointer();
+      expect(canaryPointer.pointer_version).toBe(1);
+      const winner = canaryPointer.current_release_id;
+      if (!winner) throw new Error("CAS race did not select a canary");
+      const active = withId("active", winner);
+      await Promise.all([
+        leftRegistry.transition(active, { expectedBaseReleaseId: "release-0", audit }),
+        rightRegistry.transition(active, { expectedBaseReleaseId: "release-0", audit }),
+      ]);
+      expect(await leftRegistry.pointer()).toMatchObject({
+        current_release_id: winner,
+        pointer_version: 2,
+      });
+      expect(await rightRegistry.canaryPointer()).toMatchObject({
+        current_release_id: null,
+        pointer_version: 2,
+      });
+
+      const successorStaged = withId("staged", "release-successor");
+      successorStaged.base_release_id = winner;
+      successorStaged.previous_approved_release_id = winner;
+      await leftRegistry.stage(successorStaged);
+      const successorCanary = withId("canary", "release-successor");
+      successorCanary.base_release_id = winner;
+      successorCanary.previous_approved_release_id = winner;
+      await leftRegistry.transition(successorCanary, { audit });
+      const successorActive = withId("active", "release-successor");
+      successorActive.base_release_id = winner;
+      successorActive.previous_approved_release_id = winner;
+      await expect(
+        rightRegistry.transition(successorActive, {
+          expectedBaseReleaseId: "release-0",
+          audit,
+        }),
+      ).rejects.toThrow("prompt_release_active_pointer_compare_and_swap_failed");
+      expect(await leftRegistry.pointer()).toMatchObject({ current_release_id: winner });
+      expect((await leftRegistry.load("release-successor"))?.lifecycle_state).toBe("canary");
+
+      await leftRegistry.transition(successorActive, {
+        expectedBaseReleaseId: winner,
+        audit,
+      });
+      const staleRollback: ActivePromptReleaseManifest = {
+        ...active,
+        lifecycle_state: "rolled_back",
+        rolled_back_at: "2026-07-10T03:00:00Z",
+      };
+      await expect(rightRegistry.transition(staleRollback, { audit })).rejects.toThrow(
+        "prompt_release_rollback_pointer_compare_and_swap_failed",
+      );
+      expect(await leftRegistry.pointer()).toMatchObject({
+        current_release_id: "release-successor",
+      });
+      expect((await leftRegistry.load(winner))?.lifecycle_state).toBe("active");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("binds SLO evidence versions to their journal and aggregator contracts", () => {

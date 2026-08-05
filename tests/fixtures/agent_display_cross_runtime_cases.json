@@ -1,0 +1,12 @@
+{
+  "percent_cases": [
+    { "value": -0.125, "expected": "-13%" },
+    { "value": -0.005, "expected": "-1%" },
+    { "value": 0.125, "expected": "13%" },
+    { "value": 0, "expected": "0%" }
+  ],
+  "unicode_truncation_cases": [
+    { "unit": "😀", "repeat": 321, "maximum": 320, "kept": 319 },
+    { "unit": "𠀀", "repeat": 2001, "maximum": 2000, "kept": 1999 }
+  ]
+}

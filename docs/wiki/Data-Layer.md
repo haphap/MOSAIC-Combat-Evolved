@@ -2,12 +2,63 @@
 
 `mosaic/dataflows/` provides market + macro data to the agents, plus the qlib historical data base and ingest toolchain.
 
-## Vendors
+## Production source and tool boundary
 
-- **Tushare** (`tushare.py`) — primary A-share equity + ETF data (`pro.daily`, `pro.fund_daily`, `pro.index_daily`, financials) plus **research reports** (`pro.research_report`): `get_broker_reports` (行业研报, industry-level) and `get_stock_reports` (个股研报, stock-level). The LangChain `@tool` wrappers `get_broker_research` / `get_stock_research` live in `mosaic/agents/utils/research_report_tools.py` and are attached to the sector + superinvestor agents (see [Agents](Agents.md)).
-- **china-policy-db**, **gov.cn**, **PBOC**, **akshare**, **yfinance**, **FRED** (`macro_data.py`, `gov_policy.py`, `pboc_ops.py`, `fred.py`), Xueqiu heat, etc. — macro/global/sentiment tools. `get_industry_policy` and `get_pboc_ops` read a local `haphap/china-policy-db` clone/cache first, incrementally refresh stale local data, and fall back to the existing gov.cn/PBOC official-site crawlers if clone/pull/refresh is unavailable. Also includes `get_property_data` (akshare `macro_china_real_estate` — the monthly 国房景气指数 / national real-estate climate index, point-in-time clamped by `curr_date`), `get_policy_uncertainty` (akshare `article_epu_index` / EPU), `get_realized_volatility` (akshare `article_oman_rv` / `article_rlab_rv`), and `get_stock_moneyflow` / `get_industry_moneyflow` (A-share capital flow by 同花顺), used by the `china`, `volatility`, and sector agents. The macro layer is **20 tools** total (32 across all 5 tool modules — see [Bridge RPC](Bridge-RPC.md) for the full module split).
-- **Tool modules** — all LangChain `@tool`-decorated functions under `mosaic/agents/utils/` are registered as `tools.list` / `tools.call` RPCs. Five modules: `macro_tools` (20), `etf_tools` (4: info/NAV/holdings/universe), `financial_tools` (4: fundamentals/balance-sheet/income/cashflow), `research_report_tools` (2: broker/stock), `technical_tools` (2: price/indicators). Each agent uses a scoped subset — see [Agents](Agents.md) for per-layer assignments.
-- Tool selection is config-driven (`data_vendors` / `tool_vendors` in `MosaicConfig`).
+- **Tushare** is the registered primary source for A-share/ETF prices, PIT
+  membership, financial statements, fund shares, money flow, futures, FX, and
+  the global `eco_cal` calendar when the endpoint has passed permission/schema
+  preflight. `major_news`, `news`, `npr`, and `monetary_policy` are explicitly
+  permission-denied and have no production client or fallback path.
+- **China/PBOC** entity and policy observations come from registered NBS,
+  Customs, MOF, and PBOC official directories plus verified Tushare series.
+  **US** entity vintages use preregistered ALFRED/official series; Fed/NY Fed
+  sources feed US financial conditions. **EU/euro-area** entity and financial
+  observations use frozen Eurostat/ECB keys. World Bank is `CONTEXT_ONLY`.
+- Raw responses remain in the private cache. Runtime collectors materialize a
+  signed `AgentSnapshotBundle` before an Agent starts. The model can call only
+  its zero-argument role snapshot; the bridge verifies Agent/stage/date/scope,
+  consumes a single-use capability, and never recollects during `tools.call`.
+- Sector, relationship, Superinvestor, and Decision nodes likewise use frozen
+  role snapshots. Generic ticker search, OpenCLI/Caixin search, Xueqiu attention,
+  research-report tools, and `get_rke_research_context` are absent from the
+  production tool manifest. RKE remains shadow-only.
+- Endpoint status, source mappings, and exact Agent/tool assignments are
+  committed under `registry/data_sources/` and `registry/prompt_checks/`; missing
+  required coverage fails closed instead of silently selecting another vendor.
+
+### EU official API adapters
+
+`official_macro_adapters.py` exposes closed, allowlisted URL builders and
+bounded parsers for the frozen Eurostat, ECB, and World Bank series. Run
+`uv run python scripts/probe_official_macro_sources.py` to refresh the
+metadata-only transport preflight. Its public artifact records URLs, content
+hashes, row counts, and readiness, but never provider observations. Live API
+availability does not make a response point-in-time safe: production remains
+blocked until the observations are joined to an archived append-only
+release/vintage ledger satisfying `released_at/vintage_at <= as_of`.
+This is not limited to EU/ECB: registered names for China, ALFRED, PBOC, US
+financial conditions, commodities, and institutional flow are identity maps,
+not production receipts. Every unresolved required branch is an explicit
+source gap, so the formal builder rejects all currently unproved role
+snapshots; only explicitly marked non-production smoke fixtures can bypass it.
+
+### Geopolitical source preflight
+
+`geopolitical_source_adapters.py` probes only the exact 15 roots in the closed
+source manifest, with HTTPS/domain allowlists, response-size bounds, redirect
+checks, and broad response-shape validation. Run
+`uv run python scripts/probe_geopolitical_sources.py` to refresh its
+metadata-only artifact. A successful root probe is not event evidence and
+cannot activate a route. Production requires source-specific pagination,
+publication-time parsing, complete route polling, and 30 continuous days of
+availability/latency evidence; missing any required source keeps
+`get_geopolitical_events_snapshot` fail-closed.
+No built-in source-specific parser or verified continuous-preflight receipt
+reader exists in the current checkout. The callback parser API is a
+non-production harness and its poll rows cannot satisfy formal coverage;
+transport success or a self-rehashed readiness manifest cannot promote it.
+The private audit keeps route/query-level rows; the model receives a bounded
+role projection with events and exact per-family coverage counts/hashes.
 
 ## qlib local reader (`qlib_local.py`)
 

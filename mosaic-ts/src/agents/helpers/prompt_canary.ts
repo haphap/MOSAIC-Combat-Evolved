@@ -8,7 +8,7 @@ import {
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import type { DailyCycleStateType } from "../state.js";
 import { buildAgentInvocationId } from "./evidence_runtime.js";
-import type { ResearchKnobCapAudit, ResearchKnobsSnapshot, ToolStatus } from "./research_knobs.js";
+import type { RuntimeSourceStatus, ToolStatus } from "./runtime_evidence_types.js";
 
 export interface AgentCanaryEventContext {
   release: PromptReleaseCanaryBinding;
@@ -34,7 +34,7 @@ export async function beginAgentPromptCanaryInvocation(opts: {
     stage: opts.stage,
     cohort: opts.cohort,
     asOf: opts.state.as_of_date || "live",
-    snapshotHash: opts.release.stage_snapshot_hash,
+    promptReleaseHash: opts.release.stage_snapshot_hash,
   });
   const assignment = buildPromptReleaseCanaryAssignmentEvent({
     release: opts.release,
@@ -79,9 +79,8 @@ export function buildAgentPromptCanaryEvent(opts: {
   observedAt?: string;
   structuredAccepted: boolean;
   claimGraphAccepted: boolean;
-  knobSnapshot: ResearchKnobsSnapshot | null;
-  knobAudit: ResearchKnobCapAudit | null;
   toolStatuses: ReadonlyArray<ToolStatus>;
+  runtimeSourceStatuses?: ReadonlyArray<RuntimeSourceStatus>;
   output: unknown;
   validatorIds: ReadonlyArray<string>;
   validatorRejected?: boolean;
@@ -90,7 +89,7 @@ export function buildAgentPromptCanaryEvent(opts: {
   exposureBreachCount?: number;
 }): PromptReleaseCanaryEvent | null {
   if (!opts.context) return null;
-  const runtimeSources = opts.knobSnapshot?.consumptionSnapshot.runtimeSourceStatuses ?? [];
+  const runtimeSources = opts.runtimeSourceStatuses ?? [];
   const promptSourceUnavailable = opts.context.release.source !== "private";
   const sourceFailed =
     Boolean(opts.forceSourceFailure) ||
@@ -102,7 +101,6 @@ export function buildAgentPromptCanaryEvent(opts: {
     promptSourceUnavailable ||
     !opts.structuredAccepted ||
     !opts.claimGraphAccepted ||
-    opts.knobAudit?.output_selection === "deterministic_fallback" ||
     hasRuntimeFallback(opts.output);
   const duplicateOrderIntentCount = duplicateTickerCount(opts.output);
   return buildPromptReleaseCanaryEvent({
@@ -117,7 +115,7 @@ export function buildAgentPromptCanaryEvent(opts: {
     schemaFailed: !opts.structuredAccepted,
     fallback,
     sourceFailed,
-    unsupportedInfluenceRejected: (opts.knobAudit?.unsupported_knob_influence_ids.length ?? 0) > 0,
+    unsupportedInfluenceRejected: false,
     validatorRejected: Boolean(opts.validatorRejected) || !opts.claimGraphAccepted,
     validatorIds: opts.validatorIds,
     duplicateOrderIntentCount,
@@ -130,10 +128,6 @@ function hasRuntimeFallback(output: unknown): boolean {
   if (!output || typeof output !== "object" || Array.isArray(output)) return true;
   const record = output as Record<string, unknown>;
   if (record.runtime_fallback_audit) return true;
-  const knobAudit = record.verified_knob_audit;
-  if (knobAudit && typeof knobAudit === "object" && !Array.isArray(knobAudit)) {
-    return Boolean((knobAudit as Record<string, unknown>).fallback_reason_code);
-  }
   const claimAudit = record.verified_claim_audit;
   if (claimAudit && typeof claimAudit === "object" && !Array.isArray(claimAudit)) {
     return Boolean((claimAudit as Record<string, unknown>).fallback_reason_code);

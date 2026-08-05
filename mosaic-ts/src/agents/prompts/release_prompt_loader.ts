@@ -2,6 +2,10 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import {
+  type ExecutionBehaviorReleaseManifest,
+  loadExecutionBehaviorReleaseAtCommit,
+} from "../../autoresearch/execution_behavior_release.js";
 import { ActivePromptReleaseRegistry } from "../../autoresearch/release_registry.js";
 import { findRepoRoot } from "../../bridge/python.js";
 import { getConfiguredPromptSource } from "./cohorts.js";
@@ -19,11 +23,17 @@ export interface PromptReleaseLoadContext {
   manifest: ActivePromptReleaseManifest;
   privatePromptRepo?: string;
   bundledRepo?: string;
+  /** Explicit test/offline-fixture escape hatch. Production runtime resolution never sets this. */
+  allowNonProductionBundledFallback?: true;
   accountMode?: AccountMode;
   expectedCatalogHash?: string;
   expectedSchemaHash?: string;
   expectedEvaluationContractHash?: string;
   expectedCodeCommit?: string;
+}
+
+export interface ProductionPromptReleaseContext extends PromptReleaseLoadContext {
+  executionBehaviorRelease: ExecutionBehaviorReleaseManifest;
 }
 
 export interface ReleasePinnedPromptPair {
@@ -74,24 +84,6 @@ export async function buildReleasePromptPairsAtCommit(opts: {
       return { ...pair, pair_hash: releasePromptPairHash(pair) };
     }),
   );
-}
-
-export async function promptPairVersionShaAtCommit(opts: {
-  repo: string;
-  commit: string;
-  pair: ReleasePromptPair;
-}): Promise<string> {
-  const digest = createHash("sha256");
-  for (const file of [opts.pair.zh, opts.pair.en].sort((left, right) =>
-    left.path.localeCompare(right.path),
-  )) {
-    const content = await gitShow(opts.repo, opts.commit, file.path);
-    digest.update(file.path, "utf-8");
-    digest.update("\0");
-    digest.update(content);
-    digest.update("\0");
-  }
-  return digest.digest("hex");
 }
 
 function sha256(value: Buffer): string {
@@ -256,6 +248,9 @@ export async function loadReleasePinnedPromptPair(opts: {
     }
   }
 
+  if (!opts.context.allowNonProductionBundledFallback) {
+    throw new Error("prompt_release_private_source_unavailable");
+  }
   const fallback = manifest.bundled_fallback;
   if (!fallback) throw new Error("prompt_release_private_source_unavailable_without_fallback");
   if (
@@ -309,14 +304,19 @@ export interface LocalEvaluationClosure {
   contract_hash: string;
 }
 
+interface PromptReleaseContractRef {
+  evaluation_contract: LocalEvaluationClosure;
+}
+
 export async function loadLocalPromptReleaseClosure(): Promise<LocalEvaluationClosure> {
   const path = join(
     findRepoRoot(),
     "registry",
     "prompt_checks",
-    "domain_knob_evaluation_contract_v1.json",
+    "prompt_release_contract_ref_v2.json",
   );
-  return JSON.parse(await readFile(path, "utf-8")) as LocalEvaluationClosure;
+  const value = JSON.parse(await readFile(path, "utf-8")) as PromptReleaseContractRef;
+  return parseLocalEvaluationClosure(value.evaluation_contract);
 }
 
 export async function loadPromptReleaseClosureAtCommit(opts: {
@@ -328,11 +328,17 @@ export async function loadPromptReleaseClosureAtCommit(opts: {
       await gitShow(
         opts.repo,
         opts.commit,
-        "registry/prompt_checks/domain_knob_evaluation_contract_v1.json",
+        "registry/prompt_checks/prompt_release_contract_ref_v2.json",
       )
     ).toString("utf-8"),
-  ) as Partial<LocalEvaluationClosure>;
-  const hashes = [value.catalog_hash, value.schema_hash, value.contract_hash];
+  ) as Partial<PromptReleaseContractRef>;
+  return parseLocalEvaluationClosure(value.evaluation_contract);
+}
+
+function parseLocalEvaluationClosure(
+  value: Partial<LocalEvaluationClosure> | undefined,
+): LocalEvaluationClosure {
+  const hashes = [value?.catalog_hash, value?.schema_hash, value?.contract_hash];
   if (hashes.some((hash) => typeof hash !== "string" || !/^sha256:[0-9a-f]{64}$/.test(hash))) {
     throw new Error("prompt_release_evaluation_closure_invalid");
   }
@@ -368,4 +374,21 @@ export async function resolveConfiguredPromptReleaseContext(
     expectedEvaluationContractHash: closure.contract_hash,
     ...(expectedCodeCommit ? { expectedCodeCommit } : {}),
   };
+}
+
+export async function resolveProductionPromptReleaseContext(
+  trafficAssignmentKey?: string,
+  onReleaseAssigned?: (manifest: ActivePromptReleaseManifest) => Promise<void> | void,
+): Promise<ProductionPromptReleaseContext> {
+  const context = await resolveConfiguredPromptReleaseContext(
+    trafficAssignmentKey,
+    onReleaseAssigned,
+  );
+  if (!context) throw new Error("active_prompt_release_registry_required");
+  const executionBehaviorRelease = await loadExecutionBehaviorReleaseAtCommit({
+    repo: findRepoRoot(),
+    commit: context.manifest.code_commit,
+    binding: context.manifest.execution_behavior_release,
+  });
+  return { ...context, executionBehaviorRelease };
 }

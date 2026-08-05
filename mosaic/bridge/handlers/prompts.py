@@ -1,29 +1,9 @@
-"""``prompts.*`` JSON-RPC handlers (Plan §6.2 / §11.5 4B).
+"""Read-only Prompt inspection and release-preflight JSON-RPC handlers.
 
-Git-aware prompt read/write backing the TS mutator (4B) and evaluator (4C):
-
-    * prompts.read(agent, cohort, lang, ref?)
-        - ref omitted → read the working-tree file (cohort → cohort_default
-          fallback, same chain as the TS loader).
-        - ref set     → read the file as it exists at that commit/branch via
-          ``git show`` (cohort path, falling back to cohort_default).
-      → {"content": str, "path": <repo-relative path>}
-
-    * prompts.write(agent, cohort, contents, branch?, message?)
-        - ``contents`` maps language ("zh"/"en") → markdown. Writing the whole
-          {zh, en} pair in one call keeps a mutation branch to a single commit
-          (Plan §11.5 git decision: "每条 feature branch 只含 1 个 commit").
-        - branch set     → commit the files on ``branch`` via git_ops (the
-          mutation path). → {"commit_hash": str, "branch": str, "paths": [...]}
-        - branch omitted → write straight to the working tree (TEST ONLY,
-          dirties the tree). → {"paths": [...]}
-
-Note: this deviates from the literal ``prompts.write(..., lang, content)``
-pseudo-signature in the plan to honour the single-commit invariant; the 4E
-orchestrator calls it once with both languages.
-
-Agent→layer resolution is loaded from the committed runtime-agent manifest that
-is generated from ``mosaic-ts/src/agents/prompts/cohorts.ts`` (Plan §5).
+Candidate rendering and commits belong to the private Prompt repository. This
+public surface reads Prompt content at explicit Git refs, initializes a private
+repository when requested, and validates release/audit contracts; it has no
+general Prompt writer or Candidate-state authority.
 """
 
 from __future__ import annotations
@@ -36,6 +16,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Optional
 
+from mosaic.scorecard.canonical_json import canonical_hash
+
 from ..protocol import INTERNAL_ERROR, INVALID_PARAMS, RpcError
 from ..registry import method
 
@@ -45,12 +27,12 @@ def _load_agents_by_layer() -> dict[str, tuple[str, ...]]:
         Path(__file__).resolve().parents[3]
         / "registry"
         / "prompt_checks"
-        / "runtime_agent_manifest_v2.json"
+        / "runtime_agent_manifest_v5.json"
     )
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise RuntimeError("runtime agent manifest is invalid")
-    if payload.get("schema_version") != "runtime_agent_manifest_v2":
+    if payload.get("schema_version") != "runtime_agent_manifest_v5":
         raise RuntimeError("runtime agent manifest schema version is invalid")
     layers = ("macro", "sector", "superinvestor", "decision")
     grouped: dict[str, list[str]] = {layer: [] for layer in layers}
@@ -81,17 +63,15 @@ _DEFAULT_COHORT = "cohort_default"
 _LANGS = ("zh", "en")
 _WRITE_TARGETS = ("private_git", "project_git", "working_tree")
 _CANONICAL_PROMPT_REPO_ID = "https://github.com/haphap/MOSAIC-Prompts"
-_PROMPT_CONTRACT_VERSION = "rke_prompt_contract_v1"
-_RESEARCH_KNOBS_FENCE_RE = re.compile(r"```research-knobs\s*\n([\s\S]*?)```")
+_PROMPT_CONTRACT_VERSION = "runtime_prompt_contract_v2"
+_LEGACY_RKE_PROMPT_CONTRACT_VERSION = "rke_prompt_contract_v1"
 _SAFE_PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _SAFE_CANDIDATE_BRANCH_RE = re.compile(r"^(?:cohort|autoresearch)/[A-Za-z0-9_./-]+$")
 _SAFE_CANDIDATE_FILE_RE = re.compile(
-    r"^(?:prompts/mosaic/[A-Za-z0-9_-]+/(?:macro|sector|superinvestor|decision)/"
-    r"[A-Za-z0-9_-]+\.(?:zh|en)\.md|"
-    r"registry/(?:domain_knobs|prompt_governance)/[A-Za-z0-9_-]+/"
-    r"[A-Za-z0-9_-]+\.json)$"
+    r"^prompts/mosaic/[A-Za-z0-9_-]+/(?:macro|sector|superinvestor|decision)/"
+    r"[A-Za-z0-9_-]+\.(?:zh|en)\.md$"
 )
-_PROMPT_CONTRACT_CATEGORIES = {
+_LEGACY_RKE_PROMPT_CONTRACT_CATEGORIES = {
     "role_boundary": ("role boundary", "角色边界"),
     "required_inputs_tools": ("required inputs", "required tools", "必需输入", "必需工具"),
     "rke_prior_policy": ("rke prior policy", "rke 先验策略"),
@@ -143,32 +123,107 @@ _IMMUTABLE_GUARDRAIL_TOKENS = {
         "shadow/promotion 安全策略",
     ),
 }
-_STANDARD_SECTOR_FIELDS = ("longs", "shorts", "sector_score", "key_drivers", "confidence")
-_SUPERINVESTOR_FIELDS = ("picks", "philosophy_note", "key_drivers", "confidence")
+_LEGACY_STANDARD_SECTOR_FIELDS = (
+    "longs",
+    "shorts",
+    "sector_score",
+    "key_drivers",
+    "confidence",
+)
+_LEGACY_SUPERINVESTOR_FIELDS = (
+    "picks",
+    "philosophy_note",
+    "key_drivers",
+    "confidence",
+)
+_LEGACY_RKE_AGENT_SCHEMA_FIELDS: dict[str, tuple[str, ...]] = {
+    agent: _LEGACY_STANDARD_SECTOR_FIELDS
+    for agent in _AGENTS_BY_LAYER["sector"]
+    if agent != "relationship_mapper"
+}
+_LEGACY_RKE_AGENT_SCHEMA_FIELDS.update(
+    {
+        "relationship_mapper": (
+            "supply_chains",
+            "ownership_clusters",
+            "contagion_risks",
+            "key_drivers",
+            "confidence",
+        ),
+        **{
+            agent: _LEGACY_SUPERINVESTOR_FIELDS
+            for agent in _AGENTS_BY_LAYER["superinvestor"]
+        },
+        "cro": (
+            "rejected_picks",
+            "correlated_risks",
+            "black_swan_scenarios",
+            "confidence",
+        ),
+        "alpha_discovery": ("novel_picks", "confidence"),
+        "autonomous_execution": ("trades", "confidence"),
+        "cio": ("portfolio_actions", "confidence"),
+    }
+)
+
+
+def _load_runtime_prompt_contracts() -> dict[str, dict[str, tuple[str, ...]]]:
+    path = (
+        Path(__file__).resolve().parents[3]
+        / "registry"
+        / "prompt_checks"
+        / "runtime_agent_manifest_v5.json"
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    rows = payload.get("agents") if isinstance(payload, dict) else None
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != "runtime_agent_manifest_v5"
+        or not isinstance(rows, list)
+    ):
+        raise RuntimeError("runtime prompt contract manifest is invalid")
+    contracts: dict[str, dict[str, tuple[str, ...]]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            raise RuntimeError("runtime prompt contract row is invalid")
+        agent = row.get("agent")
+        tools = row.get("required_tools")
+        fields = row.get("output_schema_fields")
+        if (
+            not isinstance(agent, str)
+            or agent in contracts
+            or not isinstance(tools, list)
+            or not isinstance(fields, list)
+            or any(not isinstance(item, str) or not item for item in (*tools, *fields))
+        ):
+            raise RuntimeError("runtime prompt contract binding is invalid")
+        contracts[agent] = {
+            "required_tools": tuple(tools),
+            "output_schema_fields": tuple(fields),
+        }
+    if set(contracts) != set(_ALL_AGENTS):
+        raise RuntimeError("runtime prompt contract roster mismatch")
+    return contracts
+
+
+_RUNTIME_PROMPT_CONTRACTS = _load_runtime_prompt_contracts()
 _AGENT_SCHEMA_FIELDS: dict[str, tuple[str, ...]] = {
-    # Macro output fields are owned by the TypeScript Zod contract and injected
-    # at runtime. Keeping a second Python field table caused the two surfaces to drift.
-    "semiconductor": _STANDARD_SECTOR_FIELDS,
-    "energy": _STANDARD_SECTOR_FIELDS,
-    "biotech": _STANDARD_SECTOR_FIELDS,
-    "consumer": _STANDARD_SECTOR_FIELDS,
-    "industrials": _STANDARD_SECTOR_FIELDS,
-    "financials": _STANDARD_SECTOR_FIELDS,
-    "relationship_mapper": (
-        "supply_chains",
-        "ownership_clusters",
-        "contagion_risks",
-        "key_drivers",
-        "confidence",
+    agent: contract["output_schema_fields"]
+    for agent, contract in _RUNTIME_PROMPT_CONTRACTS.items()
+}
+_KNOWN_RUNTIME_TOOLS = frozenset(
+    tool
+    for contract in _RUNTIME_PROMPT_CONTRACTS.values()
+    for tool in contract["required_tools"]
+)
+_MODEL_PROMPT_FORBIDDEN_PATTERNS = {
+    "production_rke_input_forbidden": re.compile(
+        r"\b(?:get_rke_research_context|rke[ _-]?(?:prior|context))\b", re.IGNORECASE
     ),
-    "druckenmiller": _SUPERINVESTOR_FIELDS,
-    "munger": _SUPERINVESTOR_FIELDS,
-    "burry": _SUPERINVESTOR_FIELDS,
-    "ackman": _SUPERINVESTOR_FIELDS,
-    "cro": ("rejected_picks", "correlated_risks", "black_swan_scenarios", "confidence"),
-    "alpha_discovery": ("novel_picks", "confidence"),
-    "autonomous_execution": ("trades", "confidence"),
-    "cio": ("portfolio_actions", "confidence"),
+    "private_knot_content_forbidden": re.compile(
+        r"\b(?:knot|darwinian|research[ _-]?knob)\b",
+        re.IGNORECASE,
+    ),
 }
 
 
@@ -207,27 +262,6 @@ def _git():
     return GitOps(_repo_root())
 
 
-def _private_git():
-    from mosaic.autoresearch.git_ops import GitOps
-    from mosaic.autoresearch.prompt_repo import (
-        PromptRepoError,
-        private_prompt_repo_from_env,
-        validate_private_prompt_repo,
-    )
-
-    repo = private_prompt_repo_from_env()
-    if repo is None:
-        raise RpcError(
-            INVALID_PARAMS,
-            "MOSAIC_PROMPTS_REPO or MOSAIC_PRIVATE_PROMPT_REPO is required for "
-            "prompts.write(target=private_git)",
-        )
-    try:
-        return GitOps(validate_private_prompt_repo(repo, project_root=_repo_root()))
-    except PromptRepoError as exc:
-        raise RpcError(INVALID_PARAMS, str(exc)) from exc
-
-
 def _prompt_repo_id() -> str:
     return os.getenv("MOSAIC_PROMPTS_REPO_ID") or os.getenv(
         "MOSAIC_PRIVATE_PROMPT_REPO_ID", "private"
@@ -256,92 +290,8 @@ def _prompt_sha256(files: dict[str, str]) -> str:
     return digest.hexdigest()
 
 
-def _mutation_registry_extra_files(
-    value: Any,
-    *,
-    agent: str,
-    cohort: str,
-) -> dict[str, str]:
-    if value is None:
-        return {}
-    if not isinstance(value, dict) or len(value) != 1:
-        raise RpcError(INVALID_PARAMS, "'extra_files' must contain exactly one mutation registry")
-    domain_path = f"registry/domain_knobs/{cohort}/{agent}.json"
-    governance_path = f"registry/prompt_governance/{cohort}/{agent}.json"
-    expected_path = next(iter(value))
-    if expected_path not in {domain_path, governance_path}:
-        raise RpcError(INVALID_PARAMS, "'extra_files' contains an unsupported registry path")
-    content = value.get(expected_path)
-    if not isinstance(content, str) or not content:
-        raise RpcError(
-            INVALID_PARAMS,
-            f"'extra_files' must contain text for {expected_path!r}",
-        )
-    try:
-        registry = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise RpcError(INVALID_PARAMS, "mutation registry must be valid JSON") from exc
-    if not isinstance(registry, dict):
-        raise RpcError(INVALID_PARAMS, "mutation registry must be an object")
-    if expected_path == governance_path:
-        expected_keys = {
-            "schema_version",
-            "agent",
-            "cohort",
-            "prompt_ir_scope",
-            "prompt_ir_hash",
-            "generator_version",
-            "values_by_path",
-            "weight_groups",
-            "last_mutation_id",
-        }
-        owner = registry.get("agent")
-        if (
-            set(registry) != expected_keys
-            or registry.get("schema_version") != "prompt_governance_values_v1"
-            or registry.get("generator_version") != "prompt_governance_projection_v1"
-            or registry.get("prompt_ir_scope") != "*"
-            or not re.fullmatch(r"sha256:[0-9a-f]{64}", registry.get("prompt_ir_hash", ""))
-            or registry.get("cohort") != cohort
-            or not isinstance(owner, str)
-            or owner.split(".")[-1] != agent
-            or not isinstance(registry.get("values_by_path"), dict)
-            or not all(
-                isinstance(path, str) and path.startswith("/rule_packs/")
-                for path in registry["values_by_path"]
-            )
-            or not isinstance(registry.get("last_mutation_id"), str)
-        ):
-            raise RpcError(INVALID_PARAMS, "prompt governance registry identity or values are invalid")
-        return {expected_path: content}
-    expected_keys = {
-        "schema_version",
-        "agent",
-        "cohort",
-        "catalog_version",
-        "values_by_path",
-        "weight_groups",
-        "cross_field_groups",
-        "last_mutation_id",
-    }
-    if set(registry) != expected_keys:
-        raise RpcError(INVALID_PARAMS, "domain knob registry fields do not match v1 schema")
-    owner = registry.get("agent")
-    if (
-        registry.get("schema_version") != "domain_knob_values_v1"
-        or registry.get("catalog_version") != "domain_knob_catalog_v1"
-        or registry.get("cohort") != cohort
-        or not isinstance(owner, str)
-        or owner.split(".")[-1] != agent
-        or not isinstance(registry.get("values_by_path"), dict)
-        or not all(
-            isinstance(path, str) and path.startswith("/rule_packs/")
-            for path in registry["values_by_path"]
-        )
-        or not isinstance(registry.get("last_mutation_id"), str)
-    ):
-        raise RpcError(INVALID_PARAMS, "domain knob registry identity or values are invalid")
-    return {expected_path: content}
+def _raw_prompt_sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _expected_base_hashes(value: Any, files: dict[str, str]) -> dict[str, str]:
@@ -395,8 +345,10 @@ def _require_candidate_branch(params: dict[str, Any]) -> str:
     return branch
 
 
-def _prompt_contract_check_ref(prompt_sha256: str) -> str:
-    return f"prompt-contract:{_PROMPT_CONTRACT_VERSION}:{prompt_sha256}"
+def _prompt_contract_check_ref(
+    prompt_sha256: str, contract_version: str = _PROMPT_CONTRACT_VERSION
+) -> str:
+    return f"prompt-contract:{contract_version}:{prompt_sha256}"
 
 
 def _formal_prompt_version_id(prompt_sha256: str) -> int:
@@ -414,32 +366,7 @@ def _safe_str(value: Any) -> str:
 
 
 def _canonical_json_hash(value: Any) -> str:
-    payload = json.dumps(
-        value,
-        ensure_ascii=False,
-        allow_nan=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
-
-
-def _research_knobs_enabled_agents() -> set[str]:
-    raw = os.getenv("MOSAIC_RESEARCH_KNOBS_ENABLED_AGENTS", "")
-    return {item.strip() for item in raw.split(",") if item.strip()}
-
-
-def _research_knobs_enabled(agent: str, enabled: set[str]) -> bool:
-    return "*" in enabled or agent in enabled
-
-
-def _canonical_research_knobs_fence(text: str) -> tuple[str | None, list[str]]:
-    matches = list(_RESEARCH_KNOBS_FENCE_RE.finditer(text))
-    if len(matches) != 1:
-        return None, [f"research_knobs_fence_count_{len(matches)}"]
-    body = matches[0].group(1)
-    lines = [line.rstrip() for line in body.strip().splitlines()]
-    return "\n".join(lines), []
+    return canonical_hash(value)
 
 
 def _git_run(cwd: Path, *args: str) -> str:
@@ -452,6 +379,20 @@ def _git_run(cwd: Path, *args: str) -> str:
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or proc.stdout.strip())
     return proc.stdout.strip()
+
+
+def _git_show_utf8(cwd: Path, revision: str, relative_path: str) -> str:
+    proc = subprocess.run(
+        ["git", "show", f"{revision}:{relative_path}"],
+        cwd=str(cwd),
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        raise FileNotFoundError(relative_path)
+    try:
+        return proc.stdout.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise RuntimeError("private prompt is not valid UTF-8") from exc
 
 
 def _git_dirty_count(repo: Path) -> int:
@@ -630,178 +571,6 @@ def prompts_read(params: dict[str, Any]) -> dict[str, Any]:
     raise RpcError(INVALID_PARAMS, f"prompt not found: tried {rels}")
 
 
-@method("prompts.write")
-def prompts_write(params: dict[str, Any]) -> dict[str, Any]:
-    agent = _require_str(params, "agent")
-    cohort = _require_str(params, "cohort")
-    if not _SAFE_PATH_SEGMENT_RE.fullmatch(cohort):
-        raise RpcError(INVALID_PARAMS, "'cohort' must be a safe path segment")
-    contents = params.get("contents")
-    if not isinstance(contents, dict) or not contents:
-        raise RpcError(INVALID_PARAMS, "'contents' must be a non-empty {lang: text} object")
-    for lang, text in contents.items():
-        if lang not in _LANGS or not isinstance(text, str):
-            raise RpcError(INVALID_PARAMS, f"invalid contents entry {lang!r}")
-
-    branch: Optional[str] = params.get("branch") or None
-    target = params.get("target") or ("project_git" if branch else "working_tree")
-    if target not in _WRITE_TARGETS:
-        raise RpcError(INVALID_PARAMS, f"'target' must be one of {_WRITE_TARGETS}, got {target!r}")
-    if params.get("extra_files") is not None and target != "private_git":
-        raise RpcError(INVALID_PARAMS, "mutation registry write-back requires target=private_git")
-    base_ref = _optional_str(params, "base_ref") or "main"
-
-    # Always write to the cohort-specific path (no fallback — a mutation
-    # creates/overwrites the cohort's own file).
-    prompt_files = {_rel_path(agent, cohort, lang): text for lang, text in contents.items()}
-    extra_files = _mutation_registry_extra_files(
-        params.get("extra_files"),
-        agent=agent,
-        cohort=cohort,
-    )
-    files = {**prompt_files, **extra_files}
-    expected_base_hashes = _expected_base_hashes(params.get("expected_base_hashes"), files)
-    if expected_base_hashes and target == "working_tree":
-        raise RpcError(INVALID_PARAMS, "'expected_base_hashes' requires a git target")
-    prompt_sha256 = _prompt_sha256(prompt_files)
-    extra_files_sha256 = _prompt_sha256(extra_files) if extra_files else None
-    # Default keeps the existing autoresearch mutation path (a project-repo
-    # feature branch); ``private_git`` is opt-in via an explicit ``target`` until
-    # Phase 5 moves the evaluation worktree + read-at-ref to the private repo too.
-    # (Flipping the default before then breaks the optimize→evaluate loop, since
-    # ``autoresearch.prepare_worktree`` / ``prompts.read(ref)`` still use the
-    # project repo. Phase 6's CI provenance guard is what blocks optimized
-    # prompts from reaching project PRs in the interim.)
-    if target == "private_git":
-        if not branch:
-            raise RpcError(INVALID_PARAMS, "prompts.write(target=private_git) requires 'branch'")
-        message = params.get("message") or f"autoresearch: mutate {agent} prompt ({cohort})"
-        try:
-            git = _private_git()
-            base_commit = git.rev_parse(base_ref)
-            _assert_expected_base_hashes(git, base_commit, expected_base_hashes)
-            commit = git.write_and_commit(
-                files, message=message, branch=branch, base_ref=base_commit
-            )
-        except Exception as exc:
-            if isinstance(exc, RpcError):
-                raise
-            raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
-        return {
-            "target": target,
-            "prompt_repo_id": _prompt_repo_id(),
-            "prompt_base_commit_hash": base_commit,
-            "prompt_sha256": prompt_sha256,
-            "extra_files_sha256": extra_files_sha256,
-            "commit_hash": commit,
-            "prompt_commit_hash": commit,
-            "branch": branch,
-            "paths": sorted(files),
-        }
-
-    if target == "project_git":
-        if not branch:
-            raise RpcError(INVALID_PARAMS, "prompts.write(target=project_git) requires 'branch'")
-        # A project-repo feature-branch commit is the existing autoresearch
-        # mutation mechanism (isolated on a branch, not the tracked tree), so it
-        # is not gated by the escape hatch. The working-tree path below — which
-        # dirties tracked ``prompts/mosaic/**`` directly — is.
-        message = params.get("message") or f"autoresearch: mutate {agent} prompt ({cohort})"
-        try:
-            git = _git()
-            base_commit = git.rev_parse(base_ref)
-            _assert_expected_base_hashes(git, base_commit, expected_base_hashes)
-            commit = git.write_and_commit(
-                files, message=message, branch=branch, base_ref=base_commit
-            )
-        except Exception as exc:
-            if isinstance(exc, RpcError):
-                raise
-            raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
-        return {
-            "target": target,
-            "prompt_repo_id": "project",
-            "prompt_base_commit_hash": base_commit,
-            "prompt_sha256": prompt_sha256,
-            "commit_hash": commit,
-            "prompt_commit_hash": commit,
-            "branch": branch,
-            "paths": sorted(files),
-        }
-
-    if not _public_write_allowed(params):
-        raise RpcError(
-            INVALID_PARAMS,
-            "working-tree prompt writes require allow_public_prompt_write=true",
-        )
-
-    # Working-tree write (test-only / explicit baseline escape hatch).
-    root = _repo_root()
-    for rel, text in files.items():
-        fp = root / rel
-        fp.parent.mkdir(parents=True, exist_ok=True)
-        fp.write_text(text, encoding="utf-8")
-    return {
-        "target": target,
-        "prompt_repo_id": "project",
-        "prompt_sha256": prompt_sha256,
-        "paths": sorted(files),
-    }
-
-
-@method("prompts.candidate_state")
-def prompts_candidate_state(params: dict[str, Any]) -> dict[str, Any]:
-    """Inspect a candidate ref without returning prompt/registry content."""
-    branch = _require_candidate_branch(params)
-    target = params.get("target") or "private_git"
-    if target not in {"private_git", "project_git"}:
-        raise RpcError(INVALID_PARAMS, "candidate target must be private_git or project_git")
-    expected_hashes = params.get("expected_hashes")
-    if not isinstance(expected_hashes, dict) or not expected_hashes:
-        raise RpcError(INVALID_PARAMS, "'expected_hashes' must be a non-empty object")
-    for path, expected_hash in expected_hashes.items():
-        if (
-            not isinstance(path, str)
-            or not _SAFE_CANDIDATE_FILE_RE.fullmatch(path)
-            or not isinstance(expected_hash, str)
-            or not re.fullmatch(r"sha256:[0-9a-f]{64}", expected_hash)
-        ):
-            raise RpcError(INVALID_PARAMS, "candidate file path or hash is invalid")
-    git = _private_git() if target == "private_git" else _git()
-    if not git.branch_exists(branch):
-        return {"candidate_visible": False, "new_commit": None, "hashes_match": False}
-    commit = git.rev_parse(branch)
-    hashes_match = True
-    for path, expected_hash in expected_hashes.items():
-        try:
-            content = git.show_file(commit, path)
-        except Exception:
-            hashes_match = False
-            break
-        actual_hash = f"sha256:{hashlib.sha256(content.encode('utf-8')).hexdigest()}"
-        if actual_hash != expected_hash:
-            hashes_match = False
-            break
-    return {
-        "candidate_visible": hashes_match,
-        "new_commit": commit if hashes_match else None,
-        "hashes_match": hashes_match,
-    }
-
-
-@method("prompts.abort_candidate")
-def prompts_abort_candidate(params: dict[str, Any]) -> dict[str, Any]:
-    """Delete an isolated candidate ref during transaction recovery."""
-    branch = _require_candidate_branch(params)
-    target = params.get("target") or "private_git"
-    if target not in {"private_git", "project_git"}:
-        raise RpcError(INVALID_PARAMS, "candidate target must be private_git or project_git")
-    git = _private_git() if target == "private_git" else _git()
-    if git.branch_exists(branch):
-        git.delete_branch(branch, force=True)
-    return {"ok": True}
-
-
 @method("prompts.init_private_repo")
 def prompts_init_private_repo(params: dict[str, Any]) -> dict[str, Any]:
     path = _require_str(params, "path")
@@ -876,6 +645,33 @@ def prompts_preflight(params: dict[str, Any]) -> dict[str, Any]:
         default=_LANGS,
     )
     source = _formal_prompt_source()
+    requested_revision = _optional_str(params, "prompt_repo_revision")
+    allow_non_head_revision = params.get("allow_non_head_revision", False)
+    if not isinstance(allow_non_head_revision, bool):
+        raise RpcError(INVALID_PARAMS, "'allow_non_head_revision' must be boolean")
+    if source.get("ready") and requested_revision:
+        if re.fullmatch(r"[0-9a-f]{40}", requested_revision) is None:
+            raise RpcError(INVALID_PARAMS, "'prompt_repo_revision' must be a full commit hash")
+        try:
+            resolved_revision = _git_run(
+                Path(source["repo_root"]),
+                "rev-parse",
+                "--verify",
+                f"{requested_revision}^{{commit}}",
+            )
+        except Exception as exc:
+            raise RpcError(INVALID_PARAMS, "prompt repository revision is unavailable") from exc
+        if resolved_revision != requested_revision:
+            raise RpcError(INVALID_PARAMS, "prompt repository revision must be canonical")
+        if (
+            requested_revision != source["prompt_repo_revision"]
+            and not allow_non_head_revision
+        ):
+            raise RpcError(
+                INVALID_PARAMS,
+                "non-HEAD prompt revision requires a verified release context",
+            )
+        source = {**source, "prompt_repo_revision": requested_revision}
     rows: list[dict[str, Any]] = []
     for agent in agents:
         layer = _LAYER_BY_AGENT[agent]
@@ -893,7 +689,13 @@ def prompts_preflight(params: dict[str, Any]) -> dict[str, Any]:
 
             path = Path(source["prompts_root"]) / cohort / layer / f"{agent}.{lang}.md"
             rel = path.relative_to(Path(source["repo_root"]))
-            if not path.exists():
+            try:
+                text = _git_show_utf8(
+                    Path(source["repo_root"]),
+                    source["prompt_repo_revision"],
+                    rel.as_posix(),
+                )
+            except FileNotFoundError:
                 rows.append(
                     _blocked_prompt_preflight_row(
                         cohort=cohort,
@@ -904,7 +706,6 @@ def prompts_preflight(params: dict[str, Any]) -> dict[str, Any]:
                     )
                 )
                 continue
-            text = path.read_text(encoding="utf-8")
             rows.append({
                 "agent": agent,
                 "layer": layer,
@@ -914,7 +715,7 @@ def prompts_preflight(params: dict[str, Any]) -> dict[str, Any]:
                 "prompt_repo_id": source["prompt_repo_id"],
                 "prompt_repo_revision": source["prompt_repo_revision"],
                 "prompt_file_path": rel.as_posix(),
-                "prompt_sha256": _prompt_sha256({rel.as_posix(): text}),
+                "prompt_sha256": _raw_prompt_sha256(text),
                 "resolved_source": source["resolved_source"],
                 "fallback_used": False,
             })
@@ -945,8 +746,6 @@ def prompts_preflight(params: dict[str, Any]) -> dict[str, Any]:
         "blocked_count": len(blocked),
         "rows": rows,
     }
-
-
 def _contract_input_rows(
     params: dict[str, Any],
     cohort: str,
@@ -992,11 +791,11 @@ def _contract_input_rows(
     return list(prompts_preflight({"cohort": cohort, "agents": list(agents), "langs": list(langs)})["rows"])
 
 
-def _contract_categories(text: str) -> dict[str, bool]:
+def _legacy_rke_contract_categories(text: str) -> dict[str, bool]:
     lower = text.casefold()
     return {
         category: any(f"## {alias}" in lower or f"{alias}:" in lower for alias in aliases)
-        for category, aliases in _PROMPT_CONTRACT_CATEGORIES.items()
+        for category, aliases in _LEGACY_RKE_PROMPT_CONTRACT_CATEGORIES.items()
     }
 
 
@@ -1009,16 +808,18 @@ def _missing_token_groups(text: str, groups: dict[str, tuple[str, ...]]) -> list
     ]
 
 
-def _check_prompt_contract_text(agent: str, text: str) -> tuple[list[str], dict[str, bool]]:
+def _check_legacy_rke_prompt_contract_text(
+    agent: str, text: str
+) -> tuple[list[str], dict[str, bool]]:
     lower = text.casefold()
-    categories = _contract_categories(text)
+    categories = _legacy_rke_contract_categories(text)
     blockers = [
         f"required_section_missing:{category}"
         for category, present in categories.items()
         if not present
     ]
 
-    for field in _AGENT_SCHEMA_FIELDS.get(agent, ()):
+    for field in _LEGACY_RKE_AGENT_SCHEMA_FIELDS.get(agent, ()):
         if field.casefold() not in lower:
             blockers.append(f"schema_field_missing:{field}")
 
@@ -1071,6 +872,77 @@ def _check_prompt_contract_text(agent: str, text: str) -> tuple[list[str], dict[
     return blockers, categories
 
 
+def _runtime_contract_categories(agent: str, text: str) -> dict[str, bool]:
+    lower = text.casefold()
+    contract = _RUNTIME_PROMPT_CONTRACTS[agent]
+    return {
+        "role_scope": f"# {agent.casefold()}" in lower,
+        "cohort_lens": (
+            "<!-- cohort-behavior:start -->" in lower
+            and "<!-- cohort-behavior:end -->" in lower
+        ),
+        "runtime_tool_contract": all(
+            tool.casefold() in lower for tool in contract["required_tools"]
+        ),
+        "runtime_schema_contract": (
+            "<!-- runtime-evidence-contract:start -->" in lower
+            and "<!-- runtime-evidence-contract:end -->" in lower
+            and all(
+                field.casefold() in lower
+                for field in contract["output_schema_fields"]
+            )
+        ),
+        "evidence_closure": all(
+            token in lower
+            for token in ("claims", "claim_refs", "evidence_id", "research_rule_refs")
+        ),
+        "pit_or_frozen_scope": any(
+            token in lower for token in ("as-of", "pit", "frozen", "截至", "冻结")
+        ),
+        "insufficient_evidence_disposition": any(
+            token in lower
+            for token in ("reject", "abstain", "insufficient", "拒绝", "弃权", "不足")
+        ),
+    }
+
+
+def _check_runtime_prompt_contract_text(
+    agent: str, text: str
+) -> tuple[list[str], dict[str, bool]]:
+    lower = text.casefold()
+    contract = _RUNTIME_PROMPT_CONTRACTS[agent]
+    categories = _runtime_contract_categories(agent, text)
+    blockers = [
+        f"required_contract_missing:{category}"
+        for category, present in categories.items()
+        if not present
+    ]
+    for tool in contract["required_tools"]:
+        if tool.casefold() not in lower:
+            blockers.append(f"required_tool_missing:{tool}")
+    mentioned_tools = set(re.findall(r"\bget_[a-z0-9_]+\b", lower))
+    unexpected_tools = sorted(mentioned_tools - set(contract["required_tools"]))
+    blockers.extend(f"unapproved_tool_mentioned:{tool}" for tool in unexpected_tools)
+    for field in contract["output_schema_fields"]:
+        if field.casefold() not in lower:
+            blockers.append(f"schema_field_missing:{field}")
+    if "```json" in lower or re.search(r"\{\s*[\"'][a-zA-Z0-9_]", text):
+        blockers.append("handwritten_json_schema_forbidden")
+    for blocker, pattern in _MODEL_PROMPT_FORBIDDEN_PATTERNS.items():
+        if pattern.search(text):
+            blockers.append(blocker)
+    return sorted(set(blockers)), categories
+
+
+def _contract_mode(params: dict[str, Any]) -> tuple[str, str]:
+    mode = _optional_str(params, "contract_mode") or "production_v2"
+    if mode == "production_v2":
+        return mode, _PROMPT_CONTRACT_VERSION
+    if mode == "rke_shadow_fixture_v1":
+        return mode, _LEGACY_RKE_PROMPT_CONTRACT_VERSION
+    raise RpcError(INVALID_PARAMS, "contract_mode must be production_v2 or rke_shadow_fixture_v1")
+
+
 def _read_contract_prompt(
     source: dict[str, Any],
     rel_text: str,
@@ -1092,6 +964,7 @@ def _read_contract_prompt(
 @method("prompts.contract_check")
 def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
     """Validate private prompt contracts without returning prompt bodies."""
+    contract_mode, contract_version = _contract_mode(params)
     cohort = _optional_str(params, "cohort") or _DEFAULT_COHORT
     agents = _optional_str_list(
         params,
@@ -1103,11 +976,8 @@ def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
     benchmark_run_id = _safe_str(params.get("benchmark_run_id"))
     rows = _contract_input_rows(params, cohort, agents, langs)
     source = _formal_prompt_source()
-    research_knobs_enabled = _research_knobs_enabled_agents()
-
     checked_rows: list[dict[str, Any]] = []
     categories_by_agent_lang: dict[tuple[str, str], dict[str, bool]] = {}
-    knobs_by_agent_lang: dict[tuple[str, str], str] = {}
     for input_row in rows:
         agent = _safe_str(input_row.get("agent"))
         lang = _safe_str(input_row.get("lang"))
@@ -1118,9 +988,13 @@ def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
         prompt_repo_revision = _safe_str(input_row.get("prompt_repo_revision"))
         prompt_file_path = _safe_str(input_row.get("prompt_file_path"))
         row_run_id = _safe_str(input_row.get("benchmark_run_id"))
-        categories = {category: False for category in _PROMPT_CONTRACT_CATEGORIES}
-        research_knobs_required = _research_knobs_enabled(agent, research_knobs_enabled)
-        research_knobs_check_passed = not research_knobs_required
+        categories = (
+            {category: False for category in _LEGACY_RKE_PROMPT_CONTRACT_CATEGORIES}
+            if contract_mode == "rke_shadow_fixture_v1"
+            else {category: False for category in _runtime_contract_categories(agent, "")}
+            if agent in _RUNTIME_PROMPT_CONTRACTS
+            else {}
+        )
 
         if agent not in _ALL_AGENTS:
             blockers.append("unknown_agent")
@@ -1143,22 +1017,21 @@ def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
             if read_error:
                 blockers.append(read_error)
             elif text is not None:
-                computed_sha = _prompt_sha256({prompt_file_path: text})
+                computed_sha = _raw_prompt_sha256(text)
                 if not prompt_sha:
                     blockers.append("prompt_sha256_missing")
                     prompt_sha = computed_sha
                 elif prompt_sha != computed_sha:
                     blockers.append("prompt_sha256_mismatch")
-                text_blockers, categories = _check_prompt_contract_text(agent, text)
+                if contract_mode == "rke_shadow_fixture_v1":
+                    text_blockers, categories = _check_legacy_rke_prompt_contract_text(
+                        agent, text
+                    )
+                else:
+                    text_blockers, categories = _check_runtime_prompt_contract_text(
+                        agent, text
+                    )
                 blockers.extend(text_blockers)
-                if research_knobs_required:
-                    knobs_fence, knobs_failures = _canonical_research_knobs_fence(text)
-                    if knobs_failures:
-                        blockers.extend(knobs_failures)
-                    else:
-                        research_knobs_check_passed = True
-                        if knobs_fence is not None:
-                            knobs_by_agent_lang[(agent, lang)] = knobs_fence
 
         categories_by_agent_lang[(agent, lang)] = categories
         checked_rows.append(
@@ -1170,15 +1043,15 @@ def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
                 "prompt_repo_revision": prompt_repo_revision,
                 "prompt_file_path": prompt_file_path,
                 "prompt_sha256": prompt_sha,
-                "prompt_contract_check_ref": _prompt_contract_check_ref(prompt_sha)
+                "prompt_contract_check_ref": _prompt_contract_check_ref(
+                    prompt_sha, contract_version
+                )
                 if prompt_sha
                 else "",
                 "benchmark_run_id": benchmark_run_id or row_run_id,
                 "ready": not blockers,
                 "blockers": sorted(set(blockers)),
                 "contract_categories": categories,
-                "research_knobs_required": research_knobs_required,
-                "research_knobs_check_passed": research_knobs_check_passed,
             }
         )
 
@@ -1191,16 +1064,6 @@ def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
             if row["agent"] == agent and row["lang"] in {"zh", "en"}:
                 row["ready"] = False
                 row["blockers"] = sorted(set(row["blockers"]) | {"bilingual_contract_category_drift"})
-    for agent in {row["agent"] for row in checked_rows if row.get("research_knobs_required")}:
-        zh = knobs_by_agent_lang.get((agent, "zh"))
-        en = knobs_by_agent_lang.get((agent, "en"))
-        if zh is None or en is None or zh == en:
-            continue
-        for row in checked_rows:
-            if row["agent"] == agent and row["lang"] in {"zh", "en"}:
-                row["ready"] = False
-                row["research_knobs_check_passed"] = False
-                row["blockers"] = sorted(set(row["blockers"]) | {"research_knobs_bilingual_drift"})
 
     blocker_counts: dict[str, int] = {}
     layer_counts: dict[str, int] = {}
@@ -1215,7 +1078,8 @@ def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "schema_version": "prompt_contract_check_v1",
-        "contract_version": _PROMPT_CONTRACT_VERSION,
+        "contract_mode": contract_mode,
+        "contract_version": contract_version,
         "benchmark_run_id": benchmark_run_id,
         "cohort": cohort,
         "ready": bool(checked_rows) and all(row["ready"] for row in checked_rows),
@@ -1234,6 +1098,7 @@ def prompts_contract_check(params: dict[str, Any]) -> dict[str, Any]:
 @method("prompts.formal_release_checks")
 def prompts_formal_release_checks(params: dict[str, Any]) -> dict[str, Any]:
     """Emit no-body formal prompt release checks from private prompt pins."""
+    contract_mode, contract_version = _contract_mode(params)
     cohort = _optional_str(params, "cohort") or _DEFAULT_COHORT
     agents = _optional_str_list(
         params,
@@ -1249,6 +1114,7 @@ def prompts_formal_release_checks(params: dict[str, Any]) -> dict[str, Any]:
             "agents": list(agents),
             "langs": list(langs),
             "benchmark_run_id": benchmark_run_id,
+            "contract_mode": contract_mode,
         }
     )
     preflight = prompts_preflight(
@@ -1282,14 +1148,14 @@ def prompts_formal_release_checks(params: dict[str, Any]) -> dict[str, Any]:
                 "prompt_repo_revision": _safe_str(row.get("prompt_repo_revision")),
                 "prompt_file_path": _safe_str(row.get("prompt_file_path")),
                 "prompt_sha256": prompt_sha,
-                "audit_version_ref": f"prompt-audit:{_PROMPT_CONTRACT_VERSION}:{prompt_sha}"
+                "audit_version_ref": f"prompt-audit:{contract_version}:{prompt_sha}"
                 if prompt_sha
                 else "",
-                "verify_release_ref": f"prompt-release:{_PROMPT_CONTRACT_VERSION}:{prompt_sha}"
+                "verify_release_ref": f"prompt-release:{contract_version}:{prompt_sha}"
                 if prompt_sha
                 else "",
                 "leak_drift_check_ref": (
-                    f"prompt-leak-drift:{_PROMPT_CONTRACT_VERSION}:{prompt_sha}"
+                    f"prompt-leak-drift:{contract_version}:{prompt_sha}"
                     if prompt_sha
                     else ""
                 ),
@@ -1299,8 +1165,6 @@ def prompts_formal_release_checks(params: dict[str, Any]) -> dict[str, Any]:
                 "verify_release_passed": release_passed,
                 "leak_drift_passed": release_passed,
                 "prompt_contract_check_passed": row.get("ready") is True,
-                "research_knobs_required": row.get("research_knobs_required") is True,
-                "research_knobs_check_passed": row.get("research_knobs_check_passed") is True,
                 "ready": release_passed,
                 "blockers": sorted(set(row_blockers)),
             }
@@ -1309,6 +1173,8 @@ def prompts_formal_release_checks(params: dict[str, Any]) -> dict[str, Any]:
     ready_count = sum(1 for row in rows if row["ready"])
     return {
         "schema_version": "prompt_formal_release_checks_v1",
+        "contract_mode": contract_mode,
+        "contract_version": contract_version,
         "benchmark_run_id": benchmark_run_id,
         "cohort": cohort,
         "ready": bool(rows) and ready_count == len(rows),
@@ -1318,136 +1184,4 @@ def prompts_formal_release_checks(params: dict[str, Any]) -> dict[str, Any]:
         "blocked_reasons": sorted(blocker_counts),
         "prompt_source_status": preflight["source_status"],
         "rows": rows,
-    }
-
-
-@method("prompts.verify_release")
-def prompts_verify_release(params: dict[str, Any]) -> dict[str, Any]:
-    """Verify a kept prompt version can be pinned for release.
-
-    Checks:
-      - version exists and has private prompt metadata
-      - committed prompt file digest matches prompt_sha256
-      - registry-scan compatibility gate passes for current code/tools
-    """
-    from mosaic.autoresearch.evaluator import validate_prompt_tool_compatibility
-    from mosaic.autoresearch.git_ops import GitError
-
-    version_id = _require_int(params, "version_id")
-    require_kept = bool(params.get("require_kept", True))
-    store = _store()
-    version = store.get_prompt_version(version_id)
-    if version is None:
-        raise RpcError(INVALID_PARAMS, f"prompt version {version_id} not found")
-
-    mutation_metadata = store.get_version_mutation_metadata(version_id)
-    promotion_decision = store.get_domain_promotion_decision(version_id)
-    evaluation_result = store.get_domain_evaluation_result(version_id)
-    domain_mutation = bool(
-        mutation_metadata and mutation_metadata.get("mutation_kind") == "domain_knob"
-    )
-    promotion_ok = not domain_mutation
-    if domain_mutation and mutation_metadata and promotion_decision and evaluation_result:
-        promotion_ok = bool(
-            version.get("mutation_lifecycle") == "kept"
-            and promotion_decision.get("decision") == "keep"
-            and version.get("promotion_decision_hash")
-            == _canonical_json_hash(promotion_decision)
-            and promotion_decision.get("mutation_id")
-            == mutation_metadata.get("mutation_id")
-            and promotion_decision.get("experiment_id")
-            == mutation_metadata.get("experiment_id")
-            and promotion_decision.get("transaction_manifest_hash")
-            == mutation_metadata.get("transaction_manifest_hash")
-            and promotion_decision.get("evaluation_result_hash")
-            == evaluation_result.get("result_hash")
-            and promotion_decision.get("prompt_commit_hash")
-            == version.get("modification_commit_hash")
-            and promotion_decision.get("prompt_sha256")
-            == version.get("prompt_sha256")
-            and promotion_decision.get("code_commit_hash")
-            == version.get("code_commit_hash")
-        )
-    checks: dict[str, Any] = {
-        "status_ok": (not require_kept) or version.get("status") == "keep",
-        "metadata_ok": bool(
-            version.get("modification_commit_hash")
-            and version.get("prompt_repo_id")
-            and version.get("prompt_sha256")
-            and version.get("code_commit_hash")
-        ),
-        "sha_ok": False,
-        "compatible": False,
-        "promotion_ok": promotion_ok,
-    }
-    details: dict[str, Any] = {}
-    try:
-        git = _private_git() if version.get("prompt_repo_id") == "private" else _git()
-    except RpcError as exc:
-        # e.g. a private version when MOSAIC_PRIVATE_PROMPT_REPO is unset — report
-        # not-ready with a reason rather than throwing, to match the structured checks.
-        details["repo_error"] = str(exc)
-        return {
-            "ready": False,
-            "checks": checks,
-            "details": details,
-            "pin": {
-                "version_id": version["id"],
-                "cohort": version["cohort"],
-                "agent": version["agent"],
-                "code_commit_hash": version.get("code_commit_hash"),
-                "prompt_repo_id": version.get("prompt_repo_id"),
-                "prompt_commit_hash": version.get("modification_commit_hash"),
-                "prompt_sha256": version.get("prompt_sha256"),
-                "mutation_id": (mutation_metadata or {}).get("mutation_id"),
-                "experiment_id": (mutation_metadata or {}).get("experiment_id"),
-                "keep_decision_hash": version.get("promotion_decision_hash"),
-                "evaluation_result_hash": (evaluation_result or {}).get("result_hash"),
-                "transaction_manifest_hash": (mutation_metadata or {}).get(
-                    "transaction_manifest_hash"
-                ),
-            },
-        }
-
-    files: dict[str, str] = {}
-    if version.get("modification_commit_hash"):
-        for lang in _LANGS:
-            rel = _rel_path(version["agent"], version["cohort"], lang)
-            try:
-                files[rel] = git.show_file(version["modification_commit_hash"], rel)
-            except GitError:
-                details.setdefault("missing_files", []).append(rel)
-    if files:
-        computed_sha = _prompt_sha256(files)
-        checks["sha_ok"] = computed_sha == version.get("prompt_sha256")
-        details["computed_prompt_sha256"] = computed_sha
-
-    try:
-        compatibility = validate_prompt_tool_compatibility(version, git, baseline_git=_git())
-        checks["compatible"] = bool(compatibility["compatible"])
-        details["compatibility"] = compatibility
-    except Exception as exc:
-        details["compatibility_error"] = f"{type(exc).__name__}: {exc}"
-
-    ready = all(bool(v) for v in checks.values())
-    return {
-        "ready": ready,
-        "checks": checks,
-        "details": details,
-        "pin": {
-            "version_id": version["id"],
-            "cohort": version["cohort"],
-            "agent": version["agent"],
-            "code_commit_hash": version.get("code_commit_hash"),
-            "prompt_repo_id": version.get("prompt_repo_id"),
-            "prompt_commit_hash": version.get("modification_commit_hash"),
-            "prompt_sha256": version.get("prompt_sha256"),
-            "mutation_id": (mutation_metadata or {}).get("mutation_id"),
-            "experiment_id": (mutation_metadata or {}).get("experiment_id"),
-            "keep_decision_hash": version.get("promotion_decision_hash"),
-            "evaluation_result_hash": (evaluation_result or {}).get("result_hash"),
-            "transaction_manifest_hash": (mutation_metadata or {}).get(
-                "transaction_manifest_hash"
-            ),
-        },
     }

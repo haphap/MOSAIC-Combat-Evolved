@@ -13,24 +13,27 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
+from jsonschema import Draft202012Validator, FormatChecker
+from jsonschema.exceptions import SchemaError
+
 
 SCHEMA_VERSION = "prompt_evolution_delivery_status_v1"
 GENERATOR_ID = "prompt_evolution_delivery"
-GENERATOR_VERSION = "2"
-COMMAND_CONTRACT_VERSION = "prompt_evolution_delivery_commands_v2"
+GENERATOR_VERSION = "3"
+COMMAND_CONTRACT_VERSION = "prompt_evolution_delivery_commands_v7"
 
 Status = Literal["pass", "fail", "blocked"]
 
 PROMPT_CHECK_DIR = Path("registry/prompt_checks")
-RUNTIME_MANIFEST_PATH = PROMPT_CHECK_DIR / "runtime_agent_manifest_v2.json"
-DOMAIN_CATALOG_PATH = PROMPT_CHECK_DIR / "domain_knob_catalog_v1.json"
-EVALUATION_CONTRACT_PATH = (
-    PROMPT_CHECK_DIR / "domain_knob_evaluation_contract_v1.json"
+RUNTIME_MANIFEST_PATH = PROMPT_CHECK_DIR / "runtime_agent_manifest_v5.json"
+PROMPT_RELEASE_CONTRACT_REF_PATH = (
+    PROMPT_CHECK_DIR / "prompt_release_contract_ref_v2.json"
 )
 TOKEN_BUDGET_PATH = PROMPT_CHECK_DIR / "prompt_token_budget_manifest_v1.json"
 PERFORMANCE_BUDGET_PATH = (
     PROMPT_CHECK_DIR / "prompt_evolution_performance_budget_v1.json"
 )
+DELIVERY_SCHEMA_PATH = Path("schemas/prompt_evolution_delivery_status_v1.schema.json")
 
 DELIVERY_INPUT_PATHS = (
     Path(".github/workflows/ci.yml"),
@@ -44,17 +47,14 @@ DELIVERY_INPUT_PATHS = (
     Path("mosaic-ts/package.json"),
     Path("mosaic-ts/pnpm-lock.yaml"),
     Path("pyproject.toml"),
-    DOMAIN_CATALOG_PATH,
-    EVALUATION_CONTRACT_PATH,
+    PROMPT_RELEASE_CONTRACT_REF_PATH,
     PERFORMANCE_BUDGET_PATH,
     RUNTIME_MANIFEST_PATH,
     TOKEN_BUDGET_PATH,
-    Path("schemas/domain_knob_catalog_v1.schema.json"),
-    Path("schemas/domain_knob_evaluation_contract_v1.schema.json"),
-    Path("schemas/prompt_evolution_delivery_status_v1.schema.json"),
+    DELIVERY_SCHEMA_PATH,
     Path("schemas/prompt_evolution_performance_budget_v1.schema.json"),
     Path("schemas/prompt_token_budget_manifest_v1.schema.json"),
-    Path("schemas/runtime_agent_manifest_v2.schema.json"),
+    Path("schemas/runtime_agent_manifest_v5.schema.json"),
 )
 
 CHECK_IDS = (
@@ -72,8 +72,7 @@ CHECK_IDS = (
     "typescript_integration_contract_tests",
     "bundled_prompt_contract",
     "runtime_manifest_reproducible",
-    "domain_catalog_reproducible",
-    "evaluation_contract_reproducible",
+    "prompt_release_contract_reproducible",
     "prompt_budget_attestation",
     "performance_budget",
     "documentation_contract",
@@ -92,8 +91,7 @@ GATE_DEFINITIONS: Mapping[str, Mapping[str, Any]] = {
             "schema_artifact_tests",
             "typescript_gate_tests",
             "runtime_manifest_reproducible",
-            "domain_catalog_reproducible",
-            "evaluation_contract_reproducible",
+            "prompt_release_contract_reproducible",
         ),
         "gates": (),
     },
@@ -158,7 +156,7 @@ GATE_DEFINITIONS: Mapping[str, Mapping[str, Any]] = {
 }
 
 CONDITION_DEFINITIONS: Mapping[str, Mapping[str, Any]] = {
-    "C01": {"title": "25 agents and 26 stages", "checks": (), "gates": ("G5",)},
+    "C01": {"title": "28 agents and 29 stages", "checks": (), "gates": ("G5",)},
     "C02": {"title": "claim-to-evidence closure", "checks": (), "gates": ("G2",)},
     "C03": {"title": "scoped real source statuses", "checks": (), "gates": ("G2",)},
     "C04": {"title": "registry and write-back closure", "checks": (), "gates": ("G0", "G3")},
@@ -188,7 +186,9 @@ CONDITION_DEFINITIONS: Mapping[str, Mapping[str, Any]] = {
 }
 
 PYTHON_GATE_TESTS = (
-    "tests/test_autoresearch_domain_evaluator.py",
+    "tests/test_knot_legacy_read_only.py",
+    "tests/test_prompt_optimizer_store.py",
+    "tests/test_bridge_prompt_optimizer.py",
     "tests/test_bridge_autoresearch.py",
     "tests/test_bridge_prompts.py",
     "tests/test_mirofish.py",
@@ -196,8 +196,8 @@ PYTHON_GATE_TESTS = (
 )
 
 REPRESENTATIVE_EVALUATION_TESTS = (
-    "tests/test_autoresearch_domain_evaluator.py::test_generic_confidence_and_weight_targets_use_paired_evaluator",
-    "tests/test_autoresearch_domain_evaluator.py::test_representative_domain_categories_complete_paired_evaluation_and_rollback",
+    "tests/test_prompt_optimizer_store.py",
+    "tests/test_bridge_prompt_optimizer.py",
 )
 
 PYTHON_INTEGRATION_CONTRACT_TESTS = (
@@ -230,17 +230,15 @@ TYPESCRIPT_GATE_TESTS = (
     "test/layer4_source_adapters.test.ts",
     "test/mirofish_context_inject.test.ts",
     "test/mirofish_trainer.test.ts",
-    "test/mutator.test.ts",
-    "test/orchestrator.test.ts",
     "test/prompt_loader.test.ts",
     "test/prompt_release_canary_runtime.test.ts",
     "test/prompt_release_manager.test.ts",
     "test/prompt_token_budget.test.ts",
     "test/release_prompt_loader.test.ts",
-    "test/research_knobs.test.ts",
-    "test/research_knobs_checker.test.ts",
+    "test/prompt_experiment_runner.test.ts",
+    "test/prompt_optimizer_contract.test.ts",
+    "test/prompt_promotion_policy.test.ts",
     "test/runtime_agent_spec.test.ts",
-    "test/transaction_release_coordinator.test.ts",
 )
 
 
@@ -252,6 +250,7 @@ class CommandSpec:
     evidence_refs: tuple[str, ...]
     compare_output_to: Path | None = None
     junit_expected_tests: int | None = None
+    junit_minimum_tests: int | None = None
     junit_path: Path | None = None
     json_expected_passed_tests: int | None = None
     json_report_path: Path | None = None
@@ -304,7 +303,7 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
     python_basetemp = run_dir / "pytest"
     generated_dir = run_dir / "generated"
     prompts_root = root / "prompts/mosaic"
-    return (
+    specs = (
         CommandSpec(
             "ruff",
             ("uvx", "ruff@0.15.15", "check", "mosaic", "tests"),
@@ -325,8 +324,7 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
                 "python",
                 "-m",
                 "pytest",
-                "tests/test_rke_schema_artifacts.py::test_domain_knob_evaluation_contract_schema_requires_generic_write_back",
-                "tests/test_rke_prompt_evolution_delivery.py::test_delivery_artifact_validates_against_json_schema",
+                "tests/test_rke_prompt_evolution_delivery.py::test_delivery_verifier_enforces_json_schema",
                 "-q",
                 "--junitxml",
                 str(run_dir / "focused-schema.xml"),
@@ -335,10 +333,9 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
             ),
             root,
             (
-                "tests/test_rke_schema_artifacts.py::test_domain_knob_evaluation_contract_schema_requires_generic_write_back",
-                "tests/test_rke_prompt_evolution_delivery.py::test_delivery_artifact_validates_against_json_schema",
+                "tests/test_rke_prompt_evolution_delivery.py::test_delivery_verifier_enforces_json_schema",
             ),
-            junit_expected_tests=2,
+            junit_expected_tests=1,
             junit_path=run_dir / "focused-schema.xml",
         ),
         CommandSpec(
@@ -392,7 +389,7 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
             ),
             root,
             REPRESENTATIVE_EVALUATION_TESTS,
-            junit_expected_tests=2,
+            junit_minimum_tests=36,
             junit_path=run_dir / "representative-evaluation.xml",
         ),
         CommandSpec(
@@ -430,7 +427,14 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
         ),
         CommandSpec(
             "typescript_gate_tests",
-            ("pnpm", "exec", "vitest", "run", *TYPESCRIPT_GATE_TESTS),
+            (
+                "pnpm",
+                "exec",
+                "vitest",
+                "run",
+                *TYPESCRIPT_GATE_TESTS,
+                "--no-file-parallelism",
+            ),
             root / "mosaic-ts",
             tuple(f"mosaic-ts/{path}" for path in TYPESCRIPT_GATE_TESTS),
         ),
@@ -463,7 +467,7 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
                 "pnpm",
                 "dev",
                 "prompts",
-                "check-research-knobs",
+                "check-bundled-contract",
                 "--prompts-root",
                 str(prompts_root),
                 "--enabled-agents",
@@ -481,26 +485,55 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
             "export-runtime-agent-manifest",
             RUNTIME_MANIFEST_PATH,
         ),
-        _artifact_export_spec(
-            root,
-            generated_dir,
-            "domain_catalog_reproducible",
-            "export-domain-knob-catalog",
-            DOMAIN_CATALOG_PATH,
-        ),
-        _artifact_export_spec(
-            root,
-            generated_dir,
-            "evaluation_contract_reproducible",
-            "export-domain-knob-evaluation-contract",
-            EVALUATION_CONTRACT_PATH,
-        ),
+        _prompt_release_contract_ref_spec(root, generated_dir),
         CommandSpec(
             "git_diff_check",
             ("git", "diff", "--check"),
             root,
             ("git:working-tree",),
         ),
+    )
+    _assert_declared_test_files_exist(specs)
+    return specs
+
+
+def _assert_declared_test_files_exist(specs: Sequence[CommandSpec]) -> None:
+    missing: set[str] = set()
+    for spec in specs:
+        for argument in spec.argv:
+            test_path = argument.split("::", 1)[0]
+            if not (
+                (test_path.startswith("tests/") and test_path.endswith(".py"))
+                or (
+                    test_path.startswith("test/")
+                    and test_path.endswith((".ts", ".tsx"))
+                )
+            ):
+                continue
+            declared = spec.cwd / test_path
+            if not declared.is_file():
+                missing.add(declared.as_posix())
+    if missing:
+        raise FileNotFoundError(
+            "declared delivery test files are missing: " + ", ".join(sorted(missing))
+        )
+
+
+def _prompt_release_contract_ref_spec(root: Path, generated_dir: Path) -> CommandSpec:
+    output = generated_dir / PROMPT_RELEASE_CONTRACT_REF_PATH.name
+    return CommandSpec(
+        "prompt_release_contract_reproducible",
+        (
+            "pnpm",
+            "exec",
+            "tsx",
+            "scripts/generate_prompt_release_contract_ref.ts",
+            "--out",
+            str(output),
+        ),
+        root / "mosaic-ts",
+        (str(PROMPT_RELEASE_CONTRACT_REF_PATH),),
+        compare_output_to=PROMPT_RELEASE_CONTRACT_REF_PATH,
     )
 
 
@@ -553,7 +586,7 @@ def run_command(root: Path, run_dir: Path, spec: CommandSpec) -> dict[str, Any]:
         if not output_path.exists() or output_path.read_bytes() != committed_path.read_bytes():
             status = "fail"
             reasons.append("GENERATED_ARTIFACT_DRIFT")
-    if spec.junit_expected_tests is not None:
+    if spec.junit_expected_tests is not None or spec.junit_minimum_tests is not None:
         junit_reasons = _validate_junit_receipt(spec)
         if junit_reasons:
             status = "fail"
@@ -611,8 +644,10 @@ def _validate_junit_receipt(spec: CommandSpec) -> list[str]:
     errors = total("errors")
     skipped = total("skipped")
     reasons: list[str] = []
-    if tests != spec.junit_expected_tests:
+    if spec.junit_expected_tests is not None and tests != spec.junit_expected_tests:
         reasons.append("JUNIT_TEST_COUNT_MISMATCH")
+    if spec.junit_minimum_tests is not None and tests < spec.junit_minimum_tests:
+        reasons.append("JUNIT_TEST_COUNT_BELOW_MINIMUM")
     if failures or errors:
         reasons.append("JUNIT_TEST_FAILURE")
     if skipped:
@@ -698,12 +733,23 @@ def verify_prompt_budget_attestation(root: Path) -> tuple[Status, list[str]]:
     rows = budget.get("rows")
     if not isinstance(summary, Mapping) or summary.get("ready") is not True:
         reasons.append("PROMPT_BUDGET_NOT_READY")
-    if not isinstance(rows, list) or len(rows) != 104:
+    agents = runtime_manifest.get("agents")
+    expected_stage_count = (
+        sum(len(row.get("stages", [])) for row in agents if isinstance(row, Mapping))
+        if isinstance(agents, list)
+        else 0
+    )
+    expected_source_rows = expected_stage_count * 2
+    expected_row_count = expected_source_rows * 2
+    if expected_stage_count < 1 or not isinstance(rows, list) or len(rows) != expected_row_count:
         reasons.append("PROMPT_BUDGET_ROW_COUNT_MISMATCH")
         rows = []
     private_rows = [row for row in rows if row.get("source") == "private"]
     bundled_rows = [row for row in rows if row.get("source") == "bundled"]
-    if len(private_rows) != 52 or len(bundled_rows) != 52:
+    if (
+        len(private_rows) != expected_source_rows
+        or len(bundled_rows) != expected_source_rows
+    ):
         reasons.append("PROMPT_BUDGET_SOURCE_COVERAGE_MISMATCH")
     if any(row.get("passed") is not True for row in rows):
         reasons.append("PROMPT_BUDGET_ROW_FAILED")
@@ -845,12 +891,11 @@ def verify_performance_budget(
 def verify_documentation_contract(root: Path) -> tuple[Status, list[str]]:
     requirements = {
         Path("docs/runbooks/position_aware_prompt_evolution.md"): (
-            "MOSAIC_PROMPT_CANARY_EVENT_LOG",
-            "prompt-token-budget",
-            "summarize-slo",
-            "MOSAIC_TEST_PRIVATE_REPORT_INTELLIGENCE_FIXTURES",
-            "prompt_evolution_performance_budget_v1",
-            "--durations=20",
+            "Prompt Mutator",
+            "prompt_release_contract_ref_v2.json",
+            "check_prompt_leaks.py",
+            "canary",
+            "rollback",
         ),
         Path("docs/wiki/CLI-Reference.md"): ("prompt-token-budget", "summarize-slo"),
         Path("docs/wiki/zh/CLI-Reference.md"): ("prompt-token-budget", "summarize-slo"),
@@ -1168,7 +1213,7 @@ def validate_delivery_status(
     *,
     check_current_inputs: bool = True,
 ) -> list[str]:
-    reasons: list[str] = []
+    reasons = validate_delivery_artifact_schema(root, artifact)
     if artifact.get("schema_version") != SCHEMA_VERSION:
         reasons.append("schema_version_mismatch")
     generator = artifact.get("generator")
@@ -1335,6 +1380,28 @@ def validate_delivery_status(
     return sorted(set(reasons))
 
 
+def validate_delivery_artifact_schema(
+    root: Path,
+    artifact: Mapping[str, Any],
+) -> list[str]:
+    try:
+        schema = _load_json(root / DELIVERY_SCHEMA_PATH)
+        Draft202012Validator.check_schema(schema)
+    except (OSError, ValueError, json.JSONDecodeError, SchemaError) as exc:
+        return [f"delivery_schema_unreadable:{type(exc).__name__}"]
+    validator = Draft202012Validator(schema, format_checker=FormatChecker())
+    errors = sorted(
+        validator.iter_errors(artifact),
+        key=lambda error: tuple(str(part) for part in error.absolute_path),
+    )
+    return [
+        "delivery_schema_invalid:"
+        + (".".join(str(part) for part in error.absolute_path) or "$")
+        + f":{error.validator}"
+        for error in errors
+    ]
+
+
 def generate_delivery_status(
     root: Path,
     *,
@@ -1424,6 +1491,12 @@ def generate_delivery_status(
         checks=checks,
         upstream_ci=upstream_ci,
     )
+    schema_reasons = validate_delivery_artifact_schema(root, artifact)
+    if schema_reasons:
+        raise ValueError(
+            "generated delivery artifact failed schema validation: "
+            + ", ".join(schema_reasons)
+        )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
         json.dumps(artifact, ensure_ascii=False, indent=2) + "\n",

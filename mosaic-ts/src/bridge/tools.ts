@@ -16,7 +16,7 @@ import type {
   BridgeApi,
   JsonSchemaObject,
   JsonSchemaProperty,
-  ToolCallContext,
+  SignedAgentToolCapability,
   ToolMetadata,
 } from "./types.js";
 
@@ -91,19 +91,8 @@ export function jsonSchemaToZod(schema: JsonSchemaObject): ZodObject {
 }
 
 export interface BridgeToolFactoryOptions {
-  /** Default backtest context to attach to every tool.invoke call. */
-  context?: ToolCallContext;
-}
-
-const BACKTEST_BLOCKED_TOOL_NAMES = new Set([
-  "get_global_news",
-  "get_insider_transactions",
-  "get_news",
-  "get_xueqiu_heat",
-]);
-
-function isBacktestBlockedTool(name: string, options: BridgeToolFactoryOptions): boolean {
-  return options.context?.mode === "backtest" && BACKTEST_BLOCKED_TOOL_NAMES.has(name);
+  /** Signed, bundle-bound capability kept out of the model-visible prompt. */
+  capability: SignedAgentToolCapability;
 }
 
 /**
@@ -116,13 +105,17 @@ function isBacktestBlockedTool(name: string, options: BridgeToolFactoryOptions):
 export function bridgeToolFromMetadata(
   api: BridgeApi,
   metadata: ToolMetadata,
-  options: BridgeToolFactoryOptions = {},
+  options: BridgeToolFactoryOptions,
 ): StructuredToolInterface {
   const schema = jsonSchemaToZod(metadata.args_schema);
-  const ctx = options.context;
+  const capability = options.capability;
   return tool(
     async (input) => {
-      const result = await api.toolsCall(metadata.name, input as Record<string, unknown>, ctx);
+      const result = await api.toolsCall(
+        metadata.name,
+        input as Record<string, unknown>,
+        capability,
+      );
       return result.text;
     },
     {
@@ -136,9 +129,9 @@ export function bridgeToolFromMetadata(
 /** Convenience: pull tools.list and wrap each one. */
 export async function listBridgeTools(
   api: BridgeApi,
-  options: BridgeToolFactoryOptions = {},
+  options: BridgeToolFactoryOptions,
 ): Promise<StructuredToolInterface[]> {
-  const metadatas = await api.toolsList();
+  const metadatas = await api.toolsList(options.capability);
   return metadatas.map((m) => bridgeToolFromMetadata(api, m, options));
 }
 
@@ -146,9 +139,9 @@ export async function listBridgeTools(
 export async function pickBridgeTools(
   api: BridgeApi,
   names: ReadonlyArray<string>,
-  options: BridgeToolFactoryOptions = {},
+  options: BridgeToolFactoryOptions,
 ): Promise<StructuredToolInterface[]> {
-  const metadatas = await api.toolsList();
+  const metadatas = await api.toolsList(options.capability);
   const byName = new Map(metadatas.map((m) => [m.name, m] as const));
   const picked: StructuredToolInterface[] = [];
   const missing: string[] = [];
@@ -156,9 +149,6 @@ export async function pickBridgeTools(
     const meta = byName.get(name);
     if (!meta) {
       missing.push(name);
-      continue;
-    }
-    if (isBacktestBlockedTool(name, options)) {
       continue;
     }
     picked.push(bridgeToolFromMetadata(api, meta, options));

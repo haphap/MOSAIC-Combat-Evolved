@@ -22,29 +22,6 @@ function fakeApi() {
             "stop_loss_breached",
             "stale_thesis",
           ]),
-          declared_knob_influence_ids_json: JSON.stringify(["mirofish_portfolio_stress_weight"]),
-          declared_influence_rationale: "scenario stress tempered add size",
-          verified_knob_audit_json: JSON.stringify({
-            fired_cap_ids: ["fallback_primary_tool"],
-            unsupported_knob_influence_ids: [],
-          }),
-          decision_agent_audits_json: JSON.stringify({
-            cro: {
-              fired_cap_ids: ["missing_current_data"],
-              declared_knob_influence_ids: ["stop_loss_pct"],
-              unsupported_knob_influence_ids: [],
-            },
-            autonomous_execution: {
-              fired_cap_ids: [],
-              declared_knob_influence_ids: ["mirofish_path_sizing_weight"],
-              unsupported_knob_influence_ids: [],
-            },
-            cio: {
-              fired_cap_ids: ["fallback_primary_tool"],
-              declared_knob_influence_ids: ["mirofish_portfolio_stress_weight"],
-              unsupported_knob_influence_ids: [],
-            },
-          }),
           override_reason: "CRO reviewed current data",
           dissent_notes: "",
           rationale_snapshot: "券商β",
@@ -52,6 +29,76 @@ function fakeApi() {
           scored_at: null,
         },
       ],
+    }),
+    scorecardLatestAgentNarratives: vi.fn().mockResolvedValue({
+      schema_version: "agent_display_narrative_bundle_v1",
+      cohort: "cohort_default",
+      date: "2026-05-30",
+      trace_id: "trace-1",
+      bundle_hash: `sha256:${"a".repeat(64)}`,
+      language: "zh",
+      narratives: [
+        {
+          schema_version: "agent_display_narrative_v1",
+          narrative_id: `agent-display:${"b".repeat(64)}`,
+          agent_id: "china",
+          layer: "macro",
+          language: "zh",
+          source: "ACCEPTED_OUTPUT",
+          source_output_id: "accepted:china",
+          source_output_hash: `sha256:${"c".repeat(64)}`,
+          narrative_text: "结论：SUPPORTIVE，强度 4/5。\n主要驱动：中国需求改善。",
+          ui_only: true,
+        },
+        {
+          schema_version: "agent_display_narrative_v1",
+          narrative_id: `agent-display:${"d".repeat(64)}`,
+          agent_id: "us_economy",
+          layer: "macro",
+          language: "zh",
+          source: "ACCEPTED_OUTPUT",
+          source_output_id: "accepted:us_economy",
+          source_output_hash: `sha256:${"e".repeat(64)}`,
+          narrative_text: "结论：ADVERSE，强度 2/5。\n主要驱动：外需走弱。",
+          ui_only: true,
+        },
+      ],
+    }),
+    promptOptimizerLatestSummary: vi.fn().mockResolvedValue({
+      candidate: {
+        schemaVersion: "prompt_candidate_v1",
+        candidateId: "candidate-optimizer-1",
+        parentId: "champion-1",
+        parentPromptCommit: "6".repeat(40),
+        parentPromptHashes: { zh: `sha256:${"7".repeat(64)}`, en: `sha256:${"8".repeat(64)}` },
+        target: { agentId: "china", stage: "agent_run", cohort: "cohort_default" },
+        promptRefs: { zh: "private://hidden.zh", en: "private://hidden.en" },
+        promptHashes: { zh: `sha256:${"1".repeat(64)}`, en: `sha256:${"2".repeat(64)}` },
+        trainingProjectionHash: `sha256:${"4".repeat(64)}`,
+        excludedSampleIdsHash: `sha256:${"c".repeat(64)}`,
+        mutatorConfigHash: `sha256:${"4".repeat(64)}`,
+        mutatorCommit: "5".repeat(40),
+        mutationCategories: ["CONFLICT_RESOLUTION"],
+        mutationSummary: "Behavior focus: CONFLICT_RESOLUTION.",
+        hypothesis:
+          "Preregistered hypothesis: CONFLICT_RESOLUTION improves the frozen Agent outcome score.",
+        behaviorContractHash: `sha256:${"a".repeat(64)}`,
+        privateLineageHash: `sha256:${"b".repeat(64)}`,
+        createdAt: "2026-05-30T00:00:00Z",
+      },
+      experiment: {
+        status: "COMPLETE",
+        metrics: {
+          validation_paired_delta: 0.12,
+          validation_confidence_lower: 0.04,
+          validation_tail_delta: 0.02,
+          holdout_paired_delta: 0.1,
+          holdout_confidence_lower: 0.03,
+          holdout_tail_delta: 0.01,
+        },
+        tailFailureCaseRefs: ["failure://tail-1"],
+      },
+      release: { release_id: "release-optimizer-1", lifecycle_state: "canary" },
     }),
     scorecardWinRate: vi.fn().mockResolvedValue({
       rows: [{ ticker: "510300.SH", win_rate: 0.62, n: 13, avg_dir_return_5d: 0.008 }],
@@ -196,14 +243,6 @@ function fakeApi() {
       quick_think_llm: "claude-haiku",
       output_language: "Chinese",
       active_cohort: "euphoria_2021",
-      autoresearch: {
-        agent_mutation_cooldown_hours: 24,
-        keep_revert_lockout_days: 3,
-        keep_threshold_delta_sharpe: 0.1,
-        monthly_modification_cap_per_cohort: 100,
-        evaluation_horizon_trading_days: 5,
-        git: { push: false, remote: "origin" },
-      },
       mirofish: { engine: "montecarlo", scorer: "terminal", inject_context: false },
     }),
     configDefault: vi.fn().mockResolvedValue({}),
@@ -231,9 +270,6 @@ describe("Dashboard", () => {
     expect(lastFrame()).toContain("ADD");
     expect(lastFrame()).toContain("intact");
     expect(lastFrame()).toContain("target_current_drift");
-    expect(lastFrame()).toContain("caps=fallback_primary_tool");
-    expect(lastFrame()).toContain("influence=mirofish_portfolio_stress_weight");
-    expect(lastFrame()).toContain("agent detail cro caps=missing_current_data");
     expect(lastFrame()).toContain("CRO reviewed current data");
     expect(lastFrame()).toContain("512880.SH");
   });
@@ -315,6 +351,42 @@ describe("Dashboard", () => {
     expect(lastFrame()).toContain("no scenario context");
   });
 
+  it("shows Prompt optimizer reasoning without Prompt bodies or raw traces", async () => {
+    const api = fakeApi();
+    const { stdin, lastFrame } = mount(api);
+    await flush();
+    stdin.write("9");
+    await flush();
+    expect(lastFrame()).toContain("Prompt optimizer");
+    expect(lastFrame()).toContain("CONFLICT_RESOLUTION improves");
+    expect(lastFrame()).toContain("Behavior focus: CONFLICT_RESOLUTION");
+    expect(lastFrame()).toContain("holdout_confidence_lower=0.0300");
+    expect(lastFrame()).toContain("failure://tail-1");
+    expect(lastFrame()).toContain("release-optimizer-1:canary");
+    expect(lastFrame()).not.toContain("private://hidden");
+  });
+
+  it("shows UI-only Agent explanations on tab 8 and navigates with j/k", async () => {
+    const api = fakeApi();
+    const { stdin, lastFrame } = mount(api);
+    await flush();
+    stdin.write("8");
+    await flush();
+    expect(api.scorecardLatestAgentNarratives).toHaveBeenCalledWith("cohort_default");
+    expect(lastFrame()).toContain("Agent decision explanations (2026-05-30) [1/2]");
+    expect(lastFrame()).toContain("中国需求改善");
+    expect(lastFrame()).toContain("not consumed downstream");
+
+    stdin.write("j");
+    await flush();
+    expect(lastFrame()).toContain("us_economy");
+    expect(lastFrame()).toContain("外需走弱");
+
+    stdin.write("k");
+    await flush();
+    expect(lastFrame()).toContain("china");
+  });
+
   it("refetches on key 'r'", async () => {
     const api = fakeApi();
     const { stdin } = mount(api);
@@ -347,14 +419,14 @@ describe("Dashboard", () => {
     expect(lastFrame()).toContain("anthropic");
   });
 
-  it("toggles a bool field with space and persists on 's'", async () => {
+  it("toggles a live bool field with space and persists on 's'", async () => {
     const api = fakeApi();
     const { stdin, lastFrame } = mount(api);
     await flush();
     stdin.write("7");
     await flush();
-    // Move to "AR git push" (a bool) and toggle it on, then save.
-    for (let i = 0; i < 10; i++) stdin.write("\u001B[B"); // down arrow ×10 → AR git push
+    // Move to "MiroFish inject ctx" (a bool) and toggle it on, then save.
+    for (let i = 0; i < 7; i++) stdin.write("\u001B[B");
     await flush();
     stdin.write(" ");
     await flush();
@@ -362,7 +434,7 @@ describe("Dashboard", () => {
     await flush();
     expect(api.configSave).toHaveBeenCalledWith(
       expect.objectContaining({
-        autoresearch: expect.objectContaining({ git: { push: true, remote: "origin" } }),
+        mirofish: expect.objectContaining({ inject_context: true }),
       }),
     );
     expect(lastFrame()).toContain("saved");

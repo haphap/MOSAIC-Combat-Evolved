@@ -1,29 +1,33 @@
-import {
-  checkResearchKnobsPrompts,
-  type ResearchKnobsCheckReport,
-} from "./research_knobs_checker.js";
+import type { PromptReleaseLoadContext } from "./release_prompt_loader.js";
 import {
   buildRuntimeAgentManifestArtifact,
   validateRuntimeAgentManifestArtifact,
 } from "./runtime_agent_spec.js";
+import { checkRuntimePrompts, type RuntimePromptCheckReport } from "./runtime_prompt_checker.js";
 
 export async function assertRuntimePromptPreflight(opts: {
   cohort: string;
   promptsRoot?: string;
   privatePromptsRoot?: string;
-}): Promise<ResearchKnobsCheckReport> {
-  const manifestReasons = validateRuntimeAgentManifestArtifact(buildRuntimeAgentManifestArtifact());
+  releaseContext?: PromptReleaseLoadContext | null;
+}): Promise<RuntimePromptCheckReport> {
+  const manifest = buildRuntimeAgentManifestArtifact();
+  const manifestReasons = validateRuntimeAgentManifestArtifact(manifest);
   if (manifestReasons.length > 0) {
     throw new Error(`runtime manifest preflight failed: ${manifestReasons.join(",")}`);
   }
-  const report = await checkResearchKnobsPrompts({
+  const report = await checkRuntimePrompts({
     cohort: opts.cohort,
-    enabledAgentStages: new Set(["*"]),
     ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
     ...(opts.privatePromptsRoot ? { privatePromptsRoot: opts.privatePromptsRoot } : {}),
+    ...(opts.releaseContext !== undefined ? { releaseContext: opts.releaseContext } : {}),
   });
   const failed = report.rows.filter((row) => !row.ready);
-  if (!report.ready || report.total_runtime_agents !== 25 || report.total_runtime_stages !== 26) {
+  if (
+    !report.ready ||
+    report.total_runtime_agents !== manifest.runtime_agent_count ||
+    report.total_runtime_stages !== manifest.runtime_stage_count
+  ) {
     const reasons = failed.flatMap((row) =>
       row.reasons.map((reason) => `${row.agent}:${row.stage}:${reason}`),
     );

@@ -1,5 +1,10 @@
 # Macro Agent Data Source And Drawdown-Aware Scoring Plan
 
+> **历史归档。** 本文记录旧 Macro roster 和旧评分路径；当前角色、PIT 数据合同、
+> outcome label、Darwinian/KNOT 隔离与可用性门以
+> `docs/plans/macro-agent-role-contracts-v2-plan.md` 为准。下文的 OpenCLI、新闻情绪、
+> `dollar`、`yield_curve`、`volatility` 等内容不得解释为当前生产依赖。
+
 日期：2026-06-03
 
 ## 要解决的问题

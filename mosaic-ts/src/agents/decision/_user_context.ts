@@ -4,87 +4,54 @@
  * ``buildUserContext``.
  */
 
+import {
+  type AcceptedAgentOutputRecord,
+  type AcceptedAgentOutputStore,
+  type AcceptedOutputKind,
+  type AcceptedOutputRecordRef,
+  acceptedOutputRefKey,
+} from "../accepted_output.js";
+import { renderAcceptedMacroInputs } from "../helpers/macro_context.js";
+import {
+  renderAcceptedSectorInputs,
+  renderAcceptedSuperinvestorInputs,
+} from "../helpers/source_layer_usage.js";
 import type { DailyCycleStateType } from "../state.js";
 import type { Layer4AgentOutput } from "./_factory.js";
+import { type AcceptedDecisionOutput, modelVisibleAcceptedDecision } from "./accepted.js";
+import { expectedFrozenOrderIntents, frozenCandidateRef } from "./runtime_adapter.js";
 
 // ---------------------------------------------------------------------------
 // Layer 1 — macro regime
 // ---------------------------------------------------------------------------
 
-export function renderLayer1Context(state: DailyCycleStateType): string {
-  const regime = state.layer1_consensus;
-  if (!regime) {
-    return "## Layer-1 macro regime\n* (not available — state.layer1_consensus is null)\n";
-  }
-  return (
-    `## Layer-1 macro regime\n` +
-    `* stance:                   ${regime.stance}\n` +
-    `* confidence:               ${regime.confidence.toFixed(2)}\n` +
-    `* layer_1_consensus_score:  ${regime.layer_1_consensus_score.toFixed(2)}\n` +
-    `* key_drivers:\n${regime.key_drivers.map((d) => `  - ${d}`).join("\n")}\n`
-  );
+export function renderLayer1Context(
+  state: DailyCycleStateType,
+  store?: AcceptedAgentOutputStore,
+): string {
+  return renderAcceptedMacroInputs(state, store);
 }
 
 // ---------------------------------------------------------------------------
 // Layer 2 — sector picks
 // ---------------------------------------------------------------------------
 
-export function renderLayer2Context(state: DailyCycleStateType): string {
-  const sectors = state.layer2_outputs ?? {};
-  const lines: string[] = ["## Layer-2 sector picks"];
-  if (Object.keys(sectors).length === 0) {
-    lines.push("* (not available — state.layer2_outputs is empty)");
-    return lines.join("\n");
-  }
-
-  for (const [sectorId, out] of Object.entries(sectors)) {
-    if (out.agent === "relationship_mapper") {
-      const chains = out.supply_chains
-        .map((c) => `${c.name}=[${c.tickers.join(",")}](${c.risk})`)
-        .join("; ");
-      const risks = out.contagion_risks.join(" | ");
-      lines.push(`### ${sectorId} (cross-sector)`);
-      lines.push(`* supply_chains:    ${chains || "(none)"}`);
-      lines.push(`* contagion_risks:  ${risks || "(none)"}`);
-    } else {
-      const longs = out.longs
-        .slice(0, 5)
-        .map((p) => `${p.ticker}(${p.conviction.toFixed(2)})`)
-        .join(", ");
-      const shorts = out.shorts
-        .slice(0, 5)
-        .map((p) => `${p.ticker}(${p.conviction.toFixed(2)})`)
-        .join(", ");
-      lines.push(
-        `### ${sectorId} (score=${out.sector_score.toFixed(2)}, conf=${out.confidence.toFixed(2)})`,
-      );
-      lines.push(`* longs:  ${longs || "(none)"}`);
-      lines.push(`* shorts: ${shorts || "(none)"}`);
-    }
-  }
-  return lines.join("\n");
+export function renderLayer2Context(
+  state: DailyCycleStateType,
+  store?: AcceptedAgentOutputStore,
+): string {
+  return renderAcceptedSectorInputs(state, store);
 }
 
 // ---------------------------------------------------------------------------
 // Layer 3 — superinvestor picks
 // ---------------------------------------------------------------------------
 
-export function renderLayer3Context(state: DailyCycleStateType): string {
-  const supers = state.layer3_outputs ?? {};
-  const lines: string[] = ["## Layer-3 superinvestor picks"];
-  if (Object.keys(supers).length === 0) {
-    lines.push("* (not available — state.layer3_outputs is empty)");
-    return lines.join("\n");
-  }
-  for (const [agentId, out] of Object.entries(supers)) {
-    const picks = out.picks
-      .map((p) => `${p.ticker}(${p.holding_period},conv=${p.conviction.toFixed(2)})`)
-      .join(", ");
-    lines.push(`### ${agentId} (conf=${out.confidence.toFixed(2)})`);
-    lines.push(`* picks:           ${picks || "(none)"}`);
-    lines.push(`* philosophy:      ${out.philosophy_note}`);
-  }
-  return lines.join("\n");
+export function renderLayer3Context(
+  state: DailyCycleStateType,
+  store?: AcceptedAgentOutputStore,
+): string {
+  return renderAcceptedSuperinvestorInputs(state, store);
 }
 
 // ---------------------------------------------------------------------------
@@ -94,7 +61,12 @@ export function renderLayer3Context(state: DailyCycleStateType): string {
 export function renderLayer4PeerContext(
   state: DailyCycleStateType,
   exclude: ReadonlyArray<keyof Layer4AgentOutput | string> = [],
+  store?: AcceptedAgentOutputStore,
 ): string {
+  if (state.darwinian_runtime_binding) {
+    if (!store) throw new Error("Decision accepted-output store is required in production");
+    return renderAcceptedDecisionPeers(state, exclude, store);
+  }
   const peers = state.layer4_outputs ?? {};
   const lines: string[] = ["## Layer-4 peer outputs"];
   let any = false;
@@ -106,6 +78,9 @@ export function renderLayer4PeerContext(
     lines.push(`* rejected_picks:    ${rejected || "(none)"}`);
     lines.push(`* correlated_risks:  ${peers.cro.correlated_risks.join(" | ")}`);
     lines.push(`* black_swans:       ${peers.cro.black_swan_scenarios.join(" | ")}`);
+  } else if (state.outcome_stage_skips.cro && !exclude.includes("cro")) {
+    any = true;
+    lines.push("### cro", "* source_status: NO_EVALUATION_OBJECT", "* member_count: 0");
   }
 
   if (peers.alpha_discovery && !exclude.includes("alpha_discovery")) {
@@ -115,6 +90,9 @@ export function renderLayer4PeerContext(
       .join(" | ");
     lines.push(`### alpha_discovery (conf=${peers.alpha_discovery.confidence.toFixed(2)})`);
     lines.push(`* novel_picks:       ${novel || "(none)"}`);
+  } else if (state.outcome_stage_skips.alpha_discovery && !exclude.includes("alpha_discovery")) {
+    any = true;
+    lines.push("### alpha_discovery", "* source_status: NO_EVALUATION_OBJECT", "* member_count: 0");
   }
 
   if (peers.autonomous_execution && !exclude.includes("autonomous_execution")) {
@@ -128,11 +106,74 @@ export function renderLayer4PeerContext(
       `### autonomous_execution (conf=${peers.autonomous_execution.confidence.toFixed(2)})`,
     );
     lines.push(`* trades:            ${trades || "(none)"}`);
+  } else if (
+    state.outcome_stage_skips.autonomous_execution &&
+    !exclude.includes("autonomous_execution")
+  ) {
+    any = true;
+    lines.push(
+      "### autonomous_execution",
+      "* source_status: NO_EVALUATION_OBJECT",
+      "* member_count: 0",
+    );
   }
 
   if (!any) {
     lines.push("* (none of the peer outputs available yet)");
   }
+  return lines.join("\n");
+}
+
+function renderAcceptedDecisionPeers(
+  state: DailyCycleStateType,
+  exclude: ReadonlyArray<string>,
+  store: AcceptedAgentOutputStore,
+): string {
+  const lines = ["## Layer-4 accepted peer outputs"];
+  const peers: Array<{
+    agentId: "alpha_discovery" | "cro" | "autonomous_execution" | "cio";
+    kind: AcceptedOutputKind;
+  }> = [
+    { agentId: "alpha_discovery", kind: "ALPHA_DISCOVERY" },
+    { agentId: "cro", kind: "CRO_RISK_REVIEW" },
+    { agentId: "autonomous_execution", kind: "EXECUTION_ASSESSMENT" },
+    { agentId: "cio", kind: "CIO_PROPOSAL" },
+  ];
+  let rendered = 0;
+  for (const peer of peers) {
+    if (exclude.includes(peer.agentId)) continue;
+    const ref = state.accepted_output_refs[acceptedOutputRefKey(peer.kind, peer.agentId as never)];
+    if (!ref) {
+      const skip = peer.agentId === "cio" ? undefined : state.outcome_stage_skips[peer.agentId];
+      if (skip) {
+        lines.push(
+          `### ${peer.agentId}`,
+          `* output: ${JSON.stringify({
+            agent_id: peer.agentId,
+            skip_reason: "NO_EVALUATION_OBJECT",
+            member_count: 0,
+          })}`,
+        );
+        rendered += 1;
+      }
+      continue;
+    }
+    const record = store.resolve(
+      ref as AcceptedOutputRecordRef<typeof peer.kind>,
+    ) as AcceptedAgentOutputRecord<typeof peer.kind, AcceptedDecisionOutput>;
+    if (
+      record.graph_run_id !== state.trace_id ||
+      record.as_of !== (state.outcome_schedule_plan?.as_of ?? state.as_of_date)
+    ) {
+      throw new Error(`${peer.agentId}: accepted Decision peer binding mismatch`);
+    }
+    lines.push(
+      `### ${peer.agentId}`,
+      `* output: ${JSON.stringify(modelVisibleAcceptedDecision(record.output.payload))}`,
+    );
+    rendered += 1;
+  }
+  if (rendered === 0) lines.push("* (none of the peer outputs available yet)");
   return lines.join("\n");
 }
 
@@ -192,17 +233,31 @@ export function renderLayer4RuntimeContext(state: DailyCycleStateType): string {
     );
     for (const action of runtime.candidate_target_state.portfolio_actions) {
       lines.push(
-        `  - candidate ${action.ticker}: ${action.action}, target=${action.target_weight.toFixed(4)}, ` +
+        `  - candidate_ref=${frozenCandidateRef(runtime.candidate_target_state.candidate_target_hash, action.ticker)}, ` +
+          `ts_code=${action.ticker}: ${action.action}, target=${action.target_weight.toFixed(4)}, ` +
           `review_source=${action.review_source ?? "llm"}`,
       );
     }
   }
-  if (runtime?.cro_review_state) {
+  if (runtime?.cro_review_state && runtime.candidate_target_state) {
     lines.push(`* cro_review_hash: ${runtime.cro_review_state.review_hash}`);
+    lines.push(`* cro_control_source_status: ${runtime.cro_review_state.source_status}`);
+    for (const intent of expectedFrozenOrderIntents(
+      runtime.candidate_target_state,
+      runtime.cro_review_state,
+    ).order_intents) {
+      lines.push(
+        `  - order_intent_ref=${intent.order_intent_ref}, ts_code=${intent.ts_code}, ` +
+          `requested_delta_weight=${intent.requested_delta_weight.toFixed(6)}`,
+      );
+    }
   }
   if (runtime?.execution_feasibility_state) {
     lines.push(
       `* execution_feasibility_hash: ${runtime.execution_feasibility_state.feasibility_hash}`,
+    );
+    lines.push(
+      `* execution_control_source_status: ${runtime.execution_feasibility_state.source_status}`,
     );
     lines.push(
       `* liquidity_vintage_hash: ${runtime.execution_feasibility_state.liquidity_vintage_hash}`,
@@ -211,58 +266,9 @@ export function renderLayer4RuntimeContext(state: DailyCycleStateType): string {
   return lines.join("\n");
 }
 
-// ---------------------------------------------------------------------------
-// Stub helpers for Phase 3+ / Phase 6+ data.
-// ---------------------------------------------------------------------------
-
-export function renderDarwinianWeightsStub(): string {
-  return (
-    `## Darwinian weights\n` +
-    `* (Phase 3 stub — using uniform weight 1/N across upstream picks. ` +
-    `Phase 3 scorecard will replace this.)\n`
-  );
-}
-
-/**
- * Real Darwinian weights renderer (Plan §11.3 sub-step 3F).
- *
- * ``weights`` shape matches ``DarwinianWeightTable`` from the bridge:
- *   ``{ <agent>: { weight, sharpe_30, sharpe_90, quartile } }``.
- *
- * Empty / undefined input falls through to the stub renderer so the
- * autonomous_execution prompt always sees a coherent block. This matches
- * Plan §11.3 design decision #7 — the first ~30 days of any cohort have
- * insufficient data to compute Sharpe, so weight=1.0 uniform is the
- * legitimate fallback (equivalent to the Phase 2 stub behaviour).
- */
-export function renderDarwinianWeights(
-  weights:
-    | Record<string, { weight: number; sharpe_30: number | null; quartile: number | null }>
-    | undefined,
-  date?: string,
-): string {
-  if (!weights || Object.keys(weights).length === 0) {
-    return renderDarwinianWeightsStub();
-  }
-
-  const entries = Object.entries(weights).sort((a, b) => b[1].weight - a[1].weight);
-  const lines: string[] = [
-    `## Darwinian weights${date ? ` (${date})` : ""}`,
-    `* Per-agent multiplier in [0.3, 2.5] from rolling 30d Sharpe.`,
-    `* Use these to size your trades — overweight agents in quartile 1, underweight quartile 4.`,
-  ];
-  for (const [agent, w] of entries) {
-    const sharpe = w.sharpe_30 === null ? "n<5" : w.sharpe_30.toFixed(2);
-    const q = w.quartile === null ? "?" : `Q${w.quartile}`;
-    lines.push(`  - ${agent}: weight=${w.weight.toFixed(2)}, sharpe_30=${sharpe} (${q})`);
-  }
-  return lines.join("\n");
-}
-
 export function renderJanusRegimeStub(): string {
   return (
-    `## JANUS multi-cohort regime\n` +
-    `* (Phase 6 stub — using single-cohort layer1_consensus directly. ` +
-    `Phase 6 will replace this with the multi-cohort blend.)\n`
+    `## Cohort provenance\n` +
+    `* Macro inputs remain ten separate accepted transmissions; no cohort blend or synthetic stance is produced.\n`
   );
 }

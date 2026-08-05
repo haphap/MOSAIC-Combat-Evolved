@@ -1,4 +1,4 @@
-"""Tests for the ETF @tool wrappers (emerging_markets + sector exposure)."""
+"""Tests for legacy ETF wrappers used outside the v2 Agent tool manifest."""
 
 from __future__ import annotations
 

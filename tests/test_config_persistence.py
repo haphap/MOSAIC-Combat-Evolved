@@ -37,6 +37,28 @@ def test_absent_file_uses_defaults(cfg_mod):
     assert live["output_language"] == "Chinese"
 
 
+def test_defaults_do_not_publish_retired_prompt_mutation_controls(cfg_mod):
+    config, _ = cfg_mod
+    config.initialize_config()
+    autoresearch = config.get_config()["autoresearch"]
+    assert {
+        "macro_neutral_band",
+        "macro_agent_specific_labels_enabled",
+        "macro_full_label_sources_enabled",
+    } <= set(autoresearch)
+    assert not {
+        "agent_mutation_cooldown_hours",
+        "keep_revert_lockout_days",
+        "keep_threshold_delta_sharpe",
+        "monthly_modification_cap_per_cohort",
+        "evaluation_horizon_trading_days",
+        "macro_quota",
+        "min_macro_interval_days",
+        "recent_revert_penalty_days",
+        "git",
+    } & set(autoresearch)
+
+
 def test_save_writes_file_and_applies(cfg_mod):
     config, cfg_file = cfg_mod
     applied = config.save_config({"output_language": "English"})

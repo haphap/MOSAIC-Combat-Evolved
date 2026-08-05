@@ -38,8 +38,23 @@ const directSchemas = new Map<string, z.ZodType>([
 ]);
 
 describe("schema-driven fake LLM outputs", () => {
-  it("covers the 26 execution stages without a fallback factory", () => {
-    expect(runtimeSchemas).toHaveLength(26);
+  it("accepts provider-adapted JSON Schema objects without re-converting them as Zod", () => {
+    expect(
+      fakeAgentStructuredOutput(
+        {
+          type: "object",
+          properties: { value: { type: "string", const: "ok" } },
+          required: ["value"],
+          additionalProperties: false,
+        },
+        "unknown_agent",
+        [],
+      ),
+    ).toEqual({ value: "ok" });
+  });
+
+  it("covers the 29 execution stages without a fallback factory", () => {
+    expect(runtimeSchemas).toHaveLength(29);
     for (const runtime of runtimeSchemas) {
       const schema =
         runtime.stage === "cio_proposal"

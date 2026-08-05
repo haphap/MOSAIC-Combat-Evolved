@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Private point-in-time macro role snapshot",
+  "title": "Legacy-unverified audit-only point-in-time macro role snapshot (superseded by v2)",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "role", "as_of_date", "observations", "events", "source_policy", "snapshot_hash"],

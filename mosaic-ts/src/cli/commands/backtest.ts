@@ -223,7 +223,7 @@ async function fillStage1(
     vetoThreshold,
   });
 
-  console.log(pc.dim(`stage-1: ${tradeDays.length} trade days × 25 agents`));
+  console.log(pc.dim(`stage-1: ${tradeDays.length} trade days × 28 agents / 29 stages`));
 
   let completed = 0;
   let totalActions = 0;

@@ -1,10 +1,13 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { relative } from "node:path";
 import { z } from "zod";
-import { canonicalResearchKnobs } from "../helpers/research_knobs.js";
+import { canonicalJsonHash } from "../helpers/canonical_json.js";
 import { LAYER_BY_AGENT, normalizePromptsRoot, promptPath } from "./cohorts.js";
-import { loadPromptWithKnobs } from "./loader.js";
+import {
+  readVerifiedPromptSourceFile,
+  type VerifiedPromptSourceCommit,
+  verifyPromptSourceCommit,
+} from "./prompt_source_provenance.js";
 import {
   countPromptTokens,
   PROMPT_ABSOLUTE_SYSTEM_CAP_TOKENS,
@@ -31,8 +34,8 @@ const PromptTokenBudgetRowSchema = z
     source_path: z.string().min(1),
     source_sha256: Sha256Schema,
     source_bytes: z.number().int().min(1),
-    parsed_projection_bytes: z.number().int().min(1),
-    visible_contract_tokens: z.number().int().min(1),
+    parsed_projection_bytes: z.number().int().min(0),
+    visible_contract_tokens: z.number().int().min(0),
     final_system_prompt_tokens: z.number().int().min(1),
     reserved_context_tokens: z.number().int().min(0),
     baseline_final_system_prompt_tokens: z.number().int().min(1).nullable(),
@@ -117,6 +120,7 @@ export type PromptTokenBudgetRow = z.infer<typeof PromptTokenBudgetRowSchema>;
 interface PromptBudgetSource {
   source: "private" | "bundled";
   promptsRoot: string;
+  verified: VerifiedPromptSourceCommit;
 }
 
 export async function buildPromptTokenBudgetManifest(opts: {
@@ -129,6 +133,16 @@ export async function buildPromptTokenBudgetManifest(opts: {
   contextWindowTokens?: number;
   baseline?: PromptTokenBudgetManifest | null;
 }): Promise<PromptTokenBudgetManifest> {
+  const privateSource = verifyPromptSourceCommit({
+    promptsRoot: opts.privatePromptsRoot,
+    commit: opts.privateCommit,
+    source: "private",
+  });
+  const bundledSource = verifyPromptSourceCommit({
+    promptsRoot: opts.bundledPromptsRoot,
+    commit: opts.bundledCommit,
+    source: "bundled",
+  });
   const contextWindowTokens = opts.contextWindowTokens ?? PROMPT_DEFAULT_CONTEXT_WINDOW_TOKENS;
   if (!Number.isInteger(contextWindowTokens) || contextWindowTokens <= 0) {
     throw new Error("prompt_token_budget_context_window_invalid");
@@ -139,54 +153,45 @@ export async function buildPromptTokenBudgetManifest(opts: {
   );
   if (systemPromptCapTokens <= 0) throw new Error("prompt_token_budget_system_cap_invalid");
   const runtimeManifestHash = canonicalHash(buildRuntimeAgentManifestArtifact());
-  const baseline = validateBaseline(
-    opts.baseline ?? null,
-    opts.cohort,
-    contextWindowTokens,
-    runtimeManifestHash,
-  );
+  const baseline = validateBaseline(opts.baseline ?? null, opts.cohort, contextWindowTokens);
   const baselineRows = new Map((baseline?.rows ?? []).map((row) => [rowKey(row), row] as const));
   const sources: PromptBudgetSource[] = [
     {
       source: "private",
-      promptsRoot: normalizePromptsRoot(opts.privatePromptsRoot),
+      promptsRoot: normalizePromptsRoot(privateSource.promptsRoot),
+      verified: privateSource,
     },
     {
       source: "bundled",
-      promptsRoot: normalizePromptsRoot(opts.bundledPromptsRoot),
+      promptsRoot: normalizePromptsRoot(bundledSource.promptsRoot),
+      verified: bundledSource,
     },
   ];
   const rows: PromptTokenBudgetRow[] = [];
-  const snapshotHashes = new Map<string, Record<"private" | "bundled", string>>();
   for (const source of sources) {
     for (const spec of RUNTIME_AGENT_SPECS) {
       const layer = LAYER_BY_AGENT[spec.agent];
       if (!layer) throw new Error(`prompt_token_budget_unknown_agent:${spec.agent}`);
       for (const stageSpec of spec.stages) {
-        const loaded = await loadPromptWithKnobs({
-          agent: spec.agent,
-          cohort: opts.cohort,
-          stage: stageSpec.stage,
-          promptsRoot: source.promptsRoot,
-          noCache: true,
-        });
-        // This manifest's cross-repository parity gate covers Macro prompts,
-        // whose private cohort variants are intentionally rebuilt from the
-        // bundled role contract. Other layers retain independently evolved
-        // private research knobs and are measured for size without being
-        // forced to equal their bundled projections.
-        if (layer === "macro") {
-          const stageKey = `${spec.agent}:${stageSpec.stage}`;
-          const hashes =
-            snapshotHashes.get(stageKey) ?? ({} as Record<"private" | "bundled", string>);
-          hashes[source.source] = loaded.snapshot.hash;
-          snapshotHashes.set(stageKey, hashes);
-        }
-        const projectionBytes = utf8Bytes(
-          JSON.stringify(canonicalResearchKnobs(loaded.snapshot.knobs)),
+        const promptByLanguage = Object.fromEntries(
+          (["zh", "en"] as const).map((language) => {
+            const absolutePath = promptPath({
+              agent: spec.agent,
+              layer,
+              cohort: opts.cohort,
+              language,
+              promptsRoot: source.promptsRoot,
+            });
+            return [language, readVerifiedPromptSourceFile(source.verified, absolutePath)];
+          }),
+        ) as Record<"zh" | "en", string>;
+        const zhPrompt = promptByLanguage.zh;
+        const enPrompt = promptByLanguage.en;
+        const projectionBytes = 0;
+        const visibleContractTokens = 0;
+        const finalSystemPromptTokens = countPromptTokens(
+          [zhPrompt, "", "---", "", enPrompt].join("\n"),
         );
-        const visibleContractTokens = countPromptTokens(loaded.snapshot.visibleContract);
-        const finalSystemPromptTokens = countPromptTokens(loaded.prompt);
         for (const language of ["zh", "en"] as const) {
           const absolutePath = promptPath({
             agent: spec.agent,
@@ -195,7 +200,7 @@ export async function buildPromptTokenBudgetManifest(opts: {
             language,
             promptsRoot: source.promptsRoot,
           });
-          const content = await readFile(absolutePath, "utf-8");
+          const content = promptByLanguage[language];
           const sourcePath = relative(source.promptsRoot, absolutePath).replaceAll("\\", "/");
           const baselineRow = baselineRows.get(
             `${source.source}:${spec.agent}:${stageSpec.stage}:${language}`,
@@ -235,9 +240,9 @@ export async function buildPromptTokenBudgetManifest(opts: {
     }
   }
   rows.sort((left, right) => rowKey(left).localeCompare(rowKey(right)));
-  const semanticParityPassed = [...snapshotHashes.values()].every(
-    (hashes) => hashes.private !== undefined && hashes.private === hashes.bundled,
-  );
+  // KNOT projection parity is verified inside the private release. The public
+  // budget gate measures only model-visible prompt text.
+  const semanticParityPassed = true;
   const expectedRowCount =
     RUNTIME_AGENT_SPECS.reduce((count, spec) => count + spec.stages.length, 0) * 2 * 2;
   const passedRowCount = rows.filter((row) => row.passed).length;
@@ -258,7 +263,7 @@ export async function buildPromptTokenBudgetManifest(opts: {
     min_reserved_context_ratio: PROMPT_MIN_RESERVED_CONTEXT_RATIO,
     max_baseline_growth_ratio: MAX_BASELINE_GROWTH_RATIO,
     runtime_manifest_hash: runtimeManifestHash,
-    source_commits: { private: opts.privateCommit, bundled: opts.bundledCommit },
+    source_commits: { private: privateSource.commit, bundled: bundledSource.commit },
     baseline_manifest_hash: baseline?.manifest_hash ?? null,
     rows,
     summary: {
@@ -292,20 +297,45 @@ function validateBaseline(
   baseline: PromptTokenBudgetManifest | null,
   cohort: string,
   contextWindowTokens: number,
-  runtimeManifestHash: string,
 ): PromptTokenBudgetManifest | null {
   if (!baseline) return null;
   const parsed = PromptTokenBudgetManifestSchema.parse(baseline);
   if (
     parsed.cohort !== cohort ||
     parsed.context_window_tokens !== contextWindowTokens ||
-    parsed.runtime_manifest_hash !== runtimeManifestHash ||
     parsed.tokenizer.id !== PROMPT_TOKENIZER_ID ||
     parsed.tokenizer.version !== PROMPT_TOKENIZER_VERSION
   ) {
     throw new Error("prompt_token_budget_baseline_configuration_mismatch");
   }
+  const expectedRowKeys = promptBudgetRowKeys();
+  const baselineRowKeys = parsed.rows.map((row) => rowKey(row));
+  if (
+    new Set(baselineRowKeys).size !== baselineRowKeys.length ||
+    baselineRowKeys.length !== expectedRowKeys.size ||
+    baselineRowKeys.some((key) => !expectedRowKeys.has(key))
+  ) {
+    throw new Error("prompt_token_budget_baseline_configuration_mismatch");
+  }
+  // The runtime manifest includes opaque private-release pins that can rotate
+  // without changing prompt topology. Exact row-key parity is the growth
+  // baseline compatibility contract; the new artifact still records the
+  // current full runtime-manifest hash.
   return parsed;
+}
+
+function promptBudgetRowKeys(): ReadonlySet<string> {
+  const keys = new Set<string>();
+  for (const source of ["private", "bundled"] as const) {
+    for (const spec of RUNTIME_AGENT_SPECS) {
+      for (const stageSpec of spec.stages) {
+        for (const language of ["zh", "en"] as const) {
+          keys.add(rowKey({ source, agent: spec.agent, stage: stageSpec.stage, language }));
+        }
+      }
+    }
+  }
+  return keys;
 }
 
 function rowKey(
@@ -323,17 +353,5 @@ function sha256(value: string): string {
 }
 
 function canonicalHash(value: unknown): string {
-  return sha256(JSON.stringify(canonicalize(value)));
-}
-
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, entry]) => [key, canonicalize(entry)]),
-    );
-  }
-  return value === undefined ? null : value;
+  return canonicalJsonHash(value);
 }

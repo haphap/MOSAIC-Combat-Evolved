@@ -1,0 +1,53 @@
+[
+  {
+    "name": "fixed_lower_exponent_boundary",
+    "value": {"x": 0.000001},
+    "canonical": "{\"x\":0.000001}"
+  },
+  {
+    "name": "scientific_below_lower_boundary",
+    "value": {"x": 1e-7},
+    "canonical": "{\"x\":1e-7}"
+  },
+  {
+    "name": "fixed_below_upper_boundary",
+    "value": {"x": 1e20},
+    "canonical": "{\"x\":100000000000000000000}"
+  },
+  {
+    "name": "fixed_large_exact_integer",
+    "value": {"x": 100000000000000000000},
+    "canonical": "{\"x\":100000000000000000000}"
+  },
+  {
+    "name": "scientific_upper_boundary",
+    "value": {"x": 1e21},
+    "canonical": "{\"x\":1e+21}"
+  },
+  {
+    "name": "negative_zero",
+    "value": {"x": -0},
+    "canonical": "{\"x\":0}"
+  },
+  {
+    "name": "unicode_utf16_key_order",
+    "value": {
+      "דּ": "Hebrew",
+      "€": "Euro",
+      "\r": "Carriage Return",
+      "1": "One",
+      "😀": "Emoji"
+    },
+    "canonical": "{\"\\r\":\"Carriage Return\",\"1\":\"One\",\"€\":\"Euro\",\"😀\":\"Emoji\",\"דּ\":\"Hebrew\"}"
+  },
+  {
+    "name": "nested_numbers_and_strings",
+    "value": {"z": [333333333.33333329, 0.002, true, null], "a": "中文"},
+    "canonical": "{\"a\":\"中文\",\"z\":[333333333.3333333,0.002,true,null]}"
+  },
+  {
+    "name": "rfc8785_number_rendering",
+    "value": [333333333.33333329, 1e30, 4.50, 2e-3, 1e-27],
+    "canonical": "[333333333.3333333,1e+30,4.5,0.002,1e-27]"
+  }
+]

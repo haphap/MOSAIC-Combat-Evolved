@@ -1,0 +1,26 @@
+{
+  "schema_version": "knot_legacy_read_only_v2",
+  "status": "legacy_read_only",
+  "active_runtime": false,
+  "writes_enabled": false,
+  "retention_purpose": "historical experiment audit only",
+  "public_tombstones": [],
+  "public_fail_closed_legacy_ports": [],
+  "retired_rpc_prefixes": [
+    "darwinian.knot_"
+  ],
+  "retired_database_protocols": [
+    "knot_research_tracks_v2",
+    "knot_pair_assignments_v2",
+    "knot_pair_input_sets_v2",
+    "knot_research_score_records_v2",
+    "knot_promotion_revisions_v2",
+    "knot_capability_and_receipt_ledgers"
+  ],
+  "active_replacements": {
+    "mutation": "private Prompt Mutator",
+    "experiments": "prompt_experiment_runner",
+    "selection": "prompt_promotion_policy",
+    "production_authority": "Prompt Release canary/activation/rollback"
+  }
+}

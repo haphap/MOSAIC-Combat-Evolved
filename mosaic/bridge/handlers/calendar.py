@@ -8,6 +8,7 @@ Surface:
     * calendar.list_trading_days(start, end) → {trading_days: [str]}
     * calendar.is_trading_day(date) → {is_trading: bool}
     * calendar.next_trading_day(date, n) → {date: str}
+    * calendar.verified_snapshot(start, end, as_of) → signed no-fallback snapshot
 """
 
 from __future__ import annotations
@@ -71,6 +72,22 @@ def calendar_list_trading_days(params: dict[str, Any]) -> dict[str, Any]:
             pass
         cur += timedelta(days=1)
     return {"trading_days": out}
+
+
+@method("calendar.verified_snapshot")
+def calendar_verified_snapshot(params: dict[str, Any]) -> dict[str, Any]:
+    """Build a strict Tushare-backed snapshot for production scheduling."""
+    start = _require_str(params, "start")
+    end = _require_str(params, "end")
+    as_of = _require_str(params, "as_of")
+    try:
+        from mosaic.dataflows.calendar import verified_trading_calendar_snapshot
+
+        return verified_trading_calendar_snapshot(start, end, as_of=as_of)
+    except ValueError as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(INTERNAL_ERROR, f"{type(exc).__name__}: {exc}") from exc
 
 
 @method("calendar.is_trading_day")

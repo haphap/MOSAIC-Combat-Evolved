@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   BridgeApi,
   RkeAgentClaimFootprintCaptureResult,
@@ -126,7 +127,7 @@ async function rowForAgent(
     as_of_date: asOfDate,
     claim_type: claimType,
     target: { target_type: layer, target_id: agent },
-    confidence_bucket: confidenceBucket(output.confidence),
+    confidence_bucket: confidenceBucket(outputConfidence(output)),
     rke_prior_usage_quality: currentDataConfirmed
       ? "used_ranked_prior"
       : (audit.rke_prior_usage_quality ?? "no_ranked_prior_available"),
@@ -143,6 +144,25 @@ async function rowForAgent(
   };
 }
 
+function outputConfidence(
+  output:
+    | MacroAgentOutput
+    | SectorAgentOutput
+    | SuperinvestorOutput
+    | NonNullable<Layer4Outputs[Layer4AgentOutputKey]>,
+): number {
+  if ("confidence" in output && typeof output.confidence === "number") {
+    return output.confidence;
+  }
+  if ("agent" in output && output.agent === "relationship_mapper") {
+    return output.predictive_edges.reduce(
+      (maximum, edge) => Math.max(maximum, edge.model_confidence),
+      0,
+    );
+  }
+  return 0;
+}
+
 async function fetchRkeAudit(
   api: BridgeApi,
   agent: string,
@@ -150,15 +170,37 @@ async function fetchRkeAudit(
   asOfDate: string,
 ): Promise<RkeAudit> {
   try {
-    const { text } = await api.toolsCall(
-      "get_rke_research_context",
-      { agent_id: agent, layer, as_of_date: asOfDate, max_items: 1 },
-      { mode: "backtest", as_of_date: asOfDate },
-    );
-    return parseRkeAudit(text);
+    const context = await api.rkeAgentResearchContext({
+      agent_id: agent,
+      layer,
+      as_of_date: asOfDate,
+      max_items: 1,
+    });
+    const item = context.context_items[0];
+    if (!item) {
+      return {
+        tool_refs: ["rke.agentResearchContext"],
+        rke_prior_usage_quality: "no_ranked_prior_available",
+      };
+    }
+    const retrievalRank = Number(item.retrieval_rank);
+    const priorityBucket = String(item.priority_bucket ?? "");
+    const claimRef = String(item.redacted_claim_id ?? "");
+    return {
+      ranking_policy_id: context.ranking_policy_id,
+      rke_context_hash: createHash("sha256").update(JSON.stringify(context)).digest("hex"),
+      ...(Number.isInteger(retrievalRank) && retrievalRank > 0
+        ? { retrieval_rank: retrievalRank }
+        : {}),
+      ...(priorityBucket ? { priority_bucket: priorityBucket } : {}),
+      truncated_item_count: Number(context.summary.truncated_item_count ?? 0),
+      report_claim_refs: claimRef ? [claimRef] : [],
+      tool_refs: ["rke.agentResearchContext"],
+      rke_prior_usage_quality: "used_ranked_prior_unconfirmed",
+    };
   } catch {
     return {
-      tool_refs: ["get_rke_research_context"],
+      tool_refs: ["rke.agentResearchContext"],
       rke_prior_usage_quality: "rke_context_tool_failed",
     };
   }

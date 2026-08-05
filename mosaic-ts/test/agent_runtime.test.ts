@@ -68,7 +68,7 @@ describe("agent runtime helpers", () => {
         key_drivers: ["flow"],
         confidence: 0.73,
       }),
-    ).toBe("score=0.42 longs=1 shorts=0 conf=0.73 drivers=1");
+    ).toBe("output=ok conf=0.73 drivers=1");
 
     expect(
       summarizeAgentOutput({

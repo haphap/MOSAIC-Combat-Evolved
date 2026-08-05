@@ -1,3 +1,4 @@
+import { AGENTS_BY_LAYER } from "../agents/prompts/cohorts.js";
 import type { DailyCycleStateType } from "../agents/state.js";
 
 export const MAX_CONSECUTIVE_EMPTY_DECISION_DAYS = 1;
@@ -25,11 +26,13 @@ export function evaluateHistoricalDecisionHealth(
 ): HistoricalDecisionHealth {
   const upstreamTickers = new Set<string>();
   for (const output of Object.values(state.layer2_outputs)) {
-    if (!("longs" in output)) continue;
-    for (const pick of [...output.longs, ...output.shorts]) upstreamTickers.add(pick.ticker);
+    if (output.agent === "relationship_mapper") continue;
+    for (const pick of [...output.long_picks, ...output.short_or_avoid_picks]) {
+      upstreamTickers.add(pick.ts_code);
+    }
   }
   for (const output of Object.values(state.layer3_outputs)) {
-    for (const pick of output.picks) upstreamTickers.add(pick.ticker);
+    for (const pick of output.picks) upstreamTickers.add(pick.ts_code);
   }
   for (const pick of state.layer4_outputs.alpha_discovery?.novel_picks ?? []) {
     upstreamTickers.add(pick.ticker);
@@ -56,7 +59,14 @@ export function evaluateHistoricalDecisionHealth(
   const rejectedAudits = audits.filter(
     (audit) => audit.status !== "accepted" && audit.status !== "accepted_empty",
   );
-  const allStagesAccepted = audits.length === 26 && rejectedAudits.length === 0;
+  const resolvedStages = resolvedStageKeys(state, audits);
+  const allStagesAccepted =
+    rejectedAudits.length === 0 &&
+    (state.darwinian_runtime_binding === null
+      ? (audits.length === 29 &&
+          new Set(audits.map((audit) => `${audit.agent}:${audit.stage}`)).size === 29) ||
+        (resolvedStages.size === 29 && sameSet(resolvedStages, requiredStageKeys()))
+      : resolvedStages.size === 29 && sameSet(resolvedStages, requiredStageKeys()));
   const explicitAcceptedAllCash =
     state.layer4_outputs.cio?.decision_disposition === "ALL_CASH" &&
     audits.some(
@@ -91,6 +101,60 @@ export function evaluateHistoricalDecisionHealth(
   };
 }
 
+function resolvedStageKeys(
+  state: DailyCycleStateType,
+  audits: ReadonlyArray<{ agent: string; stage: string }>,
+): Set<string> {
+  const keys = new Set(audits.map((audit) => `${audit.agent}:${audit.stage}`));
+  for (const agentId of Object.keys(state.outcome_stage_skips)) {
+    const stage =
+      agentId === "alpha_discovery"
+        ? "alpha_discovery"
+        : agentId === "cro"
+          ? "cro_review"
+          : agentId === "autonomous_execution"
+            ? "execution_feasibility"
+            : "agent_run";
+    const key = `${agentId}:${stage}`;
+    if (keys.has(key)) return new Set(["INVALID_ACCEPTED_AND_SKIPPED"]);
+    keys.add(key);
+  }
+  if (state.darwinian_runtime_binding === null) {
+    const localStageOwners = {
+      alpha_discovery: "alpha_discovery",
+      cro_review: "cro",
+      execution_feasibility: "autonomous_execution",
+    } as const;
+    for (const entry of state.layer4_outputs.runtime?.stage_trace ?? []) {
+      if (entry.operation !== "stage_skip" || !(entry.stage in localStageOwners)) continue;
+      const agentId = localStageOwners[entry.stage as keyof typeof localStageOwners];
+      const key = `${agentId}:${entry.stage}`;
+      if (keys.has(key)) return new Set(["INVALID_ACCEPTED_AND_SKIPPED"]);
+      keys.add(key);
+    }
+  }
+  return keys;
+}
+
+function requiredStageKeys(): Set<string> {
+  return new Set([
+    ...AGENTS_BY_LAYER.macro.map((agentId) => `${agentId}:agent_run`),
+    ...AGENTS_BY_LAYER.sector.map((agentId) =>
+      agentId === "relationship_mapper" ? `${agentId}:agent_run` : `${agentId}:final_selection`,
+    ),
+    ...AGENTS_BY_LAYER.superinvestor.map((agentId) => `${agentId}:agent_run`),
+    "alpha_discovery:alpha_discovery",
+    "cio:cio_proposal",
+    "cro:cro_review",
+    "autonomous_execution:execution_feasibility",
+    "cio:cio_final",
+  ]);
+}
+
+function sameSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  return left.size === right.size && [...left].every((value) => right.has(value));
+}
+
 export function assertAcceptedDailyCycle(state: DailyCycleStateType): HistoricalDecisionHealth {
   const health = evaluateHistoricalDecisionHealth(state);
   if (health.failureCode) {
@@ -101,7 +165,7 @@ export function assertAcceptedDailyCycle(state: DailyCycleStateType): Historical
             const status = call.agent_run_audit?.status;
             return status === "accepted" || status === "accepted_empty";
           }).length
-        }/26`,
+        }/29`,
     );
   }
   return health;

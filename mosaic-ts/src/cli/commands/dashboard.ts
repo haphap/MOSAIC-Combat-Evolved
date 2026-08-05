@@ -18,7 +18,7 @@ interface DashboardOpts {
 export function registerDashboard(program: Command): void {
   program
     .command("dashboard")
-    .description("TUI: today / winrate / skill / paper / cohorts / mirofish / settings.")
+    .description("TUI: today / winrate / skill / paper / cohorts / mirofish / settings / agents.")
     .option("--cohort <name>", "Cohort for the skill tab (default cohort_default)")
     .option("--user <name>", "Paper account user (default: session user)")
     .action(async (opts: DashboardOpts) => {

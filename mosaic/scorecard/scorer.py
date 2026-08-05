@@ -446,16 +446,6 @@ def _fetch_instrument_series(symbol: str, start_iso: str, end_iso: str) -> list[
     return [close for _, close in _fetch_instrument_series_dated(symbol, start_iso, end_iso)]
 
 
-def _fallback_benchmark_closes(
-    benchmark: str,
-    start_iso: str,
-    end_iso: str,
-    bench_ret: float,
-) -> list[float]:
-    closes = _fetch_benchmark_series(benchmark, start_iso, end_iso)
-    return closes if len(closes) >= 2 else [1.0, 1.0 + bench_ret]
-
-
 def _fetch_macro_label_closes(
     *,
     label_type: str,
@@ -473,13 +463,7 @@ def _fetch_macro_label_closes(
 
     config = label_config_for(label_type)
     if config is None:
-        return (
-            _fallback_benchmark_closes(benchmark, start_iso, end_iso, bench_ret),
-            "fallback",
-            f"fallback:benchmark:{benchmark}",
-            1,
-            1.0,
-        )
+        return ([], "missing", f"unregistered_label:{label_type}", 1, 1.0)
 
     if config.path_kind == "benchmark":
         closes = _fetch_benchmark_series(benchmark, start_iso, end_iso)
@@ -492,9 +476,9 @@ def _fetch_macro_label_closes(
                 config.drawdown_penalty_lambda,
             )
         return (
-            [1.0, 1.0 + bench_ret],
-            "fallback",
-            f"fallback:benchmark_endpoint:{benchmark}",
+            [],
+            "missing",
+            f"benchmark_path_unavailable:{benchmark}",
             config.orientation,
             config.drawdown_penalty_lambda,
         )
@@ -567,9 +551,9 @@ def _fetch_macro_label_closes(
             ) from exc
 
     return (
-        _fallback_benchmark_closes(benchmark, start_iso, end_iso, bench_ret),
-        "fallback",
-        f"fallback:benchmark:{benchmark}",
+        [],
+        "missing",
+        f"role_path_unavailable:{label_type}",
         config.orientation,
         config.drawdown_penalty_lambda,
     )
@@ -859,14 +843,25 @@ class MacroScorer:
                 outcome["macro_skipped_missing"] += 1
                 continue
             if fields is None and self.agent_specific_labels_enabled:
-                from mosaic.scorecard.macro_labels import BENCHMARK_FALLBACK_LABEL
+                from mosaic.scorecard.macro_labels import primary_label_for_agent
 
-                fields = self._benchmark_label_fields(
-                    row=row,
-                    bench_ret=bench_ret,
-                    label_type=BENCHMARK_FALLBACK_LABEL,
-                    label_source_status="fallback",
+                spec = primary_label_for_agent(
+                    row.agent, full_label_sources_enabled=self.full_label_sources_enabled
                 )
+                self.store.update_macro_scoring(
+                    row.id,
+                    {
+                        "label_type": (
+                            spec.label_type if spec is not None else "unregistered_macro_label"
+                        ),
+                        "label_source_status": "missing",
+                        "source_series_id": "role_path:required_label_unavailable",
+                        "influence_weight_equal": row.influence_weight_equal,
+                        "scored_at": today,
+                    },
+                )
+                outcome["macro_skipped_missing"] += 1
+                continue
             elif fields is None:
                 fields = self._benchmark_label_fields(
                     row=row,

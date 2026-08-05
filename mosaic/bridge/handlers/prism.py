@@ -1,12 +1,4 @@
-"""``prism.*`` JSON-RPC handlers (Plan ss9 / Phase 5).
-
-Exposes PRISM 7-cohort training orchestration to the TS front-end:
-
-    * prism.list_cohorts   -- list all 7 cohorts with status info
-    * prism.train_cohort   -- initiate training for a cohort
-    * prism.cohort_status  -- get status for a specific cohort
-    * prism.compare_cohorts-- compare cohorts by metric
-"""
+"""Read-only ``prism.*`` JSON-RPC audit handlers."""
 
 from __future__ import annotations
 
@@ -85,48 +77,6 @@ def prism_list_cohorts(params: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# prism.train_cohort
-# ---------------------------------------------------------------------------
-
-
-@method("prism.train_cohort")
-def prism_train_cohort(params: dict[str, Any]) -> dict[str, Any]:
-    """Initiate training for a cohort.
-
-    Params:
-        cohort_name: str
-        start_date:  str | None
-        end_date:    str | None
-        dry_run:     bool | None
-    """
-    from mosaic.prism.trainer import train_cohort
-
-    cohort_name = _require_str(params, "cohort_name")
-    start_date = params.get("start_date")
-    end_date = params.get("end_date")
-    dry_run = bool(params.get("dry_run", False))
-
-    if start_date is not None and not isinstance(start_date, str):
-        raise RpcError(INVALID_PARAMS, "'start_date' must be a string")
-    if end_date is not None and not isinstance(end_date, str):
-        raise RpcError(INVALID_PARAMS, "'end_date' must be a string")
-
-    store = _store()
-    git = _git()
-
-    result = train_cohort(
-        store=store,
-        git_ops=git,
-        cohort_name=cohort_name,
-        start_date=start_date,
-        end_date=end_date,
-        dry_run=dry_run,
-    )
-
-    return result
-
-
-# ---------------------------------------------------------------------------
 # prism.cohort_status
 # ---------------------------------------------------------------------------
 
@@ -162,7 +112,7 @@ def prism_compare_cohorts(params: dict[str, Any]) -> dict[str, Any]:
         metric: str | None  (default 'sharpe')
         since:  str | None  (YYYY-MM-DD filter)
     """
-    from mosaic.prism.trainer import compare_cohorts
+    from mosaic.prism.audit import compare_cohorts
 
     metric = params.get("metric", "sharpe")
     since = params.get("since")
@@ -176,43 +126,3 @@ def prism_compare_cohorts(params: dict[str, Any]) -> dict[str, Any]:
     comparisons = compare_cohorts(store, metric=metric, since_date=since)
 
     return {"comparisons": comparisons}
-
-
-# ---------------------------------------------------------------------------
-# prism.complete_cohort_run
-# ---------------------------------------------------------------------------
-
-
-@method("prism.complete_cohort_run")
-def prism_complete_cohort_run(params: dict[str, Any]) -> dict[str, Any]:
-    """Close a cohort_run ledger row after training finishes (Plan §11.6 5B).
-
-    Params:
-        run_id:            int
-        llm_calls:         int | None
-        llm_cost_usd:      float | None
-        cio_action:        str | None
-        cio_target_weight: float | None
-    """
-    run_id = params.get("run_id")
-    if not isinstance(run_id, int) or isinstance(run_id, bool):
-        raise RpcError(INVALID_PARAMS, "'run_id' must be an integer")
-
-    def _opt_num(key: str, types: tuple):
-        v = params.get(key)
-        if v is not None and (not isinstance(v, types) or isinstance(v, bool)):
-            raise RpcError(INVALID_PARAMS, f"'{key}' has the wrong type")
-        return v
-
-    cio_action = params.get("cio_action")
-    if cio_action is not None and not isinstance(cio_action, str):
-        raise RpcError(INVALID_PARAMS, "'cio_action' must be a string")
-
-    _store().complete_cohort_run(
-        run_id,
-        llm_calls=_opt_num("llm_calls", (int,)),
-        llm_cost_usd=_opt_num("llm_cost_usd", (int, float)),
-        cio_action=cio_action,
-        cio_target_weight=_opt_num("cio_target_weight", (int, float)),
-    )
-    return {"ok": True}

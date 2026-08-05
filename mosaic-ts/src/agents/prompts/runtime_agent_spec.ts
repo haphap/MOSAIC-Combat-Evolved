@@ -1,37 +1,30 @@
-import { alphaDiscoverySpec } from "../decision/alpha_discovery.js";
-import { autonomousExecutionSpec } from "../decision/autonomous_execution.js";
-import { cioSpec } from "../decision/cio.js";
-import { croSpec } from "../decision/cro.js";
-import { centralBankSpec } from "../macro/central_bank.js";
-import { chinaSpec } from "../macro/china.js";
-import { commoditiesSpec } from "../macro/commodities.js";
-import { dollarSpec } from "../macro/dollar.js";
-import { geopoliticalSpec } from "../macro/geopolitical.js";
-import { institutionalFlowSpec } from "../macro/institutional_flow.js";
-import { marketBreadthSpec } from "../macro/market_breadth.js";
-import { usEconomySpec } from "../macro/us_economy.js";
-import { volatilitySpec } from "../macro/volatility.js";
-import { yieldCurveSpec } from "../macro/yield_curve.js";
-import { biotechSpec } from "../sector/biotech.js";
-import { consumerSpec } from "../sector/consumer.js";
-import { energySpec } from "../sector/energy.js";
-import { financialsSpec } from "../sector/financials.js";
-import { industrialsSpec } from "../sector/industrials.js";
-import { relationshipMapperSpec } from "../sector/relationship_mapper.js";
-import { semiconductorSpec } from "../sector/semiconductor.js";
-import { ackmanSpec } from "../superinvestor/ackman.js";
-import { burrySpec } from "../superinvestor/burry.js";
-import { druckenmillerSpec } from "../superinvestor/druckenmiller.js";
-import { mungerSpec } from "../superinvestor/munger.js";
-import type { Layer } from "./cohorts.js";
 import {
-  configuredRuntimeResearchKnobsCohorts,
-  configuredRuntimeResearchKnobsStageKeys,
-  DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT,
-  runtimeResearchKnobsStageEnablement,
-} from "./runtime_stage_enablement.js";
-
-export const RUNTIME_AGENT_MANIFEST_VERSION = "runtime_agent_manifest_v2";
+  ALPHA_DISCOVERY_FIELD_NAMES,
+  AUTONOMOUS_EXECUTION_FIELD_NAMES,
+  CIO_FINAL_FIELD_NAMES,
+  CIO_PROPOSAL_FIELD_NAMES,
+  CRO_FIELD_NAMES,
+} from "../decision/_schemas.js";
+import {
+  CENTRAL_BANK_FIELD_NAMES,
+  CHINA_FIELD_NAMES,
+  COMMODITIES_FIELD_NAMES,
+  EU_ECONOMY_FIELD_NAMES,
+  EURO_AREA_FINANCIAL_CONDITIONS_FIELD_NAMES,
+  GEOPOLITICAL_FIELD_NAMES,
+  INSTITUTIONAL_FLOW_FIELD_NAMES,
+  MARKET_BREADTH_FIELD_NAMES,
+  US_ECONOMY_FIELD_NAMES,
+  US_FINANCIAL_CONDITIONS_FIELD_NAMES,
+} from "../macro/_schemas.js";
+import {
+  RELATIONSHIP_MAPPER_FIELD_NAMES,
+  STANDARD_SECTOR_FIELD_NAMES,
+} from "../sector/_schemas.js";
+import { SUPERINVESTOR_FIELD_NAMES } from "../superinvestor/_schemas.js";
+import { AGENT_LAYER_BY_ID, AgentIdSchema, agentToolsFor } from "../tool_contract.js";
+import type { Layer } from "./cohorts.js";
+export const RUNTIME_AGENT_MANIFEST_VERSION = "runtime_agent_manifest_v5";
 
 export const RUNTIME_AGENT_STAGE_IDS = [
   "agent_run",
@@ -43,7 +36,7 @@ export const RUNTIME_AGENT_STAGE_IDS = [
 ] as const;
 
 export type RuntimeAgentStageId = (typeof RUNTIME_AGENT_STAGE_IDS)[number];
-export type RuntimeStageEnablement = "declared" | "legacy" | "enabled";
+export type RuntimeStageEnablement = "enabled";
 
 export const RUNTIME_DAG_STAGE_IDS = [
   "cycle_input",
@@ -77,6 +70,7 @@ export interface RuntimeAgentStageSpec {
   stage: RuntimeAgentStageId;
   enablement: RuntimeStageEnablement;
   outputSchemaRef: string;
+  outputSchemaFields: ReadonlyArray<string>;
   maxRepairAttempts: 3;
   requiredSourceIds: ReadonlyArray<string>;
   producedSourceIds: ReadonlyArray<string>;
@@ -95,12 +89,6 @@ export interface RuntimeAgentManifestArtifact {
   schema_version: typeof RUNTIME_AGENT_MANIFEST_VERSION;
   runtime_agent_count: number;
   runtime_stage_count: number;
-  default_cohort: string;
-  research_knobs_cohort_enablement: ReadonlyArray<{
-    cohort: string;
-    enabled_agent_stages: ReadonlyArray<string>;
-    legacy_agent_stages: ReadonlyArray<string>;
-  }>;
   canonical_l4_sequence: ReadonlyArray<RuntimeAgentStageId>;
   agents: ReadonlyArray<{
     agent: string;
@@ -112,6 +100,7 @@ export interface RuntimeAgentManifestArtifact {
       stage: RuntimeAgentStageId;
       enablement: RuntimeStageEnablement;
       output_schema_ref: string;
+      output_schema_fields: ReadonlyArray<string>;
       max_repair_attempts: 3;
       required_source_ids: ReadonlyArray<string>;
       produced_source_ids: ReadonlyArray<string>;
@@ -130,15 +119,15 @@ export const CANONICAL_L4_STAGE_SEQUENCE = [
 function stageSpec(
   stage: RuntimeAgentStageId,
   outputSchemaRef: string,
+  outputSchemaFields: ReadonlyArray<string>,
   requiredSourceIds: ReadonlyArray<string>,
   producedSourceIds: ReadonlyArray<string>,
-  enablement: RuntimeStageEnablement,
-  _promptIrAgentId: string,
 ): RuntimeAgentStageSpec {
   return {
     stage,
-    enablement,
+    enablement: "enabled",
     outputSchemaRef,
+    outputSchemaFields,
     maxRepairAttempts: 3,
     requiredSourceIds,
     producedSourceIds,
@@ -149,20 +138,16 @@ function stagesForAgent(
   layer: Layer,
   agent: string,
   promptIrAgentId: string,
+  outputSchemaFields: ReadonlyArray<string>,
 ): ReadonlyArray<RuntimeAgentStageSpec> {
   if (layer !== "decision") {
     return [
       stageSpec(
         "agent_run",
         `${promptIrAgentId}.output.v1`,
+        outputSchemaFields,
         [],
         ["upstream_agent_outputs"],
-        runtimeResearchKnobsStageEnablement(
-          DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT,
-          agent,
-          "agent_run",
-        ),
-        promptIrAgentId,
       ),
     ];
   }
@@ -171,14 +156,9 @@ function stagesForAgent(
       stageSpec(
         "alpha_discovery",
         "decision.alpha_discovery.output.v1",
+        outputSchemaFields,
         ["upstream_agent_outputs", "current_position_snapshot", "current_market_data"],
         ["upstream_agent_outputs"],
-        runtimeResearchKnobsStageEnablement(
-          DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT,
-          agent,
-          "alpha_discovery",
-        ),
-        promptIrAgentId,
       ),
     ];
   }
@@ -187,6 +167,7 @@ function stagesForAgent(
       stageSpec(
         "cro_review",
         "decision.cro.review.v1",
+        outputSchemaFields,
         [
           "candidate_target_state",
           "position_review_state",
@@ -195,12 +176,6 @@ function stagesForAgent(
           "portfolio_exposure_state",
         ],
         ["cro_review_state"],
-        runtimeResearchKnobsStageEnablement(
-          DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT,
-          agent,
-          "cro_review",
-        ),
-        promptIrAgentId,
       ),
     ];
   }
@@ -209,6 +184,7 @@ function stagesForAgent(
       stageSpec(
         "execution_feasibility",
         "decision.autonomous_execution.feasibility.v1",
+        outputSchemaFields,
         [
           "candidate_target_state",
           "cro_review_state",
@@ -217,12 +193,6 @@ function stagesForAgent(
           "execution_liquidity_state",
         ],
         ["execution_feasibility_state"],
-        runtimeResearchKnobsStageEnablement(
-          DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT,
-          agent,
-          "execution_feasibility",
-        ),
-        promptIrAgentId,
       ),
     ];
   }
@@ -231,6 +201,7 @@ function stagesForAgent(
       stageSpec(
         "cio_proposal",
         "decision.cio.proposal.v1",
+        CIO_PROPOSAL_FIELD_NAMES,
         [
           "upstream_agent_outputs",
           "current_position_snapshot",
@@ -239,16 +210,11 @@ function stagesForAgent(
           "position_thesis_state",
         ],
         ["candidate_target_state", "position_review_state"],
-        runtimeResearchKnobsStageEnablement(
-          DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT,
-          agent,
-          "cio_proposal",
-        ),
-        promptIrAgentId,
       ),
       stageSpec(
         "cio_final",
         "decision.cio.final.v1",
+        CIO_FINAL_FIELD_NAMES,
         [
           "candidate_target_state",
           "position_review_state",
@@ -258,12 +224,6 @@ function stagesForAgent(
           "current_market_data",
         ],
         [],
-        runtimeResearchKnobsStageEnablement(
-          DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT,
-          agent,
-          "cio_final",
-        ),
-        promptIrAgentId,
       ),
     ];
   }
@@ -272,49 +232,58 @@ function stagesForAgent(
 
 function runtimeSpec(
   layer: Layer,
-  spec: {
-    agentId: string;
-    fieldNames: ReadonlyArray<string>;
-    requiredTools?: ReadonlyArray<string>;
-  },
+  rawAgentId: string,
+  fieldNames: ReadonlyArray<string>,
 ): RuntimeAgentSpec {
-  const promptIrAgentId = `${layer}.${spec.agentId}`;
+  const agentId = AgentIdSchema.parse(rawAgentId);
+  if (AGENT_LAYER_BY_ID[agentId] !== layer) {
+    throw new Error(`runtime layer mismatch for ${agentId}`);
+  }
+  const requiredTools = agentToolsFor(agentId);
+  const promptIrAgentId = `${layer}.${agentId}`;
   return {
-    agent: spec.agentId,
+    agent: agentId,
     layer,
     promptIrAgentId,
-    fieldNames: spec.fieldNames,
-    requiredTools: spec.requiredTools ?? [],
-    stages: stagesForAgent(layer, spec.agentId, promptIrAgentId),
+    fieldNames,
+    requiredTools,
+    stages: stagesForAgent(layer, agentId, promptIrAgentId, fieldNames),
   };
 }
 
 export const RUNTIME_AGENT_SPECS: ReadonlyArray<RuntimeAgentSpec> = [
-  runtimeSpec("macro", chinaSpec),
-  runtimeSpec("macro", usEconomySpec),
-  runtimeSpec("macro", centralBankSpec),
-  runtimeSpec("macro", dollarSpec),
-  runtimeSpec("macro", yieldCurveSpec),
-  runtimeSpec("macro", commoditiesSpec),
-  runtimeSpec("macro", geopoliticalSpec),
-  runtimeSpec("macro", volatilitySpec),
-  runtimeSpec("macro", marketBreadthSpec),
-  runtimeSpec("macro", institutionalFlowSpec),
-  runtimeSpec("sector", semiconductorSpec),
-  runtimeSpec("sector", energySpec),
-  runtimeSpec("sector", biotechSpec),
-  runtimeSpec("sector", consumerSpec),
-  runtimeSpec("sector", industrialsSpec),
-  runtimeSpec("sector", financialsSpec),
-  runtimeSpec("sector", relationshipMapperSpec),
-  runtimeSpec("superinvestor", druckenmillerSpec),
-  runtimeSpec("superinvestor", mungerSpec),
-  runtimeSpec("superinvestor", burrySpec),
-  runtimeSpec("superinvestor", ackmanSpec),
-  runtimeSpec("decision", croSpec),
-  runtimeSpec("decision", alphaDiscoverySpec),
-  runtimeSpec("decision", autonomousExecutionSpec),
-  runtimeSpec("decision", cioSpec),
+  runtimeSpec("macro", "china", CHINA_FIELD_NAMES),
+  runtimeSpec("macro", "us_economy", US_ECONOMY_FIELD_NAMES),
+  runtimeSpec("macro", "eu_economy", EU_ECONOMY_FIELD_NAMES),
+  runtimeSpec("macro", "central_bank", CENTRAL_BANK_FIELD_NAMES),
+  runtimeSpec("macro", "us_financial_conditions", US_FINANCIAL_CONDITIONS_FIELD_NAMES),
+  runtimeSpec(
+    "macro",
+    "euro_area_financial_conditions",
+    EURO_AREA_FINANCIAL_CONDITIONS_FIELD_NAMES,
+  ),
+  runtimeSpec("macro", "commodities", COMMODITIES_FIELD_NAMES),
+  runtimeSpec("macro", "geopolitical", GEOPOLITICAL_FIELD_NAMES),
+  runtimeSpec("macro", "market_breadth", MARKET_BREADTH_FIELD_NAMES),
+  runtimeSpec("macro", "institutional_flow", INSTITUTIONAL_FLOW_FIELD_NAMES),
+  runtimeSpec("sector", "semiconductor", STANDARD_SECTOR_FIELD_NAMES),
+  runtimeSpec("sector", "technology", STANDARD_SECTOR_FIELD_NAMES),
+  runtimeSpec("sector", "energy", STANDARD_SECTOR_FIELD_NAMES),
+  runtimeSpec("sector", "biotech", STANDARD_SECTOR_FIELD_NAMES),
+  runtimeSpec("sector", "consumer", STANDARD_SECTOR_FIELD_NAMES),
+  runtimeSpec("sector", "industrials", STANDARD_SECTOR_FIELD_NAMES),
+  runtimeSpec("sector", "real_estate_construction", STANDARD_SECTOR_FIELD_NAMES),
+  runtimeSpec("sector", "financials", STANDARD_SECTOR_FIELD_NAMES),
+  runtimeSpec("sector", "agriculture", STANDARD_SECTOR_FIELD_NAMES),
+  runtimeSpec("sector", "relationship_mapper", RELATIONSHIP_MAPPER_FIELD_NAMES),
+  runtimeSpec("superinvestor", "druckenmiller", SUPERINVESTOR_FIELD_NAMES),
+  runtimeSpec("superinvestor", "munger", SUPERINVESTOR_FIELD_NAMES),
+  runtimeSpec("superinvestor", "burry", SUPERINVESTOR_FIELD_NAMES),
+  runtimeSpec("superinvestor", "ackman", SUPERINVESTOR_FIELD_NAMES),
+  runtimeSpec("decision", "cro", CRO_FIELD_NAMES),
+  runtimeSpec("decision", "alpha_discovery", ALPHA_DISCOVERY_FIELD_NAMES),
+  runtimeSpec("decision", "autonomous_execution", AUTONOMOUS_EXECUTION_FIELD_NAMES),
+  runtimeSpec("decision", "cio", CIO_FINAL_FIELD_NAMES),
 ];
 
 export const RUNTIME_AGENT_SPEC_BY_AGENT: ReadonlyMap<string, RuntimeAgentSpec> = new Map(
@@ -343,22 +312,10 @@ export const RUNTIME_AGENT_STAGE_SPEC_BY_KEY = new Map(
 export function buildRuntimeAgentManifestArtifact(
   specs: ReadonlyArray<RuntimeAgentSpec> = RUNTIME_AGENT_SPECS,
 ): RuntimeAgentManifestArtifact {
-  const allStageKeys = specs.flatMap((spec) =>
-    spec.stages.map((stage) => runtimeAgentStageKey(spec.agent, stage.stage)),
-  );
   return {
     schema_version: RUNTIME_AGENT_MANIFEST_VERSION,
     runtime_agent_count: specs.length,
     runtime_stage_count: specs.reduce((count, spec) => count + spec.stages.length, 0),
-    default_cohort: DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT,
-    research_knobs_cohort_enablement: configuredRuntimeResearchKnobsCohorts().map((cohort) => {
-      const enabled = configuredRuntimeResearchKnobsStageKeys(cohort);
-      return {
-        cohort,
-        enabled_agent_stages: allStageKeys.filter((key) => enabled.has(key)),
-        legacy_agent_stages: allStageKeys.filter((key) => !enabled.has(key)),
-      };
-    }),
     canonical_l4_sequence: [...CANONICAL_L4_STAGE_SEQUENCE],
     agents: specs.map((spec) => ({
       agent: spec.agent,
@@ -370,6 +327,7 @@ export function buildRuntimeAgentManifestArtifact(
         stage: stage.stage,
         enablement: stage.enablement,
         output_schema_ref: stage.outputSchemaRef,
+        output_schema_fields: [...stage.outputSchemaFields],
         max_repair_attempts: stage.maxRepairAttempts,
         required_source_ids: [...stage.requiredSourceIds],
         produced_source_ids: [...stage.producedSourceIds],
@@ -405,49 +363,46 @@ export function validateRuntimeAgentManifestArtifact(
   if (artifact.canonical_l4_sequence.join(",") !== CANONICAL_L4_STAGE_SEQUENCE.join(",")) {
     reasons.push("runtime_manifest_l4_sequence_mismatch");
   }
-  if (artifact.default_cohort !== DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT) {
-    reasons.push(
-      `runtime_manifest_default_cohort_mismatch:${artifact.default_cohort}:expected:${DEFAULT_RUNTIME_RESEARCH_KNOBS_COHORT}`,
-    );
-  }
   const seenStages = new Set<string>();
+  const runtimeSpecByAgent = new Map(RUNTIME_AGENT_SPECS.map((spec) => [spec.agent, spec]));
   for (const agent of artifact.agents) {
+    const runtimeSpec = runtimeSpecByAgent.get(agent.agent);
+    if (!runtimeSpec) {
+      reasons.push(`runtime_manifest_agent_unknown:${agent.agent}`);
+      continue;
+    }
+    const expectedAgentFields = new Set(
+      runtimeSpec.stages.flatMap((stage) => [...stage.outputSchemaFields]),
+    );
+    if (new Set(agent.output_schema_fields).size !== agent.output_schema_fields.length) {
+      reasons.push(`runtime_manifest_agent_output_fields_duplicate:${agent.agent}`);
+    }
+    if (
+      [...new Set(agent.output_schema_fields)].sort().join("\0") !==
+      [...expectedAgentFields].sort().join("\0")
+    ) {
+      reasons.push(`runtime_manifest_agent_output_fields_mismatch:${agent.agent}`);
+    }
     for (const stage of agent.stages) {
       const key = runtimeAgentStageKey(agent.agent, stage.stage);
       if (seenStages.has(key)) reasons.push(`runtime_manifest_duplicate_stage:${key}`);
       seenStages.add(key);
       if (!stage.output_schema_ref) reasons.push(`runtime_manifest_output_schema_missing:${key}`);
+      const expectedStage = runtimeSpec.stages.find((row) => row.stage === stage.stage);
+      if (new Set(stage.output_schema_fields).size !== stage.output_schema_fields.length) {
+        reasons.push(`runtime_manifest_stage_output_fields_duplicate:${key}`);
+      }
+      if (!expectedStage) {
+        reasons.push(`runtime_manifest_stage_unknown:${key}`);
+      } else if (
+        [...new Set(stage.output_schema_fields)].sort().join("\0") !==
+        [...expectedStage.outputSchemaFields].sort().join("\0")
+      ) {
+        reasons.push(`runtime_manifest_stage_output_fields_mismatch:${key}`);
+      }
       if (stage.max_repair_attempts !== 3)
         reasons.push(`runtime_manifest_repair_budget_invalid:${key}`);
     }
-  }
-  const seenCohorts = new Set<string>();
-  for (const cohort of artifact.research_knobs_cohort_enablement) {
-    if (seenCohorts.has(cohort.cohort)) {
-      reasons.push(`runtime_manifest_duplicate_cohort:${cohort.cohort}`);
-    }
-    seenCohorts.add(cohort.cohort);
-    const expectedEnabled = configuredRuntimeResearchKnobsStageKeys(cohort.cohort);
-    const declaredEnabled = new Set(cohort.enabled_agent_stages);
-    const declaredLegacy = new Set(cohort.legacy_agent_stages);
-    for (const key of declaredEnabled) {
-      if (!seenStages.has(key))
-        reasons.push(`runtime_manifest_enabled_stage_unknown:${cohort.cohort}:${key}`);
-      if (declaredLegacy.has(key)) {
-        reasons.push(`runtime_manifest_stage_enabled_and_legacy:${cohort.cohort}:${key}`);
-      }
-    }
-    for (const key of seenStages) {
-      if (declaredEnabled.has(key) === declaredLegacy.has(key)) {
-        reasons.push(`runtime_manifest_cohort_stage_partition_invalid:${cohort.cohort}:${key}`);
-      }
-      if (declaredEnabled.has(key) !== expectedEnabled.has(key)) {
-        reasons.push(`runtime_manifest_cohort_enablement_drift:${cohort.cohort}:${key}`);
-      }
-    }
-  }
-  for (const cohort of configuredRuntimeResearchKnobsCohorts()) {
-    if (!seenCohorts.has(cohort)) reasons.push(`runtime_manifest_cohort_missing:${cohort}`);
   }
   const cio = artifact.agents.find((agent) => agent.agent === "cio");
   const cioStages = new Set(cio?.stages.map((stage) => stage.stage) ?? []);

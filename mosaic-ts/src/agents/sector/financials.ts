@@ -1,58 +1,11 @@
-/** financials Layer-2 (Plan §5.2). 银行 + 非银 sector. */
+import type { FinancialsOutput } from "../types.js";
+import { buildLayerTwoAgentNode, type LayerTwoAgentDeps } from "./_factory.js";
+import { FinancialsSchema } from "./_schemas.js";
+import { renderStandardSector, standardSectorSpec } from "./_spec.js";
 
-import type { FinancialsOutput, RegimeSignal } from "../types.js";
-import {
-  buildLayerTwoAgentNode,
-  type LayerTwoAgentDeps,
-  type LayerTwoAgentNode,
-  type LayerTwoAgentSpec,
-} from "./_factory.js";
-import { FinancialsSchema, STANDARD_SECTOR_FIELD_NAMES } from "./_schemas.js";
-
-export const REQUIRED_TOOLS = [
-  "get_rke_research_context",
-  "get_industry_policy_digest",
-  "get_yield_curve_cn",
-  "get_broker_research",
-  "get_etf_holdings",
-  "get_stock_data",
-  "get_indicators",
-  "get_industry_moneyflow",
-] as const;
-
-export const financialsSpec: LayerTwoAgentSpec<FinancialsOutput> = {
-  agentId: "financials",
-  schema: FinancialsSchema,
-  fieldNames: STANDARD_SECTOR_FIELD_NAMES,
-  requiredTools: REQUIRED_TOOLS,
-  render: renderFinancials,
-};
-
-export function buildFinancialsNode(deps: LayerTwoAgentDeps): LayerTwoAgentNode {
-  return buildLayerTwoAgentNode(financialsSpec, deps);
-}
-
-export function renderFinancials(o: FinancialsOutput): string {
-  const longs = o.longs.map((p) => `${p.ticker}(${p.conviction.toFixed(2)})`).join(", ");
-  const shorts = o.shorts.map((p) => `${p.ticker}(${p.conviction.toFixed(2)})`).join(", ");
-  return (
-    `financials analysis (confidence=${o.confidence.toFixed(2)}, score=${o.sector_score.toFixed(2)})\n` +
-    `  longs:  ${longs || "(none)"}\n` +
-    `  shorts: ${shorts || "(none)"}\n` +
-    `  drivers: ${o.key_drivers.join(" | ")}`
-  );
-}
-
-export function fallbackFinancials(text: string, _regime: RegimeSignal | null): FinancialsOutput {
-  const trimmed = (text ?? "").trim();
-  return {
-    agent: "financials",
-    longs: [],
-    shorts: [],
-    sector_score: 0,
-    key_drivers: trimmed ? [trimmed.slice(0, 80)] : ["analysis missing"],
-    confidence: 0,
-  };
-}
-
-export { FinancialsSchema, STANDARD_SECTOR_FIELD_NAMES };
+export const financialsSpec = standardSectorSpec<FinancialsOutput>("financials", FinancialsSchema);
+export const REQUIRED_TOOLS = financialsSpec.requiredTools;
+export const buildFinancialsNode = (deps: LayerTwoAgentDeps) =>
+  buildLayerTwoAgentNode(financialsSpec, deps);
+export const renderFinancials = renderStandardSector;
+export { FinancialsSchema };

@@ -1,5 +1,5 @@
 /**
- * Generic prompt-snippet helpers reused across the 25-agent surface.
+ * Generic prompt-snippet helpers reused across the 28-Agent surface.
  *
  * Extracted from ETFAgents' ``ts/src/agents/prompts/shared.ts`` so
  * ``helpers/tool_report_chain.ts`` does not have to depend on the prompts

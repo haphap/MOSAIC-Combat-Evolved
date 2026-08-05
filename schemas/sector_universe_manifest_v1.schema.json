@@ -1,0 +1,841 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "sector_universe_manifest_v1"
+    },
+    "sector_count": {
+      "type": "number",
+      "const": 9
+    },
+    "direction_count": {
+      "type": "number",
+      "const": 47
+    },
+    "metric_count": {
+      "type": "number",
+      "const": 26
+    },
+    "taxonomy_provider": {
+      "type": "string",
+      "const": "SW2021"
+    },
+    "taxonomy_structure_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "direction_registry_version": {
+      "type": "string",
+      "const": "sector_direction_registry_v4"
+    },
+    "direction_metric_registry_version": {
+      "type": "string",
+      "const": "sector_direction_metric_registry_v1"
+    },
+    "direction_metric_registry_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "direction_metric_registry": {
+      "minItems": 26,
+      "maxItems": 26,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "metric_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "metric_contract_version": {
+            "type": "string",
+            "const": "v1"
+          },
+          "metric_family": {
+            "type": "string",
+            "enum": [
+              "FUNDAMENTALS",
+              "VALUATION",
+              "BASKET_PRICE_TREND",
+              "BASKET_BREADTH",
+              "BASKET_TURNOVER_FLOW",
+              "ETF_CONFIRMATION"
+            ]
+          },
+          "formula_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "formula_version": {
+            "type": "string",
+            "const": "v1"
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "RATIO",
+              "PERCENT",
+              "CNY",
+              "RETURN",
+              "VOLATILITY"
+            ]
+          },
+          "lookback": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "TRADING_DAYS",
+                  "REPORTED_QUARTERS",
+                  "POINT_IN_TIME"
+                ]
+              },
+              "value": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "kind",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "required_for_direction_readiness": {
+            "type": "boolean"
+          },
+          "minimum_observations": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "minimum_coverage_ratio": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "basket_weighting": {
+            "type": "string",
+            "enum": [
+              "PIT_EQUAL_WEIGHT",
+              "LAGGED_20D_MEDIAN_AMOUNT"
+            ]
+          },
+          "benchmark_role": {
+            "type": "string",
+            "enum": [
+              "NONE",
+              "PARENT_SECTOR_BENCHMARK",
+              "DIRECTION_BASKET"
+            ]
+          },
+          "adjustment_contract_version": {
+            "type": "string",
+            "const": "pit_total_return_adjustment_v1"
+          },
+          "percentile_lookback_trading_days": {
+            "type": "number",
+            "const": 252
+          },
+          "percentile_method": {
+            "type": "string",
+            "const": "EMPIRICAL_CDF_AVERAGE_TIE"
+          },
+          "change_lookback_trading_days": {
+            "type": "number",
+            "const": 20
+          },
+          "metric_contract_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "metric_id",
+          "metric_contract_version",
+          "metric_family",
+          "formula_id",
+          "formula_version",
+          "unit",
+          "lookback",
+          "required_for_direction_readiness",
+          "minimum_observations",
+          "minimum_coverage_ratio",
+          "basket_weighting",
+          "benchmark_role",
+          "adjustment_contract_version",
+          "percentile_lookback_trading_days",
+          "percentile_method",
+          "change_lookback_trading_days",
+          "metric_contract_hash"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "overlap_precedence": {
+      "minItems": 9,
+      "maxItems": 9,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "semiconductor",
+          "technology",
+          "energy",
+          "biotech",
+          "consumer",
+          "industrials",
+          "real_estate_construction",
+          "financials",
+          "agriculture"
+        ]
+      }
+    },
+    "membership_query_plans": {
+      "minItems": 9,
+      "maxItems": 9,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "query_plan_id": {
+            "type": "string",
+            "pattern": "^sector-membership:[a-z_]+$"
+          },
+          "query_plan_version": {
+            "type": "string",
+            "const": "sector_membership_query_v1"
+          },
+          "sector_agent_id": {
+            "type": "string",
+            "enum": [
+              "semiconductor",
+              "technology",
+              "energy",
+              "biotech",
+              "consumer",
+              "industrials",
+              "real_estate_construction",
+              "financials",
+              "agriculture"
+            ]
+          },
+          "branches": {
+            "minItems": 2,
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "endpoint": {
+                      "type": "string",
+                      "const": "index_member_all"
+                    },
+                    "parameter": {
+                      "type": "string",
+                      "const": "l1_code"
+                    },
+                    "classification_code": {
+                      "type": "string",
+                      "pattern": "^801\\d{3}\\.SI$"
+                    },
+                    "is_new": {
+                      "type": "string",
+                      "enum": [
+                        "Y",
+                        "N"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "endpoint",
+                    "parameter",
+                    "classification_code",
+                    "is_new"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "endpoint": {
+                      "type": "string",
+                      "const": "index_member_all"
+                    },
+                    "parameter": {
+                      "type": "string",
+                      "const": "l2_code"
+                    },
+                    "classification_code": {
+                      "type": "string",
+                      "pattern": "^801\\d{3}\\.SI$"
+                    },
+                    "is_new": {
+                      "type": "string",
+                      "enum": [
+                        "Y",
+                        "N"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "endpoint",
+                    "parameter",
+                    "classification_code",
+                    "is_new"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "endpoint": {
+                      "type": "string",
+                      "const": "index_member_all"
+                    },
+                    "parameter": {
+                      "type": "string",
+                      "const": "l3_code"
+                    },
+                    "classification_code": {
+                      "type": "string",
+                      "pattern": "^850\\d{3}\\.SI$"
+                    },
+                    "is_new": {
+                      "type": "string",
+                      "enum": [
+                        "Y",
+                        "N"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "endpoint",
+                    "parameter",
+                    "classification_code",
+                    "is_new"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "merge_key": {
+            "minItems": 6,
+            "maxItems": 6,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "l1_code",
+                "l2_code",
+                "l3_code",
+                "ts_code",
+                "in_date",
+                "out_date"
+              ]
+            }
+          },
+          "post_filter_excluded_codes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^(?:801|850)\\d{3}\\.SI$"
+            }
+          },
+          "query_plan_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "query_plan_id",
+          "query_plan_version",
+          "sector_agent_id",
+          "branches",
+          "merge_key",
+          "post_filter_excluded_codes",
+          "query_plan_hash"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "direction_contracts": {
+      "minItems": 47,
+      "maxItems": 47,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sector_agent_id": {
+            "type": "string",
+            "enum": [
+              "semiconductor",
+              "technology",
+              "energy",
+              "biotech",
+              "consumer",
+              "industrials",
+              "real_estate_construction",
+              "financials",
+              "agriculture"
+            ]
+          },
+          "direction_id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "included_classification_codes": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^(?:801|850)\\d{3}\\.SI$"
+            }
+          },
+          "excluded_classification_codes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^(?:801|850)\\d{3}\\.SI$"
+            }
+          },
+          "direction_contract_version": {
+            "type": "string",
+            "const": "sector_direction_registry_v4"
+          },
+          "direction_partition_definition_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "direction_return_benchmark_contract_id": {
+            "type": "string",
+            "pattern": "^direction-return:[a-z_]+:[a-z0-9_]+$"
+          },
+          "parent_sector_benchmark_contract_id": {
+            "type": "string",
+            "pattern": "^parent-sector:[a-z_]+$"
+          },
+          "candidate_eligibility_contract_version": {
+            "type": "string",
+            "const": "sector_candidate_eligibility_v1"
+          },
+          "membership_query_plan_id": {
+            "type": "string",
+            "pattern": "^sector-membership:[a-z_]+$"
+          },
+          "membership_query_plan_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "direction_contract_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "sector_agent_id",
+          "direction_id",
+          "included_classification_codes",
+          "excluded_classification_codes",
+          "direction_contract_version",
+          "direction_partition_definition_hash",
+          "direction_return_benchmark_contract_id",
+          "parent_sector_benchmark_contract_id",
+          "candidate_eligibility_contract_version",
+          "membership_query_plan_id",
+          "membership_query_plan_hash",
+          "direction_contract_hash"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "direction_comparison_contract": {
+      "type": "object",
+      "properties": {
+        "comparison_contract_id": {
+          "type": "string",
+          "const": "sector_direction_comparison_v3"
+        },
+        "comparison_contract_version": {
+          "type": "string",
+          "const": "sector_direction_comparison_v3"
+        },
+        "core_criteria": {
+          "minItems": 4,
+          "maxItems": 4,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "FUNDAMENTALS",
+              "VALUATION",
+              "BASKET_TECHNICALS",
+              "RISK_ASYMMETRY"
+            ]
+          }
+        },
+        "coverage_gated_criteria": {
+          "minItems": 2,
+          "maxItems": 2,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "MACRO_EVENT_FIT",
+              "CATALYSTS"
+            ]
+          }
+        },
+        "optional_etf_criteria": {
+          "minItems": 2,
+          "maxItems": 2,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "ETF_PRICE_CONFIRMATION",
+              "ETF_SHARE_FLOW_CONFIRMATION"
+            ]
+          }
+        },
+        "pair_coverage": {
+          "type": "string",
+          "const": "ALL_ELIGIBLE_UNORDERED_PAIRS"
+        },
+        "reducer": {
+          "type": "string",
+          "const": "UNIQUE_CONDORCET_WINNER_AND_LOSER_THEN_SINGLE_CONFLICT_REVIEW_ELSE_REJECT"
+        },
+        "core_vote_weight": {
+          "type": "number",
+          "const": 1
+        },
+        "available_coverage_gated_vote_weight": {
+          "type": "number",
+          "const": 1
+        },
+        "optional_etf_vote_weight": {
+          "type": "number",
+          "const": 0.5
+        },
+        "minimum_base_support_count": {
+          "type": "number",
+          "const": 2
+        },
+        "minimum_weighted_support_margin": {
+          "type": "number",
+          "const": 1
+        },
+        "maximum_conflict_review_rounds": {
+          "type": "number",
+          "const": 1
+        },
+        "coverage_binding": {
+          "type": "string",
+          "const": "EXACT_RUNTIME_ROLE_EVENT_DIRECTIVE"
+        },
+        "comparison_contract_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "comparison_contract_id",
+        "comparison_contract_version",
+        "core_criteria",
+        "coverage_gated_criteria",
+        "optional_etf_criteria",
+        "pair_coverage",
+        "reducer",
+        "core_vote_weight",
+        "available_coverage_gated_vote_weight",
+        "optional_etf_vote_weight",
+        "minimum_base_support_count",
+        "minimum_weighted_support_margin",
+        "maximum_conflict_review_rounds",
+        "coverage_binding",
+        "comparison_contract_hash"
+      ],
+      "additionalProperties": false
+    },
+    "direction_conflict_resolver_contract": {
+      "type": "object",
+      "properties": {
+        "resolver_contract_id": {
+          "type": "string",
+          "const": "sector_direction_conflict_resolver"
+        },
+        "resolver_contract_version": {
+          "type": "string",
+          "const": "sector_direction_conflict_resolver_v1"
+        },
+        "conflict_set_rule": {
+          "type": "string",
+          "const": "IF_UNIQUE_CONDORCET_WINNER_AND_LOSER_THEN_EMPTY_ELSE_SORTED_UNION_OF_CYCLE_NO_EDGE_AND_NONUNIQUE_EXTREME_COPELAND_TIES"
+        },
+        "review_scope_rule": {
+          "type": "string",
+          "const": "EXACT_COMPLETE_PAIRWISE_MATRIX_OVER_FROZEN_CONFLICT_SET"
+        },
+        "review_round_limit": {
+          "type": "number",
+          "const": 1
+        },
+        "recomputation_rule": {
+          "type": "string",
+          "const": "REPLACE_CONFLICT_INTERNAL_PAIRS_THEN_REDUCE_COMPLETE_MATRIX"
+        },
+        "acceptance_rule": {
+          "type": "string",
+          "const": "UNIQUE_CONDORCET_WINNER_AND_UNIQUE_CONDORCET_LOSER"
+        },
+        "unresolved_rule": {
+          "type": "string",
+          "const": "REJECT_STAGE_AFTER_SINGLE_REVIEW"
+        },
+        "resolver_contract_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "resolver_contract_id",
+        "resolver_contract_version",
+        "conflict_set_rule",
+        "review_scope_rule",
+        "review_round_limit",
+        "recomputation_rule",
+        "acceptance_rule",
+        "unresolved_rule",
+        "resolver_contract_hash"
+      ],
+      "additionalProperties": false
+    },
+    "security_scoring_contract": {
+      "type": "object",
+      "properties": {
+        "scoring_contract_id": {
+          "type": "string",
+          "const": "sector_security_scoring_v2"
+        },
+        "scoring_contract_version": {
+          "type": "string",
+          "const": "sector_security_scoring_v2"
+        },
+        "candidate_source": {
+          "type": "string",
+          "const": "PIT_DIRECTION_ELIGIBLE_SECURITY_SCORE_ROWS"
+        },
+        "scoring_features": {
+          "minItems": 4,
+          "maxItems": 4,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "ADJUSTED_RETURN_20D",
+              "REALIZED_VOLATILITY_20D",
+              "MEDIAN_AMOUNT_20D_CNY",
+              "NET_MONEYFLOW_20D_CNY"
+            ]
+          }
+        },
+        "required_source_endpoints": {
+          "minItems": 3,
+          "maxItems": 3,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "daily",
+              "adj_factor",
+              "moneyflow"
+            ]
+          }
+        },
+        "required_observation_count": {
+          "type": "number",
+          "const": 20
+        },
+        "required_adjusted_close_observation_count": {
+          "type": "number",
+          "const": 21
+        },
+        "minimum_coverage_ratio": {
+          "type": "number",
+          "const": 1
+        },
+        "adjusted_return_formula": {
+          "type": "string",
+          "const": "LATEST_ADJUSTED_CLOSE_DIV_LAG_20_ADJUSTED_CLOSE_MINUS_ONE"
+        },
+        "realized_volatility_formula": {
+          "type": "string",
+          "const": "SAMPLE_STDDEV_OF_20_ADJUSTED_SIMPLE_RETURNS_ANNUALIZED_SQRT_252"
+        },
+        "median_amount_formula": {
+          "type": "string",
+          "const": "MEDIAN_LATEST_20_DAILY_AMOUNT_TIMES_1000_CNY"
+        },
+        "net_moneyflow_formula": {
+          "type": "string",
+          "const": "SUM_LATEST_20_NET_MF_AMOUNT_TIMES_10000_CNY"
+        },
+        "availability_rule": {
+          "type": "string",
+          "const": "ALL_20_RETURN_INTERVALS_HAVE_DAILY_ADJ_FACTOR_AND_MONEYFLOW"
+        },
+        "shortlist_order": {
+          "type": "string",
+          "const": "MEDIAN_AMOUNT_20D_CNY_DESC_THEN_TS_CODE_ASC"
+        },
+        "shortlist_maximum_size_per_direction": {
+          "type": "number",
+          "const": 50
+        },
+        "model_pick_domain": {
+          "type": "string",
+          "const": "EXACT_FROZEN_SCORING_SHORTLIST"
+        },
+        "maximum_picks_per_side": {
+          "type": "number",
+          "const": 5
+        },
+        "duplicate_ticker_policy": {
+          "type": "string",
+          "const": "REJECT_ACROSS_WHOLE_SUBMISSION"
+        },
+        "conviction_lower_bound_exclusive": {
+          "type": "number",
+          "const": 0
+        },
+        "conviction_upper_bound_inclusive": {
+          "type": "number",
+          "const": 1
+        },
+        "conviction_budget_per_side": {
+          "type": "number",
+          "const": 1
+        },
+        "scoring_contract_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "scoring_contract_id",
+        "scoring_contract_version",
+        "candidate_source",
+        "scoring_features",
+        "required_source_endpoints",
+        "required_observation_count",
+        "required_adjusted_close_observation_count",
+        "minimum_coverage_ratio",
+        "adjusted_return_formula",
+        "realized_volatility_formula",
+        "median_amount_formula",
+        "net_moneyflow_formula",
+        "availability_rule",
+        "shortlist_order",
+        "shortlist_maximum_size_per_direction",
+        "model_pick_domain",
+        "maximum_picks_per_side",
+        "duplicate_ticker_policy",
+        "conviction_lower_bound_exclusive",
+        "conviction_upper_bound_inclusive",
+        "conviction_budget_per_side",
+        "scoring_contract_hash"
+      ],
+      "additionalProperties": false
+    },
+    "flow_coverage_contract": {
+      "type": "object",
+      "properties": {
+        "contract_id": {
+          "type": "string",
+          "const": "sector_constituent_flow_v1"
+        },
+        "contract_version": {
+          "type": "string",
+          "const": "sector_flow_coverage_v1"
+        },
+        "source_endpoint": {
+          "type": "string",
+          "const": "moneyflow"
+        },
+        "source_net_flow_field": {
+          "type": "string",
+          "const": "net_mf_amount"
+        },
+        "denominator": {
+          "type": "string",
+          "const": "FROZEN_CANDIDATE_20D_MEDIAN_TURNOVER"
+        },
+        "minimum_coverage_ratio": {
+          "type": "number",
+          "const": 0.9
+        },
+        "coverage_weighting": {
+          "type": "string",
+          "const": "PIT_CONSTITUENT_20D_MEDIAN_TURNOVER"
+        },
+        "aggregation": {
+          "type": "string",
+          "const": "OBSERVED_CONSTITUENT_NET_FLOW_PER_OBSERVED_MEDIAN_TURNOVER"
+        },
+        "ths_industry_flow_usage": {
+          "type": "string",
+          "const": "OPTIONAL_DIAGNOSTIC_ONLY"
+        },
+        "contract_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "contract_id",
+        "contract_version",
+        "source_endpoint",
+        "source_net_flow_field",
+        "denominator",
+        "minimum_coverage_ratio",
+        "coverage_weighting",
+        "aggregation",
+        "ths_industry_flow_usage",
+        "contract_hash"
+      ],
+      "additionalProperties": false
+    },
+    "manifest_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "sector_count",
+    "direction_count",
+    "metric_count",
+    "taxonomy_provider",
+    "taxonomy_structure_hash",
+    "direction_registry_version",
+    "direction_metric_registry_version",
+    "direction_metric_registry_hash",
+    "direction_metric_registry",
+    "overlap_precedence",
+    "membership_query_plans",
+    "direction_contracts",
+    "direction_comparison_contract",
+    "direction_conflict_resolver_contract",
+    "security_scoring_contract",
+    "flow_coverage_contract",
+    "manifest_hash"
+  ],
+  "additionalProperties": false
+}

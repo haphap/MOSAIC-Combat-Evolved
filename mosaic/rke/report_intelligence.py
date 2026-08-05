@@ -5,6 +5,10 @@ Markdown through MinerU, and extracts forecast claims plus analytical
 footprints with a local OpenAI-compatible vLLM endpoint. The old Phase -1
 abstract corpus remains intact; this pipeline makes original report text the
 auditable input for the v1.5 Report Intelligence Loop.
+
+Historical report artifacts retain their original Macro Agent taxonomy and
+are overlaid as ``legacy_unverified`` by the v2 RKE-shadow migration manifest.
+New production roles consume neither these artifacts nor this module.
 """
 
 from __future__ import annotations

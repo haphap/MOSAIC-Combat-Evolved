@@ -52,16 +52,23 @@ LLM keys:`ANTHROPIC_API_KEY`、`DEEPSEEK_API_KEY`、`OPENAI_API_KEY`、`GOOGLE_A
 ## 首次运行
 
 ```bash
-cd mosaic-ts
+cd /path/to/MOSAIC-RKE
 
-# 冒烟测试 bridge(spawn Python sidecar,列出 tools + config)
-pnpm dev bridge-ping
+# 冒烟测试 bridge（spawn Python sidecar 并验证 config.get）
+pnpm --dir mosaic-ts dev bridge-ping
 
-# 用零成本 mock LLM 跑通一次完整 daily cycle(25 agents)
-pnpm dev daily-cycle --cohort cohort_default --fake-llm
+# 生成 fresh、hash-bound 的 synthetic PIT bundle，再跑通全部 29 个阶段。
+mkdir -p .mosaic/tmp
+# 必须使用 A 股交易日；默认值为已验证交易日。
+SMOKE_DATE="${SMOKE_DATE:-2026-07-17}"
+SMOKE_ROOT="$(mktemp -d .mosaic/tmp/structured-smoke.XXXXXX)"
+eval "$(uv run python scripts/build_structured_smoke_fixtures.py \
+  --root "$SMOKE_ROOT" --date "$SMOKE_DATE" --shell-exports)"
+pnpm --dir mosaic-ts dev daily-cycle \
+  --cohort cohort_default --date "$SMOKE_DATE" --fake-llm
 
 # 看只读仪表盘
-pnpm dev dashboard
+pnpm --dir mosaic-ts dev dashboard
 ```
 
 完整命令面见 [CLI 参考](CLI-Reference.md),日常使用流程见[那里的 cron 流水线](CLI-Reference.md#日常运维)。

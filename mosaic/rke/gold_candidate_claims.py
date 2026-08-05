@@ -3,6 +3,9 @@
 These rows are not accepted labels. They are source-bound proposals that make
 manual C02 review auditable and faster while keeping the manual gate closed
 until reviewers fill the review fields.
+
+Macro Agent names in the v1 review taxonomy are historical
+``legacy_unverified`` labels. They are not aliases for the v2 production roster.
 """
 
 from __future__ import annotations

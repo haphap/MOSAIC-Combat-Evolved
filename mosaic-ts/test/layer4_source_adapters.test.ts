@@ -55,15 +55,15 @@ describe("Layer 4 runtime source adapters", () => {
   });
 
   it("keeps loaded, stale, and failed ticker scopes separate", async () => {
-    const toolsCall = vi.fn(async (_name: string, args: Record<string, unknown>) => {
-      if (args.symbol === "600519.SH") return { text: "date,close\n2026-07-09,1500" };
-      if (args.symbol === "000001.SZ") return { text: "date,close\n2026-07-08,12" };
+    const runtimeStockMarketSnapshot = vi.fn(async (args: Record<string, unknown>) => {
+      if (args.ticker === "600519.SH") return { text: "date,close\n2026-07-09,1500" };
+      if (args.ticker === "000001.SZ") return { text: "date,close\n2026-07-08,12" };
       throw new Error("source unavailable");
     });
 
     const statuses = await resolveLayer4SourceStatuses(sourceState(), "pre_candidate", {
-      toolsCall,
-    } as Pick<BridgeApi, "toolsCall">);
+      runtimeStockMarketSnapshot,
+    } as Pick<BridgeApi, "runtimeStockMarketSnapshot">);
 
     expect(statuses).toEqual(
       expect.arrayContaining([
@@ -86,7 +86,7 @@ describe("Layer 4 runtime source adapters", () => {
         }),
       ]),
     );
-    expect(toolsCall).toHaveBeenCalledTimes(3);
+    expect(runtimeStockMarketSnapshot).toHaveBeenCalledTimes(3);
   });
 
   it("resolves candidate liquidity from the real stock-data adapter", async () => {
@@ -100,7 +100,6 @@ describe("Layer 4 runtime source adapters", () => {
         cro_review_state: null,
         execution_feasibility_state: null,
         final_target_state: null,
-        cio_final_knob_snapshot: null,
         resolved_source_statuses: [],
         stage_trace: [],
         candidate_target_state: {
@@ -116,11 +115,13 @@ describe("Layer 4 runtime source adapters", () => {
         },
       },
     } as unknown as DailyCycleStateType["layer4_outputs"];
-    const toolsCall = vi.fn(async () => ({ text: "trade_date,close,volume\n20260709,1500,1200" }));
+    const runtimeStockMarketSnapshot = vi.fn(async () => ({
+      text: "trade_date,close,volume\n20260709,1500,1200",
+    }));
 
     const statuses = await resolveLayer4SourceStatuses(state, "execution_liquidity", {
-      toolsCall,
-    } as Pick<BridgeApi, "toolsCall">);
+      runtimeStockMarketSnapshot,
+    } as Pick<BridgeApi, "runtimeStockMarketSnapshot">);
 
     expect(statuses).toContainEqual(
       expect.objectContaining({
@@ -151,26 +152,28 @@ describe("Layer 4 runtime source adapters", () => {
       resolved_source_statuses: [frozenStatus],
       source_evidence_observations: [],
     } as never;
-    const toolsCall = vi.fn();
+    const runtimeStockMarketSnapshot = vi.fn();
 
     const statuses = await resolveLayer4SourceStatuses(state, "candidate_market", {
-      toolsCall,
-    } as Pick<BridgeApi, "toolsCall">);
+      runtimeStockMarketSnapshot,
+    } as Pick<BridgeApi, "runtimeStockMarketSnapshot">);
 
     expect(statuses).toEqual([frozenStatus]);
-    expect(toolsCall).not.toHaveBeenCalled();
+    expect(runtimeStockMarketSnapshot).not.toHaveBeenCalled();
   });
 
   it("retains normalized evidence separately from source status", async () => {
     const bundle = await resolveLayer4SourceBundle(sourceState(), "pre_candidate", {
-      toolsCall: vi.fn(async () => ({ text: "date,close,volume\n2026-07-09,1500,1200" })),
-    } as Pick<BridgeApi, "toolsCall">);
+      runtimeStockMarketSnapshot: vi.fn(async () => ({
+        text: "date,close,volume\n2026-07-09,1500,1200",
+      })),
+    } as Pick<BridgeApi, "runtimeStockMarketSnapshot">);
 
     expect(bundle.evidence).toContainEqual(
       expect.objectContaining({
         source_id: "current_market_data",
         scope: "ticker:600519.SH",
-        metric: "current_market_data",
+        metric: "current_market_data_snapshot",
         value: { date: "2026-07-09", close: 1500, volume: 1200 },
         freshness: "current",
         adapter_id: "market.scoped_snapshot_adapter.v1",

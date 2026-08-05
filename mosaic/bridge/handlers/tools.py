@@ -1,29 +1,20 @@
-"""``tools.*`` JSON-RPC handlers.
+"""Capability-bound ``tools.*`` JSON-RPC handlers.
 
-Auto-discover every LangChain ``@tool``-decorated function in the codebase
-and expose:
-
-* ``tools.list``   → metadata (name, description, JSON Schema for args)
-* ``tools.call``   → invoke a tool with ``{name, args, context}``
-
-The handler applies a backtest date-bounds context per call so the bridge
-caller (TS) can pin every tool invocation to an ``as_of_date``. This reuses
-``mosaic.dataflows.config.backtest_context`` (Phase 0 Day 2+), so the
-underlying ``route_to_vendor`` clamping logic stays untouched.
-
-Phase 0 Day 1 status: ``_TOOL_MODULES`` is empty so ``tools.list`` returns
-``[]`` cleanly. Modules listed here that fail to import are skipped with a
-warning (see ``_iter_module_tools``), letting later phases add tool modules
-incrementally without breaking the bridge.
+Only the runtime controller may prepare a bundle.  Model-visible ``tools.list``
+and ``tools.call`` require the signed envelope and expose only zero-argument
+role snapshots from that already-materialised bundle.  Raw vendor tools remain
+ordinary Python helpers and are never registered on this RPC surface.
 """
 
 from __future__ import annotations
 
 import importlib
-import inspect  # noqa: F401  (kept for parity with ETFAgents — used by future signature helpers)
-from typing import Any, Dict, Iterable
+from typing import Any, Iterable
 
 from langchain_core.tools import BaseTool
+
+from mosaic.bridge.tool_capabilities import get_capability_store
+from mosaic.dataflows.exceptions import DataVendorUnavailable
 
 from ..protocol import (
     DATA_VENDOR_UNAVAILABLE,
@@ -34,44 +25,21 @@ from ..protocol import (
 )
 from ..registry import method
 
-# Modules to scan for @tool-decorated functions. Adding a new tool module to
-# the codebase requires adding its dotted path here.
-#
-# Phase 0 Day 1: empty (bridge skeleton only).
-# Phase 0 Day 4+: + mosaic.agents.utils.macro_tools (macro tools).
-# Phase 2 Layer 2/3/4 will add sector / superinvestor / decision tool modules.
-_TOOL_MODULES: tuple[str, ...] = (
-    "mosaic.agents.utils.macro_tools",                  # Phase 0 Day 4 ✓
-    "mosaic.agents.utils.research_report_tools",        # 行业研报 + 个股研报 (ported from ETFAgents) ✓
-    "mosaic.agents.utils.rke_research_tools",           # Redacted RKE research priors for MOSAIC agents ✓
-    "mosaic.agents.utils.financial_tools",              # 个股基本面 + 三张财报 (superinvestor) ✓
-    "mosaic.agents.utils.etf_tools",                    # ETF info/nav/holdings/universe (sector/superinvestor) ✓
-    "mosaic.agents.utils.technical_tools",              # 个股价 + 技术指标 (superinvestor + sector) ✓
-    # "mosaic.agents.utils.sector_tools",                 # Phase 2
-    # "mosaic.agents.utils.superinvestor_tools",          # Phase 2
-    # "mosaic.agents.utils.decision_tools",               # Phase 2
-    # "mosaic.agents.utils.core_stock_tools",             # ported from ETFAgents
-    # "mosaic.agents.utils.technical_indicators_tools",   # ported from ETFAgents
-    # "mosaic.agents.utils.fundamental_data_tools",       # ported from ETFAgents
-    # "mosaic.agents.utils.news_data_tools",              # ported from ETFAgents
-    # "mosaic.agents.utils.etf_data_tools",               # ported from ETFAgents
-)
+# Kept as a non-RPC discovery helper for direct unit tests of legacy Python
+# utilities.  The empty module registry is the security boundary: none of
+# those arbitrary-query tools are model-callable through the bridge.
+_TOOL_MODULES: tuple[str, ...] = ()
+_SKIPPED_TOOL_MODULES: list[tuple[str, str]] = []
 
 
 def _iter_module_tools(module_path: str) -> Iterable[BaseTool]:
     try:
         module = importlib.import_module(module_path)
-    except Exception as exc:  # pragma: no cover - import failure logged below
-        import logging
-
-        logging.getLogger("mosaic.bridge").error(
-            "Failed to import tool module %s: %s", module_path, exc
-        )
+    except Exception as exc:  # pragma: no cover - diagnostic path
         _SKIPPED_TOOL_MODULES.append((module_path, repr(exc)))
         return ()
-
-    seen_ids: set[int] = set()
     found: list[BaseTool] = []
+    seen_ids: set[int] = set()
     for value in vars(module).values():
         if isinstance(value, BaseTool) and id(value) not in seen_ids:
             seen_ids.add(id(value))
@@ -79,109 +47,132 @@ def _iter_module_tools(module_path: str) -> Iterable[BaseTool]:
     return found
 
 
-# Records (module_path, error_repr) for any tool module that failed to import
-# during ``_build_registry()``. ``server.run_stdio_server`` reads this in its
-# startup banner so the operator sees missing tools at a glance.
-_SKIPPED_TOOL_MODULES: list[tuple[str, str]] = []
+def _require_capability(params: dict[str, Any]) -> dict[str, Any]:
+    capability = params.get("capability")
+    if not isinstance(capability, dict):
+        raise RpcError(INVALID_PARAMS, "a signed 'capability' object is required")
+    return capability
 
 
-def _build_registry() -> Dict[str, BaseTool]:
-    registry: Dict[str, BaseTool] = {}
-    for module_path in _TOOL_MODULES:
-        for tool_obj in _iter_module_tools(module_path):
-            # First module wins on duplicates (etf_data_tools re-exports a few)
-            registry.setdefault(tool_obj.name, tool_obj)
-    return registry
-
-
-# Built once at module import. The bridge runs as a long-lived process, so we
-# pay the LangChain import cost exactly once and serve cheap dict lookups.
-_TOOLS: Dict[str, BaseTool] = _build_registry()
-
-
-def _tool_metadata(tool_obj: BaseTool) -> dict[str, Any]:
-    schema_cls = getattr(tool_obj, "args_schema", None)
-    if schema_cls is not None and hasattr(schema_cls, "model_json_schema"):
-        json_schema = schema_cls.model_json_schema()
-    elif schema_cls is not None and hasattr(schema_cls, "schema"):
-        # Pydantic v1 fallback (project pins v2 today)
-        json_schema = schema_cls.schema()
-    else:
-        json_schema = {"type": "object", "properties": {}}
-    return {
-        "name": tool_obj.name,
-        "description": (tool_obj.description or "").strip(),
-        "args_schema": json_schema,
-    }
+@method("tools.prepare_capability")
+def tools_prepare_capability(params: dict[str, Any]) -> dict[str, Any]:
+    """Materialise a frozen bundle and issue its short-lived capability."""
+    try:
+        return get_capability_store().prepare(params)
+    except DataVendorUnavailable as exc:
+        raise RpcError(DATA_VENDOR_UNAVAILABLE, str(exc)) from exc
+    except (TypeError, ValueError) as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    except RpcError:
+        raise
+    except Exception as exc:
+        raise RpcError(TOOL_EXECUTION_ERROR, f"{type(exc).__name__}: {exc}") from exc
 
 
 @method("tools.list")
-def tools_list(_params: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return all available tools sorted by name."""
-    return [_tool_metadata(_TOOLS[name]) for name in sorted(_TOOLS)]
+def tools_list(params: dict[str, Any]) -> list[dict[str, Any]]:
+    """List only the zero-argument tools allowed by one signed capability."""
+    capability = _require_capability(params)
+    try:
+        return get_capability_store().list_tools(capability)
+    except (TypeError, ValueError) as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+
+
+@method("tools.issue_capability")
+def tools_issue_capability(params: dict[str, Any]) -> dict[str, Any]:
+    """Issue a distinct node handle for an already-materialised root bundle."""
+    try:
+        return get_capability_store().issue_for_bundle(params)
+    except (TypeError, ValueError) as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(TOOL_EXECUTION_ERROR, f"{type(exc).__name__}: {exc}") from exc
 
 
 @method("tools.call")
 def tools_call(params: dict[str, Any]) -> dict[str, Any]:
-    """Invoke a tool by name. ``params`` shape::
-
-        {
-          "name": "get_news",
-          "args": {"ticker": "510300.SH", "start_date": "...", "end_date": "..."},
-          "context": {"as_of_date": null, "mode": "live"}   // optional
-        }
-
-    Returns ``{"text": <tool output as str>}``.
-    """
+    """Return one immutable bundle payload; collectors are never called here."""
+    capability = _require_capability(params)
     name = params.get("name")
     if not isinstance(name, str) or not name:
         raise RpcError(INVALID_PARAMS, "tools.call requires a non-empty 'name'")
-
-    tool_obj = _TOOLS.get(name)
-    if tool_obj is None:
-        raise RpcError(METHOD_NOT_FOUND, f"No registered tool named {name!r}")
-
-    args = params.get("args", {}) or {}
+    args = params.get("args", {})
     if not isinstance(args, dict):
         raise RpcError(INVALID_PARAMS, "'args' must be an object")
-
-    context = params.get("context") or {}
-    if not isinstance(context, dict):
-        raise RpcError(INVALID_PARAMS, "'context' must be an object")
-    as_of_date = context.get("as_of_date")
-    mode = context.get("mode") or ("backtest" if as_of_date else "live")
-
-    # Lazy import — keeps top-level import cheap and avoids a circular path.
-    # mosaic.dataflows lands in Phase 0 Day 2; until then any tools.call would
-    # trip ImportError → INTERNAL_ERROR (acceptable, since _TOOLS is empty
-    # in Day 1 and the METHOD_NOT_FOUND branch above fires first).
-    from mosaic.dataflows.config import backtest_context
-    from mosaic.dataflows.exceptions import (
-        DataVendorUnavailable,
-        MissingEtfHoldings,
-    )
-
     try:
-        with backtest_context(as_of_date, mode=mode):
-            result = tool_obj.invoke(args)
-    except DataVendorUnavailable as exc:
-        raise RpcError(DATA_VENDOR_UNAVAILABLE, str(exc)) from exc
-    except MissingEtfHoldings as exc:
-        raise RpcError(
-            TOOL_EXECUTION_ERROR,
-            str(exc),
-            {"kind": "MissingEtfHoldings"},
-        ) from exc
-    except RpcError:
-        raise
+        return {"text": get_capability_store().call_tool(capability, name, args)}
+    except ValueError as exc:
+        message = str(exc)
+        code = METHOD_NOT_FOUND if "not allowed by this capability" in message else INVALID_PARAMS
+        raise RpcError(code, message) from exc
     except Exception as exc:
-        raise RpcError(
-            TOOL_EXECUTION_ERROR,
-            f"{type(exc).__name__}: {exc}",
-        ) from exc
+        raise RpcError(TOOL_EXECUTION_ERROR, f"{type(exc).__name__}: {exc}") from exc
 
-    if not isinstance(result, str):
-        # Every existing @tool returns a str; future tools could break this.
-        # Coerce defensively rather than dropping the payload.
-        result = str(result)
-    return {"text": result}
+
+@method("tools.terminate_capability")
+def tools_terminate_capability(params: dict[str, Any]) -> dict[str, bool]:
+    """Append a terminal event immediately after the bound node finishes."""
+    capability = _require_capability(params)
+    reason = params.get("reason", "node_finished")
+    try:
+        get_capability_store().terminate(capability, reason)
+    except (TypeError, ValueError) as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    return {"terminated": True}
+
+
+@method("tools.record_model_usage")
+def tools_record_model_usage(params: dict[str, Any]) -> dict[str, Any]:
+    """Append one provider-reported model subcall to the server-owned ledger."""
+    if set(params) != {"capability", "usage_report"}:
+        raise RpcError(
+            INVALID_PARAMS,
+            "tools.record_model_usage requires exactly capability and usage_report",
+        )
+    capability = _require_capability(params)
+    usage_report = params.get("usage_report")
+    if not isinstance(usage_report, dict):
+        raise RpcError(INVALID_PARAMS, "'usage_report' must be an object")
+    try:
+        return get_capability_store().record_sector_model_usage(
+            capability_envelope=capability,
+            usage_report=usage_report,
+        )
+    except (TypeError, ValueError) as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(TOOL_EXECUTION_ERROR, f"{type(exc).__name__}: {exc}") from exc
+
+
+@method("tools.finalize_model_usage")
+def tools_finalize_model_usage(params: dict[str, Any]) -> dict[str, Any]:
+    """Sign the server-derived raw usage summary before capability termination."""
+    if set(params) != {"capability"}:
+        raise RpcError(
+            INVALID_PARAMS,
+            "tools.finalize_model_usage requires exactly capability",
+        )
+    capability = _require_capability(params)
+    try:
+        return get_capability_store().finalize_sector_model_usage(
+            capability_envelope=capability
+        )
+    except (TypeError, ValueError) as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(TOOL_EXECUTION_ERROR, f"{type(exc).__name__}: {exc}") from exc
+
+
+__all__ = [
+    "_SKIPPED_TOOL_MODULES",
+    "_TOOL_MODULES",
+    "_iter_module_tools",
+    "tools_call",
+    "tools_finalize_model_usage",
+    "tools_issue_capability",
+    "tools_list",
+    "tools_prepare_capability",
+    "tools_record_model_usage",
+    "tools_terminate_capability",
+]

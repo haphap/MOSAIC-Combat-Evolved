@@ -1,57 +1,14 @@
-/** industrials Layer-2 (Plan §5.2). 机械 + 军工 + 交运 sector. */
+import type { IndustrialsOutput } from "../types.js";
+import { buildLayerTwoAgentNode, type LayerTwoAgentDeps } from "./_factory.js";
+import { IndustrialsSchema } from "./_schemas.js";
+import { renderStandardSector, standardSectorSpec } from "./_spec.js";
 
-import type { IndustrialsOutput, RegimeSignal } from "../types.js";
-import {
-  buildLayerTwoAgentNode,
-  type LayerTwoAgentDeps,
-  type LayerTwoAgentNode,
-  type LayerTwoAgentSpec,
-} from "./_factory.js";
-import { IndustrialsSchema, STANDARD_SECTOR_FIELD_NAMES } from "./_schemas.js";
-
-export const REQUIRED_TOOLS = [
-  "get_rke_research_context",
-  "get_industry_policy_digest",
-  "get_broker_research",
-  "get_etf_holdings",
-  "get_stock_data",
-  "get_indicators",
-  "get_industry_moneyflow",
-] as const;
-
-export const industrialsSpec: LayerTwoAgentSpec<IndustrialsOutput> = {
-  agentId: "industrials",
-  schema: IndustrialsSchema,
-  fieldNames: STANDARD_SECTOR_FIELD_NAMES,
-  requiredTools: REQUIRED_TOOLS,
-  render: renderIndustrials,
-};
-
-export function buildIndustrialsNode(deps: LayerTwoAgentDeps): LayerTwoAgentNode {
-  return buildLayerTwoAgentNode(industrialsSpec, deps);
-}
-
-export function renderIndustrials(o: IndustrialsOutput): string {
-  const longs = o.longs.map((p) => `${p.ticker}(${p.conviction.toFixed(2)})`).join(", ");
-  const shorts = o.shorts.map((p) => `${p.ticker}(${p.conviction.toFixed(2)})`).join(", ");
-  return (
-    `industrials analysis (confidence=${o.confidence.toFixed(2)}, score=${o.sector_score.toFixed(2)})\n` +
-    `  longs:  ${longs || "(none)"}\n` +
-    `  shorts: ${shorts || "(none)"}\n` +
-    `  drivers: ${o.key_drivers.join(" | ")}`
-  );
-}
-
-export function fallbackIndustrials(text: string, _regime: RegimeSignal | null): IndustrialsOutput {
-  const trimmed = (text ?? "").trim();
-  return {
-    agent: "industrials",
-    longs: [],
-    shorts: [],
-    sector_score: 0,
-    key_drivers: trimmed ? [trimmed.slice(0, 80)] : ["analysis missing"],
-    confidence: 0,
-  };
-}
-
-export { IndustrialsSchema, STANDARD_SECTOR_FIELD_NAMES };
+export const industrialsSpec = standardSectorSpec<IndustrialsOutput>(
+  "industrials",
+  IndustrialsSchema,
+);
+export const REQUIRED_TOOLS = industrialsSpec.requiredTools;
+export const buildIndustrialsNode = (deps: LayerTwoAgentDeps) =>
+  buildLayerTwoAgentNode(industrialsSpec, deps);
+export const renderIndustrials = renderStandardSector;
+export { IndustrialsSchema };

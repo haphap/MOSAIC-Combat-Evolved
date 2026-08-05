@@ -4,6 +4,8 @@
  * philosophy filters.
  */
 
+import type { AcceptedAgentOutputStore } from "../accepted_output.js";
+import { renderCausalEvidenceResolutionSet } from "../helpers/causal_evidence_resolution.js";
 import type { DailyCycleStateType } from "../state.js";
 import type { AlphaDiscoveryOutput } from "../types.js";
 import {
@@ -14,25 +16,35 @@ import {
 } from "./_factory.js";
 import { ALPHA_DISCOVERY_FIELD_NAMES, AlphaDiscoverySchema } from "./_schemas.js";
 import { renderLayer1Context, renderLayer2Context, renderLayer3Context } from "./_user_context.js";
+import type { AlphaDiscoverySubmission } from "./accepted.js";
 
-const REQUIRED_TOOLS = ["get_rke_research_context"] as const;
+const REQUIRED_TOOLS = ["get_alpha_candidate_snapshot", "get_role_event_snapshot"] as const;
 
-function buildUserContext(state: DailyCycleStateType): string {
+function buildUserContext(
+  state: DailyCycleStateType,
+  acceptedOutputStore?: AcceptedAgentOutputStore,
+): string {
   const date = state.as_of_date || new Date().toISOString().slice(0, 10);
   return (
     `Cycle context for alpha_discovery (Layer 4 alpha hunter):\n` +
     `* as_of_date: ${date}\n` +
     `* mode:       ${state.mode || "live"}\n\n` +
-    `${renderLayer1Context(state)}\n` +
-    `${renderLayer2Context(state)}\n` +
-    `${renderLayer3Context(state)}\n\n` +
+    `${renderLayer1Context(state, acceptedOutputStore)}\n` +
+    `${renderLayer2Context(state, acceptedOutputStore)}\n` +
+    `${renderLayer3Context(state, acceptedOutputStore)}\n\n` +
+    `${renderCausalEvidenceResolutionSet({
+      state,
+      consumerAgentId: "alpha_discovery",
+      sourceLayers: ["MACRO", "SECTOR", "SUPERINVESTOR"],
+      ...(acceptedOutputStore ? { acceptedOutputStore } : {}),
+    })}\n\n` +
     `Find tickers visible in L1/L2 signals that none of the 4 superinvestors picked. ` +
     `Explain why each philosopher missed it. Empty novel_picks is the most common ` +
     `outcome and is fine — only flag genuinely novel cross-cutting picks.`
   );
 }
 
-export const alphaDiscoverySpec: LayerFourAgentSpec<AlphaDiscoveryOutput> = {
+export const alphaDiscoverySpec: LayerFourAgentSpec<AlphaDiscoverySubmission> = {
   agentId: "alpha_discovery",
   runtimeStage: "alpha_discovery",
   schema: AlphaDiscoverySchema,
@@ -47,8 +59,14 @@ export function buildAlphaDiscoveryNode(deps: LayerFourAgentDeps): LayerFourAgen
   return buildLayerFourAgentNode(alphaDiscoverySpec, deps);
 }
 
-export function renderAlphaDiscovery(o: AlphaDiscoveryOutput): string {
-  const novel = o.novel_picks.map((p) => `${p.ticker}:${p.why_missed_by_others}`).join(" | ");
+export function renderAlphaDiscovery(o: AlphaDiscoverySubmission | AlphaDiscoveryOutput): string {
+  if ("agent" in o) {
+    const legacy = o.novel_picks
+      .map((pick) => `${pick.ticker}:${pick.why_missed_by_others}`)
+      .join(" | ");
+    return `alpha_discovery (confidence=${o.confidence.toFixed(2)})\n  novel_picks: ${legacy || "(none)"}`;
+  }
+  const novel = o.novel_picks.map((pick) => `${pick.ts_code}:${pick.thesis}`).join(" | ");
   return (
     `alpha_discovery (confidence=${o.confidence.toFixed(2)})\n` +
     `  novel_picks: ${novel || "(none)"}`

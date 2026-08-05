@@ -1,5 +1,4 @@
 import { buildPositionAuditToolStatusSummary } from "../helpers/position_audit.js";
-import type { ResearchKnobsSnapshot } from "../helpers/research_knobs.js";
 import type {
   CioOutput,
   CurrentPositionsSnapshot,
@@ -7,6 +6,11 @@ import type {
   PositionAudit,
   PositionReview,
 } from "../types.js";
+import { assertCioHoldCurrentTargetSet } from "./decision_semantics.js";
+import {
+  type DeterministicDecisionPolicyRelease,
+  validateDeterministicDecisionPolicyRelease,
+} from "./deterministic_policy.js";
 
 export interface PositionValidationResult {
   output: CioOutput;
@@ -18,60 +22,73 @@ export class PositionActionValidationError extends Error {
   override readonly name = "PositionActionValidationError";
 }
 
-const DEFAULT_MAX_SINGLE_NAME_WEIGHT = 0.12;
-const DEFAULT_MAX_SECTOR_WEIGHT = 0.3;
-
 export function validateCioPositionActions(opts: {
   output: CioOutput;
   currentPositions: CurrentPositionsSnapshot;
-  knobSnapshot?: ResearchKnobsSnapshot | null;
-  sharedPolicyValues?: Readonly<Record<string, unknown>>;
+  policy: DeterministicDecisionPolicyRelease;
 }): PositionValidationResult {
-  const { output, currentPositions, knobSnapshot, sharedPolicyValues } = opts;
+  const { output, currentPositions } = opts;
+  const policy = validateDeterministicDecisionPolicyRelease(opts.policy);
   if (currentPositions.snapshot_status === "missing" && output.portfolio_actions.length > 0) {
     throw new PositionActionValidationError(
       "current_positions snapshot is missing; CIO cannot emit portfolio_actions",
     );
   }
-  if (isMirofishOnlyAction(output) && output.portfolio_actions.length > 0) {
-    throw new PositionActionValidationError(
-      "MiroFish-only influence cannot emit portfolio_actions without current data support",
-    );
-  }
-  if (isPriorOrSimulationOnlyAction(output) && output.portfolio_actions.length > 0) {
-    throw new PositionActionValidationError(
-      "RKE/MiroFish prior-only influence cannot emit portfolio_actions without current data support",
-    );
-  }
   assertUniqueActionTickers(output.portfolio_actions);
-  const stopLossPct = thresholdNumber(knobSnapshot, sharedPolicyValues, "stop_loss_pct", -0.08);
-  const maxSingleNameWeight = thresholdNumber(
-    knobSnapshot,
-    sharedPolicyValues,
-    "max_single_name_weight",
-    DEFAULT_MAX_SINGLE_NAME_WEIGHT,
-  );
-  const maxSectorWeight = thresholdNumber(
-    knobSnapshot,
-    sharedPolicyValues,
-    "max_sector_weight",
-    DEFAULT_MAX_SECTOR_WEIGHT,
-  );
-  const staleThesisDays = thresholdNumber(
-    knobSnapshot,
-    sharedPolicyValues,
-    "stale_thesis_days",
-    20,
-  );
+  const stopLossPct = policy.policies.cro.stop_loss_pct;
+  const maxSingleNameWeight = policy.policies.cro.max_single_name_weight;
+  const maxSectorWeight = policy.policies.cro.max_sector_weight;
+  const staleThesisDays = policy.policies.cio.stale_thesis_days;
   const actions = output.portfolio_actions.map((action) =>
     normalizeAction(action, currentPositions, staleThesisDays, stopLossPct),
   );
-  assertMirofishInfluencedPositionChangesHaveDissent(output, actions, currentPositions);
+  assertCioHoldCurrentTargetSet({
+    decisionDisposition: output.decision_disposition,
+    targets: actions.map((action) => ({
+      ticker: action.ticker,
+      target_weight: action.target_weight,
+      position_decision: action.position_decision,
+    })),
+    currentSnapshotStatus: currentPositions.snapshot_status,
+    currentPositions: currentPositions.positions,
+    context: "CIO position validation",
+  });
   const reviews = positionReviewsFromActions(actions, currentPositions, output.confidence);
   if (currentPositions.snapshot_status === "loaded") {
     assertEveryCurrentPositionReviewed(currentPositions, actions, reviews);
   }
   assertPositionDecisionSemantics(actions, currentPositions);
+  for (const position of currentPositions.positions) {
+    const action = actions.find((item) => item.ticker === position.ticker);
+    const rawAction = output.portfolio_actions.find((item) => item.ticker === position.ticker);
+    if (
+      position.unrealized_pnl_pct <= stopLossPct &&
+      action?.action === "HOLD" &&
+      !nonEmptyText(action.override_reason)
+    ) {
+      throw new PositionActionValidationError(
+        `${position.ticker}: stop_loss breached but HOLD lacks override_reason`,
+      );
+    }
+    if (
+      position.unrealized_pnl_pct <= stopLossPct &&
+      action?.action === "HOLD" &&
+      !hasCroRiskOverride(action)
+    ) {
+      throw new PositionActionValidationError(
+        `${position.ticker}: stop_loss breached but HOLD lacks CRO risk override`,
+      );
+    }
+    if (
+      position.unrealized_pnl_pct <= stopLossPct &&
+      action?.action === "HOLD" &&
+      !hasStopLossCounterevidence(rawAction)
+    ) {
+      throw new PositionActionValidationError(
+        `${position.ticker}: stop_loss breached but HOLD lacks counterevidence`,
+      );
+    }
+  }
   for (const action of actions) {
     if (action.target_weight <= maxSingleNameWeight) continue;
     if (!nonEmptyText(action.override_reason)) {
@@ -86,40 +103,6 @@ export function validateCioPositionActions(opts: {
     }
   }
   assertSectorConcentration(actions, maxSectorWeight);
-  for (const position of currentPositions.positions) {
-    const action = actions.find((item) => item.ticker === position.ticker);
-    const rawAction = output.portfolio_actions.find((item) => item.ticker === position.ticker);
-    if (
-      position.unrealized_pnl_pct <= stopLossPct &&
-      action &&
-      action.action === "HOLD" &&
-      !nonEmptyText(action.override_reason)
-    ) {
-      throw new PositionActionValidationError(
-        `${position.ticker}: stop_loss breached but HOLD lacks override_reason`,
-      );
-    }
-    if (
-      position.unrealized_pnl_pct <= stopLossPct &&
-      action &&
-      action.action === "HOLD" &&
-      !hasCroRiskOverride(action)
-    ) {
-      throw new PositionActionValidationError(
-        `${position.ticker}: stop_loss breached but HOLD lacks CRO risk override`,
-      );
-    }
-    if (
-      position.unrealized_pnl_pct <= stopLossPct &&
-      action &&
-      action.action === "HOLD" &&
-      !hasStopLossCounterevidence(rawAction)
-    ) {
-      throw new PositionActionValidationError(
-        `${position.ticker}: stop_loss breached but HOLD lacks counterevidence`,
-      );
-    }
-  }
   const totalWeight = actions.reduce((sum, action) => sum + action.target_weight, 0);
   if (totalWeight > 1 + 1e-6) {
     throw new PositionActionValidationError(
@@ -135,34 +118,9 @@ export function validateCioPositionActions(opts: {
       actions,
       stopLossPct,
       staleThesisDays,
+      policy,
     }),
   };
-}
-
-function isMirofishOnlyAction(output: CioOutput): boolean {
-  const declared = output.declared_knob_influence_ids ?? [];
-  return declared.length > 0 && declared.every((id) => id.startsWith("mirofish_"));
-}
-
-function isPriorOrSimulationOnlyAction(output: CioOutput): boolean {
-  const declared = output.declared_knob_influence_ids ?? [];
-  return declared.length > 0 && declared.every(isPriorOrSimulationInfluenceId);
-}
-
-function isPriorOrSimulationInfluenceId(id: string): boolean {
-  const normalized = id.toLowerCase();
-  return (
-    normalized.startsWith("mirofish_") ||
-    normalized === "rke_prior" ||
-    normalized === "research_prior" ||
-    normalized === "get_rke_research_context" ||
-    normalized.startsWith("rke_prior_") ||
-    normalized.startsWith("research_prior_")
-  );
-}
-
-function hasMirofishInfluence(output: CioOutput): boolean {
-  return (output.declared_knob_influence_ids ?? []).some((id) => id.startsWith("mirofish_"));
 }
 
 function hasCroRiskOverride(action: PortfolioAction): boolean {
@@ -173,27 +131,6 @@ function hasStopLossCounterevidence(action: PortfolioAction | undefined): boolea
   return Boolean(
     nonEmptyText(action?.position_decision_reason) ?? nonEmptyText(action?.dissent_notes),
   );
-}
-
-function assertMirofishInfluencedPositionChangesHaveDissent(
-  output: CioOutput,
-  actions: ReadonlyArray<PortfolioAction>,
-  currentPositions: CurrentPositionsSnapshot,
-): void {
-  if (!hasMirofishInfluence(output)) return;
-  const currentTickers = new Set(currentPositions.positions.map((position) => position.ticker));
-  for (const action of actions) {
-    if (!currentTickers.has(action.ticker)) continue;
-    const decision = action.position_decision;
-    if (
-      (decision === "ADD" || decision === "REDUCE" || decision === "EXIT") &&
-      !nonEmptyText(action.dissent_notes)
-    ) {
-      throw new PositionActionValidationError(
-        `${action.ticker}: MiroFish-influenced position change requires dissent_notes`,
-      );
-    }
-  }
 }
 
 function normalizeAction(
@@ -446,23 +383,13 @@ function assertEveryCurrentPositionReviewed(
   }
 }
 
-function thresholdNumber(
-  snapshot: ResearchKnobsSnapshot | null | undefined,
-  sharedPolicyValues: Readonly<Record<string, unknown>> | undefined,
-  key: string,
-  fallback: number,
-): number {
-  const value =
-    snapshot?.knobs.thresholds[key] ?? snapshot?.knobs.lookbacks[key] ?? sharedPolicyValues?.[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
 function buildPositionAudit(opts: {
   currentPositions: CurrentPositionsSnapshot;
   reviews: ReadonlyArray<PositionReview>;
   actions: ReadonlyArray<PortfolioAction>;
   stopLossPct: number;
   staleThesisDays: number;
+  policy: DeterministicDecisionPolicyRelease;
 }): PositionAudit {
   const modelReviews = opts.reviews.filter(
     (review) => review.review_source !== "runtime_safety_fallback",
@@ -505,5 +432,7 @@ function buildPositionAudit(opts: {
     target_current_drift_count: opts.actions.filter(
       (action) => Math.abs(action.delta_weight ?? 0) > 0.01,
     ).length,
+    deterministic_policy_release_id: opts.policy.policy_release_id,
+    deterministic_policy_release_hash: opts.policy.release_hash,
   };
 }

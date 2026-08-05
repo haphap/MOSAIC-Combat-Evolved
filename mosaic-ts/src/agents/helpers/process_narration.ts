@@ -6,7 +6,7 @@
  *
  * The regex shapes are deliberately verbatim ports of the Python source so
  * the same false-positive / false-negative profile applies on both sides.
- * If MOSAIC's 25 agents surface new false-positive patterns, extend the
+ * If MOSAIC's 28 agents surface new false-positive patterns, extend the
  * fragments below — do not rewrite the structure.
  */
 

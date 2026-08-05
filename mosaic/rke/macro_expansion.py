@@ -1,4 +1,9 @@
-"""Phase 6 macro expansion registry for RKE."""
+"""Historical Phase 6 macro-expansion registry for RKE.
+
+Its v1 Agent IDs are preserved byte-for-byte as ``legacy_unverified`` audit
+semantics. Current v2 data-field ownership is published separately in the
+RKE-shadow Agent migration manifest; this module cannot feed production.
+"""
 
 from __future__ import annotations
 

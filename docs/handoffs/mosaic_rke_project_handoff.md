@@ -1,5 +1,13 @@
 # 项目交接文档
 
+> [!WARNING]
+> 这是截至 2026-06-16、分支 `rke-recipe-required-data` 的历史交接快照，不是当前分支、
+> runtime 或操作状态。当前入口以 [`README.md`](../../README.md) 和
+> [`rke_report_intelligence_operations.md`](../runbooks/rke_report_intelligence_operations.md)
+> 为准；当前 Agent/prompt 私有边界见
+> [`macro-agent-role-contracts-v2-plan.md`](../plans/macro-agent-role-contracts-v2-plan.md)，生产
+> prompt/KNOT 资产必须按固定私有 commit/hash fail closed 加载。
+
 更新时间：2026-06-16  
 项目目录：`/home/hap/Project/MOSAIC-RKE`  
 当前分支：`rke-recipe-required-data`，跟踪 `origin/rke-recipe-required-data`  
@@ -561,10 +569,11 @@ pnpm install --frozen-lockfile
 pnpm typecheck
 pnpm lint
 pnpm test
-pnpm dev daily-cycle --cohort cohort_default --fake-llm
 ```
 
-状态：未在本次交接中重新执行；这是 repo 标准命令。启动成功后应看到 CLI 执行对应命令，`--fake-llm` 不应调用真实 LLM。
+状态：未在本次交接中重新执行；这是 repo 标准检查。`--fake-llm` 现在必须先按
+`docs/wiki/zh/CLI-Reference.md` 生成 fresh、hash-bound 的 synthetic PIT bundle，
+并在同一 shell 导出生成器输出；它不会调用真实 LLM，也不会回退到 live 或 stale 数据。
 
 ### Python bridge
 

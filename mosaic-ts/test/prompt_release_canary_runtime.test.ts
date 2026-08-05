@@ -120,8 +120,6 @@ describe("runtime prompt canary events", () => {
       startedAt: Date.now(),
       structuredAccepted: true,
       claimGraphAccepted: true,
-      knobSnapshot: null,
-      knobAudit: null,
       toolStatuses: [],
       output: {},
       validatorIds: ["schema"],

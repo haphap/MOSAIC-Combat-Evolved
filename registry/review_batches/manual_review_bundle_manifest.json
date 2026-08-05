@@ -93,13 +93,13 @@
       "sha256": "sha256:673be822842ce0e8c059f0cb164afd672b8bb685b19ca8688c102e97feb02f16"
     },
     {
-      "bytes": 1407,
+      "bytes": 1410,
       "exists": true,
       "format": "json",
       "path": "registry/promotion/rke_promotion_dry_run_report.json",
       "role": "promotion_dry_run_report",
       "row_count": null,
-      "sha256": "sha256:8e70a09e405e33486be9253c0fe3d4e6d04a035841eb87311513d7ddeab7ebcc"
+      "sha256": "sha256:38bcb8b8678da3a57de8cb2e316168ac0a1f1b9ebd3a508775b91941af31f551"
     }
   ],
   "blockers": [],

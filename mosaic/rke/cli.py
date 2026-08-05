@@ -1943,7 +1943,11 @@ def build_parser() -> argparse.ArgumentParser:
     export_agent_context.add_argument(
         "--agent-id",
         required=True,
-        help="Agent id such as macro.dollar, sector.semiconductor, munger, or cio.",
+        help=(
+            "Agent id such as macro.us_financial_conditions, "
+            "sector.semiconductor, munger, or cio; tombstoned Macro ids are "
+            "read-only legacy audit inputs."
+        ),
     )
     export_agent_context.add_argument(
         "--as-of-date",

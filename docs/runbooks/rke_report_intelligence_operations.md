@@ -553,9 +553,8 @@ Current 2026-07-14 sndr direct-launch presets:
   `2e038f2d0ec31c8721762ed017a0262b1057684c`). Its installer applies the
   required sndr compatibility patch and synchronizes the exact
   hardware/model/preset/profile files. MOSAIC Agents also rejects rendered
-  35B settings outside the 128K/0.85 envelope and sustained runs must
-  use the VRAM guard documented in
-  `docs/runbooks/agents_history_evolution_2009.md`.
+  35B settings outside the 128K/0.85 envelope. Sustained local runs must use
+  `scripts/run_with_kde_vram_guard.py --help` and retain its private evidence.
 - `nvidia-qwen3.6-27b-nvfp4-5090`: use `max_model_len=130000`,
   `--kv-cache-dtype turboquant_4bit_nc`, `--max-num-batched-tokens 2048`, and
   MTP K=3. The 140K run completed, but 130K was materially faster and left more

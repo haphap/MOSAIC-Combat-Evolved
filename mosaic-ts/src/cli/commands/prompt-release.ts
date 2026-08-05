@@ -1,10 +1,13 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Command } from "commander";
+import { canonicalJsonHash } from "../../agents/helpers/canonical_json.js";
 import {
   type ActivePromptReleaseManifest,
   ActivePromptReleaseManifestSchema,
 } from "../../agents/prompts/prompt_release_contract.js";
+import { authorizeStoredPromptPromotion } from "../../autoresearch/prompt_promotion_authority.js";
+import { PromptPromotionPolicySchema } from "../../autoresearch/prompt_promotion_policy.js";
 import {
   buildPromptReleaseCanarySloArtifact,
   PromptReleaseCanaryEventJournal,
@@ -13,6 +16,8 @@ import {
 } from "../../autoresearch/prompt_release_canary_slo.js";
 import {
   activatePromptRelease,
+  buildPromptReleaseBaselineManifest,
+  PromptReleaseBaselineApprovalRecordSchema,
   provisionPromptReleaseBaseline,
   rollbackPromptRelease,
   stagePromptRelease,
@@ -68,7 +73,15 @@ export function registerPromptRelease(program: Command): void {
 
   command
     .command("stage")
-    .requiredOption("--version-id <id>", "Kept domain mutation version id")
+    .requiredOption("--candidate-id <id>", "Eligible Prompt Candidate id")
+    .requiredOption("--experiment-id <id>", "Completed Prompt experiment id")
+    .requiredOption("--promotion-policy <path>", "Installed promotion policy JSON")
+    .requiredOption("--private-prompt-commit <hash>", "Private Prompt Git commit")
+    .requiredOption("--code-commit <hash>", "Public code Git commit")
+    .requiredOption(
+      "--execution-behavior-release-ref <path>",
+      "Immutable execution behavior archive ref at the public code commit",
+    )
     .requiredOption("--release-id <id>", "Immutable release id")
     .option("--registry-root <path>", "Release registry root")
     .option("--private-prompts-repo <path>", "Private prompt repository")
@@ -81,7 +94,12 @@ export function registerPromptRelease(program: Command): void {
     )
     .action(
       async (opts: {
-        versionId: string;
+        candidateId: string;
+        experimentId: string;
+        promotionPolicy: string;
+        privatePromptCommit: string;
+        codeCommit: string;
+        executionBehaviorReleaseRef: string;
         releaseId: string;
         registryRoot?: string;
         privatePromptsRepo?: string;
@@ -93,26 +111,82 @@ export function registerPromptRelease(program: Command): void {
         const api = new BridgeApi(client);
         try {
           await client.start();
-          const verification = await api.promptsVerifyRelease({
-            version_id: Number.parseInt(opts.versionId, 10),
-            require_kept: true,
+          const candidate = await api.promptOptimizerGetCandidate(opts.candidateId);
+          if (!candidate) throw new Error(`Prompt Candidate not found: ${opts.candidateId}`);
+          const candidatePublication = await api.promptOptimizerGetCandidatePublication(
+            opts.candidateId,
+          );
+          if (!candidatePublication) {
+            throw new Error(`Prompt Candidate publication not found: ${opts.candidateId}`);
+          }
+          const promotionPolicy = PromptPromotionPolicySchema.parse(
+            JSON.parse(await readFile(opts.promotionPolicy, "utf-8")),
+          );
+          const authorizedPolicyHashes = new Set(
+            required(
+              undefined,
+              "MOSAIC_PROMPT_PROMOTION_POLICY_HASHES",
+              "MOSAIC_PROMPT_PROMOTION_POLICY_HASHES",
+            )
+              .split(",")
+              .map((value) => value.trim())
+              .filter(Boolean),
+          );
+          const promotionAuthorization = await authorizeStoredPromptPromotion({
+            api,
+            candidate,
+            experimentId: opts.experimentId,
+            policy: promotionPolicy,
+            authorizedPolicyHashes,
+            decidedAt: new Date().toISOString(),
           });
-          const manifest = await stagePromptRelease({
-            registryRoot: registryRoot(opts),
-            releaseId: opts.releaseId,
-            verification,
-            privatePromptRepo:
-              opts.privatePromptsRepo?.trim() ||
-              process.env.MOSAIC_PROMPTS_REPO?.trim() ||
-              required(
-                process.env.MOSAIC_PRIVATE_PROMPT_REPO,
-                "MOSAIC_PRIVATE_PROMPT_REPO",
-                "--private-prompts-repo",
-              ),
-            cohort: opts.cohort,
-            accountMode: parseMode(opts.accountMode),
-            approvalPolicyId: parsePolicy(opts.approvalPolicy),
-          });
+          const { decision: promotionDecision, releaseEnvironment } = promotionAuthorization;
+          if (promotionDecision.decision !== "ELIGIBLE") {
+            throw new Error("Prompt Promotion Authority rejected the Candidate");
+          }
+          if (opts.codeCommit !== releaseEnvironment.codeCommit) {
+            throw new Error("prompt_release_authorized_code_commit_mismatch");
+          }
+          if (
+            opts.executionBehaviorReleaseRef !==
+            releaseEnvironment.executionBehaviorRelease.archive_ref
+          ) {
+            throw new Error("prompt_release_authorized_execution_behavior_ref_mismatch");
+          }
+          const manifest = await stagePromptRelease(
+            {
+              registryRoot: registryRoot(opts),
+              releaseId: opts.releaseId,
+              candidate,
+              candidatePublication,
+              promotionDecision,
+              privatePromptRepo:
+                opts.privatePromptsRepo?.trim() ||
+                process.env.MOSAIC_PROMPTS_REPO?.trim() ||
+                required(
+                  process.env.MOSAIC_PRIVATE_PROMPT_REPO,
+                  "MOSAIC_PRIVATE_PROMPT_REPO",
+                  "--private-prompts-repo",
+                ),
+              privatePromptCommit: opts.privatePromptCommit,
+              codeCommit: opts.codeCommit,
+              executionBehaviorReleaseRef: opts.executionBehaviorReleaseRef,
+              cohort: opts.cohort,
+              accountMode: parseMode(opts.accountMode),
+              approvalPolicyId: parsePolicy(opts.approvalPolicy),
+            },
+            {
+              verifyPromotionDecision: async (candidateValue, decisionValue) => {
+                if (
+                  canonicalJsonHash(candidateValue) !== canonicalJsonHash(candidate) ||
+                  canonicalJsonHash(decisionValue) !== canonicalJsonHash(promotionDecision)
+                ) {
+                  throw new Error("prompt_promotion_authority_binding_mismatch");
+                }
+                return releaseEnvironment;
+              },
+            },
+          );
           console.log(
             `staged release=${manifest.release_id} base=${manifest.base_release_id ?? "none"} ` +
               `pairs=${manifest.prompt_pairs.length}`,
@@ -121,6 +195,65 @@ export function registerPromptRelease(program: Command): void {
           reportError(error);
         } finally {
           await client.close();
+        }
+      },
+    );
+
+  command
+    .command("build-baseline")
+    .description(
+      "Build a hash-closed active baseline manifest from exact commits and reviewed approval evidence.",
+    )
+    .requiredOption("--release-id <id>", "Immutable baseline release id")
+    .requiredOption("--private-prompt-commit <hash>", "Exact private Prompt Git commit")
+    .requiredOption("--code-commit <hash>", "Exact public code Git commit")
+    .requiredOption(
+      "--execution-behavior-release-ref <path>",
+      "Immutable execution behavior archive ref at the public code commit",
+    )
+    .requiredOption("--approval-record <path>", "Reviewed baseline approval record JSON")
+    .requiredOption("--out <path>", "Output active baseline manifest JSON")
+    .option("--private-prompts-repo <path>", "Private prompt repository")
+    .option("--code-repo <path>", "Public code repository")
+    .option("--cohort <name>", "Release cohort", "cohort_default")
+    .option("--account-mode <mode>", "paper | backtest | live", "paper")
+    .action(
+      async (opts: {
+        releaseId: string;
+        privatePromptCommit: string;
+        codeCommit: string;
+        executionBehaviorReleaseRef: string;
+        approvalRecord: string;
+        out: string;
+        privatePromptsRepo?: string;
+        codeRepo?: string;
+        cohort: string;
+        accountMode: string;
+      }) => {
+        try {
+          const approvalRecord = PromptReleaseBaselineApprovalRecordSchema.parse(
+            JSON.parse(await readFile(opts.approvalRecord, "utf-8")),
+          );
+          const manifest = await buildPromptReleaseBaselineManifest({
+            releaseId: opts.releaseId,
+            privatePromptRepo: required(
+              opts.privatePromptsRepo,
+              "MOSAIC_PROMPTS_REPO",
+              "--private-prompts-repo",
+            ),
+            privatePromptCommit: opts.privatePromptCommit,
+            codeCommit: opts.codeCommit,
+            ...(opts.codeRepo?.trim() ? { codeRepo: opts.codeRepo.trim() } : {}),
+            cohort: opts.cohort,
+            accountMode: parseMode(opts.accountMode),
+            executionBehaviorReleaseRef: opts.executionBehaviorReleaseRef,
+            approvalRecord,
+          });
+          await mkdir(dirname(opts.out), { recursive: true });
+          await writeFile(opts.out, `${JSON.stringify(manifest, null, 2)}\n`, "utf-8");
+          console.log(`baseline manifest=${opts.out} pairs=${manifest.prompt_pairs.length}`);
+        } catch (error) {
+          reportError(error);
         }
       },
     );

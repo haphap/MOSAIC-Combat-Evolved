@@ -7,10 +7,13 @@ TypeScript 前端经 stdio 上的行分隔 JSON-RPC 驱动 Python sidecar。方�
 ## 完整方法面
 
 ### tools
-- `tools.list` —— 列出已注册的 sidecar 工具。
-- `tools.call` —— 按名 + 参数调用工具。
+- `tools.prepare_capability` —— 物化一个冻结且绑定角色的快照 bundle。
+- `tools.issue_capability` —— 为已有 bundle 签发绑定执行阶段的 handle。
+- `tools.list` —— 只列出签名 capability 授权的零参数快照。
+- `tools.call` —— 返回一个不可变的授权快照；不会在调用时运行采集器。
+- `tools.terminate_capability` —— 使用完毕后关闭阶段 capability。
 
-已注册工具模块(`mosaic/bridge/handlers/tools.py` `_TOOL_MODULES`):`macro_tools`(18 个宏观工具)、`etf_tools`(4 个:ETF 信息/净值/持仓/全市场)、`financial_tools`(4 个:基本面/资产负债表/利润表/现金流)、`research_report_tools`(2 个:行业/个股研报)、`technical_tools`(2 个:行情/技术指标)。哪些 agent 用哪些工具见[智能体](Agents.md)。
+`mosaic/bridge/handlers/tools.py` 有意保持 `_TOOL_MODULES=()`。通用宏观、ETF、财务、技术、新闻及研报 helper 均不注册到模型可见 RPC；原始采集器只能在 controller 的 capability 准备边界后运行。精确角色—快照矩阵见[智能体](Agents.md)。
 
 ### config
 - `config.default` —— 深拷贝的 `DEFAULT_CONFIG`。
@@ -32,18 +35,31 @@ TypeScript 前端经 stdio 上的行分隔 JSON-RPC 驱动 Python sidecar。方�
 - `scorecard.latest_cio_actions` —— cohort 的最新 CIO 组合。
 
 ### darwinian
-- `darwinian.compute`、`darwinian.get_weights`。
+- 生产 v2：`darwinian.prepare_variant`、
+  `darwinian.prepare_daily_cycle_outcomes`、`darwinian.refresh_v2_windows` 和
+  `darwinian.publish_v2_updates`；交易日历和评价机会分母输入由服务端持有。
+- `darwinian.compute`、`darwinian.get_weights` 必须显式传入 `audit_only=true`，返回
+  `legacy_unverified`，不得进入生产。
 
 ### prompts
-- `prompts.read`(某 git ref 处的文件)、`prompts.write`(经 git_ops 在分支上提交)。
+- 只读/预检：`prompts.read`、`prompts.init_private_repo`、
+  `prompts.audit_versions`、`prompts.preflight`、`prompts.contract_check`、
+  `prompts.formal_release_checks`。Candidate 渲染和提交由私有 Prompt 仓库 CLI 负责。
 
 ### autoresearch
-- `autoresearch.trigger`、`autoresearch.evaluate_pending`、`autoresearch.record_mutation`、
-  `autoresearch.revert_modification`、`autoresearch.get_log`、`autoresearch.list_active_branches`、
-  `autoresearch.prepare_worktree`、`autoresearch.cleanup_worktree`。
+- 只读/工作树诊断：`autoresearch.get_log`、
+  `autoresearch.list_active_branches`、`autoresearch.prepare_worktree`、
+  `autoresearch.cleanup_worktree`、`autoresearch.gc_worktrees`。
+
+### prompt_optimizer
+- 不可变实验存储：`prompt_optimizer.put_candidate`、`get_candidate`、
+  `put_split`、`get_split`、`put_family`、`get_family`、`put_experiment`、
+  `get_experiment`、`put_run`、`claim_run`、`list_runs`、`latest_summary`。
+- `prompt_optimizer.training_projection` 是私有 Prompt mutator 唯一可读取的训练数据投影。
 
 ### prism
-- `prism.list_cohorts`、`prism.train_cohort`、`prism.cohort_status`、`prism.complete_cohort_run`、`prism.compare_cohorts`。
+- 只读历史视图：`prism.list_cohorts`、`prism.cohort_status`、
+  `prism.compare_cohorts`。
 
 ### janus
 - `janus.run_daily`、`janus.get_weights`、`janus.regime`、`janus.get_history`。

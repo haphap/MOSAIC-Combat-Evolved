@@ -1,24 +1,47 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { z } from "zod";
+import { canonicalJsonHash, compareCanonicalStrings } from "../agents/helpers/canonical_json.js";
+import {
+  extractCohortBehavior,
+  immutablePromptContractText,
+  validateCohortBehaviorLanguage,
+} from "../agents/prompts/cohort_behavior.js";
+import { containsPrivateKnotPromptContent } from "../agents/prompts/private_knot_prompt_markers.js";
 import {
   type ActivePromptReleaseManifest,
   ActivePromptReleaseManifestSchema,
   assertReleasePromptStageClosure,
+  PromptReleaseEvidenceSchema,
+  type PromptReleaseExecutionBehaviorBinding,
+  PromptReleaseExecutionBehaviorBindingSchema,
+  PromptReleaseRuntimeSloEvidenceSchema,
+  PromptReleaseRuntimeSloSummarySchema,
   promptReleaseRuntimeSloPasses,
   releasePromptSetHash,
 } from "../agents/prompts/prompt_release_contract.js";
 import {
   buildReleasePromptPairsAtCommit,
   loadPromptReleaseClosureAtCommit,
-  promptPairVersionShaAtCommit,
 } from "../agents/prompts/release_prompt_loader.js";
-import { checkResearchKnobsPrompts } from "../agents/prompts/research_knobs_checker.js";
 import type { RuntimeAgentSpec } from "../agents/prompts/runtime_agent_spec.js";
 import { RUNTIME_AGENT_SPECS } from "../agents/prompts/runtime_agent_spec.js";
 import { findRepoRoot } from "../bridge/python.js";
-import type { PromptReleaseCheckResult } from "../bridge/types.js";
+import {
+  type ExecutionBehaviorReleaseManifest,
+  immutablePromptContractHash,
+  loadExecutionBehaviorReleaseArchiveAtCommit,
+} from "./execution_behavior_release.js";
+import {
+  assertCandidatePublicationMatches,
+  type PromptCandidate,
+  type PromptCandidatePublication,
+  PromptCandidatePublicationSchema,
+  PromptCandidateSchema,
+  type PromptExperimentReleaseEnvironment,
+  PromptExperimentReleaseEnvironmentSchema,
+  type PromptPromotionDecision,
+  PromptPromotionDecisionSchema,
+} from "./prompt_optimizer_contract.js";
 import {
   buildPromptReleaseCanarySloArtifact,
   PromptReleaseCanaryEventJournal,
@@ -27,8 +50,6 @@ import {
   stageSnapshotHashesHash,
 } from "./prompt_release_canary_slo.js";
 import { ActivePromptReleaseRegistry } from "./release_registry.js";
-
-const SHA256 = /^sha256:[0-9a-f]{64}$/;
 
 export const DEFAULT_PROMPT_RELEASE_ROLLBACK_TRIGGERS = [
   "schema_failure_rate_gt_0",
@@ -42,34 +63,125 @@ export const DEFAULT_PROMPT_RELEASE_ROLLBACK_TRIGGERS = [
   "exposure_breach_count_gt_0",
 ] as const;
 
+const PRIVATE_PROMPT_BOOTSTRAP_RELEASE_REF =
+  "registry/knot/prompt_parameter_bootstrap_release_v1.json";
+
 type RuntimeSloSummary = NonNullable<ActivePromptReleaseManifest["runtime_slo_summary"]>;
-
-interface CandidateCheckOptions {
-  repo: string;
-  commit: string;
-  cohort: string;
-  source: "private" | "bundled";
-}
-
-export interface PromptReleaseCandidateCheckResult {
-  snapshotHashes: Readonly<Record<string, string>>;
-}
 
 export interface PromptReleaseManagerDependencies {
   specs?: ReadonlyArray<RuntimeAgentSpec>;
-  checkCandidate?: (opts: CandidateCheckOptions) => Promise<PromptReleaseCandidateCheckResult>;
   now?: () => string;
+  verifyPromotionDecision?: (
+    candidate: PromptCandidate,
+    decision: PromptPromotionDecision,
+  ) => Promise<PromptExperimentReleaseEnvironment>;
+  loadExecutionBehaviorRelease?: (opts: {
+    repo: string;
+    commit: string;
+    archiveRef: string;
+  }) => Promise<
+    Pick<
+      ExecutionBehaviorReleaseManifest,
+      "execution_behavior_release_id" | "execution_behavior_release_hash" | "execution_contracts"
+    >
+  >;
 }
 
 export interface StagePromptReleaseOptions {
   registryRoot: string;
   releaseId: string;
-  verification: PromptReleaseCheckResult;
+  candidate: PromptCandidate;
+  candidatePublication: PromptCandidatePublication;
+  promotionDecision: PromptPromotionDecision;
   privatePromptRepo: string;
+  privatePromptCommit: string;
+  codeCommit: string;
   codeRepo?: string;
   cohort: string;
   accountMode: "paper" | "backtest" | "live";
   approvalPolicyId: "domain_release_manual_v1" | "decision_release_manual_v1";
+  executionBehaviorReleaseRef: string;
+}
+
+export const PromptReleaseBaselineApprovalRecordSchema = z
+  .object({
+    schema_version: z.literal("prompt_release_baseline_approval_record_v2"),
+    approval_policy_id: z.enum(["domain_release_manual_v1", "decision_release_manual_v1"]),
+    approved_by: z.string().trim().min(1),
+    release_evidence: PromptReleaseEvidenceSchema,
+    canary_started_at: z.string().trim().min(1),
+    canary_ended_at: z.string().trim().min(1),
+    runtime_slo_summary: PromptReleaseRuntimeSloSummarySchema,
+    runtime_slo_evidence: PromptReleaseRuntimeSloEvidenceSchema,
+    created_at: z.string().trim().min(1),
+    activated_at: z.string().trim().min(1),
+  })
+  .strict();
+
+export type PromptReleaseBaselineApprovalRecord = z.infer<
+  typeof PromptReleaseBaselineApprovalRecordSchema
+>;
+
+export interface BuildPromptReleaseBaselineOptions {
+  releaseId: string;
+  privatePromptRepo: string;
+  privatePromptCommit: string;
+  codeCommit: string;
+  codeRepo?: string;
+  cohort: string;
+  accountMode: "paper" | "backtest" | "live";
+  executionBehaviorReleaseRef: string;
+  approvalRecord: PromptReleaseBaselineApprovalRecord;
+}
+
+async function executionBehaviorBindingAtCommit(opts: {
+  repo: string;
+  commit: string;
+  archiveRef: string;
+  deps: PromptReleaseManagerDependencies;
+}): Promise<{
+  binding: PromptReleaseExecutionBehaviorBinding;
+  manifest: Pick<
+    ExecutionBehaviorReleaseManifest,
+    "execution_behavior_release_id" | "execution_behavior_release_hash" | "execution_contracts"
+  >;
+}> {
+  const archiveRef = opts.archiveRef.trim();
+  if (!archiveRef) throw new Error("prompt_release_execution_behavior_ref_required");
+  const release = await (
+    opts.deps.loadExecutionBehaviorRelease ?? loadExecutionBehaviorReleaseArchiveAtCommit
+  )({ repo: opts.repo, commit: opts.commit, archiveRef });
+  return {
+    binding: PromptReleaseExecutionBehaviorBindingSchema.parse({
+      release_id: release.execution_behavior_release_id,
+      release_hash: release.execution_behavior_release_hash,
+      archive_ref: archiveRef,
+    }),
+    manifest: release,
+  };
+}
+
+async function assertExecutionBehaviorBindingAtCommit(opts: {
+  repo: string;
+  commit: string;
+  binding: PromptReleaseExecutionBehaviorBinding;
+  deps: PromptReleaseManagerDependencies;
+}): Promise<
+  Pick<
+    ExecutionBehaviorReleaseManifest,
+    "execution_behavior_release_id" | "execution_behavior_release_hash" | "execution_contracts"
+  >
+> {
+  const { binding: resolved, manifest } = await executionBehaviorBindingAtCommit({
+    repo: opts.repo,
+    commit: opts.commit,
+    archiveRef: opts.binding.archive_ref,
+    deps: opts.deps,
+  });
+  if (canonicalJsonHash(resolved) !== canonicalJsonHash(opts.binding)) {
+    throw new Error("prompt_release_execution_behavior_binding_mismatch");
+  }
+  return manifest;
 }
 
 function runGit(repo: string, args: ReadonlyArray<string>): Promise<Buffer> {
@@ -105,105 +217,314 @@ async function assertCleanCodeCheckout(repo: string, expectedCommit: string): Pr
   }
 }
 
-async function withDetachedWorktree<T>(
-  repo: string,
-  commit: string,
-  action: (root: string) => Promise<T>,
-): Promise<T> {
-  const parent = await mkdtemp(join(tmpdir(), "mosaic-prompt-release-"));
-  const worktree = join(parent, "candidate");
-  let added = false;
-  try {
-    await runGit(repo, ["worktree", "add", "--detach", worktree, commit]);
-    added = true;
-    return await action(worktree);
-  } finally {
-    if (added) await runGit(repo, ["worktree", "remove", "--force", worktree]).catch(() => null);
-    await rm(parent, { recursive: true, force: true });
-  }
-}
-
-async function checkCandidateAtCommit(
-  opts: CandidateCheckOptions,
-): Promise<PromptReleaseCandidateCheckResult> {
-  return withDetachedWorktree(opts.repo, opts.commit, async (root) => {
-    const promptRoot = join(root, "prompts", "mosaic");
-    const report = await checkResearchKnobsPrompts({
-      cohort: opts.cohort,
-      ...(opts.source === "private"
-        ? { privatePromptsRoot: promptRoot }
-        : { promptsRoot: promptRoot }),
-      enabledAgentStages: new Set(["*"]),
-    });
-    if (!report.ready || report.legacy_agent_stages.length > 0) {
-      const failures = report.rows
-        .filter((row) => !row.ready)
-        .flatMap((row) => row.reasons.map((reason) => `${row.agent}:${row.stage}:${reason}`));
-      throw new Error(`prompt_release_candidate_check_failed:${failures.slice(0, 10).join("|")}`);
-    }
-    return {
-      snapshotHashes: Object.fromEntries(
-        report.rows.map((row) => [`${row.agent}:${row.stage}`, row.snapshot_hash ?? ""]),
-      ),
-    };
-  });
-}
-
-function requirePin(
-  verification: PromptReleaseCheckResult,
+function requireEligibleCandidate(
+  rawCandidate: PromptCandidate,
+  rawDecision: PromptPromotionDecision,
   cohort: string,
-): {
-  agent: string;
-  promptCommit: string;
-  codeCommit: string;
-  promptSha: string;
-  keepDecisionHash: string;
-  versionId: number;
-  mutationId: string;
-  experimentId: string;
-  evaluationResultHash: string;
-  transactionManifestHash: string;
-} {
-  if (!verification.ready) throw new Error("prompt_release_verification_not_ready");
-  const pin = verification.pin;
-  if (pin.cohort !== cohort) throw new Error("prompt_release_verification_cohort_mismatch");
-  if (pin.prompt_repo_id !== "private") {
-    throw new Error("prompt_release_verification_not_private");
+): { candidate: PromptCandidate; decision: PromptPromotionDecision } {
+  const candidate = PromptCandidateSchema.parse(rawCandidate);
+  const decision = PromptPromotionDecisionSchema.parse(rawDecision);
+  if (candidate.target.cohort !== cohort)
+    throw new Error("prompt_release_candidate_cohort_mismatch");
+  if (
+    decision.decision !== "ELIGIBLE" ||
+    decision.candidateId !== candidate.candidateId ||
+    decision.experimentId.trim().length === 0
+  ) {
+    throw new Error("prompt_release_candidate_not_eligible");
   }
-  const promptCommit = pin.prompt_commit_hash?.trim() ?? "";
-  const codeCommit = pin.code_commit_hash?.trim() ?? "";
-  const promptSha = pin.prompt_sha256?.trim() ?? "";
-  const keepDecisionHash = pin.keep_decision_hash?.trim() ?? "";
-  const mutationId = pin.mutation_id?.trim() ?? "";
-  const experimentId = pin.experiment_id?.trim() ?? "";
-  const evaluationResultHash = pin.evaluation_result_hash?.trim() ?? "";
-  const transactionManifestHash = pin.transaction_manifest_hash?.trim() ?? "";
-  if (!promptCommit || !codeCommit || !/^[0-9a-f]{64}$/.test(promptSha)) {
-    throw new Error("prompt_release_verification_pin_incomplete");
+  return { candidate, decision };
+}
+
+async function assertCandidateRecordAtCommit(input: {
+  repo: string;
+  commit: string;
+  candidate: PromptCandidate;
+}): Promise<void> {
+  const ref = `registry/prompt_candidates_v2/${input.candidate.candidateId}.json`;
+  let value: PromptCandidate;
+  try {
+    value = PromptCandidateSchema.parse(
+      JSON.parse((await runGit(input.repo, ["show", `${input.commit}:${ref}`])).toString("utf-8")),
+    );
+  } catch {
+    throw new Error("prompt_release_private_candidate_record_missing");
+  }
+  if (canonicalJsonHash(value) !== canonicalJsonHash(input.candidate)) {
+    throw new Error("prompt_release_private_candidate_record_mismatch");
+  }
+}
+
+async function promptTextAtCommit(repo: string, commit: string, path: string): Promise<string> {
+  return (await runGit(repo, ["show", `${commit}:${path}`])).toString("utf-8");
+}
+
+function privateCandidateStateRef(candidate: PromptCandidate): string {
+  return (
+    `registry/prompt_parameter_states_v1/${candidate.target.cohort}/` +
+    `${candidate.target.stage}/${candidate.target.agentId}.json`
+  );
+}
+
+async function assertPrivateCandidateStateArtifact(input: {
+  repo: string;
+  commit: string;
+  candidate: PromptCandidate;
+}): Promise<void> {
+  const ref = privateCandidateStateRef(input.candidate);
+  let artifact: unknown;
+  try {
+    artifact = JSON.parse(
+      (await runGit(input.repo, ["show", `${input.commit}:${ref}`])).toString("utf-8"),
+    );
+  } catch {
+    throw new Error("prompt_release_private_state_artifact_missing");
+  }
+  if (canonicalJsonHash(artifact) !== input.candidate.privateStateArtifactHash) {
+    throw new Error("prompt_release_private_state_artifact_mismatch");
+  }
+}
+
+const PrivateBehaviorContractArtifactSchema = z
+  .object({
+    schema_version: z.literal("prompt_behavior_contract_v1"),
+    contracts: z.array(
+      z
+        .object({
+          target: z.object({ agentId: z.string().min(1), stage: z.string().min(1) }).strict(),
+        })
+        .passthrough(),
+    ),
+  })
+  .passthrough();
+
+const PrivateCandidateLineageSchema = z
+  .object({
+    schemaVersion: z.literal("private_prompt_candidate_parameter_lineage_v1"),
+    candidateId: z.string().min(1),
+    privateLineageHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+    parentId: z.string().min(1),
+    parentPromptCommit: z.string().regex(/^[0-9a-f]{40}$/),
+    target: z.object({ agentId: z.string().min(1), stage: z.string().min(1), cohort: z.string() }),
+    behaviorContractHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+    trainingProjectionHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+    promptHashes: z.object({ zh: z.string(), en: z.string() }),
+    mutatorConfigHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+    mutatorCommit: z.string().regex(/^[0-9a-f]{40}$/),
+  })
+  .passthrough();
+
+async function assertCandidatePrivateProvenanceAtCommit(input: {
+  repo: string;
+  commit: string;
+  candidate: PromptCandidate;
+}): Promise<void> {
+  let behaviorArtifact: z.infer<typeof PrivateBehaviorContractArtifactSchema>;
+  let lineage: z.infer<typeof PrivateCandidateLineageSchema>;
+  try {
+    behaviorArtifact = PrivateBehaviorContractArtifactSchema.parse(
+      JSON.parse(
+        (
+          await runGit(input.repo, [
+            "show",
+            `${input.commit}:registry/knot/prompt_behavior_contract_v1.json`,
+          ])
+        ).toString("utf-8"),
+      ),
+    );
+    lineage = PrivateCandidateLineageSchema.parse(
+      JSON.parse(
+        (
+          await runGit(input.repo, [
+            "show",
+            `${input.commit}:registry/prompt_candidate_private_v1/${input.candidate.candidateId}.json`,
+          ])
+        ).toString("utf-8"),
+      ),
+    );
+  } catch {
+    throw new Error("prompt_release_private_candidate_provenance_missing");
+  }
+  const matches = behaviorArtifact.contracts.filter(
+    (contract) =>
+      contract.target.agentId === input.candidate.target.agentId &&
+      contract.target.stage === input.candidate.target.stage,
+  );
+  if (
+    matches.length !== 1 ||
+    canonicalJsonHash(matches[0]) !== input.candidate.behaviorContractHash
+  ) {
+    throw new Error("prompt_release_candidate_behavior_contract_mismatch");
+  }
+  const { candidateId, privateLineageHash, ...lineageBody } = lineage;
+  if (
+    candidateId !== input.candidate.candidateId ||
+    privateLineageHash !== input.candidate.privateLineageHash ||
+    privateLineageHash !== canonicalJsonHash(lineageBody) ||
+    lineage.parentId !== input.candidate.parentId ||
+    lineage.parentPromptCommit !== input.candidate.parentPromptCommit ||
+    canonicalJsonHash(lineage.target) !== canonicalJsonHash(input.candidate.target) ||
+    lineage.behaviorContractHash !== input.candidate.behaviorContractHash ||
+    lineage.trainingProjectionHash !== input.candidate.trainingProjectionHash ||
+    canonicalJsonHash(lineage.promptHashes) !== canonicalJsonHash(input.candidate.promptHashes) ||
+    lineage.mutatorConfigHash !== input.candidate.mutatorConfigHash ||
+    lineage.mutatorCommit !== input.candidate.mutatorCommit
+  ) {
+    throw new Error("prompt_release_private_candidate_lineage_mismatch");
+  }
+  if (input.candidate.mutatorCommit !== input.candidate.parentPromptCommit) {
+    throw new Error("prompt_release_candidate_mutator_parent_commit_mismatch");
   }
   if (
-    !SHA256.test(keepDecisionHash) ||
-    !Number.isInteger(pin.version_id) ||
-    pin.version_id < 1 ||
-    !mutationId ||
-    !experimentId ||
-    !SHA256.test(evaluationResultHash) ||
-    !SHA256.test(transactionManifestHash)
+    (await fullCommit(input.repo, input.candidate.mutatorCommit)) !== input.candidate.mutatorCommit
   ) {
-    throw new Error("prompt_release_evaluation_trace_incomplete");
+    throw new Error("prompt_release_candidate_mutator_commit_unavailable");
   }
-  return {
-    agent: pin.agent,
-    promptCommit,
-    codeCommit,
-    promptSha,
-    keepDecisionHash,
-    versionId: pin.version_id,
-    mutationId,
-    experimentId,
-    evaluationResultHash,
-    transactionManifestHash,
-  };
+}
+
+async function assertPromptTreeMatchesExecutionBehavior(input: {
+  repo: string;
+  commit: string;
+  promptPairs: ActivePromptReleaseManifest["prompt_pairs"];
+  executionContracts: ExecutionBehaviorReleaseManifest["execution_contracts"];
+}): Promise<void> {
+  for (const pair of input.promptPairs) {
+    for (const language of ["zh", "en"] as const) {
+      const contract = input.executionContracts.find(
+        (value) => value.agent_id === pair.agent && value.language === language,
+      );
+      if (!contract) {
+        throw new Error(`prompt_release_execution_contract_missing:${pair.agent}:${language}`);
+      }
+      const prompt = await promptTextAtCommit(input.repo, input.commit, pair[language].path);
+      if (immutablePromptContractHash(prompt) !== contract.immutable_contract_block_hash) {
+        throw new Error(`prompt_release_execution_contract_mismatch:${pair.agent}:${language}`);
+      }
+    }
+  }
+}
+
+async function assertCandidateCommitScope(input: {
+  repo: string;
+  commit: string;
+  candidate: PromptCandidate;
+}): Promise<void> {
+  const parents = (await runGit(input.repo, ["show", "-s", "--format=%P", input.commit]))
+    .toString("utf-8")
+    .trim()
+    .split(/\s+/u)
+    .filter(Boolean);
+  if (parents.length !== 1 || parents[0] !== input.candidate.parentPromptCommit) {
+    throw new Error("prompt_release_candidate_parent_commit_mismatch");
+  }
+  const recordRef = `registry/prompt_candidates_v2/${input.candidate.candidateId}.json`;
+  const privateLineageRef = `registry/prompt_candidate_private_v1/${input.candidate.candidateId}.json`;
+  const privateStateRef = privateCandidateStateRef(input.candidate);
+  const changed = (
+    await runGit(input.repo, ["diff-tree", "--no-commit-id", "--name-only", "-r", input.commit])
+  )
+    .toString("utf-8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .sort();
+  const expected = [
+    input.candidate.promptRefs.zh,
+    input.candidate.promptRefs.en,
+    recordRef,
+    privateLineageRef,
+    privateStateRef,
+    PRIVATE_PROMPT_BOOTSTRAP_RELEASE_REF,
+  ].sort();
+  if (JSON.stringify(changed) !== JSON.stringify(expected)) {
+    throw new Error("prompt_release_candidate_commit_scope_invalid");
+  }
+}
+
+function promptToolNames(text: string): string[] {
+  return [...new Set(text.match(/\bget_[a-z0-9_]+\b/gu) ?? [])].sort();
+}
+
+async function assertPinnedPromptTree(input: {
+  repo: string;
+  commit: string;
+  candidate: PromptCandidate;
+  promptPairs: ActivePromptReleaseManifest["prompt_pairs"];
+  specs: ReadonlyArray<RuntimeAgentSpec>;
+  base: ActivePromptReleaseManifest | null;
+}): Promise<void> {
+  await assertPromptTreeContractsAtCommit(input);
+  const baseByAgent = new Map(input.base?.prompt_pairs.map((pair) => [pair.agent, pair]) ?? []);
+  for (const spec of input.specs) {
+    const pair = input.promptPairs.find((value) => value.agent === spec.agent);
+    if (!pair) throw new Error(`prompt_release_prompt_pair_missing:${spec.agent}`);
+    const basePair = baseByAgent.get(spec.agent);
+    if (input.base && !basePair) throw new Error(`prompt_release_base_pair_missing:${spec.agent}`);
+    if (basePair && spec.agent !== input.candidate.target.agentId) {
+      if (canonicalJsonHash(pair) !== canonicalJsonHash(basePair)) {
+        throw new Error(`prompt_release_non_target_pair_changed:${spec.agent}`);
+      }
+    }
+  }
+  const targetPair = input.promptPairs.find(
+    (pair) => pair.agent === input.candidate.target.agentId,
+  );
+  if (!targetPair) throw new Error("prompt_release_mutated_agent_pair_missing");
+  const parentPair = (
+    await buildReleasePromptPairsAtCommit({
+      repo: input.repo,
+      commit: input.candidate.parentPromptCommit,
+      cohort: input.candidate.target.cohort,
+      specs: input.specs,
+    })
+  ).find((pair) => pair.agent === input.candidate.target.agentId);
+  if (
+    !parentPair ||
+    parentPair.zh.sha256 !== input.candidate.parentPromptHashes.zh ||
+    parentPair.en.sha256 !== input.candidate.parentPromptHashes.en
+  ) {
+    throw new Error("prompt_release_candidate_parent_pair_mismatch");
+  }
+  const [parentZh, parentEn, candidateZh, candidateEn] = await Promise.all([
+    promptTextAtCommit(input.repo, input.candidate.parentPromptCommit, parentPair.zh.path),
+    promptTextAtCommit(input.repo, input.candidate.parentPromptCommit, parentPair.en.path),
+    promptTextAtCommit(input.repo, input.commit, targetPair.zh.path),
+    promptTextAtCommit(input.repo, input.commit, targetPair.en.path),
+  ]);
+  if (
+    immutablePromptContractText(parentZh) !== immutablePromptContractText(candidateZh) ||
+    immutablePromptContractText(parentEn) !== immutablePromptContractText(candidateEn)
+  ) {
+    throw new Error("prompt_release_candidate_immutable_contract_changed");
+  }
+}
+
+async function assertPromptTreeContractsAtCommit(input: {
+  repo: string;
+  commit: string;
+  promptPairs: ActivePromptReleaseManifest["prompt_pairs"];
+  specs: ReadonlyArray<RuntimeAgentSpec>;
+}): Promise<void> {
+  for (const spec of input.specs) {
+    const pair = input.promptPairs.find((value) => value.agent === spec.agent);
+    if (!pair) throw new Error(`prompt_release_prompt_pair_missing:${spec.agent}`);
+    const [zh, en] = await Promise.all([
+      promptTextAtCommit(input.repo, input.commit, pair.zh.path),
+      promptTextAtCommit(input.repo, input.commit, pair.en.path),
+    ]);
+    validateCohortBehaviorLanguage(extractCohortBehavior(zh), "zh");
+    validateCohortBehaviorLanguage(extractCohortBehavior(en), "en");
+    if (containsPrivateKnotPromptContent(`${zh}\n${en}`)) {
+      throw new Error(`prompt_release_private_knot_content:${spec.agent}`);
+    }
+    const expectedTools = [...spec.requiredTools].sort();
+    if (
+      JSON.stringify(promptToolNames(zh)) !== JSON.stringify(expectedTools) ||
+      JSON.stringify(promptToolNames(en)) !== JSON.stringify(expectedTools)
+    ) {
+      throw new Error(`prompt_release_tool_contract_mismatch:${spec.agent}`);
+    }
+  }
 }
 
 function now(deps: PromptReleaseManagerDependencies): string {
@@ -213,7 +534,9 @@ function now(deps: PromptReleaseManagerDependencies): string {
 function sortedObjectJson(value: object | null): string {
   if (!value) return "null";
   return JSON.stringify(
-    Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right))),
+    Object.fromEntries(
+      Object.entries(value).sort(([left], [right]) => compareCanonicalStrings(left, right)),
+    ),
   );
 }
 
@@ -233,101 +556,127 @@ export async function stagePromptRelease(
 ): Promise<ActivePromptReleaseManifest> {
   const codeRepo = opts.codeRepo ?? findRepoRoot();
   const specs = deps.specs ?? RUNTIME_AGENT_SPECS;
-  const pin = requirePin(opts.verification, opts.cohort);
+  const { candidate, decision } = requireEligibleCandidate(
+    opts.candidate,
+    opts.promotionDecision,
+    opts.cohort,
+  );
+  const candidatePublication = PromptCandidatePublicationSchema.parse(opts.candidatePublication);
+  assertCandidatePublicationMatches(candidate, candidatePublication);
+  if (candidatePublication.candidatePromptCommit !== opts.privatePromptCommit) {
+    throw new Error("prompt_release_candidate_publication_commit_mismatch");
+  }
+  if (!deps.verifyPromotionDecision) {
+    throw new Error("prompt_release_promotion_authority_required");
+  }
+  const releaseEnvironment = PromptExperimentReleaseEnvironmentSchema.parse(
+    await deps.verifyPromotionDecision(candidate, decision),
+  );
+  if (opts.codeCommit !== releaseEnvironment.codeCommit) {
+    throw new Error("prompt_release_authorized_code_commit_mismatch");
+  }
   if (
-    ["cro", "alpha_discovery", "autonomous_execution", "cio"].includes(pin.agent) &&
+    opts.executionBehaviorReleaseRef !== releaseEnvironment.executionBehaviorRelease.archive_ref
+  ) {
+    throw new Error("prompt_release_authorized_execution_behavior_ref_mismatch");
+  }
+  if (
+    ["cro", "alpha_discovery", "autonomous_execution", "cio"].includes(candidate.target.agentId) &&
     opts.approvalPolicyId !== "decision_release_manual_v1"
   ) {
     throw new Error("prompt_release_decision_policy_required");
   }
   const [promptCommit, codeCommit] = await Promise.all([
-    fullCommit(opts.privatePromptRepo, pin.promptCommit),
-    fullCommit(codeRepo, pin.codeCommit),
+    fullCommit(opts.privatePromptRepo, opts.privatePromptCommit),
+    fullCommit(codeRepo, opts.codeCommit),
   ]);
-  if (promptCommit !== pin.promptCommit || codeCommit !== pin.codeCommit) {
+  if (promptCommit !== opts.privatePromptCommit || codeCommit !== opts.codeCommit) {
     throw new Error("prompt_release_requires_full_commit_ids");
   }
   await assertCleanCodeCheckout(codeRepo, codeCommit);
-  const candidateCheck = deps.checkCandidate ?? checkCandidateAtCommit;
-  const privateCheck = await candidateCheck({
+  const executionBehavior = await executionBehaviorBindingAtCommit({
+    repo: codeRepo,
+    commit: codeCommit,
+    archiveRef: opts.executionBehaviorReleaseRef,
+    deps,
+  });
+  if (
+    canonicalJsonHash(executionBehavior.binding) !==
+    canonicalJsonHash(releaseEnvironment.executionBehaviorRelease)
+  ) {
+    throw new Error("prompt_release_authorized_execution_behavior_binding_mismatch");
+  }
+  await assertCandidateRecordAtCommit({
     repo: opts.privatePromptRepo,
     commit: promptCommit,
-    cohort: opts.cohort,
-    source: "private",
+    candidate,
   });
+  await assertCandidateCommitScope({
+    repo: opts.privatePromptRepo,
+    commit: promptCommit,
+    candidate,
+  });
+  await assertPrivateCandidateStateArtifact({
+    repo: opts.privatePromptRepo,
+    commit: promptCommit,
+    candidate,
+  });
+  await assertCandidatePrivateProvenanceAtCommit({
+    repo: opts.privatePromptRepo,
+    commit: promptCommit,
+    candidate,
+  });
+  const registry = new ActivePromptReleaseRegistry(opts.registryRoot);
+  const pointer = await registry.pointer();
+  const base = pointer.current_release_id ? await registry.load(pointer.current_release_id) : null;
+  if (pointer.current_release_id && !base) throw new Error("prompt_release_base_manifest_missing");
+  if (
+    base &&
+    (candidate.parentId !== base.release_id ||
+      candidate.parentPromptCommit !== base.prompt_commit ||
+      base.activation_scope.cohort !== candidate.target.cohort)
+  ) {
+    throw new Error("prompt_release_candidate_active_champion_mismatch");
+  }
   const promptPairs = await buildReleasePromptPairsAtCommit({
     repo: opts.privatePromptRepo,
     commit: promptCommit,
     cohort: opts.cohort,
     specs,
   });
-  assertReleasePromptStageClosure(
-    {
-      schema_version: "active_prompt_release_manifest_v1",
-      release_id: opts.releaseId,
-      base_release_id: null,
-      lifecycle_state: "staged",
-      prompt_commit: promptCommit,
-      code_commit: codeCommit,
-      prompt_hash: releasePromptSetHash(promptPairs),
-      prompt_pairs: promptPairs,
-      stage_snapshot_hashes: privateCheck.snapshotHashes,
-      catalog_hash: `sha256:${"0".repeat(64)}`,
-      schema_hash: `sha256:${"0".repeat(64)}`,
-      evaluation_contract_hash: `sha256:${"0".repeat(64)}`,
-      keep_decision_hash: pin.keepDecisionHash,
-      keep_decision_state: "kept",
-      release_evidence: {
-        version_id: pin.versionId,
-        mutation_id: pin.mutationId,
-        experiment_id: pin.experimentId,
-        mutated_agent: pin.agent,
-        evaluation_result_hash: pin.evaluationResultHash,
-        transaction_manifest_hash: pin.transactionManifestHash,
-        prompt_pair_sha256: pin.promptSha,
-      },
-      activation_scope: { cohort: opts.cohort, account_mode: opts.accountMode, traffic_percent: 0 },
-      approval_policy_id: opts.approvalPolicyId,
-      approved_by: null,
-      canary_started_at: null,
-      canary_ended_at: null,
-      runtime_slo_summary: null,
-      runtime_slo_evidence: null,
-      rollback_triggers: ["pending"],
-      previous_approved_release_id: null,
-      bundled_fallback: null,
-      created_at: now(deps),
-      activated_at: null,
-      rolled_back_at: null,
-    },
-    specs.flatMap((spec) =>
-      spec.stages.map((stage) => ({ agent: spec.agent, layer: spec.layer, stage: stage.stage })),
+  await assertPinnedPromptTree({
+    repo: opts.privatePromptRepo,
+    commit: promptCommit,
+    candidate,
+    promptPairs,
+    specs,
+    base,
+  });
+  await assertPromptTreeMatchesExecutionBehavior({
+    repo: opts.privatePromptRepo,
+    commit: promptCommit,
+    promptPairs,
+    executionContracts: executionBehavior.manifest.execution_contracts,
+  });
+  const stageSnapshotHashes = Object.fromEntries(
+    promptPairs.flatMap((pair) =>
+      pair.stages.map((stage) => [`${pair.agent}:${stage}`, pair.pair_hash] as const),
     ),
   );
-  const mutatedPair = promptPairs.find((pair) => pair.agent === pin.agent);
+  const mutatedPair = promptPairs.find((pair) => pair.agent === candidate.target.agentId);
   if (!mutatedPair) throw new Error("prompt_release_mutated_agent_pair_missing");
   if (
-    (await promptPairVersionShaAtCommit({
-      repo: opts.privatePromptRepo,
-      commit: promptCommit,
-      pair: mutatedPair,
-    })) !== pin.promptSha
+    !mutatedPair.stages.includes(candidate.target.stage) ||
+    mutatedPair.cohort !== candidate.target.cohort ||
+    mutatedPair.zh.path !== candidate.promptRefs.zh ||
+    mutatedPair.en.path !== candidate.promptRefs.en ||
+    mutatedPair.zh.sha256 !== candidate.promptHashes.zh ||
+    mutatedPair.en.sha256 !== candidate.promptHashes.en
   ) {
-    throw new Error("prompt_release_verification_prompt_sha_mismatch");
+    throw new Error("prompt_release_candidate_prompt_pair_mismatch");
   }
 
   const closure = await loadPromptReleaseClosureAtCommit({ repo: codeRepo, commit: codeCommit });
-  const fallbackCheck = await candidateCheck({
-    repo: codeRepo,
-    commit: codeCommit,
-    cohort: opts.cohort,
-    source: "bundled",
-  });
-  if (
-    sortedObjectJson(privateCheck.snapshotHashes) !== sortedObjectJson(fallbackCheck.snapshotHashes)
-  ) {
-    throw new Error("prompt_release_bundled_fallback_snapshot_mismatch");
-  }
   const fallbackPairs = await buildReleasePromptPairsAtCommit({
     repo: codeRepo,
     commit: codeCommit,
@@ -342,33 +691,39 @@ export async function stagePromptRelease(
     catalog_hash: closure.catalog_hash,
   };
 
-  const registry = new ActivePromptReleaseRegistry(opts.registryRoot);
-  const pointer = await registry.pointer();
   const createdAt = now(deps);
+  const releaseEvidence = {
+    candidate_id: candidate.candidateId,
+    candidate_hash: canonicalJsonHash(candidate),
+    candidate_publication_hash: candidatePublication.publicationHash,
+    prompt_source_id: candidatePublication.promptSourceId,
+    promotion_decision_id: decision.decisionId,
+    promotion_decision_hash: canonicalJsonHash(decision),
+    experiment_id: decision.experimentId,
+    mutated_agent: candidate.target.agentId,
+    policy_version: decision.policyVersion,
+    policy_config_hash: decision.policyConfigHash,
+    candidate_prompt_hashes: candidate.promptHashes,
+    private_state_artifact_hash: candidate.privateStateArtifactHash,
+    behavior_contract_hash: candidate.behaviorContractHash,
+    mutator_commit: candidate.mutatorCommit,
+    mutator_config_hash: candidate.mutatorConfigHash,
+  };
   const manifest: ActivePromptReleaseManifest = {
-    schema_version: "active_prompt_release_manifest_v1",
+    schema_version: "active_prompt_release_manifest_v3",
     release_id: opts.releaseId,
     base_release_id: pointer.current_release_id,
     lifecycle_state: "staged",
     prompt_commit: promptCommit,
     code_commit: codeCommit,
+    execution_behavior_release: executionBehavior.binding,
     prompt_hash: releasePromptSetHash(promptPairs),
     prompt_pairs: promptPairs,
-    stage_snapshot_hashes: privateCheck.snapshotHashes,
+    stage_snapshot_hashes: stageSnapshotHashes,
     catalog_hash: closure.catalog_hash,
     schema_hash: closure.schema_hash,
     evaluation_contract_hash: closure.contract_hash,
-    keep_decision_hash: pin.keepDecisionHash,
-    keep_decision_state: "kept",
-    release_evidence: {
-      version_id: pin.versionId,
-      mutation_id: pin.mutationId,
-      experiment_id: pin.experimentId,
-      mutated_agent: pin.agent,
-      evaluation_result_hash: pin.evaluationResultHash,
-      transaction_manifest_hash: pin.transactionManifestHash,
-      prompt_pair_sha256: pin.promptSha,
-    },
+    release_evidence: releaseEvidence,
     activation_scope: {
       cohort: opts.cohort,
       account_mode: opts.accountMode,
@@ -387,7 +742,132 @@ export async function stagePromptRelease(
     activated_at: null,
     rolled_back_at: null,
   };
+  assertReleasePromptStageClosure(
+    manifest,
+    specs.flatMap((spec) =>
+      spec.stages.map((stage) => ({ agent: spec.agent, layer: spec.layer, stage: stage.stage })),
+    ),
+  );
   await registry.stage(manifest);
+  return manifest;
+}
+
+export async function buildPromptReleaseBaselineManifest(
+  opts: BuildPromptReleaseBaselineOptions,
+  deps: PromptReleaseManagerDependencies = {},
+): Promise<ActivePromptReleaseManifest> {
+  const approval = PromptReleaseBaselineApprovalRecordSchema.parse(opts.approvalRecord);
+  const codeRepo = opts.codeRepo ?? findRepoRoot();
+  const specs = deps.specs ?? RUNTIME_AGENT_SPECS;
+  const [promptCommit, codeCommit] = await Promise.all([
+    fullCommit(opts.privatePromptRepo, opts.privatePromptCommit),
+    fullCommit(codeRepo, opts.codeCommit),
+  ]);
+  if (promptCommit !== opts.privatePromptCommit || codeCommit !== opts.codeCommit) {
+    throw new Error("prompt_release_requires_full_commit_ids");
+  }
+  await assertCleanCodeCheckout(codeRepo, codeCommit);
+  const executionBehavior = await executionBehaviorBindingAtCommit({
+    repo: codeRepo,
+    commit: codeCommit,
+    archiveRef: opts.executionBehaviorReleaseRef,
+    deps,
+  });
+  const promptPairs = await buildReleasePromptPairsAtCommit({
+    repo: opts.privatePromptRepo,
+    commit: promptCommit,
+    cohort: opts.cohort,
+    specs,
+  });
+  await assertPromptTreeContractsAtCommit({
+    repo: opts.privatePromptRepo,
+    commit: promptCommit,
+    promptPairs,
+    specs,
+  });
+  await assertPromptTreeMatchesExecutionBehavior({
+    repo: opts.privatePromptRepo,
+    commit: promptCommit,
+    promptPairs,
+    executionContracts: executionBehavior.manifest.execution_contracts,
+  });
+  const stageSnapshotHashes = Object.fromEntries(
+    promptPairs.flatMap((pair) =>
+      pair.stages.map((stage) => [`${pair.agent}:${stage}`, pair.pair_hash] as const),
+    ),
+  );
+  const approvedPair = promptPairs.find(
+    (pair) => pair.agent === approval.release_evidence.mutated_agent,
+  );
+  if (
+    !approvedPair ||
+    approvedPair.zh.sha256 !== approval.release_evidence.candidate_prompt_hashes.zh ||
+    approvedPair.en.sha256 !== approval.release_evidence.candidate_prompt_hashes.en
+  ) {
+    throw new Error("prompt_release_baseline_approved_prompt_mismatch");
+  }
+  const evidence = approval.runtime_slo_evidence;
+  if (
+    evidence.release_id !== opts.releaseId ||
+    evidence.account_mode !== opts.accountMode ||
+    evidence.canary_started_at !== approval.canary_started_at ||
+    evidence.eligible_event_count !== approval.runtime_slo_summary.sample_count ||
+    evidence.stage_snapshot_hashes_hash !== stageSnapshotHashesHash(stageSnapshotHashes)
+  ) {
+    throw new Error("prompt_release_baseline_approval_evidence_mismatch");
+  }
+  const closure = await loadPromptReleaseClosureAtCommit({ repo: codeRepo, commit: codeCommit });
+  const fallbackPairs = await buildReleasePromptPairsAtCommit({
+    repo: codeRepo,
+    commit: codeCommit,
+    cohort: opts.cohort,
+    specs,
+  });
+  const manifest = ActivePromptReleaseManifestSchema.parse({
+    schema_version: "active_prompt_release_manifest_v3",
+    release_id: opts.releaseId,
+    base_release_id: null,
+    lifecycle_state: "active",
+    prompt_commit: promptCommit,
+    code_commit: codeCommit,
+    execution_behavior_release: executionBehavior.binding,
+    prompt_hash: releasePromptSetHash(promptPairs),
+    prompt_pairs: promptPairs,
+    stage_snapshot_hashes: stageSnapshotHashes,
+    catalog_hash: closure.catalog_hash,
+    schema_hash: closure.schema_hash,
+    evaluation_contract_hash: closure.contract_hash,
+    release_evidence: approval.release_evidence,
+    activation_scope: {
+      cohort: opts.cohort,
+      account_mode: opts.accountMode,
+      traffic_percent: 100,
+    },
+    approval_policy_id: approval.approval_policy_id,
+    approved_by: approval.approved_by,
+    canary_started_at: approval.canary_started_at,
+    canary_ended_at: approval.canary_ended_at,
+    runtime_slo_summary: approval.runtime_slo_summary,
+    runtime_slo_evidence: approval.runtime_slo_evidence,
+    rollback_triggers: [...DEFAULT_PROMPT_RELEASE_ROLLBACK_TRIGGERS],
+    previous_approved_release_id: null,
+    bundled_fallback: {
+      prompt_commit: codeCommit,
+      prompt_hash: releasePromptSetHash(fallbackPairs),
+      prompt_pairs: fallbackPairs,
+      schema_hash: closure.schema_hash,
+      catalog_hash: closure.catalog_hash,
+    },
+    created_at: approval.created_at,
+    activated_at: approval.activated_at,
+    rolled_back_at: null,
+  });
+  assertReleasePromptStageClosure(
+    manifest,
+    specs.flatMap((spec) =>
+      spec.stages.map((stage) => ({ agent: spec.agent, layer: spec.layer, stage: stage.stage })),
+    ),
+  );
   return manifest;
 }
 
@@ -418,6 +898,12 @@ export async function provisionPromptReleaseBaseline(opts: {
     throw new Error("prompt_release_requires_full_commit_ids");
   }
   await assertCleanCodeCheckout(codeRepo, codeCommit);
+  const executionBehaviorManifest = await assertExecutionBehaviorBindingAtCommit({
+    repo: codeRepo,
+    commit: codeCommit,
+    binding: manifest.execution_behavior_release,
+    deps: opts.deps ?? {},
+  });
   const closure = await loadPromptReleaseClosureAtCommit({ repo: codeRepo, commit: codeCommit });
   if (
     closure.catalog_hash !== manifest.catalog_hash ||
@@ -436,8 +922,7 @@ export async function provisionPromptReleaseBaseline(opts: {
     throw new Error("prompt_release_baseline_bundled_fallback_closure_mismatch");
   }
   const specs = opts.deps?.specs ?? RUNTIME_AGENT_SPECS;
-  const candidateCheck = opts.deps?.checkCandidate ?? checkCandidateAtCommit;
-  const [privatePairs, fallbackPairs, privateCheck, fallbackCheck] = await Promise.all([
+  const [privatePairs, fallbackPairs] = await Promise.all([
     buildReleasePromptPairsAtCommit({
       repo: opts.privatePromptRepo,
       commit: promptCommit,
@@ -449,27 +934,23 @@ export async function provisionPromptReleaseBaseline(opts: {
       commit: fallback.prompt_commit,
       cohort: manifest.activation_scope.cohort,
       specs,
-    }),
-    candidateCheck({
-      repo: opts.privatePromptRepo,
-      commit: promptCommit,
-      cohort: manifest.activation_scope.cohort,
-      source: "private",
-    }),
-    candidateCheck({
-      repo: codeRepo,
-      commit: fallback.prompt_commit,
-      cohort: manifest.activation_scope.cohort,
-      source: "bundled",
     }),
   ]);
+  await assertPromptTreeMatchesExecutionBehavior({
+    repo: opts.privatePromptRepo,
+    commit: promptCommit,
+    promptPairs: privatePairs,
+    executionContracts: executionBehaviorManifest.execution_contracts,
+  });
+  const stageSnapshotHashes = Object.fromEntries(
+    privatePairs.flatMap((pair) =>
+      pair.stages.map((stage) => [`${pair.agent}:${stage}`, pair.pair_hash] as const),
+    ),
+  );
   if (
     sortedObjectJson(privatePairs) !== sortedObjectJson(manifest.prompt_pairs) ||
     sortedObjectJson(fallbackPairs) !== sortedObjectJson(fallback.prompt_pairs) ||
-    sortedObjectJson(privateCheck.snapshotHashes) !==
-      sortedObjectJson(manifest.stage_snapshot_hashes) ||
-    sortedObjectJson(fallbackCheck.snapshotHashes) !==
-      sortedObjectJson(manifest.stage_snapshot_hashes)
+    sortedObjectJson(stageSnapshotHashes) !== sortedObjectJson(manifest.stage_snapshot_hashes)
   ) {
     throw new Error("prompt_release_baseline_prompt_closure_mismatch");
   }
@@ -549,6 +1030,12 @@ export async function activatePromptRelease(opts: {
     throw new Error("prompt_release_activation_operator_mismatch");
   }
   await assertCleanCodeCheckout(opts.codeRepo ?? findRepoRoot(), previous.code_commit);
+  await assertExecutionBehaviorBindingAtCommit({
+    repo: opts.codeRepo ?? findRepoRoot(),
+    commit: previous.code_commit,
+    binding: previous.execution_behavior_release,
+    deps: opts.deps ?? {},
+  });
   const closure = await loadPromptReleaseClosureAtCommit({
     repo: opts.codeRepo ?? findRepoRoot(),
     commit: previous.code_commit,
@@ -630,7 +1117,10 @@ export async function activatePromptRelease(opts: {
     throw new Error(`prompt_release_activation_state_invalid:${previous.lifecycle_state}`);
   }
   const activatedAt = now(opts.deps ?? {});
-  if (!previous.canary_started_at || activatedAt <= previous.canary_started_at) {
+  if (
+    !previous.canary_started_at ||
+    Date.parse(activatedAt) <= Date.parse(previous.canary_started_at)
+  ) {
     throw new Error("prompt_release_canary_window_invalid");
   }
   const next: ActivePromptReleaseManifest = {

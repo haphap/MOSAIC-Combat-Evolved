@@ -1,12 +1,8 @@
 import type { z } from "zod";
+import { assertCioHoldCurrentTargetSet } from "../decision/decision_semantics.js";
 import type { CurrentPositionsSnapshot } from "../types.js";
 import type { AgentContractIssue, ContractValidationResult } from "./agent_run_contract.js";
 import { type RuntimeEvidenceSnapshot, validateOutputByClaimEvidence } from "./evidence_runtime.js";
-import {
-  applyResearchKnobCaps,
-  type ResearchKnobsSnapshot,
-  type ToolStatus,
-} from "./research_knobs.js";
 
 export function validateStrictAgentOutput<T>(input: {
   output: T;
@@ -14,20 +10,34 @@ export function validateStrictAgentOutput<T>(input: {
   agent: string;
   stage: string;
   runtimeEvidence: RuntimeEvidenceSnapshot | null;
-  knobSnapshot: ResearchKnobsSnapshot | null;
-  toolStatuses: ReadonlyArray<ToolStatus>;
-  /** Accept uncertainty-only claims for an explicitly neutral/no-action output. */
-  allowUncertaintyOnly?: boolean;
+  /** Accept risk-flag-only claims for an explicitly neutral/no-action output. */
+  allowRiskFlagOnly?: boolean;
   currentPositions?: CurrentPositionsSnapshot;
+  validateRoleContract?: (output: T) => ReadonlyArray<AgentContractIssue>;
 }): ContractValidationResult<T> {
-  let output = input.output;
   const issues: AgentContractIssue[] = [];
+  issues.push(...validateRuntimeLineage(input));
+  const parsed = input.schema.safeParse(input.output);
+  if (!parsed.success) {
+    issues.push(
+      ...parsed.error.issues.map((schemaIssue) =>
+        issue(
+          "zod_schema",
+          `ZOD_${schemaIssue.code.toUpperCase()}`,
+          zodJsonPath(schemaIssue.path),
+          schemaIssue.message,
+        ),
+      ),
+    );
+    return { output: input.output, issues };
+  }
+  let output = parsed.data;
   if (!input.runtimeEvidence) {
     issues.push(issue("evidence_claim_graph_v1", "EVIDENCE_SNAPSHOT_MISSING", "$"));
   } else {
     const claimValidation = validateOutputByClaimEvidence(output, input.runtimeEvidence, {
-      ...(input.allowUncertaintyOnly !== undefined
-        ? { allowUncertaintyOnly: input.allowUncertaintyOnly }
+      ...(input.allowRiskFlagOnly !== undefined
+        ? { allowRiskFlagOnly: input.allowRiskFlagOnly }
         : {}),
     });
     if (!claimValidation.rawOutputAccepted) {
@@ -46,55 +56,51 @@ export function validateStrictAgentOutput<T>(input: {
     }
   }
 
-  if (input.knobSnapshot) {
-    try {
-      const capped = applyResearchKnobCaps(input.output, input.knobSnapshot, {
-        toolStatuses: input.toolStatuses,
-      });
-      if (capped.audit.unsupported_knob_influence_ids.length > 0) {
-        for (const knobId of capped.audit.unsupported_knob_influence_ids) {
-          issues.push(
-            issue(
-              "research_knobs_runtime_v1",
-              "UNSUPPORTED_KNOB_INFLUENCE",
-              "$.declared_knob_influence_ids",
-              knobId,
-            ),
-          );
-        }
-      }
-      if (
-        capped.audit.pre_cap_confidence !== null &&
-        capped.audit.post_cap_confidence !== capped.audit.pre_cap_confidence
-      ) {
-        issues.push(
-          issue(
-            "research_knobs_runtime_v1",
-            "CONFIDENCE_CAP_EXCEEDED",
-            "$.confidence",
-            `maximum allowed confidence is ${capped.audit.post_cap_confidence}`,
-          ),
-        );
-      } else if (issues.length === 0) {
-        // Audit attachment is allowed; the model-authored decision is unchanged.
-        output = { ...(output as object), verified_knob_audit: capped.audit } as T;
-      }
-    } catch (error) {
-      issues.push(
-        issue(
-          "research_knobs_runtime_v1",
-          "KNOB_SEMANTIC_REJECTED",
-          "$.declared_knob_influence_ids",
-          error instanceof Error ? error.message : String(error),
-        ),
-      );
-    }
+  issues.push(...validateDispositionAndCioCoverage(output, input.agent, input.currentPositions));
+  if (input.validateRoleContract) {
+    issues.push(...input.validateRoleContract(output));
   }
 
-  issues.push(
-    ...validateDispositionAndCioCoverage(input.output, input.agent, input.currentPositions),
-  );
   return { output, issues };
+}
+
+function zodJsonPath(path: ReadonlyArray<PropertyKey>): string {
+  if (path.length === 0) return "$";
+  return `$${path
+    .map((segment) =>
+      typeof segment === "number" ? `[${segment}]` : `.${String(segment).replaceAll("~", "~0")}`,
+    )
+    .join("")}`;
+}
+
+function validateRuntimeLineage(input: {
+  agent: string;
+  stage: string;
+  runtimeEvidence: RuntimeEvidenceSnapshot | null;
+}): AgentContractIssue[] {
+  const issues: AgentContractIssue[] = [];
+  if (
+    input.runtimeEvidence?.agentId !== undefined &&
+    input.runtimeEvidence.agentId !== input.agent
+  ) {
+    issues.push(
+      issue(
+        "evidence_claim_graph_v1",
+        "RUNTIME_EVIDENCE_AGENT_MISMATCH",
+        "$.verified_claim_graph.agent_id",
+      ),
+    );
+  }
+  if (input.runtimeEvidence?.stage !== undefined && input.runtimeEvidence.stage !== input.stage) {
+    issues.push(
+      issue(
+        "evidence_claim_graph_v1",
+        "RUNTIME_EVIDENCE_STAGE_MISMATCH",
+        "$.verified_claim_graph.stage",
+      ),
+    );
+  }
+  return issues;
 }
 
 function validateDispositionAndCioCoverage(
@@ -114,11 +120,29 @@ function validateDispositionAndCioCoverage(
       position_decision?: string;
       current_weight?: number;
     }>;
+    target_positions?: Array<{
+      ts_code: string;
+      target_weight: number;
+      position_decision: "HOLD" | "ADD" | "REDUCE" | "EXIT";
+    }>;
     position_reviews?: Array<{ ticker: string }>;
   };
-  const actions = record.portfolio_actions ?? [];
+  const actions =
+    record.portfolio_actions ??
+    (record.target_positions ?? []).map((position) => ({
+      ticker: position.ts_code,
+      target_weight: position.target_weight,
+      position_decision: position.position_decision,
+      action:
+        position.position_decision === "ADD"
+          ? "BUY"
+          : position.position_decision === "REDUCE"
+            ? "REDUCE"
+            : position.position_decision === "EXIT"
+              ? "SELL"
+              : "HOLD",
+    }));
   const positions = currentPositions.positions;
-  const positionByTicker = new Map(positions.map((position) => [position.ticker, position]));
   const actionByTicker = new Map(actions.map((action) => [action.ticker, action]));
   const issues: AgentContractIssue[] = [];
   const decisionClaimRefs = record.decision_claim_refs;
@@ -147,29 +171,32 @@ function validateDispositionAndCioCoverage(
     }
   }
   if (record.decision_disposition === "HOLD_CURRENT") {
-    if (positions.length === 0) {
+    try {
+      assertCioHoldCurrentTargetSet({
+        decisionDisposition: record.decision_disposition,
+        targets: actions.map((action) => ({
+          ticker: action.ticker,
+          target_weight: action.target_weight,
+          position_decision: action.position_decision as
+            | "HOLD"
+            | "ADD"
+            | "REDUCE"
+            | "EXIT"
+            | undefined,
+        })),
+        currentSnapshotStatus: currentPositions.snapshot_status,
+        currentPositions: positions,
+        context: "CIO strict output",
+      });
+    } catch (error) {
       issues.push(
-        issue("cio_position_semantics_v1", "EMPTY_PORTFOLIO_CANNOT_HOLD", "$.decision_disposition"),
+        issue(
+          "cio_position_semantics_v1",
+          "HOLD_CURRENT_TARGET_SET_MISMATCH",
+          "$.portfolio_actions",
+          error instanceof Error ? error.message : String(error),
+        ),
       );
-    }
-    for (const action of actions) {
-      const position = positionByTicker.get(action.ticker);
-      if (!position) {
-        issues.push(
-          issue("cio_position_semantics_v1", "HOLD_ADDS_NEW_TICKER", "$.portfolio_actions"),
-        );
-      } else if (
-        action.action !== "HOLD" ||
-        Math.abs(action.target_weight - position.current_weight) > 1e-6
-      ) {
-        issues.push(
-          issue(
-            "cio_position_semantics_v1",
-            "HOLD_CURRENT_WEIGHT_CHANGED",
-            `$.portfolio_actions.${action.ticker}`,
-          ),
-        );
-      }
     }
   }
   if (record.decision_disposition === "ALL_CASH") {

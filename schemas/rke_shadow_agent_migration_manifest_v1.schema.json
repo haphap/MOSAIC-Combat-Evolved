@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RKE shadow Agent migration manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "execution_mode",
+    "production_signal_allowed",
+    "covered_modules",
+    "legacy_reference_inventory",
+    "tombstoned_agent_ids",
+    "new_agent_ids",
+    "identity_aliases",
+    "data_field_routes",
+    "isolation_policy",
+    "manifest_hash"
+  ],
+  "properties": {
+    "schema_version": { "const": "rke_shadow_agent_migration_manifest_v1" },
+    "execution_mode": { "const": "RKE_SHADOW" },
+    "production_signal_allowed": { "const": false },
+    "covered_modules": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "tombstoned_agent_ids": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["agent_id", "status"],
+        "properties": {
+          "agent_id": { "type": "string", "minLength": 1 },
+          "status": { "const": "legacy_unverified" }
+        }
+      }
+    },
+    "legacy_reference_inventory": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "module_path",
+          "legacy_agent_ids",
+          "legacy_artifact_status",
+          "current_routing_policy"
+        ],
+        "properties": {
+          "module_path": {"type": "string", "minLength": 1},
+          "legacy_agent_ids": {
+            "type": "array",
+            "minItems": 2,
+            "uniqueItems": true,
+            "items": {"type": "string", "pattern": "^macro\\.[a-z_]+$"}
+          },
+          "legacy_artifact_status": {"const": "legacy_unverified"},
+          "current_routing_policy": {
+            "const": "DATA_FIELD_ROUTES_ONLY_NO_IDENTITY_ALIAS"
+          }
+        }
+      }
+    },
+    "new_agent_ids": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agent_id",
+          "identity_alias_from",
+          "inherits_legacy_samples",
+          "inherits_legacy_weight"
+        ],
+        "properties": {
+          "agent_id": { "type": "string", "minLength": 1 },
+          "identity_alias_from": { "type": "null" },
+          "inherits_legacy_samples": { "const": false },
+          "inherits_legacy_weight": { "const": false }
+        }
+      }
+    },
+    "identity_aliases": { "type": "array", "maxItems": 0 },
+    "data_field_routes": {
+      "type": "array",
+      "minItems": 18,
+      "maxItems": 18,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "field_id",
+          "owner_agent_id",
+          "source_legacy_fields",
+          "identity_alias",
+          "route_hash"
+        ],
+        "properties": {
+          "field_id": { "type": "string", "minLength": 1 },
+          "owner_agent_id": { "type": "string", "minLength": 1 },
+          "source_legacy_fields": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "identity_alias": { "const": false },
+          "route_hash": { "$ref": "#/$defs/hash" }
+        }
+      }
+    },
+    "isolation_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "production_graph_allowed",
+        "production_tool_manifest_allowed",
+        "decision_input_allowed",
+        "darwinian_update_allowed"
+      ],
+      "properties": {
+        "production_graph_allowed": { "const": false },
+        "production_tool_manifest_allowed": { "const": false },
+        "decision_input_allowed": { "const": false },
+        "darwinian_update_allowed": { "const": false }
+      }
+    },
+    "manifest_hash": { "$ref": "#/$defs/hash" }
+  },
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

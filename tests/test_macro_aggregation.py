@@ -1,56 +1,54 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
 import pytest
 
 from mosaic.scorecard.macro_aggregation import (
-    MACRO_FACTOR_GROUPS,
-    MacroAggregationRejectedError,
+    MACRO_AGENTS,
+    TOMBSTONED_MACRO_AGENTS,
+    MacroAggregationRetiredError,
+    MacroTransmissionRejectedError,
     aggregate_macro_transmissions,
+    validate_macro_transmissions,
 )
 
 
-def fixture():
-    path = Path(__file__).parent / "fixtures" / "macro_aggregation_case.json"
-    value = json.loads(path.read_text(encoding="utf-8"))
-    value["outputs"] = {
-        agent: {"agent": agent, **output}
-        for agent, output in value["outputs"].items()
-    }
-    return value
-
-
-def test_python_formula_matches_shared_typescript_fixture():
-    case = fixture()
-    result = aggregate_macro_transmissions(case["outputs"], case["darwinian_weights"])
-    assert result["score"] == pytest.approx(case["expected_score"])
-    assert result["stance"] == case["expected_stance"]
-
-
-def test_group_sizes_do_not_create_more_base_weight():
-    neutral = {
+def transmissions():
+    return {
         agent: {
-            "agent": agent,
+            "agent_id": agent,
             "direction": "NEUTRAL",
             "strength": 0,
-            "confidence": 1.0,
+            "confidence": 0.5,
         }
-        for agents in MACRO_FACTOR_GROUPS.values()
-        for agent in agents
+        for agent in MACRO_AGENTS
     }
-    result = aggregate_macro_transmissions(neutral)
-    assert all(group["effective_weight"] == pytest.approx(1 / 6) for group in result["groups"])
 
 
-def test_missing_or_direction_strength_inconsistent_agents_reject_formal_aggregation():
-    case = fixture()
-    missing = dict(case["outputs"])
-    missing.pop("market_breadth")
-    with pytest.raises(MacroAggregationRejectedError, match="missing"):
-        aggregate_macro_transmissions(missing)
-    inconsistent = dict(case["outputs"])
-    inconsistent["china"] = {**inconsistent["china"], "direction": "NEUTRAL", "strength": 2}
-    with pytest.raises(MacroAggregationRejectedError, match="strength=0"):
-        aggregate_macro_transmissions(inconsistent)
+def test_exact_v2_roster_and_tombstones():
+    assert len(MACRO_AGENTS) == 10
+    assert set(TOMBSTONED_MACRO_AGENTS).isdisjoint(MACRO_AGENTS)
+    assert {"eu_economy", "us_financial_conditions", "euro_area_financial_conditions"} <= set(
+        MACRO_AGENTS
+    )
+
+
+def test_validator_preserves_canonical_independent_transmissions():
+    accepted = validate_macro_transmissions(transmissions())
+    assert tuple(row["agent_id"] for row in accepted) == MACRO_AGENTS
+    assert all("stance" not in row for row in accepted)
+
+
+def test_missing_extra_identity_or_signal_semantics_reject():
+    missing = transmissions()
+    missing.pop("china")
+    with pytest.raises(MacroTransmissionRejectedError, match="exact Macro roster"):
+        validate_macro_transmissions(missing)
+    invalid = transmissions()
+    invalid["china"] = {**invalid["china"], "direction": "NEUTRAL", "strength": 2}
+    with pytest.raises(MacroTransmissionRejectedError, match="strength=0"):
+        validate_macro_transmissions(invalid)
+
+
+def test_retired_six_factor_api_fails_closed():
+    with pytest.raises(MacroAggregationRetiredError, match="consume ten"):
+        aggregate_macro_transmissions(transmissions())
