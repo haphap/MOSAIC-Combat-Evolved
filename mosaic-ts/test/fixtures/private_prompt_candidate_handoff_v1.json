@@ -88,8 +88,8 @@
         "parentId": "champion-handoff-v1",
         "parentPromptCommit": "3333333333333333333333333333333333333333",
         "parentPromptHashes": {
-          "zh": "sha256:6c65b5e58c6649d768d53132a6294131805f920f00abfcdf39283f70b6ec49da",
-          "en": "sha256:20cfb908390a377c17270d6677375bdd4c3543cfea39ad4e419401b1c74c0eb4"
+          "zh": "sha256:fd154977b5c41e4953c3344b08305bbae45f6ca24fbf2daddf31f2529957875a",
+          "en": "sha256:210e58e72e156cbf402df3d401103889e3660535c7c0e78ac2bbb71c9c6b34ed"
         },
         "target": {
           "agentId": "china",
@@ -101,8 +101,8 @@
           "en": "prompts/mosaic/cohort_default/macro/china.en.md"
         },
         "promptHashes": {
-          "zh": "sha256:b024da2a5e081bbf053e942930f12753707201fcb5c148bcea6a69a53df008b6",
-          "en": "sha256:1cb12078581cd1d3a6a8b3cdca9e35fd5ad7e9e3afc0870465eece71da393a8f"
+          "zh": "sha256:e63615ad9a50b8be7c3a6fd139bd1398533c27f2d86c20541e9716904b5b5e51",
+          "en": "sha256:b1f15bc40a40cce90b98436fb212be481c8b7857f5877f4433c7a02728c1ce9f"
         },
         "trainingProjectionHash": "sha256:44e1893f02616c016e3b73ac28c83676e72b839b8c73180ba33187c2200f71df",
         "excludedSampleIdsHash": "sha256:f3f308b6c10de1ceca39841aac98a7112d6fe3618f092664b7a24fb836ffd249",
@@ -112,10 +112,10 @@
         "mutationSummary": "Behavior focus: CONFLICT_RESOLUTION.",
         "hypothesis": "Preregistered hypothesis: CONFLICT_RESOLUTION improves the frozen Agent outcome score.",
         "behaviorContractHash": "sha256:9253ed793a2bd30325a028d731807de42c2c336c562462a49586f6b6a8914571",
-        "privateLineageHash": "sha256:f367a88aeb1e2f76f52a09b8ee855e1bb79afa478eff66be87dfec372bea1dd9",
+        "privateLineageHash": "sha256:540da5f30298ff28448a28383abc53d3b89163731282d32d557875d98c4beaab",
         "privateStateArtifactHash": "sha256:6261b0dc8b3456f1c8255235dfd472e1776657a6173ce224c86bb3b54954c6b6",
         "createdAt": "2025-04-01T00:00:00Z",
-        "candidateId": "candidate-1b93e535ad27c6b912aae5f2"
+        "candidateId": "candidate-2bd4ec7ac605bfad3382f406"
       }
     },
     {
@@ -205,8 +205,8 @@
         "parentId": "champion-handoff-v1",
         "parentPromptCommit": "3333333333333333333333333333333333333333",
         "parentPromptHashes": {
-          "zh": "sha256:6c65b5e58c6649d768d53132a6294131805f920f00abfcdf39283f70b6ec49da",
-          "en": "sha256:20cfb908390a377c17270d6677375bdd4c3543cfea39ad4e419401b1c74c0eb4"
+          "zh": "sha256:fd154977b5c41e4953c3344b08305bbae45f6ca24fbf2daddf31f2529957875a",
+          "en": "sha256:210e58e72e156cbf402df3d401103889e3660535c7c0e78ac2bbb71c9c6b34ed"
         },
         "target": {
           "agentId": "china",
@@ -218,8 +218,8 @@
           "en": "prompts/mosaic/cohort_default/macro/china.en.md"
         },
         "promptHashes": {
-          "zh": "sha256:d6f34cf9ba9e3963bc0d2bacd922e5b6a795b8b931d4bf33b7621c953c7343d7",
-          "en": "sha256:09436f0e12f8755169d9aacb46c0cce8daa604adf43daafe06fb61eac3a995e3"
+          "zh": "sha256:0f400aafdb576ac17d445711ead4c8210cd7505a6ddf1b7a3f53f60d3afcb656",
+          "en": "sha256:dad8137241a660acaa8b3543c0cdd5421420905061f1f2019e9139b11b3b6db2"
         },
         "trainingProjectionHash": "sha256:d64a260e0372c5e5d90890c332b1ba699c657ff980837faa5837d4c02326ec2c",
         "excludedSampleIdsHash": "sha256:f3f308b6c10de1ceca39841aac98a7112d6fe3618f092664b7a24fb836ffd249",
@@ -229,10 +229,10 @@
         "mutationSummary": "Behavior focus: CONFLICT_RESOLUTION.",
         "hypothesis": "Preregistered hypothesis: CONFLICT_RESOLUTION improves the frozen Agent outcome score.",
         "behaviorContractHash": "sha256:9253ed793a2bd30325a028d731807de42c2c336c562462a49586f6b6a8914571",
-        "privateLineageHash": "sha256:e1533b8534a29803b3a4dd3ef73fe1bf3609774772c48bb94f6a1c98fa5152d0",
+        "privateLineageHash": "sha256:f6e53e0e0d2e28edd0a445c73912e4bbc3ceba992de02fd4c4a60e199cec8b55",
         "privateStateArtifactHash": "sha256:1128e0ad20e705587376d38b0ffedd6fc1cb35d818cf443fd4f3b8674244ec8e",
         "createdAt": "2025-04-01T00:00:00Z",
-        "candidateId": "candidate-5279359275b71a951f10f82f"
+        "candidateId": "candidate-aecaabbbf6baf2c6ce79855b"
       }
     },
     {
@@ -322,8 +322,8 @@
         "parentId": "champion-handoff-v1",
         "parentPromptCommit": "3333333333333333333333333333333333333333",
         "parentPromptHashes": {
-          "zh": "sha256:6c65b5e58c6649d768d53132a6294131805f920f00abfcdf39283f70b6ec49da",
-          "en": "sha256:20cfb908390a377c17270d6677375bdd4c3543cfea39ad4e419401b1c74c0eb4"
+          "zh": "sha256:fd154977b5c41e4953c3344b08305bbae45f6ca24fbf2daddf31f2529957875a",
+          "en": "sha256:210e58e72e156cbf402df3d401103889e3660535c7c0e78ac2bbb71c9c6b34ed"
         },
         "target": {
           "agentId": "china",
@@ -335,8 +335,8 @@
           "en": "prompts/mosaic/cohort_default/macro/china.en.md"
         },
         "promptHashes": {
-          "zh": "sha256:d402a8cf213a41d5bc9cfdc62c48257b70698d7551c976780c6a357ce5a05622",
-          "en": "sha256:e0b6ca76bcba5da6f58034b79c3077ec974f96fdd798e2a437e0caf5fbe00443"
+          "zh": "sha256:f79cbb7f682af3b2dac82eddfe6e45a2212e3e7a609ea375b967c662adc0e3af",
+          "en": "sha256:4c6f461c4bd42c3aa8248da64f0f56fc632f89543bcc3a7cc604484d14fad59b"
         },
         "trainingProjectionHash": "sha256:6082f89a4dd70c2f340b3f8f3fb252835fc4b84faa28cbc147f28b6729e6bc74",
         "excludedSampleIdsHash": "sha256:f3f308b6c10de1ceca39841aac98a7112d6fe3618f092664b7a24fb836ffd249",
@@ -346,10 +346,10 @@
         "mutationSummary": "Behavior focus: CONFLICT_RESOLUTION.",
         "hypothesis": "Preregistered hypothesis: CONFLICT_RESOLUTION improves the frozen Agent outcome score.",
         "behaviorContractHash": "sha256:9253ed793a2bd30325a028d731807de42c2c336c562462a49586f6b6a8914571",
-        "privateLineageHash": "sha256:db08f2431cde9b4e82f4babfd07592a3c7924a500543e52702675c4f304c06ce",
+        "privateLineageHash": "sha256:53834e9858d3aca14ac449aba583196c2991a3d0b5ede2030756335f8d1ffc1c",
         "privateStateArtifactHash": "sha256:a0aedb03b6f40d1fc46d7e1953ae45aeea20e202cb14ff838bee522771299746",
         "createdAt": "2025-04-01T00:00:00Z",
-        "candidateId": "candidate-10d34beb540ec7e421ea5173"
+        "candidateId": "candidate-50359be68bf9d9c613030e36"
       }
     },
     {
@@ -482,8 +482,8 @@
         "parentId": "champion-handoff-v1",
         "parentPromptCommit": "3333333333333333333333333333333333333333",
         "parentPromptHashes": {
-          "zh": "sha256:ecdf2ec014c19dd203d4dcf21e679d70be4a0e50cc1272e0ea8286c1a54a4c2c",
-          "en": "sha256:4d17e768cd7b06eff2840c5aa70f4754e0cb70e1bdc2c124eae21054bb7d2f02"
+          "zh": "sha256:de78286df8238991a3a3ecd18afe000b95a48440fd082fd1532eb813adf23c45",
+          "en": "sha256:2392c65ff04ca350c933d3d182c997896598a51bdbe86fd096e8a0bb75c97a97"
         },
         "target": {
           "agentId": "semiconductor",
@@ -495,8 +495,8 @@
           "en": "prompts/mosaic/cohort_default/sector/semiconductor.en.md"
         },
         "promptHashes": {
-          "zh": "sha256:a9dfebfa06fb7442164d0c81335d9c20467125921050b60ef3d299388c0c85be",
-          "en": "sha256:6a8483ed929a678a8c3cad849099cefb962263f32545635d397eb4eb97e8fd98"
+          "zh": "sha256:8d3b3cae56a77a7dee01dcf54e46a29c6570ddf9df94d682eff10f2cfd544e02",
+          "en": "sha256:02b7eb91d0c9f2b12909b6ece401d08365c07a735e8ff49fbbfb319798413b9f"
         },
         "trainingProjectionHash": "sha256:864f429b13e3b44bf5d42046c2722badfcc869039ad6ac281b2d0c900f986bed",
         "excludedSampleIdsHash": "sha256:f3f308b6c10de1ceca39841aac98a7112d6fe3618f092664b7a24fb836ffd249",
@@ -506,10 +506,10 @@
         "mutationSummary": "Behavior focus: CONFLICT_RESOLUTION.",
         "hypothesis": "Preregistered hypothesis: CONFLICT_RESOLUTION improves the frozen Agent outcome score.",
         "behaviorContractHash": "sha256:589baf7f8901c375eaaf8ab9cfbec39ba27597b16ef03cc6dab0a4b0e5a48316",
-        "privateLineageHash": "sha256:85b2708c9c3d4737bbdabd3042304a93fc07d47efbf190ebea40f94318dcbafa",
+        "privateLineageHash": "sha256:9130d438deaacb16c601115834a92065696fed8b552321a535d58a8bc99c4891",
         "privateStateArtifactHash": "sha256:8ef1a912a28149caa2f66bbc5c3c7a77401ac3b49ea989713098b492f8d5f60e",
         "createdAt": "2025-04-01T00:00:00Z",
-        "candidateId": "candidate-8f38817201cae10e1971283d"
+        "candidateId": "candidate-c71339fc372ffb78a5e01b40"
       }
     }
   ]
