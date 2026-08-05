@@ -3,6 +3,7 @@ export const COHORT_BEHAVIOR_END = "<!-- cohort-behavior:end -->";
 
 const COHORT_BEHAVIOR_RE =
   /<!-- cohort-behavior:start -->\n([\s\S]*?)\n<!-- cohort-behavior:end -->/gu;
+const ENGLISH_PROSE_RE = /(?:^|[^A-Za-z])[A-Za-z]+(?:[ \t]+[A-Za-z]+){3,}(?:$|[^A-Za-z])/u;
 
 export function renderCohortBehavior(content: string): string {
   const normalized = validateCohortBehaviorContent(content);
@@ -49,12 +50,18 @@ export function validateCohortBehaviorLanguage(content: string, language: "en" |
   const letterCount = characters.filter((character) => /\p{Letter}/u.test(character)).length;
 
   if (language === "en") {
+    if (hanCount !== 0) {
+      throw new Error("English cohort behavior must not contain Chinese prose");
+    }
     if (latinCount < 8 || letterCount === 0 || latinCount / letterCount < 0.8) {
       throw new Error("English cohort behavior must contain meaningful English prose");
     }
     return normalized;
   }
 
+  if (ENGLISH_PROSE_RE.test(normalized)) {
+    throw new Error("Chinese cohort behavior must not contain English prose");
+  }
   if (hanCount < 4 || letterCount === 0 || hanCount / letterCount < 0.5) {
     throw new Error("Chinese cohort behavior must contain meaningful Chinese prose");
   }

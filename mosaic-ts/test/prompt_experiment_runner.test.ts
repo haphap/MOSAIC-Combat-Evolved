@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
 import { OUTCOME_LABEL_REGISTRY } from "../src/autoresearch/outcome_registry.js";
@@ -46,6 +48,48 @@ const semiconductorTarget = {
 } as const;
 type TestTarget = typeof target | typeof semiconductorTarget;
 
+const PRIVATE_HANDOFF_CASES = [
+  { caseId: "china-direct-001", target },
+  { caseId: "china-direct-002", target },
+  { caseId: "china-direct-003", target },
+  { caseId: "semiconductor-direct-001", target: semiconductorTarget },
+] as const;
+
+interface PromptCandidateHandoffCase {
+  caseId: string;
+  trainingProjection: unknown;
+  candidate: unknown;
+}
+
+const PRIVATE_HANDOFF_FIXTURE = (() => {
+  const fixture = JSON.parse(
+    readFileSync(
+      join(import.meta.dirname, "fixtures/private_prompt_candidate_handoff_v1.json"),
+      "utf8",
+    ),
+  ) as {
+    schemaVersion: string;
+    cases: PromptCandidateHandoffCase[];
+  };
+  if (fixture.schemaVersion !== "public_prompt_candidate_handoff_fixture_v1") {
+    throw new Error("private Prompt Candidate handoff fixture is invalid");
+  }
+  const expectedCaseIds = PRIVATE_HANDOFF_CASES.map((value) => value.caseId).sort();
+  const actualCaseIds = fixture.cases.map((value) => value.caseId).sort();
+  if (JSON.stringify(actualCaseIds) !== JSON.stringify(expectedCaseIds)) {
+    throw new Error("private Prompt Candidate handoff fixture cases are invalid");
+  }
+  return fixture;
+})();
+
+function promptCandidateHandoffCase(caseId: string): PromptCandidateHandoffCase {
+  const value = PRIVATE_HANDOFF_FIXTURE.cases.find((entry) => entry.caseId === caseId);
+  if (!value || Object.keys(value).sort().join(",") !== "candidate,caseId,trainingProjection") {
+    throw new Error(`private Prompt Candidate handoff case is invalid: ${caseId}`);
+  }
+  return value;
+}
+
 function evaluatorVersionFor(requestedTarget: TestTarget): string {
   const value = OUTCOME_LABEL_REGISTRY[requestedTarget.agentId]?.scoring_contract_version;
   if (!value) throw new Error(`missing ${requestedTarget.agentId} outcome fixture`);
@@ -81,7 +125,11 @@ function partitionSamples(prefix: "validation" | "holdout", month: "02" | "03") 
   });
 }
 
-function fixtures(candidateSuffix = "1", requestedTarget: TestTarget = target) {
+function fixtures(
+  candidateSuffix = "1",
+  requestedTarget: TestTarget = target,
+  handoff?: Pick<PromptCandidateHandoffCase, "trainingProjection" | "candidate">,
+) {
   const requestedEvaluatorVersion = evaluatorVersionFor(requestedTarget);
   const contract = OUTCOME_LABEL_REGISTRY[requestedTarget.agentId];
   if (!contract) throw new Error("missing training projection fixture contract");
@@ -131,10 +179,15 @@ function fixtures(candidateSuffix = "1", requestedTarget: TestTarget = target) {
     ],
     controlledExperiments: [],
   };
-  const trainingProjection = PromptTrainingProjectionSchema.parse({
-    ...trainingProjectionBody,
-    projectionHash: canonicalJsonHash(trainingProjectionBody),
-  });
+  const trainingProjection = handoff
+    ? PromptTrainingProjectionSchema.parse(handoff.trainingProjection)
+    : PromptTrainingProjectionSchema.parse({
+        ...trainingProjectionBody,
+        projectionHash: canonicalJsonHash(trainingProjectionBody),
+      });
+  if (JSON.stringify(trainingProjection.target) !== JSON.stringify(requestedTarget)) {
+    throw new Error("handoff training projection target mismatch");
+  }
   const trainingSamples = [
     sample("train-1", "2025-01-10T00:00:00Z", "2025-01-11T00:00:00Z", "2025-01-20T00:00:00Z"),
   ];
@@ -142,11 +195,11 @@ function fixtures(candidateSuffix = "1", requestedTarget: TestTarget = target) {
     schemaVersion: "prompt_dataset_split_v1",
     target: requestedTarget,
     trainingProjectionHash: trainingProjection.projectionHash,
-    cutoffAt: "2025-01-31T00:00:00Z",
+    cutoffAt: trainingProjection.cutoffAt,
     training: {
       snapshotHash: promptDatasetPartitionSnapshotHash({ samples: trainingSamples }),
       windowStartAt: "2025-01-01T00:00:00Z",
-      windowEndAt: "2025-01-31T00:00:00Z",
+      windowEndAt: trainingProjection.cutoffAt,
       samples: trainingSamples,
     },
     validation: {
@@ -168,27 +221,32 @@ function fixtures(candidateSuffix = "1", requestedTarget: TestTarget = target) {
     ...splitBody,
     splitId: promptDatasetSplitId(splitBody),
   });
-  const candidate = PromptCandidateSchema.parse({
-    schemaVersion: "prompt_candidate_v1",
-    candidateId: `candidate-${candidateSuffix}`,
-    parentId: "champion-1",
-    parentPromptCommit: COMMIT,
-    parentPromptHashes: { zh: HASH_A, en: HASH_A },
-    target: requestedTarget,
-    promptRefs: { zh: "private://candidate.zh", en: "private://candidate.en" },
-    promptHashes: { zh: HASH_B, en: HASH_C },
-    trainingProjectionHash: split.trainingProjectionHash,
-    excludedSampleIdsHash,
-    mutatorConfigHash: HASH_A,
-    mutatorCommit: COMMIT,
-    mutationCategories: ["CONFLICT_RESOLUTION"],
-    mutationSummary: promptMutationSummary(["CONFLICT_RESOLUTION"]),
-    hypothesis: promptMutationHypothesis(["CONFLICT_RESOLUTION"]),
-    behaviorContractHash: HASH_A,
-    privateLineageHash: HASH_A,
-    privateStateArtifactHash: HASH_A,
-    createdAt: "2025-04-01T00:00:00Z",
-  });
+  const candidate = handoff
+    ? PromptCandidateSchema.parse(handoff.candidate)
+    : PromptCandidateSchema.parse({
+        schemaVersion: "prompt_candidate_v1",
+        candidateId: `candidate-${candidateSuffix}`,
+        parentId: "champion-1",
+        parentPromptCommit: COMMIT,
+        parentPromptHashes: { zh: HASH_A, en: HASH_A },
+        target: requestedTarget,
+        promptRefs: { zh: "private://candidate.zh", en: "private://candidate.en" },
+        promptHashes: { zh: HASH_B, en: HASH_C },
+        trainingProjectionHash: split.trainingProjectionHash,
+        excludedSampleIdsHash,
+        mutatorConfigHash: HASH_A,
+        mutatorCommit: COMMIT,
+        mutationCategories: ["CONFLICT_RESOLUTION"],
+        mutationSummary: promptMutationSummary(["CONFLICT_RESOLUTION"]),
+        hypothesis: promptMutationHypothesis(["CONFLICT_RESOLUTION"]),
+        behaviorContractHash: HASH_A,
+        privateLineageHash: HASH_A,
+        privateStateArtifactHash: HASH_A,
+        createdAt: "2025-04-01T00:00:00Z",
+      });
+  if (JSON.stringify(candidate.target) !== JSON.stringify(requestedTarget)) {
+    throw new Error("handoff Prompt Candidate target mismatch");
+  }
   const policy = promotionPolicy(split);
   const familyBody = {
     schemaVersion: "prompt_candidate_family_v1",
@@ -216,7 +274,7 @@ function fixtures(candidateSuffix = "1", requestedTarget: TestTarget = target) {
     target: requestedTarget,
     championPromptCommit: candidate.parentPromptCommit,
     championPromptRefs: family.championPromptRefs,
-    championPromptHashes: { zh: HASH_A, en: HASH_A },
+    championPromptHashes: candidate.parentPromptHashes,
     candidatePromptRefs: candidate.promptRefs,
     candidatePromptHashes: candidate.promptHashes,
     datasetSplitId: split.splitId,
@@ -399,6 +457,7 @@ function adapters(
     invalidEvaluatorScore?: boolean;
     wrongPromptConsumption?: boolean;
     scoredFailureRefCount?: number;
+    candidatePromptHashes?: PromptCandidate["promptHashes"];
   } = {},
 ) {
   const calls = new Map<string, number>();
@@ -408,7 +467,14 @@ function adapters(
   const executor: PromptExperimentAgentExecutor = {
     async execute(input) {
       executorInputs.push(structuredClone(input));
-      const side = input.promptRefs.zh.includes("candidate") ? "candidate" : "champion";
+      const side = options.candidatePromptHashes
+        ? input.promptHashes.zh === options.candidatePromptHashes.zh &&
+          input.promptHashes.en === options.candidatePromptHashes.en
+          ? "candidate"
+          : "champion"
+        : input.promptRefs.zh.includes("candidate")
+          ? "candidate"
+          : "champion";
       const key = `${input.partition}:${input.sample.sampleId}:${input.seed}:${side}`;
       calls.set(key, (calls.get(key) ?? 0) + 1);
       if (options.alwaysTransientFailure || (shouldFail && side === "candidate")) {
@@ -561,10 +627,16 @@ describe("frozen Prompt experiment runner", () => {
     expect(adapter.executorInputs).toHaveLength(0);
   });
 
-  it("runs an opaque Semiconductor atomic Candidate through the same shadow gate", async () => {
-    const values = fixtures("experiment-semiconductor-atomic", semiconductorTarget);
+  it.each(
+    PRIVATE_HANDOFF_CASES,
+  )("runs real private $caseId through the public paired shadow gate", async ({
+    caseId,
+    target: requestedTarget,
+  }) => {
+    const handoff = promptCandidateHandoffCase(caseId);
+    const values = fixtures(`handoff-${caseId}`, requestedTarget, handoff);
     const repository = new MemoryRepository();
-    const adapter = adapters();
+    const adapter = adapters({ candidatePromptHashes: values.candidate.promptHashes });
     const frozenEnvironment = environment(values.split.evaluatorVersion);
     const result = await runPromptOptimizerShadowPlan({
       plan: {
@@ -576,7 +648,7 @@ describe("frozen Prompt experiment runner", () => {
         experiments: [values.experiment],
         environment: frozenEnvironment,
         promotionPolicy: values.promotionPolicy,
-        runOwnerId: "semiconductor-shadow-worker",
+        runOwnerId: `${caseId}-shadow-worker`,
         leaseDurationMs: 300_000,
         maxConcurrency: 4,
       },
@@ -586,15 +658,36 @@ describe("frozen Prompt experiment runner", () => {
       authorizedPolicyHashes: values.authorizedPolicyHashes,
       now: () => NOW,
     });
-    expect(result.family.target).toEqual(semiconductorTarget);
+
+    expect(repository.candidate).toEqual(values.candidate);
+    expect(result.family.target).toEqual(requestedTarget);
     expect(result.family).toEqual(values.family);
-    expect(result.decision.decision).toBe("ELIGIBLE");
+    expect(result.decision).toMatchObject({
+      candidateId: values.candidate.candidateId,
+      decision: "ELIGIBLE",
+    });
     expect(repository.runs.size).toBe(240);
     expect(
       adapter.executorInputs.every(
-        (input) => (input as { target: { agentId: string } }).target.agentId === "semiconductor",
+        (input) =>
+          (input as { target: { agentId: string } }).target.agentId === requestedTarget.agentId,
       ),
     ).toBe(true);
+
+    const candidateInputs = adapter.executorInputs.filter((input) => {
+      const hashes = (input as { promptHashes: PromptCandidate["promptHashes"] }).promptHashes;
+      return (
+        hashes.zh === values.candidate.promptHashes.zh &&
+        hashes.en === values.candidate.promptHashes.en
+      );
+    });
+    expect(candidateInputs).toHaveLength(120);
+    for (const input of candidateInputs) {
+      expect(input).toMatchObject({
+        promptRefs: values.candidate.promptRefs,
+        promptHashes: values.candidate.promptHashes,
+      });
+    }
   });
 
   it("runs a Candidate through paired shadow evaluation and an eligible Decision", async () => {

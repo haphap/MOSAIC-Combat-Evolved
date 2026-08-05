@@ -6,9 +6,9 @@
       "hash": "sha256:c0d92c7eb970aa780c162918eaf5fd59cb3d22abab30ec17849c7d721a7b4b4f"
     },
     "execution_behavior_release_archive": {
-      "path": "registry/prompt_checks/execution_behavior_releases/c6ebe1109bf14c678d93137f212ffcc9da219fe6f76161961de40529691b0241--621a0af6c27df6ba5a41b7e255ecb88c3eb2128563455460f19ed3964460d43f.json",
-      "release_id": "execution-behavior-release:c6ebe1109bf14c678d93137f212ffcc9da219fe6f76161961de40529691b0241",
-      "release_hash": "sha256:621a0af6c27df6ba5a41b7e255ecb88c3eb2128563455460f19ed3964460d43f"
+      "path": "registry/prompt_checks/execution_behavior_releases/812ef940d0c52688efb7b52a6222c69476f737d7de8433a1eace78e526d2552c--e95f29865f5f4bf417b341d3f775a41d40983c2fdc117a1cd110804c10ca285c.json",
+      "release_id": "execution-behavior-release:812ef940d0c52688efb7b52a6222c69476f737d7de8433a1eace78e526d2552c",
+      "release_hash": "sha256:e95f29865f5f4bf417b341d3f775a41d40983c2fdc117a1cd110804c10ca285c"
     },
     "agent_outcome_contract_manifest": {
       "path": "registry/prompt_checks/agent_outcome_contract_manifest_v2.json",

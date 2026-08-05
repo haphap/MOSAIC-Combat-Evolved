@@ -17,7 +17,7 @@ from typing import Any, Literal, Mapping, Sequence
 SCHEMA_VERSION = "prompt_evolution_delivery_status_v1"
 GENERATOR_ID = "prompt_evolution_delivery"
 GENERATOR_VERSION = "3"
-COMMAND_CONTRACT_VERSION = "prompt_evolution_delivery_commands_v4"
+COMMAND_CONTRACT_VERSION = "prompt_evolution_delivery_commands_v5"
 
 Status = Literal["pass", "fail", "blocked"]
 
@@ -248,6 +248,7 @@ class CommandSpec:
     evidence_refs: tuple[str, ...]
     compare_output_to: Path | None = None
     junit_expected_tests: int | None = None
+    junit_minimum_tests: int | None = None
     junit_path: Path | None = None
     json_expected_passed_tests: int | None = None
     json_report_path: Path | None = None
@@ -391,7 +392,7 @@ def command_specs(root: Path, run_dir: Path) -> tuple[CommandSpec, ...]:
             ),
             root,
             REPRESENTATIVE_EVALUATION_TESTS,
-            junit_expected_tests=12,
+            junit_minimum_tests=36,
             junit_path=run_dir / "representative-evaluation.xml",
         ),
         CommandSpec(
@@ -564,7 +565,7 @@ def run_command(root: Path, run_dir: Path, spec: CommandSpec) -> dict[str, Any]:
         if not output_path.exists() or output_path.read_bytes() != committed_path.read_bytes():
             status = "fail"
             reasons.append("GENERATED_ARTIFACT_DRIFT")
-    if spec.junit_expected_tests is not None:
+    if spec.junit_expected_tests is not None or spec.junit_minimum_tests is not None:
         junit_reasons = _validate_junit_receipt(spec)
         if junit_reasons:
             status = "fail"
@@ -622,8 +623,10 @@ def _validate_junit_receipt(spec: CommandSpec) -> list[str]:
     errors = total("errors")
     skipped = total("skipped")
     reasons: list[str] = []
-    if tests != spec.junit_expected_tests:
+    if spec.junit_expected_tests is not None and tests != spec.junit_expected_tests:
         reasons.append("JUNIT_TEST_COUNT_MISMATCH")
+    if spec.junit_minimum_tests is not None and tests < spec.junit_minimum_tests:
+        reasons.append("JUNIT_TEST_COUNT_BELOW_MINIMUM")
     if failures or errors:
         reasons.append("JUNIT_TEST_FAILURE")
     if skipped:

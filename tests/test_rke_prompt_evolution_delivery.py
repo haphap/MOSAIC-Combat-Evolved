@@ -178,14 +178,13 @@ def test_run_directory_prepares_pytest_basetemp_parent(tmp_path: Path):
 
 
 def test_public_delivery_gate_does_not_require_private_knot_runtime(tmp_path: Path):
-    bundled = next(
-        spec
-        for spec in command_specs(ROOT, tmp_path)
-        if spec.check_id == "bundled_prompt_contract"
-    )
+    specs = {spec.check_id: spec for spec in command_specs(ROOT, tmp_path)}
+    bundled = specs["bundled_prompt_contract"]
 
     assert "check-bundled-contract" in bundled.argv
     assert "check-private-knot" not in bundled.argv
+    assert specs["representative_evaluation_tests"].junit_expected_tests is None
+    assert specs["representative_evaluation_tests"].junit_minimum_tests == 36
 
 
 def test_upstream_ci_block_propagates_without_self_assertion():
@@ -286,6 +285,31 @@ def test_exact_evidence_junit_rejects_skipped_assertion(tmp_path: Path):
     )
 
     assert _validate_junit_receipt(spec) == ["JUNIT_SKIP_NOT_ALLOWED"]
+
+
+def test_representative_junit_uses_a_minimum_without_rejecting_new_tests(
+    tmp_path: Path,
+):
+    junit = tmp_path / "receipt.xml"
+    spec = CommandSpec(
+        "representative_evidence",
+        ("pytest",),
+        ROOT,
+        ("test",),
+        junit_minimum_tests=36,
+        junit_path=junit,
+    )
+    junit.write_text(
+        '<testsuite tests="37" failures="0" errors="0" skipped="0" />',
+        encoding="utf-8",
+    )
+    assert _validate_junit_receipt(spec) == []
+
+    junit.write_text(
+        '<testsuite tests="35" failures="0" errors="0" skipped="0" />',
+        encoding="utf-8",
+    )
+    assert _validate_junit_receipt(spec) == ["JUNIT_TEST_COUNT_BELOW_MINIMUM"]
 
 
 def test_exact_vitest_evidence_rejects_missing_target_assertion(tmp_path: Path):

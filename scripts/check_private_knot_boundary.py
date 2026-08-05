@@ -64,6 +64,12 @@ PRIVATE_LEGACY_IMPORT_MARKERS = (
 PRIVATE_IMPORT_RE = re.compile(
     r'(?:\bfrom\s+|\bimport\s*(?:\(\s*)?)["\']([^"\']+)["\']'
 )
+COHORT_BEHAVIOR_RE = re.compile(
+    r"<!-- cohort-behavior:start -->\n([\s\S]*?)\n<!-- cohort-behavior:end -->"
+)
+CALIBRATION_MARKERS = ("判断校准：", "Decision calibration:")
+CALIBRATION_CLAUSE_RE = re.compile(r"[。！？；.!?;]+")
+MIN_CALIBRATION_FINGERPRINT_LENGTH = 12
 FORBIDDEN_PUBLIC_ASSETS = (
     PROMPT_CHECKS / "knot_runtime_contract_manifest_v2.json",
     PROMPT_CHECKS / "domain_knob_catalog_v1.json",
@@ -173,6 +179,130 @@ def _private_root() -> Path | None:
     if root.name == "mosaic" and root.parent.name == "prompts":
         root = root.parents[1]
     return root
+
+
+def _normalized_text(value: str) -> str:
+    return re.sub(r"\s+", "", value)
+
+
+def _tracked_public_texts(public_root: Path) -> list[tuple[str, str, str]]:
+    result = subprocess.run(
+        ["git", "-C", str(public_root), "ls-files", "-z"],
+        check=True,
+        capture_output=True,
+    )
+    root = public_root.resolve()
+    texts: list[tuple[str, str, str]] = []
+    for raw_ref in result.stdout.split(b"\0"):
+        if not raw_ref:
+            continue
+        ref = raw_ref.decode("utf-8")
+        path = public_root / ref
+        try:
+            path.resolve().relative_to(root)
+        except ValueError as exc:
+            raise ValueError("tracked public path escapes repository") from exc
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        texts.append((ref, text, _normalized_text(text)))
+    staged = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(public_root),
+            "diff",
+            "--cached",
+            "--name-only",
+            "-z",
+            "--diff-filter=ACMR",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    for raw_ref in staged.stdout.split(b"\0"):
+        if not raw_ref:
+            continue
+        ref = raw_ref.decode("utf-8")
+        blob = subprocess.run(
+            ["git", "-C", str(public_root), "show", f":{ref}"],
+            check=True,
+            capture_output=True,
+        ).stdout
+        try:
+            text = blob.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        texts.append((ref, text, _normalized_text(text)))
+    return texts
+
+
+def _private_content_fingerprints(private_root: Path) -> tuple[set[str], set[str]]:
+    contract = _read_object(
+        private_root / "registry/knot/prompt_parameter_contract_v1.json",
+        "private Prompt parameter contract",
+    )
+    parameters = contract.get("parameters")
+    if not isinstance(parameters, list):
+        raise ValueError("private Prompt parameter inventory is missing")
+    private_ids: set[str] = set()
+    for raw_parameter in parameters:
+        parameter = _mapping(raw_parameter, "private Prompt parameter")
+        parameter_id = parameter.get("parameterId")
+        disposition = parameter.get("disposition")
+        if not isinstance(parameter_id, str) or not parameter_id:
+            raise ValueError("private Prompt parameter ID is invalid")
+        if disposition not in {
+            "PROMPT_KNOT",
+            "DETERMINISTIC_ACTIVE",
+            "DETERMINISTIC_GAP",
+            "RETIRED",
+        }:
+            raise ValueError("private Prompt parameter disposition is invalid")
+        if disposition != "DETERMINISTIC_ACTIVE":
+            private_ids.add(parameter_id)
+
+    calibration_fingerprints: set[str] = set()
+    prompts_root = private_root / "prompts/mosaic"
+    for path in prompts_root.rglob("*.md"):
+        prompt = path.read_text(encoding="utf-8")
+        matches = COHORT_BEHAVIOR_RE.findall(prompt)
+        if len(matches) != 1:
+            raise ValueError("private Prompt cohort behavior block is invalid")
+        behavior = matches[0]
+        matched_markers = [marker for marker in CALIBRATION_MARKERS if marker in behavior]
+        if len(matched_markers) != 1:
+            raise ValueError("private Prompt calibration marker is invalid")
+        suffix = _normalized_text(behavior.split(matched_markers[0], 1)[1])
+        if len(suffix) < MIN_CALIBRATION_FINGERPRINT_LENGTH:
+            raise ValueError("private Prompt calibration suffix is too short")
+        calibration_fingerprints.add(suffix)
+        calibration_fingerprints.update(
+            clause
+            for clause in CALIBRATION_CLAUSE_RE.split(suffix)
+            if len(clause) >= MIN_CALIBRATION_FINGERPRINT_LENGTH
+        )
+    if not calibration_fingerprints:
+        raise ValueError("private Prompt calibration inventory is empty")
+    return private_ids, calibration_fingerprints
+
+
+def _check_cross_repository_content_boundary(
+    public_root: Path, private_root: Path
+) -> None:
+    private_ids, calibration_fingerprints = _private_content_fingerprints(private_root)
+    for ref, text, normalized in _tracked_public_texts(public_root):
+        if any(parameter_id in text for parameter_id in private_ids):
+            raise ValueError(
+                f"private Prompt parameter identifier leaked into public path: {ref}"
+            )
+        if any(fingerprint in normalized for fingerprint in calibration_fingerprints):
+            raise ValueError(
+                f"private Prompt calibration text leaked into public path: {ref}"
+            )
 
 
 def _execution_release_private_commit() -> str:
@@ -316,7 +446,27 @@ def _check_public_boundary() -> str:
     return _execution_release_private_commit()
 
 
+def _require_private_git_state(private_root: Path, expected_commit: str) -> None:
+    head = subprocess.run(
+        ["git", "-C", str(private_root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if head != expected_commit:
+        raise ValueError("private Prompt repository commit does not match public release")
+    status = subprocess.run(
+        ["git", "-C", str(private_root), "status", "--porcelain"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    if status.strip():
+        raise ValueError("private Prompt repository must be clean")
+
+
 def _check_private_repository(private_root: Path, expected_commit: str) -> None:
+    _require_private_git_state(private_root, expected_commit)
     package = _read_object(private_root / PRIVATE_PACKAGE_PATH, "private package")
     if package.get("name") != ACTIVE_PRIVATE_PACKAGE or package.get("private") is not True:
         raise ValueError("active private package identity mismatch")
@@ -362,16 +512,6 @@ def _check_private_repository(private_root: Path, expected_commit: str) -> None:
     ):
         raise ValueError("private legacy KNOT inventory is not fail-closed")
 
-    result = subprocess.run(
-        ["git", "-C", str(private_root), "rev-parse", "HEAD"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    if result.stdout.strip() != expected_commit:
-        raise ValueError("private Prompt repository commit does not match public release")
-
-
 def check(*, require_private: bool) -> None:
     expected_commit = _check_public_boundary()
     private_root = _private_root()
@@ -380,6 +520,7 @@ def check(*, require_private: bool) -> None:
             raise ValueError("private Prompt repository is required")
         return
     _check_private_repository(private_root, expected_commit)
+    _check_cross_repository_content_boundary(ROOT, private_root)
 
 
 def main() -> int:

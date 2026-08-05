@@ -113,7 +113,7 @@ describe("execution behavior release", () => {
       path,
       replaceCohortBehavior(
         original,
-        `${extractCohortBehavior(original)} 先检查最强反证，再形成结论。`,
+        `${extractCohortBehavior(original)} 对比 MSCI China 与 Federal Reserve，再检查最强反证。`,
       ),
     );
     fixture.privatePromptCommit = commitPrivatePrompts(fixture, "mutate cohort behavior");
@@ -263,7 +263,7 @@ describe("execution behavior release", () => {
     );
   });
 
-  it("rejects an English mutable behavior hidden inside a zh prompt", () => {
+  it("rejects a complete English sentence hidden inside otherwise Chinese behavior", () => {
     const fixture = promptFixture();
     const path = promptPath({
       agent: "china",
@@ -273,7 +273,10 @@ describe("execution behavior release", () => {
     });
     writeFileSync(
       path,
-      replaceCohortBehavior(readFileSync(path, "utf8"), "This block is English, not Chinese."),
+      replaceCohortBehavior(
+        readFileSync(path, "utf8"),
+        "这段中文足以通过原有比例检查，但后面混入完整正文。This is a complete English sentence.",
+      ),
     );
     fixture.privatePromptCommit = commitPrivatePrompts(fixture, "commit invalid zh behavior");
 
@@ -284,7 +287,7 @@ describe("execution behavior release", () => {
         model: "claude-sonnet-4",
         baseUrlMode: "PROVIDER_DEFAULT",
       }),
-    ).toThrow(/Chinese cohort behavior must contain meaningful Chinese prose/);
+    ).toThrow(/Chinese cohort behavior must not contain English prose/);
   });
 
   it("rejects identical behavior across all eight cohorts", () => {

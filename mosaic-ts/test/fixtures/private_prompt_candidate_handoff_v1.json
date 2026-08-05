@@ -1,0 +1,516 @@
+{
+  "schemaVersion": "public_prompt_candidate_handoff_fixture_v1",
+  "cases": [
+    {
+      "caseId": "china-direct-001",
+      "trainingProjection": {
+        "schemaVersion": "prompt_training_projection_v1",
+        "target": {
+          "agentId": "china",
+          "stage": "agent_run",
+          "cohort": "cohort_default"
+        },
+        "projectionId": "projection-china-direct-001",
+        "datasetSnapshotHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "excludedSampleIdsHash": "sha256:f3f308b6c10de1ceca39841aac98a7112d6fe3618f092664b7a24fb836ffd249",
+        "cutoffAt": "2025-01-31T00:00:00Z",
+        "outcomeContract": {
+          "evaluationObject": "AcceptedMacroTransmission",
+          "outcomeContractVersion": "macro_transmission_outcome_v2",
+          "primaryLabelId": "china_macro_transmission_a_share_path_5d",
+          "maturityHorizon": "TRADING_DAYS_5",
+          "maturityTradingDays": 5
+        },
+        "evaluator": {
+          "version": "score_china_macro_transmission_a_share_path_5d_v1",
+          "configHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "implementationHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "executorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "evaluatorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "matureSampleCount": 30,
+        "scoreSummary": {
+          "mean": 0.1,
+          "lower_tail": -0.1
+        },
+        "failureCategoryCounts": {},
+        "tailFailureCaseRefs": [],
+        "evidenceGapSummaries": [],
+        "directComponents": [
+          {
+            "componentRef": "role_component_v1:china:000",
+            "directMatureSampleCount": 30,
+            "meanScore": 0.1,
+            "lowerTailScore": -0.1,
+            "failureCategoryCounts": {}
+          },
+          {
+            "componentRef": "role_component_v1:china:001",
+            "directMatureSampleCount": 30,
+            "meanScore": -0.3,
+            "lowerTailScore": -0.6,
+            "failureCategoryCounts": {}
+          },
+          {
+            "componentRef": "role_component_v1:china:002",
+            "directMatureSampleCount": 30,
+            "meanScore": 0.1,
+            "lowerTailScore": -0.1,
+            "failureCategoryCounts": {}
+          },
+          {
+            "componentRef": "role_component_v1:china:003",
+            "directMatureSampleCount": 30,
+            "meanScore": 0.1,
+            "lowerTailScore": -0.1,
+            "failureCategoryCounts": {}
+          },
+          {
+            "componentRef": "role_component_v1:china:004",
+            "directMatureSampleCount": 30,
+            "meanScore": 0.1,
+            "lowerTailScore": -0.1,
+            "failureCategoryCounts": {}
+          },
+          {
+            "componentRef": "role_component_v1:china:005",
+            "directMatureSampleCount": 30,
+            "meanScore": 0.1,
+            "lowerTailScore": -0.1,
+            "failureCategoryCounts": {}
+          }
+        ],
+        "controlledExperiments": [],
+        "projectionHash": "sha256:44e1893f02616c016e3b73ac28c83676e72b839b8c73180ba33187c2200f71df"
+      },
+      "candidate": {
+        "schemaVersion": "prompt_candidate_v1",
+        "candidateId": "candidate-0b38a91f40e5424c7eef6707",
+        "parentId": "champion-handoff-v1",
+        "parentPromptCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+        "parentPromptHashes": {
+          "zh": "sha256:c2971f7a0cb12df183a70221310464c0645e702d267a8ca680ab7167d104658b",
+          "en": "sha256:1e2c8094261fcd75e53af46d8c60f7f64de6fe9b0063c1aa5c678ed60f88fbe2"
+        },
+        "target": {
+          "agentId": "china",
+          "stage": "agent_run",
+          "cohort": "cohort_default"
+        },
+        "promptRefs": {
+          "zh": "prompts/mosaic/cohort_default/macro/china.zh.md",
+          "en": "prompts/mosaic/cohort_default/macro/china.en.md"
+        },
+        "promptHashes": {
+          "zh": "sha256:c2f8a5f52a050315dae0a7626a2a85ad7bc6ce676c7d9390fe2f5cbb12061b2b",
+          "en": "sha256:60374ada8bba6e2da391fe5b9c86146ebb1f2a906c6f5d695300e4c2b2fee320"
+        },
+        "trainingProjectionHash": "sha256:44e1893f02616c016e3b73ac28c83676e72b839b8c73180ba33187c2200f71df",
+        "excludedSampleIdsHash": "sha256:f3f308b6c10de1ceca39841aac98a7112d6fe3618f092664b7a24fb836ffd249",
+        "mutatorConfigHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "mutatorCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+        "mutationCategories": ["CONFLICT_RESOLUTION"],
+        "mutationSummary": "Behavior focus: CONFLICT_RESOLUTION.",
+        "hypothesis": "Preregistered hypothesis: CONFLICT_RESOLUTION improves the frozen Agent outcome score.",
+        "behaviorContractHash": "sha256:9253ed793a2bd30325a028d731807de42c2c336c562462a49586f6b6a8914571",
+        "privateLineageHash": "sha256:478b42b122d7b1218a7216ff3fb473f76fb6394eecf4bde8dc6e6cfa3cba05de",
+        "privateStateArtifactHash": "sha256:6261b0dc8b3456f1c8255235dfd472e1776657a6173ce224c86bb3b54954c6b6",
+        "createdAt": "2025-04-01T00:00:00Z"
+      }
+    },
+    {
+      "caseId": "china-direct-002",
+      "trainingProjection": {
+        "schemaVersion": "prompt_training_projection_v1",
+        "target": {
+          "agentId": "china",
+          "stage": "agent_run",
+          "cohort": "cohort_default"
+        },
+        "projectionId": "projection-china-direct-002",
+        "datasetSnapshotHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "excludedSampleIdsHash": "sha256:f3f308b6c10de1ceca39841aac98a7112d6fe3618f092664b7a24fb836ffd249",
+        "cutoffAt": "2025-01-31T00:00:00Z",
+        "outcomeContract": {
+          "evaluationObject": "AcceptedMacroTransmission",
+          "outcomeContractVersion": "macro_transmission_outcome_v2",
+          "primaryLabelId": "china_macro_transmission_a_share_path_5d",
+          "maturityHorizon": "TRADING_DAYS_5",
+          "maturityTradingDays": 5
+        },
+        "evaluator": {
+          "version": "score_china_macro_transmission_a_share_path_5d_v1",
+          "configHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "implementationHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "executorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "evaluatorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "matureSampleCount": 30,
+        "scoreSummary": {
+          "mean": 0.1,
+          "lower_tail": -0.1
+        },
+        "failureCategoryCounts": {},
+        "tailFailureCaseRefs": [],
+        "evidenceGapSummaries": [],
+        "directComponents": [
+          {
+            "componentRef": "role_component_v1:china:000",
+            "directMatureSampleCount": 30,
+            "meanScore": 0.1,
+            "lowerTailScore": -0.1,
+            "failureCategoryCounts": {}
+          },
+          {
+            "componentRef": "role_component_v1:china:001",
+            "directMatureSampleCount": 30,
+            "meanScore": 0.1,
+            "lowerTailScore": -0.1,
+            "failureCategoryCounts": {}
+          },
+          {
+            "componentRef": "role_component_v1:china:002",
+            "directMatureSampleCount": 30,
+            "meanScore": 0.1,
+            "lowerTailScore": -0.1,
+            "failureCategoryCounts": {}
+          },
+          {
+            "componentRef": "role_component_v1:china:003",
+            "directMatureSampleCount": 30,
+            "meanScore": -0.3,
+            "lowerTailScore": -0.6,
+            "failureCategoryCounts": {}
+          },
+          {
+            "componentRef": "role_component_v1:china:004",
+            "directMatureSampleCount": 30,
+            "meanScore": 0.1,
+            "lowerTailScore": -0.1,
+            "failureCategoryCounts": {}
+          },
+          {
+            "componentRef": "role_component_v1:china:005",
+            "directMatureSampleCount": 30,
+            "meanScore": 0.1,
+            "lowerTailScore": -0.1,
+            "failureCategoryCounts": {}
+          }
+        ],
+        "controlledExperiments": [],
+        "projectionHash": "sha256:d64a260e0372c5e5d90890c332b1ba699c657ff980837faa5837d4c02326ec2c"
+      },
+      "candidate": {
+        "schemaVersion": "prompt_candidate_v1",
+        "candidateId": "candidate-0a0112ad43fe39425fd30a11",
+        "parentId": "champion-handoff-v1",
+        "parentPromptCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+        "parentPromptHashes": {
+          "zh": "sha256:c2971f7a0cb12df183a70221310464c0645e702d267a8ca680ab7167d104658b",
+          "en": "sha256:1e2c8094261fcd75e53af46d8c60f7f64de6fe9b0063c1aa5c678ed60f88fbe2"
+        },
+        "target": {
+          "agentId": "china",
+          "stage": "agent_run",
+          "cohort": "cohort_default"
+        },
+        "promptRefs": {
+          "zh": "prompts/mosaic/cohort_default/macro/china.zh.md",
+          "en": "prompts/mosaic/cohort_default/macro/china.en.md"
+        },
+        "promptHashes": {
+          "zh": "sha256:cff2d5825ad9d4478d1502a98c150b603ec1ccfba0310b900f8c1951a38030ed",
+          "en": "sha256:d0fe2a4256a247588ed664876ac7beee6fd88489dbe1eb1f64642c16a4c5b225"
+        },
+        "trainingProjectionHash": "sha256:d64a260e0372c5e5d90890c332b1ba699c657ff980837faa5837d4c02326ec2c",
+        "excludedSampleIdsHash": "sha256:f3f308b6c10de1ceca39841aac98a7112d6fe3618f092664b7a24fb836ffd249",
+        "mutatorConfigHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "mutatorCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+        "mutationCategories": ["CONFLICT_RESOLUTION"],
+        "mutationSummary": "Behavior focus: CONFLICT_RESOLUTION.",
+        "hypothesis": "Preregistered hypothesis: CONFLICT_RESOLUTION improves the frozen Agent outcome score.",
+        "behaviorContractHash": "sha256:9253ed793a2bd30325a028d731807de42c2c336c562462a49586f6b6a8914571",
+        "privateLineageHash": "sha256:b16aab06fa02422f51831e9289123d916acb40e7fd3dd0712a564497f52eb6c6",
+        "privateStateArtifactHash": "sha256:1128e0ad20e705587376d38b0ffedd6fc1cb35d818cf443fd4f3b8674244ec8e",
+        "createdAt": "2025-04-01T00:00:00Z"
+      }
+    },
+    {
+      "caseId": "china-direct-003",
+      "trainingProjection": {
+        "schemaVersion": "prompt_training_projection_v1",
+        "target": {
+          "agentId": "china",
+          "stage": "agent_run",
+          "cohort": "cohort_default"
+        },
+        "projectionId": "projection-china-direct-003",
+        "datasetSnapshotHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "excludedSampleIdsHash": "sha256:f3f308b6c10de1ceca39841aac98a7112d6fe3618f092664b7a24fb836ffd249",
+        "cutoffAt": "2025-01-31T00:00:00Z",
+        "outcomeContract": {
+          "evaluationObject": "AcceptedMacroTransmission",
+          "outcomeContractVersion": "macro_transmission_outcome_v2",
+          "primaryLabelId": "china_macro_transmission_a_share_path_5d",
+          "maturityHorizon": "TRADING_DAYS_5",
+          "maturityTradingDays": 5
+        },
+        "evaluator": {
+          "version": "score_china_macro_transmission_a_share_path_5d_v1",
+          "configHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "implementationHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "executorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "evaluatorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "matureSampleCount": 30,
+        "scoreSummary": {
+          "mean": 0.1,
+          "lower_tail": -0.1
+        },
+        "failureCategoryCounts": {},
+        "tailFailureCaseRefs": [],
+        "evidenceGapSummaries": [],
+        "directComponents": [
+          {
+            "componentRef": "role_component_v1:china:000",
+            "directMatureSampleCount": 30,
+            "meanScore": 0.1,
+            "lowerTailScore": -0.1,
+            "failureCategoryCounts": {}
+          },
+          {
+            "componentRef": "role_component_v1:china:001",
+            "directMatureSampleCount": 30,
+            "meanScore": 0.1,
+            "lowerTailScore": -0.1,
+            "failureCategoryCounts": {}
+          },
+          {
+            "componentRef": "role_component_v1:china:002",
+            "directMatureSampleCount": 30,
+            "meanScore": 0.1,
+            "lowerTailScore": -0.1,
+            "failureCategoryCounts": {}
+          },
+          {
+            "componentRef": "role_component_v1:china:003",
+            "directMatureSampleCount": 30,
+            "meanScore": 0.1,
+            "lowerTailScore": -0.1,
+            "failureCategoryCounts": {}
+          },
+          {
+            "componentRef": "role_component_v1:china:004",
+            "directMatureSampleCount": 30,
+            "meanScore": -0.3,
+            "lowerTailScore": -0.6,
+            "failureCategoryCounts": {}
+          },
+          {
+            "componentRef": "role_component_v1:china:005",
+            "directMatureSampleCount": 30,
+            "meanScore": 0.1,
+            "lowerTailScore": -0.1,
+            "failureCategoryCounts": {}
+          }
+        ],
+        "controlledExperiments": [],
+        "projectionHash": "sha256:6082f89a4dd70c2f340b3f8f3fb252835fc4b84faa28cbc147f28b6729e6bc74"
+      },
+      "candidate": {
+        "schemaVersion": "prompt_candidate_v1",
+        "candidateId": "candidate-b4c4fbd96a3a16dbe822dac7",
+        "parentId": "champion-handoff-v1",
+        "parentPromptCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+        "parentPromptHashes": {
+          "zh": "sha256:c2971f7a0cb12df183a70221310464c0645e702d267a8ca680ab7167d104658b",
+          "en": "sha256:1e2c8094261fcd75e53af46d8c60f7f64de6fe9b0063c1aa5c678ed60f88fbe2"
+        },
+        "target": {
+          "agentId": "china",
+          "stage": "agent_run",
+          "cohort": "cohort_default"
+        },
+        "promptRefs": {
+          "zh": "prompts/mosaic/cohort_default/macro/china.zh.md",
+          "en": "prompts/mosaic/cohort_default/macro/china.en.md"
+        },
+        "promptHashes": {
+          "zh": "sha256:369aa9215a3b0ffa470f6d816b89a09cc8052ac207ff17bfe8e106bb824725bf",
+          "en": "sha256:964c4cf19277b6146cb181d94a43fcce837018d8a41f27fbbaa207a4415a362d"
+        },
+        "trainingProjectionHash": "sha256:6082f89a4dd70c2f340b3f8f3fb252835fc4b84faa28cbc147f28b6729e6bc74",
+        "excludedSampleIdsHash": "sha256:f3f308b6c10de1ceca39841aac98a7112d6fe3618f092664b7a24fb836ffd249",
+        "mutatorConfigHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "mutatorCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+        "mutationCategories": ["CONFLICT_RESOLUTION"],
+        "mutationSummary": "Behavior focus: CONFLICT_RESOLUTION.",
+        "hypothesis": "Preregistered hypothesis: CONFLICT_RESOLUTION improves the frozen Agent outcome score.",
+        "behaviorContractHash": "sha256:9253ed793a2bd30325a028d731807de42c2c336c562462a49586f6b6a8914571",
+        "privateLineageHash": "sha256:791ab29c689cb218755f666b799e121a52d8104bb9a2423143c1553c3b7c7b2e",
+        "privateStateArtifactHash": "sha256:a0aedb03b6f40d1fc46d7e1953ae45aeea20e202cb14ff838bee522771299746",
+        "createdAt": "2025-04-01T00:00:00Z"
+      }
+    },
+    {
+      "caseId": "semiconductor-direct-001",
+      "trainingProjection": {
+        "schemaVersion": "prompt_training_projection_v1",
+        "target": {
+          "agentId": "semiconductor",
+          "stage": "agent_run",
+          "cohort": "cohort_default"
+        },
+        "projectionId": "projection-semiconductor-direct-001",
+        "datasetSnapshotHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "excludedSampleIdsHash": "sha256:f3f308b6c10de1ceca39841aac98a7112d6fe3618f092664b7a24fb836ffd249",
+        "cutoffAt": "2025-01-31T00:00:00Z",
+        "outcomeContract": {
+          "evaluationObject": "AcceptedSectorSelection",
+          "outcomeContractVersion": "sector_direction_pick_outcome_v3",
+          "primaryLabelId": "semiconductor_direction_pick_alpha_5d",
+          "maturityHorizon": "TRADING_DAYS_5",
+          "maturityTradingDays": 5
+        },
+        "evaluator": {
+          "version": "score_semiconductor_direction_pick_v3",
+          "configHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "implementationHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "executorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "evaluatorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "matureSampleCount": 30,
+        "scoreSummary": {
+          "mean": 0.1,
+          "lower_tail": -0.1
+        },
+        "failureCategoryCounts": {},
+        "tailFailureCaseRefs": [],
+        "evidenceGapSummaries": [],
+        "directComponents": [
+          {
+            "componentRef": "role_component_v1:semiconductor:002",
+            "directMatureSampleCount": 30,
+            "meanScore": -0.3,
+            "lowerTailScore": -0.6,
+            "failureCategoryCounts": {}
+          },
+          {
+            "componentRef": "role_component_v1:semiconductor:003",
+            "directMatureSampleCount": 30,
+            "meanScore": 0.1,
+            "lowerTailScore": -0.1,
+            "failureCategoryCounts": {}
+          },
+          {
+            "componentRef": "role_component_v1:semiconductor:004",
+            "directMatureSampleCount": 30,
+            "meanScore": 0.1,
+            "lowerTailScore": -0.1,
+            "failureCategoryCounts": {}
+          },
+          {
+            "componentRef": "role_component_v1:semiconductor:005",
+            "directMatureSampleCount": 30,
+            "meanScore": 0.1,
+            "lowerTailScore": -0.1,
+            "failureCategoryCounts": {}
+          }
+        ],
+        "controlledExperiments": [
+          {
+            "candidateId": "historical-semiconductor-direct-001-0",
+            "candidatePrivateLineageHash": "sha256:54f163afa0b17926d0375cf722c366ebe23eca0401fe035d9e18d11aadd16614",
+            "experimentId": "historical-experiment-semiconductor-direct-001-0",
+            "status": "COMPLETE",
+            "evaluatorVersion": "score_semiconductor_direction_pick_v3",
+            "evaluatorConfigHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "executorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "evaluatorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "codeCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+            "pairDeltas": [0.2, 0.1],
+            "failureCaseRefs": [],
+            "completedAt": "2025-01-20T00:00:00Z"
+          },
+          {
+            "candidateId": "historical-semiconductor-direct-001-1",
+            "candidatePrivateLineageHash": "sha256:2c22c54a1ac27b884131a0dea7f10bcf172d859546e2284d345384cef961d410",
+            "experimentId": "historical-experiment-semiconductor-direct-001-1",
+            "status": "COMPLETE",
+            "evaluatorVersion": "score_semiconductor_direction_pick_v3",
+            "evaluatorConfigHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "executorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "evaluatorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "codeCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+            "pairDeltas": [0.2, 0.1],
+            "failureCaseRefs": [],
+            "completedAt": "2025-01-20T00:00:00Z"
+          },
+          {
+            "candidateId": "historical-semiconductor-direct-001-2",
+            "candidatePrivateLineageHash": "sha256:2d3e716b9ec9fabc4e4b22a658da4968af61db4816356957bba16a590efb0158",
+            "experimentId": "historical-experiment-semiconductor-direct-001-2",
+            "status": "COMPLETE",
+            "evaluatorVersion": "score_semiconductor_direction_pick_v3",
+            "evaluatorConfigHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "executorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "evaluatorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "codeCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+            "pairDeltas": [0.2, 0.1],
+            "failureCaseRefs": [],
+            "completedAt": "2025-01-20T00:00:00Z"
+          },
+          {
+            "candidateId": "historical-semiconductor-direct-001-3",
+            "candidatePrivateLineageHash": "sha256:6a0d1c5c6c8a48994f376d77083d1a101b5a491f6a5539afd226bae6211f5dfd",
+            "experimentId": "historical-experiment-semiconductor-direct-001-3",
+            "status": "COMPLETE",
+            "evaluatorVersion": "score_semiconductor_direction_pick_v3",
+            "evaluatorConfigHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "executorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "evaluatorAdapterHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "codeCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+            "pairDeltas": [0.2, 0.1],
+            "failureCaseRefs": [],
+            "completedAt": "2025-01-20T00:00:00Z"
+          }
+        ],
+        "projectionHash": "sha256:3e3b61d72016b6c2d5786c4caaa9b1e95baca5af1129448880b64620af6f5adb"
+      },
+      "candidate": {
+        "schemaVersion": "prompt_candidate_v1",
+        "candidateId": "candidate-1f98973a8d998cadd6c2c2ad",
+        "parentId": "champion-handoff-v1",
+        "parentPromptCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+        "parentPromptHashes": {
+          "zh": "sha256:ecdf2ec014c19dd203d4dcf21e679d70be4a0e50cc1272e0ea8286c1a54a4c2c",
+          "en": "sha256:4d17e768cd7b06eff2840c5aa70f4754e0cb70e1bdc2c124eae21054bb7d2f02"
+        },
+        "target": {
+          "agentId": "semiconductor",
+          "stage": "agent_run",
+          "cohort": "cohort_default"
+        },
+        "promptRefs": {
+          "zh": "prompts/mosaic/cohort_default/sector/semiconductor.zh.md",
+          "en": "prompts/mosaic/cohort_default/sector/semiconductor.en.md"
+        },
+        "promptHashes": {
+          "zh": "sha256:a9dfebfa06fb7442164d0c81335d9c20467125921050b60ef3d299388c0c85be",
+          "en": "sha256:6a8483ed929a678a8c3cad849099cefb962263f32545635d397eb4eb97e8fd98"
+        },
+        "trainingProjectionHash": "sha256:3e3b61d72016b6c2d5786c4caaa9b1e95baca5af1129448880b64620af6f5adb",
+        "excludedSampleIdsHash": "sha256:f3f308b6c10de1ceca39841aac98a7112d6fe3618f092664b7a24fb836ffd249",
+        "mutatorConfigHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "mutatorCommit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
+        "mutationCategories": ["CONFLICT_RESOLUTION"],
+        "mutationSummary": "Behavior focus: CONFLICT_RESOLUTION.",
+        "hypothesis": "Preregistered hypothesis: CONFLICT_RESOLUTION improves the frozen Agent outcome score.",
+        "behaviorContractHash": "sha256:589baf7f8901c375eaaf8ab9cfbec39ba27597b16ef03cc6dab0a4b0e5a48316",
+        "privateLineageHash": "sha256:5b9960719fbc95b8d30a6d396b53644ead694094a07f5fae7e7213dbdfd1cc3e",
+        "privateStateArtifactHash": "sha256:8ef1a912a28149caa2f66bbc5c3c7a77401ac3b49ea989713098b492f8d5f60e",
+        "createdAt": "2025-04-01T00:00:00Z"
+      }
+    }
+  ]
+}

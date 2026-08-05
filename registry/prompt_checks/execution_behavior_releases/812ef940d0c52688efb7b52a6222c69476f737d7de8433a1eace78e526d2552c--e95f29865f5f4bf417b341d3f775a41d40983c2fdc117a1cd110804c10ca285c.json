@@ -1,8 +1,8 @@
 {
   "schema_version": "execution_behavior_release_manifest_v3",
-  "execution_behavior_release_id": "execution-behavior-release:c6ebe1109bf14c678d93137f212ffcc9da219fe6f76161961de40529691b0241",
-  "execution_behavior_release_hash": "sha256:621a0af6c27df6ba5a41b7e255ecb88c3eb2128563455460f19ed3964460d43f",
-  "private_prompt_commit": "3436d3b7606a4e64a6c8447babb63fdc7175c192",
+  "execution_behavior_release_id": "execution-behavior-release:812ef940d0c52688efb7b52a6222c69476f737d7de8433a1eace78e526d2552c",
+  "execution_behavior_release_hash": "sha256:e95f29865f5f4bf417b341d3f775a41d40983c2fdc117a1cd110804c10ca285c",
+  "private_prompt_commit": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
   "private_prompt_bootstrap": {
     "schema_version": "private_prompt_parameter_bootstrap_release_v1",
     "release_hash": "sha256:53fd12fc87b7d3b09dfcdc67532bb1867e8830494bb98b05d771a3e956ba484e",

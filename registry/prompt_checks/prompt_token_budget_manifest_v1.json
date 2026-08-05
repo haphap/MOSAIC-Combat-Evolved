@@ -16,7 +16,7 @@
   "max_baseline_growth_ratio": 1.25,
   "runtime_manifest_hash": "sha256:c0d92c7eb970aa780c162918eaf5fd59cb3d22abab30ec17849c7d721a7b4b4f",
   "source_commits": {
-    "private": "3436d3b7606a4e64a6c8447babb63fdc7175c192",
+    "private": "2f267bc193e98f0c9ec63a4402a00b8afbcdf9ff",
     "bundled": "955dc565efe97c490696bf494e6feb6c1ce8549c"
   },
   "baseline_manifest_hash": "sha256:4eeabb8631aa83266bced5bf6d0b772292a430c2e73dbb0997a2050aa51f364c",
@@ -2582,5 +2582,5 @@
     "semantic_parity_passed": true,
     "ready": true
   },
-  "manifest_hash": "sha256:09fcc5dc9d077167fcbf110e9fdd4d82fafee7abbb177e76a3524c37390660a6"
+  "manifest_hash": "sha256:ebba290f350b701cbc24bf17f396ab6da700d7cc5e3a6db305da8b12a8230ec8"
 }
