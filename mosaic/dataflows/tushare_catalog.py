@@ -1,7 +1,9 @@
 """Closed, versioned Tushare endpoint registry for the v2 agent runtime.
 
-SDK method presence is not permission evidence.  An endpoint is usable only
-after a real permission/schema/PIT smoke promotes it to ``ACTIVE_VERIFIED``.
+SDK method presence is not permission evidence. Runtime consumers require
+``ACTIVE_VERIFIED``. The server-owned Source Archivist may query an evidenced
+``PRECHECK_REQUIRED`` endpoint only to perform the exhaustive capture that
+produces its route-level permission/schema/PIT proof.
 The four operator-confirmed unavailable document endpoints are permanently
 disabled in this revision and are never probed at startup.
 """
@@ -333,6 +335,23 @@ def assert_endpoint_runtime_enabled(endpoint: str) -> TushareEndpointRegistratio
     return registration
 
 
+def assert_endpoint_capture_preflight_allowed(
+    endpoint: str,
+) -> TushareEndpointRegistration:
+    """Allow an evidenced endpoint only inside an audited capture preflight."""
+    registration = endpoint_registration(endpoint)
+    if (
+        registration.status == "DISABLED_PERMISSION_DENIED"
+        or not registration.permission_checked_at
+        or not registration.permission_evidence_id
+        or not registration.schema_contract_version
+    ):
+        raise PermissionError(
+            f"TUSHARE_CAPTURE_PREFLIGHT_NOT_ALLOWED:{endpoint}:{registration.status}"
+        )
+    return registration
+
+
 def promote_verified_endpoint(
     endpoint: str,
     *,
@@ -458,6 +477,7 @@ __all__ = [
     "TUSHARE_PREFLIGHT_SCHEMA_VERSION",
     "TushareEndpointRegistration",
     "VERIFIED_ENDPOINT_PREFLIGHTS",
+    "assert_endpoint_capture_preflight_allowed",
     "assert_endpoint_runtime_enabled",
     "catalog_by_endpoint",
     "endpoint_registration",

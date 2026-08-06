@@ -41,8 +41,10 @@ BLOCKER_CODES = frozenset(
         "LOCK_EXPIRED",
         "LOCK_LOST",
         "LOCK_TIMEOUT",
+        "MARKET_SESSION_INCOMPLETE",
         "NO_BUILD_RECEIPT",
         "NO_CAPTURE_RECEIPT",
+        "NON_TRADING_DAY",
         "PERMISSION_DENIED",
         "REQUIRED_ROUTE_MISSING",
         "SCHEMA_DRIFT",
@@ -636,30 +638,52 @@ class AgentDataMaterializationLedger:
                     """
                 )
 
-    def _append(self, table: str, columns: Sequence[str], values: Sequence[Any], receipt: _SealedReceipt) -> str:
+    def _append_on_connection(
+        self,
+        conn: sqlite3.Connection,
+        table: str,
+        columns: Sequence[str],
+        values: Sequence[Any],
+        receipt: _SealedReceipt,
+    ) -> str:
         encoded = _canonical_json(receipt.as_dict())
         placeholders = ", ".join("?" for _ in range(len(columns) + 2))
         column_sql = ", ".join(("receipt_hash", *columns, "receipt_json"))
+        existing = conn.execute(
+            f"SELECT receipt_json FROM {table} WHERE receipt_hash = ?",
+            (receipt.receipt_hash,),
+        ).fetchone()
+        if existing is not None:
+            if existing[0] != encoded:
+                raise ValueError(f"immutable {table} receipt collision")
+            return receipt.receipt_hash
         try:
-            with self._connect() as conn:
-                conn.execute("BEGIN IMMEDIATE")
-                existing = conn.execute(
-                    f"SELECT receipt_json FROM {table} WHERE receipt_hash = ?",
-                    (receipt.receipt_hash,),
-                ).fetchone()
-                if existing is not None:
-                    if existing[0] != encoded:
-                        raise ValueError(f"immutable {table} receipt collision")
-                    conn.execute("COMMIT")
-                    return receipt.receipt_hash
-                conn.execute(
-                    f"INSERT INTO {table} ({column_sql}) VALUES ({placeholders})",
-                    (receipt.receipt_hash, *values, encoded),
-                )
-                conn.execute("COMMIT")
+            conn.execute(
+                f"INSERT INTO {table} ({column_sql}) VALUES ({placeholders})",
+                (receipt.receipt_hash, *values, encoded),
+            )
         except sqlite3.IntegrityError as exc:
             raise ValueError(f"immutable {table} identity collision") from exc
         return receipt.receipt_hash
+
+    def _append(
+        self,
+        table: str,
+        columns: Sequence[str],
+        values: Sequence[Any],
+        receipt: _SealedReceipt,
+    ) -> str:
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                receipt_hash = self._append_on_connection(
+                    conn, table, columns, values, receipt
+                )
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+            conn.execute("COMMIT")
+        return receipt_hash
 
     def _require_receipt_hashes(
         self,
@@ -667,29 +691,42 @@ class AgentDataMaterializationLedger:
         *,
         tables: Sequence[str],
         field: str,
+        conn: sqlite3.Connection | None = None,
     ) -> None:
+        if conn is None:
+            with self._connect(read_only=True) as read_conn:
+                self._require_receipt_hashes(
+                    receipt_hashes,
+                    tables=tables,
+                    field=field,
+                    conn=read_conn,
+                )
+            return
         missing = set(receipt_hashes)
         if not missing:
             return
-        with self._connect(read_only=True) as conn:
-            for table in tables:
-                placeholders = ", ".join("?" for _ in missing)
-                rows = conn.execute(
-                    f"SELECT receipt_hash FROM {table} "
-                    f"WHERE receipt_hash IN ({placeholders})",
-                    tuple(sorted(missing)),
-                ).fetchall()
-                missing.difference_update(str(row["receipt_hash"]) for row in rows)
-                if not missing:
-                    return
+        for table in tables:
+            placeholders = ", ".join("?" for _ in missing)
+            rows = conn.execute(
+                f"SELECT receipt_hash FROM {table} "
+                f"WHERE receipt_hash IN ({placeholders})",
+                tuple(sorted(missing)),
+            ).fetchall()
+            missing.difference_update(str(row["receipt_hash"]) for row in rows)
+            if not missing:
+                return
         raise ValueError(f"{field} references unknown receipt hashes: {sorted(missing)}")
 
-    def append_source_capture(self, receipt: SourceCaptureReceipt) -> str:
-        value = SourceCaptureReceipt.from_dict(receipt.as_dict())
+    def _append_source_on_connection(
+        self,
+        conn: sqlite3.Connection,
+        value: SourceCaptureReceipt,
+    ) -> str:
         payload = value.as_dict()
         identity = payload["identity"]
         cutoff = _timestamp(payload["pit"]["as_of_cutoff"], "pit.as_of_cutoff")
-        return self._append(
+        return self._append_on_connection(
+            conn,
             "source_capture_receipts",
             (
                 "source_family",
@@ -712,8 +749,23 @@ class AgentDataMaterializationLedger:
             value,
         )
 
-    def append_route_coverage(self, receipt: RouteCoverageReceipt) -> str:
-        value = RouteCoverageReceipt.from_dict(receipt.as_dict())
+    def append_source_capture(self, receipt: SourceCaptureReceipt) -> str:
+        value = SourceCaptureReceipt.from_dict(receipt.as_dict())
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                receipt_hash = self._append_source_on_connection(conn, value)
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+            conn.execute("COMMIT")
+        return receipt_hash
+
+    def _validate_route_coverage_on_connection(
+        self,
+        conn: sqlite3.Connection,
+        value: RouteCoverageReceipt,
+    ) -> dict[str, Any]:
         payload = value.as_dict()
         successful = [
             row
@@ -724,38 +776,46 @@ class AgentDataMaterializationLedger:
             [row["capture_receipt_hash"] for row in successful],
             tables=("source_capture_receipts",),
             field="route_results.capture_receipt_hash",
+            conn=conn,
         )
-        if successful:
-            with self._connect(read_only=True) as conn:
-                for result in successful:
-                    row = conn.execute(
-                        "SELECT receipt_json FROM source_capture_receipts "
-                        "WHERE receipt_hash = ?",
-                        (result["capture_receipt_hash"],),
-                    ).fetchone()
-                    if row is None:  # pragma: no cover - guarded above and append-only
-                        raise ValueError("source capture receipt disappeared")
-                    capture = SourceCaptureReceipt.from_dict(
-                        json.loads(row["receipt_json"])
-                    ).as_dict()
-                    if capture["identity"]["route_id"] != result["route_id"]:
-                        raise ValueError(
-                            "coverage route does not match its source capture receipt"
-                        )
-                    if not capture["pit"]["eligible"]:
-                        raise ValueError(
-                            "successful coverage route requires a PIT-eligible capture"
-                        )
-                    is_true_empty = (
-                        capture["content"]["normalized_row_count"] == 0
-                        and capture["completeness"]["empty_result_semantics"]
-                        == "TRUE_EMPTY"
-                    )
-                    if (result["status"] == "TRUE_EMPTY") != is_true_empty:
-                        raise ValueError(
-                            "coverage route status contradicts source empty semantics"
-                        )
-        return self._append(
+        for result in successful:
+            row = conn.execute(
+                "SELECT receipt_json FROM source_capture_receipts "
+                "WHERE receipt_hash = ?",
+                (result["capture_receipt_hash"],),
+            ).fetchone()
+            if row is None:  # pragma: no cover - guarded above and append-only
+                raise ValueError("source capture receipt disappeared")
+            capture = SourceCaptureReceipt.from_dict(
+                json.loads(row["receipt_json"])
+            ).as_dict()
+            if capture["identity"]["route_id"] != result["route_id"]:
+                raise ValueError(
+                    "coverage route does not match its source capture receipt"
+                )
+            if not capture["pit"]["eligible"]:
+                raise ValueError(
+                    "successful coverage route requires a PIT-eligible capture"
+                )
+            is_true_empty = (
+                capture["content"]["normalized_row_count"] == 0
+                and capture["completeness"]["empty_result_semantics"]
+                == "TRUE_EMPTY"
+            )
+            if (result["status"] == "TRUE_EMPTY") != is_true_empty:
+                raise ValueError(
+                    "coverage route status contradicts source empty semantics"
+                )
+        return payload
+
+    def _append_route_coverage_on_connection(
+        self,
+        conn: sqlite3.Connection,
+        value: RouteCoverageReceipt,
+    ) -> str:
+        payload = self._validate_route_coverage_on_connection(conn, value)
+        return self._append_on_connection(
+            conn,
             "route_coverage_receipts",
             ("coverage_id", "window_end", "coverage_complete"),
             (
@@ -765,6 +825,53 @@ class AgentDataMaterializationLedger:
             ),
             value,
         )
+
+    def append_route_coverage(self, receipt: RouteCoverageReceipt) -> str:
+        value = RouteCoverageReceipt.from_dict(receipt.as_dict())
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                receipt_hash = self._append_route_coverage_on_connection(conn, value)
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+            conn.execute("COMMIT")
+        return receipt_hash
+
+    def append_capture_group(
+        self,
+        source_receipts: Sequence[SourceCaptureReceipt],
+        coverage_receipt: RouteCoverageReceipt,
+    ) -> tuple[tuple[str, ...], str]:
+        """Atomically publish a complete set of source receipts and its coverage."""
+        sources = tuple(
+            SourceCaptureReceipt.from_dict(receipt.as_dict())
+            for receipt in source_receipts
+        )
+        coverage = RouteCoverageReceipt.from_dict(coverage_receipt.as_dict())
+        source_hashes = tuple(receipt.receipt_hash for receipt in sources)
+        if not sources or len(source_hashes) != len(set(source_hashes)):
+            raise ValueError("capture group source receipts must be non-empty and unique")
+        successful_hashes = {
+            row["capture_receipt_hash"]
+            for row in coverage.as_dict()["route_results"]
+            if row["status"] in SUCCESSFUL_ROUTE_STATES
+        }
+        if successful_hashes != set(source_hashes):
+            raise ValueError(
+                "capture group coverage must close over every source receipt"
+            )
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                for source in sources:
+                    self._append_source_on_connection(conn, source)
+                self._append_route_coverage_on_connection(conn, coverage)
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+            conn.execute("COMMIT")
+        return source_hashes, coverage.receipt_hash
 
     def append_snapshot_build(self, receipt: SnapshotBuildReceipt) -> str:
         value = SnapshotBuildReceipt.from_dict(receipt.as_dict())

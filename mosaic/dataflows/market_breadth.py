@@ -289,8 +289,17 @@ def _read_table(root: Path, stem: str, *, optional: bool = False):
     raise DataVendorUnavailable(f"market breadth private PIT table missing: {root}/{stem}.parquet|csv")
 
 
-def load_market_breadth_inputs(root: Path | None = None) -> BreadthInputs:
+def load_market_breadth_inputs(
+    root: Path | None = None,
+    *,
+    as_of_date: str | None = None,
+) -> BreadthInputs:
     data_root = root or market_breadth_data_root()
+    archive_path = data_root / "a_share_archive.sqlite3"
+    if as_of_date is not None and archive_path.is_file():
+        from .a_share_archive import AShareArchiveStore  # noqa: PLC0415
+
+        return AShareArchiveStore(archive_path, create=False).load_inputs(as_of_date)
     return BreadthInputs(
         stock_basic=_read_table(data_root, "stock_basic"),
         daily=_read_table(data_root, "daily"),
@@ -301,7 +310,9 @@ def load_market_breadth_inputs(root: Path | None = None) -> BreadthInputs:
 
 def render_market_breadth_snapshot(as_of_date: str, root: Path | None = None) -> str:
     return json.dumps(
-        compute_market_breadth_snapshot(load_market_breadth_inputs(root), as_of_date),
+        compute_market_breadth_snapshot(
+            load_market_breadth_inputs(root, as_of_date=as_of_date), as_of_date
+        ),
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),

@@ -461,8 +461,6 @@ def archive_eco_calendar(
         )
         for route_id, currencies in sorted(ECO_CAL_LOGICAL_ROUTES.items())
     )
-    for receipt in receipts:
-        ledger.append_source_capture(receipt)
     results = [
         {
             "route_id": receipt.as_dict()["identity"]["route_id"],
@@ -480,7 +478,7 @@ def archive_eco_calendar(
         route_results=results,
         blocker_codes=[],
     )
-    ledger.append_route_coverage(coverage)
+    ledger.append_capture_group(receipts, coverage)
     snapshot = (
         build_role_event_snapshot(consumer_agent, as_of_date, store=store)
         if consumer_agent is not None

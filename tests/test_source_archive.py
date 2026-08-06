@@ -299,6 +299,56 @@ def test_repeated_capture_is_idempotent_and_later_revision_is_append_only(
         assert conn.execute("SELECT count(*) FROM source_capture_receipts").fetchone()[0] == 6
 
 
+def test_eco_calendar_capture_group_crash_exposes_no_partial_ledger_rows(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store, ledger = _stores(tmp_path)
+    original = AgentDataMaterializationLedger._append_on_connection
+    insert_count = 0
+
+    def crash_on_second_insert(self, *args, **kwargs):
+        nonlocal insert_count
+        insert_count += 1
+        if insert_count == 2:
+            raise RuntimeError("injected eco capture crash")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(
+        AgentDataMaterializationLedger,
+        "_append_on_connection",
+        crash_on_second_insert,
+    )
+    with pytest.raises(RuntimeError, match="injected eco capture crash"):
+        archive_eco_calendar(
+            lambda **_request: [],
+            as_of_date="2026-07-01",
+            captured_at="2026-07-01T10:00:00+08:00",
+            store=store,
+            ledger=ledger,
+        )
+    with sqlite3.connect(ledger.path) as conn:
+        assert conn.execute("SELECT count(*) FROM source_capture_receipts").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM route_coverage_receipts").fetchone()[0] == 0
+
+    monkeypatch.setattr(
+        AgentDataMaterializationLedger,
+        "_append_on_connection",
+        original,
+    )
+    result = archive_eco_calendar(
+        lambda **_request: [],
+        as_of_date="2026-07-01",
+        captured_at="2026-07-01T10:00:00+08:00",
+        store=store,
+        ledger=ledger,
+    )
+    assert len(result.source_receipts) == 3
+    with sqlite3.connect(ledger.path) as conn:
+        assert conn.execute("SELECT count(*) FROM source_capture_receipts").fetchone()[0] == 3
+        assert conn.execute("SELECT count(*) FROM route_coverage_receipts").fetchone()[0] == 1
+
+
 def test_capture_after_decision_cutoff_does_not_call_transport_or_claim_pit(
     tmp_path: Path,
 ) -> None:

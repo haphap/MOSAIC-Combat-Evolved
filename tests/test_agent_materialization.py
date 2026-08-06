@@ -550,6 +550,78 @@ def test_coverage_closes_over_matching_source_route_and_empty_semantics(
         ledger.append_route_coverage(RouteCoverageReceipt.seal(claims_empty))
 
 
+def test_capture_group_rolls_back_partial_sources_and_retries_idempotently(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ledger = AgentDataMaterializationLedger(tmp_path / "agent-data.sqlite3")
+    routes = (
+        "tushare.eco_cal.cny",
+        "tushare.eco_cal.eur",
+        "tushare.eco_cal.usd",
+    )
+    sources = tuple(
+        SourceCaptureReceipt.from_dict(_source_payload(route_id=route_id))
+        for route_id in routes
+    )
+    coverage = RouteCoverageReceipt.seal(
+        {
+            "schema_version": "route_coverage_receipt_v1",
+            "coverage_id": "capture-group-coverage-20260701",
+            "window": {
+                "start": "2026-07-01T00:00:00+08:00",
+                "end": "2026-07-01T23:59:59+08:00",
+                "timezone": "Asia/Shanghai",
+            },
+            "required_route_ids": list(routes),
+            "route_results": [
+                {
+                    "route_id": route_id,
+                    "capture_receipt_hash": source.receipt_hash,
+                    "status": "SUCCESS",
+                }
+                for route_id, source in zip(routes, sources, strict=True)
+            ],
+            "coverage_complete": True,
+            "blocker_codes": [],
+        }
+    )
+
+    original = AgentDataMaterializationLedger._append_on_connection
+    insert_count = 0
+
+    def crash_on_second_insert(self, *args, **kwargs):
+        nonlocal insert_count
+        insert_count += 1
+        if insert_count == 2:
+            raise RuntimeError("injected capture-group crash")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(
+        AgentDataMaterializationLedger,
+        "_append_on_connection",
+        crash_on_second_insert,
+    )
+    with pytest.raises(RuntimeError, match="injected capture-group crash"):
+        ledger.append_capture_group(sources, coverage)
+
+    with sqlite3.connect(ledger.path) as conn:
+        assert conn.execute("SELECT count(*) FROM source_capture_receipts").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM route_coverage_receipts").fetchone()[0] == 0
+
+    monkeypatch.setattr(
+        AgentDataMaterializationLedger,
+        "_append_on_connection",
+        original,
+    )
+    first = ledger.append_capture_group(sources, coverage)
+    retry = ledger.append_capture_group(sources, coverage)
+    assert retry == first
+    with sqlite3.connect(ledger.path) as conn:
+        assert conn.execute("SELECT count(*) FROM source_capture_receipts").fetchone()[0] == 3
+        assert conn.execute("SELECT count(*) FROM route_coverage_receipts").fetchone()[0] == 1
+
+
 def test_status_queries_order_mixed_offsets_by_instant(tmp_path: Path) -> None:
     ledger = AgentDataMaterializationLedger(tmp_path / "timezone-order.sqlite3")
 
