@@ -27,7 +27,7 @@
         "properties": {
           "route_id": {"$ref": "#/$defs/id"},
           "capture_receipt_hash": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]},
-          "status": {"enum": ["SUCCESS", "TRUE_EMPTY", "PERMISSION_DENIED", "TRANSPORT_FAILED", "SCHEMA_DRIFT", "TRUNCATED"]}
+          "status": {"enum": ["SUCCESS", "TRUE_EMPTY", "PERMISSION_DENIED", "TRANSPORT_FAILED", "SCHEMA_DRIFT", "TRUNCATED", "PIT_INELIGIBLE", "CAPTURE_REJECTED"]}
         }
       }
     },
