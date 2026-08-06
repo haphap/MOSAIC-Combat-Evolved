@@ -7,6 +7,9 @@ local qlib datasets (cn_data / cn_etf) without dropping to a raw
 Surface:
     * data.incremental(kind, end[, timeout]) → append latest trading days
     * data.validate(kind[, gap_threshold]) → quality report + skip manifest
+    * data.source_status(as_of, route_id) → sealed capture status
+    * data.snapshot_status(as_of, agent_id, stage) → frozen build status
+    * data.materialize_dry_run(as_of, agent_id, stage) → read-only plan
 
 The actual fetch runs the vendored collector in a child process and needs the
 ``ingest`` (+ ``data`` + ``backtest``) extras installed; absent deps surface as
@@ -15,7 +18,13 @@ DATA_ERROR rather than crashing the bridge.
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
+
+from mosaic.dataflows.agent_materialization import (
+    load_agent_data_route_manifest,
+    open_agent_data_materialization_ledger,
+)
 
 from ..protocol import DATA_ERROR, INVALID_PARAMS, RpcError
 from ..registry import method
@@ -35,6 +44,27 @@ def _require_str(params: dict[str, Any], key: str) -> str:
     if not isinstance(val, str) or not val.strip():
         raise RpcError(INVALID_PARAMS, f"'{key}' must be a non-empty string")
     return val.strip()
+
+
+def _require_date(params: dict[str, Any], key: str = "as_of") -> str:
+    value = _require_str(params, key)
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as exc:
+        raise RpcError(INVALID_PARAMS, f"'{key}' must be an ISO date (YYYY-MM-DD)") from exc
+    if parsed.isoformat() != value:
+        raise RpcError(INVALID_PARAMS, f"'{key}' must be an ISO date (YYYY-MM-DD)")
+    return value
+
+
+def _require_route_id(params: dict[str, Any]) -> str:
+    route_id = _require_str(params, "route_id")
+    known_routes = {
+        route["route_id"] for route in load_agent_data_route_manifest()["routes"]
+    }
+    if route_id not in known_routes:
+        raise RpcError(INVALID_PARAMS, f"unknown Agent data route: {route_id}")
+    return route_id
 
 
 @method("data.incremental")
@@ -118,5 +148,59 @@ def data_validate(params: dict[str, Any]) -> dict[str, Any]:
         return validate_after_ingest(qlib_dir=qlib_dir, gap_threshold=float(gap_threshold))
     except FileNotFoundError as exc:
         raise RpcError(DATA_ERROR, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(DATA_ERROR, f"{type(exc).__name__}: {exc}") from exc
+
+
+@method("data.source_status")
+def data_source_status(params: dict[str, Any]) -> dict[str, Any]:
+    """Return the sealed capture status for one logical Agent data route."""
+    as_of = _require_date(params)
+    route_id = _require_route_id(params)
+    try:
+        return open_agent_data_materialization_ledger(create=False).source_status(
+            as_of=as_of,
+            route_id=route_id,
+        )
+    except ValueError as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(DATA_ERROR, f"{type(exc).__name__}: {exc}") from exc
+
+
+@method("data.snapshot_status")
+def data_snapshot_status(params: dict[str, Any]) -> dict[str, Any]:
+    """Return frozen snapshot-build status for one Agent execution stage."""
+    as_of = _require_date(params)
+    agent_id = _require_str(params, "agent_id")
+    stage = _require_str(params, "stage")
+    try:
+        return open_agent_data_materialization_ledger(create=False).snapshot_status(
+            as_of=as_of,
+            agent_id=agent_id,
+            stage=stage,
+        )
+    except ValueError as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(DATA_ERROR, f"{type(exc).__name__}: {exc}") from exc
+
+
+@method("data.materialize_dry_run")
+def data_materialize_dry_run(params: dict[str, Any]) -> dict[str, Any]:
+    """Plan materialization without collectors, writes, builds, or capability issue."""
+    if params.get("dry_run") is not True:
+        raise RpcError(INVALID_PARAMS, "'dry_run' must be true")
+    as_of = _require_date(params)
+    agent_id = _require_str(params, "agent_id")
+    stage = _require_str(params, "stage")
+    try:
+        return open_agent_data_materialization_ledger(create=False).materialize_dry_run(
+            as_of=as_of,
+            agent_id=agent_id,
+            stage=stage,
+        )
+    except ValueError as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
     except Exception as exc:
         raise RpcError(DATA_ERROR, f"{type(exc).__name__}: {exc}") from exc

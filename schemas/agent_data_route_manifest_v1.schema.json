@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent data route manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "manifest_version", "generated_at", "agent_tool_contract_manifest_hash", "routes", "bindings", "manifest_hash"],
+  "properties": {
+    "schema_version": {"const": "agent_data_route_manifest_v1"},
+    "manifest_version": {"const": "agent_data_routes_20260806_v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "agent_tool_contract_manifest_hash": {"$ref": "#/$defs/sha256"},
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["route_id", "source_family", "contract_version", "pit_strategy", "implementation_stage"],
+        "properties": {
+          "route_id": {"$ref": "#/$defs/id"},
+          "source_family": {"$ref": "#/$defs/id"},
+          "contract_version": {"$ref": "#/$defs/id"},
+          "pit_strategy": {"enum": ["OBSERVED_LIVE", "AUTHORITATIVE_VINTAGE_REPLAY", "FORWARD_ARCHIVE", "LOCAL_RUNTIME_AUTHORITY"]},
+          "implementation_stage": {"enum": ["PR2", "PR3", "PR4", "PR5", "PR6", "PR7", "PR8", "PR9", "PR10"]}
+        }
+      }
+    },
+    "bindings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["agent_id", "stage", "tool_id", "required_route_ids"],
+        "properties": {
+          "agent_id": {"$ref": "#/$defs/id"},
+          "stage": {"$ref": "#/$defs/id"},
+          "tool_id": {"$ref": "#/$defs/id"},
+          "required_route_ids": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/id"}, "uniqueItems": true}
+        }
+      }
+    },
+    "manifest_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"},
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

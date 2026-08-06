@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent source capture receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "identity", "transport", "authority", "time", "pit", "content", "coverage", "completeness", "provenance", "receipt_hash"],
+  "properties": {
+    "schema_version": {"const": "source_capture_receipt_v1"},
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_family", "route_id", "request_hash", "capture_id"],
+      "properties": {
+        "source_family": {"$ref": "#/$defs/id"},
+        "route_id": {"$ref": "#/$defs/id"},
+        "request_hash": {"$ref": "#/$defs/sha256"},
+        "capture_id": {"$ref": "#/$defs/id"}
+      }
+    },
+    "transport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["redacted_url", "method", "query_keys", "pagination_policy", "page_count"],
+      "properties": {
+        "redacted_url": {"type": "string", "minLength": 1, "maxLength": 2048},
+        "method": {"enum": ["GET", "POST", "FILE"]},
+        "query_keys": {"type": "array", "items": {"$ref": "#/$defs/id"}, "uniqueItems": true},
+        "pagination_policy": {"$ref": "#/$defs/id"},
+        "page_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider", "permission_tier", "api_version", "parser_version"],
+      "properties": {
+        "provider": {"$ref": "#/$defs/id"},
+        "permission_tier": {"$ref": "#/$defs/id"},
+        "api_version": {"$ref": "#/$defs/id"},
+        "parser_version": {"$ref": "#/$defs/id"}
+      }
+    },
+    "time": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["released_at", "vintage_at", "captured_at", "knowledge_available_at"],
+      "properties": {
+        "released_at": {"type": "string", "format": "date-time"},
+        "vintage_at": {"type": "string", "format": "date-time"},
+        "captured_at": {"type": "string", "format": "date-time"},
+        "knowledge_available_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "pit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pit_mode", "as_of_cutoff", "eligible", "blocker_codes", "vintage_query"],
+      "properties": {
+        "pit_mode": {"enum": ["OBSERVED_LIVE", "AUTHORITATIVE_VINTAGE_REPLAY"]},
+        "as_of_cutoff": {"type": "string", "format": "date-time"},
+        "eligible": {"type": "boolean"},
+        "blocker_codes": {"$ref": "#/$defs/idList"},
+        "vintage_query": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "object", "minProperties": 1, "additionalProperties": {"type": "string", "maxLength": 256}}
+          ]
+        }
+      }
+    },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["raw_content_hash", "normalized_row_count", "schema_hash"],
+      "properties": {
+        "raw_content_hash": {"$ref": "#/$defs/sha256"},
+        "normalized_row_count": {"type": "integer", "minimum": 0},
+        "schema_hash": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested_start", "requested_end", "observed_start", "observed_end", "dimensions"],
+      "properties": {
+        "requested_start": {"type": "string", "format": "date"},
+        "requested_end": {"type": "string", "format": "date"},
+        "observed_start": {"type": ["string", "null"], "format": "date"},
+        "observed_end": {"type": ["string", "null"], "format": "date"},
+        "dimensions": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string", "maxLength": 128}, "uniqueItems": true}}
+      }
+    },
+    "completeness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["truncated", "next_page_token_present", "duplicate_count", "empty_result_semantics"],
+      "properties": {
+        "truncated": {"type": "boolean"},
+        "next_page_token_present": {"type": "boolean"},
+        "duplicate_count": {"type": "integer", "minimum": 0},
+        "empty_result_semantics": {"enum": ["NON_EMPTY", "TRUE_EMPTY", "UNKNOWN"]}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parent_capture_hash", "previous_revision_hash", "revision_reason"],
+      "properties": {
+        "parent_capture_hash": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]},
+        "previous_revision_hash": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]},
+        "revision_reason": {"type": ["string", "null"], "maxLength": 256}
+      }
+    },
+    "receipt_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"},
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "idList": {"type": "array", "items": {"$ref": "#/$defs/id"}, "uniqueItems": true}
+  }
+}

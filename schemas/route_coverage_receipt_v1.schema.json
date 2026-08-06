@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent route coverage receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "coverage_id", "window", "required_route_ids", "route_results", "coverage_complete", "blocker_codes", "receipt_hash"],
+  "properties": {
+    "schema_version": {"const": "route_coverage_receipt_v1"},
+    "coverage_id": {"$ref": "#/$defs/id"},
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end", "timezone"],
+      "properties": {
+        "start": {"type": "string", "format": "date-time"},
+        "end": {"type": "string", "format": "date-time"},
+        "timezone": {"type": "string", "minLength": 1, "maxLength": 64}
+      }
+    },
+    "required_route_ids": {"$ref": "#/$defs/idList"},
+    "route_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["route_id", "capture_receipt_hash", "status"],
+        "properties": {
+          "route_id": {"$ref": "#/$defs/id"},
+          "capture_receipt_hash": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]},
+          "status": {"enum": ["SUCCESS", "TRUE_EMPTY", "PERMISSION_DENIED", "TRANSPORT_FAILED", "SCHEMA_DRIFT", "TRUNCATED"]}
+        }
+      }
+    },
+    "coverage_complete": {"type": "boolean"},
+    "blocker_codes": {"$ref": "#/$defs/idList"},
+    "receipt_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"},
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "idList": {"type": "array", "items": {"$ref": "#/$defs/id"}, "uniqueItems": true}
+  }
+}

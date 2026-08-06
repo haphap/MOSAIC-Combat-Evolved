@@ -10,6 +10,7 @@ import importlib.util
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import Mock, patch
 
 from mosaic.bridge.protocol import RpcError
 
@@ -77,6 +78,96 @@ class TestDataParamValidation(unittest.TestCase):
         self.assertEqual(captured["kind"], "stock")
         self.assertTrue(res["ok"])
         self.assertEqual(res["kind"], "stock")
+
+
+class TestAgentMaterializationStatus(unittest.TestCase):
+    def test_source_status_is_read_only_and_forwards_strict_params(self):
+        ledger = Mock()
+        ledger.source_status.return_value = {
+            "route_id": "tushare.eco_cal.cny",
+            "as_of": "2026-07-01",
+            "status": "BLOCKED",
+            "blocker_codes": ["NO_CAPTURE_RECEIPT"],
+            "capture_receipt_hash": None,
+        }
+        with patch.object(
+            dh, "open_agent_data_materialization_ledger", return_value=ledger
+        ) as open_ledger:
+            result = dh.data_source_status(
+                {"as_of": "2026-07-01", "route_id": "tushare.eco_cal.cny"}
+            )
+
+        open_ledger.assert_called_once_with(create=False)
+        ledger.source_status.assert_called_once_with(
+            as_of="2026-07-01", route_id="tushare.eco_cal.cny"
+        )
+        self.assertEqual(result["status"], "BLOCKED")
+
+    def test_snapshot_status_forwards_agent_stage(self):
+        ledger = Mock()
+        ledger.snapshot_status.return_value = {"status": "BLOCKED"}
+        with patch.object(
+            dh, "open_agent_data_materialization_ledger", return_value=ledger
+        ):
+            result = dh.data_snapshot_status(
+                {"as_of": "2026-07-01", "agent_id": "china", "stage": "china"}
+            )
+
+        ledger.snapshot_status.assert_called_once_with(
+            as_of="2026-07-01", agent_id="china", stage="china"
+        )
+        self.assertEqual(result["status"], "BLOCKED")
+
+    def test_materialize_requires_explicit_dry_run(self):
+        with self.assertRaises(RpcError):
+            dh.data_materialize_dry_run(
+                {
+                    "as_of": "2026-07-01",
+                    "agent_id": "china",
+                    "stage": "china",
+                    "dry_run": False,
+                }
+            )
+
+    def test_materialize_dry_run_never_opens_a_writer(self):
+        ledger = Mock()
+        ledger.materialize_dry_run.return_value = {
+            "dry_run": True,
+            "status": "BLOCKED",
+        }
+        with patch.object(
+            dh, "open_agent_data_materialization_ledger", return_value=ledger
+        ) as open_ledger:
+            result = dh.data_materialize_dry_run(
+                {
+                    "as_of": "2026-07-01",
+                    "agent_id": "china",
+                    "stage": "china",
+                    "dry_run": True,
+                }
+            )
+
+        open_ledger.assert_called_once_with(create=False)
+        ledger.materialize_dry_run.assert_called_once_with(
+            as_of="2026-07-01", agent_id="china", stage="china"
+        )
+        self.assertTrue(result["dry_run"])
+
+    def test_status_rejects_invalid_date_and_unknown_binding(self):
+        with self.assertRaises(RpcError):
+            dh.data_source_status(
+                {"as_of": "July 1", "route_id": "tushare.eco_cal.cny"}
+            )
+
+        ledger = Mock()
+        ledger.snapshot_status.side_effect = ValueError("unknown Agent/stage")
+        with patch.object(
+            dh, "open_agent_data_materialization_ledger", return_value=ledger
+        ):
+            with self.assertRaises(RpcError):
+                dh.data_snapshot_status(
+                    {"as_of": "2026-07-01", "agent_id": "china", "stage": "unknown"}
+                )
 
 
 if __name__ == "__main__":

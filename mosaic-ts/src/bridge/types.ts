@@ -248,6 +248,42 @@ export interface DataIncrementalResult {
   ok: boolean;
 }
 
+export interface AgentDataSourceStatus {
+  route_id: string;
+  as_of: string;
+  status: "READY" | "BLOCKED";
+  blocker_codes: string[];
+  capture_receipt_hash: string | null;
+  knowledge_available_at?: string;
+  pit_mode?: "OBSERVED_LIVE" | "AUTHORITATIVE_VINTAGE_REPLAY";
+}
+
+export interface AgentSnapshotStatus {
+  agent_id: string;
+  stage: string;
+  as_of: string;
+  status: "READY" | "BLOCKED";
+  tool_ids: string[];
+  missing_tool_ids: string[];
+  build_receipt_hashes: Record<string, string>;
+  missing_route_ids: string[];
+}
+
+export interface AgentMaterializationDryRun {
+  dry_run: true;
+  agent_id: string;
+  stage: string;
+  as_of: string;
+  status: "READY" | "READY_TO_BUILD" | "BLOCKED";
+  would_collect: boolean;
+  would_build: boolean;
+  would_issue_capability: boolean;
+  required_route_ids: string[];
+  missing_route_ids: string[];
+  snapshot_status: AgentSnapshotStatus;
+  source_statuses: AgentDataSourceStatus[];
+}
+
 export interface PaperAccount {
   user_id: string;
   cash: number;
@@ -1704,6 +1740,27 @@ export class BridgeApi {
     gap_threshold?: number;
   }): Promise<Record<string, unknown>> {
     return this.client.call<Record<string, unknown>>("data.validate", params);
+  }
+
+  dataSourceStatus(params: { as_of: string; route_id: string }): Promise<AgentDataSourceStatus> {
+    return this.client.call<AgentDataSourceStatus>("data.source_status", params);
+  }
+
+  dataSnapshotStatus(params: {
+    as_of: string;
+    agent_id: string;
+    stage: string;
+  }): Promise<AgentSnapshotStatus> {
+    return this.client.call<AgentSnapshotStatus>("data.snapshot_status", params);
+  }
+
+  dataMaterializeDryRun(params: {
+    as_of: string;
+    agent_id: string;
+    stage: string;
+    dry_run: true;
+  }): Promise<AgentMaterializationDryRun> {
+    return this.client.call<AgentMaterializationDryRun>("data.materialize_dry_run", params);
   }
 
   // cache.*
