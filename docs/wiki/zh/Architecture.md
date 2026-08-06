@@ -51,7 +51,7 @@ MOSAIC-Combat-Evolved/
 │       └── tui/                #   Ink 仪表盘
 ├── prompts/mosaic/             # 📝 最小 bundled/fake prompt；生产 prompt 位于私有仓
 ├── tests/                      # ✅ Python 测试 (pytest / unittest)
-├── pyproject.toml · docs/plans/mosaic-tsplan.md · .github/workflows/ci.yml
+├── pyproject.toml · CLAUDE.md · .github/workflows/ci.yml
 ```
 
 ## 确定性 & 防前视 (anti-lookahead)

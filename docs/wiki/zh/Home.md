@@ -35,4 +35,6 @@
 
 ## 权威来源
 
-权威设计/阶段文档是 `docs/plans/` 下的 [`mosaic-tsplan.md`](../../plans/mosaic-tsplan.md)。README([根](../../../README.md)、[`mosaic-ts`](../../../mosaic-ts/README.md))覆盖快速用法。本 wiki 在二者基础上展开,并保持每条断言可溯源至代码。
+仓库内的权威来源是 [`CLAUDE.md`](../../../CLAUDE.md)、README（[根](../../../README.md)、
+[`mosaic-ts`](../../../mosaic-ts/README.md)）和可执行合同。工作计划只保留在本地，
+不进入版本控制。

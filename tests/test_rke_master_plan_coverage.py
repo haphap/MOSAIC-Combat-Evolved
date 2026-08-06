@@ -430,7 +430,7 @@ def test_master_plan_coverage_rejects_missing_completion_acceptance_metadata(
     assert not report.coverage_complete
     assert phase_3.status == "missing"
     assert (
-        "completion audit master_plan_path must be docs/plans/master_plan_v1_1.md"
+        "completion audit master_plan_path must be mosaic/rke/completion_acceptance.py"
         in phase_3.blocker
     )
 
@@ -458,7 +458,7 @@ def test_master_plan_coverage_rejects_drifted_completion_acceptance_requirements
     assert not report.final_acceptance_ready
     assert report.final_acceptance_missing_count == 12
     assert final_c01.status == "missing"
-    assert "acceptance_requirements must match master plan §22" in final_c01.blocker
+    assert "acceptance_requirements must match the C01-C12 acceptance contract" in final_c01.blocker
 
 
 def test_master_plan_coverage_writer_and_cli(tmp_path: Path, capsys):

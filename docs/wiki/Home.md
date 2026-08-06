@@ -34,4 +34,7 @@
 
 ## Source of truth
 
-The canonical design/phase document is [`mosaic-tsplan.md`](../plans/mosaic-tsplan.md) under `docs/plans/`. The READMEs ([root](../../README.md), [`mosaic-ts`](../../mosaic-ts/README.md)) cover quick usage. This wiki expands on both and keeps every claim tied to code.
+The architecture map in [`CLAUDE.md`](../../CLAUDE.md), the READMEs
+([root](../../README.md), [`mosaic-ts`](../../mosaic-ts/README.md)), and executable
+contracts are the repository sources of truth. Working plans remain local and
+unversioned.

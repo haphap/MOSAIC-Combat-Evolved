@@ -11,20 +11,6 @@ from typing import Any, Mapping, Sequence
 POLICY_DOC_VALIDATION_REPORT_PATH = "registry/docs/rke_policy_doc_validation_report.json"
 
 REQUIRED_POLICY_DOC_MARKERS: Mapping[str, Sequence[str]] = {
-    "docs/plans/master_plan_v1_1.md": (
-        "MOSAIC Prompt Evolution",
-        "最终验收标准",
-        "Compliance / License Gate",
-        "Checker 规则清单",
-    ),
-    "docs/plans/rke_phase_minus_1_plan.md": (
-        "PIT Data Availability",
-        "Claim Extraction Reliability",
-        "mosaic-rke gold-candidate-claims",
-        "mosaic-rke review-batches",
-        "mosaic-rke apply-gold-review",
-        "mosaic-rke apply-license-review",
-    ),
     "docs/claim_extraction_guidelines.md": (
         "Source-Grounded Claim",
         "Hypothesis",

@@ -72,4 +72,5 @@ CI 在 `.github/workflows/ci.yml` 跑同样内容(一个 Python lane + 一个 TS
 
 ## 各部分位置
 
-仓库地图见[架构](Architecture.md)。权威设计 + 阶段日志是 `docs/plans/` 下的 [`mosaic-tsplan.md`](../../plans/mosaic-tsplan.md)。
+仓库地图和稳定合同见[架构](Architecture.md)与
+[`CLAUDE.md`](../../../CLAUDE.md)。工作计划应保留在版本控制之外。

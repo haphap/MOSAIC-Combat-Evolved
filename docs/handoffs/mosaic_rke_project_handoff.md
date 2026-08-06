@@ -5,7 +5,7 @@
 > runtime 或操作状态。当前入口以 [`README.md`](../../README.md) 和
 > [`rke_report_intelligence_operations.md`](../runbooks/rke_report_intelligence_operations.md)
 > 为准；当前 Agent/prompt 私有边界见
-> [`macro-agent-role-contracts-v2-plan.md`](../plans/macro-agent-role-contracts-v2-plan.md)，生产
+> [`macro_agent_role_contracts.md`](../macro_agent_role_contracts.md)，生产
 > prompt/KNOT 资产必须按固定私有 commit/hash fail closed 加载。
 
 更新时间：2026-06-16  
@@ -50,8 +50,7 @@
   - `registry/report_intelligence/outcome_labeling_readiness.json`
   - `registry/report_intelligence/report_outcome_labels.jsonl`（私有/本地可能存在，不应提交）
   - `tests/test_rke_report_intelligence.py`
-  - `docs/plans/rke_stock_report_outcome_and_evolution_plan.md`
-  - `docs/plans/rke_stock_report_outcome_and_evolution_status.md`
+  - `docs/rke_report_intelligence_architecture.md`
 - 核心逻辑：使用 qlib `cn_data` 的股票复权收盘价，按 T+1 入场、5/20/60/120 交易日窗口生成 `stock_price_proxy` 标签，记录股票收益、benchmark 收益、relative alpha、after-cost alpha 和 directional hit。
 - 当前问题：全市场 qlib 数据完整性和 survivorship/delisting 仍需持续审计；停牌、涨跌停、退市和流动性 gap 不能伪造 label。
 - 下一步：继续保持 readiness gap，不要为了覆盖率强行生成标签。
@@ -813,9 +812,9 @@ pnpm build
 - 是否验证：PR review 通过，TS checks 曾全绿。
 - 可能影响：所有 TS CLI 会加载 `.env`。
 
-### 修改 12：个股研报 outcome 和演化计划
+### 修改 12：个股研报 outcome 和演化闭环
 - 修改原因：原来只评价行业研究，个股研报也应使用 qlib `cn_data` 评价。
-- 修改文件：`docs/plans/rke_stock_report_outcome_and_evolution_plan.md`、`docs/plans/rke_stock_report_outcome_and_evolution_status.md`、`mosaic/rke/report_intelligence.py`、tests/schema artifacts。
+- 修改文件：`mosaic/rke/report_intelligence.py`、tests/schema artifacts。
 - 改了什么：stock proxy outcome、paper-trading、confidence monitor、evolution readiness、PIT/survivorship/liquidity readiness gaps。
 - 为什么这么改：让行业和个股研报都能进入同一套非 LLM 评价闭环。
 - 是否验证：public status 显示主体已实现；manual gates 未完成。

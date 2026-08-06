@@ -1,7 +1,6 @@
 """P0 implementation for the MOSAIC Research Knowledge Engine.
 
-This module implements the P0 gates from
-``MOSAIC_RKE_PROMPT_EVOLUTION_MASTER_PLAN_V1_1.md``:
+This module implements the stable RKE P0 governance gates:
 
 * data availability / PIT matrix;
 * source-grounded claim extraction and gold-set gates;

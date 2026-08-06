@@ -1,4 +1,4 @@
-"""Dynamic completion audit for the RKE master plan."""
+"""Dynamic completion audit for the executable RKE acceptance contract."""
 
 from __future__ import annotations
 
