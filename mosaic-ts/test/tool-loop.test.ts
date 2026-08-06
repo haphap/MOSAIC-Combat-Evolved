@@ -10,7 +10,11 @@ import { tool } from "@langchain/core/tools";
 import { Command } from "commander";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { registerToolLoop, runToolLoop } from "../src/cli/commands/tool-loop.js";
+import {
+  parseToolLoopMaxTokens,
+  registerToolLoop,
+  runToolLoop,
+} from "../src/cli/commands/tool-loop.js";
 
 interface FakeLlm {
   calls: number;
@@ -61,7 +65,16 @@ describe("runToolLoop", () => {
     const optionNames = command.options.map((option) => option.long);
     expect(optionNames).not.toContain("--tool");
     expect(optionNames).toContain("--as-of-date");
+    expect(optionNames).toContain("--base-url");
+    expect(optionNames).toContain("--max-tokens");
     expect(command.description()).toContain("frozen China Macro snapshot");
+  });
+
+  it("parses only positive integer completion limits", () => {
+    expect(parseToolLoopMaxTokens(undefined)).toBeUndefined();
+    expect(parseToolLoopMaxTokens("65536")).toBe(65_536);
+    expect(() => parseToolLoopMaxTokens("0")).toThrow("--max-tokens must be a positive integer");
+    expect(() => parseToolLoopMaxTokens("12x")).toThrow("--max-tokens must be a positive integer");
   });
 
   it("returns the AI message immediately when no tool_calls are emitted", async () => {

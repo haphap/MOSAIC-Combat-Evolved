@@ -30,6 +30,8 @@ const DEFAULT_QUESTION =
 const MAX_LOOPS = 6;
 
 interface LoopOptions {
+  baseUrl?: string;
+  maxTokens?: string;
   model?: string;
   provider?: string;
   question?: string;
@@ -40,6 +42,8 @@ export function registerToolLoop(program: Command): void {
   program
     .command("tool-loop")
     .description("Capability-bound demo for the frozen China Macro snapshot.")
+    .option("--base-url <url>", "Override OpenAI-compatible API base or chat-completions URL")
+    .option("--max-tokens <count>", "Override the per-request completion token limit")
     .option("--model <name>", "Override LLM model from bridge config")
     .option("--provider <name>", "Override LLM provider from bridge config")
     .option("--question <text>", "Override the user question")
@@ -51,8 +55,11 @@ export function registerToolLoop(program: Command): void {
       try {
         await client.start();
         const config = await api.configGet();
+        const maxTokens = parseToolLoopMaxTokens(opts.maxTokens);
         const llmHandle = createLlmFromConfig(config, {
           tier: "quick",
+          ...(opts.baseUrl ? { baseUrl: opts.baseUrl } : {}),
+          ...(maxTokens ? { maxTokens } : {}),
           ...(opts.model ? { model: opts.model } : {}),
           ...(opts.provider ? { provider: opts.provider } : {}),
         });
@@ -128,6 +135,18 @@ export function registerToolLoop(program: Command): void {
         await client.close();
       }
     });
+}
+
+export function parseToolLoopMaxTokens(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (!/^\d+$/.test(value)) {
+    throw new Error("--max-tokens must be a positive integer");
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error("--max-tokens must be a positive integer");
+  }
+  return parsed;
 }
 
 interface BoundLlm {
