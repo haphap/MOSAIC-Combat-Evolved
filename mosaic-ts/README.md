@@ -48,7 +48,8 @@ pnpm build                   # emit dist/
 
 # Bridge and snapshot diagnostics (run via tsx during development)
 pnpm dev bridge-ping
-pnpm dev tool-loop [--model name] [--question text] [--as-of-date YYYY-MM-DD]
+pnpm dev tool-loop [--provider name] [--model name] [--base-url url] [--max-tokens count] \
+  [--question text] [--as-of-date YYYY-MM-DD]
 
 # Prompt autoresearch: private Candidate generation, public frozen experiment,
 # then a separate Prompt Release canary/rollback decision.
@@ -132,6 +133,19 @@ export TUSHARE_TOKEN=...
 
 pnpm dev tool-loop --as-of-date 2026-07-17 \
   --question "请仅依据冻结快照概括中国宏观环境。"
+```
+
+For a custom OpenAI-compatible endpoint, export the Agent-specific variables before starting the
+TypeScript process. `MOSAIC_LLM_BASE_URL` accepts either the API base or the full
+`.../chat/completions` URL; the client normalizes the latter before invoking the SDK.
+
+```bash
+export MOSAIC_LLM_PROVIDER=api
+export MOSAIC_LLM_BASE_URL=https://gateway.example/v1/chat/completions
+export MOSAIC_LLM_MODEL=remote-model
+export MOSAIC_LLM_API_KEY=replace-me
+export MOSAIC_LLM_MAX_TOKENS=65536
+pnpm dev tool-loop --as-of-date 2026-07-17
 ```
 
 Flow:

@@ -5,7 +5,7 @@
  *   * **Anthropic** native via `ChatAnthropic` — MOSAIC's default per Plan §1
  *     (Claude Sonnet for parity with the ATLAS reference architecture).
  *   * **OpenAI-compatible** providers via `ChatOpenAI`: openai / xai /
- *     openrouter / ollama / vllm / lemonade / minimax / deepseek. This
+ *     openrouter / ollama / vllm / lemonade / minimax / deepseek / api. This
  *     covers DeepSeek (≈1/10 cost, Plan §1) and the local Lemonade Qwen
  *     endpoint (zero-cost dev runs, Plan §13.3).
  *
@@ -20,6 +20,7 @@ import type { MosaicConfig } from "../bridge/types.js";
 
 /** Providers wired through the OpenAI-compatible Chat Completions API. */
 const OPENAI_COMPATIBLE = new Set([
+  "api",
   "openai",
   "xai",
   "openrouter",
@@ -31,6 +32,7 @@ const OPENAI_COMPATIBLE = new Set([
 ]);
 
 const NATIVE_PROVIDERS = new Set(["anthropic"]);
+const MOSAIC_USER_AGENT = "mosaic-ts/0.1.0";
 
 /** Default base URLs per provider when the bridge config doesn't specify one.
  *
@@ -45,6 +47,7 @@ const NATIVE_PROVIDERS = new Set(["anthropic"]);
  * Verify the actual URL from the `lemonade-server-dev` startup log.
  */
 const DEFAULT_BASE_URL: Record<string, string | undefined> = {
+  api: undefined,
   openai: undefined, // SDK default
   xai: "https://api.x.ai/v1",
   openrouter: "https://openrouter.ai/api/v1",
@@ -57,6 +60,7 @@ const DEFAULT_BASE_URL: Record<string, string | undefined> = {
 
 /** Env var precedence: provider-specific first, then the generic `OPENAI_API_KEY`. */
 const API_KEY_ENV: Record<string, string[]> = {
+  api: ["MOSAIC_LLM_API_KEY"],
   openai: ["OPENAI_API_KEY"],
   xai: ["XAI_API_KEY", "OPENAI_API_KEY"],
   openrouter: ["OPENROUTER_API_KEY", "OPENAI_API_KEY"],
@@ -174,7 +178,15 @@ function createOpenAiCompatible(
   //   3. config.backend_url from the bridge config
   //   4. DEFAULT_BASE_URL[provider]
   const envBaseUrl = pickProviderEnvBaseUrl(provider);
-  const baseUrl = options.baseUrl ?? envBaseUrl ?? config.backend_url ?? DEFAULT_BASE_URL[provider];
+  const resolvedBaseUrl =
+    options.baseUrl ?? envBaseUrl ?? config.backend_url ?? DEFAULT_BASE_URL[provider];
+  if (provider === "api" && !resolvedBaseUrl) {
+    throw new Error("Missing base URL for provider 'api'. Set MOSAIC_LLM_BASE_URL.");
+  }
+  const baseUrl =
+    provider === "api" && resolvedBaseUrl
+      ? normalizeOpenAiCompatibleBaseUrl(resolvedBaseUrl)
+      : resolvedBaseUrl;
 
   const apiKey = pickApiKey(provider);
   const requiresKey = (API_KEY_ENV[provider] ?? []).length > 0 && provider !== "vllm";
@@ -193,7 +205,14 @@ function createOpenAiCompatible(
     // Some OpenAI-compatible servers (Lemonade, Ollama, vLLM) reject empty
     // Authorization headers, so pass a placeholder when no key is configured.
     ...(apiKey ? { apiKey } : { apiKey: "not-needed" }),
-    ...(baseUrl ? { configuration: { baseURL: baseUrl } } : {}),
+    ...(baseUrl
+      ? {
+          configuration: {
+            baseURL: baseUrl,
+            ...(provider === "api" ? { fetch: mosaicApiFetch } : {}),
+          },
+        }
+      : {}),
   });
 
   return { llm, baseUrl };
@@ -209,18 +228,70 @@ function pickProviderEnvBaseUrl(provider: string): string | undefined {
 }
 
 const BASE_URL_ENV: Record<string, string[]> = {
+  api: ["MOSAIC_LLM_BASE_URL"],
   lemonade: ["LEMONADE_BASE_URL"],
   ollama: ["OLLAMA_BASE_URL"],
   vllm: ["VLLM_BASE_URL", "MOSAIC_RKE_VLLM_BASE_URL"],
 };
 
+function normalizeOpenAiCompatibleBaseUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new Error("Invalid base URL for provider 'api'");
+  }
+  if (
+    !new Set(["http:", "https:"]).has(url.protocol) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error("Invalid base URL for provider 'api'");
+  }
+  url.pathname = url.pathname
+    .replace(/\/+$/, "")
+    .replace(/\/chat\/completions$/, "")
+    .replace(/\/+$/, "");
+  return url.toString().replace(/\/$/, "");
+}
+
+function mosaicApiFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  headers.set("User-Agent", MOSAIC_USER_AGENT);
+  return fetch(input, { ...init, headers });
+}
+
+function envValue(name: string): string | undefined {
+  const value = process.env[name];
+  return value && value.trim() !== "" ? value.trim() : undefined;
+}
+
+function resolveMaxTokens(value: number | undefined): number | undefined {
+  const raw = value ?? envValue("MOSAIC_LLM_MAX_TOKENS");
+  if (raw === undefined) return undefined;
+  const parsed = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error("MOSAIC_LLM_MAX_TOKENS must be a positive integer");
+  }
+  return parsed;
+}
+
 export function createLlmFromConfig(config: MosaicConfig, options: LlmOptions = {}): LlmHandle {
-  const provider = (options.provider ?? String(config.llm_provider ?? "anthropic")).toLowerCase();
-  const model = options.model ?? pickModel(config, options.tier ?? "deep");
+  const provider = (
+    options.provider ??
+    envValue("MOSAIC_LLM_PROVIDER") ??
+    String(config.llm_provider ?? "anthropic")
+  ).toLowerCase();
+  const model =
+    options.model ?? envValue("MOSAIC_LLM_MODEL") ?? pickModel(config, options.tier ?? "deep");
+  const maxTokens = resolveMaxTokens(options.maxTokens);
+  const resolvedOptions = maxTokens === undefined ? options : { ...options, maxTokens };
 
   if (NATIVE_PROVIDERS.has(provider)) {
     if (provider === "anthropic") {
-      const { llm, baseUrl } = createAnthropic(config, options, model);
+      const { llm, baseUrl } = createAnthropic(config, resolvedOptions, model);
       return { llm, provider, model, baseUrl };
     }
     // Unreachable; kept for future native providers.
@@ -228,7 +299,7 @@ export function createLlmFromConfig(config: MosaicConfig, options: LlmOptions = 
   }
 
   if (OPENAI_COMPATIBLE.has(provider)) {
-    const { llm, baseUrl } = createOpenAiCompatible(config, options, provider, model);
+    const { llm, baseUrl } = createOpenAiCompatible(config, resolvedOptions, provider, model);
     return { llm, provider, model, baseUrl };
   }
 
