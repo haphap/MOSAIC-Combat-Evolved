@@ -1,6 +1,7 @@
 # RKE Report Intelligence 功能架构
 
-本文档说明 RKE Report Intelligence rollout 的功能边界、数据流、artifact 结构、运行门禁和后续演化方式。它对应 `MOSAIC_RKE_REPORT_INTELLIGENCE_LOOP_PATCH_V1_5_MERGED.md` 的落地实现，并作为 `docs/plans/master_plan_v1_1.md` 中 RKE 研报智能环的实施说明。
+本文档是 RKE Report Intelligence 功能边界、数据流、artifact 结构和运行门禁的
+稳定架构说明；实现状态以代码、schema 和 registry 审计结果为准。
 
 ## 1. 目标
 

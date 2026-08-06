@@ -276,7 +276,7 @@ def _completion_by_id(root_path: Path) -> tuple[dict[str, Mapping[str, Any]], st
     if acceptance_requirements != expected_acceptance_requirements:
         return (
             {},
-            "completion audit acceptance_requirements must match master plan §22 C01-C12",
+            "completion audit acceptance_requirements must match the C01-C12 acceptance contract",
         )
     criteria = payload.get("criteria") or ()
     if not isinstance(criteria, list | tuple):
@@ -1328,7 +1328,7 @@ def build_master_plan_coverage_report(
     final_acceptance_ready = final_missing_count == 0 and final_blocked_count == 0
     return MasterPlanCoverageReport(
         report_id="RKE-MASTER-PLAN-COVERAGE-REPORT-20260606",
-        master_plan_path="docs/plans/master_plan_v1_1.md",
+        master_plan_path=MASTER_PLAN_PATH,
         mvp_deliverables_section=MVP_DELIVERABLES_SECTION,
         mvp_exit_criteria_section=MVP_EXIT_CRITERIA_SECTION,
         final_acceptance_section=MASTER_PLAN_ACCEPTANCE_SECTION,

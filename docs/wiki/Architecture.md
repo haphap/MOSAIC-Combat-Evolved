@@ -51,7 +51,7 @@ MOSAIC-Combat-Evolved/
 │       └── tui/                #   Ink dashboard
 ├── prompts/mosaic/             # 📝 minimal bundled/fake prompts; production prompts are private
 ├── tests/                      # ✅ Python tests (pytest / unittest)
-├── pyproject.toml · docs/plans/mosaic-tsplan.md · .github/workflows/ci.yml
+├── pyproject.toml · CLAUDE.md · .github/workflows/ci.yml
 ```
 
 ## Determinism & anti-lookahead

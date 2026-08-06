@@ -160,12 +160,6 @@ REQUIRED_POLICY_DOCS = {
     "confidence_policy.md",
     "compliance_policy.md",
 }
-REQUIRED_PLAN_DOCS = {
-    "master_plan_v1_1.md",
-    "rke_phase_minus_1_plan.md",
-    "rke_stock_report_outcome_and_evolution_plan.md",
-    "rke_stock_report_outcome_and_evolution_status.md",
-}
 EXPECTED_PHASE_B_PATCH_COVERAGE_FAILURES = {
     "patch_v1_5_coverage_report accepted must be true",
     "patch_v1_5_coverage_report blocker_count must be zero",
@@ -509,12 +503,10 @@ def test_phase1_schema_artifacts_exist():
     assert {path.name for path in schema_dir.iterdir()} >= REQUIRED_SCHEMA_FILES
 
 
-def test_master_plan_policy_docs_exist():
+def test_policy_docs_exist():
     docs_dir = Path("docs")
-    plans_dir = docs_dir / "plans"
 
     assert {path.name for path in docs_dir.iterdir()} >= REQUIRED_POLICY_DOCS
-    assert {path.name for path in plans_dir.iterdir()} >= REQUIRED_PLAN_DOCS
 
 
 def test_stock_report_outcome_status_doc_matches_public_artifacts():
@@ -527,7 +519,7 @@ def test_stock_report_outcome_status_doc_matches_public_artifacts():
         "prompt_mutation_candidates.jsonl",
     )
     status_text = Path(
-        "docs/plans/rke_stock_report_outcome_and_evolution_status.md"
+        ".planning/rke_stock_report_outcome_and_evolution_status.md"
     ).read_text(encoding="utf-8")
     extraction_report = json.loads(
         (local_report_intelligence / "extraction_report.json").read_text(
