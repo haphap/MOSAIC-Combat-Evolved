@@ -6,6 +6,7 @@ import {
   type ActivePromptReleaseManifest,
   ActivePromptReleaseManifestSchema,
 } from "../../agents/prompts/prompt_release_contract.js";
+import { assertCurrentKnotTransitionAction } from "../../autoresearch/capability_preservation_contract.js";
 import { authorizeStoredPromptPromotion } from "../../autoresearch/prompt_promotion_authority.js";
 import { PromptPromotionPolicySchema } from "../../autoresearch/prompt_promotion_policy.js";
 import {
@@ -107,6 +108,7 @@ export function registerPromptRelease(program: Command): void {
         accountMode: string;
         approvalPolicy: string;
       }) => {
+        assertCurrentKnotTransitionAction("STAGE_PROMPT_RELEASE");
         const client = new BridgeClient();
         const api = new BridgeApi(client);
         try {
@@ -311,6 +313,7 @@ export function registerPromptRelease(program: Command): void {
         registryRoot?: string;
       }) => {
         try {
+          assertCurrentKnotTransitionAction("START_PROMPT_CANARY");
           const manifest = await startPromptReleaseCanary({
             registryRoot: registryRoot(opts),
             releaseId: opts.releaseId,
@@ -388,6 +391,7 @@ export function registerPromptRelease(program: Command): void {
         registryRoot?: string;
       }) => {
         try {
+          assertCurrentKnotTransitionAction("ACTIVATE_PROMPT_RELEASE");
           const manifest = await activatePromptRelease({
             registryRoot: registryRoot(opts),
             releaseId: opts.releaseId,

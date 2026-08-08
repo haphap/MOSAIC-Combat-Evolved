@@ -1,3 +1,9 @@
+import {
+  type CapabilityTrack,
+  loadCurrentAcceptedOutputCapabilityTrack,
+  validateAcceptedOutputCapabilityTrack,
+  validateCurrentAcceptedOutputCapabilityTrack,
+} from "../autoresearch/capability_preservation_contract.js";
 import type { ClaimEvidenceGraph } from "./evidence_contract.js";
 import { canonicalJsonHash } from "./helpers/canonical_json.js";
 import type { EvidenceLineageEnvelope } from "./helpers/causal_evidence_resolution.js";
@@ -124,6 +130,7 @@ export interface AcceptedAgentOutputRecordBase {
   component_weight_contract_version: string | null;
   reliability_adapter_contract_version: string | null;
   confidence_semantics_contract_version: string | null;
+  capability_track?: CapabilityTrack;
   as_of: string;
   accepted_at: string;
   evaluation_opportunity_set_id: string | null;
@@ -321,7 +328,7 @@ export function buildAcceptedAgentOutputRecord<K extends AcceptedOutputKind, TPa
   runtimeAudit?: {
     macro_component_composition: MacroComponentCompositionAudit;
   };
-}): AcceptedAgentOutputRecord<K, TPayload> {
+}): AcceptedAgentOutputRecord<K, TPayload> & { capability_track: CapabilityTrack } {
   validateOwner(input.kind, input.agentId);
   validateBuildContext(input.context);
   const evidenceBundleIds = sortedNonEmptyUnique(input.evidenceBundleIds, "evidence bundle");
@@ -397,6 +404,7 @@ export function buildAcceptedAgentOutputRecord<K extends AcceptedOutputKind, TPa
       input.context.confidence_semantics_contract_version,
       "confidence_semantics_contract_version",
     ),
+    capability_track: loadCurrentAcceptedOutputCapabilityTrack(),
     as_of: requiredText(input.context.as_of, "as_of"),
     accepted_at: requiredText(input.context.accepted_at, "accepted_at"),
     evaluation_opportunity_set_id:
@@ -425,7 +433,7 @@ export function buildAcceptedAgentOutputRecord<K extends AcceptedOutputKind, TPa
   return {
     ...withoutHash,
     accepted_output_hash: canonicalHash(withoutHash),
-  } as AcceptedAgentOutputRecord<K, TPayload>;
+  } as AcceptedAgentOutputRecord<K, TPayload> & { capability_track: CapabilityTrack };
 }
 
 export function acceptedOutputRecordRef<K extends AcceptedOutputKind>(
@@ -447,7 +455,22 @@ export class AcceptedAgentOutputStore {
     record: AcceptedAgentOutputRecord<K, TPayload>,
     claimGraph?: ClaimEvidenceGraph,
   ): AcceptedOutputRecordRef<K> {
+    validateCurrentAcceptedAgentOutputRecord(record);
+    return this.#putValidated(record, claimGraph);
+  }
+
+  putReadOnly<K extends AcceptedOutputKind, TPayload>(
+    record: AcceptedAgentOutputRecord<K, TPayload>,
+    claimGraph?: ClaimEvidenceGraph,
+  ): AcceptedOutputRecordRef<K> {
     validateAcceptedAgentOutputRecord(record);
+    return this.#putValidated(record, claimGraph);
+  }
+
+  #putValidated<K extends AcceptedOutputKind, TPayload>(
+    record: AcceptedAgentOutputRecord<K, TPayload>,
+    claimGraph?: ClaimEvidenceGraph,
+  ): AcceptedOutputRecordRef<K> {
     if (claimGraph) validateAcceptedOutputClaimGraph(record, claimGraph);
     const existing = this.#records.get(record.accepted_output_id);
     if (existing && existing.accepted_output_hash !== record.accepted_output_hash) {
@@ -546,8 +569,19 @@ export function validateAcceptedAgentOutputRecord(record: AcceptedAgentOutputRec
   }
   sortedNonEmptyUnique(record.output.evidence_bundle_ids, "evidence bundle");
   sortedNonEmptyUnique(record.output.causal_dedupe_keys, "causal dedupe key");
+  if (record.capability_track !== undefined) {
+    validateAcceptedOutputCapabilityTrack(record.capability_track);
+  }
   validateAdapterLineage(record);
   validateRuntimeAudit(record);
+}
+
+export function validateCurrentAcceptedAgentOutputRecord(record: AcceptedAgentOutputRecord): void {
+  validateAcceptedAgentOutputRecord(record);
+  if (record.capability_track === undefined) {
+    throw new Error(`current capability track required: ${record.accepted_output_id}`);
+  }
+  validateCurrentAcceptedOutputCapabilityTrack(record.capability_track);
 }
 
 function validateAdapterLineage(record: AcceptedAgentOutputRecord): void {

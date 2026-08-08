@@ -16,6 +16,7 @@ import type { Command } from "commander";
 import pc from "picocolors";
 import { z } from "zod";
 import { canonicalJsonHash } from "../../agents/helpers/canonical_json.js";
+import { assertCurrentKnotTransitionAction } from "../../autoresearch/capability_preservation_contract.js";
 import {
   BridgePromptExperimentRepository,
   type PromptExperimentAgentExecutor,
@@ -283,6 +284,7 @@ export function registerAutoresearch(program: Command): void {
         publicationRemote: string;
         mutationAdapter: string;
       }) => {
+        assertCurrentKnotTransitionAction("GENERATE_CANDIDATE");
         const client = new BridgeClient();
         const temporaryRoot = await mkdtemp(resolve(tmpdir(), "mosaic-prompt-training-"));
         try {
@@ -359,6 +361,7 @@ export function registerAutoresearch(program: Command): void {
     .requiredOption("--executor-adapter <path>", "Local module exporting executor.execute")
     .requiredOption("--evaluator-adapter <path>", "Separate module exporting evaluator.evaluate")
     .action(async (opts: { plan: string; executorAdapter: string; evaluatorAdapter: string }) => {
+      assertCurrentKnotTransitionAction("RUN_EXPERIMENT");
       const client = new BridgeClient();
       try {
         const plan = PromptOptimizerShadowPlanSchema.parse(

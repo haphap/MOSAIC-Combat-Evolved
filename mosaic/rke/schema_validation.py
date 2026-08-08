@@ -135,6 +135,36 @@ JSON_SCHEMA_TARGETS = (
         "json",
     ),
     (
+        "schemas/agent_capability_preservation_manifest_v1.schema.json",
+        "registry/prompt_checks/capability_preservation/agent_capability_preservation_manifest_v1.json",
+        "json",
+    ),
+    (
+        "schemas/agent_capability_binding_manifest_v1.schema.json",
+        "registry/prompt_checks/capability_preservation/agent_capability_binding_manifest_v1.json",
+        "json",
+    ),
+    (
+        "schemas/staged_agent_tool_contract_manifest_v2.schema.json",
+        "registry/prompt_checks/capability_preservation/staged_agent_tool_contract_manifest_v2.json",
+        "json",
+    ),
+    (
+        "schemas/tool_environment_manifest_v1.schema.json",
+        "registry/prompt_checks/capability_preservation/tool_environment_manifest_v1.json",
+        "json",
+    ),
+    (
+        "schemas/knot_tool_coverage_manifest_v1.schema.json",
+        "registry/prompt_checks/capability_preservation/knot_tool_coverage_manifest_v1.json",
+        "json",
+    ),
+    (
+        "schemas/accepted_output_capability_track_v1.schema.json",
+        "registry/prompt_checks/capability_preservation/accepted_output_capability_track_v1.json",
+        "json",
+    ),
+    (
         "schemas/macro_prompt_role_contract_manifest_v1.schema.json",
         "registry/prompt_checks/macro_prompt_role_contract_manifest_v1.json",
         "json",

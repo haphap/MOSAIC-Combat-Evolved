@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "agent_capability_binding_manifest_v1"
+    },
+    "source_agent_tool_manifest_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "source_agent_data_route_manifest_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "bindings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "binding_id": {
+            "type": "string",
+            "pattern": "^binding:[0-9a-f]{64}$"
+          },
+          "agent_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "stage": {
+            "type": "string",
+            "minLength": 1
+          },
+          "phase": {
+            "type": "string",
+            "minLength": 1
+          },
+          "semantic_capability_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tool_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "argument_schema_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "argument_domain_selector_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "output_semantics_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "source_route_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "route_contract_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "materializer_contract_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "query_bundle_contract_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "privacy_contract_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "adaptive_query_contract": {
+            "type": "object",
+            "properties": {
+              "max_rounds": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "model_selects_arguments": {
+                "type": "boolean"
+              },
+              "transport_allowed_during_call": {
+                "const": false
+              }
+            },
+            "required": [
+              "max_rounds",
+              "model_selects_arguments",
+              "transport_allowed_during_call"
+            ],
+            "additionalProperties": false
+          },
+          "activation_state": {
+            "enum": [
+              "active",
+              "staged"
+            ]
+          }
+        },
+        "required": [
+          "binding_id",
+          "agent_id",
+          "stage",
+          "phase",
+          "semantic_capability_id",
+          "tool_id",
+          "argument_schema_hash",
+          "argument_domain_selector_hash",
+          "output_semantics_hash",
+          "source_route_ids",
+          "route_contract_hash",
+          "materializer_contract_hash",
+          "query_bundle_contract_version",
+          "privacy_contract_hash",
+          "adaptive_query_contract",
+          "activation_state"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "manifest_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "source_agent_tool_manifest_hash",
+    "source_agent_data_route_manifest_hash",
+    "bindings",
+    "manifest_hash"
+  ],
+  "additionalProperties": false
+}

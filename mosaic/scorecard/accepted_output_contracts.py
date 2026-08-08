@@ -8,6 +8,9 @@ from collections.abc import Mapping
 from typing import Any
 
 from mosaic.scorecard.canonical_json import canonical_hash
+from mosaic.scorecard.capability_preservation import (
+    validate_accepted_output_track_tags,
+)
 
 
 ACCEPTED_OUTPUT_ADAPTER_CONTRACT_VERSION = "accepted_output_adapter_v1"
@@ -87,6 +90,7 @@ _BASE_RECORD_FIELDS = {
     "component_weight_contract_version",
     "reliability_adapter_contract_version",
     "confidence_semantics_contract_version",
+    "capability_track",
     "as_of",
     "accepted_at",
     "evaluation_opportunity_set_id",
@@ -112,7 +116,18 @@ def validate_accepted_output_record_schema(
         expected.add("runtime_opportunity_authority")
     if require_runtime_audit:
         expected.add("runtime_audit")
+    has_capability_track = "capability_track" in record
+    if not has_capability_track:
+        expected.remove("capability_track")
     _exact_object(record, expected, f"{agent_id}:{accepted_kind} accepted output")
+    validate_accepted_output_track_tags(
+        (
+            _object(record.get("capability_track"), "capability_track")
+            if has_capability_track
+            else {}
+        ),
+        legacy_read_only=not has_capability_track,
+    )
     if allow_runtime_authority:
         _validate_runtime_authority(record, agent_id=agent_id)
     envelope = _object(record.get("output"), "accepted output envelope")

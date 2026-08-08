@@ -6,8 +6,10 @@ import {
   acceptedOutputRefKey,
   buildAcceptedAgentOutputRecord,
   validateAcceptedAgentOutputRecord,
+  validateCurrentAcceptedAgentOutputRecord,
 } from "../src/agents/accepted_output.js";
 import type { ClaimEvidenceGraph } from "../src/agents/evidence_contract.js";
+import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
 
 const SOURCE_OUTPUT_HASH = `sha256:${"a".repeat(64)}`;
 
@@ -98,6 +100,8 @@ describe("AcceptedAgentOutputRecord", () => {
     validateAcceptedAgentOutputRecord(record);
     expect(record.accepted_output_id).toMatch(/^accepted-output:/);
     expect(record.accepted_output_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(record.capability_track.schema_version).toBe("accepted_output_capability_track_v1");
+    expect(record.capability_track.capability_bundle_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(record.output.evidence_bundle_ids).toEqual(["bundle:1", "bundle:2"]);
     expect(acceptedOutputRecordRef(record)).toEqual({
       accepted_output_kind: "MACRO_TRANSMISSION",
@@ -181,6 +185,14 @@ describe("AcceptedAgentOutputRecord", () => {
         accepted_output_hash: `sha256:${"0".repeat(64)}`,
       }),
     ).toThrow(/hash mismatch/);
+    const forgedTrack = structuredClone(record);
+    forgedTrack.capability_track.tool_environment_hash = `sha256:${"9".repeat(64)}`;
+    const { capability_bundle_hash: _, ...forgedTrackBody } = forgedTrack.capability_track;
+    forgedTrack.capability_track.capability_bundle_hash = canonicalJsonHash(forgedTrackBody);
+    const { accepted_output_hash: __, ...forgedBody } = forgedTrack;
+    forgedTrack.accepted_output_hash = canonicalJsonHash(forgedBody);
+    expect(() => validateAcceptedAgentOutputRecord(forgedTrack)).not.toThrow();
+    expect(() => validateCurrentAcceptedAgentOutputRecord(forgedTrack)).toThrow(/capability track/);
   });
 
   it("accepts only production scheduled/downstream-only bindings", () => {
@@ -211,5 +223,29 @@ describe("AcceptedAgentOutputRecord", () => {
     expect(() =>
       store.resolve({ ...ref, accepted_output_hash: `sha256:${"2".repeat(64)}` }),
     ).toThrow(/reference mismatch/);
+  });
+
+  it("loads legacy and cross-generation records read-only without admitting new writes", () => {
+    const current = macroRecord();
+    const { accepted_output_hash: _, capability_track: __, ...legacyBody } = current;
+    const legacy = {
+      ...legacyBody,
+      accepted_output_hash: canonicalJsonHash(legacyBody),
+    };
+    const legacyStore = new AcceptedAgentOutputStore();
+    const legacyRef = legacyStore.putReadOnly(legacy);
+    expect(legacyStore.resolve(legacyRef)).toEqual(legacy);
+    expect(() => legacyStore.put(legacy)).toThrow(/current capability track required/);
+
+    const priorGeneration = structuredClone(current);
+    priorGeneration.capability_track.knot_coverage_manifest_hash = `sha256:${"d".repeat(64)}`;
+    const { capability_bundle_hash: ___, ...priorTrackBody } = priorGeneration.capability_track;
+    priorGeneration.capability_track.capability_bundle_hash = canonicalJsonHash(priorTrackBody);
+    const { accepted_output_hash: ____, ...priorRecordBody } = priorGeneration;
+    priorGeneration.accepted_output_hash = canonicalJsonHash(priorRecordBody);
+    const priorStore = new AcceptedAgentOutputStore();
+    const priorRef = priorStore.putReadOnly(priorGeneration);
+    expect(priorStore.resolve(priorRef)).toEqual(priorGeneration);
+    expect(() => priorStore.put(priorGeneration)).toThrow(/capability track/);
   });
 });

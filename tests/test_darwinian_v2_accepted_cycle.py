@@ -18,8 +18,20 @@ from mosaic.scorecard.darwinian_v2 import (
     canonical_hash,
     deterministic_id,
 )
+from mosaic.scorecard.capability_preservation import load_capability_contract_bundle
 from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
 from mosaic.scorecard.store import ScorecardStore
+
+
+_ROOT = Path(__file__).parents[1]
+_CAPABILITY_BUNDLE = load_capability_contract_bundle(_ROOT)
+_CAPABILITY_TRACK = _CAPABILITY_BUNDLE["accepted_output_capability_track"]
+_EXECUTION_RELEASE_IDS = {
+    row["execution_behavior_release_id"]
+    for row in _CAPABILITY_BUNDLE["tool_environment_manifest"]["environments"]
+}
+assert len(_EXECUTION_RELEASE_IDS) == 1
+_EXECUTION_RELEASE_ID = next(iter(_EXECUTION_RELEASE_IDS))
 
 
 def _opportunity_member(agent_id: str) -> dict[str, Any]:
@@ -179,7 +191,7 @@ def _state() -> dict:
         "production_variant_roster_id": roster_id,
         "cohort_id": cohort,
         "language": language,
-        "execution_behavior_release_id": "release-1",
+        "execution_behavior_release_id": _EXECUTION_RELEASE_ID,
         "prompt_repo_id": "private-prompts",
         "prompt_repo_revision": "a" * 40,
         "effective_at": "2026-07-17T09:00:00+08:00",
@@ -932,6 +944,7 @@ def _attach_accepted_records(state: dict) -> None:
                 **binding["agent_behavior_bindings"][agent_id],
                 "as_of": plan["as_of"],
                 "accepted_at": binding["effective_at"],
+                "capability_track": copy.deepcopy(_CAPABILITY_TRACK),
                 "evaluation_opportunity_set_id": (
                     opportunity["evaluation_opportunity_set_id"]
                     if opportunity
@@ -1235,6 +1248,68 @@ def test_accepted_cycle_writes_29_outputs_and_28_operational_audits(
         (row[1] == "OUTCOME_SCHEDULED") == (row[2] is not None)
         for row in operational
     )
+
+
+def test_accepted_cycle_keeps_pre_capability_track_record_labelable(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "scorecard.db"
+    store = ScorecardStore(db_path)
+    state = _state()
+    _attach_schedule(store, state)
+    _attach_accepted_records(state)
+    legacy_record = next(
+        record
+        for record in state["accepted_output_records"]
+        if record["agent_id"] == "china"
+    )
+    legacy_record.pop("capability_track")
+    _reseal_record(state, legacy_record)
+    state["macro_input_gate"] = _authoritative_macro_input_gate(
+        state["accepted_output_records"],
+        weight_snapshot=state["darwinian_weight_snapshot"],
+    )[0]
+
+    result = store.append_darwinian_v2_accepted_cycle(state)
+
+    assert result["accepted_output_records"] == 29
+    with sqlite3.connect(db_path) as conn:
+        stored = json.loads(
+            conn.execute(
+                "SELECT record_json FROM accepted_agent_outputs_v2 "
+                "WHERE agent_id = 'china'"
+            ).fetchone()[0]
+        )
+    assert "capability_track" not in stored
+
+
+def test_accepted_cycle_keeps_cross_generation_capability_track_labelable(
+    tmp_path: Path,
+) -> None:
+    store = ScorecardStore(tmp_path / "scorecard.db")
+    state = _state()
+    _attach_schedule(store, state)
+    _attach_accepted_records(state)
+    prior_generation_record = next(
+        record
+        for record in state["accepted_output_records"]
+        if record["agent_id"] == "china"
+    )
+    track = prior_generation_record["capability_track"]
+    track["knot_coverage_manifest_hash"] = "sha256:" + "d" * 64
+    track_body = {
+        key: value for key, value in track.items() if key != "capability_bundle_hash"
+    }
+    track["capability_bundle_hash"] = canonical_hash(track_body)
+    _reseal_record(state, prior_generation_record)
+    state["macro_input_gate"] = _authoritative_macro_input_gate(
+        state["accepted_output_records"],
+        weight_snapshot=state["darwinian_weight_snapshot"],
+    )[0]
+
+    result = store.append_darwinian_v2_accepted_cycle(state)
+
+    assert result["accepted_output_records"] == 29
 
 
 def test_accepted_cycle_excludes_stage_skip_from_outputs_and_samples(
