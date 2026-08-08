@@ -44,50 +44,97 @@ ROLE_SNAPSHOT_NAMES: dict[str, str] = {
 # Pre-registered ALFRED/official mappings. A series missing from this table is
 # rejected; it is never silently replaced with a current FRED observation.
 ALFRED_SERIES_MAP: dict[str, dict[str, str]] = {
-    "us_real_gdp": {"series_id": "GDPC1", "source": "ALFRED"},
-    "us_industrial_production": {"series_id": "INDPRO", "source": "ALFRED"},
-    "us_nonfarm_payrolls": {"series_id": "PAYEMS", "source": "ALFRED"},
-    "us_unemployment_rate": {"series_id": "UNRATE", "source": "ALFRED"},
-    "us_cpi": {"series_id": "CPIAUCSL", "source": "ALFRED"},
-    "us_core_cpi": {"series_id": "CPILFESL", "source": "ALFRED"},
-    "us_pce": {"series_id": "PCEPI", "source": "ALFRED"},
-    "us_core_pce": {"series_id": "PCEPILFE", "source": "ALFRED"},
-    "us_retail_sales": {"series_id": "RSAFS", "source": "ALFRED"},
-    "us_trade_balance": {"series_id": "BOPGSTB", "source": "ALFRED"},
+    "us_real_gdp": {
+        "series_id": "GDPC1",
+        "source": "ALFRED",
+        "unit": "Billions of chained 2017 USD",
+    },
+    "us_industrial_production": {
+        "series_id": "INDPRO",
+        "source": "ALFRED",
+        "unit": "Index 2017=100",
+    },
+    "us_nonfarm_payrolls": {
+        "series_id": "PAYEMS",
+        "source": "ALFRED",
+        "unit": "Thousands of persons",
+    },
+    "us_unemployment_rate": {
+        "series_id": "UNRATE",
+        "source": "ALFRED",
+        "unit": "Percent",
+    },
+    "us_cpi": {
+        "series_id": "CPIAUCSL",
+        "source": "ALFRED",
+        "unit": "Index 2017=100",
+    },
+    "us_core_cpi": {
+        "series_id": "CPILFESL",
+        "source": "ALFRED",
+        "unit": "Index 2017=100",
+    },
+    "us_pce": {
+        "series_id": "PCEPI",
+        "source": "ALFRED",
+        "unit": "Index 2017=100",
+    },
+    "us_core_pce": {
+        "series_id": "PCEPILFE",
+        "source": "ALFRED",
+        "unit": "Index 2017=100",
+    },
+    "us_retail_sales": {
+        "series_id": "RSAFS",
+        "source": "ALFRED",
+        "unit": "Millions of USD",
+    },
+    "us_trade_balance": {
+        "series_id": "BOPGSTB",
+        "source": "ALFRED",
+        "unit": "Millions of USD",
+    },
     "us_real_yield_5y": {
         "series_id": "DFII5",
         "source": "ALFRED",
         "role": "us_financial_conditions",
+        "unit": "Percent",
     },
     "us_real_yield_10y": {
         "series_id": "DFII10",
         "source": "ALFRED",
         "role": "us_financial_conditions",
+        "unit": "Percent",
     },
     "us_real_yield_30y": {
         "series_id": "DFII30",
         "source": "ALFRED",
         "role": "us_financial_conditions",
+        "unit": "Percent",
     },
     "us_baa_treasury_spread": {
         "series_id": "BAA10Y",
         "source": "ALFRED",
         "role": "us_financial_conditions",
+        "unit": "Percent",
     },
     "us_financial_conditions_index": {
         "series_id": "NFCI",
         "source": "ALFRED",
         "role": "us_financial_conditions",
+        "unit": "Index",
     },
     "us_vix": {
         "series_id": "VIXCLS",
         "source": "ALFRED",
         "role": "us_financial_conditions",
+        "unit": "Index",
     },
     "us_broad_dollar": {
         "series_id": "DTWEXBGS",
         "source": "ALFRED",
         "role": "us_financial_conditions",
+        "unit": "Index 2006=100",
     },
 }
 
@@ -219,6 +266,7 @@ ROLE_EXACT_SERIES_IDS: dict[str, frozenset[str]] = {
         {
             "DGS1",
             "DGS2",
+            "DGS3MO",
             "DGS5",
             "DGS10",
             "DGS30",

@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import csv
 import io
+import math
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from mosaic.dataflows import macro_data
+from mosaic.dataflows.agent_materialization import SourceCaptureReceipt
 from mosaic.dataflows.exceptions import DataVendorUnavailable
+from mosaic.scorecard.canonical_json import canonical_hash
 from mosaic.scorecard.store import ScorecardStore
 
 
@@ -102,6 +105,16 @@ MACRO_SERIES_BACKFILL_SPECS: Mapping[str, MacroSeriesBackfillSpec] = {
         instrument="^VIX",
         value_columns=("close", "value"),
     ),
+}
+
+ALFRED_SCORECARD_SERIES_MAP: Mapping[str, str] = {
+    "VIXCLS": "VIX",
+}
+
+_TUSHARE_TREASURY_SCORECARD_FIELDS: Mapping[str, str] = {
+    "US10Y": "y10",
+    "US2Y": "y2",
+    "US3M": "m3",
 }
 
 
@@ -283,7 +296,277 @@ def backfill_macro_series(
     }
 
 
+def project_alfred_capture_to_macro_series(
+    *,
+    group: Mapping[str, Any],
+    source_receipt: SourceCaptureReceipt,
+    db_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Project a receipt-bound ALFRED archive through the existing scorecard store."""
+    receipt = SourceCaptureReceipt.from_dict(source_receipt.as_dict()).as_dict()
+    if receipt["identity"]["route_id"] != "alfred.us_macro":
+        raise ValueError("ALFRED projection requires an alfred.us_macro receipt")
+    if not receipt["pit"]["eligible"]:
+        raise ValueError("ALFRED projection requires a PIT-eligible source receipt")
+    if group.get("schema_version") != "us_macro_capture_group_v1":
+        raise ValueError("ALFRED projection capture schema drift")
+    alfred = group.get("alfred")
+    if not isinstance(alfred, Mapping):
+        raise ValueError("ALFRED projection raw content is missing")
+    if receipt["content"]["raw_content_hash"] != canonical_hash(alfred):
+        raise ValueError("ALFRED projection source receipt raw content mismatch")
+    try:
+        cutoff = datetime.fromisoformat(
+            str(receipt["pit"]["as_of_cutoff"]).replace("Z", "+00:00")
+        )
+        as_of_date = datetime.strptime(str(group["as_of_date"]), "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise ValueError("ALFRED projection has invalid as-of metadata") from exc
+    if cutoff.date() != as_of_date:
+        raise ValueError("ALFRED projection receipt as-of does not match capture")
+
+    by_series: dict[str, Mapping[str, Any]] = {}
+    for item in alfred.get("series", []):
+        if not isinstance(item, Mapping):
+            raise ValueError("ALFRED projection series entry is malformed")
+        series_id = str(item.get("series_id") or "")
+        if series_id in by_series:
+            raise ValueError("ALFRED projection has duplicate provider series")
+        by_series[series_id] = item
+    missing = sorted(set(ALFRED_SCORECARD_SERIES_MAP) - set(by_series))
+    if missing:
+        raise ValueError(f"ALFRED projection is missing required series: {missing}")
+
+    rows: list[dict[str, Any]] = []
+    projected: list[str] = []
+    for provider_series_id, series_id in sorted(ALFRED_SCORECARD_SERIES_MAP.items()):
+        item = by_series[provider_series_id]
+        payload = item.get("payload")
+        if not isinstance(payload, Mapping) or canonical_hash(payload) != item.get(
+            "payload_hash"
+        ):
+            raise ValueError("ALFRED projection provider payload hash mismatch")
+        observations = payload.get("observations")
+        if not isinstance(observations, list):
+            raise ValueError("ALFRED projection provider observations are malformed")
+        series_rows = 0
+        for observation in observations:
+            if not isinstance(observation, Mapping):
+                raise ValueError("ALFRED projection observation is malformed")
+            try:
+                observed = datetime.strptime(
+                    str(observation["date"]), "%Y-%m-%d"
+                ).date()
+            except (KeyError, ValueError) as exc:
+                raise ValueError("ALFRED projection observation date is invalid") from exc
+            raw_value = observation.get("value")
+            if observed > as_of_date or raw_value in {None, "", "."}:
+                continue
+            try:
+                value = float(raw_value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("ALFRED projection observation is not numeric") from exc
+            if not math.isfinite(value):
+                raise ValueError("ALFRED projection observation is not finite")
+            rows.append(
+                {
+                    "series_id": series_id,
+                    "source": "alfred",
+                    "endpoint_name": "fred_series_observations",
+                    "instrument": provider_series_id,
+                    "date": observed.isoformat(),
+                    "value": value,
+                    "as_of_date": as_of_date.isoformat(),
+                    "fetched_at": group["captured_at"],
+                    "metadata": {
+                        "backfill_source": "receipt_bound_alfred_projection",
+                        "capture_key": group["capture_key"],
+                        "provider_series_id": provider_series_id,
+                        "raw_payload_hash": item["payload_hash"],
+                        "source_receipt_hash": receipt["receipt_hash"],
+                        "vintage_date": item["vintage_date"],
+                    },
+                }
+            )
+            series_rows += 1
+        if series_rows == 0:
+            raise ValueError(
+                f"ALFRED projection has no usable observations for {provider_series_id}"
+            )
+        projected.append(series_id)
+    rows.sort(key=lambda row: (row["series_id"], row["date"]))
+    store = ScorecardStore(Path(db_path).expanduser() if db_path else None)
+    inserted = store.append_macro_series(rows)
+    return {
+        "accepted": inserted == len(rows),
+        "db_path": str(store.db_path),
+        "inserted_rows": inserted,
+        "projected_series_ids": sorted(projected),
+        "source_receipt_hash": receipt["receipt_hash"],
+    }
+
+
+def project_tushare_capture_to_macro_series(
+    *,
+    group: Mapping[str, Any],
+    source_receipts: Sequence[SourceCaptureReceipt],
+    db_path: str | Path | None = None,
+) -> dict[str, Any]:
+    """Project sealed Tushare US curve/FX rows through the existing specs/store."""
+    if group.get("schema_version") != "us_macro_capture_group_v1":
+        raise ValueError("Tushare projection capture schema drift")
+    tushare = group.get("tushare")
+    if not isinstance(tushare, Mapping):
+        raise ValueError("Tushare projection raw content is missing")
+    receipts = {
+        receipt.as_dict()["identity"]["route_id"]: receipt.as_dict()
+        for receipt in source_receipts
+        if receipt.as_dict()["identity"]["route_id"]
+        in {"tushare.fx_daily", "tushare.us_tycr"}
+    }
+    if set(receipts) != {"tushare.fx_daily", "tushare.us_tycr"}:
+        raise ValueError("Tushare projection requires both US source receipts")
+    try:
+        as_of_date = datetime.strptime(str(group["as_of_date"]), "%Y-%m-%d").date()
+    except (KeyError, ValueError) as exc:
+        raise ValueError("Tushare projection has invalid as-of metadata") from exc
+
+    for endpoint in ("fx_daily", "us_tycr"):
+        source = tushare.get(endpoint)
+        receipt = receipts[f"tushare.{endpoint}"]
+        if not isinstance(source, Mapping):
+            raise ValueError(f"Tushare projection is missing {endpoint}")
+        if not receipt["pit"]["eligible"]:
+            raise ValueError(f"Tushare projection requires eligible {endpoint} receipt")
+        try:
+            cutoff = datetime.fromisoformat(
+                str(receipt["pit"]["as_of_cutoff"]).replace("Z", "+00:00")
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"Tushare projection {endpoint} receipt cutoff is invalid"
+            ) from exc
+        if cutoff.date() != as_of_date:
+            raise ValueError(f"Tushare projection {endpoint} receipt as-of mismatch")
+        if receipt["time"]["captured_at"] != group.get("captured_at"):
+            raise ValueError(f"Tushare projection {endpoint} capture time mismatch")
+        if receipt["content"]["raw_content_hash"] != source.get("payload_hash"):
+            raise ValueError(f"Tushare projection {endpoint} receipt content mismatch")
+
+    rows: list[dict[str, Any]] = []
+    projected: list[str] = []
+    treasury = tushare["us_tycr"]
+    treasury_receipt = receipts["tushare.us_tycr"]
+    for series_id, field in sorted(_TUSHARE_TREASURY_SCORECARD_FIELDS.items()):
+        spec = MACRO_SERIES_BACKFILL_SPECS[series_id]
+        series_rows = 0
+        for source_row in treasury.get("rows", []):
+            observed_text = _normalise_date(source_row.get("date"))
+            if not observed_text:
+                raise ValueError("Tushare projection us_tycr date is invalid")
+            observed = datetime.strptime(observed_text, "%Y-%m-%d").date()
+            if observed > as_of_date:
+                continue
+            if source_row.get(field) in {None, ""}:
+                continue
+            try:
+                value = float(source_row[field])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"Tushare projection us_tycr.{field} is not numeric"
+                ) from exc
+            if not math.isfinite(value):
+                raise ValueError(f"Tushare projection us_tycr.{field} is not finite")
+            rows.append(
+                {
+                    "series_id": series_id,
+                    "source": spec.source,
+                    "endpoint_name": spec.endpoint_name,
+                    "instrument": spec.instrument,
+                    "date": observed_text,
+                    "value": value,
+                    "as_of_date": as_of_date.isoformat(),
+                    "fetched_at": group["captured_at"],
+                    "metadata": {
+                        "backfill_source": "receipt_bound_tushare_projection",
+                        "capture_key": group["capture_key"],
+                        "raw_payload_hash": treasury["payload_hash"],
+                        "source_receipt_hash": treasury_receipt["receipt_hash"],
+                        "provider_field": field,
+                    },
+                }
+            )
+            series_rows += 1
+        if series_rows == 0:
+            raise ValueError(f"Tushare projection has no usable rows for {series_id}")
+        projected.append(series_id)
+
+    fx = tushare["fx_daily"]
+    fx_receipt = receipts["tushare.fx_daily"]
+    fx_spec = MACRO_SERIES_BACKFILL_SPECS["USDCNY"]
+    fx_rows = 0
+    for source_row in fx.get("rows", []):
+        observed_text = _normalise_date(source_row.get("trade_date"))
+        if not observed_text:
+            raise ValueError("Tushare projection fx_daily date is invalid")
+        observed = datetime.strptime(observed_text, "%Y-%m-%d").date()
+        if observed > as_of_date:
+            continue
+        if source_row.get("bid_close") in {None, ""} or source_row.get(
+            "ask_close"
+        ) in {None, ""}:
+            continue
+        try:
+            bid = float(source_row["bid_close"])
+            ask = float(source_row["ask_close"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "Tushare projection fx_daily midpoint is not numeric"
+            ) from exc
+        if not math.isfinite(bid) or not math.isfinite(ask):
+            raise ValueError("Tushare projection fx_daily midpoint is not finite")
+        rows.append(
+            {
+                "series_id": "USDCNY",
+                "source": fx_spec.source,
+                "endpoint_name": fx_spec.endpoint_name,
+                "instrument": fx_spec.instrument,
+                "date": observed_text,
+                "value": (bid + ask) / 2,
+                "as_of_date": as_of_date.isoformat(),
+                "fetched_at": group["captured_at"],
+                "metadata": {
+                    "backfill_source": "receipt_bound_tushare_projection",
+                    "capture_key": group["capture_key"],
+                    "raw_payload_hash": fx["payload_hash"],
+                    "source_receipt_hash": fx_receipt["receipt_hash"],
+                    "provider_field": "bid_close+ask_close midpoint",
+                },
+            }
+        )
+        fx_rows += 1
+    if fx_rows == 0:
+        raise ValueError("Tushare projection has no usable rows for USDCNY")
+    projected.append("USDCNY")
+
+    rows.sort(key=lambda row: (row["series_id"], row["date"]))
+    store = ScorecardStore(Path(db_path).expanduser() if db_path else None)
+    inserted = store.append_macro_series(rows)
+    return {
+        "accepted": inserted == len(rows),
+        "db_path": str(store.db_path),
+        "inserted_rows": inserted,
+        "projected_series_ids": sorted(projected),
+        "source_receipt_hashes": sorted(
+            receipt["receipt_hash"] for receipt in receipts.values()
+        ),
+    }
+
+
 __all__ = [
+    "ALFRED_SCORECARD_SERIES_MAP",
     "MACRO_SERIES_BACKFILL_SPECS",
     "backfill_macro_series",
+    "project_alfred_capture_to_macro_series",
+    "project_tushare_capture_to_macro_series",
 ]

@@ -263,8 +263,8 @@ def _build_macro_snapshots(root: Path, as_of: date) -> None:
             ("credit_condition_spread", "official.pboc_tsfin_flow_stock"),
         ),
         "us_financial_conditions": (
-            ("fed_balance_sheet", "official.fomc_statement"),
-            ("us_curve_10y", "tushare.us_tycr_nominal_curve"),
+            ("fed_effr", "official.nyfed_effr"),
+            ("DGS10", "tushare.us_tycr_nominal_curve"),
             ("BAA10Y", "ALFRED"),
             ("DTWEXBGS", "ALFRED"),
         ),

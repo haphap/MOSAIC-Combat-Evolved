@@ -81,7 +81,46 @@ def test_us_entity_and_financial_series_are_non_overlapping():
     }
     assert entity.isdisjoint(financial)
     assert {"GDPC1", "INDPRO", "PAYEMS", "UNRATE", "BOPGSTB"} <= entity
-    assert {"DFII5", "DFII10", "BAA10Y", "NFCI", "VIXCLS", "DTWEXBGS"} <= (financial)
+    assert {
+        "tushare.us_tycr_nominal_curve",
+        "DFII5",
+        "DFII10",
+        "BAA10Y",
+        "NFCI",
+        "VIXCLS",
+        "DTWEXBGS",
+        "tushare.fx_daily.USD_CNY",
+    } <= financial
+
+
+def test_us_curve_and_usd_cny_use_tushare_first_with_alfred_only_for_gaps():
+    assert US_FINANCIAL_CONDITIONS_SERIES_MAP["us_curve"] == (
+        "tushare.us_tycr_nominal_curve",
+        "DFII5",
+        "DFII10",
+        "DFII30",
+    )
+    assert US_FINANCIAL_CONDITIONS_SERIES_MAP["usd_rmb"] == (
+        "DTWEXBGS",
+        "tushare.fx_daily.USD_CNY",
+    )
+    financial = {
+        series
+        for rows in US_FINANCIAL_CONDITIONS_SERIES_MAP.values()
+        for series in rows
+    }
+    assert {
+        "tushare.us_tycr_nominal_curve",
+        "tushare.fx_daily.USD_CNY",
+    } <= financial
+    assert not {"DGS2", "DGS3MO", "DGS10", "DGS30", "DEXCHUS"} & financial
+    for source in (
+        "tushare.us_tycr_nominal_curve",
+        "tushare.fx_daily.USD_CNY",
+    ):
+        assert macro_observation_max_age_calendar_days(
+            "us_financial_conditions", source=source, series_id=""
+        ) == 4
 
 
 def test_all_macro_roles_fail_closed_without_operational_pit_proof():

@@ -38,7 +38,7 @@ import re
 import threading
 import time
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -54,8 +54,11 @@ logger = logging.getLogger(__name__)
 FRED_BASE_URL = "https://api.stlouisfed.org/fred"
 FRED_OBSERVATIONS_PATH = "/series/observations"
 FRED_SERIES_INFO_PATH = "/series"
+FRED_VINTAGE_DATES_PATH = "/series/vintagedates"
 
 REQUEST_TIMEOUT = 15  # seconds
+REQUEST_MAX_ATTEMPTS = 3
+REQUEST_BACKOFF_SECONDS = (0.5, 1.5)
 RATE_LIMIT_REQUESTS = 120
 RATE_LIMIT_WINDOW_SECONDS = 60.0
 CACHE_TTL_SECONDS = 24 * 3600  # 24 h — observations rarely revise within a day
@@ -130,6 +133,18 @@ def _cache_path(series_id: str, start_date: str, end_date: str) -> Path:
     return _cache_dir() / f"{safe_id}_{start_date}_{end_date}.json"
 
 
+def _alfred_cache_path(
+    series_id: str,
+    observation_start: str,
+    observation_end: str,
+    vintage_date: str,
+) -> Path:
+    safe_id = series_id.strip().upper().replace("/", "_")
+    return _cache_dir() / (
+        f"ALFRED_{safe_id}_{observation_start}_{observation_end}_V{vintage_date}.json"
+    )
+
+
 def _load_cached(path: Path) -> dict[str, Any] | None:
     try:
         if not path.is_file():
@@ -163,6 +178,85 @@ def _validate_iso_date(value: str | None, label: str) -> str | None:
     return value
 
 
+def _registered_alfred_series() -> frozenset[str]:
+    # Keep one series-identity authority.  The import is lazy so the legacy
+    # vendor wrapper remains lightweight and avoids a module-level cycle.
+    from .macro_snapshots import ALFRED_SERIES_ROLE_MAP  # noqa: PLC0415
+
+    return frozenset(ALFRED_SERIES_ROLE_MAP)
+
+
+def _require_registered_alfred_series(series_id: str) -> str:
+    normalized = str(series_id or "").strip().upper()
+    if normalized not in _registered_alfred_series():
+        raise DataVendorUnavailable(f"unregistered ALFRED series: {normalized!r}")
+    return normalized
+
+
+def _request_json(
+    path: str,
+    params: dict[str, Any],
+    *,
+    series_id: str,
+    permissive_not_found: bool,
+) -> dict[str, Any]:
+    url = FRED_BASE_URL + path
+    for attempt in range(1, REQUEST_MAX_ATTEMPTS + 1):
+        _rate_limiter.acquire()
+        response = None
+        try:
+            response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
+            response.raise_for_status()
+            break
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            if attempt < REQUEST_MAX_ATTEMPTS:
+                time.sleep(REQUEST_BACKOFF_SECONDS[attempt - 1])
+                continue
+            raise DataVendorUnavailable(
+                f"FRED request for series {series_id!r} failed: "
+                f"{_redact_http_error(exc)}"
+            ) from exc
+        except requests.RequestException as exc:
+            status_code = getattr(response, "status_code", None)
+            if permissive_not_found and status_code in {400, 404}:
+                return {
+                    "observations": [],
+                    "_fred_unavailable": _redact_http_error(exc),
+                }
+            raise DataVendorUnavailable(
+                f"FRED request for series {series_id!r} failed: "
+                f"{_redact_http_error(exc)}"
+            ) from exc
+    else:  # pragma: no cover - every loop path returns, breaks, or raises
+        raise DataVendorUnavailable(f"FRED request for series {series_id!r} failed")
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise DataVendorUnavailable(
+            f"FRED returned non-JSON response for series {series_id!r}: {exc}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise DataVendorUnavailable(
+            f"FRED returned a non-object response for series {series_id!r}"
+        )
+
+    if "error_code" in payload or "error_message" in payload:
+        message = payload.get("error_message", "unknown error")
+        code = str(payload.get("error_code") or "")
+        if permissive_not_found and code in {"400", "404"}:
+            return {
+                "observations": [],
+                "_fred_unavailable": _redact_http_error(str(message)),
+            }
+        raise DataVendorUnavailable(
+            f"FRED returned error for series {series_id!r}: "
+            f"{_redact_http_error(str(message))}"
+        )
+
+    return payload
+
+
 def _request_observations(
     series_id: str,
     start_date: str | None,
@@ -179,43 +273,12 @@ def _request_observations(
     if end_date:
         params["observation_end"] = end_date
 
-    _rate_limiter.acquire()
-
-    url = FRED_BASE_URL + FRED_OBSERVATIONS_PATH
-    try:
-        response = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        status_code = getattr(locals().get("response", None), "status_code", None)
-        if status_code in {400, 404}:
-            return {
-                "observations": [],
-                "_fred_unavailable": _redact_http_error(exc),
-            }
-        raise DataVendorUnavailable(
-            f"FRED request for series {series_id!r} failed: {_redact_http_error(exc)}"
-        ) from exc
-
-    try:
-        payload = response.json()
-    except ValueError as exc:
-        raise DataVendorUnavailable(
-            f"FRED returned non-JSON response for series {series_id!r}: {exc}"
-        ) from exc
-
-    if "error_code" in payload or "error_message" in payload:
-        message = payload.get("error_message", "unknown error")
-        code = str(payload.get("error_code") or "")
-        if code in {"400", "404"}:
-            return {
-                "observations": [],
-                "_fred_unavailable": _redact_http_error(str(message)),
-            }
-        raise DataVendorUnavailable(
-            f"FRED returned error for series {series_id!r}: {message}"
-        )
-
-    return payload
+    return _request_json(
+        FRED_OBSERVATIONS_PATH,
+        params,
+        series_id=series_id,
+        permissive_not_found=True,
+    )
 
 
 def _redact_http_error(exc: BaseException) -> str:
@@ -342,6 +405,155 @@ def get_fred_series(
     for date_str, value in rows:
         writer.writerow([date_str, "" if value is None else f"{value}"])
     return buffer.getvalue()
+
+
+def select_alfred_vintage(series_id: str, *, as_of_cutoff: str) -> str:
+    """Select the latest provider vintage known before a full prior day.
+
+    FRED vintage identities are date-only.  A same-day vintage therefore does
+    not prove it was available before the A-share 15:00 decision cutoff.  This
+    strict prepare-side path conservatively caps the query at the preceding
+    calendar date and never falls back to the current FRED view.
+    """
+
+    series_id = _require_registered_alfred_series(series_id)
+    try:
+        cutoff = datetime.fromisoformat(as_of_cutoff.replace("Z", "+00:00"))
+    except (AttributeError, ValueError) as exc:
+        raise DataVendorUnavailable("ALFRED as_of_cutoff must be ISO-8601") from exc
+    if cutoff.tzinfo is None:
+        raise DataVendorUnavailable("ALFRED as_of_cutoff must include timezone")
+    latest_complete_date = (cutoff.date() - timedelta(days=1)).isoformat()
+    payload = _request_json(
+        FRED_VINTAGE_DATES_PATH,
+        {
+            "series_id": series_id,
+            "api_key": _get_api_key(),
+            "file_type": "json",
+            "realtime_start": "1776-07-04",
+            "realtime_end": latest_complete_date,
+            "limit": 1,
+            "offset": 0,
+            "sort_order": "desc",
+        },
+        series_id=series_id,
+        permissive_not_found=False,
+    )
+    raw_dates = payload.get("vintage_dates")
+    if not isinstance(raw_dates, list) or not raw_dates:
+        raise DataVendorUnavailable(
+            f"ALFRED has no eligible vintage for series {series_id!r}"
+        )
+    candidates: list[str] = []
+    for value in raw_dates:
+        validated = _validate_iso_date(str(value), "vintage_date")
+        if validated is not None and validated <= latest_complete_date:
+            candidates.append(validated)
+    if not candidates:
+        raise DataVendorUnavailable(
+            f"ALFRED returned no vintage on or before {latest_complete_date}"
+        )
+    return max(candidates)
+
+
+def _validate_alfred_vintage_payload(
+    payload: dict[str, Any],
+    *,
+    series_id: str,
+    observation_start: str,
+    observation_end: str,
+    vintage_date: str,
+) -> dict[str, Any]:
+    observations = payload.get("observations")
+    if not isinstance(observations, list) or not observations:
+        raise DataVendorUnavailable(
+            f"ALFRED returned no observations for series {series_id!r}"
+        )
+    vintage = datetime.strptime(vintage_date, _DATE_FORMAT).date()
+    start = datetime.strptime(observation_start, _DATE_FORMAT).date()
+    end = datetime.strptime(observation_end, _DATE_FORMAT).date()
+    for row in observations:
+        if not isinstance(row, dict):
+            raise DataVendorUnavailable("ALFRED observation must be an object")
+        try:
+            observed = datetime.strptime(str(row["date"]), _DATE_FORMAT).date()
+            realtime_start = datetime.strptime(
+                str(row["realtime_start"]), _DATE_FORMAT
+            ).date()
+            realtime_end = datetime.strptime(
+                str(row["realtime_end"]), _DATE_FORMAT
+            ).date()
+        except (KeyError, ValueError) as exc:
+            raise DataVendorUnavailable(
+                "ALFRED observation is missing exact date/realtime metadata"
+            ) from exc
+        if not start <= observed <= end:
+            raise DataVendorUnavailable("ALFRED observation is outside the requested range")
+        if not realtime_start <= vintage <= realtime_end:
+            raise DataVendorUnavailable(
+                "ALFRED observation realtime range does not contain the exact vintage"
+            )
+        raw_value = row.get("value")
+        if raw_value not in {".", ""}:
+            try:
+                float(raw_value)
+            except (TypeError, ValueError) as exc:
+                raise DataVendorUnavailable(
+                    "ALFRED observation value is not numeric"
+                ) from exc
+    return payload
+
+
+def get_alfred_vintage(
+    series_id: str,
+    *,
+    observation_start: str,
+    observation_end: str,
+    vintage_date: str,
+) -> dict[str, Any]:
+    """Fetch one allowlisted, exact ALFRED vintage without fallback."""
+
+    series_id = _require_registered_alfred_series(series_id)
+    observation_start = str(
+        _validate_iso_date(observation_start, "observation_start")
+    )
+    observation_end = str(_validate_iso_date(observation_end, "observation_end"))
+    vintage_date = str(_validate_iso_date(vintage_date, "vintage_date"))
+    if observation_start > observation_end:
+        raise DataVendorUnavailable("ALFRED observation_start exceeds observation_end")
+    cache_path = _alfred_cache_path(
+        series_id, observation_start, observation_end, vintage_date
+    )
+    payload = _load_cached(cache_path)
+    if payload is None:
+        payload = _request_json(
+            FRED_OBSERVATIONS_PATH,
+            {
+                "series_id": series_id,
+                "api_key": _get_api_key(),
+                "file_type": "json",
+                "observation_start": observation_start,
+                "observation_end": observation_end,
+                "vintage_dates": vintage_date,
+            },
+            series_id=series_id,
+            permissive_not_found=False,
+        )
+        _validate_alfred_vintage_payload(
+            payload,
+            series_id=series_id,
+            observation_start=observation_start,
+            observation_end=observation_end,
+            vintage_date=vintage_date,
+        )
+        _store_cached(cache_path, payload)
+    return _validate_alfred_vintage_payload(
+        payload,
+        series_id=series_id,
+        observation_start=observation_start,
+        observation_end=observation_end,
+        vintage_date=vintage_date,
+    )
 
 
 def _get_payload_with_cache(

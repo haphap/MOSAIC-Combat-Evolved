@@ -22,18 +22,20 @@
     {"route_id": "tushare.eco_cal.cny", "source_family": "tushare", "contract_version": "tushare_eco_cal_cny_v1", "pit_strategy": "OBSERVED_LIVE", "implementation_stage": "PR2"},
     {"route_id": "tushare.eco_cal.eur", "source_family": "tushare", "contract_version": "tushare_eco_cal_eur_v1", "pit_strategy": "OBSERVED_LIVE", "implementation_stage": "PR2"},
     {"route_id": "tushare.eco_cal.usd", "source_family": "tushare", "contract_version": "tushare_eco_cal_usd_v1", "pit_strategy": "OBSERVED_LIVE", "implementation_stage": "PR2"},
+    {"route_id": "tushare.fx_daily", "source_family": "tushare", "contract_version": "tushare_fx_daily_usd_cnh_v1", "pit_strategy": "OBSERVED_LIVE", "implementation_stage": "PR8"},
     {"route_id": "tushare.institutional_flow", "source_family": "tushare", "contract_version": "tushare_institutional_flow_v1", "pit_strategy": "OBSERVED_LIVE", "implementation_stage": "PR7"},
     {"route_id": "tushare.relationship_graph", "source_family": "tushare", "contract_version": "tushare_relationship_graph_v1", "pit_strategy": "OBSERVED_LIVE", "implementation_stage": "PR4"},
     {"route_id": "tushare.sector_fundamentals", "source_family": "tushare", "contract_version": "tushare_sector_fundamentals_v1", "pit_strategy": "OBSERVED_LIVE", "implementation_stage": "PR4"},
     {"route_id": "tushare.sector_market", "source_family": "tushare", "contract_version": "tushare_sector_market_v1", "pit_strategy": "OBSERVED_LIVE", "implementation_stage": "PR4"},
-    {"route_id": "tushare.shibor_yield_curve", "source_family": "tushare", "contract_version": "tushare_shibor_yield_curve_v1", "pit_strategy": "OBSERVED_LIVE", "implementation_stage": "PR7"}
+    {"route_id": "tushare.shibor_yield_curve", "source_family": "tushare", "contract_version": "tushare_shibor_yield_curve_v1", "pit_strategy": "OBSERVED_LIVE", "implementation_stage": "PR7"},
+    {"route_id": "tushare.us_tycr", "source_family": "tushare", "contract_version": "tushare_us_tycr_nominal_curve_v1", "pit_strategy": "OBSERVED_LIVE", "implementation_stage": "PR8"}
   ],
   "bindings": [
     {"agent_id": "china", "stage": "china", "tool_id": "get_china_macro_snapshot", "required_route_ids": ["official.cn_macro", "tushare.cn_macro", "tushare.eco_cal.cny"]},
     {"agent_id": "us_economy", "stage": "us_economy", "tool_id": "get_us_macro_snapshot", "required_route_ids": ["alfred.us_macro", "official.us_policy", "tushare.eco_cal.usd"]},
     {"agent_id": "eu_economy", "stage": "eu_economy", "tool_id": "get_eu_macro_snapshot", "required_route_ids": ["ecb.euro_macro", "eurostat.euro_macro", "tushare.eco_cal.eur"]},
     {"agent_id": "central_bank", "stage": "central_bank", "tool_id": "get_central_bank_snapshot", "required_route_ids": ["official.cn_macro", "tushare.eco_cal.cny", "tushare.shibor_yield_curve"]},
-    {"agent_id": "us_financial_conditions", "stage": "us_financial_conditions", "tool_id": "get_us_financial_conditions_snapshot", "required_route_ids": ["alfred.us_macro", "market.us_conditions", "official.us_policy", "tushare.eco_cal.cny", "tushare.eco_cal.usd"]},
+    {"agent_id": "us_financial_conditions", "stage": "us_financial_conditions", "tool_id": "get_us_financial_conditions_snapshot", "required_route_ids": ["alfred.us_macro", "market.us_conditions", "official.us_policy", "tushare.eco_cal.cny", "tushare.eco_cal.usd", "tushare.fx_daily", "tushare.us_tycr"]},
     {"agent_id": "euro_area_financial_conditions", "stage": "euro_area_financial_conditions", "tool_id": "get_euro_area_financial_conditions_snapshot", "required_route_ids": ["ecb.euro_macro", "market.euro_fx", "tushare.eco_cal.eur"]},
     {"agent_id": "commodities", "stage": "commodities", "tool_id": "get_commodity_conditions_snapshot", "required_route_ids": ["tushare.commodities", "tushare.eco_cal.cny", "tushare.eco_cal.eur", "tushare.eco_cal.usd"]},
     {"agent_id": "geopolitical", "stage": "geopolitical", "tool_id": "get_geopolitical_events_snapshot", "required_route_ids": ["geopolitical.required_coverage", "tushare.eco_cal.cny", "tushare.eco_cal.eur", "tushare.eco_cal.usd"]},
@@ -70,5 +72,5 @@
     {"agent_id": "cio", "stage": "cio_proposal", "tool_id": "get_cio_decision_snapshot", "required_route_ids": ["runtime.accepted_outputs", "runtime.account_positions_policy"]},
     {"agent_id": "cio", "stage": "cio_final", "tool_id": "get_cio_decision_snapshot", "required_route_ids": ["runtime.accepted_outputs", "runtime.account_positions_policy", "runtime.market_liquidity"]}
   ],
-  "manifest_hash": "sha256:3c68a5a5b67ad2c6d14a623769cde535cbe366827b5f0af41d798e2600c9aeb9"
+  "manifest_hash": "sha256:547a272938a6bd216d1f2f247855948e9c954d1b2bcaa7992e3601a7ee830555"
 }

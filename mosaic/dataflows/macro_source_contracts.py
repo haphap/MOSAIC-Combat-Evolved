@@ -548,7 +548,7 @@ MACRO_OBSERVATION_SOURCE_COMPONENTS: Final[
         source: frozenset({component})
         for component, sources in US_FINANCIAL_CONDITIONS_SERIES_MAP.items()
         for source in sources
-        if source not in {"DFII5", "DFII10", "DFII30", "BAA10Y", "NFCI", "VIXCLS", "DTWEXBGS"}
+        if source.startswith(("official.", "tushare."))
     }
     | {"ALFRED": frozenset(US_FINANCIAL_CONDITIONS_SERIES_MAP)},
     "euro_area_financial_conditions": {

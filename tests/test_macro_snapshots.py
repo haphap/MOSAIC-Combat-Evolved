@@ -32,8 +32,8 @@ ROLE_SERIES = {
         "credit_condition_spread",
     ),
     "us_financial_conditions": (
-        "fed_balance_sheet",
-        "us_curve_2s10s",
+        "fed_effr",
+        "DGS10",
         "BAA10Y",
         "DTWEXBGS",
     ),
@@ -154,8 +154,10 @@ def source_for(role: str, series_id: str) -> str:
             "credit_condition_": "official.pboc_tsfin_flow_stock",
         },
         "us_financial_conditions": {
-            "fed_": "official.fomc_statement",
-            "us_curve_": "tushare.us_tycr_nominal_curve",
+            "fed_effr": "official.nyfed_effr",
+            "fed_sofr": "official.nyfed_sofr",
+            "dgs": "tushare.us_tycr_nominal_curve",
+            "usdcnh": "tushare.fx_daily.USD_CNY",
             "us_credit_": "ALFRED",
             "broad_dollar_": "ALFRED",
         },
@@ -512,9 +514,7 @@ def test_alfred_series_use_exact_role_ownership_without_cross_role_fallback():
     financial = payload(
         role="us_financial_conditions",
         observations=[
-            observation(
-                series_id="fed_balance_sheet", source="official.fomc_statement"
-            ),
+            observation(series_id="fed_effr", source="official.nyfed_effr"),
             observation(series_id="DFII10", source="ALFRED"),
             observation(series_id="NFCI", source="ALFRED"),
             observation(series_id="DTWEXBGS", source="ALFRED"),
@@ -524,12 +524,23 @@ def test_alfred_series_use_exact_role_ownership_without_cross_role_fallback():
         financial, "us_financial_conditions", "2024-06-30"
     )
     assert {row["series_id"] for row in accepted["observations"]} == {
-        "fed_balance_sheet",
+        "fed_effr",
         "DFII10",
         "NFCI",
         "DTWEXBGS",
     }
     assert ALFRED_SERIES_ROLE_MAP["VIXCLS"] == "us_financial_conditions"
+    assert not {
+        "DGS2",
+        "DGS3MO",
+        "DGS10",
+        "DGS30",
+        "DEXCHUS",
+    } & {
+        series_id
+        for series_id, owner in ALFRED_SERIES_ROLE_MAP.items()
+        if owner == "us_financial_conditions"
+    }
 
 
 @pytest.mark.parametrize(

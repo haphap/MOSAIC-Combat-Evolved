@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 from hashlib import sha256
 from pathlib import Path
@@ -11,10 +12,16 @@ from mosaic.dataflows.official_macro_adapters import (
     OfficialApiResponse,
     build_ecb_url,
     build_eurostat_url,
+    build_fomc_feed_url,
+    build_ny_fed_rate_url,
     build_world_bank_url,
+    fetch_fomc_feed,
+    fetch_ny_fed_rate,
     fetch_official_series,
     parse_ecb_csv,
     parse_eurostat_jsonstat,
+    parse_fomc_monetary_rss,
+    parse_ny_fed_reference_rates,
     parse_world_bank_json,
 )
 
@@ -131,3 +138,168 @@ def test_committed_official_preflight_is_metadata_only_and_hash_bound() -> None:
     assert artifact["raw_provider_rows_committed"] is False
     assert artifact["summary"]["production_snapshot_ready"] is False
     assert all("rows" not in check for check in artifact["checks"])
+
+
+def test_us_official_urls_are_closed_and_exact() -> None:
+    assert build_fomc_feed_url() == (
+        "https://www.federalreserve.gov/feeds/press_monetary.xml"
+    )
+    sofr = build_ny_fed_rate_url(
+        "SOFR", start_date="2026-07-01", end_date="2026-07-03"
+    )
+    assert sofr.startswith("https://markets.newyorkfed.org/api/rates/secured/sofr/")
+    assert "startDate=2026-07-01" in sofr
+    assert "endDate=2026-07-03" in sofr
+    assert "type=rate" in sofr
+    effr = build_ny_fed_rate_url(
+        "EFFR", start_date="2026-07-01", end_date="2026-07-03"
+    )
+    assert "/api/rates/unsecured/effr/" in effr
+    with pytest.raises(DataVendorUnavailable, match="unsupported NY Fed rate"):
+        build_ny_fed_rate_url(
+            "OBFR", start_date="2026-07-01", end_date="2026-07-03"
+        )
+
+
+def test_fomc_rss_parser_accepts_only_official_statement_metadata() -> None:
+    payload = b"""<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0"><channel>
+  <item>
+    <title>Federal Reserve issues FOMC statement</title>
+    <link>https://www.federalreserve.gov/newsevents/pressreleases/monetary20260701a.htm</link>
+    <guid>https://www.federalreserve.gov/newsevents/pressreleases/monetary20260701a.htm</guid>
+    <category>Monetary Policy</category>
+    <pubDate>Wed, 01 Jul 2026 18:00:00 GMT</pubDate>
+  </item>
+  <item>
+    <title>Federal Reserve announces unrelated notice</title>
+    <link>https://www.federalreserve.gov/newsevents/pressreleases/other.htm</link>
+    <guid>https://www.federalreserve.gov/newsevents/pressreleases/other.htm</guid>
+    <category>Other</category>
+    <pubDate>Wed, 01 Jul 2026 17:00:00 GMT</pubDate>
+  </item>
+</channel></rss>"""
+    rows = parse_fomc_monetary_rss(payload)
+    assert rows == [
+        {
+            "event_id": (
+                "https://www.federalreserve.gov/newsevents/pressreleases/"
+                "monetary20260701a.htm"
+            ),
+            "title": "Federal Reserve issues FOMC statement",
+            "url": (
+                "https://www.federalreserve.gov/newsevents/pressreleases/"
+                "monetary20260701a.htm"
+            ),
+            "category": "Monetary Policy",
+            "published_at": "2026-07-01T18:00:00+00:00",
+        }
+    ]
+    with pytest.raises(DataVendorUnavailable, match="official Federal Reserve"):
+        parse_fomc_monetary_rss(
+            payload.replace(b"www.federalreserve.gov", b"example.com")
+        )
+
+
+def test_ny_fed_parser_enforces_rate_type_and_date_window() -> None:
+    payload = json.dumps(
+        {
+            "refRates": [
+                {
+                    "effectiveDate": "2026-07-01",
+                    "type": "SOFR",
+                    "percentRate": 4.33,
+                    "revisionIndicator": "",
+                }
+            ]
+        }
+    ).encode()
+    assert parse_ny_fed_reference_rates(
+        payload,
+        expected_rate="SOFR",
+        start_date="2026-07-01",
+        end_date="2026-07-03",
+    ) == [
+        {
+            "effective_date": "2026-07-01",
+            "rate_type": "SOFR",
+            "percent_rate": 4.33,
+            "revision_indicator": "",
+        }
+    ]
+    wrong_type = payload.replace(b'"SOFR"', b'"EFFR"')
+    with pytest.raises(DataVendorUnavailable, match="rate type mismatch"):
+        parse_ny_fed_reference_rates(
+            wrong_type,
+            expected_rate="SOFR",
+            start_date="2026-07-01",
+            end_date="2026-07-03",
+        )
+
+
+def test_us_official_fetches_reuse_live_transport_provenance_and_cutoff() -> None:
+    rss = b"""<rss version="2.0"><channel><item>
+<title>Federal Reserve issues FOMC statement</title>
+<link>https://www.federalreserve.gov/newsevents/pressreleases/monetary20260701a.htm</link>
+<guid>https://www.federalreserve.gov/newsevents/pressreleases/monetary20260701a.htm</guid>
+<category>Monetary Policy</category>
+<pubDate>Wed, 01 Jul 2026 06:00:00 GMT</pubDate>
+</item></channel></rss>"""
+    rates = json.dumps(
+        {
+            "refRates": [
+                {
+                    "effectiveDate": "2026-07-01",
+                    "type": "EFFR",
+                    "percentRate": 4.4,
+                    "revisionIndicator": "",
+                }
+            ]
+        }
+    ).encode()
+
+    def fetch(url: str) -> OfficialApiResponse:
+        return OfficialApiResponse(
+            url=url,
+            content_type="application/xml" if "federalreserve" in url else "application/json",
+            body=rss if "federalreserve" in url else rates,
+            retrieved_at="2026-07-01T07:00:00+00:00",
+        )
+
+    fomc = fetch_fomc_feed(
+        as_of="2026-07-01T15:00:00+08:00", fetch=fetch
+    )
+    effr = fetch_ny_fed_rate(
+        rate_type="EFFR",
+        start_date="2026-07-01",
+        end_date="2026-07-01",
+        as_of="2026-07-01T15:00:00+08:00",
+        fetch=fetch,
+    )
+    assert fomc["provider"] == "FEDERAL_RESERVE"
+    assert fomc["source"] == "official.fomc_statement"
+    assert effr["provider"] == "NY_FED"
+    assert effr["source"] == "official.nyfed_effr"
+    assert fomc["payload_hash"].startswith("sha256:")
+    assert effr["row_count"] == 1
+    assert "raw_payload_b64" not in fomc
+    assert "raw_payload_b64" not in effr
+    private_fomc = fetch_fomc_feed(
+        as_of="2026-07-01T15:00:00+08:00",
+        fetch=fetch,
+        include_raw_payload=True,
+    )
+    private_effr = fetch_ny_fed_rate(
+        rate_type="EFFR",
+        start_date="2026-07-01",
+        end_date="2026-07-01",
+        as_of="2026-07-01T15:00:00+08:00",
+        fetch=fetch,
+        include_raw_payload=True,
+    )
+    assert base64.b64decode(private_fomc["raw_payload_b64"]) == rss
+    assert base64.b64decode(private_effr["raw_payload_b64"]) == rates
+    with pytest.raises(DataVendorUnavailable, match="historical as_of"):
+        fetch_fomc_feed(
+            as_of="2026-07-01T06:59:59+00:00", fetch=fetch
+        )

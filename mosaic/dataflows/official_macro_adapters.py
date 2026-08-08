@@ -8,16 +8,20 @@ ledger before data can enter a role snapshot.
 
 from __future__ import annotations
 
+import base64
 import csv
 import hashlib
 import io
 import itertools
 import json
+import math
 import time
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Callable, Mapping
 
 from .exceptions import DataVendorUnavailable
@@ -30,13 +34,21 @@ from .macro_source_contracts import (
 EUROSTAT_BASE = "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data"
 ECB_BASE = "https://data-api.ecb.europa.eu/service/data"
 WORLD_BANK_BASE = "https://api.worldbank.org/v2"
+FOMC_FEED_URL = "https://www.federalreserve.gov/feeds/press_monetary.xml"
+NY_FED_RATES_BASE = "https://markets.newyorkfed.org/api/rates"
 OFFICIAL_MACRO_ADAPTER_VERSION = "official_macro_adapters_v1"
 _ALLOWED_HOSTS = {
     "ec.europa.eu",
     "data-api.ecb.europa.eu",
     "api.worldbank.org",
+    "markets.newyorkfed.org",
+    "www.federalreserve.gov",
 }
 _MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+_NY_FED_RATE_PATHS = {
+    "EFFR": "unsecured/effr",
+    "SOFR": "secured/sofr",
+}
 
 WORLD_BANK_EU_CONTEXT_SERIES: dict[str, dict[str, str]] = {
     "eu_gdp_growth_context": {
@@ -195,6 +207,37 @@ def build_world_bank_url(series_key: str, *, most_recent: int = 8) -> str:
     )
 
 
+def build_fomc_feed_url() -> str:
+    return FOMC_FEED_URL
+
+
+def build_ny_fed_rate_url(
+    rate_type: str,
+    *,
+    start_date: str,
+    end_date: str,
+) -> str:
+    normalized = str(rate_type or "").strip().upper()
+    path = _NY_FED_RATE_PATHS.get(normalized)
+    if path is None:
+        raise DataVendorUnavailable(f"unsupported NY Fed rate: {normalized!r}")
+    try:
+        start = date.fromisoformat(start_date)
+        end = date.fromisoformat(end_date)
+    except (TypeError, ValueError) as exc:
+        raise DataVendorUnavailable("NY Fed rate dates must be ISO dates") from exc
+    if end < start:
+        raise DataVendorUnavailable("NY Fed rate end_date precedes start_date")
+    query = urllib.parse.urlencode(
+        {
+            "startDate": start.isoformat(),
+            "endDate": end.isoformat(),
+            "type": "rate",
+        }
+    )
+    return f"{NY_FED_RATES_BASE}/{path}/search.json?{query}"
+
+
 def parse_eurostat_jsonstat(payload: bytes) -> list[dict[str, Any]]:
     try:
         document = json.loads(payload)
@@ -289,6 +332,186 @@ def parse_world_bank_json(payload: bytes) -> list[dict[str, Any]]:
     return rows
 
 
+def _official_federal_reserve_url(value: str) -> str:
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme != "https" or parsed.hostname != "www.federalreserve.gov":
+        raise DataVendorUnavailable("FOMC item must use an official Federal Reserve URL")
+    return value
+
+
+def parse_fomc_monetary_rss(payload: bytes) -> list[dict[str, Any]]:
+    try:
+        root = ET.fromstring(payload)
+    except ET.ParseError as exc:
+        raise DataVendorUnavailable("FOMC RSS is not valid XML") from exc
+    rows: list[dict[str, Any]] = []
+    for item in root.findall("./channel/item"):
+        title = str(item.findtext("title") or "").strip()
+        category = str(item.findtext("category") or "").strip()
+        if "fomc statement" not in title.casefold():
+            continue
+        if category.casefold() != "monetary policy":
+            raise DataVendorUnavailable("FOMC statement category mismatch")
+        url = _official_federal_reserve_url(str(item.findtext("link") or "").strip())
+        event_id = _official_federal_reserve_url(
+            str(item.findtext("guid") or "").strip()
+        )
+        published_text = str(item.findtext("pubDate") or "").strip()
+        try:
+            published = parsedate_to_datetime(published_text)
+        except (TypeError, ValueError) as exc:
+            raise DataVendorUnavailable("FOMC RSS pubDate is invalid") from exc
+        if published.tzinfo is None:
+            raise DataVendorUnavailable("FOMC RSS pubDate must include timezone")
+        rows.append(
+            {
+                "event_id": event_id,
+                "title": title,
+                "url": url,
+                "category": category,
+                "published_at": published.astimezone(timezone.utc).isoformat(),
+            }
+        )
+    if not rows:
+        raise DataVendorUnavailable("FOMC RSS has no statement items")
+    rows.sort(key=lambda row: (row["published_at"], row["event_id"]))
+    if len({row["event_id"] for row in rows}) != len(rows):
+        raise DataVendorUnavailable("FOMC RSS contains duplicate statement ids")
+    return rows
+
+
+def parse_ny_fed_reference_rates(
+    payload: bytes,
+    *,
+    expected_rate: str,
+    start_date: str,
+    end_date: str,
+) -> list[dict[str, Any]]:
+    expected = str(expected_rate or "").strip().upper()
+    if expected not in _NY_FED_RATE_PATHS:
+        raise DataVendorUnavailable(f"unsupported NY Fed rate: {expected!r}")
+    try:
+        start = date.fromisoformat(start_date)
+        end = date.fromisoformat(end_date)
+        document = json.loads(payload)
+    except (TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DataVendorUnavailable("NY Fed response/date contract is invalid") from exc
+    rows_value = document.get("refRates") if isinstance(document, Mapping) else None
+    if not isinstance(rows_value, list) or not rows_value:
+        raise DataVendorUnavailable("NY Fed response has no reference-rate observations")
+    rows: list[dict[str, Any]] = []
+    for row in rows_value:
+        if not isinstance(row, Mapping):
+            raise DataVendorUnavailable("NY Fed reference-rate row must be an object")
+        rate_type = str(row.get("type") or "").strip().upper()
+        if rate_type != expected:
+            raise DataVendorUnavailable("NY Fed reference-rate type mismatch")
+        try:
+            effective = date.fromisoformat(str(row.get("effectiveDate") or ""))
+            percent_rate = float(row.get("percentRate"))
+        except (TypeError, ValueError) as exc:
+            raise DataVendorUnavailable("NY Fed reference-rate row is malformed") from exc
+        if not start <= effective <= end:
+            raise DataVendorUnavailable("NY Fed reference-rate date is outside request window")
+        if not math.isfinite(percent_rate):
+            raise DataVendorUnavailable("NY Fed reference rate must be finite")
+        rows.append(
+            {
+                "effective_date": effective.isoformat(),
+                "rate_type": rate_type,
+                "percent_rate": percent_rate,
+                "revision_indicator": str(row.get("revisionIndicator") or "").strip(),
+            }
+        )
+    rows.sort(
+        key=lambda row: (
+            row["effective_date"],
+            row["rate_type"],
+            row["revision_indicator"],
+        )
+    )
+    return rows
+
+
+def fetch_fomc_feed(
+    *,
+    as_of: str,
+    fetch: Fetch = _live_fetch,
+    include_raw_payload: bool = False,
+) -> dict[str, Any]:
+    started = time.monotonic()
+    response = fetch(build_fomc_feed_url())
+    _require_live_as_of(response, as_of)
+    rows = parse_fomc_monetary_rss(response.body)
+    retrieved = datetime.fromisoformat(response.retrieved_at.replace("Z", "+00:00"))
+    if any(
+        datetime.fromisoformat(row["published_at"].replace("Z", "+00:00"))
+        > retrieved
+        for row in rows
+    ):
+        raise DataVendorUnavailable("FOMC statement publication exceeds capture time")
+    result = {
+        "adapter_version": OFFICIAL_MACRO_ADAPTER_VERSION,
+        "provider": "FEDERAL_RESERVE",
+        "series_key": "fomc_statement",
+        "source": "official.fomc_statement",
+        "usage_mode": "PRIMARY",
+        "request_url": response.url,
+        "content_type": response.content_type,
+        "retrieved_at": response.retrieved_at,
+        "payload_hash": _sha256_bytes(response.body),
+        "row_count": len(rows),
+        "elapsed_ms": round((time.monotonic() - started) * 1000, 3),
+        "rows": rows,
+        "pit_status": "CURRENT_RESPONSE_REQUIRES_FORWARD_ARCHIVE",
+    }
+    if include_raw_payload:
+        result["raw_payload_b64"] = base64.b64encode(response.body).decode("ascii")
+    return result
+
+
+def fetch_ny_fed_rate(
+    *,
+    rate_type: str,
+    start_date: str,
+    end_date: str,
+    as_of: str,
+    fetch: Fetch = _live_fetch,
+    include_raw_payload: bool = False,
+) -> dict[str, Any]:
+    normalized = str(rate_type or "").strip().upper()
+    url = build_ny_fed_rate_url(
+        normalized, start_date=start_date, end_date=end_date
+    )
+    started = time.monotonic()
+    response = fetch(url)
+    _require_live_as_of(response, as_of)
+    rows = parse_ny_fed_reference_rates(
+        response.body,
+        expected_rate=normalized,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    result = {
+        "adapter_version": OFFICIAL_MACRO_ADAPTER_VERSION,
+        "provider": "NY_FED",
+        "series_key": normalized.casefold(),
+        "source": f"official.nyfed_{normalized.casefold()}",
+        "usage_mode": "PRIMARY",
+        "request_url": response.url,
+        "content_type": response.content_type,
+        "retrieved_at": response.retrieved_at,
+        "payload_hash": _sha256_bytes(response.body),
+        "row_count": len(rows),
+        "elapsed_ms": round((time.monotonic() - started) * 1000, 3),
+        "rows": rows,
+        "pit_status": "CURRENT_RESPONSE_REQUIRES_OBSERVED_LIVE_ARCHIVE",
+    }
+    if include_raw_payload:
+        result["raw_payload_b64"] = base64.b64encode(response.body).decode("ascii")
+    return result
+
+
 def fetch_official_series(
     *,
     provider: str,
@@ -337,15 +560,23 @@ def fetch_official_series(
 __all__ = [
     "ECB_BASE",
     "EUROSTAT_BASE",
+    "FOMC_FEED_URL",
+    "NY_FED_RATES_BASE",
     "OFFICIAL_MACRO_ADAPTER_VERSION",
     "OfficialApiResponse",
     "WORLD_BANK_BASE",
     "WORLD_BANK_EU_CONTEXT_SERIES",
     "build_ecb_url",
     "build_eurostat_url",
+    "build_fomc_feed_url",
+    "build_ny_fed_rate_url",
     "build_world_bank_url",
+    "fetch_fomc_feed",
+    "fetch_ny_fed_rate",
     "fetch_official_series",
     "parse_ecb_csv",
     "parse_eurostat_jsonstat",
+    "parse_fomc_monetary_rss",
+    "parse_ny_fed_reference_rates",
     "parse_world_bank_json",
 ]
