@@ -33,7 +33,6 @@ from mosaic.dataflows.economic_calendar import (
 )
 from mosaic.dataflows.geopolitical_events import (
     GEOPOLITICAL_INITIAL_SOURCE_MANIFEST,
-    REQUIRED_SOURCE_IDS,
     GeopoliticalEventStore,
     coverage_query_key,
     scope_query_hash,
@@ -404,53 +403,8 @@ def _build_economic_calendar(root: Path, as_of: date) -> None:
 
 
 def _nonproduction_geopolitical_manifest(as_of: date) -> dict[str, Any]:
+    del as_of
     payload = copy.deepcopy(GEOPOLITICAL_INITIAL_SOURCE_MANIFEST)
-    started = as_of - timedelta(days=30)
-    for row in payload["registrations"]:
-        if row["source_id"] not in REQUIRED_SOURCE_IDS:
-            continue
-        row["registration_status"] = "ACTIVE_VERIFIED"
-        row["preflight"] = {
-            **row["preflight"],
-            "status": "READY",
-            "observed_continuous_days": 30,
-            "window_started_at": f"{started.isoformat()}T00:00:00Z",
-            "window_completed_at": f"{as_of.isoformat()}T00:00:00Z",
-            "availability_ratio": 0.999,
-            "p95_capture_lag_minutes": 12.0,
-            "schema_verified": True,
-            "pagination_verified": True,
-            "publication_time_verified": True,
-            "license_verified": True,
-            "evidence_id": f"structured-smoke:geo-preflight:{row['source_id']}",
-        }
-    for route in payload["coverage_routes"]:
-        if route["applicability"] != "APPLICABLE":
-            continue
-        route["route_status"] = "ACTIVE_VERIFIED"
-        route["coverage_route_hash"] = _canonical_hash(
-            {key: value for key, value in route.items() if key != "coverage_route_hash"}
-        )
-    payload["manifest_readiness"] = "PREFLIGHT_REQUIRED"
-    payload["readiness_blockers"] = [
-        f"{source_id}:{reason}"
-        for source_id in sorted(REQUIRED_SOURCE_IDS)
-        for reason in (
-            "source_specific_parser_missing",
-            "continuous_preflight_receipt_verifier_missing",
-        )
-    ]
-    payload["coverage_scope_hash"] = _canonical_hash(
-        {
-            "coverage_scope_version": payload["coverage_scope_version"],
-            "watchlist_actor_ids": payload["watchlist_actor_ids"],
-            "watchlist_region_ids": payload["watchlist_region_ids"],
-            "coverage_routes": payload["coverage_routes"],
-        }
-    )
-    payload["manifest_hash"] = _canonical_hash(
-        {key: value for key, value in payload.items() if key != "manifest_hash"}
-    )
     return validate_geopolitical_manifest(payload)
 
 
@@ -483,6 +437,7 @@ def _build_geopolitical_cache(root: Path, as_of: date) -> Path:
                     "http_status": 200,
                     "row_count": 0,
                     "pagination_complete": True,
+                    "terminal_proof_kind": "PAGINATION_EXHAUSTED",
                     "truncated": False,
                     "schema_hash": adapter["expected_response_schema_hash"],
                     "response_content_hash": _canonical_hash(

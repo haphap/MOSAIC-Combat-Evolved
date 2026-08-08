@@ -10,9 +10,11 @@ from mosaic.dataflows.cross_runtime_json import canonical_hash
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.geopolitical_events import (
     ALL_SOURCE_IDS,
+    BUILTIN_GEOPOLITICAL_PARSER_SOURCE_IDS,
     EVENT_TYPES,
     GEOPOLITICAL_INITIAL_SOURCE_MANIFEST,
     OPTIONAL_SOURCE_IDS,
+    PREFLIGHT_RECEIPT_VERIFIER_SOURCE_IDS,
     REQUIRED_SOURCE_IDS,
     WATCHLIST_ACTORS,
     WATCHLIST_REGIONS,
@@ -31,7 +33,14 @@ def rehash_manifest(payload: dict) -> dict:
             "coverage_scope_version": payload["coverage_scope_version"],
             "watchlist_actor_ids": payload["watchlist_actor_ids"],
             "watchlist_region_ids": payload["watchlist_region_ids"],
-            "coverage_routes": payload["coverage_routes"],
+            "coverage_routes": [
+                {
+                    key: value
+                    for key, value in route.items()
+                    if key != "route_status"
+                }
+                for route in payload["coverage_routes"]
+            ],
         }
     )
     without_hash = {
@@ -42,43 +51,7 @@ def rehash_manifest(payload: dict) -> dict:
 
 
 def preflight_complete_manifest() -> dict:
-    payload = copy.deepcopy(GEOPOLITICAL_INITIAL_SOURCE_MANIFEST)
-    for row in payload["registrations"]:
-        if row["source_id"] in REQUIRED_SOURCE_IDS:
-            row["registration_status"] = "ACTIVE_VERIFIED"
-            row["preflight"] = {
-                **row["preflight"],
-                "status": "READY",
-                "observed_continuous_days": 30,
-                "window_started_at": "2026-06-17T00:00:00Z",
-                "window_completed_at": "2026-07-17T00:00:00Z",
-                "availability_ratio": 0.999,
-                "p95_capture_lag_minutes": 12.0,
-                "schema_verified": True,
-                "pagination_verified": True,
-                "publication_time_verified": True,
-                "license_verified": True,
-                "evidence_id": f"geo-preflight:{row['source_id']}:synthetic-ready",
-            }
-    for route in payload["coverage_routes"]:
-        if route["applicability"] == "APPLICABLE":
-            route["route_status"] = "ACTIVE_VERIFIED"
-            without_hash = {
-                key: value
-                for key, value in route.items()
-                if key != "coverage_route_hash"
-            }
-            route["coverage_route_hash"] = canonical_hash(without_hash)
-    payload["manifest_readiness"] = "PREFLIGHT_REQUIRED"
-    payload["readiness_blockers"] = [
-        f"{source_id}:{reason}"
-        for source_id in sorted(REQUIRED_SOURCE_IDS)
-        for reason in (
-            "source_specific_parser_missing",
-            "continuous_preflight_receipt_verifier_missing",
-        )
-    ]
-    return validate_geopolitical_manifest(rehash_manifest(payload))
+    return copy.deepcopy(GEOPOLITICAL_INITIAL_SOURCE_MANIFEST)
 
 
 def test_initial_manifest_is_exact_and_truthfully_fail_closed():
@@ -101,14 +74,11 @@ def test_initial_manifest_is_exact_and_truthfully_fail_closed():
         row["preflight"]["observed_continuous_days"] == 0
         for row in manifest["registrations"]
     )
+    assert BUILTIN_GEOPOLITICAL_PARSER_SOURCE_IDS == REQUIRED_SOURCE_IDS
+    assert PREFLIGHT_RECEIPT_VERIFIER_SOURCE_IDS == REQUIRED_SOURCE_IDS
     assert set(manifest["readiness_blockers"]) == {
-        f"{source_id}:{reason}"
+        f"{source_id}:30_day_preflight_required"
         for source_id in REQUIRED_SOURCE_IDS
-        for reason in (
-            "30_day_preflight_required",
-            "source_specific_parser_missing",
-            "continuous_preflight_receipt_verifier_missing",
-        )
     }
 
 
@@ -119,6 +89,9 @@ def test_runtime_manifest_override_is_explicit_and_fully_validated(
     path = tmp_path / "private-ready-manifest.json"
     path.write_text(json.dumps(manifest), encoding="utf-8")
     monkeypatch.setenv("MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST", str(path))
+    monkeypatch.setenv(
+        "MOSAIC_GEOPOLITICAL_EVENT_DB", str(tmp_path / "events.sqlite3")
+    )
 
     assert (
         runtime_geopolitical_manifest()["manifest_readiness"]
@@ -166,10 +139,11 @@ def make_poll(route: dict, source_id: str, adapter: dict, ordinal: int) -> dict:
         "http_status": 200,
         "row_count": 0,
         "pagination_complete": True,
+        "terminal_proof_kind": "PAGINATION_EXHAUSTED",
         "truncated": False,
         "schema_hash": adapter["expected_response_schema_hash"],
         "response_content_hash": canonical_hash({"query": query_key, "rows": []}),
-        "ingestion_mode": "PRODUCTION_REGISTERED_PARSER",
+        "ingestion_mode": "NON_PRODUCTION_CALLBACK",
         "parse_result": "SUCCESS",
         "error_class": None,
         "coverage_evidence_id": f"coverage:{query_key}",
@@ -221,7 +195,10 @@ def test_discovery_only_cannot_prove_no_event_but_full_routes_can(tmp_path: Path
             manifest=manifest,
         )
     partial = build_geopolitical_events_snapshot(
-        "2026-07-17", store=store, manifest=manifest
+        "2026-07-17",
+        store=store,
+        manifest=manifest,
+        allow_nonproduction_fixture=True,
     )
     sanction = next(
         row
@@ -241,7 +218,10 @@ def test_discovery_only_cannot_prove_no_event_but_full_routes_can(tmp_path: Path
                 manifest=manifest,
             )
     complete = build_geopolitical_events_snapshot(
-        "2026-07-17", store=store, manifest=manifest
+        "2026-07-17",
+        store=store,
+        manifest=manifest,
+        allow_nonproduction_fixture=True,
     )
     sanction = next(
         row

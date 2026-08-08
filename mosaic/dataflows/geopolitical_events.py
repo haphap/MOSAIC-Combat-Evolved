@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import sqlite3
-from datetime import date, datetime, time, timezone
+from copy import deepcopy
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
@@ -61,13 +63,31 @@ REQUIRED_SOURCE_IDS = frozenset(
 )
 OPTIONAL_SOURCE_IDS = frozenset({"ocha_reliefweb"})
 ALL_SOURCE_IDS = REQUIRED_SOURCE_IDS | OPTIONAL_SOURCE_IDS
-# No source-specific parser or continuous-preflight receipt verifier is
-# implemented in this checkout yet.  These registries are deliberately empty:
-# root reachability and a self-authored manifest cannot promote production.
-# A future source promotion must add executable parser code and receipt
-# verification here in the same change that activates the source.
-BUILTIN_GEOPOLITICAL_PARSER_SOURCE_IDS = frozenset()
-VERIFIED_GEOPOLITICAL_PREFLIGHT_RECEIPT_SOURCE_IDS = frozenset()
+# PR11 implements a source-specific parser and an append-only continuous
+# preflight verifier for every required source.  This set declares executable
+# support, not operational readiness: a source becomes ACTIVE_VERIFIED only
+# when a matching 30-day receipt is present in the private store.
+BUILTIN_GEOPOLITICAL_PARSER_SOURCE_IDS = REQUIRED_SOURCE_IDS
+PREFLIGHT_RECEIPT_VERIFIER_SOURCE_IDS = REQUIRED_SOURCE_IDS
+# Compatibility name retained for callers from the fail-closed v2 scaffold.
+# It now means "a verifier exists", never "a live receipt was observed".
+VERIFIED_GEOPOLITICAL_PREFLIGHT_RECEIPT_SOURCE_IDS = (
+    PREFLIGHT_RECEIPT_VERIFIER_SOURCE_IDS
+)
+CONTINUOUS_PREFLIGHT_SCHEMA_VERSION = (
+    "geopolitical_continuous_preflight_receipt_v1"
+)
+LICENSE_DECISION_SCHEMA_VERSION = "geopolitical_source_license_decision_v1"
+SOURCE_CAPTURE_SCHEMA_VERSION = "geopolitical_source_capture_v1"
+GEOPOLITICAL_TERMINAL_PROOF_KINDS = frozenset(
+    {
+        "PAGINATION_EXHAUSTED",
+        "WINDOW_LOWER_BOUND_REACHED",
+        "QUERY_WINDOW_COMPLETE",
+        "COMPLETE_FEED_RESPONSE",
+        "COMPLETE_SNAPSHOT_RESPONSE",
+    }
+)
 _STRUCTURED_SMOKE_ARTIFACT_ROOTS = (
     "economic_calendar",
     "geopolitical_events",
@@ -96,6 +116,34 @@ def _canonical_hash(value: Any) -> str:
 
 def _without_hash(payload: Mapping[str, Any], field: str) -> dict[str, Any]:
     return {key: value for key, value in payload.items() if key != field}
+
+
+def _route_contract_hash(route: Mapping[str, Any]) -> str:
+    return _canonical_hash(
+        {
+            key: value
+            for key, value in route.items()
+            if key not in {"coverage_route_hash", "route_status"}
+        }
+    )
+
+
+def _coverage_scope_hash(payload: Mapping[str, Any]) -> str:
+    return _canonical_hash(
+        {
+            "coverage_scope_version": payload.get("coverage_scope_version"),
+            "watchlist_actor_ids": payload["watchlist_actor_ids"],
+            "watchlist_region_ids": payload["watchlist_region_ids"],
+            "coverage_routes": [
+                {
+                    key: value
+                    for key, value in route.items()
+                    if key != "route_status"
+                }
+                for route in payload["coverage_routes"]
+            ],
+        }
+    )
 
 
 def _parse_datetime(value: Any, field: str) -> datetime:
@@ -145,12 +193,30 @@ def runtime_geopolitical_manifest() -> dict[str, Any]:
     it receives the same closure and hash validation as the public manifest.
     """
     explicit = os.getenv("MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST")
-    if not explicit:
-        return GEOPOLITICAL_INITIAL_SOURCE_MANIFEST
-    return load_geopolitical_manifest(Path(explicit).expanduser())
+    if explicit:
+        try:
+            base = json.loads(Path(explicit).expanduser().read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise DataVendorUnavailable(
+                "geopolitical runtime manifest is unavailable"
+            ) from exc
+    else:
+        base = GEOPOLITICAL_INITIAL_SOURCE_MANIFEST
+    store = GeopoliticalEventStore(geopolitical_store_path())
+    receipts = store.latest_continuous_preflight_receipts()
+    if explicit:
+        return validate_geopolitical_manifest(
+            base, trusted_preflight_receipts=receipts, preflight_store=store
+        )
+    return promote_geopolitical_manifest(base, receipts=receipts, store=store)
 
 
-def validate_geopolitical_manifest(payload: Any) -> dict[str, Any]:
+def validate_geopolitical_manifest(
+    payload: Any,
+    *,
+    trusted_preflight_receipts: Mapping[str, Mapping[str, Any]] | None = None,
+    preflight_store: GeopoliticalEventStore | None = None,
+) -> dict[str, Any]:
     """Validate source closure, adapter hashes and all actor/region routes."""
     if not isinstance(payload, dict):
         raise DataVendorUnavailable("geopolitical manifest must be an object")
@@ -244,6 +310,25 @@ def validate_geopolitical_manifest(payload: Any) -> dict[str, Any]:
                 raise DataVendorUnavailable(
                     f"{source_id} activated without complete preflight"
                 )
+            receipt = (trusted_preflight_receipts or {}).get(source_id)
+            if receipt is None or preflight_store is None:
+                raise DataVendorUnavailable(
+                    f"{source_id} activated without a trusted preflight receipt"
+                )
+            validated_receipt = validate_continuous_preflight_receipt(
+                receipt,
+                manifest=payload,
+                store=preflight_store,
+                allow_active_manifest=True,
+            )
+            if (
+                validated_receipt["status"] != "READY"
+                or row["preflight"].get("evidence_id")
+                != validated_receipt["receipt_id"]
+            ):
+                raise DataVendorUnavailable(
+                    f"{source_id} preflight receipt binding mismatch"
+                )
         registration_by_source[source_id] = row
     if set(registration_by_source) != ALL_SOURCE_IDS:
         raise DataVendorUnavailable("geopolitical initial source closure mismatch")
@@ -320,9 +405,9 @@ def validate_geopolitical_manifest(payload: Any) -> dict[str, Any]:
         if not isinstance(row, dict):
             raise DataVendorUnavailable("geopolitical routes must be objects")
         route_id = _required_string(row, "coverage_route_id")
-        if route_id in route_ids or row.get("coverage_route_hash") != _canonical_hash(
-            _without_hash(row, "coverage_route_hash")
-        ):
+        if route_id in route_ids or row.get(
+            "coverage_route_hash"
+        ) != _route_contract_hash(row):
             raise DataVendorUnavailable("duplicate route or route hash mismatch")
         route_ids.add(route_id)
         key = (
@@ -433,14 +518,7 @@ def validate_geopolitical_manifest(payload: Any) -> dict[str, Any]:
             "geopolitical actor/region/global route closure mismatch"
         )
 
-    expected_scope_hash = _canonical_hash(
-        {
-            "coverage_scope_version": payload.get("coverage_scope_version"),
-            "watchlist_actor_ids": payload["watchlist_actor_ids"],
-            "watchlist_region_ids": payload["watchlist_region_ids"],
-            "coverage_routes": routes,
-        }
-    )
+    expected_scope_hash = _coverage_scope_hash(payload)
     if payload.get("coverage_scope_hash") != expected_scope_hash:
         raise DataVendorUnavailable("geopolitical coverage scope hash mismatch")
     expected_blockers: list[str] = []
@@ -656,7 +734,7 @@ def coverage_query_key(
 
 
 class GeopoliticalEventStore:
-    """Append-only private ledger for poll evidence and event revisions."""
+    """Append-only private ledger for raw pages, polls and event revisions."""
 
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
@@ -688,6 +766,45 @@ class GeopoliticalEventStore:
                 );
                 CREATE INDEX IF NOT EXISTS geo_event_time
                   ON event_revisions(geopolitical_event_id, retrieved_at);
+                CREATE TABLE IF NOT EXISTS source_capture_observations (
+                    source_capture_id TEXT PRIMARY KEY,
+                    source_id TEXT NOT NULL,
+                    poll_completed_at TEXT NOT NULL,
+                    payload_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS geo_source_capture_time
+                  ON source_capture_observations(source_id, poll_completed_at);
+                CREATE TABLE IF NOT EXISTS source_page_archive (
+                    page_archive_id TEXT PRIMARY KEY,
+                    source_capture_id TEXT NOT NULL,
+                    source_id TEXT NOT NULL,
+                    page_ordinal INTEGER NOT NULL,
+                    retrieved_at TEXT NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    metadata_json TEXT NOT NULL,
+                    body BLOB NOT NULL,
+                    UNIQUE(source_capture_id, page_ordinal)
+                );
+                CREATE INDEX IF NOT EXISTS geo_page_capture
+                  ON source_page_archive(source_capture_id, page_ordinal);
+                CREATE TABLE IF NOT EXISTS continuous_preflight_receipts (
+                    receipt_id TEXT PRIMARY KEY,
+                    source_id TEXT NOT NULL,
+                    window_completed_at TEXT NOT NULL,
+                    receipt_hash TEXT NOT NULL UNIQUE,
+                    payload_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS geo_preflight_source_time
+                  ON continuous_preflight_receipts(source_id, window_completed_at);
+                CREATE TABLE IF NOT EXISTS source_license_decisions (
+                    decision_id TEXT PRIMARY KEY,
+                    source_id TEXT NOT NULL,
+                    decided_at TEXT NOT NULL,
+                    decision_hash TEXT NOT NULL UNIQUE,
+                    payload_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS geo_license_source_time
+                  ON source_license_decisions(source_id, decided_at);
                 CREATE TRIGGER IF NOT EXISTS geo_polls_no_update
                   BEFORE UPDATE ON source_poll_observations BEGIN
                     SELECT RAISE(ABORT, 'source_poll_observations is append-only');
@@ -703,6 +820,38 @@ class GeopoliticalEventStore:
                 CREATE TRIGGER IF NOT EXISTS geo_events_no_delete
                   BEFORE DELETE ON event_revisions BEGIN
                     SELECT RAISE(ABORT, 'event_revisions is append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS geo_source_captures_no_update
+                  BEFORE UPDATE ON source_capture_observations BEGIN
+                    SELECT RAISE(ABORT, 'source_capture_observations is append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS geo_source_captures_no_delete
+                  BEFORE DELETE ON source_capture_observations BEGIN
+                    SELECT RAISE(ABORT, 'source_capture_observations is append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS geo_source_pages_no_update
+                  BEFORE UPDATE ON source_page_archive BEGIN
+                    SELECT RAISE(ABORT, 'source_page_archive is append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS geo_source_pages_no_delete
+                  BEFORE DELETE ON source_page_archive BEGIN
+                    SELECT RAISE(ABORT, 'source_page_archive is append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS geo_preflight_no_update
+                  BEFORE UPDATE ON continuous_preflight_receipts BEGIN
+                    SELECT RAISE(ABORT, 'continuous_preflight_receipts is append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS geo_preflight_no_delete
+                  BEFORE DELETE ON continuous_preflight_receipts BEGIN
+                    SELECT RAISE(ABORT, 'continuous_preflight_receipts is append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS geo_license_no_update
+                  BEFORE UPDATE ON source_license_decisions BEGIN
+                    SELECT RAISE(ABORT, 'source_license_decisions is append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS geo_license_no_delete
+                  BEFORE DELETE ON source_license_decisions BEGIN
+                    SELECT RAISE(ABORT, 'source_license_decisions is append-only');
                   END;
                 """
             )
@@ -759,6 +908,311 @@ class GeopoliticalEventStore:
                         "conflicting geopolitical event revision"
                     ) from exc
 
+    def append_source_capture_bundle(
+        self,
+        capture: Mapping[str, Any],
+        *,
+        pages: list[Mapping[str, Any]],
+        polls: list[Mapping[str, Any]],
+        event_revisions: list[Mapping[str, Any]],
+        manifest: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Atomically append one source fetch and every deterministic projection."""
+        resolved = manifest or GEOPOLITICAL_INITIAL_SOURCE_MANIFEST
+        capture_row = validate_source_capture_observation(capture, manifest=resolved)
+        page_rows = [
+            validate_source_page_archive(row, capture=capture_row)
+            for row in pages
+        ]
+        poll_rows = [
+            validate_poll_observation(row, manifest=resolved) for row in polls
+        ]
+        revision_rows = [
+            validate_event_revision(row, manifest=resolved)
+            for row in event_revisions
+        ]
+        if [row["page_archive_id"] for row in page_rows] != capture_row[
+            "page_archive_ids"
+        ]:
+            raise DataVendorUnavailable(
+                "geopolitical source capture page archive closure mismatch"
+            )
+        if any(row["source_id"] != capture_row["source_id"] for row in poll_rows):
+            raise DataVendorUnavailable(
+                "geopolitical source capture poll source mismatch"
+            )
+        if len(poll_rows) != capture_row["route_poll_count"]:
+            raise DataVendorUnavailable(
+                "geopolitical source capture route poll closure mismatch"
+            )
+
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                encoded_capture = _canonical_json(capture_row)
+                try:
+                    conn.execute(
+                        "INSERT INTO source_capture_observations VALUES (?, ?, ?, ?)",
+                        (
+                            capture_row["source_capture_id"],
+                            capture_row["source_id"],
+                            capture_row["poll_completed_at"],
+                            encoded_capture,
+                        ),
+                    )
+                except sqlite3.IntegrityError as exc:
+                    existing = conn.execute(
+                        "SELECT payload_json FROM source_capture_observations "
+                        "WHERE source_capture_id = ?",
+                        (capture_row["source_capture_id"],),
+                    ).fetchone()
+                    if existing is None or existing["payload_json"] != encoded_capture:
+                        raise DataVendorUnavailable(
+                            "conflicting geopolitical source capture"
+                        ) from exc
+
+                for page in page_rows:
+                    body = page.pop("body")
+                    metadata_json = _canonical_json(page)
+                    try:
+                        conn.execute(
+                            "INSERT INTO source_page_archive VALUES "
+                            "(?, ?, ?, ?, ?, ?, ?, ?)",
+                            (
+                                page["page_archive_id"],
+                                page["source_capture_id"],
+                                page["source_id"],
+                                page["page_ordinal"],
+                                page["retrieved_at"],
+                                page["content_hash"],
+                                metadata_json,
+                                body,
+                            ),
+                        )
+                    except sqlite3.IntegrityError as exc:
+                        existing = conn.execute(
+                            "SELECT metadata_json, body FROM source_page_archive "
+                            "WHERE page_archive_id = ?",
+                            (page["page_archive_id"],),
+                        ).fetchone()
+                        if (
+                            existing is None
+                            or existing["metadata_json"] != metadata_json
+                            or bytes(existing["body"]) != body
+                        ):
+                            raise DataVendorUnavailable(
+                                "conflicting geopolitical raw page archive"
+                            ) from exc
+
+                for row in poll_rows:
+                    encoded = _canonical_json(row)
+                    try:
+                        conn.execute(
+                            "INSERT INTO source_poll_observations VALUES (?, ?, ?, ?)",
+                            (
+                                row["observation_id"],
+                                row["coverage_query_key"],
+                                row["poll_completed_at"],
+                                encoded,
+                            ),
+                        )
+                    except sqlite3.IntegrityError as exc:
+                        existing = conn.execute(
+                            "SELECT payload_json FROM source_poll_observations "
+                            "WHERE observation_id = ?",
+                            (row["observation_id"],),
+                        ).fetchone()
+                        if existing is None or existing["payload_json"] != encoded:
+                            raise DataVendorUnavailable(
+                                "conflicting geopolitical poll observation"
+                            ) from exc
+
+                for row in revision_rows:
+                    encoded = _canonical_json(row)
+                    try:
+                        conn.execute(
+                            "INSERT INTO event_revisions VALUES (?, ?, ?, ?)",
+                            (
+                                row["event_revision_id"],
+                                row["geopolitical_event_id"],
+                                row["retrieved_at"],
+                                encoded,
+                            ),
+                        )
+                    except sqlite3.IntegrityError as exc:
+                        existing = conn.execute(
+                            "SELECT payload_json FROM event_revisions "
+                            "WHERE event_revision_id = ?",
+                            (row["event_revision_id"],),
+                        ).fetchone()
+                        if existing is None or existing["payload_json"] != encoded:
+                            raise DataVendorUnavailable(
+                                "conflicting geopolitical event revision"
+                            ) from exc
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+            conn.execute("COMMIT")
+
+    def source_captures_as_of(
+        self, cutoff: datetime, *, source_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        query = (
+            "SELECT payload_json FROM source_capture_observations "
+            "WHERE poll_completed_at <= ?"
+        )
+        parameters: tuple[Any, ...] = (cutoff.isoformat(),)
+        if source_id is not None:
+            query += " AND source_id = ?"
+            parameters = (*parameters, source_id)
+        query += " ORDER BY poll_completed_at, source_capture_id"
+        with self._connect() as conn:
+            rows = conn.execute(query, parameters).fetchall()
+        return [json.loads(row["payload_json"]) for row in rows]
+
+    def source_capture(self, source_capture_id: str) -> dict[str, Any]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT payload_json FROM source_capture_observations "
+                "WHERE source_capture_id = ?",
+                (source_capture_id,),
+            ).fetchone()
+        if row is None:
+            raise DataVendorUnavailable(
+                "geopolitical source capture archive identity is unavailable"
+            )
+        return json.loads(row["payload_json"])
+
+    def source_pages(self, source_capture_id: str) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT metadata_json, body FROM source_page_archive "
+                "WHERE source_capture_id = ? ORDER BY page_ordinal",
+                (source_capture_id,),
+            ).fetchall()
+        pages: list[dict[str, Any]] = []
+        for row in rows:
+            metadata = json.loads(row["metadata_json"])
+            body = bytes(row["body"])
+            if metadata["content_hash"] != (
+                "sha256:" + hashlib.sha256(body).hexdigest()
+            ):
+                raise DataVendorUnavailable(
+                    "geopolitical raw page archive hash mismatch"
+                )
+            pages.append({**metadata, "body": body})
+        return pages
+
+    def append_continuous_preflight_receipt(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        manifest: Mapping[str, Any] | None = None,
+    ) -> str:
+        resolved = manifest or GEOPOLITICAL_INITIAL_SOURCE_MANIFEST
+        row = validate_continuous_preflight_receipt(
+            payload, manifest=resolved, store=self
+        )
+        encoded = _canonical_json(row)
+        with self._connect() as conn:
+            try:
+                conn.execute(
+                    "INSERT INTO continuous_preflight_receipts VALUES (?, ?, ?, ?, ?)",
+                    (
+                        row["receipt_id"],
+                        row["source_id"],
+                        row["window_completed_at"],
+                        row["receipt_hash"],
+                        encoded,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                existing = conn.execute(
+                    "SELECT payload_json FROM continuous_preflight_receipts "
+                    "WHERE receipt_id = ?",
+                    (row["receipt_id"],),
+                ).fetchone()
+                if existing is None or existing["payload_json"] != encoded:
+                    raise DataVendorUnavailable(
+                        "conflicting geopolitical continuous preflight receipt"
+                    ) from exc
+        return str(row["receipt_hash"])
+
+    def append_source_license_decision(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        manifest: Mapping[str, Any] | None = None,
+    ) -> str:
+        resolved = manifest or GEOPOLITICAL_INITIAL_SOURCE_MANIFEST
+        row = validate_geopolitical_source_license_decision(
+            payload, manifest=resolved
+        )
+        encoded = _canonical_json(row)
+        with self._connect() as conn:
+            try:
+                conn.execute(
+                    "INSERT INTO source_license_decisions VALUES (?, ?, ?, ?, ?)",
+                    (
+                        row["decision_id"],
+                        row["source_id"],
+                        row["decided_at"],
+                        row["decision_hash"],
+                        encoded,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                existing = conn.execute(
+                    "SELECT payload_json FROM source_license_decisions "
+                    "WHERE decision_id = ?",
+                    (row["decision_id"],),
+                ).fetchone()
+                if existing is None or existing["payload_json"] != encoded:
+                    raise DataVendorUnavailable(
+                        "conflicting geopolitical source license decision"
+                    ) from exc
+        return str(row["decision_id"])
+
+    def source_license_decision(
+        self,
+        decision_id: str,
+        *,
+        manifest: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT payload_json FROM source_license_decisions "
+                "WHERE decision_id = ?",
+                (decision_id,),
+            ).fetchone()
+        if row is None:
+            raise DataVendorUnavailable(
+                "geopolitical source license decision is not archived"
+            )
+        return validate_geopolitical_source_license_decision(
+            json.loads(row["payload_json"]),
+            manifest=manifest or GEOPOLITICAL_INITIAL_SOURCE_MANIFEST,
+        )
+
+    def latest_continuous_preflight_receipts(
+        self, cutoff: datetime | None = None
+    ) -> dict[str, dict[str, Any]]:
+        if cutoff is None:
+            cutoff = datetime.now(timezone.utc)
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT payload_json FROM continuous_preflight_receipts "
+                "WHERE window_completed_at <= ? "
+                "ORDER BY window_completed_at, receipt_id",
+                (cutoff.isoformat(),),
+            ).fetchall()
+        latest: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            payload = json.loads(row["payload_json"])
+            if payload["status"] == "READY":
+                latest[payload["source_id"]] = payload
+        return latest
+
     def polls_as_of(self, cutoff: datetime) -> list[dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -785,6 +1239,538 @@ def _manifest_indexes(
     return registrations, adapters, routes
 
 
+def validate_source_page_archive(
+    payload: Mapping[str, Any], *, capture: Mapping[str, Any]
+) -> dict[str, Any]:
+    required = {
+        "page_archive_id",
+        "source_capture_id",
+        "source_id",
+        "page_ordinal",
+        "request_url",
+        "final_url",
+        "content_type",
+        "poll_started_at",
+        "retrieved_at",
+        "content_hash",
+        "body",
+    }
+    if not isinstance(payload, Mapping) or set(payload) != required:
+        raise DataVendorUnavailable(
+            "geopolitical source page archive fields mismatch"
+        )
+    row = dict(payload)
+    body = row["body"]
+    if not isinstance(body, bytes):
+        raise DataVendorUnavailable("geopolitical raw page body must be bytes")
+    if (
+        row["source_capture_id"] != capture["source_capture_id"]
+        or row["source_id"] != capture["source_id"]
+        or row["poll_started_at"] != capture["poll_started_at"]
+        or not isinstance(row["page_ordinal"], int)
+        or row["page_ordinal"] < 0
+    ):
+        raise DataVendorUnavailable(
+            "geopolitical source page archive binding mismatch"
+        )
+    _parse_datetime(row["poll_started_at"], "page poll_started_at")
+    _parse_datetime(row["retrieved_at"], "page retrieved_at")
+    expected_hash = "sha256:" + hashlib.sha256(body).hexdigest()
+    if row["content_hash"] != expected_hash:
+        raise DataVendorUnavailable(
+            "geopolitical source page archive content hash mismatch"
+        )
+    page_core = {
+        key: value
+        for key, value in row.items()
+        if key not in {"page_archive_id", "source_capture_id", "body"}
+    }
+    expected_id = (
+        "geo-page:"
+        + _canonical_hash(page_core).removeprefix("sha256:")
+    )
+    if row["page_archive_id"] != expected_id:
+        raise DataVendorUnavailable(
+            "geopolitical source page archive identity mismatch"
+        )
+    return row
+
+
+def build_geopolitical_source_license_decision(
+    source_id: str,
+    *,
+    decision_status: str,
+    decided_at: str,
+    authority_id: str,
+    manifest: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    resolved = manifest or GEOPOLITICAL_INITIAL_SOURCE_MANIFEST
+    registrations, _, _ = _manifest_indexes(resolved)
+    if source_id not in REQUIRED_SOURCE_IDS or source_id not in registrations:
+        raise DataVendorUnavailable(
+            f"unregistered required geopolitical source: {source_id}"
+        )
+    if decision_status not in {"APPROVED", "BLOCKED"}:
+        raise DataVendorUnavailable(
+            "geopolitical source license decision status is invalid"
+        )
+    decided = _parse_datetime(decided_at, "license decided_at")
+    if (
+        not isinstance(authority_id, str)
+        or not authority_id
+        or len(authority_id) > 128
+        or any(character.isspace() for character in authority_id)
+    ):
+        raise DataVendorUnavailable(
+            "geopolitical source license decision authority is invalid"
+        )
+    core = {
+        "schema_version": LICENSE_DECISION_SCHEMA_VERSION,
+        "source_id": source_id,
+        "decision_status": decision_status,
+        "decided_at": decided.isoformat(),
+        "authority_id": authority_id,
+        "permitted_use": "PUBLIC_METADATA_HASH_AND_DERIVED_EVENT",
+        "raw_source_content_commit_allowed": False,
+    }
+    decision_id = (
+        "geo-license:"
+        + source_id
+        + ":"
+        + _canonical_hash(core).removeprefix("sha256:")
+    )
+    body = {**core, "decision_id": decision_id}
+    return {**body, "decision_hash": _canonical_hash(body)}
+
+
+def validate_geopolitical_source_license_decision(
+    payload: Mapping[str, Any],
+    *,
+    manifest: Mapping[str, Any],
+) -> dict[str, Any]:
+    required = {
+        "schema_version",
+        "decision_id",
+        "decision_hash",
+        "source_id",
+        "decision_status",
+        "decided_at",
+        "authority_id",
+        "permitted_use",
+        "raw_source_content_commit_allowed",
+    }
+    if not isinstance(payload, Mapping) or set(payload) != required:
+        raise DataVendorUnavailable(
+            "geopolitical source license decision fields mismatch"
+        )
+    row = dict(payload)
+    expected = build_geopolitical_source_license_decision(
+        str(row["source_id"]),
+        decision_status=str(row["decision_status"]),
+        decided_at=str(row["decided_at"]),
+        authority_id=str(row["authority_id"]),
+        manifest=manifest,
+    )
+    if row != expected:
+        raise DataVendorUnavailable(
+            "geopolitical source license decision identity/hash mismatch"
+        )
+    return row
+
+
+def validate_source_capture_observation(
+    payload: Mapping[str, Any], *, manifest: Mapping[str, Any]
+) -> dict[str, Any]:
+    fields = (
+        "schema_version",
+        "source_capture_id",
+        "capture_hash",
+        "source_id",
+        "adapter_contract_hash",
+        "poll_started_at",
+        "poll_completed_at",
+        "ingestion_mode",
+        "page_archive_ids",
+        "response_content_hash",
+        "page_count",
+        "publication_count",
+        "route_poll_count",
+        "pagination_complete",
+        "terminal_proof_kind",
+        "truncated",
+        "schema_verified",
+        "publication_time_verified",
+        "parse_result",
+        "error_class",
+    )
+    if not isinstance(payload, Mapping) or set(payload) != set(fields):
+        raise DataVendorUnavailable(
+            "geopolitical source capture fields mismatch"
+        )
+    row = {field: payload[field] for field in fields}
+    if row["schema_version"] != SOURCE_CAPTURE_SCHEMA_VERSION:
+        raise DataVendorUnavailable(
+            "geopolitical source capture schema version mismatch"
+        )
+    _, adapters, _ = _manifest_indexes(manifest)
+    adapter = adapters.get(row["source_id"])
+    if (
+        adapter is None
+        or row["adapter_contract_hash"] != adapter["adapter_contract_hash"]
+    ):
+        raise DataVendorUnavailable(
+            "geopolitical source capture adapter binding mismatch"
+        )
+    started = _parse_datetime(row["poll_started_at"], "poll_started_at")
+    completed = _parse_datetime(row["poll_completed_at"], "poll_completed_at")
+    if completed < started:
+        raise DataVendorUnavailable(
+            "geopolitical source capture completion precedes start"
+        )
+    if row["ingestion_mode"] not in {
+        "TRUSTED_REGISTERED_PARSER",
+        "NON_PRODUCTION_CALLBACK",
+    }:
+        raise DataVendorUnavailable(
+            "geopolitical source capture ingestion mode is invalid"
+        )
+    page_ids = row["page_archive_ids"]
+    if (
+        not isinstance(page_ids, list)
+        or page_ids != list(dict.fromkeys(page_ids))
+        or row["page_count"] != len(page_ids)
+    ):
+        raise DataVendorUnavailable(
+            "geopolitical source capture page inventory mismatch"
+        )
+    for field in ("page_count", "publication_count", "route_poll_count"):
+        if not isinstance(row[field], int) or row[field] < 0:
+            raise DataVendorUnavailable(
+                f"geopolitical source capture {field} is invalid"
+            )
+    for field in (
+        "pagination_complete",
+        "truncated",
+        "schema_verified",
+        "publication_time_verified",
+    ):
+        if not isinstance(row[field], bool):
+            raise DataVendorUnavailable(
+                f"geopolitical source capture {field} is invalid"
+            )
+    terminal_proof_kind = row["terminal_proof_kind"]
+    if terminal_proof_kind is not None and (
+        not isinstance(terminal_proof_kind, str)
+        or terminal_proof_kind not in GEOPOLITICAL_TERMINAL_PROOF_KINDS
+    ):
+        raise DataVendorUnavailable(
+            "geopolitical source capture terminal proof kind is invalid"
+        )
+    if row["pagination_complete"] != (terminal_proof_kind is not None):
+        raise DataVendorUnavailable(
+            "geopolitical source capture terminal proof binding mismatch"
+        )
+    if row["parse_result"] not in {"SUCCESS", "FAILED"}:
+        raise DataVendorUnavailable(
+            "geopolitical source capture parse result is invalid"
+        )
+    if row["error_class"] is not None and not isinstance(row["error_class"], str):
+        raise DataVendorUnavailable(
+            "geopolitical source capture error class is invalid"
+        )
+    capture_core = {
+        key: value
+        for key, value in row.items()
+        if key not in {"source_capture_id", "capture_hash"}
+    }
+    expected_hash = _canonical_hash(capture_core)
+    expected_id = "geo-source-capture:" + expected_hash.removeprefix("sha256:")
+    if row["capture_hash"] != expected_hash or row["source_capture_id"] != expected_id:
+        raise DataVendorUnavailable(
+            "geopolitical source capture identity/hash mismatch"
+        )
+    return row
+
+
+def _continuous_receipt_core(
+    source_id: str,
+    *,
+    window_end: datetime,
+    license_decision_id: str,
+    store: GeopoliticalEventStore,
+    manifest: Mapping[str, Any],
+) -> dict[str, Any]:
+    _, adapters, _ = _manifest_indexes(manifest)
+    adapter = adapters.get(source_id)
+    if source_id not in REQUIRED_SOURCE_IDS or adapter is None:
+        raise DataVendorUnavailable(
+            f"unregistered required geopolitical source: {source_id}"
+        )
+    if not isinstance(license_decision_id, str) or not license_decision_id:
+        raise DataVendorUnavailable(
+            "geopolitical preflight requires a license decision id"
+        )
+    decision = store.source_license_decision(
+        license_decision_id, manifest=manifest
+    )
+    if decision["source_id"] != source_id:
+        raise DataVendorUnavailable(
+            "geopolitical source license decision binding mismatch"
+        )
+    license_verified = (
+        decision["decision_status"] == "APPROVED"
+        and _parse_datetime(decision["decided_at"], "license decided_at")
+        <= window_end
+        and decision["permitted_use"]
+        == "PUBLIC_METADATA_HASH_AND_DERIVED_EVENT"
+        and decision["raw_source_content_commit_allowed"] is False
+    )
+    interval_minutes = int(adapter["expected_poll_interval_minutes"])
+    interval = timedelta(minutes=interval_minutes)
+    window_start = window_end - timedelta(days=30)
+    expected_slot_count = int(timedelta(days=30) / interval)
+    captures = store.source_captures_as_of(window_end, source_id=source_id)
+    selected: dict[int, dict[str, Any]] = {}
+    failed_ids: list[str] = []
+    for capture in captures:
+        completed = _parse_datetime(
+            capture["poll_completed_at"], "source capture poll_completed_at"
+        )
+        if completed < window_start or completed >= window_end:
+            continue
+        healthy = (
+            capture["ingestion_mode"] == "TRUSTED_REGISTERED_PARSER"
+            and capture["parse_result"] == "SUCCESS"
+            and capture["error_class"] is None
+            and capture["pagination_complete"] is True
+            and capture["truncated"] is False
+            and capture["schema_verified"] is True
+            and capture["publication_time_verified"] is True
+        )
+        if not healthy:
+            failed_ids.append(str(capture["source_capture_id"]))
+            continue
+        slot = int((completed - window_start) // interval)
+        if slot < 0 or slot >= expected_slot_count:
+            continue
+        current = selected.get(slot)
+        if current is None or capture["poll_completed_at"] < current[
+            "poll_completed_at"
+        ]:
+            selected[slot] = capture
+
+    missing_slots = [
+        (window_start + index * interval).isoformat()
+        for index in range(expected_slot_count)
+        if index not in selected
+    ]
+    selected_ids = [
+        str(selected[index]["source_capture_id"]) for index in sorted(selected)
+    ]
+    lags = sorted(
+        (
+            _parse_datetime(selected[index]["poll_completed_at"], "poll_completed_at")
+            - (window_start + index * interval)
+        ).total_seconds()
+        / 60
+        for index in selected
+    )
+    p95_lag = lags[max(0, math.ceil(0.95 * len(lags)) - 1)] if lags else None
+    longest_run = 0
+    current_run = 0
+    for index in range(expected_slot_count):
+        if index in selected:
+            current_run += 1
+            longest_run = max(longest_run, current_run)
+        else:
+            current_run = 0
+    observed_days = int((longest_run * interval).total_seconds() // 86400)
+    schema_verified = bool(selected) and all(
+        row["schema_verified"] is True for row in selected.values()
+    )
+    pagination_verified = bool(selected) and all(
+        row["pagination_complete"] is True and row["truncated"] is False
+        for row in selected.values()
+    )
+    publication_time_verified = bool(selected) and all(
+        row["publication_time_verified"] is True for row in selected.values()
+    )
+    ready = (
+        not missing_slots
+        and observed_days >= 30
+        and schema_verified
+        and pagination_verified
+        and publication_time_verified
+        and license_verified
+    )
+    return {
+        "schema_version": CONTINUOUS_PREFLIGHT_SCHEMA_VERSION,
+        "source_id": source_id,
+        "adapter_contract_hash": adapter["adapter_contract_hash"],
+        "required_continuous_days": 30,
+        "observed_continuous_days": observed_days,
+        "window_started_at": window_start.isoformat(),
+        "window_completed_at": window_end.isoformat(),
+        "expected_poll_interval_minutes": interval_minutes,
+        "expected_slot_count": expected_slot_count,
+        "observed_slot_count": len(selected),
+        "slot_capture_ids": selected_ids,
+        "missing_slot_starts": missing_slots,
+        "failed_capture_ids": sorted(set(failed_ids)),
+        "availability_ratio": len(selected) / expected_slot_count,
+        "p95_capture_lag_minutes": p95_lag,
+        "schema_verified": schema_verified,
+        "pagination_verified": pagination_verified,
+        "publication_time_verified": publication_time_verified,
+        "license_decision_id": license_decision_id,
+        "license_verified": license_verified,
+        "status": "READY" if ready else "PREFLIGHT_REQUIRED",
+    }
+
+
+def build_continuous_preflight_receipt(
+    source_id: str,
+    *,
+    window_end: str,
+    license_decision_id: str,
+    store: GeopoliticalEventStore,
+    manifest: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    resolved = manifest or GEOPOLITICAL_INITIAL_SOURCE_MANIFEST
+    completed = _parse_datetime(window_end, "preflight window_end")
+    core = _continuous_receipt_core(
+        source_id,
+        window_end=completed,
+        license_decision_id=license_decision_id,
+        store=store,
+        manifest=resolved,
+    )
+    receipt_id = (
+        "geo-preflight:"
+        + source_id
+        + ":"
+        + _canonical_hash(core).removeprefix("sha256:")
+    )
+    body = {**core, "receipt_id": receipt_id}
+    return {**body, "receipt_hash": _canonical_hash(body)}
+
+
+def validate_continuous_preflight_receipt(
+    payload: Mapping[str, Any],
+    *,
+    manifest: Mapping[str, Any],
+    store: GeopoliticalEventStore,
+    allow_active_manifest: bool = False,
+) -> dict[str, Any]:
+    del allow_active_manifest  # active state does not weaken receipt validation
+    if not isinstance(payload, Mapping):
+        raise DataVendorUnavailable(
+            "geopolitical continuous preflight receipt must be an object"
+        )
+    row = dict(payload)
+    supplied_hash = row.get("receipt_hash")
+    body = {key: value for key, value in row.items() if key != "receipt_hash"}
+    if supplied_hash != _canonical_hash(body):
+        raise DataVendorUnavailable(
+            "geopolitical continuous preflight receipt hash mismatch"
+        )
+    try:
+        expected = build_continuous_preflight_receipt(
+            str(row["source_id"]),
+            window_end=str(row["window_completed_at"]),
+            license_decision_id=str(row["license_decision_id"]),
+            store=store,
+            manifest=manifest,
+        )
+    except KeyError as exc:
+        raise DataVendorUnavailable(
+            "geopolitical continuous preflight receipt fields are incomplete"
+        ) from exc
+    if row != expected:
+        raise DataVendorUnavailable(
+            "geopolitical continuous preflight receipt lineage mismatch"
+        )
+    return row
+
+
+def promote_geopolitical_manifest(
+    base_manifest: Mapping[str, Any],
+    *,
+    receipts: Mapping[str, Mapping[str, Any]],
+    store: GeopoliticalEventStore,
+) -> dict[str, Any]:
+    """Project trusted private receipts into a deterministic runtime manifest."""
+    payload = deepcopy(dict(base_manifest))
+    trusted: dict[str, dict[str, Any]] = {}
+    for registration in payload["registrations"]:
+        source_id = str(registration["source_id"])
+        receipt = receipts.get(source_id)
+        if source_id not in REQUIRED_SOURCE_IDS or receipt is None:
+            if source_id in REQUIRED_SOURCE_IDS:
+                registration["registration_status"] = "PREFLIGHT_REQUIRED"
+            continue
+        validated = validate_continuous_preflight_receipt(
+            receipt, manifest=payload, store=store, allow_active_manifest=True
+        )
+        if validated["status"] != "READY":
+            registration["registration_status"] = "PREFLIGHT_REQUIRED"
+            continue
+        trusted[source_id] = validated
+        registration["registration_status"] = "ACTIVE_VERIFIED"
+        registration["preflight"] = {
+            "status": "READY",
+            "required_continuous_days": 30,
+            "observed_continuous_days": validated["observed_continuous_days"],
+            "window_started_at": validated["window_started_at"],
+            "window_completed_at": validated["window_completed_at"],
+            "availability_ratio": validated["availability_ratio"],
+            "p95_capture_lag_minutes": validated["p95_capture_lag_minutes"],
+            "schema_verified": validated["schema_verified"],
+            "pagination_verified": validated["pagination_verified"],
+            "publication_time_verified": validated["publication_time_verified"],
+            "license_verified": validated["license_verified"],
+            "evidence_id": validated["receipt_id"],
+        }
+
+    registrations = {
+        row["source_id"]: row for row in payload["registrations"]
+    }
+    for route in payload["coverage_routes"]:
+        if route["applicability"] != "APPLICABLE":
+            continue
+        route["route_status"] = (
+            "ACTIVE_VERIFIED"
+            if all(
+                registrations[source_id]["registration_status"]
+                == "ACTIVE_VERIFIED"
+                for source_id in route["required_source_ids"]
+            )
+            else "PREFLIGHT_REQUIRED"
+        )
+        route["coverage_route_hash"] = _route_contract_hash(route)
+    payload["coverage_scope_hash"] = _coverage_scope_hash(payload)
+    blockers: list[str] = []
+    for source_id in sorted(REQUIRED_SOURCE_IDS):
+        if registrations[source_id]["registration_status"] != "ACTIVE_VERIFIED":
+            blockers.append(f"{source_id}:30_day_preflight_required")
+        if source_id not in BUILTIN_GEOPOLITICAL_PARSER_SOURCE_IDS:
+            blockers.append(f"{source_id}:source_specific_parser_missing")
+        if source_id not in PREFLIGHT_RECEIPT_VERIFIER_SOURCE_IDS:
+            blockers.append(
+                f"{source_id}:continuous_preflight_receipt_verifier_missing"
+            )
+    payload["readiness_blockers"] = blockers
+    payload["manifest_readiness"] = "READY" if not blockers else "PREFLIGHT_REQUIRED"
+    payload["manifest_hash"] = _canonical_hash(
+        _without_hash(payload, "manifest_hash")
+    )
+    return validate_geopolitical_manifest(
+        payload,
+        trusted_preflight_receipts=trusted,
+        preflight_store=store,
+    )
+
+
 def validate_poll_observation(
     payload: Mapping[str, Any], *, manifest: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -800,6 +1786,7 @@ def validate_poll_observation(
         "http_status",
         "row_count",
         "pagination_complete",
+        "terminal_proof_kind",
         "truncated",
         "schema_hash",
         "response_content_hash",
@@ -845,6 +1832,14 @@ def validate_poll_observation(
         or not isinstance(row["truncated"], bool)
     ):
         raise DataVendorUnavailable("poll pagination fields are invalid")
+    terminal_proof_kind = row["terminal_proof_kind"]
+    if terminal_proof_kind is not None and (
+        not isinstance(terminal_proof_kind, str)
+        or terminal_proof_kind not in GEOPOLITICAL_TERMINAL_PROOF_KINDS
+    ):
+        raise DataVendorUnavailable("poll terminal proof kind is invalid")
+    if row["pagination_complete"] != (terminal_proof_kind is not None):
+        raise DataVendorUnavailable("poll terminal proof binding mismatch")
     for field in (
         "observation_id",
         "schema_hash",
@@ -856,6 +1851,7 @@ def validate_poll_observation(
         raise DataVendorUnavailable("poll parse_result is invalid")
     if row["ingestion_mode"] not in {
         "PRODUCTION_REGISTERED_PARSER",
+        "TRUSTED_REGISTERED_PARSER",
         "NON_PRODUCTION_CALLBACK",
     }:
         raise DataVendorUnavailable("poll ingestion_mode is invalid")
@@ -1034,11 +2030,14 @@ def build_geopolitical_events_snapshot(
     manifest: Mapping[str, Any] | None = None,
     allow_nonproduction_fixture: bool = False,
 ) -> dict[str, Any]:
-    manifest = validate_geopolitical_manifest(
-        dict(manifest or GEOPOLITICAL_INITIAL_SOURCE_MANIFEST)
-    )
     store = store or GeopoliticalEventStore(geopolitical_store_path())
     cutoff = _as_of_cutoff(as_of)
+    preflight_receipts = store.latest_continuous_preflight_receipts(cutoff)
+    manifest = validate_geopolitical_manifest(
+        dict(manifest or GEOPOLITICAL_INITIAL_SOURCE_MANIFEST),
+        trusted_preflight_receipts=preflight_receipts,
+        preflight_store=store,
+    )
     registrations, adapters, _ = _manifest_indexes(manifest)
 
     latest_poll: dict[str, dict[str, Any]] = {}
@@ -1068,6 +2067,7 @@ def build_geopolitical_events_snapshot(
             if source_id in route["no_event_evidence_source_ids"]:
                 type_no_event_keys[route["event_type"]].append(query_key)
             observation = latest_poll.get(query_key)
+            preflight_receipt = preflight_receipts.get(source_id)
             status = "UNAVAILABLE"
             completed_at = None
             last_success = None
@@ -1078,6 +2078,15 @@ def build_geopolitical_events_snapshot(
                 evidence_id = observation["coverage_evidence_id"]
                 completed = _parse_datetime(completed_at, "poll_completed_at")
                 age_minutes = (cutoff - completed).total_seconds() / 60
+                preflight_age_minutes = None
+                if preflight_receipt is not None:
+                    preflight_completed = _parse_datetime(
+                        preflight_receipt["window_completed_at"],
+                        "preflight window_completed_at",
+                    )
+                    preflight_age_minutes = (
+                        cutoff - preflight_completed
+                    ).total_seconds() / 60
                 if (
                     observation["schema_hash"]
                     != adapter["expected_response_schema_hash"]
@@ -1088,7 +2097,10 @@ def build_geopolitical_events_snapshot(
                     or observation["http_status"] >= 300
                     or (
                         observation.get("ingestion_mode")
-                        != "PRODUCTION_REGISTERED_PARSER"
+                        not in {
+                            "PRODUCTION_REGISTERED_PARSER",
+                            "TRUSTED_REGISTERED_PARSER",
+                        }
                         and not (
                             allow_nonproduction_fixture
                             and observation.get("ingestion_mode")
@@ -1099,6 +2111,16 @@ def build_geopolitical_events_snapshot(
                     or observation["error_class"] is not None
                     or observation["pagination_complete"] is not True
                     or observation["truncated"] is True
+                    or (
+                        not allow_nonproduction_fixture
+                        and (
+                            preflight_receipt is None
+                            or preflight_receipt.get("status") != "READY"
+                            or preflight_age_minutes is None
+                            or preflight_age_minutes
+                            > adapter["max_capture_age_minutes"]
+                        )
+                    )
                 ):
                     status = "UNAVAILABLE"
                 elif age_minutes > adapter["max_capture_age_minutes"]:
@@ -1128,6 +2150,11 @@ def build_geopolitical_events_snapshot(
                 "observed_publication_lag_minutes": observed_lag,
                 "status": status,
                 "coverage_evidence_id": evidence_id,
+                "continuous_preflight_receipt_id": (
+                    preflight_receipt["receipt_id"]
+                    if preflight_receipt is not None
+                    else None
+                ),
                 "subject_type": route["subject_type"],
                 "actor_id": route["actor_id"],
                 "region_id": route["region_id"],
@@ -1263,7 +2290,13 @@ def load_geopolitical_events_snapshot(as_of: str) -> dict[str, Any]:
     return snapshot
 
 
-def build_geopolitical_role_snapshot(as_of: str) -> dict[str, Any]:
+def build_geopolitical_role_snapshot(
+    as_of: str,
+    *,
+    store: GeopoliticalEventStore | None = None,
+    manifest: Mapping[str, Any] | None = None,
+    allow_nonproduction_fixture: bool = False,
+) -> dict[str, Any]:
     """Project the full coverage audit into a bounded model-visible snapshot.
 
     Query keys, route rows and adapter registrations remain available in the
@@ -1271,7 +2304,19 @@ def build_geopolitical_role_snapshot(as_of: str) -> dict[str, Any]:
     per-family coverage counts and hashes, preserving the no-event proof
     without consuming the 128K model context with transport diagnostics.
     """
-    snapshot = load_geopolitical_events_snapshot(as_of)
+    if store is None and manifest is None and not allow_nonproduction_fixture:
+        snapshot = load_geopolitical_events_snapshot(as_of)
+    else:
+        snapshot = build_geopolitical_events_snapshot(
+            as_of,
+            store=store,
+            manifest=manifest,
+            allow_nonproduction_fixture=allow_nonproduction_fixture,
+        )
+        if snapshot["readiness"] != "READY":
+            raise DataVendorUnavailable(
+                "geopolitical role snapshot rejected by source coverage"
+            )
     coverage_rows = []
     for row in snapshot["coverage_by_event_type"]:
         evidence_hash = _canonical_hash(
@@ -1335,12 +2380,15 @@ def render_geopolitical_events_snapshot(as_of: str) -> str:
 __all__ = [
     "ALL_SOURCE_IDS",
     "BUILTIN_GEOPOLITICAL_PARSER_SOURCE_IDS",
+    "CONTINUOUS_PREFLIGHT_SCHEMA_VERSION",
     "EVENT_REGISTRY_VERSION",
     "EVENT_TYPES",
+    "GEOPOLITICAL_TERMINAL_PROOF_KINDS",
     "GEOPOLITICAL_INITIAL_SOURCE_MANIFEST",
     "GeopoliticalEventStore",
     "MANIFEST_SCHEMA_VERSION",
     "OPTIONAL_SOURCE_IDS",
+    "PREFLIGHT_RECEIPT_VERIFIER_SOURCE_IDS",
     "REQUIRED_SOURCE_IDS",
     "ROLE_SNAPSHOT_SCHEMA_VERSION",
     "VERIFIED_GEOPOLITICAL_PREFLIGHT_RECEIPT_SOURCE_IDS",
@@ -1348,14 +2396,20 @@ __all__ = [
     "WATCHLIST_REGIONS",
     "build_geopolitical_events_snapshot",
     "build_geopolitical_role_snapshot",
+    "build_continuous_preflight_receipt",
+    "build_geopolitical_source_license_decision",
     "coverage_query_key",
     "geopolitical_store_path",
     "load_geopolitical_events_snapshot",
     "load_geopolitical_manifest",
+    "promote_geopolitical_manifest",
     "runtime_geopolitical_manifest",
     "render_geopolitical_events_snapshot",
     "scope_query_hash",
     "validate_event_revision",
+    "validate_continuous_preflight_receipt",
+    "validate_geopolitical_source_license_decision",
     "validate_geopolitical_manifest",
     "validate_poll_observation",
+    "validate_source_capture_observation",
 ]

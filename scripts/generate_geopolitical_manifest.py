@@ -51,6 +51,34 @@ def canonical_hash(payload: Any) -> str:
     return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def route_contract_hash(route: dict[str, Any]) -> str:
+    return canonical_hash(
+        {
+            key: value
+            for key, value in route.items()
+            if key not in {"coverage_route_hash", "route_status"}
+        }
+    )
+
+
+def coverage_scope_hash(routes: list[dict[str, Any]]) -> str:
+    return canonical_hash(
+        {
+            "coverage_scope_version": COVERAGE_SCOPE_VERSION,
+            "watchlist_actor_ids": list(ACTORS),
+            "watchlist_region_ids": list(REGIONS),
+            "coverage_routes": [
+                {
+                    key: value
+                    for key, value in route.items()
+                    if key != "route_status"
+                }
+                for route in routes
+            ],
+        }
+    )
+
+
 SOURCE_SPECS: dict[str, dict[str, Any]] = {
     "cn_mfa_releases": {
         "kind": "OFFICIAL_PRIMARY",
@@ -79,10 +107,10 @@ SOURCE_SPECS: dict[str, dict[str, Any]] = {
     },
     "un_sc_sanctions": {
         "kind": "OFFICIAL_PRIMARY",
-        "organization": "UN",
+        "organization": "UN_SECURITY_COUNCIL",
         "origin": "UN_SECURITY_COUNCIL",
-        "domain": "un.org",
-        "url": "https://main.un.org/securitycouncil/en/content/un-sc-consolidated-list",
+        "domain": "unsolprodfiles.blob.core.windows.net",
+        "url": "https://scsanctions.un.org/resources/xml/en/name/consolidated.xml",
         "mode": "FILE_FEED",
         "events": ("SANCTION",),
     },
@@ -118,17 +146,17 @@ SOURCE_SPECS: dict[str, dict[str, Any]] = {
         "organization": "EU_COUNCIL",
         "origin": "EU_COUNCIL",
         "domain": "consilium.europa.eu",
-        "url": "https://www.consilium.europa.eu/en/policies/sanctions/",
-        "mode": "HTML_DIRECTORY",
+        "url": "https://www.consilium.europa.eu/en/rss/pressreleases.ashx",
+        "mode": "RSS",
         "events": ("SANCTION", "EXPORT_CONTROL", "TARIFF_TRADE_RESTRICTION"),
     },
     "eurlex_official_journal": {
         "kind": "OFFICIAL_PRIMARY",
         "organization": "EU_PUBLICATIONS_OFFICE",
         "origin": "EUR_LEX",
-        "domain": "eur-lex.europa.eu",
-        "url": "https://eur-lex.europa.eu/oj/direct-access.html",
-        "mode": "HTML_DIRECTORY",
+        "domain": "publications.europa.eu",
+        "url": "https://publications.europa.eu/webapi/rdf/sparql",
+        "mode": "API",
         "events": ("SANCTION", "EXPORT_CONTROL", "TARIFF_TRADE_RESTRICTION"),
     },
     "marad_msci": {
@@ -136,17 +164,17 @@ SOURCE_SPECS: dict[str, dict[str, Any]] = {
         "organization": "US_MARAD",
         "origin": "US_MARAD",
         "domain": "maritime.dot.gov",
-        "url": "https://www.maritime.dot.gov/msci-advisories",
-        "mode": "HTML_DIRECTORY",
+        "url": "https://www.maritime.dot.gov/taxonomy/term/441/feed",
+        "mode": "RSS",
         "events": ("SHIPPING_DISRUPTION",),
     },
     "ukmto_advisories": {
         "kind": "OFFICIAL_PRIMARY",
         "organization": "UKMTO",
         "origin": "UKMTO",
-        "domain": "ukmto.org",
-        "url": "https://www.ukmto.org/indian-ocean/recent-incidents",
-        "mode": "HTML_DIRECTORY",
+        "domain": "royalnavy.mod.uk",
+        "url": "https://sccd.royalnavy.mod.uk/api/ukmto/all",
+        "mode": "API",
         "events": ("SHIPPING_DISRUPTION",),
     },
     "gdelt_event_gkg": {
@@ -154,17 +182,21 @@ SOURCE_SPECS: dict[str, dict[str, Any]] = {
         "organization": "GDELT_PROJECT",
         "origin": "GDELT",
         "domain": "gdeltproject.org",
-        "url": "https://data.gdeltproject.org/gdeltv2/lastupdate.txt",
-        "mode": "FILE_FEED",
+        "url": "https://api.gdeltproject.org/api/v2/doc/doc",
+        "mode": "API",
         "events": EVENT_TYPES,
+        "no_event": False,
     },
     "un_conflict_releases": {
         "kind": "OFFICIAL_PRIMARY",
-        "organization": "UN",
+        "organization": "UN_NEWS",
         "origin": "UN_NEWS_CONFLICT",
         "domain": "un.org",
-        "url": "https://press.un.org/en/content/security-council/press-release",
-        "mode": "HTML_DIRECTORY",
+        "url": (
+            "https://news.un.org/feed/subscribe/en/news/topic/"
+            "peace-and-security/feed/rss.xml"
+        ),
+        "mode": "RSS",
         "events": ("ARMED_CONFLICT",),
     },
     "us_state_releases": {
@@ -368,7 +400,11 @@ def build_manifest() -> dict[str, Any]:
                             "applicability": "APPLICABLE",
                             "applicability_reason_code": reason,
                             "required_source_ids": required_sources,
-                            "no_event_evidence_source_ids": required_sources,
+                            "no_event_evidence_source_ids": [
+                                source_id
+                                for source_id in required_sources
+                                if SOURCE_SPECS[source_id].get("no_event", True)
+                            ],
                             "route_status": "PREFLIGHT_REQUIRED",
                         }
                     )
@@ -382,7 +418,7 @@ def build_manifest() -> dict[str, Any]:
                             "route_status": "NOT_APPLICABLE",
                         }
                     )
-                route["coverage_route_hash"] = canonical_hash(route)
+                route["coverage_route_hash"] = route_contract_hash(route)
                 routes.append(route)
 
     manifest: dict[str, Any] = {
@@ -399,25 +435,13 @@ def build_manifest() -> dict[str, Any]:
         "coverage_routes": routes,
         "manifest_readiness": "PREFLIGHT_REQUIRED",
         "readiness_blockers": [
-            f"{source_id}:{reason}"
+            f"{source_id}:30_day_preflight_required"
             for source_id, spec in sorted(SOURCE_SPECS.items())
             if spec.get("required", True)
-            for reason in (
-                "30_day_preflight_required",
-                "source_specific_parser_missing",
-                "continuous_preflight_receipt_verifier_missing",
-            )
         ],
         "raw_source_content_committed": False,
     }
-    manifest["coverage_scope_hash"] = canonical_hash(
-        {
-            "coverage_scope_version": COVERAGE_SCOPE_VERSION,
-            "watchlist_actor_ids": manifest["watchlist_actor_ids"],
-            "watchlist_region_ids": manifest["watchlist_region_ids"],
-            "coverage_routes": routes,
-        }
-    )
+    manifest["coverage_scope_hash"] = coverage_scope_hash(routes)
     manifest["manifest_hash"] = canonical_hash(manifest)
     return manifest
 

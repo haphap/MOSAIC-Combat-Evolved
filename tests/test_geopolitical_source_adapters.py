@@ -42,18 +42,20 @@ def test_geopolitical_transport_registry_is_closed() -> None:
 
 
 def test_geopolitical_transport_returns_metadata_without_source_content() -> None:
-    gdelt_body = (
-        b"100 a http://data.gdeltproject.org/gdeltv2/a.export.CSV.zip\n"
-        b"100 b http://data.gdeltproject.org/gdeltv2/b.mentions.CSV.zip\n"
-        b"100 c http://data.gdeltproject.org/gdeltv2/c.gkg.csv.zip\n"
-    )
+    gdelt_body = json.dumps(
+        {
+            "version": "https://jsonfeed.org/version/1.1",
+            "items": [],
+        }
+    ).encode()
 
     def fetch(url: str, _: tuple[str, ...]) -> GeopoliticalTransportResponse:
-        return _response(url, "text/plain", gdelt_body)
+        assert url.startswith("https://api.gdeltproject.org/api/v2/doc/doc?")
+        return _response(url, "application/json", gdelt_body)
 
     result = probe_geopolitical_source_transport("gdelt_event_gkg", fetch=fetch)
     assert result["transport_status"] == "ACTIVE"
-    assert result["broad_schema_signal"] == "GDELT_LAST_UPDATE_LIST"
+    assert result["broad_schema_signal"] == "JSON_OBJECT"
     assert result["raw_source_content_committed"] is False
     assert "body" not in result
 
@@ -151,6 +153,7 @@ def test_route_ingestion_proves_pagination_and_appends_deduplicated_ledger(
                 publications=(_publication(),),
                 next_url=None,
                 terminal_marker_observed=True,
+                terminal_proof_kind="PAGINATION_EXHAUSTED",
             )
         return GeopoliticalParsedPage(
             publications=(_publication(),),
@@ -173,6 +176,7 @@ def test_route_ingestion_proves_pagination_and_appends_deduplicated_ledger(
     assert result["parsed_row_count"] == 2
     assert result["deduplicated_event_revision_count"] == 1
     assert result["pagination_complete"] is True
+    assert result["terminal_proof_kind"] == "PAGINATION_EXHAUSTED"
     assert result["production_eligible"] is False
     assert "private source page" not in json.dumps(result)
     cutoff = datetime.fromisoformat("2026-07-17T13:00:00+00:00")
@@ -180,10 +184,11 @@ def test_route_ingestion_proves_pagination_and_appends_deduplicated_ledger(
     events = store.events_as_of(cutoff)
     assert len(polls) == 1
     assert polls[0]["pagination_complete"] is True
+    assert polls[0]["terminal_proof_kind"] == "PAGINATION_EXHAUSTED"
     assert polls[0]["ingestion_mode"] == "NON_PRODUCTION_CALLBACK"
     assert len(events) == 1
     assert events[0]["verification_status"] == "OFFICIAL_CONFIRMED"
-    assert events[0]["published_at"] == "2026-07-17T11:00:00Z"
+    assert events[0]["published_at"] == "2026-07-17T11:00:00+00:00"
 
 
 def test_route_ingestion_rejects_future_publication_and_records_failed_poll(
@@ -206,6 +211,7 @@ def test_route_ingestion_rejects_future_publication_and_records_failed_poll(
             publications=(_publication(published_at="2026-07-17T12:03:00Z"),),
             next_url=None,
             terminal_marker_observed=True,
+            terminal_proof_kind="PAGINATION_EXHAUSTED",
         )
 
     with pytest.raises(DataVendorUnavailable, match="later than retrieval"):
@@ -225,6 +231,7 @@ def test_route_ingestion_rejects_future_publication_and_records_failed_poll(
     assert len(polls) == 1
     assert polls[0]["parse_result"] == "FAILED"
     assert polls[0]["pagination_complete"] is False
+    assert polls[0]["terminal_proof_kind"] is None
     assert polls[0]["ingestion_mode"] == "NON_PRODUCTION_CALLBACK"
 
 
@@ -235,7 +242,12 @@ def test_caller_parser_cannot_enter_production_ingestion(tmp_path: Path) -> None
         ingest_geopolitical_route(
             route["coverage_route_id"],
             "ofac_recent_actions",
-            parse_page=lambda *_: GeopoliticalParsedPage((), None, True),
+            parse_page=lambda *_: GeopoliticalParsedPage(
+                (),
+                None,
+                True,
+                terminal_proof_kind="PAGINATION_EXHAUSTED",
+            ),
             fetch=lambda *_: _response(
                 "https://ofac.treasury.gov/recent-actions",
                 "text/html",
@@ -245,7 +257,7 @@ def test_caller_parser_cannot_enter_production_ingestion(tmp_path: Path) -> None
             manifest=GEOPOLITICAL_INITIAL_SOURCE_MANIFEST,
         )
 
-    with pytest.raises(DataVendorUnavailable, match="not implemented"):
+    with pytest.raises(DataVendorUnavailable, match="continuous preflight"):
         ingest_geopolitical_route(
             route["coverage_route_id"],
             "ofac_recent_actions",

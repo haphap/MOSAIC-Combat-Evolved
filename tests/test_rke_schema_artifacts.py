@@ -73,6 +73,8 @@ REQUIRED_SCHEMA_FILES = {
     "official_macro_source_preflight_v1.schema.json",
     "geopolitical_initial_source_manifest_v2.schema.json",
     "geopolitical_source_transport_preflight_v1.schema.json",
+    "geopolitical_source_license_decision_v1.schema.json",
+    "geopolitical_continuous_preflight_receipt_v1.schema.json",
     "economic_calendar_event_v2.schema.json",
     "role_event_snapshot_v2.schema.json",
     "evidence_claim_graph_v1.schema.json",

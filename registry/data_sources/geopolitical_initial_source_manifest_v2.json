@@ -167,7 +167,7 @@
       "registration_status": "PREFLIGHT_REQUIRED",
       "source_contract_version": "geopolitical_source_registration_v2",
       "adapter_contract_id": "geo_adapter:eu_council_sanctions:v2",
-      "adapter_contract_hash": "sha256:5ee8a07af74165a60f0aad95de50f4667375fbbe42aa5776c2478990318a2921",
+      "adapter_contract_hash": "sha256:268ef3c86d91c66d0f1ea27c5744faaa65eb49d94b2d50130b9c5665f38e6139",
       "required": true,
       "required_for_event_types": [
         "SANCTION",
@@ -199,7 +199,7 @@
       "registration_status": "PREFLIGHT_REQUIRED",
       "source_contract_version": "geopolitical_source_registration_v2",
       "adapter_contract_id": "geo_adapter:eurlex_official_journal:v2",
-      "adapter_contract_hash": "sha256:5245e7b745f5886719ef0ef46f0e26937ace6be9f3a33da7d5410f7ea84b3d07",
+      "adapter_contract_hash": "sha256:24f25faec912073246667f1455e4df9e3b9093b1c479009125458449803030eb",
       "required": true,
       "required_for_event_types": [
         "SANCTION",
@@ -231,7 +231,7 @@
       "registration_status": "PREFLIGHT_REQUIRED",
       "source_contract_version": "geopolitical_source_registration_v2",
       "adapter_contract_id": "geo_adapter:gdelt_event_gkg:v2",
-      "adapter_contract_hash": "sha256:c91c1da506b4ee8b96c3fcb64aa176e393c54f1ebb81ba201a80ea35da16fefe",
+      "adapter_contract_hash": "sha256:3888ad1cfc17b1b9e9a10851e28860895041c391950026b9f726cee9f5c7bde4",
       "required": true,
       "required_for_event_types": [
         "SANCTION",
@@ -267,7 +267,7 @@
       "registration_status": "PREFLIGHT_REQUIRED",
       "source_contract_version": "geopolitical_source_registration_v2",
       "adapter_contract_id": "geo_adapter:marad_msci:v2",
-      "adapter_contract_hash": "sha256:6f3e5c421ad97f393c777c4e2e2bc833b7c9f0db053487c6fa2db78b9a57af52",
+      "adapter_contract_hash": "sha256:c46837b1b90bd6fd3ab068ef3df611b219787734c4e764f5c0d10589c63af72b",
       "required": true,
       "required_for_event_types": [
         "SHIPPING_DISRUPTION"
@@ -355,7 +355,7 @@
       "registration_status": "PREFLIGHT_REQUIRED",
       "source_contract_version": "geopolitical_source_registration_v2",
       "adapter_contract_id": "geo_adapter:ukmto_advisories:v2",
-      "adapter_contract_hash": "sha256:6f34d5c5eb1f4cce864f3ff1d941fc3b1552c1afafe6137bb3197df3a16963b7",
+      "adapter_contract_hash": "sha256:aeb84bc2ad234baab97e717b07cbdf1e5d0c40747431cf9cc11c0fccb7ff4d36",
       "required": true,
       "required_for_event_types": [
         "SHIPPING_DISRUPTION"
@@ -385,12 +385,12 @@
       "registration_status": "PREFLIGHT_REQUIRED",
       "source_contract_version": "geopolitical_source_registration_v2",
       "adapter_contract_id": "geo_adapter:un_conflict_releases:v2",
-      "adapter_contract_hash": "sha256:a1f04c3d78010999386ad4d62da081959b46fdda431e9386908a62a5ea6bc16c",
+      "adapter_contract_hash": "sha256:d8be612f4c30348f20d4efd73a9c271fd5f222de6ede0fecff913fa268c39f8a",
       "required": true,
       "required_for_event_types": [
         "ARMED_CONFLICT"
       ],
-      "publisher_organization_id": "UN",
+      "publisher_organization_id": "UN_NEWS",
       "upstream_origin_family": "UN_NEWS_CONFLICT",
       "source_backend": "DIRECT",
       "tushare_endpoint_id": null,
@@ -415,12 +415,12 @@
       "registration_status": "PREFLIGHT_REQUIRED",
       "source_contract_version": "geopolitical_source_registration_v2",
       "adapter_contract_id": "geo_adapter:un_sc_sanctions:v2",
-      "adapter_contract_hash": "sha256:4d8062b7d7bc15b4d0e1749486978eec03fefd8a5405fdc2db09643527ab6912",
+      "adapter_contract_hash": "sha256:31452309658228785a6c64c1aa17ea4bf1e27acb5097cf64e9790a67880dc548",
       "required": true,
       "required_for_event_types": [
         "SANCTION"
       ],
-      "publisher_organization_id": "UN",
+      "publisher_organization_id": "UN_SECURITY_COUNCIL",
       "upstream_origin_family": "UN_SECURITY_COUNCIL",
       "source_backend": "DIRECT",
       "tushare_endpoint_id": null,
@@ -680,8 +680,8 @@
       "adapter_contract_id": "geo_adapter:eu_council_sanctions:v2",
       "adapter_contract_version": "geopolitical_source_adapter_v2",
       "source_id": "eu_council_sanctions",
-      "canonical_url_or_api": "https://www.consilium.europa.eu/en/policies/sanctions/",
-      "retrieval_mode": "HTML_DIRECTORY",
+      "canonical_url_or_api": "https://www.consilium.europa.eu/en/rss/pressreleases.ashx",
+      "retrieval_mode": "RSS",
       "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
       "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
       "covered_actor_ids": [
@@ -717,14 +717,14 @@
       "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
       "no_event_claim_capable": true,
       "expected_response_schema_hash": "sha256:ce5d3adb56350f5ff06401eac2dba6087326f6a7fd0e4e02a4d3459065938ee8",
-      "adapter_contract_hash": "sha256:5ee8a07af74165a60f0aad95de50f4667375fbbe42aa5776c2478990318a2921"
+      "adapter_contract_hash": "sha256:268ef3c86d91c66d0f1ea27c5744faaa65eb49d94b2d50130b9c5665f38e6139"
     },
     {
       "adapter_contract_id": "geo_adapter:eurlex_official_journal:v2",
       "adapter_contract_version": "geopolitical_source_adapter_v2",
       "source_id": "eurlex_official_journal",
-      "canonical_url_or_api": "https://eur-lex.europa.eu/oj/direct-access.html",
-      "retrieval_mode": "HTML_DIRECTORY",
+      "canonical_url_or_api": "https://publications.europa.eu/webapi/rdf/sparql",
+      "retrieval_mode": "API",
       "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
       "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
       "covered_actor_ids": [
@@ -760,14 +760,14 @@
       "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
       "no_event_claim_capable": true,
       "expected_response_schema_hash": "sha256:ac9f0b5abc8129d0a902083e08bcb30ba299f0f34e94398cb756d2ed344340f3",
-      "adapter_contract_hash": "sha256:5245e7b745f5886719ef0ef46f0e26937ace6be9f3a33da7d5410f7ea84b3d07"
+      "adapter_contract_hash": "sha256:24f25faec912073246667f1455e4df9e3b9093b1c479009125458449803030eb"
     },
     {
       "adapter_contract_id": "geo_adapter:gdelt_event_gkg:v2",
       "adapter_contract_version": "geopolitical_source_adapter_v2",
       "source_id": "gdelt_event_gkg",
-      "canonical_url_or_api": "https://data.gdeltproject.org/gdeltv2/lastupdate.txt",
-      "retrieval_mode": "FILE_FEED",
+      "canonical_url_or_api": "https://api.gdeltproject.org/api/v2/doc/doc",
+      "retrieval_mode": "API",
       "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
       "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
       "covered_actor_ids": [
@@ -805,16 +805,16 @@
       "expected_poll_interval_minutes": 15,
       "max_capture_age_minutes": 45,
       "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
-      "no_event_claim_capable": true,
+      "no_event_claim_capable": false,
       "expected_response_schema_hash": "sha256:b9c0d1128db5983e60bce511918ababb26af13be3378ea2297add240e9560cd5",
-      "adapter_contract_hash": "sha256:c91c1da506b4ee8b96c3fcb64aa176e393c54f1ebb81ba201a80ea35da16fefe"
+      "adapter_contract_hash": "sha256:3888ad1cfc17b1b9e9a10851e28860895041c391950026b9f726cee9f5c7bde4"
     },
     {
       "adapter_contract_id": "geo_adapter:marad_msci:v2",
       "adapter_contract_version": "geopolitical_source_adapter_v2",
       "source_id": "marad_msci",
-      "canonical_url_or_api": "https://www.maritime.dot.gov/msci-advisories",
-      "retrieval_mode": "HTML_DIRECTORY",
+      "canonical_url_or_api": "https://www.maritime.dot.gov/taxonomy/term/441/feed",
+      "retrieval_mode": "RSS",
       "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
       "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
       "covered_actor_ids": [
@@ -848,7 +848,7 @@
       "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
       "no_event_claim_capable": true,
       "expected_response_schema_hash": "sha256:28c4558d31f469745717f36f77f9743b6e06cef03d51180901bd081c7a8a6ed8",
-      "adapter_contract_hash": "sha256:6f3e5c421ad97f393c777c4e2e2bc833b7c9f0db053487c6fa2db78b9a57af52"
+      "adapter_contract_hash": "sha256:c46837b1b90bd6fd3ab068ef3df611b219787734c4e764f5c0d10589c63af72b"
     },
     {
       "adapter_contract_id": "geo_adapter:ocha_reliefweb:v2",
@@ -936,8 +936,8 @@
       "adapter_contract_id": "geo_adapter:ukmto_advisories:v2",
       "adapter_contract_version": "geopolitical_source_adapter_v2",
       "source_id": "ukmto_advisories",
-      "canonical_url_or_api": "https://www.ukmto.org/indian-ocean/recent-incidents",
-      "retrieval_mode": "HTML_DIRECTORY",
+      "canonical_url_or_api": "https://sccd.royalnavy.mod.uk/api/ukmto/all",
+      "retrieval_mode": "API",
       "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
       "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
       "covered_actor_ids": [
@@ -971,14 +971,14 @@
       "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
       "no_event_claim_capable": true,
       "expected_response_schema_hash": "sha256:9f96cee5212b33a09780a31ec2a060067f0f867de00b0d79a297ab7efacb463c",
-      "adapter_contract_hash": "sha256:6f34d5c5eb1f4cce864f3ff1d941fc3b1552c1afafe6137bb3197df3a16963b7"
+      "adapter_contract_hash": "sha256:aeb84bc2ad234baab97e717b07cbdf1e5d0c40747431cf9cc11c0fccb7ff4d36"
     },
     {
       "adapter_contract_id": "geo_adapter:un_conflict_releases:v2",
       "adapter_contract_version": "geopolitical_source_adapter_v2",
       "source_id": "un_conflict_releases",
-      "canonical_url_or_api": "https://press.un.org/en/content/security-council/press-release",
-      "retrieval_mode": "HTML_DIRECTORY",
+      "canonical_url_or_api": "https://news.un.org/feed/subscribe/en/news/topic/peace-and-security/feed/rss.xml",
+      "retrieval_mode": "RSS",
       "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
       "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
       "covered_actor_ids": [
@@ -1012,13 +1012,13 @@
       "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
       "no_event_claim_capable": true,
       "expected_response_schema_hash": "sha256:427fe80a92aad6a10e507ad1af490b005cee68d5ad1ed345b9cef06ff28c69f3",
-      "adapter_contract_hash": "sha256:a1f04c3d78010999386ad4d62da081959b46fdda431e9386908a62a5ea6bc16c"
+      "adapter_contract_hash": "sha256:d8be612f4c30348f20d4efd73a9c271fd5f222de6ede0fecff913fa268c39f8a"
     },
     {
       "adapter_contract_id": "geo_adapter:un_sc_sanctions:v2",
       "adapter_contract_version": "geopolitical_source_adapter_v2",
       "source_id": "un_sc_sanctions",
-      "canonical_url_or_api": "https://main.un.org/securitycouncil/en/content/un-sc-consolidated-list",
+      "canonical_url_or_api": "https://scsanctions.un.org/resources/xml/en/name/consolidated.xml",
       "retrieval_mode": "FILE_FEED",
       "pagination_or_cursor_contract": "append-only cursor or complete directory enumeration; reject detected truncation",
       "continuous_scope_query_template": "event_type={event_type};subject_type={subject_type};actor_id={actor_id};region_id={region_id}",
@@ -1053,7 +1053,7 @@
       "truncation_detection_contract": "complete pagination/cursor closure and stable terminal marker required",
       "no_event_claim_capable": true,
       "expected_response_schema_hash": "sha256:07168d3516230fe027aabf12b6a4bd309868004e8f0acb1065cb584541696757",
-      "adapter_contract_hash": "sha256:4d8062b7d7bc15b4d0e1749486978eec03fefd8a5405fdc2db09643527ab6912"
+      "adapter_contract_hash": "sha256:31452309658228785a6c64c1aa17ea4bf1e27acb5097cf64e9790a67880dc548"
     },
     {
       "adapter_contract_id": "geo_adapter:us_state_releases:v2",
@@ -1198,7 +1198,7 @@
       "independence_rule": "organization_and_upstream_origin_must_both_differ"
     },
     {
-      "domain": "eur-lex.europa.eu",
+      "domain": "publications.europa.eu",
       "publisher_organization_id": "EU_PUBLICATIONS_OFFICE",
       "allowed_event_types": [
         "SANCTION",
@@ -1251,7 +1251,7 @@
       "independence_rule": "organization_and_upstream_origin_must_both_differ"
     },
     {
-      "domain": "ukmto.org",
+      "domain": "royalnavy.mod.uk",
       "publisher_organization_id": "UKMTO",
       "allowed_event_types": [
         "SHIPPING_DISRUPTION"
@@ -1261,7 +1261,7 @@
     },
     {
       "domain": "un.org",
-      "publisher_organization_id": "UN",
+      "publisher_organization_id": "UN_NEWS",
       "allowed_event_types": [
         "ARMED_CONFLICT"
       ],
@@ -1269,8 +1269,8 @@
       "independence_rule": "organization_and_upstream_origin_must_both_differ"
     },
     {
-      "domain": "un.org",
-      "publisher_organization_id": "UN",
+      "domain": "unsolprodfiles.blob.core.windows.net",
+      "publisher_organization_id": "UN_SECURITY_COUNCIL",
       "allowed_event_types": [
         "SANCTION"
       ],
@@ -1323,11 +1323,10 @@
         "un_sc_sanctions",
         "ofac_recent_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:0d2a1b8b12c6f6d038430f1a6803f6619f51d0f75b136b63d11b89c449c5f8c6"
+      "coverage_route_hash": "sha256:1abab2f08df1815b67927f5223c475dc6fa9cdde25d94e4925f2e9fa904fd4d3"
     },
     {
       "coverage_route_id": "geo-route:77bf9b738441709c296b9d45",
@@ -1353,11 +1352,10 @@
         "un_sc_sanctions",
         "ofac_recent_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:12a2a943f96bbc35d7fa2e0ec9ad44c52d2cf17c4902fc1a68640ded73e48a57"
+      "coverage_route_hash": "sha256:2d24e0d9e73443719022ea719490b83554ecd99abf4d7ee18d33bbf48d813147"
     },
     {
       "coverage_route_id": "geo-route:31415ef2640b8d05788570c9",
@@ -1383,11 +1381,10 @@
         "un_sc_sanctions",
         "ofac_recent_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:b41b38fb5a4a915910691654fa4e43d240bd0ac90def50c3846f6f42274e2332"
+      "coverage_route_hash": "sha256:f10986d8b01ab7684a085d4c32f10cf2a66d99c346219cfa7189521444696a49"
     },
     {
       "coverage_route_id": "geo-route:6eedaa9ab06d82a2229670c9",
@@ -1413,11 +1410,10 @@
         "un_sc_sanctions",
         "ofac_recent_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:27bd62a3c4a6e651f1f77c3b71d7b8f03cc08714e64920a6cffc33a0590e68c3"
+      "coverage_route_hash": "sha256:0a58ec951bd30eed354e6731ebcf689b0fb66b6d54de664ac6ef548233bf36ab"
     },
     {
       "coverage_route_id": "geo-route:3453338d1a422a343f0d58b6",
@@ -1443,11 +1439,10 @@
         "un_sc_sanctions",
         "ofac_recent_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:59f5e07c1e967d23ed2f91026feeb8ebc8db4bc77c3fdbd1c61ea3aa4d43aa4d"
+      "coverage_route_hash": "sha256:a534d3adacbcc73a0a78cd51e6e3d73af2b4e088a16f549054d6290953a55ce6"
     },
     {
       "coverage_route_id": "geo-route:2ed4dc41c06b379ec6ea3eb0",
@@ -1473,11 +1468,10 @@
         "un_sc_sanctions",
         "ofac_recent_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:06ceb1e698e063a3bca0f7593cf6aedb5b6d636ad7b61735036119a55d05fc1f"
+      "coverage_route_hash": "sha256:32d6caccb97511240e7c464914648aad491dbd9151edfe27c313d2b268707616"
     },
     {
       "coverage_route_id": "geo-route:e29550d08882a2f46ed80aad",
@@ -1503,11 +1497,10 @@
         "un_sc_sanctions",
         "ofac_recent_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:dc4eaba8819c9d8cd5b44c1f43e25c3592528dc29bf029ca15cfc837075a6875"
+      "coverage_route_hash": "sha256:9662f3d9da1265a620bd8dd63269bc4dbb9e2488c4503b9c5521a8be2c9519dd"
     },
     {
       "coverage_route_id": "geo-route:b12e7bf8f7a5fcffb26823f8",
@@ -1533,11 +1526,10 @@
         "un_sc_sanctions",
         "ofac_recent_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:b47e813e464feb27cfc8148fb4bdeccb05b76a818d4406a54157453833343553"
+      "coverage_route_hash": "sha256:fe254df449bff44c84d576eee5fca4478704d36bb543da310f01e370ca12240f"
     },
     {
       "coverage_route_id": "geo-route:70ce34fb63b060969081c288",
@@ -1563,11 +1555,10 @@
         "un_sc_sanctions",
         "ofac_recent_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:7ae96ad2744eb777d0d9855eac8435b0a17b98c056a0922263eb8de538d64384"
+      "coverage_route_hash": "sha256:2d21d1a779da6dbb3a34473ef8fdc6181f2ad74c3321b962dec2bdde5acd725a"
     },
     {
       "coverage_route_id": "geo-route:322c319abfa3823ce3112113",
@@ -1593,11 +1584,10 @@
         "un_sc_sanctions",
         "ofac_recent_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:cded70417413d0985b00665a6abe428907ca4e05eaad58cbbf64164f023f3121"
+      "coverage_route_hash": "sha256:bc443c015aef0d928d5a9fd200ce7414e0eb9413cdf90e8684d66b48f4dd6319"
     },
     {
       "coverage_route_id": "geo-route:2a86c1228d2f06027cb46bb6",
@@ -1623,11 +1613,10 @@
         "un_sc_sanctions",
         "ofac_recent_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:3e0369b57eb69360ff18f288c27eafd82fbc4a86ca0bdf2690e0382657fd39e2"
+      "coverage_route_hash": "sha256:fbb0e0c4aabd3c2c6682b200593710f41b83b70d24dbdc235b431d975261fae1"
     },
     {
       "coverage_route_id": "geo-route:53aa9368081c1efe342345c8",
@@ -1653,11 +1642,10 @@
         "un_sc_sanctions",
         "ofac_recent_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:b4d59ed817a8d1f96f9645bc2dcab0f67570d2d96ff2134d7b3142968d04ac69"
+      "coverage_route_hash": "sha256:4581ba96f53c18911a1912af734f57d68cd414084888cc739afebefd28c96a90"
     },
     {
       "coverage_route_id": "geo-route:282b16f2dbffcf90882c654e",
@@ -1683,11 +1671,10 @@
         "un_sc_sanctions",
         "ofac_recent_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:cede90147c5cc8a586d5c28be49b7295acbaa1b217b6cb06e22591bb0ffc065e"
+      "coverage_route_hash": "sha256:b17aa66f3b5e814cf56c8770e5d3927cb04254bee48f1e06d2b0f69284416545"
     },
     {
       "coverage_route_id": "geo-route:02df2b93f77160497acadc29",
@@ -1713,11 +1700,10 @@
         "un_sc_sanctions",
         "ofac_recent_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:3902a577cd6a2eab3c67c2024005eefd86c7d05d254c4ab2c70f8620dc689536"
+      "coverage_route_hash": "sha256:6dade8b0eb91920ee9a7b35d7236e3abf778f9a6536200721fc03cc7a01a5433"
     },
     {
       "coverage_route_id": "geo-route:ec3ad1566037441bd116a1cd",
@@ -1743,11 +1729,10 @@
         "un_sc_sanctions",
         "ofac_recent_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:9291bca70850aa640b4c2db638bebe5cf73bf8197216a8c9ebbfad51ba1c336a"
+      "coverage_route_hash": "sha256:48143d3da28a805bc415bc899f79e304dfeda131b91d6a80dbe428f08277e155"
     },
     {
       "coverage_route_id": "geo-route:d88f0fe41dc7c299db37d991",
@@ -1773,11 +1758,10 @@
         "un_sc_sanctions",
         "ofac_recent_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:12a8f4363027825c4c38ed8679eced4a5b7c27535c4c12106744a752796ff87e"
+      "coverage_route_hash": "sha256:a8a7e3879d81818ce5857db8e4d0c41469d5a3031577fbcf89d259f28f9565b8"
     },
     {
       "coverage_route_id": "geo-route:ae965b4b8691293f075b2abb",
@@ -1801,11 +1785,10 @@
         "cn_mofcom_export_control",
         "bis_federal_register",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:3e01b4784849724bde65ecaf7c6fc39c8823ac41cc381c4ac778cf8ea2f1c580"
+      "coverage_route_hash": "sha256:1609493b68d9d7f31be6077a67e99fc6539650133e71ae885a0f6acd0007d9ae"
     },
     {
       "coverage_route_id": "geo-route:4c943a88fd47cdb04d7e219b",
@@ -1829,11 +1812,10 @@
         "cn_mofcom_export_control",
         "bis_federal_register",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:739127b41dee5d333751987cc5e5f302364231c8b5d76ce77e9a29ed1746878a"
+      "coverage_route_hash": "sha256:25ee53bc5ea8f315955a077f7889ab504d41066d1334c471f7434c255137f1f2"
     },
     {
       "coverage_route_id": "geo-route:d9387eff4a71aae28027b53f",
@@ -1857,11 +1839,10 @@
         "cn_mofcom_export_control",
         "bis_federal_register",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:780a2d3e0c149761af0441d9e4d05bdf40c9b234ac9a477e733e153ec17e6408"
+      "coverage_route_hash": "sha256:b5c0e47445f2be4341ddbe6a82a844f1f6cdc220f620eeea39824ff78f2370fb"
     },
     {
       "coverage_route_id": "geo-route:f45647b9e1891979306a8fda",
@@ -1885,11 +1866,10 @@
         "cn_mofcom_export_control",
         "bis_federal_register",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:ebeb7b96309dae506369fcabb81a36bc6a442a3ada45fb76af08b1d2ac5cc71f"
+      "coverage_route_hash": "sha256:e1ae4aed2c8fd13aac13da5631698b516c37d4a962ff86ecf71bc380ad5fae49"
     },
     {
       "coverage_route_id": "geo-route:bd6ead9fd3cb854137e86cdd",
@@ -1913,11 +1893,10 @@
         "cn_mofcom_export_control",
         "bis_federal_register",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:04237e4031645972103f5beb686ca1eb26320c2bba9d7283f5dd5ef3a359c8f4"
+      "coverage_route_hash": "sha256:f6c41e62c450a8d249fac3cd6bb6f33b61262e05a2d3564f7f8dde51048a3203"
     },
     {
       "coverage_route_id": "geo-route:bc61ae876adafe4ddb33f0f4",
@@ -1941,11 +1920,10 @@
         "cn_mofcom_export_control",
         "bis_federal_register",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:60b41c4283122e83e1fa5a88ef49b634849e4e598bf2e89d4305f1672afca1b5"
+      "coverage_route_hash": "sha256:9b7f0eb8bd731d0fecb20154f7dcc4225678dec517b6aa9fcb08d9a45185a828"
     },
     {
       "coverage_route_id": "geo-route:2ce81c148d357cff1ffcee61",
@@ -1969,11 +1947,10 @@
         "cn_mofcom_export_control",
         "bis_federal_register",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:1f8245af2fa189a35618e303916719cd492a69e66b1a4871850c11d6f9187f76"
+      "coverage_route_hash": "sha256:06aee6e0bc52823552472a44363d716201d026f57e8ec6a2de446c79376ccd6b"
     },
     {
       "coverage_route_id": "geo-route:add30eddb0a8652f27be4860",
@@ -1997,11 +1974,10 @@
         "cn_mofcom_export_control",
         "bis_federal_register",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:df828f423eaf7adae93c60c65421d50987ecda7ac3d37a3228b29ba017c61ff4"
+      "coverage_route_hash": "sha256:bc2d0f02a182b3a8fe675f034fd6d49ce92c259c6cccfce8d9a99c135549ab26"
     },
     {
       "coverage_route_id": "geo-route:1bb262b6050933b3894ff176",
@@ -2025,11 +2001,10 @@
         "cn_mofcom_export_control",
         "bis_federal_register",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:834f8d14f4d33b23908244c285526df2999dc6a7ee8165c36c4cfa86d5bfbac5"
+      "coverage_route_hash": "sha256:d10c2f895baf976e573b806fe59bac545fbfd62cca6bbe25463701a77ea0c911"
     },
     {
       "coverage_route_id": "geo-route:b75fcdcc612e465c1d698c21",
@@ -2053,11 +2028,10 @@
         "cn_mofcom_export_control",
         "bis_federal_register",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:addb6c58e9467f190af923d78d0961a885e14a9e242268310fb0177884908430"
+      "coverage_route_hash": "sha256:3eda0c105c5face66f2f19f0389b0a63581003ece7c429322b2bbb9438ae4d39"
     },
     {
       "coverage_route_id": "geo-route:c0c6ce04cd69284c59e03b7e",
@@ -2081,11 +2055,10 @@
         "cn_mofcom_export_control",
         "bis_federal_register",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:fde8a4da811f3b095ea28e21aabd45a91d4b8d92966566bb258938990f59265e"
+      "coverage_route_hash": "sha256:b2123ba0d7f72f6fe39ef8ccb881233e5ba957777e616cd1cebc8343931234ab"
     },
     {
       "coverage_route_id": "geo-route:590a7ff761c9e0380b1f06d1",
@@ -2109,11 +2082,10 @@
         "cn_mofcom_export_control",
         "bis_federal_register",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:d818201f6f69dcf6100eb9f02b50b73af20d51b3acd07a95f954b730716ed0fa"
+      "coverage_route_hash": "sha256:d26e91b909284b08cf8a698331b2ae775192489ff9df68546af476fb564a9eb2"
     },
     {
       "coverage_route_id": "geo-route:40990aed6332791b0517ffb0",
@@ -2137,11 +2109,10 @@
         "cn_mofcom_export_control",
         "bis_federal_register",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:9990bed26cb1c7332e1d1171294621caf68cb253c06ab192d15f5b6df39b3a08"
+      "coverage_route_hash": "sha256:c94ca6622728128551f7b0c95ee09fbbaeb9a7edda4c9a28a70fa8390b06c7ec"
     },
     {
       "coverage_route_id": "geo-route:278379ba2af0eb78d416ff4d",
@@ -2165,11 +2136,10 @@
         "cn_mofcom_export_control",
         "bis_federal_register",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:56ced70edbd71bd3b82e1071ca320b2290c088bfe90ac3fb9245826ac33ee298"
+      "coverage_route_hash": "sha256:db1bed6720336f4748cd164cf60ebe2811a429e2cd4b9816f5ab976f0d475a46"
     },
     {
       "coverage_route_id": "geo-route:0b5d5a78673f7c223e22ba10",
@@ -2193,11 +2163,10 @@
         "cn_mofcom_export_control",
         "bis_federal_register",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:17595f983b2bcd61d95fc73e0f2c01106286d35816fab2b6791cefe856710a21"
+      "coverage_route_hash": "sha256:c414cbf7716be92647ccfb6e8a87a5f854a55c801a1781f7040bd962da98c920"
     },
     {
       "coverage_route_id": "geo-route:5d1989f216eac5af7df0b5b3",
@@ -2221,11 +2190,10 @@
         "cn_mofcom_export_control",
         "bis_federal_register",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:98c2fdfb3f6cf1ddc301345cbb3a02cd9adee5b5c15f3a94b56ded871b082030"
+      "coverage_route_hash": "sha256:4018b786cf23016ad2901d9aa445f9da88eb2ebde50381d1638ba284f4695ada"
     },
     {
       "coverage_route_id": "geo-route:1730f4832b03cb731a8c6748",
@@ -2249,11 +2217,10 @@
         "cn_mofcom_export_control",
         "ustr_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:ce68afb05abe878450fc367735b5fc32acff86121398c46a1a26720179556f65"
+      "coverage_route_hash": "sha256:29e9ebeeb805ce741819159ccaaf2ce05d48b1470e705d0df7e221ed08f1103d"
     },
     {
       "coverage_route_id": "geo-route:734320abd116de052fd1456c",
@@ -2277,11 +2244,10 @@
         "cn_mofcom_export_control",
         "ustr_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:c6e4cdec3254135597dddbc1266efafeffc25efcddbb97abd32cd8ee8fb7dcac"
+      "coverage_route_hash": "sha256:6627fb9a4cb13dd07ce47cebb67b0bfb16e47ef10a2a1f5fc683ae72e7cffe2a"
     },
     {
       "coverage_route_id": "geo-route:057a74a531b1bd0acf11c7bf",
@@ -2305,11 +2271,10 @@
         "cn_mofcom_export_control",
         "ustr_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:b48fec7575fed8b0fecb12e9419f6d6f4a6a7c6f04a175dae476cfadcffa3aac"
+      "coverage_route_hash": "sha256:b5693fb623983abdff4d24e729eda02cc4f4dbf8a59978d1d52e537020234830"
     },
     {
       "coverage_route_id": "geo-route:a5c75425272f1e573fe30dd9",
@@ -2333,11 +2298,10 @@
         "cn_mofcom_export_control",
         "ustr_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:38ff2dc578ab5aeca915ac29f3abf3557cd9c0eb58d2e8a62b8a1dc7ca1e2537"
+      "coverage_route_hash": "sha256:111ce07baaebdeaa5cbbe0d599d079610534c20784930a0ca47bf44c85f3dbe3"
     },
     {
       "coverage_route_id": "geo-route:cf7fc11c29d86b34afbad075",
@@ -2361,11 +2325,10 @@
         "cn_mofcom_export_control",
         "ustr_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:8705ef6c8d4c5efc1deb81f30fcc0874ce79ce13d5cf57343449efe6fd346dbb"
+      "coverage_route_hash": "sha256:3281c9bf8aec1f9bc180a281fea56f5def279809f24c531ff64b8d732d92dcf2"
     },
     {
       "coverage_route_id": "geo-route:6ebbf2605a152320419c92d8",
@@ -2389,11 +2352,10 @@
         "cn_mofcom_export_control",
         "ustr_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:665d5dfb17310e83b666d07261c6ded0e94d9402c6928699bf3e451fd1300765"
+      "coverage_route_hash": "sha256:b5a84aabafbb95a2173066c6adb5a72c770d8ad18d15c6d8a805580d787b09cb"
     },
     {
       "coverage_route_id": "geo-route:b9407abc2ce155c9b89cfe7a",
@@ -2417,11 +2379,10 @@
         "cn_mofcom_export_control",
         "ustr_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:a4ff4523b3be85d8140809ebafa863bed5f441a19cf0ee238c470abb8e4b5a62"
+      "coverage_route_hash": "sha256:f29c5d53491c065c9eac1b88b4252f74a8aa44ef762491aad79e594d3e7a362a"
     },
     {
       "coverage_route_id": "geo-route:1ab9710ed9c61cf06492f845",
@@ -2445,11 +2406,10 @@
         "cn_mofcom_export_control",
         "ustr_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:25ed7c0175cc1c60b5b86ffbf5416c4c42240e81f15af7978c471675b7e4e6f8"
+      "coverage_route_hash": "sha256:16f8ca525f0e4623a78f37d9ba3e89722bd52cc33e8eafb72792f958e8f78b0a"
     },
     {
       "coverage_route_id": "geo-route:0925d642addcbc842e3c68bd",
@@ -2473,11 +2433,10 @@
         "cn_mofcom_export_control",
         "ustr_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:cb72482942d55d7e17fb306984df0b1e0c5fb87f2e1e13057b29d4982dc7648d"
+      "coverage_route_hash": "sha256:d0f317d15e59a3cb7125bdfd87108c225685be528d60c987261ca7398c852c68"
     },
     {
       "coverage_route_id": "geo-route:e71d4565d943f0332fe23761",
@@ -2501,11 +2460,10 @@
         "cn_mofcom_export_control",
         "ustr_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:9424b3eef97fdd962dae325d4582179600e5caaafe5bc5ae00a0165f8ae307f3"
+      "coverage_route_hash": "sha256:00e396a3752e4d7cf4838fc0d39618e2d6cc82be82577ba528a01efa49cf9c50"
     },
     {
       "coverage_route_id": "geo-route:edde4b7f07ee645a9cdad9e8",
@@ -2529,11 +2487,10 @@
         "cn_mofcom_export_control",
         "ustr_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:0ae0b0df7eb84d4795384424f3f43c255ed0c317b91e16e7101b8f3903d210ad"
+      "coverage_route_hash": "sha256:471a03254feb6bf3432703a0e1af05e317923b4319cbf8d04841eff35c463385"
     },
     {
       "coverage_route_id": "geo-route:4ee1064ef4394ff45bbf3d1d",
@@ -2557,11 +2514,10 @@
         "cn_mofcom_export_control",
         "ustr_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:d695af34d7684137f09e9b47cd3e5f60f5b8e8caedb273d0a29ad069bef7614d"
+      "coverage_route_hash": "sha256:e9e06126119214b5bb8a1b9b33658bdd908b2bdc3cb2d473f6603f497a5002f3"
     },
     {
       "coverage_route_id": "geo-route:701cd676d762d1b032b95756",
@@ -2585,11 +2541,10 @@
         "cn_mofcom_export_control",
         "ustr_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:c41abec9ee9db93968c6942e232e16815d0933760d7360af2cd5937f63dba904"
+      "coverage_route_hash": "sha256:c87f7c542e800dac2665b7fbba0a57bfe91d1c1a73cde7fb4c9301285da3e4fc"
     },
     {
       "coverage_route_id": "geo-route:b7189873d38c9f8aebe262ff",
@@ -2613,11 +2568,10 @@
         "cn_mofcom_export_control",
         "ustr_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:1d1b90a7aa709e28405f6e5bab14204107f05fc37f9f39156a3e16cc8c7ec547"
+      "coverage_route_hash": "sha256:382c1ebd73c47e600a5aba8518e38547dfb779b934976aa05e136f24da3bb738"
     },
     {
       "coverage_route_id": "geo-route:f704428204e844090469632b",
@@ -2641,11 +2595,10 @@
         "cn_mofcom_export_control",
         "ustr_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:7b911517da0f111c5d4d7b9dd96551389c4314f25345eb15e755cb89daca2dd6"
+      "coverage_route_hash": "sha256:4bea420467a9dfae10479967a27755bf6d97af76f764eeb5bdd3fd047e672735"
     },
     {
       "coverage_route_id": "geo-route:e14c0ecfa5071b472c7ebfc1",
@@ -2669,11 +2622,10 @@
         "cn_mofcom_export_control",
         "ustr_actions",
         "eu_council_sanctions",
-        "eurlex_official_journal",
-        "gdelt_event_gkg"
+        "eurlex_official_journal"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:f2ffd10689ca29b47c276d98aae2bd0770bfc9d559e030885dd391f598986e89"
+      "coverage_route_hash": "sha256:f796b504e458042cda3b6438d8f3fa4140cd3cb580a48725fec1cbd5a3a168e9"
     },
     {
       "coverage_route_id": "geo-route:fab6cf53f867097e99b30a1e",
@@ -2691,13 +2643,12 @@
         "eeas_releases"
       ],
       "no_event_evidence_source_ids": [
-        "gdelt_event_gkg",
         "un_conflict_releases",
         "us_state_releases",
         "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:bb8934680f4cde373125f350fdd8544ea051954b9c14066486af6406774b8aef"
+      "coverage_route_hash": "sha256:90554176b3a60af2ee053e1c8c4f32a06f47c63dab9435b115bb71b0728f7d99"
     },
     {
       "coverage_route_id": "geo-route:de19f1b4a1e6a72869422826",
@@ -2715,13 +2666,12 @@
         "eeas_releases"
       ],
       "no_event_evidence_source_ids": [
-        "gdelt_event_gkg",
         "un_conflict_releases",
         "us_state_releases",
         "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:cd1e44e60890f31b78215e8f2ec018d74792a2bf85f355d94a78d238aaf96f2a"
+      "coverage_route_hash": "sha256:af1d545b6c14eb6250ed04cc6814cecfb6be23ef630b24e295cc16d7a62e9390"
     },
     {
       "coverage_route_id": "geo-route:37dd98810807a63f9c1234ab",
@@ -2739,13 +2689,12 @@
         "eeas_releases"
       ],
       "no_event_evidence_source_ids": [
-        "gdelt_event_gkg",
         "un_conflict_releases",
         "us_state_releases",
         "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:8593bc78e7a2d3f90d4bef8cb5dfc9e77fe0fd4f81a1e265be68ed9d257cab1c"
+      "coverage_route_hash": "sha256:8c744172c0c07c2d2de7f7dc7501971f463f0405346c61d113b569c9fe3e4b4d"
     },
     {
       "coverage_route_id": "geo-route:ca169028f804f39be1d0ab44",
@@ -2763,13 +2712,12 @@
         "eeas_releases"
       ],
       "no_event_evidence_source_ids": [
-        "gdelt_event_gkg",
         "un_conflict_releases",
         "us_state_releases",
         "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:4ab422c8b563b417df8d203a22d0142ab709d7c9e23acc6f2bc9abbfcaeca67d"
+      "coverage_route_hash": "sha256:e27a0e6267bb9dd72652ccf6e01f3f5d6360bfa3e7c3464f1d793e37daf9a265"
     },
     {
       "coverage_route_id": "geo-route:2650742aa9b900b595914f56",
@@ -2787,13 +2735,12 @@
         "eeas_releases"
       ],
       "no_event_evidence_source_ids": [
-        "gdelt_event_gkg",
         "un_conflict_releases",
         "us_state_releases",
         "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:308fe70c3b8ad5fe7e319f46f7b4626e403fe0767c18abb2f544ac7655866b91"
+      "coverage_route_hash": "sha256:7ff54ad87ee44b952b2c3d82f4eaa8985c4f01c9820c334a9c6cebb32fb8f295"
     },
     {
       "coverage_route_id": "geo-route:6da6485538bb67a72002cf89",
@@ -2811,13 +2758,12 @@
         "eeas_releases"
       ],
       "no_event_evidence_source_ids": [
-        "gdelt_event_gkg",
         "un_conflict_releases",
         "us_state_releases",
         "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:a1593df74c3ec7be7ce35537e8e239b8f8164d5e27f2f0a53d9713e0ff8131b8"
+      "coverage_route_hash": "sha256:926173b262867519f0f56267ad8d47ad4783b71ebf12b77d26d499ac9e85e568"
     },
     {
       "coverage_route_id": "geo-route:203b72aa5aa07bdb6afb3713",
@@ -2835,13 +2781,12 @@
         "eeas_releases"
       ],
       "no_event_evidence_source_ids": [
-        "gdelt_event_gkg",
         "un_conflict_releases",
         "us_state_releases",
         "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:eb676b5d02816eb4848a451ae0ef31bab6fa79b97252aa849b73c31ed57f5ec2"
+      "coverage_route_hash": "sha256:128e5f11920d6ce137c1e71fb9443cb842b0ee2daaef2ae6e405914b73a370f9"
     },
     {
       "coverage_route_id": "geo-route:7cb31f500997173dfd67a8d6",
@@ -2859,13 +2804,12 @@
         "eeas_releases"
       ],
       "no_event_evidence_source_ids": [
-        "gdelt_event_gkg",
         "un_conflict_releases",
         "us_state_releases",
         "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:d94c544622083aed1df3223a6a753a2fc39fa663a05c8050ec8e795ab0b357bb"
+      "coverage_route_hash": "sha256:eb255b13c3834eb7e09b712d981c987421fb591a0324f5cb5708499cd9566b8f"
     },
     {
       "coverage_route_id": "geo-route:1c87d28f0700c637aad09965",
@@ -2883,13 +2827,12 @@
         "eeas_releases"
       ],
       "no_event_evidence_source_ids": [
-        "gdelt_event_gkg",
         "un_conflict_releases",
         "us_state_releases",
         "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:bb6486842766bac8fc3b73c1886a6c6643759aad7e9b1d924f749da9a1ae3c76"
+      "coverage_route_hash": "sha256:c75d72615cc808622ad5c13d9de9c4feb598d4959cfac455ad4fa6c4b62bc8de"
     },
     {
       "coverage_route_id": "geo-route:04b384164a6696bf1a7071c7",
@@ -2907,13 +2850,12 @@
         "eeas_releases"
       ],
       "no_event_evidence_source_ids": [
-        "gdelt_event_gkg",
         "un_conflict_releases",
         "us_state_releases",
         "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:15d99dbb5e21c2f863fc20a8c120504f3cf75c02fb356de8b214792c0bbf4358"
+      "coverage_route_hash": "sha256:9ddc483deb76cb4d2c36932914486298c5888205d3ca60f2e71352802a50c7f4"
     },
     {
       "coverage_route_id": "geo-route:5fd3a1514d4fb1de4c53b9b9",
@@ -2931,13 +2873,12 @@
         "eeas_releases"
       ],
       "no_event_evidence_source_ids": [
-        "gdelt_event_gkg",
         "un_conflict_releases",
         "us_state_releases",
         "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:0faf4edee166eb6e2a2838b4cb4f45d667e1f78309618e3e8726e37e8cfb37c9"
+      "coverage_route_hash": "sha256:0a49bd99380894b5e3308bbd0c5b26418652ed9571a302c087401f0ecddd1e30"
     },
     {
       "coverage_route_id": "geo-route:a22e56bb43e7ed8060efa06e",
@@ -2955,13 +2896,12 @@
         "eeas_releases"
       ],
       "no_event_evidence_source_ids": [
-        "gdelt_event_gkg",
         "un_conflict_releases",
         "us_state_releases",
         "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:6c9724ff2219c05045b2c9efc1cff194ca5694fdbe8218416f4805ba64368019"
+      "coverage_route_hash": "sha256:6ab5a81cb1eace0509a00381eef7fef585d83a8029bc60cad07e88eb6ed93824"
     },
     {
       "coverage_route_id": "geo-route:a6a984522494432c5017dcd6",
@@ -2979,13 +2919,12 @@
         "eeas_releases"
       ],
       "no_event_evidence_source_ids": [
-        "gdelt_event_gkg",
         "un_conflict_releases",
         "us_state_releases",
         "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:fcedb521ed6dcdd853a617870734d1a768d05ca9bd4036c91727244f57d45303"
+      "coverage_route_hash": "sha256:907347beea5b0d177920d4bb0d6770e5306b9dc5b901b807731a6d0d3e06a5f7"
     },
     {
       "coverage_route_id": "geo-route:b9b306036cc1d406325b958d",
@@ -3003,13 +2942,12 @@
         "eeas_releases"
       ],
       "no_event_evidence_source_ids": [
-        "gdelt_event_gkg",
         "un_conflict_releases",
         "us_state_releases",
         "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:bba819f57c477a23f82ccb3c36809e559d6d81ea6107ceae67106f4f9386b9c3"
+      "coverage_route_hash": "sha256:f2cba1b6ca1e22bb000a78b346140bb6d24db52ebb40e9910df0fd6cb470bdb1"
     },
     {
       "coverage_route_id": "geo-route:181c32985dbc93a166d4f40a",
@@ -3027,13 +2965,12 @@
         "eeas_releases"
       ],
       "no_event_evidence_source_ids": [
-        "gdelt_event_gkg",
         "un_conflict_releases",
         "us_state_releases",
         "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:a5a7ff2922de256a624fc325d797fb51f0e8e43c399298f5bad45e32edf57a1f"
+      "coverage_route_hash": "sha256:69936412b946d91cbb4c5d535876c25523b7f82953dd9cc59aa24e756b3dd3f7"
     },
     {
       "coverage_route_id": "geo-route:b9795623f8fcc77f09baaffd",
@@ -3051,13 +2988,12 @@
         "eeas_releases"
       ],
       "no_event_evidence_source_ids": [
-        "gdelt_event_gkg",
         "un_conflict_releases",
         "us_state_releases",
         "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:5f9a926596ae4b4aaad2ac0a88153ebc98cddf289605c4a1ed20400108c96742"
+      "coverage_route_hash": "sha256:247c5617097bd796dd6b599be961e73ae3150e06e804f5d598625945b5a93e53"
     },
     {
       "coverage_route_id": "geo-route:f505046d50b97533fd36f4d5",
@@ -3071,7 +3007,7 @@
       "required_source_ids": [],
       "no_event_evidence_source_ids": [],
       "route_status": "NOT_APPLICABLE",
-      "coverage_route_hash": "sha256:975facea94cf0081e664a54d35826857fa2204422f012b06d2df4ce38cedb76d"
+      "coverage_route_hash": "sha256:354986136e06068502ba7ba03cbfad2a0f461d7968748b9180d47761a2acf4b6"
     },
     {
       "coverage_route_id": "geo-route:69bddda900c9f5c5c9cabeed",
@@ -3085,7 +3021,7 @@
       "required_source_ids": [],
       "no_event_evidence_source_ids": [],
       "route_status": "NOT_APPLICABLE",
-      "coverage_route_hash": "sha256:3caa05598e0c118b06db3afb0c30b876558fc42e686d1566479f1bffefaa8e08"
+      "coverage_route_hash": "sha256:8451662e4b1a1cf5629b7945e9545abc5c1d837963790291219f8d8a9e17c851"
     },
     {
       "coverage_route_id": "geo-route:b8d02b1d749f429f28537307",
@@ -3099,7 +3035,7 @@
       "required_source_ids": [],
       "no_event_evidence_source_ids": [],
       "route_status": "NOT_APPLICABLE",
-      "coverage_route_hash": "sha256:128c74adeef3e12a37f2e14416aec460935c4e1690d9a10fe549b97dafbed3df"
+      "coverage_route_hash": "sha256:db0a817f63666bfc3e4e45f0756e24ccaec6f05df5a3fd5c1c87b025d7f4692f"
     },
     {
       "coverage_route_id": "geo-route:9504d43f7afd8b31d8c7e84a",
@@ -3113,7 +3049,7 @@
       "required_source_ids": [],
       "no_event_evidence_source_ids": [],
       "route_status": "NOT_APPLICABLE",
-      "coverage_route_hash": "sha256:837ba0e61b5f46d069f1f4c08be1d9485da04d30baf9f0d18884787492dc36f1"
+      "coverage_route_hash": "sha256:ead3843b2b41e7e9e9f509476c973753069ff46542806560e91c08c75406fbec"
     },
     {
       "coverage_route_id": "geo-route:fea378bf88f5623a41ce9bb9",
@@ -3127,7 +3063,7 @@
       "required_source_ids": [],
       "no_event_evidence_source_ids": [],
       "route_status": "NOT_APPLICABLE",
-      "coverage_route_hash": "sha256:be853d6f4d7fda9f30f5d1d6c15f0c31af3ee67785ef52c87a26fa6d7398dcde"
+      "coverage_route_hash": "sha256:b3cb9e447769f5c1d01e05d31600db9fb88919f09e9f6c2b1043c4dfc0b595d0"
     },
     {
       "coverage_route_id": "geo-route:d3d4415b5d23cc9db5e87896",
@@ -3141,7 +3077,7 @@
       "required_source_ids": [],
       "no_event_evidence_source_ids": [],
       "route_status": "NOT_APPLICABLE",
-      "coverage_route_hash": "sha256:e64f5a71b48e4aee54eadfd319b47c28d37ab9a9a50432af8947efaa7990aadb"
+      "coverage_route_hash": "sha256:4450a6a236007203c8d3438025ed762bd1860e44c4647739f017b9ffcdcdd51c"
     },
     {
       "coverage_route_id": "geo-route:87aea46fdc894f93768db5d3",
@@ -3155,7 +3091,7 @@
       "required_source_ids": [],
       "no_event_evidence_source_ids": [],
       "route_status": "NOT_APPLICABLE",
-      "coverage_route_hash": "sha256:de49a0c9041b01e7142ffbedccad08a9122444d310e39e828a5a53f4e4893d2f"
+      "coverage_route_hash": "sha256:da11cc0de1eaafde5751faf536aace6b0036aeaa82357c312854e5835fe60ea2"
     },
     {
       "coverage_route_id": "geo-route:e87dcc3d6e83d7c7fbc55130",
@@ -3169,7 +3105,7 @@
       "required_source_ids": [],
       "no_event_evidence_source_ids": [],
       "route_status": "NOT_APPLICABLE",
-      "coverage_route_hash": "sha256:098dddd95d47422efea6a9a84c38a535bbe11c175b229c39d049d37993799769"
+      "coverage_route_hash": "sha256:085274ad98345db7ccc820afd702ff1410df8066376f0ed0810bbd0714963009"
     },
     {
       "coverage_route_id": "geo-route:2c2b57e2fe1bf215e17ac6d6",
@@ -3183,7 +3119,7 @@
       "required_source_ids": [],
       "no_event_evidence_source_ids": [],
       "route_status": "NOT_APPLICABLE",
-      "coverage_route_hash": "sha256:cffc1ca93be8436c1a464e99dc51589e5eb796bd0c9550f117d121f405c16103"
+      "coverage_route_hash": "sha256:f3198a143859d71dc62d9d5bfb81648a29c473205b438be099ed3f7d5a6010a3"
     },
     {
       "coverage_route_id": "geo-route:5d791f4b3c967767efcf59af",
@@ -3201,11 +3137,10 @@
       ],
       "no_event_evidence_source_ids": [
         "marad_msci",
-        "ukmto_advisories",
-        "gdelt_event_gkg"
+        "ukmto_advisories"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:54089360ff1f49450a0c86edbe5daa53cd6a3abf7c757ad229e05d105a2d101b"
+      "coverage_route_hash": "sha256:2830a7ce697a8d0e02904fb2ca5927ec9290e7d1a4e0dc2f7a66a3bf03affd31"
     },
     {
       "coverage_route_id": "geo-route:e37d24909e12f661d96b8aa3",
@@ -3223,11 +3158,10 @@
       ],
       "no_event_evidence_source_ids": [
         "marad_msci",
-        "ukmto_advisories",
-        "gdelt_event_gkg"
+        "ukmto_advisories"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:b8c37e9ff7addcee27cebcf65406fff01a9b2a15b6bbe50af0b7e871c752f74c"
+      "coverage_route_hash": "sha256:e5c85a2b005574b81b21680ce6a8ffcba2ab50ccb6f4ca7a765372001101887f"
     },
     {
       "coverage_route_id": "geo-route:625ba552267e3fd9ce02d537",
@@ -3245,11 +3179,10 @@
       ],
       "no_event_evidence_source_ids": [
         "marad_msci",
-        "ukmto_advisories",
-        "gdelt_event_gkg"
+        "ukmto_advisories"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:6709257168058136387ee32745a6cd6e8c5de510e6bbd2496c9aa54de9001c43"
+      "coverage_route_hash": "sha256:ea2754a3511f4e66fd545a935733776543a9ccb3e5a15b4582ba77d4b0999756"
     },
     {
       "coverage_route_id": "geo-route:0743d6c150f12fd723c99e8c",
@@ -3267,11 +3200,10 @@
       ],
       "no_event_evidence_source_ids": [
         "marad_msci",
-        "ukmto_advisories",
-        "gdelt_event_gkg"
+        "ukmto_advisories"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:60d60e72e7d038a78b0d37efefcada35cec2e71744105f86ad2481e7f4355358"
+      "coverage_route_hash": "sha256:2a1c68900444c83d05c47dd0ced9d4ffe6edda802bba3faccd2a4d598e050ebe"
     },
     {
       "coverage_route_id": "geo-route:4bc433fe4a3e2be6b971baf7",
@@ -3289,11 +3221,10 @@
       ],
       "no_event_evidence_source_ids": [
         "marad_msci",
-        "ukmto_advisories",
-        "gdelt_event_gkg"
+        "ukmto_advisories"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:5b2061627eeb72c48c3b042b6db6daec35bc91e26ee06a1ac152afb06fd3a9ae"
+      "coverage_route_hash": "sha256:b14d991c0d949da46cb5f2eacadc036fe4d0361ae8cf6b791ee87091dbe37624"
     },
     {
       "coverage_route_id": "geo-route:0a3c530a5083c5373a1db8b6",
@@ -3311,11 +3242,10 @@
       ],
       "no_event_evidence_source_ids": [
         "marad_msci",
-        "ukmto_advisories",
-        "gdelt_event_gkg"
+        "ukmto_advisories"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:14177e55806ee5263121cda115074787bb42215ba334778878a9e43d4b713fd2"
+      "coverage_route_hash": "sha256:e2699a2d05ee3d1fee7ded64295c93cf379b518125b71e09b6cfb93dcaaec2dc"
     },
     {
       "coverage_route_id": "geo-route:f85832caf89a53733160a6bd",
@@ -3333,11 +3263,10 @@
       ],
       "no_event_evidence_source_ids": [
         "marad_msci",
-        "ukmto_advisories",
-        "gdelt_event_gkg"
+        "ukmto_advisories"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:61ecdfa13a51504ee89c284f6b9c2c9305adfbad1408cb50adca7e5d8ab6bb1b"
+      "coverage_route_hash": "sha256:0cd79ab2531f37b6eec3c39c5fb3ac49150c49857e04cfec1b38a2f30fd5621c"
     },
     {
       "coverage_route_id": "geo-route:2b92cd50506bbd7ddf098f86",
@@ -3357,11 +3286,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:2849e0dab05e8213f14e02c19e3b716e6302f740484cd663201ffb5574484c7e"
+      "coverage_route_hash": "sha256:fd46e46f6d5fa79458aa56aedf9baf5101386a41b3a5d254ec1fabcf0d6d2af2"
     },
     {
       "coverage_route_id": "geo-route:75477e2ac2acf20876a7a06b",
@@ -3381,11 +3309,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:f182505f836e7f427afbfc306b1f99c1e145a2e77c194b52313b072bb468f0f9"
+      "coverage_route_hash": "sha256:35de888f444b091402935583327d1a5765ccf26c42703211f1a4183d528dfa31"
     },
     {
       "coverage_route_id": "geo-route:4ce090dc0bfd908a89410034",
@@ -3405,11 +3332,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:2d6d7415665cca254fec96de6dc6a6f7909b0e800082efc6df44e046da3d781e"
+      "coverage_route_hash": "sha256:99b292daf7ad285edef51c58d5a17f8fa593887075582d853be77983d6967487"
     },
     {
       "coverage_route_id": "geo-route:254c770e8484b4f9b8dfa4d4",
@@ -3429,11 +3355,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:0ff2ccdf6e5e6fc08e9ec4a2afe443d8c041c93393c834808cc90cc030bb80e1"
+      "coverage_route_hash": "sha256:f897e313d50f00b1b0108c2c34707d74f1aeb27c981d94052b3e9cc6311a7f29"
     },
     {
       "coverage_route_id": "geo-route:14ab82635843d06dfb0a605f",
@@ -3453,11 +3378,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:c4cc45f6d578e5d5b6e512080e626b5752ad6967c26d79fdff2f6446e7d7d662"
+      "coverage_route_hash": "sha256:5c6a444e838470d9bac54bec96421e42f468a437898e474835fd5378b87a0594"
     },
     {
       "coverage_route_id": "geo-route:bf83057fc1a34f864f534fe5",
@@ -3477,11 +3401,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:00e1ed3586244ce3f1d9494cfceb16ce3b6f211fcd5b70b05f5fa986374b8c2a"
+      "coverage_route_hash": "sha256:107132bba25bc912f25fefa1bfd48ed72cb08edecfdb8bd97c3803dd4f7e3d9f"
     },
     {
       "coverage_route_id": "geo-route:17a010ac8a5e2c66816c47c9",
@@ -3501,11 +3424,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:0e722fa4659721ef4a09a4d29114d52d7f5afbc9b23e9d098798fab19e532528"
+      "coverage_route_hash": "sha256:2813e70ef987ba3131faea81c08d9304ac157b4fc166a9c13fb075af3ef98568"
     },
     {
       "coverage_route_id": "geo-route:32ac808e573d243f74b4f630",
@@ -3525,11 +3447,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:8c2b3b98dbe14746ac9e7135db785eacb2650d21f51072bd24e80b16014561a4"
+      "coverage_route_hash": "sha256:5dc4d93c98f598cf7773c4ad81d36b8e7b32806d366d52c3bbf6598633b847c6"
     },
     {
       "coverage_route_id": "geo-route:a8343c239f3f4428c1a4cd3c",
@@ -3549,11 +3470,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:06ed8937a15569ea2dffed90401ebc9f7df74319f931fa08242c4bcce81d30fb"
+      "coverage_route_hash": "sha256:9f8c163ff155fa54347c9e79712d0e327d1f94631cde10efd9706a0f98169f84"
     },
     {
       "coverage_route_id": "geo-route:b961e9c55c73913c8b1144f0",
@@ -3573,11 +3493,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:ec31b1c9a34a9f3752c68b2977069d5739a1364cd624a9e875fd6da70b9463d1"
+      "coverage_route_hash": "sha256:80eb3cfbd37587251195559e04077e0e7dc0e0a391334aeb4cf224b25e95d982"
     },
     {
       "coverage_route_id": "geo-route:f4ed083ab0d7616f06e56d15",
@@ -3597,11 +3516,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:793f91f8c7443fe6387ddcc17f605ea61869f91ebf42f9335560e75d2cd352fb"
+      "coverage_route_hash": "sha256:6fbca409b9a93fe3f939d246e24cbed6fac2c40e61833b30c389112ea1433f25"
     },
     {
       "coverage_route_id": "geo-route:ff4dd43ceebbbecce8b695ba",
@@ -3621,11 +3539,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:157341934d67bb43dd9e8dd24b442122e2bc9ee2509d90eeaf36e8bd3542f686"
+      "coverage_route_hash": "sha256:e10ef90a037a888a6be806b30bfcd5764dbb4942b41b62416cc1370296253555"
     },
     {
       "coverage_route_id": "geo-route:99d77581c81c59e012f26085",
@@ -3645,11 +3562,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:165a4535a51569387394ac9ca3e05cdcec8fafb890ccfd060aa1cfa504bdaa8a"
+      "coverage_route_hash": "sha256:0d2dfa0659c956ffa157dec4b17581933cf6fceec64db097d2283b91237d7a0f"
     },
     {
       "coverage_route_id": "geo-route:9cdcdf6f6db73ae0fe916d15",
@@ -3669,11 +3585,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:51585c743ef3bef1a6722e676b40da922dc198af4ca28c7a6ec768c443e13560"
+      "coverage_route_hash": "sha256:d7a671bc59ae548d3b4ac70e8354ab0a781cf77dc9ed78f1e7afdb2629e36ca7"
     },
     {
       "coverage_route_id": "geo-route:0b7fe70456ad697f84cd7f00",
@@ -3693,11 +3608,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:3503f9ba3f08bd911807e963ee54a0afea137fadc58929c9c09c468e30344e31"
+      "coverage_route_hash": "sha256:03f5b7be11dda99aa5969ce3299276aa84288fa557b3edef1eab6ca65e22b612"
     },
     {
       "coverage_route_id": "geo-route:057369adca35bb4ce0a7eb24",
@@ -3717,11 +3631,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:a027d4e4e3f20a89e4612cdf6fa36bb6d944e64ab1e3c934bb4129413b5ab104"
+      "coverage_route_hash": "sha256:e2f91c813fd1f19216b2ba2571ec6d629a588be0274cadfc785acb6e0b13bec0"
     },
     {
       "coverage_route_id": "geo-route:b7465f02fa3498f10a5cab14",
@@ -3741,11 +3654,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:b960bc2d75734bb540a98e9071a01caa516cf2cb6e0bb6624c07a2192bd3a9f1"
+      "coverage_route_hash": "sha256:71e71ec983a4884bf227b39c8f38eac11c2a2b7a6c76d3e9dfb76406495bd511"
     },
     {
       "coverage_route_id": "geo-route:1ba91476bb1d6c9046570e26",
@@ -3765,11 +3677,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:5014e4a13871f366dd2f7d9337ef3f6497d751cc4c5e0a07c0f6d499a71994e1"
+      "coverage_route_hash": "sha256:d02dda872a1dd00af3b0bb789e52dce79f489298642fb555587c0a157b24d428"
     },
     {
       "coverage_route_id": "geo-route:5e104429a99bd0dddcc379af",
@@ -3789,11 +3700,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:26e5df1f0da4fbff29649289650c51933318ef2c3d0bef139bef79c00ba23f4f"
+      "coverage_route_hash": "sha256:0d1e937dbd97d4f7fd17625f70e256de9547da7ea336128a06774778e9eb31ea"
     },
     {
       "coverage_route_id": "geo-route:42208c72602c929f261764f7",
@@ -3813,11 +3723,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:c017ea4143724e29b920d9e44a3677036724cd97f12a1c360186c208f8da79ab"
+      "coverage_route_hash": "sha256:a34bfde4c31e2f3b6821aac4aa532358f3f4a437c1761317a7ae220e489243d6"
     },
     {
       "coverage_route_id": "geo-route:2d872c194d6bfdf7d46e8b24",
@@ -3837,11 +3746,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:52dbce404de4911c197003328f02e33e7bd317a73e1607b197b47f724d3ac5c6"
+      "coverage_route_hash": "sha256:06ebbd4bc911f71e0480906328eb428b1c81901c43a23ff19dee47751c37842e"
     },
     {
       "coverage_route_id": "geo-route:221d3378498865dd6b7a4d89",
@@ -3861,11 +3769,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:df5aa6cdf62c3de0cda25715f493454765dbbff84a2ea6a683bd2e7ab335a4f2"
+      "coverage_route_hash": "sha256:3460e58e9b6535ca3fbca56b02364c93803bdd1b98f224769936eb319f6f33f2"
     },
     {
       "coverage_route_id": "geo-route:b80150bc4d915cb92eaee4d1",
@@ -3885,11 +3792,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:dba4d1e7472a950cc7b6a0830876cd64c77a4b40796fcb815d459a6743fd6e0f"
+      "coverage_route_hash": "sha256:d50c6ccd50631da3c44d10935863506079cb169e718f30928e12854b52e7d851"
     },
     {
       "coverage_route_id": "geo-route:f94e01a089b1200179386910",
@@ -3909,11 +3815,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:e46495b631df30f8156d435fff4c0e54f6d0d70cbd7c723e8dcf562ff0e50944"
+      "coverage_route_hash": "sha256:e08b893aa478760846b8c8b50e44dad069530af60790ca8df0968cd599009ee1"
     },
     {
       "coverage_route_id": "geo-route:4ff1c7e18b51691990d445d2",
@@ -3933,11 +3838,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:6b7339cd3a77d57a08399b0e9fcc510fd5104a963739edcad3b74854c5ca385d"
+      "coverage_route_hash": "sha256:5f9d67574949110fb14c91f4c6c5dac47c81aff7c37ac0f48ef5e2899014ee6a"
     },
     {
       "coverage_route_id": "geo-route:90c9046c9ad8babe5d87cd72",
@@ -3957,11 +3861,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:b772504359eeb5e8930e7653eaf6730213314ccb9c863f47c21fd879bbe78a67"
+      "coverage_route_hash": "sha256:b5d32ee98e0974e8a90ecb0c65eec623ed162f167bf77a244ffe6cdcd38c8172"
     },
     {
       "coverage_route_id": "geo-route:3f8e4c77dbc926be794a56a2",
@@ -3981,11 +3884,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:3c9282523dc183c37f5341c7f2660de4e965ea14c3b8ed786f606e70e70cee0e"
+      "coverage_route_hash": "sha256:c9a2e0f1254b0a46c6cfd86d3e4e1d31374509dd9791b0a128d56e55aa403025"
     },
     {
       "coverage_route_id": "geo-route:ca921b70cb61d41fb3e43dea",
@@ -4005,11 +3907,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:a7adecdcf9f3b74419491cbf62e878ee165258572ed5aa0950d26cde3afd1cfb"
+      "coverage_route_hash": "sha256:595d9dbc1cb3d46c9a96062d8534000fcc8d5915ce4890a68c94519391305950"
     },
     {
       "coverage_route_id": "geo-route:d3dd6b9392dfceb49df4a37f",
@@ -4029,11 +3930,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:b8ab0b6f23dba6ae42efe85d404e9b8ee2c4a3bc579d0824e76d9b09d2d1ce23"
+      "coverage_route_hash": "sha256:d7a2dea662fca334b919dd4e5580449d29d1ef722295c8a209766101bc36e9c6"
     },
     {
       "coverage_route_id": "geo-route:375f20f5b7c9c853dc4b661c",
@@ -4053,11 +3953,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:7fdeeb81e9e3b511e93fadcace3949945b04bb1dffc7634c0e5dbcee21553378"
+      "coverage_route_hash": "sha256:9f7c493d3412ed44a83abaa527457854c9167924c17e7deaeed6e0312efb398c"
     },
     {
       "coverage_route_id": "geo-route:357851835d15c35b85d1d59e",
@@ -4077,11 +3976,10 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:2c90b8fef15bbf4cbf435596ab03d633b8182fbc9ebcb64a441f8082b63eee26"
+      "coverage_route_hash": "sha256:3ec903bc561c5c99b33bae620cadcd49806e762bbc39909132c73a988a66740d"
     },
     {
       "coverage_route_id": "geo-route:95697f503aaf37554e780760",
@@ -4101,59 +3999,30 @@
       "no_event_evidence_source_ids": [
         "cn_mfa_releases",
         "us_state_releases",
-        "eeas_releases",
-        "gdelt_event_gkg"
+        "eeas_releases"
       ],
       "route_status": "PREFLIGHT_REQUIRED",
-      "coverage_route_hash": "sha256:1bf7a4a5e9357ef32a39e717ac8939fa2623f3ed458e64a4e57146005affa8d2"
+      "coverage_route_hash": "sha256:b4ad61cc23ae3fb50bc59e47f08c0536dca55efdd57afd0d09a9db4eafc3f11d"
     }
   ],
   "manifest_readiness": "PREFLIGHT_REQUIRED",
   "readiness_blockers": [
     "bis_federal_register:30_day_preflight_required",
-    "bis_federal_register:source_specific_parser_missing",
-    "bis_federal_register:continuous_preflight_receipt_verifier_missing",
     "cn_mfa_releases:30_day_preflight_required",
-    "cn_mfa_releases:source_specific_parser_missing",
-    "cn_mfa_releases:continuous_preflight_receipt_verifier_missing",
     "cn_mofcom_export_control:30_day_preflight_required",
-    "cn_mofcom_export_control:source_specific_parser_missing",
-    "cn_mofcom_export_control:continuous_preflight_receipt_verifier_missing",
     "eeas_releases:30_day_preflight_required",
-    "eeas_releases:source_specific_parser_missing",
-    "eeas_releases:continuous_preflight_receipt_verifier_missing",
     "eu_council_sanctions:30_day_preflight_required",
-    "eu_council_sanctions:source_specific_parser_missing",
-    "eu_council_sanctions:continuous_preflight_receipt_verifier_missing",
     "eurlex_official_journal:30_day_preflight_required",
-    "eurlex_official_journal:source_specific_parser_missing",
-    "eurlex_official_journal:continuous_preflight_receipt_verifier_missing",
     "gdelt_event_gkg:30_day_preflight_required",
-    "gdelt_event_gkg:source_specific_parser_missing",
-    "gdelt_event_gkg:continuous_preflight_receipt_verifier_missing",
     "marad_msci:30_day_preflight_required",
-    "marad_msci:source_specific_parser_missing",
-    "marad_msci:continuous_preflight_receipt_verifier_missing",
     "ofac_recent_actions:30_day_preflight_required",
-    "ofac_recent_actions:source_specific_parser_missing",
-    "ofac_recent_actions:continuous_preflight_receipt_verifier_missing",
     "ukmto_advisories:30_day_preflight_required",
-    "ukmto_advisories:source_specific_parser_missing",
-    "ukmto_advisories:continuous_preflight_receipt_verifier_missing",
     "un_conflict_releases:30_day_preflight_required",
-    "un_conflict_releases:source_specific_parser_missing",
-    "un_conflict_releases:continuous_preflight_receipt_verifier_missing",
     "un_sc_sanctions:30_day_preflight_required",
-    "un_sc_sanctions:source_specific_parser_missing",
-    "un_sc_sanctions:continuous_preflight_receipt_verifier_missing",
     "us_state_releases:30_day_preflight_required",
-    "us_state_releases:source_specific_parser_missing",
-    "us_state_releases:continuous_preflight_receipt_verifier_missing",
-    "ustr_actions:30_day_preflight_required",
-    "ustr_actions:source_specific_parser_missing",
-    "ustr_actions:continuous_preflight_receipt_verifier_missing"
+    "ustr_actions:30_day_preflight_required"
   ],
   "raw_source_content_committed": false,
-  "coverage_scope_hash": "sha256:8b2aea0f17449e29a74146bcef03711a013b57989c091e088eb2ebcd670be142",
-  "manifest_hash": "sha256:9bdd7cc14641920a23455bc1bd43e5c87ee02bba6dbbae23932e8244b69287b5"
+  "coverage_scope_hash": "sha256:66f0eeaa7affaa106a305d603b2bf1811ec02a87a5a3ac74406e5ad7f8665e0b",
+  "manifest_hash": "sha256:9880a17fd76d15ea2294b0be00f6ff413d69b90f761b3858edf982430d3329ea"
 }
