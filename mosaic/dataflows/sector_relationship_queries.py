@@ -34,6 +34,7 @@ _ROUTE_BY_TOOL = {
     "get_indicators": "tushare.sector_market",
     "get_industry_moneyflow": "tushare.sector_market",
     "get_yield_curve_cn": "tushare.shibor_yield_curve",
+    "get_fundamentals": "tushare.sector_fundamentals",
     "get_income_statement": "tushare.sector_fundamentals",
     "get_balance_sheet": "tushare.sector_fundamentals",
     "get_cashflow": "tushare.sector_fundamentals",
@@ -73,8 +74,8 @@ def _default_rke_renderer(args: dict[str, Any]) -> str:
         agent_id=args["agent_id"],
         as_of_date=args["as_of"],
         layer=args["layer"],
-        ticker=args["ticker"],
-        sector=args["sector"],
+        ticker=args.get("ticker", ""),
+        sector=args.get("sector", ""),
         max_items=args["max_items"],
     )
     return format_rke_runtime_context(context)
@@ -113,6 +114,8 @@ def _legacy_call(tool_id: str, args: dict[str, Any]) -> tuple[str, tuple[Any, ..
         )
     if tool_id == "get_yield_curve_cn":
         return tool_id, (args["as_of"], args["lookback"])
+    if tool_id == "get_fundamentals":
+        return tool_id, (args["ticker"], args["as_of"])
     if tool_id in {"get_income_statement", "get_balance_sheet", "get_cashflow"}:
         return tool_id, (args["ticker"], args["frequency"], args["as_of"])
     raise ValueError(f"no trusted legacy route adapter for {tool_id}")

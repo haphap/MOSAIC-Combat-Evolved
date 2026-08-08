@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "L3/L4 staged capability preservation overlay v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "l3_l4_preservation_overlay_v1" },
+    "activation_state": { "const": "staged" },
+    "activation_gate": { "const": "PR13_L3_L4_ATOMIC_ACTIVATION" },
+    "base_active_agent_tool_manifest_hash": { "$ref": "#/$defs/sha256" },
+    "base_agent_data_route_manifest_hash": { "$ref": "#/$defs/sha256" },
+    "base_sector_relationship_overlay_hash": { "$ref": "#/$defs/sha256" },
+    "query_bundle_contract_version": { "const": "frozen_bound_runtime_query_bundle_v1" },
+    "l3_runtime_contract": { "type": "object" },
+    "l4_rke_runtime_contract": { "type": "object" },
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/route" }
+    },
+    "bindings": {
+      "type": "array",
+      "minItems": 33,
+      "maxItems": 33,
+      "items": { "$ref": "#/$defs/binding" }
+    },
+    "knot_coverage": {
+      "type": "array",
+      "minItems": 33,
+      "maxItems": 33,
+      "items": { "$ref": "#/$defs/coverage" }
+    },
+    "significance_fixtures": {
+      "type": "array",
+      "minItems": 33,
+      "maxItems": 33,
+      "items": { "$ref": "#/$defs/fixture" }
+    },
+    "manifest_hash": { "$ref": "#/$defs/sha256" }
+  },
+  "required": [
+    "schema_version",
+    "activation_state",
+    "activation_gate",
+    "base_active_agent_tool_manifest_hash",
+    "base_agent_data_route_manifest_hash",
+    "base_sector_relationship_overlay_hash",
+    "query_bundle_contract_version",
+    "l3_runtime_contract",
+    "l4_rke_runtime_contract",
+    "routes",
+    "bindings",
+    "knot_coverage",
+    "significance_fixtures",
+    "manifest_hash"
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "binding_id": {
+      "type": "string",
+      "pattern": "^binding:[0-9a-f]{64}$"
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "route_id": { "type": "string", "minLength": 1 },
+        "source_family": { "type": "string", "minLength": 1 },
+        "contract_version": { "type": "string", "minLength": 1 },
+        "pit_strategy": { "type": "string", "minLength": 1 },
+        "implementation_stage": { "type": "string", "minLength": 1 }
+      },
+      "required": [
+        "route_id",
+        "source_family",
+        "contract_version",
+        "pit_strategy",
+        "implementation_stage"
+      ]
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "binding_id": { "$ref": "#/$defs/binding_id" },
+        "agent_id": { "type": "string", "minLength": 1 },
+        "stage": { "type": "string", "minLength": 1 },
+        "phase": { "const": "analysis" },
+        "semantic_capability_id": { "type": "string", "minLength": 1 },
+        "tool_id": { "type": "string", "minLength": 1 },
+        "disposition": { "const": "restored" },
+        "argument_schema": { "type": "object" },
+        "argument_schema_hash": { "$ref": "#/$defs/sha256" },
+        "argument_semantics": { "type": "object" },
+        "authorized_domain_contract": { "type": "object" },
+        "argument_domain_selector_hash": { "$ref": "#/$defs/sha256" },
+        "evidence_usage_contract": { "type": "object" },
+        "output_semantics_hash": { "$ref": "#/$defs/sha256" },
+        "source_route_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "route_contract_hash": { "$ref": "#/$defs/sha256" },
+        "materializer_contract": { "type": "object" },
+        "materializer_contract_hash": { "$ref": "#/$defs/sha256" },
+        "query_bundle_contract_version": { "const": "frozen_bound_runtime_query_bundle_v1" },
+        "privacy_class": {
+          "enum": [
+            "public_structured",
+            "private_redacted",
+            "public_source_private_digest",
+            "licensed_private"
+          ]
+        },
+        "privacy_contract": { "type": "object" },
+        "privacy_contract_hash": { "$ref": "#/$defs/sha256" },
+        "adaptive_query_contract": { "type": "object" },
+        "activation_state": { "const": "staged" },
+        "no_evidence_policy": { "const": "RETURN_TRUE_EMPTY" }
+      },
+      "required": [
+        "binding_id",
+        "agent_id",
+        "stage",
+        "phase",
+        "semantic_capability_id",
+        "tool_id",
+        "disposition",
+        "argument_schema",
+        "argument_schema_hash",
+        "argument_semantics",
+        "authorized_domain_contract",
+        "argument_domain_selector_hash",
+        "evidence_usage_contract",
+        "output_semantics_hash",
+        "source_route_ids",
+        "route_contract_hash",
+        "materializer_contract",
+        "materializer_contract_hash",
+        "query_bundle_contract_version",
+        "privacy_class",
+        "privacy_contract",
+        "privacy_contract_hash",
+        "adaptive_query_contract",
+        "activation_state",
+        "no_evidence_policy"
+      ]
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "binding_id": { "$ref": "#/$defs/binding_id" },
+        "agent_id": { "type": "string", "minLength": 1 },
+        "stage": { "type": "string", "minLength": 1 },
+        "semantic_capability_id": { "type": "string", "minLength": 1 },
+        "tool_id": { "type": "string", "minLength": 1 },
+        "activation_state": { "const": "staged" },
+        "availability_evaluated": { "const": true },
+        "called_evaluated": { "const": true },
+        "succeeded_evaluated": { "const": true },
+        "used_in_accepted_evidence_evaluated": { "const": true },
+        "counterevidence_handled_evaluated": { "const": true },
+        "lineage_evaluator_contract_version": { "const": "knot_binding_lineage_evaluator_v1" },
+        "significance_fixture_id": {
+          "type": "string",
+          "pattern": "^fixture:[0-9a-f]{64}$"
+        },
+        "significance_fixture_hash": { "$ref": "#/$defs/sha256" },
+        "candidate_generation_allowed": { "const": false },
+        "coverage_hash": { "$ref": "#/$defs/sha256" }
+      },
+      "required": [
+        "binding_id",
+        "agent_id",
+        "stage",
+        "semantic_capability_id",
+        "tool_id",
+        "activation_state",
+        "availability_evaluated",
+        "called_evaluated",
+        "succeeded_evaluated",
+        "used_in_accepted_evidence_evaluated",
+        "counterevidence_handled_evaluated",
+        "lineage_evaluator_contract_version",
+        "significance_fixture_id",
+        "significance_fixture_hash",
+        "candidate_generation_allowed",
+        "coverage_hash"
+      ]
+    },
+    "fixture": {
+      "type": "object",
+      "properties": {
+        "binding_id": { "$ref": "#/$defs/binding_id" },
+        "fixture_id": {
+          "type": "string",
+          "pattern": "^fixture:[0-9a-f]{64}$"
+        },
+        "fixture_hash": { "$ref": "#/$defs/sha256" }
+      },
+      "required": ["binding_id", "fixture_id", "fixture_hash"]
+    }
+  }
+}

@@ -148,6 +148,12 @@ def test_staged_receipt_records_real_capture_time_and_preserves_replay_semantics
             (AS_OF, 30),
         ),
         (
+            "get_fundamentals",
+            {"ticker": "600000.SH", "as_of": AS_OF},
+            "get_fundamentals",
+            ("600000.SH", AS_OF),
+        ),
+        (
             "get_income_statement",
             {"ticker": "600000.SH", "frequency": "quarterly", "as_of": AS_OF},
             "get_income_statement",
