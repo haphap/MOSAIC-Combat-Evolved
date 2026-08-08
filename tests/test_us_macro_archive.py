@@ -656,6 +656,19 @@ def test_receipt_bound_compiler_builds_both_snapshots_without_fomc_invention(
         ledger=ledger,
         output_root=tmp_path / "snapshots",
     )
+    from mosaic.dataflows import us_macro_archive
+
+    monkeypatch.setattr(
+        us_macro_archive,
+        "_capture_now",
+        lambda: CAPTURED_AT + timedelta(seconds=1),
+    )
+    replay = compile_us_macro_snapshots(
+        capture_key=result.group["capture_key"],
+        store=store,
+        ledger=ledger,
+        output_root=tmp_path / "snapshots",
+    )
 
     assert set(built.snapshots) == {"us_economy", "us_financial_conditions"}
     economy = built.snapshots["us_economy"]
@@ -705,6 +718,9 @@ def test_receipt_bound_compiler_builds_both_snapshots_without_fomc_invention(
         for evidence_id in summary["evidence_ids"]
     } == {row["evidence_id"] for row in economy["observations"]}
     assert len(built.build_receipts) == 2
+    assert [receipt.receipt_hash for receipt in replay.build_receipts] == [
+        receipt.receipt_hash for receipt in built.build_receipts
+    ]
     assert ledger.row_counts()["snapshot_build_receipts"] == 2
     assert all(
         (tmp_path / "snapshots" / AS_OF / f"{role}.json").is_file()

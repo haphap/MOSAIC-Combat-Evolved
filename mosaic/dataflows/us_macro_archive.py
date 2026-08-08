@@ -1538,9 +1538,10 @@ def compile_us_macro_snapshots(
     destination_root = output_root or us_macro_snapshot_root()
     for role, snapshot in snapshots.items():
         _write_snapshot(destination_root, role, group["as_of_date"], snapshot)
-    for receipt in build_receipts:
-        ledger.append_snapshot_build(receipt)
-    return USMacroBuildResult(snapshots, tuple(build_receipts))
+    persisted_receipts = tuple(
+        ledger.append_or_reuse_snapshot_build(receipt) for receipt in build_receipts
+    )
+    return USMacroBuildResult(snapshots, persisted_receipts)
 
 
 __all__ = [

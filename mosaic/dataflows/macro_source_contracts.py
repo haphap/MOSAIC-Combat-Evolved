@@ -204,7 +204,6 @@ EU_SERIES_MAP: Final[dict[str, dict[str, str]]] = {
 
 EURO_AREA_FINANCIAL_SERIES_MAP: Final[dict[str, tuple[str, ...]]] = {
     "ecb_liquidity": (
-        "official.ecb_decision_statement",
         "FM.B.U2.EUR.4F.KR.DFR.LEV",
         "FM.B.U2.EUR.4F.KR.MRR_FR.LEV",
         "EST.B.EU000A2X2A25.WT",
@@ -220,7 +219,7 @@ EURO_AREA_FINANCIAL_SERIES_MAP: Final[dict[str, tuple[str, ...]]] = {
     "eur_financial_stress": (
         "EXR.D.USD.EUR.SP00.A",
         "CISS.D.U2.Z0Z.4F.EC.SS_CIN.IDX",
-        "tushare.fx_daily.EUR_CNY",
+        "tushare.fx_daily.EUR_USD",
     ),
 }
 
@@ -651,7 +650,6 @@ MACRO_OBSERVATION_FRESHNESS_CONTRACTS: Final[dict[str, dict[str, Any]]] = {
     },
     "euro_area_financial_conditions": {
         "source_max_age_calendar_days": {
-            "official.ecb_decision_statement": 60,
             "ecb.FM.B.U2.EUR.4F.KR.DFR.LEV": 7,
             "ecb.FM.B.U2.EUR.4F.KR.MRR_FR.LEV": 7,
             "ecb.EST.B.EU000A2X2A25.WT": 4,
@@ -661,7 +659,7 @@ MACRO_OBSERVATION_FRESHNESS_CONTRACTS: Final[dict[str, dict[str, Any]]] = {
             "ecb.MIR.M.U2.B.A2A.A.R.A.2240.EUR.N": 70,
             "ecb.EXR.D.USD.EUR.SP00.A": 4,
             "ecb.CISS.D.U2.Z0Z.4F.EC.SS_CIN.IDX": 10,
-            "tushare.fx_daily.EUR_CNY": 4,
+            "tushare.fx_daily.EUR_USD": 4,
         },
         "series_max_age_calendar_days": {},
     },

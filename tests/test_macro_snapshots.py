@@ -162,7 +162,7 @@ def source_for(role: str, series_id: str) -> str:
             "broad_dollar_": "ALFRED",
         },
         "euro_area_financial_conditions": {
-            "ecb_": "official.ecb_decision_statement",
+            "ecb_": "ecb.FM.B.U2.EUR.4F.KR.DFR.LEV",
             "euro_area_curve_": "ecb.YC.B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y",
             "euro_area_bank_credit_": "ecb.BSI.M.U2.Y.U.A20T.A.I.U2.2240.Z01.A",
             "eur_": "ecb.CISS.D.U2.Z0Z.4F.EC.SS_CIN.IDX",

@@ -946,6 +946,55 @@ class AgentDataMaterializationLedger:
             value,
         )
 
+    def snapshot_build_receipt(
+        self, *, build_id: str
+    ) -> SnapshotBuildReceipt | None:
+        if not build_id:
+            raise ValueError("build_id must be non-empty")
+        if not self._available:
+            return None
+        with self._connect(read_only=True) as conn:
+            row = conn.execute(
+                "SELECT receipt_json FROM snapshot_build_receipts "
+                "WHERE build_id = ?",
+                (build_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return SnapshotBuildReceipt.from_dict(json.loads(row["receipt_json"]))
+
+    def append_or_reuse_snapshot_build(
+        self, receipt: SnapshotBuildReceipt
+    ) -> SnapshotBuildReceipt:
+        candidate = SnapshotBuildReceipt.from_dict(receipt.as_dict())
+        build_id = str(candidate.as_dict()["build_id"])
+
+        def require_same_build(existing: SnapshotBuildReceipt) -> SnapshotBuildReceipt:
+            existing_body = existing.as_dict()
+            candidate_body = candidate.as_dict()
+            for field in (
+                "receipt_hash",
+                "build_started_at",
+                "build_finished_at",
+            ):
+                existing_body.pop(field, None)
+                candidate_body.pop(field, None)
+            if existing_body != candidate_body:
+                raise ValueError("immutable snapshot build identity collision")
+            return existing
+
+        existing = self.snapshot_build_receipt(build_id=build_id)
+        if existing is not None:
+            return require_same_build(existing)
+        try:
+            self.append_snapshot_build(candidate)
+        except ValueError:
+            existing = self.snapshot_build_receipt(build_id=build_id)
+            if existing is None:
+                raise
+            return require_same_build(existing)
+        return candidate
+
     def append_materialization_attempt(self, receipt: MaterializationAttemptReceipt) -> str:
         value = MaterializationAttemptReceipt.from_dict(receipt.as_dict())
         payload = value.as_dict()

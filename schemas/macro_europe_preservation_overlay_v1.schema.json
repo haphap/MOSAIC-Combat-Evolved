@@ -1,0 +1,237 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Macro Europe Preservation Overlay v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "activation_state",
+    "activation_gate",
+    "base_active_agent_tool_manifest_hash",
+    "base_capability_binding_manifest_hash",
+    "base_agent_data_route_manifest_hash",
+    "query_bundle_contract_version",
+    "routes",
+    "bindings",
+    "source_series",
+    "component_weights",
+    "pit_boundary_contract",
+    "fx_identity_contract",
+    "policy_event_contract",
+    "preservation_disposition",
+    "knot_coverage",
+    "significance_fixtures",
+    "manifest_hash"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "macro_europe_preservation_overlay_v1"
+    },
+    "activation_state": {
+      "const": "staged"
+    },
+    "activation_gate": {
+      "const": "PR12_L1_L2_ATOMIC_ACTIVATION"
+    },
+    "base_active_agent_tool_manifest_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "base_capability_binding_manifest_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "base_agent_data_route_manifest_hash": {
+      "$ref": "#/$defs/sha256"
+    },
+    "query_bundle_contract_version": {
+      "const": "frozen_snapshot_query_v1"
+    },
+    "routes": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": [
+          "route_id",
+          "source_family",
+          "contract_version",
+          "pit_strategy",
+          "implementation_stage"
+        ]
+      }
+    },
+    "bindings": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "required": [
+          "binding_id",
+          "agent_id",
+          "stage",
+          "semantic_capability_id",
+          "tool_id",
+          "source_route_ids",
+          "base_binding_hash",
+          "base_activation_state",
+          "source_activation_state",
+          "source_readiness_gate",
+          "query_bundle_contract_version",
+          "call_transport"
+        ]
+      }
+    },
+    "source_series": {
+      "type": "array",
+      "minItems": 17,
+      "maxItems": 17,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "provider_series_id",
+          "source_identity",
+          "source_route_id",
+          "owner_role",
+          "component_id",
+          "observation_kind",
+          "numeric_component_contribution",
+          "pit_mode"
+        ],
+        "properties": {
+          "provider_series_id": {"type": "string", "minLength": 1},
+          "source_identity": {"type": "string", "minLength": 1},
+          "source_route_id": {
+            "enum": [
+              "ecb.euro_macro",
+              "eurostat.euro_macro",
+              "market.euro_fx"
+            ]
+          },
+          "owner_role": {
+            "enum": ["eu_economy", "euro_area_financial_conditions"]
+          },
+          "component_id": {"type": "string", "minLength": 1},
+          "observation_kind": {"const": "NUMERIC"},
+          "numeric_component_contribution": {"const": true},
+          "pit_mode": {
+            "enum": [
+              "AUTHORITATIVE_VINTAGE_REPLAY",
+              "FORWARD_ARCHIVE_ONLY",
+              "OBSERVED_LIVE_ONLY"
+            ]
+          }
+        }
+      }
+    },
+    "component_weights": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": {"type": "object"}
+    },
+    "pit_boundary_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ecb_history_mode",
+        "ecb_version_selector",
+        "eurostat_history_mode",
+        "eurostat_earliest_trustworthy_date",
+        "market_fx_history_mode",
+        "historical_without_forward_capture",
+        "current_response_backfill_allowed"
+      ],
+      "properties": {
+        "ecb_history_mode": {"const": "AUTHORITATIVE_VINTAGE_REPLAY"},
+        "ecb_version_selector": {"type": "string", "minLength": 1},
+        "eurostat_history_mode": {"const": "FORWARD_ARCHIVE_ONLY"},
+        "eurostat_earliest_trustworthy_date": {
+          "const": "FIRST_SUCCESSFUL_ARCHIVED_CAPTURE"
+        },
+        "market_fx_history_mode": {"const": "OBSERVED_LIVE_ONLY"},
+        "historical_without_forward_capture": {"const": "BLOCKED"},
+        "current_response_backfill_allowed": {"const": false}
+      }
+    },
+    "fx_identity_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "materialized_pair",
+        "instrument_id",
+        "source_identity",
+        "eur_cny_status",
+        "eur_cny_instrument_id",
+        "synthetic_cross_allowed",
+        "offshore_cross_rename_allowed"
+      ],
+      "properties": {
+        "materialized_pair": {"const": "EUR_USD"},
+        "instrument_id": {"const": "EURUSD.FXCM"},
+        "source_identity": {"const": "tushare.fx_daily.EURUSD.FXCM"},
+        "eur_cny_status": {"const": "UNRESOLVED"},
+        "eur_cny_instrument_id": {"type": "null"},
+        "synthetic_cross_allowed": {"const": false},
+        "offshore_cross_rename_allowed": {"const": false}
+      }
+    },
+    "policy_event_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "numeric_policy_route",
+        "numeric_policy_series",
+        "policy_event_route",
+        "policy_event_semantics",
+        "statement_text_source",
+        "statement_text_invented",
+        "numeric_series_may_impersonate_statement"
+      ],
+      "properties": {
+        "numeric_policy_route": {"const": "ecb.euro_macro"},
+        "numeric_policy_series": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {"type": "string"}
+        },
+        "policy_event_route": {"const": "tushare.eco_cal.eur"},
+        "policy_event_semantics": {
+          "const": "ECB_MONETARY_POLICY_DECISION_METADATA"
+        },
+        "statement_text_source": {"type": "null"},
+        "statement_text_invented": {"const": false},
+        "numeric_series_may_impersonate_statement": {"const": false}
+      }
+    },
+    "preservation_disposition": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"type": "object"}
+    },
+    "knot_coverage": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"type": "object"}
+    },
+    "significance_fixtures": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {"type": "object"}
+    },
+    "manifest_hash": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

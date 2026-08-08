@@ -116,7 +116,9 @@ def _live_fetch(url: str) -> OfficialApiResponse:
             last_error = exc
             if attempt == 0:
                 time.sleep(0.5)
-    raise DataVendorUnavailable(f"official macro API request failed: {last_error}")
+    raise DataVendorUnavailable(
+        f"official macro API request failed: {last_error}"
+    ) from last_error
 
 
 def _require_live_as_of(response: OfficialApiResponse, as_of: str) -> None:
@@ -156,7 +158,14 @@ def build_eurostat_url(series_key: str, *, last_periods: int = 8) -> str:
     return f"{EUROSTAT_BASE}/{urllib.parse.quote(contract['dataset'])}?{query}"
 
 
-def build_ecb_url(series_id: str, *, last_observations: int = 8) -> str:
+def build_ecb_url(
+    series_id: str,
+    *,
+    last_observations: int | None = 8,
+    include_history: bool = False,
+    observation_start: str | None = None,
+    observation_end: str | None = None,
+) -> str:
     registered = {
         item
         for values in EURO_AREA_FINANCIAL_SERIES_MAP.values()
@@ -165,23 +174,47 @@ def build_ecb_url(series_id: str, *, last_observations: int = 8) -> str:
     }
     if series_id not in registered:
         raise DataVendorUnavailable(f"unregistered ECB series: {series_id}")
-    if last_observations < 1 or last_observations > 40:
+    if (observation_start is None) != (observation_end is None):
+        raise DataVendorUnavailable(
+            "ECB observation_start and observation_end must be supplied together"
+        )
+    if observation_start is not None and observation_end is not None:
+        try:
+            start = date.fromisoformat(observation_start)
+            end = date.fromisoformat(observation_end)
+        except ValueError as exc:
+            raise DataVendorUnavailable("ECB observation window must use ISO dates") from exc
+        if end < start:
+            raise DataVendorUnavailable("ECB observation_end precedes observation_start")
+        if last_observations is not None:
+            raise DataVendorUnavailable(
+                "ECB explicit observation window cannot use last_observations"
+            )
+    elif (
+        isinstance(last_observations, bool)
+        or not isinstance(last_observations, int)
+        or last_observations < 1
+        or last_observations > 40
+    ):
         raise DataVendorUnavailable("ECB last_observations must be in 1..40")
     flow, separator, key = series_id.partition(".")
     if not separator or not flow or not key:
         raise DataVendorUnavailable(f"invalid ECB series id: {series_id}")
-    query = urllib.parse.urlencode(
-        {
-            "format": "csvdata",
-            "detail": "full",
-            # The live adapter is only a current-response transport probe. Full
-            # revision history can make large daily series such as CISS time
-            # out and still cannot establish historical PIT visibility. That
-            # responsibility belongs to the archived release/vintage ledger.
-            "includeHistory": "false",
-            "lastNObservations": str(last_observations),
-        }
-    )
+    params = {
+        "format": "csvdata",
+        "detail": "full",
+        "includeHistory": str(include_history).casefold(),
+    }
+    if observation_start is not None and observation_end is not None:
+        params.update(
+            {
+                "startPeriod": observation_start,
+                "endPeriod": observation_end,
+            }
+        )
+    else:
+        params["lastNObservations"] = str(last_observations)
+    query = urllib.parse.urlencode(params)
     return f"{ECB_BASE}/{urllib.parse.quote(flow)}/{urllib.parse.quote(key, safe='.+')}?{query}"
 
 
@@ -306,6 +339,90 @@ def parse_ecb_csv(payload: bytes) -> list[dict[str, Any]]:
     if not rows:
         raise DataVendorUnavailable("ECB response has no observations")
     return rows
+
+
+def parse_ecb_history_csv(payload: bytes) -> list[dict[str, Any]]:
+    try:
+        text = payload.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise DataVendorUnavailable("ECB response is not UTF-8 CSV") from exc
+    rows: list[dict[str, Any]] = []
+    for raw in csv.DictReader(io.StringIO(text)):
+        action = str(raw.get("ACTION") or "").strip()
+        if action.casefold() not in {"insert", "replace", "delete"}:
+            raise DataVendorUnavailable("ECB history ACTION is missing or unsupported")
+        if not raw.get("TIME_PERIOD") or not raw.get("VALID_FROM"):
+            raise DataVendorUnavailable(
+                "ECB history is missing TIME_PERIOD/VALID_FROM"
+            )
+        try:
+            valid_from = datetime.fromisoformat(
+                str(raw["VALID_FROM"]).replace("Z", "+00:00")
+            )
+            valid_to_text = str(raw.get("VALID_TO") or "").strip()
+            valid_to = (
+                datetime.fromisoformat(valid_to_text.replace("Z", "+00:00"))
+                if valid_to_text
+                else None
+            )
+        except ValueError as exc:
+            raise DataVendorUnavailable("ECB history validity timestamp is invalid") from exc
+        if valid_from.tzinfo is None or (
+            valid_to is not None and valid_to.tzinfo is None
+        ):
+            raise DataVendorUnavailable(
+                "ECB history validity timestamp must include timezone"
+            )
+        if valid_to is not None and valid_to < valid_from:
+            raise DataVendorUnavailable("ECB history VALID_TO precedes VALID_FROM")
+        value_text = str(raw.get("OBS_VALUE") or "").strip()
+        if action.casefold() == "delete":
+            if value_text:
+                raise DataVendorUnavailable("ECB Delete history row must not contain OBS_VALUE")
+            value: float | None = None
+        else:
+            try:
+                value = float(value_text)
+            except (TypeError, ValueError) as exc:
+                raise DataVendorUnavailable(
+                    "ECB history observation value is not numeric"
+                ) from exc
+            if not math.isfinite(value):
+                raise DataVendorUnavailable(
+                    "ECB history observation value must be finite"
+                )
+        rows.append(
+            {
+                **raw,
+                "ACTION": action.capitalize(),
+                "VALID_FROM": valid_from.isoformat(),
+                "VALID_TO": valid_to.isoformat() if valid_to is not None else "",
+                "OBS_VALUE": value,
+            }
+        )
+    if not rows:
+        raise DataVendorUnavailable("ECB response has no history observations")
+    rows.sort(
+        key=lambda row: (
+            str(row["TIME_PERIOD"]),
+            str(row["VALID_FROM"]),
+            str(row["ACTION"]),
+        )
+    )
+    return rows
+
+
+def _eurostat_dataset_updated(payload: bytes) -> str:
+    try:
+        document = json.loads(payload)
+        updated = datetime.fromisoformat(str(document["updated"]))
+    except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise DataVendorUnavailable(
+            "Eurostat response is missing a valid dataset updated timestamp"
+        ) from exc
+    if updated.tzinfo is None:
+        raise DataVendorUnavailable("Eurostat dataset updated timestamp must include timezone")
+    return updated.isoformat()
 
 
 def parse_world_bank_json(payload: bytes) -> list[dict[str, Any]]:
@@ -512,21 +629,55 @@ def fetch_ny_fed_rate(
     return result
 
 
+def _validate_authoritative_capture_timestamp(response: OfficialApiResponse) -> None:
+    try:
+        retrieved = datetime.fromisoformat(
+            response.retrieved_at.replace("Z", "+00:00")
+        )
+    except ValueError as exc:
+        raise DataVendorUnavailable(
+            "official macro timestamps must be ISO-8601"
+        ) from exc
+    if retrieved.tzinfo is None:
+        raise DataVendorUnavailable(
+            "official macro timestamps must include timezone"
+        )
+
+
 def fetch_official_series(
     *,
     provider: str,
     series_key: str,
     as_of: str,
     fetch: Fetch = _live_fetch,
+    include_history: bool = False,
+    include_raw_payload: bool = False,
+    observation_start: str | None = None,
+    observation_end: str | None = None,
 ) -> dict[str, Any]:
+    if provider != "ECB" and (
+        observation_start is not None or observation_end is not None
+    ):
+        raise DataVendorUnavailable(
+            "explicit observation windows are supported only for ECB series"
+        )
     if provider == "EUROSTAT":
+        if include_history:
+            raise DataVendorUnavailable("Eurostat does not expose revision history")
         url = build_eurostat_url(series_key)
         parser = parse_eurostat_jsonstat
         source = f"eurostat.{EU_SERIES_MAP[series_key]['dataset']}"
         usage_mode = "PRIMARY"
     elif provider == "ECB":
-        url = build_ecb_url(series_key)
-        parser = parse_ecb_csv
+        explicit_window = observation_start is not None or observation_end is not None
+        url = build_ecb_url(
+            series_key,
+            last_observations=None if explicit_window else 8,
+            include_history=include_history,
+            observation_start=observation_start,
+            observation_end=observation_end,
+        )
+        parser = parse_ecb_history_csv if include_history else parse_ecb_csv
         source = f"ecb.{series_key}"
         usage_mode = "PRIMARY"
     elif provider == "WORLD_BANK":
@@ -535,12 +686,19 @@ def fetch_official_series(
         source = f"world_bank.{series_key}"
         usage_mode = "CONTEXT_ONLY"
     else:
+        if include_history:
+            raise DataVendorUnavailable(
+                f"{provider} does not expose authoritative revision history"
+            )
         raise DataVendorUnavailable(f"unsupported official macro provider: {provider}")
     started = time.monotonic()
     response = fetch(url)
-    _require_live_as_of(response, as_of)
+    if provider == "ECB" and include_history:
+        _validate_authoritative_capture_timestamp(response)
+    else:
+        _require_live_as_of(response, as_of)
     rows = parser(response.body)
-    return {
+    result = {
         "adapter_version": OFFICIAL_MACRO_ADAPTER_VERSION,
         "provider": provider,
         "series_key": series_key,
@@ -553,8 +711,17 @@ def fetch_official_series(
         "row_count": len(rows),
         "elapsed_ms": round((time.monotonic() - started) * 1000, 3),
         "rows": rows,
-        "pit_status": "CURRENT_RESPONSE_REQUIRES_RELEASE_VINTAGE_JOIN",
+        "pit_status": (
+            "AUTHORITATIVE_VINTAGE_HISTORY"
+            if provider == "ECB" and include_history
+            else "CURRENT_RESPONSE_REQUIRES_RELEASE_VINTAGE_JOIN"
+        ),
     }
+    if provider == "EUROSTAT":
+        result["dataset_updated"] = _eurostat_dataset_updated(response.body)
+    if include_raw_payload:
+        result["raw_payload_b64"] = base64.b64encode(response.body).decode("ascii")
+    return result
 
 
 __all__ = [
@@ -575,6 +742,7 @@ __all__ = [
     "fetch_ny_fed_rate",
     "fetch_official_series",
     "parse_ecb_csv",
+    "parse_ecb_history_csv",
     "parse_eurostat_jsonstat",
     "parse_fomc_monetary_rss",
     "parse_ny_fed_reference_rates",

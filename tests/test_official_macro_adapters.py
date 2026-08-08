@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from mosaic.dataflows import official_macro_adapters
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.official_macro_adapters import (
     OfficialApiResponse,
@@ -19,11 +20,37 @@ from mosaic.dataflows.official_macro_adapters import (
     fetch_ny_fed_rate,
     fetch_official_series,
     parse_ecb_csv,
+    parse_ecb_history_csv,
     parse_eurostat_jsonstat,
     parse_fomc_monetary_rss,
     parse_ny_fed_reference_rates,
     parse_world_bank_json,
 )
+
+
+def test_live_fetch_preserves_final_transport_cause(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def timed_out(*args, **kwargs):
+        nonlocal calls
+        del args, kwargs
+        calls += 1
+        raise TimeoutError("private timeout detail")
+
+    monkeypatch.setattr(official_macro_adapters.urllib.request, "urlopen", timed_out)
+    monkeypatch.setattr(official_macro_adapters.time, "sleep", lambda _: None)
+
+    with pytest.raises(
+        DataVendorUnavailable, match="official macro API request failed"
+    ) as exc_info:
+        official_macro_adapters._live_fetch(
+            build_eurostat_url("eu27_real_gdp", last_periods=4)
+        )
+
+    assert calls == 2
+    assert isinstance(exc_info.value.__cause__, TimeoutError)
 
 
 def test_official_macro_urls_are_closed_and_bounded() -> None:
@@ -36,6 +63,22 @@ def test_official_macro_urls_are_closed_and_bounded() -> None:
     assert ecb.startswith("https://data-api.ecb.europa.eu/service/data/EXR/")
     assert "includeHistory=false" in ecb
     assert "lastNObservations=3" in ecb
+    ecb_history = build_ecb_url(
+        "FM.B.U2.EUR.4F.KR.DFR.LEV",
+        last_observations=3,
+        include_history=True,
+    )
+    assert "includeHistory=true" in ecb_history
+    ecb_window = build_ecb_url(
+        "FM.B.U2.EUR.4F.KR.DFR.LEV",
+        last_observations=None,
+        include_history=True,
+        observation_start="2025-01-01",
+        observation_end="2026-08-01",
+    )
+    assert "startPeriod=2025-01-01" in ecb_window
+    assert "endPeriod=2026-08-01" in ecb_window
+    assert "lastNObservations" not in ecb_window
 
     world_bank = build_world_bank_url("eu_gdp_growth_context", most_recent=5)
     assert world_bank.startswith("https://api.worldbank.org/v2/country/EUU/")
@@ -84,6 +127,111 @@ def test_official_macro_response_parsers_reject_empty_or_malformed_payloads() ->
         parse_ecb_csv(b"TIME_PERIOD,OBS_VALUE\n")
     with pytest.raises(DataVendorUnavailable):
         parse_world_bank_json(b"[]")
+
+
+def test_ecb_history_preserves_versions_and_delete_tombstones() -> None:
+    payload = (
+        b"KEY,TIME_PERIOD,OBS_VALUE,ACTION,VALID_FROM,VALID_TO,OBS_STATUS\n"
+        b"FM,2025-01-01,3.0,Replace,2025-01-02T10:00:00+00:00,"
+        b"2025-02-02T10:00:00+00:00,A\n"
+        b"FM,2025-01-01,,Delete,2025-02-02T10:00:00+00:00,,A\n"
+    )
+
+    rows = parse_ecb_history_csv(payload)
+
+    assert rows[0]["OBS_VALUE"] == 3.0
+    assert rows[1]["ACTION"] == "Delete"
+    assert rows[1]["OBS_VALUE"] is None
+    assert rows[1]["VALID_FROM"] == "2025-02-02T10:00:00+00:00"
+
+
+def test_europe_archive_fetch_retains_provider_vintage_metadata_and_raw_payload() -> None:
+    eurostat_document = {
+        "class": "dataset",
+        "updated": "2026-07-31T11:00:00+0200",
+        "id": ["freq", "geo", "time"],
+        "size": [1, 1, 1],
+        "dimension": {
+            "freq": {"category": {"index": {"M": 0}}},
+            "geo": {"category": {"index": {"EU27_2020": 0}}},
+            "time": {"category": {"index": {"2026-06": 0}}},
+        },
+        "value": {"0": 2.1},
+    }
+    ecb_payload = (
+        b"KEY,TIME_PERIOD,OBS_VALUE,ACTION,VALID_FROM,VALID_TO,OBS_STATUS\n"
+        b"FM,2026-06-11,2.0,Replace,2026-06-11T12:00:00+00:00,,A\n"
+    )
+
+    def fetch(url: str) -> OfficialApiResponse:
+        body = (
+            json.dumps(eurostat_document).encode()
+            if "eurostat" in url
+            else ecb_payload
+        )
+        return OfficialApiResponse(
+            url=url,
+            content_type="application/json" if "eurostat" in url else "text/csv",
+            body=body,
+            retrieved_at="2026-08-01T06:00:00+00:00",
+        )
+
+    eurostat = fetch_official_series(
+        provider="EUROSTAT",
+        series_key="eu27_hicp",
+        as_of="2026-08-01T15:00:00+08:00",
+        fetch=fetch,
+        include_raw_payload=True,
+    )
+    ecb = fetch_official_series(
+        provider="ECB",
+        series_key="FM.B.U2.EUR.4F.KR.DFR.LEV",
+        as_of="2026-08-01T15:00:00+08:00",
+        fetch=fetch,
+        include_history=True,
+        include_raw_payload=True,
+    )
+
+    assert eurostat["dataset_updated"] == "2026-07-31T11:00:00+02:00"
+    assert base64.b64decode(eurostat["raw_payload_b64"]) == json.dumps(
+        eurostat_document
+    ).encode()
+    assert ecb["pit_status"] == "AUTHORITATIVE_VINTAGE_HISTORY"
+    assert ecb["rows"][0]["VALID_FROM"] == "2026-06-11T12:00:00+00:00"
+    assert base64.b64decode(ecb["raw_payload_b64"]) == ecb_payload
+
+
+def test_ecb_authoritative_history_can_be_captured_after_historical_cutoff() -> None:
+    payload = (
+        b"KEY,TIME_PERIOD,OBS_VALUE,ACTION,VALID_FROM,VALID_TO,OBS_STATUS\n"
+        b"FM,2026-06-11,2.0,Replace,2026-06-11T12:00:00+00:00,,A\n"
+    )
+
+    def fetch(url: str) -> OfficialApiResponse:
+        return OfficialApiResponse(
+            url=url,
+            content_type="text/csv",
+            body=payload,
+            retrieved_at="2026-08-09T06:00:00+00:00",
+        )
+
+    history = fetch_official_series(
+        provider="ECB",
+        series_key="FM.B.U2.EUR.4F.KR.DFR.LEV",
+        as_of="2026-08-08T15:00:00+08:00",
+        fetch=fetch,
+        include_history=True,
+        observation_start="2025-01-01",
+        observation_end="2026-08-08",
+    )
+    assert history["pit_status"] == "AUTHORITATIVE_VINTAGE_HISTORY"
+    with pytest.raises(DataVendorUnavailable, match="historical as_of"):
+        fetch_official_series(
+            provider="ECB",
+            series_key="FM.B.U2.EUR.4F.KR.DFR.LEV",
+            as_of="2026-08-08T15:00:00+08:00",
+            fetch=fetch,
+        )
 
 
 def test_live_official_response_cannot_backfill_a_historical_as_of() -> None:

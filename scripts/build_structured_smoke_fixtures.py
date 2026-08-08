@@ -269,7 +269,7 @@ def _build_macro_snapshots(root: Path, as_of: date) -> None:
             ("DTWEXBGS", "ALFRED"),
         ),
         "euro_area_financial_conditions": (
-            ("ecb_policy_rate", "official.ecb_decision_statement"),
+            ("ecb_policy_rate", "ecb.FM.B.U2.EUR.4F.KR.DFR.LEV"),
             (
                 "euro_area_curve_10y",
                 "ecb.YC.B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y",
