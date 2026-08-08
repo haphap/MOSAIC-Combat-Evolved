@@ -113,6 +113,17 @@ def test_verified_eco_cal_and_precheck_endpoints_have_distinct_runtime_permissio
     assert promoted.runtime_client_enabled is True
 
 
+def test_institutional_northbound_endpoint_is_registered_for_archivist_preflight():
+    registration = endpoint_registration("moneyflow_hsgt")
+
+    assert registration.status == "PRECHECK_REQUIRED"
+    assert registration.runtime_client_enabled is False
+    assert registration.doc_url.endswith("doc_id=47")
+    assert_endpoint_capture_preflight_allowed("moneyflow_hsgt")
+    with pytest.raises(PermissionError, match="PRECHECK_REQUIRED"):
+        assert_endpoint_runtime_enabled("moneyflow_hsgt")
+
+
 def test_disabled_document_crawler_does_not_construct_client_or_call_fetch():
     called = False
 
