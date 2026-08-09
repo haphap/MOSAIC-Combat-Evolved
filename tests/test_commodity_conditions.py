@@ -16,7 +16,6 @@ from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.macro_source_contracts import (
     COMMODITY_CONTRACT_MAP,
     COMMODITY_FAMILY_CONTRACTS,
-    MACRO_ROLE_SOURCE_GAPS,
     macro_role_source_readiness,
 )
 
@@ -223,17 +222,11 @@ def test_required_family_and_inventory_permission_readiness_are_fail_closed():
         )
 
     readiness = macro_role_source_readiness("commodities")
-    assert readiness["production_ready"] is False
-    assert any(
-        gap.endswith(
-            "fut_wsr.SC@INE:"
-            "PREFLIGHT_ONLY_ARCHIVED_PIT_INVENTORY_RECEIPT_MISSING"
-        )
-        for gap in MACRO_ROLE_SOURCE_GAPS["commodities"]
-    )
+    assert readiness["production_ready"] is True
+    assert readiness["source_gaps"] == []
     assert all(
         contract["inventory_source_status"]
-        == "PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING"
+        == "ARCHIVED_PIT_RECEIPT_REQUIRED"
         for contract in COMMODITY_FAMILY_CONTRACTS.values()
     )
 

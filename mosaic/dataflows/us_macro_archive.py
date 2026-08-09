@@ -1458,13 +1458,13 @@ def compile_us_macro_snapshots(
         "context_observations": observations["us_economy"],
         "events": [],
     }
+    raw_snapshots = {
+        "us_economy": economy_raw,
+        "us_financial_conditions": financial_raw,
+    }
     snapshots = {
-        "us_economy": validate_role_snapshot(
-            economy_raw, "us_economy", group["as_of_date"]
-        ),
-        "us_financial_conditions": validate_role_snapshot(
-            financial_raw, "us_financial_conditions", group["as_of_date"]
-        ),
+        role: validate_role_snapshot(raw, role, group["as_of_date"])
+        for role, raw in raw_snapshots.items()
     }
     calendar_hashes = {
         "cny": _calendar_hashes(
@@ -1536,8 +1536,8 @@ def compile_us_macro_snapshots(
             )
         )
     destination_root = output_root or us_macro_snapshot_root()
-    for role, snapshot in snapshots.items():
-        _write_snapshot(destination_root, role, group["as_of_date"], snapshot)
+    for role, raw in raw_snapshots.items():
+        _write_snapshot(destination_root, role, group["as_of_date"], raw)
     persisted_receipts = tuple(
         ledger.append_or_reuse_snapshot_build(receipt) for receipt in build_receipts
     )

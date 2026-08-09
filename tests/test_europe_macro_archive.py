@@ -511,6 +511,19 @@ def test_receipt_bound_compiler_builds_both_roles_without_transport(
         ledger=ledger,
         output_root=tmp_path / "snapshots",
     )
+    import json
+
+    from mosaic.dataflows.macro_snapshots import validate_role_snapshot
+
+    for role, snapshot in built.snapshots.items():
+        persisted = json.loads(
+            (tmp_path / "snapshots" / result.group["as_of_date"] / f"{role}.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert validate_role_snapshot(
+            persisted, role, result.group["as_of_date"]
+        ) == snapshot
 
     assert counts == before
     assert set(built.snapshots) == {

@@ -1157,6 +1157,45 @@ def test_compiler_publishes_three_ready_snapshots_and_repeatable_blocked_central
         ledger=ledger,
         output_root=tmp_path / "snapshots",
     )
+    import json
+
+    from mosaic.dataflows.macro_snapshots import (
+        load_role_snapshot,
+        validate_role_snapshot,
+    )
+
+    for role, snapshot in built.snapshots.items():
+        persisted = json.loads(
+            (tmp_path / "snapshots" / snapshot["as_of_date"] / f"{role}.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert validate_role_snapshot(
+            persisted, role, snapshot["as_of_date"]
+        ) == snapshot
+
+    assert load_role_snapshot(
+        "institutional_flow",
+        AS_OF,
+        root=tmp_path / "snapshots",
+        ledger=ledger,
+    ) == built.snapshots["institutional_flow"]
+    institutional_path = (
+        tmp_path / "snapshots" / AS_OF / "institutional_flow.json"
+    )
+    tampered = json.loads(institutional_path.read_text(encoding="utf-8"))
+    tampered["observations"][0]["actual"] = 123456.0
+    institutional_path.write_text(json.dumps(tampered), encoding="utf-8")
+    with pytest.raises(
+        DataVendorUnavailable,
+        match="MACRO_SNAPSHOT_BUILD_RECEIPT_MISMATCH:institutional_flow",
+    ):
+        load_role_snapshot(
+            "institutional_flow",
+            AS_OF,
+            root=tmp_path / "snapshots",
+            ledger=ledger,
+        )
 
     assert counts == before
     assert set(built.snapshots) == {"china", "commodities", "institutional_flow"}

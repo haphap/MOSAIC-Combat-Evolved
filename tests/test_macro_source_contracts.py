@@ -123,7 +123,7 @@ def test_us_curve_and_usd_cny_use_tushare_first_with_alfred_only_for_gaps():
         ) == 4
 
 
-def test_all_macro_roles_fail_closed_without_operational_pit_proof():
+def test_implemented_macro_roles_are_released_and_central_bank_remains_blocked():
     assert PBOC_SERIES_MAP["pboc_policy_stance"]["required_branches"] == (
         "official.pboc_mpc_meeting_catalog",
         "official.pboc_monetary_policy_report_catalog",
@@ -156,19 +156,35 @@ def test_all_macro_roles_fail_closed_without_operational_pit_proof():
         "commodities",
         "institutional_flow",
     }
-    for role in MACRO_ROLE_SOURCE_GAPS:
+    implemented_roles = {
+        "china",
+        "us_economy",
+        "eu_economy",
+        "us_financial_conditions",
+        "euro_area_financial_conditions",
+        "commodities",
+        "institutional_flow",
+    }
+    for role in implemented_roles:
+        assert MACRO_ROLE_SOURCE_GAPS[role] == ()
         assert macro_role_source_readiness(role) == {
             "role": role,
-            "production_ready": False,
-            "source_gaps": list(MACRO_ROLE_SOURCE_GAPS[role]),
+            "production_ready": True,
+            "source_gaps": [],
             "implicit_fallback": False,
         }
-        try:
-            assert_macro_role_sources_ready(role)
-        except RuntimeError as exc:
-            assert str(exc).startswith(f"MACRO_ROLE_SOURCE_GAP:{role}:")
-        else:
-            raise AssertionError("required source gap must block production readiness")
+        assert_macro_role_sources_ready(role)
+
+    central_bank = macro_role_source_readiness("central_bank")
+    assert central_bank == {
+        "role": "central_bank",
+        "production_ready": False,
+        "source_gaps": list(MACRO_ROLE_SOURCE_GAPS["central_bank"]),
+        "implicit_fallback": False,
+    }
+    assert any("tushare.yc_cb_" in gap and gap.endswith(":PERMISSION_DENIED") for gap in central_bank["source_gaps"])
+    with pytest.raises(RuntimeError, match="^MACRO_ROLE_SOURCE_GAP:central_bank:"):
+        assert_macro_role_sources_ready("central_bank")
 
     with pytest.raises(ValueError, match="unknown operational macro role"):
         macro_role_source_readiness("not_a_role")
@@ -295,7 +311,7 @@ def test_commodity_families_are_closed_and_world_bank_is_context_only():
         assert contract["inventory_endpoint"] == "fut_wsr"
         assert contract["inventory_source"] == f"tushare.fut_wsr.{family_id}"
         assert contract["inventory_source_status"] == (
-            "PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING"
+            "ARCHIVED_PIT_RECEIPT_REQUIRED"
         )
         assert contract["roll_rule"] == {
             "rule_id": "first_two_roll_eligible_by_delist_date_v1",

@@ -318,6 +318,25 @@ def test_active_snapshot_schema_accepts_loaded_event_bound_tool_payload(
     _assert_active_snapshot_schema(snapshot)
 
 
+def test_production_snapshot_requires_ready_build_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    role = "institutional_flow"
+    as_of_date = "2024-06-30"
+    path = tmp_path / as_of_date / f"{role}.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(payload(role=role)), encoding="utf-8")
+    monkeypatch.setenv(
+        "MOSAIC_AGENT_MATERIALIZATION_DB", str(tmp_path / "missing-ledger.sqlite3")
+    )
+
+    with pytest.raises(
+        DataVendorUnavailable,
+        match=f"MACRO_SNAPSHOT_BUILD_RECEIPT_REQUIRED:{role}:{as_of_date}",
+    ):
+        load_role_snapshot(role, as_of_date, root=tmp_path)
+
+
 def test_commodities_snapshot_requires_deterministic_curve_and_inventory_inputs():
     missing = payload(role="commodities")
     del missing["commodity_conditions"]
@@ -671,7 +690,10 @@ def test_observations_reject_news_and_unregistered_sources():
     ],
 )
 def test_registered_snapshot_builder_rejects_identity_only_sources(tmp_path, role):
-    with pytest.raises(DataVendorUnavailable, match=f"MACRO_ROLE_SOURCE_GAP:{role}"):
+    with pytest.raises(
+        DataVendorUnavailable,
+        match=f"DIRECT_MACRO_SNAPSHOT_WRITE_REQUIRES_ARCHIVE_RECEIPT:{role}",
+    ):
         write_registered_role_snapshot(
             role=role,
             as_of_date="2024-06-30",

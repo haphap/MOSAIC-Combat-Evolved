@@ -1566,7 +1566,7 @@ def _china_observations(
 
 def _commodity_snapshot(
     group: Mapping[str, Any], receipt: SourceCaptureReceipt
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     conditions = validate_commodity_conditions_input(
         group["condition_input"], as_of_date=group["as_of_date"]
     )
@@ -1602,15 +1602,16 @@ def _commodity_snapshot(
                 ),
             }
         )
-    return validate_role_snapshot(
-        {
-            "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
-            "role": "commodities",
-            "as_of_date": group["as_of_date"],
-            "observations": observations,
-            "events": [],
-            "commodity_conditions": group["condition_input"],
-        },
+    raw = {
+        "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
+        "role": "commodities",
+        "as_of_date": group["as_of_date"],
+        "observations": observations,
+        "events": [],
+        "commodity_conditions": group["condition_input"],
+    }
+    return raw, validate_role_snapshot(
+        raw,
         "commodities",
         group["as_of_date"],
     )
@@ -1618,7 +1619,7 @@ def _commodity_snapshot(
 
 def _institutional_snapshot(
     group: Mapping[str, Any], receipt: SourceCaptureReceipt
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     session = group["market_session_date"]
     industry_amounts = [float(row["net_amount"]) for row in group["industry_rows"]]
     fund_shares = [float(row["fd_share"]) for row in group["fund_share_rows"]]
@@ -1704,15 +1705,16 @@ def _institutional_snapshot(
             "coverage_ratio": 1.0,
         },
     }
-    return validate_role_snapshot(
-        {
-            "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
-            "role": "institutional_flow",
-            "as_of_date": group["as_of_date"],
-            "observations": observations,
-            "events": [],
-            "component_coverage": component_coverage,
-        },
+    raw = {
+        "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
+        "role": "institutional_flow",
+        "as_of_date": group["as_of_date"],
+        "observations": observations,
+        "events": [],
+        "component_coverage": component_coverage,
+    }
+    return raw, validate_role_snapshot(
+        raw,
         "institutional_flow",
         group["as_of_date"],
     )
@@ -1725,7 +1727,7 @@ def _central_bank_snapshot(
     curve_group: Mapping[str, Any],
     curve_receipt: SourceCaptureReceipt,
     china_context: Sequence[Mapping[str, Any]],
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     official = _official_observations(
         china_group, china_receipts["official.cn_macro"]
     )
@@ -1797,15 +1799,16 @@ def _central_bank_snapshot(
         for row in china_context
         if str(row["series_id"]).casefold().startswith(context_prefixes)
     ]
-    return validate_role_snapshot(
-        {
-            "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
-            "role": "central_bank",
-            "as_of_date": china_group["as_of_date"],
-            "observations": selected,
-            "context_observations": deterministic_context,
-            "events": [],
-        },
+    raw = {
+        "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
+        "role": "central_bank",
+        "as_of_date": china_group["as_of_date"],
+        "observations": selected,
+        "context_observations": deterministic_context,
+        "events": [],
+    }
+    return raw, validate_role_snapshot(
+        raw,
         "central_bank",
         china_group["as_of_date"],
     )
@@ -1934,25 +1937,31 @@ def compile_china_agent_snapshots(
         ledger=ledger,
     )
     china_observations = _china_observations(china_group, china_receipts)
+    china_raw = {
+        "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
+        "role": "china",
+        "as_of_date": china_group["as_of_date"],
+        "observations": china_observations,
+        "events": [],
+    }
+    commodity_raw, commodity_snapshot = _commodity_snapshot(
+        commodity_group, commodity_receipts[COMMODITY_ROUTE_GROUP]
+    )
+    institutional_raw, institutional_snapshot = _institutional_snapshot(
+        institutional_group,
+        institutional_receipts[INSTITUTIONAL_ROUTE_GROUP],
+    )
+    raw_snapshots = {
+        "china": china_raw,
+        "commodities": commodity_raw,
+        "institutional_flow": institutional_raw,
+    }
     snapshots = {
         "china": validate_role_snapshot(
-            {
-                "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
-                "role": "china",
-                "as_of_date": china_group["as_of_date"],
-                "observations": china_observations,
-                "events": [],
-            },
-            "china",
-            china_group["as_of_date"],
+            china_raw, "china", china_group["as_of_date"]
         ),
-        "commodities": _commodity_snapshot(
-            commodity_group, commodity_receipts[COMMODITY_ROUTE_GROUP]
-        ),
-        "institutional_flow": _institutional_snapshot(
-            institutional_group,
-            institutional_receipts[INSTITUTIONAL_ROUTE_GROUP],
-        ),
+        "commodities": commodity_snapshot,
+        "institutional_flow": institutional_snapshot,
     }
     as_of_date = str(china_group["as_of_date"])
     calendar_cny = _calendar_hash(
@@ -2027,13 +2036,15 @@ def compile_china_agent_snapshots(
             store=store,
             ledger=ledger,
         )
-        snapshots["central_bank"] = _central_bank_snapshot(
+        central_bank_raw, central_bank_snapshot = _central_bank_snapshot(
             china_group=china_group,
             china_receipts=china_receipts,
             curve_group=curve_group,
             curve_receipt=curve_receipts[CURVE_ROUTE_GROUP],
             china_context=china_observations,
         )
+        raw_snapshots["central_bank"] = central_bank_raw
+        snapshots["central_bank"] = central_bank_snapshot
         build_receipts.append(
             _build_receipt(
                 role="central_bank",
@@ -2049,8 +2060,8 @@ def compile_china_agent_snapshots(
             )
         )
     destination_root = output_root or china_agent_snapshot_root()
-    for role, snapshot in snapshots.items():
-        _write_snapshot(destination_root, role, as_of_date, snapshot)
+    for role, raw in raw_snapshots.items():
+        _write_snapshot(destination_root, role, as_of_date, raw)
     persisted = tuple(
         ledger.append_or_reuse_snapshot_build(receipt)
         for receipt in build_receipts

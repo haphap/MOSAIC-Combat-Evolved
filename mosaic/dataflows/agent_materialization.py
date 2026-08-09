@@ -964,6 +964,38 @@ class AgentDataMaterializationLedger:
             return None
         return SnapshotBuildReceipt.from_dict(json.loads(row["receipt_json"]))
 
+    def ready_snapshot_build_receipts(
+        self,
+        *,
+        agent_id: str,
+        stage: str,
+        tool_id: str,
+        as_of: str,
+    ) -> tuple[SnapshotBuildReceipt, ...]:
+        for field, value in (
+            ("agent_id", agent_id),
+            ("stage", stage),
+            ("tool_id", tool_id),
+            ("as_of", as_of),
+        ):
+            if not value:
+                raise ValueError(f"{field} must be non-empty")
+        date.fromisoformat(as_of)
+        if not self._available:
+            return ()
+        with self._connect(read_only=True) as conn:
+            rows = conn.execute(
+                "SELECT receipt_json FROM snapshot_build_receipts "
+                "WHERE agent_id = ? AND stage = ? AND tool_id = ? AND as_of = ? "
+                "AND terminal_state = 'READY' "
+                "ORDER BY receipt_hash",
+                (agent_id, stage, tool_id, as_of),
+            ).fetchall()
+        return tuple(
+            SnapshotBuildReceipt.from_dict(json.loads(row["receipt_json"]))
+            for row in rows
+        )
+
     def append_or_reuse_snapshot_build(
         self, receipt: SnapshotBuildReceipt
     ) -> SnapshotBuildReceipt:

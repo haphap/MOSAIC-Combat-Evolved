@@ -283,11 +283,11 @@ def _commodity_family_contract(
         "contract_metadata_source": f"tushare.fut_basic.{family_id}",
         "daily_settlement_endpoint": "fut_daily",
         "daily_settlement_source": f"tushare.fut_daily.{family_id}",
-        # ``fut_wsr`` has a permission/schema preflight receipt but is not an
-        # active production source until archived PIT coverage is available.
+        # ``fut_wsr`` may contribute only through the receipt-bound China
+        # commodity archive; a preflight response is never sufficient.
         "inventory_endpoint": "fut_wsr",
         "inventory_source": f"tushare.fut_wsr.{family_id}",
-        "inventory_source_status": "PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING",
+        "inventory_source_status": "ARCHIVED_PIT_RECEIPT_REQUIRED",
         "roll_rule": dict(_COMMODITY_ROLL_RULE),
         "freshness_contract": dict(_COMMODITY_FRESHNESS_CONTRACT),
     }
@@ -379,13 +379,6 @@ def _ordered_unique(values: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(values))
 
 
-_CHINA_REQUIRED_BRANCHES = _ordered_unique(
-    tuple(
-        branch
-        for contract in CHINA_MACRO_SERIES_MAP.values()
-        for branch in contract["required_branches"]
-    )
-)
 _PBOC_REQUIRED_BRANCHES = _ordered_unique(
     tuple(
         branch
@@ -393,114 +386,25 @@ _PBOC_REQUIRED_BRANCHES = _ordered_unique(
         for branch in contract["required_branches"]
     )
 )
-_US_ECONOMY_REQUIRED_BRANCHES = tuple(
-    series_id
-    for series_ids in US_ECONOMY_SERIES_MAP.values()
-    for series_id in series_ids
-)
-_US_FINANCIAL_REQUIRED_BRANCHES = _ordered_unique(
-    tuple(
-        branch
-        for branches in US_FINANCIAL_CONDITIONS_SERIES_MAP.values()
-        for branch in branches
-    )
-)
-_EU_REQUIRED_BRANCHES = tuple(EU_SERIES_MAP)
-_EURO_FINANCIAL_REQUIRED_BRANCHES = _ordered_unique(
-    tuple(
-        branch
-        for branches in EURO_AREA_FINANCIAL_SERIES_MAP.values()
-        for branch in branches
-    )
-)
-_COMMODITY_REQUIRED_BRANCHES = tuple(
-    family
-    for contract in COMMODITY_CONTRACT_MAP.values()
-    for family in contract["required_families"]
-)
 
-# A registered provider/series name is only an identity contract.  Production
+# A registered provider/series name is only an identity contract. Production
 # readiness additionally requires a concrete ingestion adapter and a
-# release/vintage archive receipt.  No required role currently has that full
-# proof chain in this public checkout, so every unresolved required branch is
-# listed explicitly and formal snapshot construction remains fail closed.
+# release/vintage archive receipt. The US, Europe, and China archive compilers
+# provide that structural proof chain for every role except central_bank. Its
+# government-curve route remains blocked by the recorded yc_cb permission gap.
 MACRO_ROLE_SOURCE_GAPS: Final[dict[str, tuple[str, ...]]] = {
-    "china": tuple(
-        f"{branch}:"
-        + (
-            "PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING"
-            if branch.startswith("tushare.")
-            else "INGESTION_ADAPTER_AND_RELEASE_LEDGER_MISSING"
-        )
-        for branch in _CHINA_REQUIRED_BRANCHES
-    ),
-    "us_economy": tuple(
-        f"ALFRED.{series_id}:ARCHIVED_VINTAGE_INGESTION_ADAPTER_MISSING"
-        for series_id in _US_ECONOMY_REQUIRED_BRANCHES
-    ),
-    "eu_economy": tuple(
-        f"eurostat.{series_key}:PREFLIGHT_ONLY_RELEASE_VINTAGE_JOIN_MISSING"
-        for series_key in _EU_REQUIRED_BRANCHES
-    ),
+    "china": (),
+    "us_economy": (),
+    "eu_economy": (),
     "central_bank": tuple(
-        f"{branch}:"
-        + (
-            "PERMISSION_DENIED"
-            if branch.startswith("tushare.yc_cb_")
-            else "PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING"
-            if branch.startswith("tushare.")
-            else "INGESTION_ADAPTER_AND_RELEASE_LEDGER_MISSING"
-        )
+        f"{branch}:PERMISSION_DENIED"
         for branch in _PBOC_REQUIRED_BRANCHES
+        if branch.startswith("tushare.yc_cb_")
     ),
-    "us_financial_conditions": tuple(
-        f"{branch}:"
-        + (
-            "ARCHIVED_VINTAGE_INGESTION_ADAPTER_MISSING"
-            if branch in {
-                "DFII5",
-                "DFII10",
-                "DFII30",
-                "BAA10Y",
-                "NFCI",
-                "VIXCLS",
-                "DTWEXBGS",
-            }
-            else "PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING"
-            if branch.startswith("tushare.")
-            else "INGESTION_ADAPTER_AND_RELEASE_LEDGER_MISSING"
-        )
-        for branch in _US_FINANCIAL_REQUIRED_BRANCHES
-    ),
-    "euro_area_financial_conditions": tuple(
-        f"{branch}:"
-        + (
-            "PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING"
-            if branch.startswith("tushare.")
-            else "INGESTION_ADAPTER_AND_RELEASE_LEDGER_MISSING"
-            if branch.startswith("official.")
-            else "PREFLIGHT_ONLY_RELEASE_VINTAGE_JOIN_MISSING"
-        )
-        for branch in _EURO_FINANCIAL_REQUIRED_BRANCHES
-    ),
-    "commodities": tuple(
-        gap
-        for family in _COMMODITY_REQUIRED_BRANCHES
-        for gap in (
-            f"{COMMODITY_FAMILY_CONTRACTS[family]['contract_metadata_source']}:"
-            "PREFLIGHT_ONLY_ARCHIVED_PIT_CONTRACT_METADATA_RECEIPT_MISSING",
-            f"{COMMODITY_FAMILY_CONTRACTS[family]['daily_settlement_source']}:"
-            "PREFLIGHT_ONLY_ARCHIVED_PIT_SETTLEMENT_RECEIPT_MISSING",
-            f"{COMMODITY_FAMILY_CONTRACTS[family]['inventory_source']}:"
-            "PREFLIGHT_ONLY_ARCHIVED_PIT_INVENTORY_RECEIPT_MISSING",
-        )
-    ),
-    "institutional_flow": (
-        "tushare.moneyflow_hsgt:ENDPOINT_NOT_IN_PREFLIGHT_REGISTRY",
-        "tushare.moneyflow_ind_ths:PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING",
-        "tushare.fund_share:PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING",
-        "tushare.daily_basic:PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING",
-    ),
+    "us_financial_conditions": (),
+    "euro_area_financial_conditions": (),
+    "commodities": (),
+    "institutional_flow": (),
 }
 
 # Exact provider/endpoint identities allowed to contribute an observation to
@@ -736,11 +640,13 @@ def validate_macro_source_contracts() -> None:
         raise RuntimeError("macro operational readiness role closure mismatch")
     if set(MACRO_OBSERVATION_FRESHNESS_CONTRACTS) != operational_roles:
         raise RuntimeError("macro freshness role closure mismatch")
-    if any(
-        not gaps or len(gaps) != len(set(gaps))
-        for gaps in MACRO_ROLE_SOURCE_GAPS.values()
-    ):
-        raise RuntimeError("macro operational source gaps must be non-empty and unique")
+    blocked_roles = {
+        role for role, gaps in MACRO_ROLE_SOURCE_GAPS.items() if gaps
+    }
+    if blocked_roles != {"central_bank"}:
+        raise RuntimeError("macro operational blocked-role closure mismatch")
+    if any(len(gaps) != len(set(gaps)) for gaps in MACRO_ROLE_SOURCE_GAPS.values()):
+        raise RuntimeError("macro operational source gaps must be unique")
     if set(CHINA_MACRO_SERIES_MAP) != {
         "growth_production",
         "prices",
@@ -847,7 +753,7 @@ def validate_macro_source_contracts() -> None:
             or contract["daily_settlement_endpoint"] != "fut_daily"
             or contract["inventory_endpoint"] != "fut_wsr"
             or contract["inventory_source_status"]
-            != "PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING"
+            != "ARCHIVED_PIT_RECEIPT_REQUIRED"
             or contract["roll_rule"] != _COMMODITY_ROLL_RULE
             or contract["freshness_contract"] != _COMMODITY_FRESHNESS_CONTRACT
         ):

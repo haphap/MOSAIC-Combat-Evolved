@@ -1293,30 +1293,26 @@ def compile_europe_macro_snapshots(
     financial_observations.append(
         _fx_observation(group, source_by_route["market.euro_fx"])
     )
+    raw_snapshots = {
+        "eu_economy": {
+            "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
+            "role": "eu_economy",
+            "as_of_date": group["as_of_date"],
+            "observations": economy_observations,
+            "events": [],
+        },
+        "euro_area_financial_conditions": {
+            "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
+            "role": "euro_area_financial_conditions",
+            "as_of_date": group["as_of_date"],
+            "observations": financial_observations,
+            "context_observations": economy_observations,
+            "events": [],
+        },
+    }
     snapshots = {
-        "eu_economy": validate_role_snapshot(
-            {
-                "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
-                "role": "eu_economy",
-                "as_of_date": group["as_of_date"],
-                "observations": economy_observations,
-                "events": [],
-            },
-            "eu_economy",
-            group["as_of_date"],
-        ),
-        "euro_area_financial_conditions": validate_role_snapshot(
-            {
-                "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
-                "role": "euro_area_financial_conditions",
-                "as_of_date": group["as_of_date"],
-                "observations": financial_observations,
-                "context_observations": economy_observations,
-                "events": [],
-            },
-            "euro_area_financial_conditions",
-            group["as_of_date"],
-        ),
+        role: validate_role_snapshot(raw, role, group["as_of_date"])
+        for role, raw in raw_snapshots.items()
     }
     calendar_hash = _calendar_hash(ledger, as_of_date=group["as_of_date"])
     build_specs = (
@@ -1380,8 +1376,8 @@ def compile_europe_macro_snapshots(
             )
         )
     destination_root = output_root or europe_macro_snapshot_root()
-    for role, snapshot in snapshots.items():
-        _write_snapshot(destination_root, role, group["as_of_date"], snapshot)
+    for role, raw in raw_snapshots.items():
+        _write_snapshot(destination_root, role, group["as_of_date"], raw)
     persisted_receipts = tuple(
         ledger.append_or_reuse_snapshot_build(receipt) for receipt in build_receipts
     )

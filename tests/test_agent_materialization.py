@@ -549,6 +549,18 @@ def test_ledger_is_append_only_idempotent_and_status_is_read_only(tmp_path: Path
         assert ledger.append_source_capture(source) == source.receipt_hash
     assert ledger.append_route_coverage(coverage) == coverage.receipt_hash
     assert ledger.append_snapshot_build(build) == build.receipt_hash
+    assert ledger.ready_snapshot_build_receipts(
+        agent_id="china",
+        stage="china",
+        tool_id="get_china_macro_snapshot",
+        as_of="2026-07-01",
+    ) == (build,)
+    assert ledger.ready_snapshot_build_receipts(
+        agent_id="china",
+        stage="china",
+        tool_id="get_us_macro_snapshot",
+        as_of="2026-07-01",
+    ) == ()
     mismatched_attempt = MaterializationAttemptReceipt.from_dict(
         _attempt_payload(
             source_hashes=source_hashes[:1],

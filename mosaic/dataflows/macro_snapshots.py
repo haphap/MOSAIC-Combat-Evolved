@@ -17,6 +17,7 @@ from typing import Any
 from mosaic.dataflows.cross_runtime_json import canonical_hash
 from zoneinfo import ZoneInfo
 
+from .agent_materialization import AgentDataMaterializationLedger
 from .commodity_conditions import validate_commodity_conditions_input
 from .exceptions import DataVendorUnavailable
 from .geopolitical_events import ALL_SOURCE_IDS, build_geopolitical_role_snapshot
@@ -889,8 +890,38 @@ def validate_role_snapshot(payload: Any, role: str, as_of_date: str) -> dict[str
     return canonical
 
 
+def _assert_ready_build_receipt(
+    role: str,
+    as_of_date: str,
+    snapshot: dict[str, Any],
+    ledger: AgentDataMaterializationLedger | None,
+) -> None:
+    receipt_ledger = ledger or AgentDataMaterializationLedger(create=False)
+    candidates = receipt_ledger.ready_snapshot_build_receipts(
+        agent_id=role,
+        stage=role,
+        tool_id=ROLE_SNAPSHOT_NAMES[role],
+        as_of=as_of_date,
+    )
+    if not candidates:
+        raise DataVendorUnavailable(
+            f"MACRO_SNAPSHOT_BUILD_RECEIPT_REQUIRED:{role}:{as_of_date}"
+        )
+    if not any(
+        receipt.as_dict()["output_hash"] == snapshot["snapshot_hash"]
+        for receipt in candidates
+    ):
+        raise DataVendorUnavailable(
+            f"MACRO_SNAPSHOT_BUILD_RECEIPT_MISMATCH:{role}:{as_of_date}"
+        )
+
+
 def load_role_snapshot(
-    role: str, as_of_date: str, root: Path | None = None
+    role: str,
+    as_of_date: str,
+    root: Path | None = None,
+    *,
+    ledger: AgentDataMaterializationLedger | None = None,
 ) -> dict[str, Any]:
     if role == "geopolitical":
         snapshot = build_geopolitical_role_snapshot(as_of_date)
@@ -939,6 +970,8 @@ def load_role_snapshot(
         except RuntimeError as exc:
             raise DataVendorUnavailable(str(exc)) from exc
     snapshot = validate_role_snapshot(payload, role, as_of_date)
+    if not synthetic_source_gap_bypass:
+        _assert_ready_build_receipt(role, as_of_date, snapshot, ledger)
     if role in MACRO_EVENT_ROLES:
         role_events = build_role_event_snapshot(role, as_of_date)
         if role_events["coverage"]["coverage_completeness"] != "COMPLETE":
@@ -972,66 +1005,14 @@ def write_registered_role_snapshot(
     component_coverage: dict[str, Any] | None = None,
     root: Path | None = None,
 ) -> dict[str, Any]:
-    """Validate and atomically persist a production PIT role snapshot.
-
-    This builder accepts only already archived release/vintage observations
-    carrying exact registered source identities.  It never calls a live source,
-    substitutes an adjacent endpoint, or fabricates release metadata.
-    """
+    """Reject unbound direct writes until an archive receipt is supplied."""
     if role in {"geopolitical", "market_breadth"}:
         raise DataVendorUnavailable(
             f"{role} has a dedicated deterministic snapshot builder"
         )
-    try:
-        assert_macro_role_sources_ready(role)
-        if role in DETERMINISTIC_CONTEXT_SOURCE_ROLES:
-            assert_macro_role_sources_ready(DETERMINISTIC_CONTEXT_SOURCE_ROLES[role])
-    except RuntimeError as exc:
-        raise DataVendorUnavailable(str(exc)) from exc
-    raw: dict[str, Any] = {
-        "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
-        "role": role,
-        "as_of_date": as_of_date,
-        "observations": observations,
-        "events": [],
-    }
-    if component_coverage is not None:
-        raw["component_coverage"] = component_coverage
-    if role == "commodities":
-        if commodity_conditions is None:
-            raise DataVendorUnavailable(
-                "commodities requires deterministic term-structure and inventory inputs"
-            )
-        raw["commodity_conditions"] = commodity_conditions
-    if role in DETERMINISTIC_CONTEXT_SOURCE_ROLES:
-        if context_observations is None:
-            raise DataVendorUnavailable(
-                f"{role} requires deterministic real-economy context observations"
-            )
-        raw["context_observations"] = context_observations
-    canonical = validate_role_snapshot(raw, role, as_of_date)
-    destination_root = root or snapshot_cache_root()
-    destination = destination_root / as_of_date / f"{role}.json"
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    encoded = json.dumps(
-        raw, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    raise DataVendorUnavailable(
+        f"DIRECT_MACRO_SNAPSHOT_WRITE_REQUIRES_ARCHIVE_RECEIPT:{role}"
     )
-    if destination.exists():
-        try:
-            existing = json.loads(destination.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise DataVendorUnavailable(
-                f"existing macro snapshot is unreadable: {destination}"
-            ) from exc
-        if existing != raw:
-            raise DataVendorUnavailable(
-                f"refusing to replace a different frozen macro snapshot: {destination}"
-            )
-        return canonical
-    temporary = destination.with_suffix(".json.tmp")
-    temporary.write_text(encoded, encoding="utf-8")
-    os.replace(temporary, destination)
-    return canonical
 
 
 def mark_legacy_macro_output(payload: dict[str, Any]) -> dict[str, Any]:
