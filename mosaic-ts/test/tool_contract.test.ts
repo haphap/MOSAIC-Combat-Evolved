@@ -56,13 +56,13 @@ function capability() {
 }
 
 describe("canonical Agent tool contract", () => {
-  it("contains exactly 28 agents, 29 stages, and 18 zero-argument tools", () => {
+  it("contains exactly 28 agents, 29 stages, and the 31-tool L1/L2 active surface", () => {
     expect(AGENT_IDS).toHaveLength(28);
     expect(new Set(AGENT_IDS).size).toBe(28);
     expect(AGENT_EXECUTION_STAGE_IDS).toHaveLength(29);
     expect(new Set(AGENT_EXECUTION_STAGE_IDS).size).toBe(29);
-    expect(AGENT_TOOL_IDS).toHaveLength(18);
-    expect(new Set(AGENT_TOOL_IDS).size).toBe(18);
+    expect(AGENT_TOOL_IDS).toHaveLength(31);
+    expect(new Set(AGENT_TOOL_IDS).size).toBe(31);
   });
 
   it("matches every runtime Agent spec and the committed generated artifact", () => {
@@ -83,6 +83,55 @@ describe("canonical Agent tool contract", () => {
     expect(RUNTIME_AGENT_SPECS.map((spec) => [spec.agent, spec.layer, spec.requiredTools])).toEqual(
       artifact.agents.map((row) => [row.agent_id, row.layer, row.allowed_tools]),
     );
+  });
+
+  it("is the exact frozen preactivation surface plus the staged PR6 bindings", () => {
+    const preservationRoot = join(
+      process.cwd(),
+      "..",
+      "registry",
+      "prompt_checks",
+      "capability_preservation",
+    );
+    const base = JSON.parse(
+      readFileSync(join(preservationRoot, "current_agent_tool_contract_snapshot_v1.json"), "utf-8"),
+    ) as {
+      agents: Array<{
+        agent_id: string;
+        execution_stages: string[];
+        allowed_tools: string[];
+      }>;
+    };
+    const overlay = JSON.parse(
+      readFileSync(
+        join(preservationRoot, "sector_relationship_preservation_overlay_v1.json"),
+        "utf-8",
+      ),
+    ) as {
+      activation_state: string;
+      bindings: Array<{ agent_id: string; stage: string; tool_id: string }>;
+    };
+    const active = buildAgentToolContractManifest();
+    const surface = (manifest: typeof base) =>
+      new Set(
+        manifest.agents.flatMap((agent) =>
+          agent.execution_stages.flatMap((stage) =>
+            agent.allowed_tools.map((toolId) => `${agent.agent_id}\0${stage}\0${toolId}`),
+          ),
+        ),
+      );
+    const activeSurface = surface(active);
+    const baseSurface = surface(base);
+    const added = new Set([...activeSurface].filter((row) => !baseSurface.has(row)));
+    const expectedAdded = new Set(
+      overlay.bindings.map(
+        (binding) => `${binding.agent_id}\0${binding.stage}\0${binding.tool_id}`,
+      ),
+    );
+
+    expect(overlay.activation_state).toBe("staged");
+    expect(added).toEqual(expectedAdded);
+    expect([...baseSurface].every((row) => activeSurface.has(row))).toBe(true);
   });
 
   it("validates bundle/capability binding and rejects role or stage expansion", () => {

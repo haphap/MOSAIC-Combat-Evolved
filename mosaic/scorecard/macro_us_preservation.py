@@ -15,6 +15,10 @@ from mosaic.dataflows.macro_source_contracts import (
     US_FINANCIAL_CONDITIONS_SERIES_MAP,
 )
 from mosaic.scorecard.canonical_json import canonical_hash
+from mosaic.scorecard.preservation_snapshots import (
+    build_preactivation_capability_binding_manifest,
+    load_preactivation_agent_manifests,
+)
 from mosaic.scorecard.macro_series_backfill import ALFRED_SCORECARD_SERIES_MAP
 from mosaic.scorecard.sector_relationship_preservation import (
     evaluate_sector_relationship_significance_fixture,
@@ -465,17 +469,8 @@ def _walk_forbidden(value: Any, path: str = "$.") -> None:
 
 
 def _expected_overlay(root: Path) -> dict[str, Any]:
-    active = _read_json(
-        root / "registry/prompt_checks/agent_tool_contract_manifest_v1.json"
-    )
-    binding_manifest = _read_json(
-        root
-        / "registry/prompt_checks/capability_preservation/"
-        "agent_capability_binding_manifest_v1.json"
-    )
-    route_manifest = _read_json(
-        root / "registry/data_sources/agent_data_route_manifest_v1.json"
-    )
+    active, route_manifest = load_preactivation_agent_manifests(root)
+    binding_manifest = build_preactivation_capability_binding_manifest(root)
     required_route_ids = {
         "alfred.us_macro",
         "market.us_conditions",

@@ -16,6 +16,7 @@ from mosaic.dataflows.agent_materialization import (
     materialization_lock_key,
     validate_agent_data_route_manifest,
 )
+from mosaic.scorecard.canonical_json import canonical_hash
 
 
 HASH_A = "sha256:" + "a" * 64
@@ -232,6 +233,104 @@ def _attempt_payload(
     return MaterializationAttemptReceipt.seal(payload).as_dict()
 
 
+def _ready_stage_build(
+    *,
+    agent_id: str,
+    tool_id: str,
+    required_route_ids: list[str],
+    source_receipt_hashes: list[str],
+) -> SnapshotBuildReceipt:
+    return SnapshotBuildReceipt.seal(
+        {
+            "schema_version": "snapshot_build_receipt_v1",
+            "build_id": f"build-{agent_id}-{tool_id}-20260701",
+            "agent_id": agent_id,
+            "stage": agent_id,
+            "tool_id": tool_id,
+            "as_of": "2026-07-01",
+            "as_of_cutoff": "2026-07-01T15:00:00+08:00",
+            "source_receipt_hashes": sorted(source_receipt_hashes),
+            "compiler_version": "test_stage_compiler_v1",
+            "output_contract_version": "test_stage_snapshot_v1",
+            "output_path": f"runtime_snapshots/2026-07-01/{agent_id}-{tool_id}.json",
+            "output_hash": canonical_hash(
+                {"agent_id": agent_id, "tool_id": tool_id}
+            ),
+            "pit_mode": "OBSERVED_LIVE",
+            "earliest_trustworthy_date": "2026-07-01",
+            "required_route_ids": sorted(required_route_ids),
+            "missing_route_ids": [],
+            "terminal_state": "READY",
+            "blocker_codes": [],
+            "build_started_at": "2026-07-01T07:00:01+00:00",
+            "build_finished_at": "2026-07-01T07:00:02+00:00",
+        }
+    )
+
+
+def _ready_stage_attempt(
+    *,
+    agent_id: str,
+    builds: dict[str, SnapshotBuildReceipt],
+) -> MaterializationAttemptReceipt:
+    tool_ids = sorted(builds)
+    source_receipts = {
+        tool_id: build.as_dict()["source_receipt_hashes"]
+        for tool_id, build in builds.items()
+    }
+    lock_key = materialization_lock_key(
+        agent_id=agent_id,
+        stage=agent_id,
+        as_of="2026-07-01",
+        requested_tool_ids=tool_ids,
+        candidate_scope_hash=HASH_C,
+        runtime_input_hash=HASH_D,
+        contract_version="agent_materialization_contract_v1",
+    )
+    return MaterializationAttemptReceipt.seal(
+        {
+            "schema_version": "materialization_attempt_receipt_v1",
+            "attempt_id": f"attempt-{agent_id}-20260701",
+            "materialization_request_id": f"materialize-{agent_id}-20260701",
+            "graph_run_id": "graph-run-20260701",
+            "run_slot_id": f"run-slot-{agent_id}-20260701",
+            "run_id": "run-20260701",
+            "node_id": f"{agent_id}-node",
+            "agent_id": agent_id,
+            "stage": agent_id,
+            "as_of": "2026-07-01",
+            "requested_tool_ids": tool_ids,
+            "candidate_scope_hash": HASH_C,
+            "runtime_input_hash": HASH_D,
+            "contract_version": "agent_materialization_contract_v1",
+            "source_receipts": source_receipts,
+            "build_receipts": {
+                tool_id: builds[tool_id].receipt_hash for tool_id in tool_ids
+            },
+            "cache_status": "MISS",
+            "lock": {
+                "key": lock_key,
+                "owner": "worker-1",
+                "acquired_at": "2026-07-01T07:00:00+00:00",
+                "lease_expires_at": "2026-07-01T07:05:00+00:00",
+                "heartbeat_at": "2026-07-01T07:00:30+00:00",
+                "retry_count": 0,
+                "recovered_from_owner": None,
+            },
+            "freshness": {
+                "policy_version": "route_freshness_v1",
+                "max_age_seconds": 3600,
+                "status": "FRESH",
+                "checked_at": "2026-07-01T07:00:30+00:00",
+            },
+            "terminal_state": "READY",
+            "blocker_codes": [],
+            "started_at": "2026-07-01T07:00:00+00:00",
+            "finished_at": "2026-07-01T07:00:31+00:00",
+        }
+    )
+
+
 def test_source_capture_receipt_round_trips_both_pit_modes() -> None:
     live = SourceCaptureReceipt.from_dict(_source_payload())
     replay = SourceCaptureReceipt.from_dict(
@@ -313,6 +412,19 @@ def test_source_capture_pit_mode_must_match_manifest_strategy() -> None:
     with pytest.raises(ValueError, match="pit strategy"):
         SourceCaptureReceipt.seal(authoritative)
 
+    derived = _source_payload(
+        pit_mode="AUTHORITATIVE_VINTAGE_REPLAY",
+        route_id="private.rke_report_intelligence",
+        source_family="local_private_rke",
+    )
+    assert SourceCaptureReceipt.from_dict(derived).as_dict() == derived
+    derived.pop("receipt_hash")
+    derived["pit"]["pit_mode"] = "OBSERVED_LIVE"
+    derived["pit"]["vintage_query"] = None
+    derived["time"]["captured_at"] = derived["time"]["knowledge_available_at"]
+    with pytest.raises(ValueError, match="pit strategy"):
+        SourceCaptureReceipt.seal(derived)
+
 
 def test_source_capture_rejects_credentials_in_redacted_url() -> None:
     payload = _source_payload()
@@ -357,7 +469,7 @@ def test_route_manifest_has_exact_agent_stage_tool_coverage() -> None:
     validated = validate_agent_data_route_manifest(manifest)
     assert len({binding["agent_id"] for binding in validated["bindings"]}) == 28
     assert len({(binding["agent_id"], binding["stage"]) for binding in validated["bindings"]}) == 29
-    assert len({binding["tool_id"] for binding in validated["bindings"]}) == 18
+    assert len({binding["tool_id"] for binding in validated["bindings"]}) == 31
     assert all(binding["required_route_ids"] for binding in validated["bindings"])
 
 
@@ -486,6 +598,88 @@ def test_dry_run_reports_missing_routes_without_mutating_ledger(tmp_path: Path) 
     assert report["status"] == "BLOCKED"
     assert report["missing_route_ids"]
     assert ledger.row_counts() == before
+
+
+def test_stage_status_requires_one_exact_ready_attempt_for_all_tools(
+    tmp_path: Path,
+) -> None:
+    ledger = AgentDataMaterializationLedger(tmp_path / "stage-atomic.sqlite3")
+    manifest = load_agent_data_route_manifest()
+    routes = {row["route_id"]: row for row in manifest["routes"]}
+    bindings = {
+        row["tool_id"]: row
+        for row in manifest["bindings"]
+        if row["agent_id"] == "semiconductor" and row["stage"] == "semiconductor"
+    }
+    route_ids = {
+        route_id
+        for binding in bindings.values()
+        for route_id in binding["required_route_ids"]
+    }
+    sources = {
+        route_id: SourceCaptureReceipt.from_dict(
+            _source_payload(
+                route_id=route_id,
+                source_family=routes[route_id]["source_family"],
+                pit_mode=(
+                    "AUTHORITATIVE_VINTAGE_REPLAY"
+                    if routes[route_id]["pit_strategy"]
+                    in {"AUTHORITATIVE_VINTAGE_REPLAY", "DERIVED_FROM_PIT_ARCHIVE"}
+                    else "OBSERVED_LIVE"
+                ),
+            )
+        )
+        for route_id in route_ids
+    }
+    for source in sources.values():
+        ledger.append_source_capture(source)
+
+    builds = {
+        tool_id: _ready_stage_build(
+            agent_id="semiconductor",
+            tool_id=tool_id,
+            required_route_ids=binding["required_route_ids"],
+            source_receipt_hashes=[
+                sources[route_id].receipt_hash
+                for route_id in binding["required_route_ids"]
+            ],
+        )
+        for tool_id, binding in bindings.items()
+    }
+    for build in builds.values():
+        ledger.append_snapshot_build(build)
+
+    unpublished = ledger.snapshot_status(
+        as_of="2026-07-01",
+        agent_id="semiconductor",
+        stage="semiconductor",
+    )
+    assert unpublished["status"] == "BLOCKED"
+    assert unpublished["build_receipt_hashes"] == {}
+    assert unpublished["materialization_attempt_receipt_hash"] is None
+
+    partial = {
+        tool_id: build
+        for tool_id, build in builds.items()
+        if tool_id in {"get_role_event_snapshot", "get_sector_research_snapshot"}
+    }
+    with pytest.raises(ValueError, match="exact active stage tool set"):
+        ledger.append_materialization_attempt(
+            _ready_stage_attempt(agent_id="semiconductor", builds=partial)
+        )
+
+    attempt = _ready_stage_attempt(agent_id="semiconductor", builds=builds)
+    ledger.append_materialization_attempt(attempt)
+    published = ledger.snapshot_status(
+        as_of="2026-07-01",
+        agent_id="semiconductor",
+        stage="semiconductor",
+    )
+    assert published["status"] == "READY"
+    assert published["build_receipt_hashes"] == {
+        tool_id: build.receipt_hash for tool_id, build in builds.items()
+    }
+    assert published["materialization_attempt_receipt_hash"] == attempt.receipt_hash
 
 
 def test_read_only_status_does_not_create_a_missing_database(tmp_path: Path) -> None:
@@ -673,12 +867,53 @@ def test_status_queries_order_mixed_offsets_by_instant(tmp_path: Path) -> None:
     )
     ledger.append_snapshot_build(older_build)
     ledger.append_snapshot_build(newer_build)
+
+    def attempt_for(
+        build: SnapshotBuildReceipt,
+        *,
+        attempt_id: str,
+        materialization_request_id: str,
+        heartbeat_at: str,
+        finished_at: str,
+    ) -> MaterializationAttemptReceipt:
+        payload = _attempt_payload(
+            source_hashes=hashes,
+            build_hash=build.receipt_hash,
+        )
+        payload.pop("receipt_hash")
+        payload["attempt_id"] = attempt_id
+        payload["materialization_request_id"] = materialization_request_id
+        payload["lock"]["heartbeat_at"] = heartbeat_at
+        payload["freshness"]["checked_at"] = heartbeat_at
+        payload["finished_at"] = finished_at
+        return MaterializationAttemptReceipt.seal(payload)
+
+    older_attempt = attempt_for(
+        older_build,
+        attempt_id="attempt-older",
+        materialization_request_id="materialize-older",
+        heartbeat_at="2026-07-01T07:00:01+00:00",
+        finished_at="2026-07-01T15:00:02+08:00",
+    )
+    newer_attempt = attempt_for(
+        newer_build,
+        attempt_id="attempt-newer",
+        materialization_request_id="materialize-newer",
+        heartbeat_at="2026-07-01T07:00:02+00:00",
+        finished_at="2026-07-01T07:00:03+00:00",
+    )
+    ledger.append_materialization_attempt(older_attempt)
+    ledger.append_materialization_attempt(newer_attempt)
     snapshot_status = ledger.snapshot_status(
         as_of="2026-07-01", agent_id="china", stage="china"
     )
     assert snapshot_status["build_receipt_hashes"][
         "get_china_macro_snapshot"
     ] == newer_build.receipt_hash
+    assert (
+        snapshot_status["materialization_attempt_receipt_hash"]
+        == newer_attempt.receipt_hash
+    )
 
 
 def test_receipt_hash_detects_tampering() -> None:

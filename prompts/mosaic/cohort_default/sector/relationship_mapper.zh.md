@@ -19,9 +19,11 @@
 
 输出字段包括：`agent`, `factual_edges`, `predictive_edges`, `predictive_graph_status`, `predictive_graph_abstention_confidence`, `key_drivers`, `risks`, `claims`, `claim_refs`, `macro_input_attributions`。
 
-必需运行时工具：`get_relationship_graph_snapshot`。
+必需运行时工具：`get_relationship_graph_snapshot`, `get_rke_research_context`, `get_stock_research`, `get_supply_chain_evidence`。
 
 必须输出 `claims` 与 `claim_refs`。每个声明必须通过 `evidence_ids` 引用证据目录中的 `evidence_id`；每个 `INTERPRETATION` 声明还必须通过 `research_rule_refs` 引用允许的不透明标识。所有建议、候选、标的选择、仓位决定、组合操作、风险调整或执行检查，都必须用 `claim_refs` 引用支持它的声明。必需证据缺失或无效时拒绝本阶段，不得生成 Agent 输出；只有运行时以完整冻结证据证明合同允许的空候选或弃权分支时，才可输出该分支。不得伪造证据 ID、指纹、引用标识或跨运行引用。
+
+`get_rke_research_context` 的输出仅作为研究先验，不是当前数据，不能直接生成交易。
 
 `macro_input_attributions` 必须对十个 Macro Agent 各输出且只输出一条 `SUBMISSION_SUMMARY`，并按适用的方向、证券、风险动作或组合决策追加目标级归因。
 

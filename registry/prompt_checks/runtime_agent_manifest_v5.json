@@ -336,7 +336,17 @@
       "prompt_ir_agent_id": "sector.semiconductor",
       "required_tools": [
         "get_sector_research_snapshot",
-        "get_role_event_snapshot"
+        "get_role_event_snapshot",
+        "get_balance_sheet",
+        "get_broker_research",
+        "get_cashflow",
+        "get_etf_holdings",
+        "get_income_statement",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data"
       ],
       "output_schema_fields": [
         "agent",
@@ -395,7 +405,14 @@
       "prompt_ir_agent_id": "sector.technology",
       "required_tools": [
         "get_sector_research_snapshot",
-        "get_role_event_snapshot"
+        "get_role_event_snapshot",
+        "get_broker_research",
+        "get_etf_holdings",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data"
       ],
       "output_schema_fields": [
         "agent",
@@ -454,7 +471,14 @@
       "prompt_ir_agent_id": "sector.energy",
       "required_tools": [
         "get_sector_research_snapshot",
-        "get_role_event_snapshot"
+        "get_role_event_snapshot",
+        "get_broker_research",
+        "get_etf_holdings",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data"
       ],
       "output_schema_fields": [
         "agent",
@@ -512,7 +536,14 @@
       "layer": "sector",
       "prompt_ir_agent_id": "sector.biotech",
       "required_tools": [
-        "get_sector_research_snapshot"
+        "get_sector_research_snapshot",
+        "get_broker_research",
+        "get_etf_holdings",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data"
       ],
       "output_schema_fields": [
         "agent",
@@ -571,7 +602,14 @@
       "prompt_ir_agent_id": "sector.consumer",
       "required_tools": [
         "get_sector_research_snapshot",
-        "get_role_event_snapshot"
+        "get_role_event_snapshot",
+        "get_broker_research",
+        "get_etf_holdings",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data"
       ],
       "output_schema_fields": [
         "agent",
@@ -630,7 +668,14 @@
       "prompt_ir_agent_id": "sector.industrials",
       "required_tools": [
         "get_sector_research_snapshot",
-        "get_role_event_snapshot"
+        "get_role_event_snapshot",
+        "get_broker_research",
+        "get_etf_holdings",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data"
       ],
       "output_schema_fields": [
         "agent",
@@ -689,7 +734,14 @@
       "prompt_ir_agent_id": "sector.real_estate_construction",
       "required_tools": [
         "get_sector_research_snapshot",
-        "get_role_event_snapshot"
+        "get_role_event_snapshot",
+        "get_broker_research",
+        "get_etf_holdings",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data"
       ],
       "output_schema_fields": [
         "agent",
@@ -748,7 +800,15 @@
       "prompt_ir_agent_id": "sector.financials",
       "required_tools": [
         "get_sector_research_snapshot",
-        "get_role_event_snapshot"
+        "get_role_event_snapshot",
+        "get_broker_research",
+        "get_etf_holdings",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_yield_curve_cn"
       ],
       "output_schema_fields": [
         "agent",
@@ -807,7 +867,14 @@
       "prompt_ir_agent_id": "sector.agriculture",
       "required_tools": [
         "get_sector_research_snapshot",
-        "get_role_event_snapshot"
+        "get_role_event_snapshot",
+        "get_broker_research",
+        "get_etf_holdings",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data"
       ],
       "output_schema_fields": [
         "agent",
@@ -865,7 +932,10 @@
       "layer": "sector",
       "prompt_ir_agent_id": "sector.relationship_mapper",
       "required_tools": [
-        "get_relationship_graph_snapshot"
+        "get_relationship_graph_snapshot",
+        "get_rke_research_context",
+        "get_stock_research",
+        "get_supply_chain_evidence"
       ],
       "output_schema_fields": [
         "agent",

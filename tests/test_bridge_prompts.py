@@ -38,6 +38,12 @@ def _git(repo: Path, *args: str) -> str:
 
 def _valid_contract_prompt(agent: str, layer: str, fields: tuple[str, ...]) -> str:
     tools = _prompts._RUNTIME_PROMPT_CONTRACTS[agent]["required_tools"]
+    rke_boundary = (
+        "Treat its output only as a research prior, not current data; "
+        "it cannot directly create trades."
+        if "get_rke_research_context" in tools
+        else ""
+    )
     return f"""
 # {agent} {layer} role
 Goal: stay inside the {agent} role and use only the frozen PIT/as-of evidence.
@@ -50,6 +56,7 @@ The runtime structured schema is authoritative.
 ## Runtime Evidence Output Contract
 Output fields include: {", ".join(fields)}.
 Required runtime tools: {", ".join(tools)}.
+rke boundary: {rke_boundary}
 Emit claims and claim_refs. Claims cite evidence_id values through evidence_ids;
 INTERPRETATION claims cite research_rule_refs. Reject or abstain when evidence is insufficient.
 <!-- runtime-evidence-contract:end -->
@@ -58,6 +65,11 @@ INTERPRETATION claims cite research_rule_refs. Reject or abstain when evidence i
 
 def _valid_zh_contract_prompt(agent: str, layer: str, fields: tuple[str, ...]) -> str:
     tools = _prompts._RUNTIME_PROMPT_CONTRACTS[agent]["required_tools"]
+    rke_boundary = (
+        "其输出仅作为研究先验，不是当前数据，不能直接生成交易。"
+        if "get_rke_research_context" in tools
+        else ""
+    )
     return f"""
 # {agent} {layer} 角色
 目标：仅在 {agent} 角色内使用冻结的截至时点/PIT 证据。
@@ -70,6 +82,7 @@ def _valid_zh_contract_prompt(agent: str, layer: str, fields: tuple[str, ...]) -
 ## Runtime Evidence Output Contract
 输出字段包括：{", ".join(fields)}。
 Required runtime tools: {", ".join(tools)}。
+RKE 边界：{rke_boundary}
 输出 claims 和 claim_refs。claims 通过 evidence_ids 引用 evidence_id；
 INTERPRETATION claims 引用 research_rule_refs。证据不足时拒绝或弃权。
 <!-- runtime-evidence-contract:end -->
@@ -606,6 +619,38 @@ def test_contract_check_blocks_missing_schema_field(repo: Path, tmp_path: Path, 
 
     assert result["ready"] is False
     assert f"schema_field_missing:{missing_field}" in result["blocked_reasons"]
+
+
+def test_contract_check_blocks_approved_rke_tool_without_shadow_boundary(
+    repo: Path, tmp_path: Path, monkeypatch
+):
+    private_repo = tmp_path / "MOSAIC-Prompts"
+    _init_private_prompt_repo_for_test(private_repo, repo)
+    text = _valid_contract_prompt(
+        "semiconductor",
+        "sector",
+        _prompts._AGENT_SCHEMA_FIELDS["semiconductor"],
+    ).replace(
+        "Treat its output only as a research prior, not current data; "
+        "it cannot directly create trades.",
+        "",
+    )
+    _write_contract_prompt(
+        private_repo,
+        agent="semiconductor",
+        layer="sector",
+        text=text,
+    )
+    _git(private_repo, "add", "prompts/mosaic")
+    _git(private_repo, "commit", "-m", "missing rke boundary")
+    monkeypatch.setenv("MOSAIC_PROMPTS_REPO", str(private_repo))
+
+    result = dispatch(
+        "prompts.contract_check", {"agents": ["semiconductor"], "langs": ["zh"]}
+    )
+
+    assert result["ready"] is False
+    assert "rke_current_data_separation_missing" in result["blocked_reasons"]
 
 
 def test_contract_check_blocks_rke_prior_as_current_data(

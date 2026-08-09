@@ -64,8 +64,19 @@ def test_overlay_preserves_exact_28_l3_and_5_l4_bindings_without_activation():
             encoding="utf-8"
         )
     )
+    preactivation = json.loads(
+        (ARTIFACT.parent / "current_agent_tool_contract_snapshot_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
     active_tools = {
         tool_id for agent in active["agents"] for tool_id in agent["allowed_tools"]
+    }
+    active_bindings = {
+        (agent["agent_id"], stage, tool_id)
+        for agent in active["agents"]
+        for stage in agent["execution_stages"]
+        for tool_id in agent["allowed_tools"]
     }
     restored = {(row["agent_id"], row["stage"], row["tool_id"]) for row in overlay["bindings"]}
 
@@ -74,10 +85,17 @@ def test_overlay_preserves_exact_28_l3_and_5_l4_bindings_without_activation():
         *((agent, agent, tool) for agent, tools in L3_TOOL_ROSTER.items() for tool in tools),
         *((agent, stage, "get_rke_research_context") for agent, stage in L4_STAGE_ROSTER),
     }
-    assert {row["tool_id"] for row in overlay["bindings"]}.isdisjoint(active_tools)
+    assert restored.isdisjoint(active_bindings)
+    assert {
+        "get_balance_sheet",
+        "get_cashflow",
+        "get_rke_research_context",
+    } <= ({row["tool_id"] for row in overlay["bindings"]} & active_tools)
     assert overlay["activation_state"] == "staged"
     assert overlay["activation_gate"] == "PR13_L3_L4_ATOMIC_ACTIVATION"
-    assert overlay["base_active_agent_tool_manifest_hash"] == canonical_hash(active)
+    assert overlay["base_active_agent_tool_manifest_hash"] == canonical_hash(
+        preactivation
+    )
 
 
 def test_l3_candidate_scope_and_initial_call_contracts_are_explicit():

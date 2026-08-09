@@ -23,6 +23,19 @@ export const AGENT_TOOL_IDS = [
   "get_alpha_candidate_snapshot",
   "get_execution_snapshot",
   "get_cio_decision_snapshot",
+  "get_balance_sheet",
+  "get_broker_research",
+  "get_cashflow",
+  "get_etf_holdings",
+  "get_income_statement",
+  "get_indicators",
+  "get_industry_moneyflow",
+  "get_industry_policy_digest",
+  "get_rke_research_context",
+  "get_stock_data",
+  "get_stock_research",
+  "get_supply_chain_evidence",
+  "get_yield_curve_cn",
 ] as const;
 
 export const AGENT_IDS = [
@@ -128,7 +141,7 @@ export const AGENT_LAYER_BY_ID = {
   cio: "decision",
 } as const satisfies Readonly<Record<AgentId, AgentLayer>>;
 
-export const AGENT_TOOL_MATRIX = {
+export const AGENT_INITIAL_TOOL_MATRIX = {
   china: ["get_china_macro_snapshot"],
   us_economy: ["get_us_macro_snapshot"],
   eu_economy: ["get_eu_macro_snapshot"],
@@ -159,8 +172,60 @@ export const AGENT_TOOL_MATRIX = {
   cio: ["get_cio_decision_snapshot"],
 } as const satisfies Readonly<Record<AgentId, readonly [AgentToolId, ...AgentToolId[]]>>;
 
+const STANDARD_SECTOR_ADAPTIVE_TOOLS = [
+  "get_broker_research",
+  "get_etf_holdings",
+  "get_indicators",
+  "get_industry_moneyflow",
+  "get_industry_policy_digest",
+  "get_rke_research_context",
+  "get_stock_data",
+] as const satisfies ReadonlyArray<AgentToolId>;
+
+export const AGENT_TOOL_MATRIX = {
+  ...AGENT_INITIAL_TOOL_MATRIX,
+  semiconductor: [
+    ...AGENT_INITIAL_TOOL_MATRIX.semiconductor,
+    "get_balance_sheet",
+    "get_broker_research",
+    "get_cashflow",
+    "get_etf_holdings",
+    "get_income_statement",
+    "get_indicators",
+    "get_industry_moneyflow",
+    "get_industry_policy_digest",
+    "get_rke_research_context",
+    "get_stock_data",
+  ],
+  technology: [...AGENT_INITIAL_TOOL_MATRIX.technology, ...STANDARD_SECTOR_ADAPTIVE_TOOLS],
+  energy: [...AGENT_INITIAL_TOOL_MATRIX.energy, ...STANDARD_SECTOR_ADAPTIVE_TOOLS],
+  biotech: [...AGENT_INITIAL_TOOL_MATRIX.biotech, ...STANDARD_SECTOR_ADAPTIVE_TOOLS],
+  consumer: [...AGENT_INITIAL_TOOL_MATRIX.consumer, ...STANDARD_SECTOR_ADAPTIVE_TOOLS],
+  industrials: [...AGENT_INITIAL_TOOL_MATRIX.industrials, ...STANDARD_SECTOR_ADAPTIVE_TOOLS],
+  real_estate_construction: [
+    ...AGENT_INITIAL_TOOL_MATRIX.real_estate_construction,
+    ...STANDARD_SECTOR_ADAPTIVE_TOOLS,
+  ],
+  financials: [
+    ...AGENT_INITIAL_TOOL_MATRIX.financials,
+    ...STANDARD_SECTOR_ADAPTIVE_TOOLS,
+    "get_yield_curve_cn",
+  ],
+  agriculture: [...AGENT_INITIAL_TOOL_MATRIX.agriculture, ...STANDARD_SECTOR_ADAPTIVE_TOOLS],
+  relationship_mapper: [
+    ...AGENT_INITIAL_TOOL_MATRIX.relationship_mapper,
+    "get_rke_research_context",
+    "get_stock_research",
+    "get_supply_chain_evidence",
+  ],
+} as const satisfies Readonly<Record<AgentId, readonly [AgentToolId, ...AgentToolId[]]>>;
+
 export function agentToolsFor(agentId: AgentId): readonly [AgentToolId, ...AgentToolId[]] {
   return AGENT_TOOL_MATRIX[agentId];
+}
+
+export function initialAgentToolsFor(agentId: AgentId): readonly [AgentToolId, ...AgentToolId[]] {
+  return AGENT_INITIAL_TOOL_MATRIX[agentId];
 }
 
 export function executionStagesFor(
@@ -256,7 +321,7 @@ export const AgentToolContractManifestSchema = z
     schema_version: z.literal(AGENT_TOOL_CONTRACT_VERSION),
     agent_count: z.literal(28),
     execution_stage_count: z.literal(29),
-    tool_count: z.literal(18),
+    tool_count: z.literal(31),
     agents: z
       .array(
         z
@@ -279,7 +344,7 @@ export function buildAgentToolContractManifest(): AgentToolContractManifest {
     schema_version: AGENT_TOOL_CONTRACT_VERSION,
     agent_count: 28,
     execution_stage_count: 29,
-    tool_count: 18,
+    tool_count: 31,
     agents: AGENT_IDS.map((agentId) => ({
       agent_id: agentId,
       layer: AGENT_LAYER_BY_ID[agentId],

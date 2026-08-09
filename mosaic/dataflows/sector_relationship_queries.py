@@ -13,12 +13,16 @@ from mosaic.dataflows.interface import route_to_vendor
 from mosaic.dataflows.staged_query_receipts import (
     validate_staged_query_source_receipt,
 )
-from mosaic.rke.agent_research_context import build_rke_agent_research_context
+from mosaic.rke.agent_research_context import build_rke_agent_research_materialization
 from mosaic.scorecard.canonical_json import canonical_hash
 
 
 ReceiptAuthority = Callable[[dict[str, Any]], Sequence[Mapping[str, Any]]]
 DigestBuilder = Callable[[str, str, dict[str, Any]], Mapping[str, Any]]
+SourceEvidenceAuthority = Callable[
+    [str, Mapping[str, Any], str, Mapping[str, Any], Sequence[str]],
+    Sequence[Mapping[str, Any]] | None,
+]
 
 _DIGEST_TOOLS = {
     "get_broker_research",
@@ -32,7 +36,7 @@ _ROUTE_BY_TOOL = {
     "get_etf_holdings": "tushare.etf_holdings",
     "get_stock_data": "tushare.sector_market",
     "get_indicators": "tushare.sector_market",
-    "get_industry_moneyflow": "tushare.sector_market",
+    "get_industry_moneyflow": "tushare.institutional_flow",
     "get_yield_curve_cn": "tushare.shibor_yield_curve",
     "get_fundamentals": "tushare.sector_fundamentals",
     "get_income_statement": "tushare.sector_fundamentals",
@@ -43,10 +47,11 @@ _ROUTE_BY_TOOL = {
 }
 _PIT_MODE_BY_ROUTE = {
     "official.company_supply_chain_disclosures": "AUTHORITATIVE_VINTAGE_REPLAY",
-    "official.govcn_policy": "OBSERVED_LIVE",
+    "official.govcn_policy": "DERIVED_FROM_PIT_ARCHIVE",
     "private.rke_report_intelligence": "DERIVED_FROM_PIT_ARCHIVE",
-    "private.tushare_research_reports": "OBSERVED_LIVE",
+    "private.tushare_research_reports": "DERIVED_FROM_PIT_ARCHIVE",
     "tushare.etf_holdings": "AUTHORITATIVE_VINTAGE_REPLAY",
+    "tushare.institutional_flow": "OBSERVED_LIVE",
     "tushare.sector_fundamentals": "OBSERVED_LIVE",
     "tushare.sector_market": "OBSERVED_LIVE",
     "tushare.shibor_yield_curve": "OBSERVED_LIVE",
@@ -69,8 +74,8 @@ def _required_payload(value: Any, field: str = "payload") -> str:
     return value
 
 
-def _default_rke_renderer(args: dict[str, Any]) -> str:
-    context = build_rke_agent_research_context(
+def _default_rke_renderer(args: dict[str, Any]) -> Mapping[str, Any]:
+    materialization = build_rke_agent_research_materialization(
         agent_id=args["agent_id"],
         as_of_date=args["as_of"],
         layer=args["layer"],
@@ -78,7 +83,10 @@ def _default_rke_renderer(args: dict[str, Any]) -> str:
         sector=args.get("sector", ""),
         max_items=args["max_items"],
     )
-    return format_rke_runtime_context(context)
+    return {
+        "payload": format_rke_runtime_context(materialization["context"]),
+        "source_ids": materialization["source_ids"],
+    }
 
 
 def _legacy_call(tool_id: str, args: dict[str, Any]) -> tuple[str, tuple[Any, ...]]:
@@ -196,14 +204,16 @@ class SectorRelationshipQueryMaterializer:
         receipt_authority: ReceiptAuthority,
         route_caller: Callable[..., Any] = route_to_vendor,
         digest_builder: DigestBuilder | None = None,
-        rke_renderer: Callable[[dict[str, Any]], str] = _default_rke_renderer,
+        rke_renderer: Callable[[dict[str, Any]], Any] = _default_rke_renderer,
         supply_chain_archive: Any | None = None,
+        source_evidence_authority: SourceEvidenceAuthority | None = None,
     ) -> None:
         self.route_caller = route_caller
         self.receipt_authority = receipt_authority
         self.digest_builder = digest_builder
         self.rke_renderer = rke_renderer
         self.supply_chain_archive = supply_chain_archive
+        self.source_evidence_authority = source_evidence_authority
 
     def __call__(self, tool_id: str, args: dict[str, Any]) -> dict[str, Any]:
         if tool_id not in _ROUTE_BY_TOOL:
@@ -222,8 +232,21 @@ class SectorRelationshipQueryMaterializer:
 
         if tool_id in _DIGEST_TOOLS and self.digest_builder is None:
             raise ValueError(f"{tool_id} requires a trusted frozen digest builder")
+        source_ids: tuple[str, ...] = ()
         if tool_id == "get_rke_research_context":
-            raw_payload = _required_payload(self.rke_renderer(dict(args)), "RKE payload")
+            rendered = self.rke_renderer(dict(args))
+            if isinstance(rendered, Mapping):
+                if set(rendered) != {"payload", "source_ids"}:
+                    raise ValueError("trusted RKE renderer returned an invalid materialization")
+                raw_payload = _required_payload(rendered["payload"], "RKE payload")
+                raw_source_ids = rendered["source_ids"]
+                if not isinstance(raw_source_ids, Sequence) or isinstance(
+                    raw_source_ids, (str, bytes)
+                ):
+                    raise ValueError("trusted RKE renderer source_ids must be an array")
+                source_ids = tuple(str(value) for value in raw_source_ids)
+            else:
+                raw_payload = _required_payload(rendered, "RKE payload")
         else:
             method, route_args = _legacy_call(tool_id, args)
             raw_payload = _required_payload(self.route_caller(method, *route_args))
@@ -238,7 +261,17 @@ class SectorRelationshipQueryMaterializer:
             "content_hash": canonical_hash({"text": raw_payload}),
             "pit_mode": _PIT_MODE_BY_ROUTE[route_id],
         }
-        source_receipts = self.receipt_authority(dict(descriptor))
+        source_receipts = None
+        if self.source_evidence_authority is not None:
+            source_receipts = self.source_evidence_authority(
+                tool_id,
+                dict(args),
+                raw_payload,
+                dict(descriptor),
+                source_ids,
+            )
+        if source_receipts is None:
+            source_receipts = self.receipt_authority(dict(descriptor))
         if not isinstance(source_receipts, Sequence) or isinstance(
             source_receipts, (str, bytes)
         ):

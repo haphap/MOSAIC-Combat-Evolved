@@ -10,6 +10,7 @@ const AdaptiveQueryContractSchema = z
   .object({
     max_rounds: z.number().int().nonnegative(),
     model_selects_arguments: z.boolean(),
+    transport_allowed_during_prepare: z.literal(true).optional(),
     transport_allowed_during_call: z.literal(false),
   })
   .strict();

@@ -37,7 +37,14 @@ def test_macro_matrix_has_one_role_snapshot_and_no_legacy_or_search_tools():
         "get_volatility_snapshot",
         "get_rke_research_context",
     }
-    assert forbidden.isdisjoint(TOOL_DESCRIPTIONS)
+    macro_tools = {
+        tool_id
+        for agent in MACRO_AGENT_TO_TOOL
+        for tool_id in AGENT_TOOL_MATRIX[agent]
+    }
+    assert forbidden.isdisjoint(macro_tools)
+    assert (forbidden - {"get_rke_research_context"}).isdisjoint(TOOL_DESCRIPTIONS)
+    assert "get_rke_research_context" in TOOL_DESCRIPTIONS
 
 
 @pytest.mark.parametrize(

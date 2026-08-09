@@ -53,6 +53,11 @@ def test_overlay_covers_exact_existing_macro_us_bindings_without_surface_change(
             encoding="utf-8"
         )
     )
+    preactivation = json.loads(
+        (ARTIFACT.parent / "current_agent_tool_contract_snapshot_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
     active_bindings = json.loads(
         (
             ROOT
@@ -60,7 +65,12 @@ def test_overlay_covers_exact_existing_macro_us_bindings_without_surface_change(
             "agent_capability_binding_manifest_v1.json"
         ).read_text(encoding="utf-8")
     )
-    expected_tools = {
+    preactivation_tools = {
+        tool_id
+        for agent in preactivation["agents"]
+        for tool_id in agent["allowed_tools"]
+    }
+    active_tools = {
         tool_id for agent in active["agents"] for tool_id in agent["allowed_tools"]
     }
     actual_roster = {
@@ -68,7 +78,8 @@ def test_overlay_covers_exact_existing_macro_us_bindings_without_surface_change(
         for row in overlay["bindings"]
     }
 
-    assert len(expected_tools) == 18
+    assert len(preactivation_tools) == 18
+    assert preactivation_tools < active_tools
     assert actual_roster == set(MACRO_US_BINDING_ROSTER)
     assert len(actual_roster) == 8
     assert {row["binding_id"] for row in overlay["bindings"]} <= {
@@ -78,7 +89,9 @@ def test_overlay_covers_exact_existing_macro_us_bindings_without_surface_change(
     assert all(row["source_activation_state"] == "staged" for row in overlay["bindings"])
     assert overlay["activation_state"] == "staged"
     assert overlay["activation_gate"] == "PR12_L1_L2_ATOMIC_ACTIVATION"
-    assert overlay["base_active_agent_tool_manifest_hash"] == canonical_hash(active)
+    assert overlay["base_active_agent_tool_manifest_hash"] == canonical_hash(
+        preactivation
+    )
 
 
 def test_series_component_weight_and_consumer_redistribution_have_exact_closure():

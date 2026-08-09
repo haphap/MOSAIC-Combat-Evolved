@@ -56,13 +56,25 @@ def test_generated_sector_relationship_overlay_is_current_and_schema_valid():
     assert result.accepted, result.failures
 
 
-def test_overlay_keeps_active_surface_frozen_and_covers_all_70_restored_bindings():
+def test_overlay_keeps_frozen_base_and_covers_all_70_activated_bindings():
     overlay = build_sector_relationship_preservation_overlay(ROOT)
+    frozen = json.loads(
+        (
+            ROOT
+            / "registry/prompt_checks/capability_preservation/"
+            "current_agent_tool_contract_snapshot_v1.json"
+        ).read_text(encoding="utf-8")
+    )
     active = json.loads(
         (ROOT / "registry/prompt_checks/agent_tool_contract_manifest_v1.json").read_text(
             encoding="utf-8"
         )
     )
+    frozen_tools = {
+        tool
+        for agent in frozen["agents"]
+        for tool in agent["allowed_tools"]
+    }
     active_tools = {
         tool
         for agent in active["agents"]
@@ -73,8 +85,9 @@ def test_overlay_keeps_active_surface_frozen_and_covers_all_70_restored_bindings
     assert len(overlay["bindings"]) == 70
     assert overlay["activation_state"] == "staged"
     assert overlay["activation_gate"] == "PR12_L1_L2_ATOMIC_ACTIVATION"
-    assert restored_tools.isdisjoint(active_tools)
-    assert overlay["base_active_agent_tool_manifest_hash"] == canonical_hash(active)
+    assert restored_tools.isdisjoint(frozen_tools)
+    assert restored_tools <= active_tools
+    assert overlay["base_active_agent_tool_manifest_hash"] == canonical_hash(frozen)
 
     for agent_id in (*LEGACY_SECTOR_AGENT_IDS, *NEW_SECTOR_AGENT_IDS):
         tools = {

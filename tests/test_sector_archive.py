@@ -549,6 +549,7 @@ def test_capture_group_executes_registered_incremental_routes(
         "index_member_all",
         "moneyflow",
         "income",
+        "balancesheet",
         "cashflow",
         "fund_basic",
         "top10_holders",
@@ -575,6 +576,7 @@ def test_capture_group_executes_registered_incremental_routes(
     }
     assert policies == {
         "cashflow": "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP",
+        "balancesheet": "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP",
         "fund_basic": "OFFSET_WITH_TERMINAL_CONFIRMATION",
         "income": "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP",
         "index_member_all": "OFFSET_WITH_TERMINAL_CONFIRMATION",

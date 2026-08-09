@@ -235,6 +235,50 @@ def _format_no_research_reports(
     return "\n".join(lines)
 
 
+def _render_broker_research_frame(
+    data: pd.DataFrame,
+    *,
+    ts_code: str,
+    start_date: str,
+    end_date: str,
+    max_reports: int,
+    matched_industry: str,
+    industry_source: str,
+    basic_industry: str = "",
+) -> str:
+    rendered = data.sort_values("trade_date", ascending=False).head(max_reports)
+    lines = [
+        f"# Industry Research Reports for {matched_industry} (search keyword for {ts_code})",
+        "",
+        f"Period: {start_date} to {end_date} | Total: {len(rendered)} reports",
+        f"Industry keyword source: {industry_source}",
+        "",
+    ]
+    if basic_industry and basic_industry != matched_industry:
+        lines.insert(3, f"Stock basic industry: {basic_industry}")
+    _append_research_report_rows(lines, rendered)
+    return "\n".join(lines)
+
+
+def _render_stock_research_frame(
+    data: pd.DataFrame,
+    *,
+    ts_code: str,
+    start_date: str,
+    end_date: str,
+    max_reports: int,
+) -> str:
+    rendered = data.sort_values("trade_date", ascending=False).head(max_reports)
+    lines = [
+        f"# Individual Stock Research Reports for {ts_code}",
+        "",
+        f"Period: {start_date} to {end_date} | Total: {len(rendered)} reports",
+        "",
+    ]
+    _append_research_report_rows(lines, rendered)
+    return "\n".join(lines)
+
+
 _cached_pro_client = None
 _etf_fund_basic_cache: tuple[float, pd.DataFrame] | None = None
 _etf_factor_snapshot_cache: dict[tuple[str, str], dict[str, object]] = {}
@@ -353,13 +397,16 @@ def _to_csv_with_header(
     df: pd.DataFrame,
     title: str,
     summary_lines: list[str] | None = None,
+    *,
+    retrieved_at: str | None = None,
 ) -> str:
     if df is None or df.empty:
         return f"No {title.lower()} data found."
 
     header = f"# {title}\n"
     header += f"# Total records: {len(df)}\n"
-    header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    observed_at = retrieved_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    header += f"# Data retrieved on: {observed_at}\n\n"
     if summary_lines:
         header += "# Key snapshot\n"
         header += "\n".join(summary_lines) + "\n\n"
@@ -1009,16 +1056,22 @@ def get_etf_nav(ticker: str, curr_date: str) -> str:
     return _to_csv_with_header(df.head(20).reset_index(drop=True), f"ETF NAV for {ts_code}", summary_lines)
 
 
-def get_etf_holdings(ticker: str, curr_date: str) -> str:
-    ts_code = _normalize_ts_code(ticker)
-    df = _query_pro("fund_portfolio", ts_code=ts_code)
+def _render_etf_holdings(
+    df: pd.DataFrame,
+    *,
+    ts_code: str,
+    curr_date: str,
+    retrieved_at: str | None = None,
+    enrich_names: bool = True,
+) -> str:
     if "end_date" in df.columns:
         df = df[df["end_date"].astype(str) <= _to_api_date(curr_date)]
     df = _sort_descending(df, "end_date", "ann_date", "stk_mkv_ratio")
     if df.empty:
         raise MissingEtfHoldings(f"No ETF holdings data found for '{ts_code}' up to {curr_date}.")
 
-    df = _enrich_fund_portfolio_stock_names(df)
+    if enrich_names:
+        df = _enrich_fund_portfolio_stock_names(df)
 
     summary_lines: list[str] = []
     latest = df.iloc[0]
@@ -1028,7 +1081,21 @@ def get_etf_holdings(ticker: str, curr_date: str) -> str:
     _append_if_present(summary_lines, "Top Holding", latest.get("symbol") or latest.get("stk_code"))
     _append_if_present(summary_lines, "Top Holding Weight", latest.get("stk_mkv_ratio"), _format_pct)
 
-    return _to_csv_with_header(df.head(20).reset_index(drop=True), f"ETF holdings for {ts_code}", summary_lines)
+    return _to_csv_with_header(
+        df.head(20).reset_index(drop=True),
+        f"ETF holdings for {ts_code}",
+        summary_lines,
+        retrieved_at=retrieved_at,
+    )
+
+
+def get_etf_holdings(ticker: str, curr_date: str) -> str:
+    ts_code = _normalize_ts_code(ticker)
+    return _render_etf_holdings(
+        _query_pro("fund_portfolio", ts_code=ts_code),
+        ts_code=ts_code,
+        curr_date=curr_date,
+    )
 
 
 def get_etf_share(ticker: str, curr_date: str) -> str:
@@ -1744,14 +1811,14 @@ def _fetch_price_data(pro, ts_code: str, start_api: str, end_api: str) -> pd.Dat
     return pro.us_daily(ts_code=ts_code, start_date=start_api, end_date=end_api)
 
 
-def get_stock(symbol: str, start_date: str, end_date: str) -> str:
-    pro = _get_pro_client()
-    ts_code = _normalize_ts_code(symbol)
-
-    start_api = _to_api_date(start_date)
-    end_api = _to_api_date(end_date)
-
-    data = _fetch_price_data(pro, ts_code, start_api, end_api)
+def _render_stock_data(
+    data: pd.DataFrame,
+    *,
+    ts_code: str,
+    start_date: str,
+    end_date: str,
+    retrieved_at: str | None = None,
+) -> str:
     if data is None or data.empty:
         return f"No stock data found for '{ts_code}' between {start_date} and {end_date}."
 
@@ -1793,6 +1860,24 @@ def get_stock(symbol: str, start_date: str, end_date: str) -> str:
     return _to_csv_with_header(
         output,
         f"Tushare stock data for {ts_code} from {start_date} to {end_date}",
+        retrieved_at=retrieved_at,
+    )
+
+
+def get_stock(symbol: str, start_date: str, end_date: str) -> str:
+    pro = _get_pro_client()
+    ts_code = _normalize_ts_code(symbol)
+    data = _fetch_price_data(
+        pro,
+        ts_code,
+        _to_api_date(start_date),
+        _to_api_date(end_date),
+    )
+    return _render_stock_data(
+        data,
+        ts_code=ts_code,
+        start_date=start_date,
+        end_date=end_date,
     )
 
 
@@ -1827,8 +1912,9 @@ def _load_price_frame(symbol: str, curr_date: str, look_back_days: int = 260) ->
     return df[["Date", "Open", "High", "Low", "Close", "Volume"]]
 
 
-def get_indicator(
-    symbol: str,
+def _render_indicator_frame(
+    price_frame: pd.DataFrame,
+    *,
     indicator: str,
     curr_date: str,
     look_back_days: int,
@@ -1841,7 +1927,7 @@ def get_indicator(
 
     current_dt = _parse_date(curr_date)
     start_dt = current_dt - timedelta(days=look_back_days)
-    stats_df = wrap(_load_price_frame(symbol, curr_date))
+    stats_df = wrap(price_frame.copy())
     stats_df["Date"] = stats_df["Date"].dt.strftime("%Y-%m-%d")
     stats_df[indicator]
 
@@ -1865,6 +1951,20 @@ def get_indicator(
         + "\n".join(lines)
         + "\n\n"
         + descriptions[indicator]
+    )
+
+
+def get_indicator(
+    symbol: str,
+    indicator: str,
+    curr_date: str,
+    look_back_days: int,
+) -> str:
+    return _render_indicator_frame(
+        _load_price_frame(symbol, curr_date),
+        indicator=indicator,
+        curr_date=curr_date,
+        look_back_days=look_back_days,
     )
 
 
@@ -2115,10 +2215,25 @@ def _statement_common(
     market = _classify_market(ts_code)
     data = fetcher(pro, ts_code, market)
     filtered = _filter_statement(data, freq, curr_date)
+    return _render_statement_frame(
+        filtered,
+        title=f"Tushare {title} for {ts_code} ({freq})",
+        summary_builder=summary_builder,
+    )
+
+
+def _render_statement_frame(
+    filtered: pd.DataFrame,
+    *,
+    title: str,
+    summary_builder: Callable[[pd.DataFrame], list[str]] | None,
+    retrieved_at: str | None = None,
+) -> str:
     return _to_csv_with_header(
         filtered,
-        f"Tushare {title} for {ts_code} ({freq})",
+        title,
         summary_builder(filtered) if summary_builder else None,
+        retrieved_at=retrieved_at,
     )
 
 
@@ -2439,20 +2554,16 @@ def get_broker_reports(
             max_reports=max_reports,
         )
 
-    data = data.sort_values("trade_date", ascending=False).head(max_reports)
-
-    lines = [
-        f"# Industry Research Reports for {matched_industry} (search keyword for {ts_code})",
-        "",
-        f"Period: {start_date} to {end_date} | Total: {len(data)} reports",
-        f"Industry keyword source: {industry_source}",
-        "",
-    ]
-    if basic_industry and basic_industry != matched_industry:
-        lines.insert(3, f"Stock basic industry: {basic_industry}")
-    _append_research_report_rows(lines, data)
-
-    return "\n".join(lines)
+    return _render_broker_research_frame(
+        data,
+        ts_code=ts_code,
+        start_date=start_date,
+        end_date=end_date,
+        max_reports=max_reports,
+        matched_industry=matched_industry,
+        industry_source=industry_source,
+        basic_industry=basic_industry,
+    )
 
 
 def get_stock_reports(
@@ -2536,14 +2647,10 @@ def get_stock_reports(
             max_reports=max_reports,
         )
 
-    data = data.sort_values("trade_date", ascending=False).head(max_reports)
-
-    lines = [
-        f"# Individual Stock Research Reports for {ts_code}",
-        "",
-        f"Period: {start_date} to {end_date} | Total: {len(data)} reports",
-        "",
-    ]
-    _append_research_report_rows(lines, data)
-
-    return "\n".join(lines)
+    return _render_stock_research_frame(
+        data,
+        ts_code=ts_code,
+        start_date=start_date,
+        end_date=end_date,
+        max_reports=max_reports,
+    )

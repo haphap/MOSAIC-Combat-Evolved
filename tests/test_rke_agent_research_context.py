@@ -9,6 +9,7 @@ from mosaic.rke.agent_research_context import (
     SAFE_ACTIONABILITY,
     SCHEMA_VERSION,
     assert_public_safe_context,
+    build_rke_agent_research_materialization,
     build_rke_agent_research_context_from_rows,
     format_rke_agent_research_context,
     normalize_agent_id,
@@ -21,6 +22,69 @@ def _write_jsonl(path, rows):
     path.write_text(
         "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n",
         encoding="utf-8",
+    )
+
+
+def test_trusted_rke_materialization_returns_selected_source_ids_outside_public_context(
+    tmp_path,
+):
+    registry_dir = tmp_path / "registry/report_intelligence"
+    registry_dir.mkdir(parents=True)
+    _write_jsonl(
+        registry_dir / "forecast_claims.jsonl",
+        [
+            {
+                "forecast_claim_id": "FC-SELECTED",
+                "report_id": "RPT-SELECTED",
+                "source_id": "SRC-SELECTED",
+                "target": {"target_type": "industry", "target_id": "银行"},
+                "metric_proxy_mapping": ["industry_etf_forward_return"],
+                "direction": "positive",
+            },
+            {
+                "forecast_claim_id": "FC-OTHER",
+                "report_id": "RPT-OTHER",
+                "source_id": "SRC-OTHER",
+                "target": {"target_type": "industry", "target_id": "半导体"},
+                "metric_proxy_mapping": ["industry_etf_forward_return"],
+                "direction": "negative",
+            },
+        ],
+    )
+    _write_jsonl(
+        registry_dir / "report_metadata.jsonl",
+        [
+            {
+                "report_id": "RPT-SELECTED",
+                "source_id": "SRC-SELECTED",
+                "report_type": "行业研报",
+                "sector": "银行",
+                "publish_datetime": "2026-07-01T09:00:00+08:00",
+            },
+            {
+                "report_id": "RPT-OTHER",
+                "source_id": "SRC-OTHER",
+                "report_type": "行业研报",
+                "sector": "半导体",
+                "publish_datetime": "2026-07-01T09:00:00+08:00",
+            },
+        ],
+    )
+
+    materialization = build_rke_agent_research_materialization(
+        root=tmp_path,
+        agent_id="financials",
+        layer="sector",
+        sector="银行",
+        as_of_date="2026-07-09",
+        max_items=12,
+    )
+
+    assert set(materialization) == {"context", "source_ids"}
+    assert materialization["source_ids"] == ("SRC-SELECTED",)
+    assert materialization["context"]["summary"]["item_count"] == 1
+    assert "SRC-SELECTED" not in json.dumps(
+        materialization["context"], ensure_ascii=False
     )
 
 

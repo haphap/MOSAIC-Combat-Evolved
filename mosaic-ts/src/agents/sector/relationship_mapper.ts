@@ -1,5 +1,6 @@
 /** Cross-sector relationships over the frozen accepted sector/security domain. */
 
+import { agentToolsFor, initialAgentToolsFor } from "../tool_contract.js";
 import type { RelationshipMapperOutput } from "../types.js";
 import {
   buildLayerTwoAgentNode,
@@ -9,13 +10,15 @@ import {
 } from "./_factory.js";
 import { RELATIONSHIP_MAPPER_FIELD_NAMES, RelationshipMapperSchema } from "./_schemas.js";
 
-export const REQUIRED_TOOLS = ["get_relationship_graph_snapshot"] as const;
+export const REQUIRED_TOOLS = agentToolsFor("relationship_mapper");
+export const INITIAL_SNAPSHOT_TOOLS = initialAgentToolsFor("relationship_mapper");
 
 export const relationshipMapperSpec: LayerTwoAgentSpec<RelationshipMapperOutput> = {
   agentId: "relationship_mapper",
   schema: RelationshipMapperSchema,
   fieldNames: RELATIONSHIP_MAPPER_FIELD_NAMES,
   requiredTools: REQUIRED_TOOLS,
+  initialSnapshotTools: INITIAL_SNAPSHOT_TOOLS,
   render: renderRelationshipMapper,
 };
 

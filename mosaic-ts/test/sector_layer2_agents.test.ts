@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { AIMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { adaptStrictProviderJsonSchema } from "../src/agents/helpers/structured_provider_adapters.js";
@@ -45,6 +46,7 @@ import {
 } from "../src/agents/sector/selection.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
 import { emptyCurrentPositions, emptyLayer4, emptyPositionAudit } from "../src/agents/state.js";
+import { agentToolsFor, initialAgentToolsFor } from "../src/agents/tool_contract.js";
 import type {
   BridgeApi,
   MosaicConfig,
@@ -70,11 +72,8 @@ describe("Layer-2 roster and role contracts", () => {
     const role = STANDARD_SECTOR_ROLE_CONTRACTS[agent];
     expect(role.directionIds.length).toBeGreaterThanOrEqual(3);
     expect(new Set(role.directionIds).size).toBe(role.directionIds.length);
-    expect(role.requiredTools).toEqual(
-      agent === "biotech"
-        ? ["get_sector_research_snapshot"]
-        : ["get_sector_research_snapshot", "get_role_event_snapshot"],
-    );
+    expect(role.requiredTools).toEqual(agentToolsFor(agent));
+    expect(role.initialSnapshotTools).toEqual(initialAgentToolsFor(agent));
     expect(role.responsibility.zh).not.toBe(role.responsibility.en);
     expect(role.prohibited.zh.length).toBeGreaterThan(0);
   });
@@ -396,11 +395,8 @@ describe("standard sector output contracts", () => {
 
   it.each(STANDARD_SECTOR_AGENT_IDS)("%s spec exposes its closed snapshot tools", (agent) => {
     const spec = standardSectorSpec(agent, buildStandardSectorSchema(agent));
-    expect(spec.requiredTools).toEqual(
-      agent === "biotech"
-        ? ["get_sector_research_snapshot"]
-        : ["get_sector_research_snapshot", "get_role_event_snapshot"],
-    );
+    expect(spec.requiredTools).toEqual(agentToolsFor(agent));
+    expect(spec.initialSnapshotTools).toEqual(initialAgentToolsFor(agent));
     expect(spec.fieldNames).toEqual(
       expect.arrayContaining([
         "agent",
@@ -424,7 +420,10 @@ describe("relationship mapper", () => {
   });
 
   it("uses its dedicated frozen-domain snapshot", () => {
-    expect(relationshipMapperSpec.requiredTools).toEqual(["get_relationship_graph_snapshot"]);
+    expect(relationshipMapperSpec.requiredTools).toEqual(agentToolsFor("relationship_mapper"));
+    expect(relationshipMapperSpec.initialSnapshotTools).toEqual(
+      initialAgentToolsFor("relationship_mapper"),
+    );
     expect(relationshipMapperSpec.fieldNames).toContain("agent");
   });
 
@@ -733,6 +732,7 @@ describe("relationship mapper", () => {
 class InstrumentedSectorLlm {
   readonly prompts: string[] = [];
   readonly systemMessages: string[] = [];
+  readonly boundToolNames: string[] = [];
   private neutralResearch: Record<string, unknown> | null = null;
 
   constructor(
@@ -744,6 +744,15 @@ class InstrumentedSectorLlm {
       | "NO_UNIQUE_LOSER"
       | "NO_NON_ETF_EDGE" = "NONE",
   ) {}
+
+  async invoke(): Promise<AIMessage> {
+    return new AIMessage("No additional adaptive query selected.");
+  }
+
+  bindTools(tools: ReadonlyArray<{ name: string }>): { invoke: () => Promise<AIMessage> } {
+    this.boundToolNames.push(...tools.map((tool) => tool.name));
+    return { invoke: () => this.invoke() };
+  }
 
   withStructuredOutput(
     schema: unknown,
@@ -779,6 +788,33 @@ class InstrumentedSectorLlm {
         return output;
       },
     };
+  }
+}
+
+class AdaptiveQuerySectorLlm extends InstrumentedSectorLlm {
+  adaptiveInvocations = 0;
+
+  override async invoke(): Promise<AIMessage> {
+    this.adaptiveInvocations += 1;
+    if (this.adaptiveInvocations === 1) {
+      return new AIMessage({
+        content: "Requesting one authorized technical indicator.",
+        tool_calls: [
+          {
+            id: "adaptive_indicator_1",
+            name: "get_indicators",
+            args: {
+              ticker: "600000.SH",
+              indicator: "rsi",
+              as_of: "2026-07-19",
+              lookback: 20,
+            },
+            type: "tool_call",
+          },
+        ],
+      });
+    }
+    return new AIMessage("Adaptive evidence collected; continue with structured comparison.");
   }
 }
 
@@ -1053,6 +1089,7 @@ function instrumentedSectorApi(
   events: {
     reports: SectorModelUsageReport[];
     lifecycle: string[];
+    toolCalls?: Array<{ name: string; args: Record<string, unknown> }>;
   },
   overrides: { sectorSnapshot?: string; roleEventSnapshot?: string } = {},
 ): BridgeApi {
@@ -1107,14 +1144,35 @@ function instrumentedSectorApi(
       STANDARD_SECTOR_ROLE_CONTRACTS.energy.requiredTools.map((name) => ({
         name,
         description: name,
-        args_schema: { type: "object", properties: {}, additionalProperties: false },
+        args_schema:
+          name === "get_indicators"
+            ? {
+                type: "object" as const,
+                properties: {
+                  ticker: { type: "string" as const },
+                  as_of: { type: "string" as const },
+                  lookback: { type: "integer" as const },
+                  indicator: { type: "string" as const },
+                },
+                required: ["ticker", "as_of", "lookback", "indicator"],
+                additionalProperties: false,
+              }
+            : { type: "object" as const, properties: {}, additionalProperties: false },
       })),
-    toolsCall: async (name: string) => ({
-      text:
-        name === "get_sector_research_snapshot"
-          ? (overrides.sectorSnapshot ?? sectorSnapshot())
-          : (overrides.roleEventSnapshot ?? roleEventSnapshot()),
-    }),
+    toolsCall: async (name: string, args: Record<string, unknown>) => {
+      events.toolCalls?.push({ name, args });
+      return {
+        text:
+          name === "get_sector_research_snapshot"
+            ? (overrides.sectorSnapshot ?? sectorSnapshot())
+            : name === "get_role_event_snapshot"
+              ? (overrides.roleEventSnapshot ?? roleEventSnapshot())
+              : JSON.stringify({
+                  query: args,
+                  values: [{ date: "2026-07-19", value: 51.2 }],
+                }),
+      };
+    },
     toolsRecordModelUsage: async (
       _capability: SignedAgentToolCapability,
       report: SectorModelUsageReport,
@@ -1359,6 +1417,45 @@ describe("standard Sector usage lifecycle", () => {
       reducer_contract_version:
         SECTOR_DIRECTION_CONFLICT_RESOLVER_CONTRACT.resolver_contract_version,
     });
+  });
+
+  it("lets a real provider select one parameterized adaptive query after initial snapshots", async () => {
+    const events = {
+      reports: [] as SectorModelUsageReport[],
+      lifecycle: [] as string[],
+      toolCalls: [] as Array<{ name: string; args: Record<string, unknown> }>,
+    };
+    const llm = new AdaptiveQuerySectorLlm();
+    const handle: LlmHandle = {
+      llm: llm as unknown as LlmHandle["llm"],
+      provider: "openai",
+      model: "fixture-model",
+      baseUrl: undefined,
+    };
+
+    const update = await buildEnergyNode({
+      llmHandle: handle,
+      api: instrumentedSectorApi(events),
+      config,
+      promptsRoot: promptDir,
+    })(sectorPipelineState());
+
+    expect(update.layer2_outputs).toMatchObject({ energy: expect.any(Object) });
+    expect(llm.boundToolNames).toEqual(agentToolsFor("energy"));
+    expect(llm.adaptiveInvocations).toBe(2);
+    expect(events.toolCalls).toEqual([
+      { name: "get_sector_research_snapshot", args: {} },
+      { name: "get_role_event_snapshot", args: {} },
+      {
+        name: "get_indicators",
+        args: {
+          ticker: "600000.SH",
+          indicator: "rsi",
+          as_of: "2026-07-19",
+          lookback: 20,
+        },
+      },
+    ]);
   });
 
   it("preserves the triggering conflict after a successful bounded review", async () => {

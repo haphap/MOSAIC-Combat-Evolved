@@ -421,8 +421,20 @@ def build_rke_agent_research_context(
     """Build a public-safe context from local private RKE artifacts."""
     root_path = Path(root).expanduser().resolve()
     registry_path = resolve_report_intelligence_registry_dir(root_path, registry_dir)
+    rows = _load_rke_agent_research_rows(registry_path)
+    return build_rke_agent_research_context_from_rows(
+        agent_id=agent_id,
+        as_of_date=as_of_date,
+        layer=layer,
+        ticker=ticker,
+        sector=sector,
+        max_items=max_items,
+        **rows,
+    )
 
-    rows = {
+
+def _load_rke_agent_research_rows(registry_path: Path) -> dict[str, list[dict[str, Any]]]:
+    return {
         "forecasts": _read_jsonl(registry_path / "forecast_claims.jsonl"),
         "metadata": _read_jsonl(registry_path / "report_metadata.jsonl"),
         "outcomes": _read_jsonl(registry_path / "report_outcome_labels.jsonl"),
@@ -444,7 +456,24 @@ def build_rke_agent_research_context(
             registry_path / "industry_context_snapshots.jsonl"
         ),
     }
-    return build_rke_agent_research_context_from_rows(
+
+
+def build_rke_agent_research_materialization(
+    *,
+    root: str | Path = ".",
+    registry_dir: str | Path | None = None,
+    agent_id: str,
+    as_of_date: str = "",
+    layer: str = "",
+    ticker: str = "",
+    sector: str = "",
+    max_items: int = 12,
+) -> dict[str, Any]:
+    """Build public context plus server-only source identities for PIT attestation."""
+    root_path = Path(root).expanduser().resolve()
+    registry_path = resolve_report_intelligence_registry_dir(root_path, registry_dir)
+    rows = _load_rke_agent_research_rows(registry_path)
+    context = build_rke_agent_research_context_from_rows(
         agent_id=agent_id,
         as_of_date=as_of_date,
         layer=layer,
@@ -453,6 +482,29 @@ def build_rke_agent_research_context(
         max_items=max_items,
         **rows,
     )
+    metadata_by_report = _index_metadata(rows["metadata"])
+    source_by_redacted_claim: dict[str, str] = {}
+    for claim in rows["forecasts"]:
+        claim_id = str(claim.get("forecast_claim_id") or claim.get("claim_id") or "")
+        if not claim_id:
+            continue
+        redacted_claim_id = _redacted_id("FCRED", claim_id)
+        metadata = metadata_by_report.get(_claim_report_key(claim), {})
+        source_id = str(claim.get("source_id") or metadata.get("source_id") or "").strip()
+        previous = source_by_redacted_claim.get(redacted_claim_id)
+        if previous is not None and previous != source_id:
+            raise ValueError("RKE selected claim identity collision")
+        source_by_redacted_claim[redacted_claim_id] = source_id
+
+    selected_source_ids: list[str] = []
+    for item in context["context_items"]:
+        redacted_claim_id = str(item.get("redacted_claim_id") or "")
+        source_id = source_by_redacted_claim.get(redacted_claim_id, "")
+        if not source_id:
+            raise ValueError("RKE selected context item has no private source identity")
+        if source_id not in selected_source_ids:
+            selected_source_ids.append(source_id)
+    return {"context": context, "source_ids": tuple(selected_source_ids)}
 
 
 def build_rke_agent_research_context_from_rows(

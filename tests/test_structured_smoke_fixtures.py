@@ -6,8 +6,10 @@ from pathlib import Path
 import pytest
 
 from mosaic.bridge.tool_capabilities import (
+    ADAPTIVE_QUERY_TOOL_IDS,
     AGENT_TOOL_MATRIX,
     ALL_AGENT_IDS,
+    INITIAL_SNAPSHOT_TOOL_IDS,
     materialize_tool_payload,
 )
 from mosaic.dataflows.exceptions import DataVendorUnavailable
@@ -31,7 +33,7 @@ def _bind_structured_smoke(
         monkeypatch.setenv(key, value)
 
 
-def test_structured_smoke_bundle_materializes_all_29_stage_tools(
+def test_structured_smoke_bundle_materializes_all_29_stage_initial_snapshots(
     tmp_path: Path, monkeypatch
 ) -> None:
     as_of = "2026-07-17"
@@ -56,7 +58,16 @@ def test_structured_smoke_bundle_materializes_all_29_stage_tools(
     ]
     assert len(stages) == 29
     for agent_id, stage in stages:
-        for tool_id in AGENT_TOOL_MATRIX[agent_id]:
+        tool_ids = AGENT_TOOL_MATRIX[agent_id]
+        initial_tools = tuple(
+            tool_id for tool_id in tool_ids if tool_id in INITIAL_SNAPSHOT_TOOL_IDS
+        )
+        adaptive_tools = tuple(
+            tool_id for tool_id in tool_ids if tool_id in ADAPTIVE_QUERY_TOOL_IDS
+        )
+        assert set(tool_ids) == set(initial_tools) | set(adaptive_tools)
+        assert set(initial_tools).isdisjoint(adaptive_tools)
+        for tool_id in initial_tools:
             payload = json.loads(
                 materialize_tool_payload(
                     tool_id,

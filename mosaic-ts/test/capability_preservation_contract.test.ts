@@ -66,7 +66,12 @@ describe("capability preservation and KNOT contracts", () => {
   });
 
   it("keeps the active agentToolsFor surface unchanged", () => {
-    const snapshot = load("current_agent_tool_contract_snapshot_v1.json") as {
+    const snapshot = JSON.parse(
+      readFileSync(
+        resolve(ROOT, "registry/prompt_checks/agent_tool_contract_manifest_v1.json"),
+        "utf8",
+      ),
+    ) as {
       agents: Array<{ agent_id: (typeof AGENT_IDS)[number]; allowed_tools: string[] }>;
     };
     expect(snapshot.agents.map((row) => row.agent_id)).toEqual([...AGENT_IDS]);
@@ -74,9 +79,9 @@ describe("capability preservation and KNOT contracts", () => {
       expect([...agentToolsFor(row.agent_id)]).toEqual(row.allowed_tools);
     }
     const activeTools = new Set(snapshot.agents.flatMap((row) => row.allowed_tools));
-    expect(activeTools.has("get_broker_research")).toBe(false);
-    expect(activeTools.has("get_stock_research")).toBe(false);
-    expect(activeTools.has("get_rke_research_context")).toBe(false);
+    expect(activeTools.has("get_broker_research")).toBe(true);
+    expect(activeTools.has("get_stock_research")).toBe(true);
+    expect(activeTools.has("get_rke_research_context")).toBe(true);
   });
 
   it("uses the canonical tool environment as the only toolConfigHash authority", () => {

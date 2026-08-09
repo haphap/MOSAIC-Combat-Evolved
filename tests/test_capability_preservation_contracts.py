@@ -44,6 +44,14 @@ def _bundle() -> dict:
     return load_capability_contract_bundle(ROOT)
 
 
+def _active_tool_manifest() -> dict:
+    return json.loads(
+        (ROOT / "registry/prompt_checks/agent_tool_contract_manifest_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+
 def _binding_body(row: dict) -> dict:
     return {key: value for key, value in row.items() if key != "binding_id"}
 
@@ -175,11 +183,7 @@ def test_partial_and_unapproved_reductions_block_rollout():
 
 def test_binding_and_knot_coverage_exactly_close_over_current_tool_surface():
     bundle = _bundle()
-    current = json.loads(
-        (ROOT / "registry/prompt_checks/agent_tool_contract_manifest_v1.json").read_text(
-            encoding="utf-8"
-        )
-    )
+    current = _active_tool_manifest()
     validate_capability_contract_bundle(bundle, current_tool_manifest=current)
 
     bindings = bundle["binding_manifest"]["bindings"]
@@ -240,7 +244,7 @@ def test_composite_and_multi_binding_semantics_are_not_collapsed_to_tool_count()
 
 def test_five_way_drift_and_missing_duplicate_or_orphan_rows_fail_closed():
     bundle = _bundle()
-    current = _load("current_agent_tool_contract_snapshot_v1.json")
+    current = _active_tool_manifest()
 
     missing = copy.deepcopy(bundle)
     missing["knot_coverage_manifest"]["coverage"].pop()
@@ -283,7 +287,7 @@ def test_binding_argument_route_capability_and_output_drift_fail_closed(
     field: str, value: str
 ):
     bundle = copy.deepcopy(_bundle())
-    current = _load("current_agent_tool_contract_snapshot_v1.json")
+    current = _active_tool_manifest()
     row = bundle["binding_manifest"]["bindings"][0]
     row[field] = value
     row["binding_id"] = canonical_binding_id(_binding_body(row))
@@ -293,7 +297,7 @@ def test_binding_argument_route_capability_and_output_drift_fail_closed(
 
 
 def test_staged_route_query_contract_and_consumer_drift_fail_closed():
-    current = _load("current_agent_tool_contract_snapshot_v1.json")
+    current = _active_tool_manifest()
 
     staged_drift = copy.deepcopy(_bundle())
     staged_drift["staged_tool_contract_manifest"]["tools"][0][

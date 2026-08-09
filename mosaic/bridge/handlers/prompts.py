@@ -808,6 +808,25 @@ def _missing_token_groups(text: str, groups: dict[str, tuple[str, ...]]) -> list
     ]
 
 
+def _has_rke_current_data_separation(text: str) -> bool:
+    lower = text.casefold()
+    return (
+        ("research prior" in lower or "研究先验" in lower)
+        and (
+            "not current data" in lower
+            or "cannot replace current" in lower
+            or "不是当前数据" in lower
+            or "不能替代当前数据" in lower
+        )
+        and (
+            "cannot directly create trades" in lower
+            or "no trade without current data confirmation" in lower
+            or "不能直接生成交易" in lower
+            or "没有当前数据确认就不交易" in lower
+        )
+    )
+
+
 def _check_legacy_rke_prompt_contract_text(
     agent: str, text: str
 ) -> tuple[list[str], dict[str, bool]]:
@@ -834,21 +853,7 @@ def _check_legacy_rke_prompt_contract_text(
         blockers.append("missing_tool_confidence_cap_missing")
     if "current data" not in lower and "current-data" not in lower and "当前数据" not in lower:
         blockers.append("current_data_policy_missing")
-    if not (
-        ("research prior" in lower or "研究先验" in lower)
-        and (
-            "not current data" in lower
-            or "cannot replace current" in lower
-            or "不是当前数据" in lower
-            or "不能替代当前数据" in lower
-        )
-        and (
-            "cannot directly create trades" in lower
-            or "no trade without current data confirmation" in lower
-            or "不能直接生成交易" in lower
-            or "没有当前数据确认就不交易" in lower
-        )
-    ):
+    if not _has_rke_current_data_separation(text):
         blockers.append("rke_current_data_separation_missing")
     if any(
         token in lower
@@ -926,10 +931,18 @@ def _check_runtime_prompt_contract_text(
     for field in contract["output_schema_fields"]:
         if field.casefold() not in lower:
             blockers.append(f"schema_field_missing:{field}")
+    rke_tool_approved = "get_rke_research_context" in contract["required_tools"]
+    if rke_tool_approved and not _has_rke_current_data_separation(text):
+        blockers.append("rke_current_data_separation_missing")
     if "```json" in lower or re.search(r"\{\s*[\"'][a-zA-Z0-9_]", text):
         blockers.append("handwritten_json_schema_forbidden")
     for blocker, pattern in _MODEL_PROMPT_FORBIDDEN_PATTERNS.items():
-        if pattern.search(text):
+        inspected_text = (
+            re.sub(r"\bget_rke_research_context\b", "", text, flags=re.IGNORECASE)
+            if blocker == "production_rke_input_forbidden" and rke_tool_approved
+            else text
+        )
+        if pattern.search(inspected_text):
             blockers.append(blocker)
     return sorted(set(blockers)), categories
 

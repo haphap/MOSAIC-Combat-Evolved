@@ -151,6 +151,13 @@ export function upsertRuntimeEvidenceContract(
         "identifiers, or cross-run references.",
     ];
   }
+  if (spec.requiredTools.includes("get_rke_research_context")) {
+    body.push(
+      language === "zh"
+        ? "`get_rke_research_context` 的输出仅作为研究先验，不是当前数据，不能直接生成交易。"
+        : "Treat `get_rke_research_context` output only as a research prior, not current data; it cannot directly create trades.",
+    );
+  }
   if (spec.fieldNames.includes("macro_input_attributions")) {
     body.push(
       language === "zh"

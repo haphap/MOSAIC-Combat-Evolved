@@ -54,9 +54,53 @@ _ANNOUNCEMENT_FIELDS = {
 }
 _PARSED_FACT_FIELDS = {"counterparty_ticker", "counterparty_role"}
 _DOCUMENT_INPUT_FIELDS = {"document_id", "document_url", "content"}
-_MANIFEST_FIELDS = {"source", "org_id", "parser_version", "pages", "documents"}
+_MANIFEST_FIELDS = {
+    "source",
+    "org_id",
+    "parser_version",
+    "query_contract",
+    "pages",
+    "documents",
+}
 _MANIFEST_PAGE_FIELDS = {"page_number", "has_more", "announcement_ids"}
 _MANIFEST_DOCUMENT_FIELDS = {"document_id", "document_url", "document_hash"}
+_QUERY_CONTRACT_FIELDS = {
+    "contract_version",
+    "endpoint",
+    "method",
+    "content_type",
+    "page_size",
+    "column",
+    "tab_name",
+    "plate",
+    "stock",
+    "search_key",
+    "security_id",
+    "category",
+    "trade",
+    "start_date",
+    "end_date",
+    "sort_name",
+    "sort_type",
+    "highlight_titles",
+}
+_QUERY_CONTRACT_FIXED = {
+    "contract_version": "cninfo_annual_report_query_v1",
+    "endpoint": "https://www.cninfo.com.cn/new/hisAnnouncement/query",
+    "method": "POST",
+    "content_type": "application/x-www-form-urlencoded",
+    "page_size": 30,
+    "column": "szse",
+    "tab_name": "fulltext",
+    "plate": "",
+    "search_key": "",
+    "security_id": "",
+    "category": "category_ndbg_szsh",
+    "trade": "",
+    "sort_name": "time",
+    "sort_type": "desc",
+    "highlight_titles": True,
+}
 
 
 def _canonical_json(value: Any) -> str:
@@ -184,8 +228,38 @@ def _validate_disclosure(
     }
 
 
+def _validate_query_contract(
+    value: Mapping[str, Any], *, ticker: str, as_of: str, org_id: str
+) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != _QUERY_CONTRACT_FIELDS:
+        raise ValueError("CNINFO query contract fields do not match the contract")
+    for field, expected in _QUERY_CONTRACT_FIXED.items():
+        if value[field] != expected or type(value[field]) is not type(expected):
+            raise ValueError(f"CNINFO query contract {field} is invalid")
+    expected_stock = f"{ticker[:6]},{org_id}"
+    if value["stock"] != expected_stock:
+        raise ValueError("CNINFO query contract stock does not match identity")
+    try:
+        start_date = date.fromisoformat(str(value["start_date"]))
+        end_date = date.fromisoformat(str(value["end_date"]))
+    except ValueError as exc:
+        raise ValueError("CNINFO query contract dates are invalid") from exc
+    if end_date.isoformat() != as_of or start_date > end_date:
+        raise ValueError("CNINFO query contract window does not match capture as_of")
+    return {
+        **_QUERY_CONTRACT_FIXED,
+        "stock": expected_stock,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+    }
+
+
 def _validate_capture_manifest(
-    value: Mapping[str, Any], *, disclosures: Sequence[Mapping[str, Any]]
+    value: Mapping[str, Any],
+    *,
+    disclosures: Sequence[Mapping[str, Any]],
+    ticker: str,
+    as_of: str,
 ) -> dict[str, Any]:
     if not isinstance(value, Mapping) or set(value) != _MANIFEST_FIELDS:
         raise ValueError("supply-chain capture manifest fields do not match the contract")
@@ -193,6 +267,9 @@ def _validate_capture_manifest(
         raise ValueError("supply-chain capture manifest source must be CNINFO")
     org_id = _required_text(value["org_id"], "org_id")
     parser_version = _required_text(value["parser_version"], "parser_version")
+    query_contract = _validate_query_contract(
+        value["query_contract"], ticker=ticker, as_of=as_of, org_id=org_id
+    )
     raw_pages = value["pages"]
     if not isinstance(raw_pages, list) or len(raw_pages) < 2:
         raise ValueError("supply-chain capture requires a terminal confirmation page")
@@ -268,6 +345,7 @@ def _validate_capture_manifest(
         "source": "CNINFO",
         "org_id": org_id,
         "parser_version": parser_version,
+        "query_contract": query_contract,
         "pages": pages,
         "documents": documents,
     }
@@ -350,6 +428,7 @@ def capture_official_supply_chain_disclosures(
     download_document: Callable[[str], bytes],
     parse_document: Callable[[bytes, dict[str, Any]], Sequence[Mapping[str, Any]]],
     parser_version: str,
+    build_query_contract: Callable[[dict[str, str], str], Mapping[str, Any]],
 ) -> str:
     """Capture once or reuse the immutable first complete CNINFO ticker/as-of slice."""
 
@@ -369,6 +448,7 @@ def capture_official_supply_chain_disclosures(
             download_document=download_document,
             parse_document=parse_document,
             parser_version=parser_version,
+            build_query_contract=build_query_contract,
         )
 
 
@@ -382,6 +462,7 @@ def _capture_official_supply_chain_disclosures_locked(
     download_document: Callable[[str], bytes],
     parse_document: Callable[[bytes, dict[str, Any]], Sequence[Mapping[str, Any]]],
     parser_version: str,
+    build_query_contract: Callable[[dict[str, str], str], Mapping[str, Any]],
 ) -> str:
     """Run trusted transport while the exact capture lock is held."""
 
@@ -398,6 +479,12 @@ def _capture_official_supply_chain_disclosures_locked(
         "ticker": identity_ticker,
         "org_id": _required_text(raw_identity["org_id"], "org_id"),
     }
+    query_contract = _validate_query_contract(
+        build_query_contract(dict(identity), as_of),
+        ticker=ticker,
+        as_of=as_of,
+        org_id=identity["org_id"],
+    )
 
     manifest_pages: list[dict[str, Any]] = []
     announcements: list[dict[str, Any]] = []
@@ -497,10 +584,13 @@ def _capture_official_supply_chain_disclosures_locked(
         "source": "CNINFO",
         "org_id": identity["org_id"],
         "parser_version": parser_version,
+        "query_contract": query_contract,
         "pages": manifest_pages,
         "documents": document_manifest,
     }
-    manifest = _validate_capture_manifest(manifest, disclosures=disclosures)
+    manifest = _validate_capture_manifest(
+        manifest, disclosures=disclosures, ticker=ticker, as_of=as_of
+    )
     descriptor = _capture_descriptor(
         ticker=ticker,
         as_of=as_of,
@@ -517,6 +607,7 @@ def _capture_official_supply_chain_disclosures_locked(
         descriptor,
         knowledge_available_at=knowledge.isoformat(),
         captured_at=captured.isoformat(),
+        upstream_evidence_hashes=(canonical_hash(manifest),),
     )
     return archive.append_capture(
         ticker=ticker,
@@ -671,7 +762,9 @@ class OfficialSupplyChainDisclosureArchive:
             _validate_disclosure(row, capture_ticker=ticker, as_of=as_of)
             for row in disclosures
         ]
-        manifest = _validate_capture_manifest(source_manifest, disclosures=normalized)
+        manifest = _validate_capture_manifest(
+            source_manifest, disclosures=normalized, ticker=ticker, as_of=as_of
+        )
         if not isinstance(documents, Sequence) or isinstance(documents, (str, bytes)):
             raise ValueError("documents must be an array")
         normalized_documents = [_validate_document_input(row) for row in documents]
@@ -845,7 +938,9 @@ class OfficialSupplyChainDisclosureArchive:
             raw_manifest = json.loads(capture["capture_manifest_json"])
         except json.JSONDecodeError as exc:
             raise ValueError("supply-chain capture manifest is invalid") from exc
-        manifest = _validate_capture_manifest(raw_manifest, disclosures=disclosures)
+        manifest = _validate_capture_manifest(
+            raw_manifest, disclosures=disclosures, ticker=ticker, as_of=as_of
+        )
         if document_manifest != manifest["documents"]:
             raise ValueError("supply-chain capture document manifest mismatch")
         descriptor = _capture_descriptor(

@@ -33,6 +33,11 @@ def _receipt_authority(seen: list[dict]):
                 descriptor,
                 knowledge_available_at="2026-07-09T15:30:00+08:00",
                 captured_at="2026-07-09T15:30:00+08:00",
+                upstream_evidence_hashes=(
+                    canonical_hash({"fixture_descriptor": descriptor}),
+                )
+                if descriptor["pit_mode"] != "OBSERVED_LIVE"
+                else (),
             )
         ]
 
@@ -84,6 +89,7 @@ def test_staged_receipt_records_real_capture_time_and_preserves_replay_semantics
         replay_descriptor,
         knowledge_available_at="2026-07-09T15:30:00+08:00",
         captured_at="2026-07-10T09:00:00+08:00",
+        upstream_evidence_hashes=(canonical_hash({"vendor_vintage": AS_OF}),),
     )
     assert replay["captured_at"] == "2026-07-10T09:00:00+08:00"
 

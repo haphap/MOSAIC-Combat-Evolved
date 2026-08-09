@@ -24,9 +24,11 @@
 
 输出字段包括：`agent`, `selection_status`, `preferred_direction`, `least_preferred_direction`, `persistence_horizon`, `confidence`, `key_drivers`, `risks`, `claims`, `claim_refs`, `preferred_security_status`, `preferred_security_abstention_confidence`, `long_picks`, `least_preferred_security_status`, `least_preferred_security_abstention_confidence`, `short_or_avoid_picks`, `macro_input_attributions`。
 
-必需运行时工具：`get_sector_research_snapshot`, `get_role_event_snapshot`。
+必需运行时工具：`get_sector_research_snapshot`, `get_role_event_snapshot`, `get_broker_research`, `get_etf_holdings`, `get_indicators`, `get_industry_moneyflow`, `get_industry_policy_digest`, `get_rke_research_context`, `get_stock_data`。
 
 必须输出 `claims` 与 `claim_refs`。每个声明必须通过 `evidence_ids` 引用证据目录中的 `evidence_id`；每个 `INTERPRETATION` 声明还必须通过 `research_rule_refs` 引用允许的不透明标识。所有方向和证券选择都必须用 `claim_refs` 引用支持声明。方向证据不足或无法形成唯一首尾方向时，拒绝本阶段且不得生成行业输出；只有运行时证明相应冻结证券 shortlist 为空时，该证券侧才可按 schema 输出 `NO_QUALIFIED_SECURITY`，非空 shortlist 必须给出 picks。不得伪造证据 ID、指纹、引用标识或跨运行引用。
+
+`get_rke_research_context` 的输出仅作为研究先验，不是当前数据，不能直接生成交易。
 
 `macro_input_attributions` 必须对十个 Macro Agent 各输出且只输出一条 `SUBMISSION_SUMMARY`，并按适用的方向、证券、风险动作或组合决策追加目标级归因。
 

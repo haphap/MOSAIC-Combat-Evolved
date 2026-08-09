@@ -339,6 +339,11 @@ _INTRODUCED_CAPABILITIES: tuple[tuple[str, list[str], list[str]], ...] = (
         ["get_relationship_graph_snapshot"],
     ),
     (
+        "relationship_supply_chain_evidence",
+        ["relationship_mapper"],
+        ["get_supply_chain_evidence"],
+    ),
+    (
         "superinvestor_candidate_scope",
         ["superinvestor"],
         ["get_superinvestor_candidate_snapshot"],
@@ -688,11 +693,38 @@ def _route_contract_authority(
 def build_binding_manifest(
     current_tool_manifest: Mapping[str, Any],
     route_manifest: Mapping[str, Any],
+    *,
+    restored_bindings: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     bindings: list[dict[str, Any]] = []
     binding_routes, routes_by_id = _route_contract_authority(
         current_tool_manifest, route_manifest
     )
+    restored_by_key: dict[tuple[str, str, str], Mapping[str, Any]] = {}
+    for row in restored_bindings:
+        key = (str(row["agent_id"]), str(row["stage"]), str(row["tool_id"]))
+        if key in restored_by_key:
+            raise ValueError("restored capability overlay has duplicate tool bindings")
+        restored_by_key[key] = row
+    if not set(restored_by_key) <= set(binding_routes):
+        raise ValueError("restored capability overlay is outside the active tool surface")
+    restored_fields = {
+        "activation_state",
+        "adaptive_query_contract",
+        "agent_id",
+        "argument_domain_selector_hash",
+        "argument_schema_hash",
+        "materializer_contract_hash",
+        "output_semantics_hash",
+        "phase",
+        "privacy_contract_hash",
+        "query_bundle_contract_version",
+        "route_contract_hash",
+        "semantic_capability_id",
+        "source_route_ids",
+        "stage",
+        "tool_id",
+    }
     argument_schema_hash = canonical_hash(
         {"type": "object", "properties": {}, "additionalProperties": False}
     )
@@ -709,9 +741,30 @@ def build_binding_manifest(
     for agent in current_tool_manifest["agents"]:
         for stage in agent["execution_stages"]:
             for tool_id in agent["allowed_tools"]:
-                source_route_ids = binding_routes[
-                    (agent["agent_id"], stage, tool_id)
-                ]
+                key = (agent["agent_id"], stage, tool_id)
+                source_route_ids = binding_routes[key]
+                restored = restored_by_key.get(key)
+                if restored is not None:
+                    missing = restored_fields - set(restored)
+                    if missing:
+                        raise ValueError(
+                            "restored capability overlay binding fields are incomplete"
+                        )
+                    if list(source_route_ids) != restored["source_route_ids"]:
+                        raise ValueError(
+                            "restored capability overlay source route binding drift"
+                        )
+                    restored_body = {
+                        field: restored[field] for field in restored_fields
+                    }
+                    restored_body["activation_state"] = "active"
+                    bindings.append(
+                        {
+                            "binding_id": canonical_binding_id(restored_body),
+                            **restored_body,
+                        }
+                    )
+                    continue
                 route_contract_hash = canonical_hash(
                     {
                         "source_routes": [
@@ -1002,19 +1055,41 @@ def build_accepted_output_capability_track(
     return {**body, "capability_bundle_hash": canonical_hash(body)}
 
 
+def _load_restored_bindings(root: Path) -> Sequence[Mapping[str, Any]]:
+    overlay = _read_json(
+        root
+        / "registry/prompt_checks/capability_preservation"
+        / "sector_relationship_preservation_overlay_v1.json"
+    )
+    _validate_manifest_hash(overlay)
+    bindings = overlay.get("bindings")
+    if not isinstance(bindings, list):
+        raise ValueError("restored capability overlay bindings are malformed")
+    return bindings
+
+
 def build_default_contract_artifacts(root: Path) -> dict[str, dict[str, Any]]:
     directory = root / "registry/prompt_checks/capability_preservation"
     baseline = _read_json(directory / "runtime_agent_manifest_b9ab1e44_v2.json")
-    current = _read_json(directory / "current_agent_tool_contract_snapshot_v1.json")
-    current_runtime = _read_json(directory / "current_runtime_agent_manifest_snapshot_v5.json")
+    current = _read_json(
+        root / "registry/prompt_checks/agent_tool_contract_manifest_v1.json"
+    )
+    current_runtime = _read_json(
+        root / "registry/prompt_checks/runtime_agent_manifest_v5.json"
+    )
     routes = _read_json(root / "registry/data_sources/agent_data_route_manifest_v1.json")
     preservation = build_preservation_manifest(baseline, current_runtime)
-    binding = build_binding_manifest(current, routes)
+    binding = build_binding_manifest(
+        current,
+        routes,
+        restored_bindings=_load_restored_bindings(root),
+    )
     staged = build_staged_tool_contract_manifest(current, routes, binding)
     environment = build_tool_environment_manifest(root, current, binding, staged)
     coverage = build_knot_coverage_manifest(binding, environment)
     track = build_accepted_output_capability_track(binding, environment, coverage)
     return {
+        "current_runtime_agent_manifest_snapshot_v5.json": current_runtime,
         "agent_capability_preservation_manifest_v1.json": preservation,
         "agent_capability_binding_manifest_v1.json": binding,
         "staged_agent_tool_contract_manifest_v2.json": staged,
@@ -1150,19 +1225,11 @@ def validate_capability_contract_bundle(
     if current_runtime_tools != current_tool_rows:
         raise ValueError("active tool surface: runtime call and Agent tool contract drift")
 
-    snapshot_path = (
-        Path(__file__).resolve().parents[2]
-        / "registry/prompt_checks/capability_preservation"
-        / "current_agent_tool_contract_snapshot_v1.json"
-    )
-    current_snapshot = _read_json(snapshot_path)
-    if canonical_hash(current_tool_manifest) != canonical_hash(current_snapshot):
-        raise ValueError("active tool surface drift from staged snapshot")
     if binding["source_agent_tool_manifest_hash"] != canonical_hash(current_tool_manifest):
         raise ValueError("binding source active tool surface hash mismatch")
+    repository_root = Path(__file__).resolve().parents[2]
     route_manifest_path = (
-        Path(__file__).resolve().parents[2]
-        / "registry/data_sources/agent_data_route_manifest_v1.json"
+        repository_root / "registry/data_sources/agent_data_route_manifest_v1.json"
     )
     route_manifest = _read_json(route_manifest_path)
     if binding["source_agent_data_route_manifest_hash"] != canonical_hash(
@@ -1190,7 +1257,11 @@ def validate_capability_contract_bundle(
     }
     if bound_surface != _surface(current_tool_manifest):
         raise ValueError("binding active tool surface exact closure mismatch")
-    expected_binding = build_binding_manifest(current_tool_manifest, route_manifest)
+    expected_binding = build_binding_manifest(
+        current_tool_manifest,
+        route_manifest,
+        restored_bindings=_load_restored_bindings(repository_root),
+    )
     if canonical_hash(binding) != canonical_hash(expected_binding):
         raise ValueError("binding whitelist/argument/route/capability contract drift")
     expected_staged = build_staged_tool_contract_manifest(

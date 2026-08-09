@@ -152,6 +152,22 @@ describe("generated bundled macro prompts", () => {
     }
   });
 
+  it("keeps restored RKE tools behind the shadow-only boundary", () => {
+    const bundledRoot = resolve(process.cwd(), "..", "prompts", "mosaic", "cohort_default");
+    const rkeSpecs = RUNTIME_AGENT_SPECS.filter((spec) =>
+      spec.requiredTools.includes("get_rke_research_context"),
+    );
+    expect(rkeSpecs.length).toBeGreaterThan(0);
+    for (const spec of rkeSpecs) {
+      const zh = readFileSync(join(bundledRoot, spec.layer, `${spec.agent}.zh.md`), "utf8");
+      const en = readFileSync(join(bundledRoot, spec.layer, `${spec.agent}.en.md`), "utf8");
+      expect(zh).toContain("仅作为研究先验，不是当前数据，不能直接生成交易");
+      expect(en).toContain(
+        "only as a research prior, not current data; it cannot directly create trades",
+      );
+    }
+  });
+
   it("fails closed instead of turning missing evidence into an empty non-Macro output", () => {
     const bundledRoot = resolve(process.cwd(), "..", "prompts", "mosaic", "cohort_default");
     const macroAgents = new Set<string>(MACRO_AGENT_IDS);

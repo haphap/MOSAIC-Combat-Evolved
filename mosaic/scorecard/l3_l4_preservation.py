@@ -15,6 +15,9 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 from mosaic.scorecard.canonical_json import canonical_hash
+from mosaic.scorecard.preservation_snapshots import (
+    load_preactivation_agent_manifests,
+)
 from mosaic.scorecard.sector_relationship_preservation import (
     build_sector_relationship_preservation_overlay,
     evaluate_sector_relationship_significance_fixture,
@@ -543,16 +546,7 @@ def _walk_forbidden(value: Any, path: str = "$.") -> None:
 
 
 def build_l3_l4_preservation_overlay(root: Path) -> dict[str, Any]:
-    active = json.loads(
-        (root / "registry/prompt_checks/agent_tool_contract_manifest_v1.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    route_manifest = json.loads(
-        (root / "registry/data_sources/agent_data_route_manifest_v1.json").read_text(
-            encoding="utf-8"
-        )
-    )
+    active, route_manifest = load_preactivation_agent_manifests(root)
     parent_overlay = build_sector_relationship_preservation_overlay(root)
     required_routes = {route_id for values in _TOOL_ROUTES.values() for route_id in values}
     routes = [row for row in parent_overlay["routes"] if row["route_id"] in required_routes]
@@ -636,16 +630,7 @@ def validate_l3_l4_preservation_overlay(
     if overlay.get("manifest_hash") != canonical_hash(body):
         raise ValueError("L3/L4 overlay manifest hash mismatch")
 
-    active = json.loads(
-        (root / "registry/prompt_checks/agent_tool_contract_manifest_v1.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    route_manifest = json.loads(
-        (root / "registry/data_sources/agent_data_route_manifest_v1.json").read_text(
-            encoding="utf-8"
-        )
-    )
+    active, route_manifest = load_preactivation_agent_manifests(root)
     parent_overlay = build_sector_relationship_preservation_overlay(root)
     if overlay.get("base_active_agent_tool_manifest_hash") != canonical_hash(active):
         raise ValueError("base active Agent tool manifest drift")

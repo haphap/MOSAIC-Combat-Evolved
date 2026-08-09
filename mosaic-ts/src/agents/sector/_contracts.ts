@@ -1,3 +1,4 @@
+import { type AgentToolId, agentToolsFor, initialAgentToolsFor } from "../tool_contract.js";
 import type { StandardSectorAgentId } from "../types.js";
 import { sectorDirectionIds } from "./registry.js";
 
@@ -20,9 +21,8 @@ export interface StandardSectorRoleContract {
   responsibility: { zh: string; en: string };
   prohibited: { zh: ReadonlyArray<string>; en: ReadonlyArray<string> };
   directionIds: readonly [string, string, string, ...string[]];
-  requiredTools:
-    | readonly ["get_sector_research_snapshot"]
-    | readonly ["get_sector_research_snapshot", "get_role_event_snapshot"];
+  requiredTools: readonly [AgentToolId, ...AgentToolId[]];
+  initialSnapshotTools: readonly [AgentToolId, ...AgentToolId[]];
 }
 
 const contract = (
@@ -34,10 +34,8 @@ const contract = (
   responsibility,
   prohibited,
   directionIds: sectorDirectionIds(agentId),
-  requiredTools:
-    agentId === "biotech"
-      ? ["get_sector_research_snapshot"]
-      : ["get_sector_research_snapshot", "get_role_event_snapshot"],
+  requiredTools: agentToolsFor(agentId),
+  initialSnapshotTools: initialAgentToolsFor(agentId),
 });
 
 export const STANDARD_SECTOR_ROLE_CONTRACTS: Readonly<

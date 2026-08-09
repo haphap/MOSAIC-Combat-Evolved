@@ -1,0 +1,150 @@
+from __future__ import annotations
+
+import json
+from urllib.request import Request
+
+import pytest
+
+from mosaic.dataflows.frozen_research_digest import (
+    FrozenResearchDigestBuilder,
+    normalize_openai_chat_completions_endpoint,
+)
+from mosaic.scorecard.canonical_json import canonical_hash
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://gateway.example/zen/go/v1",
+        "https://gateway.example/zen/go/v1/",
+        "https://gateway.example/zen/go/v1/chat/completions",
+        "https://gateway.example/zen/go/v1/chat/completions/",
+    ],
+)
+def test_digest_endpoint_normalization_accepts_base_or_complete_endpoint(value: str) -> None:
+    assert (
+        normalize_openai_chat_completions_endpoint(value)
+        == "https://gateway.example/zen/go/v1/chat/completions"
+    )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "not-a-url",
+        "ftp://gateway.example/v1",
+        "https://embedded@gateway.example/v1",
+        "https://gateway.example/v1?key=secret",
+        "https://gateway.example/v1#fragment",
+    ],
+)
+def test_digest_endpoint_normalization_rejects_unsafe_forms(value: str) -> None:
+    with pytest.raises(ValueError, match="endpoint"):
+        normalize_openai_chat_completions_endpoint(value)
+
+
+def test_digest_builder_uses_agent_provider_env_and_returns_frozen_lineage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "MOSAIC_LLM_BASE_URL",
+        "https://gateway.example/zen/go/v1/chat/completions",
+    )
+    monkeypatch.setenv("MOSAIC_LLM_MODEL", "remote-model")
+    monkeypatch.setenv("MOSAIC_LLM_API_KEY", "test-key")
+    monkeypatch.setenv("MOSAIC_LLM_MAX_TOKENS", "4096")
+    seen: dict[str, object] = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json.dumps(
+                                    {
+                                        "summary": "policy support remains selective",
+                                        "evidence_points": ["credit support was reiterated"],
+                                        "counterevidence": ["implementation remains uneven"],
+                                        "uncertainties": ["timing is not specified"],
+                                    }
+                                )
+                            }
+                        }
+                    ]
+                }
+            ).encode()
+
+    def urlopen(request: Request, timeout: int):
+        seen["url"] = request.full_url
+        seen["headers"] = dict(request.header_items())
+        seen["body"] = json.loads(bytes(request.data or b"").decode())
+        seen["timeout"] = timeout
+        return Response()
+
+    builder = FrozenResearchDigestBuilder(urlopen=urlopen)
+    result = builder(
+        "get_industry_policy_digest",
+        "licensed source prose",
+        {"as_of": "2026-07-09", "lookback_days": 30, "source": "govcn"},
+    )
+
+    assert seen["url"] == "https://gateway.example/zen/go/v1/chat/completions"
+    assert seen["headers"] == {
+        "Authorization": "Bearer test-key",
+        "Content-type": "application/json",
+        "User-agent": "mosaic-rke/0.1.0",
+    }
+    assert seen["body"] == {
+        "model": "remote-model",
+        "messages": seen["body"]["messages"],
+        "temperature": 0,
+        "max_tokens": 4096,
+        "response_format": {"type": "json_object"},
+    }
+    assert "licensed source prose" in seen["body"]["messages"][1]["content"]
+    assert result["model_hash"] == canonical_hash(
+        {"provider": "openai_compatible", "model": "remote-model"}
+    )
+    assert result["prompt_hash"].startswith("sha256:")
+    digest = json.loads(result["digest"])
+    assert digest["summary"] == "policy support remains selective"
+    assert "licensed source prose" not in result["digest"]
+
+
+def test_digest_builder_fails_closed_on_missing_env_or_malformed_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MOSAIC_LLM_BASE_URL", raising=False)
+    monkeypatch.delenv("MOSAIC_LLM_MODEL", raising=False)
+    monkeypatch.delenv("MOSAIC_LLM_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="MOSAIC_LLM_BASE_URL"):
+        FrozenResearchDigestBuilder()
+
+    builder = FrozenResearchDigestBuilder(
+        endpoint="https://gateway.example/v1",
+        model="remote-model",
+        api_key="test-key",
+        urlopen=lambda request, timeout: pytest.fail("construction must not call transport"),
+    )
+    builder.urlopen = lambda request, timeout: _MalformedResponse()
+    with pytest.raises(ValueError, match="digest response"):
+        builder("get_stock_research", "raw", {"ticker": "600000.SH"})
+
+
+class _MalformedResponse:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return None
+
+    def read(self) -> bytes:
+        return json.dumps({"choices": [{"message": {"content": "not-json"}}]}).encode()

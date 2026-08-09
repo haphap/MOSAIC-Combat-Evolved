@@ -627,10 +627,14 @@ class FrozenAdaptiveQueryStore:
         if earliest > as_of_date:
             raise ValueError("authorized_scope earliest_date exceeds as_of")
         tickers = _validate_string_list(authorized_scope["tickers"], "tickers")
-        etfs = _validate_string_list(authorized_scope["etfs"], "etfs")
+        etfs = _validate_string_list(
+            authorized_scope["etfs"], "etfs", allow_empty=True
+        )
         sectors = _validate_string_list(authorized_scope["sectors"], "sectors")
         indicators = _validate_string_list(
-            authorized_scope["indicator_families"], "indicator_families"
+            authorized_scope["indicator_families"],
+            "indicator_families",
+            allow_empty=True,
         )
         return {
             "as_of": as_of,
@@ -1038,13 +1042,47 @@ class FrozenAdaptiveQueryStore:
     ) -> str:
         """Resolve one exact frozen request; no collector is reachable here."""
 
+        return self._call(
+            session_id=session_id,
+            round_number=round_number,
+            tool_id=tool_id,
+            args=args,
+        )
+
+    def call_next(
+        self,
+        *,
+        session_id: str,
+        tool_id: str,
+        args: Mapping[str, Any],
+    ) -> str:
+        """Atomically consume the next permitted call in one capability session."""
+
+        return self._call(
+            session_id=session_id,
+            round_number=None,
+            tool_id=tool_id,
+            args=args,
+        )
+
+    def _call(
+        self,
+        *,
+        session_id: str,
+        round_number: int | None,
+        tool_id: str,
+        args: Mapping[str, Any],
+    ) -> str:
+
         session_id = _required_text(session_id, "session_id")
         tool_id = _required_text(tool_id, "tool_id")
-        if isinstance(round_number, bool) or not isinstance(round_number, int):
+        if round_number is not None and (
+            isinstance(round_number, bool) or not isinstance(round_number, int)
+        ):
             raise ValueError("round_number must be an integer")
-        if round_number > 3:
+        if round_number is not None and round_number > 3:
             raise ValueError("maximum 3 adaptive query rounds exceeded")
-        if round_number < 1:
+        if round_number is not None and round_number < 1:
             raise ValueError("round_number must be positive")
         if not isinstance(args, Mapping):
             raise ValueError("query args must be an object")
@@ -1065,16 +1103,17 @@ class FrozenAdaptiveQueryStore:
                 if session is None:
                     raise ValueError("unknown frozen query session")
                 max_rounds = int(session["max_rounds"])
-                if round_number > max_rounds:
-                    raise ValueError(
-                        f"maximum {max_rounds} adaptive query rounds exceeded"
-                    )
                 count = connection.execute(
                     "SELECT COUNT(*) AS count FROM frozen_query_calls WHERE session_id = ?",
                     (session_id,),
                 ).fetchone()["count"]
                 expected_round = int(count) + 1
-                if round_number != expected_round:
+                actual_round = expected_round if round_number is None else round_number
+                if actual_round > max_rounds:
+                    raise ValueError(
+                        f"maximum {max_rounds} adaptive query rounds exceeded"
+                    )
+                if actual_round != expected_round:
                     raise ValueError(f"next round must be {expected_round}")
                 row = connection.execute(
                     "SELECT * FROM frozen_query_payloads "
@@ -1091,7 +1130,7 @@ class FrozenAdaptiveQueryStore:
                     "INSERT INTO frozen_query_calls VALUES (?, ?, ?, ?, ?, ?)",
                     (
                         session_id,
-                        round_number,
+                        actual_round,
                         tool_id,
                         request_hash,
                         row["payload_hash"],

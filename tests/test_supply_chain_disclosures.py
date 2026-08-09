@@ -48,12 +48,36 @@ def _documents(edges: list[dict]) -> list[dict]:
     ]
 
 
+def _query_contract() -> dict:
+    return {
+        "contract_version": "cninfo_annual_report_query_v1",
+        "endpoint": "https://www.cninfo.com.cn/new/hisAnnouncement/query",
+        "method": "POST",
+        "content_type": "application/x-www-form-urlencoded",
+        "page_size": 30,
+        "column": "szse",
+        "tab_name": "fulltext",
+        "plate": "",
+        "stock": "600000,gssh0600000",
+        "search_key": "",
+        "security_id": "",
+        "category": "category_ndbg_szsh",
+        "trade": "",
+        "start_date": "2021-07-10",
+        "end_date": AS_OF,
+        "sort_name": "time",
+        "sort_type": "desc",
+        "highlight_titles": True,
+    }
+
+
 def _manifest(edges: list[dict]) -> dict:
     announcement_ids = sorted({edge["document_id"] for edge in edges})
     return {
         "source": "CNINFO",
         "org_id": "gssh0600000",
         "parser_version": "supply-parser-test-v1",
+        "query_contract": _query_contract(),
         "pages": [
             {
                 "page_number": 1,
@@ -93,6 +117,7 @@ def _receipt(ticker: str, as_of: str, edges: list[dict], manifest: dict) -> dict
         descriptor,
         knowledge_available_at="2026-04-30T18:00:00+08:00",
         captured_at="2026-07-10T09:00:00+08:00",
+        upstream_evidence_hashes=(canonical_hash(manifest),),
     )
 
 
@@ -266,6 +291,7 @@ def test_trusted_capture_resolves_identity_confirms_terminal_and_persists_pdf(
             {"counterparty_ticker": "601398.SH", "counterparty_role": "supplier"}
         ],
         parser_version="supply-parser-test-v1",
+        build_query_contract=lambda identity, as_of: _query_contract(),
     )
 
     assert capture_id.startswith("supply_capture_")
@@ -335,6 +361,7 @@ def test_trusted_capture_warm_retry_reuses_first_complete_capture_without_transp
         "download_document": download_document,
         "parse_document": parse_document,
         "parser_version": "supply-parser-test-v1",
+        "build_query_contract": lambda identity, as_of: _query_contract(),
     }
     first = capture_official_supply_chain_disclosures(**kwargs)
     second = capture_official_supply_chain_disclosures(**kwargs)
@@ -391,6 +418,7 @@ def test_concurrent_same_supply_capture_transports_once(tmp_path: Path):
             {"counterparty_ticker": "601398.SH", "counterparty_role": "supplier"}
         ],
         "parser_version": "supply-parser-test-v1",
+        "build_query_contract": lambda identity, as_of: _query_contract(),
     }
     with ThreadPoolExecutor(max_workers=2) as executor:
         first = executor.submit(capture_official_supply_chain_disclosures, **kwargs)
@@ -432,6 +460,7 @@ def test_trusted_capture_rejects_hidden_page_after_terminal(tmp_path: Path):
             download_document=lambda url: pytest.fail("pagination must close first"),
             parse_document=lambda content, metadata: [],
             parser_version="supply-parser-test-v1",
+            build_query_contract=lambda identity, as_of: _query_contract(),
         )
 
 
@@ -457,6 +486,7 @@ def test_trusted_capture_can_seal_exhaustive_empty_result(
         download_document=lambda url: pytest.fail("empty capture must not download"),
         parse_document=lambda content, metadata: pytest.fail("empty capture must not parse"),
         parser_version="supply-parser-test-v1",
+        build_query_contract=lambda identity, as_of: _query_contract(),
     )
     payload = json.loads(archive.materialize(ticker="600000.SH", as_of=AS_OF)["payload"])
     assert payload["status"] == "ABSTAIN_NO_FACTUAL_EDGE"

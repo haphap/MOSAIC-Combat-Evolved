@@ -228,9 +228,37 @@ def _fake_callbacks(*, deny_curve: bool = True):
         if endpoint == "moneyflow_hsgt":
             return [{"trade_date": SESSION, "north_money": 12.5, "hgt": 6.0, "sgt": 6.5}]
         if endpoint == "moneyflow_ind_ths":
+            if int(params.get("offset", 0)):
+                return []
             return [
-                {"trade_date": SESSION, "industry": "银行", "net_amount": 10.0},
-                {"trade_date": SESSION, "industry": "电子", "net_amount": -2.0},
+                {
+                    "trade_date": SESSION,
+                    "ts_code": "881155.TI",
+                    "industry": "银行",
+                    "lead_stock": "浦发银行",
+                    "close": 100.0,
+                    "pct_change": 1.0,
+                    "company_num": 42,
+                    "pct_change_stock": 2.0,
+                    "close_price": 12.0,
+                    "net_buy_amount": 20.0,
+                    "net_sell_amount": 10.0,
+                    "net_amount": 10.0,
+                },
+                {
+                    "trade_date": SESSION,
+                    "ts_code": "881121.TI",
+                    "industry": "电子",
+                    "lead_stock": "海康威视",
+                    "close": 90.0,
+                    "pct_change": -1.0,
+                    "company_num": 50,
+                    "pct_change_stock": -2.0,
+                    "close_price": 20.0,
+                    "net_buy_amount": 8.0,
+                    "net_sell_amount": 10.0,
+                    "net_amount": -2.0,
+                },
             ]
         if endpoint == "fund_share":
             return [
@@ -253,8 +281,13 @@ def _fake_callbacks(*, deny_curve: bool = True):
             if deny_curve:
                 raise PermissionError("yc_cb disabled by recorded permission receipt")
             return [
-                {"trade_date": SESSION, "curve_type": "0", "curve_term": 2.0, "yield": 1.7},
-                {"trade_date": SESSION, "curve_type": "0", "curve_term": 10.0, "yield": 1.9},
+                {
+                    "trade_date": SESSION,
+                    "curve_type": "0",
+                    "curve_term": float(term),
+                    "yield": 1.5 + term / 25,
+                }
+                for term in (1, 2, 3, 5, 7, 10, 30)
             ]
         raise AssertionError(f"unexpected endpoint: {endpoint}")
 
@@ -370,6 +403,15 @@ def test_empty_cache_archives_three_ready_routes_and_curve_permission_blocker(
             "fund_share_rows"
         ]
     } == set(INSTITUTIONAL_ETF_UNIVERSE)
+    institutional_group = result.routes["tushare.institutional_flow"].group
+    assert institutional_group["industry_history_start"] == "2026-06-08"
+    assert {row["trade_date"] for row in institutional_group["industry_history_rows"]} == {
+        f"{SESSION[:4]}-{SESSION[4:6]}-{SESSION[6:]}"
+    }
+    assert institutional_group["industry_transport_call_count"] == 4
+    assert institutional_group["industry_transport_call_count"] == counts[
+        "moneyflow_ind_ths"
+    ]
     official_dimensions = result.routes[CHINA_ROUTE_GROUP].source_receipts[0].as_dict()[
         "coverage"
     ]["dimensions"]

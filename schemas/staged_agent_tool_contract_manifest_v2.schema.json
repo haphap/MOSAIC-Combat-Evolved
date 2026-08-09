@@ -106,6 +106,9 @@
               "model_selects_arguments": {
                 "type": "boolean"
               },
+              "transport_allowed_during_prepare": {
+                "const": true
+              },
               "transport_allowed_during_call": {
                 "const": false
               }

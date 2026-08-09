@@ -214,6 +214,7 @@ def _validate_source_capture(payload: Mapping[str, Any]) -> None:
     pit_mode = payload["pit"]["pit_mode"]
     allowed_pit_modes = {
         "AUTHORITATIVE_VINTAGE_REPLAY": {"AUTHORITATIVE_VINTAGE_REPLAY"},
+        "DERIVED_FROM_PIT_ARCHIVE": {"AUTHORITATIVE_VINTAGE_REPLAY"},
         "FORWARD_ARCHIVE": {"OBSERVED_LIVE"},
         "LOCAL_RUNTIME_AUTHORITY": {"OBSERVED_LIVE"},
         "OBSERVED_LIVE": {"OBSERVED_LIVE"},
@@ -995,9 +996,22 @@ class AgentDataMaterializationLedger:
             return require_same_build(existing)
         return candidate
 
-    def append_materialization_attempt(self, receipt: MaterializationAttemptReceipt) -> str:
-        value = MaterializationAttemptReceipt.from_dict(receipt.as_dict())
+    def _validate_materialization_attempt_on_connection(
+        self,
+        conn: sqlite3.Connection,
+        value: MaterializationAttemptReceipt,
+    ) -> dict[str, Any]:
         payload = value.as_dict()
+        expected_tools = sorted(
+            binding["tool_id"]
+            for binding in _bindings_for(
+                agent_id=payload["agent_id"], stage=payload["stage"]
+            )
+        )
+        if payload["requested_tool_ids"] != expected_tools:
+            raise ValueError(
+                "materialization attempt must close the exact active stage tool set"
+            )
         source_hashes = sorted(
             {
                 receipt_hash
@@ -1009,64 +1023,84 @@ class AgentDataMaterializationLedger:
             source_hashes,
             tables=("source_capture_receipts", "route_coverage_receipts"),
             field="source_receipts",
+            conn=conn,
         )
         self._require_receipt_hashes(
             list(payload["build_receipts"].values()),
             tables=("snapshot_build_receipts",),
             field="build_receipts",
+            conn=conn,
         )
-        with self._connect(read_only=True) as conn:
-            for tool_id, build_hash in payload["build_receipts"].items():
-                row = conn.execute(
-                    "SELECT receipt_json FROM snapshot_build_receipts "
-                    "WHERE receipt_hash = ?",
-                    (build_hash,),
-                ).fetchone()
-                if row is None:  # pragma: no cover - guarded above
-                    raise ValueError("build receipt disappeared from the append-only ledger")
-                build = SnapshotBuildReceipt.from_dict(json.loads(row["receipt_json"]))
-                build_payload = build.as_dict()
-                if (
-                    build_payload["tool_id"] != tool_id
-                    or build_payload["agent_id"] != payload["agent_id"]
-                    or build_payload["stage"] != payload["stage"]
-                    or build_payload["as_of"] != payload["as_of"]
-                    or build_payload["source_receipt_hashes"]
-                    != payload["source_receipts"].get(tool_id)
-                ):
-                    raise ValueError("attempt receipt does not close over its build receipt")
-        return self._append(
-            "materialization_attempt_receipts",
-            (
-                "attempt_id",
-                "materialization_request_id",
-                "graph_run_id",
-                "run_slot_id",
-                "run_id",
-                "node_id",
-                "lock_key",
-                "agent_id",
-                "stage",
-                "as_of",
-                "terminal_state",
-                "finished_at",
-            ),
-            (
-                payload["attempt_id"],
-                payload["materialization_request_id"],
-                payload["graph_run_id"],
-                payload["run_slot_id"],
-                payload["run_id"],
-                payload["node_id"],
-                payload["lock"]["key"],
-                payload["agent_id"],
-                payload["stage"],
-                payload["as_of"],
-                payload["terminal_state"],
-                payload["finished_at"],
-            ),
-            value,
-        )
+        for tool_id, build_hash in payload["build_receipts"].items():
+            row = conn.execute(
+                "SELECT receipt_json FROM snapshot_build_receipts "
+                "WHERE receipt_hash = ?",
+                (build_hash,),
+            ).fetchone()
+            if row is None:  # pragma: no cover - guarded above
+                raise ValueError("build receipt disappeared from the append-only ledger")
+            build = SnapshotBuildReceipt.from_dict(json.loads(row["receipt_json"]))
+            build_payload = build.as_dict()
+            if (
+                build_payload["tool_id"] != tool_id
+                or build_payload["agent_id"] != payload["agent_id"]
+                or build_payload["stage"] != payload["stage"]
+                or build_payload["as_of"] != payload["as_of"]
+                or build_payload["terminal_state"] != "READY"
+                or build_payload["source_receipt_hashes"]
+                != payload["source_receipts"].get(tool_id)
+            ):
+                raise ValueError("attempt receipt does not close over its build receipt")
+        return payload
+
+    def append_materialization_attempt(
+        self, receipt: MaterializationAttemptReceipt
+    ) -> str:
+        value = MaterializationAttemptReceipt.from_dict(receipt.as_dict())
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                payload = self._validate_materialization_attempt_on_connection(
+                    conn, value
+                )
+                receipt_hash = self._append_on_connection(
+                    conn,
+                    "materialization_attempt_receipts",
+                    (
+                        "attempt_id",
+                        "materialization_request_id",
+                        "graph_run_id",
+                        "run_slot_id",
+                        "run_id",
+                        "node_id",
+                        "lock_key",
+                        "agent_id",
+                        "stage",
+                        "as_of",
+                        "terminal_state",
+                        "finished_at",
+                    ),
+                    (
+                        payload["attempt_id"],
+                        payload["materialization_request_id"],
+                        payload["graph_run_id"],
+                        payload["run_slot_id"],
+                        payload["run_id"],
+                        payload["node_id"],
+                        payload["lock"]["key"],
+                        payload["agent_id"],
+                        payload["stage"],
+                        payload["as_of"],
+                        payload["terminal_state"],
+                        payload["finished_at"],
+                    ),
+                    value,
+                )
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+            conn.execute("COMMIT")
+        return receipt_hash
 
     def row_counts(self) -> dict[str, int]:
         if not self._available:
@@ -1124,43 +1158,39 @@ class AgentDataMaterializationLedger:
             return _missing_snapshot_status(as_of, agent_id, stage, tool_ids, bindings)
         with self._connect(read_only=True) as conn:
             rows = conn.execute(
-                "SELECT tool_id, receipt_hash, terminal_state, receipt_json FROM "
-                "snapshot_build_receipts WHERE agent_id = ? AND stage = ? AND as_of = ? "
+                "SELECT receipt_hash, receipt_json FROM materialization_attempt_receipts "
+                "WHERE agent_id = ? AND stage = ? AND as_of = ? "
+                "AND terminal_state = 'READY' "
                 "ORDER BY julianday(finished_at) DESC, rowid DESC",
                 (agent_id, stage, as_of),
             ).fetchall()
-        latest: dict[str, sqlite3.Row] = {}
+        published: tuple[str, dict[str, Any]] | None = None
         for row in rows:
-            latest.setdefault(str(row["tool_id"]), row)
-        ready = all(
-            tool_id in latest and latest[tool_id]["terminal_state"] == "READY"
-            for tool_id in tool_ids
-        )
-        missing_tools = [
-            tool_id
-            for tool_id in tool_ids
-            if tool_id not in latest or latest[tool_id]["terminal_state"] != "READY"
-        ]
+            attempt = MaterializationAttemptReceipt.from_dict(
+                json.loads(row["receipt_json"])
+            ).as_dict()
+            if (
+                attempt["requested_tool_ids"] == tool_ids
+                and sorted(attempt["build_receipts"]) == tool_ids
+                and sorted(attempt["source_receipts"]) == tool_ids
+            ):
+                published = (str(row["receipt_hash"]), attempt)
+                break
+        if published is None:
+            return _missing_snapshot_status(
+                as_of, agent_id, stage, tool_ids, bindings
+            )
+        attempt_hash, attempt = published
         return {
             "agent_id": agent_id,
             "stage": stage,
             "as_of": as_of,
-            "status": "READY" if ready else "BLOCKED",
+            "status": "READY",
             "tool_ids": tool_ids,
-            "missing_tool_ids": missing_tools,
-            "build_receipt_hashes": {
-                tool_id: latest[tool_id]["receipt_hash"]
-                for tool_id in tool_ids
-                if tool_id in latest and latest[tool_id]["terminal_state"] == "READY"
-            },
-            "missing_route_ids": sorted(
-                {
-                    route_id
-                    for binding in bindings
-                    if binding["tool_id"] in missing_tools
-                    for route_id in binding["required_route_ids"]
-                }
-            ),
+            "missing_tool_ids": [],
+            "build_receipt_hashes": dict(attempt["build_receipts"]),
+            "materialization_attempt_receipt_hash": attempt_hash,
+            "missing_route_ids": [],
         }
 
     def materialize_dry_run(self, *, as_of: str, agent_id: str, stage: str) -> dict[str, Any]:
@@ -1221,6 +1251,7 @@ def _missing_snapshot_status(
         "tool_ids": list(tool_ids),
         "missing_tool_ids": list(tool_ids),
         "build_receipt_hashes": {},
+        "materialization_attempt_receipt_hash": None,
         "missing_route_ids": sorted(
             {route_id for binding in bindings for route_id in binding["required_route_ids"]}
         ),

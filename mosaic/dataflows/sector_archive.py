@@ -67,9 +67,11 @@ _INCREMENTAL_ENDPOINTS = frozenset(
     {
         "index_member_all",
         "income",
+        "balancesheet",
         "cashflow",
         "moneyflow",
         "fund_basic",
+        "fund_portfolio",
         "top10_holders",
     }
 )
@@ -598,6 +600,16 @@ def _build_capture_group(
             False,
         ),
         (
+            "balancesheet",
+            tuple(
+                {"ts_code": code, "start_date": statement_start, "end_date": api_as_of}
+                for code in security_codes
+            ),
+            {"end_date": as_of_date.isoformat()},
+            False,
+            False,
+        ),
+        (
             "fund_basic",
             ({"market": "E"},),
             {"market": "E"},
@@ -675,6 +687,24 @@ def _build_capture_group(
             batches.append(batch)
             page_counts[endpoint] = pages
             duplicate_counts[endpoint] = duplicates
+
+        portfolio, duplicates, pages = _seal_batch(
+            endpoint="fund_portfolio",
+            requests=tuple({"ts_code": code} for code in etf_codes),
+            request_contract={
+                "end_date": as_of_date.isoformat(),
+                "ts_codes": etf_codes,
+            },
+            fetch=fetch,
+            captured_at=started_at,
+            require_each_nonempty=True,
+            confirm_terminal=True,
+            row_filter=lambda row: str(row.get("ann_date", "")) <= api_as_of
+            and str(row.get("end_date", "")) <= api_as_of,
+        )
+        batches.append(portfolio)
+        page_counts["fund_portfolio"] = pages
+        duplicate_counts["fund_portfolio"] = duplicates
 
     completed = _capture_now()
     local_completed = completed.astimezone(_SHANGHAI)
@@ -833,6 +863,16 @@ def _source_receipt(group: Mapping[str, Any], route_id: str) -> SourceCaptureRec
             },
         }
     )
+
+
+def sector_archive_source_receipt(
+    group: Mapping[str, Any], route_id: str
+) -> SourceCaptureReceipt:
+    """Rebuild and validate the logical receipt for one archived query route."""
+
+    if route_id not in LOGICAL_ROUTES:
+        raise ValueError(f"unsupported Sector archive route: {route_id}")
+    return _source_receipt(group, route_id)
 
 
 def _coverage_receipt(
@@ -1026,5 +1066,6 @@ __all__ = [
     "compile_sector_archive_group",
     "relationship_source_batches",
     "sector_archive_path",
+    "sector_archive_source_receipt",
     "sector_source_batches",
 ]

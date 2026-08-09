@@ -17,7 +17,11 @@ from mosaic.bridge.tool_capabilities import (
     materialize_tool_payload,
 )
 from mosaic.dataflows.exceptions import DataVendorUnavailable
+from mosaic.dataflows.frozen_adaptive_queries import FrozenAdaptiveQueryStore
 from mosaic.scorecard.canonical_json import canonical_hash
+from mosaic.scorecard.sector_relationship_preservation import (
+    build_sector_relationship_preservation_overlay,
+)
 from scripts.build_structured_smoke_fixtures import build_structured_smoke_fixtures
 
 
@@ -523,15 +527,44 @@ def test_matrix_restricts_roles_to_the_frozen_plan_tools():
     assert allowed_tools_for_agent("central_bank") == ("get_central_bank_snapshot",)
     assert allowed_tools_for_agent("relationship_mapper") == (
         "get_relationship_graph_snapshot",
+        "get_rke_research_context",
+        "get_stock_research",
+        "get_supply_chain_evidence",
     )
-    assert allowed_tools_for_agent("biotech") == ("get_sector_research_snapshot",)
+    assert allowed_tools_for_agent("biotech") == (
+        "get_sector_research_snapshot",
+        "get_broker_research",
+        "get_etf_holdings",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data",
+    )
     assert allowed_tools_for_agent("semiconductor") == (
         "get_sector_research_snapshot",
         "get_role_event_snapshot",
+        "get_balance_sheet",
+        "get_broker_research",
+        "get_cashflow",
+        "get_etf_holdings",
+        "get_income_statement",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data",
     )
     assert allowed_tools_for_agent("agriculture") == (
         "get_sector_research_snapshot",
         "get_role_event_snapshot",
+        "get_broker_research",
+        "get_etf_holdings",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data",
     )
     assert allowed_tools_for_agent("alpha_discovery") == (
         "get_alpha_candidate_snapshot",
@@ -1108,6 +1141,146 @@ def test_prepare_materializes_once_and_calls_read_only_bundle_payload(tmp_path):
         store.call_tool(envelope, "get_china_macro_snapshot", {})
 
 
+def test_sector_capability_binds_frozen_adaptive_queries_and_limits_each_session(
+    tmp_path: Path,
+) -> None:
+    now = [datetime(2026, 7, 9, tzinfo=timezone.utc)]
+    adaptive_store = FrozenAdaptiveQueryStore(
+        tmp_path / "private" / "frozen-queries.sqlite3",
+        clock=lambda: now[0],
+    )
+    indicator_args = {
+        "ticker": "600000.SH",
+        "as_of": "2026-07-09",
+        "lookback": 20,
+        "indicator": "rsi",
+    }
+    adaptive_transports: list[tuple[str, dict]] = []
+    adaptive = adaptive_store.prepare(
+        agent_id="energy",
+        stage="energy",
+        as_of="2026-07-09",
+        authorized_scope={
+            "as_of": "2026-07-09",
+            "earliest_date": "2026-06-01",
+            "tickers": ["600000.SH"],
+            "etfs": ["512800.SH"],
+            "sectors": ["coal"],
+            "indicator_families": ["rsi"],
+        },
+        query_requests=[{"tool_id": "get_indicators", "args": indicator_args}],
+        preservation_overlay=build_sector_relationship_preservation_overlay(
+            Path(__file__).parents[1]
+        ),
+        materializer=lambda tool_id, args: (
+            adaptive_transports.append((tool_id, args))
+            or {
+                "payload": json.dumps(
+                    {"tool": tool_id, "args": args, "frozen": True},
+                    sort_keys=True,
+                ),
+                "source_receipt_hashes": [
+                    canonical_hash({"source": tool_id, "args": args})
+                ],
+            }
+        ),
+    )
+    snapshot_calls: list[str] = []
+    store = AgentToolCapabilityStore(
+        tmp_path / "capabilities.sqlite3",
+        signing_key=b"test-signing-key-32-bytes-long!!!",
+        signing_key_id="test-key-v1",
+        clock=lambda: now[0],
+        adaptive_query_store=adaptive_store,
+        adaptive_query_preparer=lambda **_kwargs: adaptive,
+    )
+
+    prepared = store.prepare(
+        _request("energy"),
+        materializer=lambda tool_id, **_kwargs: (
+            snapshot_calls.append(tool_id)
+            or json.dumps({"tool": tool_id, "snapshot": True}, sort_keys=True)
+        ),
+    )
+    envelope = prepared["capability"]
+    assert snapshot_calls == [
+        "get_sector_research_snapshot",
+        "get_role_event_snapshot",
+    ]
+    assert set(prepared["bundle"]["tool_payload_hashes"]) == set(
+        allowed_tools_for_agent("energy")
+    )
+    indicator_metadata = next(
+        row for row in store.list_tools(envelope) if row["name"] == "get_indicators"
+    )
+    assert indicator_metadata["args_schema"]["required"] == [
+        "ticker",
+        "as_of",
+        "lookback",
+        "indicator",
+    ]
+    assert indicator_metadata["args_schema"]["properties"]["indicator"]["enum"] == [
+        "atr",
+        "boll",
+        "boll_lb",
+        "boll_ub",
+        "close_10_ema",
+        "close_200_sma",
+        "close_50_sma",
+        "macd",
+        "macdh",
+        "macds",
+        "mfi",
+        "rsi",
+        "vwma",
+    ]
+
+    assert json.loads(
+        store.call_tool(envelope, "get_sector_research_snapshot", {})
+    ) == {"snapshot": True, "tool": "get_sector_research_snapshot"}
+    with pytest.raises(ValueError, match="not present in the frozen query bundle"):
+        store.call_tool(
+            envelope,
+            "get_indicators",
+            {**indicator_args, "lookback": 21},
+        )
+    expected = {"tool": "get_indicators", "args": indicator_args, "frozen": True}
+    for _round in range(3):
+        assert json.loads(store.call_tool(envelope, "get_indicators", indicator_args)) == expected
+    with pytest.raises(ValueError, match="maximum 3 adaptive query rounds"):
+        store.call_tool(envelope, "get_indicators", indicator_args)
+    assert adaptive_transports == [("get_indicators", indicator_args)]
+    assert snapshot_calls == [
+        "get_sector_research_snapshot",
+        "get_role_event_snapshot",
+    ]
+
+    reissued = store.issue_for_bundle(
+        {
+            "graph_run_id": "graph-1",
+            "run_slot_id": "slot-energy-reissue",
+            "run_id": "run-2",
+            "node_id": "node-energy-reissue",
+            "agent_id": "energy",
+            "stage": "energy",
+            "as_of": "2026-07-09",
+            "snapshot_bundle_id": prepared["bundle"]["snapshot_bundle_id"],
+            "snapshot_bundle_hash": prepared["bundle"]["snapshot_bundle_hash"],
+            "ttl_seconds": 60,
+        }
+    )
+    assert json.loads(
+        store.call_tool(reissued["capability"], "get_indicators", indicator_args)
+    ) == expected
+    with sqlite3.connect(store.db_path) as conn:
+        for table in (
+            "snapshot_bundle_adaptive_queries",
+            "capability_adaptive_sessions",
+        ):
+            with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+                conn.execute(f"DELETE FROM {table}")
+
+
 def test_prepare_rejects_live_source_drift_before_capability_issuance(
     tmp_path: Path,
 ) -> None:
@@ -1275,6 +1448,8 @@ def test_capability_ledger_tables_reject_update_and_delete(tmp_path):
             "capabilities",
             "capability_events",
             "capability_tool_uses",
+            "snapshot_bundle_adaptive_queries",
+            "capability_adaptive_sessions",
             "sector_model_usage_events",
             "sector_model_usage_summaries",
         }

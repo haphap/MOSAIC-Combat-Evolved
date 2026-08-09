@@ -146,6 +146,7 @@ export interface LayerTwoAgentSpec<TOutput extends SectorAgentOutput> {
   schema: z.ZodType<TOutput>;
   fieldNames: ReadonlyArray<string>;
   requiredTools: ReadonlyArray<string>;
+  initialSnapshotTools: ReadonlyArray<string>;
   render: (output: TOutput) => string;
   structuredOnlySentences?: ReadonlyArray<string>;
   buildExtractorSystem?: (lang: LoaderLanguage) => string;
@@ -323,8 +324,8 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
               tools: tools as StructuredToolInterface[],
               systemMessage: systemPrompt,
               initialMessages: [new HumanMessage(evidenceUserContext)],
-              initialToolCalls: spec.requiredTools.map((name) => ({ name, args: {} })),
-              allowModelToolCalls: false,
+              initialToolCalls: spec.initialSnapshotTools.map((name) => ({ name, args: {} })),
+              allowModelToolCalls: deps.llmHandle.provider !== "fake",
               ...(runtimeEvidence ? { agentInvocationId: runtimeEvidence.agentInvocationId } : {}),
               maxLoops: 3,
               replayFullToolMaxChars: 80_000,
@@ -644,11 +645,33 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
   signal: AbortSignal;
   onLog: (message: string) => void;
 }): Promise<StandardSectorPipelineResult> {
-  const toolMaterialization = await materializeStandardSectorTools(
-    input.tools,
-    input.spec.agentId,
-    input.state.as_of_date,
-  );
+  const preLoopEvidence = buildRuntimeEvidenceSnapshot({
+    state: input.state,
+    agent: input.spec.agentId,
+    stage: "agent_run",
+    runtimeSourceStatuses: input.runtimeSourceStatuses,
+  });
+  const loopResult = await runAgentToolLoop({
+    llm: input.deps.llmHandle.llm,
+    tools: input.tools,
+    systemMessage:
+      `${input.systemPrompt}\n\n` +
+      "Use the deterministic initial snapshots first. Then, only when useful, choose among " +
+      "the registered frozen adaptive queries. Do not request data outside the authorized domain.",
+    initialMessages: [new HumanMessage(input.userContext)],
+    initialToolCalls: input.spec.initialSnapshotTools.map((name) => ({ name, args: {} })),
+    allowModelToolCalls: input.deps.llmHandle.provider !== "fake",
+    maxLoops: 3,
+    replayFullToolMaxChars: 80_000,
+    agentInvocationId: preLoopEvidence.agentInvocationId,
+    onLog: (message) => input.onLog(formatAgentEvent("phase", "L2", input.spec.agentId, [message])),
+    signal: input.signal,
+  });
+  const toolMaterialization = requiredInitialSectorSnapshots({
+    loopResult,
+    initialSnapshotTools: input.spec.initialSnapshotTools,
+    agentId: input.spec.agentId,
+  });
   const baseRuntimeEvidence = buildRuntimeEvidenceSnapshot({
     state: input.state,
     agent: input.spec.agentId,
@@ -709,6 +732,7 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
           input.userContext,
           `Runtime-owned exact role-event coverage directive:\n${JSON.stringify(coverageDirective)}`,
           renderSectorDirectionResearchPayloads(toolMaterialization.payloads),
+          `Adaptive frozen-query analysis:\n${loopResult.analysisText || "(no additional adaptive query selected)"}`,
           runtimeEvidence.visibleCatalog,
         ].join("\n\n"),
       ),
@@ -981,7 +1005,11 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
     ...(conflictReviewAudit ? [conflictReviewAudit] : []),
     final.audit,
   ];
-  const usage = sumAuditTokens(audits);
+  const structuredUsage = sumAuditTokens(audits);
+  const usage = {
+    promptTokens: structuredUsage.promptTokens + loopResult.promptTokens,
+    completionTokens: structuredUsage.completionTokens + loopResult.completionTokens,
+  };
   const usageSummary = input.preparedCapability
     ? await input.deps.api.toolsFinalizeModelUsage(input.preparedCapability.capability)
     : buildFakeSectorUsageSummary({
@@ -1132,8 +1160,15 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
       `elapsed=${formatDurationMs(Date.now() - input.startedAt)}`,
       `model_subcalls=${usageSummary.model_subcall_count}`,
       `conflict_review=${conflictReviewTriggered}`,
-      `tools=${toolMaterialization.statuses.length}`,
-      ...formatTokenMetricFields(usage.promptTokens, usage.completionTokens, 0),
+      `analysis_llm=${loopResult.llmInvocations}`,
+      `tools=${loopResult.toolCalls}`,
+      `tool_cache_hits=${loopResult.toolCacheHits}`,
+      `tool_executions=${loopResult.toolExecutions}`,
+      ...formatTokenMetricFields(
+        usage.promptTokens,
+        usage.completionTokens,
+        loopResult.llmElapsedMs,
+      ),
       summarizeAgentOutput(output),
     ]),
   );
@@ -1156,51 +1191,31 @@ function requiredAcceptedAuditOutputHash(value: string | null, agentId: string):
   return value;
 }
 
-async function materializeStandardSectorTools(
-  tools: readonly StructuredToolInterface[],
-  agentId: StandardSectorAgentId,
-  asOf: string,
-): Promise<{ payloads: Map<string, string>; statuses: ToolStatus[] }> {
+function requiredInitialSectorSnapshots(input: {
+  loopResult: Awaited<ReturnType<typeof runAgentToolLoop>>;
+  initialSnapshotTools: ReadonlyArray<string>;
+  agentId: StandardSectorAgentId;
+}): { payloads: Map<string, string>; statuses: ToolStatus[] } {
   const payloads = new Map<string, string>();
-  const statuses: ToolStatus[] = [];
-  for (const registeredTool of tools) {
-    const callId = `sector-tool:${agentId}:${registeredTool.name}`;
-    try {
-      const raw = await registeredTool.invoke({});
-      const text = typeof raw === "string" ? raw : JSON.stringify(raw);
-      payloads.set(registeredTool.name, text);
-      statuses.push({
-        name: registeredTool.name,
-        call_id: callId,
-        called: true,
-        failed: false,
-        missing: false,
-        fallback: false,
-        cache_hit: false,
-        args: {},
-        as_of: asOf,
-        args_fingerprint: canonicalHash({}),
-        result_fingerprint: canonicalHash(text),
-        source_fingerprint: canonicalHash({ tool: registeredTool.name, as_of: asOf }),
-      });
-    } catch (cause) {
-      statuses.push({
-        name: registeredTool.name,
-        call_id: callId,
-        called: true,
-        failed: true,
-        missing: true,
-        fallback: false,
-        cache_hit: false,
-        args: {},
-        as_of: asOf,
-      });
-      throw new Error(`${agentId}: required Sector tool ${registeredTool.name} failed`, {
-        cause,
-      });
+  for (const [index, name] of input.initialSnapshotTools.entries()) {
+    const callId = `initial_tool_${index + 1}`;
+    const status = input.loopResult.toolStatuses.find((row) => row.call_id === callId);
+    if (!status || status.name !== name || status.failed || status.missing) {
+      throw new Error(`${input.agentId}: required Sector tool ${name} failed`);
     }
+    const message = input.loopResult.messages.find(
+      (row) =>
+        row.getType() === "tool" &&
+        (row as unknown as { tool_call_id?: string }).tool_call_id === callId,
+    );
+    if (!message) {
+      throw new Error(`${input.agentId}: required Sector tool ${name} returned no payload`);
+    }
+    const text =
+      typeof message.content === "string" ? message.content : JSON.stringify(message.content);
+    payloads.set(name, text);
   }
-  return { payloads, statuses };
+  return { payloads, statuses: input.loopResult.toolStatuses };
 }
 
 export function buildSectorCoverageDirective(

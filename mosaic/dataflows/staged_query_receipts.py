@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 from mosaic.scorecard.canonical_json import canonical_hash
 
 
-SCHEMA_VERSION = "staged_query_source_receipt_v1"
+SCHEMA_VERSION = "staged_query_source_receipt_v2"
 _SHA_PREFIX = "sha256:"
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
 _PIT_MODES = {
@@ -37,6 +37,7 @@ _RECEIPT_FIELDS = {
     *_DESCRIPTOR_FIELDS,
     "knowledge_available_at",
     "captured_at",
+    "upstream_evidence_hashes",
     "eligible",
     "blocker_codes",
     "receipt_hash",
@@ -94,6 +95,7 @@ def seal_staged_query_source_receipt(
     *,
     knowledge_available_at: str,
     captured_at: str,
+    upstream_evidence_hashes: Sequence[str] = (),
     blocker_codes: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Seal a staged receipt after a trusted collector captures real content."""
@@ -101,6 +103,14 @@ def seal_staged_query_source_receipt(
     body_descriptor = _validated_descriptor(descriptor)
     knowledge = _timestamp(knowledge_available_at, "knowledge_available_at")
     captured = _timestamp(captured_at, "captured_at")
+    upstream = [
+        _required_sha256(value, "upstream_evidence_hashes")
+        for value in upstream_evidence_hashes
+    ]
+    if upstream != sorted(set(upstream)):
+        raise ValueError("upstream_evidence_hashes must be sorted and unique")
+    if body_descriptor["pit_mode"] != "OBSERVED_LIVE" and not upstream:
+        raise ValueError("non-live staged receipts require upstream evidence")
     blockers = list(blocker_codes)
     if (
         any(not isinstance(code, str) or not code for code in blockers)
@@ -112,6 +122,7 @@ def seal_staged_query_source_receipt(
         **body_descriptor,
         "knowledge_available_at": knowledge.isoformat(),
         "captured_at": captured.isoformat(),
+        "upstream_evidence_hashes": upstream,
         "eligible": not blockers,
         "blocker_codes": blockers,
     }
@@ -147,6 +158,19 @@ def validate_staged_query_source_receipt(
         or blockers != sorted(set(blockers))
     ):
         raise ValueError("staged source receipt blocker_codes are invalid")
+    upstream = receipt["upstream_evidence_hashes"]
+    if (
+        not isinstance(upstream, list)
+        or any(
+            not isinstance(value, str)
+            or _required_sha256(value, "upstream_evidence_hashes") != value
+            for value in upstream
+        )
+        or upstream != sorted(set(upstream))
+    ):
+        raise ValueError("staged source receipt upstream evidence is invalid")
+    if expected["pit_mode"] != "OBSERVED_LIVE" and not upstream:
+        raise ValueError("non-live staged receipts require upstream evidence")
     eligible = receipt["eligible"]
     if not isinstance(eligible, bool) or eligible != (not blockers):
         raise ValueError("staged source receipt eligibility contradicts blocker_codes")

@@ -26,14 +26,42 @@ from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import SchemaError, ValidationError
 
 from mosaic.dataflows.exceptions import DataVendorUnavailable
+from mosaic.dataflows.adaptive_query_archives import TrustedArchiveQueryRouter
+from mosaic.dataflows.cninfo_supply_chain import (
+    CninfoSupplyChainDisclosureCollector,
+)
+from mosaic.dataflows.frozen_adaptive_queries import FrozenAdaptiveQueryStore
+from mosaic.dataflows.frozen_research_digest import FrozenResearchDigestBuilder
+from mosaic.dataflows.forward_archive_queries import ForwardArchiveQueryReader
+from mosaic.dataflows.china_agent_data_archive import (
+    ChinaAgentDataArchiveStore,
+    china_agent_archive_path,
+)
+from mosaic.dataflows.china_archive_queries import ChinaArchiveQueryReader
 from mosaic.dataflows.macro_snapshots import render_role_snapshot
 from mosaic.dataflows.market_breadth import render_market_breadth_snapshot
 from mosaic.dataflows.role_events import render_role_event_snapshot
+from mosaic.dataflows.sector_archive import SectorArchiveStore, sector_archive_path
+from mosaic.dataflows.sector_archive_queries import SectorArchiveQueryReader
+from mosaic.dataflows.sector_relationship_production import (
+    SectorRelationshipAdaptiveQueryPreparer,
+)
+from mosaic.dataflows.sector_relationship_queries import (
+    SectorRelationshipQueryMaterializer,
+)
+from mosaic.dataflows.sector_relationship_source_evidence import (
+    SectorRelationshipSourceEvidenceAuthority,
+)
+from mosaic.dataflows.staged_query_receipt_store import StagedQueryReceiptStore
+from mosaic.dataflows.supply_chain_disclosures import (
+    OfficialSupplyChainDisclosureArchive,
+)
 from mosaic.dataflows.sector_snapshots import (
     render_relationship_snapshot,
     render_sector_snapshot,
 )
 from mosaic.scorecard.canonical_json import canonical_hash, canonical_json
+from mosaic.scorecard.sector_relationship_preservation import argument_schema_for_tool
 
 AgentToolId = Literal[
     "get_china_macro_snapshot",
@@ -54,9 +82,22 @@ AgentToolId = Literal[
     "get_alpha_candidate_snapshot",
     "get_execution_snapshot",
     "get_cio_decision_snapshot",
+    "get_balance_sheet",
+    "get_broker_research",
+    "get_cashflow",
+    "get_etf_holdings",
+    "get_income_statement",
+    "get_indicators",
+    "get_industry_moneyflow",
+    "get_industry_policy_digest",
+    "get_rke_research_context",
+    "get_stock_data",
+    "get_stock_research",
+    "get_supply_chain_evidence",
+    "get_yield_curve_cn",
 ]
 
-AGENT_TOOL_IDS: Final[tuple[AgentToolId, ...]] = (
+INITIAL_SNAPSHOT_TOOL_IDS: Final[tuple[AgentToolId, ...]] = (
     "get_china_macro_snapshot",
     "get_us_macro_snapshot",
     "get_eu_macro_snapshot",
@@ -75,6 +116,25 @@ AGENT_TOOL_IDS: Final[tuple[AgentToolId, ...]] = (
     "get_alpha_candidate_snapshot",
     "get_execution_snapshot",
     "get_cio_decision_snapshot",
+)
+AGENT_TOOL_IDS: Final[tuple[AgentToolId, ...]] = (
+    *INITIAL_SNAPSHOT_TOOL_IDS,
+    "get_balance_sheet",
+    "get_broker_research",
+    "get_cashflow",
+    "get_etf_holdings",
+    "get_income_statement",
+    "get_indicators",
+    "get_industry_moneyflow",
+    "get_industry_policy_digest",
+    "get_rke_research_context",
+    "get_stock_data",
+    "get_stock_research",
+    "get_supply_chain_evidence",
+    "get_yield_curve_cn",
+)
+ADAPTIVE_QUERY_TOOL_IDS: Final[frozenset[AgentToolId]] = frozenset(
+    set(AGENT_TOOL_IDS) - set(INITIAL_SNAPSHOT_TOOL_IDS)
 )
 
 
@@ -168,6 +228,19 @@ TOOL_DESCRIPTIONS: Final[dict[AgentToolId, str]] = {
     "get_alpha_candidate_snapshot": "Return the frozen novel-alpha candidate snapshot.",
     "get_execution_snapshot": "Return the frozen execution-feasibility snapshot.",
     "get_cio_decision_snapshot": "Return the frozen CIO proposal or final decision snapshot.",
+    "get_balance_sheet": "Return one exact frozen balance-sheet query.",
+    "get_broker_research": "Return one exact frozen broker-research query.",
+    "get_cashflow": "Return one exact frozen cash-flow statement query.",
+    "get_etf_holdings": "Return one exact frozen ETF-holdings query.",
+    "get_income_statement": "Return one exact frozen income-statement query.",
+    "get_indicators": "Return one exact frozen technical-indicator query.",
+    "get_industry_moneyflow": "Return one exact frozen industry-moneyflow query.",
+    "get_industry_policy_digest": "Return one exact frozen industry-policy query.",
+    "get_rke_research_context": "Return one exact frozen RKE research-context query.",
+    "get_stock_data": "Return one exact frozen stock-market-data query.",
+    "get_stock_research": "Return one exact frozen stock-research query.",
+    "get_supply_chain_evidence": "Return one exact frozen authoritative supply-chain query.",
+    "get_yield_curve_cn": "Return one exact frozen China yield-curve query.",
 }
 if set(TOOL_DESCRIPTIONS) != set(AGENT_TOOL_IDS):
     raise RuntimeError("tool description registry must exactly cover AgentToolId")
@@ -2052,12 +2125,25 @@ class AgentToolCapabilityStore:
         signing_key: bytes,
         signing_key_id: str,
         clock: Callable[[], datetime] | None = None,
+        adaptive_query_store: FrozenAdaptiveQueryStore | None = None,
+        adaptive_query_preparer: Callable[..., Mapping[str, Any]] | None = None,
     ) -> None:
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.signing_key = signing_key
         self.signing_key_id = signing_key_id
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+        if (adaptive_query_store is None) != (adaptive_query_preparer is None):
+            raise ValueError(
+                "adaptive_query_store and adaptive_query_preparer must be configured together"
+            )
+        if (
+            adaptive_query_store is not None
+            and adaptive_query_store.db_path.resolve() == self.db_path.resolve()
+        ):
+            raise ValueError("adaptive query and capability ledgers must use distinct files")
+        self.adaptive_query_store = adaptive_query_store
+        self.adaptive_query_preparer = adaptive_query_preparer
         self._initialise()
 
     def _connect(self) -> sqlite3.Connection:
@@ -2112,6 +2198,23 @@ class AgentToolCapabilityStore:
                     tool_id TEXT NOT NULL,
                     used_at TEXT NOT NULL,
                     PRIMARY KEY(capability_id, tool_id),
+                    FOREIGN KEY(capability_id) REFERENCES capabilities(capability_id)
+                );
+                CREATE TABLE IF NOT EXISTS snapshot_bundle_adaptive_queries (
+                    snapshot_bundle_id TEXT PRIMARY KEY,
+                    frozen_bundle_id TEXT NOT NULL,
+                    frozen_bundle_hash TEXT NOT NULL,
+                    public_projection_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(snapshot_bundle_id)
+                      REFERENCES snapshot_bundles(snapshot_bundle_id)
+                );
+                CREATE TABLE IF NOT EXISTS capability_adaptive_sessions (
+                    capability_id TEXT PRIMARY KEY,
+                    frozen_bundle_id TEXT NOT NULL,
+                    frozen_bundle_hash TEXT NOT NULL,
+                    session_id TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL,
                     FOREIGN KEY(capability_id) REFERENCES capabilities(capability_id)
                 );
                 CREATE TABLE IF NOT EXISTS sector_model_usage_events (
@@ -2179,6 +2282,22 @@ class AgentToolCapabilityStore:
                   BEFORE DELETE ON capability_tool_uses BEGIN
                     SELECT RAISE(ABORT, 'capability_tool_uses is append-only');
                   END;
+                CREATE TRIGGER IF NOT EXISTS snapshot_bundle_adaptive_queries_no_update
+                  BEFORE UPDATE ON snapshot_bundle_adaptive_queries BEGIN
+                    SELECT RAISE(ABORT, 'snapshot bundle adaptive queries are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS snapshot_bundle_adaptive_queries_no_delete
+                  BEFORE DELETE ON snapshot_bundle_adaptive_queries BEGIN
+                    SELECT RAISE(ABORT, 'snapshot bundle adaptive queries are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS capability_adaptive_sessions_no_update
+                  BEFORE UPDATE ON capability_adaptive_sessions BEGIN
+                    SELECT RAISE(ABORT, 'capability adaptive sessions are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS capability_adaptive_sessions_no_delete
+                  BEFORE DELETE ON capability_adaptive_sessions BEGIN
+                    SELECT RAISE(ABORT, 'capability adaptive sessions are append-only');
+                  END;
                 CREATE TRIGGER IF NOT EXISTS sector_usage_events_no_update
                   BEFORE UPDATE ON sector_model_usage_events BEGIN
                     SELECT RAISE(ABORT, 'sector usage events are append-only');
@@ -2212,6 +2331,91 @@ class AgentToolCapabilityStore:
             message,
             hashlib.sha256,
         ).hexdigest()
+
+    def _prepare_adaptive_query_descriptors(
+        self,
+        *,
+        agent_id: str,
+        stage: str,
+        as_of: str,
+        initial_payloads: Mapping[AgentToolId, str],
+        runtime_inputs: Mapping[str, Any],
+        candidate_scope: Mapping[str, Any] | None,
+        adaptive_tools: Sequence[AgentToolId],
+    ) -> tuple[dict[AgentToolId, str], dict[str, Any]]:
+        if self.adaptive_query_store is None or self.adaptive_query_preparer is None:
+            raise DataVendorUnavailable(
+                "adaptive query compiler is unavailable for the active role whitelist"
+            )
+        prepared = self.adaptive_query_preparer(
+            agent_id=agent_id,
+            stage=stage,
+            as_of=as_of,
+            initial_payloads=dict(initial_payloads),
+            runtime_inputs=dict(runtime_inputs),
+            candidate_scope=(dict(candidate_scope) if candidate_scope is not None else None),
+            allowed_tools=tuple(adaptive_tools),
+        )
+        if not isinstance(prepared, Mapping) or set(prepared) != {
+            "bundle_id",
+            "public_projection",
+        }:
+            raise ValueError("adaptive query compiler returned an invalid bundle reference")
+        bundle_id = _required_string(prepared, "bundle_id")
+        projection = prepared.get("public_projection")
+        if not isinstance(projection, dict):
+            raise ValueError("adaptive query public projection must be an object")
+        projection_hash = projection.get("projection_hash")
+        projection_body = {
+            key: value for key, value in projection.items() if key != "projection_hash"
+        }
+        bundle_hash = projection.get("bundle_hash")
+        entries = projection.get("entries")
+        if (
+            projection.get("bundle_id") != bundle_id
+            or projection.get("agent_id") != agent_id
+            or projection.get("stage") != stage
+            or projection.get("as_of") != as_of
+            or not _is_sha256(bundle_hash)
+            or not _is_sha256(projection_hash)
+            or projection_hash != _sha256(projection_body)
+            or not isinstance(entries, list)
+            or projection.get("private_payload_count") != len(entries)
+            or projection.get("adaptive_max_rounds") != 3
+        ):
+            raise ValueError("adaptive query public projection binding is invalid")
+        allowed = set(adaptive_tools)
+        counts = dict.fromkeys(adaptive_tools, 0)
+        for entry in entries:
+            if (
+                not isinstance(entry, dict)
+                or entry.get("tool_id") not in allowed
+                or entry.get("call_mode") != "FOLLOW_UP"
+                or not _is_sha256(entry.get("request_hash"))
+                or not _is_sha256(entry.get("payload_hash"))
+            ):
+                raise ValueError("adaptive query public projection entry is invalid")
+            tool_id = cast(AgentToolId, entry["tool_id"])
+            counts[tool_id] += 1
+        descriptors = {
+            tool_id: _canonical_json(
+                {
+                    "schema_version": "adaptive_tool_bundle_descriptor_v1",
+                    "tool_id": tool_id,
+                    "frozen_query_bundle_id": bundle_id,
+                    "frozen_query_bundle_hash": bundle_hash,
+                    "prepared_request_count": counts[tool_id],
+                    "call_contract": "EXACT_FROZEN_ARGS_ONLY",
+                    "adaptive_max_rounds": 3,
+                }
+            )
+            for tool_id in adaptive_tools
+        }
+        return descriptors, {
+            "bundle_id": bundle_id,
+            "bundle_hash": bundle_hash,
+            "public_projection": projection,
+        }
 
     def prepare(
         self,
@@ -2252,8 +2456,25 @@ class AgentToolCapabilityStore:
             raise ValueError("materialization_request_id has already been used") from exc
 
         allowed_tools = allowed_tools_for_agent(agent_id)
+        adaptive_tools = tuple(
+            tool_id for tool_id in allowed_tools if tool_id in ADAPTIVE_QUERY_TOOL_IDS
+        )
+        adaptive_enabled = bool(adaptive_tools) and self.adaptive_query_store is not None
+        if adaptive_tools and materializer is materialize_tool_payload and not adaptive_enabled:
+            raise DataVendorUnavailable(
+                "adaptive query compiler is unavailable for the active role whitelist"
+            )
+        materialized_tools = (
+            tuple(
+                tool_id
+                for tool_id in allowed_tools
+                if tool_id in INITIAL_SNAPSHOT_TOOL_IDS
+            )
+            if adaptive_enabled
+            else allowed_tools
+        )
         payloads: dict[AgentToolId, str] = {}
-        for tool_id in allowed_tools:
+        for tool_id in materialized_tools:
             materializer_kwargs = {
                 "agent_id": agent_id,
                 "stage": stage,
@@ -2273,6 +2494,18 @@ class AgentToolCapabilityStore:
                 )
             else:
                 payloads[tool_id] = materializer(tool_id, **materializer_kwargs)
+        adaptive_ref: dict[str, Any] | None = None
+        if adaptive_enabled:
+            descriptors, adaptive_ref = self._prepare_adaptive_query_descriptors(
+                agent_id=agent_id,
+                stage=stage,
+                as_of=as_of,
+                initial_payloads=payloads,
+                runtime_inputs=runtime_inputs,
+                candidate_scope=candidate_scope,
+                adaptive_tools=adaptive_tools,
+            )
+            payloads.update(descriptors)
         if set(payloads) != set(allowed_tools):
             raise ValueError("materialized payload keys do not match allowed tools")
         if any(not isinstance(payload, str) or not payload for payload in payloads.values()):
@@ -2356,6 +2589,15 @@ class AgentToolCapabilityStore:
             signing_key_id=self.signing_key_id,
             signature=self._sign(manifest),
         )
+        adaptive_session_id = (
+            self.adaptive_query_store.start_session(
+                bundle_id=adaptive_ref["bundle_id"],
+                agent_id=agent_id,
+                stage=stage,
+            )
+            if adaptive_ref is not None and self.adaptive_query_store is not None
+            else None
+        )
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             try:
@@ -2370,6 +2612,17 @@ class AgentToolCapabilityStore:
                         now.isoformat(),
                     ),
                 )
+                if adaptive_ref is not None:
+                    conn.execute(
+                        "INSERT INTO snapshot_bundle_adaptive_queries VALUES (?, ?, ?, ?, ?)",
+                        (
+                            snapshot_bundle_id,
+                            adaptive_ref["bundle_id"],
+                            adaptive_ref["bundle_hash"],
+                            _canonical_json(adaptive_ref["public_projection"]),
+                            now.isoformat(),
+                        ),
+                    )
                 conn.execute(
                     "INSERT INTO capabilities VALUES (?, ?, ?, ?, ?, ?)",
                     (
@@ -2381,6 +2634,17 @@ class AgentToolCapabilityStore:
                         now.isoformat(),
                     ),
                 )
+                if adaptive_ref is not None and adaptive_session_id is not None:
+                    conn.execute(
+                        "INSERT INTO capability_adaptive_sessions VALUES (?, ?, ?, ?, ?)",
+                        (
+                            capability_id,
+                            adaptive_ref["bundle_id"],
+                            adaptive_ref["bundle_hash"],
+                            adaptive_session_id,
+                            now.isoformat(),
+                        ),
+                    )
                 conn.execute(
                     "INSERT INTO capability_events VALUES (?, ?, 'ISSUED', ?, NULL)",
                     (f"evt_{uuid.uuid4().hex}", capability_id, now.isoformat()),
@@ -2410,6 +2674,11 @@ class AgentToolCapabilityStore:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT bundle_json, payloads_json FROM snapshot_bundles WHERE snapshot_bundle_id = ?",
+                (snapshot_bundle_id,),
+            ).fetchone()
+            adaptive_row = conn.execute(
+                "SELECT frozen_bundle_id, frozen_bundle_hash "
+                "FROM snapshot_bundle_adaptive_queries WHERE snapshot_bundle_id = ?",
                 (snapshot_bundle_id,),
             ).fetchone()
         if row is None:
@@ -2467,6 +2736,17 @@ class AgentToolCapabilityStore:
             signing_key_id=self.signing_key_id,
             signature=self._sign(manifest),
         )
+        if adaptive_row is not None and self.adaptive_query_store is None:
+            raise ValueError("adaptive query store is unavailable for this snapshot bundle")
+        adaptive_session_id = (
+            self.adaptive_query_store.start_session(
+                bundle_id=adaptive_row["frozen_bundle_id"],
+                agent_id=agent_id,
+                stage=stage,
+            )
+            if adaptive_row is not None and self.adaptive_query_store is not None
+            else None
+        )
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             try:
@@ -2481,6 +2761,17 @@ class AgentToolCapabilityStore:
                         now.isoformat(),
                     ),
                 )
+                if adaptive_row is not None and adaptive_session_id is not None:
+                    conn.execute(
+                        "INSERT INTO capability_adaptive_sessions VALUES (?, ?, ?, ?, ?)",
+                        (
+                            capability_id,
+                            adaptive_row["frozen_bundle_id"],
+                            adaptive_row["frozen_bundle_hash"],
+                            adaptive_session_id,
+                            now.isoformat(),
+                        ),
+                    )
                 conn.execute(
                     "INSERT INTO capability_events VALUES (?, ?, 'ISSUED', ?, NULL)",
                     (f"evt_{uuid.uuid4().hex}", capability_id, now.isoformat()),
@@ -2731,11 +3022,14 @@ class AgentToolCapabilityStore:
                     "WHERE capability_id = ? ORDER BY tool_id",
                     (manifest["capability_id"],),
                 ).fetchall()
-                if [row["tool_id"] for row in uses] != sorted(
-                    manifest["allowed_tools"]
-                ):
+                required_initial_tools = sorted(
+                    tool_id
+                    for tool_id in manifest["allowed_tools"]
+                    if tool_id in INITIAL_SNAPSHOT_TOOL_IDS
+                )
+                if [row["tool_id"] for row in uses] != required_initial_tools:
                     raise ValueError(
-                        "Sector model usage requires the exact frozen tool set"
+                        "Sector model usage requires the exact initial snapshot tool set"
                     )
                 prior = conn.execute(
                     "SELECT event_json FROM sector_model_usage_events "
@@ -2925,11 +3219,15 @@ class AgentToolCapabilityStore:
                     "WHERE capability_id = ? ORDER BY tool_id",
                     (capability_id,),
                 ).fetchall()
-                if [row["tool_id"] for row in uses] != sorted(
-                    manifest["allowed_tools"]
-                ):
+                required_initial_tools = sorted(
+                    tool_id
+                    for tool_id in manifest["allowed_tools"]
+                    if tool_id in INITIAL_SNAPSHOT_TOOL_IDS
+                )
+                if [row["tool_id"] for row in uses] != required_initial_tools:
                     raise ValueError(
-                        "Sector model usage finalization requires the exact frozen tool set"
+                        "Sector model usage finalization requires the exact initial "
+                        "snapshot tool set"
                     )
                 event_rows = conn.execute(
                     "SELECT event_json FROM sector_model_usage_events "
@@ -3330,12 +3628,16 @@ class AgentToolCapabilityStore:
             {
                 "name": tool_id,
                 "description": TOOL_DESCRIPTIONS[tool_id],
-                "args_schema": {
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                    "additionalProperties": False,
-                },
+                "args_schema": (
+                    argument_schema_for_tool(tool_id)
+                    if tool_id in ADAPTIVE_QUERY_TOOL_IDS
+                    else {
+                        "type": "object",
+                        "properties": {},
+                        "required": [],
+                        "additionalProperties": False,
+                    }
+                ),
             }
             for tool_id in manifest["allowed_tools"]
         ]
@@ -3347,10 +3649,36 @@ class AgentToolCapabilityStore:
         args: Mapping[str, Any],
     ) -> str:
         manifest, row = self._verify(envelope)
-        if args:
-            raise ValueError("role-scoped model tools accept no arguments")
         if tool_id not in manifest["allowed_tools"]:
             raise ValueError(f"tool {tool_id!r} is not allowed by this capability")
+        if tool_id in ADAPTIVE_QUERY_TOOL_IDS:
+            if self.adaptive_query_store is None:
+                raise ValueError("adaptive query store is unavailable")
+            with self._connect() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                try:
+                    self._verify(envelope, conn=conn)
+                    session = conn.execute(
+                        "SELECT session_id FROM capability_adaptive_sessions "
+                        "WHERE capability_id = ?",
+                        (manifest["capability_id"],),
+                    ).fetchone()
+                    if session is None:
+                        raise ValueError(
+                            "adaptive query bundle is unavailable for this capability"
+                        )
+                    payload = self.adaptive_query_store.call_next(
+                        session_id=session["session_id"],
+                        tool_id=tool_id,
+                        args=args,
+                    )
+                    conn.execute("COMMIT")
+                except Exception:
+                    conn.execute("ROLLBACK")
+                    raise
+            return payload
+        if args:
+            raise ValueError("role-scoped snapshot tools accept no arguments")
         payloads = json.loads(row["payloads_json"])
         payload = payloads.get(tool_id)
         if not isinstance(payload, str) or not payload:
@@ -3419,6 +3747,14 @@ def capability_ledger_path() -> Path:
     return (cache / "runtime" / "agent_tool_capabilities.sqlite3").resolve()
 
 
+def _frozen_research_digest(
+    tool_id: str,
+    raw_payload: str,
+    args: dict[str, Any],
+) -> Mapping[str, Any]:
+    return FrozenResearchDigestBuilder()(tool_id, raw_payload, args)
+
+
 def get_capability_store() -> AgentToolCapabilityStore:
     path = capability_ledger_path()
     with _STORE_LOCK:
@@ -3429,10 +3765,69 @@ def get_capability_store() -> AgentToolCapabilityStore:
             key_id = os.getenv(
                 "MOSAIC_AGENT_CAPABILITY_SIGNING_KEY_ID", "runtime-ephemeral-v1"
             )
+            runtime_dir = path.parent
+            adaptive_store = FrozenAdaptiveQueryStore(
+                runtime_dir / "agent_frozen_adaptive_queries.sqlite3"
+            )
+            receipt_store = StagedQueryReceiptStore(
+                runtime_dir / "agent_staged_query_receipts.sqlite3"
+            )
+            sector_archive_store = SectorArchiveStore(
+                sector_archive_path(), create=False
+            )
+            china_archive_store = ChinaAgentDataArchiveStore(
+                china_agent_archive_path(), create=False
+            )
+            sector_query_reader = SectorArchiveQueryReader(store=sector_archive_store)
+            china_query_reader = ChinaArchiveQueryReader(store=china_archive_store)
+            forward_query_reader = ForwardArchiveQueryReader(
+                root=Path(__file__).resolve().parents[2],
+                sector_archive_store=sector_archive_store,
+            )
+            archive_query_router = TrustedArchiveQueryRouter(
+                {
+                    "get_balance_sheet": sector_query_reader,
+                    "get_cashflow": sector_query_reader,
+                    "get_etf_holdings": sector_query_reader,
+                    "get_income_statement": sector_query_reader,
+                    "get_indicators": sector_query_reader,
+                    "get_stock_data": sector_query_reader,
+                    "get_industry_moneyflow": china_query_reader,
+                    "get_yield_curve_cn": china_query_reader,
+                    "get_broker_research": forward_query_reader,
+                    "get_industry_policy": forward_query_reader,
+                    "get_stock_research": forward_query_reader,
+                }
+            )
+            source_evidence = SectorRelationshipSourceEvidenceAuthority(
+                root=Path(__file__).resolve().parents[2],
+                receipt_store=receipt_store,
+                sector_archive_store=sector_archive_store,
+                china_archive_store=china_archive_store,
+                forward_archive_reader=forward_query_reader,
+            )
+            query_materializer = SectorRelationshipQueryMaterializer(
+                receipt_authority=receipt_store,
+                route_caller=archive_query_router,
+                digest_builder=_frozen_research_digest,
+                supply_chain_archive=CninfoSupplyChainDisclosureCollector(
+                    archive=OfficialSupplyChainDisclosureArchive(
+                        runtime_dir / "official_supply_chain_disclosures.sqlite3"
+                    )
+                ),
+                source_evidence_authority=source_evidence,
+            )
+            adaptive_preparer = SectorRelationshipAdaptiveQueryPreparer(
+                root=Path(__file__).resolve().parents[2],
+                frozen_store=adaptive_store,
+                materializer=query_materializer,
+            )
             store = AgentToolCapabilityStore(
                 path,
                 signing_key=key,
                 signing_key_id=key_id,
+                adaptive_query_store=adaptive_store,
+                adaptive_query_preparer=adaptive_preparer,
             )
             _STORE_BY_PATH[path] = store
         return store

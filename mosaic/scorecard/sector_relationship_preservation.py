@@ -17,6 +17,9 @@ from jsonschema import Draft202012Validator
 
 from mosaic.scorecard.canonical_json import canonical_hash
 from mosaic.scorecard.capability_preservation import evaluate_counterevidence
+from mosaic.scorecard.preservation_snapshots import (
+    load_preactivation_agent_manifests,
+)
 
 
 SCHEMA_VERSION = "sector_relationship_preservation_overlay_v1"
@@ -72,7 +75,7 @@ _TOOL_ROUTES = {
     "get_etf_holdings": ("tushare.etf_holdings",),
     "get_stock_data": ("tushare.sector_market",),
     "get_indicators": ("tushare.sector_market",),
-    "get_industry_moneyflow": ("tushare.sector_market",),
+    "get_industry_moneyflow": ("tushare.institutional_flow",),
     "get_yield_curve_cn": ("tushare.shibor_yield_curve",),
     "get_income_statement": ("tushare.sector_fundamentals",),
     "get_balance_sheet": ("tushare.sector_fundamentals",),
@@ -505,11 +508,7 @@ def _coverage(binding: Mapping[str, Any], fixture: Mapping[str, Any]) -> dict[st
 
 
 def _route_catalog(root: Path) -> list[dict[str, Any]]:
-    route_manifest = json.loads(
-        (root / "registry/data_sources/agent_data_route_manifest_v1.json").read_text(
-            encoding="utf-8"
-        )
-    )
+    _, route_manifest = load_preactivation_agent_manifests(root)
     required_existing = {
         route_id
         for route_ids in _TOOL_ROUTES.values()
@@ -549,16 +548,7 @@ def _binding_tool_rows() -> list[tuple[str, str]]:
 
 
 def build_sector_relationship_preservation_overlay(root: Path) -> dict[str, Any]:
-    active = json.loads(
-        (root / "registry/prompt_checks/agent_tool_contract_manifest_v1.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    route_manifest = json.loads(
-        (root / "registry/data_sources/agent_data_route_manifest_v1.json").read_text(
-            encoding="utf-8"
-        )
-    )
+    active, route_manifest = load_preactivation_agent_manifests(root)
     routes = _route_catalog(root)
     routes_by_id = {row["route_id"]: row for row in routes}
 
@@ -681,16 +671,7 @@ def validate_sector_relationship_preservation_overlay(
     if overlay.get("manifest_hash") != canonical_hash(body):
         raise ValueError("Sector/Relationship overlay manifest hash mismatch")
 
-    active = json.loads(
-        (root / "registry/prompt_checks/agent_tool_contract_manifest_v1.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    route_manifest = json.loads(
-        (root / "registry/data_sources/agent_data_route_manifest_v1.json").read_text(
-            encoding="utf-8"
-        )
-    )
+    active, route_manifest = load_preactivation_agent_manifests(root)
     if overlay.get("base_active_agent_tool_manifest_hash") != canonical_hash(active):
         raise ValueError("base active Agent tool manifest drift")
     if overlay.get("base_agent_data_route_manifest_hash") != canonical_hash(route_manifest):

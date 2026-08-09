@@ -16,7 +16,7 @@
     },
     "tool_count": {
       "type": "number",
-      "const": 18
+      "enum": [18, 31]
     },
     "agents": {
       "minItems": 28,
@@ -128,7 +128,20 @@
                 "get_cro_risk_snapshot",
                 "get_alpha_candidate_snapshot",
                 "get_execution_snapshot",
-                "get_cio_decision_snapshot"
+                "get_cio_decision_snapshot",
+                "get_balance_sheet",
+                "get_broker_research",
+                "get_cashflow",
+                "get_etf_holdings",
+                "get_income_statement",
+                "get_indicators",
+                "get_industry_moneyflow",
+                "get_industry_policy_digest",
+                "get_rke_research_context",
+                "get_stock_data",
+                "get_stock_research",
+                "get_supply_chain_evidence",
+                "get_yield_curve_cn"
               ]
             }
           }
