@@ -20,6 +20,11 @@ from typing import Any
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
+from mosaic.dataflows.agent_materialization import (
+    AgentDataMaterializationLedger,
+    SourceCaptureReceipt,
+)
+from mosaic.dataflows.staged_query_receipt_store import StagedQueryReceiptStore
 from mosaic.dataflows.staged_query_receipts import (
     seal_staged_query_source_receipt,
     validate_staged_query_source_receipt,
@@ -869,7 +874,18 @@ class OfficialSupplyChainDisclosureArchive:
                 raise
         return capture_id
 
-    def materialize(self, *, ticker: str, as_of: str) -> dict[str, Any]:
+    def materialize(
+        self,
+        *,
+        ticker: str,
+        as_of: str,
+        receipt_store: StagedQueryReceiptStore | None = None,
+        agent_data_ledger: AgentDataMaterializationLedger | None = None,
+    ) -> dict[str, Any]:
+        if (receipt_store is None) != (agent_data_ledger is None):
+            raise ValueError(
+                "active supply-chain evidence requires both receipt store and ledger"
+            )
         ticker = _ticker(ticker, "ticker")
         date.fromisoformat(as_of)
         with self._connect() as connection:
@@ -981,6 +997,113 @@ class OfficialSupplyChainDisclosureArchive:
             ),
             "edges": evidence_edges,
         }
+        if receipt_store is not None and agent_data_ledger is not None:
+            knowledge_at = _timestamp(
+                receipt["knowledge_available_at"], "knowledge_available_at"
+            )
+            captured_at = _timestamp(receipt["captured_at"], "captured_at")
+            as_of_end = datetime.combine(
+                date.fromisoformat(as_of), time.max, tzinfo=_SHANGHAI
+            )
+            observed_dates = sorted(
+                {
+                    _timestamp(row["announced_at"], "announced_at").date()
+                    for row in disclosures
+                }
+            )
+            manifest_hash = canonical_hash(manifest)
+            source = SourceCaptureReceipt.seal(
+                {
+                    "schema_version": "source_capture_receipt_v1",
+                    "identity": {
+                        "source_family": "official_company_disclosures",
+                        "route_id": ROUTE_ID,
+                        "request_hash": descriptor["request_hash"],
+                        "capture_id": "cninfo-supply-chain:"
+                        + canonical_hash(
+                            {
+                                "request_hash": descriptor["request_hash"],
+                                "content_hash": descriptor["content_hash"],
+                                "manifest_hash": manifest_hash,
+                            }
+                        ).removeprefix("sha256:"),
+                    },
+                    "transport": {
+                        "redacted_url": "https://www.cninfo.com.cn/<redacted>",
+                        "method": "POST",
+                        "query_keys": ["as_of", "org_id", "ticker"],
+                        "pagination_policy": "BOUNDED_CNINFO_ANNUAL_REPORT_QUERY_V1",
+                        "page_count": len(manifest["pages"]),
+                    },
+                    "authority": {
+                        "provider": "cninfo",
+                        "permission_tier": "official_public_disclosure",
+                        "api_version": "cninfo-public-v1",
+                        "parser_version": manifest["parser_version"],
+                    },
+                    "time": {
+                        "released_at": knowledge_at.isoformat(),
+                        "vintage_at": knowledge_at.isoformat(),
+                        "captured_at": captured_at.isoformat(),
+                        "knowledge_available_at": knowledge_at.isoformat(),
+                    },
+                    "pit": {
+                        "pit_mode": "AUTHORITATIVE_VINTAGE_REPLAY",
+                        "as_of_cutoff": as_of_end.isoformat(),
+                        "eligible": True,
+                        "blocker_codes": [],
+                        "vintage_query": {
+                            "as_of": as_of,
+                            "manifest_hash": manifest_hash,
+                            "query_contract_hash": canonical_hash(
+                                manifest["query_contract"]
+                            ),
+                        },
+                    },
+                    "content": {
+                        "raw_content_hash": descriptor["content_hash"],
+                        "normalized_row_count": len(disclosures),
+                        "schema_hash": canonical_hash(
+                            {
+                                "parser_version": manifest["parser_version"],
+                                "route_id": ROUTE_ID,
+                            }
+                        ),
+                    },
+                    "coverage": {
+                        "requested_start": manifest["query_contract"]["start_date"],
+                        "requested_end": as_of,
+                        "observed_start": (
+                            observed_dates[0].isoformat() if observed_dates else None
+                        ),
+                        "observed_end": (
+                            observed_dates[-1].isoformat() if observed_dates else None
+                        ),
+                        "dimensions": {"route_id": [ROUTE_ID]},
+                    },
+                    "completeness": {
+                        "truncated": False,
+                        "next_page_token_present": False,
+                        "duplicate_count": 0,
+                        "empty_result_semantics": (
+                            "NON_EMPTY" if disclosures else "TRUE_EMPTY"
+                        ),
+                    },
+                    "provenance": {
+                        "parent_capture_hash": manifest_hash,
+                        "previous_revision_hash": None,
+                        "revision_reason": None,
+                    },
+                }
+            )
+            source_hash = agent_data_ledger.append_source_capture(source)
+            active_receipt = seal_staged_query_source_receipt(
+                descriptor,
+                knowledge_available_at=knowledge_at.isoformat(),
+                captured_at=captured_at.isoformat(),
+                upstream_evidence_hashes=(source_hash,),
+            )
+            receipt_hash = receipt_store.register(active_receipt)
         return {
             "payload": _canonical_json(payload),
             "source_receipt_hashes": [receipt_hash],

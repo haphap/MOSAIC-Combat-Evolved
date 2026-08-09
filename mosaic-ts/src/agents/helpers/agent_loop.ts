@@ -26,6 +26,7 @@ import {
   ToolMessage,
 } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
+import { BRIDGE_INITIAL_TOOL_INVOKE, type BridgeStructuredTool } from "../../bridge/tools.js";
 import { canonicalJsonHash } from "./canonical_json.js";
 import { extractTextContent } from "./content.js";
 import { isProcessOnlyReportText, stripProcessOnlyReportPrefix } from "./process_narration.js";
@@ -581,7 +582,10 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       toolExecutions++;
       let output: string;
       try {
-        const raw = await tool.invoke(call.args, opts.signal ? { signal: opts.signal } : undefined);
+        const initialInvoke = (tool as Partial<BridgeStructuredTool>)[BRIDGE_INITIAL_TOOL_INVOKE];
+        const raw = initialInvoke
+          ? await initialInvoke()
+          : await tool.invoke(call.args, opts.signal ? { signal: opts.signal } : undefined);
         output = typeof raw === "string" ? raw : String(raw);
         const metadata = toolOutputStatusMetadata(output);
         const cached = cachedToolResult({

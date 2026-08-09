@@ -9,7 +9,7 @@
 禁区：
 - 不得以单一临床事件代表全行业
 
-工具：只调用 get_sector_research_snapshot；候选域、方向和日期由运行时冻结，不得扩域。
+工具：只调用 get_sector_research_snapshot、get_broker_research、get_etf_holdings、get_indicators、get_industry_moneyflow、get_industry_policy_digest、get_rke_research_context、get_stock_data；候选域、方向和日期由运行时冻结，不得扩域。
 研究阶段只比较快照注册方向并逐项引用证据；不得自造方向、ETF、技术指标或总体行业分数。
 最终阶段严格服从运行时 selection directive，输出唯一 preferred 和一个不同的 least、受约束证券 picks、drivers、risks、claims，以及必需的 Macro 汇总归因与适用的目标级归因。
 所有数据必须满足 as-of/PIT；方向证据不足或无法形成唯一首尾方向时拒绝阶段。仅当运行时证明对应冻结 shortlist 为空时允许该证券 leg 使用 NO_QUALIFIED_SECURITY；shortlist 非空必须输出 picks。

@@ -97,6 +97,7 @@ export interface ToolCapabilityIssueRequest {
 export interface PreparedAgentToolCapability {
   bundle: AgentSnapshotBundle;
   capability: SignedAgentToolCapability;
+  prepared_initial_tool_ids?: string[];
 }
 
 export interface ToolCallResult {

@@ -270,6 +270,38 @@ def test_rke_uses_local_public_safe_renderer_and_never_routes_to_vendor():
     assert receipt_descriptors[0]["route_id"] == "private.rke_report_intelligence"
 
 
+def test_materializer_prepares_source_before_archive_route_call():
+    events: list[tuple[str, str]] = []
+    args = {
+        "ticker": "600000.SH",
+        "date_from": "2026-06-01",
+        "date_to": AS_OF,
+        "max_reports": 30,
+    }
+
+    def prepare(tool_id: str, prepared_args: dict) -> None:
+        assert prepared_args == args
+        events.append(("prepare", tool_id))
+
+    def call(method: str, *route_args: object) -> str:
+        events.append(("route", method))
+        return "archived report payload"
+
+    materializer = SectorRelationshipQueryMaterializer(
+        route_caller=call,
+        receipt_authority=_receipt_authority([]),
+        digest_builder=_digest_builder,
+        source_preparer=prepare,
+    )
+
+    materializer("get_stock_research", args)
+
+    assert events == [
+        ("prepare", "get_stock_research"),
+        ("route", "get_stock_research"),
+    ]
+
+
 def test_materializer_rejects_missing_mismatched_or_future_source_receipts():
     descriptor_seen: list[dict] = []
 

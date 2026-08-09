@@ -979,7 +979,14 @@
       "layer": "superinvestor",
       "prompt_ir_agent_id": "superinvestor.druckenmiller",
       "required_tools": [
-        "get_superinvestor_candidate_snapshot"
+        "get_superinvestor_candidate_snapshot",
+        "get_fundamentals",
+        "get_indicators",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_stock_research",
+        "get_yield_curve_cn"
       ],
       "output_schema_fields": [
         "agent",
@@ -1023,7 +1030,14 @@
       "layer": "superinvestor",
       "prompt_ir_agent_id": "superinvestor.munger",
       "required_tools": [
-        "get_superinvestor_candidate_snapshot"
+        "get_superinvestor_candidate_snapshot",
+        "get_balance_sheet",
+        "get_cashflow",
+        "get_fundamentals",
+        "get_income_statement",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_stock_research"
       ],
       "output_schema_fields": [
         "agent",
@@ -1067,7 +1081,14 @@
       "layer": "superinvestor",
       "prompt_ir_agent_id": "superinvestor.burry",
       "required_tools": [
-        "get_superinvestor_candidate_snapshot"
+        "get_superinvestor_candidate_snapshot",
+        "get_balance_sheet",
+        "get_cashflow",
+        "get_fundamentals",
+        "get_income_statement",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_stock_research"
       ],
       "output_schema_fields": [
         "agent",
@@ -1111,7 +1132,14 @@
       "layer": "superinvestor",
       "prompt_ir_agent_id": "superinvestor.ackman",
       "required_tools": [
-        "get_superinvestor_candidate_snapshot"
+        "get_superinvestor_candidate_snapshot",
+        "get_balance_sheet",
+        "get_cashflow",
+        "get_fundamentals",
+        "get_income_statement",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_stock_research"
       ],
       "output_schema_fields": [
         "agent",
@@ -1156,7 +1184,8 @@
       "prompt_ir_agent_id": "decision.cro",
       "required_tools": [
         "get_cro_risk_snapshot",
-        "get_role_event_snapshot"
+        "get_role_event_snapshot",
+        "get_rke_research_context"
       ],
       "output_schema_fields": [
         "agent_id",
@@ -1205,7 +1234,8 @@
       "prompt_ir_agent_id": "decision.alpha_discovery",
       "required_tools": [
         "get_alpha_candidate_snapshot",
-        "get_role_event_snapshot"
+        "get_role_event_snapshot",
+        "get_rke_research_context"
       ],
       "output_schema_fields": [
         "agent_id",
@@ -1252,7 +1282,8 @@
       "prompt_ir_agent_id": "decision.autonomous_execution",
       "required_tools": [
         "get_execution_snapshot",
-        "get_role_event_snapshot"
+        "get_role_event_snapshot",
+        "get_rke_research_context"
       ],
       "output_schema_fields": [
         "agent_id",
@@ -1294,7 +1325,8 @@
       "layer": "decision",
       "prompt_ir_agent_id": "decision.cio",
       "required_tools": [
-        "get_cio_decision_snapshot"
+        "get_cio_decision_snapshot",
+        "get_rke_research_context"
       ],
       "output_schema_fields": [
         "agent_id",

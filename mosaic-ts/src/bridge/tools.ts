@@ -20,6 +20,13 @@ import type {
   ToolMetadata,
 } from "./types.js";
 
+/** Hidden runtime path for deterministic frozen calls whose args stay out of the prompt. */
+export const BRIDGE_INITIAL_TOOL_INVOKE: unique symbol = Symbol("mosaic.bridge.initialToolInvoke");
+
+export type BridgeStructuredTool = StructuredToolInterface & {
+  [BRIDGE_INITIAL_TOOL_INVOKE]: () => Promise<string>;
+};
+
 /** Convert one Pydantic-style JSON Schema property into a Zod type. */
 function propertyToZod(name: string, prop: JsonSchemaProperty): ZodTypeAny {
   // Pydantic emits Optional[X] as ``anyOf: [{type: X}, {type: "null"}]``.
@@ -106,10 +113,10 @@ export function bridgeToolFromMetadata(
   api: BridgeApi,
   metadata: ToolMetadata,
   options: BridgeToolFactoryOptions,
-): StructuredToolInterface {
+): BridgeStructuredTool {
   const schema = jsonSchemaToZod(metadata.args_schema);
   const capability = options.capability;
-  return tool(
+  const structured = tool(
     async (input) => {
       const result = await api.toolsCall(
         metadata.name,
@@ -124,13 +131,20 @@ export function bridgeToolFromMetadata(
       schema,
     },
   );
+  Object.defineProperty(structured, BRIDGE_INITIAL_TOOL_INVOKE, {
+    value: async () => {
+      const result = await api.toolsCall(metadata.name, {}, capability);
+      return result.text;
+    },
+  });
+  return structured as unknown as BridgeStructuredTool;
 }
 
 /** Convenience: pull tools.list and wrap each one. */
 export async function listBridgeTools(
   api: BridgeApi,
   options: BridgeToolFactoryOptions,
-): Promise<StructuredToolInterface[]> {
+): Promise<BridgeStructuredTool[]> {
   const metadatas = await api.toolsList(options.capability);
   return metadatas.map((m) => bridgeToolFromMetadata(api, m, options));
 }
@@ -140,10 +154,10 @@ export async function pickBridgeTools(
   api: BridgeApi,
   names: ReadonlyArray<string>,
   options: BridgeToolFactoryOptions,
-): Promise<StructuredToolInterface[]> {
+): Promise<BridgeStructuredTool[]> {
   const metadatas = await api.toolsList(options.capability);
   const byName = new Map(metadatas.map((m) => [m.name, m] as const));
-  const picked: StructuredToolInterface[] = [];
+  const picked: BridgeStructuredTool[] = [];
   const missing: string[] = [];
   for (const name of names) {
     const meta = byName.get(name);

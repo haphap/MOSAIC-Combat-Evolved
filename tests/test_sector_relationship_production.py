@@ -8,11 +8,16 @@ import mosaic.bridge.tool_capabilities as capability_module
 import mosaic.dataflows.sector_relationship_production as production_module
 from mosaic.bridge.tool_capabilities import AgentToolCapabilityStore
 from mosaic.dataflows.adaptive_query_archives import TrustedArchiveQueryRouter
+from mosaic.dataflows.agent_stage_preparer import ensure_agent_stage_materialization
+from mosaic.dataflows.bound_runtime_production import ActiveAdaptiveQueryPreparer
 from mosaic.dataflows.china_agent_data_archive import ChinaAgentDataArchiveStore
 from mosaic.dataflows.china_archive_queries import ChinaArchiveQueryReader
 from mosaic.dataflows.frozen_adaptive_queries import FrozenAdaptiveQueryStore
 from mosaic.dataflows.cninfo_supply_chain import CninfoSupplyChainDisclosureCollector
-from mosaic.dataflows.forward_archive_queries import ForwardArchiveQueryReader
+from mosaic.dataflows.forward_archive_queries import (
+    ForwardArchiveQueryReader,
+    ForwardArchiveSourcePreparer,
+)
 from mosaic.dataflows.sector_relationship_production import (
     SectorRelationshipAdaptiveQueryPreparer,
 )
@@ -119,7 +124,11 @@ def test_default_capability_store_wires_distinct_private_production_components(
     tmp_path: Path,
 ) -> None:
     ledger = tmp_path / "runtime/agent_tool_capabilities.sqlite3"
+    materialization_ledger = tmp_path / "runtime/agent_materialization.sqlite3"
     monkeypatch.setenv("MOSAIC_AGENT_TOOL_LEDGER_PATH", str(ledger))
+    monkeypatch.setenv(
+        "MOSAIC_AGENT_MATERIALIZATION_DB", str(materialization_ledger)
+    )
     monkeypatch.setenv(
         "MOSAIC_SECTOR_ARCHIVE_PATH", str(tmp_path / "sector-archive.sqlite3")
     )
@@ -133,15 +142,18 @@ def test_default_capability_store_wires_distinct_private_production_components(
     store = capability_module.get_capability_store()
 
     assert isinstance(store, AgentToolCapabilityStore)
+    assert store.stage_materialization_preparer is ensure_agent_stage_materialization
+    assert materialization_ledger.exists()
     assert isinstance(store.adaptive_query_store, FrozenAdaptiveQueryStore)
     assert store.adaptive_query_store.db_path == (
         ledger.parent / "agent_frozen_adaptive_queries.sqlite3"
     )
-    assert isinstance(
-        store.adaptive_query_preparer,
-        SectorRelationshipAdaptiveQueryPreparer,
-    )
-    materializer = store.adaptive_query_preparer.materializer
+    assert isinstance(store.adaptive_query_preparer, ActiveAdaptiveQueryPreparer)
+    sector_preparer = store.adaptive_query_preparer.sector_relationship_preparer
+    bound_preparer = store.adaptive_query_preparer.bound_runtime_preparer
+    assert isinstance(sector_preparer, SectorRelationshipAdaptiveQueryPreparer)
+    assert bound_preparer.materializer is sector_preparer.materializer
+    materializer = sector_preparer.materializer
     assert isinstance(materializer, SectorRelationshipQueryMaterializer)
     assert isinstance(materializer.route_caller, TrustedArchiveQueryRouter)
     assert set(materializer.route_caller.owners) == {
@@ -149,6 +161,7 @@ def test_default_capability_store_wires_distinct_private_production_components(
         "get_broker_research",
         "get_cashflow",
         "get_etf_holdings",
+        "get_fundamentals",
         "get_income_statement",
         "get_indicators",
         "get_industry_moneyflow",
@@ -169,6 +182,8 @@ def test_default_capability_store_wires_distinct_private_production_components(
     assert isinstance(forward_reader, ForwardArchiveQueryReader)
     assert materializer.route_caller.owners["get_broker_research"] is forward_reader
     assert materializer.route_caller.owners["get_industry_policy"] is forward_reader
+    assert isinstance(materializer.source_preparer, ForwardArchiveSourcePreparer)
+    assert materializer.source_preparer.reader is forward_reader
     assert isinstance(
         materializer.source_evidence_authority,
         SectorRelationshipSourceEvidenceAuthority,
@@ -193,6 +208,12 @@ def test_default_capability_store_wires_distinct_private_production_components(
     assert isinstance(
         materializer.supply_chain_archive.archive,
         OfficialSupplyChainDisclosureArchive,
+    )
+    assert materializer.supply_chain_archive.receipt_store is (
+        materializer.source_evidence_authority.receipt_store
+    )
+    assert materializer.supply_chain_archive.agent_data_ledger is (
+        materializer.source_evidence_authority.agent_data_ledger
     )
     component_paths = {
         store.db_path,

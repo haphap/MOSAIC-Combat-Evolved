@@ -166,16 +166,22 @@ def test_l1_l2_fixed_point_rejects_half_switch_and_self_resealed_drift() -> None
         )
 
 
-def test_live_manifests_are_the_l1_l2_fixed_point() -> None:
-    validate_l1_l2_active_fixed_point(
-        ROOT,
-        active_tool_manifest=_load(
-            ROOT / "registry/prompt_checks/agent_tool_contract_manifest_v1.json"
-        ),
-        active_route_manifest=_load(
-            ROOT / "registry/data_sources/agent_data_route_manifest_v1.json"
-        ),
+def test_live_manifests_preserve_the_l1_l2_fixed_point() -> None:
+    expected_tools = build_l1_l2_active_tool_manifest(ROOT)
+    expected_routes = build_l1_l2_active_route_manifest(
+        ROOT, active_tool_manifest=expected_tools
     )
+    live_tools = _load(
+        ROOT / "registry/prompt_checks/agent_tool_contract_manifest_v1.json"
+    )
+    live_routes = _load(
+        ROOT / "registry/data_sources/agent_data_route_manifest_v1.json"
+    )
+
+    assert _surface(expected_tools) <= _surface(live_tools)
+    assert {canonical_hash(row) for row in expected_routes["bindings"]} <= {
+        canonical_hash(row) for row in live_routes["bindings"]
+    }
 
 
 def test_writer_publishes_both_active_manifests_from_frozen_inputs(

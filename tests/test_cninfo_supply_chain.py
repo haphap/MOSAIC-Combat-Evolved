@@ -6,9 +6,11 @@ from pathlib import Path
 
 import pytest
 
+from mosaic.dataflows.agent_materialization import AgentDataMaterializationLedger
 from mosaic.dataflows.cninfo_supply_chain import (
     CninfoSupplyChainDisclosureCollector,
 )
+from mosaic.dataflows.staged_query_receipt_store import StagedQueryReceiptStore
 from mosaic.dataflows.supply_chain_disclosures import (
     OfficialSupplyChainDisclosureArchive,
 )
@@ -22,6 +24,12 @@ def test_cninfo_collector_captures_full_annual_reports_and_reuses_warm_archive(
 ) -> None:
     archive = OfficialSupplyChainDisclosureArchive(
         tmp_path / ".mosaic/private/supply-chain.sqlite3"
+    )
+    agent_data_ledger = AgentDataMaterializationLedger(
+        tmp_path / ".mosaic/private/agent-data-materialization.sqlite3"
+    )
+    receipt_store = StagedQueryReceiptStore(
+        tmp_path / ".mosaic/private/staged-query-receipts.sqlite3"
     )
     get_calls: list[str] = []
     post_calls: list[dict] = []
@@ -87,6 +95,8 @@ def test_cninfo_collector_captures_full_annual_reports_and_reuses_warm_archive(
 
     collector = CninfoSupplyChainDisclosureCollector(
         archive=archive,
+        receipt_store=receipt_store,
+        agent_data_ledger=agent_data_ledger,
         get_bytes=get_bytes,
         post_form=post_form,
         pdf_text_extractor=lambda content: (
@@ -97,6 +107,14 @@ def test_cninfo_collector_captures_full_annual_reports_and_reuses_warm_archive(
     result = collector.materialize(ticker="600000.SH", as_of=AS_OF)
 
     payload = json.loads(result["payload"])
+    staged = receipt_store.receipt_by_hash(result["source_receipt_hashes"][0])
+    source = agent_data_ledger.source_capture_receipt(
+        receipt_hash=staged["upstream_evidence_hashes"][0]
+    )
+    assert source is not None
+    assert source.as_dict()["identity"]["route_id"] == (
+        "official.company_supply_chain_disclosures"
+    )
     assert payload["status"] == "EVIDENCE_AVAILABLE"
     assert payload["edges"] == [
         {

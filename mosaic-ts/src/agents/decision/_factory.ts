@@ -44,9 +44,14 @@ import {
   buildAcceptedAgentOutputRecord,
   buildStructuredSmokeAcceptedOutputRef,
   canonicalAcceptedOutputHash,
+  structuredSmokeFixtureBundleHash,
 } from "../accepted_output.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
 import { type AgentRunAudit, invokeStrictStructured } from "../helpers/agent_run_contract.js";
+import {
+  boundCurrentPositions,
+  resolveBoundAcceptedOutputRecords,
+} from "../helpers/bound_runtime_inputs.js";
 import { evidenceLineageEnvelopeFromGraph } from "../helpers/causal_evidence_resolution.js";
 import { extractTextContent } from "../helpers/content.js";
 import {
@@ -126,6 +131,7 @@ import {
   freezeCroReview,
   freezeExecutionFeasibility,
   layer4PromptSourceHash,
+  missingPreviousTargetState,
   runtimeStateForLayer4,
   stableRuntimeHash,
   updateLayer4Runtime,
@@ -310,23 +316,30 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             }
             const capabilityCandidateScope = decisionCandidateScope(state, spec);
             const hasAcceptedOutputScope = "accepted_output_refs" in capabilityCandidateScope;
+            const capabilityRuntimeInputs = capabilityApi
+              ? hasAcceptedOutputScope
+                ? buildDecisionBoundRuntimeInputs(
+                    state,
+                    spec,
+                    capabilityCandidateScope,
+                    deps.acceptedOutputStore,
+                  )
+                : {
+                    macro_input_gate: state.macro_input_gate,
+                    layer1_outputs: state.layer1_outputs,
+                    layer2_outputs: state.layer2_outputs,
+                    layer3_outputs: state.layer3_outputs,
+                    layer4_outputs: state.layer4_outputs,
+                    current_positions: state.current_positions,
+                  }
+              : {};
             const preparedCapability = capabilityApi
               ? await prepareAgentToolCapability({
                   api: capabilityApi,
                   state,
                   agentId: spec.agentId,
                   stage: decisionCapabilityStage(spec),
-                  runtimeInputs:
-                    hasAcceptedOutputScope || spec.agentId === "autonomous_execution"
-                      ? capabilityCandidateScope
-                      : {
-                          macro_input_gate: state.macro_input_gate,
-                          layer1_outputs: state.layer1_outputs,
-                          layer2_outputs: state.layer2_outputs,
-                          layer3_outputs: state.layer3_outputs,
-                          layer4_outputs: state.layer4_outputs,
-                          current_positions: state.current_positions,
-                        },
+                  runtimeInputs: capabilityRuntimeInputs,
                   candidateScope: capabilityCandidateScope,
                 })
               : null;
@@ -717,6 +730,78 @@ function decisionCandidateScope<TOutput extends Layer4AgentOutput>(
     cio_proposal: state.layer4_outputs.cio,
     cro: state.layer4_outputs.cro,
     autonomous_execution: state.layer4_outputs.autonomous_execution,
+  };
+}
+
+export function buildDecisionBoundRuntimeInputs(
+  state: DailyCycleStateType,
+  spec: { agentId: string; runtimeStage: RuntimeAgentStageId },
+  candidateScope: Record<string, unknown>,
+  store: AcceptedAgentOutputStore | undefined,
+): Record<string, unknown> {
+  const rawRefs = candidateScope.accepted_output_refs;
+  if (!Array.isArray(rawRefs)) {
+    throw new Error(`${spec.agentId}: bound runtime accepted-output refs are invalid`);
+  }
+  const refs = rawRefs as AcceptedOutputRecordRef[];
+  if (structuredSmokeFixtureBundleHash()) return { accepted_output_refs: refs };
+  const currentPositions = boundCurrentPositions(state.current_positions);
+  const runtime = runtimeStateForLayer4(state);
+  let boundRuntimeState: Record<string, unknown>;
+  if (spec.agentId === "alpha_discovery") {
+    boundRuntimeState = { current_positions: currentPositions };
+  } else if (spec.agentId === "cio" && spec.runtimeStage === "cio_proposal") {
+    boundRuntimeState = {
+      current_positions: currentPositions,
+      previous_target_state:
+        state.layer4_outputs.previous_target_state ?? missingPreviousTargetState(),
+      decision_policy_release: ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
+    };
+  } else if (spec.agentId === "cro") {
+    if (!runtime.candidate_target_state || !runtime.portfolio_exposure_state) {
+      throw new Error("cro: frozen candidate/exposure runtime state is unavailable");
+    }
+    boundRuntimeState = {
+      current_positions: currentPositions,
+      decision_policy_release: ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
+      candidate_target_state: runtime.candidate_target_state,
+      portfolio_exposure_state: runtime.portfolio_exposure_state,
+    };
+  } else if (spec.agentId === "autonomous_execution") {
+    if (!runtime.candidate_target_state || !runtime.cro_review_state) {
+      throw new Error("execution: frozen candidate/CRO runtime state is unavailable");
+    }
+    boundRuntimeState = {
+      current_positions: currentPositions,
+      decision_policy_release: ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
+      candidate_target_state: runtime.candidate_target_state,
+      cro_review_state: runtime.cro_review_state,
+      resolved_source_statuses: runtime.resolved_source_statuses,
+      execution_mode:
+        state.current_positions.position_source === "paper_account" || state.mode === "backtest"
+          ? "PAPER"
+          : "REAL",
+    };
+  } else {
+    if (
+      !runtime.candidate_target_state ||
+      !runtime.cro_review_state ||
+      !runtime.execution_feasibility_state
+    ) {
+      throw new Error("cio final: frozen candidate/CRO/execution runtime state is unavailable");
+    }
+    boundRuntimeState = {
+      current_positions: currentPositions,
+      decision_policy_release: ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
+      candidate_target_state: runtime.candidate_target_state,
+      cro_review_state: runtime.cro_review_state,
+      execution_feasibility_state: runtime.execution_feasibility_state,
+    };
+  }
+  return {
+    accepted_output_refs: refs,
+    accepted_output_records: resolveBoundAcceptedOutputRecords(refs, store),
+    bound_runtime_state: boundRuntimeState,
   };
 }
 

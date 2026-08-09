@@ -10,6 +10,7 @@ import {
   type SignedAgentToolCapability,
   type ToolMetadata,
 } from "../src/bridge/index.js";
+import { BRIDGE_INITIAL_TOOL_INVOKE } from "../src/bridge/tools.js";
 
 const CAPABILITY = {
   manifest: {
@@ -138,6 +139,35 @@ describe("bridgeToolFromMetadata (unit)", () => {
     expect(calls[0]?.name).toBe("echo");
     expect(calls[0]?.args).toEqual({ series_id: "FEDFUNDS" });
     expect(calls[0]?.capability).toBe(CAPABILITY);
+  });
+
+  it("exposes a runtime-only initial invocation that bypasses model argument validation", async () => {
+    const calls: Array<{ name: string; args: unknown }> = [];
+    const fakeApi = {
+      toolsCall: async (name: string, args: unknown) => {
+        calls.push({ name, args });
+        return { text: "frozen-initial" };
+      },
+    } as unknown as BridgeApi;
+    const tool = bridgeToolFromMetadata(
+      fakeApi,
+      {
+        name: "get_rke_research_context",
+        description: "frozen RKE prior",
+        args_schema: {
+          type: "object",
+          properties: { agent_id: { type: "string" } },
+          required: ["agent_id"],
+        },
+      },
+      { capability: CAPABILITY },
+    );
+
+    await expect(tool.invoke({})).rejects.toThrow();
+    const initial = tool[BRIDGE_INITIAL_TOOL_INVOKE];
+    expect(initial).toBeTypeOf("function");
+    await expect(initial?.()).resolves.toBe("frozen-initial");
+    expect(calls).toEqual([{ name: "get_rke_research_context", args: {} }]);
   });
 });
 

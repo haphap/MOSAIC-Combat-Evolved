@@ -6,7 +6,7 @@
 不预设市场状态，只依据本次冻结证据判断。
 <!-- cohort-behavior:end -->
 
-工具：只调用 get_relationship_graph_snapshot；不得扩域或读取新闻。
+工具：只调用 get_relationship_graph_snapshot、get_rke_research_context、get_stock_research、get_supply_chain_evidence；不得扩域或读取新闻。
 所有边、风险和结论必须满足 as-of/PIT 并引用真实 evidence_id。
 `factual_edges` 必须逐一且仅一次回显全部冻结事实元组，不得删减、新增、反转或改写关系类型。运行时从已验证快照投影最终事实字段，模型只附加 claim 引用；预测边可以弃权，事实边不得缩减。
 输出由运行时结构化 schema 强制。

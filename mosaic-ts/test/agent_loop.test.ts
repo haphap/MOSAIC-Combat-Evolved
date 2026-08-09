@@ -13,6 +13,7 @@ import {
   toolCallFingerprint,
   toolResultFingerprint,
 } from "../src/agents/helpers/agent_loop.js";
+import { BRIDGE_INITIAL_TOOL_INVOKE } from "../src/bridge/tools.js";
 
 class ScriptedLlm {
   bindToolsCalled = 0;
@@ -383,6 +384,47 @@ describe("agent tool loop helpers", () => {
     expect(
       llm.seenMessages[0]?.some(
         (message) => message.getType() === "tool" && String(message.content).includes("600519.SH"),
+      ),
+    ).toBe(true);
+  });
+
+  it("uses the runtime-only initial bridge invocation before normal tool validation", async () => {
+    const llm = new ScriptedLlm([new AIMessage("done")]);
+    let normalCalls = 0;
+    let initialCalls = 0;
+    const requiredArgsTool = tool(
+      async ({ ticker }) => {
+        normalCalls++;
+        return `normal:${ticker}`;
+      },
+      {
+        name: "get_fundamentals",
+        description: "test tool",
+        schema: z.object({ ticker: z.string() }),
+      },
+    );
+    Object.defineProperty(requiredArgsTool, BRIDGE_INITIAL_TOOL_INVOKE, {
+      value: async () => {
+        initialCalls++;
+        return "frozen-initial";
+      },
+    });
+
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [requiredArgsTool],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("initial")],
+      initialToolCalls: [{ name: "get_fundamentals", args: {} }],
+    });
+
+    expect(result.analysisText).toBe("done");
+    expect(initialCalls).toBe(1);
+    expect(normalCalls).toBe(0);
+    expect(
+      llm.seenMessages[0]?.some(
+        (message) =>
+          message.getType() === "tool" && String(message.content).includes("frozen-initial"),
       ),
     ).toBe(true);
   });

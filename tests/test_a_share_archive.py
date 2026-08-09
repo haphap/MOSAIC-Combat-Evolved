@@ -16,8 +16,10 @@ from mosaic.dataflows.a_share_archive import (
     CAPTURE_LOCK_TIMEOUT_SECONDS,
     _paginate,
     archive_a_share_breadth,
+    compile_a_share_breadth_snapshot,
 )
 from mosaic.dataflows.agent_materialization import AgentDataMaterializationLedger
+from mosaic.dataflows.cross_runtime_json import canonical_hash
 from mosaic.dataflows.market_breadth import render_market_breadth_snapshot
 
 
@@ -188,6 +190,19 @@ def test_empty_cache_capture_builds_breadth_and_reuses_frozen_group(
     assert ledger.source_status(
         as_of=AS_OF_TEXT, route_id="tushare.a_share_breadth"
     )["status"] == "READY"
+    build = compile_a_share_breadth_snapshot(
+        first,
+        as_of_date=AS_OF_TEXT,
+        ledger=ledger,
+    )
+    build_payload = build.as_dict()
+    assert build_payload["terminal_state"] == "READY"
+    assert build_payload["source_receipt_hashes"] == [
+        first.source_receipts[0].receipt_hash
+    ]
+    assert build_payload["required_route_ids"] == ["tushare.a_share_breadth"]
+    assert build_payload["missing_route_ids"] == []
+    assert build_payload["output_hash"] == canonical_hash(first.snapshot)
 
     def denied(_endpoint: str) -> None:
         raise PermissionError("permission changed after sealed capture")
@@ -205,12 +220,27 @@ def test_empty_cache_capture_builds_breadth_and_reuses_frozen_group(
     )
     assert retry.cache_hit is True
     assert retry.snapshot["snapshot_hash"] == first.snapshot["snapshot_hash"]
+    replayed_build = compile_a_share_breadth_snapshot(
+        retry,
+        as_of_date=AS_OF_TEXT,
+        ledger=ledger,
+    )
+    assert replayed_build.receipt_hash == build.receipt_hash
     assert len(fetch.calls) == call_count
     rendered = json.loads(render_market_breadth_snapshot(AS_OF_TEXT, root=tmp_path))
     assert rendered["snapshot_hash"] == first.snapshot["snapshot_hash"]
+    monkeypatch.setenv("MOSAIC_A_SHARE_ARCHIVE_DB", str(store.path))
+    rendered_from_explicit_archive = json.loads(
+        render_market_breadth_snapshot(AS_OF_TEXT)
+    )
+    assert (
+        rendered_from_explicit_archive["snapshot_hash"]
+        == first.snapshot["snapshot_hash"]
+    )
     with sqlite3.connect(ledger.path) as conn:
         assert conn.execute("SELECT count(*) FROM source_capture_receipts").fetchone()[0] == 1
         assert conn.execute("SELECT count(*) FROM route_coverage_receipts").fetchone()[0] == 1
+        assert conn.execute("SELECT count(*) FROM snapshot_build_receipts").fetchone()[0] == 1
 
 
 def test_non_trading_day_fails_closed_after_calendar_only(tmp_path: Path) -> None:
@@ -222,9 +252,23 @@ def test_non_trading_day_fails_closed_after_calendar_only(tmp_path: Path) -> Non
     assert result.coverage_receipt.as_dict()["blocker_codes"] == ["NON_TRADING_DAY"]
     assert {endpoint for endpoint, _params in fetch.calls} == {"trade_cal"}
     assert store.row_count() == 0
+    build = compile_a_share_breadth_snapshot(
+        result,
+        as_of_date=AS_OF_TEXT,
+        ledger=ledger,
+    )
+    build_payload = build.as_dict()
+    assert build_payload["terminal_state"] == "BLOCKED"
+    assert build_payload["source_receipt_hashes"] == [
+        result.coverage_receipt.receipt_hash
+    ]
+    assert build_payload["missing_route_ids"] == ["tushare.a_share_breadth"]
+    assert build_payload["blocker_codes"] == ["NON_TRADING_DAY"]
+    assert build_payload["output_hash"] is None
     with sqlite3.connect(ledger.path) as conn:
         assert conn.execute("SELECT count(*) FROM source_capture_receipts").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM route_coverage_receipts").fetchone()[0] == 1
+        assert conn.execute("SELECT count(*) FROM snapshot_build_receipts").fetchone()[0] == 1
 
 
 def test_310_open_sessions_fail_before_downstream_capture(tmp_path: Path) -> None:

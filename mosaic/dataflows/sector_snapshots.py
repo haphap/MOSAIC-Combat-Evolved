@@ -351,7 +351,19 @@ def _build_sector_etf_direction_authority(
     return {**body, "authority_hash": _canonical_hash(body)}
 
 
-SECTOR_ETF_DIRECTION_AUTHORITY = _build_sector_etf_direction_authority()
+SECTOR_ETF_DIRECTION_AUTHORITY = _build_sector_etf_direction_authority(
+    {
+        ("agriculture", "livestock_aquaculture"): ("159865.SZ",),
+        ("biotech", "biological_products"): ("512290.SH",),
+        ("consumer", "food_beverage"): ("515170.SH",),
+        ("energy", "coal"): ("515220.SH",),
+        ("financials", "banking"): ("512800.SH",),
+        ("industrials", "machinery"): ("516960.SH",),
+        ("real_estate_construction", "real_estate"): ("512200.SH",),
+        ("semiconductor", "semiconductor_equipment_materials"): ("512480.SH",),
+        ("technology", "computer"): ("515230.SH",),
+    }
+)
 
 
 def _validated_sector_etf_direction_authority(as_of: date) -> dict[str, Any]:

@@ -6,8 +6,14 @@ from pathlib import Path
 
 import pytest
 
+import mosaic.dataflows.sector_snapshots as sector_snapshots_module
+import scripts.build_structured_smoke_fixtures as structured_smoke_fixtures
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.frozen_adaptive_queries import FrozenAdaptiveQueryStore
+from mosaic.dataflows.sector_snapshots import _build_sector_etf_direction_authority
+from mosaic.dataflows.sector_relationship_production import (
+    SectorRelationshipAdaptiveQueryPreparer,
+)
 from mosaic.dataflows.sector_relationship_query_plans import (
     INDICATOR_LOOKBACK_PROFILES,
     QUERY_WINDOW_PROFILES,
@@ -16,6 +22,7 @@ from mosaic.dataflows.sector_relationship_query_plans import (
 )
 from mosaic.scorecard.canonical_json import canonical_hash
 from mosaic.scorecard.sector_relationship_preservation import (
+    SECTOR_AGENT_IDS,
     build_sector_relationship_preservation_overlay,
 )
 from scripts.build_structured_smoke_fixtures import _build_sector_snapshots
@@ -166,6 +173,101 @@ def test_sector_plan_uses_full_validated_scope_and_versioned_parameter_profiles(
     assert {row["ticker"] for row in rke if row["ticker"]} == set(tickers)
 
 
+@pytest.mark.parametrize("agent_id", SECTOR_AGENT_IDS)
+def test_every_sector_stage_exactly_materializes_its_adaptive_tool_roster(
+    sector_payloads: dict[str, str], agent_id: str
+) -> None:
+    allowed = set(_allowed_tools(agent_id))
+    plan = build_sector_relationship_query_plan(
+        agent_id=agent_id,
+        stage=agent_id,
+        as_of=AS_OF,
+        initial_payloads={
+            "get_sector_research_snapshot": sector_payloads[agent_id],
+            "get_role_event_snapshot": "opaque-event-payload",
+        },
+        allowed_tools=tuple(sorted(allowed)),
+    )
+
+    present = {row["tool_id"] for row in plan["query_requests"]}
+    expected = set(allowed)
+    if not plan["authorized_scope"]["etfs"]:
+        expected.discard("get_etf_holdings")
+    assert present == expected
+    assert all(
+        any(row["tool_id"] == tool_id for row in plan["query_requests"])
+        for tool_id in expected
+    )
+
+
+@pytest.mark.parametrize("agent_id", (*SECTOR_AGENT_IDS, "relationship_mapper"))
+def test_every_sector_relationship_stage_compiles_a_frozen_adaptive_bundle(
+    tmp_path: Path,
+    sector_payloads: dict[str, str],
+    agent_id: str,
+) -> None:
+    store = FrozenAdaptiveQueryStore(tmp_path / f"{agent_id}-frozen.sqlite3")
+
+    def materialize(tool_id: str, args: dict) -> dict:
+        payload = json.dumps(
+            {"tool_id": tool_id, "args_hash": canonical_hash(args)},
+            sort_keys=True,
+        )
+        result = {
+            "payload": payload,
+            "source_receipt_hashes": [
+                canonical_hash({"tool_id": tool_id, "args": args})
+            ],
+        }
+        if tool_id in {
+            "get_broker_research",
+            "get_industry_policy_digest",
+            "get_stock_research",
+        }:
+            result["derivation"] = {
+                "derivation_contract_version": "frozen_research_digest_lineage_v1",
+                "model_hash": canonical_hash({"model": "fixture"}),
+                "prompt_hash": canonical_hash({"tool_id": tool_id, "args": args}),
+                "source_payload_hash": canonical_hash({"text": payload}),
+            }
+        return result
+
+    preparer = SectorRelationshipAdaptiveQueryPreparer(
+        root=ROOT,
+        frozen_store=store,
+        materializer=materialize,
+    )
+    initial_tool = (
+        "get_relationship_graph_snapshot"
+        if agent_id == "relationship_mapper"
+        else "get_sector_research_snapshot"
+    )
+    prepared = preparer(
+        agent_id=agent_id,
+        stage=agent_id,
+        as_of=AS_OF,
+        initial_payloads={initial_tool: sector_payloads[agent_id]},
+        runtime_inputs={"untrusted": True},
+        candidate_scope={"tickers": ["OUTSIDE.SCOPE"]},
+        allowed_tools=_allowed_tools(agent_id),
+    )
+
+    projection = prepared["public_projection"]
+    prepared_tools = {row["tool_id"] for row in projection["entries"]}
+    expected_tools = set(_allowed_tools(agent_id))
+    if not projection["private_payload_count"]:
+        expected_tools.clear()
+    elif not any(
+        row["tool_id"] == "get_etf_holdings" for row in projection["entries"]
+    ):
+        expected_tools.discard("get_etf_holdings")
+    assert prepared_tools == expected_tools
+    assert projection["agent_id"] == agent_id
+    assert projection["stage"] == agent_id
+    assert projection["as_of"] == AS_OF
+    assert projection["adaptive_max_rounds"] == 3
+
+
 def test_relationship_plan_authorizes_only_target_securities(
     sector_payloads: dict[str, str],
 ) -> None:
@@ -243,14 +345,28 @@ def test_plan_rejects_tampered_or_foreign_initial_snapshot(
 
 
 def test_frozen_store_accepts_valid_plan_with_empty_etf_authority(
-    tmp_path: Path, sector_payloads: dict[str, str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    empty_authority = _build_sector_etf_direction_authority()
+    monkeypatch.setattr(
+        sector_snapshots_module, "SECTOR_ETF_DIRECTION_AUTHORITY", empty_authority
+    )
+    monkeypatch.setattr(
+        structured_smoke_fixtures,
+        "SECTOR_ETF_DIRECTION_AUTHORITY",
+        empty_authority,
+    )
+    fixture_root = tmp_path / "empty-etf-authority"
+    _build_sector_snapshots(fixture_root, date.fromisoformat(AS_OF))
+    sector_payload = (
+        fixture_root / "sector_snapshots" / AS_OF / "semiconductor.json"
+    ).read_text(encoding="utf-8")
     plan = build_sector_relationship_query_plan(
         agent_id="semiconductor",
         stage="semiconductor",
         as_of=AS_OF,
         initial_payloads={
-            "get_sector_research_snapshot": sector_payloads["semiconductor"]
+            "get_sector_research_snapshot": sector_payload
         },
         allowed_tools=_allowed_tools("semiconductor"),
     )

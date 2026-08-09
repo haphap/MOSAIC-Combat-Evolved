@@ -28,6 +28,7 @@ from mosaic.scorecard.l3_l4_preservation import (
     QUERY_BUNDLE_CONTRACT_VERSION as BOUND_RUNTIME_QUERY_BUNDLE_CONTRACT_VERSION,
     validate_l3_l4_preservation_overlay,
 )
+from mosaic.scorecard.l3_l4_activation import active_stage_for_l3_l4_overlay
 from mosaic.scorecard.sector_relationship_preservation import (
     QUERY_BUNDLE_CONTRACT_VERSION as SECTOR_QUERY_BUNDLE_CONTRACT_VERSION,
     SECTOR_AGENT_IDS,
@@ -246,11 +247,134 @@ class FrozenAdaptiveQueryStore:
             "public_projection": json.loads(row["public_projection_json"]),
         }
 
+    def bundle_evidence(self, bundle_id: str) -> dict[str, Any]:
+        """Return validated hash-only lineage for one frozen private bundle."""
+
+        bundle_id = _required_text(bundle_id, "bundle_id")
+        with self._connect() as connection:
+            bundle = connection.execute(
+                "SELECT * FROM frozen_query_bundles WHERE bundle_id = ?",
+                (bundle_id,),
+            ).fetchone()
+            rows = connection.execute(
+                "SELECT * FROM frozen_query_payloads WHERE bundle_id = ? "
+                "ORDER BY tool_id, request_hash",
+                (bundle_id,),
+            ).fetchall()
+        if bundle is None:
+            raise ValueError("unknown frozen query bundle")
+
+        try:
+            projection = json.loads(bundle["public_projection_json"])
+            initial_request_refs = json.loads(bundle["initial_request_refs_json"])
+        except json.JSONDecodeError as exc:
+            raise ValueError("frozen query bundle metadata is invalid") from exc
+        if not isinstance(projection, dict):
+            raise ValueError("frozen query public projection is invalid")
+        projection_hash = projection.get("projection_hash")
+        projection_body = {
+            key: value for key, value in projection.items() if key != "projection_hash"
+        }
+        if not _is_sha256(projection_hash) or projection_hash != canonical_hash(
+            projection_body
+        ):
+            raise ValueError("frozen query public projection hash mismatch")
+
+        private_entries: list[dict[str, Any]] = []
+        evidence_entries: list[dict[str, Any]] = []
+        public_entries: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                request = json.loads(row["request_json"])
+                receipt_hashes = json.loads(row["source_receipt_hashes_json"])
+                derivation = (
+                    json.loads(row["derivation_json"])
+                    if row["derivation_json"] is not None
+                    else None
+                )
+            except json.JSONDecodeError as exc:
+                raise ValueError("frozen query private metadata is invalid") from exc
+            if canonical_hash(request) != row["request_hash"]:
+                raise ValueError("frozen query request hash mismatch")
+            if canonical_hash({"text": row["payload"]}) != row["payload_hash"]:
+                raise ValueError("frozen query payload hash mismatch")
+            if (
+                not isinstance(receipt_hashes, list)
+                or receipt_hashes != sorted(set(receipt_hashes))
+                or not receipt_hashes
+                or not all(_is_sha256(value) for value in receipt_hashes)
+            ):
+                raise ValueError("frozen query source receipt hashes are invalid")
+            if derivation is None:
+                if row["derivation_hash"] is not None:
+                    raise ValueError("frozen query derivation hash mismatch")
+            elif canonical_hash(derivation) != row["derivation_hash"]:
+                raise ValueError("frozen query derivation hash mismatch")
+            call_mode = row["call_mode"]
+            if call_mode not in {"INITIAL", "FOLLOW_UP"}:
+                raise ValueError("frozen query call mode is invalid")
+            source_receipt_set_hash = canonical_hash(receipt_hashes)
+            private_entry = {
+                "tool_id": row["tool_id"],
+                "request_hash": row["request_hash"],
+                "call_mode": call_mode,
+                "binding_id": row["binding_id"],
+                "payload_hash": row["payload_hash"],
+                "source_receipt_set_hash": source_receipt_set_hash,
+                "derivation_hash": row["derivation_hash"],
+            }
+            private_entries.append(private_entry)
+            public_entries.append(dict(private_entry))
+            evidence_entries.append(
+                {
+                    "tool_id": row["tool_id"],
+                    "request_hash": row["request_hash"],
+                    "call_mode": call_mode,
+                    "payload_hash": row["payload_hash"],
+                    "source_receipt_hashes": receipt_hashes,
+                    "source_receipt_set_hash": source_receipt_set_hash,
+                }
+            )
+
+        private_descriptor = {
+            "contract_version": projection.get("query_bundle_contract_version"),
+            "materialization_key": bundle["materialization_key"],
+            "agent_id": bundle["agent_id"],
+            "stage": bundle["stage"],
+            "as_of": bundle["as_of"],
+            "authorized_scope_hash": bundle["authorized_scope_hash"],
+            "overlay_hash": bundle["overlay_hash"],
+            "max_rounds": bundle["max_rounds"],
+            "initial_request_refs": initial_request_refs,
+            "entries": private_entries,
+        }
+        computed_bundle_hash = canonical_hash(private_descriptor)
+        if (
+            computed_bundle_hash != bundle["bundle_hash"]
+            or projection.get("bundle_hash") != computed_bundle_hash
+            or projection.get("bundle_id") != bundle_id
+            or projection.get("agent_id") != bundle["agent_id"]
+            or projection.get("stage") != bundle["stage"]
+            or projection.get("as_of") != bundle["as_of"]
+            or projection.get("entries") != public_entries
+            or projection.get("private_payload_count") != len(evidence_entries)
+        ):
+            raise ValueError("frozen query bundle hash or projection mismatch")
+        return {
+            "bundle_id": bundle_id,
+            "bundle_hash": computed_bundle_hash,
+            "agent_id": bundle["agent_id"],
+            "stage": bundle["stage"],
+            "as_of": bundle["as_of"],
+            "entries": evidence_entries,
+        }
+
     def prepare(
         self,
         *,
         agent_id: str,
         stage: str,
+        preservation_stage: str | None = None,
         as_of: str,
         authorized_scope: Mapping[str, Any],
         query_requests: Sequence[Mapping[str, Any]],
@@ -262,6 +386,10 @@ class FrozenAdaptiveQueryStore:
 
         agent_id = _required_text(agent_id, "agent_id")
         stage = _required_text(stage, "stage")
+        if preservation_stage is not None:
+            preservation_stage = _required_text(
+                preservation_stage, "preservation_stage"
+            )
         as_of_date = date.fromisoformat(as_of)
         overlay_version = preservation_overlay.get("schema_version")
         if overlay_version == "sector_relationship_preservation_overlay_v1":
@@ -273,6 +401,10 @@ class FrozenAdaptiveQueryStore:
             if stage != agent_id:
                 raise ValueError(
                     "frozen query stage must equal the current Agent execution stage"
+                )
+            if preservation_stage not in {None, stage}:
+                raise ValueError(
+                    "Sector/Relationship preservation stage must equal active stage"
                 )
             scope = self._validate_scope(authorized_scope, as_of=as_of)
             if agent_id not in {*SECTOR_AGENT_IDS, "relationship_mapper"}:
@@ -294,11 +426,19 @@ class FrozenAdaptiveQueryStore:
             max_rounds = 3
         elif overlay_version == "l3_l4_preservation_overlay_v1":
             validate_l3_l4_preservation_overlay(preservation_overlay, root=_REPO_ROOT)
-            if (agent_id, stage) not in {
+            overlay_stage = preservation_stage or stage
+            if (agent_id, overlay_stage) not in {
                 *((l3_agent, l3_agent) for l3_agent in L3_TOOL_ROSTER),
                 *L4_STAGE_ROSTER,
             }:
                 raise ValueError("Agent/stage is outside the PR7 frozen-query roster")
+            if (
+                preservation_stage is not None
+                and active_stage_for_l3_l4_overlay(agent_id, overlay_stage) != stage
+            ):
+                raise ValueError(
+                    "active stage does not match the explicit preservation stage"
+                )
             scope = self._validate_bound_scope(
                 authorized_scope,
                 as_of=as_of,
@@ -307,15 +447,21 @@ class FrozenAdaptiveQueryStore:
             bindings = {
                 row["tool_id"]: row
                 for row in preservation_overlay["bindings"]
-                if row["agent_id"] == agent_id and row["stage"] == stage
+                if row["agent_id"] == agent_id and row["stage"] == overlay_stage
             }
+            if (
+                agent_id in L3_TOOL_ROSTER
+                and not scope["accepted_candidate_tickers"]
+                and (initial_query_requests or query_requests)
+            ):
+                raise ValueError("L3 empty candidate scope does not permit private queries")
             initial_requests = self._validate_bound_requests(
                 initial_query_requests,
                 bindings=bindings,
                 scope=scope,
                 as_of=as_of_date,
                 agent_id=agent_id,
-                stage=stage,
+                stage=overlay_stage,
                 allow_empty=True,
                 preserve_order=True,
             )
@@ -325,19 +471,29 @@ class FrozenAdaptiveQueryStore:
                 scope=scope,
                 as_of=as_of_date,
                 agent_id=agent_id,
-                stage=stage,
+                stage=overlay_stage,
                 allow_empty=True,
                 preserve_order=False,
             )
             self._validate_bound_initial_calls(
                 initial_requests,
                 agent_id=agent_id,
-                stage=stage,
+                stage=overlay_stage,
                 scope=scope,
                 as_of=as_of,
                 preservation_overlay=preservation_overlay,
             )
-            if not initial_requests and not follow_up_requests:
+            empty_l3_scope = (
+                agent_id in L3_TOOL_ROSTER
+                and not scope["accepted_candidate_tickers"]
+            )
+            if empty_l3_scope and (initial_requests or follow_up_requests):
+                raise ValueError("L3 empty candidate scope does not permit private queries")
+            if (
+                not empty_l3_scope
+                and not initial_requests
+                and not follow_up_requests
+            ):
                 raise ValueError("bound runtime query bundle must not be empty")
             combined_keys = {
                 (tool_id, request_hash)
@@ -346,7 +502,11 @@ class FrozenAdaptiveQueryStore:
             if len(combined_keys) != len(initial_requests) + len(follow_up_requests):
                 raise ValueError("initial and follow-up frozen requests must be unique")
             contract_version = BOUND_RUNTIME_QUERY_BUNDLE_CONTRACT_VERSION
-            max_rounds = 3 if agent_id in L3_TOOL_ROSTER else 0
+            max_rounds = (
+                3
+                if agent_id in L3_TOOL_ROSTER and not empty_l3_scope
+                else 0
+            )
             if max_rounds == 0 and follow_up_requests:
                 raise ValueError("L4 RKE prior does not permit adaptive follow-up requests")
         else:
@@ -368,6 +528,11 @@ class FrozenAdaptiveQueryStore:
                 "contract_version": contract_version,
                 "agent_id": agent_id,
                 "stage": stage,
+                **(
+                    {"preservation_stage": preservation_stage}
+                    if preservation_stage is not None and preservation_stage != stage
+                    else {}
+                ),
                 "as_of": as_of,
                 "authorized_scope": scope,
                 "requests": private_request_descriptor,
@@ -386,6 +551,7 @@ class FrozenAdaptiveQueryStore:
                     return self.prepare(
                         agent_id=agent_id,
                         stage=stage,
+                        preservation_stage=preservation_stage,
                         as_of=as_of,
                         authorized_scope=scope,
                         query_requests=query_requests,
@@ -486,6 +652,11 @@ class FrozenAdaptiveQueryStore:
             "materialization_key": materialization_key,
             "agent_id": agent_id,
             "stage": stage,
+            **(
+                {"preservation_stage": preservation_stage}
+                if preservation_stage is not None and preservation_stage != stage
+                else {}
+            ),
             "as_of": as_of,
             "authorized_scope_hash": canonical_hash(scope),
             "overlay_hash": overlay_hash,
@@ -515,6 +686,11 @@ class FrozenAdaptiveQueryStore:
             "bundle_hash": bundle_hash,
             "agent_id": agent_id,
             "stage": stage,
+            **(
+                {"preservation_stage": preservation_stage}
+                if preservation_stage is not None and preservation_stage != stage
+                else {}
+            ),
             "as_of": as_of,
             "authorized_scope_hash": canonical_hash(scope),
             "preservation_overlay_hash": overlay_hash,
@@ -680,7 +856,7 @@ class FrozenAdaptiveQueryStore:
         tickers = _validate_string_list(
             authorized_scope["accepted_candidate_tickers"],
             "accepted_candidate_tickers",
-            allow_empty=not l3,
+            allow_empty=True,
         )
         if any(_A_SHARE_TICKER.fullmatch(ticker) is None for ticker in tickers):
             raise ValueError("accepted candidate ticker is not a canonical A-share ticker")
@@ -837,13 +1013,14 @@ class FrozenAdaptiveQueryStore:
             templates = preservation_overlay["l3_runtime_contract"][
                 "deterministic_initial_calls"
             ][agent_id]
-            ticker = scope["accepted_candidate_tickers"][0]
             expected = []
-            for template in templates:
-                args: dict[str, Any] = {"ticker": ticker, "as_of": as_of}
-                if "frequency" in template:
-                    args["frequency"] = template["frequency"]
-                expected.append({"tool_id": template["tool_id"], "args": args})
+            if scope["accepted_candidate_tickers"]:
+                ticker = scope["accepted_candidate_tickers"][0]
+                for template in templates:
+                    args: dict[str, Any] = {"ticker": ticker, "as_of": as_of}
+                    if "frequency" in template:
+                        args["frequency"] = template["frequency"]
+                    expected.append({"tool_id": template["tool_id"], "args": args})
         else:
             expected = [
                 {

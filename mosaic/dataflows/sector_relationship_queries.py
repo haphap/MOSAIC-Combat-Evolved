@@ -23,6 +23,7 @@ SourceEvidenceAuthority = Callable[
     [str, Mapping[str, Any], str, Mapping[str, Any], Sequence[str]],
     Sequence[Mapping[str, Any]] | None,
 ]
+SourcePreparer = Callable[[str, Mapping[str, Any]], None]
 
 _DIGEST_TOOLS = {
     "get_broker_research",
@@ -207,6 +208,7 @@ class SectorRelationshipQueryMaterializer:
         rke_renderer: Callable[[dict[str, Any]], Any] = _default_rke_renderer,
         supply_chain_archive: Any | None = None,
         source_evidence_authority: SourceEvidenceAuthority | None = None,
+        source_preparer: SourcePreparer | None = None,
     ) -> None:
         self.route_caller = route_caller
         self.receipt_authority = receipt_authority
@@ -214,6 +216,7 @@ class SectorRelationshipQueryMaterializer:
         self.rke_renderer = rke_renderer
         self.supply_chain_archive = supply_chain_archive
         self.source_evidence_authority = source_evidence_authority
+        self.source_preparer = source_preparer
 
     def __call__(self, tool_id: str, args: dict[str, Any]) -> dict[str, Any]:
         if tool_id not in _ROUTE_BY_TOOL:
@@ -248,6 +251,8 @@ class SectorRelationshipQueryMaterializer:
             else:
                 raw_payload = _required_payload(rendered, "RKE payload")
         else:
+            if self.source_preparer is not None:
+                self.source_preparer(tool_id, dict(args))
             method, route_args = _legacy_call(tool_id, args)
             raw_payload = _required_payload(self.route_caller(method, *route_args))
 

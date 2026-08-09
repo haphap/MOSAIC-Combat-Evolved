@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -8,7 +9,10 @@ import pytest
 import mosaic.dataflows.forward_archive_queries as forward_module
 from mosaic.dataflows.adaptive_query_archives import TrustedArchiveQueryRouter
 from mosaic.dataflows.exceptions import DataVendorUnavailable
-from mosaic.dataflows.forward_archive_queries import ForwardArchiveQueryReader
+from mosaic.dataflows.forward_archive_queries import (
+    ForwardArchiveQueryReader,
+    ForwardArchiveSourcePreparer,
+)
 from mosaic.dataflows.sector_relationship_queries import (
     SectorRelationshipQueryMaterializer,
 )
@@ -420,3 +424,198 @@ def test_materializer_uses_forward_archive_and_never_generic_live_authority(tmp_
     assert result["payload"] == digest
     assert len(result["source_receipt_hashes"]) == 1
     assert result["derivation"]["source_payload_hash"].startswith("sha256:")
+
+
+def test_forward_source_preparer_reuses_warm_research_without_refresh(tmp_path):
+    row = _research_row(
+        source_id="SRC-WARM-1",
+        report_type="个股研报",
+        publish_date="2026-06-03",
+        discovered_at="2026-06-03T06:00:00+00:00",
+        title="Warm report",
+        ts_code="600000.SH",
+    )
+    reader = _reader(tmp_path, [row], [])
+    refresh_calls: list[dict] = []
+    preparer = ForwardArchiveSourcePreparer(
+        reader=reader,
+        research_refresher=lambda **kwargs: refresh_calls.append(kwargs),
+    )
+    args = {
+        "ticker": "600000.SH",
+        "date_from": "2026-06-01",
+        "date_to": "2026-06-05",
+        "max_reports": 30,
+    }
+
+    preparer("get_stock_research", args)
+
+    assert refresh_calls == []
+
+
+def test_forward_source_preparer_serializes_cold_research_refresh_and_rechecks(
+    tmp_path,
+):
+    reader = _reader(tmp_path, [], [])
+    refresh_calls: list[dict] = []
+
+    def refresh(**kwargs):
+        refresh_calls.append(kwargs)
+        _write_jsonl(
+            reader.research_source_path,
+            [
+                _research_row(
+                    source_id="SRC-COLD-1",
+                    report_type="个股研报",
+                    publish_date="2026-06-03",
+                    discovered_at="2026-06-03T06:00:00+00:00",
+                    title="Cold report",
+                    ts_code="600000.SH",
+                )
+            ],
+        )
+
+    preparer = ForwardArchiveSourcePreparer(
+        reader=reader,
+        research_refresher=refresh,
+        lock_path=tmp_path / "forward-source.lock",
+    )
+    args = {
+        "ticker": "600000.SH",
+        "date_from": "2026-06-01",
+        "date_to": "2026-06-05",
+        "max_reports": 30,
+    }
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(
+            executor.map(lambda _: preparer("get_stock_research", args), range(2))
+        )
+
+    assert results == [None, None]
+    assert len(refresh_calls) == 1
+    assert refresh_calls[0] == {
+        "root": reader.root,
+        "stock_codes": ("600000.SH",),
+        "industry_keywords": (),
+        "report_types": (),
+        "start_date": "2026-06-01",
+        "end_date": "2026-06-05",
+        "merge_existing_source": True,
+        "source_only": True,
+    }
+
+
+def test_forward_source_preparer_captures_broker_and_policy_sources(
+    tmp_path, monkeypatch
+):
+    reader = _reader(tmp_path, [], [])
+    research_calls: list[dict] = []
+    policy_calls: list[dict] = []
+
+    class _ParentReceipt:
+        def as_dict(self):
+            return {
+                "receipt_hash": canonical_hash({"sector": "cold-parent"}),
+                "time": {"captured_at": "2026-06-05T07:00:00+00:00"},
+            }
+
+    monkeypatch.setattr(
+        forward_module,
+        "sector_archive_source_receipt",
+        lambda group, route_id: _ParentReceipt(),
+    )
+
+    def refresh_research(**kwargs):
+        research_calls.append(kwargs)
+        _write_jsonl(
+            reader.research_source_path,
+            [
+                _research_row(
+                    source_id="SRC-BROKER-STOCK",
+                    report_type="个股研报",
+                    publish_date="2026-06-03",
+                    discovered_at="2026-06-03T06:00:00+00:00",
+                    title="Broker resolver",
+                    ts_code="600000.SH",
+                    industry="Semiconductors",
+                ),
+                _research_row(
+                    source_id="SRC-BROKER-INDUSTRY",
+                    report_type="行业研报",
+                    publish_date="2026-06-04",
+                    discovered_at="2026-06-04T06:00:00+00:00",
+                    title="Broker industry report",
+                    industry="Semiconductors",
+                ),
+            ],
+        )
+
+    def refresh_policy(**kwargs):
+        policy_calls.append(kwargs)
+        _write_jsonl(
+            Path(kwargs["cache_dir"]) / "parsed/policy_documents.jsonl",
+            [
+                _policy_row(
+                    article_id="POLICY-COLD-1",
+                    title="Cold policy",
+                    pub_date="2026-06-04",
+                    discovered_at="2026-06-04T06:00:00+00:00",
+                )
+            ],
+        )
+
+    preparer = ForwardArchiveSourcePreparer(
+        reader=reader,
+        research_refresher=refresh_research,
+        policy_refresher=refresh_policy,
+        lock_path=tmp_path / "forward-source.lock",
+    )
+    preparer(
+        "get_broker_research",
+        {
+            "ticker": "600000.SH",
+            "date_from": "2026-06-01",
+            "date_to": "2026-06-05",
+            "max_reports": 30,
+        },
+    )
+    preparer(
+        "get_industry_policy_digest",
+        {"as_of": "2026-06-05", "lookback_days": 4, "source": "govcn"},
+    )
+
+    assert research_calls[0]["stock_codes"] == ()
+    assert research_calls[0]["industry_keywords"] == ()
+    assert research_calls[0]["report_types"] == ("个股研报", "行业研报")
+    assert research_calls[0]["source_only"] is True
+    assert policy_calls == [
+        {
+            "cache_dir": reader.policy_cache_dir,
+            "start_date": "2026-06-01",
+            "end_date": "2026-06-05",
+        }
+    ]
+
+
+def test_forward_source_preparer_does_not_repair_malformed_archive(tmp_path):
+    reader = _reader(tmp_path, [], [])
+    reader.research_source_path.write_text("{malformed\n", encoding="utf-8")
+    refresh_calls: list[dict] = []
+    preparer = ForwardArchiveSourcePreparer(
+        reader=reader,
+        research_refresher=lambda **kwargs: refresh_calls.append(kwargs),
+    )
+
+    with pytest.raises(DataVendorUnavailable, match="archive is malformed"):
+        preparer(
+            "get_stock_research",
+            {
+                "ticker": "600000.SH",
+                "date_from": "2026-06-01",
+                "date_to": "2026-06-05",
+                "max_reports": 30,
+            },
+        )
+
+    assert refresh_calls == []

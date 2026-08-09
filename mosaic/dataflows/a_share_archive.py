@@ -19,10 +19,12 @@ from zoneinfo import ZoneInfo
 from mosaic.dataflows.agent_materialization import (
     AgentDataMaterializationLedger,
     RouteCoverageReceipt,
+    SnapshotBuildReceipt,
     SourceCaptureReceipt,
 )
 from mosaic.dataflows.cross_runtime_json import canonical_hash
 from mosaic.dataflows.market_breadth import (
+    BREADTH_SCHEMA_VERSION,
     BreadthCoverageError,
     BreadthHistoryError,
     BreadthInputs,
@@ -37,6 +39,8 @@ from mosaic.dataflows.tushare_catalog import (
 ROUTE_ID = "tushare.a_share_breadth"
 CAPTURE_SCHEMA_VERSION = "a_share_capture_group_v1"
 PARSER_VERSION = "tushare_a_share_breadth_parser_v1"
+BREADTH_COMPILER_VERSION = "a_share_breadth_compiler_v1"
+BREADTH_TOOL_ID = "get_market_breadth_snapshot"
 PAGE_SIZE = 6000
 MAX_PAGES_PER_QUERY = 20
 HISTORY_CALENDAR_DAYS = 500
@@ -991,6 +995,78 @@ def archive_a_share_breadth(
         )
 
 
+def compile_a_share_breadth_snapshot(
+    archive: AShareArchiveResult,
+    *,
+    as_of_date: str,
+    ledger: AgentDataMaterializationLedger,
+) -> SnapshotBuildReceipt:
+    """Seal the deterministic breadth snapshot or its exact blocked closure."""
+    date.fromisoformat(as_of_date)
+    coverage = archive.coverage_receipt.as_dict()
+    snapshot = archive.snapshot
+    if bool(snapshot) != bool(coverage["coverage_complete"]):
+        raise ValueError("breadth snapshot contradicts route coverage")
+    if snapshot is not None and snapshot.get("as_of_date") != as_of_date:
+        raise ValueError("breadth snapshot as_of_date mismatch")
+
+    if snapshot is None:
+        source_hashes = [archive.coverage_receipt.receipt_hash]
+        output_hash = None
+        missing_routes = [ROUTE_ID]
+        blocker_codes = list(coverage["blocker_codes"])
+        terminal_state = "BLOCKED"
+        earliest_trustworthy_date = None
+    else:
+        if len(archive.source_receipts) != 1:
+            raise ValueError("READY breadth snapshot requires one source receipt")
+        source_hashes = [archive.source_receipts[0].receipt_hash]
+        output_hash = canonical_hash(snapshot)
+        missing_routes = []
+        blocker_codes = []
+        terminal_state = "READY"
+        earliest_trustworthy_date = as_of_date
+
+    as_of_cutoff = str(coverage["window"]["end"])
+    identity = {
+        "as_of_date": as_of_date,
+        "as_of_cutoff": as_of_cutoff,
+        "source_receipt_hashes": source_hashes,
+        "output_hash": output_hash,
+        "missing_route_ids": missing_routes,
+        "blocker_codes": blocker_codes,
+    }
+    now = _capture_now().isoformat()
+    receipt = SnapshotBuildReceipt.seal(
+        {
+            "schema_version": "snapshot_build_receipt_v1",
+            "build_id": (
+                "a-share-breadth-build:"
+                + canonical_hash(identity).removeprefix("sha256:")
+            ),
+            "agent_id": "market_breadth",
+            "stage": "market_breadth",
+            "tool_id": BREADTH_TOOL_ID,
+            "as_of": as_of_date,
+            "as_of_cutoff": as_of_cutoff,
+            "source_receipt_hashes": source_hashes,
+            "compiler_version": BREADTH_COMPILER_VERSION,
+            "output_contract_version": BREADTH_SCHEMA_VERSION,
+            "output_path": "market_breadth/a_share_archive.sqlite3",
+            "output_hash": output_hash,
+            "pit_mode": "OBSERVED_LIVE",
+            "earliest_trustworthy_date": earliest_trustworthy_date,
+            "required_route_ids": [ROUTE_ID],
+            "missing_route_ids": missing_routes,
+            "terminal_state": terminal_state,
+            "blocker_codes": blocker_codes,
+            "build_started_at": now,
+            "build_finished_at": now,
+        }
+    )
+    return ledger.append_or_reuse_snapshot_build(receipt)
+
+
 def fetch_a_share_tushare_endpoint(endpoint: str, **params: Any) -> Any:
     """Production transport adapter; endpoint authorization is checked by archive."""
     from mosaic.dataflows.tushare import _query_pro  # noqa: PLC0415
@@ -1008,5 +1084,6 @@ __all__ = [
     "ROUTE_ID",
     "a_share_archive_path",
     "archive_a_share_breadth",
+    "compile_a_share_breadth_snapshot",
     "fetch_a_share_tushare_endpoint",
 ]

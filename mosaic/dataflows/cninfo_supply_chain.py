@@ -13,6 +13,8 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from mosaic.dataflows.agent_materialization import AgentDataMaterializationLedger
+from mosaic.dataflows.staged_query_receipt_store import StagedQueryReceiptStore
 from mosaic.dataflows.supply_chain_disclosures import (
     OfficialSupplyChainDisclosureArchive,
     capture_official_supply_chain_disclosures,
@@ -114,14 +116,22 @@ class CninfoSupplyChainDisclosureCollector:
         self,
         *,
         archive: OfficialSupplyChainDisclosureArchive,
+        receipt_store: StagedQueryReceiptStore | None = None,
+        agent_data_ledger: AgentDataMaterializationLedger | None = None,
         get_bytes: Callable[[str], bytes] = _default_get_bytes,
         post_form: Callable[[str, Mapping[str, str]], Mapping[str, Any]] = (
             _default_post_form
         ),
         pdf_text_extractor: Callable[[bytes], str] = _default_pdf_text_extractor,
     ) -> None:
+        if (receipt_store is None) != (agent_data_ledger is None):
+            raise ValueError(
+                "active supply-chain evidence requires both receipt store and ledger"
+            )
         self.archive = archive
         self.db_path = archive.db_path
+        self.receipt_store = receipt_store
+        self.agent_data_ledger = agent_data_ledger
         self.get_bytes = get_bytes
         self.post_form = post_form
         self.pdf_text_extractor = pdf_text_extractor
@@ -319,7 +329,12 @@ class CninfoSupplyChainDisclosureCollector:
             parser_version=PARSER_VERSION,
             build_query_contract=self._query_contract,
         )
-        return self.archive.materialize(ticker=ticker, as_of=as_of)
+        return self.archive.materialize(
+            ticker=ticker,
+            as_of=as_of,
+            receipt_store=self.receipt_store,
+            agent_data_ledger=self.agent_data_ledger,
+        )
 
 
 __all__ = ["CninfoSupplyChainDisclosureCollector"]

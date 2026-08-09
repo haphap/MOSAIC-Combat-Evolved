@@ -2,7 +2,7 @@
   "schema_version": "agent_data_route_manifest_v1",
   "manifest_version": "agent_data_routes_20260806_v1",
   "generated_at": "2026-08-06T00:00:00+00:00",
-  "agent_tool_contract_manifest_hash": "sha256:781292090cba03e821f1cc913fcff564e64f38f92b80fcaca86c334634f8c31f",
+  "agent_tool_contract_manifest_hash": "sha256:3a60391f81aabd422fbefbdd9d4e03cc5797fcd1e740b8a859674b3091e54e35",
   "routes": [
     {
       "contract_version": "alfred_us_macro_v1",
@@ -320,75 +320,75 @@
     },
     {
       "agent_id": "semiconductor",
-      "stage": "semiconductor",
-      "tool_id": "get_balance_sheet",
       "required_route_ids": [
         "tushare.sector_fundamentals"
-      ]
+      ],
+      "stage": "semiconductor",
+      "tool_id": "get_balance_sheet"
     },
     {
       "agent_id": "semiconductor",
-      "stage": "semiconductor",
-      "tool_id": "get_broker_research",
       "required_route_ids": [
         "private.tushare_research_reports"
-      ]
+      ],
+      "stage": "semiconductor",
+      "tool_id": "get_broker_research"
     },
     {
       "agent_id": "semiconductor",
-      "stage": "semiconductor",
-      "tool_id": "get_cashflow",
       "required_route_ids": [
         "tushare.sector_fundamentals"
-      ]
+      ],
+      "stage": "semiconductor",
+      "tool_id": "get_cashflow"
     },
     {
       "agent_id": "semiconductor",
-      "stage": "semiconductor",
-      "tool_id": "get_etf_holdings",
       "required_route_ids": [
         "tushare.etf_holdings"
-      ]
+      ],
+      "stage": "semiconductor",
+      "tool_id": "get_etf_holdings"
     },
     {
       "agent_id": "semiconductor",
-      "stage": "semiconductor",
-      "tool_id": "get_income_statement",
       "required_route_ids": [
         "tushare.sector_fundamentals"
-      ]
+      ],
+      "stage": "semiconductor",
+      "tool_id": "get_income_statement"
     },
     {
       "agent_id": "semiconductor",
-      "stage": "semiconductor",
-      "tool_id": "get_indicators",
       "required_route_ids": [
         "tushare.sector_market"
-      ]
+      ],
+      "stage": "semiconductor",
+      "tool_id": "get_indicators"
     },
     {
       "agent_id": "semiconductor",
-      "stage": "semiconductor",
-      "tool_id": "get_industry_moneyflow",
       "required_route_ids": [
         "tushare.institutional_flow"
-      ]
+      ],
+      "stage": "semiconductor",
+      "tool_id": "get_industry_moneyflow"
     },
     {
       "agent_id": "semiconductor",
-      "stage": "semiconductor",
-      "tool_id": "get_industry_policy_digest",
       "required_route_ids": [
         "official.govcn_policy"
-      ]
+      ],
+      "stage": "semiconductor",
+      "tool_id": "get_industry_policy_digest"
     },
     {
       "agent_id": "semiconductor",
-      "stage": "semiconductor",
-      "tool_id": "get_rke_research_context",
       "required_route_ids": [
         "private.rke_report_intelligence"
-      ]
+      ],
+      "stage": "semiconductor",
+      "tool_id": "get_rke_research_context"
     },
     {
       "agent_id": "semiconductor",
@@ -411,59 +411,59 @@
     },
     {
       "agent_id": "semiconductor",
+      "required_route_ids": [
+        "tushare.sector_market"
+      ],
       "stage": "semiconductor",
-      "tool_id": "get_stock_data",
-      "required_route_ids": [
-        "tushare.sector_market"
-      ]
+      "tool_id": "get_stock_data"
     },
     {
       "agent_id": "technology",
-      "stage": "technology",
-      "tool_id": "get_broker_research",
       "required_route_ids": [
         "private.tushare_research_reports"
-      ]
+      ],
+      "stage": "technology",
+      "tool_id": "get_broker_research"
     },
     {
       "agent_id": "technology",
-      "stage": "technology",
-      "tool_id": "get_etf_holdings",
       "required_route_ids": [
         "tushare.etf_holdings"
-      ]
+      ],
+      "stage": "technology",
+      "tool_id": "get_etf_holdings"
     },
     {
       "agent_id": "technology",
-      "stage": "technology",
-      "tool_id": "get_indicators",
       "required_route_ids": [
         "tushare.sector_market"
-      ]
+      ],
+      "stage": "technology",
+      "tool_id": "get_indicators"
     },
     {
       "agent_id": "technology",
-      "stage": "technology",
-      "tool_id": "get_industry_moneyflow",
       "required_route_ids": [
         "tushare.institutional_flow"
-      ]
+      ],
+      "stage": "technology",
+      "tool_id": "get_industry_moneyflow"
     },
     {
       "agent_id": "technology",
-      "stage": "technology",
-      "tool_id": "get_industry_policy_digest",
       "required_route_ids": [
         "official.govcn_policy"
-      ]
+      ],
+      "stage": "technology",
+      "tool_id": "get_industry_policy_digest"
     },
     {
       "agent_id": "technology",
-      "stage": "technology",
-      "tool_id": "get_rke_research_context",
       "required_route_ids": [
         "private.rke_report_intelligence"
-      ]
+      ],
+      "stage": "technology",
+      "tool_id": "get_rke_research_context"
     },
     {
       "agent_id": "technology",
@@ -486,59 +486,59 @@
     },
     {
       "agent_id": "technology",
+      "required_route_ids": [
+        "tushare.sector_market"
+      ],
       "stage": "technology",
-      "tool_id": "get_stock_data",
-      "required_route_ids": [
-        "tushare.sector_market"
-      ]
+      "tool_id": "get_stock_data"
     },
     {
       "agent_id": "energy",
-      "stage": "energy",
-      "tool_id": "get_broker_research",
       "required_route_ids": [
         "private.tushare_research_reports"
-      ]
+      ],
+      "stage": "energy",
+      "tool_id": "get_broker_research"
     },
     {
       "agent_id": "energy",
-      "stage": "energy",
-      "tool_id": "get_etf_holdings",
       "required_route_ids": [
         "tushare.etf_holdings"
-      ]
+      ],
+      "stage": "energy",
+      "tool_id": "get_etf_holdings"
     },
     {
       "agent_id": "energy",
-      "stage": "energy",
-      "tool_id": "get_indicators",
       "required_route_ids": [
         "tushare.sector_market"
-      ]
+      ],
+      "stage": "energy",
+      "tool_id": "get_indicators"
     },
     {
       "agent_id": "energy",
-      "stage": "energy",
-      "tool_id": "get_industry_moneyflow",
       "required_route_ids": [
         "tushare.institutional_flow"
-      ]
+      ],
+      "stage": "energy",
+      "tool_id": "get_industry_moneyflow"
     },
     {
       "agent_id": "energy",
-      "stage": "energy",
-      "tool_id": "get_industry_policy_digest",
       "required_route_ids": [
         "official.govcn_policy"
-      ]
+      ],
+      "stage": "energy",
+      "tool_id": "get_industry_policy_digest"
     },
     {
       "agent_id": "energy",
-      "stage": "energy",
-      "tool_id": "get_rke_research_context",
       "required_route_ids": [
         "private.rke_report_intelligence"
-      ]
+      ],
+      "stage": "energy",
+      "tool_id": "get_rke_research_context"
     },
     {
       "agent_id": "energy",
@@ -561,59 +561,59 @@
     },
     {
       "agent_id": "energy",
+      "required_route_ids": [
+        "tushare.sector_market"
+      ],
       "stage": "energy",
-      "tool_id": "get_stock_data",
-      "required_route_ids": [
-        "tushare.sector_market"
-      ]
+      "tool_id": "get_stock_data"
     },
     {
       "agent_id": "biotech",
-      "stage": "biotech",
-      "tool_id": "get_broker_research",
       "required_route_ids": [
         "private.tushare_research_reports"
-      ]
+      ],
+      "stage": "biotech",
+      "tool_id": "get_broker_research"
     },
     {
       "agent_id": "biotech",
-      "stage": "biotech",
-      "tool_id": "get_etf_holdings",
       "required_route_ids": [
         "tushare.etf_holdings"
-      ]
+      ],
+      "stage": "biotech",
+      "tool_id": "get_etf_holdings"
     },
     {
       "agent_id": "biotech",
-      "stage": "biotech",
-      "tool_id": "get_indicators",
       "required_route_ids": [
         "tushare.sector_market"
-      ]
+      ],
+      "stage": "biotech",
+      "tool_id": "get_indicators"
     },
     {
       "agent_id": "biotech",
-      "stage": "biotech",
-      "tool_id": "get_industry_moneyflow",
       "required_route_ids": [
         "tushare.institutional_flow"
-      ]
+      ],
+      "stage": "biotech",
+      "tool_id": "get_industry_moneyflow"
     },
     {
       "agent_id": "biotech",
-      "stage": "biotech",
-      "tool_id": "get_industry_policy_digest",
       "required_route_ids": [
         "official.govcn_policy"
-      ]
+      ],
+      "stage": "biotech",
+      "tool_id": "get_industry_policy_digest"
     },
     {
       "agent_id": "biotech",
-      "stage": "biotech",
-      "tool_id": "get_rke_research_context",
       "required_route_ids": [
         "private.rke_report_intelligence"
-      ]
+      ],
+      "stage": "biotech",
+      "tool_id": "get_rke_research_context"
     },
     {
       "agent_id": "biotech",
@@ -626,59 +626,59 @@
     },
     {
       "agent_id": "biotech",
-      "stage": "biotech",
-      "tool_id": "get_stock_data",
       "required_route_ids": [
         "tushare.sector_market"
-      ]
+      ],
+      "stage": "biotech",
+      "tool_id": "get_stock_data"
     },
     {
       "agent_id": "consumer",
-      "stage": "consumer",
-      "tool_id": "get_broker_research",
       "required_route_ids": [
         "private.tushare_research_reports"
-      ]
+      ],
+      "stage": "consumer",
+      "tool_id": "get_broker_research"
     },
     {
       "agent_id": "consumer",
-      "stage": "consumer",
-      "tool_id": "get_etf_holdings",
       "required_route_ids": [
         "tushare.etf_holdings"
-      ]
+      ],
+      "stage": "consumer",
+      "tool_id": "get_etf_holdings"
     },
     {
       "agent_id": "consumer",
-      "stage": "consumer",
-      "tool_id": "get_indicators",
       "required_route_ids": [
         "tushare.sector_market"
-      ]
+      ],
+      "stage": "consumer",
+      "tool_id": "get_indicators"
     },
     {
       "agent_id": "consumer",
-      "stage": "consumer",
-      "tool_id": "get_industry_moneyflow",
       "required_route_ids": [
         "tushare.institutional_flow"
-      ]
+      ],
+      "stage": "consumer",
+      "tool_id": "get_industry_moneyflow"
     },
     {
       "agent_id": "consumer",
-      "stage": "consumer",
-      "tool_id": "get_industry_policy_digest",
       "required_route_ids": [
         "official.govcn_policy"
-      ]
+      ],
+      "stage": "consumer",
+      "tool_id": "get_industry_policy_digest"
     },
     {
       "agent_id": "consumer",
-      "stage": "consumer",
-      "tool_id": "get_rke_research_context",
       "required_route_ids": [
         "private.rke_report_intelligence"
-      ]
+      ],
+      "stage": "consumer",
+      "tool_id": "get_rke_research_context"
     },
     {
       "agent_id": "consumer",
@@ -701,59 +701,59 @@
     },
     {
       "agent_id": "consumer",
-      "stage": "consumer",
-      "tool_id": "get_stock_data",
       "required_route_ids": [
         "tushare.sector_market"
-      ]
+      ],
+      "stage": "consumer",
+      "tool_id": "get_stock_data"
     },
     {
       "agent_id": "industrials",
-      "stage": "industrials",
-      "tool_id": "get_broker_research",
       "required_route_ids": [
         "private.tushare_research_reports"
-      ]
+      ],
+      "stage": "industrials",
+      "tool_id": "get_broker_research"
     },
     {
       "agent_id": "industrials",
-      "stage": "industrials",
-      "tool_id": "get_etf_holdings",
       "required_route_ids": [
         "tushare.etf_holdings"
-      ]
+      ],
+      "stage": "industrials",
+      "tool_id": "get_etf_holdings"
     },
     {
       "agent_id": "industrials",
-      "stage": "industrials",
-      "tool_id": "get_indicators",
       "required_route_ids": [
         "tushare.sector_market"
-      ]
+      ],
+      "stage": "industrials",
+      "tool_id": "get_indicators"
     },
     {
       "agent_id": "industrials",
-      "stage": "industrials",
-      "tool_id": "get_industry_moneyflow",
       "required_route_ids": [
         "tushare.institutional_flow"
-      ]
+      ],
+      "stage": "industrials",
+      "tool_id": "get_industry_moneyflow"
     },
     {
       "agent_id": "industrials",
-      "stage": "industrials",
-      "tool_id": "get_industry_policy_digest",
       "required_route_ids": [
         "official.govcn_policy"
-      ]
+      ],
+      "stage": "industrials",
+      "tool_id": "get_industry_policy_digest"
     },
     {
       "agent_id": "industrials",
-      "stage": "industrials",
-      "tool_id": "get_rke_research_context",
       "required_route_ids": [
         "private.rke_report_intelligence"
-      ]
+      ],
+      "stage": "industrials",
+      "tool_id": "get_rke_research_context"
     },
     {
       "agent_id": "industrials",
@@ -776,59 +776,59 @@
     },
     {
       "agent_id": "industrials",
-      "stage": "industrials",
-      "tool_id": "get_stock_data",
       "required_route_ids": [
         "tushare.sector_market"
-      ]
+      ],
+      "stage": "industrials",
+      "tool_id": "get_stock_data"
     },
     {
       "agent_id": "real_estate_construction",
-      "stage": "real_estate_construction",
-      "tool_id": "get_broker_research",
       "required_route_ids": [
         "private.tushare_research_reports"
-      ]
+      ],
+      "stage": "real_estate_construction",
+      "tool_id": "get_broker_research"
     },
     {
       "agent_id": "real_estate_construction",
-      "stage": "real_estate_construction",
-      "tool_id": "get_etf_holdings",
       "required_route_ids": [
         "tushare.etf_holdings"
-      ]
+      ],
+      "stage": "real_estate_construction",
+      "tool_id": "get_etf_holdings"
     },
     {
       "agent_id": "real_estate_construction",
-      "stage": "real_estate_construction",
-      "tool_id": "get_indicators",
       "required_route_ids": [
         "tushare.sector_market"
-      ]
+      ],
+      "stage": "real_estate_construction",
+      "tool_id": "get_indicators"
     },
     {
       "agent_id": "real_estate_construction",
-      "stage": "real_estate_construction",
-      "tool_id": "get_industry_moneyflow",
       "required_route_ids": [
         "tushare.institutional_flow"
-      ]
+      ],
+      "stage": "real_estate_construction",
+      "tool_id": "get_industry_moneyflow"
     },
     {
       "agent_id": "real_estate_construction",
-      "stage": "real_estate_construction",
-      "tool_id": "get_industry_policy_digest",
       "required_route_ids": [
         "official.govcn_policy"
-      ]
+      ],
+      "stage": "real_estate_construction",
+      "tool_id": "get_industry_policy_digest"
     },
     {
       "agent_id": "real_estate_construction",
-      "stage": "real_estate_construction",
-      "tool_id": "get_rke_research_context",
       "required_route_ids": [
         "private.rke_report_intelligence"
-      ]
+      ],
+      "stage": "real_estate_construction",
+      "tool_id": "get_rke_research_context"
     },
     {
       "agent_id": "real_estate_construction",
@@ -849,59 +849,59 @@
     },
     {
       "agent_id": "real_estate_construction",
-      "stage": "real_estate_construction",
-      "tool_id": "get_stock_data",
       "required_route_ids": [
         "tushare.sector_market"
-      ]
+      ],
+      "stage": "real_estate_construction",
+      "tool_id": "get_stock_data"
     },
     {
       "agent_id": "financials",
-      "stage": "financials",
-      "tool_id": "get_broker_research",
       "required_route_ids": [
         "private.tushare_research_reports"
-      ]
+      ],
+      "stage": "financials",
+      "tool_id": "get_broker_research"
     },
     {
       "agent_id": "financials",
-      "stage": "financials",
-      "tool_id": "get_etf_holdings",
       "required_route_ids": [
         "tushare.etf_holdings"
-      ]
+      ],
+      "stage": "financials",
+      "tool_id": "get_etf_holdings"
     },
     {
       "agent_id": "financials",
-      "stage": "financials",
-      "tool_id": "get_indicators",
       "required_route_ids": [
         "tushare.sector_market"
-      ]
+      ],
+      "stage": "financials",
+      "tool_id": "get_indicators"
     },
     {
       "agent_id": "financials",
-      "stage": "financials",
-      "tool_id": "get_industry_moneyflow",
       "required_route_ids": [
         "tushare.institutional_flow"
-      ]
+      ],
+      "stage": "financials",
+      "tool_id": "get_industry_moneyflow"
     },
     {
       "agent_id": "financials",
-      "stage": "financials",
-      "tool_id": "get_industry_policy_digest",
       "required_route_ids": [
         "official.govcn_policy"
-      ]
+      ],
+      "stage": "financials",
+      "tool_id": "get_industry_policy_digest"
     },
     {
       "agent_id": "financials",
-      "stage": "financials",
-      "tool_id": "get_rke_research_context",
       "required_route_ids": [
         "private.rke_report_intelligence"
-      ]
+      ],
+      "stage": "financials",
+      "tool_id": "get_rke_research_context"
     },
     {
       "agent_id": "financials",
@@ -924,67 +924,67 @@
     },
     {
       "agent_id": "financials",
-      "stage": "financials",
-      "tool_id": "get_stock_data",
       "required_route_ids": [
         "tushare.sector_market"
-      ]
+      ],
+      "stage": "financials",
+      "tool_id": "get_stock_data"
     },
     {
       "agent_id": "financials",
-      "stage": "financials",
-      "tool_id": "get_yield_curve_cn",
       "required_route_ids": [
         "tushare.shibor_yield_curve"
-      ]
+      ],
+      "stage": "financials",
+      "tool_id": "get_yield_curve_cn"
     },
     {
       "agent_id": "agriculture",
-      "stage": "agriculture",
-      "tool_id": "get_broker_research",
       "required_route_ids": [
         "private.tushare_research_reports"
-      ]
+      ],
+      "stage": "agriculture",
+      "tool_id": "get_broker_research"
     },
     {
       "agent_id": "agriculture",
-      "stage": "agriculture",
-      "tool_id": "get_etf_holdings",
       "required_route_ids": [
         "tushare.etf_holdings"
-      ]
+      ],
+      "stage": "agriculture",
+      "tool_id": "get_etf_holdings"
     },
     {
       "agent_id": "agriculture",
-      "stage": "agriculture",
-      "tool_id": "get_indicators",
       "required_route_ids": [
         "tushare.sector_market"
-      ]
+      ],
+      "stage": "agriculture",
+      "tool_id": "get_indicators"
     },
     {
       "agent_id": "agriculture",
-      "stage": "agriculture",
-      "tool_id": "get_industry_moneyflow",
       "required_route_ids": [
         "tushare.institutional_flow"
-      ]
+      ],
+      "stage": "agriculture",
+      "tool_id": "get_industry_moneyflow"
     },
     {
       "agent_id": "agriculture",
-      "stage": "agriculture",
-      "tool_id": "get_industry_policy_digest",
       "required_route_ids": [
         "official.govcn_policy"
-      ]
+      ],
+      "stage": "agriculture",
+      "tool_id": "get_industry_policy_digest"
     },
     {
       "agent_id": "agriculture",
-      "stage": "agriculture",
-      "tool_id": "get_rke_research_context",
       "required_route_ids": [
         "private.rke_report_intelligence"
-      ]
+      ],
+      "stage": "agriculture",
+      "tool_id": "get_rke_research_context"
     },
     {
       "agent_id": "agriculture",
@@ -1007,11 +1007,11 @@
     },
     {
       "agent_id": "agriculture",
-      "stage": "agriculture",
-      "tool_id": "get_stock_data",
       "required_route_ids": [
         "tushare.sector_market"
-      ]
+      ],
+      "stage": "agriculture",
+      "tool_id": "get_stock_data"
     },
     {
       "agent_id": "relationship_mapper",
@@ -1023,26 +1023,74 @@
     },
     {
       "agent_id": "relationship_mapper",
+      "required_route_ids": [
+        "private.rke_report_intelligence"
+      ],
       "stage": "relationship_mapper",
+      "tool_id": "get_rke_research_context"
+    },
+    {
+      "agent_id": "relationship_mapper",
+      "required_route_ids": [
+        "private.tushare_research_reports"
+      ],
+      "stage": "relationship_mapper",
+      "tool_id": "get_stock_research"
+    },
+    {
+      "agent_id": "relationship_mapper",
+      "required_route_ids": [
+        "official.company_supply_chain_disclosures"
+      ],
+      "stage": "relationship_mapper",
+      "tool_id": "get_supply_chain_evidence"
+    },
+    {
+      "agent_id": "druckenmiller",
+      "stage": "druckenmiller",
+      "tool_id": "get_fundamentals",
+      "required_route_ids": [
+        "tushare.sector_fundamentals"
+      ]
+    },
+    {
+      "agent_id": "druckenmiller",
+      "stage": "druckenmiller",
+      "tool_id": "get_indicators",
+      "required_route_ids": [
+        "tushare.sector_market"
+      ]
+    },
+    {
+      "agent_id": "druckenmiller",
+      "stage": "druckenmiller",
+      "tool_id": "get_industry_policy_digest",
+      "required_route_ids": [
+        "official.govcn_policy"
+      ]
+    },
+    {
+      "agent_id": "druckenmiller",
+      "stage": "druckenmiller",
       "tool_id": "get_rke_research_context",
       "required_route_ids": [
         "private.rke_report_intelligence"
       ]
     },
     {
-      "agent_id": "relationship_mapper",
-      "stage": "relationship_mapper",
-      "tool_id": "get_stock_research",
+      "agent_id": "druckenmiller",
+      "stage": "druckenmiller",
+      "tool_id": "get_stock_data",
       "required_route_ids": [
-        "private.tushare_research_reports"
+        "tushare.sector_market"
       ]
     },
     {
-      "agent_id": "relationship_mapper",
-      "stage": "relationship_mapper",
-      "tool_id": "get_supply_chain_evidence",
+      "agent_id": "druckenmiller",
+      "stage": "druckenmiller",
+      "tool_id": "get_stock_research",
       "required_route_ids": [
-        "official.company_supply_chain_disclosures"
+        "private.tushare_research_reports"
       ]
     },
     {
@@ -1055,6 +1103,70 @@
       "tool_id": "get_superinvestor_candidate_snapshot"
     },
     {
+      "agent_id": "druckenmiller",
+      "stage": "druckenmiller",
+      "tool_id": "get_yield_curve_cn",
+      "required_route_ids": [
+        "tushare.shibor_yield_curve"
+      ]
+    },
+    {
+      "agent_id": "munger",
+      "stage": "munger",
+      "tool_id": "get_balance_sheet",
+      "required_route_ids": [
+        "tushare.sector_fundamentals"
+      ]
+    },
+    {
+      "agent_id": "munger",
+      "stage": "munger",
+      "tool_id": "get_cashflow",
+      "required_route_ids": [
+        "tushare.sector_fundamentals"
+      ]
+    },
+    {
+      "agent_id": "munger",
+      "stage": "munger",
+      "tool_id": "get_fundamentals",
+      "required_route_ids": [
+        "tushare.sector_fundamentals"
+      ]
+    },
+    {
+      "agent_id": "munger",
+      "stage": "munger",
+      "tool_id": "get_income_statement",
+      "required_route_ids": [
+        "tushare.sector_fundamentals"
+      ]
+    },
+    {
+      "agent_id": "munger",
+      "stage": "munger",
+      "tool_id": "get_rke_research_context",
+      "required_route_ids": [
+        "private.rke_report_intelligence"
+      ]
+    },
+    {
+      "agent_id": "munger",
+      "stage": "munger",
+      "tool_id": "get_stock_data",
+      "required_route_ids": [
+        "tushare.sector_market"
+      ]
+    },
+    {
+      "agent_id": "munger",
+      "stage": "munger",
+      "tool_id": "get_stock_research",
+      "required_route_ids": [
+        "private.tushare_research_reports"
+      ]
+    },
+    {
       "agent_id": "munger",
       "required_route_ids": [
         "runtime.accepted_outputs",
@@ -1065,12 +1177,124 @@
     },
     {
       "agent_id": "burry",
+      "stage": "burry",
+      "tool_id": "get_balance_sheet",
+      "required_route_ids": [
+        "tushare.sector_fundamentals"
+      ]
+    },
+    {
+      "agent_id": "burry",
+      "stage": "burry",
+      "tool_id": "get_cashflow",
+      "required_route_ids": [
+        "tushare.sector_fundamentals"
+      ]
+    },
+    {
+      "agent_id": "burry",
+      "stage": "burry",
+      "tool_id": "get_fundamentals",
+      "required_route_ids": [
+        "tushare.sector_fundamentals"
+      ]
+    },
+    {
+      "agent_id": "burry",
+      "stage": "burry",
+      "tool_id": "get_income_statement",
+      "required_route_ids": [
+        "tushare.sector_fundamentals"
+      ]
+    },
+    {
+      "agent_id": "burry",
+      "stage": "burry",
+      "tool_id": "get_rke_research_context",
+      "required_route_ids": [
+        "private.rke_report_intelligence"
+      ]
+    },
+    {
+      "agent_id": "burry",
+      "stage": "burry",
+      "tool_id": "get_stock_data",
+      "required_route_ids": [
+        "tushare.sector_market"
+      ]
+    },
+    {
+      "agent_id": "burry",
+      "stage": "burry",
+      "tool_id": "get_stock_research",
+      "required_route_ids": [
+        "private.tushare_research_reports"
+      ]
+    },
+    {
+      "agent_id": "burry",
       "required_route_ids": [
         "runtime.accepted_outputs",
         "runtime.candidate_scope"
       ],
       "stage": "burry",
       "tool_id": "get_superinvestor_candidate_snapshot"
+    },
+    {
+      "agent_id": "ackman",
+      "stage": "ackman",
+      "tool_id": "get_balance_sheet",
+      "required_route_ids": [
+        "tushare.sector_fundamentals"
+      ]
+    },
+    {
+      "agent_id": "ackman",
+      "stage": "ackman",
+      "tool_id": "get_cashflow",
+      "required_route_ids": [
+        "tushare.sector_fundamentals"
+      ]
+    },
+    {
+      "agent_id": "ackman",
+      "stage": "ackman",
+      "tool_id": "get_fundamentals",
+      "required_route_ids": [
+        "tushare.sector_fundamentals"
+      ]
+    },
+    {
+      "agent_id": "ackman",
+      "stage": "ackman",
+      "tool_id": "get_income_statement",
+      "required_route_ids": [
+        "tushare.sector_fundamentals"
+      ]
+    },
+    {
+      "agent_id": "ackman",
+      "stage": "ackman",
+      "tool_id": "get_rke_research_context",
+      "required_route_ids": [
+        "private.rke_report_intelligence"
+      ]
+    },
+    {
+      "agent_id": "ackman",
+      "stage": "ackman",
+      "tool_id": "get_stock_data",
+      "required_route_ids": [
+        "tushare.sector_market"
+      ]
+    },
+    {
+      "agent_id": "ackman",
+      "stage": "ackman",
+      "tool_id": "get_stock_research",
+      "required_route_ids": [
+        "private.tushare_research_reports"
+      ]
     },
     {
       "agent_id": "ackman",
@@ -1093,6 +1317,14 @@
     },
     {
       "agent_id": "cro",
+      "stage": "cro",
+      "tool_id": "get_rke_research_context",
+      "required_route_ids": [
+        "private.rke_report_intelligence"
+      ]
+    },
+    {
+      "agent_id": "cro",
       "required_route_ids": [
         "tushare.eco_cal.cny",
         "tushare.eco_cal.eur",
@@ -1109,6 +1341,14 @@
       ],
       "stage": "alpha_discovery",
       "tool_id": "get_alpha_candidate_snapshot"
+    },
+    {
+      "agent_id": "alpha_discovery",
+      "stage": "alpha_discovery",
+      "tool_id": "get_rke_research_context",
+      "required_route_ids": [
+        "private.rke_report_intelligence"
+      ]
     },
     {
       "agent_id": "alpha_discovery",
@@ -1132,6 +1372,14 @@
     },
     {
       "agent_id": "autonomous_execution",
+      "stage": "autonomous_execution",
+      "tool_id": "get_rke_research_context",
+      "required_route_ids": [
+        "private.rke_report_intelligence"
+      ]
+    },
+    {
+      "agent_id": "autonomous_execution",
       "required_route_ids": [
         "tushare.eco_cal.cny",
         "tushare.eco_cal.eur",
@@ -1151,6 +1399,14 @@
     },
     {
       "agent_id": "cio",
+      "stage": "cio_proposal",
+      "tool_id": "get_rke_research_context",
+      "required_route_ids": [
+        "private.rke_report_intelligence"
+      ]
+    },
+    {
+      "agent_id": "cio",
       "required_route_ids": [
         "runtime.accepted_outputs",
         "runtime.account_positions_policy",
@@ -1158,7 +1414,15 @@
       ],
       "stage": "cio_final",
       "tool_id": "get_cio_decision_snapshot"
+    },
+    {
+      "agent_id": "cio",
+      "stage": "cio_final",
+      "tool_id": "get_rke_research_context",
+      "required_route_ids": [
+        "private.rke_report_intelligence"
+      ]
     }
   ],
-  "manifest_hash": "sha256:5f03a481d699a0280084e65bf39510da9c95332b9be34342240bab29059d2b4c"
+  "manifest_hash": "sha256:8f685d8a5338881e43f8a61dcc8ef43455bb42ae1cc19f7282992f0b0cd15bf6"
 }

@@ -569,8 +569,22 @@ def test_matrix_restricts_roles_to_the_frozen_plan_tools():
     assert allowed_tools_for_agent("alpha_discovery") == (
         "get_alpha_candidate_snapshot",
         "get_role_event_snapshot",
+        "get_rke_research_context",
     )
-    assert allowed_tools_for_agent("cio") == ("get_cio_decision_snapshot",)
+    assert allowed_tools_for_agent("ackman") == (
+        "get_superinvestor_candidate_snapshot",
+        "get_balance_sheet",
+        "get_cashflow",
+        "get_fundamentals",
+        "get_income_statement",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_stock_research",
+    )
+    assert allowed_tools_for_agent("cio") == (
+        "get_cio_decision_snapshot",
+        "get_rke_research_context",
+    )
 
 
 def test_matrix_is_loaded_from_typescript_generated_runtime_manifest():
@@ -684,6 +698,84 @@ def test_bound_runtime_snapshots_use_strict_versioned_role_contracts(
     )
 
     assert json.loads(rendered) == payload
+
+
+def test_bound_runtime_snapshot_allows_same_run_accepted_output_after_market_close(
+    tmp_path,
+    monkeypatch,
+):
+    payload = _bound_snapshot(
+        tool_id="get_superinvestor_candidate_snapshot",
+        agent_id="ackman",
+        stage="ackman",
+        upstream_agent="china",
+        upstream_stage="china",
+        upstream_kind="MACRO_TRANSMISSION",
+    )
+    for evidence in payload["evidence_ledger"]:
+        if evidence["source_kind"] == "ACCEPTED_OUTPUT":
+            evidence["available_at"] = "2026-07-09T08:00:00+00:00"
+    payload["generated_at"] = "2026-07-09T08:01:00+00:00"
+    payload = _rehash_bound_snapshot(payload)
+    _write_bound_snapshot(
+        tmp_path,
+        payload=payload,
+        tool_id="get_superinvestor_candidate_snapshot",
+        agent_id="ackman",
+        stage="ackman",
+    )
+    monkeypatch.setenv("MOSAIC_RUNTIME_SNAPSHOT_DIR", str(tmp_path))
+
+    rendered = materialize_tool_payload(
+        "get_superinvestor_candidate_snapshot",
+        agent_id="ackman",
+        stage="ackman",
+        as_of="2026-07-09",
+        graph_run_id="graph-1",
+        expected_candidate_scope_hash=payload["candidate_scope_hash"],
+    )
+
+    assert json.loads(rendered) == payload
+
+
+def test_bound_runtime_snapshot_still_rejects_market_evidence_after_cutoff(
+    tmp_path,
+    monkeypatch,
+):
+    payload = _bound_snapshot(
+        tool_id="get_superinvestor_candidate_snapshot",
+        agent_id="ackman",
+        stage="ackman",
+        upstream_agent="china",
+        upstream_stage="china",
+        upstream_kind="MACRO_TRANSMISSION",
+    )
+    market = next(
+        row
+        for row in payload["evidence_ledger"]
+        if row["source_kind"] == "MARKET_SNAPSHOT"
+    )
+    market["available_at"] = "2026-07-09T08:00:00+00:00"
+    payload["generated_at"] = "2026-07-09T08:01:00+00:00"
+    payload = _rehash_bound_snapshot(payload)
+    _write_bound_snapshot(
+        tmp_path,
+        payload=payload,
+        tool_id="get_superinvestor_candidate_snapshot",
+        agent_id="ackman",
+        stage="ackman",
+    )
+    monkeypatch.setenv("MOSAIC_RUNTIME_SNAPSHOT_DIR", str(tmp_path))
+
+    with pytest.raises(DataVendorUnavailable, match="not PIT"):
+        materialize_tool_payload(
+            "get_superinvestor_candidate_snapshot",
+            agent_id="ackman",
+            stage="ackman",
+            as_of="2026-07-09",
+            graph_run_id="graph-1",
+            expected_candidate_scope_hash=payload["candidate_scope_hash"],
+        )
 
 
 @pytest.mark.parametrize(
@@ -920,6 +1012,11 @@ def test_prepare_binds_bound_tools_to_snapshot_authoritative_candidate_scope(
     tmp_path,
     monkeypatch,
 ):
+    monkeypatch.setitem(
+        capability_module.AGENT_TOOL_MATRIX,
+        "ackman",
+        ("get_superinvestor_candidate_snapshot",),
+    )
     payload = _bound_snapshot(
         tool_id="get_superinvestor_candidate_snapshot",
         agent_id="ackman",
@@ -962,6 +1059,11 @@ def test_explicit_synthetic_bundle_rebinds_run_and_exact_accepted_lineage(
     tmp_path,
     monkeypatch,
 ):
+    monkeypatch.setitem(
+        capability_module.AGENT_TOOL_MATRIX,
+        "ackman",
+        ("get_superinvestor_candidate_snapshot",),
+    )
     bindings = build_structured_smoke_fixtures(tmp_path, "2026-07-09")
     snapshot_root = tmp_path / "runtime_snapshots"
     payload = json.loads(
@@ -1056,6 +1158,11 @@ def test_prepare_rejects_nonexact_bound_accepted_output_closure(
     monkeypatch,
     mutation,
 ):
+    monkeypatch.setitem(
+        capability_module.AGENT_TOOL_MATRIX,
+        "ackman",
+        ("get_superinvestor_candidate_snapshot",),
+    )
     payload = _bound_snapshot(
         tool_id="get_superinvestor_candidate_snapshot",
         agent_id="ackman",
@@ -1139,6 +1246,106 @@ def test_prepare_materializes_once_and_calls_read_only_bundle_payload(tmp_path):
     assert len(calls) == 1
     with pytest.raises(ValueError, match="already been used"):
         store.call_tool(envelope, "get_china_macro_snapshot", {})
+
+
+def test_prepare_runs_stage_preparer_then_materializer_then_finalizer(
+    tmp_path: Path,
+) -> None:
+    events: list[tuple[str, str]] = []
+
+    def stage_preparer(request: dict) -> dict:
+        events.append(("prepare", request["stage"]))
+        return {"cache_status": "MISS"}
+
+    def materializer(
+        tool_id: str, *, agent_id: str, stage: str, as_of: str, graph_run_id: str
+    ) -> str:
+        events.append(("materialize", stage))
+        return f'{{"tool":"{tool_id}","frozen":true}}'
+
+    def stage_finalizer(context: dict) -> None:
+        assert context["stage_preparation"] == {"cache_status": "MISS"}
+        assert context["adaptive_query"] is None
+        assert set(context["tool_payload_hashes"]) == {"get_china_macro_snapshot"}
+        events.append(("finalize", context["stage"]))
+
+    store = AgentToolCapabilityStore(
+        tmp_path / "prepared-capabilities.sqlite3",
+        signing_key=b"test-signing-key-32-bytes-long!!!",
+        signing_key_id="test-key-v1",
+        clock=lambda: datetime(2026, 7, 9, tzinfo=timezone.utc),
+        stage_materialization_preparer=stage_preparer,
+        stage_materialization_finalizer=stage_finalizer,
+    )
+    request = _request()
+    request.pop("stage")
+    store.prepare(request, materializer=materializer)
+    assert events == [
+        ("prepare", "china"),
+        ("materialize", "china"),
+        ("finalize", "china"),
+    ]
+
+
+def test_prepare_failure_does_not_consume_capability_request(tmp_path: Path) -> None:
+    materializer_called = False
+
+    def stage_preparer(_request: dict) -> None:
+        raise DataVendorUnavailable("trusted stage materialization is blocked")
+
+    def materializer(
+        tool_id: str, *, agent_id: str, stage: str, as_of: str, graph_run_id: str
+    ) -> str:
+        nonlocal materializer_called
+        materializer_called = True
+        return f'{{"tool":"{tool_id}","frozen":true}}'
+
+    store = AgentToolCapabilityStore(
+        tmp_path / "blocked-capabilities.sqlite3",
+        signing_key=b"test-signing-key-32-bytes-long!!!",
+        signing_key_id="test-key-v1",
+        clock=lambda: datetime(2026, 7, 9, tzinfo=timezone.utc),
+        stage_materialization_preparer=stage_preparer,
+    )
+    with pytest.raises(DataVendorUnavailable, match="materialization is blocked"):
+        store.prepare(_request(), materializer=materializer)
+    assert materializer_called is False
+    with sqlite3.connect(store.db_path) as conn:
+        assert conn.execute("SELECT count(*) FROM materialization_requests").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM snapshot_bundles").fetchone()[0] == 0
+
+
+def test_stage_finalizer_failure_prevents_capability_publication(tmp_path: Path) -> None:
+    materializer_called = False
+
+    def stage_preparer(_request: dict) -> dict:
+        return {"cache_status": "MISS"}
+
+    def materializer(
+        tool_id: str, *, agent_id: str, stage: str, as_of: str, graph_run_id: str
+    ) -> str:
+        nonlocal materializer_called
+        materializer_called = True
+        return f'{{"tool":"{tool_id}","frozen":true}}'
+
+    def stage_finalizer(_context: dict) -> None:
+        raise DataVendorUnavailable("trusted stage finalization is blocked")
+
+    store = AgentToolCapabilityStore(
+        tmp_path / "finalizer-blocked-capabilities.sqlite3",
+        signing_key=b"test-signing-key-32-bytes-long!!!",
+        signing_key_id="test-key-v1",
+        clock=lambda: datetime(2026, 7, 9, tzinfo=timezone.utc),
+        stage_materialization_preparer=stage_preparer,
+        stage_materialization_finalizer=stage_finalizer,
+    )
+    with pytest.raises(DataVendorUnavailable, match="finalization is blocked"):
+        store.prepare(_request(), materializer=materializer)
+    assert materializer_called is True
+    with sqlite3.connect(store.db_path) as conn:
+        assert conn.execute("SELECT count(*) FROM materialization_requests").fetchone()[0] == 1
+        assert conn.execute("SELECT count(*) FROM snapshot_bundles").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM capabilities").fetchone()[0] == 0
 
 
 def test_sector_capability_binds_frozen_adaptive_queries_and_limits_each_session(
@@ -1357,8 +1564,13 @@ def test_expiry_and_materialization_request_replay_are_rejected(tmp_path):
     assert replay_materializer_called is False
 
 
-def test_multi_tool_capability_has_one_atomic_use_slot_per_tool(tmp_path):
+def test_multi_tool_capability_has_one_atomic_use_slot_per_tool(tmp_path, monkeypatch):
     now = [datetime(2026, 7, 9, tzinfo=timezone.utc)]
+    monkeypatch.setitem(
+        capability_module.AGENT_TOOL_MATRIX,
+        "cro",
+        ("get_cro_risk_snapshot", "get_role_event_snapshot"),
+    )
     store = _store(tmp_path, now)
     prepared = store.prepare(
         _request("cro"),

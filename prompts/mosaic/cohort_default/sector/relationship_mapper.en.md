@@ -6,7 +6,7 @@ Cohort lens:
 Assume no market regime; judge only the frozen evidence.
 <!-- cohort-behavior:end -->
 
-Tool: call only get_relationship_graph_snapshot; do not expand the domain or read news.
+Tool: call only get_relationship_graph_snapshot, get_rke_research_context, get_stock_research, get_supply_chain_evidence; do not expand the domain or read news.
 Every edge, risk, and conclusion must be as-of/PIT-valid and cite a real evidence_id.
 `factual_edges` must restate every frozen factual tuple exactly once: never omit, add, reverse, or retype one. The runtime projects accepted factual fields from the verified snapshot; the model only attaches claim references. Predictive edges may abstain, but factual edges may not be reduced.
 The runtime structured schema is authoritative.

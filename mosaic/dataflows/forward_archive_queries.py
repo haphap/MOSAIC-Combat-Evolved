@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
+import threading
 from collections.abc import Mapping, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -628,4 +631,138 @@ class ForwardArchiveQueryReader:
         )
 
 
-__all__ = ["ForwardArchiveQueryReader"]
+class ForwardArchiveSourcePreparer:
+    """Populate trusted forward archives during prepare, never during tool calls."""
+
+    _thread_locks_guard = threading.Lock()
+    _thread_locks: dict[str, threading.Lock] = {}
+    _RECOVERABLE_MISSES = {
+        "research report archive is unavailable",
+        "research forward archive has no proven coverage",
+        "policy forward archive has no proven coverage",
+    }
+
+    def __init__(
+        self,
+        *,
+        reader: ForwardArchiveQueryReader,
+        research_refresher: Callable[..., Any] | None = None,
+        policy_refresher: Callable[..., Any] | None = None,
+        lock_path: str | Path | None = None,
+    ) -> None:
+        self.reader = reader
+        self.research_refresher = research_refresher
+        self.policy_refresher = policy_refresher
+        self.lock_path = (
+            Path(lock_path).expanduser().resolve()
+            if lock_path is not None
+            else reader.root / ".mosaic/agent_data/forward_archive_sources.lock"
+        )
+
+    @classmethod
+    def _thread_lock_for(cls, key: str) -> threading.Lock:
+        with cls._thread_locks_guard:
+            return cls._thread_locks.setdefault(key, threading.Lock())
+
+    @contextmanager
+    def _capture_lock(self) -> Iterator[None]:
+        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_key = str(self.lock_path)
+        with self._thread_lock_for(lock_key), self.lock_path.open("a+b") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+    @staticmethod
+    def _route(tool_id: str, args: Mapping[str, Any]) -> tuple[str, tuple[Any, ...]] | None:
+        if tool_id in {"get_broker_research", "get_stock_research"}:
+            return tool_id, (
+                args["ticker"],
+                args["date_from"],
+                args["date_to"],
+                args["max_reports"],
+            )
+        if tool_id == "get_industry_policy_digest":
+            return "get_industry_policy", (
+                args["as_of"],
+                args["lookback_days"],
+                args["source"],
+            )
+        return None
+
+    def _archive_ready(self, method: str, route_args: Sequence[Any]) -> bool:
+        try:
+            self.reader(method, *route_args)
+        except DataVendorUnavailable as exc:
+            if str(exc) in self._RECOVERABLE_MISSES:
+                return False
+            raise
+        return True
+
+    def _refresh_research(self, tool_id: str, args: Mapping[str, Any]) -> None:
+        refresher = self.research_refresher
+        if refresher is None:
+            from mosaic.rke.tushare_reports import (  # noqa: PLC0415
+                refresh_tushare_research_report_registry,
+            )
+
+            refresher = refresh_tushare_research_report_registry
+        broker = tool_id == "get_broker_research"
+        try:
+            refresher(
+                root=self.reader.root,
+                stock_codes=() if broker else (str(args["ticker"]),),
+                industry_keywords=(),
+                report_types=("个股研报", "行业研报") if broker else (),
+                start_date=str(args["date_from"]),
+                end_date=str(args["date_to"]),
+                merge_existing_source=True,
+                source_only=True,
+            )
+        except DataVendorUnavailable:
+            raise
+        except Exception as exc:
+            raise DataVendorUnavailable("research forward capture failed") from exc
+
+    def _refresh_policy(self, args: Mapping[str, Any]) -> None:
+        refresher = self.policy_refresher
+        if refresher is None:
+            from mosaic.dataflows.gov_policy import (  # noqa: PLC0415
+                ensure_gov_policy_documents_updated,
+            )
+
+            refresher = ensure_gov_policy_documents_updated
+        start_date, end_date = _date_window(
+            str(args["as_of"]), int(args["lookback_days"])
+        )
+        try:
+            refresher(
+                cache_dir=self.reader.policy_cache_dir,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        except DataVendorUnavailable:
+            raise
+        except Exception as exc:
+            raise DataVendorUnavailable("policy forward capture failed") from exc
+
+    def __call__(self, tool_id: str, args: Mapping[str, Any]) -> None:
+        route = self._route(tool_id, args)
+        if route is None:
+            return
+        method, route_args = route
+        if self._archive_ready(method, route_args):
+            return
+        with self._capture_lock():
+            if self._archive_ready(method, route_args):
+                return
+            if tool_id in {"get_broker_research", "get_stock_research"}:
+                self._refresh_research(tool_id, args)
+            else:
+                self._refresh_policy(args)
+            self.reader(method, *route_args)
+
+
+__all__ = ["ForwardArchiveQueryReader", "ForwardArchiveSourcePreparer"]

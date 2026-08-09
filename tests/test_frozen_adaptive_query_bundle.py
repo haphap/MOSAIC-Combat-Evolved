@@ -139,6 +139,74 @@ def test_prepare_may_transport_but_calls_only_read_frozen_private_payloads(tmp_p
     assert len(transports) == 3
 
 
+def test_bundle_evidence_exposes_only_validated_hash_lineage(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    overlay = build_sector_relationship_preservation_overlay(ROOT)
+    prepared = store.prepare(
+        agent_id="financials",
+        stage="financials",
+        as_of="2026-07-09",
+        authorized_scope=_scope(),
+        query_requests=_queries(),
+        preservation_overlay=overlay,
+        materializer=lambda tool_id, args: _materialized_result(
+            tool_id,
+            args,
+            payload=f"private-payload:{tool_id}:{args}",
+        ),
+    )
+
+    evidence = store.bundle_evidence(prepared["bundle_id"])
+
+    assert set(evidence) == {
+        "bundle_id",
+        "bundle_hash",
+        "agent_id",
+        "stage",
+        "as_of",
+        "entries",
+    }
+    assert evidence["bundle_hash"] == prepared["public_projection"]["bundle_hash"]
+    assert len(evidence["entries"]) == 3
+    public_by_request = {
+        (entry["tool_id"], entry["request_hash"]): entry
+        for entry in prepared["public_projection"]["entries"]
+    }
+    for entry in evidence["entries"]:
+        assert set(entry) == {
+            "tool_id",
+            "request_hash",
+            "call_mode",
+            "payload_hash",
+            "source_receipt_hashes",
+            "source_receipt_set_hash",
+        }
+        public = public_by_request[(entry["tool_id"], entry["request_hash"])]
+        assert entry["payload_hash"] == public["payload_hash"]
+        assert entry["source_receipt_set_hash"] == public["source_receipt_set_hash"]
+        assert entry["source_receipt_set_hash"] == canonical_hash(
+            entry["source_receipt_hashes"]
+        )
+    serialized = json.dumps(evidence, ensure_ascii=False)
+    assert "private-payload" not in serialized
+    assert "600000.SH" not in serialized
+    assert "512800.SH" not in serialized
+
+    with pytest.raises(ValueError, match="unknown frozen query bundle"):
+        store.bundle_evidence("frozen_bundle_" + "0" * 64)
+
+    with sqlite3.connect(store.db_path) as connection:
+        connection.execute("DROP TRIGGER frozen_query_payloads_no_update")
+        connection.execute(
+            "UPDATE frozen_query_payloads SET source_receipt_hashes_json = ? "
+            "WHERE rowid = (SELECT rowid FROM frozen_query_payloads "
+            "WHERE bundle_id = ? ORDER BY tool_id, request_hash LIMIT 1)",
+            (json.dumps([canonical_hash({"tampered": True})]), prepared["bundle_id"]),
+        )
+    with pytest.raises(ValueError, match="bundle hash|source receipt"):
+        store.bundle_evidence(prepared["bundle_id"])
+
+
 def test_prepare_requires_declared_digest_derivation_lineage(tmp_path: Path):
     store = _store(tmp_path)
     overlay = build_sector_relationship_preservation_overlay(ROOT)

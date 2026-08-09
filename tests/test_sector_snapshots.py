@@ -42,6 +42,27 @@ AS_OF = "2026-07-17"
 ROLE = "semiconductor"
 
 
+def test_default_sector_etf_authority_restores_one_exact_mapping_per_agent() -> None:
+    authority = sector_snapshots_module.SECTOR_ETF_DIRECTION_AUTHORITY
+    observed = {
+        (row["sector_agent_id"], row["direction_id"]): tuple(row["etf_ts_codes"])
+        for row in authority["direction_families"]
+        if row["etf_ts_codes"]
+    }
+    assert observed == {
+        ("agriculture", "livestock_aquaculture"): ("159865.SZ",),
+        ("biotech", "biological_products"): ("512290.SH",),
+        ("consumer", "food_beverage"): ("515170.SH",),
+        ("energy", "coal"): ("515220.SH",),
+        ("financials", "banking"): ("512800.SH",),
+        ("industrials", "machinery"): ("516960.SH",),
+        ("real_estate_construction", "real_estate"): ("512200.SH",),
+        ("semiconductor", "semiconductor_equipment_materials"): ("512480.SH",),
+        ("technology", "computer"): ("515230.SH",),
+    }
+    assert authority["mapping_count"] == 9
+
+
 @pytest.fixture
 def snapshot(tmp_path: Path) -> dict[str, Any]:
     _build_sector_snapshots(tmp_path, date.fromisoformat(AS_OF))
@@ -1391,7 +1412,7 @@ def test_registered_relationship_rejects_rehashed_derived_fact_mutation(
 def _registered_source_inputs(
     source_snapshot: dict[str, Any],
     *,
-    with_etf: bool = False,
+    with_etf: bool = True,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     snapshot = copy.deepcopy(source_snapshot)
     snapshot.pop("fixture_class")

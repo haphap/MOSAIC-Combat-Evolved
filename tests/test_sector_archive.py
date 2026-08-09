@@ -13,6 +13,7 @@ from mosaic.dataflows.sector_archive import (
     SectorArchiveStore,
     _build_capture_group,
     archive_sector_relationship,
+    compile_sector_relationship_core_snapshots,
 )
 from mosaic.dataflows.tushare_catalog import PREFLIGHT_ENDPOINT_CHECKS
 
@@ -123,6 +124,102 @@ def test_sector_archive_atomically_publishes_three_routes_and_replays_cache(
     assert counts["route_coverage_receipts"] == 1
 
 
+def test_sector_core_snapshots_publish_exact_builds_and_replay(
+    tmp_path, monkeypatch
+) -> None:
+    store = SectorArchiveStore(tmp_path / "sector.sqlite3")
+    ledger = AgentDataMaterializationLedger(tmp_path / "ledger.sqlite3")
+    snapshots = {
+        role: {
+            "snapshot_hash": sector_archive.canonical_hash({"role": role})
+        }
+        for role in (*sector_archive.SECTOR_DIRECTION_IDS, "relationship_mapper")
+    }
+    writes: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        sector_archive,
+        "_build_capture_group",
+        lambda *_args, capture_key, **_kwargs: _sealed_group(capture_key),
+    )
+    monkeypatch.setattr(
+        sector_archive, "compile_sector_archive_group", lambda _group: snapshots
+    )
+
+    def write_sector(**kwargs):
+        writes.append(("sector", kwargs["role"]))
+        return kwargs["snapshot"]
+
+    def write_relationship(**kwargs):
+        writes.append(("relationship", "relationship_mapper"))
+        return kwargs["snapshot"]
+
+    monkeypatch.setattr(
+        sector_archive, "write_registered_sector_snapshot", write_sector
+    )
+    monkeypatch.setattr(
+        sector_archive,
+        "write_registered_relationship_snapshot",
+        write_relationship,
+    )
+
+    archived = archive_sector_relationship(
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("transport")),
+        as_of_date=AS_OF,
+        cutoff_at=CUTOFF,
+        base_store=_BaseStore(_base_group()),
+        store=store,
+        ledger=ledger,
+    )
+    first = compile_sector_relationship_core_snapshots(
+        archived,
+        ledger=ledger,
+        output_root=tmp_path / "snapshots",
+    )
+    replay = compile_sector_relationship_core_snapshots(
+        archived,
+        ledger=ledger,
+        output_root=tmp_path / "snapshots",
+    )
+
+    assert set(first.snapshots) == {
+        *sector_archive.SECTOR_DIRECTION_IDS,
+        "relationship_mapper",
+    }
+    assert len(first.build_receipts) == 10
+    assert [row.receipt_hash for row in replay.build_receipts] == [
+        row.receipt_hash for row in first.build_receipts
+    ]
+    assert writes.count(("relationship", "relationship_mapper")) == 2
+    assert len([row for row in writes if row[0] == "sector"]) == 18
+    route_hashes = {
+        receipt.as_dict()["identity"]["route_id"]: receipt.receipt_hash
+        for receipt in archived.source_receipts
+    }
+    semiconductor = ledger.ready_snapshot_build_receipts(
+        agent_id="semiconductor",
+        stage="semiconductor",
+        tool_id="get_sector_research_snapshot",
+        as_of=AS_OF,
+    )[0].as_dict()
+    assert semiconductor["source_receipt_hashes"] == sorted(
+        [
+            route_hashes["tushare.sector_fundamentals"],
+            route_hashes["tushare.sector_market"],
+        ]
+    )
+    relationship = ledger.ready_snapshot_build_receipts(
+        agent_id="relationship_mapper",
+        stage="relationship_mapper",
+        tool_id="get_relationship_graph_snapshot",
+        as_of=AS_OF,
+    )[0].as_dict()
+    assert relationship["source_receipt_hashes"] == [
+        route_hashes["tushare.relationship_graph"]
+    ]
+    assert ledger.row_counts()["snapshot_build_receipts"] == 10
+
+
 def test_sector_archive_same_key_concurrency_runs_one_builder(tmp_path) -> None:
     assert sector_archive._LOCK_TIMEOUT_SECONDS == 9 * 60 * 60
     store = SectorArchiveStore(tmp_path / "sector.sqlite3")
@@ -176,9 +273,24 @@ def test_sector_archive_transport_failure_publishes_no_source(
     assert result.coverage_receipt.as_dict()["coverage_complete"] is False
     assert result.coverage_receipt.as_dict()["blocker_codes"] == ["TRANSPORT_FAILED"]
     assert store.row_count() == 0
+    publication = compile_sector_relationship_core_snapshots(
+        result,
+        ledger=ledger,
+        output_root=tmp_path / "snapshots",
+    )
+    assert len(publication.build_receipts) == 10
+    assert {
+        receipt.as_dict()["terminal_state"]
+        for receipt in publication.build_receipts
+    } == {"BLOCKED"}
+    assert {
+        tuple(receipt.as_dict()["blocker_codes"])
+        for receipt in publication.build_receipts
+    } == {("TRANSPORT_FAILED",)}
     counts = ledger.row_counts()
     assert counts["source_capture_receipts"] == 0
     assert counts["route_coverage_receipts"] == 1
+    assert counts["snapshot_build_receipts"] == 10
 
 
 def test_compiler_failure_preserves_raw_capture_for_zero_transport_replay(
@@ -449,7 +561,9 @@ def _endpoint_row(endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
         for field in PREFLIGHT_ENDPOINT_CHECKS[endpoint]["expected_columns"]
     }
     if "ts_code" in row:
-        row["ts_code"] = "000001.SZ"
+        row["ts_code"] = params.get(
+            "ts_code", "510001.SH" if endpoint.startswith("fund_") else "000001.SZ"
+        )
     for field in ("trade_date", "ann_date", "f_ann_date", "end_date"):
         if field in row:
             row[field] = params.get("trade_date", "20260806")
@@ -498,6 +612,15 @@ def test_capture_group_executes_registered_incremental_routes(
         sector_archive.SECTOR_UNIVERSE_MANIFEST,
         "membership_query_plans",
         [plan],
+    )
+    monkeypatch.setattr(
+        sector_archive,
+        "_authoritative_etf_codes",
+        lambda role, direction_id, _as_of: (
+            ["510001.SH"]
+            if role == "semiconductor" and direction_id == "chip_design"
+            else []
+        ),
     )
     moments = iter(
         (
@@ -552,6 +675,11 @@ def test_capture_group_executes_registered_incremental_routes(
         "balancesheet",
         "cashflow",
         "fund_basic",
+        "fund_daily",
+        "fund_adj",
+        "fund_share",
+        "fund_nav",
+        "fund_portfolio",
         "top10_holders",
     }
     assert group["page_count"] == len(calls)
@@ -578,6 +706,11 @@ def test_capture_group_executes_registered_incremental_routes(
         "cashflow": "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP",
         "balancesheet": "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP",
         "fund_basic": "OFFSET_WITH_TERMINAL_CONFIRMATION",
+        "fund_daily": "OFFSET_WITH_TERMINAL_CONFIRMATION",
+        "fund_adj": "OFFSET_WITH_TERMINAL_CONFIRMATION",
+        "fund_share": "OFFSET_WITH_TERMINAL_CONFIRMATION",
+        "fund_nav": "OFFSET_WITH_TERMINAL_CONFIRMATION",
+        "fund_portfolio": "OFFSET_WITH_TERMINAL_CONFIRMATION",
         "income": "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP",
         "index_member_all": "OFFSET_WITH_TERMINAL_CONFIRMATION",
         "moneyflow": "OFFSET_WITH_TERMINAL_CONFIRMATION",

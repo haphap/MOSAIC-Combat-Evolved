@@ -16,7 +16,7 @@
     },
     "tool_count": {
       "type": "number",
-      "enum": [18, 31]
+      "enum": [18, 31, 32]
     },
     "agents": {
       "minItems": 28,
@@ -133,6 +133,7 @@
                 "get_broker_research",
                 "get_cashflow",
                 "get_etf_holdings",
+                "get_fundamentals",
                 "get_income_statement",
                 "get_indicators",
                 "get_industry_moneyflow",

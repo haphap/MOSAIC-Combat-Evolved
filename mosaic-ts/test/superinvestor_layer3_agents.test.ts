@@ -1,12 +1,18 @@
 import { ToolMessage } from "@langchain/core/messages";
 import { describe, expect, it } from "vitest";
-import { canonicalAcceptedOutputHash } from "../src/agents/accepted_output.js";
+import {
+  type AcceptedAgentOutputRecord,
+  type AcceptedAgentOutputStore,
+  type AcceptedOutputRecordRef,
+  canonicalAcceptedOutputHash,
+} from "../src/agents/accepted_output.js";
 import { MACRO_AGENT_IDS } from "../src/agents/macro/_contracts.js";
 import { validateMacroInputs } from "../src/agents/macro/_input_gate.js";
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
 import { emptyCurrentPositions, emptyLayer4, emptyPositionAudit } from "../src/agents/state.js";
 import {
+  buildLayerThreeCapabilityRuntimeInputs,
   buildLayerThreeInitialToolCalls,
   buildLayerThreeUserContext,
   frozenSuperinvestorCandidateCodes,
@@ -249,6 +255,41 @@ describe("Layer-3 superinvestor contracts", () => {
 });
 
 describe("Layer-3 upstream consumption", () => {
+  it("passes exact accepted records and position authority to production capability prepare", () => {
+    const input = state();
+    input.current_positions.position_snapshot_hash = `sha256:${"b".repeat(64)}`;
+    const ref = {
+      accepted_output_kind: "RELATIONSHIP_GRAPH",
+      agent_id: "relationship_mapper",
+      accepted_output_id: "accepted:relationship_mapper",
+      accepted_output_hash: `sha256:${"a".repeat(64)}`,
+    } as AcceptedOutputRecordRef;
+    const record = {
+      accepted_output_id: ref.accepted_output_id,
+      accepted_output_hash: ref.accepted_output_hash,
+    } as AcceptedAgentOutputRecord;
+    const store = {
+      resolve: (candidate: AcceptedOutputRecordRef) => {
+        expect(candidate).toEqual(ref);
+        return record;
+      },
+    } as unknown as AcceptedAgentOutputStore;
+
+    expect(buildLayerThreeCapabilityRuntimeInputs(input, [ref], store)).toEqual({
+      accepted_output_refs: [ref],
+      accepted_output_records: [record],
+      bound_runtime_state: {
+        current_positions: {
+          snapshot_status: input.current_positions.snapshot_status,
+          position_source: input.current_positions.position_source,
+          source_error_code: input.current_positions.source_error_code,
+          position_snapshot_hash: input.current_positions.position_snapshot_hash,
+          positions: [],
+        },
+      },
+    });
+  });
+
   it("binds the relationship graph into the same frozen accepted-output closure", () => {
     const input = state();
     input.accepted_output_refs = {
@@ -307,9 +348,31 @@ describe("Layer-3 upstream consumption", () => {
     expect(rendered).not.toContain("layer1_consensus");
   });
 
-  it("builds deterministic initial calls only for the role tool list", () => {
-    const calls = buildLayerThreeInitialToolCalls(state(), "munger");
-    expect(calls.map((call) => call.name)).toEqual(mungerSpec.requiredTools);
+  it("builds the deterministic initial subset for each role", () => {
+    expect(buildLayerThreeInitialToolCalls(state(), "munger").map((call) => call.name)).toEqual([
+      "get_superinvestor_candidate_snapshot",
+      "get_fundamentals",
+      "get_cashflow",
+    ]);
+    expect(buildLayerThreeInitialToolCalls(state(), "burry").map((call) => call.name)).toEqual([
+      "get_superinvestor_candidate_snapshot",
+      "get_fundamentals",
+      "get_balance_sheet",
+    ]);
+    expect(
+      buildLayerThreeInitialToolCalls(state(), "druckenmiller").map((call) => call.name),
+    ).toEqual(["get_superinvestor_candidate_snapshot"]);
+  });
+
+  it("suppresses private initial calls when the prepared candidate scope is empty", () => {
+    expect(buildLayerThreeInitialToolCalls(state(), "munger", [])).toEqual([
+      { name: "get_superinvestor_candidate_snapshot", args: {} },
+    ]);
+    expect(
+      buildLayerThreeInitialToolCalls(state(), "munger", ["get_fundamentals"]).map(
+        (call) => call.name,
+      ),
+    ).toEqual(["get_superinvestor_candidate_snapshot", "get_fundamentals"]);
   });
 });
 

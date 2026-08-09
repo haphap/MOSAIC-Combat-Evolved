@@ -546,6 +546,10 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
         (row["sector_agent_id"], row["direction_id"]): row
         for row in SECTOR_UNIVERSE_MANIFEST["direction_contracts"]
     }
+    authority_codes = {
+        (row["sector_agent_id"], row["direction_id"]): row["etf_ts_codes"]
+        for row in SECTOR_ETF_DIRECTION_AUTHORITY["direction_families"]
+    }
     ticker_ordinal = 0
     for agent_id, direction_ids in SECTOR_DIRECTION_IDS.items():
         plan = plans[agent_id]
@@ -633,7 +637,7 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
             etf_family = {
                 "etf_family_id": f"sector-etf:{agent_id}:{direction_id}",
                 "direction_id": direction_id,
-                "etf_ts_codes": [],
+                "etf_ts_codes": list(authority_codes[(agent_id, direction_id)]),
                 "selection_date": as_of.isoformat(),
                 "released_at": as_of.isoformat(),
                 "vintage_at": as_of.isoformat(),
@@ -668,7 +672,11 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
                     "observation_count": (
                         0 if is_etf else metric_contract["minimum_observations"]
                     ),
-                    "eligible_count": 0 if is_etf else len(members),
+                    "eligible_count": (
+                        len(etf_family["etf_ts_codes"])
+                        if is_etf
+                        else len(members)
+                    ),
                     "observed_count": 0 if is_etf else len(members),
                     "coverage_ratio": 0.0 if is_etf else 1.0,
                     "etf_family_id": etf_family["etf_family_id"] if is_etf else None,

@@ -9,6 +9,10 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from mosaic.dataflows.agent_materialization import (
+    AgentDataMaterializationLedger,
+    SourceCaptureReceipt,
+)
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.china_agent_data_archive import (
     CURVE_ROUTE_GROUP,
@@ -118,6 +122,7 @@ class SectorRelationshipSourceEvidenceAuthority:
         sector_archive_store: Any | None = None,
         china_archive_store: Any | None = None,
         forward_archive_reader: Any | None = None,
+        agent_data_ledger: AgentDataMaterializationLedger | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.root = Path(root).expanduser().resolve()
@@ -125,7 +130,13 @@ class SectorRelationshipSourceEvidenceAuthority:
         self.sector_archive_store = sector_archive_store
         self.china_archive_store = china_archive_store
         self.forward_archive_reader = forward_archive_reader
+        self.agent_data_ledger = agent_data_ledger
         self.clock = clock or (lambda: datetime.now(timezone.utc))
+
+    def _register_source(self, receipt: SourceCaptureReceipt) -> str:
+        if self.agent_data_ledger is not None:
+            return self.agent_data_ledger.append_source_capture(receipt)
+        return receipt.receipt_hash
 
     def __call__(
         self,
@@ -172,17 +183,19 @@ class SectorRelationshipSourceEvidenceAuthority:
     ) -> dict[str, Any]:
         if descriptor.get("pit_mode") != "DERIVED_FROM_PIT_ARCHIVE":
             raise DataVendorUnavailable("forward archive query PIT mode is invalid")
-        upstream = self.forward_archive_reader.source_receipt(
+        upstream_receipt = self.forward_archive_reader.source_receipt(
             tool_id,
             args,
             raw_payload,
             descriptor,
-        ).as_dict()
+        )
+        upstream_hash = self._register_source(upstream_receipt)
+        upstream = upstream_receipt.as_dict()
         return seal_staged_query_source_receipt(
             descriptor,
             knowledge_available_at=str(upstream["time"]["knowledge_available_at"]),
             captured_at=str(upstream["time"]["captured_at"]),
-            upstream_evidence_hashes=(str(upstream["receipt_hash"]),),
+            upstream_evidence_hashes=(upstream_hash,),
         )
 
     def _china_archive_receipt(
@@ -200,14 +213,16 @@ class SectorRelationshipSourceEvidenceAuthority:
             raise DataVendorUnavailable(
                 f"no exact China archive source receipt is available for {as_of}"
             ) from exc
-        upstream = china_archive_source_receipt(group, route_id).as_dict()
+        upstream_receipt = china_archive_source_receipt(group, route_id)
+        upstream_hash = self._register_source(upstream_receipt)
+        upstream = upstream_receipt.as_dict()
         knowledge_at = str(upstream["time"]["knowledge_available_at"])
         captured_at = str(upstream["time"]["captured_at"])
         return seal_staged_query_source_receipt(
             descriptor,
             knowledge_available_at=knowledge_at,
             captured_at=captured_at,
-            upstream_evidence_hashes=(str(upstream["receipt_hash"]),),
+            upstream_evidence_hashes=(upstream_hash,),
         )
 
     def _sector_archive_receipt(
@@ -238,25 +253,16 @@ class SectorRelationshipSourceEvidenceAuthority:
             if tool_id == "get_etf_holdings"
             else str(descriptor.get("route_id") or "")
         )
-        upstream = sector_archive_source_receipt(group, upstream_route).as_dict()
-        upstream_hash = str(upstream["receipt_hash"])
+        upstream_receipt = sector_archive_source_receipt(group, upstream_route)
+        upstream_hash = self._register_source(upstream_receipt)
+        upstream = upstream_receipt.as_dict()
         captured_at = str(upstream["time"]["captured_at"])
         if tool_id == "get_etf_holdings":
-            disclosure = _timestamp(
-                _summary_field(raw_payload, "Disclosure Date"),
-                field="ETF disclosure date",
-                date_at_end=True,
-            )
-            as_of_end = datetime.combine(
-                date.fromisoformat(as_of), time.max, tzinfo=_SHANGHAI
-            )
-            if disclosure > as_of_end:
-                raise DataVendorUnavailable("ETF disclosure date is after query as_of")
-            return seal_staged_query_source_receipt(
+            return self._etf_receipt(
+                raw_payload,
                 descriptor,
-                knowledge_available_at=disclosure.isoformat(),
-                captured_at=captured_at,
-                upstream_evidence_hashes=(upstream_hash,),
+                captured_at=_timestamp(captured_at, field="Sector archive captured_at"),
+                parent_capture_hash=upstream_hash,
             )
         if descriptor.get("pit_mode") != "OBSERVED_LIVE":
             raise DataVendorUnavailable("Sector archive query PIT mode is invalid")
@@ -272,6 +278,9 @@ class SectorRelationshipSourceEvidenceAuthority:
         self,
         raw_payload: str,
         descriptor: Mapping[str, Any],
+        *,
+        captured_at: datetime | None = None,
+        parent_capture_hash: str | None = None,
     ) -> dict[str, Any]:
         if descriptor.get("pit_mode") != "AUTHORITATIVE_VINTAGE_REPLAY":
             raise DataVendorUnavailable("ETF disclosure receipt PIT mode is invalid")
@@ -289,22 +298,110 @@ class SectorRelationshipSourceEvidenceAuthority:
         )
         if disclosure > as_of_end:
             raise DataVendorUnavailable("ETF disclosure date is after query as_of")
-        captured = _aware_now(self.clock)
+        captured = captured_at or _aware_now(self.clock)
         if captured < disclosure:
             raise DataVendorUnavailable("ETF disclosure was captured before its release date")
+        as_of = str(descriptor["as_of"])
+        data_lines = [
+            line
+            for line in raw_payload.splitlines()
+            if line.strip() and "," in line and not line.startswith("ts_code,")
+        ]
+        row_count = len(data_lines)
+        source = SourceCaptureReceipt.seal(
+            {
+                "schema_version": "source_capture_receipt_v1",
+                "identity": {
+                    "source_family": "tushare",
+                    "route_id": "tushare.etf_holdings",
+                    "request_hash": descriptor["request_hash"],
+                    "capture_id": "etf-holdings:"
+                    + canonical_hash(
+                        {
+                            "request_hash": descriptor["request_hash"],
+                            "content_hash": descriptor["content_hash"],
+                            "disclosure": disclosure.isoformat(),
+                        }
+                    ).removeprefix("sha256:"),
+                },
+                "transport": {
+                    "redacted_url": "private://tushare/etf-holdings",
+                    "method": "FILE",
+                    "query_keys": ["as_of", "etf", "top_n"],
+                    "pagination_policy": "FROZEN_ETF_DISCLOSURE_SELECTION_V1",
+                    "page_count": 1,
+                },
+                "authority": {
+                    "provider": "tushare",
+                    "permission_tier": "trusted_private_archive",
+                    "api_version": "pro-v1",
+                    "parser_version": "etf_holdings_query_v1",
+                },
+                "time": {
+                    "released_at": disclosure.isoformat(),
+                    "vintage_at": disclosure.isoformat(),
+                    "captured_at": captured.isoformat(),
+                    "knowledge_available_at": disclosure.isoformat(),
+                },
+                "pit": {
+                    "pit_mode": "AUTHORITATIVE_VINTAGE_REPLAY",
+                    "as_of_cutoff": as_of_end.isoformat(),
+                    "eligible": True,
+                    "blocker_codes": [],
+                    "vintage_query": {
+                        "as_of": as_of,
+                        "disclosure_date": disclosure.date().isoformat(),
+                    },
+                },
+                "content": {
+                    "raw_content_hash": descriptor["content_hash"],
+                    "normalized_row_count": row_count,
+                    "schema_hash": canonical_hash(
+                        {
+                            "parser_version": "etf_holdings_query_v1",
+                            "route_id": descriptor["route_id"],
+                        }
+                    ),
+                },
+                "coverage": {
+                    "requested_start": disclosure.date().isoformat(),
+                    "requested_end": as_of,
+                    "observed_start": (
+                        disclosure.date().isoformat() if row_count else None
+                    ),
+                    "observed_end": (
+                        disclosure.date().isoformat() if row_count else None
+                    ),
+                    "dimensions": {"route_id": ["tushare.etf_holdings"]},
+                },
+                "completeness": {
+                    "truncated": False,
+                    "next_page_token_present": False,
+                    "duplicate_count": 0,
+                    "empty_result_semantics": (
+                        "NON_EMPTY" if row_count else "TRUE_EMPTY"
+                    ),
+                },
+                "provenance": {
+                    "parent_capture_hash": parent_capture_hash
+                    or canonical_hash(
+                        {
+                            "route_id": descriptor["route_id"],
+                            "content_hash": descriptor["content_hash"],
+                            "disclosure": disclosure.isoformat(),
+                        }
+                    ),
+                    "previous_revision_hash": None,
+                    "revision_reason": None,
+                },
+            }
+        )
+        upstream_hash = self._register_source(source)
         return seal_staged_query_source_receipt(
             descriptor,
             knowledge_available_at=disclosure.isoformat(),
             captured_at=captured.isoformat(),
-            upstream_evidence_hashes=(
-                canonical_hash(
-                    {
-                        "disclosure_date": disclosure.isoformat(),
-                        "raw_payload_hash": descriptor["content_hash"],
-                        "route_id": descriptor["route_id"],
-                    }
-                ),
-            ),
+            upstream_evidence_hashes=(upstream_hash,),
         )
 
     def _rke_receipt(
@@ -369,11 +466,90 @@ class SectorRelationshipSourceEvidenceAuthority:
                 canonical_hash({"source": dict(source), "metadata": dict(metadata)})
             )
 
+        knowledge_at = max(knowledge_values)
+        captured_at = max(capture_values)
+        archive_hash = canonical_hash(sorted(set(upstream_evidence)))
+        source = SourceCaptureReceipt.seal(
+            {
+                "schema_version": "source_capture_receipt_v1",
+                "identity": {
+                    "source_family": "local_private_rke",
+                    "route_id": "private.rke_report_intelligence",
+                    "request_hash": descriptor["request_hash"],
+                    "capture_id": "private-rke:"
+                    + canonical_hash(
+                        {
+                            "request_hash": descriptor["request_hash"],
+                            "content_hash": descriptor["content_hash"],
+                            "archive_hash": archive_hash,
+                        }
+                    ).removeprefix("sha256:"),
+                },
+                "transport": {
+                    "redacted_url": "private://rke/report-intelligence",
+                    "method": "FILE",
+                    "query_keys": ["as_of", "source_ids"],
+                    "pagination_policy": "EXACT_PRIVATE_SOURCE_SET_V1",
+                    "page_count": 1,
+                },
+                "authority": {
+                    "provider": "local_private_rke",
+                    "permission_tier": "trusted_private_archive",
+                    "api_version": "rke-v1",
+                    "parser_version": "rke_source_evidence_v1",
+                },
+                "time": {
+                    "released_at": knowledge_at.isoformat(),
+                    "vintage_at": knowledge_at.isoformat(),
+                    "captured_at": captured_at.isoformat(),
+                    "knowledge_available_at": knowledge_at.isoformat(),
+                },
+                "pit": {
+                    "pit_mode": "AUTHORITATIVE_VINTAGE_REPLAY",
+                    "as_of_cutoff": as_of_end.isoformat(),
+                    "eligible": True,
+                    "blocker_codes": [],
+                    "vintage_query": {
+                        "archive_hash": archive_hash,
+                        "as_of": str(descriptor["as_of"]),
+                    },
+                },
+                "content": {
+                    "raw_content_hash": descriptor["content_hash"],
+                    "normalized_row_count": len(selected),
+                    "schema_hash": canonical_hash(
+                        {
+                            "parser_version": "rke_source_evidence_v1",
+                            "route_id": descriptor["route_id"],
+                        }
+                    ),
+                },
+                "coverage": {
+                    "requested_start": min(value.date() for value in knowledge_values).isoformat(),
+                    "requested_end": str(descriptor["as_of"]),
+                    "observed_start": min(value.date() for value in knowledge_values).isoformat(),
+                    "observed_end": max(value.date() for value in knowledge_values).isoformat(),
+                    "dimensions": {"route_id": ["private.rke_report_intelligence"]},
+                },
+                "completeness": {
+                    "truncated": False,
+                    "next_page_token_present": False,
+                    "duplicate_count": 0,
+                    "empty_result_semantics": "NON_EMPTY",
+                },
+                "provenance": {
+                    "parent_capture_hash": archive_hash,
+                    "previous_revision_hash": None,
+                    "revision_reason": None,
+                },
+            }
+        )
+        upstream_hash = self._register_source(source)
         return seal_staged_query_source_receipt(
             descriptor,
-            knowledge_available_at=max(knowledge_values).isoformat(),
-            captured_at=max(capture_values).isoformat(),
-            upstream_evidence_hashes=tuple(sorted(set(upstream_evidence))),
+            knowledge_available_at=knowledge_at.isoformat(),
+            captured_at=captured_at.isoformat(),
+            upstream_evidence_hashes=(upstream_hash,),
         )
 
 

@@ -763,6 +763,22 @@ class AgentDataMaterializationLedger:
             conn.execute("COMMIT")
         return receipt_hash
 
+    def source_capture_receipt(
+        self, *, receipt_hash: str
+    ) -> SourceCaptureReceipt | None:
+        _required_sha256(receipt_hash, "receipt_hash")
+        if not self._available:
+            return None
+        with self._connect(read_only=True) as conn:
+            row = conn.execute(
+                "SELECT receipt_json FROM source_capture_receipts "
+                "WHERE receipt_hash = ?",
+                (receipt_hash,),
+            ).fetchone()
+        if row is None:
+            return None
+        return SourceCaptureReceipt.from_dict(json.loads(row["receipt_json"]))
+
     def _validate_route_coverage_on_connection(
         self,
         conn: sqlite3.Connection,
@@ -1095,39 +1111,63 @@ class AgentDataMaterializationLedger:
                 payload = self._validate_materialization_attempt_on_connection(
                     conn, value
                 )
-                receipt_hash = self._append_on_connection(
-                    conn,
-                    "materialization_attempt_receipts",
-                    (
-                        "attempt_id",
-                        "materialization_request_id",
-                        "graph_run_id",
-                        "run_slot_id",
-                        "run_id",
-                        "node_id",
-                        "lock_key",
-                        "agent_id",
-                        "stage",
-                        "as_of",
-                        "terminal_state",
-                        "finished_at",
-                    ),
-                    (
-                        payload["attempt_id"],
-                        payload["materialization_request_id"],
-                        payload["graph_run_id"],
-                        payload["run_slot_id"],
-                        payload["run_id"],
-                        payload["node_id"],
-                        payload["lock"]["key"],
-                        payload["agent_id"],
-                        payload["stage"],
-                        payload["as_of"],
-                        payload["terminal_state"],
-                        payload["finished_at"],
-                    ),
-                    value,
-                )
+                existing_ready = None
+                if payload["terminal_state"] == "READY":
+                    existing_ready = conn.execute(
+                        "SELECT receipt_hash, receipt_json "
+                        "FROM materialization_attempt_receipts "
+                        "WHERE lock_key = ? AND terminal_state = 'READY' "
+                        "ORDER BY rowid LIMIT 1",
+                        (payload["lock"]["key"],),
+                    ).fetchone()
+                if existing_ready is not None:
+                    existing_payload = MaterializationAttemptReceipt.from_dict(
+                        json.loads(existing_ready["receipt_json"])
+                    ).as_dict()
+                    if (
+                        existing_payload["requested_tool_ids"]
+                        != payload["requested_tool_ids"]
+                        or existing_payload["source_receipts"]
+                        != payload["source_receipts"]
+                        or existing_payload["build_receipts"]
+                        != payload["build_receipts"]
+                    ):
+                        raise ValueError("immutable materialization result collision")
+                    receipt_hash = str(existing_ready["receipt_hash"])
+                else:
+                    receipt_hash = self._append_on_connection(
+                        conn,
+                        "materialization_attempt_receipts",
+                        (
+                            "attempt_id",
+                            "materialization_request_id",
+                            "graph_run_id",
+                            "run_slot_id",
+                            "run_id",
+                            "node_id",
+                            "lock_key",
+                            "agent_id",
+                            "stage",
+                            "as_of",
+                            "terminal_state",
+                            "finished_at",
+                        ),
+                        (
+                            payload["attempt_id"],
+                            payload["materialization_request_id"],
+                            payload["graph_run_id"],
+                            payload["run_slot_id"],
+                            payload["run_id"],
+                            payload["node_id"],
+                            payload["lock"]["key"],
+                            payload["agent_id"],
+                            payload["stage"],
+                            payload["as_of"],
+                            payload["terminal_state"],
+                            payload["finished_at"],
+                        ),
+                        value,
+                    )
             except Exception:
                 conn.execute("ROLLBACK")
                 raise

@@ -15,7 +15,11 @@ import { CRO_FIELD_NAMES, CroSchema } from "./_schemas.js";
 import { renderCurrentPositionsContext, renderLayer4RuntimeContext } from "./_user_context.js";
 import type { CroAgentSubmission } from "./accepted.js";
 
-const REQUIRED_TOOLS = ["get_cro_risk_snapshot", "get_role_event_snapshot"] as const;
+const REQUIRED_TOOLS = [
+  "get_cro_risk_snapshot",
+  "get_role_event_snapshot",
+  "get_rke_research_context",
+] as const;
 
 function buildUserContext(state: DailyCycleStateType): string {
   const date = state.as_of_date || new Date().toISOString().slice(0, 10);

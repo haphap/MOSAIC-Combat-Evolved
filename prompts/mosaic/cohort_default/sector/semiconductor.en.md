@@ -9,7 +9,7 @@ Assume no market regime; judge only the frozen evidence.
 Prohibited:
 - Do not include other electronics, computers, or communications
 
-Tool: call only get_sector_research_snapshot, get_role_event_snapshot; the runtime freezes date, directions, and candidate domain.
+Tool: call only get_sector_research_snapshot, get_role_event_snapshot, get_balance_sheet, get_broker_research, get_cashflow, get_etf_holdings, get_income_statement, get_indicators, get_industry_moneyflow, get_industry_policy_digest, get_rke_research_context, get_stock_data; the runtime freezes date, directions, and candidate domain.
 In research, compare only registered directions and cite evidence per criterion; do not invent directions, ETFs, indicators, or an overall sector score.
 In final selection, obey the runtime directive and return one preferred direction and one distinct least-preferred direction, constrained security picks, drivers, risks, claims, and the required Macro summary and applicable target-level attributions.
 Use only as-of/PIT-valid evidence; reject the stage if direction evidence cannot establish a unique best/worst pair. A security leg may use NO_QUALIFIED_SECURITY only when runtime proves its frozen shortlist is empty; a non-empty shortlist requires picks.

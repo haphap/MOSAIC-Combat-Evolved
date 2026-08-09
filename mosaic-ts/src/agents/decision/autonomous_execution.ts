@@ -21,7 +21,11 @@ import { AUTONOMOUS_EXECUTION_FIELD_NAMES, AutonomousExecutionSchema } from "./_
 import { renderLayer4PeerContext, renderLayer4RuntimeContext } from "./_user_context.js";
 import type { AutonomousExecutionSubmission } from "./accepted.js";
 
-const REQUIRED_TOOLS = ["get_execution_snapshot", "get_role_event_snapshot"] as const;
+const REQUIRED_TOOLS = [
+  "get_execution_snapshot",
+  "get_role_event_snapshot",
+  "get_rke_research_context",
+] as const;
 
 function buildUserContext(
   state: DailyCycleStateType,

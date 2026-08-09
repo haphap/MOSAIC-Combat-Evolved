@@ -15,7 +15,16 @@ import {
 } from "./_factory.js";
 import { DruckenmillerSchema, SUPERINVESTOR_FIELD_NAMES } from "./_schemas.js";
 
-export const REQUIRED_TOOLS = ["get_superinvestor_candidate_snapshot"] as const;
+export const REQUIRED_TOOLS = [
+  "get_superinvestor_candidate_snapshot",
+  "get_fundamentals",
+  "get_indicators",
+  "get_industry_policy_digest",
+  "get_rke_research_context",
+  "get_stock_data",
+  "get_stock_research",
+  "get_yield_curve_cn",
+] as const;
 
 export const druckenmillerSpec: LayerThreeAgentSpec<DruckenmillerOutput> = {
   agentId: "druckenmiller",

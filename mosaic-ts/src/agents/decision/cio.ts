@@ -35,7 +35,7 @@ import {
 } from "./_user_context.js";
 import type { CioFinalSubmission, CioProposalSubmission } from "./accepted.js";
 
-const REQUIRED_TOOLS = ["get_cio_decision_snapshot"] as const;
+const REQUIRED_TOOLS = ["get_cio_decision_snapshot", "get_rke_research_context"] as const;
 
 function buildProposalUserContext(
   state: DailyCycleStateType,

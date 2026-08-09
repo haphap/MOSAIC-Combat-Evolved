@@ -57,7 +57,7 @@ def test_generated_l3_l4_overlay_is_current_and_schema_valid():
     assert result.accepted, result.failures
 
 
-def test_overlay_preserves_exact_28_l3_and_5_l4_bindings_without_activation():
+def test_overlay_preserves_exact_28_l3_and_5_l4_bindings_on_active_surface():
     overlay = build_l3_l4_preservation_overlay(ROOT)
     active = json.loads(
         (ROOT / "registry/prompt_checks/agent_tool_contract_manifest_v1.json").read_text(
@@ -85,7 +85,15 @@ def test_overlay_preserves_exact_28_l3_and_5_l4_bindings_without_activation():
         *((agent, agent, tool) for agent, tools in L3_TOOL_ROSTER.items() for tool in tools),
         *((agent, stage, "get_rke_research_context") for agent, stage in L4_STAGE_ROSTER),
     }
-    assert restored.isdisjoint(active_bindings)
+    active_stage_for_preservation = {
+        "cro_review": "cro",
+        "execution_feasibility": "autonomous_execution",
+    }
+    normalized_restored = {
+        (agent_id, active_stage_for_preservation.get(stage, stage), tool_id)
+        for agent_id, stage, tool_id in restored
+    }
+    assert normalized_restored <= active_bindings
     assert {
         "get_balance_sheet",
         "get_cashflow",

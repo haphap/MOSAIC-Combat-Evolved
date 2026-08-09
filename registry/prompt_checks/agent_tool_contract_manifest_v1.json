@@ -2,7 +2,7 @@
   "schema_version": "agent_tool_contract_manifest_v1",
   "agent_count": 28,
   "execution_stage_count": 29,
-  "tool_count": 31,
+  "tool_count": 32,
   "agents": [
     {
       "agent_id": "china",
@@ -285,7 +285,14 @@
     {
       "agent_id": "druckenmiller",
       "allowed_tools": [
-        "get_superinvestor_candidate_snapshot"
+        "get_superinvestor_candidate_snapshot",
+        "get_fundamentals",
+        "get_indicators",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_stock_research",
+        "get_yield_curve_cn"
       ],
       "execution_stages": [
         "druckenmiller"
@@ -295,7 +302,14 @@
     {
       "agent_id": "munger",
       "allowed_tools": [
-        "get_superinvestor_candidate_snapshot"
+        "get_superinvestor_candidate_snapshot",
+        "get_balance_sheet",
+        "get_cashflow",
+        "get_fundamentals",
+        "get_income_statement",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_stock_research"
       ],
       "execution_stages": [
         "munger"
@@ -305,7 +319,14 @@
     {
       "agent_id": "burry",
       "allowed_tools": [
-        "get_superinvestor_candidate_snapshot"
+        "get_superinvestor_candidate_snapshot",
+        "get_balance_sheet",
+        "get_cashflow",
+        "get_fundamentals",
+        "get_income_statement",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_stock_research"
       ],
       "execution_stages": [
         "burry"
@@ -315,7 +336,14 @@
     {
       "agent_id": "ackman",
       "allowed_tools": [
-        "get_superinvestor_candidate_snapshot"
+        "get_superinvestor_candidate_snapshot",
+        "get_balance_sheet",
+        "get_cashflow",
+        "get_fundamentals",
+        "get_income_statement",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_stock_research"
       ],
       "execution_stages": [
         "ackman"
@@ -326,7 +354,8 @@
       "agent_id": "cro",
       "allowed_tools": [
         "get_cro_risk_snapshot",
-        "get_role_event_snapshot"
+        "get_role_event_snapshot",
+        "get_rke_research_context"
       ],
       "execution_stages": [
         "cro"
@@ -337,7 +366,8 @@
       "agent_id": "alpha_discovery",
       "allowed_tools": [
         "get_alpha_candidate_snapshot",
-        "get_role_event_snapshot"
+        "get_role_event_snapshot",
+        "get_rke_research_context"
       ],
       "execution_stages": [
         "alpha_discovery"
@@ -348,7 +378,8 @@
       "agent_id": "autonomous_execution",
       "allowed_tools": [
         "get_execution_snapshot",
-        "get_role_event_snapshot"
+        "get_role_event_snapshot",
+        "get_rke_research_context"
       ],
       "execution_stages": [
         "autonomous_execution"
@@ -358,7 +389,8 @@
     {
       "agent_id": "cio",
       "allowed_tools": [
-        "get_cio_decision_snapshot"
+        "get_cio_decision_snapshot",
+        "get_rke_research_context"
       ],
       "execution_stages": [
         "cio_proposal",

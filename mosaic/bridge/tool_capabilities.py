@@ -27,12 +27,30 @@ from jsonschema.exceptions import SchemaError, ValidationError
 
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.adaptive_query_archives import TrustedArchiveQueryRouter
+from mosaic.dataflows.agent_stage_preparer import (
+    ensure_agent_stage_materialization,
+    finalize_agent_stage_materialization,
+)
+from mosaic.dataflows.agent_materialization import (
+    open_agent_data_materialization_ledger,
+)
+from mosaic.dataflows.bound_runtime_snapshots import (
+    bound_runtime_snapshot_relative_path,
+    runtime_snapshot_root,
+)
+from mosaic.dataflows.bound_runtime_production import (
+    ActiveAdaptiveQueryPreparer,
+    BoundRuntimeAdaptiveQueryPreparer,
+)
 from mosaic.dataflows.cninfo_supply_chain import (
     CninfoSupplyChainDisclosureCollector,
 )
 from mosaic.dataflows.frozen_adaptive_queries import FrozenAdaptiveQueryStore
 from mosaic.dataflows.frozen_research_digest import FrozenResearchDigestBuilder
-from mosaic.dataflows.forward_archive_queries import ForwardArchiveQueryReader
+from mosaic.dataflows.forward_archive_queries import (
+    ForwardArchiveQueryReader,
+    ForwardArchiveSourcePreparer,
+)
 from mosaic.dataflows.china_agent_data_archive import (
     ChinaAgentDataArchiveStore,
     china_agent_archive_path,
@@ -61,6 +79,10 @@ from mosaic.dataflows.sector_snapshots import (
     render_sector_snapshot,
 )
 from mosaic.scorecard.canonical_json import canonical_hash, canonical_json
+from mosaic.scorecard.l3_l4_activation import l3_l4_overlay_stage_for_active
+from mosaic.scorecard.l3_l4_preservation import (
+    argument_schema_for_binding as l3_l4_argument_schema_for_binding,
+)
 from mosaic.scorecard.sector_relationship_preservation import argument_schema_for_tool
 
 AgentToolId = Literal[
@@ -86,6 +108,7 @@ AgentToolId = Literal[
     "get_broker_research",
     "get_cashflow",
     "get_etf_holdings",
+    "get_fundamentals",
     "get_income_statement",
     "get_indicators",
     "get_industry_moneyflow",
@@ -123,6 +146,7 @@ AGENT_TOOL_IDS: Final[tuple[AgentToolId, ...]] = (
     "get_broker_research",
     "get_cashflow",
     "get_etf_holdings",
+    "get_fundamentals",
     "get_income_statement",
     "get_indicators",
     "get_industry_moneyflow",
@@ -232,6 +256,7 @@ TOOL_DESCRIPTIONS: Final[dict[AgentToolId, str]] = {
     "get_broker_research": "Return one exact frozen broker-research query.",
     "get_cashflow": "Return one exact frozen cash-flow statement query.",
     "get_etf_holdings": "Return one exact frozen ETF-holdings query.",
+    "get_fundamentals": "Return one exact frozen company-fundamentals query.",
     "get_income_statement": "Return one exact frozen income-statement query.",
     "get_indicators": "Return one exact frozen technical-indicator query.",
     "get_industry_moneyflow": "Return one exact frozen industry-moneyflow query.",
@@ -269,6 +294,38 @@ def _sha256(value: Any) -> str:
 
 def _sha256_text(value: str) -> str:
     return "sha256:" + hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _prepared_initial_tool_ids(projection: Mapping[str, Any]) -> list[str]:
+    projection_hash = projection.get("projection_hash")
+    projection_body = {
+        key: value for key, value in projection.items() if key != "projection_hash"
+    }
+    entries = projection.get("entries")
+    if (
+        not _is_sha256(projection_hash)
+        or projection_hash != _sha256(projection_body)
+        or not isinstance(entries, list)
+    ):
+        raise ValueError("adaptive query public projection is invalid")
+    initial_tool_ids: set[str] = set()
+    initial_count = 0
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("call_mode") not in {
+            "INITIAL",
+            "FOLLOW_UP",
+        }:
+            raise ValueError("adaptive query public projection entry is invalid")
+        if entry["call_mode"] != "INITIAL":
+            continue
+        tool_id = entry.get("tool_id")
+        if not isinstance(tool_id, str) or tool_id not in ADAPTIVE_QUERY_TOOL_IDS:
+            raise ValueError("adaptive query initial tool is invalid")
+        initial_count += 1
+        initial_tool_ids.add(tool_id)
+    if projection.get("initial_payload_count") != initial_count:
+        raise ValueError("adaptive query initial payload count is invalid")
+    return sorted(initial_tool_ids)
 
 
 SECTOR_USAGE_INSTRUMENTATION_CONTRACT_HASH: Final = _sha256(
@@ -351,11 +408,7 @@ def allowed_tools_for_agent(agent_id: str) -> tuple[AgentToolId, ...]:
 
 
 def _runtime_snapshot_root() -> Path:
-    explicit = os.getenv("MOSAIC_RUNTIME_SNAPSHOT_DIR")
-    if explicit:
-        return Path(explicit).expanduser()
-    cache = Path(os.getenv("MOSAIC_CACHE_DIR", "~/.mosaic/cache")).expanduser()
-    return cache / "runtime_snapshots"
+    return runtime_snapshot_root()
 
 
 def _bounded_identifier_schema() -> dict[str, Any]:
@@ -1584,11 +1637,18 @@ def _validate_bound_runtime_snapshot(
     if referenced_evidence != set(evidence_by_id):
         raise DataVendorUnavailable("runtime snapshot evidence closure mismatch")
     as_of_close = _aware_timestamp(f"{as_of}T15:00:00+08:00", "snapshot.as_of")
+    generated_at = _aware_timestamp(payload["generated_at"], "generated_at")
     for evidence in evidence_rows:
+        available_at = _aware_timestamp(
+            evidence["available_at"], "evidence.available_at"
+        )
         if (
             date.fromisoformat(evidence["as_of"]) > date.fromisoformat(as_of)
-            or _aware_timestamp(evidence["available_at"], "evidence.available_at")
-            > as_of_close
+            or available_at > generated_at
+            or (
+                evidence["source_kind"] != "ACCEPTED_OUTPUT"
+                and available_at > as_of_close
+            )
         ):
             raise DataVendorUnavailable("runtime snapshot evidence is not PIT")
     refs = payload["upstream_accepted_output_refs"]
@@ -1615,7 +1675,6 @@ def _validate_bound_runtime_snapshot(
                 "runtime accepted-output ref has no matching evidence record"
             )
     _validate_role_snapshot_semantics(payload, tool_id=tool_id)
-    generated_at = _aware_timestamp(payload["generated_at"], "generated_at")
     latest_evidence = max(
         _aware_timestamp(row["available_at"], "evidence.available_at")
         for row in evidence_rows
@@ -1674,7 +1733,14 @@ def _validate_bound_request_closure(
         raise DataVendorUnavailable(
             "bound runtime capability requires exact accepted-output candidate scope"
         )
-    if set(runtime_inputs) != {"accepted_output_refs"}:
+    if set(runtime_inputs) not in (
+        {"accepted_output_refs"},
+        {
+            "accepted_output_refs",
+            "accepted_output_records",
+            "bound_runtime_state",
+        },
+    ):
         raise DataVendorUnavailable(
             "bound runtime capability requires exact accepted-output runtime inputs"
         )
@@ -1768,6 +1834,14 @@ def _load_bound_snapshot(
     """Load a collector-produced, role-bound payload for non-Macro tools."""
     root = _runtime_snapshot_root()
     candidates = (
+        root
+        / bound_runtime_snapshot_relative_path(
+            agent_id=agent_id,
+            stage=stage,
+            tool_id=tool_id,
+            as_of=as_of,
+            graph_run_id=graph_run_id,
+        ),
         root / as_of / f"{agent_id}.{stage}.{tool_id}.json",
         root / as_of / f"{agent_id}.{tool_id}.json",
     )
@@ -2127,6 +2201,8 @@ class AgentToolCapabilityStore:
         clock: Callable[[], datetime] | None = None,
         adaptive_query_store: FrozenAdaptiveQueryStore | None = None,
         adaptive_query_preparer: Callable[..., Mapping[str, Any]] | None = None,
+        stage_materialization_preparer: Callable[[Mapping[str, Any]], Any] | None = None,
+        stage_materialization_finalizer: Callable[[Mapping[str, Any]], Any] | None = None,
     ) -> None:
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2144,6 +2220,8 @@ class AgentToolCapabilityStore:
             raise ValueError("adaptive query and capability ledgers must use distinct files")
         self.adaptive_query_store = adaptive_query_store
         self.adaptive_query_preparer = adaptive_query_preparer
+        self.stage_materialization_preparer = stage_materialization_preparer
+        self.stage_materialization_finalizer = stage_materialization_finalizer
         self._initialise()
 
     def _connect(self) -> sqlite3.Connection:
@@ -2371,6 +2449,8 @@ class AgentToolCapabilityStore:
         }
         bundle_hash = projection.get("bundle_hash")
         entries = projection.get("entries")
+        max_rounds = projection.get("adaptive_max_rounds")
+        initial_payload_count = projection.get("initial_payload_count", 0)
         if (
             projection.get("bundle_id") != bundle_id
             or projection.get("agent_id") != agent_id
@@ -2381,22 +2461,36 @@ class AgentToolCapabilityStore:
             or projection_hash != _sha256(projection_body)
             or not isinstance(entries, list)
             or projection.get("private_payload_count") != len(entries)
-            or projection.get("adaptive_max_rounds") != 3
+            or max_rounds not in {0, 3}
+            or isinstance(initial_payload_count, bool)
+            or not isinstance(initial_payload_count, int)
+            or not 0 <= initial_payload_count <= len(entries)
         ):
             raise ValueError("adaptive query public projection binding is invalid")
         allowed = set(adaptive_tools)
         counts = dict.fromkeys(adaptive_tools, 0)
+        initial_counts = dict.fromkeys(adaptive_tools, 0)
+        follow_up_counts = dict.fromkeys(adaptive_tools, 0)
         for entry in entries:
             if (
                 not isinstance(entry, dict)
                 or entry.get("tool_id") not in allowed
-                or entry.get("call_mode") != "FOLLOW_UP"
+                or entry.get("call_mode") not in {"INITIAL", "FOLLOW_UP"}
                 or not _is_sha256(entry.get("request_hash"))
                 or not _is_sha256(entry.get("payload_hash"))
             ):
                 raise ValueError("adaptive query public projection entry is invalid")
             tool_id = cast(AgentToolId, entry["tool_id"])
             counts[tool_id] += 1
+            if entry["call_mode"] == "INITIAL":
+                initial_counts[tool_id] += 1
+            else:
+                follow_up_counts[tool_id] += 1
+        if (
+            sum(initial_counts.values()) != initial_payload_count
+            or (max_rounds == 0 and sum(follow_up_counts.values()) != 0)
+        ):
+            raise ValueError("adaptive query call modes do not match the public contract")
         descriptors = {
             tool_id: _canonical_json(
                 {
@@ -2405,8 +2499,10 @@ class AgentToolCapabilityStore:
                     "frozen_query_bundle_id": bundle_id,
                     "frozen_query_bundle_hash": bundle_hash,
                     "prepared_request_count": counts[tool_id],
+                    "prepared_initial_count": initial_counts[tool_id],
+                    "prepared_follow_up_count": follow_up_counts[tool_id],
                     "call_contract": "EXACT_FROZEN_ARGS_ONLY",
-                    "adaptive_max_rounds": 3,
+                    "adaptive_max_rounds": max_rounds,
                 }
             )
             for tool_id in adaptive_tools
@@ -2415,6 +2511,7 @@ class AgentToolCapabilityStore:
             "bundle_id": bundle_id,
             "bundle_hash": bundle_hash,
             "public_projection": projection,
+            "max_rounds": max_rounds,
         }
 
     def prepare(
@@ -2446,6 +2543,15 @@ class AgentToolCapabilityStore:
         ttl = request.get("ttl_seconds", DEFAULT_CAPABILITY_TTL_SECONDS)
         if isinstance(ttl, bool) or not isinstance(ttl, int) or not 1 <= ttl <= 3600:
             raise ValueError("ttl_seconds must be an integer in [1, 3600]")
+        normalized_request = dict(request)
+        normalized_request["stage"] = stage
+        normalized_request["runtime_inputs"] = runtime_inputs
+        normalized_request["candidate_scope"] = candidate_scope
+        stage_preparation = (
+            self.stage_materialization_preparer(normalized_request)
+            if self.stage_materialization_preparer is not None
+            else None
+        )
         try:
             with self._connect() as conn:
                 conn.execute(
@@ -2548,6 +2654,17 @@ class AgentToolCapabilityStore:
         payload_hashes = {
             tool_id: _sha256_text(payload) for tool_id, payload in payloads.items()
         }
+        if self.stage_materialization_finalizer is not None:
+            self.stage_materialization_finalizer(
+                {
+                    **normalized_request,
+                    "stage_preparation": stage_preparation,
+                    "tool_payload_hashes": dict(payload_hashes),
+                    "adaptive_query": (
+                        dict(adaptive_ref) if adaptive_ref is not None else None
+                    ),
+                }
+            )
         bundle_without_hash = {
             "snapshot_bundle_id": snapshot_bundle_id,
             "snapshot_bundle_contract_version": SNAPSHOT_BUNDLE_CONTRACT_VERSION,
@@ -2595,7 +2712,11 @@ class AgentToolCapabilityStore:
                 agent_id=agent_id,
                 stage=stage,
             )
-            if adaptive_ref is not None and self.adaptive_query_store is not None
+            if (
+                adaptive_ref is not None
+                and adaptive_ref["max_rounds"] > 0
+                and self.adaptive_query_store is not None
+            )
             else None
         )
         with self._connect() as conn:
@@ -2653,7 +2774,12 @@ class AgentToolCapabilityStore:
             except Exception:
                 conn.execute("ROLLBACK")
                 raise
-        return {"bundle": bundle, "capability": signed.as_dict()}
+        result = {"bundle": bundle, "capability": signed.as_dict()}
+        if adaptive_ref is not None:
+            result["prepared_initial_tool_ids"] = _prepared_initial_tool_ids(
+                adaptive_ref["public_projection"]
+            )
+        return result
 
     def issue_for_bundle(self, request: Mapping[str, Any]) -> dict[str, Any]:
         """Issue another node-bound capability without re-running collectors."""
@@ -2677,7 +2803,7 @@ class AgentToolCapabilityStore:
                 (snapshot_bundle_id,),
             ).fetchone()
             adaptive_row = conn.execute(
-                "SELECT frozen_bundle_id, frozen_bundle_hash "
+                "SELECT frozen_bundle_id, frozen_bundle_hash, public_projection_json "
                 "FROM snapshot_bundle_adaptive_queries WHERE snapshot_bundle_id = ?",
                 (snapshot_bundle_id,),
             ).fetchone()
@@ -2738,13 +2864,29 @@ class AgentToolCapabilityStore:
         )
         if adaptive_row is not None and self.adaptive_query_store is None:
             raise ValueError("adaptive query store is unavailable for this snapshot bundle")
+        adaptive_projection = (
+            json.loads(adaptive_row["public_projection_json"])
+            if adaptive_row is not None
+            else None
+        )
+        adaptive_max_rounds = (
+            adaptive_projection.get("adaptive_max_rounds")
+            if isinstance(adaptive_projection, dict)
+            else None
+        )
+        if adaptive_row is not None and adaptive_max_rounds not in {0, 3}:
+            raise ValueError("adaptive query projection has an invalid round limit")
         adaptive_session_id = (
             self.adaptive_query_store.start_session(
                 bundle_id=adaptive_row["frozen_bundle_id"],
                 agent_id=agent_id,
                 stage=stage,
             )
-            if adaptive_row is not None and self.adaptive_query_store is not None
+            if (
+                adaptive_row is not None
+                and adaptive_max_rounds > 0
+                and self.adaptive_query_store is not None
+            )
             else None
         )
         with self._connect() as conn:
@@ -2780,7 +2922,12 @@ class AgentToolCapabilityStore:
             except Exception:
                 conn.execute("ROLLBACK")
                 raise
-        return {"bundle": bundle, "capability": signed.as_dict()}
+        result = {"bundle": bundle, "capability": signed.as_dict()}
+        if adaptive_projection is not None:
+            result["prepared_initial_tool_ids"] = _prepared_initial_tool_ids(
+                adaptive_projection
+            )
+        return result
 
     def _verify(
         self,
@@ -3624,12 +3771,22 @@ class AgentToolCapabilityStore:
 
     def list_tools(self, envelope: Mapping[str, Any]) -> list[dict[str, Any]]:
         manifest, _ = self._verify(envelope)
+        agent_id = manifest["agent_id"]
+        stage = manifest["stage"]
         return [
             {
                 "name": tool_id,
                 "description": TOOL_DESCRIPTIONS[tool_id],
                 "args_schema": (
-                    argument_schema_for_tool(tool_id)
+                    (
+                        l3_l4_argument_schema_for_binding(
+                            agent_id=agent_id,
+                            stage=l3_l4_overlay_stage_for_active(agent_id, stage),
+                            tool_id=tool_id,
+                        )
+                        if agent_id in {*SUPERINVESTOR_AGENTS, *DECISION_AGENTS}
+                        else argument_schema_for_tool(tool_id)
+                    )
                     if tool_id in ADAPTIVE_QUERY_TOOL_IDS
                     else {
                         "type": "object",
@@ -3658,20 +3815,45 @@ class AgentToolCapabilityStore:
                 conn.execute("BEGIN IMMEDIATE")
                 try:
                     self._verify(envelope, conn=conn)
-                    session = conn.execute(
-                        "SELECT session_id FROM capability_adaptive_sessions "
-                        "WHERE capability_id = ?",
-                        (manifest["capability_id"],),
-                    ).fetchone()
-                    if session is None:
-                        raise ValueError(
-                            "adaptive query bundle is unavailable for this capability"
+                    if args:
+                        session = conn.execute(
+                            "SELECT session_id FROM capability_adaptive_sessions "
+                            "WHERE capability_id = ?",
+                            (manifest["capability_id"],),
+                        ).fetchone()
+                        if session is None:
+                            raise ValueError(
+                                "adaptive model calls are unavailable for this capability"
+                            )
+                        payload = self.adaptive_query_store.call_next(
+                            session_id=session["session_id"],
+                            tool_id=tool_id,
+                            args=args,
                         )
-                    payload = self.adaptive_query_store.call_next(
-                        session_id=session["session_id"],
-                        tool_id=tool_id,
-                        args=args,
-                    )
+                    else:
+                        adaptive = conn.execute(
+                            "SELECT frozen_bundle_id "
+                            "FROM snapshot_bundle_adaptive_queries "
+                            "WHERE snapshot_bundle_id = ?",
+                            (manifest["snapshot_bundle_id"],),
+                        ).fetchone()
+                        if adaptive is None:
+                            raise ValueError(
+                                "adaptive query bundle is unavailable for this capability"
+                            )
+                        initial = self.adaptive_query_store.read_initial_payloads(
+                            bundle_id=adaptive["frozen_bundle_id"],
+                            agent_id=manifest["agent_id"],
+                            stage=manifest["stage"],
+                        )
+                        matches = [
+                            entry for entry in initial if entry["tool_id"] == tool_id
+                        ]
+                        if len(matches) != 1:
+                            raise ValueError(
+                                "frozen initial payload is unavailable for this tool"
+                            )
+                        payload = matches[0]["payload"]
                     conn.execute("COMMIT")
                 except Exception:
                     conn.execute("ROLLBACK")
@@ -3772,6 +3954,7 @@ def get_capability_store() -> AgentToolCapabilityStore:
             receipt_store = StagedQueryReceiptStore(
                 runtime_dir / "agent_staged_query_receipts.sqlite3"
             )
+            agent_data_ledger = open_agent_data_materialization_ledger(create=True)
             sector_archive_store = SectorArchiveStore(
                 sector_archive_path(), create=False
             )
@@ -3784,11 +3967,15 @@ def get_capability_store() -> AgentToolCapabilityStore:
                 root=Path(__file__).resolve().parents[2],
                 sector_archive_store=sector_archive_store,
             )
+            forward_source_preparer = ForwardArchiveSourcePreparer(
+                reader=forward_query_reader
+            )
             archive_query_router = TrustedArchiveQueryRouter(
                 {
                     "get_balance_sheet": sector_query_reader,
                     "get_cashflow": sector_query_reader,
                     "get_etf_holdings": sector_query_reader,
+                    "get_fundamentals": sector_query_reader,
                     "get_income_statement": sector_query_reader,
                     "get_indicators": sector_query_reader,
                     "get_stock_data": sector_query_reader,
@@ -3805,6 +3992,7 @@ def get_capability_store() -> AgentToolCapabilityStore:
                 sector_archive_store=sector_archive_store,
                 china_archive_store=china_archive_store,
                 forward_archive_reader=forward_query_reader,
+                agent_data_ledger=agent_data_ledger,
             )
             query_materializer = SectorRelationshipQueryMaterializer(
                 receipt_authority=receipt_store,
@@ -3813,14 +4001,26 @@ def get_capability_store() -> AgentToolCapabilityStore:
                 supply_chain_archive=CninfoSupplyChainDisclosureCollector(
                     archive=OfficialSupplyChainDisclosureArchive(
                         runtime_dir / "official_supply_chain_disclosures.sqlite3"
-                    )
+                    ),
+                    receipt_store=receipt_store,
+                    agent_data_ledger=agent_data_ledger,
                 ),
                 source_evidence_authority=source_evidence,
+                source_preparer=forward_source_preparer,
             )
-            adaptive_preparer = SectorRelationshipAdaptiveQueryPreparer(
+            sector_adaptive_preparer = SectorRelationshipAdaptiveQueryPreparer(
                 root=Path(__file__).resolve().parents[2],
                 frozen_store=adaptive_store,
                 materializer=query_materializer,
+            )
+            bound_adaptive_preparer = BoundRuntimeAdaptiveQueryPreparer(
+                root=Path(__file__).resolve().parents[2],
+                frozen_store=adaptive_store,
+                materializer=query_materializer,
+            )
+            adaptive_preparer = ActiveAdaptiveQueryPreparer(
+                sector_relationship_preparer=sector_adaptive_preparer,
+                bound_runtime_preparer=bound_adaptive_preparer,
             )
             store = AgentToolCapabilityStore(
                 path,
@@ -3828,6 +4028,14 @@ def get_capability_store() -> AgentToolCapabilityStore:
                 signing_key_id=key_id,
                 adaptive_query_store=adaptive_store,
                 adaptive_query_preparer=adaptive_preparer,
+                stage_materialization_preparer=ensure_agent_stage_materialization,
+                stage_materialization_finalizer=lambda context: (
+                    finalize_agent_stage_materialization(
+                        context,
+                        adaptive_query_store=adaptive_store,
+                        staged_receipt_store=receipt_store,
+                    )
+                ),
             )
             _STORE_BY_PATH[path] = store
         return store

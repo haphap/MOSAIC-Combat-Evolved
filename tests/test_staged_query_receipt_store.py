@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -67,6 +68,31 @@ def test_non_live_receipt_requires_authoritative_registration(tmp_path: Path) ->
     ]
     assert store.register(receipt) == receipt["receipt_hash"]
     assert store.resolve(descriptor) == [receipt]
+
+
+def test_receipt_by_hash_revalidates_stored_receipt_and_rejects_unknown(
+    tmp_path: Path,
+) -> None:
+    store = StagedQueryReceiptStore(
+        tmp_path / ".mosaic/private/query-receipts.sqlite3",
+        clock=lambda: datetime(2026, 7, 17, 8, 0, tzinfo=timezone.utc),
+    )
+    receipt = store.resolve(_descriptor())[0]
+
+    assert store.receipt_by_hash(receipt["receipt_hash"]) == receipt
+    with pytest.raises(ValueError, match="unknown staged query receipt"):
+        store.receipt_by_hash(canonical_hash({"unknown": True}))
+
+    tampered = dict(receipt)
+    tampered["content_hash"] = canonical_hash({"content": "tampered"})
+    with sqlite3.connect(store.db_path) as connection:
+        connection.execute("DROP TRIGGER staged_query_receipts_no_update")
+        connection.execute(
+            "UPDATE staged_query_receipts SET receipt_json = ? WHERE receipt_hash = ?",
+            (json.dumps(tampered), receipt["receipt_hash"]),
+        )
+    with pytest.raises(ValueError, match="hash|descriptor"):
+        store.receipt_by_hash(receipt["receipt_hash"])
 
 
 def test_receipts_are_append_only_and_concurrent_live_capture_is_singleton(

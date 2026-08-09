@@ -213,6 +213,33 @@ class StagedQueryReceiptStore:
             )
         return receipt_hash
 
+    def receipt_by_hash(self, receipt_hash: str) -> dict[str, Any]:
+        """Load and fully revalidate one immutable receipt by its sealed hash."""
+
+        if (
+            not isinstance(receipt_hash, str)
+            or not receipt_hash.startswith("sha256:")
+            or len(receipt_hash) != 71
+        ):
+            raise ValueError("receipt_hash must be a sha256 identifier")
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM staged_query_receipts WHERE receipt_hash = ?",
+                (receipt_hash,),
+            ).fetchone()
+        if row is None:
+            raise ValueError("unknown staged query receipt")
+        try:
+            descriptor = json.loads(row["descriptor_json"])
+        except json.JSONDecodeError as exc:
+            raise ValueError("staged query receipt descriptor is invalid") from exc
+        if canonical_hash(descriptor) != row["descriptor_hash"]:
+            raise ValueError("staged query receipt descriptor hash mismatch")
+        receipt = self._read_existing(row, expected_descriptor=descriptor)
+        if receipt["receipt_hash"] != receipt_hash:
+            raise ValueError("staged query receipt storage hash mismatch")
+        return receipt
+
     def __call__(self, descriptor: Mapping[str, Any]) -> list[dict[str, Any]]:
         return self.resolve(descriptor)
 

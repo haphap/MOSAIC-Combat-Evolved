@@ -27,6 +27,7 @@ export const AGENT_TOOL_IDS = [
   "get_broker_research",
   "get_cashflow",
   "get_etf_holdings",
+  "get_fundamentals",
   "get_income_statement",
   "get_indicators",
   "get_industry_moneyflow",
@@ -163,13 +164,21 @@ export const AGENT_INITIAL_TOOL_MATRIX = {
   agriculture: ["get_sector_research_snapshot", "get_role_event_snapshot"],
   relationship_mapper: ["get_relationship_graph_snapshot"],
   druckenmiller: ["get_superinvestor_candidate_snapshot"],
-  munger: ["get_superinvestor_candidate_snapshot"],
-  burry: ["get_superinvestor_candidate_snapshot"],
-  ackman: ["get_superinvestor_candidate_snapshot"],
-  cro: ["get_cro_risk_snapshot", "get_role_event_snapshot"],
-  alpha_discovery: ["get_alpha_candidate_snapshot", "get_role_event_snapshot"],
-  autonomous_execution: ["get_execution_snapshot", "get_role_event_snapshot"],
-  cio: ["get_cio_decision_snapshot"],
+  munger: ["get_superinvestor_candidate_snapshot", "get_fundamentals", "get_cashflow"],
+  burry: ["get_superinvestor_candidate_snapshot", "get_fundamentals", "get_balance_sheet"],
+  ackman: ["get_superinvestor_candidate_snapshot", "get_fundamentals", "get_cashflow"],
+  cro: ["get_cro_risk_snapshot", "get_role_event_snapshot", "get_rke_research_context"],
+  alpha_discovery: [
+    "get_alpha_candidate_snapshot",
+    "get_role_event_snapshot",
+    "get_rke_research_context",
+  ],
+  autonomous_execution: [
+    "get_execution_snapshot",
+    "get_role_event_snapshot",
+    "get_rke_research_context",
+  ],
+  cio: ["get_cio_decision_snapshot", "get_rke_research_context"],
 } as const satisfies Readonly<Record<AgentId, readonly [AgentToolId, ...AgentToolId[]]>>;
 
 const STANDARD_SECTOR_ADAPTIVE_TOOLS = [
@@ -217,6 +226,46 @@ export const AGENT_TOOL_MATRIX = {
     "get_rke_research_context",
     "get_stock_research",
     "get_supply_chain_evidence",
+  ],
+  druckenmiller: [
+    "get_superinvestor_candidate_snapshot",
+    "get_fundamentals",
+    "get_indicators",
+    "get_industry_policy_digest",
+    "get_rke_research_context",
+    "get_stock_data",
+    "get_stock_research",
+    "get_yield_curve_cn",
+  ],
+  munger: [
+    "get_superinvestor_candidate_snapshot",
+    "get_balance_sheet",
+    "get_cashflow",
+    "get_fundamentals",
+    "get_income_statement",
+    "get_rke_research_context",
+    "get_stock_data",
+    "get_stock_research",
+  ],
+  burry: [
+    "get_superinvestor_candidate_snapshot",
+    "get_balance_sheet",
+    "get_cashflow",
+    "get_fundamentals",
+    "get_income_statement",
+    "get_rke_research_context",
+    "get_stock_data",
+    "get_stock_research",
+  ],
+  ackman: [
+    "get_superinvestor_candidate_snapshot",
+    "get_balance_sheet",
+    "get_cashflow",
+    "get_fundamentals",
+    "get_income_statement",
+    "get_rke_research_context",
+    "get_stock_data",
+    "get_stock_research",
   ],
 } as const satisfies Readonly<Record<AgentId, readonly [AgentToolId, ...AgentToolId[]]>>;
 
@@ -321,7 +370,7 @@ export const AgentToolContractManifestSchema = z
     schema_version: z.literal(AGENT_TOOL_CONTRACT_VERSION),
     agent_count: z.literal(28),
     execution_stage_count: z.literal(29),
-    tool_count: z.literal(31),
+    tool_count: z.literal(32),
     agents: z
       .array(
         z
@@ -344,7 +393,7 @@ export function buildAgentToolContractManifest(): AgentToolContractManifest {
     schema_version: AGENT_TOOL_CONTRACT_VERSION,
     agent_count: 28,
     execution_stage_count: 29,
-    tool_count: 31,
+    tool_count: 32,
     agents: AGENT_IDS.map((agentId) => ({
       agent_id: agentId,
       layer: AGENT_LAYER_BY_ID[agentId],

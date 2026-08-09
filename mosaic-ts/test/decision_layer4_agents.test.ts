@@ -7,7 +7,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage, ToolMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type {
+  AcceptedAgentOutputRecord,
+  AcceptedAgentOutputStore,
+  AcceptedOutputRecordRef,
+} from "../src/agents/accepted_output.js";
 import {
+  buildDecisionBoundRuntimeInputs,
   frozenAlphaCandidatesFromToolLoop,
   layerFourExtractorSystem,
 } from "../src/agents/decision/_factory.js";
@@ -81,11 +87,15 @@ import type { DailyCycleStateType, DailyCycleStateUpdate } from "../src/agents/s
 import { fallbackSuperinvestorOutput } from "../src/agents/superinvestor/_factory.js";
 import type {
   AutoExecOutput,
+  CandidateTargetState,
   CioOutput,
   CroOutput,
+  CroReviewState,
   CurrentPositionsSnapshot,
+  ExecutionFeasibilityState,
   Layer4Outputs,
   PortfolioAction,
+  PortfolioExposureState,
   SemiconductorOutput,
   SuperinvestorOutput,
 } from "../src/agents/types.js";
@@ -345,7 +355,11 @@ describe("each Layer-4 spec wires correct fields", () => {
       "claim_refs",
       "macro_input_attributions",
     ]);
-    expect(croSpec.requiredTools).toEqual(["get_cro_risk_snapshot", "get_role_event_snapshot"]);
+    expect(croSpec.requiredTools).toEqual([
+      "get_cro_risk_snapshot",
+      "get_role_event_snapshot",
+      "get_rke_research_context",
+    ]);
   });
   it("alpha_discovery", () => {
     expect(alphaDiscoverySpec.agentId).toBe("alpha_discovery");
@@ -365,6 +379,7 @@ describe("each Layer-4 spec wires correct fields", () => {
     expect(alphaDiscoverySpec.requiredTools).toEqual([
       "get_alpha_candidate_snapshot",
       "get_role_event_snapshot",
+      "get_rke_research_context",
     ]);
   });
   it("autonomous_execution", () => {
@@ -382,6 +397,7 @@ describe("each Layer-4 spec wires correct fields", () => {
     expect(autonomousExecutionSpec.requiredTools).toEqual([
       "get_execution_snapshot",
       "get_role_event_snapshot",
+      "get_rke_research_context",
     ]);
   });
   it("cio", () => {
@@ -415,7 +431,10 @@ describe("each Layer-4 spec wires correct fields", () => {
       "claim_refs",
       "macro_input_attributions",
     ]);
-    expect(cioSpec.requiredTools).toEqual(["get_cio_decision_snapshot"]);
+    expect(cioSpec.requiredTools).toEqual([
+      "get_cio_decision_snapshot",
+      "get_rke_research_context",
+    ]);
   });
 });
 
@@ -938,6 +957,130 @@ const baseState = (): DailyCycleStateType => ({
   portfolio_actions: [],
   replay_triggered: false,
   llm_calls: [],
+});
+
+describe("Layer-4 bound runtime capability inputs", () => {
+  it("passes exact records and each stage's frozen runtime authority", () => {
+    const input = baseState();
+    input.current_positions.position_snapshot_hash = `sha256:${"1".repeat(64)}`;
+    const ref = {
+      accepted_output_kind: "CIO_PROPOSAL",
+      agent_id: "cio",
+      accepted_output_id: "accepted:cio-proposal",
+      accepted_output_hash: `sha256:${"2".repeat(64)}`,
+    } as AcceptedOutputRecordRef;
+    const record = {
+      accepted_output_id: ref.accepted_output_id,
+      accepted_output_hash: ref.accepted_output_hash,
+    } as AcceptedAgentOutputRecord;
+    const store = {
+      resolve: () => record,
+    } as unknown as AcceptedAgentOutputStore;
+    const candidateTarget = {
+      schema_version: "portfolio.candidate_target_state.v1",
+      run_id: "t",
+      cohort: "cohort_default",
+      as_of_date: "2024-06-24",
+      proposal_hash: `sha256:${"3".repeat(64)}`,
+      l4_run_snapshot_hash: `sha256:${"4".repeat(64)}`,
+      candidate_target_hash: `sha256:${"5".repeat(64)}`,
+      position_snapshot_hash: input.current_positions.position_snapshot_hash ?? null,
+      previous_target_hash: null,
+      market_data_vintage_hash: `sha256:${"6".repeat(64)}`,
+      portfolio_actions: [],
+      confidence: 1,
+      frozen: true,
+    } satisfies CandidateTargetState;
+    const exposure = {
+      schema_version: "portfolio.exposure_state.v1",
+      candidate_target_hash: candidateTarget.candidate_target_hash,
+      l4_run_snapshot_hash: candidateTarget.l4_run_snapshot_hash,
+      exposure_hash: `sha256:${"7".repeat(64)}`,
+      gross_exposure: 0,
+      net_exposure: 0,
+      cash_weight: 1,
+      ticker_weights: {},
+      sector_weights: {},
+      frozen: true,
+    } satisfies PortfolioExposureState;
+    const croReview = {
+      schema_version: "decision.cro_review_state.v1",
+      run_id: "t",
+      candidate_target_hash: candidateTarget.candidate_target_hash,
+      l4_run_snapshot_hash: candidateTarget.l4_run_snapshot_hash,
+      source_status: "ACCEPTED_OUTPUT",
+      stage_skip_id: null,
+      stage_skip_hash: null,
+      review_hash: `sha256:${"8".repeat(64)}`,
+      output: {} as CroOutput,
+      frozen: true,
+    } satisfies CroReviewState;
+    const execution = {
+      schema_version: "decision.execution_feasibility_state.v1",
+      run_id: "t",
+      candidate_target_hash: candidateTarget.candidate_target_hash,
+      l4_run_snapshot_hash: candidateTarget.l4_run_snapshot_hash,
+      cro_review_hash: croReview.review_hash,
+      source_status: "ACCEPTED_OUTPUT",
+      stage_skip_id: null,
+      stage_skip_hash: null,
+      liquidity_vintage_hash: `sha256:${"9".repeat(64)}`,
+      feasibility_hash: `sha256:${"a".repeat(64)}`,
+      output: {} as AutoExecOutput,
+      frozen: true,
+    } satisfies ExecutionFeasibilityState;
+    input.layer4_outputs.runtime = {
+      ...emptyLayer4RuntimeState(),
+      candidate_target_state: candidateTarget,
+      portfolio_exposure_state: exposure,
+      cro_review_state: croReview,
+      execution_feasibility_state: execution,
+    };
+    const candidateScope = { accepted_output_refs: [ref] };
+
+    const stages = [
+      [alphaDiscoverySpec, ["current_positions"]],
+      [cioProposalSpec, ["current_positions", "decision_policy_release", "previous_target_state"]],
+      [
+        croSpec,
+        [
+          "candidate_target_state",
+          "current_positions",
+          "decision_policy_release",
+          "portfolio_exposure_state",
+        ],
+      ],
+      [
+        autonomousExecutionSpec,
+        [
+          "candidate_target_state",
+          "cro_review_state",
+          "current_positions",
+          "decision_policy_release",
+          "execution_mode",
+          "resolved_source_statuses",
+        ],
+      ],
+      [
+        cioSpec,
+        [
+          "candidate_target_state",
+          "cro_review_state",
+          "current_positions",
+          "decision_policy_release",
+          "execution_feasibility_state",
+        ],
+      ],
+    ] as const;
+    for (const [spec, expectedRuntimeKeys] of stages) {
+      const built = buildDecisionBoundRuntimeInputs(input, spec, candidateScope, store);
+      expect(built.accepted_output_refs).toEqual([ref]);
+      expect(built.accepted_output_records).toEqual([record]);
+      expect(Object.keys(built.bound_runtime_state as object).sort()).toEqual(
+        [...expectedRuntimeKeys].sort(),
+      );
+    }
+  });
 });
 
 function loadedPositions(
@@ -3567,7 +3710,7 @@ describe("buildCroNode (frozen snapshots, no portfolio_actions mirror)", () => {
     expect(llm.invokeCalls).toBe(1);
   });
 
-  it("keeps RKE research context outside the production decision graph", async () => {
+  it("injects registered frozen RKE research context into the decision graph", async () => {
     const canned: CroOutput = {
       agent: "cro",
       review_disposition: "NO_OBJECTION",
@@ -3615,11 +3758,11 @@ describe("buildCroNode (frozen snapshots, no portfolio_actions mirror)", () => {
     const node = buildCroNode({ llmHandle: handle, api, config, promptsRoot: promptDir });
     await node(stateWithFrozenCandidate());
 
-    expect(toolCalls.map((call) => call.name)).not.toContain("get_rke_research_context");
+    expect(toolCalls).toEqual([]);
     expect(llm.bindToolsCalled).toBe(0);
     expect(llm.invokeCalls).toBe(1);
-    expect(llm.lastMessages.map((msg) => String(msg.content)).join("\n")).not.toContain(
-      "RKE research prior context",
+    expect(llm.lastMessages.map((msg) => String(msg.content)).join("\n")).toContain(
+      "fake-cro-get_rke_research_context",
     );
   });
 });

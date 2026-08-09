@@ -1056,16 +1056,40 @@ def build_accepted_output_capability_track(
 
 
 def _load_restored_bindings(root: Path) -> Sequence[Mapping[str, Any]]:
-    overlay = _read_json(
+    sector_overlay = _read_json(
         root
         / "registry/prompt_checks/capability_preservation"
         / "sector_relationship_preservation_overlay_v1.json"
     )
-    _validate_manifest_hash(overlay)
-    bindings = overlay.get("bindings")
-    if not isinstance(bindings, list):
+    _validate_manifest_hash(sector_overlay)
+    sector_bindings = sector_overlay.get("bindings")
+    if not isinstance(sector_bindings, list):
         raise ValueError("restored capability overlay bindings are malformed")
-    return bindings
+
+    from mosaic.scorecard.l3_l4_activation import active_stage_for_l3_l4_overlay
+    from mosaic.scorecard.l3_l4_preservation import (
+        validate_l3_l4_preservation_overlay,
+    )
+
+    l3_l4_overlay = _read_json(
+        root
+        / "registry/prompt_checks/capability_preservation"
+        / "l3_l4_preservation_overlay_v1.json"
+    )
+    validate_l3_l4_preservation_overlay(l3_l4_overlay, root=root)
+    l3_l4_bindings = l3_l4_overlay.get("bindings")
+    if not isinstance(l3_l4_bindings, list):
+        raise ValueError("L3/L4 restored capability overlay bindings are malformed")
+    translated: list[Mapping[str, Any]] = [*sector_bindings]
+    for binding in l3_l4_bindings:
+        if not isinstance(binding, Mapping):
+            raise ValueError("L3/L4 restored capability binding is malformed")
+        row = dict(binding)
+        row["stage"] = active_stage_for_l3_l4_overlay(
+            str(row["agent_id"]), str(row["stage"])
+        )
+        translated.append(row)
+    return translated
 
 
 def build_default_contract_artifacts(root: Path) -> dict[str, dict[str, Any]]:

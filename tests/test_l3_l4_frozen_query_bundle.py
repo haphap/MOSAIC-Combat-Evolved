@@ -177,6 +177,65 @@ def test_l3_bundle_rejects_unaccepted_backup_and_initial_call_drift(tmp_path: Pa
         )
 
 
+def test_l3_empty_scope_publishes_zero_round_bundle_without_materialization(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    scope = {**_l3_scope(), "accepted_candidate_tickers": []}
+    materialized: list[tuple[str, dict]] = []
+
+    prepared = store.prepare(
+        agent_id="ackman",
+        stage="ackman",
+        as_of="2026-07-09",
+        authorized_scope=scope,
+        initial_query_requests=[],
+        query_requests=[],
+        preservation_overlay=build_l3_l4_preservation_overlay(ROOT),
+        materializer=lambda tool_id, args: materialized.append((tool_id, args)),
+    )
+
+    projection = prepared["public_projection"]
+    assert projection["private_payload_count"] == 0
+    assert projection["initial_payload_count"] == 0
+    assert projection["adaptive_max_rounds"] == 0
+    assert projection["entries"] == []
+    assert materialized == []
+    assert store.read_initial_payloads(
+        bundle_id=prepared["bundle_id"], agent_id="ackman", stage="ackman"
+    ) == []
+    with pytest.raises(ValueError, match="does not permit adaptive model calls"):
+        store.start_session(
+            bundle_id=prepared["bundle_id"], agent_id="ackman", stage="ackman"
+        )
+
+
+def test_l3_empty_scope_rejects_any_private_query(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    scope = {**_l3_scope(), "accepted_candidate_tickers": []}
+
+    with pytest.raises(ValueError, match="empty candidate scope"):
+        store.prepare(
+            agent_id="ackman",
+            stage="ackman",
+            as_of="2026-07-09",
+            authorized_scope=scope,
+            initial_query_requests=[],
+            query_requests=[
+                {
+                    "tool_id": "get_industry_policy_digest",
+                    "args": {
+                        "as_of": "2026-07-09",
+                        "lookback_days": 30,
+                        "source": "govcn",
+                    },
+                }
+            ],
+            preservation_overlay=build_l3_l4_preservation_overlay(ROOT),
+            materializer=_materializer,
+        )
+
+
 def test_l4_bundle_is_proactive_stage_bound_and_has_no_model_round(tmp_path: Path):
     store = _store(tmp_path)
     prepared = store.prepare(
@@ -213,4 +272,40 @@ def test_l4_bundle_is_proactive_stage_bound_and_has_no_model_round(tmp_path: Pat
     with pytest.raises(ValueError, match="stage"):
         store.read_initial_payloads(
             bundle_id=prepared["bundle_id"], agent_id="cro", stage="cro"
+        )
+
+
+def test_l4_active_stage_keeps_explicit_preservation_stage_binding(tmp_path: Path):
+    store = _store(tmp_path)
+    prepared = store.prepare(
+        agent_id="cro",
+        stage="cro",
+        preservation_stage="cro_review",
+        as_of="2026-07-09",
+        authorized_scope=_l4_scope(),
+        initial_query_requests=[
+            {
+                "tool_id": "get_rke_research_context",
+                "args": {
+                    "agent_id": "cro",
+                    "as_of": "2026-07-09",
+                    "layer": "decision",
+                    "max_items": 3,
+                },
+            }
+        ],
+        query_requests=[],
+        preservation_overlay=build_l3_l4_preservation_overlay(ROOT),
+        materializer=_materializer,
+    )
+
+    assert prepared["public_projection"]["stage"] == "cro"
+    assert prepared["public_projection"]["preservation_stage"] == "cro_review"
+    initial = store.read_initial_payloads(
+        bundle_id=prepared["bundle_id"], agent_id="cro", stage="cro"
+    )
+    assert initial[0]["tool_id"] == "get_rke_research_context"
+    with pytest.raises(ValueError, match="stage"):
+        store.read_initial_payloads(
+            bundle_id=prepared["bundle_id"], agent_id="cro", stage="cro_review"
         )

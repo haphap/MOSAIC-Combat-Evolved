@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from mosaic.dataflows.agent_materialization import AgentDataMaterializationLedger
+from mosaic.dataflows.staged_query_receipt_store import StagedQueryReceiptStore
 from mosaic.dataflows.staged_query_receipts import seal_staged_query_source_receipt
 from mosaic.dataflows.supply_chain_disclosures import (
     OfficialSupplyChainDisclosureArchive,
@@ -195,6 +197,75 @@ def test_reader_preserves_supplier_customer_direction_and_document_lineage(
     assert result["source_receipt_hashes"] == [receipt["receipt_hash"]]
 
 
+def test_reader_promotes_authoritative_capture_into_active_evidence_stores(
+    tmp_path: Path,
+) -> None:
+    archive = OfficialSupplyChainDisclosureArchive(tmp_path / ".mosaic/supply.sqlite3")
+    edge = _edge()
+    old_staged_receipt = _receipt(
+        "600000.SH", AS_OF, [edge], _manifest([edge])
+    )
+    _append(archive, [edge])
+    ledger = AgentDataMaterializationLedger(
+        tmp_path / ".mosaic/agent-data-materialization.sqlite3"
+    )
+    receipt_store = StagedQueryReceiptStore(
+        tmp_path / ".mosaic/staged-query-receipts.sqlite3"
+    )
+
+    first = archive.materialize(
+        ticker="600000.SH",
+        as_of=AS_OF,
+        receipt_store=receipt_store,
+        agent_data_ledger=ledger,
+    )
+    staged_hash = first["source_receipt_hashes"][0]
+    assert staged_hash != old_staged_receipt["receipt_hash"]
+    staged = receipt_store.receipt_by_hash(staged_hash)
+    assert staged["knowledge_available_at"] == old_staged_receipt[
+        "knowledge_available_at"
+    ]
+    assert staged["captured_at"] == old_staged_receipt["captured_at"]
+    assert len(staged["upstream_evidence_hashes"]) == 1
+
+    source = ledger.source_capture_receipt(
+        receipt_hash=staged["upstream_evidence_hashes"][0]
+    )
+    assert source is not None
+    source_payload = source.as_dict()
+    assert source_payload["identity"]["source_family"] == (
+        "official_company_disclosures"
+    )
+    assert source_payload["identity"]["route_id"] == (
+        "official.company_supply_chain_disclosures"
+    )
+    assert source_payload["identity"]["request_hash"] == staged["request_hash"]
+    assert source_payload["pit"]["pit_mode"] == "AUTHORITATIVE_VINTAGE_REPLAY"
+    assert source_payload["pit"]["eligible"] is True
+    assert source_payload["content"]["raw_content_hash"] == staged["content_hash"]
+    assert source_payload["content"]["normalized_row_count"] == 1
+    assert "private official annual report" not in json.dumps(source_payload)
+
+    assert archive.materialize(
+        ticker="600000.SH",
+        as_of=AS_OF,
+        receipt_store=receipt_store,
+        agent_data_ledger=ledger,
+    ) == first
+    with pytest.raises(ValueError, match="requires both receipt store and ledger"):
+        archive.materialize(
+            ticker="600000.SH",
+            as_of=AS_OF,
+            receipt_store=receipt_store,
+        )
+    with pytest.raises(ValueError, match="requires both receipt store and ledger"):
+        archive.materialize(
+            ticker="600000.SH",
+            as_of=AS_OF,
+            agent_data_ledger=ledger,
+        )
+
+
 def test_future_disclosure_is_rejected_and_missing_capture_does_not_fallback(
     tmp_path: Path,
 ):
@@ -217,6 +288,12 @@ def test_future_disclosure_is_rejected_and_missing_capture_does_not_fallback(
 
 def test_exhaustive_empty_capture_returns_explicit_abstention(tmp_path: Path):
     archive = OfficialSupplyChainDisclosureArchive(tmp_path / ".mosaic/supply.sqlite3")
+    ledger = AgentDataMaterializationLedger(
+        tmp_path / ".mosaic/agent-data-materialization.sqlite3"
+    )
+    receipt_store = StagedQueryReceiptStore(
+        tmp_path / ".mosaic/staged-query-receipts.sqlite3"
+    )
     manifest = _manifest([])
     receipt = _receipt("600000.SH", AS_OF, [], manifest)
     archive.append_capture(
@@ -227,7 +304,12 @@ def test_exhaustive_empty_capture_returns_explicit_abstention(tmp_path: Path):
         documents=[],
         source_receipt=receipt,
     )
-    result = archive.materialize(ticker="600000.SH", as_of=AS_OF)
+    result = archive.materialize(
+        ticker="600000.SH",
+        as_of=AS_OF,
+        receipt_store=receipt_store,
+        agent_data_ledger=ledger,
+    )
     payload = json.loads(result["payload"])
     assert payload == {
         "as_of": AS_OF,
@@ -236,7 +318,15 @@ def test_exhaustive_empty_capture_returns_explicit_abstention(tmp_path: Path):
         "status": "ABSTAIN_NO_FACTUAL_EDGE",
         "ticker": "600000.SH",
     }
-    assert result["source_receipt_hashes"] == [receipt["receipt_hash"]]
+    staged = receipt_store.receipt_by_hash(result["source_receipt_hashes"][0])
+    source = ledger.source_capture_receipt(
+        receipt_hash=staged["upstream_evidence_hashes"][0]
+    )
+    assert source is not None
+    assert source.as_dict()["content"]["normalized_row_count"] == 0
+    assert source.as_dict()["completeness"]["empty_result_semantics"] == "TRUE_EMPTY"
+    assert source.as_dict()["coverage"]["observed_start"] is None
+    assert source.as_dict()["coverage"]["observed_end"] is None
 
 
 def test_archive_is_append_only_and_reader_detects_private_row_tampering(tmp_path: Path):

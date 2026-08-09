@@ -295,7 +295,14 @@ def load_market_breadth_inputs(
     as_of_date: str | None = None,
 ) -> BreadthInputs:
     data_root = root or market_breadth_data_root()
-    archive_path = data_root / "a_share_archive.sqlite3"
+    explicit_archive = (
+        os.getenv("MOSAIC_A_SHARE_ARCHIVE_DB") if root is None else None
+    )
+    archive_path = (
+        Path(explicit_archive).expanduser()
+        if explicit_archive
+        else data_root / "a_share_archive.sqlite3"
+    )
     if as_of_date is not None and archive_path.is_file():
         from .a_share_archive import AShareArchiveStore  # noqa: PLC0415
 

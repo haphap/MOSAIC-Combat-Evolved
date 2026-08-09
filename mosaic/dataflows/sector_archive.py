@@ -23,22 +23,28 @@ from .a_share_archive import (
 from .agent_materialization import (
     AgentDataMaterializationLedger,
     RouteCoverageReceipt,
+    SnapshotBuildReceipt,
     SourceCaptureReceipt,
     canonical_hash,
 )
 from .exceptions import DataVendorUnavailable
 from .sector_snapshots import (
     RELATIONSHIP_REQUIRED_SOURCE_ENDPOINTS,
+    RELATIONSHIP_SNAPSHOT_SCHEMA_VERSION,
     PAGINATION_POLICY_OFFICIAL_CAP,
     PAGINATION_POLICY_TERMINAL_CONFIRMED,
     SECTOR_DIRECTION_IDS,
     SECTOR_ETF_SOURCE_ENDPOINTS,
     SECTOR_REQUIRED_SOURCE_ENDPOINTS,
+    SECTOR_SNAPSHOT_SCHEMA_VERSION,
     SECTOR_UNIVERSE_MANIFEST,
     SOURCE_BATCH_PAGINATION_POLICIES,
     _authoritative_etf_codes,
     compile_registered_relationship_snapshot,
     compile_registered_sector_snapshot,
+    sector_snapshot_root,
+    write_registered_relationship_snapshot,
+    write_registered_sector_snapshot,
 )
 from .tushare_catalog import (
     PREFLIGHT_ENDPOINT_CHECKS,
@@ -48,6 +54,7 @@ from .tushare_catalog import (
 
 CAPTURE_SCHEMA_VERSION = "sector_relationship_capture_group_v2"
 PARSER_VERSION = "sector_relationship_archive_v2"
+CORE_COMPILER_VERSION = "sector_relationship_core_compiler_v1"
 LOGICAL_ROUTES = (
     "tushare.relationship_graph",
     "tushare.sector_fundamentals",
@@ -187,6 +194,12 @@ class SectorArchiveResult:
     coverage_receipt: RouteCoverageReceipt
     cache_hit: bool
     group: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class SectorCoreBuildResult:
+    snapshots: dict[str, dict[str, Any]]
+    build_receipts: tuple[SnapshotBuildReceipt, ...]
 
 
 class SectorArchiveStore:
@@ -1057,12 +1070,169 @@ def archive_sector_relationship(
         )
 
 
+def _core_snapshot_binding(role: str) -> tuple[str, list[str], str]:
+    if role == "relationship_mapper":
+        return (
+            "get_relationship_graph_snapshot",
+            ["tushare.relationship_graph"],
+            RELATIONSHIP_SNAPSHOT_SCHEMA_VERSION,
+        )
+    return (
+        "get_sector_research_snapshot",
+        ["tushare.sector_fundamentals", "tushare.sector_market"],
+        SECTOR_SNAPSHOT_SCHEMA_VERSION,
+    )
+
+
+def _core_snapshot_build_receipt(
+    *,
+    role: str,
+    as_of_date: str,
+    as_of_cutoff: str,
+    source_receipt_hashes: Sequence[str],
+    snapshot: Mapping[str, Any] | None,
+    blocker_codes: Sequence[str],
+) -> SnapshotBuildReceipt:
+    tool_id, required_routes, output_contract = _core_snapshot_binding(role)
+    missing_routes = [] if snapshot is not None else required_routes
+    output_hash = str(snapshot["snapshot_hash"]) if snapshot is not None else None
+    identity = {
+        "role": role,
+        "as_of_date": as_of_date,
+        "as_of_cutoff": as_of_cutoff,
+        "tool_id": tool_id,
+        "source_receipt_hashes": sorted(set(source_receipt_hashes)),
+        "output_hash": output_hash,
+        "missing_route_ids": missing_routes,
+        "blocker_codes": sorted(set(blocker_codes)),
+    }
+    now = _capture_now().isoformat()
+    return SnapshotBuildReceipt.seal(
+        {
+            "schema_version": "snapshot_build_receipt_v1",
+            "build_id": (
+                "sector-relationship-core-build:"
+                + canonical_hash(identity).removeprefix("sha256:")
+            ),
+            "agent_id": role,
+            "stage": role,
+            "tool_id": tool_id,
+            "as_of": as_of_date,
+            "as_of_cutoff": as_of_cutoff,
+            "source_receipt_hashes": sorted(set(source_receipt_hashes)),
+            "compiler_version": CORE_COMPILER_VERSION,
+            "output_contract_version": output_contract,
+            "output_path": f"sector_snapshots/{as_of_date}/{role}.json",
+            "output_hash": output_hash,
+            "pit_mode": "OBSERVED_LIVE",
+            "earliest_trustworthy_date": as_of_date if snapshot is not None else None,
+            "required_route_ids": required_routes,
+            "missing_route_ids": missing_routes,
+            "terminal_state": "READY" if snapshot is not None else "BLOCKED",
+            "blocker_codes": sorted(set(blocker_codes)),
+            "build_started_at": now,
+            "build_finished_at": now,
+        }
+    )
+
+
+def compile_sector_relationship_core_snapshots(
+    archive: SectorArchiveResult,
+    *,
+    ledger: AgentDataMaterializationLedger,
+    output_root: Path | None = None,
+) -> SectorCoreBuildResult:
+    """Publish the ten initial snapshots and seal their exact core builds."""
+    coverage = archive.coverage_receipt.as_dict()
+    as_of_date = str(coverage["window"]["start"])[:10]
+    date.fromisoformat(as_of_date)
+    as_of_cutoff = str(coverage["window"]["end"])
+    roles = (*SECTOR_DIRECTION_IDS, "relationship_mapper")
+    if bool(archive.group) != bool(coverage["coverage_complete"]):
+        raise ValueError("sector archive group contradicts route coverage")
+
+    if archive.group is None:
+        receipts = tuple(
+            ledger.append_or_reuse_snapshot_build(
+                _core_snapshot_build_receipt(
+                    role=role,
+                    as_of_date=as_of_date,
+                    as_of_cutoff=as_of_cutoff,
+                    source_receipt_hashes=(
+                        archive.coverage_receipt.receipt_hash,
+                    ),
+                    snapshot=None,
+                    blocker_codes=coverage["blocker_codes"],
+                )
+            )
+            for role in roles
+        )
+        return SectorCoreBuildResult({}, receipts)
+
+    group = archive.group
+    if group.get("as_of_date") != as_of_date:
+        raise ValueError("sector archive group as_of_date mismatch")
+    snapshots = compile_sector_archive_group(group)
+    if set(snapshots) != set(roles):
+        raise ValueError("sector archive compiler role coverage drift")
+    expected_hashes = {
+        role: snapshot["snapshot_hash"] for role, snapshot in snapshots.items()
+    }
+    if group.get("compiled_snapshot_hashes") != expected_hashes:
+        raise ValueError("sector archive compiled snapshot hash drift")
+
+    destination_root = output_root or sector_snapshot_root()
+    source_by_route = {
+        receipt.as_dict()["identity"]["route_id"]: receipt
+        for receipt in archive.source_receipts
+    }
+    if set(source_by_route) != set(LOGICAL_ROUTES):
+        raise ValueError("sector archive source receipt closure drift")
+    receipts: list[SnapshotBuildReceipt] = []
+    for role in roles:
+        snapshot = snapshots[role]
+        if role == "relationship_mapper":
+            written = write_registered_relationship_snapshot(
+                as_of_date=as_of_date,
+                snapshot=snapshot,
+                source_batches=relationship_source_batches(group),
+                root=destination_root,
+            )
+        else:
+            written = write_registered_sector_snapshot(
+                role=role,
+                as_of_date=as_of_date,
+                snapshot=snapshot,
+                source_batches=sector_source_batches(group, role),
+                root=destination_root,
+            )
+        _tool_id, required_routes, _output_contract = _core_snapshot_binding(role)
+        source_hashes = [
+            source_by_route[route_id].receipt_hash for route_id in required_routes
+        ]
+        receipts.append(
+            ledger.append_or_reuse_snapshot_build(
+                _core_snapshot_build_receipt(
+                    role=role,
+                    as_of_date=as_of_date,
+                    as_of_cutoff=as_of_cutoff,
+                    source_receipt_hashes=source_hashes,
+                    snapshot=written,
+                    blocker_codes=(),
+                )
+            )
+        )
+    return SectorCoreBuildResult(dict(snapshots), tuple(receipts))
+
+
 __all__ = [
     "CAPTURE_SCHEMA_VERSION",
     "LOGICAL_ROUTES",
     "SectorArchiveResult",
     "SectorArchiveStore",
+    "SectorCoreBuildResult",
     "archive_sector_relationship",
+    "compile_sector_relationship_core_snapshots",
     "compile_sector_archive_group",
     "relationship_source_batches",
     "sector_archive_path",
