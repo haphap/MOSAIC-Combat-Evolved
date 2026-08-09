@@ -4,18 +4,22 @@ import { describe, expect, it } from "vitest";
 import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
 import { AGENT_IDS, agentToolsFor } from "../src/agents/tool_contract.js";
 import {
-  ActivePromptReleaseV4Schema,
   assertCurrentKnotTransitionAction,
   assertKnotTransitionAction,
   CapabilityBindingManifestSchema,
+  CapabilityFullBundleV1Schema,
   CapabilityTrackSchema,
   canonicalCapabilityBindingId,
   canonicalToolEnvironmentHash,
   canonicalToolResultFingerprint,
   EvidenceClaimGraphV2Schema,
+  KnotAuditCapabilityTrackV2Schema,
   KnotCapabilityUseAggregateSchema,
   KnotToolCoverageManifestSchema,
+  KnotToolCoverageManifestV2Schema,
   loadCurrentAcceptedOutputCapabilityTrack,
+  loadCurrentKnotAuditCapabilityTrackV2,
+  loadCurrentKnotGateDReleaseAuthority,
   PromptTrainingProjectionV2Schema,
   StagedAgentToolContractManifestSchema,
   ToolEnvironmentManifestSchema,
@@ -31,6 +35,15 @@ function load(name: string): unknown {
 }
 
 describe("capability preservation and KNOT contracts", () => {
+  it("loads the exact current 29-stage/187-binding Gate-D release authority", () => {
+    const authority = loadCurrentKnotGateDReleaseAuthority();
+    expect(authority.stage_keys).toHaveLength(29);
+    expect(new Set(authority.stage_keys).size).toBe(29);
+    expect(authority.binding_count).toBe(187);
+    expect(authority.knot_coverage_manifest_hash).toMatch(/^sha256:/);
+    expect(authority.knot_audit_capability_track_hash).toMatch(/^sha256:/);
+  });
+
   it("parses the staged manifests and closes every binding exactly once", () => {
     const bindings = CapabilityBindingManifestSchema.parse(
       load("agent_capability_binding_manifest_v1.json"),
@@ -63,6 +76,26 @@ describe("capability preservation and KNOT contracts", () => {
     expect(new Set(staged.tools.flatMap((row) => row.capability_binding_ids))).toEqual(
       new Set(bindings.bindings.map((row) => row.binding_id)),
     );
+  });
+
+  it("binds trusted counterevidence coverage to the current v2 audit track", () => {
+    const coverage = KnotToolCoverageManifestV2Schema.parse(
+      load("knot_tool_coverage_manifest_v2.json"),
+    );
+    const track = KnotAuditCapabilityTrackV2Schema.parse(
+      load("knot_audit_capability_track_v2.json"),
+    );
+    const current = loadCurrentKnotAuditCapabilityTrackV2();
+
+    expect(coverage.coverage).toHaveLength(187);
+    expect(track).toEqual(current);
+    expect(track.knot_coverage_manifest_v2_hash).toBe(coverage.manifest_hash);
+    expect(() =>
+      KnotAuditCapabilityTrackV2Schema.parse({
+        ...track,
+        trusted_comparator_version: "caller_supplied_value_v1",
+      }),
+    ).toThrow();
   });
 
   it("keeps the active agentToolsFor surface unchanged", () => {
@@ -111,9 +144,7 @@ describe("capability preservation and KNOT contracts", () => {
     ).toBeDefined();
 
     const releaseBody = {
-      schema_version: "active_prompt_release_manifest_v4" as const,
-      release_id: "release:test",
-      lifecycle_state: "staged" as const,
+      schema_version: "capability_full_bundle_v1" as const,
       prompt_hash: `sha256:${"1".repeat(64)}`,
       execution_behavior_release_hash: `sha256:${"2".repeat(64)}`,
       production_variant_roster_hash: `sha256:${"3".repeat(64)}`,
@@ -122,10 +153,11 @@ describe("capability preservation and KNOT contracts", () => {
       tool_environment_hash: `sha256:${"6".repeat(64)}`,
       capability_binding_manifest_hash: `sha256:${"7".repeat(64)}`,
       knot_coverage_manifest_hash: `sha256:${"8".repeat(64)}`,
+      knot_audit_capability_track_hash: `sha256:${"a".repeat(64)}`,
       private_companion_pin_hash: `sha256:${"9".repeat(64)}`,
     };
     expect(
-      ActivePromptReleaseV4Schema.parse({
+      CapabilityFullBundleV1Schema.parse({
         ...releaseBody,
         full_bundle_hash: canonicalJsonHash(releaseBody),
       }),
@@ -157,6 +189,10 @@ describe("capability preservation and KNOT contracts", () => {
       };
       return { ...aggregateBody, aggregate_hash: canonicalJsonHash(aggregateBody) };
     });
+    const productionVariantRosterRevisions: Array<{
+      revisionId: string;
+      revisionHash: string;
+    }> = [];
     const projectionBody = {
       schemaVersion: "prompt_training_projection_v2" as const,
       target: { agentId: "china" },
@@ -168,7 +204,13 @@ describe("capability preservation and KNOT contracts", () => {
       outcomeContract: { version: "outcome_v1" },
       evaluator: { version: "evaluator_v1" },
       capabilityTrack: loadCurrentAcceptedOutputCapabilityTrack(),
+      knotAuditCapabilityTrack: loadCurrentKnotAuditCapabilityTrackV2(),
+      knotHistoryPartitionHash: `sha256:${"2".repeat(64)}`,
+      knotMaterializationSetHash: `sha256:${"3".repeat(64)}`,
+      knotExcludedSampleSetHash: `sha256:${"4".repeat(64)}`,
       capabilityUseAggregates,
+      productionVariantRosterRevisions,
+      productionVariantRosterRevisionSetHash: canonicalJsonHash(productionVariantRosterRevisions),
       maturityContract: {
         horizonId: "horizon:20d",
         horizonContractHash: `sha256:${"d".repeat(64)}`,

@@ -32,6 +32,7 @@ from mosaic.scorecard.store import DEFAULT_DB_PATH
 
 _SCHEMA_FILE_BY_VERSION = {
     "prompt_training_projection_v1": "prompt_training_projection_v1.schema.json",
+    "prompt_training_projection_v2": "prompt_training_projection_v2.schema.json",
     "prompt_candidate_v1": "prompt_candidate_v1.schema.json",
     "prompt_candidate_publication_v1": "prompt_candidate_publication_v1.schema.json",
     "prompt_candidate_family_v1": "prompt_candidate_family_v1.schema.json",
@@ -53,6 +54,25 @@ CREATE TABLE IF NOT EXISTS prompt_training_projections_v1 (
     record_json TEXT NOT NULL,
     persisted_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS prompt_training_projections_v2 (
+    projection_hash TEXT PRIMARY KEY,
+    projection_id TEXT NOT NULL UNIQUE,
+    agent_id TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    cohort TEXT NOT NULL,
+    cutoff_at TEXT NOT NULL,
+    record_json TEXT NOT NULL,
+    persisted_at TEXT NOT NULL
+);
+
+CREATE TRIGGER IF NOT EXISTS no_update_prompt_training_projections_v2
+BEFORE UPDATE ON prompt_training_projections_v2
+BEGIN SELECT RAISE(ABORT, 'append_only'); END;
+
+CREATE TRIGGER IF NOT EXISTS no_delete_prompt_training_projections_v2
+BEFORE DELETE ON prompt_training_projections_v2
+BEGIN SELECT RAISE(ABORT, 'append_only'); END;
 
 CREATE TABLE IF NOT EXISTS prompt_candidates_v3 (
     candidate_id TEXT PRIMARY KEY,
@@ -155,7 +175,7 @@ _RUNTIME_AGENT_MANIFEST_PATH = (
 )
 
 
-def _load_prompt_optimizer_stages() -> dict[str, frozenset[str]]:
+def _load_runtime_agent_stages() -> dict[str, frozenset[str]]:
     payload = json.loads(_RUNTIME_AGENT_MANIFEST_PATH.read_text(encoding="utf-8"))
     rows = payload.get("agents") if isinstance(payload, dict) else None
     if (
@@ -183,15 +203,21 @@ def _load_prompt_optimizer_stages() -> dict[str, frozenset[str]]:
         }
         if len(stage_ids) != len(stages) or not stage_ids:
             raise RuntimeError("prompt optimizer runtime stage binding is invalid")
-        if agent_id == "cio":
-            stage_ids.discard("cio_proposal")
         result[agent_id] = frozenset(stage_ids)
     if set(result) != set(OUTCOME_CONTRACTS):
         raise RuntimeError("prompt optimizer runtime and outcome rosters differ")
     return result
 
 
-_PROMPT_OPTIMIZER_STAGES_BY_AGENT = _load_prompt_optimizer_stages()
+_RUNTIME_AGENT_STAGES_BY_AGENT = _load_runtime_agent_stages()
+_PROMPT_OPTIMIZER_STAGES_BY_AGENT = {
+    agent_id: frozenset(
+        stage
+        for stage in stages
+        if not (agent_id == "cio" and stage == "cio_proposal")
+    )
+    for agent_id, stages in _RUNTIME_AGENT_STAGES_BY_AGENT.items()
+}
 
 _EXPERIMENT_TRANSITIONS = {
     "PENDING": {"VALIDATION_RUNNING", "FAILED"},
@@ -220,6 +246,43 @@ def _assert_target_semantics(value: Mapping[str, Any]) -> None:
     stage = str(target["stage"])
     if stage not in _PROMPT_OPTIMIZER_STAGES_BY_AGENT.get(agent_id, frozenset()):
         raise ValueError("prompt_optimizer_target_stage_invalid")
+
+
+def _assert_training_projection_v2_semantics(value: Mapping[str, Any]) -> None:
+    target = value.get("target")
+    if not isinstance(target, Mapping) or set(target) != {
+        "agentId",
+        "stage",
+        "cohort",
+    }:
+        raise ValueError("prompt_training_projection_v2_target_invalid")
+    agent_id = target.get("agentId")
+    stage = target.get("stage")
+    cohort = target.get("cohort")
+    if (
+        not isinstance(agent_id, str)
+        or not isinstance(stage, str)
+        or not isinstance(cohort, str)
+        or not cohort
+        or stage not in _RUNTIME_AGENT_STAGES_BY_AGENT.get(agent_id, frozenset())
+    ):
+        raise ValueError("prompt_training_projection_v2_target_invalid")
+    body = {key: item for key, item in value.items() if key != "projectionHash"}
+    if value.get("projectionHash") != _canonical_hash(body):
+        raise ValueError("prompt_training_projection_v2_hash_mismatch")
+    roster_refs = value.get("productionVariantRosterRevisions")
+    if not isinstance(roster_refs, list):
+        raise ValueError("prompt_training_projection_v2_roster_refs_invalid")
+    roster_ids = [
+        ref.get("revisionId") if isinstance(ref, Mapping) else None
+        for ref in roster_refs
+    ]
+    if roster_ids != sorted(set(roster_ids)):
+        raise ValueError("prompt_training_projection_v2_roster_refs_invalid")
+    if value.get("productionVariantRosterRevisionSetHash") != _canonical_hash(
+        roster_refs
+    ):
+        raise ValueError("prompt_training_projection_v2_roster_hash_mismatch")
 
 
 def _experiment_family_environment(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -1166,6 +1229,68 @@ class PromptOptimizerStore:
                 ).fetchone()
             )
 
+    def put_training_projection_v2(
+        self, record: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        value = self._validate("prompt_training_projection_v2", record)
+        _assert_training_projection_v2_semantics(value)
+        target = value["target"]
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            db_now = _db_now(conn)
+            if _instant(str(value["cutoffAt"])) > db_now:
+                raise ValueError("prompt_training_projection_v2_cutoff_in_future")
+            existing = conn.execute(
+                "SELECT record_json FROM prompt_training_projections_v2 "
+                "WHERE projection_hash = ?",
+                (value["projectionHash"],),
+            ).fetchone()
+            if existing is not None:
+                self._assert_idempotent(
+                    existing, value, str(value["projectionHash"])
+                )
+                return value
+            conflicting_id = conn.execute(
+                "SELECT record_json FROM prompt_training_projections_v2 "
+                "WHERE projection_id = ?",
+                (value["projectionId"],),
+            ).fetchone()
+            if conflicting_id is not None:
+                raise ValueError(
+                    f"prompt_optimizer_id_conflict:{value['projectionId']}"
+                )
+            conn.execute(
+                """
+                INSERT INTO prompt_training_projections_v2 (
+                    projection_hash, projection_id, agent_id, stage, cohort,
+                    cutoff_at, record_json, persisted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    value["projectionHash"],
+                    value["projectionId"],
+                    target["agentId"],
+                    target["stage"],
+                    target["cohort"],
+                    value["cutoffAt"],
+                    _canonical_json(value),
+                    _format_instant(db_now),
+                ),
+            )
+        return value
+
+    def get_training_projection_v2(
+        self, projection_hash: str
+    ) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            return self._load_json(
+                conn.execute(
+                    "SELECT record_json FROM prompt_training_projections_v2 "
+                    "WHERE projection_hash = ?",
+                    (projection_hash,),
+                ).fetchone()
+            )
+
     def put_candidate(self, record: Mapping[str, Any]) -> dict[str, Any]:
         value = self._validate("prompt_candidate_v1", record)
         _assert_target_semantics(value)
@@ -2102,6 +2227,17 @@ class PromptOptimizerStore:
             ).fetchone()
             experiment = self._load_json(experiment_row)
         return {"candidate": candidate, "experiment": experiment}
+
+
+    def get_production_variant_roster_revision(
+        self, revision_id: str
+    ) -> dict[str, Any] | None:
+        from mosaic.scorecard.darwinian_v2 import (
+            get_production_variant_roster_revision,
+        )
+
+        with self._connect() as conn:
+            return get_production_variant_roster_revision(conn, revision_id)
 
 
 __all__ = ["PromptOptimizerStore"]

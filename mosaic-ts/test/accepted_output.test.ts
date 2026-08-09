@@ -26,7 +26,25 @@ function claimGraph(): ClaimEvidenceGraph {
         source_kind: "tool",
         tool_or_source: "fixture",
         metric: "fixture",
-        value: 1,
+        value: {
+          server_tool_result: {
+            result_event_id: "tool_evt_accepted",
+            result_event_hash: `sha256:${"d".repeat(64)}`,
+            result_authority_type: "SNAPSHOT_BUILD",
+            result_authority_hash: `sha256:${"e".repeat(64)}`,
+            tool_environment_hash: `sha256:${"f".repeat(64)}`,
+            execution_behavior_release_hash: `sha256:${"0".repeat(64)}`,
+            capability_bundle_hash: `sha256:${"1".repeat(64)}`,
+            knot_coverage_manifest_v2_hash: `sha256:${"2".repeat(64)}`,
+            knot_audit_capability_track_v2_hash: `sha256:${"3".repeat(64)}`,
+            binding_result_refs: [
+              {
+                binding_id: `binding:${"4".repeat(64)}`,
+                binding_result_fingerprint: `sha256:${"5".repeat(64)}`,
+              },
+            ],
+          },
+        },
         unit: "index",
         as_of: "2026-07-17",
         lookback: "current",
@@ -103,6 +121,15 @@ describe("AcceptedAgentOutputRecord", () => {
     expect(record.capability_track.schema_version).toBe("accepted_output_capability_track_v1");
     expect(record.capability_track.capability_bundle_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(record.output.evidence_bundle_ids).toEqual(["bundle:1", "bundle:2"]);
+    expect(record.knot_capture_v2.eligibility).toBe("ELIGIBLE");
+    expect(record.knot_capture_v2.result_event_refs).toHaveLength(1);
+    expect(record.knot_capture_v2.claim_specs).toEqual([
+      expect.objectContaining({
+        claim_id: "claim:1",
+        structured_conclusion: { value: 1 },
+      }),
+    ]);
+    expect(JSON.stringify(record.knot_capture_v2)).not.toContain("Fixture claim");
     expect(acceptedOutputRecordRef(record)).toEqual({
       accepted_output_kind: "MACRO_TRANSMISSION",
       agent_id: "china",
@@ -113,6 +140,33 @@ describe("AcceptedAgentOutputRecord", () => {
     expect(acceptedOutputRefKey("CIO_PROPOSAL", "cio")).not.toBe(
       acceptedOutputRefKey("CIO_FINAL", "cio"),
     );
+  });
+
+  it("seals an explicit KNOT-v2 ineligible capture when server authority is absent", () => {
+    const legacyGraph = claimGraph();
+    const firstEvidence = legacyGraph.evidence_ledger[0];
+    if (!firstEvidence) throw new Error("legacy evidence fixture missing");
+    legacyGraph.evidence_ledger[0] = {
+      ...firstEvidence,
+      value: 1,
+    };
+    const record = buildAcceptedAgentOutputRecord({
+      kind: "MACRO_TRANSMISSION",
+      agentId: "china",
+      payload: { agent_id: "china", direction: "SUPPORTIVE" },
+      evidenceBundleIds: ["bundle:1"],
+      causalDedupeKeys: ["cause:1"],
+      claimGraph: legacyGraph,
+      sourceAgentOutputHash: SOURCE_OUTPUT_HASH,
+      context: context(),
+    });
+
+    expect(record.knot_capture_v2.eligibility).toBe("INELIGIBLE");
+    expect(record.knot_capture_v2.ineligibility_reasons).toEqual([
+      "CLAIM_TOOL_EVIDENCE_SERVER_AUTHORITY_MISSING",
+      "NO_SERVER_TOOL_RESULT_AUTHORITY",
+    ]);
+    validateCurrentAcceptedAgentOutputRecord(record);
   });
 
   it("carries and strictly validates the scheduled L1/L2 live source authority", () => {

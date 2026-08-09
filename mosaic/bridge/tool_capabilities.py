@@ -79,6 +79,17 @@ from mosaic.dataflows.sector_snapshots import (
     render_sector_snapshot,
 )
 from mosaic.scorecard.canonical_json import canonical_hash, canonical_json
+from mosaic.scorecard.accepted_output_contracts import _validate_knot_capture_v2
+from mosaic.scorecard.capability_preservation import (
+    build_binding_signal_projection_v1,
+    build_claim_comparison_specs_v1,
+    build_knot_capability_use_aggregate,
+    compare_binding_projection_v1,
+    load_capability_contract_bundle,
+    validate_public_safe_projection,
+    validate_trusted_counterevidence_evaluation_v2,
+    validate_capability_contract_bundle,
+)
 from mosaic.scorecard.l3_l4_activation import l3_l4_overlay_stage_for_active
 from mosaic.scorecard.l3_l4_preservation import (
     argument_schema_for_binding as l3_l4_argument_schema_for_binding,
@@ -2203,6 +2214,7 @@ class AgentToolCapabilityStore:
         adaptive_query_preparer: Callable[..., Mapping[str, Any]] | None = None,
         stage_materialization_preparer: Callable[[Mapping[str, Any]], Any] | None = None,
         stage_materialization_finalizer: Callable[[Mapping[str, Any]], Any] | None = None,
+        require_knot_v2_audit_authority: bool = False,
     ) -> None:
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2222,6 +2234,7 @@ class AgentToolCapabilityStore:
         self.adaptive_query_preparer = adaptive_query_preparer
         self.stage_materialization_preparer = stage_materialization_preparer
         self.stage_materialization_finalizer = stage_materialization_finalizer
+        self.require_knot_v2_audit_authority = require_knot_v2_audit_authority
         self._initialise()
 
     def _connect(self) -> sqlite3.Connection:
@@ -2278,6 +2291,100 @@ class AgentToolCapabilityStore:
                     PRIMARY KEY(capability_id, tool_id),
                     FOREIGN KEY(capability_id) REFERENCES capabilities(capability_id)
                 );
+                CREATE TABLE IF NOT EXISTS snapshot_bundle_audit_contexts (
+                    snapshot_bundle_id TEXT PRIMARY KEY,
+                    context_json TEXT NOT NULL,
+                    context_hash TEXT NOT NULL UNIQUE,
+                    signing_key_id TEXT NOT NULL,
+                    signature TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(snapshot_bundle_id)
+                      REFERENCES snapshot_bundles(snapshot_bundle_id)
+                );
+                CREATE TABLE IF NOT EXISTS capability_audit_contexts (
+                    capability_id TEXT PRIMARY KEY,
+                    snapshot_bundle_id TEXT NOT NULL,
+                    snapshot_bundle_audit_context_hash TEXT NOT NULL,
+                    context_json TEXT NOT NULL,
+                    context_hash TEXT NOT NULL UNIQUE,
+                    signing_key_id TEXT NOT NULL,
+                    signature TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(capability_id) REFERENCES capabilities(capability_id),
+                    FOREIGN KEY(snapshot_bundle_id)
+                      REFERENCES snapshot_bundles(snapshot_bundle_id),
+                    FOREIGN KEY(snapshot_bundle_audit_context_hash)
+                      REFERENCES snapshot_bundle_audit_contexts(context_hash)
+                );
+                CREATE TABLE IF NOT EXISTS tool_result_events (
+                    result_event_id TEXT PRIMARY KEY,
+                    capability_id TEXT NOT NULL,
+                    sequence INTEGER NOT NULL CHECK(sequence > 0),
+                    tool_id TEXT NOT NULL,
+                    call_mode TEXT NOT NULL
+                      CHECK(call_mode IN ('SNAPSHOT', 'INITIAL', 'FOLLOW_UP')),
+                    status TEXT NOT NULL CHECK(status IN ('SUCCEEDED', 'FAILED')),
+                    event_json TEXT NOT NULL,
+                    result_event_hash TEXT NOT NULL UNIQUE,
+                    recorded_at TEXT NOT NULL,
+                    FOREIGN KEY(capability_id) REFERENCES capabilities(capability_id),
+                    UNIQUE(capability_id, sequence)
+                );
+                CREATE TABLE IF NOT EXISTS binding_signal_projections (
+                    result_event_id TEXT NOT NULL,
+                    binding_id TEXT NOT NULL,
+                    projection_json TEXT NOT NULL,
+                    projection_hash TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY(result_event_id, binding_id),
+                    FOREIGN KEY(result_event_id)
+                      REFERENCES tool_result_events(result_event_id)
+                );
+                CREATE TABLE IF NOT EXISTS accepted_knot_history_materializations_v2 (
+                    accepted_output_id TEXT PRIMARY KEY,
+                    accepted_output_hash TEXT NOT NULL UNIQUE,
+                    capability_id TEXT,
+                    capture_hash TEXT UNIQUE,
+                    status TEXT NOT NULL CHECK(status IN ('MATERIALIZED', 'EXCLUDED')),
+                    materialization_json TEXT NOT NULL,
+                    materialization_hash TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(capability_id) REFERENCES capabilities(capability_id)
+                );
+                CREATE TABLE IF NOT EXISTS trusted_counterevidence_evaluations_v2 (
+                    accepted_output_id TEXT NOT NULL,
+                    result_event_id TEXT NOT NULL,
+                    binding_id TEXT NOT NULL,
+                    claim_id TEXT NOT NULL,
+                    claim_spec_json TEXT NOT NULL,
+                    claim_spec_hash TEXT NOT NULL,
+                    evaluation_json TEXT NOT NULL,
+                    evaluation_hash TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY(accepted_output_id, result_event_id, binding_id, claim_id),
+                    FOREIGN KEY(accepted_output_id)
+                      REFERENCES accepted_knot_history_materializations_v2(accepted_output_id),
+                    FOREIGN KEY(result_event_id, binding_id)
+                      REFERENCES binding_signal_projections(result_event_id, binding_id)
+                );
+                CREATE TABLE IF NOT EXISTS knot_binding_observations_v2 (
+                    accepted_output_id TEXT NOT NULL,
+                    binding_id TEXT NOT NULL,
+                    observation_json TEXT NOT NULL,
+                    observation_hash TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY(accepted_output_id, binding_id),
+                    FOREIGN KEY(accepted_output_id)
+                      REFERENCES accepted_knot_history_materializations_v2(accepted_output_id)
+                );
+                CREATE TABLE IF NOT EXISTS tool_security_rejections (
+                    security_rejection_id TEXT PRIMARY KEY,
+                    capability_id TEXT NOT NULL,
+                    event_json TEXT NOT NULL,
+                    security_rejection_hash TEXT NOT NULL UNIQUE,
+                    recorded_at TEXT NOT NULL,
+                    FOREIGN KEY(capability_id) REFERENCES capabilities(capability_id)
+                );
                 CREATE TABLE IF NOT EXISTS snapshot_bundle_adaptive_queries (
                     snapshot_bundle_id TEXT PRIMARY KEY,
                     frozen_bundle_id TEXT NOT NULL,
@@ -2294,6 +2401,40 @@ class AgentToolCapabilityStore:
                     session_id TEXT NOT NULL UNIQUE,
                     created_at TEXT NOT NULL,
                     FOREIGN KEY(capability_id) REFERENCES capabilities(capability_id)
+                );
+                CREATE TABLE IF NOT EXISTS adaptive_call_intents (
+                    intent_id TEXT PRIMARY KEY,
+                    capability_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    tool_id TEXT NOT NULL,
+                    canonical_args_json TEXT NOT NULL,
+                    canonical_args_hash TEXT NOT NULL,
+                    intent_json TEXT NOT NULL,
+                    intent_hash TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(capability_id) REFERENCES capabilities(capability_id)
+                );
+                CREATE TABLE IF NOT EXISTS adaptive_call_completions (
+                    intent_id TEXT PRIMARY KEY,
+                    result_event_id TEXT NOT NULL UNIQUE,
+                    result_event_hash TEXT NOT NULL UNIQUE,
+                    result_authority_hash TEXT NOT NULL,
+                    audit_json TEXT NOT NULL,
+                    audit_hash TEXT NOT NULL UNIQUE,
+                    completion_json TEXT NOT NULL,
+                    completion_hash TEXT NOT NULL UNIQUE,
+                    completed_at TEXT NOT NULL,
+                    FOREIGN KEY(intent_id) REFERENCES adaptive_call_intents(intent_id),
+                    FOREIGN KEY(result_event_id)
+                      REFERENCES tool_result_events(result_event_id)
+                );
+                CREATE TABLE IF NOT EXISTS adaptive_call_aborts (
+                    intent_id TEXT PRIMARY KEY,
+                    error_code TEXT NOT NULL,
+                    abort_json TEXT NOT NULL,
+                    abort_hash TEXT NOT NULL UNIQUE,
+                    aborted_at TEXT NOT NULL,
+                    FOREIGN KEY(intent_id) REFERENCES adaptive_call_intents(intent_id)
                 );
                 CREATE TABLE IF NOT EXISTS sector_model_usage_events (
                     usage_event_id TEXT PRIMARY KEY,
@@ -2360,6 +2501,70 @@ class AgentToolCapabilityStore:
                   BEFORE DELETE ON capability_tool_uses BEGIN
                     SELECT RAISE(ABORT, 'capability_tool_uses is append-only');
                   END;
+                CREATE TRIGGER IF NOT EXISTS snapshot_bundle_audit_contexts_no_update
+                  BEFORE UPDATE ON snapshot_bundle_audit_contexts BEGIN
+                    SELECT RAISE(ABORT, 'snapshot bundle audit contexts are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS snapshot_bundle_audit_contexts_no_delete
+                  BEFORE DELETE ON snapshot_bundle_audit_contexts BEGIN
+                    SELECT RAISE(ABORT, 'snapshot bundle audit contexts are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS capability_audit_contexts_no_update
+                  BEFORE UPDATE ON capability_audit_contexts BEGIN
+                    SELECT RAISE(ABORT, 'capability audit contexts are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS capability_audit_contexts_no_delete
+                  BEFORE DELETE ON capability_audit_contexts BEGIN
+                    SELECT RAISE(ABORT, 'capability audit contexts are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS tool_result_events_no_update
+                  BEFORE UPDATE ON tool_result_events BEGIN
+                    SELECT RAISE(ABORT, 'tool result events are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS tool_result_events_no_delete
+                  BEFORE DELETE ON tool_result_events BEGIN
+                    SELECT RAISE(ABORT, 'tool result events are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS binding_signal_projections_no_update
+                  BEFORE UPDATE ON binding_signal_projections BEGIN
+                    SELECT RAISE(ABORT, 'binding signal projections are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS binding_signal_projections_no_delete
+                  BEFORE DELETE ON binding_signal_projections BEGIN
+                    SELECT RAISE(ABORT, 'binding signal projections are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS accepted_knot_history_materializations_v2_no_update
+                  BEFORE UPDATE ON accepted_knot_history_materializations_v2 BEGIN
+                    SELECT RAISE(ABORT, 'accepted KNOT history materializations are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS accepted_knot_history_materializations_v2_no_delete
+                  BEFORE DELETE ON accepted_knot_history_materializations_v2 BEGIN
+                    SELECT RAISE(ABORT, 'accepted KNOT history materializations are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS trusted_counterevidence_evaluations_v2_no_update
+                  BEFORE UPDATE ON trusted_counterevidence_evaluations_v2 BEGIN
+                    SELECT RAISE(ABORT, 'trusted counterevidence evaluations are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS trusted_counterevidence_evaluations_v2_no_delete
+                  BEFORE DELETE ON trusted_counterevidence_evaluations_v2 BEGIN
+                    SELECT RAISE(ABORT, 'trusted counterevidence evaluations are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS knot_binding_observations_v2_no_update
+                  BEFORE UPDATE ON knot_binding_observations_v2 BEGIN
+                    SELECT RAISE(ABORT, 'KNOT binding observations are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS knot_binding_observations_v2_no_delete
+                  BEFORE DELETE ON knot_binding_observations_v2 BEGIN
+                    SELECT RAISE(ABORT, 'KNOT binding observations are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS tool_security_rejections_no_update
+                  BEFORE UPDATE ON tool_security_rejections BEGIN
+                    SELECT RAISE(ABORT, 'tool security rejections are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS tool_security_rejections_no_delete
+                  BEFORE DELETE ON tool_security_rejections BEGIN
+                    SELECT RAISE(ABORT, 'tool security rejections are append-only');
+                  END;
                 CREATE TRIGGER IF NOT EXISTS snapshot_bundle_adaptive_queries_no_update
                   BEFORE UPDATE ON snapshot_bundle_adaptive_queries BEGIN
                     SELECT RAISE(ABORT, 'snapshot bundle adaptive queries are append-only');
@@ -2375,6 +2580,30 @@ class AgentToolCapabilityStore:
                 CREATE TRIGGER IF NOT EXISTS capability_adaptive_sessions_no_delete
                   BEFORE DELETE ON capability_adaptive_sessions BEGIN
                     SELECT RAISE(ABORT, 'capability adaptive sessions are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS adaptive_call_intents_no_update
+                  BEFORE UPDATE ON adaptive_call_intents BEGIN
+                    SELECT RAISE(ABORT, 'adaptive call intents are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS adaptive_call_intents_no_delete
+                  BEFORE DELETE ON adaptive_call_intents BEGIN
+                    SELECT RAISE(ABORT, 'adaptive call intents are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS adaptive_call_completions_no_update
+                  BEFORE UPDATE ON adaptive_call_completions BEGIN
+                    SELECT RAISE(ABORT, 'adaptive call completions are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS adaptive_call_completions_no_delete
+                  BEFORE DELETE ON adaptive_call_completions BEGIN
+                    SELECT RAISE(ABORT, 'adaptive call completions are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS adaptive_call_aborts_no_update
+                  BEFORE UPDATE ON adaptive_call_aborts BEGIN
+                    SELECT RAISE(ABORT, 'adaptive call aborts are append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS adaptive_call_aborts_no_delete
+                  BEFORE DELETE ON adaptive_call_aborts BEGIN
+                    SELECT RAISE(ABORT, 'adaptive call aborts are append-only');
                   END;
                 CREATE TRIGGER IF NOT EXISTS sector_usage_events_no_update
                   BEFORE UPDATE ON sector_model_usage_events BEGIN
@@ -2409,6 +2638,323 @@ class AgentToolCapabilityStore:
             message,
             hashlib.sha256,
         ).hexdigest()
+
+    def _active_knot_audit_authority(
+        self,
+        *,
+        agent_id: str,
+        stage: str,
+        allowed_tools: Sequence[AgentToolId],
+    ) -> dict[str, Any]:
+        root = Path(__file__).resolve().parents[2]
+        current_tool_manifest = json.loads(
+            (
+                root
+                / "registry/prompt_checks/agent_tool_contract_manifest_v1.json"
+            ).read_text(encoding="utf-8")
+        )
+        bundle = load_capability_contract_bundle(root)
+        validate_capability_contract_bundle(
+            bundle, current_tool_manifest=current_tool_manifest
+        )
+        binding_manifest = bundle["binding_manifest"]
+        staged_manifest = bundle["staged_tool_contract_manifest"]
+        coverage_manifest = bundle["knot_coverage_manifest"]
+        track = bundle["accepted_output_capability_track"]
+        coverage_manifest_v2 = bundle["knot_coverage_manifest_v2"]
+        audit_track_v2 = bundle["knot_audit_capability_track_v2"]
+        binding_by_id = {
+            row["binding_id"]: row for row in binding_manifest["bindings"]
+        }
+        coverage_by_id = {
+            row["binding_id"]: row for row in coverage_manifest["coverage"]
+        }
+        coverage_v2_by_id = {
+            row["binding_id"]: row
+            for row in coverage_manifest_v2["coverage"]
+        }
+        staged_rows = [
+            row
+            for row in staged_manifest["tools"]
+            if row["agent_id"] == agent_id and row["stage"] == stage
+        ]
+        if {row["tool_id"] for row in staged_rows} != set(allowed_tools):
+            raise ValueError("KNOT staged tool authority does not match capability tools")
+        tool_contexts: list[dict[str, Any]] = []
+        for row in staged_rows:
+            refs: list[dict[str, Any]] = []
+            for binding_id in row["capability_binding_ids"]:
+                binding = binding_by_id.get(binding_id)
+                coverage = coverage_by_id.get(binding_id)
+                coverage_v2 = coverage_v2_by_id.get(binding_id)
+                if (
+                    binding is None
+                    or coverage is None
+                    or coverage_v2 is None
+                    or binding["agent_id"] != agent_id
+                    or binding["stage"] != stage
+                    or binding["tool_id"] != row["tool_id"]
+                ):
+                    raise ValueError("KNOT tool binding authority drift")
+                refs.append(
+                    {
+                        "binding_id": binding_id,
+                        "semantic_capability_id": binding[
+                            "semantic_capability_id"
+                        ],
+                        "legacy_coverage_row_hash": coverage["coverage_row_hash"],
+                        "coverage_row_hash": coverage_v2["coverage_row_hash"],
+                        "coverage_row": coverage_v2,
+                    }
+                )
+            refs.sort(key=lambda value: value["binding_id"])
+            if not refs:
+                raise ValueError("KNOT tool binding authority is empty")
+            tool_contexts.append(
+                {"tool_id": row["tool_id"], "binding_refs": refs}
+            )
+        tool_contexts.sort(key=lambda value: value["tool_id"])
+        return {
+            "capability_binding_manifest_hash": track[
+                "capability_binding_manifest_hash"
+            ],
+            "tool_environment_hash": track["tool_environment_hash"],
+            "knot_coverage_manifest_hash": track[
+                "knot_coverage_manifest_hash"
+            ],
+            "capability_bundle_hash": track["capability_bundle_hash"],
+            "knot_coverage_manifest_v2_hash": audit_track_v2[
+                "knot_coverage_manifest_v2_hash"
+            ],
+            "knot_audit_capability_track_v2_hash": audit_track_v2["track_hash"],
+            "execution_behavior_release_hash": audit_track_v2[
+                "execution_behavior_release_hash"
+            ],
+            "tool_contexts": tool_contexts,
+        }
+
+    def _build_snapshot_audit_context(
+        self,
+        *,
+        snapshot_bundle_id: str,
+        snapshot_bundle_hash: str,
+        agent_id: str,
+        stage: str,
+        as_of: str,
+        allowed_tools: Sequence[AgentToolId],
+        finalization: Any,
+        created_at: str,
+    ) -> dict[str, Any]:
+        eligibility = "INELIGIBLE"
+        reasons: list[str] = []
+        build_receipt_hashes: dict[str, str] = {}
+        attempt_receipt_hash: str | None = None
+        try:
+            authority = self._active_knot_audit_authority(
+                agent_id=agent_id,
+                stage=stage,
+                allowed_tools=allowed_tools,
+            )
+        except ValueError:
+            if self.require_knot_v2_audit_authority:
+                raise
+            reasons.append("ACTIVE_KNOT_AUTHORITY_MISMATCH")
+            authority = {
+                "capability_binding_manifest_hash": None,
+                "tool_environment_hash": None,
+                "knot_coverage_manifest_hash": None,
+                "capability_bundle_hash": None,
+                "knot_coverage_manifest_v2_hash": None,
+                "knot_audit_capability_track_v2_hash": None,
+                "execution_behavior_release_hash": None,
+                "tool_contexts": [],
+            }
+        if finalization is None:
+            reasons.append("MATERIALIZATION_FINALIZER_RESULT_MISSING")
+        elif not isinstance(finalization, Mapping):
+            reasons.append("MATERIALIZATION_FINALIZER_RESULT_INVALID")
+        elif finalization.get("status") == "SYNTHETIC_NON_PRODUCTION_BYPASS":
+            reasons.append("SYNTHETIC_NON_PRODUCTION_BYPASS")
+        elif finalization.get("status") != "READY":
+            reasons.append("MATERIALIZATION_FINALIZER_NOT_READY")
+        else:
+            tool_ids = finalization.get("tool_ids")
+            receipts = finalization.get("build_receipt_hashes")
+            attempt_hash = finalization.get("materialization_attempt_receipt_hash")
+            identity_matches = (
+                finalization.get("agent_id") == agent_id
+                and finalization.get("stage") == stage
+                and finalization.get("as_of") == as_of
+            )
+            tools_match = (
+                isinstance(tool_ids, list)
+                and len(tool_ids) == len(set(tool_ids))
+                and set(tool_ids) == set(allowed_tools)
+                and isinstance(receipts, Mapping)
+                and set(receipts) == set(allowed_tools)
+                and all(_is_sha256(value) for value in receipts.values())
+            )
+            if not identity_matches:
+                reasons.append("MATERIALIZATION_FINALIZER_IDENTITY_MISMATCH")
+            if not tools_match:
+                reasons.append("BUILD_RECEIPT_TOOL_CLOSURE_MISMATCH")
+            if not _is_sha256(attempt_hash):
+                reasons.append("MATERIALIZATION_ATTEMPT_RECEIPT_INVALID")
+            if identity_matches and tools_match and _is_sha256(attempt_hash):
+                build_receipt_hashes = {
+                    tool_id: str(receipts[tool_id])
+                    for tool_id in sorted(allowed_tools)
+                }
+                attempt_receipt_hash = str(attempt_hash)
+            if not reasons:
+                eligibility = "ELIGIBLE"
+        if (
+            self.require_knot_v2_audit_authority
+            and eligibility != "ELIGIBLE"
+            and reasons != ["SYNTHETIC_NON_PRODUCTION_BYPASS"]
+        ):
+            raise ValueError(
+                "production KNOT-v2 audit authority is incomplete: "
+                + ",".join(sorted(reasons))
+            )
+        return {
+            "schema_version": "snapshot_bundle_audit_context_v1",
+            "snapshot_bundle_id": snapshot_bundle_id,
+            "snapshot_bundle_hash": snapshot_bundle_hash,
+            "agent_id": agent_id,
+            "stage": stage,
+            "as_of": as_of,
+            "knot_v2_eligibility": eligibility,
+            "ineligibility_reasons": sorted(reasons),
+            "build_receipt_hashes": build_receipt_hashes,
+            "materialization_attempt_receipt_hash": attempt_receipt_hash,
+            **authority,
+            "created_at": created_at,
+        }
+
+    def _build_capability_audit_context(
+        self,
+        *,
+        manifest: Mapping[str, Any],
+        snapshot_context: Mapping[str, Any],
+        snapshot_context_hash: str,
+        created_at: str,
+    ) -> dict[str, Any]:
+        return {
+            "schema_version": "capability_audit_context_v1",
+            "capability_id": manifest["capability_id"],
+            "capability_manifest_hash": _sha256(manifest),
+            "run_slot_id": manifest["run_slot_id"],
+            "agent_id": manifest["agent_id"],
+            "stage": manifest["stage"],
+            "snapshot_bundle_id": manifest["snapshot_bundle_id"],
+            "snapshot_bundle_hash": manifest["snapshot_bundle_hash"],
+            "snapshot_bundle_audit_context_hash": snapshot_context_hash,
+            "knot_v2_eligibility": snapshot_context["knot_v2_eligibility"],
+            "created_at": created_at,
+        }
+
+    def _insert_snapshot_audit_context(
+        self,
+        conn: sqlite3.Connection,
+        context: Mapping[str, Any],
+    ) -> str:
+        context_hash = _sha256(context)
+        conn.execute(
+            "INSERT INTO snapshot_bundle_audit_contexts VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                context["snapshot_bundle_id"],
+                _canonical_json(context),
+                context_hash,
+                self.signing_key_id,
+                self._sign_domain("snapshot_bundle_audit_context_v1:", context),
+                context["created_at"],
+            ),
+        )
+        return context_hash
+
+    def _insert_capability_audit_context(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        manifest: Mapping[str, Any],
+        snapshot_context: Mapping[str, Any],
+        snapshot_context_hash: str,
+        created_at: str,
+    ) -> str:
+        context = self._build_capability_audit_context(
+            manifest=manifest,
+            snapshot_context=snapshot_context,
+            snapshot_context_hash=snapshot_context_hash,
+            created_at=created_at,
+        )
+        context_hash = _sha256(context)
+        conn.execute(
+            "INSERT INTO capability_audit_contexts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                manifest["capability_id"],
+                manifest["snapshot_bundle_id"],
+                snapshot_context_hash,
+                _canonical_json(context),
+                context_hash,
+                self.signing_key_id,
+                self._sign_domain("capability_audit_context_v1:", context),
+                created_at,
+            ),
+        )
+        return context_hash
+
+    def _validated_snapshot_audit_context(
+        self,
+        row: sqlite3.Row,
+        *,
+        snapshot_bundle_id: str,
+        snapshot_bundle_hash: str,
+    ) -> tuple[dict[str, Any], str]:
+        context = json.loads(row["context_json"])
+        context_hash = _sha256(context)
+        if (
+            context.get("schema_version") != "snapshot_bundle_audit_context_v1"
+            or context.get("snapshot_bundle_id") != snapshot_bundle_id
+            or context.get("snapshot_bundle_hash") != snapshot_bundle_hash
+            or row["context_hash"] != context_hash
+            or row["signing_key_id"] != self.signing_key_id
+            or not hmac.compare_digest(
+                row["signature"],
+                self._sign_domain("snapshot_bundle_audit_context_v1:", context),
+            )
+        ):
+            raise ValueError("snapshot bundle audit context authority mismatch")
+        return context, context_hash
+
+    def _validated_capability_audit_context(
+        self,
+        row: sqlite3.Row,
+        *,
+        manifest: Mapping[str, Any],
+        snapshot_context_hash: str,
+    ) -> tuple[dict[str, Any], str]:
+        context = json.loads(row["context_json"])
+        context_hash = _sha256(context)
+        if (
+            context.get("schema_version") != "capability_audit_context_v1"
+            or context.get("capability_id") != manifest["capability_id"]
+            or context.get("capability_manifest_hash") != _sha256(manifest)
+            or context.get("run_slot_id") != manifest["run_slot_id"]
+            or context.get("snapshot_bundle_id") != manifest["snapshot_bundle_id"]
+            or context.get("snapshot_bundle_hash") != manifest["snapshot_bundle_hash"]
+            or context.get("snapshot_bundle_audit_context_hash")
+            != snapshot_context_hash
+            or row["context_hash"] != context_hash
+            or row["snapshot_bundle_audit_context_hash"] != snapshot_context_hash
+            or row["signing_key_id"] != self.signing_key_id
+            or not hmac.compare_digest(
+                row["signature"],
+                self._sign_domain("capability_audit_context_v1:", context),
+            )
+        ):
+            raise ValueError("capability audit context authority mismatch")
+        return context, context_hash
 
     def _prepare_adaptive_query_descriptors(
         self,
@@ -2654,8 +3200,9 @@ class AgentToolCapabilityStore:
         payload_hashes = {
             tool_id: _sha256_text(payload) for tool_id, payload in payloads.items()
         }
+        finalization: Any = None
         if self.stage_materialization_finalizer is not None:
-            self.stage_materialization_finalizer(
+            finalization = self.stage_materialization_finalizer(
                 {
                     **normalized_request,
                     "stage_preparation": stage_preparation,
@@ -2682,6 +3229,16 @@ class AgentToolCapabilityStore:
             **bundle_without_hash,
             "snapshot_bundle_hash": snapshot_bundle_hash,
         }
+        snapshot_audit_context = self._build_snapshot_audit_context(
+            snapshot_bundle_id=snapshot_bundle_id,
+            snapshot_bundle_hash=snapshot_bundle_hash,
+            agent_id=agent_id,
+            stage=stage,
+            as_of=as_of,
+            allowed_tools=allowed_tools,
+            finalization=finalization,
+            created_at=now.isoformat(),
+        )
         capability_id = f"cap_{uuid.uuid4().hex}"
         manifest = {
             "capability_contract_version": CAPABILITY_CONTRACT_VERSION,
@@ -2733,6 +3290,9 @@ class AgentToolCapabilityStore:
                         now.isoformat(),
                     ),
                 )
+                snapshot_audit_context_hash = self._insert_snapshot_audit_context(
+                    conn, snapshot_audit_context
+                )
                 if adaptive_ref is not None:
                     conn.execute(
                         "INSERT INTO snapshot_bundle_adaptive_queries VALUES (?, ?, ?, ?, ?)",
@@ -2754,6 +3314,13 @@ class AgentToolCapabilityStore:
                         signed.signature,
                         now.isoformat(),
                     ),
+                )
+                self._insert_capability_audit_context(
+                    conn,
+                    manifest=manifest,
+                    snapshot_context=snapshot_audit_context,
+                    snapshot_context_hash=snapshot_audit_context_hash,
+                    created_at=now.isoformat(),
                 )
                 if adaptive_ref is not None and adaptive_session_id is not None:
                     conn.execute(
@@ -2807,6 +3374,11 @@ class AgentToolCapabilityStore:
                 "FROM snapshot_bundle_adaptive_queries WHERE snapshot_bundle_id = ?",
                 (snapshot_bundle_id,),
             ).fetchone()
+            snapshot_audit_row = conn.execute(
+                "SELECT * FROM snapshot_bundle_audit_contexts "
+                "WHERE snapshot_bundle_id = ?",
+                (snapshot_bundle_id,),
+            ).fetchone()
         if row is None:
             raise ValueError("unknown snapshot_bundle_id")
         bundle = json.loads(row["bundle_json"])
@@ -2836,6 +3408,16 @@ class AgentToolCapabilityStore:
             payload = payloads.get(tool_id)
             if not isinstance(payload, str) or payload_hashes.get(tool_id) != _sha256_text(payload):
                 raise ValueError("snapshot bundle payload hash mismatch")
+        snapshot_audit_context: dict[str, Any] | None = None
+        snapshot_audit_context_hash: str | None = None
+        if snapshot_audit_row is not None:
+            snapshot_audit_context, snapshot_audit_context_hash = (
+                self._validated_snapshot_audit_context(
+                    snapshot_audit_row,
+                    snapshot_bundle_id=snapshot_bundle_id,
+                    snapshot_bundle_hash=snapshot_bundle_hash,
+                )
+            )
 
         now = self.clock().astimezone(timezone.utc)
         capability_id = f"cap_{uuid.uuid4().hex}"
@@ -2903,6 +3485,17 @@ class AgentToolCapabilityStore:
                         now.isoformat(),
                     ),
                 )
+                if (
+                    snapshot_audit_context is not None
+                    and snapshot_audit_context_hash is not None
+                ):
+                    self._insert_capability_audit_context(
+                        conn,
+                        manifest=manifest,
+                        snapshot_context=snapshot_audit_context,
+                        snapshot_context_hash=snapshot_audit_context_hash,
+                        created_at=now.isoformat(),
+                    )
                 if adaptive_row is not None and adaptive_session_id is not None:
                     conn.execute(
                         "INSERT INTO capability_adaptive_sessions VALUES (?, ?, ?, ?, ?)",
@@ -3799,18 +4392,919 @@ class AgentToolCapabilityStore:
             for tool_id in manifest["allowed_tools"]
         ]
 
-    def call_tool(
+    def _append_result_event(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        manifest: Mapping[str, Any],
+        tool_id: str,
+        call_mode: str,
+        args: Mapping[str, Any],
+        payload: str | None,
+        result_authority_type: str | None,
+        result_authority_hash: str | None,
+        status: Literal["SUCCEEDED", "FAILED"],
+        error_code: str | None = None,
+    ) -> dict[str, Any] | None:
+        allowed_errors = {
+            "ARGUMENT_SCHEMA_REJECTED",
+            "CAPABILITY_TOOL_ALREADY_USED",
+            "FROZEN_QUERY_REJECTED",
+            "PAYLOAD_VALIDATION_FAILED",
+        }
+        if status == "SUCCEEDED":
+            if (
+                payload is None
+                or result_authority_type not in {"SNAPSHOT_BUILD", "FROZEN_QUERY"}
+                or not _is_sha256(result_authority_hash)
+                or error_code is not None
+            ):
+                raise ValueError("successful tool result event authority is incomplete")
+        elif (
+            payload is not None
+            or result_authority_type is not None
+            or result_authority_hash is not None
+            or error_code not in allowed_errors
+        ):
+            raise ValueError("failed tool result event authority is invalid")
+        snapshot_row = conn.execute(
+            "SELECT * FROM snapshot_bundle_audit_contexts "
+            "WHERE snapshot_bundle_id = ?",
+            (manifest["snapshot_bundle_id"],),
+        ).fetchone()
+        capability_row = conn.execute(
+            "SELECT * FROM capability_audit_contexts WHERE capability_id = ?",
+            (manifest["capability_id"],),
+        ).fetchone()
+        if snapshot_row is None or capability_row is None:
+            return None
+        snapshot_context, snapshot_context_hash = (
+            self._validated_snapshot_audit_context(
+                snapshot_row,
+                snapshot_bundle_id=manifest["snapshot_bundle_id"],
+                snapshot_bundle_hash=manifest["snapshot_bundle_hash"],
+            )
+        )
+        capability_context, capability_context_hash = (
+            self._validated_capability_audit_context(
+                capability_row,
+                manifest=manifest,
+                snapshot_context_hash=snapshot_context_hash,
+            )
+        )
+        if (
+            snapshot_context["knot_v2_eligibility"] != "ELIGIBLE"
+            or capability_context["knot_v2_eligibility"] != "ELIGIBLE"
+        ):
+            return None
+        tool_contexts = [
+            row
+            for row in snapshot_context["tool_contexts"]
+            if row["tool_id"] == tool_id
+        ]
+        if len(tool_contexts) != 1:
+            raise ValueError("tool result audit binding authority is unavailable")
+        sequence = conn.execute(
+            "SELECT COALESCE(MAX(sequence), 0) + 1 FROM tool_result_events "
+            "WHERE capability_id = ?",
+            (manifest["capability_id"],),
+        ).fetchone()[0]
+        result_event_id = f"tool_evt_{uuid.uuid4().hex}"
+        canonical_args_hash = _sha256(dict(args))
+        payload_hash = _sha256({"text": payload}) if payload is not None else None
+        result_authority = (
+            {
+                "authority_type": result_authority_type,
+                "authority_hash": result_authority_hash,
+            }
+            if status == "SUCCEEDED"
+            else None
+        )
+        context_binding_refs = tool_contexts[0]["binding_refs"]
+        binding_refs: list[dict[str, Any]] = []
+        for ref in context_binding_refs:
+            event_ref = {
+                "binding_id": ref["binding_id"],
+                "semantic_capability_id": ref["semantic_capability_id"],
+                "coverage_row_hash": ref["coverage_row_hash"],
+            }
+            if status == "SUCCEEDED":
+                fingerprint = _sha256(
+                    {
+                        "schema_version": "binding_tool_result_fingerprint_v1",
+                        "result_event_id": result_event_id,
+                        "sequence": sequence,
+                        "capability_id": manifest["capability_id"],
+                        "run_slot_id": manifest["run_slot_id"],
+                        "agent_id": manifest["agent_id"],
+                        "stage": manifest["stage"],
+                        "binding_id": ref["binding_id"],
+                        "tool_id": tool_id,
+                        "call_mode": call_mode,
+                        "canonical_args_hash": canonical_args_hash,
+                        "payload_hash": payload_hash,
+                        "result_authority": result_authority,
+                        "tool_environment_hash": snapshot_context[
+                            "tool_environment_hash"
+                        ],
+                        "capability_bundle_hash": snapshot_context[
+                            "capability_bundle_hash"
+                        ],
+                        "knot_audit_capability_track_v2_hash": snapshot_context[
+                            "knot_audit_capability_track_v2_hash"
+                        ],
+                    }
+                )
+                binding_refs.append(
+                    {**event_ref, "binding_result_fingerprint": fingerprint}
+                )
+            else:
+                binding_refs.append(event_ref)
+        binding_refs.sort(key=lambda value: value["binding_id"])
+        recorded_at = self.clock().astimezone(timezone.utc).isoformat()
+        event = {
+            "schema_version": "server_tool_result_event_v1",
+            "result_event_id": result_event_id,
+            "sequence": sequence,
+            "capability_id": manifest["capability_id"],
+            "capability_manifest_hash": _sha256(manifest),
+            "graph_run_id": manifest["graph_run_id"],
+            "run_slot_id": manifest["run_slot_id"],
+            "agent_id": manifest["agent_id"],
+            "stage": manifest["stage"],
+            "snapshot_bundle_id": manifest["snapshot_bundle_id"],
+            "snapshot_bundle_hash": manifest["snapshot_bundle_hash"],
+            "snapshot_bundle_audit_context_hash": snapshot_context_hash,
+            "capability_audit_context_hash": capability_context_hash,
+            "tool_environment_hash": snapshot_context["tool_environment_hash"],
+            "capability_bundle_hash": snapshot_context["capability_bundle_hash"],
+            "knot_coverage_manifest_v2_hash": snapshot_context[
+                "knot_coverage_manifest_v2_hash"
+            ],
+            "knot_audit_capability_track_v2_hash": snapshot_context[
+                "knot_audit_capability_track_v2_hash"
+            ],
+            "execution_behavior_release_hash": snapshot_context[
+                "execution_behavior_release_hash"
+            ],
+            "tool_id": tool_id,
+            "call_mode": call_mode,
+            "binding_refs": binding_refs,
+            "canonical_args_hash": canonical_args_hash,
+            "payload_hash": payload_hash,
+            "result_authority": result_authority,
+            "status": status,
+            "error_code": error_code,
+            "recorded_at": recorded_at,
+        }
+        result_event_hash = _sha256(event)
+        conn.execute(
+            "INSERT INTO tool_result_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                result_event_id,
+                manifest["capability_id"],
+                sequence,
+                tool_id,
+                call_mode,
+                status,
+                _canonical_json(event),
+                result_event_hash,
+                recorded_at,
+            ),
+        )
+        if status == "FAILED":
+            return None
+        if payload is None:
+            raise ValueError("successful result projection payload is missing")
+        event_refs_by_id = {ref["binding_id"]: ref for ref in binding_refs}
+        for context_ref in context_binding_refs:
+            event_ref = event_refs_by_id[context_ref["binding_id"]]
+            projection = build_binding_signal_projection_v1(
+                event=event,
+                result_event_hash=result_event_hash,
+                binding_ref=event_ref,
+                payload_text=payload,
+                coverage_row=context_ref["coverage_row"],
+            )
+            conn.execute(
+                "INSERT INTO binding_signal_projections VALUES (?, ?, ?, ?, ?)",
+                (
+                    result_event_id,
+                    context_ref["binding_id"],
+                    _canonical_json(projection),
+                    projection["projection_hash"],
+                    recorded_at,
+                ),
+            )
+        return {
+            "schema_version": "tool_call_audit_v1",
+            "result_event_id": result_event_id,
+            "result_event_hash": result_event_hash,
+            "status": "SUCCEEDED",
+            "result_authority_type": str(result_authority_type),
+            "result_authority_hash": str(result_authority_hash),
+            "tool_environment_hash": snapshot_context["tool_environment_hash"],
+            "execution_behavior_release_hash": snapshot_context[
+                "execution_behavior_release_hash"
+            ],
+            "capability_bundle_hash": snapshot_context["capability_bundle_hash"],
+            "knot_coverage_manifest_v2_hash": snapshot_context[
+                "knot_coverage_manifest_v2_hash"
+            ],
+            "knot_audit_capability_track_v2_hash": snapshot_context[
+                "knot_audit_capability_track_v2_hash"
+            ],
+            "binding_result_refs": [
+                {
+                    "binding_id": ref["binding_id"],
+                    "binding_result_fingerprint": ref[
+                        "binding_result_fingerprint"
+                    ],
+                }
+                for ref in binding_refs
+            ],
+        }
+
+    def _record_failed_result_event(
+        self,
+        *,
+        envelope: Mapping[str, Any],
+        manifest: Mapping[str, Any],
+        tool_id: str,
+        call_mode: Literal["SNAPSHOT", "INITIAL", "FOLLOW_UP"],
+        args: Mapping[str, Any],
+        error_code: str,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                self._verify(envelope, conn=conn)
+                self._append_result_event(
+                    conn,
+                    manifest=manifest,
+                    tool_id=tool_id,
+                    call_mode=call_mode,
+                    args=args,
+                    payload=None,
+                    result_authority_type=None,
+                    result_authority_hash=None,
+                    status="FAILED",
+                    error_code=error_code,
+                )
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+
+    def _record_security_rejection(
+        self,
+        *,
+        manifest: Mapping[str, Any],
+        attempted_tool_id: str,
+        args: Mapping[str, Any],
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                capability = conn.execute(
+                    "SELECT manifest_json FROM capabilities WHERE capability_id = ?",
+                    (manifest["capability_id"],),
+                ).fetchone()
+                terminated = conn.execute(
+                    "SELECT 1 FROM capability_events "
+                    "WHERE capability_id = ? AND event_type = 'TERMINATED'",
+                    (manifest["capability_id"],),
+                ).fetchone()
+                if (
+                    capability is None
+                    or capability["manifest_json"] != _canonical_json(manifest)
+                    or terminated is not None
+                ):
+                    raise ValueError("capability security audit authority mismatch")
+                event_id = f"security_rejection_{uuid.uuid4().hex}"
+                recorded_at = self.clock().astimezone(timezone.utc).isoformat()
+                event = {
+                    "schema_version": "tool_security_rejection_event_v1",
+                    "security_rejection_id": event_id,
+                    "capability_id": manifest["capability_id"],
+                    "capability_manifest_hash": _sha256(manifest),
+                    "run_slot_id": manifest["run_slot_id"],
+                    "agent_id": manifest["agent_id"],
+                    "stage": manifest["stage"],
+                    "attempted_tool_id_hash": _sha256(
+                        {"tool_id": attempted_tool_id}
+                    ),
+                    "canonical_args_hash": _sha256(dict(args)),
+                    "reason_code": "TOOL_NOT_ALLOWED",
+                    "recorded_at": recorded_at,
+                }
+                event_hash = _sha256(event)
+                conn.execute(
+                    "INSERT INTO tool_security_rejections VALUES (?, ?, ?, ?, ?)",
+                    (
+                        event_id,
+                        manifest["capability_id"],
+                        _canonical_json(event),
+                        event_hash,
+                        recorded_at,
+                    ),
+                )
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+
+    def _adaptive_recovery_is_required(
+        self, conn: sqlite3.Connection, *, manifest: Mapping[str, Any]
+    ) -> bool:
+        snapshot_row = conn.execute(
+            "SELECT * FROM snapshot_bundle_audit_contexts "
+            "WHERE snapshot_bundle_id = ?",
+            (manifest["snapshot_bundle_id"],),
+        ).fetchone()
+        capability_row = conn.execute(
+            "SELECT * FROM capability_audit_contexts WHERE capability_id = ?",
+            (manifest["capability_id"],),
+        ).fetchone()
+        if snapshot_row is None or capability_row is None:
+            return False
+        snapshot_context, snapshot_context_hash = (
+            self._validated_snapshot_audit_context(
+                snapshot_row,
+                snapshot_bundle_id=manifest["snapshot_bundle_id"],
+                snapshot_bundle_hash=manifest["snapshot_bundle_hash"],
+            )
+        )
+        capability_context, _ = self._validated_capability_audit_context(
+            capability_row,
+            manifest=manifest,
+            snapshot_context_hash=snapshot_context_hash,
+        )
+        return (
+            snapshot_context["knot_v2_eligibility"] == "ELIGIBLE"
+            and capability_context["knot_v2_eligibility"] == "ELIGIBLE"
+        )
+
+    def _validated_adaptive_intent(
+        self,
+        row: sqlite3.Row,
+        *,
+        manifest: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            args = json.loads(row["canonical_args_json"])
+            intent = json.loads(row["intent_json"])
+        except json.JSONDecodeError as exc:
+            raise ValueError("adaptive call intent authority is malformed") from exc
+        if not isinstance(args, dict) or _canonical_json(args) != row[
+            "canonical_args_json"
+        ]:
+            raise ValueError("adaptive call intent args authority mismatch")
+        expected_args_hash = _sha256(args)
+        body = {
+            "schema_version": "adaptive_call_intent_v1",
+            "intent_id": row["intent_id"],
+            "capability_id": row["capability_id"],
+            "capability_manifest_hash": _sha256(manifest),
+            "session_id": row["session_id"],
+            "tool_id": row["tool_id"],
+            "canonical_args_hash": expected_args_hash,
+            "created_at": row["created_at"],
+        }
+        intent_hash = _sha256(body)
+        if (
+            row["capability_id"] != manifest["capability_id"]
+            or row["canonical_args_hash"] != expected_args_hash
+            or row["intent_hash"] != intent_hash
+            or intent != {**body, "intent_hash": intent_hash}
+        ):
+            raise ValueError("adaptive call intent authority mismatch")
+        return {**intent, "canonical_args": args}
+
+    def _validated_adaptive_completion(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        intent: Mapping[str, Any],
+        row: sqlite3.Row,
+    ) -> dict[str, Any]:
+        try:
+            audit = json.loads(row["audit_json"])
+            completion = json.loads(row["completion_json"])
+        except json.JSONDecodeError as exc:
+            raise ValueError("adaptive call completion authority is malformed") from exc
+        event_row = conn.execute(
+            "SELECT * FROM tool_result_events WHERE result_event_id = ?",
+            (row["result_event_id"],),
+        ).fetchone()
+        if event_row is None:
+            raise ValueError("adaptive call completion result event is unavailable")
+        try:
+            event = json.loads(event_row["event_json"])
+        except json.JSONDecodeError as exc:
+            raise ValueError("adaptive call completion result event is malformed") from exc
+        if (
+            event_row["result_event_hash"] != _sha256(event)
+            or event_row["result_event_hash"] != row["result_event_hash"]
+            or event.get("result_event_id") != row["result_event_id"]
+            or event.get("capability_id") != intent["capability_id"]
+            or event.get("tool_id") != intent["tool_id"]
+            or event.get("call_mode") != "FOLLOW_UP"
+            or event.get("canonical_args_hash") != intent["canonical_args_hash"]
+            or event.get("status") != "SUCCEEDED"
+            or event.get("error_code") is not None
+            or not _is_sha256(event.get("payload_hash"))
+        ):
+            raise ValueError("adaptive call completion result event authority mismatch")
+        result_authority = event.get("result_authority")
+        if (
+            not isinstance(result_authority, dict)
+            or result_authority.get("authority_type") != "FROZEN_QUERY"
+            or result_authority.get("authority_hash")
+            != row["result_authority_hash"]
+        ):
+            raise ValueError("adaptive call completion result authority mismatch")
+        expected_audit = {
+            "schema_version": "tool_call_audit_v1",
+            "result_event_id": event["result_event_id"],
+            "result_event_hash": event_row["result_event_hash"],
+            "status": "SUCCEEDED",
+            "result_authority_type": "FROZEN_QUERY",
+            "result_authority_hash": result_authority["authority_hash"],
+            "tool_environment_hash": event["tool_environment_hash"],
+            "execution_behavior_release_hash": event[
+                "execution_behavior_release_hash"
+            ],
+            "capability_bundle_hash": event["capability_bundle_hash"],
+            "knot_coverage_manifest_v2_hash": event[
+                "knot_coverage_manifest_v2_hash"
+            ],
+            "knot_audit_capability_track_v2_hash": event[
+                "knot_audit_capability_track_v2_hash"
+            ],
+            "binding_result_refs": [
+                {
+                    "binding_id": ref["binding_id"],
+                    "binding_result_fingerprint": ref[
+                        "binding_result_fingerprint"
+                    ],
+                }
+                for ref in event["binding_refs"]
+            ],
+        }
+        audit_hash = _sha256(expected_audit)
+        completion_body = {
+            "schema_version": "adaptive_call_completion_v1",
+            "intent_id": intent["intent_id"],
+            "result_event_id": event["result_event_id"],
+            "result_event_hash": event_row["result_event_hash"],
+            "result_authority_hash": result_authority["authority_hash"],
+            "audit_hash": audit_hash,
+            "completed_at": row["completed_at"],
+        }
+        completion_hash = _sha256(completion_body)
+        if (
+            audit != expected_audit
+            or row["audit_hash"] != audit_hash
+            or row["completion_hash"] != completion_hash
+            or completion != {**completion_body, "completion_hash": completion_hash}
+        ):
+            raise ValueError("adaptive call completion authority mismatch")
+        return {
+            "audit": audit,
+            "event": event,
+            "completion": completion,
+        }
+
+    def _begin_or_resume_adaptive_call(
+        self,
+        *,
+        envelope: Mapping[str, Any],
+        manifest: Mapping[str, Any],
+        session_id: str,
+        tool_id: str,
+        args: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if self.adaptive_query_store is None:
+            raise ValueError("adaptive query store is unavailable")
+        canonical_args_json = _canonical_json(dict(args))
+        canonical_args_hash = _sha256(dict(args))
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                self._verify(envelope, conn=conn)
+                rows = conn.execute(
+                    "SELECT * FROM adaptive_call_intents "
+                    "WHERE capability_id = ? ORDER BY rowid",
+                    (manifest["capability_id"],),
+                ).fetchall()
+                pending: list[dict[str, Any]] = []
+                recoverable: list[dict[str, Any]] = []
+                for row in rows:
+                    intent = self._validated_adaptive_intent(row, manifest=manifest)
+                    completion_row = conn.execute(
+                        "SELECT * FROM adaptive_call_completions WHERE intent_id = ?",
+                        (intent["intent_id"],),
+                    ).fetchone()
+                    abort_row = conn.execute(
+                        "SELECT * FROM adaptive_call_aborts WHERE intent_id = ?",
+                        (intent["intent_id"],),
+                    ).fetchone()
+                    if completion_row is not None and abort_row is not None:
+                        raise ValueError("adaptive call intent has conflicting terminal states")
+                    if abort_row is not None:
+                        try:
+                            abort = json.loads(abort_row["abort_json"])
+                        except json.JSONDecodeError as exc:
+                            raise ValueError("adaptive call abort authority is malformed") from exc
+                        abort_body = {
+                            "schema_version": "adaptive_call_abort_v1",
+                            "intent_id": intent["intent_id"],
+                            "error_code": abort_row["error_code"],
+                            "aborted_at": abort_row["aborted_at"],
+                        }
+                        abort_hash = _sha256(abort_body)
+                        if (
+                            abort_row["abort_hash"] != abort_hash
+                            or abort != {**abort_body, "abort_hash": abort_hash}
+                        ):
+                            raise ValueError("adaptive call abort authority mismatch")
+                        continue
+                    if completion_row is None:
+                        pending.append(intent)
+                        continue
+                    completed = self._validated_adaptive_completion(
+                        conn, intent=intent, row=completion_row
+                    )
+                    finalization = (
+                        self.adaptive_query_store.read_reserved_finalization(
+                            reservation_id=str(intent["intent_id"])
+                        )
+                    )
+                    completion = completed["completion"]
+                    if finalization is not None:
+                        if (
+                            finalization["result_event_id"]
+                            != completion["result_event_id"]
+                            or finalization["result_event_hash"]
+                            != completion["result_event_hash"]
+                        ):
+                            raise ValueError(
+                                "adaptive call completion/finalization mismatch"
+                            )
+                        continue
+                    exact_request = (
+                        intent["session_id"] == session_id
+                        and intent["tool_id"] == tool_id
+                        and intent["canonical_args_hash"] == canonical_args_hash
+                        and _canonical_json(intent["canonical_args"])
+                        == canonical_args_json
+                    )
+                    if exact_request:
+                        recoverable.append({"intent": intent, **completed})
+                    else:
+                        self.adaptive_query_store.finalize_reserved_result(
+                            reservation_id=str(intent["intent_id"]),
+                            result_event_id=str(completion["result_event_id"]),
+                            result_event_hash=str(completion["result_event_hash"]),
+                        )
+                if len(pending) > 1 or len(recoverable) > 1:
+                    raise ValueError("multiple unfinished adaptive calls are present")
+                if pending and recoverable:
+                    raise ValueError("adaptive call recovery state is ambiguous")
+                if recoverable:
+                    conn.execute("COMMIT")
+                    return {**recoverable[0], "new_intent": False}
+                if pending:
+                    intent = pending[0]
+                    if (
+                        intent["session_id"] != session_id
+                        or intent["tool_id"] != tool_id
+                        or intent["canonical_args_hash"] != canonical_args_hash
+                        or _canonical_json(intent["canonical_args"])
+                        != canonical_args_json
+                    ):
+                        raise ValueError(
+                            "unfinished adaptive call must be recovered before a new call"
+                        )
+                    conn.execute("COMMIT")
+                    return {"intent": intent, "new_intent": False}
+                created_at = self.clock().astimezone(timezone.utc).isoformat()
+                intent_id = f"adaptive_intent_{uuid.uuid4().hex}"
+                intent_body = {
+                    "schema_version": "adaptive_call_intent_v1",
+                    "intent_id": intent_id,
+                    "capability_id": manifest["capability_id"],
+                    "capability_manifest_hash": _sha256(manifest),
+                    "session_id": session_id,
+                    "tool_id": tool_id,
+                    "canonical_args_hash": canonical_args_hash,
+                    "created_at": created_at,
+                }
+                intent_hash = _sha256(intent_body)
+                intent = {**intent_body, "intent_hash": intent_hash}
+                conn.execute(
+                    "INSERT INTO adaptive_call_intents VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        intent_id,
+                        manifest["capability_id"],
+                        session_id,
+                        tool_id,
+                        canonical_args_json,
+                        canonical_args_hash,
+                        _canonical_json(intent),
+                        intent_hash,
+                        created_at,
+                    ),
+                )
+                conn.execute("COMMIT")
+                return {
+                    "intent": {**intent, "canonical_args": dict(args)},
+                    "new_intent": True,
+                }
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+
+    def _abort_adaptive_call(
+        self,
+        *,
+        envelope: Mapping[str, Any],
+        intent_id: str,
+        error_code: str,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                manifest, _ = self._verify(envelope, conn=conn)
+                intent_row = conn.execute(
+                    "SELECT * FROM adaptive_call_intents WHERE intent_id = ?",
+                    (intent_id,),
+                ).fetchone()
+                if intent_row is None:
+                    raise ValueError("adaptive call intent is unavailable")
+                self._validated_adaptive_intent(intent_row, manifest=manifest)
+                terminal = conn.execute(
+                    "SELECT (SELECT count(*) FROM adaptive_call_completions "
+                    "WHERE intent_id = ?) + (SELECT count(*) FROM adaptive_call_aborts "
+                    "WHERE intent_id = ?)",
+                    (intent_id, intent_id),
+                ).fetchone()[0]
+                if terminal:
+                    raise ValueError("adaptive call intent is already terminal")
+                aborted_at = self.clock().astimezone(timezone.utc).isoformat()
+                abort_body = {
+                    "schema_version": "adaptive_call_abort_v1",
+                    "intent_id": intent_id,
+                    "error_code": error_code,
+                    "aborted_at": aborted_at,
+                }
+                abort_hash = _sha256(abort_body)
+                conn.execute(
+                    "INSERT INTO adaptive_call_aborts VALUES (?, ?, ?, ?, ?)",
+                    (
+                        intent_id,
+                        error_code,
+                        _canonical_json({**abort_body, "abort_hash": abort_hash}),
+                        abort_hash,
+                        aborted_at,
+                    ),
+                )
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+
+    def _complete_adaptive_call(
+        self,
+        *,
+        envelope: Mapping[str, Any],
+        manifest: Mapping[str, Any],
+        intent: Mapping[str, Any],
+        tool_id: str,
+        args: Mapping[str, Any],
+        payload: str,
+        result_authority_hash: str,
+    ) -> dict[str, Any]:
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                self._verify(envelope, conn=conn)
+                intent_row = conn.execute(
+                    "SELECT * FROM adaptive_call_intents WHERE intent_id = ?",
+                    (intent["intent_id"],),
+                ).fetchone()
+                if intent_row is None:
+                    raise ValueError("adaptive call intent is unavailable")
+                validated_intent = self._validated_adaptive_intent(
+                    intent_row, manifest=manifest
+                )
+                if (
+                    validated_intent["session_id"] != intent["session_id"]
+                    or validated_intent["tool_id"] != tool_id
+                    or validated_intent["canonical_args_hash"] != _sha256(dict(args))
+                    or conn.execute(
+                        "SELECT (SELECT count(*) FROM adaptive_call_completions "
+                        "WHERE intent_id = ?) + (SELECT count(*) FROM adaptive_call_aborts "
+                        "WHERE intent_id = ?)",
+                        (intent["intent_id"], intent["intent_id"]),
+                    ).fetchone()[0]
+                ):
+                    raise ValueError("adaptive call intent completion mismatch")
+                audit = self._append_result_event(
+                    conn,
+                    manifest=manifest,
+                    tool_id=tool_id,
+                    call_mode="FOLLOW_UP",
+                    args=args,
+                    payload=payload,
+                    result_authority_type="FROZEN_QUERY",
+                    result_authority_hash=result_authority_hash,
+                    status="SUCCEEDED",
+                )
+                if audit is None:
+                    raise ValueError("current adaptive call audit authority is unavailable")
+                completed_at = self.clock().astimezone(timezone.utc).isoformat()
+                audit_hash = _sha256(audit)
+                completion_body = {
+                    "schema_version": "adaptive_call_completion_v1",
+                    "intent_id": intent["intent_id"],
+                    "result_event_id": audit["result_event_id"],
+                    "result_event_hash": audit["result_event_hash"],
+                    "result_authority_hash": audit["result_authority_hash"],
+                    "audit_hash": audit_hash,
+                    "completed_at": completed_at,
+                }
+                completion_hash = _sha256(completion_body)
+                conn.execute(
+                    "INSERT INTO adaptive_call_completions VALUES "
+                    "(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        intent["intent_id"],
+                        audit["result_event_id"],
+                        audit["result_event_hash"],
+                        audit["result_authority_hash"],
+                        _canonical_json(audit),
+                        audit_hash,
+                        _canonical_json(
+                            {**completion_body, "completion_hash": completion_hash}
+                        ),
+                        completion_hash,
+                        completed_at,
+                    ),
+                )
+                conn.execute("COMMIT")
+                return audit
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+
+    def _call_recoverable_adaptive_followup(
+        self,
+        *,
+        envelope: Mapping[str, Any],
+        manifest: Mapping[str, Any],
+        session_id: str,
+        tool_id: str,
+        args: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if self.adaptive_query_store is None:
+            raise ValueError("adaptive query store is unavailable")
+        state = self._begin_or_resume_adaptive_call(
+            envelope=envelope,
+            manifest=manifest,
+            session_id=session_id,
+            tool_id=tool_id,
+            args=args,
+        )
+        intent = state["intent"]
+        if "completion" in state:
+            adaptive_result = self.adaptive_query_store.read_reserved_result(
+                reservation_id=str(intent["intent_id"])
+            )
+            audit = state["audit"]
+            event = state["event"]
+            if (
+                adaptive_result["reservation"]["session_id"] != session_id
+                or adaptive_result["tool_id"] != tool_id
+                or adaptive_result["request_hash"] != _sha256(dict(args))
+                or adaptive_result["payload_hash"] != event["payload_hash"]
+                or adaptive_result["result_authority"]["authority_hash"]
+                != audit["result_authority_hash"]
+            ):
+                raise ValueError("recovered adaptive result authority mismatch")
+            self.adaptive_query_store.finalize_reserved_result(
+                reservation_id=str(intent["intent_id"]),
+                result_event_id=str(audit["result_event_id"]),
+                result_event_hash=str(audit["result_event_hash"]),
+            )
+            return {"text": str(adaptive_result["payload"]), "audit": audit}
+        try:
+            adaptive_result = self.adaptive_query_store.reserve_next_result(
+                reservation_id=str(intent["intent_id"]),
+                session_id=session_id,
+                tool_id=tool_id,
+                args=args,
+            )
+        except ValueError:
+            if state["new_intent"]:
+                self._abort_adaptive_call(
+                    envelope=envelope,
+                    intent_id=str(intent["intent_id"]),
+                    error_code="FROZEN_QUERY_REJECTED",
+                )
+            self._record_failed_result_event(
+                envelope=envelope,
+                manifest=manifest,
+                tool_id=tool_id,
+                call_mode="FOLLOW_UP",
+                args=args,
+                error_code="FROZEN_QUERY_REJECTED",
+            )
+            raise
+        payload = str(adaptive_result["payload"])
+        result_authority = adaptive_result.get("result_authority")
+        if (
+            not isinstance(result_authority, Mapping)
+            or result_authority.get("authority_type") != "FROZEN_QUERY"
+            or not _is_sha256(result_authority.get("authority_hash"))
+        ):
+            self._record_failed_result_event(
+                envelope=envelope,
+                manifest=manifest,
+                tool_id=tool_id,
+                call_mode="FOLLOW_UP",
+                args=args,
+                error_code="PAYLOAD_VALIDATION_FAILED",
+            )
+            raise ValueError("frozen query result authority is invalid")
+        try:
+            audit = self._complete_adaptive_call(
+                envelope=envelope,
+                manifest=manifest,
+                intent=intent,
+                tool_id=tool_id,
+                args=args,
+                payload=payload,
+                result_authority_hash=str(result_authority["authority_hash"]),
+            )
+        except ValueError:
+            self._record_failed_result_event(
+                envelope=envelope,
+                manifest=manifest,
+                tool_id=tool_id,
+                call_mode="FOLLOW_UP",
+                args=args,
+                error_code="PAYLOAD_VALIDATION_FAILED",
+            )
+            raise
+        self.adaptive_query_store.finalize_reserved_result(
+            reservation_id=str(intent["intent_id"]),
+            result_event_id=str(audit["result_event_id"]),
+            result_event_hash=str(audit["result_event_hash"]),
+        )
+        return {"text": payload, "audit": audit}
+
+    def call_tool_result(
         self,
         envelope: Mapping[str, Any],
         tool_id: str,
         args: Mapping[str, Any],
-    ) -> str:
+    ) -> dict[str, Any]:
         manifest, row = self._verify(envelope)
         if tool_id not in manifest["allowed_tools"]:
+            self._record_security_rejection(
+                manifest=manifest,
+                attempted_tool_id=tool_id,
+                args=args,
+            )
             raise ValueError(f"tool {tool_id!r} is not allowed by this capability")
         if tool_id in ADAPTIVE_QUERY_TOOL_IDS:
             if self.adaptive_query_store is None:
                 raise ValueError("adaptive query store is unavailable")
+            if args:
+                with self._connect() as recovery_conn:
+                    self._verify(envelope, conn=recovery_conn)
+                    recovery_session = recovery_conn.execute(
+                        "SELECT session_id FROM capability_adaptive_sessions "
+                        "WHERE capability_id = ?",
+                        (manifest["capability_id"],),
+                    ).fetchone()
+                    recovery_required = (
+                        recovery_session is not None
+                        and self._adaptive_recovery_is_required(
+                            recovery_conn, manifest=manifest
+                        )
+                    )
+                if recovery_required:
+                    return self._call_recoverable_adaptive_followup(
+                        envelope=envelope,
+                        manifest=manifest,
+                        session_id=str(recovery_session["session_id"]),
+                        tool_id=tool_id,
+                        args=args,
+                    )
+            failure_code = "FROZEN_QUERY_REJECTED"
             with self._connect() as conn:
                 conn.execute("BEGIN IMMEDIATE")
                 try:
@@ -3825,7 +5319,7 @@ class AgentToolCapabilityStore:
                             raise ValueError(
                                 "adaptive model calls are unavailable for this capability"
                             )
-                        payload = self.adaptive_query_store.call_next(
+                        adaptive_result = self.adaptive_query_store.call_next_result(
                             session_id=session["session_id"],
                             tool_id=tool_id,
                             args=args,
@@ -3841,7 +5335,7 @@ class AgentToolCapabilityStore:
                             raise ValueError(
                                 "adaptive query bundle is unavailable for this capability"
                             )
-                        initial = self.adaptive_query_store.read_initial_payloads(
+                        initial = self.adaptive_query_store.read_initial_results(
                             bundle_id=adaptive["frozen_bundle_id"],
                             agent_id=manifest["agent_id"],
                             stage=manifest["stage"],
@@ -3853,13 +5347,57 @@ class AgentToolCapabilityStore:
                             raise ValueError(
                                 "frozen initial payload is unavailable for this tool"
                             )
-                        payload = matches[0]["payload"]
+                        adaptive_result = matches[0]
+                    failure_code = "PAYLOAD_VALIDATION_FAILED"
+                    payload = str(adaptive_result["payload"])
+                    result_authority = adaptive_result.get("result_authority")
+                    if (
+                        not isinstance(result_authority, Mapping)
+                        or result_authority.get("authority_type") != "FROZEN_QUERY"
+                        or not _is_sha256(result_authority.get("authority_hash"))
+                    ):
+                        raise ValueError("frozen query result authority is invalid")
+                    audit = self._append_result_event(
+                        conn,
+                        manifest=manifest,
+                        tool_id=tool_id,
+                        call_mode=str(adaptive_result["call_mode"]),
+                        args=args,
+                        payload=payload,
+                        result_authority_type="FROZEN_QUERY",
+                        result_authority_hash=str(
+                            result_authority["authority_hash"]
+                        ),
+                        status="SUCCEEDED",
+                    )
                     conn.execute("COMMIT")
+                except ValueError:
+                    conn.execute("ROLLBACK")
+                    self._record_failed_result_event(
+                        envelope=envelope,
+                        manifest=manifest,
+                        tool_id=tool_id,
+                        call_mode="FOLLOW_UP" if args else "INITIAL",
+                        args=args,
+                        error_code=failure_code,
+                    )
+                    raise
                 except Exception:
                     conn.execute("ROLLBACK")
                     raise
-            return payload
+            result: dict[str, Any] = {"text": payload}
+            if audit is not None:
+                result["audit"] = audit
+            return result
         if args:
+            self._record_failed_result_event(
+                envelope=envelope,
+                manifest=manifest,
+                tool_id=tool_id,
+                call_mode="SNAPSHOT",
+                args=args,
+                error_code="ARGUMENT_SCHEMA_REJECTED",
+            )
             raise ValueError("role-scoped snapshot tools accept no arguments")
         payloads = json.loads(row["payloads_json"])
         payload = payloads.get(tool_id)
@@ -3888,14 +5426,750 @@ class AgentToolCapabilityStore:
                         self.clock().astimezone(timezone.utc).isoformat(),
                     ),
                 )
+                snapshot_context = conn.execute(
+                    "SELECT context_json FROM snapshot_bundle_audit_contexts "
+                    "WHERE snapshot_bundle_id = ?",
+                    (manifest["snapshot_bundle_id"],),
+                ).fetchone()
+                audit: dict[str, Any] | None = None
+                if snapshot_context is not None:
+                    context = json.loads(snapshot_context["context_json"])
+                    build_receipt_hash = context.get(
+                        "build_receipt_hashes", {}
+                    ).get(tool_id)
+                    if context.get("knot_v2_eligibility") == "ELIGIBLE":
+                        if not _is_sha256(build_receipt_hash):
+                            raise ValueError(
+                                "snapshot build receipt authority is unavailable"
+                            )
+                        audit = self._append_result_event(
+                            conn,
+                            manifest=manifest,
+                            tool_id=tool_id,
+                            call_mode="SNAPSHOT",
+                            args=args,
+                            payload=payload,
+                            result_authority_type="SNAPSHOT_BUILD",
+                            result_authority_hash=build_receipt_hash,
+                            status="SUCCEEDED",
+                        )
                 conn.execute("COMMIT")
             except sqlite3.IntegrityError as exc:
                 conn.execute("ROLLBACK")
+                self._record_failed_result_event(
+                    envelope=envelope,
+                    manifest=manifest,
+                    tool_id=tool_id,
+                    call_mode="SNAPSHOT",
+                    args=args,
+                    error_code="CAPABILITY_TOOL_ALREADY_USED",
+                )
                 raise ValueError("capability tool has already been used") from exc
             except Exception:
                 conn.execute("ROLLBACK")
                 raise
-        return payload
+        result: dict[str, Any] = {"text": payload}
+        if audit is not None:
+            result["audit"] = audit
+        return result
+
+    def call_tool(
+        self,
+        envelope: Mapping[str, Any],
+        tool_id: str,
+        args: Mapping[str, Any],
+    ) -> str:
+        """Compatibility wrapper returning only the immutable tool text."""
+        return str(self.call_tool_result(envelope, tool_id, args)["text"])
+
+    def finalize_accepted_knot_history_v2(
+        self,
+        accepted_output: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Materialize one accepted output against capture-time server authority."""
+        accepted_output_id = accepted_output.get("accepted_output_id")
+        accepted_output_hash = accepted_output.get("accepted_output_hash")
+        if not isinstance(accepted_output_id, str) or not accepted_output_id:
+            raise ValueError("accepted output id is invalid")
+        if not _is_sha256(accepted_output_hash):
+            raise ValueError("accepted output hash is invalid")
+        accepted_body = {
+            key: value
+            for key, value in accepted_output.items()
+            if key != "accepted_output_hash"
+        }
+        if accepted_output_hash != _sha256(accepted_body):
+            raise ValueError("accepted output hash mismatch")
+        created_at = self.clock().astimezone(timezone.utc).isoformat()
+
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                existing = conn.execute(
+                    "SELECT accepted_output_hash, materialization_json "
+                    "FROM accepted_knot_history_materializations_v2 "
+                    "WHERE accepted_output_id = ?",
+                    (accepted_output_id,),
+                ).fetchone()
+                if existing is not None:
+                    if existing["accepted_output_hash"] != accepted_output_hash:
+                        raise ValueError("accepted KNOT history identity collision")
+                    conn.execute("COMMIT")
+                    return cast(dict[str, Any], json.loads(existing["materialization_json"]))
+
+                capture = accepted_output.get("knot_capture_v2")
+                if capture is None:
+                    materialization = self._insert_knot_history_exclusion(
+                        conn,
+                        accepted_output_id=accepted_output_id,
+                        accepted_output_hash=str(accepted_output_hash),
+                        capture_hash=None,
+                        reasons=["LEGACY_KNOT_CAPTURE_MISSING"],
+                        created_at=created_at,
+                    )
+                    conn.execute("COMMIT")
+                    return materialization
+                _validate_knot_capture_v2(accepted_output)
+                if not isinstance(capture, Mapping):
+                    raise ValueError("accepted KNOT capture is invalid")
+                if capture["eligibility"] != "ELIGIBLE":
+                    materialization = self._insert_knot_history_exclusion(
+                        conn,
+                        accepted_output_id=accepted_output_id,
+                        accepted_output_hash=str(accepted_output_hash),
+                        capture_hash=str(capture["capture_hash"]),
+                        reasons=[str(value) for value in capture["ineligibility_reasons"]],
+                        created_at=created_at,
+                    )
+                    conn.execute("COMMIT")
+                    return materialization
+
+                captured_events = self._load_captured_knot_events(
+                    conn,
+                    accepted_output=accepted_output,
+                    capture=capture,
+                )
+                capability_ids = {event["capability_id"] for event in captured_events.values()}
+                if len(capability_ids) != 1:
+                    raise ValueError("accepted KNOT capture crosses capabilities")
+                capability_id = next(iter(capability_ids))
+                authority = self._load_knot_history_authority(
+                    conn,
+                    capability_id=capability_id,
+                )
+                fixed_fields = (
+                    "tool_environment_hash",
+                    "execution_behavior_release_hash",
+                    "capability_bundle_hash",
+                    "knot_coverage_manifest_v2_hash",
+                    "knot_audit_capability_track_v2_hash",
+                )
+                if any(
+                    capture[field] != authority["snapshot_context"][field]
+                    for field in fixed_fields
+                ):
+                    raise ValueError("accepted KNOT fixed point authority mismatch")
+
+                events_by_binding = self._load_knot_events_by_binding(
+                    conn,
+                    capability_id=capability_id,
+                )
+                coverage_by_binding = authority["coverage_by_binding"]
+                accepted_specs = {
+                    str(spec["claim_id"]): spec for spec in capture["claim_specs"]
+                }
+                comparison_input = {
+                    "claims": [
+                        {
+                            "claim_id": spec["claim_id"],
+                            "structured_conclusion": spec["structured_conclusion"],
+                        }
+                        for spec in capture["claim_specs"]
+                    ]
+                }
+                comparison_input_hash = _sha256(comparison_input)
+                evaluations: list[dict[str, Any]] = []
+                evaluation_refs_by_binding: dict[str, list[dict[str, str]]] = {
+                    binding_id: [] for binding_id in coverage_by_binding
+                }
+                captured_refs = {
+                    str(ref["result_event_id"]): ref
+                    for ref in capture["result_event_refs"]
+                }
+                for result_event_id, capture_ref in captured_refs.items():
+                    event = captured_events[result_event_id]
+                    for binding_ref in capture_ref["binding_result_refs"]:
+                        binding_id = str(binding_ref["binding_id"])
+                        coverage_row = coverage_by_binding.get(binding_id)
+                        if coverage_row is None:
+                            raise ValueError("accepted KNOT binding is outside capability authority")
+                        projection = self._load_knot_projection(
+                            conn,
+                            result_event_id=result_event_id,
+                            binding_id=binding_id,
+                            event=event,
+                            binding_ref=binding_ref,
+                        )
+                        claim_specs = build_claim_comparison_specs_v1(
+                            accepted_output=comparison_input,
+                            accepted_output_hash=comparison_input_hash,
+                            coverage_row=coverage_row,
+                        )
+                        for claim_spec in claim_specs:
+                            accepted_spec = accepted_specs.get(str(claim_spec["claim_id"]))
+                            if accepted_spec is None or not set(
+                                accepted_spec["evidence_ids"]
+                            ).intersection(capture_ref["evidence_ids"]):
+                                continue
+                            evaluation = compare_binding_projection_v1(
+                                projection=projection,
+                                claim_spec=claim_spec,
+                            )
+                            validate_trusted_counterevidence_evaluation_v2(
+                                evaluation,
+                                projection=projection,
+                                claim_spec=claim_spec,
+                            )
+                            evaluations.append(
+                                {
+                                    "result_event_id": result_event_id,
+                                    "binding_id": binding_id,
+                                    "claim_id": str(claim_spec["claim_id"]),
+                                    "claim_spec": claim_spec,
+                                    "evaluation": evaluation,
+                                }
+                            )
+                            evaluation_refs_by_binding[binding_id].append(
+                                {
+                                    "claim_id": str(claim_spec["claim_id"]),
+                                    "evaluation_hash": str(evaluation["evaluation_hash"]),
+                                }
+                            )
+
+                observations: list[dict[str, Any]] = []
+                for binding_id in sorted(coverage_by_binding):
+                    event_refs = events_by_binding.get(binding_id, [])
+                    succeeded = any(ref["status"] == "SUCCEEDED" for ref in event_refs)
+                    binding_evaluations = [
+                        row["evaluation"]
+                        for row in evaluations
+                        if row["binding_id"] == binding_id
+                    ]
+                    evaluated = [
+                        row
+                        for row in binding_evaluations
+                        if row["evaluation_status"] == "EVALUATED"
+                    ]
+                    counterevidence = [
+                        row for row in evaluated if row["counterevidence_available"]
+                    ]
+                    observation_body = {
+                        "schema_version": "knot_binding_observation_v2",
+                        "accepted_output_id": accepted_output_id,
+                        "accepted_output_hash": accepted_output_hash,
+                        "capture_hash": capture["capture_hash"],
+                        "graph_run_id": accepted_output["graph_run_id"],
+                        "run_slot_id": accepted_output["run_slot_id"],
+                        "agent_id": accepted_output["agent_id"],
+                        "stage": authority["manifest"]["stage"],
+                        "capability_id": capability_id,
+                        "binding_id": binding_id,
+                        **{field: capture[field] for field in fixed_fields},
+                        "eligible": True,
+                        "ready": True,
+                        "called": bool(event_refs),
+                        "succeeded": succeeded,
+                        "used_in_accepted_evidence": bool(evaluated),
+                        "counterevidence_available": bool(counterevidence),
+                        "counterevidence_handled": bool(counterevidence)
+                        and all(row["counterevidence_handled"] for row in counterevidence),
+                        "result_event_refs": event_refs,
+                        "evaluation_refs": sorted(
+                            evaluation_refs_by_binding[binding_id],
+                            key=lambda row: (row["claim_id"], row["evaluation_hash"]),
+                        ),
+                    }
+                    observations.append(
+                        {
+                            **observation_body,
+                            "observation_hash": _sha256(observation_body),
+                        }
+                    )
+
+                materialization_body = {
+                    "schema_version": "accepted_knot_history_materialization_v2",
+                    "accepted_output_id": accepted_output_id,
+                    "accepted_output_hash": accepted_output_hash,
+                    "capture_hash": capture["capture_hash"],
+                    "capability_id": capability_id,
+                    "status": "MATERIALIZED",
+                    "exclusion_reasons": [],
+                    **{field: capture[field] for field in fixed_fields},
+                    "observation_count": len(observations),
+                    "evaluation_count": len(evaluations),
+                    "observation_set_hash": _sha256(
+                        [row["observation_hash"] for row in observations]
+                    ),
+                    "evaluation_set_hash": _sha256(
+                        [row["evaluation"]["evaluation_hash"] for row in evaluations]
+                    ),
+                }
+                materialization = {
+                    **materialization_body,
+                    "materialization_hash": _sha256(materialization_body),
+                }
+                conn.execute(
+                    "INSERT INTO accepted_knot_history_materializations_v2 "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        accepted_output_id,
+                        accepted_output_hash,
+                        capability_id,
+                        capture["capture_hash"],
+                        "MATERIALIZED",
+                        _canonical_json(materialization),
+                        materialization["materialization_hash"],
+                        created_at,
+                    ),
+                )
+                for row in evaluations:
+                    evaluation = row["evaluation"]
+                    claim_spec = row["claim_spec"]
+                    conn.execute(
+                        "INSERT INTO trusted_counterevidence_evaluations_v2 "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            accepted_output_id,
+                            row["result_event_id"],
+                            row["binding_id"],
+                            row["claim_id"],
+                            _canonical_json(claim_spec),
+                            claim_spec["spec_hash"],
+                            _canonical_json(evaluation),
+                            evaluation["evaluation_hash"],
+                            created_at,
+                        ),
+                    )
+                for observation in observations:
+                    conn.execute(
+                        "INSERT INTO knot_binding_observations_v2 VALUES (?, ?, ?, ?, ?)",
+                        (
+                            accepted_output_id,
+                            observation["binding_id"],
+                            _canonical_json(observation),
+                            observation["observation_hash"],
+                            created_at,
+                        ),
+                    )
+                conn.execute("COMMIT")
+                return materialization
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+
+    def _insert_knot_history_exclusion(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        accepted_output_id: str,
+        accepted_output_hash: str,
+        capture_hash: str | None,
+        reasons: Sequence[str],
+        created_at: str,
+    ) -> dict[str, Any]:
+        body = {
+            "schema_version": "accepted_knot_history_materialization_v2",
+            "accepted_output_id": accepted_output_id,
+            "accepted_output_hash": accepted_output_hash,
+            "capture_hash": capture_hash,
+            "capability_id": None,
+            "status": "EXCLUDED",
+            "exclusion_reasons": sorted(set(reasons)),
+            "tool_environment_hash": None,
+            "execution_behavior_release_hash": None,
+            "capability_bundle_hash": None,
+            "knot_coverage_manifest_v2_hash": None,
+            "knot_audit_capability_track_v2_hash": None,
+            "observation_count": 0,
+            "evaluation_count": 0,
+            "observation_set_hash": _sha256([]),
+            "evaluation_set_hash": _sha256([]),
+        }
+        materialization = {**body, "materialization_hash": _sha256(body)}
+        conn.execute(
+            "INSERT INTO accepted_knot_history_materializations_v2 "
+            "VALUES (?, ?, NULL, ?, 'EXCLUDED', ?, ?, ?)",
+            (
+                accepted_output_id,
+                accepted_output_hash,
+                capture_hash,
+                _canonical_json(materialization),
+                materialization["materialization_hash"],
+                created_at,
+            ),
+        )
+        return materialization
+
+    def _load_captured_knot_events(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        accepted_output: Mapping[str, Any],
+        capture: Mapping[str, Any],
+    ) -> dict[str, dict[str, Any]]:
+        events: dict[str, dict[str, Any]] = {}
+        for capture_ref in capture["result_event_refs"]:
+            result_event_id = str(capture_ref["result_event_id"])
+            row = conn.execute(
+                "SELECT * FROM tool_result_events WHERE result_event_id = ?",
+                (result_event_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("accepted KNOT result event is unavailable")
+            event = cast(dict[str, Any], json.loads(row["event_json"]))
+            if (
+                row["result_event_hash"] != _sha256(event)
+                or capture_ref["result_event_hash"] != row["result_event_hash"]
+                or event["result_event_id"] != result_event_id
+            ):
+                raise ValueError("accepted KNOT result event hash mismatch")
+            if (
+                event["status"] != "SUCCEEDED"
+                or event["graph_run_id"] != accepted_output.get("graph_run_id")
+                or event["run_slot_id"] != accepted_output.get("run_slot_id")
+                or event["agent_id"] != accepted_output.get("agent_id")
+            ):
+                raise ValueError("accepted KNOT result event identity mismatch")
+            authority = event["result_authority"]
+            if (
+                capture_ref["result_authority_type"] != authority["authority_type"]
+                or capture_ref["result_authority_hash"] != authority["authority_hash"]
+            ):
+                raise ValueError("accepted KNOT result event authority mismatch")
+            event_refs = [
+                {
+                    "binding_id": ref["binding_id"],
+                    "binding_result_fingerprint": ref["binding_result_fingerprint"],
+                }
+                for ref in event["binding_refs"]
+            ]
+            if canonical_json(capture_ref["binding_result_refs"]) != canonical_json(
+                event_refs
+            ):
+                raise ValueError("accepted KNOT result event binding mismatch")
+            events[result_event_id] = event
+        return events
+
+    def _load_knot_history_authority(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        capability_id: str,
+    ) -> dict[str, Any]:
+        capability = conn.execute(
+            "SELECT manifest_json FROM capabilities WHERE capability_id = ?",
+            (capability_id,),
+        ).fetchone()
+        capability_context = conn.execute(
+            "SELECT * FROM capability_audit_contexts WHERE capability_id = ?",
+            (capability_id,),
+        ).fetchone()
+        if capability is None or capability_context is None:
+            raise ValueError("accepted KNOT capability authority is unavailable")
+        manifest = cast(dict[str, Any], json.loads(capability["manifest_json"]))
+        snapshot_context_row = conn.execute(
+            "SELECT * FROM snapshot_bundle_audit_contexts "
+            "WHERE snapshot_bundle_id = ?",
+            (manifest["snapshot_bundle_id"],),
+        ).fetchone()
+        if snapshot_context_row is None:
+            raise ValueError("accepted KNOT snapshot authority is unavailable")
+        snapshot_bundle = conn.execute(
+            "SELECT snapshot_bundle_hash FROM snapshot_bundles "
+            "WHERE snapshot_bundle_id = ?",
+            (manifest["snapshot_bundle_id"],),
+        ).fetchone()
+        if snapshot_bundle is None:
+            raise ValueError("accepted KNOT snapshot bundle is unavailable")
+        snapshot_context, snapshot_context_hash = self._validated_snapshot_audit_context(
+            snapshot_context_row,
+            snapshot_bundle_id=manifest["snapshot_bundle_id"],
+            snapshot_bundle_hash=snapshot_bundle["snapshot_bundle_hash"],
+        )
+        self._validated_capability_audit_context(
+            capability_context,
+            manifest=manifest,
+            snapshot_context_hash=snapshot_context_hash,
+        )
+        coverage_by_binding: dict[str, Mapping[str, Any]] = {}
+        for tool_context in snapshot_context["tool_contexts"]:
+            for binding_ref in tool_context["binding_refs"]:
+                binding_id = str(binding_ref["binding_id"])
+                if binding_id in coverage_by_binding:
+                    raise ValueError("accepted KNOT capability binding is duplicated")
+                coverage_by_binding[binding_id] = binding_ref["coverage_row"]
+        return {
+            "manifest": manifest,
+            "snapshot_context": snapshot_context,
+            "coverage_by_binding": coverage_by_binding,
+        }
+
+    def _load_knot_events_by_binding(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        capability_id: str,
+    ) -> dict[str, list[dict[str, Any]]]:
+        by_binding: dict[str, list[dict[str, Any]]] = {}
+        for row in conn.execute(
+            "SELECT * FROM tool_result_events WHERE capability_id = ? ORDER BY sequence",
+            (capability_id,),
+        ).fetchall():
+            event = cast(dict[str, Any], json.loads(row["event_json"]))
+            if row["result_event_hash"] != _sha256(event):
+                raise ValueError("KNOT history result event hash mismatch")
+            for binding_ref in event["binding_refs"]:
+                by_binding.setdefault(str(binding_ref["binding_id"]), []).append(
+                    {
+                        "result_event_id": event["result_event_id"],
+                        "result_event_hash": row["result_event_hash"],
+                        "status": event["status"],
+                    }
+                )
+        return by_binding
+
+    def _load_knot_projection(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        result_event_id: str,
+        binding_id: str,
+        event: Mapping[str, Any],
+        binding_ref: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        row = conn.execute(
+            "SELECT projection_json, projection_hash "
+            "FROM binding_signal_projections "
+            "WHERE result_event_id = ? AND binding_id = ?",
+            (result_event_id, binding_id),
+        ).fetchone()
+        if row is None:
+            raise ValueError("accepted KNOT binding projection is unavailable")
+        projection = cast(dict[str, Any], json.loads(row["projection_json"]))
+        projection_body = {
+            key: value for key, value in projection.items() if key != "projection_hash"
+        }
+        if (
+            row["projection_hash"] != _sha256(projection_body)
+            or projection.get("projection_hash") != row["projection_hash"]
+            or projection.get("result_event_id") != result_event_id
+            or projection.get("result_event_hash") != _sha256(event)
+            or projection.get("binding_id") != binding_id
+            or projection.get("binding_result_fingerprint")
+            != binding_ref.get("binding_result_fingerprint")
+        ):
+            raise ValueError("accepted KNOT binding projection authority mismatch")
+        return projection
+
+    def build_knot_history_partition_v2(
+        self,
+        *,
+        cutoff_at: str,
+        accepted_output_hashes: Sequence[str] | None = None,
+    ) -> dict[str, Any]:
+        """Build the current-track public KNOT history without backfilling legacy rows."""
+        try:
+            cutoff = datetime.fromisoformat(cutoff_at.replace("Z", "+00:00"))
+        except (AttributeError, ValueError) as exc:
+            raise ValueError("KNOT history cutoff is invalid") from exc
+        if cutoff.tzinfo is None:
+            raise ValueError("KNOT history cutoff must include an offset")
+        cutoff_utc = cutoff.astimezone(timezone.utc)
+        selected_hashes = (
+            sorted(set(accepted_output_hashes))
+            if accepted_output_hashes is not None
+            else None
+        )
+        if accepted_output_hashes is not None and (
+            len(selected_hashes) != len(accepted_output_hashes)
+            or any(not _is_sha256(value) for value in selected_hashes)
+        ):
+            raise ValueError("KNOT history selected accepted-output hashes are invalid")
+
+        root = Path(__file__).resolve().parents[2]
+        current_tool_manifest = json.loads(
+            (
+                root / "registry/prompt_checks/agent_tool_contract_manifest_v1.json"
+            ).read_text(encoding="utf-8")
+        )
+        bundle = load_capability_contract_bundle(root)
+        validate_capability_contract_bundle(
+            bundle,
+            current_tool_manifest=current_tool_manifest,
+        )
+        coverage = bundle["knot_coverage_manifest_v2"]
+        audit_track = bundle["knot_audit_capability_track_v2"]
+        accepted_track = bundle["accepted_output_capability_track"]
+        binding_ids = [str(row["binding_id"]) for row in coverage["coverage"]]
+        if len(binding_ids) != 187 or binding_ids != sorted(set(binding_ids)):
+            raise ValueError("KNOT history active binding closure mismatch")
+        fixed_point = {
+            "tool_environment_hash": accepted_track["tool_environment_hash"],
+            "execution_behavior_release_hash": audit_track[
+                "execution_behavior_release_hash"
+            ],
+            "capability_bundle_hash": accepted_track["capability_bundle_hash"],
+            "knot_coverage_manifest_v2_hash": coverage["manifest_hash"],
+            "knot_audit_capability_track_v2_hash": audit_track["track_hash"],
+        }
+        observations_by_binding: dict[str, list[dict[str, Any]]] = {
+            binding_id: [] for binding_id in binding_ids
+        }
+        materialization_refs: list[dict[str, str]] = []
+        excluded_refs: list[dict[str, Any]] = []
+        seen_hashes: set[str] = set()
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM accepted_knot_history_materializations_v2 "
+                "ORDER BY accepted_output_hash"
+            ).fetchall()
+            for row in rows:
+                if (
+                    selected_hashes is not None
+                    and row["accepted_output_hash"] not in selected_hashes
+                ):
+                    continue
+                created = datetime.fromisoformat(
+                    str(row["created_at"]).replace("Z", "+00:00")
+                )
+                if created.tzinfo is None:
+                    raise ValueError("KNOT history materialization timestamp is invalid")
+                if created.astimezone(timezone.utc) > cutoff_utc:
+                    continue
+                seen_hashes.add(str(row["accepted_output_hash"]))
+                materialization = cast(
+                    dict[str, Any], json.loads(row["materialization_json"])
+                )
+                materialization_body = {
+                    key: value
+                    for key, value in materialization.items()
+                    if key != "materialization_hash"
+                }
+                if (
+                    row["materialization_hash"] != _sha256(materialization_body)
+                    or materialization.get("materialization_hash")
+                    != row["materialization_hash"]
+                    or materialization.get("accepted_output_hash")
+                    != row["accepted_output_hash"]
+                ):
+                    raise ValueError("KNOT history materialization hash mismatch")
+                validate_public_safe_projection(materialization)
+                reasons: list[str] = []
+                if row["status"] != "MATERIALIZED":
+                    reasons.extend(str(value) for value in materialization["exclusion_reasons"])
+                elif any(
+                    materialization.get(field) != value
+                    for field, value in fixed_point.items()
+                ):
+                    reasons.append("KNOT_FIXED_POINT_PARTITION_MISMATCH")
+                if reasons:
+                    excluded_body = {
+                        "accepted_output_hash": row["accepted_output_hash"],
+                        "materialization_hash": row["materialization_hash"],
+                        "reasons": sorted(set(reasons)),
+                    }
+                    excluded_refs.append(
+                        {
+                            "accepted_output_hash": str(row["accepted_output_hash"]),
+                            "sample_ref_hash": _sha256(excluded_body),
+                            "reasons": excluded_body["reasons"],
+                        }
+                    )
+                    continue
+
+                observation_rows = conn.execute(
+                    "SELECT * FROM knot_binding_observations_v2 "
+                    "WHERE accepted_output_id = ? ORDER BY binding_id",
+                    (row["accepted_output_id"],),
+                ).fetchall()
+                if len(observation_rows) != materialization["observation_count"]:
+                    raise ValueError("KNOT history observation count mismatch")
+                observation_hashes: list[str] = []
+                seen_bindings: set[str] = set()
+                for observation_row in observation_rows:
+                    observation = cast(
+                        dict[str, Any], json.loads(observation_row["observation_json"])
+                    )
+                    observation_body = {
+                        key: value
+                        for key, value in observation.items()
+                        if key != "observation_hash"
+                    }
+                    binding_id = str(observation.get("binding_id"))
+                    if (
+                        observation_row["observation_hash"]
+                        != _sha256(observation_body)
+                        or observation.get("observation_hash")
+                        != observation_row["observation_hash"]
+                        or observation.get("accepted_output_id")
+                        != row["accepted_output_id"]
+                        or observation.get("accepted_output_hash")
+                        != row["accepted_output_hash"]
+                        or binding_id not in observations_by_binding
+                        or binding_id in seen_bindings
+                        or any(
+                            observation.get(field) != value
+                            for field, value in fixed_point.items()
+                        )
+                    ):
+                        raise ValueError("KNOT history observation authority mismatch")
+                    validate_public_safe_projection(observation)
+                    seen_bindings.add(binding_id)
+                    observation_hashes.append(str(observation["observation_hash"]))
+                    observations_by_binding[binding_id].append(observation)
+                if materialization["observation_set_hash"] != _sha256(
+                    observation_hashes
+                ):
+                    raise ValueError("KNOT history observation set mismatch")
+                materialization_refs.append(
+                    {
+                        "accepted_output_hash": str(row["accepted_output_hash"]),
+                        "materialization_hash": str(row["materialization_hash"]),
+                    }
+                )
+
+        if selected_hashes is not None and seen_hashes != set(selected_hashes):
+            raise ValueError("KNOT history selected sample closure mismatch")
+
+        aggregates = [
+            build_knot_capability_use_aggregate(
+                binding_id=binding_id,
+                observations=observations_by_binding[binding_id],
+            )
+            for binding_id in binding_ids
+        ]
+        materialization_refs.sort(key=lambda value: value["accepted_output_hash"])
+        excluded_refs.sort(key=lambda value: value["sample_ref_hash"])
+        body = {
+            "schema_version": "knot_training_history_partition_v2",
+            "cutoff_at": cutoff_at,
+            **fixed_point,
+            "history_partition_hash": _sha256(fixed_point),
+            "sample_count": len(materialization_refs),
+            "excluded_sample_count": len(excluded_refs),
+            "materialization_refs": materialization_refs,
+            "excluded_sample_refs": excluded_refs,
+            "binding_aggregates": aggregates,
+            "materialization_set_hash": _sha256(materialization_refs),
+            "excluded_sample_set_hash": _sha256(excluded_refs),
+            "binding_aggregate_set_hash": _sha256(
+                [row["aggregate_hash"] for row in aggregates]
+            ),
+        }
+        partition = {**body, "partition_hash": _sha256(body)}
+        validate_public_safe_projection(partition)
+        return partition
 
     def terminate(self, envelope: Mapping[str, Any], reason: str) -> None:
         manifest, _ = self._verify(envelope)
@@ -4036,6 +6310,7 @@ def get_capability_store() -> AgentToolCapabilityStore:
                         staged_receipt_store=receipt_store,
                     )
                 ),
+                require_knot_v2_audit_authority=True,
             )
             _STORE_BY_PATH[path] = store
         return store

@@ -23,7 +23,7 @@ from mosaic.scorecard.capability_preservation import (
     validate_accepted_output_track_tags,
     validate_capability_contract_bundle,
     validate_evidence_claim_graph_v2,
-    validate_full_bundle_release,
+    validate_capability_full_bundle,
     validate_knot_capability_use_aggregate,
     validate_preservation_manifest,
     validate_public_safe_projection,
@@ -361,9 +361,7 @@ def test_capture_time_track_tags_are_strict_and_legacy_is_read_only():
 
 def test_active_release_vnext_binds_the_complete_fixed_point():
     release = {
-        "schema_version": "active_prompt_release_manifest_v4",
-        "release_id": "release:test",
-        "lifecycle_state": "staged",
+        "schema_version": "capability_full_bundle_v1",
         "prompt_hash": "sha256:" + "1" * 64,
         "execution_behavior_release_hash": "sha256:" + "2" * 64,
         "production_variant_roster_hash": "sha256:" + "3" * 64,
@@ -372,11 +370,12 @@ def test_active_release_vnext_binds_the_complete_fixed_point():
         "tool_environment_hash": "sha256:" + "6" * 64,
         "capability_binding_manifest_hash": "sha256:" + "7" * 64,
         "knot_coverage_manifest_hash": "sha256:" + "8" * 64,
+        "knot_audit_capability_track_hash": "sha256:" + "a" * 64,
         "private_companion_pin_hash": "sha256:" + "9" * 64,
     }
     body = dict(release)
     release["full_bundle_hash"] = canonical_hash(body)
-    validate_full_bundle_release(release)
+    validate_capability_full_bundle(release)
 
     for field in (
         "tool_environment_hash",
@@ -387,7 +386,7 @@ def test_active_release_vnext_binds_the_complete_fixed_point():
         invalid = dict(release)
         invalid.pop(field)
         with pytest.raises(ValueError, match="full-bundle"):
-            validate_full_bundle_release(invalid)
+            validate_capability_full_bundle(invalid)
 
 
 def test_tool_result_fingerprint_and_v2_claim_lineage_are_deterministic():

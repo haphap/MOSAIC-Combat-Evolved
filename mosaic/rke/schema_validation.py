@@ -160,6 +160,16 @@ JSON_SCHEMA_TARGETS = (
         "json",
     ),
     (
+        "schemas/knot_tool_coverage_manifest_v2.schema.json",
+        "registry/prompt_checks/capability_preservation/knot_tool_coverage_manifest_v2.json",
+        "json",
+    ),
+    (
+        "schemas/knot_audit_capability_track_v2.schema.json",
+        "registry/prompt_checks/capability_preservation/knot_audit_capability_track_v2.json",
+        "json",
+    ),
+    (
         "schemas/accepted_output_capability_track_v1.schema.json",
         "registry/prompt_checks/capability_preservation/accepted_output_capability_track_v1.json",
         "json",

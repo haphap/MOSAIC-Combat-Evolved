@@ -496,6 +496,104 @@ def register_production_variant(
     }
 
 
+def validate_production_variant_roster_revision(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    expected_fields = {
+        "production_variant_roster_revision_id",
+        "production_variant_roster_id",
+        "execution_behavior_release_id",
+        "cohort_id",
+        "language",
+        "evaluation_track_key_hashes",
+        "usage_track_key_hashes",
+        "decision_evaluation_track_key_hashes",
+        "prepared_at",
+        "recorded_at",
+        "effective_at",
+        "effective_slot_sequence",
+        "readiness",
+        "production_variant_roster_revision_hash",
+    }
+    if not isinstance(value, Mapping) or set(value) != expected_fields:
+        raise ValueError("production roster revision record is invalid")
+    revision = dict(value)
+    for field in (
+        "production_variant_roster_revision_id",
+        "production_variant_roster_id",
+        "execution_behavior_release_id",
+        "cohort_id",
+    ):
+        if _required_text(revision[field], field) != revision[field]:
+            raise ValueError("production roster revision identity is invalid")
+    if revision["language"] not in {"en", "zh"}:
+        raise ValueError("production roster revision language is invalid")
+    sequence = revision["effective_slot_sequence"]
+    if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
+        raise ValueError("production roster revision sequence is invalid")
+    prepared_at = _timestamp(revision["prepared_at"], "prepared_at")
+    recorded_at = _timestamp(revision["recorded_at"], "recorded_at")
+    effective_at = _timestamp(revision["effective_at"], "effective_at")
+    if not prepared_at <= recorded_at <= effective_at:
+        raise ValueError("production roster revision timestamps are invalid")
+    body = {
+        key: item
+        for key, item in revision.items()
+        if key != "production_variant_roster_revision_hash"
+    }
+    if (
+        revision["production_variant_roster_revision_hash"] != canonical_hash(body)
+        or revision["readiness"] not in {"READY", "REJECTED"}
+    ):
+        raise ValueError("production roster revision hash is invalid")
+    evaluation = revision["evaluation_track_key_hashes"]
+    usage = revision["usage_track_key_hashes"]
+    decision = revision["decision_evaluation_track_key_hashes"]
+    if (
+        not isinstance(evaluation, list)
+        or not isinstance(usage, list)
+        or not isinstance(decision, list)
+        or len(evaluation) != 28
+        or len(usage) != 24
+        or len(decision) != 4
+        or len(set(evaluation)) != len(evaluation)
+        or len(set(usage)) != len(usage)
+        or len(set(decision)) != len(decision)
+    ):
+        raise ValueError("production roster revision track closure is invalid")
+    for hashes in (evaluation, usage, decision):
+        if any(
+            not isinstance(item, str)
+            or len(item) != 71
+            or not item.startswith("sha256:")
+            or any(character not in "0123456789abcdef" for character in item[7:])
+            for item in hashes
+        ):
+            raise ValueError("production roster revision track hash is invalid")
+    return revision
+
+
+def get_production_variant_roster_revision(
+    conn: sqlite3.Connection,
+    production_variant_roster_revision_id: str,
+) -> dict[str, Any] | None:
+    revision_id = _required_text(
+        production_variant_roster_revision_id,
+        "production_variant_roster_revision_id",
+    )
+    row = conn.execute(
+        "SELECT record_json FROM darwinian_v2_production_variant_roster_revisions "
+        "WHERE production_variant_roster_revision_id = ?",
+        (revision_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    revision = validate_production_variant_roster_revision(json.loads(row[0]))
+    if revision["production_variant_roster_revision_id"] != revision_id:
+        raise ValueError("production roster revision id is invalid")
+    return revision
+
+
 def get_production_weight_snapshot(
     conn: sqlite3.Connection,
     *,

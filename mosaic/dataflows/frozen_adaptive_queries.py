@@ -177,6 +177,30 @@ class FrozenAdaptiveQueryStore:
                     PRIMARY KEY(session_id, round_number),
                     FOREIGN KEY(session_id) REFERENCES frozen_query_sessions(session_id)
                 );
+                CREATE TABLE IF NOT EXISTS frozen_query_call_reservations (
+                    reservation_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    round_number INTEGER NOT NULL CHECK(round_number BETWEEN 1 AND 3),
+                    tool_id TEXT NOT NULL,
+                    request_hash TEXT NOT NULL,
+                    request_json TEXT NOT NULL,
+                    payload_hash TEXT NOT NULL,
+                    reservation_json TEXT NOT NULL,
+                    reservation_hash TEXT NOT NULL UNIQUE,
+                    reserved_at TEXT NOT NULL,
+                    UNIQUE(session_id, round_number),
+                    FOREIGN KEY(session_id) REFERENCES frozen_query_sessions(session_id)
+                );
+                CREATE TABLE IF NOT EXISTS frozen_query_call_finalizations (
+                    reservation_id TEXT PRIMARY KEY,
+                    result_event_id TEXT NOT NULL UNIQUE,
+                    result_event_hash TEXT NOT NULL UNIQUE,
+                    finalization_json TEXT NOT NULL,
+                    finalization_hash TEXT NOT NULL UNIQUE,
+                    finalized_at TEXT NOT NULL,
+                    FOREIGN KEY(reservation_id)
+                      REFERENCES frozen_query_call_reservations(reservation_id)
+                );
                 CREATE TRIGGER IF NOT EXISTS frozen_query_bundles_no_update
                   BEFORE UPDATE ON frozen_query_bundles BEGIN
                     SELECT RAISE(ABORT, 'frozen_query_bundles is append-only');
@@ -208,6 +232,22 @@ class FrozenAdaptiveQueryStore:
                 CREATE TRIGGER IF NOT EXISTS frozen_query_calls_no_delete
                   BEFORE DELETE ON frozen_query_calls BEGIN
                     SELECT RAISE(ABORT, 'frozen_query_calls is append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS frozen_query_call_reservations_no_update
+                  BEFORE UPDATE ON frozen_query_call_reservations BEGIN
+                    SELECT RAISE(ABORT, 'frozen_query_call_reservations is append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS frozen_query_call_reservations_no_delete
+                  BEFORE DELETE ON frozen_query_call_reservations BEGIN
+                    SELECT RAISE(ABORT, 'frozen_query_call_reservations is append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS frozen_query_call_finalizations_no_update
+                  BEFORE UPDATE ON frozen_query_call_finalizations BEGIN
+                    SELECT RAISE(ABORT, 'frozen_query_call_finalizations is append-only');
+                  END;
+                CREATE TRIGGER IF NOT EXISTS frozen_query_call_finalizations_no_delete
+                  BEFORE DELETE ON frozen_query_call_finalizations BEGIN
+                    SELECT RAISE(ABORT, 'frozen_query_call_finalizations is append-only');
                   END;
                 """
             )
@@ -279,6 +319,13 @@ class FrozenAdaptiveQueryStore:
             projection_body
         ):
             raise ValueError("frozen query public projection hash mismatch")
+        preservation_stage = projection.get("preservation_stage")
+        if preservation_stage is not None and (
+            not isinstance(preservation_stage, str)
+            or not preservation_stage.strip()
+            or preservation_stage == bundle["stage"]
+        ):
+            raise ValueError("frozen query preservation stage is invalid")
 
         private_entries: list[dict[str, Any]] = []
         evidence_entries: list[dict[str, Any]] = []
@@ -341,6 +388,11 @@ class FrozenAdaptiveQueryStore:
             "materialization_key": bundle["materialization_key"],
             "agent_id": bundle["agent_id"],
             "stage": bundle["stage"],
+            **(
+                {"preservation_stage": preservation_stage}
+                if preservation_stage is not None
+                else {}
+            ),
             "as_of": bundle["as_of"],
             "authorized_scope_hash": bundle["authorized_scope_hash"],
             "overlay_hash": bundle["overlay_hash"],
@@ -1135,14 +1187,63 @@ class FrozenAdaptiveQueryStore:
             if isinstance(sector, str) and sector and sector not in scope["sectors"]:
                 raise ValueError("RKE sector is outside the authorized scope")
 
-    def read_initial_payloads(
+    @staticmethod
+    def _audited_result(
+        *, bundle_hash: str, row: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        try:
+            receipt_hashes = json.loads(str(row["source_receipt_hashes_json"]))
+            derivation = (
+                json.loads(str(row["derivation_json"]))
+                if row["derivation_json"] is not None
+                else None
+            )
+        except json.JSONDecodeError as exc:
+            raise ValueError("frozen query result authority is malformed") from exc
+        if (
+            not isinstance(receipt_hashes, list)
+            or receipt_hashes != sorted(set(receipt_hashes))
+            or not receipt_hashes
+            or not all(_is_sha256(value) for value in receipt_hashes)
+        ):
+            raise ValueError("frozen query result source receipt authority is invalid")
+        if canonical_hash({"text": row["payload"]}) != row["payload_hash"]:
+            raise ValueError("frozen query result payload hash mismatch")
+        if derivation is None:
+            if row["derivation_hash"] is not None:
+                raise ValueError("frozen query result derivation hash mismatch")
+        elif canonical_hash(derivation) != row["derivation_hash"]:
+            raise ValueError("frozen query result derivation hash mismatch")
+        authority = {
+            "schema_version": "frozen_query_result_authority_v1",
+            "authority_type": "FROZEN_QUERY",
+            "frozen_bundle_hash": bundle_hash,
+            "request_hash": row["request_hash"],
+            "payload_hash": row["payload_hash"],
+            "source_receipt_set_hash": canonical_hash(receipt_hashes),
+            "derivation_hash": row["derivation_hash"],
+        }
+        return {
+            "tool_id": row["tool_id"],
+            "call_mode": row["call_mode"],
+            "request_hash": row["request_hash"],
+            "payload": row["payload"],
+            "payload_hash": row["payload_hash"],
+            "result_authority": {
+                **authority,
+                "authority_hash": canonical_hash(authority),
+            },
+        }
+
+    def read_initial_results(
         self, *, bundle_id: str, agent_id: str, stage: str
-    ) -> list[dict[str, str]]:
-        """Read deterministic/proactive payloads in their frozen invocation order."""
+    ) -> list[dict[str, Any]]:
+        """Read deterministic payloads with immutable private result authority."""
 
         bundle_id = _required_text(bundle_id, "bundle_id")
         agent_id = _required_text(agent_id, "agent_id")
         stage = _required_text(stage, "stage")
+        evidence = self.bundle_evidence(bundle_id)
         with self._connect() as connection:
             bundle = connection.execute(
                 "SELECT agent_id, stage, initial_request_refs_json "
@@ -1156,29 +1257,40 @@ class FrozenAdaptiveQueryStore:
             refs = json.loads(bundle["initial_request_refs_json"])
             if not isinstance(refs, list):
                 raise ValueError("frozen initial request refs are malformed")
-            payloads: list[dict[str, str]] = []
+            results: list[dict[str, Any]] = []
             for ref in refs:
                 if not isinstance(ref, Mapping) or set(ref) != {"tool_id", "request_hash"}:
                     raise ValueError("frozen initial request ref is malformed")
                 row = connection.execute(
-                    "SELECT tool_id, request_hash, payload, payload_hash, call_mode "
-                    "FROM frozen_query_payloads "
+                    "SELECT * FROM frozen_query_payloads "
                     "WHERE bundle_id = ? AND tool_id = ? AND request_hash = ?",
                     (bundle_id, ref["tool_id"], ref["request_hash"]),
                 ).fetchone()
                 if row is None or row["call_mode"] != "INITIAL":
                     raise ValueError("frozen initial payload is unavailable")
-                if row["payload_hash"] != canonical_hash({"text": row["payload"]}):
-                    raise ValueError("frozen initial payload hash mismatch")
-                payloads.append(
-                    {
-                        "tool_id": row["tool_id"],
-                        "request_hash": row["request_hash"],
-                        "payload": row["payload"],
-                        "payload_hash": row["payload_hash"],
-                    }
+                results.append(
+                    self._audited_result(
+                        bundle_hash=evidence["bundle_hash"], row=row
+                    )
                 )
-        return payloads
+        return results
+
+    def read_initial_payloads(
+        self, *, bundle_id: str, agent_id: str, stage: str
+    ) -> list[dict[str, str]]:
+        """Compatibility projection of deterministic frozen results."""
+
+        return [
+            {
+                "tool_id": str(row["tool_id"]),
+                "request_hash": str(row["request_hash"]),
+                "payload": str(row["payload"]),
+                "payload_hash": str(row["payload_hash"]),
+            }
+            for row in self.read_initial_results(
+                bundle_id=bundle_id, agent_id=agent_id, stage=stage
+            )
+        ]
 
     def start_session(self, *, bundle_id: str, agent_id: str, stage: str) -> str:
         bundle_id = _required_text(bundle_id, "bundle_id")
@@ -1209,6 +1321,333 @@ class FrozenAdaptiveQueryStore:
             )
         return session_id
 
+    def _reserved_result_from_connection(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        reservation_id: str,
+    ) -> tuple[str, sqlite3.Row, dict[str, Any]]:
+        reservation_row = connection.execute(
+            "SELECT * FROM frozen_query_call_reservations WHERE reservation_id = ?",
+            (reservation_id,),
+        ).fetchone()
+        if reservation_row is None:
+            raise ValueError("unknown frozen query reservation")
+        session = connection.execute(
+            "SELECT bundle_id FROM frozen_query_sessions WHERE session_id = ?",
+            (reservation_row["session_id"],),
+        ).fetchone()
+        if session is None:
+            raise ValueError("frozen query reservation session is unavailable")
+        payload_row = connection.execute(
+            "SELECT * FROM frozen_query_payloads "
+            "WHERE bundle_id = ? AND tool_id = ? AND request_hash = ? "
+            "AND call_mode = 'FOLLOW_UP'",
+            (
+                session["bundle_id"],
+                reservation_row["tool_id"],
+                reservation_row["request_hash"],
+            ),
+        ).fetchone()
+        if (
+            payload_row is None
+            or payload_row["request_json"] != reservation_row["request_json"]
+            or payload_row["payload_hash"] != reservation_row["payload_hash"]
+        ):
+            raise ValueError("frozen query reservation payload authority mismatch")
+        try:
+            reservation = json.loads(reservation_row["reservation_json"])
+        except json.JSONDecodeError as exc:
+            raise ValueError("frozen query reservation authority is malformed") from exc
+        expected = {
+            "schema_version": "frozen_query_call_reservation_v1",
+            "reservation_id": reservation_row["reservation_id"],
+            "session_id": reservation_row["session_id"],
+            "round_number": int(reservation_row["round_number"]),
+            "tool_id": reservation_row["tool_id"],
+            "request_hash": reservation_row["request_hash"],
+            "payload_hash": reservation_row["payload_hash"],
+            "reserved_at": reservation_row["reserved_at"],
+        }
+        expected_hash = canonical_hash(expected)
+        if reservation != {**expected, "reservation_hash": expected_hash} or (
+            reservation_row["reservation_hash"] != expected_hash
+        ):
+            raise ValueError("frozen query reservation authority mismatch")
+        return str(session["bundle_id"]), payload_row, reservation
+
+    def reserve_next_result(
+        self,
+        *,
+        reservation_id: str,
+        session_id: str,
+        tool_id: str,
+        args: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Idempotently reserve one adaptive round without finalizing consumption."""
+
+        reservation_id = _required_text(reservation_id, "reservation_id")
+        session_id = _required_text(session_id, "session_id")
+        tool_id = _required_text(tool_id, "tool_id")
+        if not isinstance(args, Mapping):
+            raise ValueError("query args must be an object")
+        request_json = _canonical_json(args)
+        request_hash = canonical_hash(json.loads(request_json))
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                existing = connection.execute(
+                    "SELECT session_id, tool_id, request_hash, request_json "
+                    "FROM frozen_query_call_reservations WHERE reservation_id = ?",
+                    (reservation_id,),
+                ).fetchone()
+                if existing is not None:
+                    if (
+                        existing["session_id"] != session_id
+                        or existing["tool_id"] != tool_id
+                        or existing["request_hash"] != request_hash
+                        or existing["request_json"] != request_json
+                    ):
+                        raise ValueError("frozen query reservation intent mismatch")
+                    bundle_id, payload_row, reservation = (
+                        self._reserved_result_from_connection(
+                            connection, reservation_id=reservation_id
+                        )
+                    )
+                else:
+                    session = connection.execute(
+                        "SELECT sessions.bundle_id, bundles.max_rounds "
+                        "FROM frozen_query_sessions AS sessions "
+                        "JOIN frozen_query_bundles AS bundles "
+                        "ON bundles.bundle_id = sessions.bundle_id "
+                        "WHERE sessions.session_id = ?",
+                        (session_id,),
+                    ).fetchone()
+                    if session is None:
+                        raise ValueError("unknown frozen query session")
+                    occupied_rounds = [
+                        int(row["round_number"])
+                        for row in connection.execute(
+                            "SELECT round_number FROM frozen_query_calls "
+                            "WHERE session_id = ? UNION SELECT round_number "
+                            "FROM frozen_query_call_reservations WHERE session_id = ? "
+                            "ORDER BY round_number",
+                            (session_id, session_id),
+                        ).fetchall()
+                    ]
+                    if occupied_rounds != list(range(1, len(occupied_rounds) + 1)):
+                        raise ValueError("frozen query round authority is not contiguous")
+                    actual_round = len(occupied_rounds) + 1
+                    max_rounds = int(session["max_rounds"])
+                    if actual_round > max_rounds:
+                        raise ValueError(
+                            f"maximum {max_rounds} adaptive query rounds exceeded"
+                        )
+                    payload_row = connection.execute(
+                        "SELECT * FROM frozen_query_payloads "
+                        "WHERE bundle_id = ? AND tool_id = ? AND request_hash = ? "
+                        "AND call_mode = 'FOLLOW_UP'",
+                        (session["bundle_id"], tool_id, request_hash),
+                    ).fetchone()
+                    if payload_row is None or payload_row["request_json"] != request_json:
+                        raise ValueError("query is not present in the frozen query bundle")
+                    if payload_row["payload_hash"] != canonical_hash(
+                        {"text": payload_row["payload"]}
+                    ):
+                        raise ValueError("frozen query payload hash mismatch")
+                    reserved_at = self.clock().astimezone(timezone.utc).isoformat()
+                    reservation_body = {
+                        "schema_version": "frozen_query_call_reservation_v1",
+                        "reservation_id": reservation_id,
+                        "session_id": session_id,
+                        "round_number": actual_round,
+                        "tool_id": tool_id,
+                        "request_hash": request_hash,
+                        "payload_hash": payload_row["payload_hash"],
+                        "reserved_at": reserved_at,
+                    }
+                    reservation_hash = canonical_hash(reservation_body)
+                    reservation = {
+                        **reservation_body,
+                        "reservation_hash": reservation_hash,
+                    }
+                    connection.execute(
+                        "INSERT INTO frozen_query_call_reservations "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            reservation_id,
+                            session_id,
+                            actual_round,
+                            tool_id,
+                            request_hash,
+                            request_json,
+                            payload_row["payload_hash"],
+                            _canonical_json(reservation),
+                            reservation_hash,
+                            reserved_at,
+                        ),
+                    )
+                    bundle_id = str(session["bundle_id"])
+                connection.execute("COMMIT")
+            except Exception:
+                connection.execute("ROLLBACK")
+                raise
+        evidence = self.bundle_evidence(bundle_id)
+        return {
+            **self._audited_result(
+                bundle_hash=evidence["bundle_hash"], row=payload_row
+            ),
+            "reservation": reservation,
+        }
+
+    def read_reserved_result(self, *, reservation_id: str) -> dict[str, Any]:
+        """Reload one immutable reservation for capability-side recovery."""
+
+        reservation_id = _required_text(reservation_id, "reservation_id")
+        with self._connect() as connection:
+            bundle_id, payload_row, reservation = self._reserved_result_from_connection(
+                connection, reservation_id=reservation_id
+            )
+        evidence = self.bundle_evidence(bundle_id)
+        return {
+            **self._audited_result(
+                bundle_hash=evidence["bundle_hash"], row=payload_row
+            ),
+            "reservation": reservation,
+        }
+
+    def finalize_reserved_result(
+        self,
+        *,
+        reservation_id: str,
+        result_event_id: str,
+        result_event_hash: str,
+    ) -> dict[str, Any]:
+        """Idempotently bind a reservation to its committed server result event."""
+
+        reservation_id = _required_text(reservation_id, "reservation_id")
+        result_event_id = _required_text(result_event_id, "result_event_id")
+        if not _is_sha256(result_event_hash):
+            raise ValueError("result_event_hash must be a sha256 hash")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                _, _, reservation = self._reserved_result_from_connection(
+                    connection, reservation_id=reservation_id
+                )
+                existing = connection.execute(
+                    "SELECT * FROM frozen_query_call_finalizations "
+                    "WHERE reservation_id = ?",
+                    (reservation_id,),
+                ).fetchone()
+                if existing is not None:
+                    try:
+                        finalization = json.loads(existing["finalization_json"])
+                    except json.JSONDecodeError as exc:
+                        raise ValueError(
+                            "frozen query reservation finalization is malformed"
+                        ) from exc
+                    finalization_body = {
+                        "schema_version": "frozen_query_call_finalization_v1",
+                        "reservation_id": reservation_id,
+                        "session_id": reservation["session_id"],
+                        "round_number": reservation["round_number"],
+                        "result_event_id": result_event_id,
+                        "result_event_hash": result_event_hash,
+                        "finalized_at": existing["finalized_at"],
+                    }
+                    finalization_hash = canonical_hash(finalization_body)
+                    if (
+                        existing["result_event_id"] != result_event_id
+                        or existing["result_event_hash"] != result_event_hash
+                        or existing["finalization_hash"] != finalization_hash
+                        or finalization
+                        != {**finalization_body, "finalization_hash": finalization_hash}
+                    ):
+                        raise ValueError("frozen query reservation finalization mismatch")
+                else:
+                    prior_call = connection.execute(
+                        "SELECT 1 FROM frozen_query_calls "
+                        "WHERE session_id = ? AND round_number = ?",
+                        (reservation["session_id"], reservation["round_number"]),
+                    ).fetchone()
+                    if prior_call is not None:
+                        raise ValueError("frozen query reservation call authority mismatch")
+                    finalized_at = self.clock().astimezone(timezone.utc).isoformat()
+                    finalization_body = {
+                        "schema_version": "frozen_query_call_finalization_v1",
+                        "reservation_id": reservation_id,
+                        "session_id": reservation["session_id"],
+                        "round_number": reservation["round_number"],
+                        "result_event_id": result_event_id,
+                        "result_event_hash": result_event_hash,
+                        "finalized_at": finalized_at,
+                    }
+                    finalization_hash = canonical_hash(finalization_body)
+                    finalization = {
+                        **finalization_body,
+                        "finalization_hash": finalization_hash,
+                    }
+                    connection.execute(
+                        "INSERT INTO frozen_query_calls VALUES (?, ?, ?, ?, ?, ?)",
+                        (
+                            reservation["session_id"],
+                            reservation["round_number"],
+                            reservation["tool_id"],
+                            reservation["request_hash"],
+                            reservation["payload_hash"],
+                            reservation["reserved_at"],
+                        ),
+                    )
+                    connection.execute(
+                        "INSERT INTO frozen_query_call_finalizations "
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        (
+                            reservation_id,
+                            result_event_id,
+                            result_event_hash,
+                            _canonical_json(finalization),
+                            finalization_hash,
+                            finalized_at,
+                        ),
+                    )
+                call = connection.execute(
+                    "SELECT tool_id, request_hash, payload_hash FROM frozen_query_calls "
+                    "WHERE session_id = ? AND round_number = ?",
+                    (reservation["session_id"], reservation["round_number"]),
+                ).fetchone()
+                if call is None or dict(call) != {
+                    "tool_id": reservation["tool_id"],
+                    "request_hash": reservation["request_hash"],
+                    "payload_hash": reservation["payload_hash"],
+                }:
+                    raise ValueError("frozen query reservation call authority mismatch")
+                connection.execute("COMMIT")
+            except Exception:
+                connection.execute("ROLLBACK")
+                raise
+        return finalization
+
+    def read_reserved_finalization(
+        self, *, reservation_id: str
+    ) -> dict[str, Any] | None:
+        """Read and fully revalidate an optional reservation finalization."""
+
+        reservation_id = _required_text(reservation_id, "reservation_id")
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT result_event_id, result_event_hash "
+                "FROM frozen_query_call_finalizations WHERE reservation_id = ?",
+                (reservation_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self.finalize_reserved_result(
+            reservation_id=reservation_id,
+            result_event_id=str(row["result_event_id"]),
+            result_event_hash=str(row["result_event_hash"]),
+        )
+
     def call(
         self,
         *,
@@ -1219,7 +1658,26 @@ class FrozenAdaptiveQueryStore:
     ) -> str:
         """Resolve one exact frozen request; no collector is reachable here."""
 
-        return self._call(
+        return str(
+            self.call_result(
+                session_id=session_id,
+                round_number=round_number,
+                tool_id=tool_id,
+                args=args,
+            )["payload"]
+        )
+
+    def call_result(
+        self,
+        *,
+        session_id: str,
+        round_number: int,
+        tool_id: str,
+        args: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Resolve one exact frozen request with its immutable result authority."""
+
+        return self._call_result(
             session_id=session_id,
             round_number=round_number,
             tool_id=tool_id,
@@ -1235,21 +1693,38 @@ class FrozenAdaptiveQueryStore:
     ) -> str:
         """Atomically consume the next permitted call in one capability session."""
 
-        return self._call(
+        return str(
+            self.call_next_result(
+                session_id=session_id,
+                tool_id=tool_id,
+                args=args,
+            )["payload"]
+        )
+
+    def call_next_result(
+        self,
+        *,
+        session_id: str,
+        tool_id: str,
+        args: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Atomically consume the next call and return its result authority."""
+
+        return self._call_result(
             session_id=session_id,
             round_number=None,
             tool_id=tool_id,
             args=args,
         )
 
-    def _call(
+    def _call_result(
         self,
         *,
         session_id: str,
         round_number: int | None,
         tool_id: str,
         args: Mapping[str, Any],
-    ) -> str:
+    ) -> dict[str, Any]:
 
         session_id = _required_text(session_id, "session_id")
         tool_id = _required_text(tool_id, "tool_id")
@@ -1280,11 +1755,19 @@ class FrozenAdaptiveQueryStore:
                 if session is None:
                     raise ValueError("unknown frozen query session")
                 max_rounds = int(session["max_rounds"])
-                count = connection.execute(
-                    "SELECT COUNT(*) AS count FROM frozen_query_calls WHERE session_id = ?",
-                    (session_id,),
-                ).fetchone()["count"]
-                expected_round = int(count) + 1
+                occupied_rounds = [
+                    int(row["round_number"])
+                    for row in connection.execute(
+                        "SELECT round_number FROM frozen_query_calls "
+                        "WHERE session_id = ? UNION SELECT round_number "
+                        "FROM frozen_query_call_reservations WHERE session_id = ? "
+                        "ORDER BY round_number",
+                        (session_id, session_id),
+                    ).fetchall()
+                ]
+                if occupied_rounds != list(range(1, len(occupied_rounds) + 1)):
+                    raise ValueError("frozen query round authority is not contiguous")
+                expected_round = len(occupied_rounds) + 1
                 actual_round = expected_round if round_number is None else round_number
                 if actual_round > max_rounds:
                     raise ValueError(
@@ -1318,7 +1801,8 @@ class FrozenAdaptiveQueryStore:
             except Exception:
                 connection.execute("ROLLBACK")
                 raise
-        return str(payload)
+        evidence = self.bundle_evidence(str(session["bundle_id"]))
+        return self._audited_result(bundle_hash=evidence["bundle_hash"], row=row)
 
 
 __all__ = ["FrozenAdaptiveQueryStore", "PUBLIC_PROJECTION_VERSION"]

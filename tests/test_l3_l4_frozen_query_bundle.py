@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -124,18 +125,37 @@ def test_l3_bundle_restores_initial_calls_then_three_frozen_followups(tmp_path: 
     )
     assert [row["tool_id"] for row in initial] == ["get_fundamentals", "get_cashflow"]
     assert all("synthetic" in row["payload"] for row in initial)
+    initial_results = store.read_initial_results(
+        bundle_id=prepared["bundle_id"], agent_id="ackman", stage="ackman"
+    )
+    assert [row["payload"] for row in initial_results] == [
+        row["payload"] for row in initial
+    ]
+    assert all(row["call_mode"] == "INITIAL" for row in initial_results)
+    assert all(
+        row["result_authority"]["authority_type"] == "FROZEN_QUERY"
+        for row in initial_results
+    )
+    for row in initial_results:
+        authority = dict(row["result_authority"])
+        authority_hash = authority.pop("authority_hash")
+        assert authority_hash == canonical_hash(authority)
 
     session = store.start_session(
         bundle_id=prepared["bundle_id"], agent_id="ackman", stage="ackman"
     )
     for round_number, query in enumerate(_ackman_followups(), start=1):
-        payload = store.call(
+        result = store.call_result(
             session_id=session,
             round_number=round_number,
             tool_id=query["tool_id"],
             args=query["args"],
         )
-        assert "synthetic" in payload
+        assert "synthetic" in result["payload"]
+        assert result["call_mode"] == "FOLLOW_UP"
+        authority = dict(result["result_authority"])
+        authority_hash = authority.pop("authority_hash")
+        assert authority_hash == canonical_hash(authority)
     with pytest.raises(ValueError, match="maximum 3 adaptive query rounds"):
         store.call(
             session_id=session,
@@ -143,6 +163,103 @@ def test_l3_bundle_restores_initial_calls_then_three_frozen_followups(tmp_path: 
             tool_id=_ackman_followups()[0]["tool_id"],
             args=_ackman_followups()[0]["args"],
         )
+
+
+def test_frozen_followup_reservation_and_finalization_are_append_only_and_idempotent(
+    tmp_path: Path,
+):
+    store = _store(tmp_path)
+    prepared = store.prepare(
+        agent_id="ackman",
+        stage="ackman",
+        as_of="2026-07-09",
+        authorized_scope=_l3_scope(),
+        initial_query_requests=_ackman_initial(),
+        query_requests=_ackman_followups(),
+        preservation_overlay=build_l3_l4_preservation_overlay(ROOT),
+        materializer=_materializer,
+    )
+    session = store.start_session(
+        bundle_id=prepared["bundle_id"], agent_id="ackman", stage="ackman"
+    )
+    query = _ackman_followups()[0]
+    reservation_id = "adaptive_intent_test_round_1"
+
+    reserved = store.reserve_next_result(
+        reservation_id=reservation_id,
+        session_id=session,
+        tool_id=query["tool_id"],
+        args=query["args"],
+    )
+    assert reserved["reservation"]["reservation_id"] == reservation_id
+    assert reserved["reservation"]["round_number"] == 1
+    assert reserved["reservation"]["reservation_hash"] == canonical_hash(
+        {
+            key: value
+            for key, value in reserved["reservation"].items()
+            if key != "reservation_hash"
+        }
+    )
+    assert (
+        store.reserve_next_result(
+            reservation_id=reservation_id,
+            session_id=session,
+            tool_id=query["tool_id"],
+            args=query["args"],
+        )
+        == reserved
+    )
+    with pytest.raises(ValueError, match="reservation intent mismatch"):
+        store.reserve_next_result(
+            reservation_id=reservation_id,
+            session_id=session,
+            tool_id=query["tool_id"],
+            args={**query["args"], "frequency": "annual"},
+        )
+
+    result_event_id = "tool_evt_test_round_1"
+    result_event_hash = canonical_hash({"result_event_id": result_event_id})
+    finalized = store.finalize_reserved_result(
+        reservation_id=reservation_id,
+        result_event_id=result_event_id,
+        result_event_hash=result_event_hash,
+    )
+    assert finalized == store.finalize_reserved_result(
+        reservation_id=reservation_id,
+        result_event_id=result_event_id,
+        result_event_hash=result_event_hash,
+    )
+    with pytest.raises(ValueError, match="reservation finalization mismatch"):
+        store.finalize_reserved_result(
+            reservation_id=reservation_id,
+            result_event_id="tool_evt_conflict",
+            result_event_hash=canonical_hash({"result_event_id": "tool_evt_conflict"}),
+        )
+
+    second_query = _ackman_followups()[1]
+    second = store.reserve_next_result(
+        reservation_id="adaptive_intent_test_round_2",
+        session_id=session,
+        tool_id=second_query["tool_id"],
+        args=second_query["args"],
+    )
+    assert second["reservation"]["round_number"] == 2
+    with store._connect() as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM frozen_query_call_reservations"
+        ).fetchone()[0] == 2
+        assert connection.execute(
+            "SELECT count(*) FROM frozen_query_call_finalizations"
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT count(*) FROM frozen_query_calls"
+        ).fetchone()[0] == 1
+        for table in (
+            "frozen_query_call_reservations",
+            "frozen_query_call_finalizations",
+        ):
+            with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+                connection.execute(f"DELETE FROM {table}")
 
 
 def test_l3_bundle_rejects_unaccepted_backup_and_initial_call_drift(tmp_path: Path):

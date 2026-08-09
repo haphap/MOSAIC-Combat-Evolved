@@ -17,14 +17,23 @@ import type {
   JsonSchemaObject,
   JsonSchemaProperty,
   SignedAgentToolCapability,
+  ToolCallResult,
   ToolMetadata,
 } from "./types.js";
 
 /** Hidden runtime path for deterministic frozen calls whose args stay out of the prompt. */
 export const BRIDGE_INITIAL_TOOL_INVOKE: unique symbol = Symbol("mosaic.bridge.initialToolInvoke");
+/** Hidden runtime path that preserves the server-owned result audit envelope. */
+export const BRIDGE_AUDITED_TOOL_INVOKE: unique symbol = Symbol("mosaic.bridge.auditedToolInvoke");
+/** Audited equivalent of the deterministic frozen initial call. */
+export const BRIDGE_INITIAL_AUDITED_TOOL_INVOKE: unique symbol = Symbol(
+  "mosaic.bridge.initialAuditedToolInvoke",
+);
 
 export type BridgeStructuredTool = StructuredToolInterface & {
   [BRIDGE_INITIAL_TOOL_INVOKE]: () => Promise<string>;
+  [BRIDGE_AUDITED_TOOL_INVOKE]: (input: Record<string, unknown>) => Promise<ToolCallResult>;
+  [BRIDGE_INITIAL_AUDITED_TOOL_INVOKE]: () => Promise<ToolCallResult>;
 };
 
 /** Convert one Pydantic-style JSON Schema property into a Zod type. */
@@ -116,13 +125,12 @@ export function bridgeToolFromMetadata(
 ): BridgeStructuredTool {
   const schema = jsonSchemaToZod(metadata.args_schema);
   const capability = options.capability;
+  const auditedInvoke = (input: Record<string, unknown>) =>
+    api.toolsCall(metadata.name, input, capability);
+  const initialAuditedInvoke = () => auditedInvoke({});
   const structured = tool(
     async (input) => {
-      const result = await api.toolsCall(
-        metadata.name,
-        input as Record<string, unknown>,
-        capability,
-      );
+      const result = await auditedInvoke(input as Record<string, unknown>);
       return result.text;
     },
     {
@@ -131,9 +139,15 @@ export function bridgeToolFromMetadata(
       schema,
     },
   );
+  Object.defineProperty(structured, BRIDGE_AUDITED_TOOL_INVOKE, {
+    value: auditedInvoke,
+  });
+  Object.defineProperty(structured, BRIDGE_INITIAL_AUDITED_TOOL_INVOKE, {
+    value: initialAuditedInvoke,
+  });
   Object.defineProperty(structured, BRIDGE_INITIAL_TOOL_INVOKE, {
     value: async () => {
-      const result = await api.toolsCall(metadata.name, {}, capability);
+      const result = await initialAuditedInvoke();
       return result.text;
     },
   });

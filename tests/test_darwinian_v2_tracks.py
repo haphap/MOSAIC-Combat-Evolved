@@ -5,6 +5,10 @@ from pathlib import Path
 
 import pytest
 
+from mosaic.scorecard.canonical_json import canonical_hash
+from mosaic.scorecard.darwinian_v2 import (
+    validate_production_variant_roster_revision,
+)
 from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
 from mosaic.scorecard.store import ScorecardStore
 
@@ -105,6 +109,61 @@ def test_registration_is_idempotent_and_unchanged_tracks_survive_new_release(
     assert second["inserted_evaluation_tracks"] == 0
     assert second["inserted_cold_start_weights"] == 0
     assert second["effective_slot_sequence"] == 2
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid"),
+    [
+        ("production_variant_roster_id", " roster:test"),
+        ("language", "fr"),
+        ("effective_slot_sequence", 0),
+        ("recorded_at", "2026-07-18T09:00:00+08:00"),
+    ],
+)
+def test_roster_revision_validator_rejects_resealed_semantic_tamper(
+    tmp_path: Path,
+    field: str,
+    invalid: object,
+) -> None:
+    revision = _register(
+        ScorecardStore(tmp_path / "scorecard.db"),
+        "release-1",
+        "2026-07-17T09:00:00+08:00",
+    )
+    record = {
+        key: value for key, value in revision.items() if not key.startswith("inserted_")
+    }
+    record[field] = invalid
+    body = {
+        key: value
+        for key, value in record.items()
+        if key != "production_variant_roster_revision_hash"
+    }
+    record["production_variant_roster_revision_hash"] = canonical_hash(body)
+    with pytest.raises(ValueError, match="production roster revision"):
+        validate_production_variant_roster_revision(record)
+
+
+def test_roster_revision_validator_requires_exact_sha256_track_hashes(
+    tmp_path: Path,
+) -> None:
+    revision = _register(
+        ScorecardStore(tmp_path / "scorecard.db"),
+        "release-1",
+        "2026-07-17T09:00:00+08:00",
+    )
+    record = {
+        key: value for key, value in revision.items() if not key.startswith("inserted_")
+    }
+    record["evaluation_track_key_hashes"][0] = "sha256:short"
+    body = {
+        key: value
+        for key, value in record.items()
+        if key != "production_variant_roster_revision_hash"
+    }
+    record["production_variant_roster_revision_hash"] = canonical_hash(body)
+    with pytest.raises(ValueError, match="track hash"):
+        validate_production_variant_roster_revision(record)
 
 
 def test_registration_binds_authoritative_revision_timing_and_sequence(

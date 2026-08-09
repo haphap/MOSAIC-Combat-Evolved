@@ -16,7 +16,15 @@ import type { Command } from "commander";
 import pc from "picocolors";
 import { z } from "zod";
 import { canonicalJsonHash } from "../../agents/helpers/canonical_json.js";
-import { assertCurrentKnotTransitionAction } from "../../autoresearch/capability_preservation_contract.js";
+import {
+  KnotGateDCandidateV1Schema,
+  KnotGateDReceiptV1Schema,
+} from "../../agents/prompts/prompt_release_contract.js";
+import {
+  CapabilityFullBundleV1Schema,
+  PromptTrainingProjectionV2Schema,
+} from "../../autoresearch/capability_preservation_contract.js";
+import { assertCurrentKnotTransitionAction } from "../../autoresearch/knot_gate_d_release_authority.js";
 import {
   BridgePromptExperimentRepository,
   type PromptExperimentAgentExecutor,
@@ -68,6 +76,54 @@ export const PromptCandidateGenerationRequestSchema = z
 export type PromptCandidateGenerationRequest = z.infer<
   typeof PromptCandidateGenerationRequestSchema
 >;
+
+const Sha256Schema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
+const CommitSchema = z.string().regex(/^[0-9a-f]{40}$/);
+
+export const GateDProjectionBuildRequestSchema = z
+  .object({
+    agent_id: z.string().trim().min(1),
+    stage: z.string().trim().min(1),
+    cohort: z.string().trim().min(1),
+    cutoff_at: z.iso.datetime({ offset: true }),
+    excluded_sample_ids: z.array(z.string().trim().min(1)).default([]),
+  })
+  .strict();
+
+export const GateDCandidateBuildRequestSchema = z
+  .object({
+    capability_full_bundle: CapabilityFullBundleV1Schema,
+    experiment_ids_by_stage: z.record(z.string().min(1), z.string().trim().min(1)),
+    training_projection_hashes_by_stage: z.record(z.string().min(1), Sha256Schema),
+    public_private_pin: z
+      .object({
+        public_commit: CommitSchema,
+        public_tree_hash: Sha256Schema,
+        private_commit: CommitSchema,
+        private_tree_hash: Sha256Schema,
+        private_companion_pin_hash: Sha256Schema,
+      })
+      .strict(),
+  })
+  .strict();
+
+const GateDPiReviewSchema = z
+  .object({
+    repository: z.enum(["public", "private"]),
+    reviewed_commit: CommitSchema,
+    review_ref: z.string().trim().min(1),
+    disposition: z.literal("APPROVE"),
+    reviewed_candidate_hash: Sha256Schema,
+  })
+  .strict();
+
+export const GateDReceiptBuildRequestSchema = z
+  .object({
+    candidate: KnotGateDCandidateV1Schema,
+    public_pi_review: GateDPiReviewSchema,
+    private_pi_review: GateDPiReviewSchema,
+  })
+  .strict();
 
 export function buildPrivateCandidateRequest(
   request: PromptCandidateGenerationRequest,
@@ -284,7 +340,10 @@ export function registerAutoresearch(program: Command): void {
         publicationRemote: string;
         mutationAdapter: string;
       }) => {
-        assertCurrentKnotTransitionAction("GENERATE_CANDIDATE");
+        await assertCurrentKnotTransitionAction(
+          "GENERATE_CANDIDATE",
+          process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT?.trim() ?? "",
+        );
         const client = new BridgeClient();
         const temporaryRoot = await mkdtemp(resolve(tmpdir(), "mosaic-prompt-training-"));
         try {
@@ -361,7 +420,10 @@ export function registerAutoresearch(program: Command): void {
     .requiredOption("--executor-adapter <path>", "Local module exporting executor.execute")
     .requiredOption("--evaluator-adapter <path>", "Separate module exporting evaluator.evaluate")
     .action(async (opts: { plan: string; executorAdapter: string; evaluatorAdapter: string }) => {
-      assertCurrentKnotTransitionAction("RUN_EXPERIMENT");
+      await assertCurrentKnotTransitionAction(
+        "RUN_EXPERIMENT",
+        process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT?.trim() ?? "",
+      );
       const client = new BridgeClient();
       try {
         const plan = PromptOptimizerShadowPlanSchema.parse(
@@ -390,6 +452,83 @@ export function registerAutoresearch(program: Command): void {
           `shadow decision=${result.decision.decision} candidate=${result.decision.candidateId} ` +
             `experiment=${result.experiment.experimentId}`,
         );
+      } catch (error) {
+        console.error(`error: ${redactSensitiveText((error as Error).message)}`);
+        process.exitCode = 1;
+      } finally {
+        await client.close();
+      }
+    });
+
+  cmd
+    .command("build-gate-d-projection")
+    .description("Build and persist one current-track KNOT Gate-D training projection v2.")
+    .requiredOption("--request <path>", "Public-safe projection request JSON")
+    .requiredOption("--out <path>", "Output projection JSON")
+    .action(async (opts: { request: string; out: string }) => {
+      const client = new BridgeClient();
+      try {
+        const request = GateDProjectionBuildRequestSchema.parse(
+          JSON.parse(await readFile(resolve(opts.request), "utf8")),
+        );
+        await client.start();
+        const api = new BridgeApi(client);
+        const projection = PromptTrainingProjectionV2Schema.parse(
+          await api.promptOptimizerTrainingProjectionV2(request),
+        );
+        await api.promptOptimizerPutTrainingProjectionV2(projection);
+        await writeFile(resolve(opts.out), `${JSON.stringify(projection, null, 2)}\n`, "utf8");
+        console.log(`projection=${projection.projectionHash}`);
+      } catch (error) {
+        console.error(`error: ${redactSensitiveText((error as Error).message)}`);
+        process.exitCode = 1;
+      } finally {
+        await client.close();
+      }
+    });
+
+  cmd
+    .command("build-gate-d-candidate")
+    .description("Build the exact 29-stage/187-binding public Gate-D candidate.")
+    .requiredOption("--request <path>", "Public-safe Gate-D candidate request JSON")
+    .requiredOption("--out <path>", "Output candidate JSON")
+    .action(async (opts: { request: string; out: string }) => {
+      const client = new BridgeClient();
+      try {
+        const request = GateDCandidateBuildRequestSchema.parse(
+          JSON.parse(await readFile(resolve(opts.request), "utf8")),
+        );
+        await client.start();
+        const candidate = await new BridgeApi(client).promptOptimizerBuildKnotGateDCandidate(
+          request,
+        );
+        await writeFile(resolve(opts.out), `${JSON.stringify(candidate, null, 2)}\n`, "utf8");
+        console.log(`gate_d_candidate=${candidate.candidate_hash}`);
+      } catch (error) {
+        console.error(`error: ${redactSensitiveText((error as Error).message)}`);
+        process.exitCode = 1;
+      } finally {
+        await client.close();
+      }
+    });
+
+  cmd
+    .command("build-gate-d-receipt")
+    .description("Bind approved public/private Pi reviews into a Gate-D receipt.")
+    .requiredOption("--request <path>", "Reviewed Gate-D receipt request JSON")
+    .requiredOption("--out <path>", "Output receipt JSON")
+    .action(async (opts: { request: string; out: string }) => {
+      const client = new BridgeClient();
+      try {
+        const request = GateDReceiptBuildRequestSchema.parse(
+          JSON.parse(await readFile(resolve(opts.request), "utf8")),
+        );
+        await client.start();
+        const receipt = KnotGateDReceiptV1Schema.parse(
+          await new BridgeApi(client).promptOptimizerBuildKnotGateDReceipt(request),
+        );
+        await writeFile(resolve(opts.out), `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+        console.log(`gate_d_receipt=${receipt.receipt_hash}`);
       } catch (error) {
         console.error(`error: ${redactSensitiveText((error as Error).message)}`);
         process.exitCode = 1;

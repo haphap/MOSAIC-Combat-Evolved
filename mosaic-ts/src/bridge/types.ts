@@ -13,12 +13,17 @@
  */
 
 import type {
+  KnotGateDCandidateV1,
+  KnotGateDReceiptV1,
+} from "../agents/prompts/prompt_release_contract.js";
+import type {
   AgentExecutionStageId,
   AgentId,
   AgentSnapshotBundle,
   SignedAgentToolCapability,
 } from "../agents/tool_contract.js";
 import type { LlmCallRecord } from "../agents/types.js";
+import type { PromptTrainingProjectionV2 } from "../autoresearch/capability_preservation_contract.js";
 import type {
   DatasetSplitManifest,
   PromptCandidate,
@@ -102,6 +107,25 @@ export interface PreparedAgentToolCapability {
 
 export interface ToolCallResult {
   text: string;
+  audit?: ToolCallAudit;
+}
+
+export interface ToolCallAudit {
+  schema_version: "tool_call_audit_v1";
+  result_event_id: string;
+  result_event_hash: string;
+  status: "SUCCEEDED";
+  result_authority_type: "SNAPSHOT_BUILD" | "FROZEN_QUERY";
+  result_authority_hash: string;
+  tool_environment_hash: string;
+  execution_behavior_release_hash: string;
+  capability_bundle_hash: string;
+  knot_coverage_manifest_v2_hash: string;
+  knot_audit_capability_track_v2_hash: string;
+  binding_result_refs: Array<{
+    binding_id: string;
+    binding_result_fingerprint: string;
+  }>;
 }
 
 export interface SectorModelUsageReport {
@@ -2605,6 +2629,29 @@ export class BridgeApi {
       .then((result) => result.record);
   }
 
+  promptOptimizerPutTrainingProjectionV2(
+    record: PromptTrainingProjectionV2,
+  ): Promise<PromptTrainingProjectionV2> {
+    return this.client.call<PromptTrainingProjectionV2>(
+      "prompt_optimizer.put_training_projection_v2",
+      { record },
+    );
+  }
+
+  async promptOptimizerGetTrainingProjectionV2(
+    projectionHash: string,
+  ): Promise<PromptTrainingProjectionV2 | null> {
+    const result = await this.client.call<{ record: unknown }>(
+      "prompt_optimizer.get_training_projection_v2",
+      { projection_hash: projectionHash },
+    );
+    if (result.record === null) return null;
+    const { PromptTrainingProjectionV2Schema } = await import(
+      "../autoresearch/capability_preservation_contract.js"
+    );
+    return PromptTrainingProjectionV2Schema.parse(result.record);
+  }
+
   promptOptimizerPutCandidate(record: PromptCandidate): Promise<PromptCandidate> {
     return this.client.call<PromptCandidate>("prompt_optimizer.put_candidate", { record });
   }
@@ -2730,6 +2777,54 @@ export class BridgeApi {
       "../autoresearch/prompt_optimizer_contract.js"
     );
     return PromptTrainingProjectionSchema.parse(result.projection);
+  }
+
+  async promptOptimizerTrainingProjectionV2(params: {
+    agent_id: string;
+    stage: string;
+    cohort: string;
+    cutoff_at: string;
+    excluded_sample_ids?: string[];
+  }): Promise<PromptTrainingProjectionV2> {
+    const result = await this.client.call<{ projection: unknown }>(
+      "prompt_optimizer.training_projection_v2",
+      params,
+    );
+    const { PromptTrainingProjectionV2Schema } = await import(
+      "../autoresearch/capability_preservation_contract.js"
+    );
+    return PromptTrainingProjectionV2Schema.parse(result.projection);
+  }
+
+  async promptOptimizerBuildKnotGateDCandidate(params: {
+    capability_full_bundle: Record<string, unknown>;
+    experiment_ids_by_stage: Record<string, string>;
+    training_projection_hashes_by_stage: Record<string, string>;
+    public_private_pin: Record<string, string>;
+  }): Promise<KnotGateDCandidateV1> {
+    const result = await this.client.call<{ candidate: unknown }>(
+      "prompt_optimizer.build_knot_gate_d_candidate",
+      params,
+    );
+    const { KnotGateDCandidateV1Schema } = await import(
+      "../agents/prompts/prompt_release_contract.js"
+    );
+    return KnotGateDCandidateV1Schema.parse(result.candidate);
+  }
+
+  async promptOptimizerBuildKnotGateDReceipt(params: {
+    candidate: KnotGateDCandidateV1;
+    public_pi_review: Record<string, unknown>;
+    private_pi_review: Record<string, unknown>;
+  }): Promise<KnotGateDReceiptV1> {
+    const result = await this.client.call<{ receipt: unknown }>(
+      "prompt_optimizer.build_knot_gate_d_receipt",
+      params,
+    );
+    const { KnotGateDReceiptV1Schema } = await import(
+      "../agents/prompts/prompt_release_contract.js"
+    );
+    return KnotGateDReceiptV1Schema.parse(result.receipt);
   }
 
   autoresearchGetLog(params?: {

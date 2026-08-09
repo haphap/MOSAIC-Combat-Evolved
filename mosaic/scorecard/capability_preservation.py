@@ -21,8 +21,10 @@ PRESERVATION_SCHEMA_VERSION = "agent_capability_preservation_manifest_v1"
 BINDING_SCHEMA_VERSION = "agent_capability_binding_manifest_v1"
 TOOL_ENVIRONMENT_SCHEMA_VERSION = "tool_environment_manifest_v1"
 KNOT_COVERAGE_SCHEMA_VERSION = "knot_tool_coverage_manifest_v1"
+KNOT_COVERAGE_V2_SCHEMA_VERSION = "knot_tool_coverage_manifest_v2"
 KNOT_AGGREGATE_SCHEMA_VERSION = "knot_capability_use_aggregate_v1"
 ACCEPTED_OUTPUT_TRACK_SCHEMA_VERSION = "accepted_output_capability_track_v1"
+KNOT_AUDIT_TRACK_V2_SCHEMA_VERSION = "knot_audit_capability_track_v2"
 STAGED_TOOL_CONTRACT_SCHEMA_VERSION = "staged_agent_tool_contract_manifest_v2"
 BASELINE_COMMIT = "b9ab1e444f691fb42e2caba81a345898482f22d8"
 STAGED_CODE_COMMIT = "7b1c660b5f007e52d01aee9c1aaafc273a3c3836"
@@ -63,6 +65,40 @@ _PUBLIC_FORBIDDEN_KEYS = {
     "canonical_args",
     "raw_prose",
     "licensed_text",
+}
+
+_TRUSTED_DIRECTION_KEYS = (
+    "direction",
+    "growth_direction",
+    "momentum",
+    "outlook",
+    "signal",
+    "stance",
+    "trend",
+)
+_TRUSTED_NUMERIC_SIGNAL_SUFFIXES = (
+    "_change",
+    "_delta",
+    "_growth",
+    "_momentum",
+    "_return",
+)
+_TRUSTED_DIRECTION_ENUM = {
+    "bearish": "negative",
+    "bullish": "positive",
+    "down": "negative",
+    "downward": "negative",
+    "falling": "negative",
+    "flat": "neutral",
+    "improving": "positive",
+    "negative": "negative",
+    "neutral": "neutral",
+    "positive": "positive",
+    "rising": "positive",
+    "stable": "neutral",
+    "up": "positive",
+    "upward": "positive",
+    "weakening": "negative",
 }
 
 _BASELINE_CAPABILITIES: tuple[dict[str, Any], ...] = (
@@ -1032,6 +1068,151 @@ def build_knot_coverage_manifest(
     return {**body, "manifest_hash": canonical_hash(body)}
 
 
+def _signal_selector_contract(binding: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "selector_version": "trusted_structured_signal_selector_v1",
+        "dimension_namespace": binding["semantic_capability_id"],
+        "direction_keys": list(_TRUSTED_DIRECTION_KEYS),
+        "direction_enum_version": "trusted_direction_enum_v1",
+        "numeric_signal_suffixes": list(_TRUSTED_NUMERIC_SIGNAL_SUFFIXES),
+        "numeric_normalization": "bounded_abs_v1",
+        "unknown_policy": "explicit_unknown",
+    }
+
+
+def _claim_comparison_spec_contract(binding: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "spec_version": "structured_conclusion_claim_spec_v1",
+        "dimension_namespace": binding["semantic_capability_id"],
+        "direction_keys": list(_TRUSTED_DIRECTION_KEYS),
+        "direction_enum_version": "trusted_direction_enum_v1",
+        "free_text_authority": False,
+        "unknown_policy": "explicit_unknown",
+    }
+
+
+def _trusted_comparator_contract() -> dict[str, Any]:
+    return {
+        "comparator_version": "same_dimension_polarity_v1",
+        "dimension_match": "exact",
+        "aggregation": "max_strength_v1",
+        "comparison": "support_minus_contradiction",
+        "materiality_threshold": 0.25,
+        "unknown_policy": "abstain",
+    }
+
+
+def build_knot_coverage_manifest_v2(
+    binding_manifest: Mapping[str, Any],
+    tool_environment_manifest: Mapping[str, Any],
+) -> dict[str, Any]:
+    environment_hash = canonical_tool_environment_hash(tool_environment_manifest)
+    coverage: list[dict[str, Any]] = []
+    for binding in binding_manifest["bindings"]:
+        selector = _signal_selector_contract(binding)
+        claim_spec = _claim_comparison_spec_contract(binding)
+        comparator = _trusted_comparator_contract()
+        row = {
+            key: binding[key]
+            for key in (
+                "binding_id",
+                "agent_id",
+                "stage",
+                "phase",
+                "semantic_capability_id",
+                "tool_id",
+                "argument_schema_hash",
+                "argument_domain_selector_hash",
+                "materializer_contract_hash",
+                "privacy_contract_hash",
+                "route_contract_hash",
+            )
+        }
+        row.update(
+            {
+                "tool_environment_hash": environment_hash,
+                "snapshot_audit_context_version": "snapshot_bundle_audit_context_v1",
+                "capability_audit_context_version": "capability_audit_context_v1",
+                "result_event_evaluator_version": "server_tool_result_event_v1",
+                "binding_signal_projection_version": "binding_signal_projection_v1",
+                "accepted_lineage_evaluator_version": "accepted_claim_lineage_v3",
+                "runtime_blocker_policy_version": "runtime_blocker_exclusion_v1",
+                "signal_selector_contract": selector,
+                "signal_selector_contract_hash": canonical_hash(selector),
+                "claim_comparison_spec_contract": claim_spec,
+                "claim_comparison_spec_contract_hash": canonical_hash(claim_spec),
+                "trusted_comparator_contract": comparator,
+                "trusted_comparator_contract_hash": canonical_hash(comparator),
+            }
+        )
+        row["coverage_row_hash"] = canonical_hash(row)
+        coverage.append(row)
+    coverage.sort(key=lambda row: row["binding_id"])
+    body = {
+        "schema_version": KNOT_COVERAGE_V2_SCHEMA_VERSION,
+        "capability_binding_manifest_hash": binding_manifest["manifest_hash"],
+        "tool_environment_hash": environment_hash,
+        "coverage": coverage,
+    }
+    return {**body, "manifest_hash": canonical_hash(body)}
+
+
+def validate_knot_coverage_manifest_v2(
+    manifest: Mapping[str, Any],
+    *,
+    binding_manifest: Mapping[str, Any],
+    tool_environment_manifest: Mapping[str, Any],
+) -> None:
+    expected = build_knot_coverage_manifest_v2(
+        binding_manifest, tool_environment_manifest
+    )
+    if canonical_json(manifest) != canonical_json(expected):
+        raise ValueError("KNOT coverage v2 fixed-point mismatch")
+
+
+def build_knot_audit_capability_track_v2(
+    binding_manifest: Mapping[str, Any],
+    tool_environment_manifest: Mapping[str, Any],
+    knot_coverage_manifest_v2: Mapping[str, Any],
+) -> dict[str, Any]:
+    execution_release_hashes = {
+        row["execution_behavior_release_hash"]
+        for row in tool_environment_manifest["environments"]
+    }
+    if len(execution_release_hashes) != 1:
+        raise ValueError("tool environment must bind exactly one execution release hash")
+    body = {
+        "schema_version": KNOT_AUDIT_TRACK_V2_SCHEMA_VERSION,
+        "tool_environment_hash": canonical_tool_environment_hash(
+            tool_environment_manifest
+        ),
+        "execution_behavior_release_hash": next(iter(execution_release_hashes)),
+        "capability_binding_manifest_hash": binding_manifest["manifest_hash"],
+        "knot_coverage_manifest_v2_hash": knot_coverage_manifest_v2["manifest_hash"],
+        "snapshot_audit_context_version": "snapshot_bundle_audit_context_v1",
+        "capability_audit_context_version": "capability_audit_context_v1",
+        "result_event_schema_version": "server_tool_result_event_v1",
+        "binding_signal_projection_version": "binding_signal_projection_v1",
+        "claim_comparison_spec_version": "claim_comparison_spec_v1",
+        "trusted_comparator_version": "same_dimension_polarity_v1",
+    }
+    return {**body, "track_hash": canonical_hash(body)}
+
+
+def validate_knot_audit_capability_track_v2(
+    track: Mapping[str, Any],
+    *,
+    binding_manifest: Mapping[str, Any],
+    tool_environment_manifest: Mapping[str, Any],
+    knot_coverage_manifest_v2: Mapping[str, Any],
+) -> None:
+    expected = build_knot_audit_capability_track_v2(
+        binding_manifest, tool_environment_manifest, knot_coverage_manifest_v2
+    )
+    if canonical_json(track) != canonical_json(expected):
+        raise ValueError("KNOT audit capability track v2 fixed-point mismatch")
+
+
 def build_accepted_output_capability_track(
     binding_manifest: Mapping[str, Any],
     tool_environment_manifest: Mapping[str, Any],
@@ -1112,6 +1293,10 @@ def build_default_contract_artifacts(root: Path) -> dict[str, dict[str, Any]]:
     environment = build_tool_environment_manifest(root, current, binding, staged)
     coverage = build_knot_coverage_manifest(binding, environment)
     track = build_accepted_output_capability_track(binding, environment, coverage)
+    coverage_v2 = build_knot_coverage_manifest_v2(binding, environment)
+    audit_track_v2 = build_knot_audit_capability_track_v2(
+        binding, environment, coverage_v2
+    )
     return {
         "current_runtime_agent_manifest_snapshot_v5.json": current_runtime,
         "agent_capability_preservation_manifest_v1.json": preservation,
@@ -1120,6 +1305,8 @@ def build_default_contract_artifacts(root: Path) -> dict[str, dict[str, Any]]:
         "tool_environment_manifest_v1.json": environment,
         "knot_tool_coverage_manifest_v1.json": coverage,
         "accepted_output_capability_track_v1.json": track,
+        "knot_tool_coverage_manifest_v2.json": coverage_v2,
+        "knot_audit_capability_track_v2.json": audit_track_v2,
     }
 
 
@@ -1156,6 +1343,12 @@ def load_capability_contract_bundle(root: Path) -> dict[str, Any]:
         ),
         "accepted_output_capability_track": _read_json(
             directory / "accepted_output_capability_track_v1.json"
+        ),
+        "knot_coverage_manifest_v2": _read_json(
+            directory / "knot_tool_coverage_manifest_v2.json"
+        ),
+        "knot_audit_capability_track_v2": _read_json(
+            directory / "knot_audit_capability_track_v2.json"
         ),
     }
 
@@ -1355,6 +1548,22 @@ def validate_capability_contract_bundle(
     ):
         raise ValueError("KNOT coverage tool environment mismatch")
     validate_accepted_output_track_binding(track, bundle=bundle)
+    coverage_v2 = bundle.get("knot_coverage_manifest_v2")
+    audit_track_v2 = bundle.get("knot_audit_capability_track_v2")
+    if (coverage_v2 is None) != (audit_track_v2 is None):
+        raise ValueError("KNOT v2 coverage/track must be present together")
+    if coverage_v2 is not None and audit_track_v2 is not None:
+        validate_knot_coverage_manifest_v2(
+            coverage_v2,
+            binding_manifest=binding,
+            tool_environment_manifest=environment,
+        )
+        validate_knot_audit_capability_track_v2(
+            audit_track_v2,
+            binding_manifest=binding,
+            tool_environment_manifest=environment,
+            knot_coverage_manifest_v2=coverage_v2,
+        )
 
 
 def validate_tool_config_hash(
@@ -1407,11 +1616,9 @@ def validate_accepted_output_track_binding(
             raise ValueError("accepted output execution release is outside capability track")
 
 
-def validate_full_bundle_release(release: Mapping[str, Any]) -> None:
+def validate_capability_full_bundle(release: Mapping[str, Any]) -> None:
     required = {
         "schema_version",
-        "release_id",
-        "lifecycle_state",
         "prompt_hash",
         "execution_behavior_release_hash",
         "production_variant_roster_hash",
@@ -1420,18 +1627,19 @@ def validate_full_bundle_release(release: Mapping[str, Any]) -> None:
         "tool_environment_hash",
         "capability_binding_manifest_hash",
         "knot_coverage_manifest_hash",
+        "knot_audit_capability_track_hash",
         "private_companion_pin_hash",
         "full_bundle_hash",
     }
     if set(release) != required:
-        raise ValueError("active release full-bundle fields are incomplete")
-    if release["schema_version"] != "active_prompt_release_manifest_v4":
-        raise ValueError("active release full-bundle version mismatch")
-    for field in required - {"schema_version", "release_id", "lifecycle_state"}:
+        raise ValueError("capability full-bundle fields are incomplete")
+    if release["schema_version"] != "capability_full_bundle_v1":
+        raise ValueError("capability full-bundle version mismatch")
+    for field in required - {"schema_version"}:
         _require_sha256(release[field], field)
     body = {key: value for key, value in release.items() if key != "full_bundle_hash"}
     if release["full_bundle_hash"] != canonical_hash(body):
-        raise ValueError("active release full-bundle hash mismatch")
+        raise ValueError("capability full-bundle hash mismatch")
 
 
 def tool_result_fingerprint(
@@ -1687,6 +1895,350 @@ def evaluate_counterevidence(
     return "qualified"
 
 
+def _direction_polarity(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    return _TRUSTED_DIRECTION_ENUM.get(value.strip().casefold())
+
+
+def _trusted_signal_rows(
+    value: Any,
+    *,
+    dimension_namespace: str,
+    path: tuple[str, ...] = (),
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if isinstance(value, Mapping):
+        for key in sorted(value):
+            if not isinstance(key, str):
+                continue
+            item = value[key]
+            item_path = (*path, key)
+            normalized_key = key.casefold()
+            polarity = (
+                _direction_polarity(item)
+                if normalized_key in _TRUSTED_DIRECTION_KEYS
+                else None
+            )
+            strength: float | None = 1.0 if polarity is not None else None
+            numeric_signal = normalized_key in _TRUSTED_DIRECTION_KEYS or any(
+                normalized_key.endswith(suffix)
+                for suffix in _TRUSTED_NUMERIC_SIGNAL_SUFFIXES
+            )
+            if (
+                polarity is None
+                and numeric_signal
+                and not isinstance(item, bool)
+                and isinstance(item, (int, float))
+                and math.isfinite(float(item))
+            ):
+                numeric = float(item)
+                polarity = (
+                    "positive" if numeric > 0 else "negative" if numeric < 0 else "neutral"
+                )
+                strength = abs(numeric) / (1.0 + abs(numeric))
+            if polarity is not None and strength is not None:
+                signal = {
+                    "dimension": f"{dimension_namespace}:{normalized_key}",
+                    "polarity": polarity,
+                    "strength": strength,
+                    "source_path_hash": canonical_hash(list(item_path)),
+                }
+                signal["signal_id"] = canonical_hash(
+                    {"schema_version": "trusted_signal_v1", **signal}
+                )
+                rows.append(signal)
+            rows.extend(
+                _trusted_signal_rows(
+                    item,
+                    dimension_namespace=dimension_namespace,
+                    path=item_path,
+                )
+            )
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            rows.extend(
+                _trusted_signal_rows(
+                    item,
+                    dimension_namespace=dimension_namespace,
+                    path=(*path, str(index)),
+                )
+            )
+    unique = {row["signal_id"]: row for row in rows}
+    return sorted(unique.values(), key=lambda row: row["signal_id"])
+
+
+def build_binding_signal_projection_v1(
+    *,
+    event: Mapping[str, Any],
+    result_event_hash: str,
+    binding_ref: Mapping[str, Any],
+    payload_text: str,
+    coverage_row: Mapping[str, Any],
+) -> dict[str, Any]:
+    if canonical_hash(event) != result_event_hash:
+        raise ValueError("server result event hash mismatch")
+    if (
+        event.get("schema_version") != "server_tool_result_event_v1"
+        or event.get("status") != "SUCCEEDED"
+        or event.get("payload_hash") != canonical_hash({"text": payload_text})
+    ):
+        raise ValueError("server result event is not projection eligible")
+    if not isinstance(event.get("binding_refs"), list) or not any(
+        canonical_json(ref) == canonical_json(binding_ref)
+        for ref in event["binding_refs"]
+    ):
+        raise ValueError("binding ref is outside the server result event")
+    coverage_body = {
+        key: value for key, value in coverage_row.items() if key != "coverage_row_hash"
+    }
+    selector = coverage_row.get("signal_selector_contract")
+    if (
+        coverage_row.get("coverage_row_hash") != canonical_hash(coverage_body)
+        or not isinstance(selector, Mapping)
+        or coverage_row.get("signal_selector_contract_hash")
+        != canonical_hash(selector)
+        or binding_ref.get("binding_id") != coverage_row.get("binding_id")
+        or binding_ref.get("semantic_capability_id")
+        != coverage_row.get("semantic_capability_id")
+        or binding_ref.get("coverage_row_hash")
+        != coverage_row.get("coverage_row_hash")
+    ):
+        raise ValueError("binding projection coverage authority mismatch")
+    try:
+        payload = json.loads(payload_text)
+    except (TypeError, json.JSONDecodeError):
+        payload = None
+    signals = _trusted_signal_rows(
+        payload,
+        dimension_namespace=str(selector["dimension_namespace"]),
+    )
+    body = {
+        "schema_version": "binding_signal_projection_v1",
+        "result_event_id": event["result_event_id"],
+        "result_event_hash": result_event_hash,
+        "binding_id": binding_ref["binding_id"],
+        "binding_result_fingerprint": binding_ref["binding_result_fingerprint"],
+        "coverage_row_hash": coverage_row["coverage_row_hash"],
+        "signal_selector_contract_hash": coverage_row[
+            "signal_selector_contract_hash"
+        ],
+        "projection_status": "PROJECTED" if signals else "UNKNOWN",
+        "unknown_reason": None if signals else "NO_TRUSTED_SIGNAL",
+        "signals": signals,
+    }
+    return {**body, "projection_hash": canonical_hash(body)}
+
+
+def _claims_from_accepted_output(value: Any) -> list[Mapping[str, Any]]:
+    claims: list[Mapping[str, Any]] = []
+    if isinstance(value, Mapping):
+        candidate = value.get("claims")
+        if isinstance(candidate, list):
+            claims.extend(row for row in candidate if isinstance(row, Mapping))
+        for key, item in value.items():
+            if key != "claims":
+                claims.extend(_claims_from_accepted_output(item))
+    elif isinstance(value, list):
+        for item in value:
+            claims.extend(_claims_from_accepted_output(item))
+    by_id: dict[str, Mapping[str, Any]] = {}
+    for claim in claims:
+        claim_id = claim.get("claim_id")
+        if not isinstance(claim_id, str) or not claim_id:
+            raise ValueError("accepted claim id is missing")
+        if claim_id in by_id and canonical_json(by_id[claim_id]) != canonical_json(claim):
+            raise ValueError("accepted claim id is ambiguous")
+        by_id[claim_id] = claim
+    return [by_id[claim_id] for claim_id in sorted(by_id)]
+
+
+def build_claim_comparison_specs_v1(
+    *,
+    accepted_output: Mapping[str, Any],
+    accepted_output_hash: str,
+    coverage_row: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    if accepted_output_hash != canonical_hash(accepted_output):
+        raise ValueError("accepted output hash mismatch")
+    contract = coverage_row.get("claim_comparison_spec_contract")
+    comparator = coverage_row.get("trusted_comparator_contract")
+    if (
+        not isinstance(contract, Mapping)
+        or not isinstance(comparator, Mapping)
+        or coverage_row.get("claim_comparison_spec_contract_hash")
+        != canonical_hash(contract)
+        or coverage_row.get("trusted_comparator_contract_hash")
+        != canonical_hash(comparator)
+    ):
+        raise ValueError("claim comparison contract authority mismatch")
+    specs: list[dict[str, Any]] = []
+    allowed_keys = set(contract["direction_keys"])
+    for claim in _claims_from_accepted_output(accepted_output):
+        conclusion = claim.get("structured_conclusion")
+        candidates: list[tuple[str, str]] = []
+        if isinstance(conclusion, Mapping):
+            for key in sorted(conclusion):
+                polarity = (
+                    _direction_polarity(conclusion[key])
+                    if isinstance(key, str) and key.casefold() in allowed_keys
+                    else None
+                )
+                if polarity is not None:
+                    candidates.append((key.casefold(), polarity))
+        ready = len(candidates) == 1
+        body = {
+            "schema_version": "claim_comparison_spec_v1",
+            "accepted_output_hash": accepted_output_hash,
+            "claim_id": claim["claim_id"],
+            "binding_id": coverage_row["binding_id"],
+            "semantic_capability_id": coverage_row["semantic_capability_id"],
+            "claim_comparison_spec_contract_hash": coverage_row[
+                "claim_comparison_spec_contract_hash"
+            ],
+            "trusted_comparator_contract": dict(comparator),
+            "trusted_comparator_contract_hash": coverage_row[
+                "trusted_comparator_contract_hash"
+            ],
+            "spec_status": "READY" if ready else "UNKNOWN",
+            "dimension": (
+                f"{contract['dimension_namespace']}:{candidates[0][0]}"
+                if ready
+                else None
+            ),
+            "target_polarity": candidates[0][1] if ready else "unknown",
+            "unknown_reason": (
+                None
+                if ready
+                else "NO_TRUSTED_TARGET"
+                if not candidates
+                else "AMBIGUOUS_TRUSTED_TARGET"
+            ),
+        }
+        specs.append({**body, "spec_hash": canonical_hash(body)})
+    return specs
+
+
+def _validated_hashed_body(value: Mapping[str, Any], hash_field: str) -> None:
+    if hash_field not in value:
+        raise ValueError(f"{hash_field} is missing")
+    body = {key: item for key, item in value.items() if key != hash_field}
+    if value[hash_field] != canonical_hash(body):
+        raise ValueError(f"{hash_field} mismatch")
+
+
+def compare_binding_projection_v1(
+    *,
+    projection: Mapping[str, Any],
+    claim_spec: Mapping[str, Any],
+) -> dict[str, Any]:
+    _validated_hashed_body(projection, "projection_hash")
+    _validated_hashed_body(claim_spec, "spec_hash")
+    comparator = claim_spec.get("trusted_comparator_contract")
+    if (
+        projection.get("binding_id") != claim_spec.get("binding_id")
+        or not isinstance(comparator, Mapping)
+        or claim_spec.get("trusted_comparator_contract_hash")
+        != canonical_hash(comparator)
+        or comparator.get("comparator_version") != "same_dimension_polarity_v1"
+    ):
+        raise ValueError("trusted comparator authority mismatch")
+    dimension = claim_spec.get("dimension")
+    signals = (
+        [
+            signal
+            for signal in projection.get("signals", [])
+            if isinstance(signal, Mapping) and signal.get("dimension") == dimension
+        ]
+        if projection.get("projection_status") == "PROJECTED"
+        and claim_spec.get("spec_status") == "READY"
+        else []
+    )
+    target = claim_spec.get("target_polarity")
+    matched: list[dict[str, Any]] = []
+    for signal in signals:
+        polarity = signal.get("polarity")
+        relation = (
+            "supporting"
+            if polarity == target
+            else "contradicting"
+            if polarity in {"positive", "negative", "neutral"}
+            else None
+        )
+        if relation is not None:
+            matched.append(
+                {
+                    "signal_id": signal["signal_id"],
+                    "relation": relation,
+                    "strength": signal["strength"],
+                }
+            )
+    matched.sort(key=lambda row: row["signal_id"])
+    evaluated = bool(matched)
+    supporting = max(
+        (float(row["strength"]) for row in matched if row["relation"] == "supporting"),
+        default=0.0,
+    )
+    contradicting = max(
+        (
+            float(row["strength"])
+            for row in matched
+            if row["relation"] == "contradicting"
+        ),
+        default=0.0,
+    )
+    threshold = float(comparator["materiality_threshold"])
+    delta = supporting - contradicting
+    resolution = (
+        "abstained"
+        if not evaluated
+        else "rebutted_with_evidence"
+        if delta > threshold
+        else "reversed"
+        if delta < -threshold
+        else "qualified"
+    )
+    counterevidence_available = evaluated and contradicting > 0
+    body = {
+        "schema_version": "trusted_counterevidence_evaluation_v2",
+        "binding_id": projection["binding_id"],
+        "binding_result_fingerprint": projection["binding_result_fingerprint"],
+        "projection_hash": projection["projection_hash"],
+        "spec_hash": claim_spec["spec_hash"],
+        "claim_id": claim_spec["claim_id"],
+        "dimension": dimension if evaluated else None,
+        "target_polarity": target if evaluated else "unknown",
+        "evaluation_status": "EVALUATED" if evaluated else "UNKNOWN",
+        "unknown_reason": None if evaluated else "NO_SAME_DIMENSION_SIGNAL",
+        "matched_signal_refs": matched,
+        "supporting_strength": supporting if evaluated else None,
+        "contradicting_strength": contradicting if evaluated else None,
+        "resolution_code": resolution,
+        "counterevidence_available": counterevidence_available,
+        "counterevidence_handled": counterevidence_available and evaluated,
+        "trusted_comparator_contract_hash": claim_spec[
+            "trusted_comparator_contract_hash"
+        ],
+    }
+    return {**body, "evaluation_hash": canonical_hash(body)}
+
+
+def validate_trusted_counterevidence_evaluation_v2(
+    evaluation: Mapping[str, Any],
+    *,
+    projection: Mapping[str, Any],
+    claim_spec: Mapping[str, Any],
+) -> None:
+    expected = compare_binding_projection_v1(
+        projection=projection,
+        claim_spec=claim_spec,
+    )
+    if set(evaluation) != set(expected):
+        raise ValueError("trusted counterevidence evaluation shape mismatch")
+    if canonical_json(evaluation) != canonical_json(expected):
+        raise ValueError("trusted counterevidence evaluation derivation mismatch")
+
+
 def build_knot_capability_use_aggregate(
     *, binding_id: str, observations: Sequence[Mapping[str, Any]]
 ) -> dict[str, Any]:
@@ -1871,10 +2423,15 @@ __all__ = [
     "ACTIVE_TRACK_TAG_FIELDS",
     "assert_knot_action",
     "build_accepted_output_capability_track",
+    "build_binding_signal_projection_v1",
+    "build_claim_comparison_specs_v1",
     "build_default_contract_artifacts",
+    "build_knot_audit_capability_track_v2",
     "build_knot_capability_use_aggregate",
+    "build_knot_coverage_manifest_v2",
     "canonical_binding_id",
     "canonical_tool_environment_hash",
+    "compare_binding_projection_v1",
     "evaluate_counterevidence",
     "is_mature_sample_eligible",
     "load_capability_contract_bundle",
@@ -1884,10 +2441,13 @@ __all__ = [
     "validate_accepted_output_track_binding",
     "validate_capability_contract_bundle",
     "validate_evidence_claim_graph_v2",
-    "validate_full_bundle_release",
+    "validate_capability_full_bundle",
+    "validate_knot_audit_capability_track_v2",
     "validate_knot_capability_use_aggregate",
+    "validate_knot_coverage_manifest_v2",
     "validate_preservation_manifest",
     "validate_public_safe_projection",
     "validate_tool_config_hash",
+    "validate_trusted_counterevidence_evaluation_v2",
     "write_default_contract_artifacts",
 ]

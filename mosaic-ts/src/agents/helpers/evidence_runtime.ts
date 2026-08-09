@@ -383,6 +383,7 @@ function toolEvidenceEntry(input: {
   snapshotHash: string;
   asOf: string;
 }): EvidenceLedgerEntry {
+  const serverToolResult = serverToolResultAudit(input.status);
   const sourceFingerprint = validSha256(input.status.source_fingerprint)
     ? input.status.source_fingerprint
     : canonicalHash({
@@ -413,6 +414,7 @@ function toolEvidenceEntry(input: {
       evidence_key: input.evidenceKey,
       result_fingerprint: input.status.result_fingerprint ?? null,
       args_fingerprint: input.status.args_fingerprint ?? null,
+      ...(serverToolResult === null ? {} : { server_tool_result: serverToolResult }),
     },
     unit: "result_snapshot",
     as_of: input.status.as_of ?? input.asOf,
@@ -422,6 +424,85 @@ function toolEvidenceEntry(input: {
     source_fingerprint: sourceFingerprint,
     direction: "ambiguous",
     privacy_class: "private_runtime",
+  };
+}
+
+function serverToolResultAudit(status: ToolStatus): {
+  result_event_id: string;
+  result_event_hash: string;
+  result_authority_type: "SNAPSHOT_BUILD" | "FROZEN_QUERY";
+  result_authority_hash: string;
+  tool_environment_hash: string;
+  execution_behavior_release_hash: string;
+  capability_bundle_hash: string;
+  knot_coverage_manifest_v2_hash: string;
+  knot_audit_capability_track_v2_hash: string;
+  binding_result_refs: Array<{
+    binding_id: string;
+    binding_result_fingerprint: string;
+  }>;
+} | null {
+  const fields = [
+    status.server_result_event_id,
+    status.server_result_event_hash,
+    status.server_result_authority_type,
+    status.server_result_authority_hash,
+    status.server_tool_environment_hash,
+    status.server_execution_behavior_release_hash,
+    status.server_capability_bundle_hash,
+    status.server_knot_coverage_manifest_v2_hash,
+    status.server_knot_audit_capability_track_v2_hash,
+    status.server_binding_result_refs,
+  ];
+  if (fields.every((field) => field === undefined)) return null;
+  if (fields.some((field) => field === undefined)) {
+    throw new Error("runtime_tool_server_audit_invalid:incomplete");
+  }
+  if (
+    typeof status.server_result_event_id !== "string" ||
+    status.server_result_event_id.length === 0 ||
+    !validSha256(status.server_result_event_hash) ||
+    (status.server_result_authority_type !== "SNAPSHOT_BUILD" &&
+      status.server_result_authority_type !== "FROZEN_QUERY") ||
+    !validSha256(status.server_result_authority_hash) ||
+    !validSha256(status.server_tool_environment_hash) ||
+    !validSha256(status.server_execution_behavior_release_hash) ||
+    !validSha256(status.server_capability_bundle_hash) ||
+    !validSha256(status.server_knot_coverage_manifest_v2_hash) ||
+    !validSha256(status.server_knot_audit_capability_track_v2_hash) ||
+    !Array.isArray(status.server_binding_result_refs) ||
+    status.server_binding_result_refs.length === 0
+  ) {
+    throw new Error("runtime_tool_server_audit_invalid:malformed");
+  }
+  const bindingResultRefs = status.server_binding_result_refs
+    .map((ref) => {
+      if (
+        !/^binding:[0-9a-f]{64}$/.test(ref.binding_id) ||
+        !validSha256(ref.binding_result_fingerprint)
+      ) {
+        throw new Error("runtime_tool_server_audit_invalid:malformed_binding_ref");
+      }
+      return {
+        binding_id: ref.binding_id,
+        binding_result_fingerprint: ref.binding_result_fingerprint,
+      };
+    })
+    .sort((left, right) => left.binding_id.localeCompare(right.binding_id));
+  if (new Set(bindingResultRefs.map((ref) => ref.binding_id)).size !== bindingResultRefs.length) {
+    throw new Error("runtime_tool_server_audit_invalid:duplicate_binding_ref");
+  }
+  return {
+    result_event_id: status.server_result_event_id,
+    result_event_hash: status.server_result_event_hash,
+    result_authority_type: status.server_result_authority_type,
+    result_authority_hash: status.server_result_authority_hash,
+    tool_environment_hash: status.server_tool_environment_hash,
+    execution_behavior_release_hash: status.server_execution_behavior_release_hash,
+    capability_bundle_hash: status.server_capability_bundle_hash,
+    knot_coverage_manifest_v2_hash: status.server_knot_coverage_manifest_v2_hash,
+    knot_audit_capability_track_v2_hash: status.server_knot_audit_capability_track_v2_hash,
+    binding_result_refs: bindingResultRefs,
   };
 }
 

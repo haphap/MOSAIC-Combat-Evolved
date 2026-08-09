@@ -26,7 +26,13 @@ import {
   ToolMessage,
 } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
-import { BRIDGE_INITIAL_TOOL_INVOKE, type BridgeStructuredTool } from "../../bridge/tools.js";
+import {
+  BRIDGE_AUDITED_TOOL_INVOKE,
+  BRIDGE_INITIAL_AUDITED_TOOL_INVOKE,
+  BRIDGE_INITIAL_TOOL_INVOKE,
+  type BridgeStructuredTool,
+} from "../../bridge/tools.js";
+import type { ToolCallAudit } from "../../bridge/types.js";
 import { canonicalJsonHash } from "./canonical_json.js";
 import { extractTextContent } from "./content.js";
 import { isProcessOnlyReportText, stripProcessOnlyReportPrefix } from "./process_narration.js";
@@ -264,6 +270,7 @@ interface CachedToolResult {
   argsFingerprint: string;
   resultFingerprint: string;
   sourceFingerprint: string;
+  audit?: ToolCallAudit;
 }
 
 function buildToolStatus(input: {
@@ -291,6 +298,22 @@ function buildToolStatus(input: {
     result_fingerprint: input.cached.resultFingerprint,
     source_fingerprint: input.cached.sourceFingerprint,
     ...(input.cached.asOf ? { as_of: input.cached.asOf } : {}),
+    ...(input.cached.audit
+      ? {
+          server_result_event_id: input.cached.audit.result_event_id,
+          server_result_event_hash: input.cached.audit.result_event_hash,
+          server_result_authority_type: input.cached.audit.result_authority_type,
+          server_result_authority_hash: input.cached.audit.result_authority_hash,
+          server_tool_environment_hash: input.cached.audit.tool_environment_hash,
+          server_execution_behavior_release_hash:
+            input.cached.audit.execution_behavior_release_hash,
+          server_capability_bundle_hash: input.cached.audit.capability_bundle_hash,
+          server_knot_coverage_manifest_v2_hash: input.cached.audit.knot_coverage_manifest_v2_hash,
+          server_knot_audit_capability_track_v2_hash:
+            input.cached.audit.knot_audit_capability_track_v2_hash,
+          server_binding_result_refs: input.cached.audit.binding_result_refs,
+        }
+      : {}),
   };
 }
 
@@ -301,6 +324,7 @@ function cachedToolResult(input: {
   failed: boolean;
   fallback?: boolean;
   asOf?: string;
+  audit?: ToolCallAudit;
 }): CachedToolResult {
   const argsFingerprint = toolArgsFingerprint(input.args);
   const resultFingerprint = toolResultFingerprint(input.output);
@@ -310,6 +334,7 @@ function cachedToolResult(input: {
     failed: input.failed,
     fallback: input.fallback ?? false,
     ...(input.asOf ? { asOf: input.asOf } : {}),
+    ...(input.audit ? { audit: input.audit } : {}),
     argsFingerprint,
     resultFingerprint,
     sourceFingerprint: toolSourceFingerprint({
@@ -582,10 +607,20 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       toolExecutions++;
       let output: string;
       try {
-        const initialInvoke = (tool as Partial<BridgeStructuredTool>)[BRIDGE_INITIAL_TOOL_INVOKE];
-        const raw = initialInvoke
-          ? await initialInvoke()
-          : await tool.invoke(call.args, opts.signal ? { signal: opts.signal } : undefined);
+        const bridgeTool = tool as Partial<BridgeStructuredTool>;
+        const initialAuditedInvoke = bridgeTool[BRIDGE_INITIAL_AUDITED_TOOL_INVOKE];
+        const initialInvoke = bridgeTool[BRIDGE_INITIAL_TOOL_INVOKE];
+        let raw: unknown;
+        let audit: ToolCallAudit | undefined;
+        if (initialAuditedInvoke) {
+          const result = await initialAuditedInvoke();
+          raw = result.text;
+          audit = result.audit;
+        } else {
+          raw = initialInvoke
+            ? await initialInvoke()
+            : await tool.invoke(call.args, opts.signal ? { signal: opts.signal } : undefined);
+        }
         output = typeof raw === "string" ? raw : String(raw);
         const metadata = toolOutputStatusMetadata(output);
         const cached = cachedToolResult({
@@ -595,6 +630,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
           failed: false,
           fallback: metadata.fallback,
           ...(metadata.as_of ? { asOf: metadata.as_of } : {}),
+          ...(audit ? { audit } : {}),
         });
         toolOutputCache.set(fingerprint, cached);
         toolStatuses.push(
@@ -733,10 +769,19 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       } else {
         toolExecutions++;
         try {
-          const raw = await tool.invoke(
-            call.args ?? {},
-            opts.signal ? { signal: opts.signal } : undefined,
-          );
+          const auditedInvoke = (tool as Partial<BridgeStructuredTool>)[BRIDGE_AUDITED_TOOL_INVOKE];
+          let raw: unknown;
+          let audit: ToolCallAudit | undefined;
+          if (auditedInvoke) {
+            const result = await auditedInvoke(call.args ?? {});
+            raw = result.text;
+            audit = result.audit;
+          } else {
+            raw = await tool.invoke(
+              call.args ?? {},
+              opts.signal ? { signal: opts.signal } : undefined,
+            );
+          }
           output = typeof raw === "string" ? raw : String(raw);
           const metadata = toolOutputStatusMetadata(output);
           const cached = cachedToolResult({
@@ -746,6 +791,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
             failed: false,
             fallback: metadata.fallback,
             ...(metadata.as_of ? { asOf: metadata.as_of } : {}),
+            ...(audit ? { audit } : {}),
           });
           toolOutputCache.set(fingerprint, cached);
           toolStatuses.push(

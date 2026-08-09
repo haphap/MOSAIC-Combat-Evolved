@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { canonicalJsonHash } from "../agents/helpers/canonical_json.js";
+import { buildRuntimeAgentManifestArtifact } from "../agents/prompts/runtime_agent_spec.js";
 
 const Id = z.string().min(1);
 const Sha256 = z.string().regex(/^sha256:[0-9a-f]{64}$/);
@@ -245,6 +246,143 @@ export function validateKnotExactClosure(input: {
   }
 }
 
+const TrustedSignalSelectorV1Schema = z
+  .object({
+    selector_version: z.literal("trusted_structured_signal_selector_v1"),
+    dimension_namespace: Id,
+    direction_keys: z.array(Id),
+    direction_enum_version: z.literal("trusted_direction_enum_v1"),
+    numeric_signal_suffixes: z.array(Id),
+    numeric_normalization: z.literal("bounded_abs_v1"),
+    unknown_policy: z.literal("explicit_unknown"),
+  })
+  .strict();
+
+const StructuredConclusionClaimSpecV1Schema = z
+  .object({
+    spec_version: z.literal("structured_conclusion_claim_spec_v1"),
+    dimension_namespace: Id,
+    direction_keys: z.array(Id),
+    direction_enum_version: z.literal("trusted_direction_enum_v1"),
+    free_text_authority: z.literal(false),
+    unknown_policy: z.literal("explicit_unknown"),
+  })
+  .strict();
+
+const TrustedComparatorV1Schema = z
+  .object({
+    comparator_version: z.literal("same_dimension_polarity_v1"),
+    dimension_match: z.literal("exact"),
+    aggregation: z.literal("max_strength_v1"),
+    comparison: z.literal("support_minus_contradiction"),
+    materiality_threshold: z.number().nonnegative(),
+    unknown_policy: z.literal("abstain"),
+  })
+  .strict();
+
+export const KnotCoverageRowV2Schema = z
+  .object({
+    binding_id: BindingId,
+    agent_id: Id,
+    stage: Id,
+    phase: Id,
+    semantic_capability_id: Id,
+    tool_id: Id,
+    argument_schema_hash: Sha256,
+    argument_domain_selector_hash: Sha256,
+    materializer_contract_hash: Sha256,
+    privacy_contract_hash: Sha256,
+    route_contract_hash: Sha256,
+    tool_environment_hash: Sha256,
+    snapshot_audit_context_version: z.literal("snapshot_bundle_audit_context_v1"),
+    capability_audit_context_version: z.literal("capability_audit_context_v1"),
+    result_event_evaluator_version: z.literal("server_tool_result_event_v1"),
+    binding_signal_projection_version: z.literal("binding_signal_projection_v1"),
+    accepted_lineage_evaluator_version: z.literal("accepted_claim_lineage_v3"),
+    runtime_blocker_policy_version: z.literal("runtime_blocker_exclusion_v1"),
+    signal_selector_contract: TrustedSignalSelectorV1Schema,
+    signal_selector_contract_hash: Sha256,
+    claim_comparison_spec_contract: StructuredConclusionClaimSpecV1Schema,
+    claim_comparison_spec_contract_hash: Sha256,
+    trusted_comparator_contract: TrustedComparatorV1Schema,
+    trusted_comparator_contract_hash: Sha256,
+    coverage_row_hash: Sha256,
+  })
+  .strict()
+  .superRefine((row, ctx) => {
+    const { coverage_row_hash: _, ...body } = row;
+    const contracts = [
+      [
+        "signal_selector_contract_hash",
+        row.signal_selector_contract_hash,
+        row.signal_selector_contract,
+      ],
+      [
+        "claim_comparison_spec_contract_hash",
+        row.claim_comparison_spec_contract_hash,
+        row.claim_comparison_spec_contract,
+      ],
+      [
+        "trusted_comparator_contract_hash",
+        row.trusted_comparator_contract_hash,
+        row.trusted_comparator_contract,
+      ],
+    ] as const;
+    for (const [field, actual, contract] of contracts) {
+      if (actual !== canonicalJsonHash(contract)) {
+        ctx.addIssue({ code: "custom", path: [field], message: `${field} mismatch` });
+      }
+    }
+    if (row.coverage_row_hash !== canonicalJsonHash(body)) {
+      ctx.addIssue({ code: "custom", path: ["coverage_row_hash"], message: "row hash mismatch" });
+    }
+  });
+
+export const KnotToolCoverageManifestV2Schema = z
+  .object({
+    schema_version: z.literal("knot_tool_coverage_manifest_v2"),
+    capability_binding_manifest_hash: Sha256,
+    tool_environment_hash: Sha256,
+    coverage: z.array(KnotCoverageRowV2Schema).min(1),
+    manifest_hash: Sha256,
+  })
+  .strict()
+  .superRefine((manifest, ctx) => {
+    const { manifest_hash: _, ...body } = manifest;
+    if (manifest.manifest_hash !== canonicalJsonHash(body)) {
+      ctx.addIssue({ code: "custom", path: ["manifest_hash"], message: "manifest hash mismatch" });
+    }
+    const ids = manifest.coverage.map((row) => row.binding_id);
+    if (new Set(ids).size !== ids.length) {
+      ctx.addIssue({ code: "custom", path: ["coverage"], message: "duplicate coverage binding" });
+    }
+  });
+
+export const KnotAuditCapabilityTrackV2Schema = z
+  .object({
+    schema_version: z.literal("knot_audit_capability_track_v2"),
+    tool_environment_hash: Sha256,
+    execution_behavior_release_hash: Sha256,
+    capability_binding_manifest_hash: Sha256,
+    knot_coverage_manifest_v2_hash: Sha256,
+    snapshot_audit_context_version: z.literal("snapshot_bundle_audit_context_v1"),
+    capability_audit_context_version: z.literal("capability_audit_context_v1"),
+    result_event_schema_version: z.literal("server_tool_result_event_v1"),
+    binding_signal_projection_version: z.literal("binding_signal_projection_v1"),
+    claim_comparison_spec_version: z.literal("claim_comparison_spec_v1"),
+    trusted_comparator_version: z.literal("same_dimension_polarity_v1"),
+    track_hash: Sha256,
+  })
+  .strict()
+  .superRefine((track, ctx) => {
+    const { track_hash: _, ...body } = track;
+    if (track.track_hash !== canonicalJsonHash(body)) {
+      ctx.addIssue({ code: "custom", path: ["track_hash"], message: "track hash mismatch" });
+    }
+  });
+
+export type KnotAuditCapabilityTrackV2 = z.infer<typeof KnotAuditCapabilityTrackV2Schema>;
+
 export const KnotCapabilityUseAggregateSchema = z
   .object({
     schema_version: z.literal("knot_capability_use_aggregate_v1"),
@@ -334,7 +472,12 @@ type CurrentCapabilityContractBundle = {
   stagedManifest: z.infer<typeof StagedAgentToolContractManifestSchema>;
   environmentManifest: ToolEnvironmentManifest;
   coverageManifest: z.infer<typeof KnotToolCoverageManifestSchema>;
+  coverageManifestV2: z.infer<typeof KnotToolCoverageManifestV2Schema>;
   capabilityTrack: CapabilityTrack;
+  auditTrackV2: KnotAuditCapabilityTrackV2;
+  agentToolManifestHash: string;
+  runtimeAgentManifestHash: string;
+  runtimeStageKeys: ReadonlyArray<string>;
 };
 
 let currentCapabilityBundle: CurrentCapabilityContractBundle | undefined;
@@ -447,6 +590,13 @@ function loadCurrentCapabilityContractBundle(): CurrentCapabilityContractBundle 
       import.meta.url,
     ),
   );
+  const runtimeAgentManifest = loadJson(
+    new URL("current_runtime_agent_manifest_snapshot_v5.json", contractRoot),
+  );
+  const expectedRuntimeAgentManifest = buildRuntimeAgentManifestArtifact();
+  if (canonicalJsonHash(runtimeAgentManifest) !== canonicalJsonHash(expectedRuntimeAgentManifest)) {
+    throw new Error("current runtime agent manifest fixed-point mismatch");
+  }
   const routeManifest = loadJson(
     new URL("../../../registry/data_sources/agent_data_route_manifest_v1.json", import.meta.url),
   );
@@ -461,6 +611,9 @@ function loadCurrentCapabilityContractBundle(): CurrentCapabilityContractBundle 
   );
   const coverageManifest = KnotToolCoverageManifestSchema.parse(
     loadJson(new URL("knot_tool_coverage_manifest_v1.json", contractRoot)),
+  );
+  const coverageManifestV2 = KnotToolCoverageManifestV2Schema.parse(
+    loadJson(new URL("knot_tool_coverage_manifest_v2.json", contractRoot)),
   );
   const currentToolHash = canonicalJsonHash(currentToolManifest);
   const routeHash = canonicalJsonHash(routeManifest);
@@ -482,6 +635,17 @@ function loadCurrentCapabilityContractBundle(): CurrentCapabilityContractBundle 
     toolEnvironmentManifest: environmentManifest,
     knotCoverageManifest: coverageManifest,
   });
+  const bindingIds = bindingManifest.bindings.map((row) => row.binding_id).sort();
+  const coverageV2Ids = coverageManifestV2.coverage.map((row) => row.binding_id).sort();
+  const environmentHash = canonicalToolEnvironmentHash(environmentManifest);
+  if (
+    canonicalJsonHash(bindingIds) !== canonicalJsonHash(coverageV2Ids) ||
+    coverageManifestV2.capability_binding_manifest_hash !== bindingManifest.manifest_hash ||
+    coverageManifestV2.tool_environment_hash !== environmentHash ||
+    coverageManifestV2.coverage.some((row) => row.tool_environment_hash !== environmentHash)
+  ) {
+    throw new Error("KNOT v2 coverage fixed-point mismatch");
+  }
   const executionHashes = new Set(
     environmentManifest.environments.map((row) => row.execution_behavior_release_hash),
   );
@@ -505,18 +669,77 @@ function loadCurrentCapabilityContractBundle(): CurrentCapabilityContractBundle 
   if (canonicalJsonHash(artifactTrack) !== canonicalJsonHash(expectedTrack)) {
     throw new Error("accepted output capability track artifact fixed-point mismatch");
   }
+  const auditTrackBody = {
+    schema_version: "knot_audit_capability_track_v2" as const,
+    tool_environment_hash: environmentHash,
+    execution_behavior_release_hash: [...executionHashes][0],
+    capability_binding_manifest_hash: bindingManifest.manifest_hash,
+    knot_coverage_manifest_v2_hash: coverageManifestV2.manifest_hash,
+    snapshot_audit_context_version: "snapshot_bundle_audit_context_v1" as const,
+    capability_audit_context_version: "capability_audit_context_v1" as const,
+    result_event_schema_version: "server_tool_result_event_v1" as const,
+    binding_signal_projection_version: "binding_signal_projection_v1" as const,
+    claim_comparison_spec_version: "claim_comparison_spec_v1" as const,
+    trusted_comparator_version: "same_dimension_polarity_v1" as const,
+  };
+  const expectedAuditTrackV2 = KnotAuditCapabilityTrackV2Schema.parse({
+    ...auditTrackBody,
+    track_hash: canonicalJsonHash(auditTrackBody),
+  });
+  const artifactAuditTrackV2 = KnotAuditCapabilityTrackV2Schema.parse(
+    loadJson(new URL("knot_audit_capability_track_v2.json", contractRoot)),
+  );
+  if (canonicalJsonHash(artifactAuditTrackV2) !== canonicalJsonHash(expectedAuditTrackV2)) {
+    throw new Error("KNOT audit capability track v2 artifact fixed-point mismatch");
+  }
   currentCapabilityBundle = {
     bindingManifest,
     stagedManifest,
     environmentManifest,
     coverageManifest,
+    coverageManifestV2,
     capabilityTrack: expectedTrack,
+    auditTrackV2: expectedAuditTrackV2,
+    agentToolManifestHash: currentToolHash,
+    runtimeAgentManifestHash: canonicalJsonHash(runtimeAgentManifest),
+    runtimeStageKeys: expectedRuntimeAgentManifest.agents.flatMap((agent) =>
+      agent.stages.map((stage) => `${agent.agent}:${stage.stage}`),
+    ),
   };
   return currentCapabilityBundle;
 }
 
 export function loadCurrentAcceptedOutputCapabilityTrack(): CapabilityTrack {
   return structuredClone(loadCurrentCapabilityContractBundle().capabilityTrack);
+}
+
+export function loadCurrentKnotAuditCapabilityTrackV2(): KnotAuditCapabilityTrackV2 {
+  return structuredClone(loadCurrentCapabilityContractBundle().auditTrackV2);
+}
+
+export function loadCurrentKnotGateDReleaseAuthority(): {
+  execution_behavior_release_hash: string;
+  runtime_agent_manifest_hash: string;
+  agent_tool_manifest_hash: string;
+  tool_environment_hash: string;
+  capability_binding_manifest_hash: string;
+  knot_coverage_manifest_hash: string;
+  knot_audit_capability_track_hash: string;
+  binding_count: number;
+  stage_keys: string[];
+} {
+  const current = loadCurrentCapabilityContractBundle();
+  return {
+    execution_behavior_release_hash: current.auditTrackV2.execution_behavior_release_hash,
+    runtime_agent_manifest_hash: current.runtimeAgentManifestHash,
+    agent_tool_manifest_hash: current.agentToolManifestHash,
+    tool_environment_hash: canonicalToolEnvironmentHash(current.environmentManifest),
+    capability_binding_manifest_hash: current.bindingManifest.manifest_hash,
+    knot_coverage_manifest_hash: current.coverageManifestV2.manifest_hash,
+    knot_audit_capability_track_hash: current.auditTrackV2.track_hash,
+    binding_count: current.bindingManifest.bindings.length,
+    stage_keys: [...current.runtimeStageKeys],
+  };
 }
 
 export function validateAcceptedOutputCapabilityTrack(track: unknown): CapabilityTrack {
@@ -776,11 +999,9 @@ export const EvidenceClaimGraphV2Schema = z
     }
   });
 
-export const ActivePromptReleaseV4Schema = z
+export const CapabilityFullBundleV1Schema = z
   .object({
-    schema_version: z.literal("active_prompt_release_manifest_v4"),
-    release_id: Id,
-    lifecycle_state: z.enum(["staged", "canary", "active", "rolled_back"]),
+    schema_version: z.literal("capability_full_bundle_v1"),
     prompt_hash: Sha256,
     execution_behavior_release_hash: Sha256,
     production_variant_roster_hash: Sha256,
@@ -789,6 +1010,7 @@ export const ActivePromptReleaseV4Schema = z
     tool_environment_hash: Sha256,
     capability_binding_manifest_hash: Sha256,
     knot_coverage_manifest_hash: Sha256,
+    knot_audit_capability_track_hash: Sha256,
     private_companion_pin_hash: Sha256,
     full_bundle_hash: Sha256,
   })
@@ -804,6 +1026,8 @@ export const ActivePromptReleaseV4Schema = z
     }
   });
 
+export type CapabilityFullBundleV1 = z.infer<typeof CapabilityFullBundleV1Schema>;
+
 export const PromptTrainingProjectionV2Schema = z
   .object({
     schemaVersion: z.literal("prompt_training_projection_v2"),
@@ -817,7 +1041,15 @@ export const PromptTrainingProjectionV2Schema = z
     outcomeContract: z.record(Id, z.unknown()),
     evaluator: z.record(Id, z.unknown()),
     capabilityTrack: CapabilityTrackSchema,
+    knotAuditCapabilityTrack: KnotAuditCapabilityTrackV2Schema,
+    knotHistoryPartitionHash: Sha256,
+    knotMaterializationSetHash: Sha256,
+    knotExcludedSampleSetHash: Sha256,
     capabilityUseAggregates: z.array(KnotCapabilityUseAggregateSchema),
+    productionVariantRosterRevisions: z.array(
+      z.object({ revisionId: Id, revisionHash: Sha256 }).strict(),
+    ),
+    productionVariantRosterRevisionSetHash: Sha256,
     maturityContract: z
       .object({
         horizonId: Id,
@@ -845,6 +1077,26 @@ export const PromptTrainingProjectionV2Schema = z
         message: "projection hash mismatch",
       });
     }
+    const rosterRevisionIds = projection.productionVariantRosterRevisions.map(
+      (revision) => revision.revisionId,
+    );
+    if (rosterRevisionIds.join("\0") !== [...new Set(rosterRevisionIds)].sort().join("\0")) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["productionVariantRosterRevisions"],
+        message: "production roster revision refs must be sorted and unique",
+      });
+    }
+    if (
+      projection.productionVariantRosterRevisionSetHash !==
+      canonicalJsonHash(projection.productionVariantRosterRevisions)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["productionVariantRosterRevisionSetHash"],
+        message: "production roster revision set hash mismatch",
+      });
+    }
     const current = loadCurrentCapabilityContractBundle();
     if (
       canonicalJsonHash(projection.capabilityTrack) !== canonicalJsonHash(current.capabilityTrack)
@@ -853,6 +1105,16 @@ export const PromptTrainingProjectionV2Schema = z
         code: "custom",
         path: ["capabilityTrack"],
         message: "training capability track fixed-point mismatch",
+      });
+    }
+    if (
+      canonicalJsonHash(projection.knotAuditCapabilityTrack) !==
+      canonicalJsonHash(current.auditTrackV2)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["knotAuditCapabilityTrack"],
+        message: "training KNOT audit track v2 fixed-point mismatch",
       });
     }
     const expectedBindingIds = new Set(
@@ -871,6 +1133,8 @@ export const PromptTrainingProjectionV2Schema = z
       });
     }
   });
+
+export type PromptTrainingProjectionV2 = z.infer<typeof PromptTrainingProjectionV2Schema>;
 
 export function assertKnotTransitionAction(
   action: string,

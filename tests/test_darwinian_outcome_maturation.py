@@ -350,6 +350,7 @@ def _insert_acceptance(
         "sample_origin": "PRODUCTION_ACTIVE",
         "run_slot_kind": "OUTCOME_SCHEDULED",
         "scheduled_sample_id": scheduled_sample_id,
+        **_bindings()[agent_id],
         "evaluation_opportunity_set_id": opportunity[
             "evaluation_opportunity_set_id"
         ],

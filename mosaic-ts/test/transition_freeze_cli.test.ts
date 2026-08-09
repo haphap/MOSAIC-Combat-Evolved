@@ -17,6 +17,25 @@ afterEach(() => {
 });
 
 describe("Gate D CLI transition freeze", () => {
+  it("registers the reviewed Gate-D bootstrap build and stage commands", () => {
+    const program = programWith(registerPromptRelease);
+    const release = program.commands.find((entry) => entry.name() === "prompt-release");
+    const expectedOptions = new Map([
+      [
+        "build-gate-d-bootstrap-manifest",
+        ["--release-id", "--created-at", "--full-bundle", "--receipt", "--out"],
+      ],
+      ["bootstrap-gate-d-stage", ["--manifest"]],
+    ]);
+    for (const [name, flags] of expectedOptions) {
+      const command = release?.commands.find((entry) => entry.name() === name);
+      expect(command).toBeDefined();
+      for (const flag of flags) {
+        expect(command?.options.find((option) => option.long === flag)?.mandatory).toBe(true);
+      }
+    }
+  });
+
   it.each([
     [
       "generate-candidate",

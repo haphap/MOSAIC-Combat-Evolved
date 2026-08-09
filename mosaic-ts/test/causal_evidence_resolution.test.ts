@@ -146,7 +146,10 @@ function productionAcceptedState(): {
       const record = buildAcceptedAgentOutputRecord({
         kind: "MACRO_TRANSMISSION",
         agentId: agent,
-        payload: macroOutput(agent),
+        payload: macroOutput(agent, {
+          claims: claimGraph.claims,
+          verified_claim_graph: claimGraph,
+        }),
         evidenceBundleIds: [
           `evidence-bundle:${claimGraph.run_id}:${claimGraph.snapshot_hash.slice(7)}`,
         ],

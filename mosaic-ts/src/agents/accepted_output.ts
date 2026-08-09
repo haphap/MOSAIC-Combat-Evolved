@@ -143,6 +143,7 @@ export interface AcceptedAgentOutputRecordBase {
   runtime_audit?: {
     macro_component_composition: MacroComponentCompositionAudit;
   };
+  knot_capture_v2?: AcceptedKnotCaptureV2;
 }
 
 export interface AcceptedClaimGraphLineage {
@@ -152,6 +153,37 @@ export interface AcceptedClaimGraphLineage {
   evidence: Array<{ evidence_id: string; source_fingerprint: string }>;
   claims: Array<{ claim_id: string; evidence_ids: string[] }>;
   claim_graph_lineage_hash: string;
+}
+
+export interface AcceptedKnotCaptureV2 {
+  schema_version: "accepted_knot_capture_v2";
+  accepted_lineage_evaluator_version: "accepted_claim_lineage_v3";
+  eligibility: "ELIGIBLE" | "INELIGIBLE";
+  ineligibility_reasons: string[];
+  accepted_claim_graph_hash: string;
+  tool_environment_hash: string | null;
+  execution_behavior_release_hash: string | null;
+  capability_bundle_hash: string | null;
+  knot_coverage_manifest_v2_hash: string | null;
+  knot_audit_capability_track_v2_hash: string | null;
+  result_event_refs: Array<{
+    result_event_id: string;
+    result_event_hash: string;
+    result_authority_type: "SNAPSHOT_BUILD" | "FROZEN_QUERY";
+    result_authority_hash: string;
+    evidence_ids: string[];
+    binding_result_refs: Array<{
+      binding_id: string;
+      binding_result_fingerprint: string;
+    }>;
+  }>;
+  claim_specs: Array<{
+    claim_id: string;
+    evidence_ids: string[];
+    structured_conclusion: Record<string, string | number | boolean | null>;
+    claim_spec_hash: string;
+  }>;
+  capture_hash: string;
 }
 
 export interface AcceptedOutputAdapterLineage {
@@ -328,7 +360,10 @@ export function buildAcceptedAgentOutputRecord<K extends AcceptedOutputKind, TPa
   runtimeAudit?: {
     macro_component_composition: MacroComponentCompositionAudit;
   };
-}): AcceptedAgentOutputRecord<K, TPayload> & { capability_track: CapabilityTrack } {
+}): AcceptedAgentOutputRecord<K, TPayload> & {
+  capability_track: CapabilityTrack;
+  knot_capture_v2: AcceptedKnotCaptureV2;
+} {
   validateOwner(input.kind, input.agentId);
   validateBuildContext(input.context);
   const evidenceBundleIds = sortedNonEmptyUnique(input.evidenceBundleIds, "evidence bundle");
@@ -338,6 +373,7 @@ export function buildAcceptedAgentOutputRecord<K extends AcceptedOutputKind, TPa
     "source_agent_output_hash",
   );
   const claimGraphLineage = acceptedClaimGraphLineage(input.claimGraph);
+  const knotCaptureV2 = acceptedKnotCaptureV2(input.claimGraph);
   const acceptedPayloadHash = canonicalHash(input.payload);
   const adapterLineageBody = {
     schema_version: "accepted_output_adapter_lineage_v1" as const,
@@ -422,6 +458,7 @@ export function buildAcceptedAgentOutputRecord<K extends AcceptedOutputKind, TPa
           runtime_opportunity_authority: input.context.evaluation_binding.runtime_authority_binding,
         }
       : {}),
+    knot_capture_v2: knotCaptureV2,
     output: {
       payload: input.payload,
       evidence_bundle_ids: evidenceBundleIds,
@@ -433,7 +470,10 @@ export function buildAcceptedAgentOutputRecord<K extends AcceptedOutputKind, TPa
   return {
     ...withoutHash,
     accepted_output_hash: canonicalHash(withoutHash),
-  } as AcceptedAgentOutputRecord<K, TPayload> & { capability_track: CapabilityTrack };
+  } as AcceptedAgentOutputRecord<K, TPayload> & {
+    capability_track: CapabilityTrack;
+    knot_capture_v2: AcceptedKnotCaptureV2;
+  };
 }
 
 export function acceptedOutputRecordRef<K extends AcceptedOutputKind>(
@@ -534,6 +574,12 @@ function validateAcceptedOutputClaimGraph(
       `accepted output claim graph projection mismatch: ${record.accepted_output_id}`,
     );
   }
+  if (
+    record.knot_capture_v2 !== undefined &&
+    canonicalHash(acceptedKnotCaptureV2(graph)) !== canonicalHash(record.knot_capture_v2)
+  ) {
+    throw new Error(`accepted output KNOT capture mismatch: ${record.accepted_output_id}`);
+  }
   const expectedBundleId = `evidence-bundle:${graph.run_id}:${graph.snapshot_hash.slice(7)}`;
   if (!record.output.evidence_bundle_ids.includes(expectedBundleId)) {
     throw new Error(`accepted output claim lineage bundle mismatch: ${record.accepted_output_id}`);
@@ -574,6 +620,7 @@ export function validateAcceptedAgentOutputRecord(record: AcceptedAgentOutputRec
   }
   validateAdapterLineage(record);
   validateRuntimeAudit(record);
+  if (record.knot_capture_v2 !== undefined) validateAcceptedKnotCaptureV2(record);
 }
 
 export function validateCurrentAcceptedAgentOutputRecord(record: AcceptedAgentOutputRecord): void {
@@ -582,6 +629,164 @@ export function validateCurrentAcceptedAgentOutputRecord(record: AcceptedAgentOu
     throw new Error(`current capability track required: ${record.accepted_output_id}`);
   }
   validateCurrentAcceptedOutputCapabilityTrack(record.capability_track);
+  if (record.knot_capture_v2 === undefined) {
+    throw new Error(`current KNOT capture required: ${record.accepted_output_id}`);
+  }
+}
+
+function validateAcceptedKnotCaptureV2(record: AcceptedAgentOutputRecord): void {
+  const capture = record.knot_capture_v2;
+  if (capture === undefined) return;
+  const expectedFields = [
+    "accepted_claim_graph_hash",
+    "accepted_lineage_evaluator_version",
+    "capability_bundle_hash",
+    "capture_hash",
+    "claim_specs",
+    "eligibility",
+    "execution_behavior_release_hash",
+    "ineligibility_reasons",
+    "knot_audit_capability_track_v2_hash",
+    "knot_coverage_manifest_v2_hash",
+    "result_event_refs",
+    "schema_version",
+    "tool_environment_hash",
+  ];
+  if (Object.keys(capture).sort().join("\0") !== expectedFields.join("\0")) {
+    throw new Error(`accepted KNOT capture fields mismatch: ${record.accepted_output_id}`);
+  }
+  const { capture_hash: suppliedHash, ...body } = capture;
+  if (
+    capture.schema_version !== "accepted_knot_capture_v2" ||
+    capture.accepted_lineage_evaluator_version !== "accepted_claim_lineage_v3" ||
+    suppliedHash !== canonicalHash(body)
+  ) {
+    throw new Error(`accepted KNOT capture hash mismatch: ${record.accepted_output_id}`);
+  }
+  requiredSha256(capture.accepted_claim_graph_hash, "accepted_claim_graph_hash");
+  const reasons = sortedStringArray(capture.ineligibility_reasons, "KNOT ineligibility reason");
+  if (
+    (capture.eligibility === "ELIGIBLE" && reasons.length !== 0) ||
+    (capture.eligibility === "INELIGIBLE" && reasons.length === 0) ||
+    (capture.eligibility !== "ELIGIBLE" && capture.eligibility !== "INELIGIBLE")
+  ) {
+    throw new Error(`accepted KNOT eligibility mismatch: ${record.accepted_output_id}`);
+  }
+  const fixedPointValues = [
+    capture.tool_environment_hash,
+    capture.execution_behavior_release_hash,
+    capture.capability_bundle_hash,
+    capture.knot_coverage_manifest_v2_hash,
+    capture.knot_audit_capability_track_v2_hash,
+  ];
+  if (fixedPointValues.some((value) => value === null)) {
+    if (fixedPointValues.some((value) => value !== null) || capture.result_event_refs.length > 0) {
+      throw new Error(`accepted KNOT fixed point is partial: ${record.accepted_output_id}`);
+    }
+  } else {
+    fixedPointValues.forEach((value) => {
+      requiredSha256(value, "accepted KNOT fixed point");
+    });
+  }
+  if (capture.eligibility === "ELIGIBLE" && capture.result_event_refs.length === 0) {
+    throw new Error(
+      `eligible accepted KNOT capture lacks result events: ${record.accepted_output_id}`,
+    );
+  }
+  const eventIds = new Set<string>();
+  for (const event of capture.result_event_refs) {
+    const eventFields = [
+      "binding_result_refs",
+      "evidence_ids",
+      "result_authority_hash",
+      "result_authority_type",
+      "result_event_hash",
+      "result_event_id",
+    ];
+    if (Object.keys(event).sort().join("\0") !== eventFields.join("\0")) {
+      throw new Error(`accepted KNOT event fields mismatch: ${record.accepted_output_id}`);
+    }
+    requiredText(event.result_event_id, "result_event_id");
+    requiredSha256(event.result_event_hash, "result_event_hash");
+    requiredSha256(event.result_authority_hash, "result_authority_hash");
+    if (
+      event.result_authority_type !== "SNAPSHOT_BUILD" &&
+      event.result_authority_type !== "FROZEN_QUERY"
+    ) {
+      throw new Error(`accepted KNOT result authority type mismatch: ${record.accepted_output_id}`);
+    }
+    if (eventIds.has(event.result_event_id)) {
+      throw new Error(`accepted KNOT result event duplicate: ${record.accepted_output_id}`);
+    }
+    eventIds.add(event.result_event_id);
+    sortedStringArray(event.evidence_ids, "accepted KNOT event evidence ID", true);
+    const bindingIds = new Set<string>();
+    for (const ref of event.binding_result_refs) {
+      if (!/^binding:[0-9a-f]{64}$/.test(ref.binding_id)) {
+        throw new Error(`accepted KNOT binding ID mismatch: ${record.accepted_output_id}`);
+      }
+      requiredSha256(ref.binding_result_fingerprint, "binding_result_fingerprint");
+      if (bindingIds.has(ref.binding_id)) {
+        throw new Error(`accepted KNOT binding ref duplicate: ${record.accepted_output_id}`);
+      }
+      bindingIds.add(ref.binding_id);
+    }
+    if (bindingIds.size === 0) {
+      throw new Error(`accepted KNOT binding refs empty: ${record.accepted_output_id}`);
+    }
+  }
+  if (
+    capture.result_event_refs.map((event) => event.result_event_id).join("\0") !==
+    [...capture.result_event_refs]
+      .sort((left, right) => left.result_event_id.localeCompare(right.result_event_id))
+      .map((event) => event.result_event_id)
+      .join("\0")
+  ) {
+    throw new Error(`accepted KNOT events are not ordered: ${record.accepted_output_id}`);
+  }
+  const lineageClaims = new Map(
+    record.output.claim_graph_lineage.claims.map((claim) => [claim.claim_id, claim.evidence_ids]),
+  );
+  const payload = record.output.payload;
+  const payloadClaims =
+    payload !== null && typeof payload === "object" && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>).claims
+      : undefined;
+  const payloadById = new Map<string, unknown>();
+  if (Array.isArray(payloadClaims)) {
+    for (const rawClaim of payloadClaims) {
+      if (rawClaim !== null && typeof rawClaim === "object" && !Array.isArray(rawClaim)) {
+        const claim = rawClaim as Record<string, unknown>;
+        if (typeof claim.claim_id === "string") {
+          payloadById.set(claim.claim_id, claim.structured_conclusion);
+        }
+      }
+    }
+  }
+  for (const spec of capture.claim_specs) {
+    const specFields = ["claim_id", "claim_spec_hash", "evidence_ids", "structured_conclusion"];
+    if (Object.keys(spec).sort().join("\0") !== specFields.join("\0")) {
+      throw new Error(`accepted KNOT claim spec fields mismatch: ${record.accepted_output_id}`);
+    }
+    const { claim_spec_hash: claimSpecHash, ...claimSpecBody } = spec;
+    if (claimSpecHash !== canonicalHash(claimSpecBody)) {
+      throw new Error(`accepted KNOT claim spec hash mismatch: ${record.accepted_output_id}`);
+    }
+    const lineageEvidence = lineageClaims.get(spec.claim_id);
+    if (
+      lineageEvidence === undefined ||
+      canonicalHash(lineageEvidence) !== canonicalHash(spec.evidence_ids) ||
+      (payloadById.size > 0 &&
+        (!payloadById.has(spec.claim_id) ||
+          canonicalHash(payloadById.get(spec.claim_id)) !==
+            canonicalHash(spec.structured_conclusion)))
+    ) {
+      throw new Error(`accepted KNOT claim spec lineage mismatch: ${record.accepted_output_id}`);
+    }
+  }
+  if (capture.claim_specs.length !== lineageClaims.size) {
+    throw new Error(`accepted KNOT claim spec closure mismatch: ${record.accepted_output_id}`);
+  }
 }
 
 function validateAdapterLineage(record: AcceptedAgentOutputRecord): void {
@@ -645,6 +850,196 @@ function acceptedClaimGraphLineage(graph: ClaimEvidenceGraph): AcceptedClaimGrap
     claims,
   };
   return { ...body, claim_graph_lineage_hash: canonicalHash(body) };
+}
+
+function acceptedKnotCaptureV2(graph: ClaimEvidenceGraph): AcceptedKnotCaptureV2 {
+  type EventRef = AcceptedKnotCaptureV2["result_event_refs"][number];
+  type FixedPoint = Pick<
+    AcceptedKnotCaptureV2,
+    | "tool_environment_hash"
+    | "execution_behavior_release_hash"
+    | "capability_bundle_hash"
+    | "knot_coverage_manifest_v2_hash"
+    | "knot_audit_capability_track_v2_hash"
+  >;
+  const referencedEvidenceIds = new Set(graph.claims.flatMap((claim) => claim.evidence_ids));
+  const ineligibilityReasons = new Set<string>();
+  const fixedPoints = new Map<string, FixedPoint>();
+  const events = new Map<
+    string,
+    { body: Omit<EventRef, "evidence_ids">; evidenceIds: Set<string> }
+  >();
+  for (const evidence of graph.evidence_ledger) {
+    const audit = acceptedServerToolResult(evidence.value);
+    if (audit === null) {
+      if (evidence.source_kind === "tool" && referencedEvidenceIds.has(evidence.evidence_id)) {
+        ineligibilityReasons.add("CLAIM_TOOL_EVIDENCE_SERVER_AUTHORITY_MISSING");
+      }
+      continue;
+    }
+    const fixedPoint: FixedPoint = {
+      tool_environment_hash: audit.tool_environment_hash,
+      execution_behavior_release_hash: audit.execution_behavior_release_hash,
+      capability_bundle_hash: audit.capability_bundle_hash,
+      knot_coverage_manifest_v2_hash: audit.knot_coverage_manifest_v2_hash,
+      knot_audit_capability_track_v2_hash: audit.knot_audit_capability_track_v2_hash,
+    };
+    fixedPoints.set(canonicalHash(fixedPoint), fixedPoint);
+    const body: Omit<EventRef, "evidence_ids"> = {
+      result_event_id: audit.result_event_id,
+      result_event_hash: audit.result_event_hash,
+      result_authority_type: audit.result_authority_type,
+      result_authority_hash: audit.result_authority_hash,
+      binding_result_refs: audit.binding_result_refs,
+    };
+    const existing = events.get(body.result_event_id);
+    if (existing) {
+      if (canonicalHash(existing.body) !== canonicalHash(body)) {
+        throw new Error(`accepted KNOT result event identity drift: ${body.result_event_id}`);
+      }
+      existing.evidenceIds.add(evidence.evidence_id);
+    } else {
+      events.set(body.result_event_id, {
+        body,
+        evidenceIds: new Set([requiredText(evidence.evidence_id, "evidence_id")]),
+      });
+    }
+  }
+  if (events.size === 0) ineligibilityReasons.add("NO_SERVER_TOOL_RESULT_AUTHORITY");
+  if (fixedPoints.size > 1) {
+    throw new Error("accepted KNOT fixed-point drift across result events");
+  }
+  const fixedPoint = fixedPoints.values().next().value as FixedPoint | undefined;
+  const resultEventRefs = [...events.values()]
+    .map(({ body, evidenceIds }) => ({
+      ...body,
+      evidence_ids: [...evidenceIds].sort((left, right) => left.localeCompare(right)),
+    }))
+    .sort((left, right) => left.result_event_id.localeCompare(right.result_event_id));
+  const claimSpecs = [...graph.claims]
+    .map((claim) => {
+      const body = {
+        claim_id: requiredText(claim.claim_id, "claim_id"),
+        evidence_ids: sortedClaimEvidenceIds(claim.evidence_ids),
+        structured_conclusion: Object.fromEntries(
+          Object.entries(claim.structured_conclusion).sort(([left], [right]) =>
+            left.localeCompare(right),
+          ),
+        ),
+      };
+      return { ...body, claim_spec_hash: canonicalHash(body) };
+    })
+    .sort((left, right) => left.claim_id.localeCompare(right.claim_id));
+  const reasons = [...ineligibilityReasons].sort((left, right) => left.localeCompare(right));
+  const body = {
+    schema_version: "accepted_knot_capture_v2" as const,
+    accepted_lineage_evaluator_version: "accepted_claim_lineage_v3" as const,
+    eligibility: reasons.length === 0 ? ("ELIGIBLE" as const) : ("INELIGIBLE" as const),
+    ineligibility_reasons: reasons,
+    accepted_claim_graph_hash: canonicalHash(graph),
+    tool_environment_hash: fixedPoint?.tool_environment_hash ?? null,
+    execution_behavior_release_hash: fixedPoint?.execution_behavior_release_hash ?? null,
+    capability_bundle_hash: fixedPoint?.capability_bundle_hash ?? null,
+    knot_coverage_manifest_v2_hash: fixedPoint?.knot_coverage_manifest_v2_hash ?? null,
+    knot_audit_capability_track_v2_hash: fixedPoint?.knot_audit_capability_track_v2_hash ?? null,
+    result_event_refs: resultEventRefs,
+    claim_specs: claimSpecs,
+  };
+  return { ...body, capture_hash: canonicalHash(body) };
+}
+
+function acceptedServerToolResult(value: unknown): {
+  result_event_id: string;
+  result_event_hash: string;
+  result_authority_type: "SNAPSHOT_BUILD" | "FROZEN_QUERY";
+  result_authority_hash: string;
+  tool_environment_hash: string;
+  execution_behavior_release_hash: string;
+  capability_bundle_hash: string;
+  knot_coverage_manifest_v2_hash: string;
+  knot_audit_capability_track_v2_hash: string;
+  binding_result_refs: Array<{
+    binding_id: string;
+    binding_result_fingerprint: string;
+  }>;
+} | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = (value as Record<string, unknown>).server_tool_result;
+  if (raw === undefined) return null;
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("accepted KNOT server tool result must be an object");
+  }
+  const record = raw as Record<string, unknown>;
+  const expectedKeys = [
+    "binding_result_refs",
+    "capability_bundle_hash",
+    "execution_behavior_release_hash",
+    "knot_audit_capability_track_v2_hash",
+    "knot_coverage_manifest_v2_hash",
+    "result_authority_hash",
+    "result_authority_type",
+    "result_event_hash",
+    "result_event_id",
+    "tool_environment_hash",
+  ];
+  if (Object.keys(record).sort().join("\0") !== expectedKeys.join("\0")) {
+    throw new Error("accepted KNOT server tool result fields mismatch");
+  }
+  if (
+    record.result_authority_type !== "SNAPSHOT_BUILD" &&
+    record.result_authority_type !== "FROZEN_QUERY"
+  ) {
+    throw new Error("accepted KNOT result authority type is invalid");
+  }
+  if (!Array.isArray(record.binding_result_refs) || record.binding_result_refs.length === 0) {
+    throw new Error("accepted KNOT binding result refs must not be empty");
+  }
+  const bindingResultRefs = record.binding_result_refs
+    .map((rawRef) => {
+      if (rawRef === null || typeof rawRef !== "object" || Array.isArray(rawRef)) {
+        throw new Error("accepted KNOT binding result ref must be an object");
+      }
+      const ref = rawRef as Record<string, unknown>;
+      if (Object.keys(ref).sort().join("\0") !== "binding_id\0binding_result_fingerprint") {
+        throw new Error("accepted KNOT binding result ref fields mismatch");
+      }
+      const bindingId = requiredText(ref.binding_id, "binding_id");
+      if (!/^binding:[0-9a-f]{64}$/.test(bindingId)) {
+        throw new Error("accepted KNOT binding ID is invalid");
+      }
+      return {
+        binding_id: bindingId,
+        binding_result_fingerprint: requiredSha256(
+          ref.binding_result_fingerprint,
+          "binding_result_fingerprint",
+        ),
+      };
+    })
+    .sort((left, right) => left.binding_id.localeCompare(right.binding_id));
+  if (new Set(bindingResultRefs.map((ref) => ref.binding_id)).size !== bindingResultRefs.length) {
+    throw new Error("accepted KNOT binding result refs contain duplicates");
+  }
+  return {
+    result_event_id: requiredText(record.result_event_id, "result_event_id"),
+    result_event_hash: requiredSha256(record.result_event_hash, "result_event_hash"),
+    result_authority_type: record.result_authority_type,
+    result_authority_hash: requiredSha256(record.result_authority_hash, "result_authority_hash"),
+    tool_environment_hash: requiredSha256(record.tool_environment_hash, "tool_environment_hash"),
+    execution_behavior_release_hash: requiredSha256(
+      record.execution_behavior_release_hash,
+      "execution_behavior_release_hash",
+    ),
+    capability_bundle_hash: requiredSha256(record.capability_bundle_hash, "capability_bundle_hash"),
+    knot_coverage_manifest_v2_hash: requiredSha256(
+      record.knot_coverage_manifest_v2_hash,
+      "knot_coverage_manifest_v2_hash",
+    ),
+    knot_audit_capability_track_v2_hash: requiredSha256(
+      record.knot_audit_capability_track_v2_hash,
+      "knot_audit_capability_track_v2_hash",
+    ),
+    binding_result_refs: bindingResultRefs,
+  };
 }
 
 function sortedClaimEvidenceIds(values: readonly string[]): string[] {
@@ -941,13 +1336,25 @@ function sortedNonEmptyUnique<T extends string>(
   return sorted as [T, ...T[]];
 }
 
-function requiredText(value: string, label: string): string {
-  if (!value.trim()) throw new Error(`${label} must be non-empty`);
+function sortedStringArray(values: readonly string[], label: string, nonempty = false): string[] {
+  if (nonempty && values.length === 0) throw new Error(`${label} must not be empty`);
+  const normalized = values.map((value) => requiredText(value, label));
+  const sorted = [...new Set(normalized)].sort((left, right) => left.localeCompare(right));
+  if (sorted.length !== values.length || sorted.join("\0") !== normalized.join("\0")) {
+    throw new Error(`${label} values must be unique and canonically ordered`);
+  }
+  return sorted;
+}
+
+function requiredText(value: unknown, label: string): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${label} must be non-empty`);
+  }
   return value.trim();
 }
 
-function requiredSha256(value: string | null, label: string): string {
-  if (!value || !/^sha256:[0-9a-f]{64}$/.test(value)) {
+function requiredSha256(value: unknown, label: string): string {
+  if (typeof value !== "string" || !/^sha256:[0-9a-f]{64}$/.test(value)) {
     throw new Error(`${label} must be a sha256 hash`);
   }
   return value;

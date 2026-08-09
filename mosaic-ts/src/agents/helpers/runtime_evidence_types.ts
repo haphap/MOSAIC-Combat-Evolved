@@ -1,3 +1,4 @@
+import type { ToolCallAudit } from "../../bridge/types.js";
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import { canonicalJsonHash } from "./canonical_json.js";
 
@@ -16,6 +17,16 @@ export interface ToolStatus {
   args_fingerprint?: string;
   result_fingerprint?: string;
   source_fingerprint?: string;
+  server_result_event_id?: string;
+  server_result_event_hash?: string;
+  server_result_authority_type?: ToolCallAudit["result_authority_type"];
+  server_result_authority_hash?: string;
+  server_tool_environment_hash?: string;
+  server_execution_behavior_release_hash?: string;
+  server_capability_bundle_hash?: string;
+  server_knot_coverage_manifest_v2_hash?: string;
+  server_knot_audit_capability_track_v2_hash?: string;
+  server_binding_result_refs?: ToolCallAudit["binding_result_refs"];
 }
 
 export type RuntimeSourceState =

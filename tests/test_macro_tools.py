@@ -115,13 +115,13 @@ class _FakeCapabilityStore:
             }
         ]
 
-    def call_tool(self, capability, name, args):
+    def call_tool_result(self, capability, name, args):
         self.calls.append(("call", capability, name, args))
         if name != "get_china_macro_snapshot":
             raise ValueError(f"tool {name!r} is not allowed by this capability")
         if args:
             raise ValueError("role-scoped model tools accept no arguments")
-        return "frozen payload"
+        return {"text": "frozen payload"}
 
     def terminate(self, capability, reason):
         self.calls.append(("terminate", capability, reason))

@@ -119,6 +119,9 @@ def validate_accepted_output_record_schema(
     has_capability_track = "capability_track" in record
     if not has_capability_track:
         expected.remove("capability_track")
+    has_knot_capture = "knot_capture_v2" in record
+    if has_knot_capture:
+        expected.add("knot_capture_v2")
     _exact_object(record, expected, f"{agent_id}:{accepted_kind} accepted output")
     validate_accepted_output_track_tags(
         (
@@ -148,6 +151,8 @@ def validate_accepted_output_record_schema(
         graph_run_id=_text(record.get("graph_run_id"), "graph_run_id"),
         payload_claim_evidence=claim_ids,
     )
+    if has_knot_capture:
+        _validate_knot_capture_v2(record)
     _validate_adapter_lineage(record, agent_id=agent_id, accepted_kind=accepted_kind)
 
 
@@ -321,6 +326,211 @@ def _validate_claim_graph_lineage(
     expected_causal = sorted(set(evidence_by_id.values()))
     if envelope.get("causal_dedupe_keys") != expected_causal:
         raise ValueError("accepted causal keys do not close the claim graph")
+
+
+def _validate_knot_capture_v2(record: Mapping[str, Any]) -> None:
+    capture = _object(record.get("knot_capture_v2"), "knot_capture_v2")
+    _exact_object(
+        capture,
+        {
+            "schema_version",
+            "accepted_lineage_evaluator_version",
+            "eligibility",
+            "ineligibility_reasons",
+            "accepted_claim_graph_hash",
+            "tool_environment_hash",
+            "execution_behavior_release_hash",
+            "capability_bundle_hash",
+            "knot_coverage_manifest_v2_hash",
+            "knot_audit_capability_track_v2_hash",
+            "result_event_refs",
+            "claim_specs",
+            "capture_hash",
+        },
+        "knot_capture_v2",
+    )
+    if (
+        capture.get("schema_version") != "accepted_knot_capture_v2"
+        or capture.get("accepted_lineage_evaluator_version")
+        != "accepted_claim_lineage_v3"
+    ):
+        raise ValueError("accepted KNOT capture identity mismatch")
+    body = {key: value for key, value in capture.items() if key != "capture_hash"}
+    if capture.get("capture_hash") != canonical_hash(body):
+        raise ValueError("accepted KNOT capture hash mismatch")
+    _sha256(capture.get("accepted_claim_graph_hash"), "accepted_claim_graph_hash")
+    reasons = _sorted_unique_texts(
+        capture.get("ineligibility_reasons"),
+        "KNOT ineligibility reasons",
+        nonempty=False,
+    )
+    eligibility = capture.get("eligibility")
+    if (
+        (eligibility == "ELIGIBLE" and reasons)
+        or (eligibility == "INELIGIBLE" and not reasons)
+        or eligibility not in {"ELIGIBLE", "INELIGIBLE"}
+    ):
+        raise ValueError("accepted KNOT eligibility mismatch")
+
+    fixed_fields = (
+        "tool_environment_hash",
+        "execution_behavior_release_hash",
+        "capability_bundle_hash",
+        "knot_coverage_manifest_v2_hash",
+        "knot_audit_capability_track_v2_hash",
+    )
+    fixed_values = [capture.get(field) for field in fixed_fields]
+    events = _list(capture.get("result_event_refs"), "KNOT result event refs")
+    if any(value is None for value in fixed_values):
+        if any(value is not None for value in fixed_values) or events:
+            raise ValueError("accepted KNOT fixed point is partial")
+    else:
+        for field, value in zip(fixed_fields, fixed_values, strict=True):
+            _sha256(value, field)
+    if eligibility == "ELIGIBLE" and not events:
+        raise ValueError("eligible accepted KNOT capture lacks result events")
+
+    envelope = _object(record.get("output"), "accepted output envelope")
+    lineage = _object(envelope.get("claim_graph_lineage"), "claim_graph_lineage")
+    lineage_evidence = {
+        _text(row.get("evidence_id"), "lineage evidence ID")
+        for row in (
+            _object(raw, "lineage evidence")
+            for raw in _list(lineage.get("evidence"), "lineage evidence")
+        )
+    }
+    lineage_claims = {
+        _text(row.get("claim_id"), "lineage claim ID"): _sorted_unique_texts(
+            row.get("evidence_ids"), "lineage claim evidence IDs", nonempty=True
+        )
+        for row in (
+            _object(raw, "lineage claim")
+            for raw in _list(lineage.get("claims"), "lineage claims")
+        )
+    }
+    event_ids: set[str] = set()
+    prior_event_id: str | None = None
+    for index, raw in enumerate(events):
+        event = _object(raw, f"KNOT result_event_refs[{index}]")
+        _exact_object(
+            event,
+            {
+                "result_event_id",
+                "result_event_hash",
+                "result_authority_type",
+                "result_authority_hash",
+                "evidence_ids",
+                "binding_result_refs",
+            },
+            f"KNOT result_event_refs[{index}]",
+        )
+        event_id = _text(event.get("result_event_id"), "result_event_id")
+        if event_id in event_ids or (prior_event_id is not None and event_id <= prior_event_id):
+            raise ValueError("accepted KNOT result events must be unique and ordered")
+        event_ids.add(event_id)
+        prior_event_id = event_id
+        _sha256(event.get("result_event_hash"), "result_event_hash")
+        _sha256(event.get("result_authority_hash"), "result_authority_hash")
+        _enum(
+            event.get("result_authority_type"),
+            {"SNAPSHOT_BUILD", "FROZEN_QUERY"},
+            "result_authority_type",
+        )
+        evidence_ids = _sorted_unique_texts(
+            event.get("evidence_ids"), "KNOT event evidence IDs", nonempty=True
+        )
+        if set(evidence_ids) - lineage_evidence:
+            raise ValueError("accepted KNOT event has unresolved evidence IDs")
+        refs = _list(event.get("binding_result_refs"), "binding_result_refs")
+        if not refs:
+            raise ValueError("accepted KNOT binding result refs must not be empty")
+        prior_binding_id: str | None = None
+        binding_ids: set[str] = set()
+        for ref_index, raw_ref in enumerate(refs):
+            ref = _object(raw_ref, f"binding_result_refs[{ref_index}]")
+            _exact_object(
+                ref,
+                {"binding_id", "binding_result_fingerprint"},
+                f"binding_result_refs[{ref_index}]",
+            )
+            binding_id = _text(ref.get("binding_id"), "binding_id")
+            if not re.fullmatch(r"binding:[0-9a-f]{64}", binding_id):
+                raise ValueError("accepted KNOT binding ID is invalid")
+            if binding_id in binding_ids or (
+                prior_binding_id is not None and binding_id <= prior_binding_id
+            ):
+                raise ValueError("accepted KNOT binding refs must be unique and ordered")
+            binding_ids.add(binding_id)
+            prior_binding_id = binding_id
+            _sha256(
+                ref.get("binding_result_fingerprint"),
+                "binding_result_fingerprint",
+            )
+
+    payload = _object(envelope.get("payload"), "accepted output payload")
+    payload_conclusions: dict[str, Mapping[str, Any]] = {}
+    for raw_claim in _list(payload.get("claims"), "accepted output claims"):
+        claim = _object(raw_claim, "accepted output claim")
+        claim_id = _text(claim.get("claim_id"), "accepted claim ID")
+        payload_conclusions[claim_id] = _object(
+            claim.get("structured_conclusion"), "structured conclusion"
+        )
+    specs = _list(capture.get("claim_specs"), "KNOT claim specs")
+    spec_ids: set[str] = set()
+    prior_claim_id: str | None = None
+    for index, raw in enumerate(specs):
+        spec = _object(raw, f"KNOT claim_specs[{index}]")
+        _exact_object(
+            spec,
+            {
+                "claim_id",
+                "evidence_ids",
+                "structured_conclusion",
+                "claim_spec_hash",
+            },
+            f"KNOT claim_specs[{index}]",
+        )
+        claim_id = _text(spec.get("claim_id"), "KNOT claim ID")
+        if claim_id in spec_ids or (
+            prior_claim_id is not None and claim_id <= prior_claim_id
+        ):
+            raise ValueError("accepted KNOT claim specs must be unique and ordered")
+        spec_ids.add(claim_id)
+        prior_claim_id = claim_id
+        evidence_ids = _sorted_unique_texts(
+            spec.get("evidence_ids"), "KNOT claim evidence IDs", nonempty=True
+        )
+        conclusion = _object(
+            spec.get("structured_conclusion"), "KNOT structured conclusion"
+        )
+        _validate_knot_structured_conclusion(conclusion)
+        spec_body = {key: value for key, value in spec.items() if key != "claim_spec_hash"}
+        if spec.get("claim_spec_hash") != canonical_hash(spec_body):
+            raise ValueError("accepted KNOT claim spec hash mismatch")
+        if (
+            lineage_claims.get(claim_id) != evidence_ids
+            or payload_conclusions.get(claim_id) != conclusion
+        ):
+            raise ValueError("accepted KNOT claim spec lineage mismatch")
+    if spec_ids != set(lineage_claims) or spec_ids != set(payload_conclusions):
+        raise ValueError("accepted KNOT claim spec closure mismatch")
+
+
+def _validate_knot_structured_conclusion(conclusion: Mapping[str, Any]) -> None:
+    if not conclusion or len(conclusion) > 12:
+        raise ValueError("KNOT structured conclusion must contain 1 to 12 fields")
+    for key, value in conclusion.items():
+        _text(key, "KNOT structured conclusion key", maximum=96)
+        if isinstance(value, str):
+            if value != value.strip() or len(value) > 256:
+                raise ValueError("KNOT structured conclusion text is invalid")
+        elif isinstance(value, bool) or value is None:
+            continue
+        elif isinstance(value, (int, float)):
+            if not math.isfinite(float(value)):
+                raise ValueError("KNOT structured conclusion number must be finite")
+        else:
+            raise ValueError("KNOT structured conclusion must contain scalar fields")
 
 
 def _validate_payload(

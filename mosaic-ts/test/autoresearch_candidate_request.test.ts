@@ -11,6 +11,9 @@ import {
   assertPrivateCandidateMatchesRequest,
   buildPrivateCandidateCliArgs,
   buildPrivateCandidateRequest,
+  GateDCandidateBuildRequestSchema,
+  GateDProjectionBuildRequestSchema,
+  GateDReceiptBuildRequestSchema,
   loadFrozenShadowAdapters,
   PromptCandidateGenerationRequestSchema,
   registerAutoresearch,
@@ -300,5 +303,32 @@ describe("public to private Candidate request", () => {
       true,
     );
     expect(shadow?.options.some((option) => option.long === "--adapter")).toBe(false);
+  });
+
+  it("registers strict public-safe Gate-D evidence builders", () => {
+    const program = new Command().exitOverride();
+    registerAutoresearch(program);
+    const autoresearch = program.commands.find((command) => command.name() === "autoresearch");
+    for (const name of [
+      "build-gate-d-projection",
+      "build-gate-d-candidate",
+      "build-gate-d-receipt",
+    ]) {
+      const command = autoresearch?.commands.find((entry) => entry.name() === name);
+      expect(command).toBeDefined();
+      expect(command?.options.find((option) => option.long === "--request")?.mandatory).toBe(true);
+      expect(command?.options.find((option) => option.long === "--out")?.mandatory).toBe(true);
+    }
+    expect(
+      GateDProjectionBuildRequestSchema.safeParse({
+        agent_id: "china",
+        stage: "agent_run",
+        cohort: "cohort_default",
+        cutoff_at: "2026-08-01T00:00:00+08:00",
+        unexpected: true,
+      }).success,
+    ).toBe(false);
+    expect(GateDCandidateBuildRequestSchema.safeParse({}).success).toBe(false);
+    expect(GateDReceiptBuildRequestSchema.safeParse({}).success).toBe(false);
   });
 });

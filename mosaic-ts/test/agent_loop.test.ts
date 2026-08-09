@@ -13,6 +13,7 @@ import {
   toolCallFingerprint,
   toolResultFingerprint,
 } from "../src/agents/helpers/agent_loop.js";
+import { type BridgeApi, bridgeToolFromMetadata } from "../src/bridge/index.js";
 import { BRIDGE_INITIAL_TOOL_INVOKE } from "../src/bridge/tools.js";
 
 class ScriptedLlm {
@@ -191,11 +192,25 @@ describe("agent tool loop helpers", () => {
     const llm = new ScriptedLlm([
       new AIMessage({
         content: "",
-        tool_calls: [{ id: "c1", name: "get_x", args: { a: 1 }, type: "tool_call" }],
+        tool_calls: [
+          {
+            id: "c1",
+            name: "get_china_macro_snapshot",
+            args: { a: 1 },
+            type: "tool_call",
+          },
+        ],
       }),
       new AIMessage({
         content: "",
-        tool_calls: [{ id: "c2", name: "get_x", args: { a: 1 }, type: "tool_call" }],
+        tool_calls: [
+          {
+            id: "c2",
+            name: "get_china_macro_snapshot",
+            args: { a: 1 },
+            type: "tool_call",
+          },
+        ],
       }),
       new AIMessage("done"),
     ]);
@@ -207,7 +222,7 @@ describe("agent tool loop helpers", () => {
         return `result-${executions}`;
       },
       {
-        name: "get_x",
+        name: "get_china_macro_snapshot",
         description: "test tool",
         schema: z.object({ a: z.number() }),
       },
@@ -254,6 +269,123 @@ describe("agent tool loop helpers", () => {
         .filter((message) => message.getType() === "tool")
         .map((message) => String(message.content)),
     ).toEqual(["result-1", "result-1"]);
+  });
+
+  it("reuses one server result event when an audited Bridge call hits the cache", async () => {
+    const llm = new ScriptedLlm([
+      new AIMessage({
+        content: "",
+        tool_calls: [{ id: "c1", name: "get_x", args: { a: 1 }, type: "tool_call" }],
+      }),
+      new AIMessage({
+        content: "",
+        tool_calls: [{ id: "c2", name: "get_x", args: { a: 1 }, type: "tool_call" }],
+      }),
+      new AIMessage("done"),
+    ]);
+    const audit = {
+      schema_version: "tool_call_audit_v1" as const,
+      result_event_id: "tool_evt_cache",
+      result_event_hash: `sha256:${"4".repeat(64)}`,
+      status: "SUCCEEDED" as const,
+      result_authority_type: "SNAPSHOT_BUILD" as const,
+      result_authority_hash: `sha256:${"5".repeat(64)}`,
+      tool_environment_hash: `sha256:${"7".repeat(64)}`,
+      execution_behavior_release_hash: `sha256:${"8".repeat(64)}`,
+      capability_bundle_hash: `sha256:${"9".repeat(64)}`,
+      knot_coverage_manifest_v2_hash: `sha256:${"a".repeat(64)}`,
+      knot_audit_capability_track_v2_hash: `sha256:${"b".repeat(64)}`,
+      binding_result_refs: [
+        {
+          binding_id: "binding_cache",
+          binding_result_fingerprint: `sha256:${"6".repeat(64)}`,
+        },
+      ],
+    };
+    let rpcCalls = 0;
+    const fakeApi = {
+      toolsCall: async () => {
+        rpcCalls++;
+        return { text: "server-result", audit };
+      },
+    } as unknown as BridgeApi;
+    const bridgeTool = bridgeToolFromMetadata(
+      fakeApi,
+      {
+        name: "get_x",
+        description: "audited bridge tool",
+        args_schema: {
+          type: "object",
+          properties: { a: { type: "number" } },
+          required: ["a"],
+        },
+      },
+      {
+        capability: {
+          manifest: {
+            capability_contract_version: "agent_tool_capability_v1",
+            capability_id: "cap_test",
+            graph_run_id: "graph_test",
+            run_slot_id: "slot_test",
+            run_id: "run_test",
+            node_id: "china:china",
+            agent_id: "china",
+            stage: "china",
+            allowed_tools: ["get_china_macro_snapshot"],
+            as_of: "2026-08-10",
+            candidate_scope_hash: null,
+            snapshot_bundle_id: "bundle_test",
+            snapshot_bundle_hash: `sha256:${"7".repeat(64)}`,
+            issued_at: "2026-08-10T00:00:00Z",
+            expires_at: "2026-08-10T01:00:00Z",
+            nonce: "nonce",
+          },
+          signing_key_id: "test",
+          signature: "hmac-sha256:test",
+        },
+      },
+    );
+
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [bridgeTool],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("initial")],
+    });
+
+    expect(rpcCalls).toBe(1);
+    expect(result.toolExecutions).toBe(1);
+    expect(result.toolCacheHits).toBe(1);
+    expect(result.toolStatuses).toEqual([
+      expect.objectContaining({
+        call_id: "c1",
+        cache_hit: false,
+        server_result_event_id: audit.result_event_id,
+        server_result_event_hash: audit.result_event_hash,
+        server_result_authority_type: audit.result_authority_type,
+        server_result_authority_hash: audit.result_authority_hash,
+        server_tool_environment_hash: audit.tool_environment_hash,
+        server_execution_behavior_release_hash: audit.execution_behavior_release_hash,
+        server_capability_bundle_hash: audit.capability_bundle_hash,
+        server_knot_coverage_manifest_v2_hash: audit.knot_coverage_manifest_v2_hash,
+        server_knot_audit_capability_track_v2_hash: audit.knot_audit_capability_track_v2_hash,
+        server_binding_result_refs: audit.binding_result_refs,
+      }),
+      expect.objectContaining({
+        call_id: "c2",
+        cache_hit: true,
+        server_result_event_id: audit.result_event_id,
+        server_result_event_hash: audit.result_event_hash,
+        server_result_authority_type: audit.result_authority_type,
+        server_result_authority_hash: audit.result_authority_hash,
+        server_tool_environment_hash: audit.tool_environment_hash,
+        server_execution_behavior_release_hash: audit.execution_behavior_release_hash,
+        server_capability_bundle_hash: audit.capability_bundle_hash,
+        server_knot_coverage_manifest_v2_hash: audit.knot_coverage_manifest_v2_hash,
+        server_knot_audit_capability_track_v2_hash: audit.knot_audit_capability_track_v2_hash,
+        server_binding_result_refs: audit.binding_result_refs,
+      }),
+    ]);
   });
 
   it("records fallback and as_of metadata from successful and cached tool outputs", async () => {

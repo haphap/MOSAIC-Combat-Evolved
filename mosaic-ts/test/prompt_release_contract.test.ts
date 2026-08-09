@@ -1,22 +1,58 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const TEST_GATE_D_AUTHORITY = vi.hoisted(() => ({
+  execution_behavior_release_hash: `sha256:${"1".repeat(64)}`,
+  runtime_agent_manifest_hash: `sha256:${"1".repeat(64)}`,
+  agent_tool_manifest_hash: `sha256:${"1".repeat(64)}`,
+  tool_environment_hash: `sha256:${"1".repeat(64)}`,
+  capability_binding_manifest_hash: `sha256:${"1".repeat(64)}`,
+  knot_coverage_manifest_hash: `sha256:${"1".repeat(64)}`,
+  knot_audit_capability_track_hash: `sha256:${"1".repeat(64)}`,
+  binding_count: 1,
+  stage_keys: ["central_bank:agent_run"],
+}));
+
+vi.mock("../src/autoresearch/capability_preservation_contract.js", async (importOriginal) => {
+  const original =
+    await importOriginal<
+      typeof import("../src/autoresearch/capability_preservation_contract.js")
+    >();
+  return {
+    ...original,
+    loadCurrentKnotGateDReleaseAuthority: () => structuredClone(TEST_GATE_D_AUTHORITY),
+  };
+});
+
+import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
 import {
   type ActivePromptReleaseManifest,
   ActivePromptReleaseManifestSchema,
+  ActivePromptReleaseManifestV4Schema,
+  assertKnotGateDReleaseFixedPoint,
   assertPromptReleaseTransition,
   assertReleasePromptStageClosure,
   type ReleasePromptPair,
   releasePromptPairHash,
   releasePromptSetHash,
 } from "../src/agents/prompts/prompt_release_contract.js";
+import {
+  type CapabilityFullBundleV1,
+  CapabilityFullBundleV1Schema,
+} from "../src/autoresearch/capability_preservation_contract.js";
+import {
+  assertCurrentKnotTransitionAction,
+  assertKnotGateDBootstrapReleaseTransition,
+  buildKnotGateDBootstrapManifest,
+  stageKnotGateDBootstrapRelease,
+} from "../src/autoresearch/knot_gate_d_release_authority.js";
 import { ActivePromptReleaseRegistry } from "../src/autoresearch/release_registry.js";
 
 const HASH = `sha256:${"1".repeat(64)}`;
 const EXECUTION_RELEASE_ID = `execution-behavior-release:${"2".repeat(64)}`;
 const EXECUTION_RELEASE_REF = `registry/prompt_checks/execution_behavior_releases/${"2".repeat(64)}--${"1".repeat(64)}.json`;
-
 function promptPairs(): ReleasePromptPair[] {
   const pair = {
     agent: "central_bank",
@@ -127,7 +163,170 @@ function release(
   };
 }
 
+function capabilityFullBundle(): CapabilityFullBundleV1 {
+  const body = {
+    schema_version: "capability_full_bundle_v1" as const,
+    prompt_hash: releasePromptSetHash(promptPairs()),
+    execution_behavior_release_hash: HASH,
+    production_variant_roster_hash: HASH,
+    runtime_agent_manifest_hash: HASH,
+    agent_tool_manifest_hash: HASH,
+    tool_environment_hash: HASH,
+    capability_binding_manifest_hash: HASH,
+    knot_coverage_manifest_hash: HASH,
+    knot_audit_capability_track_hash: HASH,
+    private_companion_pin_hash: HASH,
+  };
+  return CapabilityFullBundleV1Schema.parse({
+    ...body,
+    full_bundle_hash: canonicalJsonHash(body),
+  });
+}
+
+function gateDReceipt(fullBundleHash: string) {
+  const pairedEnvironment = {
+    model_config_hash: HASH,
+    tool_config_hash: HASH,
+    executor_adapter_hash: HASH,
+    evaluator_adapter_hash: HASH,
+    evaluator_config_hash: HASH,
+    code_commit: "1".repeat(40),
+    execution_behavior_release_hash: HASH,
+    production_variant_roster_hash: HASH,
+    repeat_seeds_hash: HASH,
+    frozen_bundle_set_hash: HASH,
+  };
+  const pairedEnvironmentHash = canonicalJsonHash(pairedEnvironment);
+  const stageEvidence = [
+    {
+      agent_id: "central_bank",
+      stage: "agent_run",
+      experiment_target_stage: "agent_run",
+      experiment_id: "experiment-1",
+      experiment_hash: HASH,
+      run_set_hash: HASH,
+      training_projection_hash: HASH,
+      paired_environment_hash: pairedEnvironmentHash,
+    },
+  ];
+  const publicPrivatePinBody = {
+    public_commit: "1".repeat(40),
+    public_tree_hash: HASH,
+    private_commit: "2".repeat(40),
+    private_tree_hash: HASH,
+    private_companion_pin_hash: HASH,
+  };
+  const publicPrivatePin = {
+    ...publicPrivatePinBody,
+    pair_hash: canonicalJsonHash(publicPrivatePinBody),
+  };
+  const candidateBody = {
+    schema_version: "knot_gate_d_candidate_v1" as const,
+    full_bundle_hash: fullBundleHash,
+    runtime_agent_manifest_hash: HASH,
+    runtime_stage_count: 1,
+    capability_binding_manifest_hash: HASH,
+    binding_count: 1,
+    paired_environment: pairedEnvironment,
+    paired_environment_hash: pairedEnvironmentHash,
+    stage_evidence: stageEvidence,
+    significance_fixture_hash: HASH,
+    counterevidence_fixture_hash: HASH,
+    cross_track_isolation_hash: HASH,
+    public_safe_scan_hash: HASH,
+    public_private_pin: publicPrivatePin,
+  };
+  const candidate = {
+    ...candidateBody,
+    candidate_hash: canonicalJsonHash(candidateBody),
+  };
+  const approval = (repository: "public" | "private", commit: string) => ({
+    repository,
+    reviewed_commit: commit,
+    review_ref: `pi-review:${repository}:1`,
+    disposition: "APPROVE" as const,
+    reviewed_candidate_hash: candidate.candidate_hash,
+  });
+  const receiptBody = {
+    schema_version: "knot_gate_d_receipt_v1" as const,
+    candidate,
+    pi_reviews: {
+      public: approval("public", publicPrivatePin.public_commit),
+      private: approval("private", publicPrivatePin.private_commit),
+    },
+  };
+  return { ...receiptBody, receipt_hash: canonicalJsonHash(receiptBody) };
+}
+
+function releaseV4(
+  lifecycleState: ActivePromptReleaseManifest["lifecycle_state"],
+): Record<string, unknown> {
+  const legacy = release(lifecycleState);
+  const fullBundle = capabilityFullBundle();
+  return {
+    ...legacy,
+    schema_version: "active_prompt_release_manifest_v4",
+    prompt_commit: "2".repeat(40),
+    code_commit: "1".repeat(40),
+    capability_full_bundle: fullBundle,
+    gate_d_receipt: gateDReceipt(fullBundle.full_bundle_hash),
+  };
+}
+
+function resealGateDV4(value: Record<string, unknown>): Record<string, unknown> {
+  const bundle = value.capability_full_bundle as Record<string, unknown>;
+  const { full_bundle_hash: _fullBundleHash, ...bundleBody } = bundle;
+  bundle.full_bundle_hash = canonicalJsonHash(bundleBody);
+  const receipt = value.gate_d_receipt as Record<string, unknown>;
+  const candidate = receipt.candidate as Record<string, unknown>;
+  const pairedEnvironment = candidate.paired_environment as Record<string, unknown>;
+  candidate.paired_environment_hash = canonicalJsonHash(pairedEnvironment);
+  const stageEvidence = candidate.stage_evidence as Array<Record<string, unknown>>;
+  for (const row of stageEvidence) {
+    row.paired_environment_hash = candidate.paired_environment_hash;
+  }
+  candidate.full_bundle_hash = bundle.full_bundle_hash;
+  const { candidate_hash: _candidateHash, ...candidateBody } = candidate;
+  candidate.candidate_hash = canonicalJsonHash(candidateBody);
+  const reviews = receipt.pi_reviews as Record<string, Record<string, unknown>>;
+  if (!reviews.public || !reviews.private) throw new Error("Gate D review fixture missing");
+  reviews.public.reviewed_candidate_hash = candidate.candidate_hash;
+  reviews.private.reviewed_candidate_hash = candidate.candidate_hash;
+  const { receipt_hash: _receiptHash, ...receiptBody } = receipt;
+  receipt.receipt_hash = canonicalJsonHash(receiptBody);
+  return value;
+}
+
 describe("aggregate prompt release contract", () => {
+  it("keeps v3 legacy-readable and admits only hash-closed Gate-D v4 releases", () => {
+    expect(ActivePromptReleaseManifestSchema.parse(release("staged")).schema_version).toBe(
+      "active_prompt_release_manifest_v3",
+    );
+    expect(ActivePromptReleaseManifestV4Schema.parse(releaseV4("staged"))).toBeDefined();
+    expect(() =>
+      assertKnotGateDReleaseFixedPoint(releaseV4("staged"), {
+        execution_behavior_release_hash: HASH,
+        runtime_agent_manifest_hash: HASH,
+        agent_tool_manifest_hash: HASH,
+        tool_environment_hash: HASH,
+        capability_binding_manifest_hash: HASH,
+        knot_coverage_manifest_hash: HASH,
+        knot_audit_capability_track_hash: HASH,
+        binding_count: 1,
+        stage_keys: ["central_bank:agent_run"],
+      }),
+    ).not.toThrow();
+
+    const missingReceipt = releaseV4("staged");
+    delete missingReceipt.gate_d_receipt;
+    expect(ActivePromptReleaseManifestSchema.safeParse(missingReceipt).success).toBe(false);
+
+    const drifted = releaseV4("staged");
+    const bundle = drifted.capability_full_bundle as Record<string, unknown>;
+    bundle.tool_environment_hash = `sha256:${"3".repeat(64)}`;
+    expect(ActivePromptReleaseManifestSchema.safeParse(drifted).success).toBe(false);
+  });
+
   it("allows staged to canary to active only with approval and passing SLOs", () => {
     const staged = ActivePromptReleaseManifestSchema.parse(release("staged"));
     const canary = ActivePromptReleaseManifestSchema.parse(release("canary"));
@@ -206,6 +405,176 @@ describe("aggregate prompt release contract", () => {
         "prompt_release_immutable_closure_changed",
       );
       expect((await registry.load("release-1"))?.lifecycle_state).toBe("staged");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects direct registry staging when paired experiments used another code commit", async () => {
+    const root = mkdtempSync(join(tmpdir(), "mosaic-release-v4-code-pin-"));
+    const registry = new ActivePromptReleaseRegistry(root);
+    const mismatched = releaseV4("staged");
+    const receipt = mismatched.gate_d_receipt as Record<string, unknown>;
+    const candidate = receipt.candidate as Record<string, unknown>;
+    const pairedEnvironment = candidate.paired_environment as Record<string, unknown>;
+    pairedEnvironment.code_commit = "4".repeat(40);
+    const resealed = ActivePromptReleaseManifestV4Schema.parse(resealGateDV4(mismatched));
+
+    try {
+      await expect(registry.stage(resealed)).rejects.toThrow(
+        "Gate D experiment code commit mismatch",
+      );
+      expect(await registry.load(resealed.release_id)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps the Gate-D full bundle and receipt immutable through release lifecycle", async () => {
+    const root = mkdtempSync(join(tmpdir(), "mosaic-release-v4-closure-"));
+    const registry = new ActivePromptReleaseRegistry(root);
+    const audit = { operator: "operator:test", reason: "Gate D closure must remain immutable" };
+    const staged = ActivePromptReleaseManifestV4Schema.parse(releaseV4("staged"));
+    const tampered = structuredClone(releaseV4("canary"));
+    const bundle = tampered.capability_full_bundle as Record<string, unknown>;
+    bundle.tool_environment_hash = `sha256:${"3".repeat(64)}`;
+    const validTampered = ActivePromptReleaseManifestV4Schema.parse(resealGateDV4(tampered));
+    const baseline = release("active");
+    baseline.release_id = "release-0";
+    baseline.base_release_id = null;
+    baseline.previous_approved_release_id = null;
+    if (!baseline.runtime_slo_evidence) throw new Error("active fixture requires SLO evidence");
+    baseline.runtime_slo_evidence.release_id = baseline.release_id;
+
+    try {
+      await registry.provisionBaseline(baseline, audit);
+      await registry.stage(staged);
+      await expect(registry.transition(validTampered, { audit })).rejects.toThrow(
+        "prompt_release_immutable_closure_changed",
+      );
+      expect((await registry.load(staged.release_id))?.lifecycle_state).toBe("staged");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("bootstraps one reviewed v4 anchor and authorizes its prompt-only descendants", async () => {
+    const root = mkdtempSync(join(tmpdir(), "mosaic-release-v4-authority-"));
+    const registry = new ActivePromptReleaseRegistry(root);
+    const audit = { operator: "operator:test", reason: "Gate D bootstrap authority" };
+    const baseline = release("active");
+    baseline.release_id = "release-0";
+    baseline.base_release_id = null;
+    baseline.previous_approved_release_id = null;
+    if (!baseline.runtime_slo_evidence) throw new Error("active fixture requires SLO evidence");
+    baseline.runtime_slo_evidence.release_id = baseline.release_id;
+    const gateRelease = (state: ActivePromptReleaseManifest["lifecycle_state"]) => {
+      const value = releaseV4(state);
+      value.release_id = "release-gate-d";
+      value.base_release_id = "release-0";
+      value.previous_approved_release_id = "release-0";
+      value.prompt_commit = "2".repeat(40);
+      value.code_commit = "1".repeat(40);
+      const slo = value.runtime_slo_evidence as Record<string, unknown> | null;
+      if (slo) slo.release_id = value.release_id;
+      return ActivePromptReleaseManifestV4Schema.parse(value);
+    };
+    try {
+      await registry.provisionBaseline(baseline, audit);
+      await expect(
+        assertCurrentKnotTransitionAction("GENERATE_PROMPT_CANDIDATE", root),
+      ).rejects.toThrow(/KNOT evolution frozen until Gate D/);
+      await stageKnotGateDBootstrapRelease({
+        registryRoot: root,
+        manifest: gateRelease("staged"),
+      });
+      await expect(
+        assertKnotGateDBootstrapReleaseTransition("START_PROMPT_CANARY", root, "release-gate-d"),
+      ).resolves.toBeUndefined();
+      await registry.transition(gateRelease("canary"), { audit });
+      await expect(
+        assertKnotGateDBootstrapReleaseTransition(
+          "ACTIVATE_PROMPT_RELEASE",
+          root,
+          "release-gate-d",
+        ),
+      ).resolves.toBeUndefined();
+      await registry.transition(gateRelease("active"), {
+        expectedBaseReleaseId: "release-0",
+        audit,
+      });
+      await expect(
+        assertCurrentKnotTransitionAction("GENERATE_PROMPT_CANDIDATE", root),
+      ).resolves.toBeUndefined();
+
+      const successor = (
+        state: ActivePromptReleaseManifest["lifecycle_state"],
+      ): ActivePromptReleaseManifest => {
+        const value = release(state);
+        value.release_id = "release-successor";
+        value.base_release_id = "release-gate-d";
+        value.previous_approved_release_id = "release-gate-d";
+        if (value.runtime_slo_evidence) value.runtime_slo_evidence.release_id = value.release_id;
+        return value;
+      };
+      await registry.stage(successor("staged"));
+      await registry.transition(successor("canary"), { audit });
+      await registry.transition(successor("active"), {
+        expectedBaseReleaseId: "release-gate-d",
+        audit,
+      });
+      await expect(
+        assertCurrentKnotTransitionAction("STAGE_PROMPT_RELEASE", root),
+      ).resolves.toBeUndefined();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("derives a staged Gate-D anchor from the exact active legacy release", async () => {
+    const root = mkdtempSync(join(tmpdir(), "mosaic-release-v4-builder-"));
+    const registry = new ActivePromptReleaseRegistry(root);
+    const audit = { operator: "operator:test", reason: "Gate D builder fixture" };
+    const baseline = release("active");
+    baseline.release_id = "release-0";
+    baseline.base_release_id = null;
+    baseline.previous_approved_release_id = null;
+    baseline.code_commit = "1".repeat(40);
+    baseline.prompt_commit = "2".repeat(40);
+    if (!baseline.runtime_slo_evidence) throw new Error("active fixture requires SLO evidence");
+    baseline.runtime_slo_evidence.release_id = baseline.release_id;
+    const gateD = releaseV4("staged");
+
+    try {
+      await registry.provisionBaseline(baseline, audit);
+      await expect(
+        buildKnotGateDBootstrapManifest({
+          registryRoot: root,
+          releaseId: "release-gate-d-invalid-time",
+          createdAt: "2026-07-11T00:00:00",
+          capabilityFullBundle: gateD.capability_full_bundle,
+          gateDReceipt: gateD.gate_d_receipt,
+        }),
+      ).rejects.toThrow("created_at is invalid");
+      const manifest = await buildKnotGateDBootstrapManifest({
+        registryRoot: root,
+        releaseId: "release-gate-d",
+        createdAt: "2026-07-11T00:00:00Z",
+        capabilityFullBundle: gateD.capability_full_bundle,
+        gateDReceipt: gateD.gate_d_receipt,
+      });
+      expect(manifest).toMatchObject({
+        schema_version: "active_prompt_release_manifest_v4",
+        release_id: "release-gate-d",
+        base_release_id: "release-0",
+        lifecycle_state: "staged",
+        prompt_commit: baseline.prompt_commit,
+        code_commit: baseline.code_commit,
+        previous_approved_release_id: "release-0",
+        approved_by: null,
+      });
+      expect((await registry.pointer()).current_release_id).toBe("release-0");
+      expect(await registry.load("release-gate-d")).toBeNull();
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

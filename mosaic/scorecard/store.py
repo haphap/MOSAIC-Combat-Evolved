@@ -3083,6 +3083,32 @@ class ScorecardStore:
                 excluded_sample_ids=excluded_sample_ids,
             )
 
+    def build_prompt_training_projection_v2(
+        self,
+        *,
+        agent_id: str,
+        stage: str,
+        cohort: str,
+        cutoff_at: str,
+        knot_history_store: Any,
+        excluded_sample_ids: Sequence[str] = (),
+    ) -> dict[str, Any]:
+        """Export the PIT outcome/KNOT history projection for paired evaluation."""
+        from mosaic.scorecard.prompt_training_history import (
+            build_prompt_training_projection_v2,
+        )
+
+        with self._connect() as conn:
+            return build_prompt_training_projection_v2(
+                conn,
+                agent_id=agent_id,
+                stage=stage,
+                cohort=cohort,
+                cutoff_at=cutoff_at,
+                knot_history_store=knot_history_store,
+                excluded_sample_ids=excluded_sample_ids,
+            )
+
     def append_from_state(
         self,
         state: dict[str, Any],

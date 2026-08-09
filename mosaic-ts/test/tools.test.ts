@@ -10,7 +10,11 @@ import {
   type SignedAgentToolCapability,
   type ToolMetadata,
 } from "../src/bridge/index.js";
-import { BRIDGE_INITIAL_TOOL_INVOKE } from "../src/bridge/tools.js";
+import {
+  BRIDGE_AUDITED_TOOL_INVOKE,
+  BRIDGE_INITIAL_AUDITED_TOOL_INVOKE,
+  BRIDGE_INITIAL_TOOL_INVOKE,
+} from "../src/bridge/tools.js";
 
 const CAPABILITY = {
   manifest: {
@@ -168,6 +172,62 @@ describe("bridgeToolFromMetadata (unit)", () => {
     expect(initial).toBeTypeOf("function");
     await expect(initial?.()).resolves.toBe("frozen-initial");
     expect(calls).toEqual([{ name: "get_rke_research_context", args: {} }]);
+  });
+
+  it("exposes server audit envelopes only through hidden runtime invocation paths", async () => {
+    const audit = {
+      schema_version: "tool_call_audit_v1" as const,
+      result_event_id: "tool_evt_test",
+      result_event_hash: `sha256:${"1".repeat(64)}`,
+      status: "SUCCEEDED" as const,
+      result_authority_type: "FROZEN_QUERY" as const,
+      result_authority_hash: `sha256:${"2".repeat(64)}`,
+      tool_environment_hash: `sha256:${"4".repeat(64)}`,
+      execution_behavior_release_hash: `sha256:${"5".repeat(64)}`,
+      capability_bundle_hash: `sha256:${"6".repeat(64)}`,
+      knot_coverage_manifest_v2_hash: `sha256:${"7".repeat(64)}`,
+      knot_audit_capability_track_v2_hash: `sha256:${"8".repeat(64)}`,
+      binding_result_refs: [
+        {
+          binding_id: "binding_test",
+          binding_result_fingerprint: `sha256:${"3".repeat(64)}`,
+        },
+      ],
+    };
+    const calls: Array<{ name: string; args: unknown }> = [];
+    const fakeApi = {
+      toolsCall: async (name: string, args: unknown) => {
+        calls.push({ name, args });
+        return { text: "audited-result", audit };
+      },
+    } as unknown as BridgeApi;
+    const runtimeTool = bridgeToolFromMetadata(
+      fakeApi,
+      {
+        name: "get_market_snapshot",
+        description: "audited snapshot",
+        args_schema: {
+          type: "object",
+          properties: { ticker: { type: "string" } },
+          required: ["ticker"],
+        },
+      },
+      { capability: CAPABILITY },
+    );
+
+    await expect(runtimeTool.invoke({ ticker: "000001.SZ" })).resolves.toBe("audited-result");
+    await expect(runtimeTool[BRIDGE_AUDITED_TOOL_INVOKE]({ ticker: "000001.SZ" })).resolves.toEqual(
+      { text: "audited-result", audit },
+    );
+    await expect(runtimeTool[BRIDGE_INITIAL_AUDITED_TOOL_INVOKE]()).resolves.toEqual({
+      text: "audited-result",
+      audit,
+    });
+    expect(calls).toEqual([
+      { name: "get_market_snapshot", args: { ticker: "000001.SZ" } },
+      { name: "get_market_snapshot", args: { ticker: "000001.SZ" } },
+      { name: "get_market_snapshot", args: {} },
+    ]);
   });
 });
 
