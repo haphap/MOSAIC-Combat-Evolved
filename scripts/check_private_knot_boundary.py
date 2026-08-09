@@ -24,6 +24,9 @@ EXECUTION_RELEASE_ARCHIVE_ROOT = PROMPT_CHECKS / "execution_behavior_releases"
 PROMPT_TOKEN_BUDGET_MANIFEST_PATH = (
     PROMPT_CHECKS / "prompt_token_budget_manifest_v1.json"
 )
+AGENT_TOOL_CONTRACT_MANIFEST_PATH = (
+    PROMPT_CHECKS / "agent_tool_contract_manifest_v1.json"
+)
 PRIVATE_PROMPT_BOOTSTRAP_PATH = Path(
     "registry/knot/prompt_parameter_bootstrap_release_v1.json"
 )
@@ -76,6 +79,13 @@ COHORT_BEHAVIOR_RE = re.compile(
 )
 CALIBRATION_MARKERS = ("判断校准：", "Decision calibration:")
 CALIBRATION_CLAUSE_RE = re.compile(r"[。！？；.!?;]+")
+RUNTIME_REBASE_PROMPT_RE = re.compile(
+    r"^prompts/mosaic/cohort_default/sector/"
+    r"(?:agriculture|biotech|consumer|energy|financials|industrials|"
+    r"real_estate_construction|relationship_mapper|semiconductor|technology)"
+    r"\.(?:zh|en)\.md$"
+)
+UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 MIN_CALIBRATION_FINGERPRINT_LENGTH = 12
 FORBIDDEN_PUBLIC_ASSETS = (
     PROMPT_CHECKS / "knot_runtime_contract_manifest_v2.json",
@@ -408,7 +418,7 @@ def _check_execution_release() -> Mapping[str, str]:
     }
 
 
-def _private_prompt_build_commit() -> str:
+def _prompt_build_source_commits() -> Mapping[str, Any]:
     manifest = _read_object(
         PROMPT_TOKEN_BUDGET_MANIFEST_PATH, "Prompt token budget manifest"
     )
@@ -422,9 +432,15 @@ def _private_prompt_build_commit() -> str:
         set(source_commits) != {"private", "bundled"}
         or not isinstance(private_commit, str)
         or re.fullmatch(r"[0-9a-f]{40}", private_commit) is None
+        or not isinstance(source_commits.get("bundled"), str)
+        or re.fullmatch(r"[0-9a-f]{40}", source_commits["bundled"]) is None
     ):
-        raise ValueError("Prompt token budget private commit is invalid")
-    return private_commit
+        raise ValueError("Prompt token budget source commits are invalid")
+    return source_commits
+
+
+def _private_prompt_build_commit() -> str:
+    return str(_prompt_build_source_commits()["private"])
 
 
 def _sha256_bytes(value: bytes) -> str:
@@ -474,12 +490,151 @@ def _check_private_token_budget_rows(private_root: Path) -> None:
         raise ValueError("private Prompt token budget rows are missing")
 
 
+def _check_runtime_contract_rebase_receipt(
+    *,
+    private_root: Path,
+    receipt: Mapping[str, Any],
+    prompt_paths: list[Path],
+) -> None:
+    expected_keys = {
+        "schema_version",
+        "previous_release_hash",
+        "baseline_commit",
+        "public_contract_commit",
+        "runtime_contract_authority_hash",
+        "affected_prompt_refs",
+        "rebase_tool_version",
+        "rebased_at",
+    }
+    affected = receipt.get("affected_prompt_refs")
+    if (
+        set(receipt) != expected_keys
+        or receipt.get("schema_version") != "runtime_contract_rebase_receipt_v1"
+        or not isinstance(receipt.get("previous_release_hash"), str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", receipt["previous_release_hash"])
+        is None
+        or not isinstance(receipt.get("baseline_commit"), str)
+        or re.fullmatch(r"[0-9a-f]{40}", receipt["baseline_commit"]) is None
+        or not isinstance(receipt.get("public_contract_commit"), str)
+        or re.fullmatch(r"[0-9a-f]{40}", receipt["public_contract_commit"])
+        is None
+        or not isinstance(receipt.get("runtime_contract_authority_hash"), str)
+        or re.fullmatch(
+            r"sha256:[0-9a-f]{64}", receipt["runtime_contract_authority_hash"]
+        )
+        is None
+        or not isinstance(affected, list)
+        or len(affected) != 20
+        or affected != sorted(set(affected))
+        or any(
+            not isinstance(ref, str)
+            or RUNTIME_REBASE_PROMPT_RE.fullmatch(ref) is None
+            for ref in affected
+        )
+        or receipt.get("rebase_tool_version") != "runtime-contract-rebase-v1"
+        or not isinstance(receipt.get("rebased_at"), str)
+        or UTC_TIMESTAMP_RE.fullmatch(receipt["rebased_at"]) is None
+    ):
+        raise ValueError("private Prompt runtime-contract rebase receipt schema mismatch")
+
+    prompt_refs = {path.relative_to(private_root).as_posix() for path in prompt_paths}
+    if not set(affected) <= prompt_refs:
+        raise ValueError("private Prompt runtime-contract affected roster mismatch")
+
+    authority = _read_object(
+        AGENT_TOOL_CONTRACT_MANIFEST_PATH, "Agent tool contract manifest"
+    )
+    if (
+        authority.get("schema_version") != "agent_tool_contract_manifest_v1"
+        or authority.get("agent_count") != 28
+        or authority.get("execution_stage_count") != 29
+        or authority.get("tool_count") != 31
+        or canonical_hash(authority)
+        != receipt["runtime_contract_authority_hash"]
+    ):
+        raise ValueError("private Prompt runtime-contract authority hash mismatch")
+    if (
+        _prompt_build_source_commits()["bundled"]
+        != receipt["public_contract_commit"]
+    ):
+        raise ValueError("private Prompt runtime-contract public commit mismatch")
+
+    baseline = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(private_root),
+            "show",
+            f"{receipt['baseline_commit']}:{PRIVATE_PROMPT_BOOTSTRAP_PATH.as_posix()}",
+        ],
+        text=True,
+        capture_output=True,
+    )
+    if baseline.returncode != 0:
+        raise ValueError("private Prompt runtime-contract baseline release is missing")
+    try:
+        baseline_release = _mapping(
+            json.loads(baseline.stdout), "private Prompt baseline bootstrap"
+        )
+    except json.JSONDecodeError as exc:
+        raise ValueError("private Prompt runtime-contract baseline release is invalid") from exc
+    baseline_body = dict(baseline_release)
+    baseline_hash = baseline_body.pop("release_hash", None)
+    if (
+        baseline_hash != receipt["previous_release_hash"]
+        or baseline_hash != canonical_hash(baseline_body)
+    ):
+        raise ValueError("private Prompt runtime-contract baseline release mismatch")
+
+    changed = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(private_root),
+            "diff",
+            "--name-only",
+            receipt["baseline_commit"],
+            "--",
+            "prompts/mosaic",
+        ],
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout.splitlines()
+    changed_prompts = sorted(
+        ref.strip()
+        for ref in changed
+        if RUNTIME_REBASE_PROMPT_RE.fullmatch(ref.strip()) is not None
+    )
+    if changed_prompts != affected:
+        raise ValueError("private Prompt runtime-contract affected Git diff mismatch")
+    protected = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(private_root),
+            "diff",
+            "--name-only",
+            receipt["baseline_commit"],
+            "--",
+            "registry/prompt_parameter_states_v1",
+            "registry/knot/prompt_parameter_contract_v1.json",
+            "registry/knot/prompt_behavior_contract_v1.json",
+        ],
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout
+    if protected.strip():
+        raise ValueError("private Prompt runtime-contract state or contract drift")
+
+
 def _check_private_prompt_bootstrap(private_root: Path) -> None:
     bootstrap = _read_object(
         private_root / PRIVATE_PROMPT_BOOTSTRAP_PATH,
         "private Prompt bootstrap",
     )
-    expected_keys = {
+    base_keys = {
         "schema_version",
         "release_hash",
         "parameter_contract_hash",
@@ -491,8 +646,9 @@ def _check_private_prompt_bootstrap(private_root: Path) -> None:
         "cohort_count",
         "prompt_count",
     }
+    actual_keys = frozenset(bootstrap)
     if (
-        set(bootstrap) != expected_keys
+        actual_keys not in {frozenset(base_keys), frozenset(base_keys | {"rebase_receipt"})}
         or bootstrap.get("schema_version")
         != "private_prompt_parameter_bootstrap_release_v1"
         or bootstrap.get("state_count") != 224
@@ -542,6 +698,13 @@ def _check_private_prompt_bootstrap(private_root: Path) -> None:
     )
     if len(prompt_paths) != 448 or len(state_paths) != 224:
         raise ValueError("private Prompt bootstrap roster mismatch")
+    receipt = bootstrap.get("rebase_receipt")
+    if receipt is not None:
+        _check_runtime_contract_rebase_receipt(
+            private_root=private_root,
+            receipt=_mapping(receipt, "private Prompt runtime-contract rebase receipt"),
+            prompt_paths=prompt_paths,
+        )
     prompt_tree_hash = canonical_hash(
         {
             "files": [

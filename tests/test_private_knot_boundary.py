@@ -301,7 +301,9 @@ def test_private_token_budget_rows_fail_closed(
         check_private_knot_boundary._check_private_token_budget_rows(private_root)
 
 
-def test_private_bootstrap_closes_private_prompt_and_state_trees(tmp_path: Path) -> None:
+def test_private_bootstrap_closes_private_prompt_and_state_trees(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     private_root = tmp_path / "private"
     parameter_path = private_root / "registry/knot/prompt_parameter_contract_v1.json"
     behavior_path = private_root / "registry/knot/prompt_behavior_contract_v1.json"
@@ -318,10 +320,30 @@ def test_private_bootstrap_closes_private_prompt_and_state_trees(tmp_path: Path)
     state_root = private_root / "registry/prompt_parameter_states_v1"
     prompt_root.mkdir(parents=True)
     state_root.mkdir(parents=True)
-    for index in range(448):
-        (prompt_root / f"prompt-{index:03}.md").write_text(
-            f"prompt {index}\n", encoding="utf-8"
+    affected_prompt_refs = sorted(
+        f"prompts/mosaic/cohort_default/sector/{agent}.{language}.md"
+        for agent in (
+            "agriculture",
+            "biotech",
+            "consumer",
+            "energy",
+            "financials",
+            "industrials",
+            "real_estate_construction",
+            "relationship_mapper",
+            "semiconductor",
+            "technology",
         )
+        for language in ("en", "zh")
+    )
+    for index in range(448):
+        path = (
+            private_root / affected_prompt_refs[index]
+            if index < len(affected_prompt_refs)
+            else prompt_root / f"prompt-{index:03}.md"
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"prompt {index}\n", encoding="utf-8")
     for index in range(224):
         (state_root / f"state-{index:03}.json").write_text(
             json.dumps({"index": index}), encoding="utf-8"
@@ -365,16 +387,112 @@ def test_private_bootstrap_closes_private_prompt_and_state_trees(tmp_path: Path)
     )
 
     check_private_knot_boundary._check_private_prompt_bootstrap(private_root)
+    _git(private_root, "init", "-q")
+    _git(private_root, "config", "user.email", "test@example.com")
+    _git(private_root, "config", "user.name", "Test")
+    _git(private_root, "add", ".")
+    _git(private_root, "commit", "-qm", "baseline")
+    baseline_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=private_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    for ref in affected_prompt_refs:
+        path = private_root / ref
+        path.write_text(path.read_text(encoding="utf-8") + "runtime rebase\n", encoding="utf-8")
+    authority = {
+        "schema_version": "agent_tool_contract_manifest_v1",
+        "agent_count": 28,
+        "execution_stage_count": 29,
+        "tool_count": 31,
+        "agents": [],
+    }
+    authority_path = tmp_path / "agent_tool_contract_manifest_v1.json"
+    authority_path.write_text(json.dumps(authority), encoding="utf-8")
+    public_commit = "a" * 40
+    budget_path = tmp_path / "prompt_token_budget_manifest_v1.json"
+    budget_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "prompt_token_budget_manifest_v1",
+                "source_commits": {"private": "b" * 40, "bundled": public_commit},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        check_private_knot_boundary,
+        "AGENT_TOOL_CONTRACT_MANIFEST_PATH",
+        authority_path,
+    )
+    monkeypatch.setattr(
+        check_private_knot_boundary,
+        "PROMPT_TOKEN_BUDGET_MANIFEST_PATH",
+        budget_path,
+    )
+    receipt = {
+        "schema_version": "runtime_contract_rebase_receipt_v1",
+        "previous_release_hash": check_private_knot_boundary.canonical_hash(
+            bootstrap_body
+        ),
+        "baseline_commit": baseline_commit,
+        "public_contract_commit": public_commit,
+        "runtime_contract_authority_hash": check_private_knot_boundary.canonical_hash(
+            authority
+        ),
+        "affected_prompt_refs": affected_prompt_refs,
+        "rebase_tool_version": "runtime-contract-rebase-v1",
+        "rebased_at": "2026-08-09T04:00:00Z",
+    }
+    rebased_body = {
+        **bootstrap_body,
+        "prompt_tree_hash": tree_hash(sorted(prompt_root.rglob("*.md"))),
+        "rebase_receipt": receipt,
+    }
+    bootstrap_path.write_text(
+        json.dumps(
+            {
+                **rebased_body,
+                "release_hash": check_private_knot_boundary.canonical_hash(rebased_body),
+            }
+        ),
+        encoding="utf-8",
+    )
+    check_private_knot_boundary._check_private_prompt_bootstrap(private_root)
+    invalid_receipt = {**receipt, "runtime_contract_authority_hash": "sha256:" + "f" * 64}
+    invalid_body = {**rebased_body, "rebase_receipt": invalid_receipt}
+    bootstrap_path.write_text(
+        json.dumps(
+            {
+                **invalid_body,
+                "release_hash": check_private_knot_boundary.canonical_hash(invalid_body),
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="runtime-contract authority hash mismatch"):
+        check_private_knot_boundary._check_private_prompt_bootstrap(private_root)
+
+    bootstrap_path.write_text(
+        json.dumps(
+            {
+                **rebased_body,
+                "release_hash": check_private_knot_boundary.canonical_hash(rebased_body),
+            }
+        ),
+        encoding="utf-8",
+    )
     bootstrap = json.loads(bootstrap_path.read_text(encoding="utf-8"))
     bootstrap["release_hash"] = "sha256:" + "f" * 64
     bootstrap_path.write_text(json.dumps(bootstrap), encoding="utf-8")
     with pytest.raises(ValueError, match="bootstrap release hash mismatch"):
         check_private_knot_boundary._check_private_prompt_bootstrap(private_root)
-    bootstrap["release_hash"] = check_private_knot_boundary.canonical_hash(
-        bootstrap_body
-    )
+    bootstrap["release_hash"] = check_private_knot_boundary.canonical_hash(rebased_body)
     bootstrap_path.write_text(json.dumps(bootstrap), encoding="utf-8")
-    (prompt_root / "prompt-000.md").write_text("tampered\n", encoding="utf-8")
+    (prompt_root / "prompt-020.md").write_text("tampered\n", encoding="utf-8")
     with pytest.raises(ValueError, match="Prompt tree mismatch"):
         check_private_knot_boundary._check_private_prompt_bootstrap(private_root)
 
