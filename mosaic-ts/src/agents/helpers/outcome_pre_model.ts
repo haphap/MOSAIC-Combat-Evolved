@@ -31,7 +31,6 @@ export const LIVE_SOURCE_TOOL_BY_AGENT = {
   real_estate_construction: "get_sector_research_snapshot",
   financials: "get_sector_research_snapshot",
   agriculture: "get_sector_research_snapshot",
-  relationship_mapper: "get_relationship_graph_snapshot",
 } as const satisfies Readonly<Record<string, OutcomeLiveSourceAuthorityBinding["source_tool_id"]>>;
 
 export interface LiveOutcomeFreezeResult {

@@ -417,7 +417,6 @@ _CONTRACT_RECEIPT_POLICIES = {
         required_dimensions={
             "logical_route": ("tushare.sector_fundamentals",)
         },
-        require_parent_capture=True,
     ),
     "tushare_sector_market_v1": _policy(
         "tushare",
@@ -425,7 +424,6 @@ _CONTRACT_RECEIPT_POLICIES = {
         "pro-v1",
         "ENDPOINT_SPECIFIC_COMPLETENESS_V1",
         required_dimensions={"logical_route": ("tushare.sector_market",)},
-        require_parent_capture=True,
     ),
     "composite_cn_rates_mof_chinabond_v1": _policy(
         "composite",

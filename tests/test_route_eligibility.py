@@ -170,7 +170,7 @@ def _source_receipt(
 def test_checker_registry_is_exactly_bound_to_all_route_contract_versions():
     manifest = load_agent_data_route_manifest()
     expected = {route["contract_version"] for route in manifest["routes"]}
-    assert len(expected) == 30
+    assert len(expected) == 29
     assert set(ROUTE_ELIGIBILITY_CHECKERS) == expected
     assert {
         spec.route_id for spec in ROUTE_ELIGIBILITY_CHECKERS.values()
@@ -203,7 +203,7 @@ def test_all_contract_checkers_accept_their_exact_receipt_profile(tmp_path: Path
         for route in routes
     }
 
-    assert len(results) == 30
+    assert len(results) == 29
     assert {route_id for route_id, result in results.items() if result["status"] == "READY"} == set(results)
 
 
@@ -256,6 +256,57 @@ def test_contract_checker_rejects_missing_route_continuity_dimensions(tmp_path: 
 
     assert blocked["status"] == "BLOCKED"
     assert blocked["blockers"] == ["REVISION_GAP"]
+
+
+@pytest.mark.parametrize(
+    "route_id",
+    ("tushare.sector_fundamentals", "tushare.sector_market"),
+)
+def test_sector_checker_accepts_exact_membership_without_parent_capture(
+    tmp_path: Path, route_id: str
+):
+    ledger = AgentDataMaterializationLedger(tmp_path / "ledger.sqlite3")
+    receipt = _source_receipt(route_id)
+    assert receipt.as_dict()["provenance"]["parent_capture_hash"] is None
+    ledger.append_source_capture(receipt)
+
+    result = evaluate_route_eligibility(
+        ledger=ledger,
+        route_id=route_id,
+        target_date=TARGET,
+        evaluated_at=EVALUATED_AT,
+    ).as_dict()
+
+    assert result["status"] == "READY"
+    assert result["blockers"] == []
+    assert result["selected_receipt_refs"] == [receipt.receipt_hash]
+
+
+@pytest.mark.parametrize(
+    "route_id",
+    ("tushare.sector_fundamentals", "tushare.sector_market"),
+)
+def test_sector_checker_rejects_non_exact_membership_without_parent_capture(
+    tmp_path: Path, route_id: str
+):
+    ledger = AgentDataMaterializationLedger(tmp_path / "ledger.sqlite3")
+    receipt = _source_receipt(
+        route_id,
+        dimensions={"logical_route": ["tushare.unregistered_sector_route"]},
+    )
+    assert receipt.as_dict()["provenance"]["parent_capture_hash"] is None
+    ledger.append_source_capture(receipt)
+
+    result = evaluate_route_eligibility(
+        ledger=ledger,
+        route_id=route_id,
+        target_date=TARGET,
+        evaluated_at=EVALUATED_AT,
+    ).as_dict()
+
+    assert result["status"] == "BLOCKED"
+    assert result["blockers"] == ["REVISION_GAP"]
+    assert result["selected_receipt_refs"] == [receipt.receipt_hash]
 
 
 def test_euro_calendar_checker_accepts_registered_logical_currency_set(
@@ -328,7 +379,7 @@ def test_earliest_ready_date_intersects_all_source_and_historical_runtime_routes
 
     assert result["status"] == "READY"
     assert result["earliest_ready_date"] == "2026-06-30"
-    assert result["source_route_count"] == 26
+    assert result["source_route_count"] == 25
     assert result["runtime_precheck_route_ids"] == [
         "runtime.account_positions_policy",
         "runtime.market_liquidity",
