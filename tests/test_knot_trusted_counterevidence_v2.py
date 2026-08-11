@@ -44,7 +44,7 @@ def _authority_fixture() -> tuple[dict, dict, dict, str, str]:
     return row, event, binding_ref, payload, canonical_hash(event)
 
 
-def test_v2_coverage_and_audit_track_close_all_187_bindings():
+def test_v2_coverage_and_audit_track_close_all_183_bindings():
     artifacts = build_default_contract_artifacts(ROOT)
     binding = artifacts["agent_capability_binding_manifest_v1.json"]
     coverage = artifacts["knot_tool_coverage_manifest_v2.json"]
@@ -52,8 +52,8 @@ def test_v2_coverage_and_audit_track_close_all_187_bindings():
 
     binding_ids = [row["binding_id"] for row in binding["bindings"]]
     coverage_ids = [row["binding_id"] for row in coverage["coverage"]]
-    assert len(binding_ids) == len(coverage_ids) == 187
-    assert len(set(coverage_ids)) == 187
+    assert len(binding_ids) == len(coverage_ids) == 183
+    assert len(set(coverage_ids)) == 183
     assert sorted(binding_ids) == coverage_ids
     assert all(
         row["signal_selector_contract_hash"]

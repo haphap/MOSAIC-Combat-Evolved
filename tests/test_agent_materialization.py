@@ -382,7 +382,11 @@ def test_source_capture_receipt_round_trips_both_pit_modes() -> None:
         (("time", "vintage_at"), "2026-07-01T06:01:00+00:00", "time order"),
         (("time", "knowledge_available_at"), "2026-07-01T07:01:00+00:00", "time order"),
         (("time", "captured_at"), "2026-07-01T06:01:00+00:00", "knowledge_available_at"),
-        (("time", "captured_at"), "2026-07-01T06:00:00", "date-time"),
+        (
+            ("time", "captured_at"),
+            "2026-07-01T06:00:00",
+            r"time\.captured_at.*(?:must include a timezone|not a 'date-time')",
+        ),
     ],
 )
 def test_source_capture_receipt_rejects_invalid_time_combinations(
@@ -497,16 +501,16 @@ def test_receipts_reject_unknown_blocker_codes() -> None:
 def test_route_manifest_has_exact_agent_stage_tool_coverage() -> None:
     manifest = load_agent_data_route_manifest()
     validated = validate_agent_data_route_manifest(manifest)
-    assert len({binding["agent_id"] for binding in validated["bindings"]}) == 28
-    assert len({(binding["agent_id"], binding["stage"]) for binding in validated["bindings"]}) == 29
-    assert len({binding["tool_id"] for binding in validated["bindings"]}) == 32
+    assert len({binding["agent_id"] for binding in validated["bindings"]}) == 27
+    assert len({(binding["agent_id"], binding["stage"]) for binding in validated["bindings"]}) == 28
+    assert len({binding["tool_id"] for binding in validated["bindings"]}) == 31
     assert all(binding["required_route_ids"] for binding in validated["bindings"])
 
 
 def test_route_manifest_replaces_yc_cb_curve_route_and_three_bindings_atomically() -> None:
     manifest = load_agent_data_route_manifest()
     routes = {route["route_id"]: route for route in manifest["routes"]}
-    assert len(routes) == 30
+    assert len(routes) == 29
     assert "tushare.shibor_yield_curve" not in routes
     assert routes["composite.cn_rates"] == {
         "contract_version": "composite_cn_rates_mof_chinabond_v1",
@@ -537,7 +541,7 @@ def test_route_manifest_replaces_yc_cb_curve_route_and_three_bindings_atomically
 def test_route_manifest_replaces_non_replayable_europe_sources_atomically() -> None:
     manifest = load_agent_data_route_manifest()
     routes = {route["route_id"]: route for route in manifest["routes"]}
-    assert len(routes) == 30
+    assert len(routes) == 29
     assert "eurostat.euro_macro" not in routes
     assert routes["ecb.eu_real_economy"] == {
         "contract_version": "ecb_eu_real_economy_history_v1",
@@ -727,7 +731,7 @@ def test_dry_run_reports_missing_routes_without_mutating_ledger(tmp_path: Path) 
     assert ledger.row_counts() == before
 
 
-def test_cycle_dry_run_covers_exact_29_stages_without_mutating_ledger(
+def test_cycle_dry_run_covers_exact_28_stages_without_mutating_ledger(
     tmp_path: Path,
 ) -> None:
     ledger = AgentDataMaterializationLedger(tmp_path / "empty.sqlite3")
@@ -738,9 +742,9 @@ def test_cycle_dry_run_covers_exact_29_stages_without_mutating_ledger(
     assert report["schema_version"] == "agent_cycle_materialization_dry_run_v1"
     assert report["dry_run"] is True
     assert report["status"] == "BLOCKED"
-    assert report["stage_count"] == 29
-    assert len(report["stages"]) == 29
-    assert len({(row["agent_id"], row["stage"]) for row in report["stages"]}) == 29
+    assert report["stage_count"] == 28
+    assert len(report["stages"]) == 28
+    assert len({(row["agent_id"], row["stage"]) for row in report["stages"]}) == 28
     assert set(report["missing_route_ids"]) == {
         route["route_id"]
         for route in load_agent_data_route_manifest()["routes"]
@@ -1873,15 +1877,9 @@ def test_sector_relationship_family_reuses_all_existing_archives_once(
 ) -> None:
     ledger = AgentDataMaterializationLedger(tmp_path / "sector-family.sqlite3")
     calendar_store = object()
-    base_store = object()
     sector_store = object()
     china_store = object()
     calendar_archive = SimpleNamespace(
-        coverage_receipt=SimpleNamespace(
-            as_dict=lambda: {"coverage_complete": True}
-        )
-    )
-    base_archive = SimpleNamespace(
         coverage_receipt=SimpleNamespace(
             as_dict=lambda: {"coverage_complete": True}
         )
@@ -1918,7 +1916,6 @@ def test_sector_relationship_family_reuses_all_existing_archives_once(
     monkeypatch.setattr(
         stage_preparer_module, "EconomicCalendarStore", lambda: calendar_store
     )
-    monkeypatch.setattr(stage_preparer_module, "AShareArchiveStore", lambda: base_store)
     monkeypatch.setattr(stage_preparer_module, "SectorArchiveStore", lambda: sector_store)
     monkeypatch.setattr(
         stage_preparer_module, "ChinaAgentDataArchiveStore", lambda: china_store
@@ -1939,10 +1936,17 @@ def test_sector_relationship_family_reuses_all_existing_archives_once(
     monkeypatch.setattr(
         stage_preparer_module,
         "archive_a_share_breadth",
-        lambda fetch, **kwargs: events.append(
-            ("a_share", {"fetch": fetch, **kwargs})
-        )
-        or base_archive,
+        lambda *_args, **_kwargs: pytest.fail(
+            "Sector object preparation must not capture A-share breadth"
+        ),
+    )
+    monkeypatch.setattr(
+        stage_preparer_module,
+        "capture_a_share_parent_sources",
+        lambda *_args, **_kwargs: pytest.fail(
+            "Sector object preparation must not capture A-share parents"
+        ),
+        raising=False,
     )
     monkeypatch.setattr(
         stage_preparer_module,
@@ -1985,7 +1989,6 @@ def test_sector_relationship_family_reuses_all_existing_archives_once(
     assert [name for name, _ in events] == [
         "calendar",
         "role",
-        "a_share",
         "sector",
         "core",
         "china",
@@ -1996,74 +1999,45 @@ def test_sector_relationship_family_reuses_all_existing_archives_once(
         "store": calendar_store,
         "ledger": ledger,
     }
-    assert events[2][1]["store"] is base_store
-    assert events[3][1]["base_store"] is base_store
-    assert events[3][1]["store"] is sector_store
-    assert events[3][1]["requested_route_ids"] == (
+    assert events[2][1]["store"] is sector_store
+    assert "base_store" not in events[2][1]
+    assert events[2][1]["requested_route_ids"] == (
         "tushare.sector_fundamentals",
         "tushare.sector_market",
     )
-    assert events[3][1]["requested_agent_ids"] == ("semiconductor",)
-    assert events[4][1]["archive"] is sector_archive
-    assert events[5][1]["store"] is china_store
-    assert events[5][1]["requested_route_ids"] == (
+    assert events[2][1]["requested_agent_ids"] == ("semiconductor",)
+    assert "requested_security_codes" not in events[2][1]
+    assert events[3][1]["archive"] is sector_archive
+    assert events[4][1]["store"] is china_store
+    assert events[4][1]["requested_route_ids"] == (
         "tushare.institutional_flow",
     )
 
 
 @pytest.mark.parametrize(
-    ("route_id", "agent_id", "parent_kind", "parent_endpoints", "sector_agent_ids"),
+    ("route_id", "agent_id", "sector_agent_ids"),
     (
-        (
-            "tushare.relationship_graph",
-            "relationship_mapper",
-            "a_share_parent",
-            ("stock_basic",),
-            (
-                "agriculture",
-                "biotech",
-                "consumer",
-                "energy",
-                "financials",
-                "industrials",
-                "real_estate_construction",
-                "semiconductor",
-                "technology",
-            ),
-        ),
         (
             "tushare.sector_fundamentals",
             "semiconductor",
-            "a_share_parent",
-            ("daily_basic", "stock_basic"),
             ("semiconductor",),
         ),
         (
             "tushare.sector_market",
             "semiconductor",
-            "a_share",
-            None,
             ("semiconductor",),
         ),
     ),
 )
-def test_sector_route_only_historical_replay_uses_parent_and_sector_archives(
+def test_sector_route_only_historical_replay_skips_parent_archives(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     route_id: str,
     agent_id: str,
-    parent_kind: str,
-    parent_endpoints: tuple[str, ...] | None,
     sector_agent_ids: tuple[str, ...],
 ) -> None:
     ledger = AgentDataMaterializationLedger(tmp_path / "sector-route-only.sqlite3")
-    base_store = object()
     sector_store = object()
-    base_archive = SimpleNamespace(
-        coverage_receipt=SimpleNamespace(
-            as_dict=lambda: {"coverage_complete": True}
-        )
-    )
     sector_archive = SimpleNamespace(
         coverage_receipt=SimpleNamespace(
             as_dict=lambda: {"coverage_complete": True}
@@ -2071,23 +2045,20 @@ def test_sector_route_only_historical_replay_uses_parent_and_sector_archives(
     )
     events: list[tuple[str, dict]] = []
 
-    monkeypatch.setattr(stage_preparer_module, "AShareArchiveStore", lambda: base_store)
     monkeypatch.setattr(stage_preparer_module, "SectorArchiveStore", lambda: sector_store)
     monkeypatch.setattr(
         stage_preparer_module,
         "archive_a_share_breadth",
-        lambda fetch, **kwargs: events.append(
-            ("a_share", {"fetch": fetch, **kwargs})
-        )
-        or base_archive,
+        lambda *_args, **_kwargs: pytest.fail(
+            "route-only Sector object preparation must not capture A-share breadth"
+        ),
     )
     monkeypatch.setattr(
         stage_preparer_module,
         "capture_a_share_parent_sources",
-        lambda fetch, **kwargs: events.append(
-            ("a_share_parent", {"fetch": fetch, **kwargs})
-        )
-        or ({}, False),
+        lambda *_args, **_kwargs: pytest.fail(
+            "route-only Sector object preparation must not capture A-share parents"
+        ),
         raising=False,
     )
     monkeypatch.setattr(
@@ -2114,18 +2085,17 @@ def test_sector_route_only_historical_replay_uses_parent_and_sector_archives(
             "stage": agent_id,
             "route_id": route_id,
             "historical_replay": True,
+            "candidate_scope": None,
         },
         ledger,
     )
 
-    assert [name for name, _ in events] == [parent_kind, "sector"]
+    assert [name for name, _ in events] == ["sector"]
     assert events[0][1]["historical_replay"] is True
-    if parent_endpoints is not None:
-        assert events[0][1]["requested_endpoints"] == parent_endpoints
-    assert events[1][1]["historical_replay"] is True
-    assert events[1][1]["base_store"] is base_store
-    assert events[1][1]["requested_route_ids"] == (route_id,)
-    assert events[1][1]["requested_agent_ids"] == sector_agent_ids
+    assert "base_store" not in events[0][1]
+    assert events[0][1]["requested_route_ids"] == (route_id,)
+    assert events[0][1]["requested_agent_ids"] == sector_agent_ids
+    assert "requested_security_codes" not in events[0][1]
 
 
 def test_sector_relationship_family_stops_after_blocked_calendar_builds(
@@ -2165,55 +2135,6 @@ def test_sector_relationship_family_stops_after_blocked_calendar_builds(
         )
 
     assert events == ["role"]
-
-
-def test_sector_relationship_family_stops_after_blocked_a_share_archive(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    ledger = AgentDataMaterializationLedger(tmp_path / "sector-breadth-blocked.sqlite3")
-    ready_calendar = SimpleNamespace(
-        coverage_receipt=SimpleNamespace(
-            as_dict=lambda: {"coverage_complete": True}
-        )
-    )
-    blocked_breadth = SimpleNamespace(
-        coverage_receipt=SimpleNamespace(
-            as_dict=lambda: {"coverage_complete": False}
-        )
-    )
-    monkeypatch.setattr(stage_preparer_module, "EconomicCalendarStore", lambda: object())
-    monkeypatch.setattr(stage_preparer_module, "AShareArchiveStore", lambda: object())
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "archive_eco_calendar",
-        lambda *_args, **_kwargs: ready_calendar,
-    )
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "compile_sector_role_event_builds",
-        lambda **_kwargs: (),
-    )
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "archive_a_share_breadth",
-        lambda *_args, **_kwargs: blocked_breadth,
-    )
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "archive_sector_relationship",
-        lambda *_args, **_kwargs: pytest.fail("sector capture must not start"),
-    )
-
-    with pytest.raises(DataVendorUnavailable, match="A-share breadth archive is blocked"):
-        prepare_sector_relationship_family(
-            {
-                **_ready_stage_request("sector-breadth-blocked"),
-                "agent_id": "semiconductor",
-                "stage": "semiconductor",
-            },
-            ledger,
-        )
 
 
 def test_us_family_reuses_calendar_archive_and_compiler(
@@ -2878,7 +2799,6 @@ def test_production_registry_includes_market_breadth_and_sector_families(
         "real_estate_construction",
         "financials",
         "agriculture",
-        "relationship_mapper",
     }
     assert {
         agent_id

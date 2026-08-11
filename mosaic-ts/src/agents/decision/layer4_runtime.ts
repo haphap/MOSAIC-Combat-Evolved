@@ -124,7 +124,6 @@ function layer4UpstreamOutputsHash(state: DailyCycleStateType): string {
             ([key]) =>
               key.startsWith("MACRO_TRANSMISSION:") ||
               key.startsWith("STANDARD_SECTOR_SELECTION:") ||
-              key.startsWith("RELATIONSHIP_GRAPH:") ||
               key.startsWith("SUPERINVESTOR_SELECTION:"),
           )
           .sort(([left], [right]) => left.localeCompare(right)),

@@ -601,7 +601,7 @@ def _validate_agent_cycle_event(payload: Mapping[str, Any]) -> None:
     elif state == "COMMITTED":
         if (
             set(runtime_refs) != runtime_routes
-            or len(outcomes) != 29
+            or len(outcomes) != 28
             or payload["accepted_output_closure_hash"] is None
             or payload["final_decision_hash"] is None
             or terminal_reason is not None
@@ -2180,7 +2180,7 @@ class AgentDataMaterializationLedger:
                 for binding in manifest["bindings"]
             }
         )
-        if len(stage_keys) != 29:
+        if len(stage_keys) != 28:
             raise RuntimeError("Agent cycle stage closure drift")
         stages = [
             self.materialize_dry_run(

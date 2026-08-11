@@ -92,10 +92,10 @@ def _fixture() -> dict[str, Any]:
         "cohort_id": "cohort_default",
         "language": "zh",
         "evaluation_track_key_hashes": [
-            canonical_hash({"evaluation": index}) for index in range(28)
+            canonical_hash({"evaluation": index}) for index in range(27)
         ],
         "usage_track_key_hashes": [
-            canonical_hash({"usage": index}) for index in range(24)
+            canonical_hash({"usage": index}) for index in range(23)
         ],
         "decision_evaluation_track_key_hashes": [
             canonical_hash({"decision": index}) for index in range(4)
@@ -257,12 +257,12 @@ def _build(data: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def test_gate_d_candidate_closes_29_stages_187_bindings_and_shared_cio_prompt():
+def test_gate_d_candidate_closes_28_stages_183_bindings_and_shared_cio_prompt():
     data = _fixture()
     candidate = _build(data)
-    assert candidate["runtime_stage_count"] == 29
-    assert candidate["binding_count"] == 187
-    assert len(candidate["stage_evidence"]) == 29
+    assert candidate["runtime_stage_count"] == 28
+    assert candidate["binding_count"] == 183
+    assert len(candidate["stage_evidence"]) == 28
     proposal = next(
         row
         for row in candidate["stage_evidence"]
@@ -292,9 +292,9 @@ def test_gate_d_fixture_evidence_is_derived_from_current_overlays_and_tracks():
         capability_bundle=data["bundle"],
         training_projections_by_stage=data["projections"],
     )
-    assert evidence["significance_fixture_count"] == 113
-    assert evidence["runtime_binding_count"] == 187
-    assert evidence["projection_count"] == 29
+    assert evidence["significance_fixture_count"] == 112
+    assert evidence["runtime_binding_count"] == 183
+    assert evidence["projection_count"] == 28
     assert evidence["source_route_migration_count"] == 6
     assert evidence["source_route_migrations_hash"] == canonical_hash(
         [

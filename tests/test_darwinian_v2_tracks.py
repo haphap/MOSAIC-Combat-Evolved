@@ -50,14 +50,14 @@ def _register(store: ScorecardStore, release: str, effective_at: str):
     )
 
 
-def test_new_variant_registers_28_evaluation_and_24_usage_tracks(tmp_path: Path) -> None:
+def test_new_variant_registers_27_evaluation_and_23_usage_tracks(tmp_path: Path) -> None:
     store = ScorecardStore(tmp_path / "scorecard.db")
     revision = _register(store, "release-1", "2026-07-17T09:00:00+08:00")
-    assert revision["inserted_evaluation_tracks"] == 28
-    assert revision["inserted_usage_tracks"] == 24
-    assert revision["inserted_cold_start_weights"] == 24
-    assert len(revision["evaluation_track_key_hashes"]) == 28
-    assert len(revision["usage_track_key_hashes"]) == 24
+    assert revision["inserted_evaluation_tracks"] == 27
+    assert revision["inserted_usage_tracks"] == 23
+    assert revision["inserted_cold_start_weights"] == 23
+    assert len(revision["evaluation_track_key_hashes"]) == 27
+    assert len(revision["usage_track_key_hashes"]) == 23
     assert len(revision["decision_evaluation_track_key_hashes"]) == 4
     assert revision["prepared_at"] == "2026-07-17T09:00:00+08:00"
     assert revision["recorded_at"] == "2026-07-17T09:00:00+08:00"
@@ -69,7 +69,7 @@ def test_new_variant_registers_28_evaluation_and_24_usage_tracks(tmp_path: Path)
         ],
         as_of="2026-07-17T23:59:59+08:00",
     )
-    assert len(snapshot["weights"]) == 24
+    assert len(snapshot["weights"]) == 23
     assert {row["darwin_weight"] for row in snapshot["weights"]} == {1.0}
     assert {row["record_kind"] for row in snapshot["weights"]} == {
         "COLD_START_INITIALIZATION"

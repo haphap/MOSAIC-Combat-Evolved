@@ -197,7 +197,6 @@ export const PROMPT_ROLE_COMPONENT_ORDINALS = {
   real_estate_construction: [2, 3, 4, 5],
   financials: [2, 3, 4, 5],
   agriculture: [2, 3, 4, 5],
-  relationship_mapper: [1, 2, 4],
   druckenmiller: [4],
   munger: [4],
   burry: [4],

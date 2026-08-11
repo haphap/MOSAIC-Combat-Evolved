@@ -489,7 +489,7 @@ export function registerAutoresearch(program: Command): void {
 
   cmd
     .command("build-gate-d-candidate")
-    .description("Build the exact 29-stage/187-binding public Gate-D candidate.")
+    .description("Build the exact 28-stage/183-binding public Gate-D candidate.")
     .requiredOption("--request <path>", "Public-safe Gate-D candidate request JSON")
     .requiredOption("--out <path>", "Output candidate JSON")
     .action(async (opts: { request: string; out: string }) => {

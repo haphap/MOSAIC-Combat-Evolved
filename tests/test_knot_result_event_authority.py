@@ -463,7 +463,7 @@ def test_knot_v2_history_rejects_forged_event_and_excludes_legacy(
         ).fetchone()[0] == 0
 
 
-def test_knot_v2_history_partition_has_exact_187_binding_closure(
+def test_knot_v2_history_partition_has_exact_183_binding_closure(
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path)
@@ -487,7 +487,7 @@ def test_knot_v2_history_partition_has_exact_187_binding_closure(
             "materialization_hash": materialization["materialization_hash"],
         }
     ]
-    assert len(projection["binding_aggregates"]) == 187
+    assert len(projection["binding_aggregates"]) == 183
     assert [row["binding_id"] for row in projection["binding_aggregates"]] == sorted(
         row["binding_id"] for row in projection["binding_aggregates"]
     )

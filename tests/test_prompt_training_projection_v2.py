@@ -213,7 +213,7 @@ def test_prompt_training_projection_v2_joins_maturity_and_knot_authority(
     assert projection["productionVariantRosterRevisionSetHash"] == canonical_hash(
         roster_refs
     )
-    assert len(projection["capabilityUseAggregates"]) == 187
+    assert len(projection["capabilityUseAggregates"]) == 183
     assert projection["projectionHash"] == canonical_hash(
         {key: value for key, value in projection.items() if key != "projectionHash"}
     )

@@ -1,4 +1,4 @@
-"""Generated 28-Agent outcome contracts consumed by Scorecard/Darwinian v2.
+"""Generated 27-Agent outcome contracts consumed by Scorecard/Darwinian v2.
 
 The editable source is ``mosaic-ts/src/autoresearch/outcome_registry.ts``.
 Python deliberately loads the generated public artifact instead of maintaining
@@ -52,8 +52,8 @@ def load_outcome_contracts(
     if payload.get("manifest_version") != "agent_outcome_contract_manifest_v2":
         raise RuntimeError("unsupported Agent outcome contract manifest")
     contracts = payload.get("contracts")
-    if not isinstance(contracts, list) or len(contracts) != 28:
-        raise RuntimeError("Agent outcome contract manifest must contain 28 rows")
+    if not isinstance(contracts, list) or len(contracts) != 27:
+        raise RuntimeError("Agent outcome contract manifest must contain 27 rows")
     metric_schemas = payload.get("metric_schemas")
     if (
         payload.get("metric_schema_count") != 8
@@ -211,13 +211,13 @@ def load_outcome_contracts(
         if row.get("darwin_application_mode") == "EVOLUTION_ONLY"
     }
     if (
-        payload.get("contract_count") != 28
-        or payload.get("usage_track_count") != 24
+        payload.get("contract_count") != 27
+        or payload.get("usage_track_count") != 23
         or payload.get("evolution_only_track_count") != 4
-        or len(usage) != 24
+        or len(usage) != 23
         or len(evolution_only) != 4
     ):
-        raise RuntimeError("Agent outcome manifest 28/24/4 cardinality mismatch")
+        raise RuntimeError("Agent outcome manifest 27/23/4 cardinality mismatch")
     if any(by_agent[agent_id].get("layer") == "DECISION" for agent_id in usage):
         raise RuntimeError("Decision Agent cannot own a downstream usage weight")
     if any(by_agent[agent_id].get("layer") != "DECISION" for agent_id in evolution_only):
@@ -240,7 +240,7 @@ def load_outcome_contracts(
         for row in tool_payload.get("agents", [])
         if isinstance(row, dict)
     }
-    if tool_payload.get("agent_count") != 28 or tool_agents != set(by_agent):
+    if tool_payload.get("agent_count") != 27 or tool_agents != set(by_agent):
         raise RuntimeError("outcome and tool contract Agent rosters differ")
 
     return MappingProxyType(by_agent)

@@ -301,7 +301,7 @@ function authorityStage(
 
 function authoritySourcePrefixes(agentId: DecisionOpportunityAgentId): readonly string[] {
   if (agentId === "alpha_discovery") {
-    return ["STANDARD_SECTOR_SELECTION:", "RELATIONSHIP_GRAPH:", "SUPERINVESTOR_SELECTION:"];
+    return ["STANDARD_SECTOR_SELECTION:", "SUPERINVESTOR_SELECTION:"];
   }
   if (agentId === "cro") return ["CIO_PROPOSAL:"];
   if (agentId === "autonomous_execution") {

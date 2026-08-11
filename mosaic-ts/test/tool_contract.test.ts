@@ -56,13 +56,13 @@ function capability() {
 }
 
 describe("canonical Agent tool contract", () => {
-  it("contains exactly 28 agents, 29 stages, and the 32-tool active surface", () => {
-    expect(AGENT_IDS).toHaveLength(28);
-    expect(new Set(AGENT_IDS).size).toBe(28);
-    expect(AGENT_EXECUTION_STAGE_IDS).toHaveLength(29);
-    expect(new Set(AGENT_EXECUTION_STAGE_IDS).size).toBe(29);
-    expect(AGENT_TOOL_IDS).toHaveLength(32);
-    expect(new Set(AGENT_TOOL_IDS).size).toBe(32);
+  it("contains exactly 27 agents, 28 stages, and the 31-tool active surface", () => {
+    expect(AGENT_IDS).toHaveLength(27);
+    expect(new Set(AGENT_IDS).size).toBe(27);
+    expect(AGENT_EXECUTION_STAGE_IDS).toHaveLength(28);
+    expect(new Set(AGENT_EXECUTION_STAGE_IDS).size).toBe(28);
+    expect(AGENT_TOOL_IDS).toHaveLength(31);
+    expect(new Set(AGENT_TOOL_IDS).size).toBe(31);
   });
 
   it("matches every runtime Agent spec and the committed generated artifact", () => {
@@ -139,16 +139,32 @@ describe("canonical Agent tool contract", () => {
       }
       return binding.stage;
     };
-    const expectedAdded = new Set(
-      [...sectorOverlay.bindings, ...l3L4Overlay.bindings].map(
-        (binding) => `${binding.agent_id}\0${activeStage(binding)}\0${binding.tool_id}`,
-      ),
+    const currentSectorSupplyBindings = [
+      "semiconductor\0semiconductor\0get_supply_chain_evidence",
+      "technology\0technology\0get_supply_chain_evidence",
+      "energy\0energy\0get_supply_chain_evidence",
+      "biotech\0biotech\0get_supply_chain_evidence",
+      "consumer\0consumer\0get_supply_chain_evidence",
+      "industrials\0industrials\0get_supply_chain_evidence",
+      "real_estate_construction\0real_estate_construction\0get_supply_chain_evidence",
+      "financials\0financials\0get_supply_chain_evidence",
+      "agriculture\0agriculture\0get_supply_chain_evidence",
+    ];
+    const expectedAdded = new Set([
+      ...[...sectorOverlay.bindings, ...l3L4Overlay.bindings]
+        .filter((binding) => binding.agent_id !== "relationship_mapper")
+        .map((binding) => `${binding.agent_id}\0${activeStage(binding)}\0${binding.tool_id}`),
+      ...currentSectorSupplyBindings,
+    ]);
+    const retainedBaseSurface = [...baseSurface].filter(
+      (row) => !row.startsWith("relationship_mapper\0"),
     );
 
     expect(sectorOverlay.activation_state).toBe("staged");
     expect(l3L4Overlay.activation_state).toBe("staged");
     expect(added).toEqual(expectedAdded);
-    expect([...baseSurface].every((row) => activeSurface.has(row))).toBe(true);
+    expect(retainedBaseSurface.every((row) => activeSurface.has(row))).toBe(true);
+    expect([...activeSurface].some((row) => row.startsWith("relationship_mapper\0"))).toBe(false);
   });
 
   it("validates bundle/capability binding and rejects role or stage expansion", () => {

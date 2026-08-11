@@ -14,7 +14,7 @@ export const STANDARD_SECTOR_AGENT_IDS = [
   "agriculture",
 ] as const satisfies ReadonlyArray<StandardSectorAgentId>;
 
-export const SECTOR_AGENT_IDS = [...STANDARD_SECTOR_AGENT_IDS, "relationship_mapper"] as const;
+export const SECTOR_AGENT_IDS = STANDARD_SECTOR_AGENT_IDS;
 
 export interface StandardSectorRoleContract {
   agentId: StandardSectorAgentId;

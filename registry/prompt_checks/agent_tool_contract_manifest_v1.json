@@ -1,8 +1,8 @@
 {
   "schema_version": "agent_tool_contract_manifest_v1",
-  "agent_count": 28,
-  "execution_stage_count": 29,
-  "tool_count": 32,
+  "agent_count": 27,
+  "execution_stage_count": 28,
+  "tool_count": 31,
   "agents": [
     {
       "agent_id": "china",
@@ -118,7 +118,8 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
-        "get_stock_data"
+        "get_stock_data",
+        "get_supply_chain_evidence"
       ],
       "execution_stages": [
         "semiconductor"
@@ -136,7 +137,8 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
-        "get_stock_data"
+        "get_stock_data",
+        "get_supply_chain_evidence"
       ],
       "execution_stages": [
         "technology"
@@ -154,7 +156,8 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
-        "get_stock_data"
+        "get_stock_data",
+        "get_supply_chain_evidence"
       ],
       "execution_stages": [
         "energy"
@@ -171,7 +174,8 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
-        "get_stock_data"
+        "get_stock_data",
+        "get_supply_chain_evidence"
       ],
       "execution_stages": [
         "biotech"
@@ -189,7 +193,8 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
-        "get_stock_data"
+        "get_stock_data",
+        "get_supply_chain_evidence"
       ],
       "execution_stages": [
         "consumer"
@@ -207,7 +212,8 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
-        "get_stock_data"
+        "get_stock_data",
+        "get_supply_chain_evidence"
       ],
       "execution_stages": [
         "industrials"
@@ -225,7 +231,8 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
-        "get_stock_data"
+        "get_stock_data",
+        "get_supply_chain_evidence"
       ],
       "execution_stages": [
         "real_estate_construction"
@@ -244,6 +251,7 @@
         "get_industry_policy_digest",
         "get_rke_research_context",
         "get_stock_data",
+        "get_supply_chain_evidence",
         "get_yield_curve_cn"
       ],
       "execution_stages": [
@@ -262,23 +270,11 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
-        "get_stock_data"
-      ],
-      "execution_stages": [
-        "agriculture"
-      ],
-      "layer": "sector"
-    },
-    {
-      "agent_id": "relationship_mapper",
-      "allowed_tools": [
-        "get_relationship_graph_snapshot",
-        "get_rke_research_context",
-        "get_stock_research",
+        "get_stock_data",
         "get_supply_chain_evidence"
       ],
       "execution_stages": [
-        "relationship_mapper"
+        "agriculture"
       ],
       "layer": "sector"
     },

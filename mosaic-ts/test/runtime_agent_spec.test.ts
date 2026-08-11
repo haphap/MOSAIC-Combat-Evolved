@@ -16,8 +16,8 @@ describe("stage-aware runtime agent manifest", () => {
   it("covers all runtime agents and the canonical L4 invocation stages", () => {
     const artifact = buildRuntimeAgentManifestArtifact();
 
-    expect(artifact.runtime_agent_count).toBe(28);
-    expect(artifact.runtime_stage_count).toBe(29);
+    expect(artifact.runtime_agent_count).toBe(27);
+    expect(artifact.runtime_stage_count).toBe(28);
     expect(artifact).not.toHaveProperty("private_knot_cohort_enablement");
     expect(artifact).not.toHaveProperty("knot_runtime_contract_ref");
     expect(artifact.canonical_l4_sequence).toEqual(CANONICAL_L4_STAGE_SEQUENCE);

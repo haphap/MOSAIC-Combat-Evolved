@@ -136,9 +136,9 @@ function candidate(split = DatasetSplitManifestSchema.parse(splitManifest())) {
 }
 
 describe("prompt optimizer public contracts", () => {
-  it("covers all 28 Agent-owned champions and rejects the shared CIO proposal stage", () => {
-    expect(new Set(RUNTIME_AGENT_STAGE_SPECS.map((row) => row.agent)).size).toBe(28);
-    expect(RUNTIME_AGENT_STAGE_SPECS).toHaveLength(29);
+  it("covers all 27 Agent-owned champions and rejects the shared CIO proposal stage", () => {
+    expect(new Set(RUNTIME_AGENT_STAGE_SPECS.map((row) => row.agent)).size).toBe(27);
+    expect(RUNTIME_AGENT_STAGE_SPECS).toHaveLength(28);
     for (const row of RUNTIME_AGENT_STAGE_SPECS.filter(
       (value) => !(value.agent === "cio" && value.stage === "cio_proposal"),
     )) {

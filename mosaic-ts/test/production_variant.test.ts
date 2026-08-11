@@ -51,7 +51,7 @@ function preflight(): PromptPreflightResult {
       prompt_repo_revision: revision,
       prompt_repo_dirty_count: 0,
     },
-    row_count: 56,
+    row_count: 54,
     blocked_count: 0,
     rows: ALL_AGENTS.flatMap((agent) =>
       (["zh", "en"] as const).map((lang) => ({
@@ -238,7 +238,7 @@ function componentSnapshot(
 }
 
 describe("Darwinian production runtime binding", () => {
-  it("freezes exactly 28 behavior bindings with 24/4 dimension semantics", () => {
+  it("freezes exactly 27 behavior bindings with 23/4 dimension semantics", () => {
     const behaviorRelease = release();
     const binding = buildDarwinianRuntimeBinding({
       cohortId: "cohort_default",
@@ -250,7 +250,7 @@ describe("Darwinian production runtime binding", () => {
       effectiveAt: "2026-07-17T09:00:00.000Z",
     });
     expect(binding.language).toBe("zh");
-    expect(Object.keys(binding.agent_behavior_bindings)).toHaveLength(28);
+    expect(Object.keys(binding.agent_behavior_bindings)).toHaveLength(27);
     expect(binding.production_variant_roster_id).toMatch(
       /^production-variant-roster:[0-9a-f]{64}$/,
     );

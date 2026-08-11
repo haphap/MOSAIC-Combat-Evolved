@@ -10,11 +10,7 @@
  *   2. **Writes to ``layer2_outputs``** (vs Layer-1's ``layer1_outputs``).
  *
  * Standard sectors use direction research, an optional single conflict review,
- * and a separate final-selection call. Relationship mapping uses one strict
- * structured call.
- *
- * relationship_mapper agent uses this same factory — the schema is
- * different but the orchestration is identical.
+ * and a separate final-selection call.
  */
 
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
@@ -56,7 +52,6 @@ import {
 } from "../helpers/evidence_runtime.js";
 import {
   canonicalAcceptedSubmissionBody,
-  MACRO_ATTRIBUTION_PROVIDER_INSTRUCTION,
   resolveMacroInputAttributions,
 } from "../helpers/macro_attribution.js";
 import { acceptedMacroOutputs, renderAcceptedMacroInputs } from "../helpers/macro_context.js";
@@ -83,7 +78,6 @@ import {
 import type { RuntimeSourceStatus, ToolStatus } from "../helpers/runtime_evidence_types.js";
 import { resolveRuntimeSourceStatusesForAgent } from "../helpers/runtime_sources.js";
 import { validateStrictAgentOutput } from "../helpers/strict_agent_validation.js";
-import { RELATIONSHIP_MAPPER_PROVIDER_INSTRUCTION } from "../helpers/structured_provider_adapters.js";
 import {
   hasAgentToolCapabilityApi,
   prepareAgentToolCapability,
@@ -92,15 +86,9 @@ import {
 import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
 import type { PromptReleaseLoadContext } from "../prompts/release_prompt_loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
-import type {
-  RelationshipMapperOutput,
-  SectorAgentId,
-  SectorAgentOutput,
-  SectorAgentOutputBase,
-  StandardSectorAgentId,
-} from "../types.js";
+import type { SectorAgentOutput, SectorAgentOutputBase, StandardSectorAgentId } from "../types.js";
 import { STANDARD_SECTOR_ROLE_CONTRACTS } from "./_contracts.js";
-import { buildRelationshipMapperSchema, buildStandardSectorSchema } from "./_schemas.js";
+import { buildStandardSectorSchema } from "./_schemas.js";
 import {
   acceptedSectorSelectionPayload,
   buildAcceptedSectorSelection,
@@ -124,13 +112,6 @@ import {
 } from "./phase_directives.js";
 import { SECTOR_DIRECTION_CONFLICT_RESOLVER_CONTRACT } from "./registry.js";
 import {
-  buildAcceptedRelationshipGraph,
-  relationshipFactualEdgeCandidatesFromToolLoop,
-  relationshipFactualEdgeCapacityFromToolLoop,
-  relationshipResearchSnapshotFromToolLoop,
-  validateRelationshipOutputAgainstSnapshot,
-} from "./relationship_accepted.js";
-import {
   attachSectorRuntimeBinding,
   buildPairwiseFinalDirective,
   directionComparisonAuditHash,
@@ -143,7 +124,7 @@ import {
 } from "./selection.js";
 
 export interface LayerTwoAgentSpec<TOutput extends SectorAgentOutput> {
-  agentId: SectorAgentId;
+  agentId: StandardSectorAgentId;
   schema: z.ZodType<TOutput>;
   fieldNames: ReadonlyArray<string>;
   requiredTools: ReadonlyArray<string>;
@@ -252,339 +233,49 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
                 capability: preparedCapability.capability,
               })
             : spec.requiredTools.map((name) =>
-                buildFakeSectorSnapshotTool(name, spec.agentId, state.as_of_date, state.trace_id),
+                buildFakeSectorSnapshotTool(name, spec.agentId, state.as_of_date),
               );
 
-          if (spec.agentId !== "relationship_mapper") {
-            try {
-              const standard = await runStandardSectorPipeline({
-                spec: spec as LayerTwoAgentSpec<TOutput> & { agentId: StandardSectorAgentId },
-                state,
-                tools,
-                preparedCapability,
-                deps,
-                structuredHandle,
-                systemPrompt,
-                userContext: buildLayerTwoUserContext(
-                  state,
-                  spec.agentId,
-                  deps.acceptedOutputStore,
-                ),
-                runtimeSourceStatuses,
-                canaryContext,
-                startedAt,
-                language,
-                signal,
-                onLog,
-              });
-              canaryToolStatuses = standard.toolStatuses;
-              return { ...(liveFreeze.update ?? {}), ...standard.update };
-            } catch (cause) {
-              if (preparedCapability) {
-                try {
-                  await deps.api.toolsFinalizeModelUsage(preparedCapability.capability);
-                } catch (finalizeCause) {
-                  throw new AggregateError(
-                    [cause, finalizeCause],
-                    `${spec.agentId}: Sector pipeline and usage finalization both failed`,
-                  );
-                }
-              }
-              throw cause;
-            } finally {
-              if (preparedCapability) {
-                await terminateAgentToolCapability(
-                  deps.api,
-                  preparedCapability,
-                  "sector_pipeline_finished",
+          try {
+            const standard = await runStandardSectorPipeline({
+              spec,
+              state,
+              tools,
+              preparedCapability,
+              deps,
+              structuredHandle,
+              systemPrompt,
+              userContext: buildLayerTwoUserContext(state, spec.agentId, deps.acceptedOutputStore),
+              runtimeSourceStatuses,
+              canaryContext,
+              startedAt,
+              language,
+              signal,
+              onLog,
+            });
+            canaryToolStatuses = standard.toolStatuses;
+            return { ...(liveFreeze.update ?? {}), ...standard.update };
+          } catch (cause) {
+            if (preparedCapability) {
+              try {
+                await deps.api.toolsFinalizeModelUsage(preparedCapability.capability);
+              } catch (finalizeCause) {
+                throw new AggregateError(
+                  [cause, finalizeCause],
+                  `${spec.agentId}: Sector pipeline and usage finalization both failed`,
                 );
               }
             }
-          }
-
-          // Phase 1: tool-bound analysis. User context now includes Layer-1
-          // regime summary so sector agent's picks are regime-aware.
-          const userContext = buildLayerTwoUserContext(
-            state,
-            spec.agentId,
-            deps.acceptedOutputStore,
-          );
-          let runtimeEvidence: RuntimeEvidenceSnapshot | null = buildRuntimeEvidenceSnapshot({
-            state,
-            agent: spec.agentId,
-            stage: "agent_run",
-            runtimeSourceStatuses,
-          });
-          const evidenceUserContext = runtimeEvidence
-            ? `${userContext}\n\n${runtimeEvidence.visibleCatalog}`
-            : userContext;
-          let loopResult!: Awaited<ReturnType<typeof runAgentToolLoop>>;
-          try {
-            loopResult = await runAgentToolLoop({
-              llm: deps.llmHandle.llm,
-              tools: tools as StructuredToolInterface[],
-              systemMessage: systemPrompt,
-              initialMessages: [new HumanMessage(evidenceUserContext)],
-              initialToolCalls: spec.initialSnapshotTools.map((name) => ({ name, args: {} })),
-              allowModelToolCalls: deps.llmHandle.provider !== "fake",
-              ...(runtimeEvidence ? { agentInvocationId: runtimeEvidence.agentInvocationId } : {}),
-              maxLoops: 3,
-              replayFullToolMaxChars: 80_000,
-              onLog: (msg) => onLog(formatAgentEvent("phase", "L2", spec.agentId, [msg])),
-              signal,
-            });
+            throw cause;
           } finally {
             if (preparedCapability) {
               await terminateAgentToolCapability(
                 deps.api,
                 preparedCapability,
-                "sector_direction_research_completed",
+                "sector_pipeline_finished",
               );
             }
           }
-          runtimeEvidence = buildRuntimeEvidenceSnapshot({
-            state,
-            agent: spec.agentId,
-            stage: "agent_run",
-            toolStatuses: loopResult.toolStatuses,
-            runtimeSourceStatuses,
-          });
-          canaryToolStatuses = loopResult.toolStatuses;
-          const relationshipSnapshot = relationshipResearchSnapshotFromToolLoop({
-            messages: loopResult.messages,
-            toolStatuses: loopResult.toolStatuses,
-          });
-          const relationshipOpportunitySet = relationshipSnapshot.prediction_opportunity_set;
-          if (state.darwinian_runtime_binding) {
-            assertLiveOutcomeSourceSnapshot({
-              state,
-              agentId: "relationship_mapper",
-              sourceToolId: "get_relationship_graph_snapshot",
-              sourceSnapshotHash: relationshipSnapshot.snapshot_hash,
-            });
-          }
-          if (
-            relationshipOpportunitySet &&
-            (relationshipOpportunitySet.run_id !== state.trace_id ||
-              relationshipOpportunitySet.as_of !== state.as_of_date ||
-              relationshipSnapshot.as_of_date !== state.as_of_date)
-          ) {
-            throw new Error("relationship opportunity snapshot run binding mismatch");
-          }
-          runtimeEvidence = withRuntimeCitationIds(runtimeEvidence, [
-            relationshipOpportunitySet.opportunity_set_id,
-          ]);
-          const extractionSchema = buildRelationshipMapperSchema({
-            maxFactualEdges: relationshipFactualEdgeCapacityFromToolLoop({
-              messages: loopResult.messages,
-              toolStatuses: loopResult.toolStatuses,
-            }),
-            factualRelationships: relationshipFactualEdgeCandidatesFromToolLoop({
-              messages: loopResult.messages,
-              toolStatuses: loopResult.toolStatuses,
-            }),
-            maxPredictiveEdges: relationshipOpportunitySet.ordered_opportunities.length,
-            predictiveOpportunities: relationshipOpportunitySet.ordered_opportunities,
-          }) as unknown as z.ZodType<TOutput>;
-
-          // Phase 2: structured extraction.
-          onLog(
-            formatAgentEvent("phase", "L2", spec.agentId, [
-              `extract chars=${loopResult.analysisText.length}`,
-            ]),
-          );
-          const extractorSystem = spec.buildExtractorSystem
-            ? spec.buildExtractorSystem(language)
-            : defaultExtractorSystem(spec, language);
-          const extractionAnalysis =
-            spec.agentId === "relationship_mapper"
-              ? compactRelationshipExtractorAnalysis(loopResult.analysisText)
-              : loopResult.analysisText;
-          const extractor = await invokeStrictStructured<TOutput>({
-            llm: structuredHandle.llm,
-            schema: extractionSchema,
-            messages: [
-              new SystemMessage(extractorSystem),
-              new HumanMessage(
-                [extractionAnalysis || "(no analysis produced)", runtimeEvidence?.visibleCatalog]
-                  .filter((part): part is string => Boolean(part))
-                  .join("\n\n"),
-              ),
-            ],
-            agent: spec.agentId,
-            stage: "agent_run",
-            runId: state.trace_id || state.as_of_date || "current_run",
-            evidenceSnapshot: runtimeEvidence,
-            validate: (output) => {
-              const strict = validateStrictAgentOutput({
-                output,
-                schema: extractionSchema,
-                agent: spec.agentId,
-                stage: "agent_run",
-                runtimeEvidence,
-                allowRiskFlagOnly:
-                  "predictive_graph_status" in output &&
-                  output.predictive_graph_status === "NO_QUALIFIED_PREDICTIVE_EDGE",
-                validateRoleContract: (candidate) =>
-                  relationshipSnapshot
-                    ? validateRelationshipOutputAgainstSnapshot(
-                        candidate as RelationshipMapperOutput,
-                        relationshipSnapshot,
-                      ).map(
-                        (message): AgentContractIssue => ({
-                          validator: "relationship_prediction_opportunity_v1",
-                          reason_code: "RELATIONSHIP_OPPORTUNITY_MISMATCH",
-                          json_path: "$.predictive_edges",
-                          message,
-                        }),
-                      )
-                    : [],
-              });
-              return strict;
-            },
-            isAcceptedEmpty: (output) =>
-              "predictive_graph_status" in output &&
-              output.predictive_graph_status === "NO_QUALIFIED_PREDICTIVE_EDGE",
-            signal,
-          });
-
-          const output = extractor.output;
-          let acceptedOutputRefs: DailyCycleStateUpdate["accepted_output_refs"] | undefined;
-          if (state.darwinian_runtime_binding) {
-            const relationshipOutput = output as RelationshipMapperOutput;
-            const gate = state.macro_input_gate;
-            const behavior =
-              state.darwinian_runtime_binding.agent_behavior_bindings.relationship_mapper;
-            const claimGraph = relationshipOutput.verified_claim_graph;
-            if (
-              !gate ||
-              !behavior ||
-              !claimGraph ||
-              !relationshipSnapshot ||
-              !deps.acceptedOutputStore
-            ) {
-              throw new Error(
-                "relationship_mapper: production accepted relationship context is unavailable",
-              );
-            }
-            const preliminary = buildAcceptedRelationshipGraph({
-              output: relationshipOutput,
-              behavior,
-              relationshipSnapshot,
-              acceptedMacroInputAttributions: [],
-              calibrationEffectiveAt: state.darwinian_runtime_binding.effective_at,
-            });
-            const acceptedAttributions = resolveMacroInputAttributions({
-              submissions: relationshipOutput.macro_input_attributions,
-              acceptedMacroOutputs: acceptedMacroOutputs(state, deps.acceptedOutputStore),
-              macroInputGate: gate,
-              acceptedSubmissionBody: canonicalAcceptedSubmissionBody(preliminary),
-            });
-            const accepted = buildAcceptedRelationshipGraph({
-              output: relationshipOutput,
-              behavior,
-              relationshipSnapshot,
-              acceptedMacroInputAttributions: acceptedAttributions,
-              calibrationEffectiveAt: state.darwinian_runtime_binding.effective_at,
-            });
-            const lineage = evidenceLineageEnvelopeFromGraph(accepted, claimGraph);
-            const record = buildAcceptedAgentOutputRecord({
-              kind: "RELATIONSHIP_GRAPH",
-              agentId: "relationship_mapper",
-              payload: accepted,
-              evidenceBundleIds: lineage.evidence_bundle_ids,
-              causalDedupeKeys: lineage.causal_dedupe_keys,
-              claimGraph,
-              sourceAgentOutputHash: requiredAcceptedAuditOutputHash(
-                extractor.audit.output_hash,
-                "relationship_mapper",
-              ),
-              context: acceptedOutputBuildContextFromState({
-                state,
-                agentId: "relationship_mapper",
-                sourceAgentRunId: extractor.audit.run_id,
-                acceptedOutputKind: "RELATIONSHIP_GRAPH",
-              }),
-            });
-            const ref = deps.acceptedOutputStore.put(record, claimGraph);
-            acceptedOutputRefs = {
-              [acceptedOutputRefKey("RELATIONSHIP_GRAPH", "relationship_mapper")]: ref,
-            };
-          } else {
-            const ref = buildStructuredSmokeAcceptedOutputRef({
-              kind: "RELATIONSHIP_GRAPH",
-              agentId: "relationship_mapper",
-              payload: output,
-              state,
-            });
-            if (ref) {
-              acceptedOutputRefs = {
-                [acceptedOutputRefKey("RELATIONSHIP_GRAPH", "relationship_mapper")]: ref,
-              };
-            }
-          }
-          const repairPromptTokens = extractor.audit.attempts.reduce(
-            (sum, attempt) => sum + attempt.prompt_tokens,
-            0,
-          );
-          const repairCompletionTokens = extractor.audit.attempts.reduce(
-            (sum, attempt) => sum + attempt.completion_tokens,
-            0,
-          );
-          const llmCall = buildLlmCall(spec.agentId, structuredHandle, {
-            promptTokens: loopResult.promptTokens + repairPromptTokens,
-            completionTokens: loopResult.completionTokens + repairCompletionTokens,
-          });
-          llmCall.agent_run_audit = extractor.audit;
-          const canaryEvent = buildAgentPromptCanaryEvent({
-            context: canaryContext,
-            agent: spec.agentId,
-            stage: "agent_run",
-            startedAt,
-            structuredAccepted: true,
-            claimGraphAccepted: true,
-            toolStatuses: loopResult.toolStatuses,
-            runtimeSourceStatuses,
-            output,
-            validatorIds: [`${spec.agentId}.structured_output.v1`, "evidence_claim_graph_v1"],
-          });
-          if (canaryEvent) {
-            llmCall.prompt_canary_event = canaryEvent;
-            await persistPromptReleaseCanaryEvents([canaryEvent]);
-          }
-
-          onLog(
-            formatAgentEvent("done", "L2", spec.agentId, [
-              `elapsed=${formatDurationMs(Date.now() - startedAt)}`,
-              `analysis_llm=${loopResult.llmInvocations}`,
-              `tools=${loopResult.toolCalls}`,
-              `tool_cache_hits=${loopResult.toolCacheHits}`,
-              `tool_executions=${loopResult.toolExecutions}`,
-              ...formatTokenMetricFields(
-                loopResult.promptTokens,
-                loopResult.completionTokens,
-                loopResult.llmElapsedMs,
-              ),
-              `source=${extractor.audit.output_source}`,
-              ...(runtimeEvidence
-                ? [
-                    `evidence_entries=${runtimeEvidence.evidenceLedger.length}`,
-                    "claim_output=accepted",
-                    "claim_rejections=0",
-                  ]
-                : []),
-              summarizeAgentOutput(output),
-            ]),
-          );
-
-          return {
-            ...(liveFreeze.update ?? {}),
-            ...(state.darwinian_runtime_binding
-              ? {}
-              : { layer2_outputs: { [spec.agentId]: output } }),
-            ...(acceptedOutputRefs ? { accepted_output_refs: acceptedOutputRefs } : {}),
-            llm_calls: [llmCall],
-          };
         },
         timeoutMs,
         `L2 ${spec.agentId}`,
@@ -613,14 +304,6 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
       throw err;
     }
   };
-}
-
-export function compactRelationshipExtractorAnalysis(value: string, maxChars = 6_000): string {
-  if (value.length <= maxChars) return value;
-  const marker = "\n\n[... bounded relationship analysis omitted ...]\n\n";
-  const retained = maxChars - marker.length;
-  const headLength = Math.ceil(retained / 2);
-  return `${value.slice(0, headLength)}${marker}${value.slice(-(retained - headLength))}`;
 }
 
 interface StandardSectorPipelineResult {
@@ -2196,7 +1879,7 @@ export function pickPromptLanguage(config: MosaicConfig): LoaderLanguage {
 /** Build user-context block that includes upstream Layer-1 summaries. */
 export function buildLayerTwoUserContext(
   state: DailyCycleStateType,
-  agentId: string,
+  agentId: StandardSectorAgentId,
   acceptedOutputStore?: AcceptedAgentOutputStore,
 ): string {
   const date = state.as_of_date || new Date().toISOString().slice(0, 10);
@@ -2205,7 +1888,7 @@ export function buildLayerTwoUserContext(
   const macroBlock = renderAcceptedMacroInputs(state, acceptedOutputStore);
   const causalResolutionBlock = renderCausalEvidenceResolutionSet({
     state,
-    consumerAgentId: agentId as SectorAgentId,
+    consumerAgentId: agentId,
     sourceLayers: ["MACRO"],
     ...(acceptedOutputStore ? { acceptedOutputStore } : {}),
   });
@@ -2228,106 +1911,11 @@ export function buildLayerTwoUserContext(
 
 function buildFakeSectorSnapshotTool(
   name: string,
-  agentId: SectorAgentId,
+  agentId: StandardSectorAgentId,
   asOf: string,
-  runId: string,
 ): StructuredToolInterface {
   return tool(
     async () => {
-      if (agentId === "relationship_mapper" && name === "get_relationship_graph_snapshot") {
-        const evidence = {
-          evidence_id: `fake-${agentId}-snapshot`,
-          evidence_kind: "SYNTHETIC_RELATIONSHIP_RECORD",
-          source_id: "fake_llm_structural_smoke",
-          source_endpoint: "fake_relationship_fixture",
-          observation_date: asOf,
-          released_at: asOf,
-          vintage_at: asOf,
-          pit_status: "PIT_VERIFIED" as const,
-          content_hash: canonicalHash({ fixture: "fake-relationship-source" }),
-          evidence_record_hash: "",
-        };
-        evidence.evidence_record_hash = canonicalHash(
-          Object.fromEntries(
-            Object.entries(evidence).filter(([key]) => key !== "evidence_record_hash"),
-          ),
-        );
-        const relationship = {
-          edge_candidate_id: "relationship-candidate:fixture",
-          source_entity: "synthetic-holder",
-          source_entity_type: "HOLDER" as const,
-          target_entity: "000001.SZ",
-          target_entity_type: "PIT_ELIGIBLE_SECURITY" as const,
-          target_sector_id: "sector:energy",
-          edge_type: "SHAREHOLDING",
-          activation_trigger: "Synthetic disclosed shareholding remains active.",
-          observation_date: asOf,
-          released_at: asOf,
-          vintage_at: asOf,
-          pit_status: "PIT_VERIFIED" as const,
-          evidence_ids: [evidence.evidence_id],
-          relationship_row_hash: "",
-        };
-        relationship.relationship_row_hash = canonicalHash(
-          Object.fromEntries(
-            Object.entries(relationship).filter(([key]) => key !== "relationship_row_hash"),
-          ),
-        );
-        const matchedNonEdges = [
-          {
-            source_entity: "synthetic-holder",
-            source_entity_type: "HOLDER" as const,
-            target_entity: "000002.SZ",
-            target_entity_type: "PIT_ELIGIBLE_SECURITY" as const,
-            target_sector_id: "sector:energy",
-            edge_type: "SHAREHOLDING",
-            materiality_bucket: "MEDIUM" as const,
-          },
-        ];
-        const opportunityBody = {
-          run_id: runId,
-          as_of: asOf,
-          candidate_generation_contract_version: "relationship_candidate_fixture_v2",
-          scoring_contract_version: "relationship_scoring_fixture_v2",
-          ordered_opportunities: [
-            {
-              edge_candidate_id: "relationship-candidate:fixture",
-              source_entity: "synthetic-holder",
-              source_entity_type: "HOLDER" as const,
-              target_entity: "000001.SZ",
-              target_entity_type: "PIT_ELIGIBLE_SECURITY" as const,
-              target_sector_id: "sector:energy",
-              edge_type: "SHAREHOLDING",
-              materiality_weight: 1,
-              materiality_bucket: "MEDIUM" as const,
-              matched_non_edge_set_id: "matched-non-edge:fixture",
-              matched_non_edge_set_hash: canonicalHash(matchedNonEdges),
-              matched_non_edges: matchedNonEdges,
-            },
-          ],
-        };
-        const opportunityHash = canonicalHash(opportunityBody);
-        const snapshot = {
-          schema_version: "relationship_research_snapshot_v3",
-          as_of_date: asOf,
-          frozen_holder_domain_hash: canonicalHash(["synthetic-holder"]),
-          frozen_security_domain_hash: canonicalHash(["000001.SZ", "000002.SZ"]),
-          relationships: [relationship],
-          prediction_opportunity_set: {
-            opportunity_set_id: `relationship-opportunity:${opportunityHash.slice(7)}`,
-            opportunity_set_hash: opportunityHash,
-            ...opportunityBody,
-          },
-          evidence_catalog: [evidence],
-          evidence_catalog_hash: canonicalHash([evidence]),
-          fixture_class: "SYNTHETIC_NON_PRODUCTION" as const,
-          snapshot_hash: "",
-        };
-        snapshot.snapshot_hash = canonicalHash(
-          Object.fromEntries(Object.entries(snapshot).filter(([key]) => key !== "snapshot_hash")),
-        );
-        return JSON.stringify(snapshot);
-      }
       if (name === "get_role_event_snapshot") {
         return JSON.stringify(buildFakeRoleEventSnapshot(agentId, asOf));
       }
@@ -2341,7 +1929,7 @@ function buildFakeSectorSnapshotTool(
   );
 }
 
-function buildFakeRoleEventSnapshot(agentId: SectorAgentId, asOf: string) {
+function buildFakeRoleEventSnapshot(agentId: StandardSectorAgentId, asOf: string) {
   const coverageEvidenceId = `coverage:tushare.eco_cal:${agentId}:${asOf}`;
   const coverage = {
     coverage_state: "COVERAGE_CONFIRMED_NO_MATERIAL_EVENT",
@@ -2371,10 +1959,7 @@ function buildFakeRoleEventSnapshot(agentId: SectorAgentId, asOf: string) {
   return { ...withId, role_event_snapshot_hash: canonicalHash(withId) };
 }
 
-function buildFakeStandardSectorSnapshot(agentId: SectorAgentId, asOf: string) {
-  if (agentId === "relationship_mapper") {
-    throw new Error("relationship_mapper must use its dedicated fake snapshot");
-  }
+function buildFakeStandardSectorSnapshot(agentId: StandardSectorAgentId, asOf: string) {
   const directionIds = STANDARD_SECTOR_ROLE_CONTRACTS[agentId].directionIds;
   const eligibleSecurityUniverse = directionIds.map((directionId, index) => ({
     ts_code: `${String(600000 + index).padStart(6, "0")}.SH`,
@@ -2438,30 +2023,5 @@ function buildCurrentToolContract(requiredTools: ReadonlyArray<string>): string 
     `Only call these registered tools: ${requiredTools.join(", ")}.\n` +
     `Do not call older prompt names that are not listed above.\n` +
     `The runtime calls these tools once with the frozen role and as-of date; do not request extra data.`
-  );
-}
-
-function defaultExtractorSystem<TOutput extends SectorAgentOutput>(
-  spec: LayerTwoAgentSpec<TOutput>,
-  language: LoaderLanguage,
-): string {
-  const lang =
-    language === "en"
-      ? "Reply in English."
-      : "Reply in Chinese. Numbers stay numeric; do not wrap them in 中文括号.";
-  return (
-    `You are a structured-output extractor for the ${spec.agentId} sector agent. ` +
-    `The user message contains a free-form analysis. Populate every field in the ` +
-    `runtime-supplied JSON Schema. Only emit values supported by the ` +
-    `analysis text; never invent ticker codes or net-flow numbers. ` +
-    (spec.agentId === "relationship_mapper"
-      ? `${RELATIONSHIP_MAPPER_PROVIDER_INSTRUCTION} ${MACRO_ATTRIBUTION_PROVIDER_INSTRUCTION} `
-      : `A standard Sector stage is accepted only when runtime has frozen two distinct, uniquely ` +
-        `qualified preferred and least-preferred directions. Directional insufficiency rejects the ` +
-        `stage. A security leg may use NO_QUALIFIED_SECURITY only for a runtime-proven empty frozen ` +
-        `shortlist; a non-empty shortlist requires picks. When a runtime evidence ` +
-        `catalog is present, include claims, top-level claim_refs, and per-pick claim_refs using only ` +
-        `its evidence_id and opaque permitted citation identifiers. `) +
-    lang
   );
 }

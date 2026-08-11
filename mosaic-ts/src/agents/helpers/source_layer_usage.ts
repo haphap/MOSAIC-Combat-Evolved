@@ -11,16 +11,12 @@ import {
   type AcceptedSectorSelection,
   modelVisibleAcceptedSectorSelection,
 } from "../sector/accepted.js";
-import {
-  type AcceptedRelationshipGraph,
-  modelVisibleAcceptedRelationshipGraph,
-} from "../sector/relationship_accepted.js";
 import type { DailyCycleStateType } from "../state.js";
 import {
   type AcceptedSuperinvestorSelection,
   modelVisibleAcceptedSuperinvestorSelection,
 } from "../superinvestor/accepted.js";
-import type { RelationshipMapperOutput, SectorAgentOutput, SuperinvestorOutput } from "../types.js";
+import type { SectorAgentOutput, SectorAgentOutputBase, SuperinvestorOutput } from "../types.js";
 import { canonicalJsonHash } from "./canonical_json.js";
 
 export const SUPERINVESTOR_AGENT_IDS = ["druckenmiller", "munger", "burry", "ackman"] as const;
@@ -150,31 +146,17 @@ export function renderAcceptedSectorInputs(
     if (!reliability) throw new Error(`${agentId}: accepted Sector reliability is missing`);
     if (state.darwinian_runtime_binding) {
       const modelView = acceptedSectorModelView(state, requiredStore(store, "Sector"), agentId);
-      const abstentionLine =
-        agentId === "relationship_mapper"
-          ? `* predictive_graph_abstention_confidence: ${reliability.abstention_confidence.toFixed(6)}\n`
-          : "";
       lines.push(
         `### ${agentId}\n` +
           `* usage_share: ${reliability.usage_share.toFixed(6)}\n` +
           `* directional_confidence: ${reliability.directional_confidence.toFixed(6)}\n` +
-          abstentionLine +
           `* output: ${JSON.stringify(modelView)}`,
       );
       continue;
     }
     const output = state.layer2_outputs[agentId];
     if (!output) throw new Error(`${agentId}: accepted Sector input is missing`);
-    if (output.agent === "relationship_mapper") {
-      lines.push(
-        `### ${agentId}\n` +
-          `* usage_share: ${reliability.usage_share.toFixed(6)}\n` +
-          `* directional_confidence: ${reliability.directional_confidence.toFixed(6)}\n` +
-          `* predictive_graph_abstention_confidence: ${reliability.abstention_confidence.toFixed(6)}\n` +
-          `* output: ${JSON.stringify(modelVisibleRelationship(output))}`,
-      );
-      continue;
-    }
+    if (!("confidence" in output)) throw new Error(`${agentId}: inactive Sector output kind`);
     lines.push(
       `### ${agentId}\n` +
         `* usage_share: ${reliability.usage_share.toFixed(6)}\n` +
@@ -320,19 +302,6 @@ function acceptedSectorProjection(
   store: AcceptedAgentOutputStore,
   agentId: string,
 ): { modelView: unknown; directional: number; abstention: number } {
-  if (agentId === "relationship_mapper") {
-    const accepted = resolveAcceptedPayload<AcceptedRelationshipGraph>(
-      state,
-      store,
-      "RELATIONSHIP_GRAPH",
-      agentId,
-    );
-    return {
-      modelView: modelVisibleAcceptedRelationshipGraph(accepted),
-      directional: accepted.directional_confidence,
-      abstention: accepted.predictive_graph_abstention_confidence ?? 0,
-    };
-  }
   const accepted = resolveAcceptedPayload<AcceptedSectorSelection>(
     state,
     store,
@@ -363,7 +332,7 @@ function acceptedSuperinvestorModelView(
 function resolveAcceptedPayload<T>(
   state: DailyCycleStateType,
   store: AcceptedAgentOutputStore,
-  kind: "STANDARD_SECTOR_SELECTION" | "RELATIONSHIP_GRAPH" | "SUPERINVESTOR_SELECTION",
+  kind: "STANDARD_SECTOR_SELECTION" | "SUPERINVESTOR_SELECTION",
   agentId: string,
 ): T {
   const key = acceptedOutputRefKey(kind, agentId as never);
@@ -427,8 +396,8 @@ function buildReceipt<TOutput>(input: {
     throw new Error(`${input.sourceLayer} roster is empty`);
   }
   const weights = new Map((input.weightSnapshot?.weights ?? []).map((row) => [row.agent_id, row]));
-  if (input.weightSnapshot && (input.weightSnapshot.weights.length !== 24 || weights.size !== 24)) {
-    throw new Error(`${input.sourceLayer} gate requires the exact 24-Agent Darwinian snapshot`);
+  if (input.weightSnapshot && (input.weightSnapshot.weights.length !== 23 || weights.size !== 23)) {
+    throw new Error(`${input.sourceLayer} gate requires the exact 23-Agent Darwinian snapshot`);
   }
   const entries: Record<string, SourceLayerUsageEntry> = {};
   let denominator = 0;
@@ -532,23 +501,7 @@ function requiredUsageEntry(
 }
 
 function sectorConfidence(output: SectorAgentOutput): { directional: number; abstention: number } {
-  if (output.agent === "relationship_mapper") {
-    if (output.predictive_graph_status === "NO_QUALIFIED_PREDICTIVE_EDGE") {
-      return {
-        directional: 0,
-        abstention: output.predictive_graph_abstention_confidence ?? 0,
-      };
-    }
-    if (output.predictive_edges.length === 0) {
-      throw new Error("relationship_mapper EDGES_PRESENT requires predictive edges");
-    }
-    return {
-      directional:
-        output.predictive_edges.reduce((sum, edge) => sum + edge.model_confidence, 0) /
-        output.predictive_edges.length,
-      abstention: 0,
-    };
-  }
+  if (!("confidence" in output)) throw new Error("inactive Sector output kind");
   return { directional: output.confidence, abstention: 0 };
 }
 
@@ -562,7 +515,7 @@ function superinvestorConfidence(output: SuperinvestorOutput): {
     : { directional: 0, abstention: output.confidence };
 }
 
-function modelVisibleStandardSector(output: Exclude<SectorAgentOutput, RelationshipMapperOutput>) {
+function modelVisibleStandardSector(output: SectorAgentOutputBase) {
   return {
     selection_status: output.selection_status,
     preferred_direction: output.preferred_direction,
@@ -576,18 +529,6 @@ function modelVisibleStandardSector(output: Exclude<SectorAgentOutput, Relations
     long_picks: output.long_picks,
     least_preferred_security_status: output.least_preferred_security_status,
     short_or_avoid_picks: output.short_or_avoid_picks,
-  };
-}
-
-function modelVisibleRelationship(output: RelationshipMapperOutput) {
-  return {
-    factual_edges: output.factual_edges,
-    predictive_edges: output.predictive_edges,
-    predictive_graph_status: output.predictive_graph_status,
-    key_drivers: output.key_drivers,
-    risks: output.risks,
-    claims: output.claims,
-    claim_refs: output.claim_refs,
   };
 }
 

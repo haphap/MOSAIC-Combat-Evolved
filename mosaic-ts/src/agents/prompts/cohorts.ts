@@ -49,7 +49,6 @@ export const AGENTS_BY_LAYER = {
     "real_estate_construction",
     "financials",
     "agriculture",
-    "relationship_mapper",
   ],
   superinvestor: ["druckenmiller", "munger", "burry", "ackman"],
   decision: ["cro", "alpha_discovery", "autonomous_execution", "cio"],

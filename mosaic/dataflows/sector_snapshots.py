@@ -1854,13 +1854,32 @@ def _registered_active_stock_rows(
         "requests_hash": _canonical_hash(list(_STOCK_BASIC_CAPTURE_REQUESTS)),
         "exchange": "",
     }
-    if (
+    scoped_codes = stock_batch["request"].get("ts_codes")
+    if set(stock_batch["request"]) == {"ts_codes"}:
+        if (
+            not isinstance(scoped_codes, list)
+            or not scoped_codes
+            or scoped_codes != sorted(set(scoped_codes))
+            or any(
+                not isinstance(code, str)
+                or _RELATIONSHIP_SECURITY_ID_PATTERN.fullmatch(code) is None
+                for code in scoped_codes
+            )
+            or stock_batch["query_count"] != len(scoped_codes)
+            or stock_batch["completed_query_count"] != len(scoped_codes)
+            or {row.get("ts_code") for row in stock_batch["rows"]}
+            != set(scoped_codes)
+        ):
+            raise DataVendorUnavailable(
+                "sector stock_basic scoped ticker authority is incomplete"
+            )
+    elif (
         stock_batch["request"] != expected_request
         or stock_batch["query_count"] != len(_STOCK_BASIC_CAPTURE_REQUESTS)
         or stock_batch["completed_query_count"] != len(_STOCK_BASIC_CAPTURE_REQUESTS)
     ):
         raise DataVendorUnavailable(
-            "sector stock_basic batch is not exhaustive across D/L/P statuses"
+            "sector stock_basic batch is neither scoped nor exhaustive"
         )
     active: dict[str, dict[str, Any]] = {}
     seen: set[str] = set()

@@ -322,7 +322,7 @@ export function registerDailyCycle(program: Command): void {
         if (cycleAuthorityEnabled) {
           const leaseSeconds =
             agentTimeoutMs > 0
-              ? Math.max(3600, Math.ceil(agentTimeoutMs / 1000) * 29 + 600)
+              ? Math.max(3600, Math.ceil(agentTimeoutMs / 1000) * 28 + 600)
               : 86_400;
           const sourceAdmission = await api.dataSourcePreflight({
             as_of: asOfDate,
@@ -423,9 +423,9 @@ export function registerDailyCycle(program: Command): void {
                 .map((entry) => entry.stage),
             ).size
           : 0;
-        if (agentRunAudits.length + stageSkipCount + localSmokeStageSkipCount !== 29) {
+        if (agentRunAudits.length + stageSkipCount + localSmokeStageSkipCount !== 28) {
           throw new Error(
-            "accepted daily cycle must expose exactly 29 accepted-or-skipped Agent stages; " +
+            "accepted daily cycle must expose exactly 28 accepted-or-skipped Agent stages; " +
               `got accepted=${agentRunAudits.length} skipped=${stageSkipCount + localSmokeStageSkipCount}`,
           );
         }

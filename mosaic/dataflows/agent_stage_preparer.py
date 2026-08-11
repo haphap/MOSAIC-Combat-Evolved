@@ -13,10 +13,8 @@ from zoneinfo import ZoneInfo
 from mosaic.scorecard.canonical_json import canonical_hash
 
 from .a_share_archive import (
-    A_SHARE_CAPTURE_ENDPOINTS,
     AShareArchiveStore,
     archive_a_share_breadth,
-    capture_a_share_parent_sources,
     compile_a_share_breadth_snapshot,
     fetch_a_share_tushare_endpoint,
 )
@@ -73,7 +71,6 @@ from .sector_archive import (
     SectorArchiveStore,
     archive_sector_relationship,
     compile_sector_relationship_core_snapshots,
-    sector_parent_endpoints,
 )
 from .source_archive import archive_eco_calendar
 from .staged_query_receipt_store import StagedQueryReceiptStore
@@ -168,7 +165,6 @@ _SECTOR_RELATIONSHIP_FAMILY_STAGES = tuple(
         "real_estate_construction",
         "financials",
         "agriculture",
-        "relationship_mapper",
     )
 )
 _BOUND_RUNTIME_FAMILY_STAGES = (
@@ -1323,20 +1319,13 @@ def prepare_sector_relationship_family(
     request: Mapping[str, Any],
     ledger: AgentDataMaterializationLedger,
 ) -> None:
-    """Reuse existing archives to build all Sector/Relationship initial data."""
+    """Reuse existing archives to build one standard Sector's initial data."""
     as_of = _required_text(request, "as_of")
     agent_id = _required_text(request, "agent_id")
     historical_replay = _historical_replay(request)
     route_only = request.get("route_id") in SECTOR_ARCHIVE_ROUTE_IDS
     route_id = str(request["route_id"]) if route_only else None
-    if agent_id == "relationship_mapper":
-        if route_only and route_id != "tushare.relationship_graph":
-            raise ValueError("relationship_mapper only owns the relationship route")
-        requested_route_ids = ("tushare.relationship_graph",)
-        requested_agent_ids = STANDARD_SECTOR_AGENT_IDS
-    elif agent_id in STANDARD_SECTOR_AGENT_IDS:
-        if route_only and route_id == "tushare.relationship_graph":
-            raise ValueError("standard Sector agents do not own the relationship route")
+    if agent_id in STANDARD_SECTOR_AGENT_IDS:
         requested_route_ids = (
             (route_id,)
             if route_only
@@ -1344,7 +1333,7 @@ def prepare_sector_relationship_family(
         )
         requested_agent_ids = (agent_id,)
     else:
-        raise ValueError("agent is outside the Sector/Relationship stage roster")
+        raise ValueError("agent is outside the standard Sector stage roster")
     if not route_only:
         captured_at = _stage_capture_now().astimezone(timezone.utc).isoformat()
         calendar_store = EconomicCalendarStore()
@@ -1364,31 +1353,6 @@ def prepare_sector_relationship_family(
         if not calendar.coverage_receipt.as_dict()["coverage_complete"]:
             raise DataVendorUnavailable("economic calendar archive is blocked")
 
-    base_store = AShareArchiveStore()
-    parent_endpoints = sector_parent_endpoints(requested_route_ids)
-    if parent_endpoints == A_SHARE_CAPTURE_ENDPOINTS:
-        base_archive = archive_a_share_breadth(
-            fetch_a_share_tushare_endpoint,
-            as_of_date=as_of,
-            cutoff_at=f"{as_of}T23:59:59+08:00",
-            historical_replay=historical_replay,
-            store=base_store,
-            ledger=ledger,
-        )
-        if not base_archive.coverage_receipt.as_dict()["coverage_complete"]:
-            raise DataVendorUnavailable(
-                "A-share breadth archive is blocked",
-                reason_code="A_SHARE_BREADTH_ARCHIVE_BLOCKED",
-            )
-    else:
-        capture_a_share_parent_sources(
-            fetch_a_share_tushare_endpoint,
-            as_of_date=as_of,
-            cutoff_at=f"{as_of}T23:59:59+08:00",
-            requested_endpoints=parent_endpoints,
-            historical_replay=historical_replay,
-            store=base_store,
-        )
     sector_store = SectorArchiveStore()
     sector_archive = archive_sector_relationship(
         fetch_a_share_tushare_endpoint,
@@ -1397,7 +1361,6 @@ def prepare_sector_relationship_family(
         historical_replay=historical_replay,
         requested_route_ids=requested_route_ids,
         requested_agent_ids=requested_agent_ids,
-        base_store=base_store,
         store=sector_store,
         ledger=ledger,
     )
@@ -1413,15 +1376,14 @@ def prepare_sector_relationship_family(
         ledger=ledger,
         output_root=snapshot_cache_root(),
     )
-    if agent_id != "relationship_mapper":
-        china_route_ids = [INSTITUTIONAL_ROUTE_GROUP]
-        if agent_id == "financials":
-            china_route_ids.append(CURVE_ROUTE_GROUP)
-        _prepare_china_agent_archive(
-            as_of=as_of,
-            ledger=ledger,
-            requested_route_ids=tuple(china_route_ids),
-        )
+    china_route_ids = [INSTITUTIONAL_ROUTE_GROUP]
+    if agent_id == "financials":
+        china_route_ids.append(CURVE_ROUTE_GROUP)
+    _prepare_china_agent_archive(
+        as_of=as_of,
+        ledger=ledger,
+        requested_route_ids=tuple(china_route_ids),
+    )
 
 
 def us_macro_observation_start(as_of: str) -> str:
@@ -1692,13 +1654,6 @@ def ensure_agent_stage_materialization(request: Mapping[str, Any]) -> dict[str, 
             }
             if not set(deferred_tool_ids) <= stage_tool_ids:
                 raise ValueError("deferred request-only tools are outside the stage")
-            return {
-                "agent_id": agent_id,
-                "stage": stage,
-                "as_of": as_of,
-                "cache_status": "HIT",
-                "ensure_mode": "enforce",
-            }
         required_route_ids = {
             route_id
             for binding in _stage_bindings(agent_id, stage)

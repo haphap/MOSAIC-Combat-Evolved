@@ -51,7 +51,7 @@ describe("generated bundled macro prompts", () => {
 
   it("pins the rebuilt execution behavior contracts", () => {
     expect(executionRelease.schema_version).toBe("execution_behavior_release_manifest_v4");
-    expect(executionRelease.execution_contracts).toHaveLength(56);
+    expect(executionRelease.execution_contracts).toHaveLength(54);
     expect(
       [...new Set(executionRelease.execution_contracts.map((row) => row.agent_id))].sort(),
     ).toEqual([...ALL_AGENTS].sort());
@@ -137,7 +137,7 @@ describe("generated bundled macro prompts", () => {
     const files = readdirSync(bundledRoot, { recursive: true, encoding: "utf8" }).filter((file) =>
       file.endsWith(".md"),
     );
-    expect(files).toHaveLength(56);
+    expect(files).toHaveLength(54);
     expect(files.every((file) => file.startsWith("cohort_default/"))).toBe(true);
     for (const file of files) {
       const text = readFileSync(join(bundledRoot, file), "utf8");
@@ -186,7 +186,7 @@ describe("generated bundled macro prompts", () => {
     }
   });
 
-  it("keeps all 28 default bundled agents bilingual and private cohorts absent", () => {
+  it("keeps all 27 default bundled agents bilingual and private cohorts absent", () => {
     const bundledRoot = resolve(process.cwd(), "..", "prompts", "mosaic");
     for (const agent of ALL_AGENTS) {
       const layer = LAYER_BY_AGENT[agent];

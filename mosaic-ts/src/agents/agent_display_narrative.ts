@@ -41,7 +41,7 @@ export interface AgentDisplayNarrativeBundle {
   cohort: string;
   as_of_date: string;
   language: Language;
-  narrative_count: 28;
+  narrative_count: 27;
   narratives: AgentDisplayNarrative[];
   bundle_hash: string;
 }
@@ -69,8 +69,8 @@ export function buildAgentDisplayNarrativeBundle(
   const narratives = ALL_AGENTS.map((agentId) =>
     buildNarrative(state, agentId, language, acceptedOutputStore),
   );
-  if (narratives.length !== 28 || new Set(narratives.map((row) => row.agent_id)).size !== 28) {
-    throw new Error("agent display narrative bundle must cover exactly 28 logical Agents");
+  if (narratives.length !== 27 || new Set(narratives.map((row) => row.agent_id)).size !== 27) {
+    throw new Error("agent display narrative bundle must cover exactly 27 logical Agents");
   }
   const body = {
     schema_version: AGENT_DISPLAY_NARRATIVE_BUNDLE_SCHEMA_VERSION,
@@ -78,7 +78,7 @@ export function buildAgentDisplayNarrativeBundle(
     cohort: requiredText(state.active_cohort, "active_cohort"),
     as_of_date: requiredText(state.as_of_date, "as_of_date"),
     language,
-    narrative_count: 28 as const,
+    narrative_count: 27 as const,
     narratives,
   };
   return { ...body, bundle_hash: canonicalHash(body) };

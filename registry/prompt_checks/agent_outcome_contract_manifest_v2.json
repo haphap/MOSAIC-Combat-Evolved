@@ -1,9 +1,9 @@
 {
   "manifest_version": "agent_outcome_contract_manifest_v2",
-  "contract_count": 28,
-  "usage_track_count": 24,
+  "contract_count": 27,
+  "usage_track_count": 23,
   "evolution_only_track_count": 4,
-  "registry_hash": "sha256:998b4f36d48633e346ee7dd43a92339409ba2665d8fbb6e5df5e7387ae329fa5",
+  "registry_hash": "sha256:56ce4ced3726492a899fcdd03ff87087b825892abd7d51b2624a7858953c890f",
   "metric_schema_count": 8,
   "metric_schemas_hash": "sha256:20c3b1a33c125e82da8e54d8252f55bfcd037629f2c827d5d1a13e7b73d74e68",
   "metric_schemas": {
@@ -4153,51 +4153,6 @@
         "sector_universe_manifest_v1",
         "sector_research_snapshot_v4",
         "cn_a_share_security_outcome_path_v2"
-      ],
-      "fallback_allowed": false,
-      "label_owner": "DETERMINISTIC_RUNTIME",
-      "component_composition_contract": null,
-      "track_contract_dimensions": {
-        "component_weight_contract": "NULL",
-        "reliability_adapter_contract": "REQUIRED",
-        "confidence_semantics_contract": "REQUIRED"
-      }
-    },
-    {
-      "agent_id": "relationship_mapper",
-      "layer": "SECTOR",
-      "evaluation_object": "AcceptedRelationshipGraph",
-      "evaluation_object_type": "RELATIONSHIP_EDGES",
-      "evaluation_object_schema_version": "accepted_relationship_graph_v2",
-      "accepted_output_kind": "RELATIONSHIP_GRAPH",
-      "primary_label_id": "relationship_graph_validation_20d",
-      "metric_schema_id": "relationship_graph_validation_metrics_v2",
-      "realized_metric_schema_id": "relationship_realized_metrics_v1",
-      "maturity_horizon": "TRADING_DAYS_20",
-      "maturity": {
-        "entry_semantics": "T_PLUS_1_OPEN",
-        "horizon_trading_days": 20,
-        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
-      },
-      "sample_schedule": {
-        "kind": "FIXED_NON_OVERLAP",
-        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
-        "epoch": "2010-01-04",
-        "step_trading_days": 20
-      },
-      "rank_scope": "sector_relationship",
-      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
-      "metric_family": "RELATIONSHIP",
-      "outcome_contract_version": "relationship_graph_outcome_v2",
-      "scoring_contract_version": "score_relationship_graph_validation_v2",
-      "sample_schedule_contract_version": "relationship_fixed_non_overlapping_20d_v2",
-      "rank_scope_contract_version": "self_sector_relationship_v2",
-      "opportunity_set_contract_version": "relationship_edge_candidate_opportunity_set_v2",
-      "normalization_contract_version": "relationship_edge_validation_normalization_v2",
-      "required_source_ids": [
-        "relationship_graph_candidate_snapshot_v2",
-        "relationship_edge_realized_path_v2",
-        "relationship_matched_non_edge_sample_v2"
       ],
       "fallback_allowed": false,
       "label_owner": "DETERMINISTIC_RUNTIME",

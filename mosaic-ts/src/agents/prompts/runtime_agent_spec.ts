@@ -17,10 +17,7 @@ import {
   US_ECONOMY_FIELD_NAMES,
   US_FINANCIAL_CONDITIONS_FIELD_NAMES,
 } from "../macro/_schemas.js";
-import {
-  RELATIONSHIP_MAPPER_FIELD_NAMES,
-  STANDARD_SECTOR_FIELD_NAMES,
-} from "../sector/_schemas.js";
+import { STANDARD_SECTOR_FIELD_NAMES } from "../sector/_schemas.js";
 import { SUPERINVESTOR_FIELD_NAMES } from "../superinvestor/_schemas.js";
 import { AGENT_LAYER_BY_ID, AgentIdSchema, agentToolsFor } from "../tool_contract.js";
 import type { Layer } from "./cohorts.js";
@@ -275,7 +272,6 @@ export const RUNTIME_AGENT_SPECS: ReadonlyArray<RuntimeAgentSpec> = [
   runtimeSpec("sector", "real_estate_construction", STANDARD_SECTOR_FIELD_NAMES),
   runtimeSpec("sector", "financials", STANDARD_SECTOR_FIELD_NAMES),
   runtimeSpec("sector", "agriculture", STANDARD_SECTOR_FIELD_NAMES),
-  runtimeSpec("sector", "relationship_mapper", RELATIONSHIP_MAPPER_FIELD_NAMES),
   runtimeSpec("superinvestor", "druckenmiller", SUPERINVESTOR_FIELD_NAMES),
   runtimeSpec("superinvestor", "munger", SUPERINVESTOR_FIELD_NAMES),
   runtimeSpec("superinvestor", "burry", SUPERINVESTOR_FIELD_NAMES),

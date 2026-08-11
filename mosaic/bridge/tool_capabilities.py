@@ -76,10 +76,7 @@ from mosaic.dataflows.staged_query_receipt_store import StagedQueryReceiptStore
 from mosaic.dataflows.supply_chain_disclosures import (
     OfficialSupplyChainDisclosureArchive,
 )
-from mosaic.dataflows.sector_snapshots import (
-    render_relationship_snapshot,
-    render_sector_snapshot,
-)
+from mosaic.dataflows.sector_snapshots import render_sector_snapshot
 from mosaic.dataflows.runtime_paths import isolated_agent_runtime_path
 from mosaic.scorecard.canonical_json import canonical_hash, canonical_json
 from mosaic.scorecard.accepted_output_contracts import _validate_knot_capture_v2
@@ -112,7 +109,6 @@ AgentToolId = Literal[
     "get_market_positioning_snapshot",
     "get_sector_research_snapshot",
     "get_role_event_snapshot",
-    "get_relationship_graph_snapshot",
     "get_superinvestor_candidate_snapshot",
     "get_cro_risk_snapshot",
     "get_alpha_candidate_snapshot",
@@ -147,7 +143,6 @@ INITIAL_SNAPSHOT_TOOL_IDS: Final[tuple[AgentToolId, ...]] = (
     "get_market_positioning_snapshot",
     "get_sector_research_snapshot",
     "get_role_event_snapshot",
-    "get_relationship_graph_snapshot",
     "get_superinvestor_candidate_snapshot",
     "get_cro_risk_snapshot",
     "get_alpha_candidate_snapshot",
@@ -200,8 +195,8 @@ def _load_runtime_tool_contract() -> tuple[
     if payload.get("schema_version") != "agent_tool_contract_manifest_v1":
         raise RuntimeError("canonical Agent tool contract version mismatch")
     rows = payload.get("agents")
-    if not isinstance(rows, list) or len(rows) != 28:
-        raise RuntimeError("canonical Agent tool contract must contain 28 agents")
+    if not isinstance(rows, list) or len(rows) != 27:
+        raise RuntimeError("canonical Agent tool contract must contain 27 agents")
 
     agent_ids: list[str] = []
     by_layer: dict[str, list[str]] = {
@@ -233,7 +228,7 @@ def _load_runtime_tool_contract() -> tuple[
         by_layer[layer].append(agent)
         matrix[agent] = cast(tuple[AgentToolId, ...], tuple(tools))
 
-    if len(agent_ids) != len(set(agent_ids)) or payload.get("agent_count") != 28:
+    if len(agent_ids) != len(set(agent_ids)) or payload.get("agent_count") != 27:
         raise RuntimeError("Agent tool contract roster count mismatch")
     return (
         tuple(agent_ids),
@@ -243,9 +238,7 @@ def _load_runtime_tool_contract() -> tuple[
 
 
 ALL_AGENT_IDS, AGENTS_BY_LAYER, AGENT_TOOL_MATRIX = _load_runtime_tool_contract()
-STANDARD_SECTOR_AGENTS: Final[tuple[str, ...]] = tuple(
-    agent for agent in AGENTS_BY_LAYER["sector"] if agent != "relationship_mapper"
-)
+STANDARD_SECTOR_AGENTS: Final[tuple[str, ...]] = AGENTS_BY_LAYER["sector"]
 SUPERINVESTOR_AGENTS: Final[tuple[str, ...]] = AGENTS_BY_LAYER["superinvestor"]
 DECISION_AGENTS: Final[tuple[str, ...]] = AGENTS_BY_LAYER["decision"]
 MACRO_AGENT_TO_TOOL: Final[dict[str, AgentToolId]] = {
@@ -267,7 +260,6 @@ TOOL_DESCRIPTIONS: Final[dict[AgentToolId, str]] = {
     "get_market_positioning_snapshot": "Return the frozen A-share positioning snapshot.",
     "get_sector_research_snapshot": "Return the frozen role-scoped Sector research snapshot.",
     "get_role_event_snapshot": "Return the frozen event projection for the bound role.",
-    "get_relationship_graph_snapshot": "Return the frozen cross-sector relationship graph.",
     "get_superinvestor_candidate_snapshot": "Return the frozen candidate view for this investment philosophy.",
     "get_cro_risk_snapshot": "Return the frozen CRO risk and constraint snapshot.",
     "get_alpha_candidate_snapshot": "Return the frozen novel-alpha candidate snapshot.",
@@ -408,7 +400,7 @@ def _aware_timestamp(value: Any, field: str) -> datetime:
 
 
 def execution_stage_for_agent(agent_id: str, requested_stage: str | None = None) -> str:
-    """Return one of the 29 closed execution-stage identifiers."""
+    """Return one of the 28 closed execution-stage identifiers."""
     if agent_id not in ALL_AGENT_IDS:
         raise ValueError(f"unknown v3 agent_id {agent_id!r}")
     if agent_id != "cio":
@@ -819,7 +811,6 @@ def _superinvestor_candidate_snapshot_schema() -> dict[str, Any]:
         accepted_output_kinds=(
             "MACRO_TRANSMISSION",
             "STANDARD_SECTOR_SELECTION",
-            "RELATIONSHIP_GRAPH",
         ),
     )
 
@@ -900,7 +891,6 @@ def _alpha_candidate_snapshot_schema() -> dict[str, Any]:
         role_context_schema=role_context,
         accepted_output_kinds=(
             "STANDARD_SECTOR_SELECTION",
-            "RELATIONSHIP_GRAPH",
             "SUPERINVESTOR_SELECTION",
         ),
     )
@@ -1186,7 +1176,6 @@ def _cio_decision_snapshot_schema() -> dict[str, Any]:
         accepted_output_kinds=(
             "MACRO_TRANSMISSION",
             "STANDARD_SECTOR_SELECTION",
-            "RELATIONSHIP_GRAPH",
             "SUPERINVESTOR_SELECTION",
             "ALPHA_DISCOVERY",
             "CRO_RISK_REVIEW",
@@ -1259,8 +1248,6 @@ def _accepted_output_lineage(agent_id: str, stage: str, kind: str) -> bool:
         return stage == agent_id and kind == "MACRO_TRANSMISSION"
     if agent_id in STANDARD_SECTOR_AGENTS:
         return stage == agent_id and kind == "STANDARD_SECTOR_SELECTION"
-    if agent_id == "relationship_mapper":
-        return stage == agent_id and kind == "RELATIONSHIP_GRAPH"
     if agent_id in SUPERINVESTOR_AGENTS:
         return stage == agent_id and kind == "SUPERINVESTOR_SELECTION"
     return (agent_id, stage, kind) in {
@@ -1446,7 +1433,7 @@ def _validate_role_snapshot_semantics(
                 and ref["accepted_output_hash"] == candidate["source_output_hash"]
                 and ref["agent_id"] == candidate["source_agent_id"]
                 and ref["accepted_output_kind"]
-                in {"STANDARD_SECTOR_SELECTION", "RELATIONSHIP_GRAPH"}
+                == "STANDARD_SECTOR_SELECTION"
                 for ref in refs
             ):
                 raise DataVendorUnavailable(
@@ -1815,8 +1802,6 @@ def _validate_live_outcome_authority(
         expected_tool = MACRO_AGENT_TO_TOOL[agent_id]
     elif agent_id in STANDARD_SECTOR_AGENTS:
         expected_tool = "get_sector_research_snapshot"
-    elif agent_id == "relationship_mapper":
-        expected_tool = "get_relationship_graph_snapshot"
     else:
         raise DataVendorUnavailable(
             "live outcome authority is restricted to L1/L2 Agents"
@@ -2183,10 +2168,6 @@ def materialize_tool_payload(
         return render_role_snapshot(role, as_of)
     if tool_id == "get_sector_research_snapshot":
         return render_sector_snapshot(agent_id, as_of)
-    if tool_id == "get_relationship_graph_snapshot":
-        if agent_id != "relationship_mapper":
-            raise ValueError("relationship graph is restricted to relationship_mapper")
-        return render_relationship_snapshot(as_of, graph_run_id)
     if tool_id == "get_role_event_snapshot":
         return render_role_event_snapshot(agent_id, as_of)
     return _load_bound_snapshot(
@@ -3211,7 +3192,7 @@ class AgentToolCapabilityStore:
             for route_id in binding["required_route_ids"]
         }
         if (
-            len(external_route_ids) != 26
+            len(external_route_ids) != 25
             or family_route_ids != external_route_ids
             or family_stage_keys != set(source_stage_keys)
         ):

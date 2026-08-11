@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
+import mosaic.dataflows.sector_relationship_source_evidence as source_evidence_module
 from mosaic.dataflows.agent_materialization import AgentDataMaterializationLedger
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.sector_relationship_queries import (
@@ -96,6 +99,59 @@ def test_etf_disclosure_date_seals_authoritative_vintage_and_registers_exact_rep
     assert upstream_payload["pit"]["pit_mode"] == "AUTHORITATIVE_VINTAGE_REPLAY"
     assert upstream_payload["content"]["raw_content_hash"] == descriptor["content_hash"]
     assert store.resolve(descriptor) == receipts
+
+
+def test_sector_source_receipt_loads_the_exact_ticker_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    observed_at = "2026-07-09T15:00:00+08:00"
+    archive_store = Mock()
+    archive_store.load_group.return_value = {
+        "as_of_date": AS_OF,
+        "captured_at": observed_at,
+        "batches": [{"endpoint": "daily", "rows": []}],
+    }
+    parent_hash = canonical_hash({"parent": "sector-archive"})
+    monkeypatch.setattr(
+        source_evidence_module,
+        "sector_archive_source_receipt",
+        lambda _group, _route_id: SimpleNamespace(
+            receipt_hash=parent_hash,
+            as_dict=lambda: {
+                "time": {
+                    "captured_at": observed_at,
+                    "knowledge_available_at": observed_at,
+                }
+            },
+        ),
+    )
+    receipt_store = StagedQueryReceiptStore(tmp_path / "staged.sqlite3")
+    authority = SectorRelationshipSourceEvidenceAuthority(
+        root=tmp_path,
+        receipt_store=receipt_store,
+        sector_archive_store=archive_store,
+    )
+    raw = "exact ticker payload"
+    args = {
+        "ticker": "600000.SH",
+        "date_from": "2026-07-01",
+        "date_to": AS_OF,
+    }
+    descriptor = {
+        "tool_id": "get_stock_data",
+        "route_id": "tushare.sector_market",
+        "as_of": AS_OF,
+        "request_hash": canonical_hash(args),
+        "content_hash": canonical_hash({"text": raw}),
+        "pit_mode": "OBSERVED_LIVE",
+    }
+
+    authority("get_stock_data", args, raw, descriptor, ())
+
+    archive_store.load_group.assert_called_once_with(
+        AS_OF,
+        required_security_code="600000.SH",
+    )
 
 
 @pytest.mark.parametrize(

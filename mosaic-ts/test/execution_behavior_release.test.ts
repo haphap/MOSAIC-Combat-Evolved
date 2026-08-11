@@ -28,7 +28,7 @@ describe("execution behavior release", () => {
   it("validates the committed atomic release", () => {
     const release = loadExecutionBehaviorReleaseManifest(committedExecutionReleasePath());
     expect(release.active_production_variants).toHaveLength(16);
-    expect(release.execution_contracts).toHaveLength(56);
+    expect(release.execution_contracts).toHaveLength(54);
     expect(release.schema_version).toBe("execution_behavior_release_manifest_v4");
     expect(release.execution_behavior_release_id).toMatch(
       /^execution-behavior-release:[0-9a-f]{64}$/,
@@ -40,7 +40,7 @@ describe("execution behavior release", () => {
     const manifest = buildExecutionBehaviorReleaseManifest(releaseInput());
 
     expect(manifest.active_production_variants).toHaveLength(16);
-    expect(manifest.execution_contracts).toHaveLength(56);
+    expect(manifest.execution_contracts).toHaveLength(54);
     expect(
       manifest.execution_contracts.every((contract) =>
         /^sha256:[0-9a-f]{64}$/.test(contract.structured_provider_contract_hash),

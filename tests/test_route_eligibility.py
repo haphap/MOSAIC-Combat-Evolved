@@ -296,7 +296,7 @@ def test_earliest_ready_date_intersects_all_source_and_historical_runtime_routes
         "runtime.account_positions_policy",
         "runtime.market_liquidity",
     ]
-    assert len(required) == 28
+    assert len(required) == 27
     for route_id in required:
         ledger.append_source_capture(
             _source_receipt(
@@ -692,7 +692,7 @@ def test_curve_license_receipt_is_required_only_for_production_enforce(
     assert ready["license_receipt_ref"] == receipt_hash
 
 
-def test_cycle_preflight_is_all_or_none_for_exact_29_stage_route_union(tmp_path: Path):
+def test_cycle_preflight_is_all_or_none_for_exact_28_stage_route_union(tmp_path: Path):
     ledger = AgentDataMaterializationLedger(tmp_path / "materialization.sqlite3")
     manifest = load_agent_data_route_manifest()
     missing_route = "composite.cn_rates"
@@ -706,8 +706,8 @@ def test_cycle_preflight_is_all_or_none_for_exact_29_stage_route_union(tmp_path:
         evaluated_at=EVALUATED_AT,
     )
     assert blocked["status"] == "BLOCKED"
-    assert blocked["route_count"] == 30
-    assert blocked["stage_count"] == 29
+    assert blocked["route_count"] == 29
+    assert blocked["stage_count"] == 28
     assert blocked["blocked_routes"] == [
         {"route_id": missing_route, "blockers": ["MISSING_ARCHIVE"]}
     ]
@@ -730,7 +730,7 @@ def test_cycle_preflight_is_all_or_none_for_exact_29_stage_route_union(tmp_path:
     assert all(stage["status"] == "READY" for stage in ready["stages"])
 
 
-def test_source_admission_allows_26_ready_routes_to_start_before_runtime_exists(
+def test_source_admission_allows_25_ready_routes_to_start_before_runtime_exists(
     tmp_path: Path,
 ):
     ledger = AgentDataMaterializationLedger(tmp_path / "materialization.sqlite3")
@@ -745,7 +745,7 @@ def test_source_admission_allows_26_ready_routes_to_start_before_runtime_exists(
         for route in manifest["routes"]
         if route["pit_strategy"] == "LOCAL_RUNTIME_AUTHORITY"
     )
-    assert len(source_routes) == 26
+    assert len(source_routes) == 25
     assert len(runtime_route_ids) == 4
     for route in source_routes:
         ledger.append_source_capture(_source_receipt(route["route_id"]))
@@ -760,7 +760,7 @@ def test_source_admission_allows_26_ready_routes_to_start_before_runtime_exists(
     assert admission["schema_version"] == "agent_source_admission_v1"
     assert admission["status"] == "SOURCE_READY_PENDING_RUNTIME"
     assert admission["would_materialize"] is True
-    assert admission["route_count"] == 26
+    assert admission["route_count"] == 25
     assert admission["runtime_route_count"] == 4
     assert admission["pending_runtime_route_ids"] == runtime_route_ids
     assert set(admission["eligibility_receipt_hashes"]) == {
@@ -771,7 +771,7 @@ def test_source_admission_allows_26_ready_routes_to_start_before_runtime_exists(
         .as_dict()["cycle_run_id"]
         for receipt_hash in admission["eligibility_receipt_hashes"].values()
     } == {"cycle-source-admission-1"}
-    assert admission["stage_count"] == 29
+    assert admission["stage_count"] == 28
     assert admission["blocked_routes"] == []
     assert any(
         stage["status"] == "SOURCE_READY_PENDING_RUNTIME"
@@ -966,7 +966,7 @@ def _cycle_event_payload(
     stage_keys = sorted(
         {(binding["agent_id"], binding["stage"]) for binding in manifest["bindings"]}
     )
-    assert len(stage_keys) == 29
+    assert len(stage_keys) == 28
     terminal = state == "COMMITTED"
     return {
         "schema_version": "agent_cycle_event_v1",

@@ -198,9 +198,6 @@ _CHECKER_SPECS = (
         "tushare.institutional_flow", "tushare_institutional_flow_v1"
     ),
     RouteEligibilityCheckerSpec(
-        "tushare.relationship_graph", "tushare_relationship_graph_v1"
-    ),
-    RouteEligibilityCheckerSpec(
         "tushare.sector_fundamentals", "tushare_sector_fundamentals_v1"
     ),
     RouteEligibilityCheckerSpec(
@@ -411,14 +408,6 @@ _CONTRACT_RECEIPT_POLICIES = {
             ),
             "etf": (),
         },
-    ),
-    "tushare_relationship_graph_v1": _policy(
-        "tushare",
-        "route_preflight_verified",
-        "pro-v1",
-        "ENDPOINT_SPECIFIC_COMPLETENESS_V1",
-        required_dimensions={"logical_route": ("tushare.relationship_graph",)},
-        require_parent_capture=True,
     ),
     "tushare_sector_fundamentals_v1": _policy(
         "tushare",
@@ -700,7 +689,7 @@ def earliest_agent_source_ready_date(
         "runtime.accepted_outputs",
         "runtime.candidate_scope",
     ]
-    if len(source_route_ids) != 26:
+    if len(source_route_ids) != 25:
         raise RuntimeError("Agent source route closure drift")
 
     route_blockers: dict[str, list[str]] = {}
@@ -1035,7 +1024,7 @@ def evaluate_agent_source_admission(
     cycle_run_id: str | None = None,
     require_production_license: bool = False,
 ) -> dict[str, Any]:
-    """Seal the 26 external-source checks required before the first stage."""
+    """Seal the 25 external-source checks required before the first stage."""
     manifest = load_agent_data_route_manifest()
     routes = [
         route
@@ -1047,7 +1036,7 @@ def evaluate_agent_source_admission(
         for route in manifest["routes"]
         if route["pit_strategy"] == "LOCAL_RUNTIME_AUTHORITY"
     )
-    if len(routes) != 26 or len(pending_runtime_route_ids) != 4:
+    if len(routes) != 25 or len(pending_runtime_route_ids) != 4:
         raise RuntimeError("Agent source/runtime route partition drift")
     return _evaluate_agent_routes(
         ledger=ledger,

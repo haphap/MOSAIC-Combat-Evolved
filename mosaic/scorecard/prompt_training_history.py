@@ -238,7 +238,7 @@ def prompt_role_component_refs(agent_id: str) -> tuple[str, ...]:
 
 def _validate_role_component_specs() -> None:
     if set(_ROLE_COMPONENT_SPECS) != set(OUTCOME_CONTRACTS):
-        raise ValueError("Prompt role component contract must cover all 28 Agents")
+        raise ValueError("Prompt role component contract must cover all 27 Agents")
     for agent_id, specs in _ROLE_COMPONENT_SPECS.items():
         ordinals = [ordinal for ordinal, _, _ in specs]
         if not specs or len(ordinals) != len(set(ordinals)) or ordinals != sorted(ordinals):

@@ -43,7 +43,6 @@ _SECTOR_AGENTS = frozenset(
         "financials",
         "industrials",
         "real_estate_construction",
-        "relationship_mapper",
         "semiconductor",
         "technology",
     }
@@ -51,7 +50,6 @@ _SECTOR_AGENTS = frozenset(
 _STAGE_BY_KIND = {
     "MACRO_TRANSMISSION": None,
     "STANDARD_SECTOR_SELECTION": None,
-    "RELATIONSHIP_GRAPH": "relationship_mapper",
     "SUPERINVESTOR_SELECTION": None,
     "ALPHA_DISCOVERY": "alpha_discovery",
     "CIO_PROPOSAL": "cio_proposal",
@@ -1157,14 +1155,12 @@ def compile_bound_runtime_snapshot(
     if agent_id == "alpha_discovery":
         allowed_kinds = {
             "STANDARD_SECTOR_SELECTION",
-            "RELATIONSHIP_GRAPH",
             "SUPERINVESTOR_SELECTION",
         }
     elif agent_id == "cio" and stage == "cio_proposal":
         allowed_kinds = {
             "MACRO_TRANSMISSION",
             "STANDARD_SECTOR_SELECTION",
-            "RELATIONSHIP_GRAPH",
             "SUPERINVESTOR_SELECTION",
             "ALPHA_DISCOVERY",
         }
@@ -1182,7 +1178,6 @@ def compile_bound_runtime_snapshot(
         allowed_kinds = {
             "MACRO_TRANSMISSION",
             "STANDARD_SECTOR_SELECTION",
-            "RELATIONSHIP_GRAPH",
         }
     if not validated or any(row[1]["accepted_output_kind"] not in allowed_kinds for row in validated):
         raise DataVendorUnavailable("Superinvestor accepted-output scope is invalid")

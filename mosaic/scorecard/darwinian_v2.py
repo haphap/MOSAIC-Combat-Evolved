@@ -155,7 +155,7 @@ def register_production_variant(
     ):
         raise ValueError("effective_slot_sequence must be a positive integer")
     if set(behavior_bindings) != set(OUTCOME_CONTRACTS):
-        raise ValueError("behavior_bindings must cover the exact 28-Agent roster")
+        raise ValueError("behavior_bindings must cover the exact 27-Agent roster")
 
     roster_id = deterministic_id(
         "production-variant-roster",
@@ -213,8 +213,8 @@ def register_production_variant(
         for row in track_rows
         if row["outcome"]["darwin_application_mode"] == "EVOLUTION_ONLY"
     ]
-    if len(evaluation_hashes) != 28 or len(usage_hashes) != 24 or len(decision_hashes) != 4:
-        raise ValueError("Darwinian production roster must have 28/24/4 tracks")
+    if len(evaluation_hashes) != 27 or len(usage_hashes) != 23 or len(decision_hashes) != 4:
+        raise ValueError("Darwinian production roster must have 27/23/4 tracks")
 
     natural_revision = conn.execute(
         """
@@ -553,8 +553,8 @@ def validate_production_variant_roster_revision(
         not isinstance(evaluation, list)
         or not isinstance(usage, list)
         or not isinstance(decision, list)
-        or len(evaluation) != 28
-        or len(usage) != 24
+        or len(evaluation) != 27
+        or len(usage) != 23
         or len(decision) != 4
         or len(set(evaluation)) != len(evaluation)
         or len(set(usage)) != len(usage)
@@ -673,8 +673,8 @@ def get_production_weight_snapshot(
                 **record,
             }
         )
-    if len(weights) != 24 or len({row["agent_id"] for row in weights}) != 24:
-        raise ValueError("Darwinian weight snapshot must contain exactly 24 upstream Agents")
+    if len(weights) != 23 or len({row["agent_id"] for row in weights}) != 23:
+        raise ValueError("Darwinian weight snapshot must contain exactly 23 upstream Agents")
     weights.sort(key=lambda row: row["agent_id"])
     snapshot_without_hash = {
         "schema_version": "darwinian_usage_weight_snapshot_v2",
@@ -722,8 +722,8 @@ def _authoritative_macro_input_gate(
         for row in weights
         if isinstance(row, Mapping)
     }
-    if len(weights) != 24 or len(weight_by_agent) != 24:
-        raise ValueError("authoritative Darwinian snapshot must contain 24 Agents")
+    if len(weights) != 23 or len(weight_by_agent) != 23:
+        raise ValueError("authoritative Darwinian snapshot must contain 23 Agents")
 
     reliability_by_agent: dict[str, dict[str, Any]] = {}
     for agent_id in _MACRO_AGENT_IDS:
@@ -1126,7 +1126,7 @@ def append_accepted_cycle(
     ).fetchall()
     schedule_by_agent = {row[0]: json.loads(row[1]) for row in slot_rows}
     if set(schedule_by_agent) != set(OUTCOME_CONTRACTS):
-        raise ValueError("outcome schedule plan must contain the exact 28-Agent roster")
+        raise ValueError("outcome schedule plan must contain the exact 27-Agent roster")
     stage_skips = _accepted_stage_skips(
         conn,
         state=state,
@@ -1155,7 +1155,7 @@ def append_accepted_cycle(
         audit_stage_keys.add(key)
         audit_by_agent.setdefault(agent_id, []).append(audit)
     if audit_stage_keys | skip_stage_keys != _required_runtime_stage_keys():
-        raise ValueError("accepted v2 cycle must resolve the exact 29 Agent stages")
+        raise ValueError("accepted v2 cycle must resolve the exact 28 Agent stages")
 
     revision_hashes = set(registration["evaluation_track_key_hashes"])
     placeholders = ",".join("?" for _ in revision_hashes)
@@ -1169,11 +1169,11 @@ def append_accepted_cycle(
     ).fetchall()
     track_by_agent = {row[0]: (row[1], json.loads(row[2])) for row in track_rows}
     if set(track_by_agent) != set(OUTCOME_CONTRACTS):
-        raise ValueError("roster revision does not resolve all 28 evaluation tracks")
+        raise ValueError("roster revision does not resolve all 27 evaluation tracks")
 
     output_entries = _accepted_cycle_outputs(state, skipped_agents=set(stage_skips))
-    if len(output_entries) + len(stage_skips) != 29:
-        raise ValueError("accepted v2 cycle must resolve 29 accepted-or-skipped stages")
+    if len(output_entries) + len(stage_skips) != 28:
+        raise ValueError("accepted v2 cycle must resolve 28 accepted-or-skipped stages")
     accepted_records: list[dict[str, Any]] = []
     operational_ids: dict[str, str] = {}
     for agent_id, accepted_kind, stage, supplied_record in output_entries:
@@ -1809,7 +1809,7 @@ def _accepted_cycle_outputs(
 def accepted_cycle_stage_outcome_refs(
     state: Mapping[str, Any],
 ) -> list[dict[str, str]]:
-    """Project the existing 29-stage accepted/skip authority into hash refs."""
+    """Project the existing 28-stage accepted/skip authority into hash refs."""
     audits = state.get("agent_run_audits")
     stage_skips = state.get("outcome_stage_skips")
     validate_runtime_stage_completion(audits, stage_skips)
@@ -1865,8 +1865,8 @@ def accepted_cycle_stage_outcome_refs(
             }
         )
     result.sort(key=lambda row: (row["agent_id"], row["stage"]))
-    if len(result) != 29:
-        raise ValueError("cycle stage outcome projection must contain exactly 29 refs")
+    if len(result) != 28:
+        raise ValueError("cycle stage outcome projection must contain exactly 28 refs")
     return result
 
 
@@ -2143,7 +2143,7 @@ def validate_runtime_stage_completion(
     audits: object,
     stage_skips: object,
 ) -> None:
-    """Validate the disjoint accepted-output/stage-skip union for 29 stages."""
+    """Validate the disjoint accepted-output/stage-skip union for 28 stages."""
     if not isinstance(audits, list) or not isinstance(stage_skips, Mapping):
         raise ValueError("cycle completion requires audit array and stage-skip object")
     skip_keys: set[tuple[str, str]] = set()
@@ -2169,7 +2169,7 @@ def validate_runtime_stage_completion(
     if audit_keys & skip_keys:
         raise ValueError("cycle stage cannot be both accepted and skipped")
     if audit_keys | skip_keys != _required_runtime_stage_keys():
-        raise ValueError("cycle must resolve the exact 29 Agent stages")
+        raise ValueError("cycle must resolve the exact 28 Agent stages")
 
 
 def _audit_stage(agent_id: str) -> str:

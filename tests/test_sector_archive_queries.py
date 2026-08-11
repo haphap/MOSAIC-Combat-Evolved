@@ -17,10 +17,10 @@ CAPTURED_AT = "2026-07-09T16:30:00+08:00"
 class _Store:
     def __init__(self, group: dict[str, Any]) -> None:
         self.group = group
-        self.calls: list[str] = []
+        self.calls: list[tuple[str, dict[str, Any]]] = []
 
-    def load_group(self, as_of_date: str) -> dict[str, Any]:
-        self.calls.append(as_of_date)
+    def load_group(self, as_of_date: str, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append((as_of_date, kwargs))
         if as_of_date != AS_OF:
             raise FileNotFoundError(as_of_date)
         return self.group
@@ -63,7 +63,10 @@ def _group() -> dict[str, Any]:
         "as_of_date": AS_OF,
         "cutoff_at": "2026-07-09T23:59:00+08:00",
         "captured_at": CAPTURED_AT,
-        "base_group_hash": canonical_hash({"base": AS_OF}),
+        "requested_route_ids": [
+            "tushare.sector_fundamentals",
+            "tushare.sector_market",
+        ],
         "sessions": [row["trade_date"] for row in prices],
         "batches": [
             _batch("stock_basic", [{"ts_code": "600000.SH", "name": "浦发银行"}]),
@@ -99,6 +102,12 @@ def _group() -> dict[str, Any]:
         "normalized_row_count": len(prices) + 5,
         "duplicate_counts": {},
     }
+    group["capture_scope"] = {
+        "sector_agent_ids": ["financials"],
+        "security_codes": ["600000.SH"],
+        "etf_codes": ["512800.SH"],
+    }
+    group["capture_scope_hash"] = canonical_hash(group["capture_scope"])
     return group
 
 
@@ -125,7 +134,39 @@ def test_sector_archive_reader_preserves_market_indicator_statement_and_etf_outp
     holdings = reader("get_etf_holdings", "512800.SH", AS_OF)
     assert "Disclosure Date: 20260701" in holdings
     assert "600000.SH" in holdings
-    assert store.calls == [AS_OF] * 6
+    assert store.calls == [
+        (
+            AS_OF,
+            {
+                "required_route_ids": ("tushare.sector_market",),
+                "required_security_code": "600000.SH",
+            },
+        ),
+        (
+            AS_OF,
+            {
+                "required_route_ids": ("tushare.sector_market",),
+                "required_security_code": "600000.SH",
+            },
+        ),
+        *[
+            (
+                AS_OF,
+                {
+                    "required_route_ids": ("tushare.sector_fundamentals",),
+                    "required_security_code": "600000.SH",
+                },
+            )
+            for _index in range(3)
+        ],
+        (
+            AS_OF,
+            {
+                "required_route_ids": ("tushare.sector_market",),
+                "required_security_code": "512800.SH",
+            },
+        ),
+    ]
 
 
 def test_sector_archive_reader_fails_closed_for_missing_date_ticker_or_endpoint() -> None:

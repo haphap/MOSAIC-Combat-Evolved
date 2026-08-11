@@ -324,7 +324,7 @@ export interface AgentCycleMaterializationDryRun {
   dry_run: true;
   as_of: string;
   status: "READY" | "READY_TO_BUILD" | "BLOCKED";
-  stage_count: 29;
+  stage_count: 28;
   ready_stage_count: number;
   ready_to_build_stage_count: number;
   blocked_stage_count: number;
@@ -352,7 +352,7 @@ export interface AgentSourceAdmission {
   route_count: 26;
   runtime_route_count: 4;
   pending_runtime_route_ids: string[];
-  stage_count: 29;
+  stage_count: 28;
   status: "SOURCE_READY_PENDING_RUNTIME" | "BLOCKED";
   would_materialize: boolean;
   blocked_routes: Array<{ route_id: string; blockers: string[] }>;

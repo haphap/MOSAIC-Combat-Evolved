@@ -135,14 +135,13 @@ def test_source_admission_preparation_reuses_exact_families_without_signing_capa
         ("financials", "financials"),
         ("industrials", "industrials"),
         ("real_estate_construction", "real_estate_construction"),
-        ("relationship_mapper", "relationship_mapper"),
         ("semiconductor", "semiconductor"),
         ("technology", "technology"),
     ]
     assert materializer_calls
     assert result == {
         "as_of": "2026-07-09",
-        "adaptive_stage_count": 10,
+        "adaptive_stage_count": 9,
         "family_stage_count": 6,
         "status": "SOURCE_PREPARED",
     }
@@ -151,30 +150,7 @@ def test_source_admission_preparation_reuses_exact_families_without_signing_capa
         assert conn.execute("SELECT count(*) FROM snapshot_bundles").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM capabilities").fetchone()[0] == 0
 
-    family_calls.clear()
-    adaptive_calls.clear()
     materializer_count = len(materializer_calls)
-    route_result = store.prepare_source_admission(
-        as_of="2026-07-09",
-        route_id="official.company_supply_chain_disclosures",
-        materializer=materializer,
-    )
-
-    assert family_calls == []
-    assert adaptive_calls == []
-    assert len(materializer_calls) == materializer_count
-    assert route_result == {
-        "as_of": "2026-07-09",
-        "adaptive_stage_count": 0,
-        "blocked_stage_ids": ["relationship_mapper/relationship_mapper"],
-        "blocked_stage_reasons": {
-            "relationship_mapper/relationship_mapper": ["QUERY_SCOPE_REQUIRED"]
-        },
-        "family_stage_count": 0,
-        "route_id": "official.company_supply_chain_disclosures",
-        "status": "SOURCE_PREPARATION_BLOCKED",
-    }
-
     route_result = store.prepare_source_admission(
         as_of="2026-07-09",
         route_id="tushare.sector_market",
@@ -197,31 +173,6 @@ def test_source_admission_preparation_reuses_exact_families_without_signing_capa
         "as_of": "2026-07-09",
         "route_id": "tushare.sector_market",
     }
-
-    family_calls.clear()
-    route_result = store.prepare_source_admission(
-        as_of="2026-07-09",
-        route_id="tushare.relationship_graph",
-        materializer=materializer,
-    )
-
-    assert family_calls == [
-        ("relationship_mapper", "relationship_mapper", "2026-07-09")
-    ]
-    assert route_result == {
-        "as_of": "2026-07-09",
-        "adaptive_stage_count": 0,
-        "family_stage_count": 1,
-        "route_id": "tushare.relationship_graph",
-        "status": "SOURCE_PREPARED",
-    }
-    assert family_requests[-1] == {
-        "agent_id": "relationship_mapper",
-        "stage": "relationship_mapper",
-        "as_of": "2026-07-09",
-        "route_id": "tushare.relationship_graph",
-    }
-
 
 def test_source_admission_preserves_exact_owner_blockers_for_operator(
     tmp_path: Path,
@@ -719,13 +670,13 @@ def test_capability_hashing_uses_shared_cross_runtime_jcs_authority():
     assert capability_module._sha256(value) == canonical_hash(value)
 
 
-def test_v3_matrix_has_28_agents_and_29_closed_execution_stages():
-    assert len(ALL_AGENT_IDS) == 28
+def test_v3_matrix_has_27_agents_and_28_closed_execution_stages():
+    assert len(ALL_AGENT_IDS) == 27
     assert set(AGENT_TOOL_MATRIX) == set(ALL_AGENT_IDS)
     stages = [execution_stage_for_agent(agent) for agent in ALL_AGENT_IDS if agent != "cio"]
     stages += [execution_stage_for_agent("cio", "cio_proposal")]
     stages += [execution_stage_for_agent("cio", "cio_final")]
-    assert len(stages) == len(set(stages)) == 29
+    assert len(stages) == len(set(stages)) == 28
     with pytest.raises(ValueError, match="capability stage"):
         execution_stage_for_agent("central_bank", "agent_run")
     with pytest.raises(ValueError, match="cio capability stage"):
@@ -735,12 +686,6 @@ def test_v3_matrix_has_28_agents_and_29_closed_execution_stages():
 def test_matrix_restricts_roles_to_the_frozen_plan_tools():
     assert allowed_tools_for_agent("china") == ("get_china_macro_snapshot",)
     assert allowed_tools_for_agent("central_bank") == ("get_central_bank_snapshot",)
-    assert allowed_tools_for_agent("relationship_mapper") == (
-        "get_relationship_graph_snapshot",
-        "get_rke_research_context",
-        "get_stock_research",
-        "get_supply_chain_evidence",
-    )
     assert allowed_tools_for_agent("biotech") == (
         "get_sector_research_snapshot",
         "get_broker_research",
@@ -750,6 +695,7 @@ def test_matrix_restricts_roles_to_the_frozen_plan_tools():
         "get_industry_policy_digest",
         "get_rke_research_context",
         "get_stock_data",
+        "get_supply_chain_evidence",
     )
     assert allowed_tools_for_agent("semiconductor") == (
         "get_sector_research_snapshot",
@@ -764,6 +710,7 @@ def test_matrix_restricts_roles_to_the_frozen_plan_tools():
         "get_industry_policy_digest",
         "get_rke_research_context",
         "get_stock_data",
+        "get_supply_chain_evidence",
     )
     assert allowed_tools_for_agent("agriculture") == (
         "get_sector_research_snapshot",
@@ -775,6 +722,7 @@ def test_matrix_restricts_roles_to_the_frozen_plan_tools():
         "get_industry_policy_digest",
         "get_rke_research_context",
         "get_stock_data",
+        "get_supply_chain_evidence",
     )
     assert allowed_tools_for_agent("alpha_discovery") == (
         "get_alpha_candidate_snapshot",

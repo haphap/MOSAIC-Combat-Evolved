@@ -16,10 +16,7 @@ import {
 } from "../src/agents/helpers/agent_run_contract.js";
 import { canonicalStructuredRepairDirectiveManifest } from "../src/agents/helpers/structured_repair_directives.js";
 import { createMacroSubmissionSchema, MACRO_AGENT_IDS } from "../src/agents/macro/_contracts.js";
-import {
-  buildStandardSectorSchema,
-  RelationshipMapperSchema,
-} from "../src/agents/sector/_schemas.js";
+import { buildStandardSectorSchema } from "../src/agents/sector/_schemas.js";
 import { buildRuntimeSuperinvestorSchema } from "../src/agents/superinvestor/_schemas.js";
 import { macroSubmission } from "./helpers/macro.js";
 
@@ -797,40 +794,6 @@ describe("strict agent-run contract", () => {
     expect(result.audit.repair_count).toBe(1);
     expect(attempts[0]?.some((issue) => issue.validator === "zod_schema")).toBe(true);
     expect(result.output.final_selection.preferred_direction.direction_id).toBe("chip_design");
-  });
-
-  it("binds Relationship compact evidence and citation to the runtime catalog", async () => {
-    const evidence = `evidence:${"2".repeat(64)}`;
-    const citation = `relationship-opportunity:${"3".repeat(64)}`;
-    const llm = new SequenceLlm([new Error("400 Bad Request")]);
-
-    await expect(
-      invokeStrictStructured({
-        llm: llm as never,
-        schema: RelationshipMapperSchema,
-        messages: messages(),
-        agent: "relationship_mapper",
-        stage: "agent_run",
-        runId: "provider-relationship-runtime-binding",
-        evidenceSnapshot: {
-          evidenceLedger: [{ evidence_id: evidence }],
-          allowedResearchRuleIds: new Set([citation]),
-        },
-        onAttempt: () => {},
-      }),
-    ).rejects.toBeInstanceOf(AgentRunContractError);
-
-    const providerSchema = llm.schemas[0] as {
-      properties: {
-        evidence_id: Record<string, unknown>;
-        research_rule_ref: Record<string, unknown>;
-      };
-    };
-    expect(providerSchema.properties.evidence_id).toEqual({ type: "string", enum: [evidence] });
-    expect(providerSchema.properties.research_rule_ref).toEqual({
-      type: "string",
-      enum: [citation],
-    });
   });
 
   it("binds Superinvestor abstention evidence and citation to the runtime catalog", async () => {

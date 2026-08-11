@@ -23,31 +23,14 @@ AS_OF = "2026-08-06"
 CUTOFF = "2026-08-06T23:59:00+08:00"
 
 
-class _BaseStore:
-    def __init__(self, group: dict[str, Any]) -> None:
-        self.group = group
-
-    def load_group(
-        self, as_of_date: str, *, required_endpoints=None
-    ) -> dict[str, Any]:
-        assert as_of_date == AS_OF
-        assert required_endpoints
-        return self.group
-
-
-class _MissingBaseStore:
-    def load_group(
-        self, as_of_date: str, *, required_endpoints=None
-    ) -> dict[str, Any]:
-        assert required_endpoints
-        raise FileNotFoundError(as_of_date)
-
-
-def _base_group() -> dict[str, Any]:
-    return {
-        "schema_version": "a_share_capture_group_v1",
+def _sealed_group(capture_key: str) -> dict[str, Any]:
+    group = {
+        "schema_version": "sector_relationship_capture_group_v2",
+        "capture_key": capture_key,
         "as_of_date": AS_OF,
-        "captured_at": "2026-08-06T16:00:00+08:00",
+        "cutoff_at": CUTOFF,
+        "captured_at": "2026-08-06T17:00:00+08:00",
+        "sessions": ["20260806"],
         "batches": [
             {"endpoint": endpoint, "rows": [{"fixture_endpoint": endpoint}]}
             for endpoint in (
@@ -59,20 +42,6 @@ def _base_group() -> dict[str, Any]:
                 "daily_basic",
             )
         ],
-    }
-
-
-def _sealed_group(capture_key: str) -> dict[str, Any]:
-    base_group = _base_group()
-    group = {
-        "schema_version": "sector_relationship_capture_group_v2",
-        "capture_key": capture_key,
-        "as_of_date": AS_OF,
-        "cutoff_at": CUTOFF,
-        "captured_at": "2026-08-06T17:00:00+08:00",
-        "base_group_hash": sector_archive.canonical_hash(base_group),
-        "sessions": ["20260806"],
-        "batches": [dict(batch) for batch in base_group["batches"]],
         "page_count": 7,
         "normalized_row_count": 11,
         "capture_scope": {
@@ -87,7 +56,7 @@ def _sealed_group(capture_key: str) -> dict[str, Any]:
     return group
 
 
-def test_sector_archive_atomically_publishes_three_routes_and_replays_cache(
+def test_sector_archive_atomically_publishes_two_routes_and_replays_cache(
     tmp_path, monkeypatch
 ) -> None:
     store = SectorArchiveStore(tmp_path / "sector.sqlite3")
@@ -96,7 +65,12 @@ def test_sector_archive_atomically_publishes_three_routes_and_replays_cache(
 
     def build(*_args, capture_key: str, **_kwargs):
         calls["builder"] += 1
-        return _sealed_group(capture_key)
+        group = _sealed_group(capture_key)
+        group["capture_scope"]["sector_agent_ids"] = ["semiconductor"]
+        group["capture_scope_hash"] = sector_archive.canonical_hash(
+            group["capture_scope"]
+        )
+        return group
 
     monkeypatch.setattr(sector_archive, "_build_capture_group", build)
     monkeypatch.setattr(
@@ -104,13 +78,11 @@ def test_sector_archive_atomically_publishes_three_routes_and_replays_cache(
         "compile_sector_archive_group",
         lambda _group: {"semiconductor": {"snapshot_hash": f"sha256:{'c' * 64}"}},
     )
-    base_store = _BaseStore(_base_group())
-
     first = archive_sector_relationship(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("transport")),
         as_of_date=AS_OF,
         cutoff_at=CUTOFF,
-        base_store=base_store,
+        requested_agent_ids=("semiconductor",),
         store=store,
         ledger=ledger,
     )
@@ -118,7 +90,7 @@ def test_sector_archive_atomically_publishes_three_routes_and_replays_cache(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("transport")),
         as_of_date=AS_OF,
         cutoff_at=CUTOFF,
-        base_store=base_store,
+        requested_agent_ids=("semiconductor",),
         store=store,
         ledger=ledger,
     )
@@ -136,39 +108,32 @@ def test_sector_archive_atomically_publishes_three_routes_and_replays_cache(
     assert first.coverage_receipt.as_dict()["coverage_complete"] is True
     assert store.row_count() == 1
     counts = ledger.row_counts()
-    assert counts["source_capture_receipts"] == 3
+    assert counts["source_capture_receipts"] == 2
     assert counts["route_coverage_receipts"] == 1
 
 
-def test_archive_scope_binds_parent_lookup_capture_key_and_receipt(
+def test_archive_scope_binds_exact_object_capture_key_and_receipt(
     tmp_path, monkeypatch
 ) -> None:
     store = SectorArchiveStore(tmp_path / "sector.sqlite3")
     ledger = AgentDataMaterializationLedger(tmp_path / "ledger.sqlite3")
-
-    class _ScopedBaseStore:
-        def __init__(self) -> None:
-            self.calls: list[tuple[str, dict[str, Any]]] = []
-
-        def load_group(self, as_of_date: str, **kwargs: Any) -> dict[str, Any]:
-            self.calls.append((as_of_date, dict(kwargs)))
-            return _base_group()
-
-    base_store = _ScopedBaseStore()
 
     def build(
         *_args,
         capture_key: str,
         requested_route_ids,
         requested_agent_ids,
-        requested_security_codes,
         **_kwargs,
     ):
+        security_code = {
+            "semiconductor": "000001.SZ",
+            "technology": "000002.SZ",
+        }[requested_agent_ids[0]]
         group = _sealed_group(capture_key)
         group["requested_route_ids"] = list(requested_route_ids)
         group["capture_scope"] = {
             "sector_agent_ids": list(requested_agent_ids),
-            "security_codes": list(requested_security_codes),
+            "security_codes": [security_code],
             "etf_codes": [],
         }
         group["capture_scope_hash"] = sector_archive.canonical_hash(
@@ -186,6 +151,11 @@ def test_archive_scope_binds_parent_lookup_capture_key_and_receipt(
             }
         },
     )
+    monkeypatch.setattr(
+        sector_archive,
+        "write_registered_sector_snapshot",
+        lambda **kwargs: kwargs["snapshot"],
+    )
 
     results = [
         archive_sector_relationship(
@@ -197,33 +167,27 @@ def test_archive_scope_binds_parent_lookup_capture_key_and_receipt(
                 "tushare.sector_market",
             ),
             requested_agent_ids=(agent_id,),
-            requested_security_codes=(security_code,),
-            base_store=base_store,
             store=store,
             ledger=ledger,
         )
-        for agent_id, security_code in (
-            ("semiconductor", "000001.SZ"),
-            ("technology", "000002.SZ"),
-        )
+        for agent_id in ("semiconductor", "technology")
     ]
 
     assert store.row_count() == 2
-    assert [call[1]["required_endpoints"] for call in base_store.calls] == 2 * [
-        (
-            "adj_factor",
-            "daily",
-            "daily_basic",
-            "stock_basic",
-            "suspend_d",
-            "trade_cal",
-        )
-    ]
+    assert all("base_group_hash" not in result.group for result in results)
     assert results[0].group["capture_key"] != results[1].group["capture_key"]
     assert (
         results[0].source_receipts[0].as_dict()["identity"]["request_hash"]
         != results[1].source_receipts[0].as_dict()["identity"]["request_hash"]
     )
+    published = [
+        compile_sector_relationship_core_snapshots(result, ledger=ledger)
+        for result in results
+    ]
+    assert [list(result.snapshots) for result in published] == [
+        ["semiconductor"],
+        ["technology"],
+    ]
 
 
 def test_sector_archive_historical_replay_seals_real_completion_cutoff(
@@ -247,11 +211,6 @@ def test_sector_archive_historical_replay_seals_real_completion_cutoff(
     monkeypatch.setattr(sector_archive, "_build_capture_group", build)
     monkeypatch.setattr(
         sector_archive,
-        "_attach_parent_batches",
-        lambda group, _base_group: dict(group),
-    )
-    monkeypatch.setattr(
-        sector_archive,
         "compile_sector_archive_group",
         lambda _group: {"semiconductor": {"snapshot_hash": f"sha256:{'c' * 64}"}},
     )
@@ -261,7 +220,6 @@ def test_sector_archive_historical_replay_seals_real_completion_cutoff(
         as_of_date=AS_OF,
         cutoff_at=CUTOFF,
         historical_replay=True,
-        base_store=_BaseStore(_base_group()),
         store=store,
         ledger=ledger,
     )
@@ -273,58 +231,6 @@ def test_sector_archive_historical_replay_seals_real_completion_cutoff(
     } == {completion}
 
 
-def test_sector_archive_route_only_publishes_and_replays_only_requested_route(
-    tmp_path, monkeypatch
-) -> None:
-    store = SectorArchiveStore(tmp_path / "sector.sqlite3")
-    ledger = AgentDataMaterializationLedger(tmp_path / "ledger.sqlite3")
-    calls = {"builder": 0}
-
-    def build(*_args, capture_key: str, requested_route_ids, **_kwargs):
-        calls["builder"] += 1
-        assert requested_route_ids == ("tushare.relationship_graph",)
-        group = _sealed_group(capture_key)
-        group["requested_route_ids"] = list(requested_route_ids)
-        group["batches"] = [
-            batch
-            for batch in group["batches"]
-            if batch["endpoint"] == "stock_basic"
-        ]
-        return group
-
-    monkeypatch.setattr(sector_archive, "_build_capture_group", build)
-    monkeypatch.setattr(
-        sector_archive,
-        "compile_sector_archive_group",
-        lambda _group: {
-            "relationship_mapper": {"snapshot_hash": f"sha256:{'c' * 64}"}
-        },
-    )
-    kwargs = {
-        "as_of_date": AS_OF,
-        "cutoff_at": CUTOFF,
-        "requested_route_ids": ("tushare.relationship_graph",),
-        "base_store": _BaseStore(_base_group()),
-        "store": store,
-        "ledger": ledger,
-    }
-
-    first = archive_sector_relationship(lambda *_args, **_kwargs: None, **kwargs)
-    second = archive_sector_relationship(lambda *_args, **_kwargs: None, **kwargs)
-
-    assert calls["builder"] == 1
-    assert first.cache_hit is False
-    assert second.cache_hit is True
-    assert [
-        receipt.as_dict()["identity"]["route_id"]
-        for receipt in first.source_receipts
-    ] == ["tushare.relationship_graph"]
-    coverage = first.coverage_receipt.as_dict()
-    assert coverage["required_route_ids"] == ["tushare.relationship_graph"]
-    assert coverage["coverage_complete"] is True
-    assert ledger.row_counts()["source_capture_receipts"] == 1
-
-
 def test_sector_archive_default_reader_ignores_newer_partial_group(tmp_path) -> None:
     store = SectorArchiveStore(tmp_path / "sector.sqlite3")
     full_key = f"sha256:{'a' * 64}"
@@ -333,13 +239,13 @@ def test_sector_archive_default_reader_ignores_newer_partial_group(tmp_path) -> 
     full_group["captured_at"] = "2026-08-06T16:00:00+08:00"
     partial_group = _sealed_group(partial_key)
     partial_group["captured_at"] = "2026-08-06T17:00:00+08:00"
-    partial_group["requested_route_ids"] = ["tushare.relationship_graph"]
+    partial_group["requested_route_ids"] = ["tushare.sector_fundamentals"]
     store.get_or_capture(full_key, lambda: full_group)
     store.get_or_capture(partial_key, lambda: partial_group)
 
     assert store.load_group(AS_OF)["capture_key"] == full_key
     assert store.load_group(
-        AS_OF, required_route_ids=("tushare.relationship_graph",)
+        AS_OF, required_route_ids=("tushare.sector_fundamentals",)
     )["capture_key"] == partial_key
 
 
@@ -383,6 +289,16 @@ def test_store_selects_role_scoped_group_by_route_and_security(tmp_path) -> None
             captured_at="2026-08-06T16:01:00+08:00",
         ),
     )
+    legacy_group = _sealed_group("legacy")
+    legacy_group.pop("capture_scope")
+    legacy_group.pop("capture_scope_hash")
+    legacy_group["captured_at"] = "2026-08-06T16:02:00+08:00"
+    legacy_group["requested_route_ids"] = [
+        "tushare.sector_fundamentals",
+        "tushare.sector_market",
+    ]
+    legacy, _ = store.get_or_capture("legacy", lambda: legacy_group)
+    assert "capture_scope" not in legacy
 
     with pytest.raises(FileNotFoundError):
         store.load_group(AS_OF)
@@ -396,6 +312,12 @@ def test_store_selects_role_scoped_group_by_route_and_security(tmp_path) -> None
         required_route_ids=("tushare.sector_fundamentals",),
         required_security_code="000002.SZ",
     ) == technology
+    with pytest.raises(FileNotFoundError):
+        store.load_group(
+            AS_OF,
+            required_route_ids=("tushare.sector_market",),
+            required_security_code="000003.SZ",
+        )
 
 
 def test_sector_core_snapshots_publish_exact_builds_and_replay(
@@ -441,7 +363,6 @@ def test_sector_core_snapshots_publish_exact_builds_and_replay(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("transport")),
         as_of_date=AS_OF,
         cutoff_at=CUTOFF,
-        base_store=_BaseStore(_base_group()),
         store=store,
         ledger=ledger,
     )
@@ -538,7 +459,6 @@ def test_sector_archive_transport_failure_publishes_no_source(
         lambda *_args, **_kwargs: None,
         as_of_date=AS_OF,
         cutoff_at=CUTOFF,
-        base_store=_BaseStore(_base_group()),
         store=store,
         ledger=ledger,
     )
@@ -590,7 +510,6 @@ def test_compiler_failure_preserves_raw_capture_for_zero_transport_replay(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("transport")),
         as_of_date=AS_OF,
         cutoff_at=CUTOFF,
-        base_store=_BaseStore(_base_group()),
         store=store,
         ledger=ledger,
     )
@@ -611,13 +530,12 @@ def test_compiler_failure_preserves_raw_capture_for_zero_transport_replay(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("transport")),
         as_of_date=AS_OF,
         cutoff_at=CUTOFF,
-        base_store=_BaseStore(_base_group()),
         store=store,
         ledger=ledger,
     )
 
     assert second.cache_hit is True
-    assert len(second.source_receipts) == 3
+    assert len(second.source_receipts) == 2
     assert calls["builder"] == 1
     assert store.row_count() == 1
 
@@ -643,7 +561,6 @@ def test_sector_archive_preserves_sanitized_endpoint_failure_code(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("transport")),
         as_of_date=AS_OF,
         cutoff_at=CUTOFF,
-        base_store=_BaseStore(_base_group()),
         store=store,
         ledger=ledger,
     )
@@ -652,34 +569,6 @@ def test_sector_archive_preserves_sanitized_endpoint_failure_code(
     assert payload["blocker_codes"] == [reason_code]
     assert "vendor text" not in str(payload)
     assert store.row_count() == 0
-
-
-def test_sector_archive_requires_a_sealed_parent_group(tmp_path, monkeypatch) -> None:
-    store = SectorArchiveStore(tmp_path / "sector.sqlite3")
-    ledger = AgentDataMaterializationLedger(tmp_path / "ledger.sqlite3")
-    monkeypatch.setattr(
-        sector_archive,
-        "_build_capture_group",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("builder must not run without a sealed parent")
-        ),
-    )
-
-    result = archive_sector_relationship(
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("transport")),
-        as_of_date=AS_OF,
-        cutoff_at=CUTOFF,
-        base_store=_MissingBaseStore(),
-        store=store,
-        ledger=ledger,
-    )
-
-    assert result.source_receipts == ()
-    assert result.coverage_receipt.as_dict()["blocker_codes"] == [
-        "INCOMPLETE_COVERAGE"
-    ]
-    assert store.row_count() == 0
-    assert ledger.row_counts()["source_capture_receipts"] == 0
 
 
 def test_sector_archive_rejects_preclose_and_next_day_cutoffs(tmp_path) -> None:
@@ -692,7 +581,6 @@ def test_sector_archive_rejects_preclose_and_next_day_cutoffs(tmp_path) -> None:
             ),
             as_of_date=AS_OF,
             cutoff_at=cutoff,
-            base_store=_MissingBaseStore(),
             store=SectorArchiveStore(tmp_path / f"sector-{index}.sqlite3"),
             ledger=AgentDataMaterializationLedger(
                 tmp_path / f"ledger-{index}.sqlite3"
@@ -703,38 +591,6 @@ def test_sector_archive_rejects_preclose_and_next_day_cutoffs(tmp_path) -> None:
         assert result.coverage_receipt.as_dict()["blocker_codes"] == [
             "MARKET_SESSION_INCOMPLETE"
         ]
-
-
-def test_sector_archive_replay_attaches_complete_hash_bound_parent_batches() -> None:
-    base_group = _base_group()
-    capture_key = f"sha256:{'e' * 64}"
-    group = _sealed_group(capture_key)
-    group["batches"] = [
-        batch
-        for batch in group["batches"]
-        if batch["endpoint"] not in {"stock_basic", "suspend_d"}
-    ]
-
-    attached = sector_archive._attach_parent_batches(group, base_group)
-
-    assert {batch["endpoint"] for batch in attached["batches"]} == {
-        "trade_cal",
-        "stock_basic",
-        "daily",
-        "adj_factor",
-        "suspend_d",
-        "daily_basic",
-    }
-    assert attached["normalized_row_count"] == 6
-
-    changed_parent = _base_group()
-    changed_parent["captured_at"] = "2026-08-06T16:01:00+08:00"
-    try:
-        sector_archive._attach_parent_batches(group, changed_parent)
-    except DataVendorUnavailable:
-        pass
-    else:
-        raise AssertionError("parent hash drift must fail closed")
 
 
 def test_incremental_pagination_retries_empty_and_rejects_hidden_rows(
@@ -823,7 +679,7 @@ def test_sealed_batch_records_the_pagination_proof_actually_used() -> None:
     assert capped["pagination_policy"] == "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP"
 
 
-def test_moneyflow_must_be_within_parent_daily_session_codes() -> None:
+def test_moneyflow_must_match_exact_daily_ticker_and_session() -> None:
     daily = {
         "endpoint": "daily",
         "rows": [{"trade_date": "20260806", "ts_code": "000001.SZ"}],
@@ -834,13 +690,16 @@ def test_moneyflow_must_be_within_parent_daily_session_codes() -> None:
     }
 
     try:
-        sector_archive._validate_moneyflow_daily_closure(
-            base_batches=[daily], moneyflow_batch=moneyflow, sessions=["20260806"]
+        sector_archive._validate_moneyflow_exact_closure(
+            daily_batch=daily,
+            moneyflow_batch=moneyflow,
+            tickers=("000001.SZ",),
+            sessions=("20260806",),
         )
     except AShareSchemaError:
         pass
     else:
-        raise AssertionError("moneyflow outside the parent daily domain must fail closed")
+        raise AssertionError("moneyflow outside exact daily authority must fail closed")
 
 
 def test_incremental_pagination_rejects_schema_drift() -> None:
@@ -914,7 +773,9 @@ def _endpoint_row(endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
     for field in ("trade_date", "ann_date", "f_ann_date", "end_date"):
         if field in row:
             row[field] = params.get("trade_date", "20260806")
-    if endpoint == "index_member_all":
+    if endpoint == "trade_cal":
+        row.update({"cal_date": "20260806", "is_open": 1, "exchange": "SSE"})
+    elif endpoint == "index_member_all":
         row.update(
             {
                 "l1_code": "801010.SI",
@@ -938,6 +799,8 @@ def _endpoint_row(endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
     elif endpoint == "top10_holders":
         row.update({"holder_name": "institution-a", "hold_ratio": 2.5})
     return row
+
+
 
 
 def test_capture_group_executes_registered_incremental_routes(
@@ -976,10 +839,10 @@ def test_capture_group_executes_registered_incremental_routes(
         )
     )
     monkeypatch.setattr(sector_archive, "_capture_now", lambda: next(moments))
-    calls: list[tuple[str, int]] = []
+    calls: list[tuple[str, dict[str, Any]]] = []
 
     def fetch(endpoint: str, **params: Any):
-        calls.append((endpoint, int(params.get("offset", 0))))
+        calls.append((endpoint, dict(params)))
         if int(params.get("offset", 0)):
             return []
         return [_endpoint_row(endpoint, params)]
@@ -989,33 +852,11 @@ def test_capture_group_executes_registered_incremental_routes(
         as_of_date=sector_archive.date.fromisoformat(AS_OF),
         cutoff_at=CUTOFF,
         capture_key=f"sha256:{'d' * 64}",
-        base_group={
-            "as_of_date": AS_OF,
-            "sessions": ["20260805", "20260806"],
-            "batches": [
-                {"endpoint": "trade_cal", "rows": []},
-                {"endpoint": "stock_basic", "rows": []},
-                {
-                    "endpoint": "daily",
-                    "rows": [
-                        {"trade_date": "20260805", "ts_code": "000001.SZ"},
-                        {"trade_date": "20260806", "ts_code": "000001.SZ"},
-                    ],
-                },
-                {"endpoint": "adj_factor", "rows": []},
-                {"endpoint": "suspend_d", "rows": []},
-                {"endpoint": "daily_basic", "rows": []},
-            ],
-        },
     )
 
     assert {batch["endpoint"] for batch in group["batches"]} == {
-        "trade_cal",
         "stock_basic",
         "daily",
-        "adj_factor",
-        "suspend_d",
-        "daily_basic",
         "index_member_all",
         "moneyflow",
         "income",
@@ -1034,15 +875,7 @@ def test_capture_group_executes_registered_incremental_routes(
     assert all(
         batch.get("coverage_ratio") == 1.0
         for batch in group["batches"]
-        if batch["endpoint"]
-        not in {
-            "trade_cal",
-            "stock_basic",
-            "daily",
-            "adj_factor",
-            "suspend_d",
-            "daily_basic",
-        }
+        if batch["endpoint"] not in {"stock_basic", "daily"}
     )
     policies = {
         batch["endpoint"]: batch["pagination_policy"]
@@ -1063,171 +896,6 @@ def test_capture_group_executes_registered_incremental_routes(
         "moneyflow": "OFFSET_WITH_TERMINAL_CONFIRMATION",
         "top10_holders": "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP",
     }
-
-
-def test_relationship_route_capture_queries_only_relationship_sources(
-    monkeypatch,
-) -> None:
-    plan = {
-        "sector_agent_id": "semiconductor",
-        "query_plan_hash": f"sha256:{'b' * 64}",
-        "branches": [
-            {
-                "endpoint": "index_member_all",
-                "parameter": "l3_code",
-                "classification_code": "850111.SI",
-                "is_new": "Y",
-            }
-        ],
-    }
-    monkeypatch.setitem(
-        sector_archive.SECTOR_UNIVERSE_MANIFEST,
-        "membership_query_plans",
-        [plan],
-    )
-    monkeypatch.setitem(
-        sector_archive.SECTOR_UNIVERSE_MANIFEST,
-        "direction_contracts",
-        [
-            {
-                "sector_agent_id": "semiconductor",
-                "direction_id": "direction_a",
-                "included_classification_codes": ["850111.SI"],
-                "excluded_classification_codes": [],
-            }
-        ],
-    )
-    moments = iter(
-        (
-            sector_archive._timestamp("2026-08-06T15:01:00+08:00", "test"),
-            sector_archive._timestamp("2026-08-06T15:02:00+08:00", "test"),
-        )
-    )
-    monkeypatch.setattr(sector_archive, "_capture_now", lambda: next(moments))
-    calls: list[tuple[str, int]] = []
-
-    def fetch(endpoint: str, **params: Any):
-        calls.append((endpoint, int(params.get("offset", 0))))
-        if int(params.get("offset", 0)):
-            return []
-        return [_endpoint_row(endpoint, params)]
-
-    group = _build_capture_group(
-        fetch,
-        as_of_date=sector_archive.date.fromisoformat(AS_OF),
-        cutoff_at=CUTOFF,
-        capture_key=f"sha256:{'d' * 64}",
-        base_group={
-            "as_of_date": AS_OF,
-            "sessions": ["20260805", "20260806"],
-            "batches": [
-                {"endpoint": "trade_cal", "rows": []},
-                {
-                    "endpoint": "stock_basic",
-                    "rows": [_endpoint_row("stock_basic", {})],
-                },
-                {"endpoint": "daily", "rows": []},
-                {"endpoint": "adj_factor", "rows": []},
-                {"endpoint": "suspend_d", "rows": []},
-                {"endpoint": "daily_basic", "rows": []},
-            ],
-        },
-        requested_route_ids=("tushare.relationship_graph",),
-    )
-
-    assert group["requested_route_ids"] == ["tushare.relationship_graph"]
-    assert {batch["endpoint"] for batch in group["batches"]} == {
-        "index_member_all",
-        "stock_basic",
-        "top10_holders",
-    }
-    assert {endpoint for endpoint, _offset in calls} == {
-        "index_member_all",
-        "top10_holders",
-    }
-
-
-def test_relationship_capture_scopes_membership_and_holders_to_frozen_candidates(
-    monkeypatch,
-) -> None:
-    requested_plan = {
-        "sector_agent_id": "semiconductor",
-        "query_plan_hash": f"sha256:{'b' * 64}",
-        "branches": [
-            {
-                "endpoint": "index_member_all",
-                "parameter": "l3_code",
-                "classification_code": "850111.SI",
-                "is_new": "Y",
-            }
-        ],
-    }
-    unrelated_plan = {
-        "sector_agent_id": "technology",
-        "query_plan_hash": f"sha256:{'c' * 64}",
-        "branches": [
-            {
-                "endpoint": "index_member_all",
-                "parameter": "l3_code",
-                "classification_code": "850222.SI",
-                "is_new": "Y",
-            }
-        ],
-    }
-    monkeypatch.setitem(
-        sector_archive.SECTOR_UNIVERSE_MANIFEST,
-        "membership_query_plans",
-        [requested_plan, unrelated_plan],
-    )
-    moments = iter(
-        (
-            sector_archive._timestamp("2026-08-06T15:01:00+08:00", "test"),
-            sector_archive._timestamp("2026-08-06T15:02:00+08:00", "test"),
-        )
-    )
-    monkeypatch.setattr(sector_archive, "_capture_now", lambda: next(moments))
-    calls: list[tuple[str, dict[str, Any]]] = []
-
-    def fetch(endpoint: str, **params: Any):
-        calls.append((endpoint, dict(params)))
-        if int(params.get("offset", 0)):
-            return []
-        if endpoint == "index_member_all":
-            assert params["l3_code"] == "850111.SI"
-            first = _endpoint_row(endpoint, params)
-            second = {**first, "ts_code": "000002.SZ"}
-            return [first, second]
-        return [_endpoint_row(endpoint, params)]
-
-    group = _build_capture_group(
-        fetch,
-        as_of_date=sector_archive.date.fromisoformat(AS_OF),
-        cutoff_at=CUTOFF,
-        capture_key=f"sha256:{'d' * 64}",
-        base_group={
-            "as_of_date": AS_OF,
-            "sessions": [],
-            "batches": [
-                {
-                    "endpoint": "stock_basic",
-                    "rows": [_endpoint_row("stock_basic", {})],
-                }
-            ],
-        },
-        requested_route_ids=("tushare.relationship_graph",),
-        requested_agent_ids=("semiconductor",),
-        requested_security_codes=("000001.SZ",),
-    )
-
-    membership_calls = [params for endpoint, params in calls if endpoint == "index_member_all"]
-    holder_calls = [params for endpoint, params in calls if endpoint == "top10_holders"]
-    assert {params["l3_code"] for params in membership_calls} == {"850111.SI"}
-    assert {params["ts_code"] for params in holder_calls} == {"000001.SZ"}
-    assert group["capture_scope"]["sector_agent_ids"] == ["semiconductor"]
-    assert group["capture_scope"]["security_codes"] == ["000001.SZ"]
-    assert group["capture_scope_hash"] == sector_archive.canonical_hash(
-        group["capture_scope"]
-    )
 
 
 def test_sector_market_capture_queries_role_tickers_and_etfs_exactly(
@@ -1270,6 +938,26 @@ def test_sector_market_capture_queries_role_tickers_and_etfs_exactly(
         calls.append((endpoint, dict(params)))
         if int(params.get("offset", 0)):
             return []
+        if endpoint == "trade_cal":
+            current = sector_archive.datetime.strptime(
+                str(params["start_date"]), "%Y%m%d"
+            ).date()
+            end = sector_archive.datetime.strptime(
+                str(params["end_date"]), "%Y%m%d"
+            ).date()
+            rows = []
+            while current <= end:
+                cal_date = current.strftime("%Y%m%d")
+                rows.append(
+                    {
+                        "exchange": "SSE",
+                        "cal_date": cal_date,
+                        "is_open": 1,
+                        "pretrade_date": cal_date,
+                    }
+                )
+                current += sector_archive.timedelta(days=1)
+            return rows
         return [_endpoint_row(endpoint, params)]
 
     group = _build_capture_group(
@@ -1277,24 +965,6 @@ def test_sector_market_capture_queries_role_tickers_and_etfs_exactly(
         as_of_date=sector_archive.date.fromisoformat(AS_OF),
         cutoff_at=CUTOFF,
         capture_key=f"sha256:{'d' * 64}",
-        base_group={
-            "as_of_date": AS_OF,
-            "sessions": ["20260805", "20260806"],
-            "batches": [
-                {"endpoint": "trade_cal", "rows": []},
-                {"endpoint": "stock_basic", "rows": []},
-                {
-                    "endpoint": "daily",
-                    "rows": [
-                        {"trade_date": "20260805", "ts_code": "000001.SZ"},
-                        {"trade_date": "20260806", "ts_code": "000001.SZ"},
-                    ],
-                },
-                {"endpoint": "adj_factor", "rows": []},
-                {"endpoint": "suspend_d", "rows": []},
-                {"endpoint": "daily_basic", "rows": []},
-            ],
-        },
         requested_route_ids=("tushare.sector_market",),
         requested_agent_ids=("semiconductor",),
     )

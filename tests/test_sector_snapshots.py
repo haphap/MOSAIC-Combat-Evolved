@@ -868,16 +868,10 @@ def _registered_relationship_source_inputs(
             "source_batch_hash": "pending",
         }
         if endpoint == "stock_basic":
-            stock_requests = list(
-                sector_snapshots_module._STOCK_BASIC_CAPTURE_REQUESTS
-            )
-            batch["request"] = {
-                "request_count": len(stock_requests),
-                "requests_hash": _canonical_hash(stock_requests),
-                "exchange": "",
-            }
-            batch["query_count"] = len(stock_requests)
-            batch["completed_query_count"] = len(stock_requests)
+            requested_codes = sorted({str(row["ts_code"]) for row in rows})
+            batch["request"] = {"ts_codes": requested_codes}
+            batch["query_count"] = len(requested_codes)
+            batch["completed_query_count"] = len(requested_codes)
         if endpoint == "top10_holders":
             batch["rows"][0]["holder_name"] = "institution-a"
             batch["rows"][0]["hold_ratio"] = 2.5
@@ -1684,16 +1678,10 @@ def _registered_source_inputs(
             "source_batch_hash": "pending",
         }
         if endpoint == "stock_basic":
-            stock_requests = list(
-                sector_snapshots_module._STOCK_BASIC_CAPTURE_REQUESTS
-            )
-            batch["request"] = {
-                "request_count": len(stock_requests),
-                "requests_hash": _canonical_hash(stock_requests),
-                "exchange": "",
-            }
-            batch["query_count"] = len(stock_requests)
-            batch["completed_query_count"] = len(stock_requests)
+            requested_codes = sorted(set(ts_codes))
+            batch["request"] = {"ts_codes": requested_codes}
+            batch["query_count"] = len(requested_codes)
+            batch["completed_query_count"] = len(requested_codes)
         _rehash_source_batch(batch)
         batches.append(batch)
 

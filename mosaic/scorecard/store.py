@@ -165,10 +165,10 @@ CREATE TRIGGER IF NOT EXISTS sealed_macro_signals_no_delete
 
 logger = logging.getLogger(__name__)
 
-# The v3 runtime has 28 logical agents and 29 accepted stages because CIO
+# The v3 runtime has 27 logical agents and 28 accepted stages because CIO
 # executes distinct proposal and final stages.  Keep the audit cardinality in
 # one Python-side contract so bridge handlers and persistence cannot drift.
-RUNTIME_AGENT_STAGE_COUNT = 29
+RUNTIME_AGENT_STAGE_COUNT = 28
 
 
 def _is_sha256(value: Any) -> bool:
@@ -3183,7 +3183,7 @@ class ScorecardStore:
         *,
         _conn: sqlite3.Connection | None = None,
     ) -> int:
-        """Persist the exact 28-Agent UI narrative sidecar for one live run.
+        """Persist the exact 27-Agent UI narrative sidecar for one live run.
 
         The bundle is derived by TypeScript from accepted structured outputs.
         It is intentionally stored outside recommendation, outcome, and
@@ -3235,11 +3235,11 @@ class ScorecardStore:
         if not _is_sha256(bundle_hash):
             raise ValueError("agent display narrative bundle_hash must be sha256")
         if (
-            bundle.get("narrative_count") != 28
+            bundle.get("narrative_count") != 27
             or not isinstance(narratives, list)
-            or len(narratives) != 28
+            or len(narratives) != 27
         ):
-            raise ValueError("agent display narrative bundle must contain exactly 28 Agents")
+            raise ValueError("agent display narrative bundle must contain exactly 27 Agents")
 
         from mosaic.bridge.tool_capabilities import AGENTS_BY_LAYER, ALL_AGENT_IDS
 

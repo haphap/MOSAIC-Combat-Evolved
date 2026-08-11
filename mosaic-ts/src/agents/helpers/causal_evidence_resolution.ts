@@ -381,7 +381,7 @@ const ACCEPTED_KINDS_BY_CAUSAL_LAYER: Readonly<
   Record<CausalSourceLayer, ReadonlySet<AcceptedOutputKind>>
 > = {
   MACRO: new Set(["MACRO_TRANSMISSION"]),
-  SECTOR: new Set(["STANDARD_SECTOR_SELECTION", "RELATIONSHIP_GRAPH"]),
+  SECTOR: new Set(["STANDARD_SECTOR_SELECTION"]),
   SUPERINVESTOR: new Set(["SUPERINVESTOR_SELECTION"]),
   DECISION: new Set([
     "CRO_RISK_REVIEW",

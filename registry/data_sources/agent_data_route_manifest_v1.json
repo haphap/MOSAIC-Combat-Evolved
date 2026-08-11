@@ -2,7 +2,7 @@
   "schema_version": "agent_data_route_manifest_v1",
   "manifest_version": "agent_data_routes_20260806_v1",
   "generated_at": "2026-08-06T00:00:00+00:00",
-  "agent_tool_contract_manifest_hash": "sha256:3a60391f81aabd422fbefbdd9d4e03cc5797fcd1e740b8a859674b3091e54e35",
+  "agent_tool_contract_manifest_hash": "sha256:afa3c798dbf547d8812802d1ab6faa1af91bd1f6b37f00b4f16b53249fd7b491",
   "routes": [
     {
       "contract_version": "alfred_us_macro_v1",
@@ -184,13 +184,6 @@
       "implementation_stage": "PR7",
       "pit_strategy": "OBSERVED_LIVE",
       "route_id": "tushare.institutional_flow",
-      "source_family": "tushare"
-    },
-    {
-      "contract_version": "tushare_relationship_graph_v1",
-      "implementation_stage": "PR4",
-      "pit_strategy": "OBSERVED_LIVE",
-      "route_id": "tushare.relationship_graph",
       "source_family": "tushare"
     },
     {
@@ -418,6 +411,14 @@
       "tool_id": "get_stock_data"
     },
     {
+      "agent_id": "semiconductor",
+      "stage": "semiconductor",
+      "tool_id": "get_supply_chain_evidence",
+      "required_route_ids": [
+        "official.company_supply_chain_disclosures"
+      ]
+    },
+    {
       "agent_id": "technology",
       "required_route_ids": [
         "private.tushare_research_reports"
@@ -493,6 +494,14 @@
       "tool_id": "get_stock_data"
     },
     {
+      "agent_id": "technology",
+      "stage": "technology",
+      "tool_id": "get_supply_chain_evidence",
+      "required_route_ids": [
+        "official.company_supply_chain_disclosures"
+      ]
+    },
+    {
       "agent_id": "energy",
       "required_route_ids": [
         "private.tushare_research_reports"
@@ -568,6 +577,14 @@
       "tool_id": "get_stock_data"
     },
     {
+      "agent_id": "energy",
+      "stage": "energy",
+      "tool_id": "get_supply_chain_evidence",
+      "required_route_ids": [
+        "official.company_supply_chain_disclosures"
+      ]
+    },
+    {
       "agent_id": "biotech",
       "required_route_ids": [
         "private.tushare_research_reports"
@@ -631,6 +648,14 @@
       ],
       "stage": "biotech",
       "tool_id": "get_stock_data"
+    },
+    {
+      "agent_id": "biotech",
+      "stage": "biotech",
+      "tool_id": "get_supply_chain_evidence",
+      "required_route_ids": [
+        "official.company_supply_chain_disclosures"
+      ]
     },
     {
       "agent_id": "consumer",
@@ -708,6 +733,14 @@
       "tool_id": "get_stock_data"
     },
     {
+      "agent_id": "consumer",
+      "stage": "consumer",
+      "tool_id": "get_supply_chain_evidence",
+      "required_route_ids": [
+        "official.company_supply_chain_disclosures"
+      ]
+    },
+    {
       "agent_id": "industrials",
       "required_route_ids": [
         "private.tushare_research_reports"
@@ -781,6 +814,14 @@
       ],
       "stage": "industrials",
       "tool_id": "get_stock_data"
+    },
+    {
+      "agent_id": "industrials",
+      "stage": "industrials",
+      "tool_id": "get_supply_chain_evidence",
+      "required_route_ids": [
+        "official.company_supply_chain_disclosures"
+      ]
     },
     {
       "agent_id": "real_estate_construction",
@@ -856,6 +897,14 @@
       "tool_id": "get_stock_data"
     },
     {
+      "agent_id": "real_estate_construction",
+      "stage": "real_estate_construction",
+      "tool_id": "get_supply_chain_evidence",
+      "required_route_ids": [
+        "official.company_supply_chain_disclosures"
+      ]
+    },
+    {
       "agent_id": "financials",
       "required_route_ids": [
         "private.tushare_research_reports"
@@ -929,6 +978,14 @@
       ],
       "stage": "financials",
       "tool_id": "get_stock_data"
+    },
+    {
+      "agent_id": "financials",
+      "stage": "financials",
+      "tool_id": "get_supply_chain_evidence",
+      "required_route_ids": [
+        "official.company_supply_chain_disclosures"
+      ]
     },
     {
       "agent_id": "financials",
@@ -1014,36 +1071,12 @@
       "tool_id": "get_stock_data"
     },
     {
-      "agent_id": "relationship_mapper",
-      "required_route_ids": [
-        "tushare.relationship_graph"
-      ],
-      "stage": "relationship_mapper",
-      "tool_id": "get_relationship_graph_snapshot"
-    },
-    {
-      "agent_id": "relationship_mapper",
-      "required_route_ids": [
-        "private.rke_report_intelligence"
-      ],
-      "stage": "relationship_mapper",
-      "tool_id": "get_rke_research_context"
-    },
-    {
-      "agent_id": "relationship_mapper",
-      "required_route_ids": [
-        "private.tushare_research_reports"
-      ],
-      "stage": "relationship_mapper",
-      "tool_id": "get_stock_research"
-    },
-    {
-      "agent_id": "relationship_mapper",
+      "agent_id": "agriculture",
+      "stage": "agriculture",
+      "tool_id": "get_supply_chain_evidence",
       "required_route_ids": [
         "official.company_supply_chain_disclosures"
-      ],
-      "stage": "relationship_mapper",
-      "tool_id": "get_supply_chain_evidence"
+      ]
     },
     {
       "agent_id": "druckenmiller",
@@ -1424,5 +1457,5 @@
       ]
     }
   ],
-  "manifest_hash": "sha256:62dd46940d77cdc895be892b13f25c93d27a1b31319914cbf8f21ae3ded76cf8"
+  "manifest_hash": "sha256:bf1e87c9397f5d73b720823e720543ebbeb6754d700d9f43e0767e2590111489"
 }

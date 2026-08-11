@@ -15,7 +15,6 @@ import type { MacroComponentCompositionAudit } from "./types.js";
 export const ACCEPTED_OUTPUT_KINDS = [
   "MACRO_TRANSMISSION",
   "STANDARD_SECTOR_SELECTION",
-  "RELATIONSHIP_GRAPH",
   "SUPERINVESTOR_SELECTION",
   "CRO_RISK_REVIEW",
   "ALPHA_DISCOVERY",
@@ -50,7 +49,6 @@ export type AcceptedOutputAgentByKind = {
     | "real_estate_construction"
     | "financials"
     | "agriculture";
-  RELATIONSHIP_GRAPH: "relationship_mapper";
   SUPERINVESTOR_SELECTION: "druckenmiller" | "munger" | "burry" | "ackman";
   CRO_RISK_REVIEW: "cro";
   ALPHA_DISCOVERY: "alpha_discovery";
@@ -1167,7 +1165,6 @@ function validateLiveRuntimeOpportunityAuthority(
     real_estate_construction: "get_sector_research_snapshot",
     financials: "get_sector_research_snapshot",
     agriculture: "get_sector_research_snapshot",
-    relationship_mapper: "get_relationship_graph_snapshot",
   }[agentId];
   if (!expectedTool || authority.source_tool_id !== expectedTool) {
     throw new Error(`${agentId}: live source authority tool mismatch`);
@@ -1294,7 +1291,6 @@ function validateOwner<K extends AcceptedOutputKind>(
 }
 
 const OWNER_BY_SINGLE_KIND: Partial<Record<AcceptedOutputKind, AgentId>> = {
-  RELATIONSHIP_GRAPH: "relationship_mapper",
   CRO_RISK_REVIEW: "cro",
   ALPHA_DISCOVERY: "alpha_discovery",
   EXECUTION_ASSESSMENT: "autonomous_execution",

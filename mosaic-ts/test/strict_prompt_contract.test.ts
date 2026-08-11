@@ -7,16 +7,16 @@ import { assertRuntimePromptPreflight } from "../src/agents/prompts/runtime_prom
 const ROOT = resolve(process.cwd(), "..", "prompts", "mosaic", "cohort_default");
 
 describe("strict bilingual runtime prompt contracts", () => {
-  it("passes the generated 28-agent/29-stage runtime preflight", async () => {
+  it("passes the generated 27-agent/28-stage runtime preflight", async () => {
     const report = await assertRuntimePromptPreflight({
       cohort: "cohort_default",
       promptsRoot: resolve(ROOT, ".."),
     });
     expect(report.ready).toBe(true);
-    expect(report.rows).toHaveLength(29);
+    expect(report.rows).toHaveLength(28);
   });
 
-  it("keeps all 28 bilingual contracts generated from runtime fields without fallback ambiguity", () => {
+  it("keeps all 27 bilingual contracts generated from runtime fields without fallback ambiguity", () => {
     for (const spec of RUNTIME_AGENT_SPECS) {
       for (const language of ["zh", "en"] as const) {
         const text = readFileSync(

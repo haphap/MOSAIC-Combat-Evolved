@@ -53,8 +53,8 @@ describe("schema-driven fake LLM outputs", () => {
     ).toEqual({ value: "ok" });
   });
 
-  it("covers the 29 execution stages without a fallback factory", () => {
-    expect(runtimeSchemas).toHaveLength(29);
+  it("covers the 28 execution stages without a fallback factory", () => {
+    expect(runtimeSchemas).toHaveLength(28);
     for (const runtime of runtimeSchemas) {
       const schema =
         runtime.stage === "cio_proposal"

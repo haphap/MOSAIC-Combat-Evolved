@@ -3,21 +3,21 @@
   "sources": {
     "runtime_agent_manifest": {
       "path": "registry/prompt_checks/runtime_agent_manifest_v5.json",
-      "hash": "sha256:a47f5315111558175aac720e02bde563dedfb14e45083c11bc23cc401b99c165"
+      "hash": "sha256:a34969f66e332fac015fd6b73473c2ee1c978661831af963abea9034400bd9fb"
     },
     "execution_behavior_release_archive": {
-      "path": "registry/prompt_checks/execution_behavior_releases/e2f02b7a4c5596dec2b4e8847c618a6889a55d6bd53ca6cd79d17d8c1b9987a5--bd03c44343ab37d2a7acba051410cb5bf76fbaedb5ab9e633a0660e81bf7dc2f.json",
-      "release_id": "execution-behavior-release:e2f02b7a4c5596dec2b4e8847c618a6889a55d6bd53ca6cd79d17d8c1b9987a5",
-      "release_hash": "sha256:bd03c44343ab37d2a7acba051410cb5bf76fbaedb5ab9e633a0660e81bf7dc2f"
+      "path": "registry/prompt_checks/execution_behavior_releases/84d0d974a76901281a5ce8155195b3928c4163e158f606af7d16b36bb2129ed9--ba2cae94ee5000222cbe2e2f5ab519cb3811926cdb539bd7d89de641c743455d.json",
+      "release_id": "execution-behavior-release:84d0d974a76901281a5ce8155195b3928c4163e158f606af7d16b36bb2129ed9",
+      "release_hash": "sha256:ba2cae94ee5000222cbe2e2f5ab519cb3811926cdb539bd7d89de641c743455d"
     },
     "agent_outcome_contract_manifest": {
       "path": "registry/prompt_checks/agent_outcome_contract_manifest_v2.json",
-      "registry_hash": "sha256:998b4f36d48633e346ee7dd43a92339409ba2665d8fbb6e5df5e7387ae329fa5"
+      "registry_hash": "sha256:56ce4ced3726492a899fcdd03ff87087b825892abd7d51b2624a7858953c890f"
     }
   },
   "evaluation_contract": {
-    "catalog_hash": "sha256:a47f5315111558175aac720e02bde563dedfb14e45083c11bc23cc401b99c165",
-    "schema_hash": "sha256:bf07366c898e41793524b62cb7f27427ef070ca2b4fa398d2f7f31addef2c124",
-    "contract_hash": "sha256:450cbe811d98bcd7b07174c10e848088f835a2f630f84e0e4e76e772b4f672a0"
+    "catalog_hash": "sha256:a34969f66e332fac015fd6b73473c2ee1c978661831af963abea9034400bd9fb",
+    "schema_hash": "sha256:867ebc8d73c7e6e2797409f461a3654028e96e42836e5e3c04956f13674822a0",
+    "contract_hash": "sha256:04270199f2a3b1373196742773486bf80b61fb4d569dfd58b83e2b5edba25b17"
   }
 }

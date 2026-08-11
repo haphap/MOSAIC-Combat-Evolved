@@ -431,7 +431,7 @@ def scorecard_latest_cio_actions(params: dict[str, Any]) -> dict[str, Any]:
 
 @method("scorecard.latest_agent_narratives")
 def scorecard_latest_agent_narratives(params: dict[str, Any]) -> dict[str, Any]:
-    """Latest 28-Agent human-readable explanations for TUI display only."""
+    """Latest 27-Agent human-readable explanations for TUI display only."""
     cohort = _require_str(params, "cohort")
     try:
         return _store().get_latest_agent_display_narratives(cohort)

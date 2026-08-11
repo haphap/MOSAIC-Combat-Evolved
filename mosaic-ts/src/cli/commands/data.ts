@@ -112,7 +112,7 @@ export function registerData(program: Command): void {
     .command("source-preflight")
     .description("Seal the 26 external-source checks required to start a cycle.")
     .requiredOption("--as-of <date>", "Point-in-time date (YYYY-MM-DD)")
-    .requiredOption("--all-agents", "Evaluate the exact 29-stage route union")
+    .requiredOption("--all-agents", "Evaluate the exact 28-stage route union")
     .action(async (opts: DataOpts) => {
       const client = new BridgeClient();
       const api = new BridgeApi(client);
@@ -263,10 +263,10 @@ export function registerData(program: Command): void {
 
   data
     .command("materialize-cycle")
-    .description("Inspect the exact 29-stage materialization plan without writes.")
+    .description("Inspect the exact 28-stage materialization plan without writes.")
     .option("--dry-run", "Do not collect, build, write, or issue capabilities")
     .requiredOption("--as-of <date>", "Point-in-time date (YYYY-MM-DD)")
-    .requiredOption("--all-agents", "Evaluate the exact 29-stage route union")
+    .requiredOption("--all-agents", "Evaluate the exact 28-stage route union")
     .action(async (opts: DataOpts) => {
       const client = new BridgeClient();
       const api = new BridgeApi(client);

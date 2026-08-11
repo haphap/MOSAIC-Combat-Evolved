@@ -42,9 +42,19 @@ class SectorArchiveQueryReader:
     def __init__(self, *, store: Any) -> None:
         self.store = store
 
-    def _group(self, as_of: str) -> dict[str, Any]:
+    def _group(
+        self,
+        as_of: str,
+        *,
+        required_route_ids: Sequence[str],
+        required_security_code: str,
+    ) -> dict[str, Any]:
         try:
-            group = self.store.load_group(as_of)
+            group = self.store.load_group(
+                as_of,
+                required_route_ids=required_route_ids,
+                required_security_code=required_security_code,
+            )
         except (FileNotFoundError, OSError, ValueError) as exc:
             raise DataVendorUnavailable(
                 f"no exact Sector archive is available for {as_of}"
@@ -97,7 +107,11 @@ class SectorArchiveQueryReader:
         if method == "get_stock_data":
             ticker = _normalize_ts_code(str(route_args[0]))
             date_from, date_to = str(route_args[1]), str(route_args[2])
-            group = self._group(date_to)
+            group = self._group(
+                date_to,
+                required_route_ids=("tushare.sector_market",),
+                required_security_code=ticker,
+            )
             return _render_stock_data(
                 self._price_frame(
                     group,
@@ -118,7 +132,11 @@ class SectorArchiveQueryReader:
                 str(route_args[2]),
                 int(route_args[3]),
             )
-            group = self._group(as_of)
+            group = self._group(
+                as_of,
+                required_route_ids=("tushare.sector_market",),
+                required_security_code=ticker,
+            )
             frame = self._price_frame(group, ticker=ticker, date_to=as_of).rename(
                 columns={
                     "trade_date": "Date",
@@ -141,7 +159,11 @@ class SectorArchiveQueryReader:
         if method in _STATEMENTS:
             ticker = _normalize_ts_code(str(route_args[0]))
             frequency, as_of = str(route_args[1]), str(route_args[2])
-            group = self._group(as_of)
+            group = self._group(
+                as_of,
+                required_route_ids=("tushare.sector_fundamentals",),
+                required_security_code=ticker,
+            )
             endpoint, title, summary_builder = _STATEMENTS[method]
             rows = [
                 row
@@ -167,7 +189,11 @@ class SectorArchiveQueryReader:
         if method == "get_etf_holdings":
             ticker = _normalize_ts_code(str(route_args[0]))
             as_of = str(route_args[1])
-            group = self._group(as_of)
+            group = self._group(
+                as_of,
+                required_route_ids=("tushare.sector_market",),
+                required_security_code=ticker,
+            )
             rows = [
                 row
                 for row in self._rows(group, "fund_portfolio")

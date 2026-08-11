@@ -17,7 +17,6 @@ export const AGENT_TOOL_IDS = [
   "get_market_positioning_snapshot",
   "get_sector_research_snapshot",
   "get_role_event_snapshot",
-  "get_relationship_graph_snapshot",
   "get_superinvestor_candidate_snapshot",
   "get_cro_risk_snapshot",
   "get_alpha_candidate_snapshot",
@@ -59,7 +58,6 @@ export const AGENT_IDS = [
   "real_estate_construction",
   "financials",
   "agriculture",
-  "relationship_mapper",
   "druckenmiller",
   "munger",
   "burry",
@@ -90,7 +88,6 @@ export const AGENT_EXECUTION_STAGE_IDS = [
   "real_estate_construction",
   "financials",
   "agriculture",
-  "relationship_mapper",
   "druckenmiller",
   "munger",
   "burry",
@@ -131,7 +128,6 @@ export const AGENT_LAYER_BY_ID = {
   real_estate_construction: "sector",
   financials: "sector",
   agriculture: "sector",
-  relationship_mapper: "sector",
   druckenmiller: "superinvestor",
   munger: "superinvestor",
   burry: "superinvestor",
@@ -162,7 +158,6 @@ export const AGENT_INITIAL_TOOL_MATRIX = {
   real_estate_construction: ["get_sector_research_snapshot", "get_role_event_snapshot"],
   financials: ["get_sector_research_snapshot", "get_role_event_snapshot"],
   agriculture: ["get_sector_research_snapshot", "get_role_event_snapshot"],
-  relationship_mapper: ["get_relationship_graph_snapshot"],
   druckenmiller: ["get_superinvestor_candidate_snapshot"],
   munger: ["get_superinvestor_candidate_snapshot", "get_fundamentals", "get_cashflow"],
   burry: ["get_superinvestor_candidate_snapshot", "get_fundamentals", "get_balance_sheet"],
@@ -189,6 +184,7 @@ const STANDARD_SECTOR_ADAPTIVE_TOOLS = [
   "get_industry_policy_digest",
   "get_rke_research_context",
   "get_stock_data",
+  "get_supply_chain_evidence",
 ] as const satisfies ReadonlyArray<AgentToolId>;
 
 export const AGENT_TOOL_MATRIX = {
@@ -205,6 +201,7 @@ export const AGENT_TOOL_MATRIX = {
     "get_industry_policy_digest",
     "get_rke_research_context",
     "get_stock_data",
+    "get_supply_chain_evidence",
   ],
   technology: [...AGENT_INITIAL_TOOL_MATRIX.technology, ...STANDARD_SECTOR_ADAPTIVE_TOOLS],
   energy: [...AGENT_INITIAL_TOOL_MATRIX.energy, ...STANDARD_SECTOR_ADAPTIVE_TOOLS],
@@ -221,12 +218,6 @@ export const AGENT_TOOL_MATRIX = {
     "get_yield_curve_cn",
   ],
   agriculture: [...AGENT_INITIAL_TOOL_MATRIX.agriculture, ...STANDARD_SECTOR_ADAPTIVE_TOOLS],
-  relationship_mapper: [
-    ...AGENT_INITIAL_TOOL_MATRIX.relationship_mapper,
-    "get_rke_research_context",
-    "get_stock_research",
-    "get_supply_chain_evidence",
-  ],
   druckenmiller: [
     "get_superinvestor_candidate_snapshot",
     "get_fundamentals",
@@ -368,9 +359,9 @@ export type SignedAgentToolCapability = z.infer<typeof SignedAgentToolCapability
 export const AgentToolContractManifestSchema = z
   .object({
     schema_version: z.literal(AGENT_TOOL_CONTRACT_VERSION),
-    agent_count: z.literal(28),
-    execution_stage_count: z.literal(29),
-    tool_count: z.literal(32),
+    agent_count: z.literal(27),
+    execution_stage_count: z.literal(28),
+    tool_count: z.literal(31),
     agents: z
       .array(
         z
@@ -382,7 +373,7 @@ export const AgentToolContractManifestSchema = z
           })
           .strict(),
       )
-      .length(28),
+      .length(27),
   })
   .strict();
 
@@ -391,9 +382,9 @@ export type AgentToolContractManifest = z.infer<typeof AgentToolContractManifest
 export function buildAgentToolContractManifest(): AgentToolContractManifest {
   return AgentToolContractManifestSchema.parse({
     schema_version: AGENT_TOOL_CONTRACT_VERSION,
-    agent_count: 28,
-    execution_stage_count: 29,
-    tool_count: 32,
+    agent_count: 27,
+    execution_stage_count: 28,
+    tool_count: 31,
     agents: AGENT_IDS.map((agentId) => ({
       agent_id: agentId,
       layer: AGENT_LAYER_BY_ID[agentId],

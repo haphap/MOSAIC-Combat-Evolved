@@ -670,6 +670,7 @@ def _semantic_capabilities(agent_id: str, tool_id: str) -> tuple[str, ...]:
         "get_market_positioning_snapshot": ("market_positioning",),
         "get_role_event_snapshot": ("role_event_calendar",),
         "get_relationship_graph_snapshot": ("relationship_ownership_graph",),
+        "get_supply_chain_evidence": ("relationship_supply_chain_evidence",),
         "get_superinvestor_candidate_snapshot": ("superinvestor_candidate_scope",),
         "get_cro_risk_snapshot": ("cro_bound_risk",),
         "get_alpha_candidate_snapshot": ("alpha_candidate_scope",),
@@ -1340,6 +1341,22 @@ def _load_restored_bindings(root: Path) -> Sequence[Mapping[str, Any]]:
     return translated
 
 
+def _load_active_restored_bindings(
+    root: Path, current_tool_manifest: Mapping[str, Any]
+) -> Sequence[Mapping[str, Any]]:
+    active_surface = _surface(current_tool_manifest)
+    restored_bindings: list[Mapping[str, Any]] = []
+    for row in _load_restored_bindings(root):
+        key = (str(row["agent_id"]), str(row["stage"]), str(row["tool_id"]))
+        if key in active_surface:
+            restored_bindings.append(row)
+        elif str(row["agent_id"]) != "relationship_mapper":
+            raise ValueError(
+                "restored capability overlay is outside the active tool surface"
+            )
+    return restored_bindings
+
+
 def build_default_contract_artifacts(root: Path) -> dict[str, dict[str, Any]]:
     directory = root / "registry/prompt_checks/capability_preservation"
     baseline = _read_json(directory / "runtime_agent_manifest_b9ab1e44_v2.json")
@@ -1354,7 +1371,7 @@ def build_default_contract_artifacts(root: Path) -> dict[str, dict[str, Any]]:
     binding = build_binding_manifest(
         current,
         routes,
-        restored_bindings=_load_restored_bindings(root),
+        restored_bindings=_load_active_restored_bindings(root, current),
     )
     staged = build_staged_tool_contract_manifest(current, routes, binding)
     environment = build_tool_environment_manifest(root, current, binding, staged)
@@ -1573,7 +1590,9 @@ def validate_capability_contract_bundle(
     expected_binding = build_binding_manifest(
         current_tool_manifest,
         route_manifest,
-        restored_bindings=_load_restored_bindings(repository_root),
+        restored_bindings=_load_active_restored_bindings(
+            repository_root, current_tool_manifest
+        ),
     )
     if canonical_hash(binding) != canonical_hash(expected_binding):
         raise ValueError("binding whitelist/argument/route/capability contract drift")

@@ -95,18 +95,22 @@ def test_enforce_runs_core_in_production_namespace(
     monkeypatch.setenv("MOSAIC_ENSURE_SNAPSHOT_MODE", "enforce")
     monkeypatch.setenv("MOSAIC_CACHE_DIR", str(production_root))
     monkeypatch.delenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", raising=False)
-    observed: list[Path] = []
+    observed: list[tuple[Path, object]] = []
+    request = {"agent_id": "energy", "stage": "energy", "as_of": "2026-07-09"}
 
-    def core(_request: object) -> dict[str, str]:
-        observed.append(agent_cache_root())
+    def core(core_request: object) -> dict[str, str]:
+        observed.append((agent_cache_root(), core_request))
         return {"status": "READY"}
 
     monkeypatch.setattr(stage_preparer, "_ensure_agent_stage_materialization_core", core)
-    assert stage_preparer.ensure_agent_stage_materialization(_request()) == {
+    deferred = stage_preparer.trusted_deferred_request_only_request(
+        request, tool_ids=("get_indicators",)
+    )
+    assert stage_preparer.ensure_agent_stage_materialization(deferred) == {
         "ensure_mode": "enforce",
         "status": "READY",
     }
-    assert observed == [production_root]
+    assert observed == [(production_root, request)]
 
 
 def test_curve_stage_enforce_requires_license_receipt_but_shadow_does_not(

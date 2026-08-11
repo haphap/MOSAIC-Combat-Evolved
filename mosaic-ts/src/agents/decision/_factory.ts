@@ -894,13 +894,12 @@ function decisionSourcePrefixes<TOutput extends Layer4AgentOutput>(
   spec: LayerFourAgentSpec<TOutput>,
 ): readonly string[] {
   if (spec.agentId === "alpha_discovery") {
-    return ["STANDARD_SECTOR_SELECTION:", "RELATIONSHIP_GRAPH:", "SUPERINVESTOR_SELECTION:"];
+    return ["STANDARD_SECTOR_SELECTION:", "SUPERINVESTOR_SELECTION:"];
   }
   if (spec.agentId === "cio" && spec.runtimeStage === "cio_proposal") {
     return [
       "MACRO_TRANSMISSION:",
       "STANDARD_SECTOR_SELECTION:",
-      "RELATIONSHIP_GRAPH:",
       "SUPERINVESTOR_SELECTION:",
       "ALPHA_DISCOVERY:",
     ];
@@ -1520,7 +1519,6 @@ function materializeAcceptedDecisionOutput<TOutput extends Layer4AgentOutput>(in
           candidate_snapshot_source_fingerprint: candidateSnapshotEvidence?.source_fingerprint,
           source_refs: acceptedRefsForPrefixes(input.state, [
             "STANDARD_SECTOR_SELECTION:",
-            "RELATIONSHIP_GRAPH:",
             "SUPERINVESTOR_SELECTION:",
           ]),
         });
@@ -1550,7 +1548,6 @@ function materializeAcceptedDecisionOutput<TOutput extends Layer4AgentOutput>(in
       source_refs: acceptedRefsForPrefixes(input.state, [
         "MACRO_TRANSMISSION:",
         "STANDARD_SECTOR_SELECTION:",
-        "RELATIONSHIP_GRAPH:",
         "SUPERINVESTOR_SELECTION:",
         "ALPHA_DISCOVERY:",
       ]),

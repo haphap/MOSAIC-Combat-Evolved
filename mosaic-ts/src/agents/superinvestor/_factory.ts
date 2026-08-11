@@ -521,9 +521,7 @@ export function superinvestorAcceptedSnapshotRefs(state: DailyCycleStateType) {
   return Object.entries(state.accepted_output_refs)
     .filter(
       ([key]) =>
-        key.startsWith("MACRO_TRANSMISSION:") ||
-        key.startsWith("STANDARD_SECTOR_SELECTION:") ||
-        key === "RELATIONSHIP_GRAPH:relationship_mapper",
+        key.startsWith("MACRO_TRANSMISSION:") || key.startsWith("STANDARD_SECTOR_SELECTION:"),
     )
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, ref]) => ({ key, ...ref }));

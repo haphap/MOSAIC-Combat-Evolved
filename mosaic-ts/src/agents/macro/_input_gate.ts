@@ -124,8 +124,8 @@ export function validateMacroInputs(
   });
   const weightByAgent = new Map((weightSnapshot?.weights ?? []).map((row) => [row.agent_id, row]));
   if (weightSnapshot) {
-    if (weightSnapshot.weights.length !== 24 || new Set(weightByAgent).size !== 24) {
-      throw new Error("macro_input_gate requires an exact 24-Agent Darwinian snapshot");
+    if (weightSnapshot.weights.length !== 23 || new Set(weightByAgent).size !== 23) {
+      throw new Error("macro_input_gate requires an exact 23-Agent Darwinian snapshot");
     }
     for (const agent of MACRO_AGENT_IDS) {
       if (!weightByAgent.has(agent)) throw new Error(`${agent}: Darwinian weight is missing`);

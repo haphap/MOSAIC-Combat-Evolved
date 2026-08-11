@@ -1,7 +1,7 @@
 {
   "schema_version": "runtime_agent_manifest_v5",
-  "runtime_agent_count": 28,
-  "runtime_stage_count": 29,
+  "runtime_agent_count": 27,
+  "runtime_stage_count": 28,
   "canonical_l4_sequence": [
     "alpha_discovery",
     "cio_proposal",
@@ -346,7 +346,8 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
-        "get_stock_data"
+        "get_stock_data",
+        "get_supply_chain_evidence"
       ],
       "output_schema_fields": [
         "agent",
@@ -412,7 +413,8 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
-        "get_stock_data"
+        "get_stock_data",
+        "get_supply_chain_evidence"
       ],
       "output_schema_fields": [
         "agent",
@@ -478,7 +480,8 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
-        "get_stock_data"
+        "get_stock_data",
+        "get_supply_chain_evidence"
       ],
       "output_schema_fields": [
         "agent",
@@ -543,7 +546,8 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
-        "get_stock_data"
+        "get_stock_data",
+        "get_supply_chain_evidence"
       ],
       "output_schema_fields": [
         "agent",
@@ -609,7 +613,8 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
-        "get_stock_data"
+        "get_stock_data",
+        "get_supply_chain_evidence"
       ],
       "output_schema_fields": [
         "agent",
@@ -675,7 +680,8 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
-        "get_stock_data"
+        "get_stock_data",
+        "get_supply_chain_evidence"
       ],
       "output_schema_fields": [
         "agent",
@@ -741,7 +747,8 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
-        "get_stock_data"
+        "get_stock_data",
+        "get_supply_chain_evidence"
       ],
       "output_schema_fields": [
         "agent",
@@ -808,6 +815,7 @@
         "get_industry_policy_digest",
         "get_rke_research_context",
         "get_stock_data",
+        "get_supply_chain_evidence",
         "get_yield_curve_cn"
       ],
       "output_schema_fields": [
@@ -874,7 +882,8 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
-        "get_stock_data"
+        "get_stock_data",
+        "get_supply_chain_evidence"
       ],
       "output_schema_fields": [
         "agent",
@@ -917,53 +926,6 @@
             "least_preferred_security_status",
             "least_preferred_security_abstention_confidence",
             "short_or_avoid_picks",
-            "macro_input_attributions"
-          ],
-          "max_repair_attempts": 3,
-          "required_source_ids": [],
-          "produced_source_ids": [
-            "upstream_agent_outputs"
-          ]
-        }
-      ]
-    },
-    {
-      "agent": "relationship_mapper",
-      "layer": "sector",
-      "prompt_ir_agent_id": "sector.relationship_mapper",
-      "required_tools": [
-        "get_relationship_graph_snapshot",
-        "get_rke_research_context",
-        "get_stock_research",
-        "get_supply_chain_evidence"
-      ],
-      "output_schema_fields": [
-        "agent",
-        "factual_edges",
-        "predictive_edges",
-        "predictive_graph_status",
-        "predictive_graph_abstention_confidence",
-        "key_drivers",
-        "risks",
-        "claims",
-        "claim_refs",
-        "macro_input_attributions"
-      ],
-      "stages": [
-        {
-          "stage": "agent_run",
-          "enablement": "enabled",
-          "output_schema_ref": "sector.relationship_mapper.output.v1",
-          "output_schema_fields": [
-            "agent",
-            "factual_edges",
-            "predictive_edges",
-            "predictive_graph_status",
-            "predictive_graph_abstention_confidence",
-            "key_drivers",
-            "risks",
-            "claims",
-            "claim_refs",
             "macro_input_attributions"
           ],
           "max_repair_attempts": 3,

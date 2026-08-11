@@ -35,7 +35,6 @@ LIVE_L1_L2_AGENT_IDS = frozenset(
         "real_estate_construction",
         "financials",
         "agriculture",
-        "relationship_mapper",
     }
 )
 SUPERINVESTOR_AGENT_IDS = frozenset(
@@ -182,37 +181,6 @@ def sector_authority_members(
     )
 
 
-def relationship_authority_members(
-    snapshot: Mapping[str, Any],
-) -> list[dict[str, Any]]:
-    """Project the exact run-bound Relationship edge denominator."""
-    opportunity = snapshot.get("prediction_opportunity_set")
-    if not isinstance(opportunity, Mapping):
-        raise ValueError("Relationship prediction opportunity set is unavailable")
-    rows = opportunity.get("ordered_opportunities")
-    if not isinstance(rows, list):
-        raise ValueError("Relationship ordered opportunities are unavailable")
-    members = []
-    for index, row in enumerate(rows):
-        if not isinstance(row, Mapping):
-            raise ValueError(f"Relationship opportunity {index} must be an object")
-        members.append(
-            {
-                "edge_candidate_id": _required_text(
-                    row.get("edge_candidate_id"),
-                    f"Relationship opportunity {index}.edge_candidate_id",
-                ),
-                "materiality_weight": row.get("materiality_weight"),
-            }
-        )
-    contract = OUTCOME_CONTRACTS["relationship_mapper"]
-    return validate_evaluation_opportunity_members(
-        "relationship_mapper",
-        contract["opportunity_set_contract_version"],
-        members,
-    )
-
-
 def superinvestor_authority_members(
     *, agent_id: str, snapshot: Mapping[str, Any]
 ) -> list[dict[str, Any]]:
@@ -291,19 +259,6 @@ def materialize_pre_run_authority(
             f"{agent_id} Sector snapshot",
         )
         members = sector_authority_members(agent_id=agent_id, snapshot=snapshot)
-    elif agent_id == "relationship_mapper":
-        tool_id = "get_relationship_graph_snapshot"
-        snapshot = _payload(
-            materialize_tool_payload(
-                tool_id,
-                agent_id=agent_id,
-                stage=agent_id,
-                as_of=as_of_date,
-                graph_run_id=graph_run_id,
-            ),
-            "Relationship snapshot",
-        )
-        members = relationship_authority_members(snapshot)
     else:
         raise ValueError(f"{agent_id} has no pre-run source authority")
     source_hash = _source_snapshot_hash(snapshot, agent_id)
@@ -379,7 +334,6 @@ __all__ = [
     "macro_authority_members",
     "materialize_pre_run_authority",
     "materialize_superinvestor_authority",
-    "relationship_authority_members",
     "sector_authority_members",
     "superinvestor_authority_members",
 ]

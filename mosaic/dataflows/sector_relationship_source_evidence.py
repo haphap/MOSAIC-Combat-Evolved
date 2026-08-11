@@ -151,7 +151,7 @@ class SectorRelationshipSourceEvidenceAuthority:
             and tool_id in _SECTOR_ARCHIVE_ENDPOINT_BY_TOOL
         ):
             receipt = self._sector_archive_receipt(
-                tool_id, raw_payload, descriptor
+                tool_id, args, raw_payload, descriptor
             )
         elif (
             self.china_archive_store is not None
@@ -228,12 +228,19 @@ class SectorRelationshipSourceEvidenceAuthority:
     def _sector_archive_receipt(
         self,
         tool_id: str,
+        args: Mapping[str, Any],
         raw_payload: str,
         descriptor: Mapping[str, Any],
     ) -> dict[str, Any]:
         as_of = str(descriptor.get("as_of") or "")
+        required_security_code = args.get(
+            "etf" if tool_id == "get_etf_holdings" else "ticker"
+        )
         try:
-            group = self.sector_archive_store.load_group(as_of)
+            group = self.sector_archive_store.load_group(
+                as_of,
+                required_security_code=required_security_code,
+            )
         except (FileNotFoundError, OSError, ValueError) as exc:
             raise DataVendorUnavailable(
                 f"no exact Sector archive source receipt is available for {as_of}"

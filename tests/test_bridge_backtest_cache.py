@@ -72,7 +72,7 @@ def accepted_audits() -> list[dict]:
             "repair_count": 0,
             "stop_reason": "accepted",
         }
-        for index in range(29)
+        for index in range(28)
     ]
 
 

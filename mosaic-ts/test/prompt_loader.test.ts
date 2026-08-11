@@ -59,13 +59,13 @@ function makeFakePromptRepo(): FakeRoot {
 }
 
 describe("AGENTS_BY_LAYER + LAYER_BY_AGENT (Plan §5)", () => {
-  it("covers exactly the 28 v2 agents", () => {
+  it("covers exactly the 27 v2 agents", () => {
     expect(AGENTS_BY_LAYER.macro).toHaveLength(10);
-    expect(AGENTS_BY_LAYER.sector).toHaveLength(10);
+    expect(AGENTS_BY_LAYER.sector).toHaveLength(9);
     expect(AGENTS_BY_LAYER.superinvestor).toHaveLength(4);
     expect(AGENTS_BY_LAYER.decision).toHaveLength(4);
-    expect(ALL_AGENTS).toHaveLength(28);
-    expect(new Set(ALL_AGENTS).size).toBe(28);
+    expect(ALL_AGENTS).toHaveLength(27);
+    expect(new Set(ALL_AGENTS).size).toBe(27);
   });
 
   it("LAYER_BY_AGENT inverse map is consistent", () => {

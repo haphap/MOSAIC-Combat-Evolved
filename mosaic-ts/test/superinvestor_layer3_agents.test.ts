@@ -259,9 +259,9 @@ describe("Layer-3 upstream consumption", () => {
     const input = state();
     input.current_positions.position_snapshot_hash = `sha256:${"b".repeat(64)}`;
     const ref = {
-      accepted_output_kind: "RELATIONSHIP_GRAPH",
-      agent_id: "relationship_mapper",
-      accepted_output_id: "accepted:relationship_mapper",
+      accepted_output_kind: "STANDARD_SECTOR_SELECTION",
+      agent_id: "energy",
+      accepted_output_id: "accepted:energy",
       accepted_output_hash: `sha256:${"a".repeat(64)}`,
     } as AcceptedOutputRecordRef;
     const record = {
@@ -290,20 +290,20 @@ describe("Layer-3 upstream consumption", () => {
     });
   });
 
-  it("binds the relationship graph into the same frozen accepted-output closure", () => {
+  it("binds standard Sector selections into the frozen accepted-output closure", () => {
     const input = state();
     input.accepted_output_refs = {
-      "RELATIONSHIP_GRAPH:relationship_mapper": {
-        accepted_output_kind: "RELATIONSHIP_GRAPH",
-        agent_id: "relationship_mapper",
-        accepted_output_id: "accepted:relationship_mapper",
+      "STANDARD_SECTOR_SELECTION:energy": {
+        accepted_output_kind: "STANDARD_SECTOR_SELECTION",
+        agent_id: "energy",
+        accepted_output_id: "accepted:energy",
         accepted_output_hash: `sha256:${"a".repeat(64)}`,
       },
     };
     expect(superinvestorAcceptedSnapshotRefs(input)).toEqual([
       {
-        key: "RELATIONSHIP_GRAPH:relationship_mapper",
-        ...input.accepted_output_refs["RELATIONSHIP_GRAPH:relationship_mapper"],
+        key: "STANDARD_SECTOR_SELECTION:energy",
+        ...input.accepted_output_refs["STANDARD_SECTOR_SELECTION:energy"],
       },
     ]);
   });
@@ -379,10 +379,10 @@ describe("Layer-3 scheduled opportunity boundary", () => {
     const agents = [...AGENTS_BY_LAYER.superinvestor];
     input.darwinian_runtime_binding = {} as DailyCycleStateType["darwinian_runtime_binding"];
     input.accepted_output_refs = {
-      "RELATIONSHIP_GRAPH:relationship_mapper": {
-        accepted_output_kind: "RELATIONSHIP_GRAPH",
-        agent_id: "relationship_mapper",
-        accepted_output_id: "accepted:relationship_mapper",
+      "STANDARD_SECTOR_SELECTION:energy": {
+        accepted_output_kind: "STANDARD_SECTOR_SELECTION",
+        agent_id: "energy",
+        accepted_output_id: "accepted:energy",
         accepted_output_hash: `sha256:${"a".repeat(64)}`,
       },
     };

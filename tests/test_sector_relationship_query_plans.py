@@ -60,32 +60,6 @@ def _requests_for(plan: dict, tool_id: str) -> list[dict]:
     ]
 
 
-def _rendered_relationship_payload(raw_payload: str) -> str:
-    payload = json.loads(raw_payload)
-    opportunity = payload["prediction_opportunity_set"]
-    opportunity_body = {
-        "run_id": "relationship-runtime-test",
-        "as_of": AS_OF,
-        "candidate_generation_contract_version": opportunity[
-            "candidate_generation_contract_version"
-        ],
-        "scoring_contract_version": opportunity["scoring_contract_version"],
-        "ordered_opportunities": opportunity["ordered_opportunities"],
-    }
-    opportunity_hash = canonical_hash(opportunity_body)
-    payload["prediction_opportunity_set"] = {
-        "opportunity_set_id": (
-            f"relationship-opportunity:{opportunity_hash.removeprefix('sha256:')}"
-        ),
-        "opportunity_set_hash": opportunity_hash,
-        **opportunity_body,
-    }
-    payload["snapshot_hash"] = canonical_hash(
-        {key: value for key, value in payload.items() if key != "snapshot_hash"}
-    )
-    return json.dumps(payload, sort_keys=True)
-
-
 def test_sector_plan_uses_full_validated_scope_and_versioned_parameter_profiles(
     sector_payloads: dict[str, str],
 ) -> None:
@@ -266,7 +240,7 @@ def test_every_sector_stage_exactly_materializes_its_adaptive_tool_roster(
     )
 
 
-@pytest.mark.parametrize("agent_id", (*SECTOR_AGENT_IDS, "relationship_mapper"))
+@pytest.mark.parametrize("agent_id", SECTOR_AGENT_IDS)
 def test_every_sector_relationship_stage_compiles_a_frozen_adaptive_bundle(
     tmp_path: Path,
     sector_payloads: dict[str, str],
@@ -303,16 +277,11 @@ def test_every_sector_relationship_stage_compiles_a_frozen_adaptive_bundle(
         frozen_store=store,
         materializer=materialize,
     )
-    initial_tool = (
-        "get_relationship_graph_snapshot"
-        if agent_id == "relationship_mapper"
-        else "get_sector_research_snapshot"
-    )
     prepared = preparer(
         agent_id=agent_id,
         stage=agent_id,
         as_of=AS_OF,
-        initial_payloads={initial_tool: sector_payloads[agent_id]},
+        initial_payloads={"get_sector_research_snapshot": sector_payloads[agent_id]},
         runtime_inputs={"untrusted": True},
         candidate_scope={"tickers": ["OUTSIDE.SCOPE"]},
         allowed_tools=_allowed_tools(agent_id),
@@ -331,92 +300,6 @@ def test_every_sector_relationship_stage_compiles_a_frozen_adaptive_bundle(
     assert projection["stage"] == agent_id
     assert projection["as_of"] == AS_OF
     assert projection["adaptive_max_rounds"] == 3
-
-
-def test_relationship_plan_authorizes_only_target_securities(
-    sector_payloads: dict[str, str],
-) -> None:
-    plan = build_sector_relationship_query_plan(
-        agent_id="relationship_mapper",
-        stage="relationship_mapper",
-        as_of=AS_OF,
-        initial_payloads={
-            "get_relationship_graph_snapshot": sector_payloads["relationship_mapper"]
-        },
-        allowed_tools=_allowed_tools("relationship_mapper"),
-    )
-    snapshot = json.loads(sector_payloads["relationship_mapper"])
-    target_tickers = sorted(
-        {
-            row["target_entity"]
-            for row in snapshot["relationships"]
-        }
-        | {
-            row["target_entity"]
-            for opportunity in snapshot["prediction_opportunity_set"][
-                "ordered_opportunities"
-            ]
-            for row in opportunity["matched_non_edges"]
-        }
-    )
-    source_holders = {
-        row["source_entity"] for row in snapshot["relationships"]
-    } | {
-        row["source_entity"]
-        for opportunity in snapshot["prediction_opportunity_set"][
-            "ordered_opportunities"
-        ]
-        for row in opportunity["matched_non_edges"]
-    }
-    assert plan["authorized_scope"]["tickers"] == target_tickers
-    assert not source_holders & set(plan["authorized_scope"]["tickers"])
-    assert not plan["authorized_scope"]["etfs"]
-    assert not plan["authorized_scope"]["indicator_families"]
-    assert {row["ticker"] for row in _requests_for(plan, "get_stock_research")} == set(
-        target_tickers
-    )
-    assert {
-        row["ticker"] for row in _requests_for(plan, "get_supply_chain_evidence")
-    } == set(target_tickers)
-    assert {row["layer"] for row in _requests_for(
-        plan, "get_rke_research_context"
-    )} == {"relationship"}
-
-
-def test_relationship_plan_accepts_rendered_runtime_snapshot(
-    sector_payloads: dict[str, str],
-) -> None:
-    rendered = _rendered_relationship_payload(
-        sector_payloads["relationship_mapper"]
-    )
-
-    plan = build_sector_relationship_query_plan(
-        agent_id="relationship_mapper",
-        stage="relationship_mapper",
-        as_of=AS_OF,
-        initial_payloads={"get_relationship_graph_snapshot": rendered},
-        allowed_tools=_allowed_tools("relationship_mapper"),
-    )
-
-    assert plan["source_snapshot_hash"] == json.loads(rendered)["snapshot_hash"]
-
-    tampered = json.loads(rendered)
-    tampered["prediction_opportunity_set"]["opportunity_set_hash"] = (
-        "sha256:" + "0" * 64
-    )
-    tampered["snapshot_hash"] = canonical_hash(
-        {key: value for key, value in tampered.items() if key != "snapshot_hash"}
-    )
-    with pytest.raises(DataVendorUnavailable, match="opportunity set hash mismatch"):
-        build_sector_relationship_query_plan(
-            agent_id="relationship_mapper",
-            stage="relationship_mapper",
-            as_of=AS_OF,
-            initial_payloads={
-                "get_relationship_graph_snapshot": json.dumps(tampered)
-            },
-            allowed_tools=_allowed_tools("relationship_mapper"),
-        )
 
 
 def test_plan_rejects_tampered_or_foreign_initial_snapshot(

@@ -3224,52 +3224,11 @@ describe("Layer 1/2/3/4 context renderers", () => {
     expect(renderLayer1Context(s)).not.toContain("layer_1_consensus_score");
   });
 
-  it("L2 renders sector picks + relationship_mapper differently", () => {
+  it("L2 renders independent sector picks", () => {
     const s = baseState();
     expect(renderLayer2Context(s)).toContain("not available");
     s.layer2_outputs = { semiconductor: semi };
     expect(renderLayer2Context(s)).toContain("688981.SH");
-    s.layer2_outputs = {
-      relationship_mapper: {
-        agent: "relationship_mapper",
-        factual_edges: [
-          {
-            edge_local_id: "edge-1",
-            source_entity: "688981.SH",
-            target_entity: "semiconductor_equipment",
-            edge_type: "supply_chain",
-            claim_refs: ["mapper-claim"],
-          },
-        ],
-        predictive_edges: [],
-        predictive_graph_status: "NO_QUALIFIED_PREDICTIVE_EDGE",
-        predictive_graph_abstention_confidence: 0.4,
-        key_drivers: [
-          { driver_local_id: "driver-1", summary: "fixture driver", claim_refs: ["mapper-claim"] },
-        ],
-        risks: [{ risk_local_id: "risk-1", summary: "spillover", claim_refs: ["mapper-claim"] }],
-        claims: [
-          {
-            claim_id: "mapper-claim",
-            claim_kind: "FACT",
-            statement: "Relationship fixture.",
-            structured_conclusion: { relationship: "supply_chain" },
-            evidence_ids: ["fixture:mapper"],
-            research_rule_refs: [],
-          },
-        ],
-        claim_refs: ["mapper-claim"],
-        macro_input_attributions: MACRO_AGENT_IDS.map((macroAgentId) => ({
-          agent_id: macroAgentId,
-          target_type: "SUBMISSION_SUMMARY",
-          target_local_ref: "$SUBMISSION",
-          claim_refs_used: [],
-          effect: "NOT_MATERIAL",
-        })),
-      },
-    };
-    expect(renderLayer2Context(s)).toContain("factual_edges");
-    expect(renderLayer2Context(s)).toContain("predictive_graph_status");
   });
 
   it("L3 renders superinvestor picks", () => {
