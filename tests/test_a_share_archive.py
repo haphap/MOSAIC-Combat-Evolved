@@ -10,6 +10,7 @@ from threading import Event
 
 import pytest
 
+import mosaic.dataflows.a_share_archive as a_share_archive
 from mosaic.dataflows.a_share_archive import (
     ASharePaginationError,
     AShareArchiveStore,
@@ -571,6 +572,84 @@ def test_historical_as_of_cannot_inject_a_fake_capture_time(
     assert result.coverage_receipt.as_dict()["blocker_codes"] == [
         "CAPTURE_AFTER_AS_OF_CUTOFF"
     ]
+
+
+def test_explicit_historical_replay_preserves_real_transport_time(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started_at = "2026-08-10T15:05:00+08:00"
+    completed_at = "2026-08-10T15:30:00+08:00"
+    times = iter((started_at, completed_at))
+    monkeypatch.setattr(
+        "mosaic.dataflows.a_share_archive._capture_now",
+        lambda: datetime.fromisoformat(next(times)),
+    )
+    store = AShareArchiveStore(tmp_path / "a_share_archive.sqlite3")
+    ledger = AgentDataMaterializationLedger(tmp_path / "materialization.sqlite3")
+
+    result = archive_a_share_breadth(
+        FakeTushare(),
+        as_of_date=AS_OF_TEXT,
+        cutoff_at=CUTOFF_AT,
+        historical_replay=True,
+        store=store,
+        ledger=ledger,
+    )
+
+    assert result.coverage_receipt.as_dict()["coverage_complete"] is True
+    receipt = result.source_receipts[0].as_dict()
+    assert receipt["coverage"]["requested_end"] == AS_OF_TEXT
+    assert receipt["time"]["captured_at"] == completed_at
+    assert receipt["pit"]["as_of_cutoff"] == completed_at
+    assert store.load_group(AS_OF_TEXT)["cutoff_at"] == completed_at
+
+
+@pytest.mark.parametrize(
+    ("requested_endpoints", "transport_endpoints"),
+    [
+        (("stock_basic",), {"stock_basic"}),
+        (
+            ("daily_basic", "stock_basic"),
+            {"trade_cal", "stock_basic", "daily_basic"},
+        ),
+    ],
+)
+def test_parent_source_capture_queries_only_requested_endpoint_scope(
+    tmp_path: Path,
+    requested_endpoints: tuple[str, ...],
+    transport_endpoints: set[str],
+) -> None:
+    fetch = FakeTushare()
+    store = AShareArchiveStore(tmp_path / "a_share_archive.sqlite3")
+
+    group, cache_hit = a_share_archive.capture_a_share_parent_sources(
+        fetch,
+        as_of_date=AS_OF_TEXT,
+        cutoff_at=CUTOFF_AT,
+        requested_endpoints=requested_endpoints,
+        store=store,
+    )
+    call_count = len(fetch.calls)
+    replay, replay_cache_hit = a_share_archive.capture_a_share_parent_sources(
+        fetch,
+        as_of_date=AS_OF_TEXT,
+        cutoff_at=CUTOFF_AT,
+        requested_endpoints=requested_endpoints,
+        store=store,
+    )
+
+    assert cache_hit is False
+    assert replay_cache_hit is True
+    assert replay == group
+    assert len(fetch.calls) == call_count
+    assert {endpoint for endpoint, _params in fetch.calls} == transport_endpoints
+    assert group["requested_endpoints"] == list(requested_endpoints)
+    with pytest.raises(FileNotFoundError):
+        store.load_group(AS_OF_TEXT)
+    assert (
+        store.load_group(AS_OF_TEXT, required_endpoints=requested_endpoints) == group
+    )
 
 
 def test_production_clock_records_transport_completion_time(

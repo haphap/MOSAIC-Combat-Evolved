@@ -295,6 +295,67 @@ def test_gate_d_fixture_evidence_is_derived_from_current_overlays_and_tracks():
     assert evidence["significance_fixture_count"] == 113
     assert evidence["runtime_binding_count"] == 187
     assert evidence["projection_count"] == 29
+    assert evidence["source_route_migration_count"] == 6
+    assert evidence["source_route_migrations_hash"] == canonical_hash(
+        [
+            {
+                "from_route_id": "tushare.shibor_yield_curve",
+                "source_binding_id": "binding:09a1f45221b66acbf024d00808aa5bf0312d58b2258061ab92442a10ac1c8586",
+                "to_route_id": "composite.cn_rates",
+            },
+            {
+                "from_route_id": "eurostat.euro_macro",
+                "source_binding_id": "binding:2b2825ddc945411a920208f7803b0b77ee2b19395b6c87cd5187b87f4903962f",
+                "to_route_id": "ecb.eu_real_economy",
+            },
+            {
+                "from_route_id": "tushare.shibor_yield_curve",
+                "source_binding_id": "binding:340b17f9c81c93426e3c2222aa9116a9f560acb8326a126fa641ebf2772f85d6",
+                "to_route_id": "composite.cn_rates",
+            },
+            {
+                "from_route_id": "tushare.shibor_yield_curve",
+                "source_binding_id": "binding:89e79aebe666737155b439ab23251e04957eac43011e0f115653bebf248abdeb",
+                "to_route_id": "composite.cn_rates",
+            },
+            {
+                "from_route_id": "tushare.shibor_yield_curve",
+                "source_binding_id": "binding:9c0380d8e572a2014178bc01e1c8cc2f281591d2ffcd9e60ca366bdd9c2f27cb",
+                "to_route_id": "composite.cn_rates",
+            },
+            {
+                "from_route_id": "tushare.shibor_yield_curve",
+                "source_binding_id": "binding:bd7d647d99fc1550c60456640bc4341943ee6601628f04849d3dabd6d1ec5fab",
+                "to_route_id": "composite.cn_rates",
+            },
+        ]
+    )
+    assert evidence["source_contract_migration_count"] == 3
+    assert evidence["source_contract_migrations_hash"] == canonical_hash(
+        [
+            {
+                "from_contract_version": "eurostat_forward_archive_v1",
+                "from_route_id": "eurostat.euro_macro",
+                "source_binding_id": "binding:2b2825ddc945411a920208f7803b0b77ee2b19395b6c87cd5187b87f4903962f",
+                "to_contract_version": "ecb_eu_real_economy_history_v1",
+                "to_route_id": "ecb.eu_real_economy",
+            },
+            {
+                "from_contract_version": "ecb_euro_macro_v1",
+                "from_route_id": "ecb.euro_macro",
+                "source_binding_id": "binding:2b2825ddc945411a920208f7803b0b77ee2b19395b6c87cd5187b87f4903962f",
+                "to_contract_version": "ecb_euro_macro_v2",
+                "to_route_id": "ecb.euro_macro",
+            },
+            {
+                "from_contract_version": "ecb_euro_macro_v1",
+                "from_route_id": "ecb.euro_macro",
+                "source_binding_id": "binding:5d22ffdac9730113fc227c0fb88f77dda8045bcef24a7df62cceb420154c88a2",
+                "to_contract_version": "ecb_euro_macro_v2",
+                "to_route_id": "ecb.euro_macro",
+            },
+        ]
+    )
     assert evidence["evidence_hash"] == canonical_hash(
         {key: value for key, value in evidence.items() if key != "evidence_hash"}
     )

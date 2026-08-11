@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
@@ -14,7 +15,8 @@ from mosaic.scorecard.canonical_json import canonical_hash
 
 
 _USER_AGENT = "mosaic-rke/0.1.0"
-_PROMPT_CONTRACT_VERSION = "frozen_research_digest_prompt_v1"
+_RETRYABLE_HTTP_STATUSES = {408, 425, 429}
+_PROMPT_CONTRACT_VERSION = "frozen_research_digest_prompt_v2"
 _DIGEST_FIELDS = {
     "summary",
     "evidence_points",
@@ -126,6 +128,20 @@ def _digest_object(content: str) -> dict[str, Any]:
     }
 
 
+def _retryable_request_error(exc: BaseException) -> bool:
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code in _RETRYABLE_HTTP_STATUSES or exc.code >= 500
+    return isinstance(
+        exc,
+        (
+            OSError,
+            urllib.error.URLError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+        ),
+    )
+
+
 class FrozenResearchDigestBuilder:
     """Call the configured Agent provider and return auditable digest lineage."""
 
@@ -138,6 +154,10 @@ class FrozenResearchDigestBuilder:
         max_tokens: int | None = None,
         timeout_seconds: int = 120,
         urlopen: Callable[..., Any] = urllib.request.urlopen,
+        user_agent: str | None = None,
+        max_attempts: int = 3,
+        retry_delay_seconds: float = 0.25,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         raw_endpoint = endpoint or _env("MOSAIC_LLM_BASE_URL")
         if not raw_endpoint:
@@ -159,6 +179,29 @@ class FrozenResearchDigestBuilder:
             field="digest timeout_seconds",
             default=120,
         )
+        raw_user_agent = (
+            user_agent
+            if user_agent is not None
+            else (_env("MOSAIC_LLM_USER_AGENT") or _USER_AGENT)
+        )
+        self.user_agent = str(raw_user_agent).strip()
+        if not self.user_agent or "\r" in self.user_agent or "\n" in self.user_agent:
+            raise ValueError("MOSAIC_LLM_USER_AGENT is invalid")
+        if (
+            isinstance(max_attempts, bool)
+            or not isinstance(max_attempts, int)
+            or not 1 <= max_attempts <= 5
+        ):
+            raise ValueError("digest max_attempts must be an integer in [1, 5]")
+        if (
+            isinstance(retry_delay_seconds, bool)
+            or not isinstance(retry_delay_seconds, (int, float))
+            or retry_delay_seconds < 0
+        ):
+            raise ValueError("digest retry_delay_seconds must be non-negative")
+        self.max_attempts = max_attempts
+        self.retry_delay_seconds = float(retry_delay_seconds)
+        self.sleep = sleep
         self.urlopen = urlopen
 
     def __call__(
@@ -173,10 +216,11 @@ class FrozenResearchDigestBuilder:
             raise ValueError("frozen research digest source payload must be non-empty")
         if not isinstance(args, dict):
             raise ValueError("frozen research digest args must be an object")
+        source_payload_hash = canonical_hash({"text": raw_payload})
         prompt_body = {
             "prompt_contract_version": _PROMPT_CONTRACT_VERSION,
             "tool_id": tool_id,
-            "request": args,
+            "source_payload_hash": source_payload_hash,
         }
         user_prompt = (
             f"Request metadata:\n{json.dumps(prompt_body, ensure_ascii=False, sort_keys=True)}"
@@ -198,15 +242,24 @@ class FrozenResearchDigestBuilder:
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
-                "User-Agent": _USER_AGENT,
+                "User-Agent": self.user_agent,
             },
             method="POST",
         )
-        try:
-            with self.urlopen(request, timeout=self.timeout_seconds) as response:
-                response_payload = json.loads(response.read().decode("utf-8"))
-        except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
-            raise ValueError("frozen research digest request failed") from exc
+        for attempt in range(self.max_attempts):
+            try:
+                with self.urlopen(request, timeout=self.timeout_seconds) as response:
+                    response_payload = json.loads(response.read().decode("utf-8"))
+                break
+            except (
+                OSError,
+                urllib.error.URLError,
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+            ) as exc:
+                if not _retryable_request_error(exc) or attempt + 1 == self.max_attempts:
+                    raise ValueError("frozen research digest request failed") from exc
+                self.sleep(self.retry_delay_seconds * (2**attempt))
         digest = _digest_object(_response_content(response_payload))
         return {
             "digest": json.dumps(

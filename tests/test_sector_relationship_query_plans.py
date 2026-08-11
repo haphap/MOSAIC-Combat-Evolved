@@ -60,6 +60,32 @@ def _requests_for(plan: dict, tool_id: str) -> list[dict]:
     ]
 
 
+def _rendered_relationship_payload(raw_payload: str) -> str:
+    payload = json.loads(raw_payload)
+    opportunity = payload["prediction_opportunity_set"]
+    opportunity_body = {
+        "run_id": "relationship-runtime-test",
+        "as_of": AS_OF,
+        "candidate_generation_contract_version": opportunity[
+            "candidate_generation_contract_version"
+        ],
+        "scoring_contract_version": opportunity["scoring_contract_version"],
+        "ordered_opportunities": opportunity["ordered_opportunities"],
+    }
+    opportunity_hash = canonical_hash(opportunity_body)
+    payload["prediction_opportunity_set"] = {
+        "opportunity_set_id": (
+            f"relationship-opportunity:{opportunity_hash.removeprefix('sha256:')}"
+        ),
+        "opportunity_set_hash": opportunity_hash,
+        **opportunity_body,
+    }
+    payload["snapshot_hash"] = canonical_hash(
+        {key: value for key, value in payload.items() if key != "snapshot_hash"}
+    )
+    return json.dumps(payload, sort_keys=True)
+
+
 def test_sector_plan_uses_full_validated_scope_and_versioned_parameter_profiles(
     sector_payloads: dict[str, str],
 ) -> None:
@@ -173,6 +199,46 @@ def test_sector_plan_uses_full_validated_scope_and_versioned_parameter_profiles(
     assert {row["ticker"] for row in rke if row["ticker"]} == set(tickers)
 
 
+def test_sector_plan_accepts_only_complete_hash_bound_runtime_snapshot(
+    sector_payloads: dict[str, str],
+) -> None:
+    runtime = json.loads(sector_payloads["semiconductor"])
+    runtime.pop("snapshot_hash")
+    runtime["event_coverage"] = {"coverage_completeness": "COMPLETE"}
+    runtime["role_event_snapshot_ref"] = {
+        "role_event_snapshot_id": "role-event-snapshot:structured-smoke",
+        "role_event_snapshot_hash": canonical_hash(
+            {"role_event_snapshot_id": "role-event-snapshot:structured-smoke"}
+        ),
+    }
+    runtime["snapshot_hash"] = canonical_hash(runtime)
+
+    plan = build_sector_relationship_query_plan(
+        agent_id="semiconductor",
+        stage="semiconductor",
+        as_of=AS_OF,
+        initial_payloads={"get_sector_research_snapshot": json.dumps(runtime)},
+        allowed_tools=_allowed_tools("semiconductor"),
+    )
+    assert plan["source_snapshot_hash"] == runtime["snapshot_hash"]
+
+    incomplete = json.loads(json.dumps(runtime))
+    incomplete["event_coverage"]["coverage_completeness"] = "INCOMPLETE"
+    incomplete["snapshot_hash"] = canonical_hash(
+        {key: value for key, value in incomplete.items() if key != "snapshot_hash"}
+    )
+    with pytest.raises(DataVendorUnavailable, match="event coverage.*complete"):
+        build_sector_relationship_query_plan(
+            agent_id="semiconductor",
+            stage="semiconductor",
+            as_of=AS_OF,
+            initial_payloads={
+                "get_sector_research_snapshot": json.dumps(incomplete)
+            },
+            allowed_tools=_allowed_tools("semiconductor"),
+        )
+
+
 @pytest.mark.parametrize("agent_id", SECTOR_AGENT_IDS)
 def test_every_sector_stage_exactly_materializes_its_adaptive_tool_roster(
     sector_payloads: dict[str, str], agent_id: str
@@ -255,9 +321,8 @@ def test_every_sector_relationship_stage_compiles_a_frozen_adaptive_bundle(
     projection = prepared["public_projection"]
     prepared_tools = {row["tool_id"] for row in projection["entries"]}
     expected_tools = set(_allowed_tools(agent_id))
-    if not projection["private_payload_count"]:
-        expected_tools.clear()
-    elif not any(
+    assert projection["private_payload_count"] == 0
+    if not any(
         row["tool_id"] == "get_etf_holdings" for row in projection["entries"]
     ):
         expected_tools.discard("get_etf_holdings")
@@ -316,6 +381,42 @@ def test_relationship_plan_authorizes_only_target_securities(
     assert {row["layer"] for row in _requests_for(
         plan, "get_rke_research_context"
     )} == {"relationship"}
+
+
+def test_relationship_plan_accepts_rendered_runtime_snapshot(
+    sector_payloads: dict[str, str],
+) -> None:
+    rendered = _rendered_relationship_payload(
+        sector_payloads["relationship_mapper"]
+    )
+
+    plan = build_sector_relationship_query_plan(
+        agent_id="relationship_mapper",
+        stage="relationship_mapper",
+        as_of=AS_OF,
+        initial_payloads={"get_relationship_graph_snapshot": rendered},
+        allowed_tools=_allowed_tools("relationship_mapper"),
+    )
+
+    assert plan["source_snapshot_hash"] == json.loads(rendered)["snapshot_hash"]
+
+    tampered = json.loads(rendered)
+    tampered["prediction_opportunity_set"]["opportunity_set_hash"] = (
+        "sha256:" + "0" * 64
+    )
+    tampered["snapshot_hash"] = canonical_hash(
+        {key: value for key, value in tampered.items() if key != "snapshot_hash"}
+    )
+    with pytest.raises(DataVendorUnavailable, match="opportunity set hash mismatch"):
+        build_sector_relationship_query_plan(
+            agent_id="relationship_mapper",
+            stage="relationship_mapper",
+            as_of=AS_OF,
+            initial_payloads={
+                "get_relationship_graph_snapshot": json.dumps(tampered)
+            },
+            allowed_tools=_allowed_tools("relationship_mapper"),
+        )
 
 
 def test_plan_rejects_tampered_or_foreign_initial_snapshot(

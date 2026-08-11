@@ -139,12 +139,35 @@ describe("Macro input attribution v2", () => {
     ).toBe(true);
   });
 
-  it("limits standard Sector target attribution to exact supported target types", () => {
+  it("forbids target rows in compact Superinvestor abstention output", () => {
+    const adapted = adaptMacroAttributionProviderJsonSchema(
+      z.toJSONSchema(
+        z.object({
+          provider_contract: z.literal("SUPERINVESTOR_ABSTENTION_COMPACT_V1"),
+          agent: z.literal("druckenmiller"),
+          macro_input_attributions: MacroInputAttributionSubmissionArraySchema,
+        }),
+      ),
+    ) as {
+      properties: {
+        macro_input_attributions: {
+          properties: { target_attributions: { maxItems: number } };
+        };
+      };
+    };
+    expect(
+      adapted.properties.macro_input_attributions.properties.target_attributions.maxItems,
+    ).toBe(0);
+  });
+
+  it("limits standard Sector target attribution to exact supported target pairs", () => {
     const adapted = adaptMacroAttributionProviderJsonSchema(
       z.toJSONSchema(
         z.object({
           agent: z.literal("energy"),
           selection_status: z.literal("SELECTED"),
+          preferred_direction_local_id: z.literal("energy-direction-up"),
+          least_preferred_direction_local_id: z.literal("energy-direction-down"),
           macro_input_attributions: MacroInputAttributionSubmissionArraySchema,
         }),
       ),
@@ -153,16 +176,27 @@ describe("Macro input attribution v2", () => {
         macro_input_attributions: {
           properties: {
             target_attributions: {
-              items: { properties: { target_type: { enum: string[] } } };
+              items: {
+                anyOf: Array<{
+                  properties: {
+                    target_type: { const: string };
+                    target_local_ref: { const: string };
+                  };
+                }>;
+              };
             };
           };
         };
       };
     };
     expect(
-      adapted.properties.macro_input_attributions.properties.target_attributions.items.properties
-        .target_type.enum,
-    ).toEqual(["SECTOR_THESIS", "SECURITY_PICK"]);
+      adapted.properties.macro_input_attributions.properties.target_attributions.items.anyOf.map(
+        (branch) => [branch.properties.target_type.const, branch.properties.target_local_ref.const],
+      ),
+    ).toEqual([
+      ["SECTOR_THESIS", "energy-direction-up"],
+      ["SECTOR_THESIS", "energy-direction-down"],
+    ]);
   });
 
   it("resolves local targets and copies authoritative usage shares", () => {

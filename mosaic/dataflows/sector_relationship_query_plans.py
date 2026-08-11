@@ -8,8 +8,8 @@ from datetime import date, timedelta
 from typing import Any
 
 from mosaic.dataflows.sector_snapshots import (
-    validate_relationship_snapshot,
-    validate_sector_snapshot,
+    validate_relationship_runtime_snapshot,
+    validate_sector_runtime_snapshot,
 )
 from mosaic.scorecard.canonical_json import canonical_hash
 from mosaic.scorecard.sector_relationship_preservation import argument_schema_for_tool
@@ -117,7 +117,7 @@ def _sector_plan(
 ) -> tuple[dict[str, Any], dict[str, str], list[tuple[str, str]]]:
     if "get_sector_research_snapshot" not in initial_payloads:
         raise ValueError("Sector query plan requires get_sector_research_snapshot")
-    payload = validate_sector_snapshot(
+    payload = validate_sector_runtime_snapshot(
         _decode_payload(
             initial_payloads["get_sector_research_snapshot"],
             "get_sector_research_snapshot",
@@ -162,7 +162,7 @@ def _relationship_plan(
         raise ValueError(
             "Relationship query plan requires get_relationship_graph_snapshot"
         )
-    payload = validate_relationship_snapshot(
+    payload = validate_relationship_runtime_snapshot(
         _decode_payload(
             initial_payloads["get_relationship_graph_snapshot"],
             "get_relationship_graph_snapshot",

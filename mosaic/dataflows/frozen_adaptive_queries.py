@@ -38,6 +38,7 @@ from mosaic.scorecard.sector_relationship_preservation import (
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 PUBLIC_PROJECTION_VERSION = "frozen_adaptive_query_public_projection_v1"
+CALL_TIME_ARGUMENT_CONTRACT = "EXACT_CALL_TIME_ARGS_ONLY"
 _SHA_PREFIX = "sha256:"
 _A_SHARE_TICKER = re.compile(r"^[0-9]{6}\.(SH|SZ|BJ)$")
 
@@ -56,6 +57,31 @@ def _required_text(value: Any, field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field} must be a non-empty string")
     return value.strip()
+
+
+def deferred_query_bundle_hash(projection: Mapping[str, Any]) -> str:
+    """Hash the request-only fields of one deferred v1 public projection."""
+
+    required = {
+        "schema_version",
+        "call_contract",
+        "agent_id",
+        "stage",
+        "as_of",
+        "authorized_scope_hash",
+        "preservation_overlay_hash",
+        "query_bundle_contract_version",
+        "private_payload_count",
+        "initial_payload_count",
+        "adaptive_max_rounds",
+        "entries",
+    }
+    if not required.issubset(projection):
+        raise ValueError("deferred query projection fields are incomplete")
+    descriptor = {key: projection[key] for key in sorted(required)}
+    if "preservation_stage" in projection:
+        descriptor["preservation_stage"] = projection["preservation_stage"]
+    return canonical_hash(descriptor)
 
 
 def _is_sha256(value: Any) -> bool:
@@ -421,6 +447,41 @@ class FrozenAdaptiveQueryStore:
             "entries": evidence_entries,
         }
 
+    def argument_sets(
+        self,
+        *,
+        bundle_id: str,
+        tool_id: str,
+        expected_bundle_hash: str,
+    ) -> list[dict[str, Any]]:
+        """Return exact validated request objects without private result payloads."""
+
+        tool_id = _required_text(tool_id, "tool_id")
+        expected_bundle_hash = _required_text(
+            expected_bundle_hash, "expected_bundle_hash"
+        )
+        if not _is_sha256(expected_bundle_hash):
+            raise ValueError("expected_bundle_hash must be a sha256 digest")
+        evidence = self.bundle_evidence(bundle_id)
+        if evidence["bundle_hash"] != expected_bundle_hash:
+            raise ValueError("frozen query bundle hash mismatch")
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT request_hash, request_json FROM frozen_query_payloads "
+                "WHERE bundle_id = ? AND tool_id = ? ORDER BY request_hash",
+                (bundle_id, tool_id),
+            ).fetchall()
+        requests: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                request = json.loads(row["request_json"])
+            except json.JSONDecodeError as exc:  # pragma: no cover - bundle validation owns this
+                raise ValueError("frozen query request metadata is invalid") from exc
+            if not isinstance(request, dict) or canonical_hash(request) != row["request_hash"]:
+                raise ValueError("frozen query request hash mismatch")
+            requests.append(request)
+        return requests
+
     def prepare(
         self,
         *,
@@ -433,11 +494,14 @@ class FrozenAdaptiveQueryStore:
         initial_query_requests: Sequence[Mapping[str, Any]] = (),
         preservation_overlay: Mapping[str, Any],
         materializer: Callable[[str, dict[str, Any]], Mapping[str, Any]],
+        defer_materialization: bool = False,
     ) -> dict[str, Any]:
-        """Validate a finite scope, materialize it once, and publish its hashes."""
+        """Validate a finite scope and publish eager or deferred request hashes."""
 
         agent_id = _required_text(agent_id, "agent_id")
         stage = _required_text(stage, "stage")
+        if not isinstance(defer_materialization, bool):
+            raise ValueError("defer_materialization must be a boolean")
         if preservation_stage is not None:
             preservation_stage = _required_text(
                 preservation_stage, "preservation_stage"
@@ -592,6 +656,53 @@ class FrozenAdaptiveQueryStore:
                 "overlay_hash": overlay_hash,
             }
         )
+        if defer_materialization:
+            entries = sorted(
+                (
+                    {
+                        "tool_id": tool_id,
+                        "request": request,
+                        "request_hash": request_hash,
+                        "call_mode": call_mode,
+                        "binding_id": bindings[tool_id]["binding_id"],
+                    }
+                    for tool_id, request, request_hash, call_mode in requests
+                ),
+                key=lambda row: (row["tool_id"], row["request_hash"]),
+            )
+            deferred_body = {
+                "schema_version": PUBLIC_PROJECTION_VERSION,
+                "call_contract": CALL_TIME_ARGUMENT_CONTRACT,
+                "agent_id": agent_id,
+                "stage": stage,
+                **(
+                    {"preservation_stage": preservation_stage}
+                    if preservation_stage is not None and preservation_stage != stage
+                    else {}
+                ),
+                "as_of": as_of,
+                "authorized_scope_hash": canonical_hash(scope),
+                "preservation_overlay_hash": overlay_hash,
+                "query_bundle_contract_version": contract_version,
+                "private_payload_count": 0,
+                "initial_payload_count": len(initial_requests),
+                "adaptive_max_rounds": max_rounds,
+                "entries": entries,
+            }
+            bundle_hash = deferred_query_bundle_hash(deferred_body)
+            bundle_id = "frozen_bundle_" + bundle_hash[7:]
+            public_body = {
+                **deferred_body,
+                "bundle_id": bundle_id,
+                "bundle_hash": bundle_hash,
+            }
+            return {
+                "bundle_id": bundle_id,
+                "public_projection": {
+                    **public_body,
+                    "projection_hash": canonical_hash(public_body),
+                },
+            }
         held_keys = getattr(self._materialization_state, "held_keys", None)
         if held_keys is None:
             held_keys = set()
@@ -610,6 +721,7 @@ class FrozenAdaptiveQueryStore:
                         initial_query_requests=initial_query_requests,
                         preservation_overlay=preservation_overlay,
                         materializer=materializer,
+                        defer_materialization=False,
                     )
                 finally:
                     held_keys.remove(materialization_key)
@@ -1805,4 +1917,9 @@ class FrozenAdaptiveQueryStore:
         return self._audited_result(bundle_hash=evidence["bundle_hash"], row=row)
 
 
-__all__ = ["FrozenAdaptiveQueryStore", "PUBLIC_PROJECTION_VERSION"]
+__all__ = [
+    "CALL_TIME_ARGUMENT_CONTRACT",
+    "FrozenAdaptiveQueryStore",
+    "PUBLIC_PROJECTION_VERSION",
+    "deferred_query_bundle_hash",
+]

@@ -192,6 +192,23 @@ def test_bundle_evidence_exposes_only_validated_hash_lineage(tmp_path: Path) -> 
     assert "600000.SH" not in serialized
     assert "512800.SH" not in serialized
 
+    assert store.argument_sets(
+        bundle_id=prepared["bundle_id"],
+        tool_id="get_indicators",
+        expected_bundle_hash=prepared["public_projection"]["bundle_hash"],
+    ) == [_queries()[2]["args"]]
+    assert store.argument_sets(
+        bundle_id=prepared["bundle_id"],
+        tool_id="get_supply_chain_evidence",
+        expected_bundle_hash=prepared["public_projection"]["bundle_hash"],
+    ) == []
+    with pytest.raises(ValueError, match="bundle hash"):
+        store.argument_sets(
+            bundle_id=prepared["bundle_id"],
+            tool_id="get_indicators",
+            expected_bundle_hash=canonical_hash({"wrong": "bundle"}),
+        )
+
     with pytest.raises(ValueError, match="unknown frozen query bundle"):
         store.bundle_evidence("frozen_bundle_" + "0" * 64)
 

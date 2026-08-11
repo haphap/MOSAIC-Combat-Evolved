@@ -74,6 +74,12 @@ _QUERY_CONTRACT_FIELDS = {
     "endpoint",
     "method",
     "content_type",
+    "identity_endpoint",
+    "identity_method",
+    "identity_max_results",
+    "identity_match_policy",
+    "counterparty_match_policy",
+    "counterparty_query_limit_per_document",
     "page_size",
     "column",
     "tab_name",
@@ -90,10 +96,18 @@ _QUERY_CONTRACT_FIELDS = {
     "highlight_titles",
 }
 _QUERY_CONTRACT_FIXED = {
-    "contract_version": "cninfo_annual_report_query_v1",
+    "contract_version": "cninfo_annual_report_query_v2",
     "endpoint": "https://www.cninfo.com.cn/new/hisAnnouncement/query",
     "method": "POST",
     "content_type": "application/x-www-form-urlencoded",
+    "identity_endpoint": (
+        "https://www.cninfo.com.cn/new/information/topSearch/query"
+    ),
+    "identity_method": "POST",
+    "identity_max_results": 10,
+    "identity_match_policy": "UNIQUE_EXACT_CODE",
+    "counterparty_match_policy": "UNIQUE_NORMALIZED_EXACT_NAME",
+    "counterparty_query_limit_per_document": 10,
     "page_size": 30,
     "column": "szse",
     "tab_name": "fulltext",
@@ -630,12 +644,16 @@ class OfficialSupplyChainDisclosureArchive:
     _thread_locks_guard = threading.Lock()
     _thread_locks: dict[str, threading.Lock] = {}
 
-    def __init__(self, db_path: Path) -> None:
+    def __init__(self, db_path: Path, *, create: bool = True) -> None:
         self.db_path = db_path
         if "registry" in db_path.parts:
             raise ValueError("supply-chain disclosure archive must not be stored in registry")
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._initialise()
+        self.create = create
+        if create:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._initialise()
+        elif self.db_path.is_symlink() or not self.db_path.is_file():
+            raise FileNotFoundError(self.db_path)
 
     @classmethod
     def _thread_lock_for(cls, key: str) -> threading.Lock:
@@ -669,12 +687,29 @@ class OfficialSupplyChainDisclosureArchive:
         self.materialize(ticker=ticker, as_of=as_of)
         return str(row["capture_id"])
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.db_path, timeout=30, isolation_level=None)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA journal_mode = WAL")
-        return connection
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        if self.create:
+            connection = sqlite3.connect(
+                self.db_path, timeout=30, isolation_level=None
+            )
+        else:
+            connection = sqlite3.connect(
+                f"{self.db_path.resolve().as_uri()}?mode=ro&immutable=1",
+                uri=True,
+                timeout=30,
+                isolation_level=None,
+            )
+        try:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys = ON")
+            if self.create:
+                connection.execute("PRAGMA journal_mode = WAL")
+            else:
+                connection.execute("PRAGMA query_only = ON")
+            yield connection
+        finally:
+            connection.close()
 
     def _initialise(self) -> None:
         with self._connect() as connection:

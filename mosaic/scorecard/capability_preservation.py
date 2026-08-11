@@ -37,6 +37,17 @@ ACTIVE_TRACK_TAG_FIELDS = (
     "capability_bundle_hash",
 )
 
+_APPROVED_RESTORED_ROUTE_MIGRATIONS = {
+    ("financials", "financials", "get_yield_curve_cn"): (
+        ("tushare.shibor_yield_curve",),
+        ("composite.cn_rates",),
+    ),
+    ("druckenmiller", "druckenmiller", "get_yield_curve_cn"): (
+        ("tushare.shibor_yield_curve",),
+        ("composite.cn_rates",),
+    ),
+}
+
 _SHA_PREFIX = "sha256:"
 _DISPOSITIONS = {
     "preserved",
@@ -786,13 +797,27 @@ def build_binding_manifest(
                         raise ValueError(
                             "restored capability overlay binding fields are incomplete"
                         )
-                    if list(source_route_ids) != restored["source_route_ids"]:
-                        raise ValueError(
-                            "restored capability overlay source route binding drift"
-                        )
                     restored_body = {
                         field: restored[field] for field in restored_fields
                     }
+                    restored_source_route_ids = tuple(restored["source_route_ids"])
+                    if source_route_ids != restored_source_route_ids:
+                        if _APPROVED_RESTORED_ROUTE_MIGRATIONS.get(key) != (
+                            restored_source_route_ids,
+                            source_route_ids,
+                        ):
+                            raise ValueError(
+                                "restored capability overlay source route binding drift"
+                            )
+                        restored_body["source_route_ids"] = list(source_route_ids)
+                        restored_body["route_contract_hash"] = canonical_hash(
+                            {
+                                "routes": [
+                                    routes_by_id[route_id]
+                                    for route_id in source_route_ids
+                                ]
+                            }
+                        )
                     restored_body["activation_state"] = "active"
                     bindings.append(
                         {
@@ -944,16 +969,54 @@ def build_staged_tool_contract_manifest(
 
 
 def _execution_release(root: Path) -> tuple[str, str]:
-    paths = sorted(
-        (root / "registry/prompt_checks/execution_behavior_releases").glob("*.json")
+    pointer = _read_json(
+        root / "registry/prompt_checks/prompt_release_contract_ref_v2.json"
     )
-    if len(paths) != 1:
-        raise ValueError("exactly one staged execution behavior release is required")
-    value = _read_json(paths[0])
-    return (
-        str(value["execution_behavior_release_id"]),
-        str(value["execution_behavior_release_hash"]),
+    if pointer.get("schema_version") != "prompt_release_contract_ref_v2":
+        raise ValueError("execution release pointer schema mismatch")
+    sources = pointer.get("sources")
+    if not isinstance(sources, Mapping):
+        raise ValueError("execution release pointer sources must be an object")
+    source = sources.get("execution_behavior_release_archive")
+    if not isinstance(source, Mapping):
+        raise ValueError("execution release pointer source must be an object")
+    release_id = source.get("release_id")
+    if not isinstance(release_id, str) or not release_id.startswith(
+        "execution-behavior-release:"
+    ):
+        raise ValueError("execution release ID is invalid")
+    release_id_digest = release_id.removeprefix("execution-behavior-release:")
+    if len(release_id_digest) != 64 or any(
+        char not in "0123456789abcdef" for char in release_id_digest
+    ):
+        raise ValueError("execution release ID is invalid")
+    release_hash = _require_sha256(source.get("release_hash"), "execution release hash")
+    expected_ref = (
+        "registry/prompt_checks/execution_behavior_releases/"
+        f"{release_id_digest}--{release_hash.removeprefix(_SHA_PREFIX)}.json"
     )
+    if source.get("path") != expected_ref:
+        raise ValueError("content-addressed execution release path mismatch")
+    archive_path = root / expected_ref
+    if archive_path.is_symlink() or not archive_path.is_file():
+        raise ValueError("content-addressed execution release archive is unavailable")
+    value = _read_json(archive_path)
+    if value.get("schema_version") != "execution_behavior_release_manifest_v4":
+        raise ValueError("execution release archive schema mismatch")
+    if (
+        value.get("execution_behavior_release_id") != release_id
+        or value.get("execution_behavior_release_hash") != release_hash
+    ):
+        raise ValueError("execution release archive identity mismatch")
+    if release_hash != canonical_hash(
+        {
+            key: item
+            for key, item in value.items()
+            if key != "execution_behavior_release_hash"
+        }
+    ):
+        raise ValueError("execution release archive hash mismatch")
+    return release_id, release_hash
 
 
 def build_tool_environment_manifest(
@@ -1237,12 +1300,16 @@ def build_accepted_output_capability_track(
 
 
 def _load_restored_bindings(root: Path) -> Sequence[Mapping[str, Any]]:
+    from mosaic.scorecard.sector_relationship_preservation import (
+        validate_sector_relationship_preservation_overlay,
+    )
+
     sector_overlay = _read_json(
         root
         / "registry/prompt_checks/capability_preservation"
         / "sector_relationship_preservation_overlay_v1.json"
     )
-    _validate_manifest_hash(sector_overlay)
+    validate_sector_relationship_preservation_overlay(sector_overlay, root=root)
     sector_bindings = sector_overlay.get("bindings")
     if not isinstance(sector_bindings, list):
         raise ValueError("restored capability overlay bindings are malformed")
@@ -1350,6 +1417,35 @@ def load_capability_contract_bundle(root: Path) -> dict[str, Any]:
         "knot_audit_capability_track_v2": _read_json(
             directory / "knot_audit_capability_track_v2.json"
         ),
+    }
+
+
+def load_active_capability_fixed_point(root: Path | None = None) -> dict[str, str]:
+    """Load and validate the server-owned active capability/KNOT fixed point."""
+    repo_root = root or Path(__file__).resolve().parents[2]
+    current_tool_manifest = _read_json(
+        repo_root / "registry/prompt_checks/agent_tool_contract_manifest_v1.json"
+    )
+    bundle = load_capability_contract_bundle(repo_root)
+    validate_capability_contract_bundle(
+        bundle,
+        current_tool_manifest=current_tool_manifest,
+    )
+    coverage_v2 = bundle["knot_coverage_manifest_v2"]
+    audit_track_v2 = bundle["knot_audit_capability_track_v2"]
+    execution_hash = _require_sha256(
+        audit_track_v2.get("execution_behavior_release_hash"),
+        "execution_behavior_release_hash",
+    )
+    knot_v2_hash = _require_sha256(
+        audit_track_v2.get("knot_coverage_manifest_v2_hash"),
+        "knot_coverage_manifest_v2_hash",
+    )
+    if knot_v2_hash != coverage_v2.get("manifest_hash"):
+        raise ValueError("active KNOT coverage v2 fixed-point mismatch")
+    return {
+        "execution_behavior_release_hash": execution_hash,
+        "knot_coverage_manifest_v2_hash": knot_v2_hash,
     }
 
 
@@ -2434,6 +2530,7 @@ __all__ = [
     "compare_binding_projection_v1",
     "evaluate_counterevidence",
     "is_mature_sample_eligible",
+    "load_active_capability_fixed_point",
     "load_capability_contract_bundle",
     "rollout_blockers",
     "tool_result_fingerprint",

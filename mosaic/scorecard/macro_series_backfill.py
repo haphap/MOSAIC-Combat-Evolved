@@ -92,10 +92,10 @@ MACRO_SERIES_BACKFILL_SPECS: Mapping[str, MacroSeriesBackfillSpec] = {
     "CN10Y": MacroSeriesBackfillSpec(
         series_id="CN10Y",
         fetch_kind="yield_curve_cn",
-        source="tushare",
-        endpoint_name="yc_cb",
+        source="mof_chinabond",
+        endpoint_name="historyQuery",
         instrument="10Y.CN",
-        value_columns=("cn_10y_pct", "curve_yield", "value"),
+        value_columns=("yield", "cn_10y_pct", "curve_yield", "value"),
     ),
     "VIX": MacroSeriesBackfillSpec(
         series_id="VIX",
@@ -153,6 +153,11 @@ def _markdown_csv_rows(markdown_csv: str) -> list[dict[str, str]]:
 
 
 def _row_matches_spec(row: Mapping[str, str], spec: MacroSeriesBackfillSpec) -> bool:
+    if spec.series_id == "CN10Y":
+        try:
+            return float(str(row.get("curve_term") or "")) == 10.0
+        except ValueError:
+            return False
     if not spec.ts_code:
         return True
     return str(row.get("ts_code") or "").strip().upper() == spec.ts_code.upper()

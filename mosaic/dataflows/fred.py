@@ -46,6 +46,7 @@ import requests
 
 from .config import get_config
 from .exceptions import DataVendorUnavailable
+from .runtime_paths import agent_cache_root, isolated_agent_runtime_path
 
 logger = logging.getLogger(__name__)
 
@@ -118,11 +119,15 @@ def _get_api_key() -> str:
 
 
 def _cache_dir() -> Path:
+    isolated = isolated_agent_runtime_path("fred")
+    if isolated is not None:
+        isolated.mkdir(parents=True, exist_ok=True)
+        return isolated
     config = get_config()
     cache_root = Path(config.get("data_cache_dir") or "")
     if not cache_root:
         # Fallback when config has not been initialized (e.g. unit tests)
-        cache_root = Path(os.path.expanduser("~/.mosaic/cache"))
+        cache_root = agent_cache_root()
     fred_dir = cache_root / "fred"
     fred_dir.mkdir(parents=True, exist_ok=True)
     return fred_dir

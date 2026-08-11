@@ -7,11 +7,8 @@ import pytest
 import mosaic.bridge.tool_capabilities as capability_module
 import mosaic.dataflows.sector_relationship_production as production_module
 from mosaic.bridge.tool_capabilities import AgentToolCapabilityStore
-from mosaic.dataflows.adaptive_query_archives import TrustedArchiveQueryRouter
 from mosaic.dataflows.agent_stage_preparer import ensure_agent_stage_materialization
 from mosaic.dataflows.bound_runtime_production import ActiveAdaptiveQueryPreparer
-from mosaic.dataflows.china_agent_data_archive import ChinaAgentDataArchiveStore
-from mosaic.dataflows.china_archive_queries import ChinaArchiveQueryReader
 from mosaic.dataflows.frozen_adaptive_queries import FrozenAdaptiveQueryStore
 from mosaic.dataflows.cninfo_supply_chain import CninfoSupplyChainDisclosureCollector
 from mosaic.dataflows.forward_archive_queries import (
@@ -21,9 +18,8 @@ from mosaic.dataflows.forward_archive_queries import (
 from mosaic.dataflows.sector_relationship_production import (
     SectorRelationshipAdaptiveQueryPreparer,
 )
-from mosaic.dataflows.sector_archive import SectorArchiveStore
-from mosaic.dataflows.sector_archive_queries import SectorArchiveQueryReader
 from mosaic.dataflows.sector_relationship_queries import (
+    DIRECT_VENDOR_TOOL_IDS,
     SectorRelationshipQueryMaterializer,
 )
 from mosaic.dataflows.sector_relationship_source_evidence import (
@@ -115,6 +111,7 @@ def test_production_preparer_uses_only_validated_initial_scope_and_exact_allowed
             "query_requests": plan["query_requests"],
             "preservation_overlay": {"overlay": str(tmp_path.resolve())},
             "materializer": materializer,
+            "defer_materialization": True,
         }
     ]
 
@@ -123,6 +120,28 @@ def test_default_capability_store_wires_distinct_private_production_components(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    direct_owner_calls: list[tuple[str, tuple[object, ...]]] = []
+    forward_owner_calls: list[tuple[str, tuple[object, ...]]] = []
+    evidence_owner_calls: list[str] = []
+
+    def direct_owner(method: str, *args: object) -> str:
+        direct_owner_calls.append((method, args))
+        return f"direct:{method}"
+
+    def forward_owner(
+        _reader: ForwardArchiveQueryReader, method: str, *args: object
+    ) -> str:
+        forward_owner_calls.append((method, args))
+        return f"forward:{method}"
+
+    def evidence_owner(
+        _authority: SectorRelationshipSourceEvidenceAuthority,
+        tool_id: str,
+        *_args: object,
+    ) -> list[dict[str, str]]:
+        evidence_owner_calls.append(tool_id)
+        return [{"owner": tool_id}]
+
     ledger = tmp_path / "runtime/agent_tool_capabilities.sqlite3"
     materialization_ledger = tmp_path / "runtime/agent_materialization.sqlite3"
     monkeypatch.setenv("MOSAIC_AGENT_TOOL_LEDGER_PATH", str(ledger))
@@ -138,6 +157,13 @@ def test_default_capability_store_wires_distinct_private_production_components(
     monkeypatch.delenv("MOSAIC_LLM_BASE_URL", raising=False)
     monkeypatch.delenv("MOSAIC_LLM_MODEL", raising=False)
     monkeypatch.delenv("MOSAIC_LLM_API_KEY", raising=False)
+    monkeypatch.setattr(capability_module, "route_to_vendor", direct_owner)
+    monkeypatch.setattr(ForwardArchiveQueryReader, "__call__", forward_owner)
+    monkeypatch.setattr(
+        SectorRelationshipSourceEvidenceAuthority,
+        "__call__",
+        evidence_owner,
+    )
 
     store = capability_module.get_capability_store()
 
@@ -155,52 +181,36 @@ def test_default_capability_store_wires_distinct_private_production_components(
     assert bound_preparer.materializer is sector_preparer.materializer
     materializer = sector_preparer.materializer
     assert isinstance(materializer, SectorRelationshipQueryMaterializer)
-    assert isinstance(materializer.route_caller, TrustedArchiveQueryRouter)
-    assert set(materializer.route_caller.owners) == {
-        "get_balance_sheet",
-        "get_broker_research",
-        "get_cashflow",
-        "get_etf_holdings",
-        "get_fundamentals",
-        "get_income_statement",
-        "get_indicators",
-        "get_industry_moneyflow",
-        "get_industry_policy",
-        "get_stock_data",
-        "get_stock_research",
-        "get_yield_curve_cn",
-    }
-    assert isinstance(
-        materializer.route_caller.owners["get_stock_data"],
-        SectorArchiveQueryReader,
+    for tool_id in sorted(DIRECT_VENDOR_TOOL_IDS):
+        assert materializer.route_caller(tool_id, "sentinel") == f"direct:{tool_id}"
+    assert direct_owner_calls == [
+        (tool_id, ("sentinel",)) for tool_id in sorted(DIRECT_VENDOR_TOOL_IDS)
+    ]
+    assert materializer.route_caller("get_industry_policy", "sentinel") == (
+        "forward:get_industry_policy"
     )
-    assert isinstance(
-        materializer.route_caller.owners["get_industry_moneyflow"],
-        ChinaArchiveQueryReader,
-    )
-    forward_reader = materializer.route_caller.owners["get_stock_research"]
-    assert isinstance(forward_reader, ForwardArchiveQueryReader)
-    assert materializer.route_caller.owners["get_broker_research"] is forward_reader
-    assert materializer.route_caller.owners["get_industry_policy"] is forward_reader
+    assert forward_owner_calls == [("get_industry_policy", ("sentinel",))]
+
     assert isinstance(materializer.source_preparer, ForwardArchiveSourcePreparer)
-    assert materializer.source_preparer.reader is forward_reader
-    assert isinstance(
-        materializer.source_evidence_authority,
-        SectorRelationshipSourceEvidenceAuthority,
-    )
-    assert isinstance(
-        materializer.source_evidence_authority.receipt_store,
-        StagedQueryReceiptStore,
-    )
-    assert isinstance(
-        materializer.source_evidence_authority.sector_archive_store,
-        SectorArchiveStore,
-    )
-    assert isinstance(
-        materializer.source_evidence_authority.china_archive_store,
-        ChinaAgentDataArchiveStore,
-    )
-    assert materializer.source_evidence_authority.forward_archive_reader is forward_reader
+    forward_reader = materializer.source_preparer.reader
+    assert isinstance(forward_reader, ForwardArchiveQueryReader)
+    assert forward_reader.sector_archive_store is None
+    assert not hasattr(materializer.route_caller, "owners")
+    assert materializer.rke_renderer.__name__ == "_default_rke_renderer"
+
+    for tool_id in sorted(DIRECT_VENDOR_TOOL_IDS):
+        assert materializer.source_evidence_authority(
+            tool_id, {}, "payload", {}, ()
+        ) == []
+    for tool_id in ("get_industry_policy_digest", "get_rke_research_context"):
+        assert materializer.source_evidence_authority(
+            tool_id, {}, "payload", {}, ()
+        ) == [{"owner": tool_id}]
+    assert evidence_owner_calls == [
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+    ]
+
     assert isinstance(
         materializer.supply_chain_archive,
         CninfoSupplyChainDisclosureCollector,
@@ -209,16 +219,15 @@ def test_default_capability_store_wires_distinct_private_production_components(
         materializer.supply_chain_archive.archive,
         OfficialSupplyChainDisclosureArchive,
     )
-    assert materializer.supply_chain_archive.receipt_store is (
-        materializer.source_evidence_authority.receipt_store
+    assert isinstance(
+        materializer.supply_chain_archive.receipt_store,
+        StagedQueryReceiptStore,
     )
-    assert materializer.supply_chain_archive.agent_data_ledger is (
-        materializer.source_evidence_authority.agent_data_ledger
-    )
+    assert materializer.supply_chain_archive.agent_data_ledger is not None
     component_paths = {
         store.db_path,
         store.adaptive_query_store.db_path,
-        materializer.source_evidence_authority.receipt_store.db_path,
+        materializer.supply_chain_archive.receipt_store.db_path,
         materializer.supply_chain_archive.db_path,
     }
     assert len(component_paths) == 4

@@ -16,6 +16,7 @@ from mosaic.scorecard.accepted_output_contracts import (
 from mosaic.scorecard.canonical_json import canonical_hash
 
 from .exceptions import DataVendorUnavailable
+from .runtime_paths import agent_cache_root, isolated_agent_runtime_path
 
 
 _SUPERINVESTORS = frozenset({"ackman", "burry", "druckenmiller", "munger"})
@@ -61,11 +62,13 @@ _STAGE_BY_KIND = {
 
 
 def runtime_snapshot_root() -> Path:
+    isolated = isolated_agent_runtime_path("runtime_snapshots")
+    if isolated is not None:
+        return isolated
     explicit = os.getenv("MOSAIC_RUNTIME_SNAPSHOT_DIR")
     if explicit:
         return Path(explicit).expanduser()
-    cache = Path(os.getenv("MOSAIC_CACHE_DIR", "~/.mosaic/cache")).expanduser()
-    return cache / "runtime_snapshots"
+    return agent_cache_root() / "runtime_snapshots"
 
 
 def bound_runtime_snapshot_relative_path(

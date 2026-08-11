@@ -356,6 +356,45 @@ def test_catalog_selector_skips_future_release_and_fetches_latest_eligible_docum
     assert calls == [catalog_url, eligible_url]
 
 
+def test_catalog_historical_replay_preserves_real_retrieval_time() -> None:
+    catalog_url = OFFICIAL_CHINA_CATALOG_SPECS["mof_fiscal_release"]["catalog_url"]
+    release_url = "https://www.mof.gov.cn/zhengwuxinxi/redianzhuanti/eligible.htm"
+    retrieved_at = "2026-08-11T08:00:00+00:00"
+
+    def fetch_text(url: str) -> str:
+        if url == catalog_url:
+            return (
+                f'<a href="{release_url}">2026年1-6月财政收支情况</a>'
+                '<span>2026-07-22</span>'
+            )
+        if url == release_url:
+            return _html(
+                "2026年1-6月财政收支情况",
+                "2026-07-22",
+                "全国一般公共预算收入同比增长1.5%。政府性基金预算收入同比下降2.5%。",
+            )
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    with pytest.raises(DataVendorUnavailable, match="retrieval time exceeds"):
+        fetch_latest_official_china_document(
+            document_type="mof_fiscal_release",
+            cutoff_at="2026-08-08T15:00:00+08:00",
+            retrieved_at=retrieved_at,
+            fetch_text=fetch_text,
+        )
+
+    result = fetch_latest_official_china_document(
+        document_type="mof_fiscal_release",
+        cutoff_at="2026-08-08T15:00:00+08:00",
+        retrieved_at=retrieved_at,
+        historical_replay=True,
+        fetch_text=fetch_text,
+    )
+
+    assert result["published_at"] < "2026-08-08T15:00:00+08:00"
+    assert result["retrieved_at"] == retrieved_at
+
+
 def test_catalog_selector_fails_closed_when_no_matching_eligible_release() -> None:
     catalog_url = OFFICIAL_CHINA_CATALOG_SPECS["mof_fiscal_release"]["catalog_url"]
 
@@ -429,6 +468,59 @@ def test_customs_catalog_uses_strict_tls_gov_cn_mirror_and_real_monthly_shape() 
     assert high_tech["period_start"] == "2026-07-01"
     assert high_tech["period_end"] == "2026-07-31"
     assert calls == [catalog_url, release_url]
+
+
+def test_customs_historical_replay_stops_at_first_eligible_catalog_page() -> None:
+    catalog_url = OFFICIAL_CHINA_CATALOG_SPECS["customs_monthly_trade"]["catalog_url"]
+    page_two_url = catalog_url + "page_2.html"
+    release_url = (
+        "https://english.www.gov.cn/archive/statistics/202607/14/"
+        "content_WS6a55c183c6d00ca5f9a0c2da.html"
+    )
+    calls: list[str] = []
+
+    def fetch_text(url: str) -> str:
+        calls.append(url)
+        if url == catalog_url:
+            return (
+                '<h3><a href="future.html">China\'s foreign trade expands in July</a></h3>'
+                "<h4>2026/08/07</h4>"
+                '<a href="page_2.html">2</a><a href="page_3.html">3</a>'
+            )
+        if url == page_two_url:
+            return (
+                f'<h3><a href="{release_url}">China\'s H1 foreign trade posts '
+                "16.9 pct growth with optimized structure</a></h3>"
+                "<h4>2026/07/14</h4>"
+            )
+        if url == release_url:
+            return """
+            <html><head>
+              <title>China's H1 foreign trade posts 16.9 pct growth</title>
+              <meta name="publishdate" content="2026-07-14" />
+            </head><body>
+              <p>China's foreign trade in yuan-denominated terms grew 16.9 percent
+              year on year in the first half, data from the General Administration
+              of Customs showed.</p>
+              <p>Exports rose 15.8 percent from the same period last year, while
+              imports increased 18.2 percent.</p>
+              <p>Exports of high-tech products surged by over 50 percent year on
+              year in the first half.</p>
+            </body></html>
+            """
+        raise AssertionError(f"later catalog page must not be fetched: {url}")
+
+    result = fetch_latest_official_china_document(
+        document_type="customs_monthly_trade",
+        cutoff_at="2026-07-17T15:00:00+08:00",
+        retrieved_at="2026-08-11T08:00:00+00:00",
+        historical_replay=True,
+        fetch_text=fetch_text,
+    )
+
+    assert result["source_url"] == release_url
+    assert result["published_at"] == "2026-07-14T23:59:59+08:00"
+    assert calls == [catalog_url, page_two_url, release_url]
 
 
 def test_nbs_catalog_selector_walks_observed_pagination_until_price_release() -> None:
@@ -542,3 +634,89 @@ def test_pboc_omo_adapter_reuses_existing_article_table_parser(
     assert result["observations"][0]["period_start"] == "2026-08-07"
     assert result["observations"][0]["period_end"] == "2026-08-07"
     assert calls == [(result["source_url"], "transaction_notice")]
+
+
+def _mof_curve_row(work_time: str, *, include_two_year: bool = True) -> dict:
+    row = {
+        "workTime": work_time,
+        "oneYear": 1.14,
+        "threeYear": 1.29,
+        "fiveYear": 1.45,
+        "sevenYear": 1.57,
+        "tenYear": 1.74,
+        "thirtyYear": 2.24,
+    }
+    if include_two_year:
+        row["twoYear"] = 1.26
+    return row
+
+
+def test_mof_chinabond_curve_splits_365_day_difference_and_seals_maturity_rows() -> None:
+    calls: list[dict[str, str]] = []
+
+    def post_json(url: str, *, params: dict[str, str]) -> dict:
+        assert url == official_china_adapters.MOF_CHINABOND_YIELD_CURVE_URL
+        calls.append(params)
+        return {
+            "flag": 0,
+            "heList": [_mof_curve_row(params["endDate"])],
+        }
+
+    result = official_china_adapters.fetch_mof_chinabond_government_yield_curve(
+        start_date="2025-07-17",
+        end_date="2026-07-17",
+        post_json=post_json,
+    )
+
+    assert calls == [
+        {
+            "startDate": "2025-07-17",
+            "endDate": "2026-07-16",
+            "gjqx": "0",
+            "locale": "cn_ZH",
+            "qxmc": "1",
+        },
+        {
+            "startDate": "2026-07-17",
+            "endDate": "2026-07-17",
+            "gjqx": "0",
+            "locale": "cn_ZH",
+            "qxmc": "1",
+        },
+    ]
+    assert result["yield_type"] == "MATURITY"
+    assert result["release_time"] == "17:30:00+08:00"
+    assert result["request_windows"] == [
+        {"start_date": "2025-07-17", "end_date": "2026-07-16"},
+        {"start_date": "2026-07-17", "end_date": "2026-07-17"},
+    ]
+    assert len(result["rows"]) == 14
+    assert {row["curve_term"] for row in result["rows"]} == {
+        1,
+        2,
+        3,
+        5,
+        7,
+        10,
+        30,
+    }
+    assert {row["curve_type"] for row in result["rows"]} == {"0"}
+    assert {row["released_at"] for row in result["rows"]} == {
+        "2026-07-16T17:30:00+08:00",
+        "2026-07-17T17:30:00+08:00",
+    }
+    assert len(result["response_hashes"]) == 2
+
+
+def test_mof_chinabond_curve_rejects_incomplete_required_tenors() -> None:
+    with pytest.raises(DataVendorUnavailable, match="seven required tenors"):
+        official_china_adapters.fetch_mof_chinabond_government_yield_curve(
+            start_date="2026-07-17",
+            end_date="2026-07-17",
+            post_json=lambda _url, *, params: {
+                "flag": 0,
+                "heList": [
+                    _mof_curve_row(params["endDate"], include_two_year=False)
+                ],
+            },
+        )

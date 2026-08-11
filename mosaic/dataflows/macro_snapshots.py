@@ -27,6 +27,7 @@ from .macro_source_contracts import (
     macro_observation_max_age_calendar_days,
 )
 from .role_events import build_role_event_snapshot
+from .runtime_paths import agent_cache_root, isolated_agent_runtime_path
 
 MACRO_SNAPSHOT_SCHEMA_VERSION = "macro_role_snapshot_v2"
 
@@ -209,7 +210,12 @@ ROLE_SERIES_PREFIXES: dict[str, tuple[str, ...]] = {
         "rsafs",
         "bopgstb",
     ),
-    "eu_economy": ("eu_", "eurostat_", "world_bank_eu_"),
+    "eu_economy": (
+        "eu_",
+        "euro_area_industrial_",
+        "eurostat_",
+        "world_bank_eu_",
+    ),
     "central_bank": (
         "pboc_",
         "cn_policy_",
@@ -237,6 +243,8 @@ ROLE_SERIES_PREFIXES: dict[str, tuple[str, ...]] = {
         "ecb_",
         "euro_area_curve_",
         "euro_area_bank_credit_",
+        "eu_large_bank_simultaneous_default_",
+        "eu_sovereign_simultaneous_default_",
         "eur_",
         "euro_area_financial_stress_",
     ),
@@ -308,12 +316,21 @@ ROLE_COMPONENT_PREFIXES: dict[str, dict[str, tuple[str, ...]]] = {
         "growth_production": (
             "eu_gdp",
             "eu_industrial",
+            "euro_area_industrial_",
             "eurostat_gdp",
             "eurostat_industrial",
         ),
         "prices": ("eu_hicp", "eurostat_hicp", "eu_price"),
         "employment": ("eu_employment", "eu_unemployment", "eurostat_employment"),
-        "demand_trade": ("eu_retail", "eu_trade", "eurostat_retail", "eurostat_trade"),
+        "demand_trade": (
+            "eu_exports_",
+            "eu_household_",
+            "eu_imports_",
+            "eu_retail",
+            "eu_trade",
+            "eurostat_retail",
+            "eurostat_trade",
+        ),
     },
     "central_bank": {
         "pboc_policy_bias": ("pboc_", "cn_policy_"),
@@ -345,7 +362,12 @@ ROLE_COMPONENT_PREFIXES: dict[str, dict[str, tuple[str, ...]]] = {
         "ecb_liquidity": ("ecb_",),
         "euro_area_curve": ("euro_area_curve_",),
         "bank_credit": ("euro_area_bank_credit_",),
-        "eur_financial_stress": ("eur_", "euro_area_financial_stress_"),
+        "eur_financial_stress": (
+            "eu_large_bank_simultaneous_default_",
+            "eu_sovereign_simultaneous_default_",
+            "eur_",
+            "euro_area_financial_stress_",
+        ),
     },
     "commodities": {
         "energy": ("energy_", "oil_", "commodity_energy"),
@@ -456,11 +478,13 @@ def _series_allowed_for_role(role: str, series_id: Any) -> bool:
 
 
 def snapshot_cache_root() -> Path:
+    isolated = isolated_agent_runtime_path("macro_snapshots")
+    if isolated is not None:
+        return isolated
     explicit = os.getenv("MOSAIC_MACRO_SNAPSHOT_DIR")
     if explicit:
         return Path(explicit).expanduser()
-    cache = Path(os.getenv("MOSAIC_CACHE_DIR", "~/.mosaic/cache")).expanduser()
-    return cache / "macro_snapshots"
+    return agent_cache_root() / "macro_snapshots"
 
 
 def _snapshot_candidates(role: str, as_of_date: str, root: Path) -> tuple[Path, ...]:

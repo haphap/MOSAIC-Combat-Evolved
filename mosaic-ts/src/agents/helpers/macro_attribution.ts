@@ -202,6 +202,7 @@ const STANDARD_SECTOR_AGENT_IDS = new Set([
   "financials",
   "agriculture",
 ]);
+const SUPERINVESTOR_ABSTENTION_PROVIDER_CONTRACT = "SUPERINVESTOR_ABSTENTION_COMPACT_V1";
 
 function macroInputAttributionProviderJsonSchema(properties: Record<string, unknown>): unknown {
   const macroField =
@@ -213,6 +214,7 @@ function macroInputAttributionProviderJsonSchema(properties: Record<string, unkn
   const noTargetRows =
     macroField?.["x-mosaic-no-target-rows"] === true ||
     objectConst(properties.agent) === "relationship_mapper" ||
+    objectConst(properties.provider_contract) === SUPERINVESTOR_ABSTENTION_PROVIDER_CONTRACT ||
     [
       objectConst(properties.selection_status),
       objectConst(properties.predictive_graph_status),
@@ -223,17 +225,79 @@ function macroInputAttributionProviderJsonSchema(properties: Record<string, unkn
     properties: {
       target_attributions: {
         maxItems?: number;
-        items?: { properties?: { target_type?: Record<string, unknown> } };
+        items?: Record<string, unknown>;
       };
     };
   };
   if (noTargetRows) {
     schema.properties.target_attributions.maxItems = 0;
   } else if (standardSector) {
-    const targetType = schema.properties.target_attributions.items?.properties?.target_type;
-    if (targetType) targetType.enum = ["SECTOR_THESIS", "SECURITY_PICK"];
+    const agentId = objectConst(properties.agent);
+    const preferredDirectionId = objectConst(properties.preferred_direction_local_id);
+    const leastPreferredDirectionId = objectConst(properties.least_preferred_direction_local_id);
+    const targetItem = schema.properties.target_attributions.items;
+    if (agentId && preferredDirectionId && leastPreferredDirectionId && targetItem) {
+      const targets = [
+        { targetType: "SECTOR_THESIS", targetLocalRef: preferredDirectionId },
+        { targetType: "SECTOR_THESIS", targetLocalRef: leastPreferredDirectionId },
+      ];
+      if (securityLegAllowsPicks(properties.preferred_security)) {
+        targets.push({
+          targetType: "SECURITY_PICK",
+          targetLocalRef: `provider-${agentId}-preferred-security-1`.slice(0, 128),
+        });
+      }
+      if (securityLegAllowsPicks(properties.least_preferred_security)) {
+        targets.push({
+          targetType: "SECURITY_PICK",
+          targetLocalRef: `provider-${agentId}-least-security-1`.slice(0, 128),
+        });
+      }
+      schema.properties.target_attributions.items = exactTargetAttributionSchema(
+        targetItem,
+        targets,
+      );
+    }
   }
   return schema;
+}
+
+function exactTargetAttributionSchema(
+  itemSchema: Record<string, unknown>,
+  targets: ReadonlyArray<{ targetType: string; targetLocalRef: string }>,
+): Record<string, unknown> {
+  const baseProperties =
+    itemSchema.properties !== null &&
+    typeof itemSchema.properties === "object" &&
+    !Array.isArray(itemSchema.properties)
+      ? (itemSchema.properties as Record<string, unknown>)
+      : {};
+  return {
+    anyOf: targets.map((target) => ({
+      ...itemSchema,
+      properties: {
+        ...baseProperties,
+        target_type: { type: "string", const: target.targetType },
+        target_local_ref: { type: "string", const: target.targetLocalRef },
+      },
+    })),
+  };
+}
+
+function securityLegAllowsPicks(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(securityLegAllowsPicks);
+  if (value === null || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  const properties =
+    record.properties !== null &&
+    typeof record.properties === "object" &&
+    !Array.isArray(record.properties)
+      ? (record.properties as Record<string, unknown>)
+      : null;
+  return (
+    objectConst(properties?.status) === "PICKS_PRESENT" ||
+    Object.values(record).some(securityLegAllowsPicks)
+  );
 }
 
 function objectConst(value: unknown): string | null {

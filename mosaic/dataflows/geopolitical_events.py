@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 
 from .cross_runtime_json import canonical_hash, canonical_json
 from .exceptions import DataVendorUnavailable
+from .runtime_paths import agent_cache_root, isolated_agent_runtime_path
 
 MANIFEST_SCHEMA_VERSION = "geopolitical_initial_source_manifest_v2"
 EVENT_REGISTRY_VERSION = "geopolitical_verified_event_registry_v2"
@@ -89,13 +90,18 @@ GEOPOLITICAL_TERMINAL_PROOF_KINDS = frozenset(
     }
 )
 _STRUCTURED_SMOKE_ARTIFACT_ROOTS = (
+    "china_archive",
     "economic_calendar",
+    "forward_archive",
     "geopolitical_events",
+    "gov_policy",
     "macro_snapshots",
     "market_breadth",
     "outcome_runtime",
     "runtime_snapshots",
+    "sector_archive",
     "sector_snapshots",
+    "supply_chain_archive",
 )
 _A_SHARE_TIMEZONE = ZoneInfo("Asia/Shanghai")
 _MANIFEST_PATH = (
@@ -549,17 +555,19 @@ GEOPOLITICAL_INITIAL_SOURCE_MANIFEST = load_geopolitical_manifest()
 
 
 def geopolitical_store_path() -> Path:
+    isolated = isolated_agent_runtime_path("geopolitical_events/events.sqlite3")
+    if isolated is not None:
+        return isolated
     explicit = os.getenv("MOSAIC_GEOPOLITICAL_EVENT_DB")
     if explicit:
         return Path(explicit).expanduser()
-    cache = Path(os.getenv("MOSAIC_CACHE_DIR", "~/.mosaic/cache")).expanduser()
-    return cache / "geopolitical_events" / "events.sqlite3"
+    return agent_cache_root() / "geopolitical_events" / "events.sqlite3"
 
 
 def _structured_smoke_geopolitical_binding(as_of: str) -> bool:
     if os.getenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS") != "structured_smoke":
         return False
-    cache_root = Path(os.getenv("MOSAIC_CACHE_DIR", "~/.mosaic/cache")).expanduser()
+    cache_root = agent_cache_root()
     marker_path = cache_root / "structured_smoke_fixture_bundle.json"
     if marker_path.is_symlink():
         raise DataVendorUnavailable(

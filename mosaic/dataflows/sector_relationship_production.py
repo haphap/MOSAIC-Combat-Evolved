@@ -60,7 +60,7 @@ class SectorRelationshipAdaptiveQueryPreparer:
                 self.root
             ),
             materializer=self.materializer,
+            defer_materialization=True,
         )
-
 
 __all__ = ["SectorRelationshipAdaptiveQueryPreparer"]

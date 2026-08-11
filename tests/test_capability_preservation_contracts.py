@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import pytest
 from mosaic.scorecard.canonical_json import canonical_hash
 from mosaic.scorecard.capability_preservation import (
     ACTIVE_TRACK_TAG_FIELDS,
+    _execution_release,
     assert_knot_action,
     build_default_contract_artifacts,
     build_knot_capability_use_aggregate,
@@ -17,6 +19,7 @@ from mosaic.scorecard.capability_preservation import (
     canonical_tool_environment_hash,
     evaluate_counterevidence,
     is_mature_sample_eligible,
+    load_active_capability_fixed_point,
     load_capability_contract_bundle,
     rollout_blockers,
     tool_result_fingerprint,
@@ -64,6 +67,88 @@ def _reseal(manifest: dict) -> None:
 def test_generated_contract_artifacts_are_current_and_deterministic():
     expected = build_default_contract_artifacts(ROOT)
     assert expected == {name: _load(name) for name in expected}
+
+
+def test_execution_release_follows_content_addressed_pointer_with_archive_history(
+    tmp_path: Path,
+):
+    archive_root = (
+        tmp_path / "registry" / "prompt_checks" / "execution_behavior_releases"
+    )
+    archive_root.mkdir(parents=True)
+    release_id = f"execution-behavior-release:{'1' * 64}"
+    body = {
+        "schema_version": "execution_behavior_release_manifest_v4",
+        "execution_behavior_release_id": release_id,
+    }
+    release_hash = canonical_hash(body)
+    archive_ref = (
+        "registry/prompt_checks/execution_behavior_releases/"
+        f"{'1' * 64}--{release_hash.removeprefix('sha256:')}.json"
+    )
+    (tmp_path / archive_ref).write_text(
+        json.dumps({**body, "execution_behavior_release_hash": release_hash}),
+        encoding="utf-8",
+    )
+    (archive_root / "historical.json").write_text("{}", encoding="utf-8")
+    pointer_path = (
+        tmp_path / "registry" / "prompt_checks" / "prompt_release_contract_ref_v2.json"
+    )
+    pointer = {
+        "schema_version": "prompt_release_contract_ref_v2",
+        "sources": {
+            "execution_behavior_release_archive": {
+                "path": archive_ref,
+                "release_id": release_id,
+                "release_hash": release_hash,
+            }
+        },
+    }
+    pointer_path.write_text(json.dumps(pointer), encoding="utf-8")
+
+    assert _execution_release(tmp_path) == (release_id, release_hash)
+
+    pointer["sources"]["execution_behavior_release_archive"]["release_hash"] = (
+        "sha256:" + "0" * 64
+    )
+    pointer_path.write_text(json.dumps(pointer), encoding="utf-8")
+    with pytest.raises(ValueError, match="content-addressed execution release path"):
+        _execution_release(tmp_path)
+
+
+def test_active_capability_fixed_point_uses_validated_v2_authority():
+    fixed_point = load_active_capability_fixed_point(ROOT)
+    bundle = _bundle()
+
+    assert fixed_point == {
+        "execution_behavior_release_hash": bundle["knot_audit_capability_track_v2"][
+            "execution_behavior_release_hash"
+        ],
+        "knot_coverage_manifest_v2_hash": bundle["knot_coverage_manifest_v2"][
+            "manifest_hash"
+        ],
+    }
+
+
+def test_active_capability_fixed_point_rejects_tampered_v2_track(tmp_path: Path):
+    registry = tmp_path / "registry" / "prompt_checks"
+    registry.mkdir(parents=True)
+    shutil.copytree(REGISTRY_ROOT, registry / "capability_preservation")
+    shutil.copy2(
+        ROOT / "registry/prompt_checks/agent_tool_contract_manifest_v1.json",
+        registry / "agent_tool_contract_manifest_v1.json",
+    )
+    track_path = (
+        registry
+        / "capability_preservation"
+        / "knot_audit_capability_track_v2.json"
+    )
+    track = json.loads(track_path.read_text(encoding="utf-8"))
+    track["execution_behavior_release_hash"] = "sha256:" + "0" * 64
+    track_path.write_text(json.dumps(track), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="fixed-point mismatch"):
+        load_active_capability_fixed_point(tmp_path)
 
 
 def test_migration_golden_freezes_25_agents_26_stages_and_23_capabilities():
@@ -182,6 +267,32 @@ def test_partial_and_unapproved_reductions_block_rollout():
 
 
 def test_binding_and_knot_coverage_exactly_close_over_current_tool_surface():
+    artifacts = build_default_contract_artifacts(ROOT)
+    route_manifest = json.loads(
+        (ROOT / "registry/data_sources/agent_data_route_manifest_v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    composite_route = next(
+        row
+        for row in route_manifest["routes"]
+        if row["route_id"] == "composite.cn_rates"
+    )
+    curve_rows = [
+        row
+        for row in artifacts["agent_capability_binding_manifest_v1.json"]["bindings"]
+        if row["tool_id"] == "get_yield_curve_cn"
+    ]
+    assert {
+        (row["agent_id"], row["stage"], tuple(row["source_route_ids"]))
+        for row in curve_rows
+    } == {
+        ("financials", "financials", ("composite.cn_rates",)),
+        ("druckenmiller", "druckenmiller", ("composite.cn_rates",)),
+    }
+    assert {row["route_contract_hash"] for row in curve_rows} == {
+        canonical_hash({"routes": [composite_route]})
+    }
     bundle = _bundle()
     current = _active_tool_manifest()
     validate_capability_contract_bundle(bundle, current_tool_manifest=current)

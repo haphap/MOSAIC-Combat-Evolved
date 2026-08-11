@@ -25,6 +25,7 @@ from .role_events import (
     ROLE_EVENT_SNAPSHOT_VERSION,
     build_role_event_snapshot,
 )
+from .runtime_paths import agent_cache_root, isolated_agent_runtime_path
 
 SECTOR_SNAPSHOT_SCHEMA_VERSION = "sector_research_snapshot_v4"
 RELATIONSHIP_SNAPSHOT_SCHEMA_VERSION = "relationship_research_snapshot_v3"
@@ -89,6 +90,11 @@ SOURCE_BATCH_PAGINATION_POLICIES = {
     "income": PAGINATION_POLICY_OFFICIAL_CAP,
     "cashflow": PAGINATION_POLICY_OFFICIAL_CAP,
     "balancesheet": PAGINATION_POLICY_OFFICIAL_CAP,
+    "fina_indicator": PAGINATION_POLICY_OFFICIAL_CAP,
+    "stock_company": PAGINATION_POLICY_OFFICIAL_CAP,
+    "fina_mainbz": PAGINATION_POLICY_OFFICIAL_CAP,
+    "forecast": PAGINATION_POLICY_OFFICIAL_CAP,
+    "express": PAGINATION_POLICY_OFFICIAL_CAP,
     "moneyflow": PAGINATION_POLICY_TERMINAL_CONFIRMED,
     "fund_basic": PAGINATION_POLICY_TERMINAL_CONFIRMED,
     "fund_daily": PAGINATION_POLICY_TERMINAL_CONFIRMED,
@@ -447,11 +453,13 @@ def _authoritative_etf_codes(role: str, direction_id: str, as_of: date) -> list[
 
 
 def sector_snapshot_root() -> Path:
+    isolated = isolated_agent_runtime_path("sector_snapshots")
+    if isolated is not None:
+        return isolated
     explicit = os.getenv("MOSAIC_SECTOR_SNAPSHOT_DIR")
     if explicit:
         return Path(explicit).expanduser()
-    cache = Path(os.getenv("MOSAIC_CACHE_DIR", "~/.mosaic/cache")).expanduser()
-    return cache / "sector_snapshots"
+    return agent_cache_root() / "sector_snapshots"
 
 
 def _read(role: str, as_of_date: str, root: Path) -> Any:
@@ -462,13 +470,15 @@ def _read(role: str, as_of_date: str, root: Path) -> Any:
     path = next((candidate for candidate in candidates if candidate.is_file()), None)
     if path is None:
         raise DataVendorUnavailable(
-            f"no private PIT sector snapshot for {role} on {as_of_date} under {root}"
+            f"no private PIT sector snapshot for {role} on {as_of_date} under {root}",
+            reason_code="PRIVATE_PIT_SECTOR_SNAPSHOT_MISSING",
         )
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise DataVendorUnavailable(
-            f"cannot read sector snapshot {path}: {exc}"
+            f"cannot read sector snapshot {path}: {exc}",
+            reason_code="PRIVATE_PIT_SECTOR_SNAPSHOT_UNREADABLE",
         ) from exc
 
 
@@ -650,6 +660,7 @@ _SOURCE_RECEIPT_FIELDS = {
     "source_batches",
     "source_bundle_hash",
 }
+_HISTORICAL_REPLAY_RECEIPT_FIELD = "historical_replay_captured_at"
 _RELATIONSHIP_SNAPSHOT_FIELDS = {
     "schema_version",
     "as_of_date",
@@ -872,6 +883,47 @@ def _require_sector_cutoff(
             raise DataVendorUnavailable(
                 f"{label}.{field} is after the Asia/Shanghai end-of-day materialization cutoff"
             )
+
+
+def _historical_replay_capture_cutoff(
+    value: str | None, *, as_of: date
+) -> datetime | None:
+    if value is None:
+        return None
+    capture_cutoff = _parse_relationship_temporal(
+        value, "historical_replay_captured_at"
+    )
+    if capture_cutoff <= _sector_as_of_cutoff(as_of):
+        raise DataVendorUnavailable(
+            "historical replay capture cutoff must be after the as-of cutoff"
+        )
+    return capture_cutoff
+
+
+def _require_source_temporal_contract(
+    value: Mapping[str, Any],
+    *,
+    as_of: date,
+    historical_replay_captured_at: str | None,
+    label: str,
+    error_message: str,
+) -> None:
+    released = _parse_temporal(value.get("released_at"), f"{label} released_at")
+    vintage = _parse_temporal(value.get("vintage_at"), f"{label} vintage_at")
+    captured = _parse_temporal(value.get("captured_at"), f"{label} captured_at")
+    knowledge_cutoff = _sector_as_of_cutoff(as_of)
+    replay_capture_cutoff = _historical_replay_capture_cutoff(
+        historical_replay_captured_at, as_of=as_of
+    )
+    if replay_capture_cutoff is None:
+        valid = released <= vintage <= captured <= knowledge_cutoff
+    else:
+        valid = (
+            released <= vintage <= knowledge_cutoff
+            and vintage <= captured <= replay_capture_cutoff
+        )
+    if not valid:
+        raise DataVendorUnavailable(error_message)
 
 
 def _relationship_materiality_bucket(value: float) -> str:
@@ -1561,6 +1613,64 @@ def validate_sector_snapshot(
     return {key: payload[key] for key in payload}
 
 
+def validate_sector_runtime_snapshot(
+    payload: Any, role: str, as_of_date: str
+) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise DataVendorUnavailable("sector runtime snapshot must be an object")
+    runtime_fields = {"event_coverage", "role_event_snapshot_ref"}
+    if not runtime_fields.intersection(payload):
+        return validate_sector_snapshot(payload, role, as_of_date)
+    if role not in ROLE_EVENT_CURRENCIES:
+        raise DataVendorUnavailable(
+            "sector runtime event coverage is not registered for this role"
+        )
+    expected_fields = set(_SECTOR_SNAPSHOT_FIELDS) | runtime_fields
+    if "fixture_class" in payload:
+        expected_fields.update(_OPTIONAL_SECTOR_SNAPSHOT_FIELDS)
+    _require_exact_fields(payload, expected_fields, "sector runtime snapshot")
+    _require_hash_binding(payload, "snapshot_hash", "sector runtime snapshot")
+
+    coverage = payload["event_coverage"]
+    if (
+        not isinstance(coverage, dict)
+        or coverage.get("coverage_completeness") != "COMPLETE"
+    ):
+        raise DataVendorUnavailable("sector runtime event coverage must be complete")
+    role_event_ref = payload["role_event_snapshot_ref"]
+    if not isinstance(role_event_ref, dict):
+        raise DataVendorUnavailable("sector role-event reference must be an object")
+    _require_exact_fields(
+        role_event_ref, _ROLE_EVENT_REF_FIELDS, "sector role-event reference"
+    )
+    role_event_snapshot_id = role_event_ref["role_event_snapshot_id"]
+    if (
+        not isinstance(role_event_snapshot_id, str)
+        or not role_event_snapshot_id.strip()
+        or role_event_snapshot_id != role_event_snapshot_id.strip()
+    ):
+        raise DataVendorUnavailable(
+            "sector role-event reference ID must be a non-empty string"
+        )
+    _require_sha256(
+        role_event_ref["role_event_snapshot_hash"],
+        "sector role-event reference hash",
+    )
+
+    base_snapshot = {
+        key: value for key, value in payload.items() if key not in runtime_fields
+    }
+    base_snapshot["snapshot_hash"] = _canonical_hash(
+        {
+            key: value
+            for key, value in base_snapshot.items()
+            if key != "snapshot_hash"
+        }
+    )
+    validate_sector_snapshot(base_snapshot, role, as_of_date)
+    return {key: payload[key] for key in payload}
+
+
 def _registered_tushare_endpoint_contracts(
     required_endpoints: frozenset[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
@@ -1599,6 +1709,7 @@ def _validate_source_batch(
     *,
     as_of: date,
     endpoint_contracts: dict[str, dict[str, Any]],
+    historical_replay_captured_at: str | None = None,
 ) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise DataVendorUnavailable("sector source batches must be objects")
@@ -1620,14 +1731,15 @@ def _validate_source_batch(
         for key in value["request"]
     ):
         raise DataVendorUnavailable("sector source batch request contains credentials")
-    released = _parse_temporal(value.get("released_at"), "source batch released_at")
-    vintage = _parse_temporal(value.get("vintage_at"), "source batch vintage_at")
-    captured = _parse_temporal(value.get("captured_at"), "source batch captured_at")
-    as_of_end = _sector_as_of_cutoff(as_of)
-    if not released <= vintage <= captured <= as_of_end:
-        raise DataVendorUnavailable(
+    _require_source_temporal_contract(
+        value,
+        as_of=as_of,
+        historical_replay_captured_at=historical_replay_captured_at,
+        label="source batch",
+        error_message=(
             "sector source batch violates release <= vintage <= capture <= as_of materialization cutoff"
-        )
+        ),
+    )
     if value.get("pit_status") != "PIT_VERIFIED":
         raise DataVendorUnavailable("sector source batch must be PIT_VERIFIED")
     if (
@@ -3360,7 +3472,11 @@ def _compile_security_scoring_rows(
 
 
 def compile_registered_sector_snapshot(
-    *, role: str, as_of_date: str, source_batches: list[dict[str, Any]]
+    *,
+    role: str,
+    as_of_date: str,
+    source_batches: list[dict[str, Any]],
+    historical_replay_captured_at: str | None = None,
 ) -> dict[str, Any]:
     """Compile one standard-sector snapshot only from frozen registered batches."""
     if role not in SECTOR_DIRECTION_IDS:
@@ -3368,7 +3484,12 @@ def compile_registered_sector_snapshot(
     as_of = date.fromisoformat(as_of_date)
     contracts = _registered_tushare_endpoint_contracts()
     batches = [
-        _validate_source_batch(batch, as_of=as_of, endpoint_contracts=contracts)
+        _validate_source_batch(
+            batch,
+            as_of=as_of,
+            endpoint_contracts=contracts,
+            historical_replay_captured_at=historical_replay_captured_at,
+        )
         for batch in source_batches
     ]
     if any(
@@ -3671,6 +3792,7 @@ def compile_registered_sector_snapshot(
         as_of_date=as_of_date,
         snapshot=canonical,
         source_batches=batches,
+        historical_replay_captured_at=historical_replay_captured_at,
     )
     return canonical
 
@@ -3681,16 +3803,25 @@ def _build_sector_source_receipt(
     as_of_date: str,
     snapshot: Mapping[str, Any],
     source_batches: list[dict[str, Any]],
+    historical_replay_captured_at: str | None = None,
 ) -> dict[str, Any]:
     as_of = date.fromisoformat(as_of_date)
     contracts = _registered_tushare_endpoint_contracts()
     batches = [
-        _validate_source_batch(batch, as_of=as_of, endpoint_contracts=contracts)
+        _validate_source_batch(
+            batch,
+            as_of=as_of,
+            endpoint_contracts=contracts,
+            historical_replay_captured_at=historical_replay_captured_at,
+        )
         for batch in source_batches
     ]
     for batch in batches:
         _require_sector_cutoff(
-            batch, as_of, "sector source batch", include_captured=True
+            batch,
+            as_of,
+            "sector source batch",
+            include_captured=historical_replay_captured_at is None,
         )
     batch_ids = [batch["source_batch_id"] for batch in batches]
     if len(batch_ids) != len(set(batch_ids)):
@@ -3738,6 +3869,15 @@ def _build_sector_source_receipt(
         "sector_snapshot_hash": snapshot["snapshot_hash"],
         "required_endpoints": sorted(required_endpoints),
         "source_batches": metadata,
+        **(
+            {
+                _HISTORICAL_REPLAY_RECEIPT_FIELD: (
+                    historical_replay_captured_at
+                )
+            }
+            if historical_replay_captured_at is not None
+            else {}
+        ),
     }
     return {**body, "source_bundle_hash": _canonical_hash(body)}
 
@@ -3751,7 +3891,10 @@ def _validate_sector_source_receipt(
 ) -> dict[str, Any]:
     if not isinstance(receipt, dict):
         raise DataVendorUnavailable("sector source receipt must be an object")
-    _require_exact_fields(receipt, _SOURCE_RECEIPT_FIELDS, "sector source receipt")
+    receipt_fields = set(_SOURCE_RECEIPT_FIELDS)
+    if _HISTORICAL_REPLAY_RECEIPT_FIELD in receipt:
+        receipt_fields.add(_HISTORICAL_REPLAY_RECEIPT_FIELD)
+    _require_exact_fields(receipt, receipt_fields, "sector source receipt")
     if (
         receipt.get("schema_version")
         not in {
@@ -3774,6 +3917,15 @@ def _validate_sector_source_receipt(
     require_pagination_policy = (
         receipt["schema_version"] == SECTOR_SOURCE_RECEIPT_SCHEMA_VERSION
     )
+    historical_replay_captured_at = receipt.get(
+        _HISTORICAL_REPLAY_RECEIPT_FIELD
+    )
+    if historical_replay_captured_at is not None and not isinstance(
+        historical_replay_captured_at, str
+    ):
+        raise DataVendorUnavailable(
+            "sector source receipt historical replay cutoff is invalid"
+        )
     observed_endpoints: set[str] = set()
     for batch in batches:
         if not isinstance(batch, dict):
@@ -3798,15 +3950,13 @@ def _validate_sector_source_receipt(
             != contract.get("schema_contract_version")
         ):
             raise DataVendorUnavailable("sector source receipt route mismatch")
-        _require_sector_cutoff(
-            batch, as_of, "sector source receipt batch", include_captured=True
+        _require_source_temporal_contract(
+            batch,
+            as_of=as_of,
+            historical_replay_captured_at=historical_replay_captured_at,
+            label="sector source receipt batch",
+            error_message="sector source receipt contains lookahead",
         )
-        for field in ("released_at", "vintage_at", "captured_at"):
-            if (
-                _parse_temporal(batch.get(field), f"source receipt {field}").date()
-                > as_of
-            ):
-                raise DataVendorUnavailable("sector source receipt contains lookahead")
         if (
             batch.get("pit_status") != "PIT_VERIFIED"
             or batch.get("pagination_complete") is not True
@@ -3880,6 +4030,7 @@ def write_registered_sector_snapshot(
     as_of_date: str,
     snapshot: Mapping[str, Any],
     source_batches: list[dict[str, Any]],
+    historical_replay_captured_at: str | None = None,
     root: Path | None = None,
 ) -> dict[str, Any]:
     """Publish a validated PIT snapshot from caller-supplied collector rows.
@@ -3898,6 +4049,7 @@ def write_registered_sector_snapshot(
         as_of_date=as_of_date,
         snapshot=canonical,
         source_batches=source_batches,
+        historical_replay_captured_at=historical_replay_captured_at,
     )
     destination_root = root or sector_snapshot_root()
     destination = destination_root / as_of_date / f"{role}.json"
@@ -4347,6 +4499,75 @@ def validate_relationship_snapshot(payload: Any, as_of_date: str) -> dict[str, A
     return {key: payload[key] for key in payload}
 
 
+def validate_relationship_runtime_snapshot(
+    payload: Any, as_of_date: str
+) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise DataVendorUnavailable("relationship runtime snapshot must be an object")
+    opportunity = payload.get("prediction_opportunity_set")
+    if not isinstance(opportunity, dict):
+        raise DataVendorUnavailable(
+            "relationship prediction opportunity set must be an object"
+        )
+    runtime_fields = {
+        "run_id",
+        "as_of",
+        "opportunity_set_id",
+        "opportunity_set_hash",
+    }
+    if not runtime_fields.intersection(opportunity):
+        return validate_relationship_snapshot(payload, as_of_date)
+    _require_exact_fields(
+        opportunity,
+        _RELATIONSHIP_OPPORTUNITY_SET_FIELDS | runtime_fields,
+        "relationship runtime prediction opportunity set",
+    )
+    _require_relationship_id(
+        opportunity["run_id"], "relationship runtime opportunity run_id"
+    )
+    if opportunity["as_of"] != as_of_date:
+        raise DataVendorUnavailable("relationship runtime opportunity as_of mismatch")
+    opportunity_body = {
+        key: opportunity[key]
+        for key in (
+            "run_id",
+            "as_of",
+            "candidate_generation_contract_version",
+            "scoring_contract_version",
+            "ordered_opportunities",
+        )
+    }
+    opportunity_hash = _canonical_hash(opportunity_body)
+    _require_sha256(
+        opportunity["opportunity_set_hash"],
+        "relationship runtime opportunity set hash",
+    )
+    if opportunity["opportunity_set_hash"] != opportunity_hash:
+        raise DataVendorUnavailable(
+            "relationship runtime opportunity set hash mismatch"
+        )
+    opportunity_id = (
+        f"relationship-opportunity:{opportunity_hash.removeprefix('sha256:')}"
+    )
+    if opportunity["opportunity_set_id"] != opportunity_id:
+        raise DataVendorUnavailable("relationship runtime opportunity set ID mismatch")
+    _require_hash_binding(payload, "snapshot_hash", "relationship runtime snapshot")
+
+    base_snapshot = {key: value for key, value in payload.items()}
+    base_snapshot["prediction_opportunity_set"] = {
+        key: opportunity[key] for key in _RELATIONSHIP_OPPORTUNITY_SET_FIELDS
+    }
+    base_snapshot["snapshot_hash"] = _canonical_hash(
+        {
+            key: value
+            for key, value in base_snapshot.items()
+            if key != "snapshot_hash"
+        }
+    )
+    validate_relationship_snapshot(base_snapshot, as_of_date)
+    return {key: payload[key] for key in payload}
+
+
 def _normalize_relationship_source_text(value: Any, label: str) -> str:
     if not isinstance(value, str):
         raise DataVendorUnavailable(f"{label} must be a source string")
@@ -4755,7 +4976,10 @@ def _validate_relationship_source_truth(
 
 
 def compile_registered_relationship_snapshot(
-    *, as_of_date: str, source_batches: list[dict[str, Any]]
+    *,
+    as_of_date: str,
+    source_batches: list[dict[str, Any]],
+    historical_replay_captured_at: str | None = None,
 ) -> dict[str, Any]:
     """Compile the formal relationship graph only from frozen source batches."""
     as_of = date.fromisoformat(as_of_date)
@@ -4763,7 +4987,12 @@ def compile_registered_relationship_snapshot(
         RELATIONSHIP_REQUIRED_SOURCE_ENDPOINTS
     )
     batches = [
-        _validate_source_batch(batch, as_of=as_of, endpoint_contracts=contracts)
+        _validate_source_batch(
+            batch,
+            as_of=as_of,
+            endpoint_contracts=contracts,
+            historical_replay_captured_at=historical_replay_captured_at,
+        )
         for batch in source_batches
     ]
     if (
@@ -4831,6 +5060,7 @@ def compile_registered_relationship_snapshot(
         snapshot=canonical,
         as_of_date=as_of_date,
         source_batches=batches,
+        historical_replay_captured_at=historical_replay_captured_at,
     )
     return canonical
 
@@ -4840,23 +5070,34 @@ def _build_relationship_source_receipt(
     snapshot: Mapping[str, Any],
     as_of_date: str,
     source_batches: list[dict[str, Any]],
+    historical_replay_captured_at: str | None = None,
 ) -> dict[str, Any]:
     as_of = date.fromisoformat(as_of_date)
     contracts = _registered_tushare_endpoint_contracts(
         RELATIONSHIP_REQUIRED_SOURCE_ENDPOINTS
     )
     batches = [
-        _validate_source_batch(batch, as_of=as_of, endpoint_contracts=contracts)
+        _validate_source_batch(
+            batch,
+            as_of=as_of,
+            endpoint_contracts=contracts,
+            historical_replay_captured_at=historical_replay_captured_at,
+        )
         for batch in source_batches
     ]
     cutoff = _relationship_as_of_cutoff(as_of)
     for batch in batches:
+        cutoff_fields = (
+            ("released_at", "vintage_at", "captured_at")
+            if historical_replay_captured_at is None
+            else ("released_at", "vintage_at")
+        )
         if any(
             _parse_relationship_temporal(
                 batch[field], f"relationship source batch.{field}"
             )
             > cutoff
-            for field in ("released_at", "vintage_at", "captured_at")
+            for field in cutoff_fields
         ):
             raise DataVendorUnavailable(
                 "relationship source batch is after the Asia/Shanghai end-of-day materialization cutoff"
@@ -4915,6 +5156,15 @@ def _build_relationship_source_receipt(
         "source_batches": metadata,
         "frozen_source_batches": frozen_batches,
         "relationship_derivations": derivations,
+        **(
+            {
+                _HISTORICAL_REPLAY_RECEIPT_FIELD: (
+                    historical_replay_captured_at
+                )
+            }
+            if historical_replay_captured_at is not None
+            else {}
+        ),
     }
     return {**body, "source_bundle_hash": _canonical_hash(body)}
 
@@ -4924,6 +5174,7 @@ def write_registered_relationship_snapshot(
     as_of_date: str,
     snapshot: Mapping[str, Any],
     source_batches: list[dict[str, Any]],
+    historical_replay_captured_at: str | None = None,
     root: Path | None = None,
 ) -> dict[str, Any]:
     """Publish one immutable production Relationship snapshot and source receipt."""
@@ -4936,6 +5187,7 @@ def write_registered_relationship_snapshot(
         snapshot=canonical,
         as_of_date=as_of_date,
         source_batches=source_batches,
+        historical_replay_captured_at=historical_replay_captured_at,
     )
     destination_root = root or sector_snapshot_root()
     destination = destination_root / as_of_date / "relationship_mapper.json"
@@ -4981,9 +5233,10 @@ def _validate_relationship_source_receipt(
 ) -> dict[str, Any]:
     if not isinstance(receipt, dict):
         raise DataVendorUnavailable("relationship source receipt must be an object")
-    _require_exact_fields(
-        receipt, _RELATIONSHIP_SOURCE_RECEIPT_FIELDS, "relationship source receipt"
-    )
+    receipt_fields = set(_RELATIONSHIP_SOURCE_RECEIPT_FIELDS)
+    if _HISTORICAL_REPLAY_RECEIPT_FIELD in receipt:
+        receipt_fields.add(_HISTORICAL_REPLAY_RECEIPT_FIELD)
+    _require_exact_fields(receipt, receipt_fields, "relationship source receipt")
     if (
         receipt.get("schema_version") != RELATIONSHIP_SOURCE_RECEIPT_SCHEMA_VERSION
         or receipt.get("relationship_agent_id") != "relationship_mapper"
@@ -5001,10 +5254,18 @@ def _validate_relationship_source_receipt(
     if not isinstance(batches, list) or not batches:
         raise DataVendorUnavailable("relationship source receipt batches are required")
     as_of = date.fromisoformat(as_of_date)
-    as_of_cutoff = _relationship_as_of_cutoff(as_of)
     contracts = _registered_tushare_endpoint_contracts(
         RELATIONSHIP_REQUIRED_SOURCE_ENDPOINTS
     )
+    historical_replay_captured_at = receipt.get(
+        _HISTORICAL_REPLAY_RECEIPT_FIELD
+    )
+    if historical_replay_captured_at is not None and not isinstance(
+        historical_replay_captured_at, str
+    ):
+        raise DataVendorUnavailable(
+            "relationship source receipt historical replay cutoff is invalid"
+        )
     batch_ids: list[str] = []
     batch_keys: set[tuple[str, str, str]] = set()
     observed_endpoints: set[str] = set()
@@ -5036,19 +5297,13 @@ def _validate_relationship_source_receipt(
             raise DataVendorUnavailable(
                 "relationship source receipt request is invalid"
             )
-        released = _parse_relationship_temporal(
-            batch.get("released_at"), f"{label}.released_at"
+        _require_source_temporal_contract(
+            batch,
+            as_of=as_of,
+            historical_replay_captured_at=historical_replay_captured_at,
+            label=label,
+            error_message="relationship source receipt contains lookahead",
         )
-        vintage = _parse_relationship_temporal(
-            batch.get("vintage_at"), f"{label}.vintage_at"
-        )
-        captured = _parse_relationship_temporal(
-            batch.get("captured_at"), f"{label}.captured_at"
-        )
-        if not released <= vintage <= captured <= as_of_cutoff:
-            raise DataVendorUnavailable(
-                "relationship source receipt contains lookahead"
-            )
         coverage_ratio = batch.get("coverage_ratio")
         query_count = batch.get("query_count")
         completed_count = batch.get("completed_query_count")
@@ -5164,6 +5419,9 @@ def _validate_relationship_source_receipt(
                 {**metadata, "rows": rows},
                 as_of=as_of,
                 endpoint_contracts=contracts,
+                historical_replay_captured_at=(
+                    historical_replay_captured_at
+                ),
             )
         )
         frozen_ids.append(source_batch_id)
@@ -5288,7 +5546,9 @@ __all__ = [
     "render_relationship_snapshot",
     "render_sector_snapshot",
     "sector_snapshot_root",
+    "validate_relationship_runtime_snapshot",
     "validate_relationship_snapshot",
+    "validate_sector_runtime_snapshot",
     "validate_sector_snapshot",
     "write_registered_relationship_snapshot",
     "write_registered_sector_snapshot",

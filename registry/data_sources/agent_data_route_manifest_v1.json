@@ -12,18 +12,25 @@
       "source_family": "alfred"
     },
     {
-      "contract_version": "ecb_euro_macro_v1",
-      "implementation_stage": "PR6",
+      "contract_version": "composite_cn_rates_mof_chinabond_v1",
+      "implementation_stage": "PR15",
+      "pit_strategy": "OBSERVED_LIVE",
+      "route_id": "composite.cn_rates",
+      "source_family": "composite"
+    },
+    {
+      "contract_version": "ecb_eu_real_economy_history_v1",
+      "implementation_stage": "PR15",
       "pit_strategy": "AUTHORITATIVE_VINTAGE_REPLAY",
-      "route_id": "ecb.euro_macro",
+      "route_id": "ecb.eu_real_economy",
       "source_family": "ecb"
     },
     {
-      "contract_version": "eurostat_forward_archive_v1",
-      "implementation_stage": "PR6",
-      "pit_strategy": "FORWARD_ARCHIVE",
-      "route_id": "eurostat.euro_macro",
-      "source_family": "eurostat"
+      "contract_version": "ecb_euro_macro_v2",
+      "implementation_stage": "PR15",
+      "pit_strategy": "AUTHORITATIVE_VINTAGE_REPLAY",
+      "route_id": "ecb.euro_macro",
+      "source_family": "ecb"
     },
     {
       "contract_version": "geopolitical_required_coverage_v1",
@@ -201,13 +208,6 @@
       "source_family": "tushare"
     },
     {
-      "contract_version": "tushare_shibor_yield_curve_v1",
-      "implementation_stage": "PR7",
-      "pit_strategy": "OBSERVED_LIVE",
-      "route_id": "tushare.shibor_yield_curve",
-      "source_family": "tushare"
-    },
-    {
       "contract_version": "tushare_us_tycr_nominal_curve_v1",
       "implementation_stage": "PR8",
       "pit_strategy": "OBSERVED_LIVE",
@@ -239,8 +239,8 @@
     {
       "agent_id": "eu_economy",
       "required_route_ids": [
+        "ecb.eu_real_economy",
         "ecb.euro_macro",
-        "eurostat.euro_macro",
         "tushare.eco_cal.eur"
       ],
       "stage": "eu_economy",
@@ -249,9 +249,9 @@
     {
       "agent_id": "central_bank",
       "required_route_ids": [
+        "composite.cn_rates",
         "official.cn_macro",
-        "tushare.eco_cal.cny",
-        "tushare.shibor_yield_curve"
+        "tushare.eco_cal.cny"
       ],
       "stage": "central_bank",
       "tool_id": "get_central_bank_snapshot"
@@ -933,7 +933,7 @@
     {
       "agent_id": "financials",
       "required_route_ids": [
-        "tushare.shibor_yield_curve"
+        "composite.cn_rates"
       ],
       "stage": "financials",
       "tool_id": "get_yield_curve_cn"
@@ -1107,7 +1107,7 @@
       "stage": "druckenmiller",
       "tool_id": "get_yield_curve_cn",
       "required_route_ids": [
-        "tushare.shibor_yield_curve"
+        "composite.cn_rates"
       ]
     },
     {
@@ -1424,5 +1424,5 @@
       ]
     }
   ],
-  "manifest_hash": "sha256:8f685d8a5338881e43f8a61dcc8ef43455bb42ae1cc19f7282992f0b0cd15bf6"
+  "manifest_hash": "sha256:62dd46940d77cdc895be892b13f25c93d27a1b31319914cbf8f21ae3ded76cf8"
 }

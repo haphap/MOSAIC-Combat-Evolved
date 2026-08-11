@@ -35,12 +35,15 @@ from .macro_snapshots import (
     validate_role_snapshot,
 )
 from .official_macro_adapters import fetch_fomc_feed, fetch_ny_fed_rate
+from .runtime_paths import agent_cache_root, isolated_agent_runtime_path
 from .tushare import _query_pro
 from .tushare_catalog import assert_endpoint_capture_preflight_allowed
 
 
 CAPTURE_SCHEMA_VERSION = "us_macro_capture_group_v1"
 COMPILER_VERSION = "us_macro_compiler_v1"
+HISTORICAL_REPLAY_TIME_POLICY_VERSION = "us_macro_historical_replay_time_v1"
+OFFICIAL_REPLAY_CAPTURE_DEADLINE_SECONDS = 300
 ARCHIVE_LOCK_TIMEOUT_SECONDS = 60 * 60
 MARKET_LOOKBACK_CALENDAR_DAYS = 35
 LOGICAL_ROUTES = (
@@ -50,6 +53,19 @@ LOGICAL_ROUTES = (
     "tushare.fx_daily",
     "tushare.us_tycr",
 )
+
+
+def _requested_routes(value: Sequence[str] | None) -> tuple[str, ...]:
+    if value is None:
+        return LOGICAL_ROUTES
+    requested = tuple(value)
+    if (
+        not requested
+        or len(set(requested)) != len(requested)
+        or any(route_id not in LOGICAL_ROUTES for route_id in requested)
+    ):
+        raise ValueError("requested US macro routes are invalid")
+    return tuple(route_id for route_id in LOGICAL_ROUTES if route_id in requested)
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
 _DECISION_CUTOFF = time(15, 0)
 _ALFRED_METADATA = {
@@ -100,19 +116,23 @@ class USMacroBuildResult:
 
 
 def us_macro_archive_path() -> Path:
+    isolated = isolated_agent_runtime_path("agent_data/us_macro.sqlite3")
+    if isolated is not None:
+        return isolated
     explicit = os.getenv("MOSAIC_US_MACRO_ARCHIVE_DB")
     if explicit:
         return Path(explicit).expanduser()
-    cache_root = Path(os.getenv("MOSAIC_CACHE_DIR", "~/.mosaic/cache")).expanduser()
-    return cache_root / "agent_data" / "us_macro.sqlite3"
+    return agent_cache_root() / "agent_data" / "us_macro.sqlite3"
 
 
 def us_macro_snapshot_root() -> Path:
+    isolated = isolated_agent_runtime_path("agent_data/us_macro_snapshots")
+    if isolated is not None:
+        return isolated
     explicit = os.getenv("MOSAIC_US_MACRO_SNAPSHOT_DIR")
     if explicit:
         return Path(explicit).expanduser()
-    cache_root = Path(os.getenv("MOSAIC_CACHE_DIR", "~/.mosaic/cache")).expanduser()
-    return cache_root / "agent_data" / "us_macro_snapshots"
+    return agent_cache_root() / "agent_data" / "us_macro_snapshots"
 
 
 def _capture_now() -> datetime:
@@ -386,13 +406,13 @@ def _validate_official_payload(
     payload: Mapping[str, Any],
     *,
     expected_source: str,
-    cutoff: datetime,
+    cutoff: datetime | None,
     require_rows: bool,
 ) -> dict[str, Any]:
     value = _json_copy(payload)
     _decode_official_raw(value, expected_source)
     retrieved = _timestamp(str(value.get("retrieved_at")), f"{expected_source}.retrieved_at")
-    if retrieved > cutoff:
+    if cutoff is not None and retrieved > cutoff:
         raise USMacroCaptureAfterCutoff(expected_source)
     rows = value.get("rows")
     if not isinstance(rows, list) or (require_rows and not rows):
@@ -520,6 +540,8 @@ def _build_group(
     as_of_date: str,
     cutoff_at: str,
     observation_start: str,
+    requested_route_ids: tuple[str, ...],
+    historical_replay: bool,
     select_vintage: Callable[..., str],
     fetch_vintage: Callable[..., dict[str, Any]],
     fetch_fomc: Callable[..., dict[str, Any]],
@@ -530,51 +552,75 @@ def _build_group(
     started = _capture_now()
     if started.tzinfo is None:
         raise USMacroSchemaError("trusted capture clock must include timezone")
-    if started.astimezone(_SHANGHAI).date() < date.fromisoformat(as_of_date):
+    capture_date = started.astimezone(_SHANGHAI).date()
+    as_of = date.fromisoformat(as_of_date)
+    if capture_date < as_of or (historical_replay and capture_date <= as_of):
         raise USMacroCaptureBeforeWindow(
             "US macro capture cannot start before the as-of date"
         )
+    requested = frozenset(requested_route_ids)
     series: list[dict[str, Any]] = []
-    for series_id in _ALFRED_SERIES_IDS:
-        vintage_date = select_vintage(series_id, as_of_cutoff=cutoff_at)
-        payload = fetch_vintage(
-            series_id,
-            observation_start=observation_start,
-            observation_end=as_of_date,
-            vintage_date=vintage_date,
-        )
-        validated = _validate_alfred_payload(
-            payload,
-            series_id=series_id,
-            vintage_date=vintage_date,
-            observation_start=observation_start,
-            observation_end=as_of_date,
-        )
-        series.append(
-            {
-                "series_id": series_id,
-                "vintage_date": vintage_date,
-                "payload_hash": canonical_hash(validated),
-                "payload": validated,
-            }
-        )
+    if "alfred.us_macro" in requested:
+        for series_id in _ALFRED_SERIES_IDS:
+            vintage_date = select_vintage(series_id, as_of_cutoff=cutoff_at)
+            payload = fetch_vintage(
+                series_id,
+                observation_start=observation_start,
+                observation_end=as_of_date,
+                vintage_date=vintage_date,
+            )
+            validated = _validate_alfred_payload(
+                payload,
+                series_id=series_id,
+                vintage_date=vintage_date,
+                observation_start=observation_start,
+                observation_end=as_of_date,
+            )
+            series.append(
+                {
+                    "series_id": series_id,
+                    "vintage_date": vintage_date,
+                    "payload_hash": canonical_hash(validated),
+                    "payload": validated,
+                }
+            )
 
     historical_miss = started > cutoff
+    capture_allowed = not historical_miss or historical_replay
+    official_adapter_cutoff = (
+        started + timedelta(seconds=OFFICIAL_REPLAY_CAPTURE_DEADLINE_SECONDS)
+        if historical_replay
+        else cutoff
+    ).isoformat()
     official_policy: dict[str, Any] | None = None
     market_rates: list[dict[str, Any]] = []
     tushare_sources: dict[str, dict[str, Any]] | None = None
-    if not historical_miss:
+    market_start: str | None = None
+    if capture_allowed and "official.us_policy" in requested:
+        official_policy = _validate_official_payload(
+            fetch_fomc(as_of=official_adapter_cutoff),
+            expected_source="official.fomc_statement",
+            cutoff=None if historical_replay else cutoff,
+            require_rows=False,
+        )
+        if historical_replay:
+            official_policy["rows"] = [
+                row
+                for row in official_policy["rows"]
+                if _timestamp(str(row.get("published_at")), "published_at") <= cutoff
+            ]
+            official_policy["row_count"] = len(official_policy["rows"])
+        elif any(
+            _timestamp(str(row.get("published_at")), "published_at") > cutoff
+            for row in official_policy["rows"]
+        ):
+            raise USMacroSchemaError("FOMC publication exceeds requested cutoff")
+    if capture_allowed and "market.us_conditions" in requested:
         market_start = max(
             date.fromisoformat(observation_start),
             date.fromisoformat(as_of_date)
             - timedelta(days=MARKET_LOOKBACK_CALENDAR_DAYS),
         ).isoformat()
-        official_policy = _validate_official_payload(
-            fetch_fomc(as_of=cutoff_at),
-            expected_source="official.fomc_statement",
-            cutoff=cutoff,
-            require_rows=False,
-        )
         for rate_type in ("EFFR", "SOFR"):
             market_rates.append(
                 _validate_official_payload(
@@ -582,13 +628,19 @@ def _build_group(
                         rate_type=rate_type,
                         start_date=market_start,
                         end_date=as_of_date,
-                        as_of=cutoff_at,
+                        as_of=official_adapter_cutoff,
                     ),
                     expected_source=f"official.nyfed_{rate_type.casefold()}",
-                    cutoff=cutoff,
+                    cutoff=None if historical_replay else cutoff,
                     require_rows=True,
                 )
             )
+    requested_tushare = tuple(
+        route_id.removeprefix("tushare.")
+        for route_id in requested_route_ids
+        if route_id.startswith("tushare.")
+    )
+    if capture_allowed and requested_tushare:
         tushare_sources = {
             endpoint: _validate_tushare_payload(
                 fetch_tushare(
@@ -601,29 +653,36 @@ def _build_group(
                 observation_start=observation_start,
                 observation_end=as_of_date,
             )
-            for endpoint in ("fx_daily", "us_tycr")
+            for endpoint in requested_tushare
         }
     completed = _capture_now()
     if completed.tzinfo is None:
         raise USMacroSchemaError("trusted capture clock must include timezone")
-    if not historical_miss and completed > cutoff:
+    live_requested = requested.difference({"alfred.us_macro"})
+    if live_requested and not historical_replay and not historical_miss and completed > cutoff:
         raise USMacroCaptureAfterCutoff("live US macro capture completed after cutoff")
     for payload in ([official_policy] if official_policy is not None else []) + market_rates:
         if _timestamp(payload["retrieved_at"], "retrieved_at") > completed:
             raise USMacroSchemaError("official retrieval timestamp exceeds capture time")
 
     route_states = {
-        "alfred.us_macro": "SUCCESS",
-        "market.us_conditions": "CAPTURE_REJECTED" if historical_miss else "SUCCESS",
-        "official.us_policy": "CAPTURE_REJECTED" if historical_miss else "SUCCESS",
-        "tushare.fx_daily": "CAPTURE_REJECTED" if historical_miss else "SUCCESS",
-        "tushare.us_tycr": "CAPTURE_REJECTED" if historical_miss else "SUCCESS",
+        route_id: (
+            "TRUE_EMPTY"
+            if route_id == "official.us_policy"
+            and capture_allowed
+            and official_policy is not None
+            and not official_policy["rows"]
+            else "SUCCESS"
+            if route_id == "alfred.us_macro" or capture_allowed
+            else "CAPTURE_REJECTED"
+        )
+        for route_id in requested_route_ids
     }
-    return {
+    group = {
         "schema_version": CAPTURE_SCHEMA_VERSION,
         "capture_key": capture_key,
         "as_of_date": as_of_date,
-        "cutoff_at": cutoff_at,
+        "cutoff_at": completed.isoformat() if historical_replay else cutoff_at,
         "captured_at": completed.isoformat(),
         "observation_start": observation_start,
         "observation_end": as_of_date,
@@ -645,6 +704,19 @@ def _build_group(
         "tushare": tushare_sources,
         "route_states": route_states,
     }
+    if historical_replay:
+        group.update(
+            {
+                "historical_replay": True,
+                "historical_replay_time_policy_version": (
+                    HISTORICAL_REPLAY_TIME_POLICY_VERSION
+                ),
+                "requested_cutoff_at": cutoff_at,
+            }
+        )
+    if requested_route_ids != LOGICAL_ROUTES:
+        group["requested_route_ids"] = list(requested_route_ids)
+    return group
 
 
 def _capture_id(capture_key: str, route_id: str) -> str:
@@ -668,6 +740,10 @@ def _receipt_common(group: Mapping[str, Any], route_id: str) -> dict[str, Any]:
                     "route_id": route_id,
                     "as_of_date": group["as_of_date"],
                     "cutoff_at": group["cutoff_at"],
+                    "requested_cutoff_at": group.get("requested_cutoff_at"),
+                    "historical_replay_time_policy_version": group.get(
+                        "historical_replay_time_policy_version"
+                    ),
                     "observation_start": group["observation_start"],
                     "observation_end": group["observation_end"],
                     "series_ids": group["alfred"]["series_ids"],
@@ -1006,16 +1082,19 @@ def _tushare_receipt(
 
 
 def _source_receipts(group: Mapping[str, Any]) -> tuple[SourceCaptureReceipt, ...]:
-    receipts = [_alfred_receipt(group)]
-    if group["route_states"]["market.us_conditions"] == "SUCCESS":
-        receipts.extend(
-            (
-                _market_receipt(group),
-                _official_receipt(group),
-                _tushare_receipt(group, "fx_daily"),
-                _tushare_receipt(group, "us_tycr"),
-            )
-        )
+    requested = tuple(group.get("requested_route_ids", LOGICAL_ROUTES))
+    receipt_builders: dict[str, Callable[[], SourceCaptureReceipt]] = {
+        "alfred.us_macro": lambda: _alfred_receipt(group),
+        "market.us_conditions": lambda: _market_receipt(group),
+        "official.us_policy": lambda: _official_receipt(group),
+        "tushare.fx_daily": lambda: _tushare_receipt(group, "fx_daily"),
+        "tushare.us_tycr": lambda: _tushare_receipt(group, "us_tycr"),
+    }
+    receipts = [
+        receipt_builders[route_id]()
+        for route_id in requested
+        if group["route_states"][route_id] in {"SUCCESS", "TRUE_EMPTY"}
+    ]
     return tuple(
         sorted(receipts, key=lambda item: item.as_dict()["identity"]["route_id"])
     )
@@ -1027,6 +1106,7 @@ def _coverage_receipt(
     cutoff_at: str,
     source_receipts: tuple[SourceCaptureReceipt, ...],
     route_states: Mapping[str, str],
+    required_route_ids: tuple[str, ...],
     blocker_codes: tuple[str, ...],
 ) -> RouteCoverageReceipt:
     hashes = {
@@ -1039,7 +1119,7 @@ def _coverage_receipt(
             "capture_receipt_hash": hashes.get(route_id),
             "status": route_states[route_id],
         }
-        for route_id in LOGICAL_ROUTES
+        for route_id in required_route_ids
     ]
     complete = all(row["status"] in {"SUCCESS", "TRUE_EMPTY"} for row in route_results)
     coverage_id = "us-macro-coverage:" + canonical_hash(
@@ -1059,7 +1139,7 @@ def _coverage_receipt(
                 "end": cutoff_at,
                 "timezone": "Asia/Shanghai",
             },
-            "required_route_ids": list(LOGICAL_ROUTES),
+            "required_route_ids": list(required_route_ids),
             "route_results": route_results,
             "coverage_complete": complete,
             "blocker_codes": list(blocker_codes),
@@ -1074,12 +1154,14 @@ def _failed_result(
     ledger: AgentDataMaterializationLedger,
     status: str,
     blocker: str,
+    required_route_ids: tuple[str, ...],
 ) -> USMacroArchiveResult:
     coverage = _coverage_receipt(
         as_of_date=as_of_date,
         cutoff_at=cutoff_at,
         source_receipts=(),
-        route_states={route_id: status for route_id in LOGICAL_ROUTES},
+        route_states={route_id: status for route_id in required_route_ids},
+        required_route_ids=required_route_ids,
         blocker_codes=(blocker,),
     )
     ledger.append_route_coverage(coverage)
@@ -1091,6 +1173,8 @@ def archive_us_macro_sources(
     as_of_date: str,
     cutoff_at: str,
     observation_start: str,
+    requested_route_ids: Sequence[str] | None = None,
+    historical_replay: bool = False,
     store: USMacroArchiveStore,
     ledger: AgentDataMaterializationLedger,
     select_vintage: Callable[..., str] = select_alfred_vintage,
@@ -1107,18 +1191,32 @@ def archive_us_macro_sources(
         raise ValueError("observation_start cannot exceed as_of_date")
     if cutoff_local.date() != as_of or cutoff_local.time() != _DECISION_CUTOFF:
         raise ValueError("US macro cutoff must be the as-of date at 15:00 Asia/Shanghai")
+    if not isinstance(historical_replay, bool):
+        raise ValueError("historical_replay must be a boolean")
     normalized_cutoff = cutoff.isoformat()
-    capture_key = canonical_hash(
-        {
-            "schema_version": CAPTURE_SCHEMA_VERSION,
-            "as_of_date": as_of_date,
-            "cutoff_at": normalized_cutoff,
-            "observation_start": observation_start,
-            "observation_end": as_of_date,
-            "series_ids": list(_ALFRED_SERIES_IDS),
-            "tushare_endpoints": ["fx_daily", "us_tycr"],
-        }
-    )
+    required_routes = _requested_routes(requested_route_ids)
+    capture_identity = {
+        "schema_version": CAPTURE_SCHEMA_VERSION,
+        "as_of_date": as_of_date,
+        "cutoff_at": normalized_cutoff,
+        "observation_start": observation_start,
+        "observation_end": as_of_date,
+        "series_ids": list(_ALFRED_SERIES_IDS),
+        "tushare_endpoints": ["fx_daily", "us_tycr"],
+        **(
+            {
+                "historical_replay": True,
+                "historical_replay_time_policy_version": (
+                    HISTORICAL_REPLAY_TIME_POLICY_VERSION
+                ),
+            }
+            if historical_replay
+            else {}
+        ),
+    }
+    if required_routes != LOGICAL_ROUTES:
+        capture_identity["requested_route_ids"] = list(required_routes)
+    capture_key = canonical_hash(capture_identity)
     try:
         group, cache_hit = store.get_or_capture(
             capture_key,
@@ -1127,6 +1225,8 @@ def archive_us_macro_sources(
                 as_of_date=as_of_date,
                 cutoff_at=normalized_cutoff,
                 observation_start=observation_start,
+                requested_route_ids=required_routes,
+                historical_replay=historical_replay,
                 select_vintage=select_vintage,
                 fetch_vintage=fetch_vintage,
                 fetch_fomc=fetch_fomc,
@@ -1137,14 +1237,16 @@ def archive_us_macro_sources(
         sources = _source_receipts(group)
         blockers = (
             ("CAPTURE_AFTER_AS_OF_CUTOFF",)
-            if group["route_states"]["market.us_conditions"] != "SUCCESS"
+            if group["route_states"].get("market.us_conditions")
+            not in {None, "SUCCESS"}
             else ()
         )
         coverage = _coverage_receipt(
             as_of_date=as_of_date,
-            cutoff_at=normalized_cutoff,
+            cutoff_at=str(group["cutoff_at"]),
             source_receipts=sources,
             route_states=group["route_states"],
+            required_route_ids=required_routes,
             blocker_codes=blockers,
         )
         ledger.append_capture_group(sources, coverage)
@@ -1156,6 +1258,7 @@ def archive_us_macro_sources(
             ledger=ledger,
             status="PERMISSION_DENIED",
             blocker="PERMISSION_DENIED",
+            required_route_ids=required_routes,
         )
     except (TimeoutError, ConnectionError):
         return _failed_result(
@@ -1164,6 +1267,7 @@ def archive_us_macro_sources(
             ledger=ledger,
             status="TRANSPORT_FAILED",
             blocker="TRANSPORT_FAILED",
+            required_route_ids=required_routes,
         )
     except USMacroCaptureAfterCutoff:
         return _failed_result(
@@ -1172,6 +1276,7 @@ def archive_us_macro_sources(
             ledger=ledger,
             status="CAPTURE_REJECTED",
             blocker="CAPTURE_AFTER_AS_OF_CUTOFF",
+            required_route_ids=required_routes,
         )
     except USMacroCaptureBeforeWindow:
         return _failed_result(
@@ -1180,6 +1285,7 @@ def archive_us_macro_sources(
             ledger=ledger,
             status="CAPTURE_REJECTED",
             blocker="CAPTURE_BEFORE_AS_OF_WINDOW",
+            required_route_ids=required_routes,
         )
     except DataVendorUnavailable as exc:
         if _is_transport_failure(exc):
@@ -1189,6 +1295,7 @@ def archive_us_macro_sources(
                 ledger=ledger,
                 status="TRANSPORT_FAILED",
                 blocker="TRANSPORT_FAILED",
+                required_route_ids=required_routes,
             )
         return _failed_result(
             as_of_date=as_of_date,
@@ -1196,6 +1303,7 @@ def archive_us_macro_sources(
             ledger=ledger,
             status="SCHEMA_DRIFT",
             blocker="SCHEMA_DRIFT",
+            required_route_ids=required_routes,
         )
 
 

@@ -38,8 +38,12 @@ import {
   buildSectorFinalSelectionSystemMessage,
 } from "../src/agents/sector/phase_directives.js";
 import { SECTOR_DIRECTION_CONFLICT_RESOLVER_CONTRACT } from "../src/agents/sector/registry.js";
-import { relationshipMapperSpec } from "../src/agents/sector/relationship_mapper.js";
 import {
+  buildRelationshipMapperNode,
+  relationshipMapperSpec,
+} from "../src/agents/sector/relationship_mapper.js";
+import {
+  directionComparisonAuditHash,
   SECURITY_SCORING_CONTRACT_HASH,
   SECURITY_SCORING_CONTRACT_VERSION,
   validateFinalSelectionAgainstDirective,
@@ -733,6 +737,7 @@ class InstrumentedSectorLlm {
   readonly prompts: string[] = [];
   readonly systemMessages: string[] = [];
   readonly boundToolNames: string[] = [];
+  readonly providerSchemas: unknown[] = [];
   private neutralResearch: Record<string, unknown> | null = null;
 
   constructor(
@@ -758,6 +763,7 @@ class InstrumentedSectorLlm {
     schema: unknown,
     options?: { name?: string },
   ): { invoke: (input: unknown) => Promise<unknown> } {
+    this.providerSchemas.push(schema);
     return {
       invoke: async (input) => {
         this.prompts.push(JSON.stringify(input));
@@ -815,6 +821,60 @@ class AdaptiveQuerySectorLlm extends InstrumentedSectorLlm {
       });
     }
     return new AIMessage("Adaptive evidence collected; continue with structured comparison.");
+  }
+}
+
+class RuntimeRelationshipLlm {
+  readonly providerSchemas: unknown[] = [];
+
+  async invoke(): Promise<AIMessage> {
+    return new AIMessage("Frozen Relationship evidence collected.");
+  }
+
+  bindTools(): { invoke: () => Promise<AIMessage> } {
+    return { invoke: () => this.invoke() };
+  }
+
+  withStructuredOutput(schema: unknown): { invoke: () => Promise<unknown> } {
+    this.providerSchemas.push(schema);
+    return {
+      invoke: async () => {
+        const properties = (schema as { properties?: Record<string, Record<string, unknown>> })
+          .properties;
+        const evidenceId = (properties?.evidence_id?.enum as string[] | undefined)?.[0];
+        const citationId = (properties?.research_rule_ref?.enum as string[] | undefined)?.[0];
+        if (!evidenceId || !citationId) {
+          throw new Error("Relationship runtime evidence/citation enum is missing");
+        }
+        return {
+          provider_contract: "RELATIONSHIP_MAPPER_COMPACT_V1",
+          agent: "relationship_mapper",
+          factual_edges: [
+            {
+              source_entity: "synthetic-holder",
+              target_entity: "000001.SZ",
+              edge_type: "SHAREHOLDING",
+            },
+          ],
+          predictive_graph_status: "NO_QUALIFIED_PREDICTIVE_EDGE",
+          predictive_edges: [],
+          predictive_graph_abstention_confidence: 0.8,
+          driver_summary: "The frozen holder relationship remains observable.",
+          risk_summary: "No predictive edge is qualified from the frozen opportunity set.",
+          evidence_id: evidenceId,
+          research_rule_ref: citationId,
+          macro_input_attributions: {
+            submission_summaries: Object.fromEntries(
+              MACRO_AGENT_IDS.map((agentId) => [
+                agentId,
+                { claim_ref_used: null, effect: "NOT_MATERIAL" },
+              ]),
+            ),
+            target_attributions: [],
+          },
+        };
+      },
+    };
   }
 }
 
@@ -1303,6 +1363,8 @@ describe("standard Sector usage lifecycle", () => {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "energy.zh.md"), "FIXTURE", "utf8");
     writeFileSync(join(dir, "energy.en.md"), "FIXTURE", "utf8");
+    writeFileSync(join(dir, "relationship_mapper.zh.md"), "FIXTURE", "utf8");
+    writeFileSync(join(dir, "relationship_mapper.en.md"), "FIXTURE", "utf8");
     clearPromptCache();
   });
 
@@ -1340,6 +1402,35 @@ describe("standard Sector usage lifecycle", () => {
     ).rejects.toThrow("snapshot security scoring rows are not exact PIT bindings");
     expect(events.reports).toEqual([]);
     expect(events.lifecycle.at(-1)).toBe("terminate");
+  });
+
+  it("binds a non-production Relationship run to its parsed opportunity citation", async () => {
+    const llm = new RuntimeRelationshipLlm();
+    const handle: LlmHandle = {
+      llm: llm as unknown as LlmHandle["llm"],
+      provider: "fake",
+      model: "fixture-model",
+      baseUrl: undefined,
+    };
+
+    const update = await buildRelationshipMapperNode({
+      llmHandle: handle,
+      api: {} as BridgeApi,
+      config,
+      promptsRoot: promptDir,
+    })(sectorPipelineState());
+
+    expect(update.layer2_outputs).toMatchObject({
+      relationship_mapper: { predictive_graph_status: "NO_QUALIFIED_PREDICTIVE_EDGE" },
+    });
+    const providerProperties = (
+      llm.providerSchemas[0] as {
+        properties: { research_rule_ref: { enum?: string[] } };
+      }
+    ).properties;
+    expect(providerProperties.research_rule_ref.enum?.[0]).toMatch(
+      /^relationship-opportunity:[0-9a-f]{64}$/,
+    );
   });
 
   it("rejects individually hashed Sector and role-event snapshots that are not cross-bound", async () => {
@@ -1417,6 +1508,21 @@ describe("standard Sector usage lifecycle", () => {
       reducer_contract_version:
         SECTOR_DIRECTION_CONFLICT_RESOLVER_CONTRACT.resolver_contract_version,
     });
+    if (!comparisonAudit) throw new Error("comparison audit is missing");
+    const comparisonCitationId = `sector-direction-comparison:${directionComparisonAuditHash(
+      comparisonAudit,
+    ).slice("sha256:".length)}`;
+    const finalProviderSchema = llm.providerSchemas.at(-1) as {
+      properties: {
+        final_selection: {
+          properties: { research_rule_ref: { enum?: string[] } };
+        };
+      };
+    };
+    expect(
+      finalProviderSchema.properties.final_selection.properties.research_rule_ref.enum,
+    ).toEqual([comparisonCitationId]);
+    expect(finalPrompt).toContain(comparisonCitationId);
   });
 
   it("lets a real provider select one parameterized adaptive query after initial snapshots", async () => {

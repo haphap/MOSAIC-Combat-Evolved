@@ -4,9 +4,9 @@
  *
  * Scope of the converter is intentionally narrow: it handles the shape
  * Pydantic v2 emits for our @tool functions (flat objects with primitive
- * properties + ``required`` + ``description``). Nested objects, unions,
- * and arrays are not used today and are explicitly rejected so we fail
- * loud if a future tool changes its schema.
+ * properties or constrained primitive arrays + ``required`` + ``description``).
+ * Nested objects and unions are explicitly rejected so we fail loud if a
+ * future tool changes its schema.
  */
 
 import type { StructuredToolInterface } from "@langchain/core/tools";
@@ -56,7 +56,8 @@ function propertyToZod(name: string, prop: JsonSchemaProperty): ZodTypeAny {
     throw new Error(`Tool property '${name}' uses anyOf — not supported by the current converter.`);
   }
 
-  let zodType = primitiveToZod(name, prop.type);
+  let zodType =
+    prop.type === "array" ? arrayToZod(name, prop) : primitiveToZod(name, prop.type, prop);
   if (prop.description) {
     zodType = zodType.describe(prop.description);
   }
@@ -64,10 +65,18 @@ function propertyToZod(name: string, prop: JsonSchemaProperty): ZodTypeAny {
 }
 
 /** Map a primitive JSON Schema type onto its Zod counterpart. */
-function primitiveToZod(name: string, type: JsonSchemaProperty["type"]): ZodTypeAny {
+function primitiveToZod(
+  name: string,
+  type: JsonSchemaProperty["type"],
+  prop: JsonSchemaProperty = {},
+): ZodTypeAny {
   switch (type) {
-    case "string":
-      return z.string();
+    case "string": {
+      let schema = z.string();
+      if (prop.minLength !== undefined) schema = schema.min(prop.minLength);
+      if (prop.maxLength !== undefined) schema = schema.max(prop.maxLength);
+      return schema;
+    }
     case "integer":
       return z.int();
     case "number":
@@ -77,6 +86,20 @@ function primitiveToZod(name: string, type: JsonSchemaProperty["type"]): ZodType
     default:
       throw new Error(`Tool property '${name}' has unsupported type ${JSON.stringify(type)}`);
   }
+}
+
+function arrayToZod(name: string, prop: JsonSchemaProperty): ZodTypeAny {
+  if (!prop.items || prop.items.type === "array") {
+    throw new Error(`Tool property '${name}' has unsupported array items`);
+  }
+  let schema = z.array(propertyToZod(`${name}[]`, prop.items));
+  if (prop.minItems !== undefined) schema = schema.min(prop.minItems);
+  if (prop.maxItems !== undefined) schema = schema.max(prop.maxItems);
+  if (!prop.uniqueItems) return schema;
+  return schema.refine(
+    (items) => new Set(items.map((item) => JSON.stringify(item))).size === items.length,
+    { message: `Tool property '${name}' requires unique array items` },
+  );
 }
 
 /** Convert the top-level JSON Schema (always type=object) to a ZodObject. */
@@ -123,7 +146,7 @@ export function bridgeToolFromMetadata(
   metadata: ToolMetadata,
   options: BridgeToolFactoryOptions,
 ): BridgeStructuredTool {
-  const schema = jsonSchemaToZod(metadata.args_schema);
+  const schema = metadata.args_schema;
   const capability = options.capability;
   const auditedInvoke = (input: Record<string, unknown>) =>
     api.toolsCall(metadata.name, input, capability);

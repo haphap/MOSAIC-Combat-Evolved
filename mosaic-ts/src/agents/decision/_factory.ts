@@ -47,7 +47,11 @@ import {
   structuredSmokeFixtureBundleHash,
 } from "../accepted_output.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
-import { type AgentRunAudit, invokeStrictStructured } from "../helpers/agent_run_contract.js";
+import {
+  type AgentRunAudit,
+  CIO_FINAL_PROVIDER_DECISION_REASON_MAX_LENGTH,
+  invokeStrictStructured,
+} from "../helpers/agent_run_contract.js";
 import {
   boundCurrentPositions,
   resolveBoundAcceptedOutputRecords,
@@ -57,6 +61,7 @@ import { extractTextContent } from "../helpers/content.js";
 import {
   buildRuntimeEvidenceSnapshot,
   type RuntimeEvidenceSnapshot,
+  withRuntimeCitationIds,
 } from "../helpers/evidence_runtime.js";
 import {
   canonicalAcceptedSubmissionBody,
@@ -143,7 +148,14 @@ import {
   expectedFrozenOrderIntents,
   frozenCandidateRef,
 } from "./runtime_adapter.js";
-import { buildCroStageFrozenObject } from "./stage_opportunity.js";
+import {
+  authorityBindingFromFrozenObject,
+  buildAuthorityStageFrozenObject,
+  buildCroStageFrozenObject,
+  type DecisionOpportunityAgentId,
+  type DecisionRuntimeAuthorityBinding,
+  type DecisionSnapshotAuthority,
+} from "./stage_opportunity.js";
 import {
   buildRuntimeAlphaDiscoverySubmissionSchema,
   CioFinalAllCashSubmissionSchema,
@@ -411,7 +423,20 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             throw new Error(`${spec.agentId}: required capability tool API is unavailable`);
           }
 
-          assertDecisionToolSnapshotAuthority(state, spec, toolLoopMessages, toolStatuses);
+          const runtimeAuthority =
+            state.outcome_opportunity_bindings?.[spec.agentId]?.runtime_authority_binding;
+          if (runtimeAuthority && !("candidate_scope_hash" in runtimeAuthority)) {
+            throw new Error(`${spec.agentId}: frozen Decision authority shape mismatch`);
+          }
+          const runtimeCitationIds = decisionRuntimeCitationIdsFromToolLoop(
+            spec.agentId,
+            toolLoopMessages,
+            toolStatuses,
+            runtimeAuthority,
+          );
+          if (runtimeEvidence && runtimeCitationIds.length > 0) {
+            runtimeEvidence = withRuntimeCitationIds(runtimeEvidence, runtimeCitationIds);
+          }
 
           // Phase 2: structured extraction.
           onLog(
@@ -448,6 +473,8 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
                       ? CioProposalNonEmptyCurrentSubmissionSchema
                       : CioFinalNonEmptyCurrentSubmissionSchema) as unknown as z.ZodType<TOutput>)
                   : (spec.schema as z.ZodType<TOutput>);
+          const cioFinalControlDirective =
+            spec.runtimeStage === "cio_final" ? buildCioFinalProviderControlDirective(state) : null;
           const extractor = await invokeStrictStructured<TOutput>({
             llm: structuredHandle.llm,
             schema: extractionSchema,
@@ -458,6 +485,9 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
                   analysisText || "(no analysis produced)",
                   "## Frozen Decision submission constraints",
                   augmentedContext,
+                  cioFinalControlDirective
+                    ? `Runtime-owned CIO final control directive:\n${JSON.stringify(cioFinalControlDirective)}`
+                    : null,
                   runtimeEvidence?.visibleCatalog,
                 ]
                   .filter((part): part is string => Boolean(part))
@@ -467,7 +497,12 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             agent: spec.agentId,
             stage: spec.runtimeStage,
             runId: state.trace_id || state.as_of_date || "current_run",
-            evidenceSnapshot: runtimeEvidence,
+            evidenceSnapshot: cioFinalControlDirective
+              ? {
+                  ...(runtimeEvidence ?? {}),
+                  cio_final_control_directive: cioFinalControlDirective,
+                }
+              : runtimeEvidence,
             validate: (candidate) => {
               const validated = validateStrictAgentOutput({
                 output: candidate,
@@ -588,6 +623,56 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
       throw err;
     }
   };
+}
+
+export interface CioFinalProviderControlDirective {
+  contract_version: "cio_final_provider_control_directive_v1";
+  decision_reason_max_length: 160;
+  cro_action_local_refs: string[];
+  execution_assessment_local_refs: string[];
+}
+
+export function buildCioFinalProviderControlDirective(
+  state: DailyCycleStateType,
+): CioFinalProviderControlDirective {
+  const runtime = runtimeStateForLayer4(state);
+  const croReview = runtime.cro_review_state;
+  const execution = runtime.execution_feasibility_state;
+  if (!croReview || !execution) {
+    throw new Error("cio_final provider directive requires frozen CRO and execution state");
+  }
+  return {
+    contract_version: "cio_final_provider_control_directive_v1",
+    decision_reason_max_length: CIO_FINAL_PROVIDER_DECISION_REASON_MAX_LENGTH,
+    cro_action_local_refs: exactRuntimeControlRefs(
+      croReview.output.required_adjustments ?? [],
+      "action_local_id",
+      "CRO adjustment",
+    ),
+    execution_assessment_local_refs: exactRuntimeControlRefs(
+      execution.output.execution_checks ?? [],
+      "assessment_local_id",
+      "execution assessment",
+    ),
+  };
+}
+
+function exactRuntimeControlRefs(
+  rows: ReadonlyArray<Record<string, unknown>>,
+  field: string,
+  label: string,
+): string[] {
+  const refs = rows.map((row) => {
+    const ref = row[field];
+    if (typeof ref !== "string" || ref.length === 0) {
+      throw new Error(`cio_final provider directive ${label} lacks ${field}`);
+    }
+    return ref;
+  });
+  if (new Set(refs).size !== refs.length) {
+    throw new Error(`cio_final provider directive ${label} refs are not unique`);
+  }
+  return refs.sort();
 }
 
 function validateLayer4StageSemantics<TOutput extends Layer4AgentOutput>(
@@ -831,14 +916,29 @@ function buildFakeDecisionSnapshotTool(
   agentId: string,
   asOf: string,
 ): StructuredToolInterface {
+  const candidateScope = { agent_id: agentId, as_of: asOf };
+  const candidateUniverse: Array<Record<string, unknown>> = [];
+  const candidateScopeHash = canonicalAcceptedOutputHash(candidateScope);
+  const candidateUniverseHash = canonicalAcceptedOutputHash(candidateUniverse);
+  const snapshotCore = {
+    schema_version: "fake_decision_snapshot_v2",
+    agent_id: agentId,
+    as_of: asOf,
+    candidate_scope: candidateScope,
+    candidate_scope_hash: candidateScopeHash,
+    candidate_universe: candidateUniverse,
+    candidate_universe_id: `fake-candidate-universe:${candidateUniverseHash.slice("sha256:".length)}`,
+    candidate_universe_hash: candidateUniverseHash,
+    upstream_accepted_output_refs: [],
+    constraints: {},
+    role_context: {},
+  };
   return tool(
     async () =>
       JSON.stringify({
-        schema_version: "fake_decision_snapshot_v1",
-        agent_id: agentId,
-        as_of: asOf,
-        ...(agentId === "alpha_discovery" ? { candidate_universe: [] } : {}),
-        fixture: "fake_llm_structural_smoke",
+        ...snapshotCore,
+        snapshot_id: `fake-decision-snapshot:${agentId}:${asOf}`,
+        snapshot_hash: canonicalAcceptedOutputHash(snapshotCore),
         evidence_id: `fake-${agentId}-${name}`,
       }),
     {
@@ -921,26 +1021,23 @@ export function frozenAlphaCandidatesFromToolLoop(
   return candidates.sort((left, right) => left.candidate_ref.localeCompare(right.candidate_ref));
 }
 
-function assertDecisionToolSnapshotAuthority<TOutput extends Layer4AgentOutput>(
-  state: DailyCycleStateType,
-  spec: LayerFourAgentSpec<TOutput>,
+export function decisionRuntimeCitationIdsFromToolLoop(
+  agentId: string,
   messages: readonly BaseMessage[],
   toolStatuses: readonly ToolStatus[],
-): void {
-  const binding = state.outcome_opportunity_bindings?.[spec.agentId];
-  const authority = binding?.runtime_authority_binding;
-  if (!authority) return;
-  if (!("candidate_scope_hash" in authority)) {
-    throw new Error(`${spec.agentId}: frozen Decision authority shape mismatch`);
+  authority?: DecisionRuntimeAuthorityBinding,
+): string[] {
+  if (!isDecisionOpportunityAgentId(agentId)) {
+    throw new Error(`${agentId}: unsupported Decision opportunity agent`);
   }
   const expectedTool = {
     alpha_discovery: "get_alpha_candidate_snapshot",
     cro: "get_cro_risk_snapshot",
     autonomous_execution: "get_execution_snapshot",
     cio: "get_cio_decision_snapshot",
-  }[spec.agentId];
-  if (!expectedTool || authority.source_tool_id !== expectedTool) {
-    throw new Error(`${spec.agentId}: frozen Decision authority tool mismatch`);
+  }[agentId];
+  if (authority && authority.source_tool_id !== expectedTool) {
+    throw new Error(`${agentId}: frozen Decision authority tool mismatch`);
   }
   const status = [...toolStatuses]
     .reverse()
@@ -949,7 +1046,7 @@ function assertDecisionToolSnapshotAuthority<TOutput extends Layer4AgentOutput>(
         row.name === expectedTool && row.called && !row.failed && !row.missing && !row.fallback,
     );
   if (!status?.call_id) {
-    throw new Error(`${spec.agentId}: frozen Decision authority snapshot was not accepted`);
+    throw new Error(`${agentId}: frozen Decision authority snapshot was not accepted`);
   }
   const message = [...messages]
     .reverse()
@@ -959,28 +1056,39 @@ function assertDecisionToolSnapshotAuthority<TOutput extends Layer4AgentOutput>(
         (row as BaseMessage & { tool_call_id?: string }).tool_call_id === status.call_id,
     );
   if (typeof message?.content !== "string") {
-    throw new Error(`${spec.agentId}: frozen Decision authority payload is unavailable`);
+    throw new Error(`${agentId}: frozen Decision authority payload is unavailable`);
   }
   let payload: unknown;
   try {
     payload = JSON.parse(message.content);
   } catch (cause) {
-    throw new Error(`${spec.agentId}: frozen Decision authority payload is invalid`, { cause });
+    throw new Error(`${agentId}: frozen Decision authority payload is invalid`, { cause });
   }
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error(`${spec.agentId}: frozen Decision authority must be an object`);
+    throw new Error(`${agentId}: frozen Decision authority must be an object`);
   }
   const record = payload as Record<string, unknown>;
-  const refs = record.upstream_accepted_output_refs;
+  const frozen = buildAuthorityStageFrozenObject(
+    agentId,
+    record as unknown as DecisionSnapshotAuthority,
+  );
+  const observedAuthority = authorityBindingFromFrozenObject(frozen);
   if (
-    record.snapshot_hash !== authority.source_snapshot_hash ||
-    record.candidate_scope_hash !== authority.candidate_scope_hash ||
-    record.candidate_universe_hash !== authority.candidate_universe_hash ||
-    !Array.isArray(refs) ||
-    canonicalAcceptedOutputHash(refs) !== authority.upstream_accepted_output_refs_hash
+    authority &&
+    (observedAuthority.source_tool_id !== authority.source_tool_id ||
+      observedAuthority.source_snapshot_hash !== authority.source_snapshot_hash ||
+      observedAuthority.candidate_scope_hash !== authority.candidate_scope_hash ||
+      observedAuthority.candidate_universe_hash !== authority.candidate_universe_hash ||
+      observedAuthority.upstream_accepted_output_refs_hash !==
+        authority.upstream_accepted_output_refs_hash)
   ) {
-    throw new Error(`${spec.agentId}: Decision authority changed after opportunity freeze`);
+    throw new Error(`${agentId}: Decision authority changed after opportunity freeze`);
   }
+  return [String(frozen.object_payload.candidate_universe_id)];
+}
+
+function isDecisionOpportunityAgentId(agentId: string): agentId is DecisionOpportunityAgentId {
+  return ["alpha_discovery", "cro", "autonomous_execution", "cio"].includes(agentId);
 }
 
 function parseFrozenAlphaCandidate(value: unknown, index: number): FrozenAlphaCandidate {
@@ -1226,6 +1334,11 @@ export function layerFourExtractorSystem<TOutput extends Layer4AgentOutput>(
     `claims and per-entry claim_refs using only its evidence_id and opaque permitted citation identifiers. ` +
     `For cio, every non-empty target_positions entry requires claim_refs and at least one ` +
     `supporting claim; omitting either is a schema failure, not a valid cash decision. ` +
+    (spec.runtimeStage === "cio_final"
+      ? `For cio_final, decision_reason must be one complete sentence of no more than ` +
+        `${CIO_FINAL_PROVIDER_DECISION_REASON_MAX_LENGTH} Unicode characters; put detailed ` +
+        `evidence in claims and control-resolution reasons. `
+      : "") +
     (spec.agentId === "autonomous_execution"
       ? `For autonomous_execution, do not emit or infer Macro input attributions; use only ` +
         `the frozen CIO proposal, CRO controls, order intents, and execution evidence. `

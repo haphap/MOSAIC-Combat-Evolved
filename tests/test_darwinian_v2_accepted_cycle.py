@@ -29,6 +29,7 @@ from mosaic.bridge.tool_capabilities import (
 )
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.scorecard.darwinian_v2 import (
+    accepted_cycle_stage_outcome_refs,
     _authoritative_macro_input_gate,
     _validate_macro_attribution_authority,
     canonical_hash,
@@ -1033,6 +1034,30 @@ def _attach_accepted_records(state: dict) -> None:
         records,
         weight_snapshot=state["darwinian_weight_snapshot"],
     )[0]
+
+
+def test_cycle_stage_outcome_refs_reuse_exact_accepted_output_authority(
+    tmp_path: Path,
+) -> None:
+    state = _state()
+    _attach_schedule(ScorecardStore(tmp_path / "scorecard.db"), state)
+    _attach_accepted_records(state)
+
+    outcomes = accepted_cycle_stage_outcome_refs(state)
+
+    assert len(outcomes) == 29
+    assert outcomes == sorted(outcomes, key=lambda row: (row["agent_id"], row["stage"]))
+    assert {row["outcome_kind"] for row in outcomes} == {"ACCEPTED_OUTPUT"}
+    accepted_hashes = {
+        record["accepted_output_hash"] for record in state["accepted_output_records"]
+    }
+    assert {row["ref_hash"] for row in outcomes} == accepted_hashes
+
+    state["accepted_output_records"][0]["accepted_output_hash"] = canonical_hash(
+        "tampered"
+    )
+    with pytest.raises(ValueError, match="accepted output reference"):
+        accepted_cycle_stage_outcome_refs(state)
 
 
 def _reseal_record(state: dict, record: dict) -> None:

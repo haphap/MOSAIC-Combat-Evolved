@@ -52,10 +52,18 @@ def _documents(edges: list[dict]) -> list[dict]:
 
 def _query_contract() -> dict:
     return {
-        "contract_version": "cninfo_annual_report_query_v1",
+        "contract_version": "cninfo_annual_report_query_v2",
         "endpoint": "https://www.cninfo.com.cn/new/hisAnnouncement/query",
         "method": "POST",
         "content_type": "application/x-www-form-urlencoded",
+        "identity_endpoint": (
+            "https://www.cninfo.com.cn/new/information/topSearch/query"
+        ),
+        "identity_method": "POST",
+        "identity_max_results": 10,
+        "identity_match_policy": "UNIQUE_EXACT_CODE",
+        "counterparty_match_policy": "UNIQUE_NORMALIZED_EXACT_NAME",
+        "counterparty_query_limit_per_document": 10,
         "page_size": 30,
         "column": "szse",
         "tab_name": "fulltext",
@@ -341,6 +349,28 @@ def test_archive_is_append_only_and_reader_detects_private_row_tampering(tmp_pat
         connection.execute("UPDATE supply_chain_edges SET edge_json = '{}' ")
     with pytest.raises(ValueError, match="edge hash mismatch"):
         archive.materialize(ticker="600000.SH", as_of=AS_OF)
+
+
+def test_read_only_archive_requires_existing_file_and_avoids_sqlite_sidecars(
+    tmp_path: Path,
+):
+    archive_path = tmp_path / ".mosaic/supply.sqlite3"
+    with pytest.raises(FileNotFoundError):
+        OfficialSupplyChainDisclosureArchive(archive_path, create=False)
+
+    writable = OfficialSupplyChainDisclosureArchive(archive_path)
+    _append(writable, [_edge()])
+    wal_path = Path(f"{archive_path}-wal")
+    shm_path = Path(f"{archive_path}-shm")
+    assert not wal_path.exists()
+    assert not shm_path.exists()
+
+    read_only = OfficialSupplyChainDisclosureArchive(archive_path, create=False)
+    assert json.loads(read_only.materialize(ticker="600000.SH", as_of=AS_OF)["payload"])[
+        "edges"
+    ]
+    assert not wal_path.exists()
+    assert not shm_path.exists()
 
 
 def test_trusted_capture_resolves_identity_confirms_terminal_and_persists_pdf(

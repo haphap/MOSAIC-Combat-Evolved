@@ -55,6 +55,8 @@ def _source_callbacks(
     vintage: str = "2026-08-07",
     row_realtime_start: str | None = None,
     retrieved_at: str = "2026-08-08T05:55:00+00:00",
+    fomc_published_at: str = "2026-07-29T18:00:00+00:00",
+    official_adapter_cutoff: str | None = None,
     fail_series: str | None = None,
     latest_treasury_partial: bool = False,
 ) -> tuple[dict[str, int], object, object, object, object, object]:
@@ -109,7 +111,7 @@ def _source_callbacks(
 
     def fetch_fomc(*, as_of: str) -> dict:
         increment("fomc")
-        assert as_of == cutoff
+        assert as_of == (official_adapter_cutoff or cutoff)
         raw = f"<rss><as-of>{as_of_value}</as-of></rss>".encode()
         return {
             "adapter_version": "official_macro_adapters_v1",
@@ -124,7 +126,7 @@ def _source_callbacks(
             "rows": [
                 {
                     "title": "Federal Reserve issues FOMC statement",
-                    "published_at": "2026-07-29T18:00:00+00:00",
+                    "published_at": fomc_published_at,
                     "url": "https://www.federalreserve.gov/newsevents/pressreleases/monetary20260729a.htm",
                 }
             ],
@@ -138,7 +140,7 @@ def _source_callbacks(
         assert rate_type in {"EFFR", "SOFR"}
         assert start_date == market_start_value
         assert end_date == as_of_value
-        assert as_of == cutoff
+        assert as_of == (official_adapter_cutoff or cutoff)
         raw = f'{{"rate":"{rate_type}","as_of":"{as_of_value}"}}'.encode()
         return {
             "adapter_version": "official_macro_adapters_v1",
@@ -294,6 +296,61 @@ def _calendar_receipt(route_id: str) -> SourceCaptureReceipt:
         },
     }
     return SourceCaptureReceipt.seal(payload)
+
+
+@pytest.mark.parametrize(
+    ("route_id", "expected_counts"),
+    (
+        ("official.us_policy", {"fomc": 1}),
+        ("market.us_conditions", {"nyfed": 2}),
+        ("tushare.fx_daily", {"fx_daily": 1}),
+        ("tushare.us_tycr", {"us_tycr": 1}),
+    ),
+)
+def test_route_only_capture_calls_only_the_requested_us_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    route_id: str,
+    expected_counts: dict[str, int],
+) -> None:
+    from mosaic.dataflows import us_macro_archive
+
+    monkeypatch.setattr(us_macro_archive, "_capture_now", lambda: CAPTURED_AT)
+    store = USMacroArchiveStore(tmp_path / "us-route-only.sqlite3")
+    ledger = AgentDataMaterializationLedger(tmp_path / "us-route-ledger.sqlite3")
+    callbacks = _source_callbacks()
+    counts, select_vintage, fetch_vintage, fetch_fomc, fetch_nyfed, fetch_tushare = (
+        callbacks
+    )
+
+    result = archive_us_macro_sources(
+        as_of_date=AS_OF,
+        cutoff_at=CUTOFF,
+        observation_start=OBSERVATION_START,
+        requested_route_ids=(route_id,),
+        store=store,
+        ledger=ledger,
+        select_vintage=select_vintage,
+        fetch_vintage=fetch_vintage,
+        fetch_fomc=fetch_fomc,
+        fetch_nyfed=fetch_nyfed,
+        fetch_tushare=fetch_tushare,
+    )
+
+    assert [
+        receipt.as_dict()["identity"]["route_id"]
+        for receipt in result.source_receipts
+    ] == [route_id]
+    assert result.coverage_receipt.as_dict()["required_route_ids"] == [route_id]
+    assert result.coverage_receipt.as_dict()["coverage_complete"] is True
+    assert counts == {
+        "select": 0,
+        "alfred": 0,
+        "fomc": expected_counts.get("fomc", 0),
+        "nyfed": expected_counts.get("nyfed", 0),
+        "us_tycr": expected_counts.get("us_tycr", 0),
+        "fx_daily": expected_counts.get("fx_daily", 0),
+    }
 
 
 def test_empty_cache_calls_existing_adapters_and_atomically_publishes_five_routes(
@@ -488,6 +545,128 @@ def test_historical_cache_miss_replays_alfred_but_never_calls_live_sources(
     }
     assert store.row_count() == 1
     assert ledger.row_counts()["source_capture_receipts"] == 1
+
+
+@pytest.mark.parametrize(
+    ("route_id", "expected_counts"),
+    (
+        ("official.us_policy", {"fomc": 1}),
+        ("market.us_conditions", {"nyfed": 2}),
+        ("tushare.fx_daily", {"fx_daily": 1}),
+        ("tushare.us_tycr", {"us_tycr": 1}),
+    ),
+)
+def test_historical_replay_captures_one_us_route_without_backdating(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    route_id: str,
+    expected_counts: dict[str, int],
+) -> None:
+    from mosaic.dataflows import us_macro_archive
+
+    as_of = "2026-07-17"
+    requested_cutoff = "2026-07-17T15:00:00+08:00"
+    captured_at = datetime(2026, 8, 11, 9, 30, tzinfo=timezone.utc)
+    callbacks = _source_callbacks(
+        as_of=as_of,
+        cutoff=requested_cutoff,
+        vintage="2026-07-16",
+        retrieved_at="2026-08-11T09:29:00+00:00",
+        fomc_published_at="2026-07-15T18:00:00+00:00",
+        official_adapter_cutoff="2026-08-11T09:35:00+00:00",
+    )
+    counts, select_vintage, fetch_vintage, fetch_fomc, fetch_nyfed, fetch_tushare = (
+        callbacks
+    )
+    monkeypatch.setattr(us_macro_archive, "_capture_now", lambda: captured_at)
+    store = USMacroArchiveStore(tmp_path / "us-replay.sqlite3")
+    ledger = AgentDataMaterializationLedger(tmp_path / "us-replay-ledger.sqlite3")
+
+    result = archive_us_macro_sources(
+        as_of_date=as_of,
+        cutoff_at=requested_cutoff,
+        observation_start=OBSERVATION_START,
+        requested_route_ids=(route_id,),
+        historical_replay=True,
+        store=store,
+        ledger=ledger,
+        select_vintage=select_vintage,
+        fetch_vintage=fetch_vintage,
+        fetch_fomc=fetch_fomc,
+        fetch_nyfed=fetch_nyfed,
+        fetch_tushare=fetch_tushare,
+    )
+
+    assert counts == {
+        "select": 0,
+        "alfred": 0,
+        "fomc": expected_counts.get("fomc", 0),
+        "nyfed": expected_counts.get("nyfed", 0),
+        "us_tycr": expected_counts.get("us_tycr", 0),
+        "fx_daily": expected_counts.get("fx_daily", 0),
+    }
+    assert result.group is not None
+    assert result.group["historical_replay"] is True
+    assert result.group["requested_cutoff_at"] == requested_cutoff
+    assert result.group["cutoff_at"] == captured_at.isoformat()
+    assert result.group["captured_at"] == captured_at.isoformat()
+    assert [
+        receipt.as_dict()["identity"]["route_id"]
+        for receipt in result.source_receipts
+    ] == [route_id]
+    receipt = result.source_receipts[0].as_dict()
+    assert receipt["time"]["captured_at"] == captured_at.isoformat()
+    assert receipt["pit"]["as_of_cutoff"] == captured_at.isoformat()
+    assert result.coverage_receipt.as_dict()["coverage_complete"] is True
+    assert result.coverage_receipt.as_dict()["window"]["end"] == (
+        captured_at.isoformat()
+    )
+    assert store.row_count() == 1
+    assert ledger.row_counts()["source_capture_receipts"] == 1
+
+
+def test_historical_policy_replay_excludes_feed_items_after_requested_cutoff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mosaic.dataflows import us_macro_archive
+
+    captured_at = datetime(2026, 8, 11, 9, 30, tzinfo=timezone.utc)
+    callbacks = _source_callbacks(
+        as_of="2026-07-17",
+        cutoff="2026-07-17T15:00:00+08:00",
+        vintage="2026-07-16",
+        retrieved_at="2026-08-11T09:29:00+00:00",
+        fomc_published_at="2026-07-29T18:00:00+00:00",
+        official_adapter_cutoff="2026-08-11T09:35:00+00:00",
+    )
+    _, select_vintage, fetch_vintage, fetch_fomc, fetch_nyfed, fetch_tushare = (
+        callbacks
+    )
+    monkeypatch.setattr(us_macro_archive, "_capture_now", lambda: captured_at)
+
+    result = archive_us_macro_sources(
+        as_of_date="2026-07-17",
+        cutoff_at="2026-07-17T15:00:00+08:00",
+        observation_start=OBSERVATION_START,
+        requested_route_ids=("official.us_policy",),
+        historical_replay=True,
+        store=USMacroArchiveStore(tmp_path / "us-policy-replay.sqlite3"),
+        ledger=AgentDataMaterializationLedger(
+            tmp_path / "us-policy-replay-ledger.sqlite3"
+        ),
+        select_vintage=select_vintage,
+        fetch_vintage=fetch_vintage,
+        fetch_fomc=fetch_fomc,
+        fetch_nyfed=fetch_nyfed,
+        fetch_tushare=fetch_tushare,
+    )
+
+    assert result.group is not None
+    assert result.group["official_policy"]["rows"] == []
+    receipt = result.source_receipts[0].as_dict()
+    assert receipt["content"]["normalized_row_count"] == 0
+    assert receipt["completeness"]["empty_result_semantics"] == "TRUE_EMPTY"
+    assert result.coverage_receipt.as_dict()["coverage_complete"] is True
 
 
 def test_future_as_of_rejects_before_any_source_call_or_archive_insert(

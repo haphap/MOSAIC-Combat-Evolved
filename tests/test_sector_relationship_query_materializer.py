@@ -4,11 +4,13 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from mosaic.dataflows.frozen_adaptive_queries import FrozenAdaptiveQueryStore
 from mosaic.dataflows.sector_relationship_queries import (
+    DIRECT_VENDOR_TOOL_IDS,
     SectorRelationshipQueryMaterializer,
 )
 from mosaic.dataflows.staged_query_receipts import (
@@ -224,6 +226,9 @@ def test_materializer_maps_normalized_arguments_to_legacy_routes_exactly(
     assert len(result["source_receipt_hashes"]) == 1
     assert receipts[0]["tool_id"] == tool_id
     assert receipts[0]["request_hash"] == canonical_hash(args)
+    if tool_id == "get_yield_curve_cn":
+        assert receipts[0]["route_id"] == "composite.cn_rates"
+        assert receipts[0]["pit_mode"] == "OBSERVED_LIVE"
     if tool_id in {
         "get_broker_research",
         "get_stock_research",
@@ -270,9 +275,14 @@ def test_rke_uses_local_public_safe_renderer_and_never_routes_to_vendor():
     assert receipt_descriptors[0]["route_id"] == "private.rke_report_intelligence"
 
 
-def test_materializer_prepares_source_before_archive_route_call():
+def test_materializer_prepares_only_policy_source_before_route_call():
     events: list[tuple[str, str]] = []
-    args = {
+    policy_args = {
+        "as_of": AS_OF,
+        "lookback_days": 7,
+        "source": "govcn",
+    }
+    research_args = {
         "ticker": "600000.SH",
         "date_from": "2026-06-01",
         "date_to": AS_OF,
@@ -280,7 +290,7 @@ def test_materializer_prepares_source_before_archive_route_call():
     }
 
     def prepare(tool_id: str, prepared_args: dict) -> None:
-        assert prepared_args == args
+        assert prepared_args == policy_args
         events.append(("prepare", tool_id))
 
     def call(method: str, *route_args: object) -> str:
@@ -292,17 +302,34 @@ def test_materializer_prepares_source_before_archive_route_call():
         receipt_authority=_receipt_authority([]),
         digest_builder=_digest_builder,
         source_preparer=prepare,
+        rke_renderer=lambda args: (
+            events.append(("render", args["agent_id"])) or "rke payload"
+        ),
     )
 
-    materializer("get_stock_research", args)
+    materializer("get_industry_policy_digest", policy_args)
+    materializer("get_stock_research", research_args)
+    materializer(
+        "get_rke_research_context",
+        {
+            "agent_id": "financials",
+            "as_of": AS_OF,
+            "layer": "sector",
+            "ticker": "",
+            "sector": "银行",
+            "max_items": 12,
+        },
+    )
 
     assert events == [
-        ("prepare", "get_stock_research"),
+        ("prepare", "get_industry_policy_digest"),
+        ("route", "get_industry_policy"),
         ("route", "get_stock_research"),
+        ("render", "financials"),
     ]
 
 
-def test_materializer_rejects_missing_mismatched_or_future_source_receipts():
+def test_materializer_limits_empty_receipts_to_direct_tools_and_validates_receipts():
     descriptor_seen: list[dict] = []
 
     def wrong_authority(descriptor: dict) -> list[dict]:
@@ -327,16 +354,98 @@ def test_materializer_rejects_missing_mismatched_or_future_source_receipts():
             {"ticker": "600000.SH", "date_from": "2026-06-01", "date_to": AS_OF},
         )
 
-    materializer = SectorRelationshipQueryMaterializer(
+    direct_args = {
+        "get_balance_sheet": {
+            "ticker": "600000.SH",
+            "frequency": "annual",
+            "as_of": AS_OF,
+        },
+        "get_broker_research": {
+            "ticker": "600000.SH",
+            "date_from": "2026-06-01",
+            "date_to": AS_OF,
+            "max_reports": 30,
+        },
+        "get_cashflow": {
+            "ticker": "600000.SH",
+            "frequency": "quarterly",
+            "as_of": AS_OF,
+        },
+        "get_etf_holdings": {"etf": "512800.SH", "as_of": AS_OF, "top_n": 2},
+        "get_fundamentals": {"ticker": "600000.SH", "as_of": AS_OF},
+        "get_income_statement": {
+            "ticker": "600000.SH",
+            "frequency": "quarterly",
+            "as_of": AS_OF,
+        },
+        "get_indicators": {
+            "ticker": "600000.SH",
+            "indicator": "rsi",
+            "as_of": AS_OF,
+            "lookback": 30,
+        },
+        "get_industry_moneyflow": {
+            "as_of": AS_OF,
+            "lookback": 5,
+            "industry_filters": ["银行"],
+        },
+        "get_stock_data": {
+            "ticker": "600000.SH",
+            "date_from": "2026-06-01",
+            "date_to": AS_OF,
+        },
+        "get_stock_research": {
+            "ticker": "600000.SH",
+            "date_from": "2026-06-01",
+            "date_to": AS_OF,
+            "max_reports": 12,
+        },
+        "get_yield_curve_cn": {"as_of": AS_OF, "lookback": 30},
+    }
+    assert set(direct_args) == DIRECT_VENDOR_TOOL_IDS
+    receiptless = SectorRelationshipQueryMaterializer(
         route_caller=lambda method, *args: "payload",
-        receipt_authority=lambda descriptor: [],
+        receipt_authority=lambda descriptor: pytest.fail(
+            f"unexpected receipt fallback: {descriptor}"
+        ),
         digest_builder=_digest_builder,
+        rke_renderer=lambda args: "rke payload",
+        supply_chain_archive=SimpleNamespace(
+            materialize=lambda **_kwargs: {
+                "payload": "supply payload",
+                "source_receipt_hashes": [],
+            }
+        ),
+        source_evidence_authority=lambda *_args: [],
     )
-    with pytest.raises(ValueError, match="requires at least one eligible source receipt"):
-        materializer(
-            "get_stock_data",
-            {"ticker": "600000.SH", "date_from": "2026-06-01", "date_to": AS_OF},
-        )
+    for tool_id, args in direct_args.items():
+        assert receiptless(tool_id, args)["source_receipt_hashes"] == []
+
+    for tool_id, args in (
+        (
+            "get_industry_policy_digest",
+            {"as_of": AS_OF, "lookback_days": 7, "source": "govcn"},
+        ),
+        (
+            "get_rke_research_context",
+            {
+                "agent_id": "financials",
+                "as_of": AS_OF,
+                "layer": "sector",
+                "ticker": "",
+                "sector": "银行",
+                "max_items": 12,
+            },
+        ),
+        (
+            "get_supply_chain_evidence",
+            {"ticker": "600000.SH", "as_of": AS_OF},
+        ),
+    ):
+        with pytest.raises(
+            ValueError, match="requires (at least one eligible )?source receipt"
+        ):
+            receiptless(tool_id, args)
 
     def future_authority(descriptor: dict) -> list[dict]:
         return [

@@ -17,7 +17,11 @@ from mosaic.bridge.tool_capabilities import (
     materialize_tool_payload,
 )
 from mosaic.dataflows.exceptions import DataVendorUnavailable
-from mosaic.dataflows.frozen_adaptive_queries import FrozenAdaptiveQueryStore
+from mosaic.dataflows.bound_runtime_production import ActiveAdaptiveQueryPreparer
+from mosaic.dataflows.frozen_adaptive_queries import (
+    CALL_TIME_ARGUMENT_CONTRACT,
+    FrozenAdaptiveQueryStore,
+)
 from mosaic.scorecard.canonical_json import canonical_hash
 from mosaic.scorecard.sector_relationship_preservation import (
     build_sector_relationship_preservation_overlay,
@@ -52,6 +56,212 @@ def _store(tmp_path: Path, now: list[datetime]) -> AgentToolCapabilityStore:
 
 def _canonical_hash(value: object) -> str:
     return canonical_hash(value)
+
+
+def test_source_admission_preparation_reuses_exact_families_without_signing_capability(
+    tmp_path: Path,
+) -> None:
+    family_calls: list[tuple[str, str, str]] = []
+    family_requests: list[dict] = []
+    adaptive_calls: list[tuple[str, str, tuple[str, ...]]] = []
+
+    def stage_preparer(request: dict) -> dict:
+        family_requests.append(dict(request))
+        family_calls.append(
+            (request["agent_id"], request["stage"], request["as_of"])
+        )
+        return {"cache_status": "MISS", "ensure_mode": "enforce"}
+
+    def adaptive_preparer(**kwargs: object) -> dict:
+        agent_id = str(kwargs["agent_id"])
+        stage = str(kwargs["stage"])
+        allowed_tools = tuple(kwargs["allowed_tools"])
+        adaptive_calls.append((agent_id, stage, allowed_tools))
+        bundle_id = f"source-only-{agent_id}-{stage}"
+        projection_body = {
+            "bundle_id": bundle_id,
+            "bundle_hash": canonical_hash({"bundle_id": bundle_id}),
+            "agent_id": agent_id,
+            "stage": stage,
+            "as_of": kwargs["as_of"],
+            "entries": [],
+            "private_payload_count": 0,
+            "initial_payload_count": 0,
+            "adaptive_max_rounds": 0,
+        }
+        return {
+            "bundle_id": bundle_id,
+            "public_projection": {
+                **projection_body,
+                "projection_hash": canonical_hash(projection_body),
+            },
+        }
+
+    materializer_calls: list[tuple[str, str, str]] = []
+
+    def materializer(tool_id: str, **kwargs: object) -> str:
+        materializer_calls.append(
+            (tool_id, str(kwargs["agent_id"]), str(kwargs["stage"]))
+        )
+        return "{}"
+
+    store = AgentToolCapabilityStore(
+        tmp_path / "capabilities.sqlite3",
+        signing_key=b"test-signing-key-32-bytes-long!!!",
+        signing_key_id="test-key-v1",
+        adaptive_query_store=FrozenAdaptiveQueryStore(tmp_path / "adaptive.sqlite3"),
+        adaptive_query_preparer=adaptive_preparer,
+        stage_materialization_preparer=stage_preparer,
+    )
+
+    result = store.prepare_source_admission(
+        as_of="2026-07-09",
+        materializer=materializer,
+    )
+
+    assert family_calls == [
+        ("china", "china", "2026-07-09"),
+        ("us_economy", "us_economy", "2026-07-09"),
+        ("eu_economy", "eu_economy", "2026-07-09"),
+        ("geopolitical", "geopolitical", "2026-07-09"),
+        ("market_breadth", "market_breadth", "2026-07-09"),
+        ("semiconductor", "semiconductor", "2026-07-09"),
+    ]
+    assert [(agent_id, stage) for agent_id, stage, _ in adaptive_calls] == [
+        ("agriculture", "agriculture"),
+        ("biotech", "biotech"),
+        ("consumer", "consumer"),
+        ("energy", "energy"),
+        ("financials", "financials"),
+        ("industrials", "industrials"),
+        ("real_estate_construction", "real_estate_construction"),
+        ("relationship_mapper", "relationship_mapper"),
+        ("semiconductor", "semiconductor"),
+        ("technology", "technology"),
+    ]
+    assert materializer_calls
+    assert result == {
+        "as_of": "2026-07-09",
+        "adaptive_stage_count": 10,
+        "family_stage_count": 6,
+        "status": "SOURCE_PREPARED",
+    }
+    with store._connect() as conn:
+        assert conn.execute("SELECT count(*) FROM materialization_requests").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM snapshot_bundles").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM capabilities").fetchone()[0] == 0
+
+    family_calls.clear()
+    adaptive_calls.clear()
+    materializer_count = len(materializer_calls)
+    route_result = store.prepare_source_admission(
+        as_of="2026-07-09",
+        route_id="official.company_supply_chain_disclosures",
+        materializer=materializer,
+    )
+
+    assert family_calls == []
+    assert adaptive_calls == []
+    assert len(materializer_calls) == materializer_count
+    assert route_result == {
+        "as_of": "2026-07-09",
+        "adaptive_stage_count": 0,
+        "blocked_stage_ids": ["relationship_mapper/relationship_mapper"],
+        "blocked_stage_reasons": {
+            "relationship_mapper/relationship_mapper": ["QUERY_SCOPE_REQUIRED"]
+        },
+        "family_stage_count": 0,
+        "route_id": "official.company_supply_chain_disclosures",
+        "status": "SOURCE_PREPARATION_BLOCKED",
+    }
+
+    route_result = store.prepare_source_admission(
+        as_of="2026-07-09",
+        route_id="tushare.sector_market",
+        materializer=materializer,
+    )
+
+    assert family_calls == [("semiconductor", "semiconductor", "2026-07-09")]
+    assert adaptive_calls == []
+    assert len(materializer_calls) == materializer_count
+    assert route_result == {
+        "as_of": "2026-07-09",
+        "adaptive_stage_count": 0,
+        "family_stage_count": 1,
+        "route_id": "tushare.sector_market",
+        "status": "SOURCE_PREPARED",
+    }
+    assert family_requests[-1] == {
+        "agent_id": "semiconductor",
+        "stage": "semiconductor",
+        "as_of": "2026-07-09",
+        "route_id": "tushare.sector_market",
+    }
+
+    family_calls.clear()
+    route_result = store.prepare_source_admission(
+        as_of="2026-07-09",
+        route_id="tushare.relationship_graph",
+        materializer=materializer,
+    )
+
+    assert family_calls == [
+        ("relationship_mapper", "relationship_mapper", "2026-07-09")
+    ]
+    assert route_result == {
+        "as_of": "2026-07-09",
+        "adaptive_stage_count": 0,
+        "family_stage_count": 1,
+        "route_id": "tushare.relationship_graph",
+        "status": "SOURCE_PREPARED",
+    }
+    assert family_requests[-1] == {
+        "agent_id": "relationship_mapper",
+        "stage": "relationship_mapper",
+        "as_of": "2026-07-09",
+        "route_id": "tushare.relationship_graph",
+    }
+
+
+def test_source_admission_preserves_exact_owner_blockers_for_operator(
+    tmp_path: Path,
+) -> None:
+    def stage_preparer(_request: dict) -> dict:
+        error = DataVendorUnavailable(
+            "sector relationship archive is blocked at /private/operator/root"
+        )
+        error.reason_code = "SECTOR_RELATIONSHIP_ARCHIVE_BLOCKED"
+        raise error
+
+    def materializer(_tool_id: str, **_kwargs: object) -> str:
+        error = DataVendorUnavailable(
+            "no private PIT sector snapshot under /private/operator/root"
+        )
+        error.reason_code = "PRIVATE_PIT_SECTOR_SNAPSHOT_MISSING"
+        raise error
+
+    store = AgentToolCapabilityStore(
+        tmp_path / "capabilities.sqlite3",
+        signing_key=b"test-signing-key-32-bytes-long!!!",
+        signing_key_id="test-key-v1",
+        adaptive_query_store=FrozenAdaptiveQueryStore(tmp_path / "adaptive.sqlite3"),
+        adaptive_query_preparer=lambda **_kwargs: {},
+        stage_materialization_preparer=stage_preparer,
+    )
+
+    result = store.prepare_source_admission(
+        as_of="2026-07-09",
+        route_id="tushare.sector_market",
+        materializer=materializer,
+    )
+
+    assert result["adaptive_stage_count"] == 0
+    assert result["blocked_stage_ids"] == ["semiconductor/semiconductor"]
+    assert result["blocked_stage_reasons"] == {
+        "semiconductor/semiconductor": [
+            "SECTOR_RELATIONSHIP_ARCHIVE_BLOCKED",
+        ]
+    }
 
 
 
@@ -1287,6 +1497,41 @@ def test_prepare_runs_stage_preparer_then_materializer_then_finalizer(
     ]
 
 
+@pytest.mark.parametrize(
+    ("ensure_mode", "expected_finalizer_calls"),
+    [("off", 0), ("shadow", 0), ("enforce", 1)],
+)
+def test_prepare_only_finalizes_explicit_enforce_mode(
+    tmp_path: Path,
+    ensure_mode: str,
+    expected_finalizer_calls: int,
+) -> None:
+    finalizer_calls = 0
+
+    def stage_preparer(_request: dict) -> dict:
+        return {"ensure_mode": ensure_mode, "status": ensure_mode.upper()}
+
+    def materializer(
+        tool_id: str, *, agent_id: str, stage: str, as_of: str, graph_run_id: str
+    ) -> str:
+        return f'{{"tool":"{tool_id}","frozen":true}}'
+
+    def stage_finalizer(_context: dict) -> None:
+        nonlocal finalizer_calls
+        finalizer_calls += 1
+
+    store = AgentToolCapabilityStore(
+        tmp_path / ensure_mode / "capabilities.sqlite3",
+        signing_key=b"test-signing-key-32-bytes-long!!!",
+        signing_key_id="test-key-v1",
+        clock=lambda: datetime(2026, 7, 9, tzinfo=timezone.utc),
+        stage_materialization_preparer=stage_preparer,
+        stage_materialization_finalizer=stage_finalizer,
+    )
+    store.prepare(_request(), materializer=materializer)
+    assert finalizer_calls == expected_finalizer_calls
+
+
 def test_prepare_failure_does_not_consume_capability_request(tmp_path: Path) -> None:
     materializer_called = False
 
@@ -1348,18 +1593,200 @@ def test_stage_finalizer_failure_prevents_capability_publication(tmp_path: Path)
         assert conn.execute("SELECT count(*) FROM capabilities").fetchone()[0] == 0
 
 
-def _prepared_sector_adaptive_capability(
+@pytest.mark.parametrize(
+    "finalizer_status",
+    ["READY", "SYNTHETIC_NON_PRODUCTION_BYPASS"],
+)
+def test_sector_capability_defers_transport_and_limits_successful_followups(
     tmp_path: Path,
-) -> tuple[
-    AgentToolCapabilityStore,
-    FrozenAdaptiveQueryStore,
-    dict,
-    dict,
-    dict,
-]:
-    now = datetime(2026, 7, 9, tzinfo=timezone.utc)
+    finalizer_status: str,
+) -> None:
+    now = [datetime(2026, 7, 9, tzinfo=timezone.utc)]
     adaptive_store = FrozenAdaptiveQueryStore(
-        tmp_path / "private-recovery" / "frozen-queries.sqlite3",
+        tmp_path / "private" / "frozen-queries.sqlite3",
+        clock=lambda: now[0],
+    )
+    indicator_args = {
+        "ticker": "600000.SH",
+        "as_of": "2026-07-09",
+        "lookback": 20,
+        "indicator": "rsi",
+    }
+    adaptive_transports: list[tuple[str, dict]] = []
+
+    def adaptive_materializer(tool_id: str, args: dict) -> dict:
+        adaptive_transports.append((tool_id, dict(args)))
+        return {
+            "payload": json.dumps(
+                {"tool": tool_id, "args": args, "frozen": True},
+                sort_keys=True,
+            ),
+            "source_receipt_hashes": [],
+        }
+
+    def deferred_sector_preparer(**_kwargs: object) -> dict:
+        return adaptive_store.prepare(
+            agent_id="energy",
+            stage="energy",
+            as_of="2026-07-09",
+            authorized_scope={
+                "as_of": "2026-07-09",
+                "earliest_date": "2026-06-01",
+                "tickers": ["600000.SH"],
+                "etfs": ["512800.SH"],
+                "sectors": ["coal"],
+                "indicator_families": ["rsi"],
+            },
+            query_requests=[{"tool_id": "get_indicators", "args": indicator_args}],
+            preservation_overlay=build_sector_relationship_preservation_overlay(
+                Path(__file__).parents[1]
+            ),
+            materializer=adaptive_materializer,
+            defer_materialization=True,
+        )
+
+    adaptive_preparer = ActiveAdaptiveQueryPreparer(
+        sector_relationship_preparer=deferred_sector_preparer,
+        bound_runtime_preparer=lambda **_kwargs: pytest.fail(
+            "sector test dispatched to the bound-runtime preparer"
+        ),
+    )
+    snapshot_calls: list[str] = []
+
+    def stage_finalizer(context: dict) -> dict:
+        if finalizer_status == "SYNTHETIC_NON_PRODUCTION_BYPASS":
+            return {"status": finalizer_status}
+        tool_ids = sorted(context["initial_snapshot_tool_ids"])
+        return {
+            "agent_id": context["agent_id"],
+            "stage": context["stage"],
+            "as_of": context["as_of"],
+            "status": "READY",
+            "tool_ids": tool_ids,
+            "build_receipt_hashes": {
+                tool_id: canonical_hash(
+                    {
+                        "tool_id": tool_id,
+                        "payload_hash": context["tool_payload_hashes"][tool_id],
+                    }
+                )
+                for tool_id in tool_ids
+            },
+            "materialization_attempt_receipt_hash": None,
+            "cache_status": "MISS",
+            "deferred_tool_ids": sorted(context["deferred_tool_ids"]),
+            "deferred_query_bundle_hash": context["adaptive_query"]["bundle_hash"],
+            "deferred_query_call_contract": CALL_TIME_ARGUMENT_CONTRACT,
+        }
+
+    store = AgentToolCapabilityStore(
+        tmp_path / "capabilities.sqlite3",
+        signing_key=b"test-signing-key-32-bytes-long!!!",
+        signing_key_id="test-key-v1",
+        clock=lambda: now[0],
+        adaptive_query_store=adaptive_store,
+        adaptive_query_preparer=adaptive_preparer,
+        adaptive_query_materializer=adaptive_materializer,
+        stage_materialization_finalizer=stage_finalizer,
+        require_knot_v2_audit_authority=True,
+    )
+
+    prepared = store.prepare(
+        _request("energy"),
+        materializer=lambda tool_id, **_kwargs: (
+            snapshot_calls.append(tool_id)
+            or json.dumps({"tool": tool_id, "snapshot": True}, sort_keys=True)
+        ),
+    )
+    envelope = prepared["capability"]
+    assert adaptive_transports == []
+    assert snapshot_calls == [
+        "get_sector_research_snapshot",
+        "get_role_event_snapshot",
+    ]
+    assert set(prepared["bundle"]["tool_payload_hashes"]) == set(
+        allowed_tools_for_agent("energy")
+    )
+    with sqlite3.connect(store.db_path) as conn:
+        stored_projection = json.loads(
+            conn.execute(
+                "SELECT public_projection_json FROM snapshot_bundle_adaptive_queries"
+            ).fetchone()[0]
+        )
+        signed_context = json.loads(
+            conn.execute(
+                "SELECT context_json FROM snapshot_bundle_audit_contexts"
+            ).fetchone()[0]
+        )
+        signed_capability_context = json.loads(
+            conn.execute(
+                "SELECT context_json FROM capability_audit_contexts"
+            ).fetchone()[0]
+        )
+    expected_eligibility = (
+        "ELIGIBLE" if finalizer_status == "READY" else "INELIGIBLE"
+    )
+    assert signed_context["knot_v2_eligibility"] == expected_eligibility
+    assert signed_context["ineligibility_reasons"] == (
+        []
+        if finalizer_status == "READY"
+        else ["SYNTHETIC_NON_PRODUCTION_BYPASS"]
+    )
+    assert signed_capability_context["knot_v2_eligibility"] == expected_eligibility
+    active_indicator_context = next(
+        context
+        for context in signed_context["tool_contexts"]
+        if context["tool_id"] == "get_indicators"
+    )
+    assert len(active_indicator_context["binding_refs"]) == 1
+    assert stored_projection["entries"][0]["binding_id"] == (
+        active_indicator_context["binding_refs"][0]["binding_id"]
+    )
+    expected = {"tool": "get_indicators", "args": indicator_args, "frozen": True}
+    if finalizer_status == "SYNTHETIC_NON_PRODUCTION_BYPASS":
+        result = store.call_tool_result(envelope, "get_indicators", indicator_args)
+        assert json.loads(result["text"]) == expected
+        assert "audit" not in result
+        assert adaptive_transports == [("get_indicators", indicator_args)]
+    else:
+        for _round in range(3):
+            result = store.call_tool_result(envelope, "get_indicators", indicator_args)
+            assert json.loads(result["text"]) == expected
+            assert result["audit"]["result_authority_type"] == "FROZEN_QUERY"
+        with pytest.raises(ValueError, match="follow-up round limit is exhausted"):
+            store.call_tool_result(envelope, "get_indicators", indicator_args)
+        assert adaptive_transports == [
+            ("get_indicators", indicator_args),
+            ("get_indicators", indicator_args),
+            ("get_indicators", indicator_args),
+        ]
+    assert snapshot_calls == [
+        "get_sector_research_snapshot",
+        "get_role_event_snapshot",
+    ]
+
+    with sqlite3.connect(store.db_path) as conn:
+        event_rows = conn.execute(
+            "SELECT call_mode, status, event_json FROM tool_result_events "
+            "ORDER BY sequence"
+        ).fetchall()
+        if finalizer_status == "SYNTHETIC_NON_PRODUCTION_BYPASS":
+            assert event_rows == []
+        else:
+            assert (
+                [row[:2] for row in event_rows].count(("FOLLOW_UP", "SUCCEEDED"))
+                == 3
+            )
+    with sqlite3.connect(adaptive_store.db_path) as conn:
+        assert conn.execute("SELECT count(*) FROM frozen_query_payloads").fetchone()[0] == 0
+
+
+def test_legacy_eager_followup_uses_frozen_store_and_generic_result_event(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 7, 9, tzinfo=timezone.utc)
+    frozen = FrozenAdaptiveQueryStore(
+        tmp_path / "private-eager" / "frozen-queries.sqlite3",
         clock=lambda: now,
     )
     indicator_args = {
@@ -1368,8 +1795,8 @@ def _prepared_sector_adaptive_capability(
         "lookback": 20,
         "indicator": "rsi",
     }
-    expected = {"tool": "get_indicators", "args": indicator_args, "frozen": True}
-    adaptive = adaptive_store.prepare(
+    expected = {"tool": "get_indicators", "args": indicator_args}
+    prepared_query = frozen.prepare(
         agent_id="energy",
         stage="energy",
         as_of="2026-07-09",
@@ -1422,12 +1849,12 @@ def _prepared_sector_adaptive_capability(
         }
 
     store = AgentToolCapabilityStore(
-        tmp_path / "capabilities-recovery.sqlite3",
+        tmp_path / "capabilities-eager.sqlite3",
         signing_key=b"test-signing-key-32-bytes-long!!!",
         signing_key_id="test-key-v1",
         clock=lambda: now,
-        adaptive_query_store=adaptive_store,
-        adaptive_query_preparer=lambda **_kwargs: adaptive,
+        adaptive_query_store=frozen,
+        adaptive_query_preparer=lambda **_kwargs: prepared_query,
         stage_materialization_finalizer=stage_finalizer,
     )
     prepared = store.prepare(
@@ -1436,358 +1863,17 @@ def _prepared_sector_adaptive_capability(
             {"tool": tool_id, "snapshot": True}, sort_keys=True
         ),
     )
-    return store, adaptive_store, prepared["capability"], indicator_args, expected
 
-
-def test_sector_capability_binds_frozen_adaptive_queries_and_limits_each_session(
-    tmp_path: Path,
-) -> None:
-    now = [datetime(2026, 7, 9, tzinfo=timezone.utc)]
-    adaptive_store = FrozenAdaptiveQueryStore(
-        tmp_path / "private" / "frozen-queries.sqlite3",
-        clock=lambda: now[0],
-    )
-    indicator_args = {
-        "ticker": "600000.SH",
-        "as_of": "2026-07-09",
-        "lookback": 20,
-        "indicator": "rsi",
-    }
-    adaptive_transports: list[tuple[str, dict]] = []
-    adaptive = adaptive_store.prepare(
-        agent_id="energy",
-        stage="energy",
-        as_of="2026-07-09",
-        authorized_scope={
-            "as_of": "2026-07-09",
-            "earliest_date": "2026-06-01",
-            "tickers": ["600000.SH"],
-            "etfs": ["512800.SH"],
-            "sectors": ["coal"],
-            "indicator_families": ["rsi"],
-        },
-        query_requests=[{"tool_id": "get_indicators", "args": indicator_args}],
-        preservation_overlay=build_sector_relationship_preservation_overlay(
-            Path(__file__).parents[1]
-        ),
-        materializer=lambda tool_id, args: (
-            adaptive_transports.append((tool_id, args))
-            or {
-                "payload": json.dumps(
-                    {"tool": tool_id, "args": args, "frozen": True},
-                    sort_keys=True,
-                ),
-                "source_receipt_hashes": [
-                    canonical_hash({"source": tool_id, "args": args})
-                ],
-            }
-        ),
-    )
-    snapshot_calls: list[str] = []
-
-    def stage_finalizer(context: dict) -> dict:
-        tool_ids = sorted(context["tool_payload_hashes"])
-        return {
-            "agent_id": context["agent_id"],
-            "stage": context["stage"],
-            "as_of": context["as_of"],
-            "status": "READY",
-            "tool_ids": tool_ids,
-            "build_receipt_hashes": {
-                tool_id: canonical_hash(
-                    {
-                        "tool_id": tool_id,
-                        "payload_hash": context["tool_payload_hashes"][tool_id],
-                    }
-                )
-                for tool_id in tool_ids
-            },
-            "materialization_attempt_receipt_hash": canonical_hash(
-                {
-                    "materialization_request_id": context[
-                        "materialization_request_id"
-                    ],
-                    "tool_ids": tool_ids,
-                }
-            ),
-            "cache_status": "MISS",
-        }
-
-    store = AgentToolCapabilityStore(
-        tmp_path / "capabilities.sqlite3",
-        signing_key=b"test-signing-key-32-bytes-long!!!",
-        signing_key_id="test-key-v1",
-        clock=lambda: now[0],
-        adaptive_query_store=adaptive_store,
-        adaptive_query_preparer=lambda **_kwargs: adaptive,
-        stage_materialization_finalizer=stage_finalizer,
+    result = store.call_tool_result(
+        prepared["capability"], "get_indicators", indicator_args
     )
 
-    prepared = store.prepare(
-        _request("energy"),
-        materializer=lambda tool_id, **_kwargs: (
-            snapshot_calls.append(tool_id)
-            or json.dumps({"tool": tool_id, "snapshot": True}, sort_keys=True)
-        ),
-    )
-    envelope = prepared["capability"]
-    assert snapshot_calls == [
-        "get_sector_research_snapshot",
-        "get_role_event_snapshot",
-    ]
-    assert set(prepared["bundle"]["tool_payload_hashes"]) == set(
-        allowed_tools_for_agent("energy")
-    )
-    indicator_metadata = next(
-        row for row in store.list_tools(envelope) if row["name"] == "get_indicators"
-    )
-    assert indicator_metadata["args_schema"]["required"] == [
-        "ticker",
-        "as_of",
-        "lookback",
-        "indicator",
-    ]
-    assert indicator_metadata["args_schema"]["properties"]["indicator"]["enum"] == [
-        "atr",
-        "boll",
-        "boll_lb",
-        "boll_ub",
-        "close_10_ema",
-        "close_200_sma",
-        "close_50_sma",
-        "macd",
-        "macdh",
-        "macds",
-        "mfi",
-        "rsi",
-        "vwma",
-    ]
-
-    assert json.loads(
-        store.call_tool(envelope, "get_sector_research_snapshot", {})
-    ) == {"snapshot": True, "tool": "get_sector_research_snapshot"}
-    with pytest.raises(ValueError, match="not present in the frozen query bundle"):
-        store.call_tool(
-            envelope,
-            "get_indicators",
-            {**indicator_args, "lookback": 21},
-        )
-    expected = {"tool": "get_indicators", "args": indicator_args, "frozen": True}
-    for _round in range(3):
-        result = store.call_tool_result(envelope, "get_indicators", indicator_args)
-        assert json.loads(result["text"]) == expected
-        assert result["audit"]["result_authority_type"] == "FROZEN_QUERY"
-    with pytest.raises(ValueError, match="maximum 3 adaptive query rounds"):
-        store.call_tool(envelope, "get_indicators", indicator_args)
-    assert adaptive_transports == [("get_indicators", indicator_args)]
-    assert snapshot_calls == [
-        "get_sector_research_snapshot",
-        "get_role_event_snapshot",
-    ]
-
-    reissued = store.issue_for_bundle(
-        {
-            "graph_run_id": "graph-1",
-            "run_slot_id": "slot-energy-reissue",
-            "run_id": "run-2",
-            "node_id": "node-energy-reissue",
-            "agent_id": "energy",
-            "stage": "energy",
-            "as_of": "2026-07-09",
-            "snapshot_bundle_id": prepared["bundle"]["snapshot_bundle_id"],
-            "snapshot_bundle_hash": prepared["bundle"]["snapshot_bundle_hash"],
-            "ttl_seconds": 60,
-        }
-    )
-    reissued_result = store.call_tool_result(
-        reissued["capability"], "get_indicators", indicator_args
-    )
-    assert json.loads(reissued_result["text"]) == expected
-    assert reissued_result["audit"]["result_authority_type"] == "FROZEN_QUERY"
-    with sqlite3.connect(store.db_path) as conn:
-        event_rows = conn.execute(
-            "SELECT call_mode, status, event_json FROM tool_result_events "
-            "ORDER BY capability_id, sequence"
-        ).fetchall()
-        assert [row[0] for row in event_rows].count("SNAPSHOT") == 1
-        assert [row[0] for row in event_rows].count("FOLLOW_UP") == 6
-        failed_events = [
-            json.loads(row[2]) for row in event_rows if row[1] == "FAILED"
-        ]
-        assert [row["error_code"] for row in failed_events] == [
-            "FROZEN_QUERY_REJECTED",
-            "FROZEN_QUERY_REJECTED",
-        ]
-        assert conn.execute("SELECT count(*) FROM adaptive_call_intents").fetchone()[0] == 6
-        assert conn.execute(
-            "SELECT count(*) FROM adaptive_call_completions"
-        ).fetchone()[0] == 4
-        assert conn.execute("SELECT count(*) FROM adaptive_call_aborts").fetchone()[0] == 2
-        for table in (
-            "snapshot_bundle_adaptive_queries",
-            "capability_adaptive_sessions",
-            "adaptive_call_intents",
-            "adaptive_call_completions",
-            "adaptive_call_aborts",
-        ):
-            with pytest.raises(sqlite3.IntegrityError, match="append-only"):
-                conn.execute(f"DELETE FROM {table}")
-    with sqlite3.connect(adaptive_store.db_path) as conn:
-        for table in (
-            "frozen_query_call_reservations",
-            "frozen_query_call_finalizations",
-            "frozen_query_calls",
-        ):
-            assert conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 4
-            with pytest.raises(sqlite3.IntegrityError, match="append-only"):
-                conn.execute(f"DELETE FROM {table}")
-
-
-def test_adaptive_followup_recovers_after_reservation_before_result_event(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    store, frozen, envelope, indicator_args, expected = (
-        _prepared_sector_adaptive_capability(tmp_path)
-    )
-    original_append = store._append_result_event
-
-    def crash_before_result_event(*_args: object, **_kwargs: object) -> None:
-        raise RuntimeError("injected crash before result event")
-
-    monkeypatch.setattr(store, "_append_result_event", crash_before_result_event)
-    with pytest.raises(RuntimeError, match="injected crash before result event"):
-        store.call_tool_result(envelope, "get_indicators", indicator_args)
-
-    with sqlite3.connect(store.db_path) as conn:
-        assert conn.execute("SELECT count(*) FROM adaptive_call_intents").fetchone()[0] == 1
-        assert conn.execute(
-            "SELECT count(*) FROM adaptive_call_completions"
-        ).fetchone()[0] == 0
-        assert conn.execute("SELECT count(*) FROM adaptive_call_aborts").fetchone()[0] == 0
-        assert conn.execute("SELECT count(*) FROM tool_result_events").fetchone()[0] == 0
-    with sqlite3.connect(frozen.db_path) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM frozen_query_call_reservations"
-        ).fetchone()[0] == 1
-        assert conn.execute(
-            "SELECT count(*) FROM frozen_query_call_finalizations"
-        ).fetchone()[0] == 0
-        assert conn.execute("SELECT count(*) FROM frozen_query_calls").fetchone()[0] == 0
-
-    monkeypatch.setattr(store, "_append_result_event", original_append)
-    result = store.call_tool_result(envelope, "get_indicators", indicator_args)
     assert json.loads(result["text"]) == expected
     assert result["audit"]["result_authority_type"] == "FROZEN_QUERY"
     with sqlite3.connect(store.db_path) as conn:
-        conn.row_factory = sqlite3.Row
-        completion = conn.execute(
-            "SELECT * FROM adaptive_call_completions"
-        ).fetchone()
-        assert completion is not None
-        assert json.loads(completion["audit_json"]) == result["audit"]
-        assert completion["audit_hash"] == canonical_hash(result["audit"])
         assert conn.execute("SELECT count(*) FROM tool_result_events").fetchone()[0] == 1
-        for table in (
-            "adaptive_call_intents",
-            "adaptive_call_completions",
-        ):
-            with pytest.raises(sqlite3.IntegrityError, match="append-only"):
-                conn.execute(f"DELETE FROM {table}")
     with sqlite3.connect(frozen.db_path) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM frozen_query_call_reservations"
-        ).fetchone()[0] == 1
-        assert conn.execute(
-            "SELECT count(*) FROM frozen_query_call_finalizations"
-        ).fetchone()[0] == 1
         assert conn.execute("SELECT count(*) FROM frozen_query_calls").fetchone()[0] == 1
-
-
-def test_adaptive_followup_recovers_completion_before_frozen_finalization(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    store, frozen, envelope, indicator_args, expected = (
-        _prepared_sector_adaptive_capability(tmp_path)
-    )
-    original_finalize = frozen.finalize_reserved_result
-    finalization_attempts = 0
-
-    def crash_before_frozen_finalization(**_kwargs: object) -> None:
-        nonlocal finalization_attempts
-        finalization_attempts += 1
-        raise RuntimeError("injected crash before frozen finalization")
-
-    monkeypatch.setattr(
-        frozen, "finalize_reserved_result", crash_before_frozen_finalization
-    )
-    with pytest.raises(RuntimeError, match="injected crash before frozen finalization"):
-        store.call_tool_result(envelope, "get_indicators", indicator_args)
-    assert finalization_attempts == 1
-
-    with sqlite3.connect(store.db_path) as conn:
-        conn.row_factory = sqlite3.Row
-        completion = conn.execute(
-            "SELECT * FROM adaptive_call_completions"
-        ).fetchone()
-        assert completion is not None
-        committed_audit = json.loads(completion["audit_json"])
-        assert conn.execute("SELECT count(*) FROM tool_result_events").fetchone()[0] == 1
-    with sqlite3.connect(frozen.db_path) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM frozen_query_call_reservations"
-        ).fetchone()[0] == 1
-        assert conn.execute(
-            "SELECT count(*) FROM frozen_query_call_finalizations"
-        ).fetchone()[0] == 0
-        assert conn.execute("SELECT count(*) FROM frozen_query_calls").fetchone()[0] == 0
-
-    monkeypatch.setattr(frozen, "finalize_reserved_result", original_finalize)
-    recovered = store.call_tool_result(envelope, "get_indicators", indicator_args)
-    assert json.loads(recovered["text"]) == expected
-    assert recovered["audit"] == committed_audit
-    with sqlite3.connect(store.db_path) as conn:
-        assert conn.execute("SELECT count(*) FROM adaptive_call_intents").fetchone()[0] == 1
-        assert conn.execute(
-            "SELECT count(*) FROM adaptive_call_completions"
-        ).fetchone()[0] == 1
-        assert conn.execute("SELECT count(*) FROM tool_result_events").fetchone()[0] == 1
-    with sqlite3.connect(frozen.db_path) as conn:
-        finalization = conn.execute(
-            "SELECT result_event_id, result_event_hash "
-            "FROM frozen_query_call_finalizations"
-        ).fetchone()
-        assert finalization == (
-            committed_audit["result_event_id"],
-            committed_audit["result_event_hash"],
-        )
-        assert conn.execute("SELECT count(*) FROM frozen_query_calls").fetchone()[0] == 1
-
-
-def test_adaptive_followup_recovery_revalidates_committed_completion(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    store, frozen, envelope, indicator_args, _ = (
-        _prepared_sector_adaptive_capability(tmp_path)
-    )
-
-    def crash_before_frozen_finalization(**_kwargs: object) -> None:
-        raise RuntimeError("injected crash before frozen finalization")
-
-    monkeypatch.setattr(
-        frozen, "finalize_reserved_result", crash_before_frozen_finalization
-    )
-    with pytest.raises(RuntimeError, match="injected crash before frozen finalization"):
-        store.call_tool_result(envelope, "get_indicators", indicator_args)
-
-    with sqlite3.connect(store.db_path) as conn:
-        conn.execute("DROP TRIGGER adaptive_call_completions_no_update")
-        conn.execute("UPDATE adaptive_call_completions SET audit_json = '{}' ")
-    with pytest.raises(ValueError, match="adaptive call completion authority mismatch"):
-        store.call_tool_result(envelope, "get_indicators", indicator_args)
-    with sqlite3.connect(store.db_path) as conn:
-        assert conn.execute("SELECT count(*) FROM tool_result_events").fetchone()[0] == 1
-    with sqlite3.connect(frozen.db_path) as conn:
-        assert conn.execute("SELECT count(*) FROM frozen_query_calls").fetchone()[0] == 0
 
 
 def test_prepare_rejects_live_source_drift_before_capability_issuance(
@@ -1972,9 +2058,6 @@ def test_capability_ledger_tables_reject_update_and_delete(tmp_path):
             "tool_security_rejections",
             "snapshot_bundle_adaptive_queries",
             "capability_adaptive_sessions",
-            "adaptive_call_intents",
-            "adaptive_call_completions",
-            "adaptive_call_aborts",
             "sector_model_usage_events",
             "sector_model_usage_summaries",
         }

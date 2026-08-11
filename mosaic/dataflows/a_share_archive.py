@@ -30,6 +30,10 @@ from mosaic.dataflows.market_breadth import (
     BreadthInputs,
     compute_market_breadth_snapshot,
 )
+from mosaic.dataflows.runtime_paths import (
+    agent_cache_root,
+    isolated_agent_runtime_path,
+)
 from mosaic.dataflows.tushare_catalog import (
     assert_endpoint_capture_preflight_allowed,
     endpoint_registration,
@@ -59,6 +63,8 @@ _ENDPOINTS = (
     "suspend_d",
     "daily_basic",
 )
+A_SHARE_CAPTURE_ENDPOINTS = tuple(sorted(_ENDPOINTS))
+_DATED_ENDPOINTS = frozenset({"daily", "adj_factor", "suspend_d", "daily_basic"})
 _REQUIRED_COLUMNS: dict[str, frozenset[str]] = {
     "trade_cal": frozenset({"cal_date", "is_open"}),
     "stock_basic": frozenset({"ts_code", "list_date"}),
@@ -115,6 +121,9 @@ class AShareArchiveResult:
 
 
 def a_share_archive_path(root: Path | None = None) -> Path:
+    isolated = isolated_agent_runtime_path("market_breadth/a_share_archive.sqlite3")
+    if isolated is not None:
+        return isolated
     explicit = os.getenv("MOSAIC_A_SHARE_ARCHIVE_DB")
     if explicit and root is None:
         return Path(explicit).expanduser()
@@ -123,8 +132,7 @@ def a_share_archive_path(root: Path | None = None) -> Path:
     breadth_root = os.getenv("MOSAIC_MARKET_BREADTH_DATA_DIR")
     if breadth_root:
         return Path(breadth_root).expanduser() / "a_share_archive.sqlite3"
-    cache_root = Path(os.getenv("MOSAIC_CACHE_DIR", "~/.mosaic/cache")).expanduser()
-    return cache_root / "market_breadth" / "a_share_archive.sqlite3"
+    return agent_cache_root() / "market_breadth" / "a_share_archive.sqlite3"
 
 
 def _canonical_json(value: Any) -> str:
@@ -149,6 +157,32 @@ def _timestamp(value: str, field: str) -> datetime:
 
 def _api_date(value: date) -> str:
     return value.strftime("%Y%m%d")
+
+
+def _requested_endpoints(value: Sequence[str] | None) -> tuple[str, ...]:
+    if value is None:
+        return A_SHARE_CAPTURE_ENDPOINTS
+    if isinstance(value, (str, bytes)):
+        raise ValueError("requested_endpoints must be a sequence of endpoint IDs")
+    endpoints = tuple(value)
+    if (
+        not endpoints
+        or endpoints != tuple(sorted(set(endpoints)))
+        or not set(endpoints) <= set(_ENDPOINTS)
+    ):
+        raise ValueError(
+            "requested_endpoints must be a non-empty sorted unique A-share endpoint subset"
+        )
+    return endpoints
+
+
+def _group_endpoints(group: Mapping[str, Any]) -> tuple[str, ...]:
+    value = group.get("requested_endpoints")
+    if value is None:
+        return A_SHARE_CAPTURE_ENDPOINTS
+    if not isinstance(value, list) or not all(isinstance(row, str) for row in value):
+        raise ValueError("A-share capture requested_endpoints are invalid")
+    return _requested_endpoints(value)
 
 
 def _capture_now() -> datetime:
@@ -298,16 +332,26 @@ class AShareArchiveStore:
         with self._connect(read_only=True) as conn:
             return int(conn.execute("SELECT count(*) FROM a_share_capture_groups").fetchone()[0])
 
-    def load_group(self, as_of_date: str) -> dict[str, Any]:
+    def load_group(
+        self,
+        as_of_date: str,
+        *,
+        required_endpoints: Sequence[str] | None = None,
+    ) -> dict[str, Any]:
+        endpoint_scope = _requested_endpoints(required_endpoints)
         with self._connect(read_only=True) as conn:
-            row = conn.execute(
+            rows = conn.execute(
                 "SELECT * FROM a_share_capture_groups WHERE as_of_date = ? "
-                "ORDER BY captured_at DESC LIMIT 1",
+                "ORDER BY captured_at DESC",
                 (as_of_date,),
-            ).fetchone()
-            if row is None:
-                raise FileNotFoundError(f"no A-share capture group for {as_of_date}")
-            return self._decode(row)
+            ).fetchall()
+            for row in rows:
+                group = self._decode(row)
+                if _group_endpoints(group) == endpoint_scope:
+                    return group
+            raise FileNotFoundError(
+                f"no A-share capture group for {as_of_date} and endpoint scope"
+            )
 
     def load_inputs(self, as_of_date: str) -> BreadthInputs:
         import pandas as pd  # noqa: PLC0415
@@ -578,70 +622,85 @@ def _build_capture_group(
     as_of_date: date,
     cutoff_at: str,
     capture_key: str,
+    historical_replay: bool,
+    requested_endpoints: Sequence[str] | None = None,
 ) -> dict[str, Any]:
+    endpoint_scope = _requested_endpoints(requested_endpoints)
+    endpoint_set = set(endpoint_scope)
+    transport_endpoints = set(endpoint_scope)
+    if endpoint_set & _DATED_ENDPOINTS:
+        transport_endpoints.add("trade_cal")
     for endpoint in _ENDPOINTS:
+        if endpoint not in transport_endpoints:
+            continue
         assert_endpoint_capture_preflight_allowed(endpoint)
     cutoff = _timestamp(cutoff_at, "cutoff_at")
     started = _capture_now()
-    if started > cutoff:
+    started_local = started.astimezone(_SHANGHAI)
+    if historical_replay:
+        if as_of_date >= started_local.date():
+            raise AShareMarketSessionIncomplete
+    elif started > cutoff:
         raise AShareCaptureAfterCutoff
-    if (
-        started.astimezone(_SHANGHAI).date() != as_of_date
-        or started.astimezone(_SHANGHAI).time() < _MARKET_CLOSE
-    ):
+    elif started_local.date() != as_of_date or started_local.time() < _MARKET_CLOSE:
         raise AShareMarketSessionIncomplete
     started_at = started.isoformat()
     start_date = as_of_date - timedelta(days=HISTORY_CALENDAR_DAYS)
-    trade_cal, trade_cal_duplicates, trade_cal_pages = _seal_batch(
-        endpoint="trade_cal",
-        requests=(
-            {
-                "exchange": "SSE",
-                "start_date": _api_date(start_date),
-                "end_date": _api_date(as_of_date),
-            },
-        ),
-        fetch=fetch,
-        captured_at=started_at,
-        require_each_nonempty=True,
-        confirm_terminal=False,
-    )
-    sessions = _calendar_sessions(
-        trade_cal["rows"], start_date=start_date, as_of_date=as_of_date
-    )
-    stock_basic, stock_duplicates, stock_pages = _seal_batch(
-        endpoint="stock_basic",
-        requests=tuple(
-            {
-                "exchange": "",
-                "list_status": status,
-                "fields": (
-                    "ts_code,symbol,name,area,industry,cnspell,market,list_date,"
-                    "act_name,act_ent_type,delist_date,list_status,exchange,"
-                    "curr_type,fullname,enname"
-                ),
-            }
-            for status in ("D", "L", "P")
-        ),
-        fetch=fetch,
-        captured_at=started_at,
-        require_each_nonempty=False,
-        confirm_terminal=True,
-    )
-    if not stock_basic["rows"]:
-        raise AShareIncompleteCoverage("stock_basic returned no securities")
-    _require_unique_keys(stock_basic, ("ts_code",))
+    batches: list[dict[str, Any]] = []
+    page_counts: dict[str, int] = {}
+    duplicate_counts: dict[str, int] = {}
+    sessions: list[str] = []
+    if "trade_cal" in transport_endpoints:
+        trade_cal, trade_cal_duplicates, trade_cal_pages = _seal_batch(
+            endpoint="trade_cal",
+            requests=(
+                {
+                    "exchange": "SSE",
+                    "start_date": _api_date(start_date),
+                    "end_date": _api_date(as_of_date),
+                },
+            ),
+            fetch=fetch,
+            captured_at=started_at,
+            require_each_nonempty=True,
+            confirm_terminal=False,
+        )
+        sessions = _calendar_sessions(
+            trade_cal["rows"], start_date=start_date, as_of_date=as_of_date
+        )
+        batches.append(trade_cal)
+        page_counts["trade_cal"] = trade_cal_pages
+        duplicate_counts["trade_cal"] = trade_cal_duplicates
+    if "stock_basic" in endpoint_set:
+        stock_basic, stock_duplicates, stock_pages = _seal_batch(
+            endpoint="stock_basic",
+            requests=tuple(
+                {
+                    "exchange": "",
+                    "list_status": status,
+                    "fields": (
+                        "ts_code,symbol,name,area,industry,cnspell,market,list_date,"
+                        "act_name,act_ent_type,delist_date,list_status,exchange,"
+                        "curr_type,fullname,enname"
+                    ),
+                }
+                for status in ("D", "L", "P")
+            ),
+            fetch=fetch,
+            captured_at=started_at,
+            require_each_nonempty=False,
+            confirm_terminal=True,
+        )
+        if not stock_basic["rows"]:
+            raise AShareIncompleteCoverage("stock_basic returned no securities")
+        _require_unique_keys(stock_basic, ("ts_code",))
+        batches.append(stock_basic)
+        page_counts["stock_basic"] = stock_pages
+        duplicate_counts["stock_basic"] = stock_duplicates
     dated_requests = tuple({"trade_date": session} for session in sessions)
-    batches = [trade_cal, stock_basic]
-    page_counts = {
-        "trade_cal": trade_cal_pages,
-        "stock_basic": stock_pages,
-    }
-    duplicate_counts = {
-        "trade_cal": trade_cal_duplicates,
-        "stock_basic": stock_duplicates,
-    }
     for endpoint in ("daily", "adj_factor", "suspend_d", "daily_basic"):
+        if endpoint not in endpoint_set:
+            continue
         batch, duplicates, pages = _seal_batch(
             endpoint=endpoint,
             requests=dated_requests,
@@ -655,14 +714,16 @@ def _build_capture_group(
         batches.append(batch)
         duplicate_counts[endpoint] = duplicates
         page_counts[endpoint] = pages
-    _validate_session_closure(batches, sessions)
+    if endpoint_set == set(_ENDPOINTS):
+        _validate_session_closure(batches, sessions)
     completed = _capture_now()
-    if completed > cutoff:
+    completed_local = completed.astimezone(_SHANGHAI)
+    if historical_replay:
+        if as_of_date >= completed_local.date():
+            raise AShareMarketSessionIncomplete
+    elif completed > cutoff:
         raise AShareCaptureAfterCutoff
-    if (
-        completed.astimezone(_SHANGHAI).date() != as_of_date
-        or completed.astimezone(_SHANGHAI).time() < _MARKET_CLOSE
-    ):
+    elif completed_local.date() != as_of_date or completed_local.time() < _MARKET_CLOSE:
         raise AShareMarketSessionIncomplete
     completed_at = completed.isoformat()
     for batch in batches:
@@ -672,7 +733,7 @@ def _build_capture_group(
         "capture_key": capture_key,
         "route_id": ROUTE_ID,
         "as_of_date": as_of_date.isoformat(),
-        "cutoff_at": cutoff_at,
+        "cutoff_at": completed_at if historical_replay else cutoff_at,
         "captured_at": completed_at,
         "requested_start": start_date.isoformat(),
         "requested_end": as_of_date.isoformat(),
@@ -682,11 +743,14 @@ def _build_capture_group(
         "page_count": sum(page_counts.values()),
         "batches": batches,
     }
-    inputs = _group_inputs(group)
-    try:
-        compute_market_breadth_snapshot(inputs, as_of_date.isoformat())
-    except (BreadthCoverageError, BreadthHistoryError) as exc:
-        raise AShareIncompleteCoverage("captured tables cannot build breadth") from exc
+    if endpoint_set != set(_ENDPOINTS):
+        group["requested_endpoints"] = list(endpoint_scope)
+    else:
+        inputs = _group_inputs(group)
+        try:
+            compute_market_breadth_snapshot(inputs, as_of_date.isoformat())
+        except (BreadthCoverageError, BreadthHistoryError) as exc:
+            raise AShareIncompleteCoverage("captured tables cannot build breadth") from exc
     return group
 
 
@@ -857,11 +921,60 @@ def _failed_result(
     )
 
 
+def capture_a_share_parent_sources(
+    fetch: Callable[..., Any],
+    *,
+    as_of_date: str,
+    cutoff_at: str,
+    requested_endpoints: Sequence[str],
+    historical_replay: bool = False,
+    store: AShareArchiveStore,
+) -> tuple[dict[str, Any], bool]:
+    """Capture only the existing A-share endpoints required by one child route."""
+
+    as_of = date.fromisoformat(as_of_date)
+    cutoff = _timestamp(cutoff_at, "cutoff_at")
+    cutoff_local = cutoff.astimezone(_SHANGHAI)
+    endpoint_scope = _requested_endpoints(requested_endpoints)
+    if set(endpoint_scope) == set(_ENDPOINTS):
+        raise ValueError("complete A-share capture must use archive_a_share_breadth")
+    if not isinstance(historical_replay, bool):
+        raise ValueError("historical_replay must be a boolean")
+    if not historical_replay and (
+        cutoff_local.date() != as_of or cutoff_local.time() <= _MARKET_CLOSE
+    ):
+        raise AShareMarketSessionIncomplete
+    capture_key = canonical_hash(
+        {
+            "route_id": ROUTE_ID,
+            "as_of_date": as_of_date,
+            "parent_endpoint_scope": list(endpoint_scope),
+            **(
+                {"historical_replay": True}
+                if historical_replay
+                else {"cutoff_at": cutoff.isoformat()}
+            ),
+        }
+    )
+    return store.get_or_capture(
+        capture_key,
+        lambda: _build_capture_group(
+            fetch,
+            as_of_date=as_of,
+            cutoff_at=cutoff.isoformat(),
+            capture_key=capture_key,
+            historical_replay=historical_replay,
+            requested_endpoints=endpoint_scope,
+        ),
+    )
+
+
 def archive_a_share_breadth(
     fetch: Callable[..., Any],
     *,
     as_of_date: str,
     cutoff_at: str,
+    historical_replay: bool = False,
     store: AShareArchiveStore,
     ledger: AgentDataMaterializationLedger,
 ) -> AShareArchiveResult:
@@ -869,7 +982,9 @@ def archive_a_share_breadth(
     as_of = date.fromisoformat(as_of_date)
     cutoff = _timestamp(cutoff_at, "cutoff_at")
     cutoff_local = cutoff.astimezone(_SHANGHAI)
-    if (
+    if not isinstance(historical_replay, bool):
+        raise ValueError("historical_replay must be a boolean")
+    if not historical_replay and (
         cutoff_local.date() != as_of
         or cutoff_local.time() <= _MARKET_CLOSE
     ):
@@ -884,7 +999,11 @@ def archive_a_share_breadth(
         {
             "route_id": ROUTE_ID,
             "as_of_date": as_of_date,
-            "cutoff_at": cutoff.isoformat(),
+            **(
+                {"historical_replay": True}
+                if historical_replay
+                else {"cutoff_at": cutoff.isoformat()}
+            ),
         }
     )
     try:
@@ -895,12 +1014,13 @@ def archive_a_share_breadth(
                 as_of_date=as_of,
                 cutoff_at=cutoff.isoformat(),
                 capture_key=capture_key,
+                historical_replay=historical_replay,
             ),
         )
         source = _source_receipt(group)
         coverage = _coverage_receipt(
             as_of_date=as_of_date,
-            cutoff_at=cutoff.isoformat(),
+            cutoff_at=str(group["cutoff_at"]),
             capture_hash=source.receipt_hash,
             status="SUCCESS",
             blocker_codes=[],

@@ -61,6 +61,30 @@ describe("jsonSchemaToZod", () => {
     expect(() => zod.parse({ series_id: 1, start_date: "2024-01-01" })).toThrow();
   });
 
+  it("converts constrained primitive arrays without widening the item contract", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        industry_filters: {
+          type: "array",
+          items: { type: "string", minLength: 1 },
+          minItems: 1,
+          maxItems: 3,
+          uniqueItems: true,
+        },
+      },
+      required: ["industry_filters"],
+    } as unknown as JsonSchemaObject;
+    const zod = jsonSchemaToZod(schema);
+
+    expect(() => zod.parse({ industry_filters: ["银行", "证券"] })).not.toThrow();
+    expect(() => zod.parse({ industry_filters: [] })).toThrow();
+    expect(() => zod.parse({ industry_filters: [""] })).toThrow();
+    expect(() => zod.parse({ industry_filters: ["银行", "银行"] })).toThrow();
+    expect(() => zod.parse({ industry_filters: ["一", "二", "三", "四"] })).toThrow();
+    expect(() => zod.parse({ industry_filters: "银行" })).toThrow();
+  });
+
   it("rejects unsupported features with an actionable error", () => {
     expect(() =>
       jsonSchemaToZod({
@@ -72,7 +96,7 @@ describe("jsonSchemaToZod", () => {
       jsonSchemaToZod({
         type: "object",
         // biome-ignore lint/suspicious/noExplicitAny: deliberately invalid input
-        properties: { weird: { type: "array" as any } },
+        properties: { weird: { type: "array", items: { type: "object" } } as any },
       }),
     ).toThrow(/unsupported type/);
   });
@@ -143,6 +167,62 @@ describe("bridgeToolFromMetadata (unit)", () => {
     expect(calls[0]?.name).toBe("echo");
     expect(calls[0]?.args).toEqual({ series_id: "FEDFUNDS" });
     expect(calls[0]?.capability).toBe(CAPABILITY);
+  });
+
+  it("preserves exact frozen argument unions and rejects cross-spliced tuples", async () => {
+    const calls: unknown[] = [];
+    const fakeApi = {
+      toolsCall: async (_name: string, args: unknown) => {
+        calls.push(args);
+        return { text: "exact" };
+      },
+    } as unknown as BridgeApi;
+    const exactSchema = {
+      type: "object",
+      oneOf: [
+        {
+          type: "object",
+          properties: {
+            ticker: { type: "string", const: "600000.SH" },
+            lookback: { type: "integer", const: 20 },
+            indicator: { type: "string", const: "rsi" },
+          },
+          required: ["ticker", "lookback", "indicator"],
+          additionalProperties: false,
+        },
+        {
+          type: "object",
+          properties: {
+            ticker: { type: "string", const: "601398.SH" },
+            lookback: { type: "integer", const: 30 },
+            indicator: { type: "string", const: "macd" },
+          },
+          required: ["ticker", "lookback", "indicator"],
+          additionalProperties: false,
+        },
+      ],
+    } as unknown as JsonSchemaObject;
+    const exactTool = bridgeToolFromMetadata(
+      fakeApi,
+      {
+        name: "get_indicators",
+        description: "Only frozen indicator requests are legal.",
+        args_schema: exactSchema,
+      },
+      { capability: CAPABILITY },
+    );
+
+    expect(exactTool.schema).toEqual(exactSchema);
+    await expect(
+      exactTool.invoke({ ticker: "600000.SH", lookback: 20, indicator: "rsi" }),
+    ).resolves.toBe("exact");
+    await expect(
+      exactTool.invoke({ ticker: "600000.SH", lookback: 30, indicator: "macd" }),
+    ).rejects.toThrow();
+    await expect(
+      exactTool.invoke({ ticker: "600000.SH", lookback: 20, indicator: "rsi", extra: true }),
+    ).rejects.toThrow();
+    expect(calls).toEqual([{ ticker: "600000.SH", lookback: 20, indicator: "rsi" }]);
   });
 
   it("exposes a runtime-only initial invocation that bypasses model argument validation", async () => {

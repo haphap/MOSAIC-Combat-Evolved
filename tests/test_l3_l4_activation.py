@@ -113,6 +113,27 @@ def test_l3_l4_active_route_manifest_closes_exact_tool_surface() -> None:
     assert active_routes["manifest_hash"] == canonical_hash(
         {key: value for key, value in active_routes.items() if key != "manifest_hash"}
     )
+    route_by_id = {row["route_id"]: row for row in active_routes["routes"]}
+    binding_by_key = {
+        (row["agent_id"], row["stage"], row["tool_id"]): row
+        for row in active_routes["bindings"]
+    }
+    assert binding_by_key[
+        ("druckenmiller", "druckenmiller", "get_yield_curve_cn")
+    ]["required_route_ids"] == ["composite.cn_rates"]
+    assert "tushare.shibor_yield_curve" not in route_by_id
+    assert route_by_id["composite.cn_rates"] == {
+        "route_id": "composite.cn_rates",
+        "source_family": "composite",
+        "contract_version": "composite_cn_rates_mof_chinabond_v1",
+        "pit_strategy": "OBSERVED_LIVE",
+        "implementation_stage": "PR15",
+    }
+    assert set(route_by_id) == {
+        route_id
+        for binding in active_routes["bindings"]
+        for route_id in binding["required_route_ids"]
+    }
     validate_l3_l4_active_fixed_point(
         ROOT,
         active_tool_manifest=active_tools,

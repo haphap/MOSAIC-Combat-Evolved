@@ -8,7 +8,7 @@ import threading
 from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any, Callable, Iterator
 from zoneinfo import ZoneInfo
@@ -200,7 +200,11 @@ class ForwardArchiveQueryReader:
                 raise DataVendorUnavailable("broker industry archive coverage is unavailable")
             return "", None, None
         try:
-            group = self.sector_archive_store.load_group(as_of)
+            group = self.sector_archive_store.load_group(
+                as_of,
+                required_route_ids=("tushare.sector_fundamentals",),
+                required_security_code=ticker,
+            )
             batches = [
                 batch
                 for batch in group.get("batches", ())
@@ -237,6 +241,59 @@ class ForwardArchiveQueryReader:
                     "broker industry archive coverage is unavailable"
                 ) from exc
             return "", None, None
+
+    def _broker_industry_authority(
+        self,
+        *,
+        rows: Sequence[Mapping[str, Any]],
+        ticker: str,
+        start_date: str,
+        end_date: str,
+    ) -> tuple[str, str, str, str | None, datetime | None]:
+        stock_rows = self._research_window(
+            rows,
+            report_type="个股研报",
+            start_date=start_date,
+            end_date=end_date,
+            ticker=ticker,
+        )
+        report_industry = _extract_most_common_ind_name(_report_frame(stock_rows))
+        basic_industry, parent_hash, parent_captured = self._basic_industry(
+            ticker, end_date, required=not report_industry
+        )
+        industry = report_industry or basic_industry
+        if not industry:
+            raise DataVendorUnavailable("broker industry archive coverage is unavailable")
+        industry_source = (
+            "stock-report ind_name" if report_industry else "stock_basic industry"
+        )
+        return (
+            industry,
+            industry_source,
+            basic_industry,
+            parent_hash,
+            parent_captured,
+        )
+
+    def broker_refresh_industry(
+        self, ticker: str, start_date: str, end_date: str
+    ) -> str:
+        """Resolve one trusted industry before an exact industry refresh."""
+        ts_code = _normalize_ts_code(ticker)
+        if _classify_market(ts_code) != "a_share":
+            raise DataVendorUnavailable("research archive supports A-share tickers only")
+        try:
+            rows = self._research_rows(end_date)
+        except DataVendorUnavailable as exc:
+            if str(exc) != "research report archive is unavailable":
+                raise
+            rows = []
+        return self._broker_industry_authority(
+            rows=rows,
+            ticker=ts_code,
+            start_date=start_date,
+            end_date=end_date,
+        )[0]
 
     @staticmethod
     def _research_window(
@@ -322,32 +379,17 @@ class ForwardArchiveQueryReader:
         if max_reports <= 0:
             raise DataVendorUnavailable("max_reports must be > 0")
         rows = self._research_rows(end_date)
-        stock_rows = self._research_window(
-            rows,
-            report_type="个股研报",
+        (
+            industry,
+            industry_source,
+            basic_industry,
+            parent_hash,
+            parent_captured,
+        ) = self._broker_industry_authority(
+            rows=rows,
+            ticker=ts_code,
             start_date=start_date,
             end_date=end_date,
-            ticker=ts_code,
-        )
-        report_industry = _extract_most_common_ind_name(_report_frame(stock_rows))
-        if not report_industry:
-            widened_start = (date.fromisoformat(end_date) - timedelta(days=120)).isoformat()
-            widened = self._research_window(
-                rows,
-                report_type="个股研报",
-                start_date=widened_start,
-                end_date=end_date,
-                ticker=ts_code,
-            )
-            report_industry = _extract_most_common_ind_name(_report_frame(widened))
-        basic_industry, parent_hash, parent_captured = self._basic_industry(
-            ts_code, end_date, required=not report_industry
-        )
-        industry = report_industry or basic_industry
-        if not industry:
-            raise DataVendorUnavailable("broker industry archive coverage is unavailable")
-        industry_source = (
-            "stock-report ind_name" if report_industry else "stock_basic industry"
         )
         selected = self._research_window(
             rows,
@@ -710,12 +752,23 @@ class ForwardArchiveSourcePreparer:
 
             refresher = refresh_tushare_research_report_registry
         broker = tool_id == "get_broker_research"
+        industry_keywords = (
+            (
+                self.reader.broker_refresh_industry(
+                    str(args["ticker"]),
+                    str(args["date_from"]),
+                    str(args["date_to"]),
+                ),
+            )
+            if broker
+            else ()
+        )
         try:
             refresher(
                 root=self.reader.root,
                 stock_codes=() if broker else (str(args["ticker"]),),
-                industry_keywords=(),
-                report_types=("个股研报", "行业研报") if broker else (),
+                industry_keywords=industry_keywords,
+                report_types=(),
                 start_date=str(args["date_from"]),
                 end_date=str(args["date_to"]),
                 merge_existing_source=True,

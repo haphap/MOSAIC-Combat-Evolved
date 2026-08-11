@@ -520,6 +520,66 @@ describe("agent tool loop helpers", () => {
     ).toBe(true);
   });
 
+  it("limits model-selected bridge executions to three without charging initial calls", async () => {
+    const llm = new ScriptedLlm([
+      new AIMessage({
+        content: "",
+        tool_calls: [1, 2, 3, 4].map((value) => ({
+          id: `c${value}`,
+          name: "get_fundamentals",
+          args: { value },
+          type: "tool_call" as const,
+        })),
+      }),
+      new AIMessage("budget-aware analysis"),
+    ]);
+    const executed: number[] = [];
+    const getFundamentals = tool(
+      async ({ value }) => {
+        executed.push(value);
+        return `result:${value}`;
+      },
+      {
+        name: "get_fundamentals",
+        description: "test tool",
+        schema: z.object({ value: z.number() }),
+      },
+    );
+
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [getFundamentals],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("initial")],
+      initialToolCalls: [{ name: "get_fundamentals", args: { value: 0 } }],
+      maxLoops: 3,
+    });
+
+    expect(result.analysisText).toBe("budget-aware analysis");
+    expect(executed).toEqual([0, 1, 2, 3]);
+    expect(result.toolCalls).toBe(5);
+    expect(result.toolExecutions).toBe(4);
+    expect(result.toolStatuses).toHaveLength(5);
+    expect(result.toolStatuses.at(-1)).toEqual(
+      expect.objectContaining({ call_id: "c4", failed: true, cache_hit: false }),
+    );
+    expect(
+      result.messages
+        .filter((message) => message.getType() === "tool")
+        .map((message) => String(message.content)),
+    ).toEqual([
+      "result:0",
+      "result:1",
+      "result:2",
+      "result:3",
+      expect.stringContaining("model-selected tool-call budget exhausted"),
+    ]);
+    expect(String(llm.seenMessages[0]?.[0]?.content)).toContain(
+      "at most 3 model-selected tool calls",
+    );
+    expect(String(llm.seenMessages[1]?.[0]?.content)).toContain("remaining budget is 0");
+  });
+
   it("uses the runtime-only initial bridge invocation before normal tool validation", async () => {
     const llm = new ScriptedLlm([new AIMessage("done")]);
     let normalCalls = 0;

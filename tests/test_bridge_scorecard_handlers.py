@@ -238,6 +238,149 @@ class TestScorecardAppend:
         # ackman pick + cio action = 2 rows; no layer1 macro outputs in sample
         assert result == {"ingested": 2, "macro_ingested": 0}
 
+    def test_live_enforce_requires_committed_cycle_publication(
+        self, tmp_store, monkeypatch
+    ):
+        monkeypatch.setenv("MOSAIC_ENSURE_SNAPSHOT_MODE", "enforce")
+        state = {**_sample_state(), "mode": "live", "trace_id": "daily-run-1"}
+
+        with pytest.raises(RpcError, match="agent_cycle_publication_hash"):
+            dispatch("scorecard.append", {"state": state})
+
+        with tmp_store._connect() as conn:
+            assert conn.execute("SELECT COUNT(*) FROM recommendations").fetchone()[0] == 0
+
+    def test_live_enforce_validates_publication_before_writing(
+        self, tmp_store, monkeypatch
+    ):
+        monkeypatch.setenv("MOSAIC_ENSURE_SNAPSHOT_MODE", "enforce")
+        authority = importlib.import_module("mosaic.dataflows.agent_cycle_authority")
+        materialization = importlib.import_module("mosaic.dataflows.agent_materialization")
+        ledger = object()
+        calls = []
+        monkeypatch.setattr(
+            materialization,
+            "open_agent_data_materialization_ledger",
+            lambda *, create: ledger,
+        )
+        monkeypatch.setattr(
+            authority,
+            "require_committed_agent_cycle",
+            lambda **kwargs: calls.append(kwargs),
+        )
+        state = {
+            **_sample_state(),
+            "mode": "live",
+            "trace_id": "daily-run-1",
+            "agent_cycle_publication_hash": "sha256:" + "1" * 64,
+        }
+
+        result = dispatch("scorecard.append", {"state": state})
+
+        assert result == {"ingested": 2, "macro_ingested": 0}
+        assert calls == [
+            {
+                "ledger": ledger,
+                "state": state,
+                "publication_hash": "sha256:" + "1" * 64,
+            }
+        ]
+
+    def test_live_shadow_requires_and_validates_isolated_cycle_publication(
+        self, tmp_store, tmp_path, monkeypatch
+    ):
+        shadow_root = tmp_path / "shadow"
+        monkeypatch.setenv("MOSAIC_ENSURE_SNAPSHOT_MODE", "shadow")
+        monkeypatch.setenv("MOSAIC_ENSURE_SNAPSHOT_SHADOW_ROOT", str(shadow_root))
+        state = {**_sample_state(), "mode": "live", "trace_id": "shadow-run-1"}
+
+        with pytest.raises(RpcError, match="agent_cycle_publication_hash"):
+            dispatch("scorecard.append", {"state": state})
+
+        authority = importlib.import_module("mosaic.dataflows.agent_cycle_authority")
+        materialization = importlib.import_module("mosaic.dataflows.agent_materialization")
+        opened_paths = []
+        ledger = object()
+
+        def open_ledger(*, create):
+            assert create is False
+            opened_paths.append(materialization.agent_data_materialization_db_path())
+            return ledger
+
+        calls = []
+        monkeypatch.setattr(
+            materialization, "open_agent_data_materialization_ledger", open_ledger
+        )
+        monkeypatch.setattr(
+            authority,
+            "require_committed_agent_cycle",
+            lambda **kwargs: calls.append(kwargs),
+        )
+        accepted = {
+            **state,
+            "agent_cycle_publication_hash": "sha256:" + "3" * 64,
+        }
+
+        assert dispatch("scorecard.append", {"state": accepted}) == {
+            "ingested": 2,
+            "macro_ingested": 0,
+        }
+        assert opened_paths == [
+            shadow_root / "agent_materialization" / "materialization.sqlite3"
+        ]
+        assert calls == [
+            {
+                "ledger": ledger,
+                "state": accepted,
+                "publication_hash": "sha256:" + "3" * 64,
+            }
+        ]
+
+    def test_shadow_store_resolves_below_the_isolated_runtime_root(
+        self, tmp_path, monkeypatch
+    ):
+        shadow_root = tmp_path / "shadow"
+        monkeypatch.setenv("MOSAIC_ENSURE_SNAPSHOT_MODE", "shadow")
+        monkeypatch.setenv("MOSAIC_ENSURE_SNAPSHOT_SHADOW_ROOT", str(shadow_root))
+        scorecard = importlib.import_module("mosaic.bridge.handlers.scorecard")
+        darwinian = importlib.import_module("mosaic.bridge.handlers.darwinian")
+        package = importlib.import_module("mosaic.scorecard")
+        package.reset_store_cache()
+        try:
+            expected_path = shadow_root / "scorecard" / "scorecard.db"
+            store = package.get_store()
+            assert store.db_path == expected_path
+            assert store.db_path != package.DEFAULT_DB_PATH
+            assert scorecard._store().db_path == expected_path
+            assert darwinian._store().db_path == expected_path
+            monkeypatch.setenv("MOSAIC_ENSURE_SNAPSHOT_MODE", "enforce")
+            production_store = package.get_store()
+            assert production_store.db_path == package.DEFAULT_DB_PATH
+            assert production_store is not store
+        finally:
+            package.reset_store_cache()
+
+    def test_live_off_does_not_require_cycle_publication(
+        self, tmp_store, monkeypatch
+    ):
+        monkeypatch.setenv("MOSAIC_ENSURE_SNAPSHOT_MODE", "off")
+        state = {**_sample_state(), "mode": "live", "trace_id": "daily-run-1"}
+
+        assert dispatch("scorecard.append", {"state": state}) == {
+            "ingested": 2,
+            "macro_ingested": 0,
+        }
+
+    def test_live_missing_mode_fails_closed(self, tmp_store, monkeypatch):
+        monkeypatch.delenv("MOSAIC_ENSURE_SNAPSHOT_MODE", raising=False)
+        state = {**_sample_state(), "mode": "live", "trace_id": "unconfigured-run"}
+
+        with pytest.raises(RpcError, match="requires explicit"):
+            dispatch("scorecard.append", {"state": state})
+
+        with tmp_store._connect() as conn:
+            assert conn.execute("SELECT COUNT(*) FROM recommendations").fetchone()[0] == 0
+
     def test_idempotent_re_ingest(self, tmp_store):
         dispatch("scorecard.append", {"state": _sample_state()})
         result = dispatch("scorecard.append", {"state": _sample_state()})

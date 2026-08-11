@@ -66,12 +66,18 @@ def _group() -> dict[str, Any]:
         "base_group_hash": canonical_hash({"base": AS_OF}),
         "sessions": [row["trade_date"] for row in prices],
         "batches": [
-            _batch(
-                "stock_basic",
-                [{"ts_code": "600000.SH", "name": "浦发银行"}],
-            ),
+            _batch("stock_basic", [{"ts_code": "600000.SH", "name": "浦发银行"}]),
             _batch("daily", prices),
-            _batch("income", [{**statement_common, "revenue": 100.0, "n_income": 8.0}]),
+            _batch(
+                "income",
+                [
+                    {
+                        **statement_common,
+                        "revenue": 100.0,
+                        "n_income": 8.0,
+                    }
+                ],
+            ),
             _batch("cashflow", [{**statement_common, "n_cashflow_act": 9.0}]),
             _batch("balancesheet", [{**statement_common, "total_assets": 1000.0}]),
             _batch(

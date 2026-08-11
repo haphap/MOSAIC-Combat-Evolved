@@ -4,10 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  applyDailyCycleEnsureMode,
   assertDailyCyclePromptSourceMode,
+  assertDailyCycleSourceAdmissionReady,
+  buildProductionCycleTraceId,
   loadCurrentPositionsFixture,
   nonProductionSourceGapBypass,
+  resolveDailyCycleAuthority,
   resolveDailyCycleCohort,
+  resolveDailyCycleEnsureMode,
   validateStructuredSmokeFixtureBundle,
 } from "../src/cli/commands/daily-cycle.js";
 
@@ -45,13 +50,18 @@ function canonicalHash(value: unknown): string {
 
 function writeStructuredSmokeBundle(root: string, asOfDate = "2026-07-17") {
   for (const directory of [
+    "china_archive",
     "economic_calendar",
+    "forward_archive",
     "geopolitical_events",
+    "gov_policy",
     "macro_snapshots",
     "market_breadth",
     "outcome_runtime",
     "runtime_snapshots",
+    "sector_archive",
     "sector_snapshots",
+    "supply_chain_archive",
   ]) {
     mkdirSync(join(root, directory), { recursive: true });
   }
@@ -59,6 +69,10 @@ function writeStructuredSmokeBundle(root: string, asOfDate = "2026-07-17") {
   const manifestHash = canonicalHash({ source: "synthetic" });
   const manifestContent = JSON.stringify({ manifest_hash: manifestHash });
   writeFileSync(manifestPath, manifestContent);
+  const policyPath = join(root, "gov_policy", "parsed", "policy_documents.jsonl");
+  mkdirSync(join(root, "gov_policy", "parsed"), { recursive: true });
+  const policyContent = '{"fixture":"synthetic"}\n';
+  writeFileSync(policyPath, policyContent);
   const macroPath = join(root, "macro_snapshots", asOfDate, "china.json");
   mkdirSync(join(root, "macro_snapshots", asOfDate), { recursive: true });
   const macroContent = JSON.stringify({ fixture: "synthetic", as_of_date: asOfDate });
@@ -67,10 +81,45 @@ function writeStructuredSmokeBundle(root: string, asOfDate = "2026-07-17") {
   mkdirSync(join(root, "outcome_runtime", asOfDate), { recursive: true });
   const outcomeRuntimeContent = JSON.stringify({ fixture: "synthetic", as_of_date: asOfDate });
   writeFileSync(outcomeRuntimePath, outcomeRuntimeContent);
+  const chinaArchivePath = join(root, "china_archive", "china_agent_data.sqlite3");
+  const chinaArchiveContent = "synthetic-china-archive";
+  writeFileSync(chinaArchivePath, chinaArchiveContent);
+  const forwardArchivePath = join(
+    root,
+    "forward_archive",
+    "registry",
+    "sources",
+    "tushare_research_reports.jsonl",
+  );
+  mkdirSync(join(root, "forward_archive", "registry", "sources"), { recursive: true });
+  const forwardArchiveContent = '{"fixture":"synthetic"}\n';
+  writeFileSync(forwardArchivePath, forwardArchiveContent);
+  const sectorArchivePath = join(root, "sector_archive", "sector_relationship.sqlite3");
+  const sectorArchiveContent = "synthetic-sector-archive";
+  writeFileSync(sectorArchivePath, sectorArchiveContent);
+  const supplyChainArchivePath = join(
+    root,
+    "supply_chain_archive",
+    "official_supply_chain_disclosures.sqlite3",
+  );
+  const supplyChainArchiveContent = "synthetic-supply-chain-archive";
+  writeFileSync(supplyChainArchivePath, supplyChainArchiveContent);
   const artifactInventory = [
+    {
+      relative_path: "china_archive/china_agent_data.sqlite3",
+      content_sha256: contentHash(chinaArchiveContent),
+    },
+    {
+      relative_path: "forward_archive/registry/sources/tushare_research_reports.jsonl",
+      content_sha256: contentHash(forwardArchiveContent),
+    },
     {
       relative_path: "geopolitical_events/manifest.json",
       content_sha256: contentHash(manifestContent),
+    },
+    {
+      relative_path: "gov_policy/parsed/policy_documents.jsonl",
+      content_sha256: contentHash(policyContent),
     },
     {
       relative_path: `macro_snapshots/${asOfDate}/china.json`,
@@ -79,6 +128,14 @@ function writeStructuredSmokeBundle(root: string, asOfDate = "2026-07-17") {
     {
       relative_path: `outcome_runtime/${asOfDate}/event_coverage.json`,
       content_sha256: contentHash(outcomeRuntimeContent),
+    },
+    {
+      relative_path: "sector_archive/sector_relationship.sqlite3",
+      content_sha256: contentHash(sectorArchiveContent),
+    },
+    {
+      relative_path: "supply_chain_archive/official_supply_chain_disclosures.sqlite3",
+      content_sha256: contentHash(supplyChainArchiveContent),
     },
   ];
   const body = {
@@ -117,6 +174,114 @@ describe("daily-cycle current-position fixture options", () => {
     expect(nonProductionSourceGapBypass({ fakeLlm: true })).toBe("structured_smoke");
     expect(nonProductionSourceGapBypass({ structuredSmoke: true })).toBe("structured_smoke");
     expect(nonProductionSourceGapBypass({})).toBeUndefined();
+  });
+
+  it("shares the strict off-shadow-enforce snapshot mode contract", () => {
+    expect(resolveDailyCycleEnsureMode({})).toBe("off");
+    expect(resolveDailyCycleEnsureMode({ MOSAIC_ENSURE_SNAPSHOT_MODE: "off" })).toBe("off");
+    expect(resolveDailyCycleEnsureMode({ MOSAIC_ENSURE_SNAPSHOT_MODE: "shadow" })).toBe("shadow");
+    expect(resolveDailyCycleEnsureMode({ MOSAIC_ENSURE_SNAPSHOT_MODE: "enforce" })).toBe("enforce");
+    expect(() => resolveDailyCycleEnsureMode({ MOSAIC_ENSURE_SNAPSHOT_MODE: "ENFORCE" })).toThrow(
+      /P1_ENSURE_MODE_INVALID.*must be one of off, shadow, enforce/,
+    );
+  });
+
+  it("writes the resolved mode into the bridge child environment", () => {
+    const env: NodeJS.ProcessEnv = {};
+    applyDailyCycleEnsureMode(env, "off");
+    expect(env.MOSAIC_ENSURE_SNAPSHOT_MODE).toBe("off");
+    applyDailyCycleEnsureMode(env, "enforce");
+    expect(env.MOSAIC_ENSURE_SNAPSHOT_MODE).toBe("enforce");
+  });
+
+  it("requires an explicit live mode and derives the only valid cycle authority", () => {
+    expect(() => resolveDailyCycleAuthority({}, {})).toThrow(
+      /P1_ENSURE_MODE_MISSING.*must be explicitly configured/,
+    );
+    expect(resolveDailyCycleAuthority({}, { MOSAIC_ENSURE_SNAPSHOT_MODE: "off" })).toEqual({
+      mode: "off",
+      cycleKind: null,
+    });
+    expect(resolveDailyCycleAuthority({}, { MOSAIC_ENSURE_SNAPSHOT_MODE: "shadow" })).toEqual({
+      mode: "shadow",
+      cycleKind: "SHADOW",
+    });
+    expect(
+      resolveDailyCycleAuthority(
+        { cycleKind: "replay" },
+        { MOSAIC_ENSURE_SNAPSHOT_MODE: "shadow" },
+      ),
+    ).toEqual({ mode: "shadow", cycleKind: "REPLAY" });
+    expect(resolveDailyCycleAuthority({}, { MOSAIC_ENSURE_SNAPSHOT_MODE: "enforce" })).toEqual({
+      mode: "enforce",
+      cycleKind: "PRODUCTION",
+    });
+  });
+
+  it("rejects cycle kinds that could escape their rollout namespace", () => {
+    expect(() =>
+      resolveDailyCycleAuthority(
+        { cycleKind: "production" },
+        { MOSAIC_ENSURE_SNAPSHOT_MODE: "shadow" },
+      ),
+    ).toThrow(/P1_ENSURE_MODE_DRIFT.*shadow mode requires SHADOW or REPLAY/);
+    expect(() =>
+      resolveDailyCycleAuthority(
+        { cycleKind: "replay" },
+        { MOSAIC_ENSURE_SNAPSHOT_MODE: "enforce" },
+      ),
+    ).toThrow(/P1_ENSURE_MODE_DRIFT.*enforce mode requires PRODUCTION/);
+    expect(() =>
+      resolveDailyCycleAuthority({ cycleKind: "shadow" }, { MOSAIC_ENSURE_SNAPSHOT_MODE: "off" }),
+    ).toThrow(/P1_ENSURE_MODE_DRIFT.*off mode cannot open a cycle/);
+    expect(() =>
+      resolveDailyCycleAuthority(
+        { structuredSmoke: true, cycleKind: "shadow" },
+        { MOSAIC_ENSURE_SNAPSHOT_MODE: "enforce" },
+      ),
+    ).toThrow(/non-production smoke cannot open a cycle/);
+    expect(() =>
+      resolveDailyCycleAuthority(
+        { cycleKind: "unknown" },
+        { MOSAIC_ENSURE_SNAPSHOT_MODE: "shadow" },
+      ),
+    ).toThrow(/cycle kind must be one of shadow, replay, production/);
+  });
+
+  it("uses a unique production run id for every retry", () => {
+    const first = buildProductionCycleTraceId(
+      "cohort_default",
+      "2026-07-01",
+      "roster-1",
+      "retry-a",
+    );
+    const second = buildProductionCycleTraceId(
+      "cohort_default",
+      "2026-07-01",
+      "roster-1",
+      "retry-b",
+    );
+
+    expect(first).toMatch(/^daily-[0-9a-f]{24}-retry-a$/);
+    expect(second).toMatch(/^daily-[0-9a-f]{24}-retry-b$/);
+    expect(first).not.toBe(second);
+  });
+
+  it("blocks production before OPEN when external source admission is incomplete", () => {
+    expect(() =>
+      assertDailyCycleSourceAdmissionReady({
+        status: "SOURCE_READY_PENDING_RUNTIME",
+        blocked_routes: [],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertDailyCycleSourceAdmissionReady({
+        status: "BLOCKED",
+        blocked_routes: [
+          { route_id: "private.tushare_research_reports", blockers: ["MISSING_ARCHIVE"] },
+        ],
+      }),
+    ).toThrow(/private\.tushare_research_reports:MISSING_ARCHIVE/);
   });
 
   it("uses the canonical default cohort instead of the bridge config alias", () => {

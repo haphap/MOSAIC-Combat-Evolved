@@ -9,7 +9,10 @@ from typing import Any
 
 from mosaic.scorecard.canonical_json import canonical_hash, canonical_json
 from mosaic.scorecard.l1_l2_activation import (
+    _APPROVED_ACTIVE_ROUTE_REPLACEMENTS,
+    _active_overlay_route_is_already_projected,
     _copy,
+    _project_overlay_binding_route_ids,
     _stage_manifest,
     _tool_surface,
     build_l1_l2_active_route_manifest,
@@ -38,6 +41,12 @@ _ACTIVE_STAGE_BY_OVERLAY_STAGE = {
 _OVERLAY_STAGE_BY_ACTIVE_STAGE = {
     (agent_id, active_stage): overlay_stage
     for (agent_id, overlay_stage), active_stage in _ACTIVE_STAGE_BY_OVERLAY_STAGE.items()
+}
+_APPROVED_ACTIVE_OVERLAY_BINDING_MIGRATIONS = {
+    ("druckenmiller", "druckenmiller", "get_yield_curve_cn"): (
+        ("tushare.shibor_yield_curve",),
+        ("composite.cn_rates",),
+    ),
 }
 
 
@@ -146,6 +155,8 @@ def build_l3_l4_active_route_manifest(
 
     route_by_id = {row["route_id"]: _copy(row) for row in base_routes["routes"]}
     for source in overlay["routes"]:
+        if _active_overlay_route_is_already_projected(route_by_id, source):
+            continue
         row = _copy(source)
         route_id = str(row["route_id"])
         existing = route_by_id.get(route_id)
@@ -169,7 +180,11 @@ def build_l3_l4_active_route_manifest(
             "agent_id": agent_id,
             "stage": stage,
             "tool_id": source["tool_id"],
-            "required_route_ids": list(source["source_route_ids"]),
+            "required_route_ids": _project_overlay_binding_route_ids(
+                key=key,
+                source_route_ids=source["source_route_ids"],
+                migrations=_APPROVED_ACTIVE_OVERLAY_BINDING_MIGRATIONS,
+            ),
         }
 
     expected_order = [
@@ -180,6 +195,16 @@ def build_l3_l4_active_route_manifest(
     ]
     if set(binding_by_key) != set(expected_order):
         raise ValueError("active L3/L4 routes do not close the active tool surface")
+    referenced_route_ids = {
+        route_id
+        for binding in binding_by_key.values()
+        for route_id in binding["required_route_ids"]
+    }
+    retired_route_ids = set(_APPROVED_ACTIVE_ROUTE_REPLACEMENTS)
+    if retired_route_ids.intersection(referenced_route_ids):
+        raise ValueError("retired route remains reachable after L3/L4 migration")
+    if set(route_by_id) != referenced_route_ids:
+        raise ValueError("active L3/L4 route catalog does not exactly close bindings")
     body = {
         key: value
         for key, value in base_routes.items()

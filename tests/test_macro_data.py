@@ -164,32 +164,69 @@ def test_get_lhb_ranking_empty_day(mock_query_pro):
 # --------------------------------------------------------------------- 4. CN curve
 
 
-def test_get_yield_curve_cn_emits_csv(mock_query_pro):
-    canned = _df_with_rows(
-        [
-            {"trade_date": "20240628", "curve_type": "0", "curve_term": "10", "curve_yield": 2.43},
-            {"trade_date": "20240628", "curve_type": "0", "curve_term": "1", "curve_yield": 1.55},
-        ]
+def _official_curve_payload(*dates: str) -> dict:
+    return {
+        "provider": "MOF_CHINABOND",
+        "yield_type": "MATURITY",
+        "rows": [
+            {
+                "trade_date": trade_date,
+                "released_at": f"{trade_date}T17:30:00+08:00",
+                "curve_type": "0",
+                "curve_term": term,
+                "yield": 1.55 if term == 1 else 2.43,
+            }
+            for trade_date in dates
+            for term in (1, 10)
+        ],
+    }
+
+
+def test_get_yield_curve_cn_uses_mof_chinabond_and_emits_csv(
+    monkeypatch, mock_query_pro
+):
+    calls: list[tuple[str, str]] = []
+
+    def fetch_curve(*, start_date: str, end_date: str) -> dict:
+        calls.append((start_date, end_date))
+        return _official_curve_payload(end_date)
+
+    monkeypatch.setattr(
+        macro_data,
+        "fetch_mof_chinabond_government_yield_curve",
+        fetch_curve,
+        raising=False,
     )
-    m = mock_query_pro(canned)
+    m = mock_query_pro(None, side_effect=AssertionError("yc_cb must not be called"))
 
     out = macro_data.get_yield_curve_cn("2024-06-28", look_back_days=5)
 
-    assert m.call_args.kwargs["curve_type"] == "0"
-    assert m.call_args.kwargs["start_date"] == "20240623"
-    assert m.call_args.kwargs["end_date"] == "20240628"
+    assert calls == [("2024-06-23", "2024-06-28")]
+    m.assert_not_called()
     assert "CN Treasury Yield Curve" in out
     assert "2.43" in out
+    assert "MOF/ChinaBond official maturity curve" in out
 
 
-def test_get_yield_curve_cn_handles_unavailable_yc_cb(mock_query_pro):
-    mock_query_pro(None, side_effect=DataVendorUnavailable("yc_cb unavailable"))
+def test_get_yield_curve_cn_handles_unavailable_official_curve(
+    monkeypatch, mock_query_pro
+):
+    monkeypatch.setattr(
+        macro_data,
+        "fetch_mof_chinabond_government_yield_curve",
+        lambda **_params: (_ for _ in ()).throw(
+            DataVendorUnavailable("official curve unavailable")
+        ),
+        raising=False,
+    )
+    m = mock_query_pro(None, side_effect=AssertionError("Tushare must not be called"))
 
     out = macro_data.get_yield_curve_cn("2024-06-28", look_back_days=5)
 
     assert "CN Treasury Yield Curve" in out
-    assert "yc_cb unavailable" in out
-    assert "No yc_cb rows returned" in out
+    assert "official curve unavailable" in out
+    assert "No official curve rows returned" in out
+    m.assert_not_called()
 
 
 # --------------------------------------------------------------------- 5. US-CN spread
@@ -218,16 +255,19 @@ def test_tushare_macro_series_unsupported_falls_back_by_raising(mock_query_pro):
         macro_data.get_tushare_macro_series("FEDFUNDS", "2024-06-24", "2024-06-25")
 
 
-def test_us_china_spread_merges_tushare_us_tycr_and_yc_cb(mock_query_pro):
-    # Tushare CN side: minimal yc_cb payload with 10y rows on three dates.
-    cn_df = _df_with_rows(
-        [
-            {"trade_date": "20240624", "curve_term": "10", "curve_yield": 2.4},
-            {"trade_date": "20240625", "curve_term": "10", "curve_yield": 2.42},
-            {"trade_date": "20240626", "curve_term": "10", "curve_yield": 2.45},
-            # noise rows that should be filtered
-            {"trade_date": "20240624", "curve_term": "1", "curve_yield": 1.5},
-        ]
+def test_us_china_spread_merges_tushare_us_tycr_and_official_cn_curve(
+    monkeypatch, mock_query_pro
+):
+    curve = _official_curve_payload("2024-06-24", "2024-06-25", "2024-06-26")
+    yields = {"2024-06-24": 2.4, "2024-06-25": 2.42, "2024-06-26": 2.45}
+    for row in curve["rows"]:
+        if row["curve_term"] == 10:
+            row["yield"] = yields[row["trade_date"]]
+    monkeypatch.setattr(
+        macro_data,
+        "fetch_mof_chinabond_government_yield_curve",
+        lambda **_params: curve,
+        raising=False,
     )
     us_df = _df_with_rows(
         [
@@ -238,8 +278,6 @@ def test_us_china_spread_merges_tushare_us_tycr_and_yc_cb(mock_query_pro):
     )
 
     def fake_query(api_name, **_kwargs):
-        if api_name == "yc_cb":
-            return cn_df
         if api_name == "us_tycr":
             return us_df
         raise AssertionError(api_name)
@@ -249,7 +287,7 @@ def test_us_china_spread_merges_tushare_us_tycr_and_yc_cb(mock_query_pro):
     out = macro_data.get_us_china_spread("2024-06-26", look_back_days=2)
 
     assert "US-CN 10Y Yield Spread" in out
-    assert "Tushare us_tycr.y10 + Tushare yc_cb" in out
+    assert "Tushare us_tycr.y10 + MOF/ChinaBond official maturity curve" in out
     # spread = (4.30 - 2.40) * 100 = 190.0
     assert "190.0" in out
     # spread = (4.40 - 2.45) * 100 = 195.0
@@ -257,13 +295,18 @@ def test_us_china_spread_merges_tushare_us_tycr_and_yc_cb(mock_query_pro):
 
 
 def test_us_china_spread_falls_back_to_fred_when_us_tycr_unavailable(monkeypatch, mock_query_pro):
-    cn_df = _df_with_rows(
-        [{"trade_date": "20240624", "curve_term": "10", "curve_yield": 2.4}]
+    curve = _official_curve_payload("2024-06-24")
+    for row in curve["rows"]:
+        if row["curve_term"] == 10:
+            row["yield"] = 2.4
+    monkeypatch.setattr(
+        macro_data,
+        "fetch_mof_chinabond_government_yield_curve",
+        lambda **_params: curve,
+        raising=False,
     )
 
     def fake_query(api_name, **_kwargs):
-        if api_name == "yc_cb":
-            return cn_df
         if api_name == "us_tycr":
             raise DataVendorUnavailable("us_tycr unavailable")
         raise AssertionError(api_name)
@@ -286,10 +329,19 @@ def test_us_china_spread_falls_back_to_fred_when_us_tycr_unavailable(monkeypatch
     assert "190.0" in out
 
 
-def test_us_china_spread_handles_missing_cn_leg_without_tool_error(mock_query_pro):
+def test_us_china_spread_handles_missing_cn_leg_without_tool_error(
+    monkeypatch, mock_query_pro
+):
+    monkeypatch.setattr(
+        macro_data,
+        "fetch_mof_chinabond_government_yield_curve",
+        lambda **_params: (_ for _ in ()).throw(
+            DataVendorUnavailable("official curve unavailable")
+        ),
+        raising=False,
+    )
+
     def fake_query(api_name, **_kwargs):
-        if api_name == "yc_cb":
-            raise DataVendorUnavailable("yc_cb unavailable")
         raise AssertionError(api_name)
 
     mock_query_pro(None, side_effect=fake_query)
@@ -302,13 +354,18 @@ def test_us_china_spread_handles_missing_cn_leg_without_tool_error(mock_query_pr
 
 
 def test_us_china_spread_handles_missing_us_leg_without_tool_error(monkeypatch, mock_query_pro):
-    cn_df = _df_with_rows(
-        [{"trade_date": "20240624", "curve_term": "10", "curve_yield": 2.4}]
+    curve = _official_curve_payload("2024-06-24")
+    for row in curve["rows"]:
+        if row["curve_term"] == 10:
+            row["yield"] = 2.4
+    monkeypatch.setattr(
+        macro_data,
+        "fetch_mof_chinabond_government_yield_curve",
+        lambda **_params: curve,
+        raising=False,
     )
 
     def fake_query(api_name, **_kwargs):
-        if api_name == "yc_cb":
-            return cn_df
         if api_name == "us_tycr":
             raise DataVendorUnavailable("us_tycr unavailable")
         raise AssertionError(api_name)
@@ -854,7 +911,7 @@ def test_get_industry_moneyflow_filters_to_named(mock_query_pro):
     assert "Filtered to industries" in out
 
 
-def test_get_industry_moneyflow_filter_fallback_shows_all(mock_query_pro):
+def test_get_industry_moneyflow_filter_miss_returns_empty(mock_query_pro):
     mock_query_pro(
         _df_with_rows(
             [
@@ -864,6 +921,6 @@ def test_get_industry_moneyflow_filter_fallback_shows_all(mock_query_pro):
         )
     )
     out = macro_data.get_industry_moneyflow("2024-06-30", industries="不存在的行业")
-    # No THS industry matches -> degrade to the full table, with a visible note.
-    assert "半导体" in out and "银行" in out
-    assert "showing all" in out
+    assert "No industry moneyflow rows" in out
+    assert "半导体" not in out
+    assert "银行" not in out

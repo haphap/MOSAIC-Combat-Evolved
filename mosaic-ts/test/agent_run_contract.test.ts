@@ -15,7 +15,12 @@ import {
   invokeStrictStructured,
 } from "../src/agents/helpers/agent_run_contract.js";
 import { canonicalStructuredRepairDirectiveManifest } from "../src/agents/helpers/structured_repair_directives.js";
-import { createMacroSubmissionSchema } from "../src/agents/macro/_contracts.js";
+import { createMacroSubmissionSchema, MACRO_AGENT_IDS } from "../src/agents/macro/_contracts.js";
+import {
+  buildStandardSectorSchema,
+  RelationshipMapperSchema,
+} from "../src/agents/sector/_schemas.js";
+import { buildRuntimeSuperinvestorSchema } from "../src/agents/superinvestor/_schemas.js";
 import { macroSubmission } from "./helpers/macro.js";
 
 const Schema = z.object({
@@ -55,6 +60,29 @@ class SequenceLlm {
   }
 }
 
+class PromptJsonLlm {
+  readonly promptCalls: unknown[] = [];
+  structuredCalls = 0;
+
+  constructor(private readonly promptOutputs: unknown[]) {}
+
+  withStructuredOutput(): { invoke: () => Promise<never> } {
+    return {
+      invoke: async () => {
+        this.structuredCalls += 1;
+        throw new Error("400 invalid_request_error: this response_format type is unavailable now");
+      },
+    };
+  }
+
+  async invoke(input: unknown): Promise<AIMessage> {
+    this.promptCalls.push(input);
+    const next = this.promptOutputs.shift();
+    if (next instanceof Error) throw next;
+    return new AIMessage(typeof next === "string" ? next : JSON.stringify(next));
+  }
+}
+
 function messages(): [SystemMessage, HumanMessage] {
   return [new SystemMessage("fixed prompt"), new HumanMessage("immutable evidence")];
 }
@@ -90,7 +118,17 @@ async function capturedProviderSchema(schema: z.ZodType<unknown>, name: string):
       agent: name,
       stage: "agent_run",
       runId: `provider-schema-${name}`,
-      evidenceSnapshot: {},
+      evidenceSnapshot:
+        name === "cio_final"
+          ? {
+              cio_final_control_directive: {
+                contract_version: "cio_final_provider_control_directive_v1",
+                decision_reason_max_length: 160,
+                cro_action_local_refs: [],
+                execution_assessment_local_refs: [],
+              },
+            }
+          : {},
       onAttempt: () => {},
     }),
   ).rejects.toBeInstanceOf(AgentRunContractError);
@@ -226,30 +264,41 @@ describe("strict agent-run contract", () => {
       { disposition: "ITEMS", items: ["bad-3"], claim_refs: ["claim-1"] },
       { disposition: "ITEMS", items: ["bad-4"], claim_refs: ["claim-1"] },
     ]);
-    await expect(
-      run(llm, {
-        validate: (output: z.infer<typeof Schema>) => ({
-          output,
-          issues: [
-            {
-              validator: "changing_validator",
-              reason_code: output.items[0]?.toUpperCase() ?? "MISSING",
-              json_path: "$.items[0]",
-              message: "new validation failure",
-            },
-          ],
-        }),
+    const rejection = run(llm, {
+      validate: (output: z.infer<typeof Schema>) => ({
+        output,
+        issues: [
+          {
+            validator: "changing_validator",
+            reason_code: output.items[0]?.toUpperCase() ?? "MISSING",
+            json_path: "$.items[0]",
+            message: "new validation failure",
+          },
+        ],
       }),
-    ).rejects.toMatchObject({
+    });
+    await expect(rejection).rejects.toMatchObject({
       audit: { stop_reason: "repair_budget_exhausted", attempt_count: 4, repair_count: 3 },
     });
+    await expect(rejection).rejects.toThrow("final=BAD-4@$.items[0]");
     expect(llm.calls).toHaveLength(4);
   });
 
-  it("stops immediately on byte-equivalent output", async () => {
+  it("escalates one byte-equivalent repair to the schema-bearing repair directive", async () => {
     const invalid = { disposition: "ITEMS", items: [], claim_refs: ["claim-1"] };
-    const llm = new SequenceLlm([invalid, invalid, invalid]);
-    await expect(run(llm)).rejects.toMatchObject({
+    const valid = { disposition: "ITEMS", items: ["fixed"], claim_refs: ["claim-1"] };
+    const llm = new SequenceLlm([invalid, invalid, valid]);
+    await expect(run(llm)).resolves.toMatchObject({
+      audit: { status: "accepted", attempt_count: 3, repair_count: 2 },
+    });
+    expect(llm.calls).toHaveLength(3);
+    expect(JSON.stringify(llm.calls[2])).toContain("complete_json_schema");
+  });
+
+  it("stops on byte-equivalent output when the explicit repair budget is exhausted", async () => {
+    const invalid = { disposition: "ITEMS", items: [], claim_refs: ["claim-1"] };
+    const llm = new SequenceLlm([invalid, invalid]);
+    await expect(run(llm, { maxRepairs: 1 })).rejects.toMatchObject({
       audit: { stop_reason: "duplicate_output", attempt_count: 2 },
     });
     expect(llm.calls).toHaveLength(2);
@@ -299,6 +348,30 @@ describe("strict agent-run contract", () => {
     expect(llm.structuredOptions).toEqual([
       expect.objectContaining({ includeRaw: true, method: "jsonSchema", strict: true }),
     ]);
+  });
+
+  it("negotiates strict prompt JSON when response_format is unavailable", async () => {
+    const llm = new PromptJsonLlm([
+      { preflight: "ok" },
+      { disposition: "ITEMS", items: ["x"], claim_refs: ["claim-1"] },
+    ]);
+
+    await expect(assertStructuredOutputCapability(llm as never)).resolves.toBeUndefined();
+    const result = await invokeStrictStructured({
+      llm: llm as never,
+      schema: Schema,
+      messages: messages(),
+      agent: "test_agent",
+      stage: "agent_run",
+      runId: "run-prompt-json",
+      evidenceSnapshot: { snapshot: "fixed" },
+      validate: (output) => ({ output, issues: semanticIssues(output) }),
+    });
+
+    expect(result.audit.status).toBe("accepted");
+    expect(llm.structuredCalls).toBe(1);
+    expect(llm.promptCalls).toHaveLength(2);
+    expect(JSON.stringify(llm.promptCalls[1])).toContain("JSON Schema");
   });
 
   it("removes provider-unsupported propertyNames but retains full local validation", async () => {
@@ -432,7 +505,9 @@ describe("strict agent-run contract", () => {
         snapshot_echo: null,
       })),
     };
-    const llm = new SequenceLlm([providerOutput]);
+    const invalidProviderOutput = structuredClone(providerOutput);
+    (invalidProviderOutput.components[0] as { evidence_id: unknown }).evidence_id = 42;
+    const llm = new SequenceLlm([invalidProviderOutput, providerOutput]);
     const result = await invokeStrictStructured({
       llm: llm as never,
       schema,
@@ -447,6 +522,8 @@ describe("strict agent-run contract", () => {
       onAttempt: () => {},
     });
     expect(result.output.mode).toBe("COMPONENTS");
+    expect(result.audit.repair_count).toBe(1);
+    expect(JSON.stringify(llm.calls[1])).toContain(evidenceId);
     if (result.output.mode !== "COMPONENTS") throw new Error("component output required");
     expect(result.output.claims).toHaveLength(4);
     expect(
@@ -499,6 +576,53 @@ describe("strict agent-run contract", () => {
     }
   });
 
+  it("validates the compact provider payload before normalizing it into the domain schema", async () => {
+    const evidenceId = `evidence:${"c".repeat(64)}`;
+    const judgment = {
+      signal: { direction: "NEUTRAL", strength: 0 },
+      persistence_horizon: "DAYS",
+      confidence: 0.5,
+      channel: "Market participation remains mixed",
+      statement: "The frozen breadth evidence supports a mixed market assessment",
+      subject: "market breadth",
+      state: "Participation remains mixed",
+      a_share_transmission: "Broad participation has not established a durable market impulse",
+      evidence_id: evidenceId,
+      research_rule_ref: null,
+      snapshot_echo: null,
+    };
+    const llm = new SequenceLlm([
+      {
+        provider_contract: "MACRO_DIRECT_COMPACT_V1",
+        mode: "DIRECT",
+        judgment: { ...judgment, claim_kind: "RISK_FLAG" },
+      },
+      {
+        provider_contract: "MACRO_DIRECT_COMPACT_V1",
+        mode: "DIRECT",
+        judgment: { ...judgment, claim_kind: "FACT" },
+      },
+    ]);
+
+    const result = await invokeStrictStructured({
+      llm: llm as never,
+      schema: createMacroSubmissionSchema("market_breadth"),
+      messages: messages(),
+      agent: "market_breadth",
+      stage: "agent_run",
+      runId: "provider-macro-direct-local-schema",
+      evidenceSnapshot: {
+        evidenceLedger: [{ evidence_id: evidenceId }],
+        allowedResearchRuleIds: new Set<string>(),
+      },
+      onAttempt: () => {},
+    });
+
+    expect(result.audit.repair_count).toBe(1);
+    expect(result.output.claims[0]?.claim_kind).toBe("FACT");
+    expect(JSON.stringify(llm.calls[1])).toContain("claim_kind");
+  });
+
   it("fails closed before provider invocation when Macro runtime evidence is empty", async () => {
     const llm = new SequenceLlm([]);
     await expect(
@@ -521,6 +645,387 @@ describe("strict agent-run contract", () => {
     });
     expect(llm.calls).toHaveLength(0);
     expect(llm.schemas).toHaveLength(0);
+  });
+
+  it("binds selected Sector evidence legs, citations, and security shortlists to the runtime directive", async () => {
+    const preferredEvidence = `evidence:${"d".repeat(64)}`;
+    const leastEvidence = `evidence:${"e".repeat(64)}`;
+    const citation = "sector.semiconductor.soft.001";
+    const directive = {
+      selection_status: "SELECTED" as const,
+      preferred_direction_id: "chip_design",
+      least_preferred_direction_id: "discrete_devices",
+      allowed_preferred_security_ids: ["600001.SH", "600002.SH"],
+      allowed_least_preferred_security_ids: ["600003.SH"],
+      required_preferred_evidence_ids: [preferredEvidence],
+      required_least_preferred_evidence_ids: [leastEvidence],
+      required_final_evidence_ids: [leastEvidence, preferredEvidence],
+    };
+    const schema = z
+      .object({
+        final_selection: buildStandardSectorSchema("semiconductor", "SELECTED", directive),
+      })
+      .strict();
+    const llm = new SequenceLlm([new Error("400 Bad Request")]);
+
+    await expect(
+      invokeStrictStructured({
+        llm: llm as never,
+        schema,
+        messages: messages(),
+        agent: "semiconductor",
+        stage: "final_selection",
+        runId: "provider-sector-selected-runtime-binding",
+        evidenceSnapshot: {
+          evidenceLedger: [{ evidence_id: preferredEvidence }, { evidence_id: leastEvidence }],
+          allowedResearchRuleIds: new Set([citation]),
+          directive,
+        },
+        onAttempt: () => {},
+      }),
+    ).rejects.toBeInstanceOf(AgentRunContractError);
+
+    const providerSchema = llm.schemas[0] as {
+      properties: {
+        final_selection: {
+          properties: Record<string, Record<string, unknown>>;
+        };
+      };
+    };
+    const selected = providerSchema.properties.final_selection.properties;
+    expect(selected.preferred_evidence_ids).toMatchObject({
+      minItems: 1,
+      maxItems: 1,
+      prefixItems: [{ const: preferredEvidence }],
+      items: false,
+    });
+    expect(selected.least_preferred_evidence_ids).toMatchObject({
+      minItems: 1,
+      maxItems: 1,
+      prefixItems: [{ const: leastEvidence }],
+      items: false,
+    });
+    expect(selected.research_rule_ref).toEqual({ type: "string", enum: [citation] });
+    const preferredSecurity = selected.preferred_security as {
+      properties: { picks: { items: unknown; maxItems: number } };
+    };
+    const leastPreferredSecurity = selected.least_preferred_security as {
+      properties: { picks: { items: unknown; maxItems: number } };
+    };
+    expect(preferredSecurity.properties.picks.maxItems).toBe(1);
+    expect(leastPreferredSecurity.properties.picks.maxItems).toBe(1);
+    expect(preferredSecurity.properties.picks.items).toMatchObject({
+      properties: { ts_code: { enum: directive.allowed_preferred_security_ids } },
+    });
+    expect(leastPreferredSecurity.properties.picks.items).toMatchObject({
+      properties: { ts_code: { enum: directive.allowed_least_preferred_security_ids } },
+    });
+  });
+
+  it("validates a nested selected Sector compact envelope before materialization", async () => {
+    const preferredEvidence = `evidence:${"f".repeat(64)}`;
+    const leastEvidence = `evidence:${"1".repeat(64)}`;
+    const citation = "sector.semiconductor.soft.001";
+    const directive = {
+      selection_status: "SELECTED" as const,
+      preferred_direction_id: "chip_design",
+      least_preferred_direction_id: "discrete_devices",
+      allowed_preferred_security_ids: [],
+      allowed_least_preferred_security_ids: [],
+      required_preferred_evidence_ids: [preferredEvidence],
+      required_least_preferred_evidence_ids: [leastEvidence],
+      required_final_evidence_ids: [leastEvidence, preferredEvidence],
+    };
+    const schema = z
+      .object({
+        final_selection: buildStandardSectorSchema("semiconductor", "SELECTED", directive),
+      })
+      .strict();
+    const compact = {
+      provider_contract: "SECTOR_SELECTED_COMPACT_V2",
+      agent: "semiconductor",
+      preferred_direction_id: "chip_design",
+      preferred_direction_local_id: "chip_design",
+      preferred_strength: 3,
+      preferred_thesis: "Chip design has the strongest frozen evidence.",
+      least_preferred_direction_id: "discrete_devices",
+      least_preferred_direction_local_id: "discrete_devices",
+      least_preferred_strength: 2,
+      least_preferred_thesis: "Discrete devices has the weakest frozen evidence.",
+      persistence_horizon: "WEEKS",
+      confidence: 0.7,
+      driver_summary: "The preferred direction leads across the frozen comparison.",
+      risk_summary: "The frozen direction ordering may weaken as conditions change.",
+      preferred_evidence_ids: [preferredEvidence],
+      least_preferred_evidence_ids: [leastEvidence],
+      research_rule_ref: citation,
+      preferred_security: { status: "NO_QUALIFIED_SECURITY", abstention_confidence: 0.8 },
+      least_preferred_security: { status: "NO_QUALIFIED_SECURITY", abstention_confidence: 0.8 },
+      macro_input_attributions: {
+        submission_summaries: Object.fromEntries(
+          MACRO_AGENT_IDS.map((agentId) => [
+            agentId,
+            { claim_ref_used: null, effect: "NOT_MATERIAL" },
+          ]),
+        ),
+        target_attributions: [],
+      },
+    };
+    const attempts: AgentContractIssue[][] = [];
+    const llm = new SequenceLlm([
+      { final_selection: { ...compact, ignored_provider_field: true } },
+      { final_selection: compact },
+    ]);
+
+    const result = await invokeStrictStructured({
+      llm: llm as never,
+      schema,
+      messages: messages(),
+      agent: "semiconductor",
+      stage: "final_selection",
+      runId: "provider-sector-selected-local-schema",
+      evidenceSnapshot: {
+        evidenceLedger: [{ evidence_id: preferredEvidence }, { evidence_id: leastEvidence }],
+        allowedResearchRuleIds: new Set([citation]),
+        directive,
+      },
+      onAttempt: (audit) => {
+        attempts.push(audit.validation_issues);
+      },
+    });
+
+    expect(result.audit.repair_count).toBe(1);
+    expect(attempts[0]?.some((issue) => issue.validator === "zod_schema")).toBe(true);
+    expect(result.output.final_selection.preferred_direction.direction_id).toBe("chip_design");
+  });
+
+  it("binds Relationship compact evidence and citation to the runtime catalog", async () => {
+    const evidence = `evidence:${"2".repeat(64)}`;
+    const citation = `relationship-opportunity:${"3".repeat(64)}`;
+    const llm = new SequenceLlm([new Error("400 Bad Request")]);
+
+    await expect(
+      invokeStrictStructured({
+        llm: llm as never,
+        schema: RelationshipMapperSchema,
+        messages: messages(),
+        agent: "relationship_mapper",
+        stage: "agent_run",
+        runId: "provider-relationship-runtime-binding",
+        evidenceSnapshot: {
+          evidenceLedger: [{ evidence_id: evidence }],
+          allowedResearchRuleIds: new Set([citation]),
+        },
+        onAttempt: () => {},
+      }),
+    ).rejects.toBeInstanceOf(AgentRunContractError);
+
+    const providerSchema = llm.schemas[0] as {
+      properties: {
+        evidence_id: Record<string, unknown>;
+        research_rule_ref: Record<string, unknown>;
+      };
+    };
+    expect(providerSchema.properties.evidence_id).toEqual({ type: "string", enum: [evidence] });
+    expect(providerSchema.properties.research_rule_ref).toEqual({
+      type: "string",
+      enum: [citation],
+    });
+  });
+
+  it("binds Superinvestor abstention evidence and citation to the runtime catalog", async () => {
+    const evidence = `evidence:${"4".repeat(64)}`;
+    const citation = `superinvestor-candidate-scope:${"5".repeat(64)}`;
+    const llm = new SequenceLlm([new Error("400 Bad Request")]);
+
+    await expect(
+      invokeStrictStructured({
+        llm: llm as never,
+        schema: buildRuntimeSuperinvestorSchema("munger", []),
+        messages: messages(),
+        agent: "munger",
+        stage: "agent_run",
+        runId: "provider-superinvestor-runtime-binding",
+        evidenceSnapshot: {
+          evidenceLedger: [{ evidence_id: evidence }],
+          allowedResearchRuleIds: new Set([citation]),
+        },
+        onAttempt: () => {},
+      }),
+    ).rejects.toBeInstanceOf(AgentRunContractError);
+
+    const providerSchema = llm.schemas[0] as {
+      properties: {
+        evidence_id: Record<string, unknown>;
+        research_rule_ref: Record<string, unknown>;
+      };
+    };
+    expect(providerSchema.properties.evidence_id).toEqual({ type: "string", enum: [evidence] });
+    expect(providerSchema.properties.research_rule_ref).toEqual({
+      type: "string",
+      enum: [citation],
+    });
+  });
+
+  it("binds full Decision claim evidence and citations to the runtime catalog", async () => {
+    const evidence = `evidence:${"6".repeat(64)}`;
+    const citation = `cio-candidate-universe:${"7".repeat(64)}`;
+    const llm = new SequenceLlm([new Error("400 Bad Request")]);
+
+    await expect(
+      invokeStrictStructured({
+        llm: llm as never,
+        schema: CioProposalSubmissionSchema,
+        messages: messages(),
+        agent: "cio",
+        stage: "cio_proposal",
+        runId: "provider-cio-runtime-binding",
+        evidenceSnapshot: {
+          evidenceLedger: [{ evidence_id: evidence }],
+          allowedResearchRuleIds: new Set([citation]),
+        },
+        onAttempt: () => {},
+      }),
+    ).rejects.toBeInstanceOf(AgentRunContractError);
+
+    const providerSchema = llm.schemas[0];
+    const evidenceArrays = namedPropertySchemas(providerSchema, "evidence_ids");
+    const citationArrays = namedPropertySchemas(providerSchema, "research_rule_refs");
+    expect(evidenceArrays.length).toBeGreaterThan(0);
+    expect(citationArrays.length).toBeGreaterThan(0);
+    expect(
+      evidenceArrays.every((entry) =>
+        expect.objectContaining({ type: "string", enum: [evidence] }).asymmetricMatch(entry.items),
+      ),
+    ).toBe(true);
+    expect(
+      citationArrays.every((entry) =>
+        expect.objectContaining({ type: "string", enum: [citation] }).asymmetricMatch(entry.items),
+      ),
+    ).toBe(true);
+  });
+
+  it("binds CIO final narrative and control resolutions to the runtime directive", async () => {
+    const llm = new SequenceLlm([new Error("400 Bad Request")]);
+    const directive = {
+      contract_version: "cio_final_provider_control_directive_v1",
+      decision_reason_max_length: 160,
+      cro_action_local_refs: ["cro-action-a", "cro-action-b"],
+      execution_assessment_local_refs: ["execution-assessment-a"],
+    };
+
+    await expect(
+      invokeStrictStructured({
+        llm: llm as never,
+        schema: CioFinalSubmissionSchema,
+        messages: messages(),
+        agent: "cio",
+        stage: "cio_final",
+        runId: "provider-cio-final-control-binding",
+        evidenceSnapshot: {
+          evidenceLedger: [],
+          allowedResearchRuleIds: new Set<string>(),
+          cio_final_control_directive: directive,
+        },
+        onAttempt: () => {},
+      }),
+    ).rejects.toBeInstanceOf(AgentRunContractError);
+
+    const providerSchema = llm.schemas[0];
+    const decisionReasons = namedPropertySchemas(providerSchema, "decision_reason");
+    expect(decisionReasons.length).toBeGreaterThan(0);
+    expect(
+      decisionReasons.every(
+        (entry) =>
+          entry.maxLength === directive.decision_reason_max_length &&
+          String(entry.description).includes("160 Unicode characters"),
+      ),
+    ).toBe(true);
+
+    const assertExactTuple = (
+      propertyName: string,
+      localRefField: string,
+      expectedRefs: readonly string[],
+    ) => {
+      const arrays = namedPropertySchemas(providerSchema, propertyName);
+      expect(arrays.length).toBeGreaterThan(0);
+      for (const array of arrays) {
+        expect(array.minItems).toBe(expectedRefs.length);
+        expect(array.maxItems).toBe(expectedRefs.length);
+        expect(array.items).toBe(false);
+        const prefixItems = array.prefixItems as Array<{ properties: Record<string, unknown> }>;
+        expect(
+          prefixItems.map(
+            (item) => (item.properties[localRefField] as { const?: unknown } | undefined)?.const,
+          ),
+        ).toEqual(expectedRefs);
+      }
+    };
+    assertExactTuple(
+      "cro_control_resolutions",
+      "cro_action_local_ref",
+      directive.cro_action_local_refs,
+    );
+    assertExactTuple(
+      "execution_control_resolutions",
+      "execution_assessment_local_ref",
+      directive.execution_assessment_local_refs,
+    );
+  });
+
+  it("seals empty CIO final control sets and rejects a missing directive", async () => {
+    const emptyLlm = new SequenceLlm([new Error("400 Bad Request")]);
+    await expect(
+      invokeStrictStructured({
+        llm: emptyLlm as never,
+        schema: CioFinalSubmissionSchema,
+        messages: messages(),
+        agent: "cio",
+        stage: "cio_final",
+        runId: "provider-cio-final-empty-controls",
+        evidenceSnapshot: {
+          cio_final_control_directive: {
+            contract_version: "cio_final_provider_control_directive_v1",
+            decision_reason_max_length: 160,
+            cro_action_local_refs: [],
+            execution_assessment_local_refs: [],
+          },
+        },
+        onAttempt: () => {},
+      }),
+    ).rejects.toBeInstanceOf(AgentRunContractError);
+    for (const propertyName of [
+      "cro_control_resolutions",
+      "execution_control_resolutions",
+    ] as const) {
+      const arrays = namedPropertySchemas(emptyLlm.schemas[0], propertyName);
+      expect(arrays.length).toBeGreaterThan(0);
+      expect(
+        arrays.every(
+          (array) =>
+            array.minItems === 0 &&
+            array.maxItems === 0 &&
+            array.items === false &&
+            Array.isArray(array.prefixItems) &&
+            array.prefixItems.length === 0,
+        ),
+      ).toBe(true);
+    }
+
+    const missingLlm = new SequenceLlm([new Error("must not invoke")]);
+    await expect(
+      invokeStrictStructured({
+        llm: missingLlm as never,
+        schema: CioFinalSubmissionSchema,
+        messages: messages(),
+        agent: "cio",
+        stage: "cio_final",
+        runId: "provider-cio-final-missing-controls",
+        evidenceSnapshot: {},
+        onAttempt: () => {},
+      }),
+    ).rejects.toThrow("CIO_FINAL_CONTROL_DIRECTIVE_MISSING");
+    expect(missingLlm.schemas).toHaveLength(0);
   });
 
   it.each([

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import time as wall_time
 import zlib
@@ -22,12 +23,14 @@ from .a_share_archive import (
 )
 from .agent_materialization import (
     AgentDataMaterializationLedger,
+    BLOCKER_CODES,
     RouteCoverageReceipt,
     SnapshotBuildReceipt,
     SourceCaptureReceipt,
     canonical_hash,
 )
 from .exceptions import DataVendorUnavailable
+from .runtime_paths import isolated_agent_runtime_path
 from .sector_snapshots import (
     RELATIONSHIP_REQUIRED_SOURCE_ENDPOINTS,
     RELATIONSHIP_SNAPSHOT_SCHEMA_VERSION,
@@ -60,6 +63,7 @@ LOGICAL_ROUTES = (
     "tushare.sector_fundamentals",
     "tushare.sector_market",
 )
+STANDARD_SECTOR_AGENT_IDS = tuple(sorted(SECTOR_DIRECTION_IDS))
 _BASE_ENDPOINTS = frozenset(
     {
         "trade_cal",
@@ -82,6 +86,35 @@ _INCREMENTAL_ENDPOINTS = frozenset(
         "top10_holders",
     }
 )
+_ROUTE_SOURCE_ENDPOINTS = {
+    "tushare.relationship_graph": RELATIONSHIP_REQUIRED_SOURCE_ENDPOINTS,
+    "tushare.sector_fundamentals": frozenset(
+        {
+            "index_member_all",
+            "stock_basic",
+            "daily_basic",
+            "income",
+            "balancesheet",
+            "cashflow",
+        }
+    ),
+    "tushare.sector_market": (
+        _BASE_ENDPOINTS
+        | SECTOR_ETF_SOURCE_ENDPOINTS
+        | frozenset(
+            {
+                "index_member_all",
+                "moneyflow",
+                "fund_portfolio",
+            }
+        )
+    ),
+}
+_OPTIONAL_RESPONSE_COLUMNS = {
+    # Tushare omits this column for some ETFs; registered sector metrics only
+    # consume ts_code, nav_date, and unit_nav from fund_nav.
+    "fund_nav": frozenset({"total_netasset"}),
+}
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
 _MARKET_CLOSE = time(15, 0)
 _MAX_WORKERS = 6
@@ -90,9 +123,15 @@ _LOCK_TIMEOUT_SECONDS = 9 * 60 * 60
 _PAGE_SIZE = 6000
 _MAX_PAGES_PER_QUERY = 20
 _EMPTY_RESPONSE_BACKOFF_SECONDS = (0.5, 1.5)
+HISTORICAL_REPLAY_TIME_POLICY_VERSION = "sector_historical_replay_time_v1"
 
 
 def sector_archive_path(root: Path | None = None) -> Path:
+    isolated = isolated_agent_runtime_path(
+        "agent_data/sector_relationship.sqlite3"
+    )
+    if isolated is not None:
+        return isolated
     if root is not None:
         return root / "sector_relationship.sqlite3"
     configured = os.getenv("MOSAIC_SECTOR_ARCHIVE_PATH")
@@ -119,6 +158,81 @@ def _capture_now() -> datetime:
     return datetime.now(tz=_SHANGHAI)
 
 
+def _requested_routes(value: Sequence[str] | None) -> tuple[str, ...]:
+    if value is None:
+        return LOGICAL_ROUTES
+    if isinstance(value, (str, bytes)):
+        raise ValueError("requested_route_ids must be a sequence of route IDs")
+    route_ids = tuple(value)
+    if (
+        not route_ids
+        or route_ids != tuple(sorted(set(route_ids)))
+        or not set(route_ids) <= set(LOGICAL_ROUTES)
+    ):
+        raise ValueError(
+            "requested_route_ids must be a non-empty sorted unique Sector route subset"
+        )
+    return route_ids
+
+
+def _requested_sector_agents(value: Sequence[str] | None) -> tuple[str, ...]:
+    if value is None:
+        return tuple(sorted(SECTOR_DIRECTION_IDS))
+    if isinstance(value, (str, bytes)):
+        raise ValueError("requested_agent_ids must be a sequence of Sector agent IDs")
+    agent_ids = tuple(value)
+    if (
+        not agent_ids
+        or agent_ids != tuple(sorted(set(agent_ids)))
+        or not set(agent_ids) <= set(SECTOR_DIRECTION_IDS)
+    ):
+        raise ValueError(
+            "requested_agent_ids must be a non-empty sorted unique standard-Sector subset"
+        )
+    return agent_ids
+
+
+def _requested_security_codes(value: Sequence[str] | None) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    if isinstance(value, (str, bytes)):
+        raise ValueError("requested_security_codes must be a sequence of tickers")
+    codes = tuple(value)
+    if (
+        not codes
+        or codes != tuple(sorted(set(codes)))
+        or any(re.fullmatch(r"\d{6}\.(?:SH|SZ|BJ)", code) is None for code in codes)
+    ):
+        raise ValueError(
+            "requested_security_codes must be a non-empty sorted unique A-share ticker subset"
+        )
+    return codes
+
+
+def _group_routes(group: Mapping[str, Any]) -> tuple[str, ...]:
+    value = group.get("requested_route_ids")
+    if value is None:
+        return LOGICAL_ROUTES
+    if not isinstance(value, list) or not all(isinstance(row, str) for row in value):
+        raise ValueError("sector capture requested_route_ids are invalid")
+    return _requested_routes(value)
+
+
+def _required_capture_endpoints(route_ids: Sequence[str]) -> frozenset[str]:
+    return frozenset(
+        endpoint
+        for route_id in route_ids
+        for endpoint in _ROUTE_SOURCE_ENDPOINTS[route_id]
+    )
+
+
+def sector_parent_endpoints(route_ids: Sequence[str]) -> tuple[str, ...]:
+    """Return the exact existing A-share parent endpoint scope for Sector routes."""
+
+    requested_routes = _requested_routes(route_ids)
+    return tuple(sorted(_required_capture_endpoints(requested_routes) & _BASE_ENDPOINTS))
+
+
 def _fetch_page(
     fetch: Callable[..., Any],
     endpoint: str,
@@ -127,9 +241,16 @@ def _fetch_page(
     offset: int,
 ) -> tuple[list[dict[str, Any]], int]:
     for attempt in range(len(_EMPTY_RESPONSE_BACKOFF_SECONDS) + 1):
-        rows = _response_rows(
-            fetch(endpoint, **dict(request), limit=_PAGE_SIZE, offset=offset)
-        )
+        try:
+            response = fetch(
+                endpoint, **dict(request), limit=_PAGE_SIZE, offset=offset
+            )
+        except DataVendorUnavailable as exc:
+            raise DataVendorUnavailable(
+                f"Tushare endpoint '{endpoint}' unavailable",
+                reason_code=f"TUSHARE_{endpoint.upper()}_UNAVAILABLE",
+            ) from exc
+        rows = _response_rows(response)
         if rows or attempt == len(_EMPTY_RESPONSE_BACKOFF_SECONDS):
             return rows, attempt + 1
         wall_time.sleep(_EMPTY_RESPONSE_BACKOFF_SECONDS[attempt])
@@ -146,7 +267,9 @@ def _paginate_incremental(
     evidence = PREFLIGHT_ENDPOINT_CHECKS.get(endpoint)
     if evidence is None:
         raise AShareSchemaError(f"{endpoint} has no frozen preflight schema evidence")
-    required_columns = frozenset(evidence["expected_columns"])
+    required_columns = frozenset(evidence["expected_columns"]) - (
+        _OPTIONAL_RESPONSE_COLUMNS.get(endpoint, frozenset())
+    )
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
     duplicate_count = 0
@@ -299,31 +422,102 @@ class SectorArchiveStore:
             conn.execute("COMMIT")
         return payload, False
 
-    def load_group(self, as_of_date: str) -> dict[str, Any]:
+    def load_group(
+        self,
+        as_of_date: str,
+        *,
+        required_route_ids: Sequence[str] | None = None,
+        required_security_code: str | None = None,
+    ) -> dict[str, Any]:
+        required_routes = set(_requested_routes(required_route_ids))
+        security_code = None
+        if required_security_code is not None:
+            security_code = _requested_security_codes((required_security_code,))[0]
         with self._connect(read_only=True) as conn:
-            row = conn.execute(
+            rows = conn.execute(
                 "SELECT * FROM sector_capture_groups WHERE as_of_date = ? "
-                "ORDER BY captured_at DESC LIMIT 1",
+                "ORDER BY captured_at DESC",
                 (as_of_date,),
-            ).fetchone()
-            if row is None:
-                raise FileNotFoundError(f"no sector capture group for {as_of_date}")
-            return self._decode(row)
+            ).fetchall()
+            for row in rows:
+                payload = self._decode(row)
+                if not required_routes <= set(_group_routes(payload)):
+                    continue
+                if security_code is not None:
+                    scope = payload.get("capture_scope")
+                    if scope is not None:
+                        if (
+                            not isinstance(scope, Mapping)
+                            or set(scope)
+                            != {"sector_agent_ids", "security_codes", "etf_codes"}
+                            or payload.get("capture_scope_hash")
+                            != canonical_hash(scope)
+                        ):
+                            raise ValueError("sector archive capture scope is invalid")
+                        allowed_codes = {
+                            str(code)
+                            for field in ("security_codes", "etf_codes")
+                            for code in scope.get(field, ())
+                        }
+                        if security_code not in allowed_codes:
+                            continue
+                return payload
+            raise FileNotFoundError(
+                f"no sector capture group for {as_of_date} and requested routes"
+            )
 
     def row_count(self) -> int:
         with self._connect(read_only=True) as conn:
             return int(conn.execute("SELECT count(*) FROM sector_capture_groups").fetchone()[0])
 
 
-def _retime_batch(batch: dict[str, Any], captured_at: str) -> None:
+def _retime_batch(
+    batch: dict[str, Any], captured_at: str, *, available_at: str | None = None
+) -> None:
     batch["captured_at"] = captured_at
-    batch["released_at"] = captured_at
-    batch["vintage_at"] = captured_at
+    batch["released_at"] = available_at or captured_at
+    batch["vintage_at"] = available_at or captured_at
     batch["rows_hash"] = canonical_hash(batch["rows"])
     body = {key: value for key, value in batch.items() if key not in {"rows", "source_batch_id", "source_batch_hash"}}
     batch_hash = canonical_hash(body)
     batch["source_batch_hash"] = batch_hash
     batch["source_batch_id"] = "sector-source-batch:" + batch_hash.removeprefix("sha256:")
+
+
+def _historical_knowledge_cutoff(as_of_date: date) -> datetime:
+    return datetime.combine(as_of_date, time.max, _SHANGHAI)
+
+
+def _historical_batch_available_at(
+    batch: Mapping[str, Any], as_of_date: date
+) -> str:
+    captured = _timestamp(str(batch["captured_at"]), "batch.captured_at")
+    return min(captured, _historical_knowledge_cutoff(as_of_date)).isoformat()
+
+
+def _historical_replay_captured_at(group: Mapping[str, Any]) -> str | None:
+    marker = group.get("historical_replay")
+    if marker is None:
+        if "historical_replay_time_policy_version" in group:
+            raise DataVendorUnavailable(
+                "sector capture has replay policy without replay authority"
+            )
+        return None
+    if (
+        marker is not True
+        or group.get("historical_replay_time_policy_version")
+        != HISTORICAL_REPLAY_TIME_POLICY_VERSION
+        or group.get("cutoff_at") != group.get("captured_at")
+    ):
+        raise DataVendorUnavailable("sector historical replay authority is invalid")
+    as_of_date = date.fromisoformat(str(group["as_of_date"]))
+    captured_at = str(group["captured_at"])
+    captured = _timestamp(captured_at, "captured_at")
+    if captured <= _historical_knowledge_cutoff(as_of_date):
+        raise DataVendorUnavailable(
+            "sector historical replay capture must be after the as-of cutoff"
+        )
+    return captured_at
 
 
 def _seal_batch(
@@ -453,10 +647,16 @@ def _validate_moneyflow_daily_closure(
 
 
 def _membership_batches(
-    fetch: Callable[..., Any], captured_at: str
+    fetch: Callable[..., Any],
+    captured_at: str,
+    *,
+    requested_agent_ids: Sequence[str] | None = None,
 ) -> tuple[list[dict[str, Any]], int, int]:
+    agent_ids = set(_requested_sector_agents(requested_agent_ids))
     specs: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for plan in SECTOR_UNIVERSE_MANIFEST["membership_query_plans"]:
+        if plan["sector_agent_id"] not in agent_ids:
+            continue
         for branch in plan["branches"]:
             specs.append(
                 (
@@ -498,7 +698,10 @@ def _membership_batches(
 
 
 def _active_security_codes(
-    batches: Sequence[Mapping[str, Any]], as_of: date
+    batches: Sequence[Mapping[str, Any]],
+    as_of: date,
+    *,
+    requested_security_codes: Sequence[str] | None = None,
 ) -> list[str]:
     codes: set[str] = set()
     for batch in batches:
@@ -514,6 +717,14 @@ def _active_security_codes(
                 codes.add(str(row["ts_code"]))
     if not codes:
         raise DataVendorUnavailable("sector membership capture has no active securities")
+    requested = _requested_security_codes(requested_security_codes)
+    if requested is not None:
+        outside_membership = set(requested) - codes
+        if outside_membership:
+            raise DataVendorUnavailable(
+                "frozen Sector candidates are outside active role membership"
+            )
+        return list(requested)
     return sorted(codes)
 
 
@@ -522,12 +733,26 @@ def _attach_parent_batches(
 ) -> dict[str, Any]:
     if group.get("base_group_hash") != canonical_hash(base_group):
         raise DataVendorUnavailable("sector raw group parent hash mismatch")
-    parent_batches = {
-        batch["endpoint"]: batch
-        for batch in base_group.get("batches", ())
-        if batch.get("endpoint") in _BASE_ENDPOINTS
-    }
-    if set(parent_batches) != _BASE_ENDPOINTS:
+    required_base_endpoints = _required_capture_endpoints(_group_routes(group)) & (
+        _BASE_ENDPOINTS
+    )
+    historical_replay_captured_at = _historical_replay_captured_at(group)
+    as_of_date = date.fromisoformat(str(group["as_of_date"]))
+    parent_batches: dict[str, dict[str, Any]] = {}
+    for batch in base_group.get("batches", ()):
+        if batch.get("endpoint") not in required_base_endpoints:
+            continue
+        projected = dict(batch)
+        if historical_replay_captured_at is not None:
+            _retime_batch(
+                projected,
+                str(projected["captured_at"]),
+                available_at=_historical_batch_available_at(
+                    projected, as_of_date
+                ),
+            )
+        parent_batches[str(projected["endpoint"])] = projected
+    if set(parent_batches) != required_base_endpoints:
         raise DataVendorUnavailable("sector parent A-share batches are incomplete")
     batches = [dict(batch) for batch in group.get("batches", ())]
     observed = {batch["endpoint"]: batch for batch in batches}
@@ -551,13 +776,24 @@ def _build_capture_group(
     cutoff_at: str,
     capture_key: str,
     base_group: Mapping[str, Any],
+    historical_replay: bool = False,
+    requested_route_ids: Sequence[str] | None = None,
+    requested_agent_ids: Sequence[str] | None = None,
+    requested_security_codes: Sequence[str] | None = None,
 ) -> dict[str, Any]:
-    for endpoint in _INCREMENTAL_ENDPOINTS:
+    route_ids = _requested_routes(requested_route_ids)
+    agent_ids = _requested_sector_agents(requested_agent_ids)
+    frozen_security_codes = _requested_security_codes(requested_security_codes)
+    required_endpoints = _required_capture_endpoints(route_ids)
+    for endpoint in required_endpoints - _BASE_ENDPOINTS:
         assert_endpoint_capture_preflight_allowed(endpoint)
     cutoff = _timestamp(cutoff_at, "cutoff_at")
     started = _capture_now()
     local_started = started.astimezone(_SHANGHAI)
-    if (
+    if historical_replay:
+        if as_of_date >= local_started.date():
+            raise DataVendorUnavailable("sector historical replay date is not complete")
+    elif (
         started > cutoff
         or local_started.date() != as_of_date
         or local_started.time() <= _MARKET_CLOSE
@@ -566,18 +802,25 @@ def _build_capture_group(
     if base_group.get("as_of_date") != as_of_date.isoformat():
         raise DataVendorUnavailable("sector capture parent A-share group as_of mismatch")
     sessions = list(base_group.get("sessions", ()))
+    required_base_endpoints = required_endpoints & _BASE_ENDPOINTS
     base_batches = [
         dict(batch)
         for batch in base_group.get("batches", ())
-        if batch.get("endpoint") in _BASE_ENDPOINTS
+        if batch.get("endpoint") in required_base_endpoints
     ]
-    if {batch["endpoint"] for batch in base_batches} != _BASE_ENDPOINTS:
+    if {batch["endpoint"] for batch in base_batches} != required_base_endpoints:
         raise DataVendorUnavailable("sector capture parent A-share batches are incomplete")
     started_at = started.isoformat()
     membership, membership_duplicates, membership_pages = _membership_batches(
-        fetch, started_at
+        fetch,
+        started_at,
+        requested_agent_ids=agent_ids,
     )
-    security_codes = _active_security_codes(membership, as_of_date)
+    security_codes = _active_security_codes(
+        membership,
+        as_of_date,
+        requested_security_codes=frozen_security_codes,
+    )
     statement_start = (as_of_date - timedelta(days=1100)).strftime("%Y%m%d")
     api_as_of = as_of_date.strftime("%Y%m%d")
     batches: list[dict[str, Any]] = [*base_batches, *membership]
@@ -587,8 +830,27 @@ def _build_capture_group(
     specs = (
         (
             "moneyflow",
-            tuple({"trade_date": session} for session in sessions),
-            {"start_date": sessions[0], "end_date": sessions[-1]},
+            (
+                tuple(
+                    {
+                        "ts_code": code,
+                        "start_date": sessions[0],
+                        "end_date": sessions[-1],
+                    }
+                    for code in security_codes
+                )
+                if "moneyflow" in required_endpoints
+                else ()
+            ),
+            (
+                {
+                    "start_date": sessions[0],
+                    "end_date": sessions[-1],
+                    "ts_codes": security_codes,
+                }
+                if "moneyflow" in required_endpoints
+                else {}
+            ),
             True,
             True,
         ),
@@ -623,13 +885,6 @@ def _build_capture_group(
             False,
         ),
         (
-            "fund_basic",
-            ({"market": "E"},),
-            {"market": "E"},
-            True,
-            True,
-        ),
-        (
             "top10_holders",
             tuple(
                 {"ts_code": code, "start_date": statement_start, "end_date": api_as_of}
@@ -641,6 +896,8 @@ def _build_capture_group(
         ),
     )
     for endpoint, requests, request_contract, require_nonempty, confirm_terminal in specs:
+        if endpoint not in required_endpoints:
+            continue
         batch, duplicates, pages = _seal_batch(
             endpoint=endpoint,
             requests=requests,
@@ -665,21 +922,49 @@ def _build_capture_group(
     etf_codes = sorted(
         {
             code
-            for role, direction_ids in SECTOR_DIRECTION_IDS.items()
-            for direction_id in direction_ids
+            for role in agent_ids
+            for direction_id in SECTOR_DIRECTION_IDS[role]
             for code in _authoritative_etf_codes(role, direction_id, as_of_date)
         }
     )
-    if etf_codes:
+    if etf_codes and required_endpoints & (
+        SECTOR_ETF_SOURCE_ENDPOINTS | {"fund_portfolio"}
+    ):
         etf_code_set = set(etf_codes)
 
         def is_authority_etf(row: dict[str, Any]) -> bool:
             return str(row.get("ts_code")) in etf_code_set
 
-        for endpoint in sorted(SECTOR_ETF_SOURCE_ENDPOINTS - {"fund_basic"}):
+        if "fund_basic" in required_endpoints:
+            fund_basic, duplicates, pages = _seal_batch(
+                endpoint="fund_basic",
+                requests=tuple(
+                    {"ts_code": code, "market": "E"} for code in etf_codes
+                ),
+                request_contract={"market": "E", "ts_codes": etf_codes},
+                fetch=fetch,
+                captured_at=started_at,
+                require_each_nonempty=True,
+                confirm_terminal=True,
+                row_filter=is_authority_etf,
+            )
+            batches.append(fund_basic)
+            page_counts["fund_basic"] = pages
+            duplicate_counts["fund_basic"] = duplicates
+
+        for endpoint in sorted(
+            (SECTOR_ETF_SOURCE_ENDPOINTS - {"fund_basic"}) & required_endpoints
+        ):
             assert_endpoint_capture_preflight_allowed(endpoint)
             if endpoint in {"fund_daily", "fund_adj"}:
-                requests = tuple({"trade_date": session} for session in sessions)
+                requests = tuple(
+                    {
+                        "ts_code": code,
+                        "start_date": sessions[0],
+                        "end_date": sessions[-1],
+                    }
+                    for code in etf_codes
+                )
                 row_filter = is_authority_etf
             else:
                 requests = tuple(
@@ -701,27 +986,31 @@ def _build_capture_group(
             page_counts[endpoint] = pages
             duplicate_counts[endpoint] = duplicates
 
-        portfolio, duplicates, pages = _seal_batch(
-            endpoint="fund_portfolio",
-            requests=tuple({"ts_code": code} for code in etf_codes),
-            request_contract={
-                "end_date": as_of_date.isoformat(),
-                "ts_codes": etf_codes,
-            },
-            fetch=fetch,
-            captured_at=started_at,
-            require_each_nonempty=True,
-            confirm_terminal=True,
-            row_filter=lambda row: str(row.get("ann_date", "")) <= api_as_of
-            and str(row.get("end_date", "")) <= api_as_of,
-        )
-        batches.append(portfolio)
-        page_counts["fund_portfolio"] = pages
-        duplicate_counts["fund_portfolio"] = duplicates
+        if "fund_portfolio" in required_endpoints:
+            portfolio, duplicates, pages = _seal_batch(
+                endpoint="fund_portfolio",
+                requests=tuple({"ts_code": code} for code in etf_codes),
+                request_contract={
+                    "end_date": as_of_date.isoformat(),
+                    "ts_codes": etf_codes,
+                },
+                fetch=fetch,
+                captured_at=started_at,
+                require_each_nonempty=True,
+                confirm_terminal=True,
+                row_filter=lambda row: str(row.get("ann_date", "")) <= api_as_of
+                and str(row.get("end_date", "")) <= api_as_of,
+            )
+            batches.append(portfolio)
+            page_counts["fund_portfolio"] = pages
+            duplicate_counts["fund_portfolio"] = duplicates
 
     completed = _capture_now()
     local_completed = completed.astimezone(_SHANGHAI)
-    if (
+    if historical_replay:
+        if as_of_date >= local_completed.date():
+            raise DataVendorUnavailable("sector historical replay date is not complete")
+    elif (
         completed > cutoff
         or local_completed.date() != as_of_date
         or local_completed.time() <= _MARKET_CLOSE
@@ -729,13 +1018,24 @@ def _build_capture_group(
         raise DataVendorUnavailable("sector capture completed outside the post-close window")
     completed_at = completed.isoformat()
     for batch in batches:
-        if batch["endpoint"] not in _BASE_ENDPOINTS:
+        if historical_replay:
+            captured_at = (
+                str(batch["captured_at"])
+                if batch["endpoint"] in _BASE_ENDPOINTS
+                else completed_at
+            )
+            _retime_batch(
+                batch,
+                captured_at,
+                available_at=_historical_batch_available_at(batch, as_of_date),
+            )
+        elif batch["endpoint"] not in _BASE_ENDPOINTS:
             _retime_batch(batch, completed_at)
     group = {
         "schema_version": CAPTURE_SCHEMA_VERSION,
         "capture_key": capture_key,
         "as_of_date": as_of_date.isoformat(),
-        "cutoff_at": cutoff_at,
+        "cutoff_at": completed_at if historical_replay else cutoff_at,
         "captured_at": completed_at,
         "base_group_hash": canonical_hash(base_group),
         "sessions": sessions,
@@ -744,7 +1044,25 @@ def _build_capture_group(
         "normalized_row_count": sum(len(batch["rows"]) for batch in batches),
         "page_counts": page_counts,
         "duplicate_counts": duplicate_counts,
+        "capture_scope": {
+            "sector_agent_ids": list(agent_ids),
+            "security_codes": security_codes,
+            "etf_codes": etf_codes,
+        },
+        **(
+            {
+                "historical_replay": True,
+                "historical_replay_time_policy_version": (
+                    HISTORICAL_REPLAY_TIME_POLICY_VERSION
+                ),
+            }
+            if historical_replay
+            else {}
+        ),
     }
+    group["capture_scope_hash"] = canonical_hash(group["capture_scope"])
+    if route_ids != LOGICAL_ROUTES:
+        group["requested_route_ids"] = list(route_ids)
     return group
 
 
@@ -780,27 +1098,54 @@ def relationship_source_batches(group: Mapping[str, Any]) -> list[dict[str, Any]
 
 def compile_sector_archive_group(group: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     as_of_date = str(group["as_of_date"])
-    snapshots = {
-        role: compile_registered_sector_snapshot(
-            role=role,
-            as_of_date=as_of_date,
-            source_batches=sector_source_batches(group, role),
-        )
-        for role in SECTOR_DIRECTION_IDS
-    }
-    snapshots["relationship_mapper"] = compile_registered_relationship_snapshot(
-        as_of_date=as_of_date,
-        source_batches=relationship_source_batches(group),
+    historical_replay_captured_at = _historical_replay_captured_at(group)
+    route_ids = set(_group_routes(group))
+    capture_scope = group.get("capture_scope")
+    agent_ids = (
+        _requested_sector_agents(capture_scope.get("sector_agent_ids"))
+        if isinstance(capture_scope, Mapping)
+        else STANDARD_SECTOR_AGENT_IDS
     )
+    snapshots: dict[str, dict[str, Any]] = {}
+    if {
+        "tushare.sector_fundamentals",
+        "tushare.sector_market",
+    } <= route_ids:
+        snapshots.update(
+            {
+                role: compile_registered_sector_snapshot(
+                    role=role,
+                    as_of_date=as_of_date,
+                    source_batches=sector_source_batches(group, role),
+                    historical_replay_captured_at=(
+                        historical_replay_captured_at
+                    ),
+                )
+                for role in agent_ids
+            }
+        )
+    if "tushare.relationship_graph" in route_ids:
+        snapshots["relationship_mapper"] = compile_registered_relationship_snapshot(
+            as_of_date=as_of_date,
+            source_batches=relationship_source_batches(group),
+            historical_replay_captured_at=historical_replay_captured_at,
+        )
     return snapshots
 
 
 def _source_receipt(group: Mapping[str, Any], route_id: str) -> SourceCaptureReceipt:
+    if route_id not in _group_routes(group):
+        raise ValueError("Sector source receipt route is outside capture scope")
     captured_at = str(group["captured_at"])
     request = {
         "as_of_date": group["as_of_date"],
         "base_group_hash": group["base_group_hash"],
         "route_id": route_id,
+        **(
+            {"capture_scope_hash": group["capture_scope_hash"]}
+            if "capture_scope_hash" in group
+            else {}
+        ),
     }
     return SourceCaptureReceipt.seal(
         {
@@ -892,10 +1237,12 @@ def _coverage_receipt(
     *,
     as_of_date: str,
     cutoff_at: str,
+    requested_route_ids: Sequence[str],
     source_receipts: Sequence[SourceCaptureReceipt],
     status: str,
     blocker_codes: Sequence[str],
 ) -> RouteCoverageReceipt:
+    route_ids = _requested_routes(requested_route_ids)
     hashes = {
         receipt.as_dict()["identity"]["route_id"]: receipt.receipt_hash
         for receipt in source_receipts
@@ -906,7 +1253,7 @@ def _coverage_receipt(
             "capture_receipt_hash": hashes.get(route_id),
             "status": status,
         }
-        for route_id in LOGICAL_ROUTES
+        for route_id in route_ids
     ]
     coverage_id = "sector-coverage:" + canonical_hash(
         {
@@ -925,7 +1272,7 @@ def _coverage_receipt(
                 "end": cutoff_at,
                 "timezone": "Asia/Shanghai",
             },
-            "required_route_ids": list(LOGICAL_ROUTES),
+            "required_route_ids": list(route_ids),
             "route_results": route_results,
             "coverage_complete": status == "SUCCESS",
             "blocker_codes": sorted(blocker_codes),
@@ -937,6 +1284,7 @@ def _failed_result(
     *,
     as_of_date: str,
     cutoff_at: str,
+    requested_route_ids: Sequence[str],
     ledger: AgentDataMaterializationLedger,
     status: str,
     blocker: str,
@@ -944,6 +1292,7 @@ def _failed_result(
     coverage = _coverage_receipt(
         as_of_date=as_of_date,
         cutoff_at=cutoff_at,
+        requested_route_ids=requested_route_ids,
         source_receipts=(),
         status=status,
         blocker_codes=(blocker,),
@@ -957,38 +1306,73 @@ def archive_sector_relationship(
     *,
     as_of_date: str,
     cutoff_at: str,
+    historical_replay: bool = False,
+    requested_route_ids: Sequence[str] | None = None,
+    requested_agent_ids: Sequence[str] | None = None,
+    requested_security_codes: Sequence[str] | None = None,
     base_store: AShareArchiveStore,
     store: SectorArchiveStore,
     ledger: AgentDataMaterializationLedger,
 ) -> SectorArchiveResult:
-    """Capture all PR4 physical routes once and publish three logical receipts."""
+    """Capture the requested PR4 physical routes and publish matching receipts."""
     as_of = date.fromisoformat(as_of_date)
     cutoff = _timestamp(cutoff_at, "cutoff_at")
     cutoff_local = cutoff.astimezone(_SHANGHAI)
-    if cutoff_local.date() != as_of or cutoff_local.time() <= _MARKET_CLOSE:
+    route_ids = _requested_routes(requested_route_ids)
+    agent_ids = _requested_sector_agents(requested_agent_ids)
+    security_codes = _requested_security_codes(requested_security_codes)
+    if not isinstance(historical_replay, bool):
+        raise ValueError("historical_replay must be a boolean")
+    if not historical_replay and (
+        cutoff_local.date() != as_of or cutoff_local.time() <= _MARKET_CLOSE
+    ):
         return _failed_result(
             as_of_date=as_of_date,
             cutoff_at=cutoff_at,
+            requested_route_ids=route_ids,
             ledger=ledger,
             status="CAPTURE_REJECTED",
             blocker="MARKET_SESSION_INCOMPLETE",
         )
     try:
-        base_group = base_store.load_group(as_of_date)
+        parent_endpoints = sector_parent_endpoints(route_ids)
+        base_group = base_store.load_group(
+            as_of_date,
+            required_endpoints=parent_endpoints,
+        )
         if (
             base_group.get("schema_version") != "a_share_capture_group_v1"
             or base_group.get("as_of_date") != as_of_date
         ):
             raise DataVendorUnavailable("invalid parent A-share capture group")
-        capture_key = canonical_hash(
-            {
-                "schema_version": CAPTURE_SCHEMA_VERSION,
-                "as_of_date": as_of_date,
-                "cutoff_at": cutoff.isoformat(),
-                "base_group_hash": canonical_hash(base_group),
-                "manifest_hash": SECTOR_UNIVERSE_MANIFEST["manifest_hash"],
-            }
+        capture_identity = {
+            "schema_version": CAPTURE_SCHEMA_VERSION,
+            "as_of_date": as_of_date,
+            **(
+                {
+                    "historical_replay": True,
+                    "historical_replay_time_policy_version": (
+                        HISTORICAL_REPLAY_TIME_POLICY_VERSION
+                    ),
+                }
+                if historical_replay
+                else {"cutoff_at": cutoff.isoformat()}
+            ),
+            "base_group_hash": canonical_hash(base_group),
+            "manifest_hash": SECTOR_UNIVERSE_MANIFEST["manifest_hash"],
+            "scope_request": {
+                "sector_agent_ids": list(agent_ids),
+                "security_codes": (
+                    list(security_codes) if security_codes is not None else None
+                ),
+            },
+        }
+        capture_identity["scope_request_hash"] = canonical_hash(
+            capture_identity["scope_request"]
         )
+        if route_ids != LOGICAL_ROUTES:
+            capture_identity["requested_route_ids"] = list(route_ids)
+        capture_key = canonical_hash(capture_identity)
         group, cache_hit = store.get_or_capture(
             capture_key,
             lambda: _build_capture_group(
@@ -997,8 +1381,38 @@ def archive_sector_relationship(
                 cutoff_at=cutoff.isoformat(),
                 capture_key=capture_key,
                 base_group=base_group,
+                historical_replay=historical_replay,
+                requested_route_ids=route_ids,
+                requested_agent_ids=agent_ids,
+                requested_security_codes=security_codes,
             ),
         )
+        scope = group.get("capture_scope")
+        if (
+            not isinstance(scope, Mapping)
+            or scope.get("sector_agent_ids") != list(agent_ids)
+            or group.get("capture_scope_hash") != canonical_hash(scope)
+            or (
+                security_codes is not None
+                and scope.get("security_codes") != list(security_codes)
+            )
+            or (
+                historical_replay
+                and (
+                    group.get("historical_replay") is not True
+                    or group.get("historical_replay_time_policy_version")
+                    != HISTORICAL_REPLAY_TIME_POLICY_VERSION
+                )
+            )
+            or (
+                not historical_replay
+                and (
+                    "historical_replay" in group
+                    or "historical_replay_time_policy_version" in group
+                )
+            )
+        ):
+            raise DataVendorUnavailable("sector capture scope does not match request")
         compile_group = _attach_parent_batches(group, base_group)
         snapshots = compile_sector_archive_group(compile_group)
         result_group = {
@@ -1009,11 +1423,12 @@ def archive_sector_relationship(
             },
         }
         sources = tuple(
-            _source_receipt(compile_group, route_id) for route_id in LOGICAL_ROUTES
+            _source_receipt(compile_group, route_id) for route_id in route_ids
         )
         coverage = _coverage_receipt(
             as_of_date=as_of_date,
-            cutoff_at=cutoff.isoformat(),
+            cutoff_at=str(compile_group["cutoff_at"]),
+            requested_route_ids=route_ids,
             source_receipts=sources,
             status="SUCCESS",
             blocker_codes=(),
@@ -1024,6 +1439,7 @@ def archive_sector_relationship(
         return _failed_result(
             as_of_date=as_of_date,
             cutoff_at=cutoff_at,
+            requested_route_ids=route_ids,
             ledger=ledger,
             status="PERMISSION_DENIED",
             blocker="PERMISSION_DENIED",
@@ -1032,6 +1448,7 @@ def archive_sector_relationship(
         return _failed_result(
             as_of_date=as_of_date,
             cutoff_at=cutoff_at,
+            requested_route_ids=route_ids,
             ledger=ledger,
             status="TRANSPORT_FAILED",
             blocker="TRANSPORT_FAILED",
@@ -1040,6 +1457,7 @@ def archive_sector_relationship(
         return _failed_result(
             as_of_date=as_of_date,
             cutoff_at=cutoff_at,
+            requested_route_ids=route_ids,
             ledger=ledger,
             status="TRUNCATED",
             blocker="TRUNCATED",
@@ -1048,14 +1466,30 @@ def archive_sector_relationship(
         return _failed_result(
             as_of_date=as_of_date,
             cutoff_at=cutoff_at,
+            requested_route_ids=route_ids,
             ledger=ledger,
             status="SCHEMA_DRIFT",
             blocker="SCHEMA_DRIFT",
         )
-    except (DataVendorUnavailable, FileNotFoundError):
+    except DataVendorUnavailable as exc:
+        blocker = (
+            exc.reason_code
+            if exc.reason_code in BLOCKER_CODES
+            else "INCOMPLETE_COVERAGE"
+        )
         return _failed_result(
             as_of_date=as_of_date,
             cutoff_at=cutoff_at,
+            requested_route_ids=route_ids,
+            ledger=ledger,
+            status="CAPTURE_REJECTED",
+            blocker=blocker,
+        )
+    except FileNotFoundError:
+        return _failed_result(
+            as_of_date=as_of_date,
+            cutoff_at=cutoff_at,
+            requested_route_ids=route_ids,
             ledger=ledger,
             status="CAPTURE_REJECTED",
             blocker="INCOMPLETE_COVERAGE",
@@ -1064,6 +1498,7 @@ def archive_sector_relationship(
         return _failed_result(
             as_of_date=as_of_date,
             cutoff_at=cutoff_at,
+            requested_route_ids=route_ids,
             ledger=ledger,
             status="CAPTURE_REJECTED",
             blocker="CAPTURE_REJECTED",
@@ -1182,6 +1617,7 @@ def compile_sector_relationship_core_snapshots(
         raise ValueError("sector archive compiled snapshot hash drift")
 
     destination_root = output_root or sector_snapshot_root()
+    historical_replay_captured_at = _historical_replay_captured_at(group)
     source_by_route = {
         receipt.as_dict()["identity"]["route_id"]: receipt
         for receipt in archive.source_receipts
@@ -1196,6 +1632,7 @@ def compile_sector_relationship_core_snapshots(
                 as_of_date=as_of_date,
                 snapshot=snapshot,
                 source_batches=relationship_source_batches(group),
+                historical_replay_captured_at=historical_replay_captured_at,
                 root=destination_root,
             )
         else:
@@ -1204,6 +1641,7 @@ def compile_sector_relationship_core_snapshots(
                 as_of_date=as_of_date,
                 snapshot=snapshot,
                 source_batches=sector_source_batches(group, role),
+                historical_replay_captured_at=historical_replay_captured_at,
                 root=destination_root,
             )
         _tool_id, required_routes, _output_contract = _core_snapshot_binding(role)

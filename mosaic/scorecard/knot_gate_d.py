@@ -26,6 +26,27 @@ _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _EXPECTED_RUNTIME_STAGE_COUNT = 29
 _EXPECTED_BINDING_COUNT = 187
 _EXPECTED_SIGNIFICANCE_FIXTURE_COUNT = 113
+_LEGACY_CN_CURVE_ROUTE_ID = "tushare.shibor_yield_curve"
+_ACTIVE_CN_RATES_ROUTE_ID = "composite.cn_rates"
+_CN_CURVE_PRESERVATION_BINDING_IDS = frozenset(
+    {
+        "binding:09a1f45221b66acbf024d00808aa5bf0312d58b2258061ab92442a10ac1c8586",
+        "binding:9c0380d8e572a2014178bc01e1c8cc2f281591d2ffcd9e60ca366bdd9c2f27cb",
+        "binding:bd7d647d99fc1550c60456640bc4341943ee6601628f04849d3dabd6d1ec5fab",
+    }
+)
+_CN_CURVE_FULL_PRESERVATION_BINDING_IDS = frozenset(
+    {
+        "binding:340b17f9c81c93426e3c2222aa9116a9f560acb8326a126fa641ebf2772f85d6",
+        "binding:89e79aebe666737155b439ab23251e04957eac43011e0f115653bebf248abdeb",
+    }
+)
+_EU_ECONOMY_PRESERVATION_BINDING_ID = (
+    "binding:2b2825ddc945411a920208f7803b0b77ee2b19395b6c87cd5187b87f4903962f"
+)
+_EU_FINANCIAL_PRESERVATION_BINDING_ID = (
+    "binding:5d22ffdac9730113fc227c0fb88f77dda8045bcef24a7df62cceb420154c88a2"
+)
 _BINDING_CONTRACT_KEY_FIELDS = (
     "agent_id",
     "phase",
@@ -70,6 +91,141 @@ def _binding_contract_key(binding: Mapping[str, Any]) -> str:
     return canonical_hash(
         {field: binding[field] for field in _BINDING_CONTRACT_KEY_FIELDS}
     )
+
+
+def _preservation_source_route_ids(
+    *, source_binding_id: str, source_binding: Mapping[str, Any]
+) -> tuple[list[str], list[dict[str, str]]]:
+    raw_route_ids = source_binding.get("source_route_ids")
+    if (
+        not isinstance(raw_route_ids, list)
+        or not raw_route_ids
+        or not all(isinstance(route_id, str) and route_id for route_id in raw_route_ids)
+        or len(set(raw_route_ids)) != len(raw_route_ids)
+    ):
+        raise ValueError("Gate D fixture source routes are invalid")
+    if source_binding_id in (
+        _CN_CURVE_PRESERVATION_BINDING_IDS
+        | _CN_CURVE_FULL_PRESERVATION_BINDING_IDS
+    ):
+        if (
+            _LEGACY_CN_CURVE_ROUTE_ID not in raw_route_ids
+            or _ACTIVE_CN_RATES_ROUTE_ID in raw_route_ids
+            or (
+                source_binding_id in _CN_CURVE_PRESERVATION_BINDING_IDS
+                and "base_binding_hash" not in source_binding
+            )
+            or (
+                source_binding_id in _CN_CURVE_FULL_PRESERVATION_BINDING_IDS
+                and "base_binding_hash" in source_binding
+            )
+        ):
+            raise ValueError("Gate D curve preservation migration is invalid")
+        active_route_ids = sorted(
+            _ACTIVE_CN_RATES_ROUTE_ID
+            if route_id == _LEGACY_CN_CURVE_ROUTE_ID
+            else route_id
+            for route_id in raw_route_ids
+        )
+        if len(set(active_route_ids)) != len(active_route_ids):
+            raise ValueError("Gate D curve preservation migration is ambiguous")
+        return active_route_ids, [
+            {
+                "from_route_id": _LEGACY_CN_CURVE_ROUTE_ID,
+                "to_route_id": _ACTIVE_CN_RATES_ROUTE_ID,
+            }
+        ]
+    if source_binding_id == _EU_ECONOMY_PRESERVATION_BINDING_ID:
+        if (
+            "base_binding_hash" not in source_binding
+            or "eurostat.euro_macro" not in raw_route_ids
+            or "ecb.eu_real_economy" in raw_route_ids
+        ):
+            raise ValueError("Gate D Europe preservation migration is invalid")
+        active_route_ids = sorted(
+            "ecb.eu_real_economy"
+            if route_id == "eurostat.euro_macro"
+            else route_id
+            for route_id in raw_route_ids
+        )
+        return active_route_ids, [
+            {
+                "from_route_id": "eurostat.euro_macro",
+                "to_route_id": "ecb.eu_real_economy",
+            }
+        ]
+    if _LEGACY_CN_CURVE_ROUTE_ID in raw_route_ids:
+        raise ValueError("Gate D fixture has an unapproved source-route migration")
+    if "eurostat.euro_macro" in raw_route_ids:
+        raise ValueError("Gate D fixture has an unapproved Europe route migration")
+    return list(raw_route_ids), []
+
+
+def _route_contract_versions(root: Path, relative_path: str) -> dict[str, str]:
+    manifest = json.loads((root / relative_path).read_text(encoding="utf-8"))
+    if not isinstance(manifest, Mapping):
+        raise ValueError("Gate D route contract manifest is malformed")
+    body = {key: value for key, value in manifest.items() if key != "manifest_hash"}
+    if manifest.get("manifest_hash") != canonical_hash(body):
+        raise ValueError("Gate D route contract manifest hash mismatch")
+    routes = manifest.get("routes")
+    if not isinstance(routes, list) or not all(isinstance(row, Mapping) for row in routes):
+        raise ValueError("Gate D route contract rows are malformed")
+    versions = {
+        str(row.get("route_id")): str(row.get("contract_version")) for row in routes
+    }
+    if len(versions) != len(routes):
+        raise ValueError("Gate D route contract rows are duplicated")
+    return versions
+
+
+def _preservation_source_contract_migrations(
+    *,
+    source_binding_id: str,
+    source_binding: Mapping[str, Any],
+    frozen_versions: Mapping[str, str],
+    active_versions: Mapping[str, str],
+) -> list[dict[str, str]]:
+    if source_binding_id not in {
+        _EU_ECONOMY_PRESERVATION_BINDING_ID,
+        _EU_FINANCIAL_PRESERVATION_BINDING_ID,
+    }:
+        return []
+    raw_route_ids = source_binding.get("source_route_ids")
+    if not isinstance(raw_route_ids, list) or "ecb.euro_macro" not in raw_route_ids:
+        raise ValueError("Gate D Europe contract migration binding is invalid")
+    if (
+        frozen_versions.get("ecb.euro_macro") != "ecb_euro_macro_v1"
+        or active_versions.get("ecb.euro_macro") != "ecb_euro_macro_v2"
+    ):
+        raise ValueError("Gate D ECB contract migration version drift")
+    migrations = [
+        {
+            "from_route_id": "ecb.euro_macro",
+            "from_contract_version": "ecb_euro_macro_v1",
+            "to_route_id": "ecb.euro_macro",
+            "to_contract_version": "ecb_euro_macro_v2",
+        }
+    ]
+    if source_binding_id == _EU_ECONOMY_PRESERVATION_BINDING_ID:
+        if (
+            "eurostat.euro_macro" not in raw_route_ids
+            or frozen_versions.get("eurostat.euro_macro")
+            != "eurostat_forward_archive_v1"
+            or active_versions.get("ecb.eu_real_economy")
+            != "ecb_eu_real_economy_history_v1"
+        ):
+            raise ValueError("Gate D Europe real-economy contract migration drift")
+        migrations.insert(
+            0,
+            {
+                "from_route_id": "eurostat.euro_macro",
+                "from_contract_version": "eurostat_forward_archive_v1",
+                "to_route_id": "ecb.eu_real_economy",
+                "to_contract_version": "ecb_eu_real_economy_history_v1",
+            },
+        )
+    return migrations
 
 
 def _runtime_stage_keys(runtime_manifest: Mapping[str, Any]) -> list[str]:
@@ -377,20 +533,70 @@ def build_knot_gate_d_fixture_evidence(
     ):
         raise ValueError("Gate D significance fixture binding closure mismatch")
     binding_mappings = []
+    source_route_migrations = []
+    source_contract_migrations = []
+    frozen_route_versions = _route_contract_versions(
+        root,
+        "registry/prompt_checks/capability_preservation/"
+        "current_agent_data_route_manifest_snapshot_v1.json",
+    )
+    active_route_versions = _route_contract_versions(
+        root, "registry/data_sources/agent_data_route_manifest_v1.json"
+    )
     for source_binding_id in sorted(source_bindings):
         source_binding = source_bindings[source_binding_id]
-        if "base_binding_hash" in source_binding:
+        active_source_route_ids, route_migrations = _preservation_source_route_ids(
+            source_binding_id=source_binding_id,
+            source_binding=source_binding,
+        )
+        contract_migrations = _preservation_source_contract_migrations(
+            source_binding_id=source_binding_id,
+            source_binding=source_binding,
+            frozen_versions=frozen_route_versions,
+            active_versions=active_route_versions,
+        )
+        if source_binding_id in _CN_CURVE_FULL_PRESERVATION_BINDING_IDS:
+            full_comparison_fields = tuple(
+                field
+                for field in _BINDING_CONTRACT_KEY_FIELDS
+                if field not in {"source_route_ids", "route_contract_hash"}
+            )
+            matches = [
+                binding
+                for binding in current_bindings
+                if all(
+                    binding.get(field) == source_binding.get(field)
+                    for field in full_comparison_fields
+                )
+                and binding.get("source_route_ids") == active_source_route_ids
+            ]
+            contract_key = (
+                canonical_hash(
+                    {
+                        "source_binding_contract_key": _binding_contract_key(
+                            source_binding
+                        ),
+                        "active_binding_contract_key": _binding_contract_key(matches[0]),
+                    }
+                )
+                if len(matches) == 1
+                else ""
+            )
+        elif "base_binding_hash" in source_binding:
             compact_fields = (
                 "agent_id",
                 "semantic_capability_id",
                 "tool_id",
                 "query_bundle_contract_version",
-                "source_route_ids",
             )
             matches = [
                 binding
                 for binding in current_bindings
-                if all(binding.get(field) == source_binding.get(field) for field in compact_fields)
+                if all(
+                    binding.get(field) == source_binding.get(field)
+                    for field in compact_fields
+                )
+                and binding.get("source_route_ids") == active_source_route_ids
             ]
             contract_key = (
                 canonical_hash(
@@ -410,13 +616,30 @@ def build_knot_gate_d_fixture_evidence(
             matches = current_by_contract.get(contract_key, [])
         if len(matches) != 1:
             raise ValueError("Gate D fixture active binding mapping mismatch")
-        binding_mappings.append(
-            {
-                "source_binding_id": source_binding_id,
-                "active_binding_id": str(matches[0]["binding_id"]),
-                "binding_contract_key": contract_key,
-            }
-        )
+        mapping = {
+            "source_binding_id": source_binding_id,
+            "active_binding_id": str(matches[0]["binding_id"]),
+            "binding_contract_key": contract_key,
+        }
+        if route_migrations:
+            mapping["source_route_migrations"] = route_migrations
+            source_route_migrations.extend(
+                {
+                    "source_binding_id": source_binding_id,
+                    **migration,
+                }
+                for migration in route_migrations
+            )
+        if contract_migrations:
+            mapping["source_contract_migrations"] = contract_migrations
+            source_contract_migrations.extend(
+                {
+                    "source_binding_id": source_binding_id,
+                    **migration,
+                }
+                for migration in contract_migrations
+            )
+        binding_mappings.append(mapping)
     active_fixture_binding_ids = [
         row["active_binding_id"] for row in binding_mappings
     ]
@@ -501,6 +724,12 @@ def build_knot_gate_d_fixture_evidence(
         "significance_binding_ids_hash": canonical_hash(fixture_binding_ids),
         "active_significance_binding_ids_hash": canonical_hash(
             active_fixture_binding_ids
+        ),
+        "source_route_migration_count": len(source_route_migrations),
+        "source_route_migrations_hash": canonical_hash(source_route_migrations),
+        "source_contract_migration_count": len(source_contract_migrations),
+        "source_contract_migrations_hash": canonical_hash(
+            source_contract_migrations
         ),
         "overlay_manifest_hashes": overlay_hashes,
         "projection_count": len(projection_rows),

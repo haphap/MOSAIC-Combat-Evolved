@@ -4255,6 +4255,58 @@ def test_macro_series_backfill_writes_dataflow_rows_to_scorecard(
     ]
 
 
+def test_macro_series_backfill_cn10y_uses_official_chinabond_lineage(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "scorecard.db"
+
+    def fake_yield_curve_cn(curr_date, *, look_back_days):
+        assert curr_date == "2026-01-03"
+        assert look_back_days == 2
+        return (
+            "# CN Treasury Yield Curve\n"
+            "# Source: MOF/ChinaBond official maturity curve\n"
+            "trade_date,curve_type,curve_term,yield\n"
+            "2026-01-02,0,2,1.42\n"
+            "2026-01-02,0,10,1.83\n"
+            "2026-01-03,0,10,1.84\n"
+        )
+
+    result = backfill_macro_series(
+        start_date="2026-01-01",
+        end_date="2026-01-03",
+        series_ids=("CN10Y",),
+        db_path=db_path,
+        fetchers={"yield_curve_cn": fake_yield_curve_cn},
+    )
+
+    assert result["accepted"] is True
+    assert result["inserted_rows"] == 2
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "select series_id, date, value, source, endpoint_name, instrument "
+            "from macro_series order by date"
+        ).fetchall()
+    assert rows == [
+        (
+            "CN10Y",
+            "2026-01-02",
+            1.83,
+            "mof_chinabond",
+            "historyQuery",
+            "10Y.CN",
+        ),
+        (
+            "CN10Y",
+            "2026-01-03",
+            1.84,
+            "mof_chinabond",
+            "historyQuery",
+            "10Y.CN",
+        ),
+    ]
+
+
 def test_macro_series_backfill_writes_vix_from_yfinance_index(
     tmp_path: Path,
 ) -> None:

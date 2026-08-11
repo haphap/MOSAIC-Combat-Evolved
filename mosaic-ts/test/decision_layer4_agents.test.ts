@@ -13,7 +13,9 @@ import type {
   AcceptedOutputRecordRef,
 } from "../src/agents/accepted_output.js";
 import {
+  buildCioFinalProviderControlDirective,
   buildDecisionBoundRuntimeInputs,
+  decisionRuntimeCitationIdsFromToolLoop,
   frozenAlphaCandidatesFromToolLoop,
   layerFourExtractorSystem,
 } from "../src/agents/decision/_factory.js";
@@ -106,6 +108,33 @@ import { validateFinalTargetNode } from "../src/graph/layer4.js";
 import type { LlmHandle } from "../src/llm/factory.js";
 import { macroOutput } from "./helpers/macro.js";
 import { sectorOutput } from "./helpers/sector.js";
+
+function runtimeEnumForArrayProperty(value: unknown, propertyName: string): string[] | undefined {
+  if (Array.isArray(value)) {
+    return value.map((item) => runtimeEnumForArrayProperty(item, propertyName)).find(Boolean);
+  }
+  if (value === null || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const properties =
+    record.properties !== null &&
+    typeof record.properties === "object" &&
+    !Array.isArray(record.properties)
+      ? (record.properties as Record<string, unknown>)
+      : null;
+  const property = properties?.[propertyName];
+  if (property !== null && typeof property === "object" && !Array.isArray(property)) {
+    const items = (property as Record<string, unknown>).items;
+    if (items !== null && typeof items === "object" && !Array.isArray(items)) {
+      const values = (items as Record<string, unknown>).enum;
+      if (Array.isArray(values) && values.every((item) => typeof item === "string")) {
+        return values as string[];
+      }
+    }
+  }
+  return Object.values(record)
+    .map((item) => runtimeEnumForArrayProperty(item, propertyName))
+    .find(Boolean);
+}
 
 function freezeExecutionFeasibility(
   runId: string,
@@ -321,6 +350,43 @@ describe("server-authority Decision stage objects", () => {
       upstream_accepted_output_refs_hash:
         "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     });
+  });
+
+  it("derives a runtime citation from a verified CIO snapshot without a production binding", () => {
+    const payload = snapshot("cio", []);
+    const messages = [
+      new ToolMessage({
+        content: JSON.stringify(payload),
+        tool_call_id: "cio-snapshot-call",
+      }),
+    ];
+    const statuses = [
+      {
+        name: "get_cio_decision_snapshot",
+        call_id: "cio-snapshot-call",
+        called: true,
+        failed: false,
+        missing: false,
+        fallback: false,
+        cache_hit: false,
+      },
+    ];
+
+    expect(decisionRuntimeCitationIdsFromToolLoop("cio", messages, statuses)).toEqual([
+      "cio-universe:1",
+    ]);
+    expect(() =>
+      decisionRuntimeCitationIdsFromToolLoop(
+        "cio",
+        [
+          new ToolMessage({
+            content: JSON.stringify({ ...payload, candidate_universe_hash: "not-a-hash" }),
+            tool_call_id: "cio-snapshot-call",
+          }),
+        ],
+        statuses,
+      ),
+    ).toThrow(/candidate_universe_hash/);
   });
 });
 
@@ -1139,6 +1205,31 @@ function cioOutput(portfolio_actions: PortfolioAction[]): CioOutput {
     agent: "cio",
     portfolio_actions,
     confidence: 0.61,
+  };
+}
+
+function attachFrozenNoDeltaRuntime(state: DailyCycleStateType): void {
+  const frozen = freezeCioProposal(state, cioOutput([]));
+  const cro = freezeCroReview("t", frozen.candidate, {
+    agent: "cro",
+    rejected_picks: [],
+    required_adjustments: [],
+    correlated_risks: [],
+    black_swan_scenarios: [],
+    confidence: 0.5,
+  });
+  const execution = freezeExecutionFeasibility("t", frozen.candidate, cro, {
+    agent: "autonomous_execution",
+    execution_disposition: "NO_DELTA",
+    trades: [],
+    execution_checks: [],
+    confidence: 0.5,
+  });
+  state.layer4_outputs.runtime = {
+    ...emptyLayer4RuntimeState(),
+    candidate_target_state: frozen.candidate,
+    cro_review_state: cro,
+    execution_feasibility_state: execution,
   };
 }
 
@@ -3225,6 +3316,27 @@ describe("autonomous execution reliability boundary", () => {
       "macro_input_attributions is an object",
     );
   });
+
+  it("publishes an explicit CIO final narrative budget", () => {
+    expect(layerFourExtractorSystem(cioSpec, "en")).toContain(
+      "decision_reason must be one complete sentence of no more than 160 Unicode characters",
+    );
+    expect(layerFourExtractorSystem(cioProposalSpec, "en")).not.toContain(
+      "decision_reason must be one complete sentence of no more than 160 Unicode characters",
+    );
+  });
+
+  it("derives empty CIO final control tuples from frozen no-delta runtime", () => {
+    const state = baseState();
+    attachFrozenNoDeltaRuntime(state);
+
+    expect(buildCioFinalProviderControlDirective(state)).toEqual({
+      contract_version: "cio_final_provider_control_directive_v1",
+      decision_reason_max_length: 160,
+      cro_action_local_refs: [],
+      execution_assessment_local_refs: [],
+    });
+  });
 });
 
 // ============================================================ end-to-end via factory (cio)
@@ -3390,6 +3502,7 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
       },
       cio: null,
     };
+    attachFrozenNoDeltaRuntime(sample);
 
     const node = buildCioNode({ llmHandle: handle, config, promptsRoot: promptDir });
     await expect(node(sample)).rejects.toBeInstanceOf(AgentRunContractError);
@@ -3431,7 +3544,7 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
     expect(llm.structuredCalls).toBeGreaterThan(0);
   });
 
-  it("passes runtime evidence ids to extraction and verifies action claim refs", async () => {
+  it("passes runtime evidence and verified snapshot citations through strict extraction", async () => {
     const prompt = "FAKE-CIO";
     const dir = join(promptDir, "cohort_default", "decision");
     writeFileSync(join(dir, "cio.zh.md"), prompt, "utf-8");
@@ -3442,11 +3555,15 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
       invokeCalls = 0;
       structuredCalls = 0;
       evidenceId: string | undefined;
+      citationId: string | undefined;
       async invoke(): Promise<AIMessage> {
         this.invokeCalls++;
         return new AIMessage("Hold the existing position on current account evidence.");
       }
-      withStructuredOutput(): { invoke: (messages: BaseMessage[]) => Promise<unknown> } {
+      withStructuredOutput(schema: unknown): {
+        invoke: (messages: BaseMessage[]) => Promise<unknown>;
+      } {
+        this.citationId = runtimeEnumForArrayProperty(schema, "research_rule_refs")?.[0];
         return {
           invoke: async (messages) => {
             this.structuredCalls++;
@@ -3463,6 +3580,8 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
             }
             const evidenceId = this.evidenceId;
             if (!evidenceId) throw new Error("current evidence missing from extraction catalog");
+            const citationId = this.citationId;
+            if (!citationId) throw new Error("verified snapshot citation missing from schema");
             return {
               agent_id: "cio",
               decision_stage: "PROPOSAL",
@@ -3485,11 +3604,11 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
               claims: [
                 {
                   claim_id: "claim-hold",
-                  claim_kind: "FACT",
+                  claim_kind: "INTERPRETATION",
                   statement: "Keep the existing target unchanged.",
                   structured_conclusion: { decision: "HOLD" },
                   evidence_ids: [evidenceId ?? "missing"],
-                  research_rule_refs: [],
+                  research_rule_refs: [citationId],
                 },
               ],
               claim_refs: ["claim-hold"],
@@ -3576,6 +3695,7 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
     ]);
     expect(llm.invokeCalls).toBe(1);
     expect(llm.structuredCalls).toBe(1);
+    expect(llm.citationId).toMatch(/^fake-candidate-universe:[0-9a-f]{64}$/);
     clearPromptCache();
   });
 });

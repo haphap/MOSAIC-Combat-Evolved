@@ -27,8 +27,8 @@ Tool                            Used by                                         
                                 DTWEXBGS/FEDFUNDS/VIXCLS stay FRED fallback)
 ``get_pboc_ops``                central_bank, china                               PBOC website mirror
 ``get_lhb_ranking``             institutional_flow                                Tushare top_list
-``get_yield_curve_cn``          central_bank, yield_curve                         Tushare yc_cb
-``get_us_china_spread``         yield_curve                                       Tushare yc_cb + FRED DGS10
+``get_yield_curve_cn``          central_bank, yield_curve                         MOF/ChinaBond official curve
+``get_us_china_spread``         yield_curve                                       MOF/ChinaBond + Tushare us_tycr
 ``get_xueqiu_heat``             news_sentiment                                    AkShare stock_hot_follow_xq
 ``get_news``                    news_sentiment                                    opencli / brave / yfinance
 ``get_industry_policy``         china                                             gov.cn policy document library
@@ -199,7 +199,8 @@ def get_us_china_spread(
     Compute the U.S.–China 10-year sovereign yield spread over a window.
 
     Composite metric: U.S. 10Y from Tushare ``us_tycr.y10`` first (FRED
-    ``DGS10`` fallback) minus China 10Y from Tushare ``yc_cb`` (curve_type=0).
+    ``DGS10`` fallback) minus China 10Y from the MOF/ChinaBond official maturity
+    curve.
     Reported as ``spread_bps = (us_10y_pct - cn_10y_pct) * 100`` for each
     trading date that has both legs. Used by ``yield_curve`` to anchor reports
     on a hard cross-market metric.

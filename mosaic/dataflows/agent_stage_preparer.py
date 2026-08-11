@@ -5,15 +5,18 @@ from __future__ import annotations
 import json
 import os
 from datetime import date, datetime, time, timedelta, timezone
+from functools import partial
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 from mosaic.scorecard.canonical_json import canonical_hash
 
 from .a_share_archive import (
+    A_SHARE_CAPTURE_ENDPOINTS,
     AShareArchiveStore,
     archive_a_share_breadth,
+    capture_a_share_parent_sources,
     compile_a_share_breadth_snapshot,
     fetch_a_share_tushare_endpoint,
 )
@@ -33,6 +36,9 @@ from .bound_runtime_snapshots import (
     runtime_snapshot_root,
 )
 from .china_agent_data_archive import (
+    CURVE_ROUTE_GROUP,
+    INSTITUTIONAL_ROUTE_GROUP,
+    LOGICAL_ROUTES as CHINA_AGENT_ROUTE_IDS,
     ChinaAgentDataArchiveStore,
     _private_tushare_fetch as _china_tushare_fetch,
     archive_china_agent_sources,
@@ -42,24 +48,37 @@ from .economic_calendar import EconomicCalendarStore
 from .exceptions import DataVendorUnavailable
 from .europe_macro_archive import (
     EuropeMacroArchiveStore,
+    LOGICAL_ROUTES as EUROPE_MACRO_ROUTE_IDS,
     _private_tushare_fetch as _europe_tushare_fetch,
     archive_europe_macro_sources,
     compile_europe_macro_snapshots,
 )
 from .geopolitical_archive import materialize_geopolitical_snapshot
-from .geopolitical_events import GeopoliticalEventStore
+from .geopolitical_events import GeopoliticalEventStore, geopolitical_store_path
 from .geopolitical_source_adapters import capture_required_geopolitical_sources
-from .frozen_adaptive_queries import FrozenAdaptiveQueryStore
+from .frozen_adaptive_queries import (
+    CALL_TIME_ARGUMENT_CONTRACT,
+    FrozenAdaptiveQueryStore,
+)
 from .macro_snapshots import snapshot_cache_root
 from .role_events import ROLE_EVENT_SNAPSHOT_VERSION, build_role_event_snapshot
+from .route_eligibility import (
+    evaluate_runtime_stage_admission,
+    production_license_receipt_ref,
+)
+from .runtime_paths import agent_cache_root, agent_runtime_root_override
 from .sector_archive import (
+    LOGICAL_ROUTES as SECTOR_ARCHIVE_ROUTE_IDS,
+    STANDARD_SECTOR_AGENT_IDS,
     SectorArchiveStore,
     archive_sector_relationship,
     compile_sector_relationship_core_snapshots,
+    sector_parent_endpoints,
 )
 from .source_archive import archive_eco_calendar
 from .staged_query_receipt_store import StagedQueryReceiptStore
 from .us_macro_archive import (
+    LOGICAL_ROUTES as US_MACRO_ROUTE_IDS,
     USMacroArchiveStore,
     _private_tushare_fetch as _us_tushare_fetch,
     archive_us_macro_sources,
@@ -73,9 +92,44 @@ ADAPTIVE_QUERY_OUTPUT_CONTRACT_VERSION = "frozen_adaptive_query_tool_bundle_v1"
 ROLE_EVENT_COMPILER_VERSION = "trusted_role_event_build_compiler_v1"
 BOUND_RUNTIME_COMPILER_VERSION = "trusted_bound_runtime_snapshot_compiler_v1"
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
+_DEFERRED_REQUEST_ONLY_MARKER = "_mosaic_deferred_request_only"
+_DEFERRED_TOOL_IDS = "_mosaic_deferred_tool_ids"
+_DEFERRED_REQUEST_ONLY_SENTINEL = object()
 FamilyStagePreparer = Callable[
     [Mapping[str, Any], AgentDataMaterializationLedger], Any
 ]
+
+
+def trusted_deferred_request_only_request(
+    request: Mapping[str, Any], *, tool_ids: Sequence[str]
+) -> dict[str, Any]:
+    """Mark one in-process stage request as deferred without trusting caller fields."""
+
+    normalized = dict(request)
+    tools = tuple(tool_ids)
+    if not tools or len(tools) != len(set(tools)) or any(
+        not isinstance(tool_id, str) or not tool_id for tool_id in tools
+    ):
+        raise ValueError("deferred request-only tool ids are invalid")
+    normalized[_DEFERRED_REQUEST_ONLY_MARKER] = _DEFERRED_REQUEST_ONLY_SENTINEL
+    normalized[_DEFERRED_TOOL_IDS] = tools
+    return normalized
+
+
+def _deferred_request_only_tool_ids(
+    request: Mapping[str, Any],
+) -> tuple[str, ...] | None:
+    if request.get(_DEFERRED_REQUEST_ONLY_MARKER) is not _DEFERRED_REQUEST_ONLY_SENTINEL:
+        return None
+    tool_ids = request.get(_DEFERRED_TOOL_IDS)
+    if (
+        not isinstance(tool_ids, tuple)
+        or not tool_ids
+        or len(tool_ids) != len(set(tool_ids))
+        or any(not isinstance(tool_id, str) or not tool_id for tool_id in tool_ids)
+    ):
+        raise ValueError("deferred request-only tool ids are invalid")
+    return tool_ids
 _CHINA_FAMILY_STAGES = (
     ("central_bank", "central_bank"),
     ("china", "china"),
@@ -144,6 +198,14 @@ _BOUND_ROLE_EVENT_STAGES = frozenset(
         ("autonomous_execution", "autonomous_execution"),
     }
 )
+SOURCE_ADMISSION_FAMILY_STAGE_GROUPS = (
+    (("china", "china"), _CHINA_FAMILY_STAGES),
+    (("us_economy", "us_economy"), _US_FAMILY_STAGES),
+    (("eu_economy", "eu_economy"), _EUROPE_FAMILY_STAGES),
+    (("geopolitical", "geopolitical"), _GEOPOLITICAL_FAMILY_STAGES),
+    (("market_breadth", "market_breadth"), _MARKET_BREADTH_FAMILY_STAGES),
+    (("semiconductor", "semiconductor"), _SECTOR_RELATIONSHIP_FAMILY_STAGES),
+)
 US_MACRO_OBSERVATION_WINDOW_POLICY = "previous_calendar_year_start_v1"
 
 
@@ -152,6 +214,13 @@ def _required_text(request: Mapping[str, Any], field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field} must be a non-empty string")
     return value.strip()
+
+
+def _historical_replay(request: Mapping[str, Any]) -> bool:
+    value = request.get("historical_replay", False)
+    if not isinstance(value, bool):
+        raise ValueError("historical_replay must be a boolean")
+    return value
 
 
 def _stage_bindings(agent_id: str, stage: str) -> list[dict[str, Any]]:
@@ -491,7 +560,7 @@ def prepare_bound_runtime_family(
         )
         calendar_store = EconomicCalendarStore()
         calendar = archive_eco_calendar(
-            _china_tushare_fetch,
+            partial(_china_tushare_fetch, endpoint="eco_cal"),
             as_of_date=as_of,
             captured_at=_stage_capture_now().astimezone(timezone.utc).isoformat(),
             store=calendar_store,
@@ -546,13 +615,28 @@ def publish_ready_stage_materialization(
         expected_output_hashes, Mapping
     ):
         raise ValueError("tool_payload_hashes must be an object")
-
     tool_ids, build_receipts, source_receipts = _ready_stage_receipts(
         ledger=ledger,
         agent_id=agent_id,
         stage=stage,
         as_of=as_of,
         expected_output_hashes=expected_output_hashes,
+    )
+    now = (clock or (lambda: datetime.now(timezone.utc)))().astimezone(timezone.utc)
+    runtime_route_eligibility_receipt_hashes = evaluate_runtime_stage_admission(
+        ledger=ledger,
+        agent_id=agent_id,
+        stage=stage,
+        target_date=as_of,
+        evaluated_at=now.isoformat(),
+        cycle_run_id=graph_run_id,
+        source_receipt_hashes=sorted(
+            {
+                receipt_hash
+                for receipt_hashes in source_receipts.values()
+                for receipt_hash in receipt_hashes
+            }
+        ),
     )
     candidate_scope_hash = canonical_hash(
         dict(candidate_scope) if candidate_scope is not None else {}
@@ -567,7 +651,6 @@ def publish_ready_stage_materialization(
         runtime_input_hash=runtime_input_hash,
         contract_version=MATERIALIZATION_CONTRACT_VERSION,
     )
-    now = (clock or (lambda: datetime.now(timezone.utc)))().astimezone(timezone.utc)
     finished_at = now.isoformat()
     attempt_id = "attempt:" + canonical_hash(
         {
@@ -627,6 +710,9 @@ def publish_ready_stage_materialization(
         "tool_ids": tool_ids,
         "build_receipt_hashes": build_receipts,
         "materialization_attempt_receipt_hash": receipt_hash,
+        "runtime_route_eligibility_receipt_hashes": (
+            runtime_route_eligibility_receipt_hashes
+        ),
         "cache_status": cache_status,
     }
 
@@ -638,9 +724,24 @@ def _ready_stage_receipts(
     stage: str,
     as_of: str,
     expected_output_hashes: Mapping[str, Any] | None = None,
+    tool_ids: Sequence[str] | None = None,
 ) -> tuple[list[str], dict[str, str], dict[str, list[str]]]:
     bindings = _stage_bindings(agent_id, stage)
-    tool_ids = [binding["tool_id"] for binding in bindings]
+    if tool_ids is None:
+        selected_tool_ids = [binding["tool_id"] for binding in bindings]
+    else:
+        selected_tool_ids = list(tool_ids)
+        available_tool_ids = {binding["tool_id"] for binding in bindings}
+        if (
+            selected_tool_ids != sorted(set(selected_tool_ids))
+            or not set(selected_tool_ids) <= available_tool_ids
+        ):
+            raise ValueError("stage receipt tool subset is invalid")
+        bindings = [
+            binding
+            for binding in bindings
+            if binding["tool_id"] in set(selected_tool_ids)
+        ]
     build_receipts: dict[str, str] = {}
     source_receipts: dict[str, list[str]] = {}
     for binding in bindings:
@@ -676,7 +777,7 @@ def _ready_stage_receipts(
             )
         build_receipts[tool_id] = build.receipt_hash
         source_receipts[tool_id] = list(build_payload["source_receipt_hashes"])
-    return tool_ids, build_receipts, source_receipts
+    return selected_tool_ids, build_receipts, source_receipts
 
 
 def _coverage_start(source: Mapping[str, Any]) -> str:
@@ -936,6 +1037,77 @@ class TrustedAgentStageFinalizer:
             raise ValueError("stage_preparation cache_status is invalid")
         ledger = self.ledger_factory()
         adaptive_query = context.get("adaptive_query")
+        if isinstance(adaptive_query, Mapping) and adaptive_query.get("deferred") is True:
+            agent_id = _required_text(context, "agent_id")
+            stage = _required_text(context, "stage")
+            as_of = _required_text(context, "as_of")
+            deferred_tool_ids = context.get("deferred_tool_ids")
+            initial_tool_ids = context.get("initial_snapshot_tool_ids")
+            payload_hashes = context.get("tool_payload_hashes")
+            projection = adaptive_query.get("public_projection")
+            if (
+                preparation.get("ensure_mode") != "enforce"
+                or preparation.get("agent_id") != agent_id
+                or preparation.get("stage") != stage
+                or preparation.get("as_of") != as_of
+                or not isinstance(deferred_tool_ids, list)
+                or not deferred_tool_ids
+                or deferred_tool_ids != sorted(set(deferred_tool_ids))
+                or not isinstance(initial_tool_ids, list)
+                or initial_tool_ids != sorted(set(initial_tool_ids))
+                or not isinstance(payload_hashes, Mapping)
+                or not isinstance(projection, Mapping)
+                or projection.get("call_contract") != CALL_TIME_ARGUMENT_CONTRACT
+                or projection.get("bundle_id") != adaptive_query.get("bundle_id")
+                or projection.get("bundle_hash") != adaptive_query.get("bundle_hash")
+                or projection.get("agent_id") != agent_id
+                or projection.get("stage") != stage
+                or projection.get("as_of") != as_of
+            ):
+                raise ValueError("deferred stage finalization authority is invalid")
+            stage_tool_ids = {
+                binding["tool_id"] for binding in _stage_bindings(agent_id, stage)
+            }
+            if (
+                set(deferred_tool_ids) & set(initial_tool_ids)
+                or set(deferred_tool_ids) | set(initial_tool_ids) != stage_tool_ids
+                or set(payload_hashes) != stage_tool_ids
+            ):
+                raise ValueError("deferred stage finalization tool closure mismatch")
+            ready_tool_ids, build_receipts, source_receipts = (
+                _ready_stage_receipts(
+                    ledger=ledger,
+                    agent_id=agent_id,
+                    stage=stage,
+                    as_of=as_of,
+                    expected_output_hashes=payload_hashes,
+                    tool_ids=initial_tool_ids,
+                )
+            )
+            if (
+                ready_tool_ids != initial_tool_ids
+                or set(build_receipts) != set(initial_tool_ids)
+                or set(source_receipts) != set(initial_tool_ids)
+            ):
+                raise ValueError("deferred initial snapshot closure is invalid")
+            # READY here is an internal split closure only. It is not a persisted
+            # full-stage materialization attempt and carries no attempt authority.
+            published = {
+                "agent_id": agent_id,
+                "stage": stage,
+                "as_of": as_of,
+                "status": "READY",
+                "tool_ids": ready_tool_ids,
+                "build_receipt_hashes": build_receipts,
+                "materialization_attempt_receipt_hash": None,
+                "cache_status": str(cache_status),
+            }
+            return {
+                **published,
+                "deferred_tool_ids": list(deferred_tool_ids),
+                "deferred_query_bundle_hash": adaptive_query["bundle_hash"],
+                "deferred_query_call_contract": CALL_TIME_ARGUMENT_CONTRACT,
+            }
         if adaptive_query is not None:
             if self.adaptive_query_store is None or self.staged_receipt_store is None:
                 raise DataVendorUnavailable(
@@ -1064,16 +1236,41 @@ def compile_sector_role_event_builds(
 
 
 def _prepare_china_agent_archive(
-    *, as_of: str, ledger: AgentDataMaterializationLedger
+    *,
+    as_of: str,
+    ledger: AgentDataMaterializationLedger,
+    requested_route_ids: tuple[str, ...] | None = None,
+    historical_replay: bool = False,
 ) -> None:
     store = ChinaAgentDataArchiveStore()
     archive = archive_china_agent_sources(
         as_of_date=as_of,
         cutoff_at=f"{as_of}T15:00:00+08:00",
         market_session_date=as_of,
+        **(
+            {"requested_route_ids": requested_route_ids}
+            if requested_route_ids is not None
+            else {}
+        ),
+        **({"historical_replay": True} if historical_replay else {}),
         store=store,
         ledger=ledger,
     )
+    if requested_route_ids is not None:
+        captured_routes = {
+            receipt.as_dict()["identity"]["route_id"]
+            for route in archive.routes.values()
+            for receipt in route.source_receipts
+        }
+        if captured_routes != set(requested_route_ids) or any(
+            not route.coverage_receipt.as_dict()["coverage_complete"]
+            for route in archive.routes.values()
+        ):
+            raise DataVendorUnavailable(
+                "China route-only archive is blocked",
+                reason_code="CHINA_ROUTE_CAPTURE_BLOCKED",
+            )
+        return
     compile_china_agent_snapshots(
         archive=archive,
         store=store,
@@ -1088,17 +1285,38 @@ def prepare_china_agent_family(
 ) -> None:
     """Reuse the trusted calendar and China archive/compiler for four stages."""
     as_of = _required_text(request, "as_of")
+    route_id = request.get("route_id")
+    if isinstance(route_id, str) and route_id in CHINA_AGENT_ROUTE_IDS:
+        _prepare_china_agent_archive(
+            as_of=as_of,
+            ledger=ledger,
+            requested_route_ids=(route_id,),
+            historical_replay=_historical_replay(request),
+        )
+        return
     captured_at = _stage_capture_now().astimezone(timezone.utc).isoformat()
     calendar = archive_eco_calendar(
-        _china_tushare_fetch,
+        partial(_china_tushare_fetch, endpoint="eco_cal"),
         as_of_date=as_of,
         captured_at=captured_at,
+        **({"as_of_cutoff": captured_at} if _historical_replay(request) else {}),
+        **(
+            {"requested_route_ids": (str(route_id),)}
+            if route_id == "tushare.eco_cal.cny"
+            else {}
+        ),
         store=EconomicCalendarStore(),
         ledger=ledger,
     )
     if not calendar.coverage_receipt.as_dict()["coverage_complete"]:
         raise DataVendorUnavailable("economic calendar archive is blocked")
-    _prepare_china_agent_archive(as_of=as_of, ledger=ledger)
+    if route_id == "tushare.eco_cal.cny":
+        return
+    _prepare_china_agent_archive(
+        as_of=as_of,
+        ledger=ledger,
+        historical_replay=_historical_replay(request),
+    )
 
 
 def prepare_sector_relationship_family(
@@ -1107,47 +1325,103 @@ def prepare_sector_relationship_family(
 ) -> None:
     """Reuse existing archives to build all Sector/Relationship initial data."""
     as_of = _required_text(request, "as_of")
-    calendar_store = EconomicCalendarStore()
-    calendar = archive_eco_calendar(
-        _china_tushare_fetch,
-        as_of_date=as_of,
-        captured_at=_stage_capture_now().astimezone(timezone.utc).isoformat(),
-        store=calendar_store,
-        ledger=ledger,
-    )
-    compile_sector_role_event_builds(
-        archive=calendar,
-        store=calendar_store,
-        ledger=ledger,
-    )
-    if not calendar.coverage_receipt.as_dict()["coverage_complete"]:
-        raise DataVendorUnavailable("economic calendar archive is blocked")
+    agent_id = _required_text(request, "agent_id")
+    historical_replay = _historical_replay(request)
+    route_only = request.get("route_id") in SECTOR_ARCHIVE_ROUTE_IDS
+    route_id = str(request["route_id"]) if route_only else None
+    if agent_id == "relationship_mapper":
+        if route_only and route_id != "tushare.relationship_graph":
+            raise ValueError("relationship_mapper only owns the relationship route")
+        requested_route_ids = ("tushare.relationship_graph",)
+        requested_agent_ids = STANDARD_SECTOR_AGENT_IDS
+    elif agent_id in STANDARD_SECTOR_AGENT_IDS:
+        if route_only and route_id == "tushare.relationship_graph":
+            raise ValueError("standard Sector agents do not own the relationship route")
+        requested_route_ids = (
+            (route_id,)
+            if route_only
+            else ("tushare.sector_fundamentals", "tushare.sector_market")
+        )
+        requested_agent_ids = (agent_id,)
+    else:
+        raise ValueError("agent is outside the Sector/Relationship stage roster")
+    if not route_only:
+        captured_at = _stage_capture_now().astimezone(timezone.utc).isoformat()
+        calendar_store = EconomicCalendarStore()
+        calendar = archive_eco_calendar(
+            partial(_china_tushare_fetch, endpoint="eco_cal"),
+            as_of_date=as_of,
+            captured_at=captured_at,
+            as_of_cutoff=captured_at if historical_replay else None,
+            store=calendar_store,
+            ledger=ledger,
+        )
+        compile_sector_role_event_builds(
+            archive=calendar,
+            store=calendar_store,
+            ledger=ledger,
+        )
+        if not calendar.coverage_receipt.as_dict()["coverage_complete"]:
+            raise DataVendorUnavailable("economic calendar archive is blocked")
 
     base_store = AShareArchiveStore()
-    archive_a_share_breadth(
-        fetch_a_share_tushare_endpoint,
-        as_of_date=as_of,
-        cutoff_at=f"{as_of}T23:59:59+08:00",
-        store=base_store,
-        ledger=ledger,
-    )
+    parent_endpoints = sector_parent_endpoints(requested_route_ids)
+    if parent_endpoints == A_SHARE_CAPTURE_ENDPOINTS:
+        base_archive = archive_a_share_breadth(
+            fetch_a_share_tushare_endpoint,
+            as_of_date=as_of,
+            cutoff_at=f"{as_of}T23:59:59+08:00",
+            historical_replay=historical_replay,
+            store=base_store,
+            ledger=ledger,
+        )
+        if not base_archive.coverage_receipt.as_dict()["coverage_complete"]:
+            raise DataVendorUnavailable(
+                "A-share breadth archive is blocked",
+                reason_code="A_SHARE_BREADTH_ARCHIVE_BLOCKED",
+            )
+    else:
+        capture_a_share_parent_sources(
+            fetch_a_share_tushare_endpoint,
+            as_of_date=as_of,
+            cutoff_at=f"{as_of}T23:59:59+08:00",
+            requested_endpoints=parent_endpoints,
+            historical_replay=historical_replay,
+            store=base_store,
+        )
     sector_store = SectorArchiveStore()
     sector_archive = archive_sector_relationship(
         fetch_a_share_tushare_endpoint,
         as_of_date=as_of,
         cutoff_at=f"{as_of}T23:59:59+08:00",
+        historical_replay=historical_replay,
+        requested_route_ids=requested_route_ids,
+        requested_agent_ids=requested_agent_ids,
         base_store=base_store,
         store=sector_store,
         ledger=ledger,
     )
+    if not sector_archive.coverage_receipt.as_dict()["coverage_complete"]:
+        raise DataVendorUnavailable(
+            "sector relationship archive is blocked",
+            reason_code="SECTOR_RELATIONSHIP_ARCHIVE_BLOCKED",
+        )
+    if route_only:
+        return
     compile_sector_relationship_core_snapshots(
         sector_archive,
         ledger=ledger,
         output_root=snapshot_cache_root(),
     )
-    if not sector_archive.coverage_receipt.as_dict()["coverage_complete"]:
-        raise DataVendorUnavailable("sector relationship archive is blocked")
-    _prepare_china_agent_archive(as_of=as_of, ledger=ledger)
+    if agent_id != "relationship_mapper":
+        china_route_ids = [INSTITUTIONAL_ROUTE_GROUP]
+        if agent_id == "financials":
+            china_route_ids.append(CURVE_ROUTE_GROUP)
+        _prepare_china_agent_archive(
+            as_of=as_of,
+            ledger=ledger,
+            requested_route_ids=tuple(china_route_ids),
+        )
 
 
 def us_macro_observation_start(as_of: str) -> str:
@@ -1162,21 +1436,61 @@ def prepare_us_macro_family(
 ) -> None:
     """Reuse the trusted calendar and US archive/compiler for two stages."""
     as_of = _required_text(request, "as_of")
+    route_id = request.get("route_id")
+    if route_id in US_MACRO_ROUTE_IDS:
+        store = USMacroArchiveStore()
+        archive = archive_us_macro_sources(
+            as_of_date=as_of,
+            cutoff_at=f"{as_of}T15:00:00+08:00",
+            observation_start=us_macro_observation_start(as_of),
+            requested_route_ids=(str(route_id),),
+            **(
+                {"historical_replay": True}
+                if _historical_replay(request)
+                else {}
+            ),
+            store=store,
+            ledger=ledger,
+        )
+        if not any(
+            receipt.as_dict()["identity"]["route_id"] == route_id
+            for receipt in archive.source_receipts
+        ):
+            raise DataVendorUnavailable(
+                "US macro route-only capture is blocked",
+                reason_code=(
+                    "US_MACRO_AUTHORITATIVE_REPLAY_BLOCKED"
+                    if route_id == "alfred.us_macro"
+                    else "US_MACRO_ROUTE_CAPTURE_BLOCKED"
+                ),
+            )
+        return
     captured_at = _stage_capture_now().astimezone(timezone.utc).isoformat()
     calendar = archive_eco_calendar(
-        _us_tushare_fetch,
+        partial(_us_tushare_fetch, endpoint="eco_cal"),
         as_of_date=as_of,
         captured_at=captured_at,
+        **({"as_of_cutoff": captured_at} if _historical_replay(request) else {}),
+        **(
+            {"requested_route_ids": (str(route_id),)}
+            if route_id == "tushare.eco_cal.usd"
+            else {}
+        ),
         store=EconomicCalendarStore(),
         ledger=ledger,
     )
     if not calendar.coverage_receipt.as_dict()["coverage_complete"]:
         raise DataVendorUnavailable("economic calendar archive is blocked")
+    if request.get("route_id") == "tushare.eco_cal.usd":
+        return
     store = USMacroArchiveStore()
     archive = archive_us_macro_sources(
         as_of_date=as_of,
         cutoff_at=f"{as_of}T15:00:00+08:00",
         observation_start=us_macro_observation_start(as_of),
+        **(
+            {"historical_replay": True} if _historical_replay(request) else {}
+        ),
         store=store,
         ledger=ledger,
     )
@@ -1199,21 +1513,63 @@ def prepare_europe_macro_family(
 ) -> None:
     """Reuse the trusted calendar and Europe archive/compiler for two stages."""
     as_of = _required_text(request, "as_of")
+    route_id = request.get("route_id")
+    if route_id in EUROPE_MACRO_ROUTE_IDS:
+        store = EuropeMacroArchiveStore()
+        archive = archive_europe_macro_sources(
+            as_of_date=as_of,
+            cutoff_at=f"{as_of}T15:00:00+08:00",
+            observation_start=us_macro_observation_start(as_of),
+            requested_route_ids=(str(route_id),),
+            **(
+                {"historical_replay": True}
+                if _historical_replay(request)
+                else {}
+            ),
+            store=store,
+            ledger=ledger,
+        )
+        if not any(
+            receipt.as_dict()["identity"]["route_id"] == route_id
+            for receipt in archive.source_receipts
+        ):
+            raise DataVendorUnavailable(
+                "Europe macro route-only capture is blocked",
+                reason_code=(
+                    "EUROPE_MACRO_AUTHORITATIVE_REPLAY_BLOCKED"
+                    if route_id in {"ecb.eu_real_economy", "ecb.euro_macro"}
+                    else "EUROPE_MACRO_ROUTE_CAPTURE_BLOCKED"
+                ),
+            )
+        return
     captured_at = _stage_capture_now().astimezone(timezone.utc).isoformat()
     calendar = archive_eco_calendar(
-        _europe_tushare_fetch,
+        partial(_europe_tushare_fetch, endpoint="eco_cal"),
         as_of_date=as_of,
         captured_at=captured_at,
+        **({"as_of_cutoff": captured_at} if _historical_replay(request) else {}),
+        **(
+            {"requested_route_ids": (str(route_id),)}
+            if route_id == "tushare.eco_cal.eur"
+            else {}
+        ),
         store=EconomicCalendarStore(),
         ledger=ledger,
     )
     if not calendar.coverage_receipt.as_dict()["coverage_complete"]:
         raise DataVendorUnavailable("economic calendar archive is blocked")
+    if request.get("route_id") == "tushare.eco_cal.eur":
+        return
     store = EuropeMacroArchiveStore()
     archive = archive_europe_macro_sources(
         as_of_date=as_of,
         cutoff_at=f"{as_of}T15:00:00+08:00",
         observation_start=us_macro_observation_start(as_of),
+        **(
+            {"historical_replay": True}
+            if _historical_replay(request)
+            else {}
+        ),
         store=store,
         ledger=ledger,
     )
@@ -1236,21 +1592,16 @@ def prepare_geopolitical_family(
 ) -> None:
     """Capture every Geo source, then reuse existing preflight authority to build."""
     as_of = _required_text(request, "as_of")
-    event_store = GeopoliticalEventStore()
+    event_store = GeopoliticalEventStore(geopolitical_store_path())
     capture_required_geopolitical_sources(store=event_store)
-    archive_eco_calendar(
-        _china_tushare_fetch,
-        as_of_date=as_of,
-        captured_at=_stage_capture_now().astimezone(timezone.utc).isoformat(),
-        store=EconomicCalendarStore(),
-        ledger=ledger,
-    )
-    materialize_geopolitical_snapshot(
+    result = materialize_geopolitical_snapshot(
         as_of_date=as_of,
         event_store=event_store,
         ledger=ledger,
         output_root=snapshot_cache_root(),
     )
+    if result.build_receipt.as_dict()["terminal_state"] != "READY":
+        raise DataVendorUnavailable("geopolitical archive is blocked")
 
 
 def prepare_market_breadth_family(
@@ -1263,20 +1614,25 @@ def prepare_market_breadth_family(
         fetch_a_share_tushare_endpoint,
         as_of_date=as_of,
         cutoff_at=f"{as_of}T16:00:00+08:00",
+        historical_replay=_historical_replay(request),
         store=AShareArchiveStore(),
         ledger=ledger,
     )
-    compile_a_share_breadth_snapshot(
+    build = compile_a_share_breadth_snapshot(
         archive,
         as_of_date=as_of,
         ledger=ledger,
     )
+    if build.as_dict()["terminal_state"] != "READY":
+        raise DataVendorUnavailable(
+            "A-share breadth archive is blocked",
+            reason_code="A_SHARE_BREADTH_ARCHIVE_BLOCKED",
+        )
 
 
-def ensure_agent_stage_materialization(request: Mapping[str, Any]) -> dict[str, Any]:
-    """Ensure trusted sources and initial builds before payload materialization."""
-    if os.getenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS") == "structured_smoke":
-        return {"status": "SYNTHETIC_NON_PRODUCTION_BYPASS"}
+def _ensure_agent_stage_materialization_core(
+    request: Mapping[str, Any],
+) -> dict[str, Any]:
     return TrustedAgentStagePreparer(
         ledger_factory=lambda: open_agent_data_materialization_ledger(create=True),
         family_preparers={
@@ -1303,6 +1659,90 @@ def ensure_agent_stage_materialization(request: Mapping[str, Any]) -> dict[str, 
     )(request)
 
 
+def prepare_agent_stage_materialization_current_namespace(
+    request: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Prepare one stage inside an already-selected runtime namespace."""
+    return _ensure_agent_stage_materialization_core(request)
+
+
+def ensure_agent_stage_materialization(request: Mapping[str, Any]) -> dict[str, Any]:
+    """Run trusted materialization under the configured rollout authority."""
+    if os.getenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS") == "structured_smoke":
+        return {"status": "SYNTHETIC_NON_PRODUCTION_BYPASS"}
+    mode = os.getenv("MOSAIC_ENSURE_SNAPSHOT_MODE")
+    if mode not in {"off", "shadow", "enforce"}:
+        raise DataVendorUnavailable(
+            "MOSAIC_ENSURE_SNAPSHOT_MODE must be one of off, shadow, enforce"
+        )
+    core_request = dict(request)
+    core_request.pop(_DEFERRED_REQUEST_ONLY_MARKER, None)
+    core_request.pop(_DEFERRED_TOOL_IDS, None)
+    if mode == "off":
+        return {"ensure_mode": "off", "status": "OFF"}
+    if mode == "enforce":
+        agent_id = _required_text(request, "agent_id")
+        stage = _required_text(request, "stage")
+        as_of = _required_text(request, "as_of")
+        date.fromisoformat(as_of)
+        deferred_tool_ids = _deferred_request_only_tool_ids(request)
+        if deferred_tool_ids is not None:
+            stage_tool_ids = {
+                binding["tool_id"] for binding in _stage_bindings(agent_id, stage)
+            }
+            if not set(deferred_tool_ids) <= stage_tool_ids:
+                raise ValueError("deferred request-only tools are outside the stage")
+            return {
+                "agent_id": agent_id,
+                "stage": stage,
+                "as_of": as_of,
+                "cache_status": "HIT",
+                "ensure_mode": "enforce",
+            }
+        required_route_ids = {
+            route_id
+            for binding in _stage_bindings(agent_id, stage)
+            for route_id in binding["required_route_ids"]
+        }
+        evaluated_at = datetime.now(timezone.utc).isoformat()
+        if "composite.cn_rates" in required_route_ids and (
+            production_license_receipt_ref(
+                route_id="composite.cn_rates",
+                evaluated_at=evaluated_at,
+            )
+            is None
+        ):
+            raise DataVendorUnavailable(
+                "MOF/ChinaBond production use requires a named license decision receipt",
+                reason_code="LICENSE_REVIEW_REQUIRED",
+            )
+        return {
+            **_ensure_agent_stage_materialization_core(core_request),
+            "ensure_mode": "enforce",
+        }
+
+    configured_shadow_root = os.getenv("MOSAIC_ENSURE_SNAPSHOT_SHADOW_ROOT")
+    shadow_root = (
+        Path(configured_shadow_root).expanduser()
+        if configured_shadow_root
+        else agent_cache_root() / "agent_materialization_shadow"
+    )
+    try:
+        with agent_runtime_root_override(shadow_root):
+            shadow_result = _ensure_agent_stage_materialization_core(core_request)
+    except DataVendorUnavailable:
+        return {
+            "blocker_codes": ["SHADOW_ENSURE_BLOCKED"],
+            "ensure_mode": "shadow",
+            "status": "SHADOW_BLOCKED",
+        }
+    return {
+        "ensure_mode": "shadow",
+        "shadow_status": shadow_result.get("status"),
+        "status": "SHADOW_READY",
+    }
+
+
 def finalize_agent_stage_materialization(
     context: Mapping[str, Any],
     *,
@@ -1324,6 +1764,7 @@ __all__ = [
     "ADAPTIVE_QUERY_OUTPUT_CONTRACT_VERSION",
     "BOUND_RUNTIME_COMPILER_VERSION",
     "MATERIALIZATION_CONTRACT_VERSION",
+    "SOURCE_ADMISSION_FAMILY_STAGE_GROUPS",
     "TrustedAgentStageFinalizer",
     "TrustedAgentStagePreparer",
     "US_MACRO_OBSERVATION_WINDOW_POLICY",
@@ -1336,6 +1777,7 @@ __all__ = [
     "prepare_europe_macro_family",
     "prepare_geopolitical_family",
     "prepare_market_breadth_family",
+    "prepare_agent_stage_materialization_current_namespace",
     "prepare_sector_relationship_family",
     "prepare_us_macro_family",
     "publish_ready_stage_materialization",

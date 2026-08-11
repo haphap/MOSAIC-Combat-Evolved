@@ -9,10 +9,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
-from mosaic.dataflows.macro_source_contracts import (
-    EURO_AREA_FINANCIAL_SERIES_MAP,
-    EU_SERIES_MAP,
-)
+from mosaic.dataflows.macro_source_contracts import EU_SERIES_MAP
 from mosaic.scorecard.canonical_json import canonical_hash
 from mosaic.scorecard.preservation_snapshots import (
     build_preactivation_capability_binding_manifest,
@@ -28,6 +25,27 @@ ACTIVATION_GATE = "PR12_L1_L2_ATOMIC_ACTIVATION"
 QUERY_BUNDLE_CONTRACT_VERSION = "frozen_snapshot_query_v1"
 KNOT_EVALUATOR_CONTRACT_VERSION = "knot_binding_lineage_evaluator_v1"
 SIGNIFICANCE_CONTRACT_VERSION = "paired_binding_significance_fixture_v1"
+
+_PREACTIVATION_EURO_AREA_FINANCIAL_SERIES_MAP = {
+    "ecb_liquidity": (
+        "FM.B.U2.EUR.4F.KR.DFR.LEV",
+        "FM.B.U2.EUR.4F.KR.MRR_FR.LEV",
+        "EST.B.EU000A2X2A25.WT",
+    ),
+    "euro_area_curve": (
+        "YC.B.U2.EUR.4F.G_N_A.SV_C_YM.SR_2Y",
+        "YC.B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y",
+    ),
+    "bank_credit": (
+        "BSI.M.U2.Y.U.A20T.A.I.U2.2240.Z01.A",
+        "MIR.M.U2.B.A2A.A.R.A.2240.EUR.N",
+    ),
+    "eur_financial_stress": (
+        "EXR.D.USD.EUR.SP00.A",
+        "CISS.D.U2.Z0Z.4F.EC.SS_CIN.IDX",
+        "tushare.fx_daily.EUR_USD",
+    ),
+}
 
 MACRO_EUROPE_BINDING_ROSTER: tuple[tuple[str, str, str], ...] = (
     ("eu_economy", "eu_macro", "get_eu_macro_snapshot"),
@@ -143,7 +161,9 @@ def _source_series() -> list[dict[str, Any]]:
         }
         for series_key, contract in EU_SERIES_MAP.items()
     ]
-    for component_id, series_ids in EURO_AREA_FINANCIAL_SERIES_MAP.items():
+    for component_id, series_ids in (
+        _PREACTIVATION_EURO_AREA_FINANCIAL_SERIES_MAP.items()
+    ):
         for series_id in series_ids:
             if series_id.startswith("tushare."):
                 continue

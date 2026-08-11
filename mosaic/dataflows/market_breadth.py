@@ -11,6 +11,7 @@ from typing import Any
 
 from .cross_runtime_json import canonical_hash
 from .exceptions import DataVendorUnavailable
+from .runtime_paths import agent_cache_root, isolated_agent_runtime_path
 
 BREADTH_SCHEMA_VERSION = "market_breadth_snapshot_v1"
 CORE_COVERAGE_MIN = 0.90
@@ -271,10 +272,13 @@ def compute_market_breadth_snapshot(
 
 
 def market_breadth_data_root() -> Path:
+    isolated = isolated_agent_runtime_path("market_breadth")
+    if isolated is not None:
+        return isolated
     explicit = os.getenv("MOSAIC_MARKET_BREADTH_DATA_DIR")
     if explicit:
         return Path(explicit).expanduser()
-    return Path(os.getenv("MOSAIC_CACHE_DIR", "~/.mosaic/cache")).expanduser() / "market_breadth"
+    return agent_cache_root() / "market_breadth"
 
 
 def _read_table(root: Path, stem: str, *, optional: bool = False):

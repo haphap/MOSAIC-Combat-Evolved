@@ -59,6 +59,10 @@ def test_empty_archive_publishes_specific_blocked_receipts_without_snapshot(
         "route_coverage_receipts": 1,
         "snapshot_build_receipts": 1,
         "materialization_attempt_receipts": 0,
+        "route_eligibility_receipts": 0,
+        "runtime_route_not_required_receipts": 0,
+        "agent_cycle_events": 0,
+        "agent_cycle_publications": 0,
     }
 
 

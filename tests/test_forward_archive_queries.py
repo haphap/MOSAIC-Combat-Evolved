@@ -26,8 +26,10 @@ from mosaic.scorecard.canonical_json import canonical_hash
 class _SectorStore:
     def __init__(self, group: dict) -> None:
         self.group = group
+        self.calls: list[tuple[str, dict]] = []
 
-    def load_group(self, as_of: str) -> dict:
+    def load_group(self, as_of: str, **kwargs) -> dict:
+        self.calls.append((as_of, dict(kwargs)))
         if self.group.get("as_of_date") != as_of:
             raise FileNotFoundError(as_of)
         return self.group
@@ -194,8 +196,8 @@ def test_broker_research_reuses_archived_industry_resolution(tmp_path):
         _research_row(
             source_id="SRC-STOCK-IND",
             report_type="个股研报",
-            publish_date="2026-05-20",
-            discovered_at="2026-05-20T06:00:00+00:00",
+            publish_date="2026-06-03",
+            discovered_at="2026-06-03T06:00:00+00:00",
             title="Industry resolver",
             ts_code="600000.SH",
             industry="Semiconductors",
@@ -226,6 +228,15 @@ def test_broker_research_falls_back_to_archived_stock_basic_with_parent_lineage(
     reader = _reader(
         tmp_path,
         [
+            _research_row(
+                source_id="SRC-STOCK-OUTSIDE-WINDOW",
+                report_type="个股研报",
+                publish_date="2026-05-20",
+                discovered_at="2026-05-20T06:00:00+00:00",
+                title="Outside-window resolver",
+                ts_code="600000.SH",
+                industry="Banks",
+            ),
             _research_row(
                 source_id="SRC-IND-FALLBACK",
                 report_type="行业研报",
@@ -275,6 +286,15 @@ def test_broker_research_falls_back_to_archived_stock_basic_with_parent_lineage(
 
     assert "Industry keyword source: stock_basic industry" in payload
     assert receipt["provenance"]["parent_capture_hash"] == parent_hash
+    assert reader.sector_archive_store.calls == 2 * [
+        (
+            "2026-06-05",
+            {
+                "required_route_ids": ("tushare.sector_fundamentals",),
+                "required_security_code": "600000.SH",
+            },
+        )
+    ]
 
 
 def test_policy_reader_preserves_window_and_discovery_cutoff(tmp_path):
@@ -586,8 +606,8 @@ def test_forward_source_preparer_captures_broker_and_policy_sources(
     )
 
     assert research_calls[0]["stock_codes"] == ()
-    assert research_calls[0]["industry_keywords"] == ()
-    assert research_calls[0]["report_types"] == ("个股研报", "行业研报")
+    assert research_calls[0]["industry_keywords"] == ("Semiconductors",)
+    assert research_calls[0]["report_types"] == ()
     assert research_calls[0]["source_only"] is True
     assert policy_calls == [
         {
@@ -610,6 +630,31 @@ def test_forward_source_preparer_does_not_repair_malformed_archive(tmp_path):
     with pytest.raises(DataVendorUnavailable, match="archive is malformed"):
         preparer(
             "get_stock_research",
+            {
+                "ticker": "600000.SH",
+                "date_from": "2026-06-01",
+                "date_to": "2026-06-05",
+                "max_reports": 30,
+            },
+        )
+
+    assert refresh_calls == []
+
+
+def test_broker_source_preparer_fails_closed_without_industry_authority(tmp_path):
+    root = tmp_path / "repo"
+    _write_jsonl(root / "registry/sources/tushare_research_reports.jsonl", [])
+    refresh_calls: list[dict] = []
+    preparer = ForwardArchiveSourcePreparer(
+        reader=ForwardArchiveQueryReader(root=root),
+        research_refresher=lambda **kwargs: refresh_calls.append(kwargs),
+    )
+
+    with pytest.raises(
+        DataVendorUnavailable, match="broker industry archive coverage is unavailable"
+    ):
+        preparer(
+            "get_broker_research",
             {
                 "ticker": "600000.SH",
                 "date_from": "2026-06-01",

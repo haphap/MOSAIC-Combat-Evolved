@@ -10,6 +10,7 @@ from mosaic.dataflows.macro_source_contracts import (
     COMMODITY_CONTRACT_MAP,
     COMMODITY_FAMILY_CONTRACTS,
     EURO_AREA_FINANCIAL_SERIES_MAP,
+    EU_REAL_ECONOMY_SERIES_MAP,
     EU_SERIES_MAP,
     FINANCIAL_REAL_ECONOMY_CONTEXT_MAP,
     FX_PAIR_ROLE_MAP,
@@ -70,6 +71,51 @@ def test_source_maps_have_exact_role_component_closure():
         "employment",
         "demand_trade",
     }
+    assert PBOC_SERIES_MAP["china_money_market_curve"]["required_branches"] == (
+        "tushare.shibor_overnight",
+        "tushare.shibor_3m",
+        "official.mof_chinabond_government_2y",
+        "official.mof_chinabond_government_10y",
+    )
+
+
+def test_active_europe_contract_uses_only_pit_replayable_ecb_series():
+    assert EU_REAL_ECONOMY_SERIES_MAP == {
+        "HICP.M.B6.N.000000.4D0.ANR": {
+            "component": "prices",
+            "output_id": "eu_hicp",
+        },
+        "LFSI.M.B6.S.UNEHRT.TOTAL0.15_74.T": {
+            "component": "employment",
+            "output_id": "eu_unemployment",
+        },
+        "MNA.Q.N.B6.W1.S1.S1.C.P7._Z._Z._Z.EUR.LR.N": {
+            "component": "demand_trade",
+            "output_id": "eu_imports_goods_services",
+        },
+        "MNA.Q.N.B6.W1.S1.S1.D.P6._Z._Z._Z.EUR.LR.N": {
+            "component": "demand_trade",
+            "output_id": "eu_exports_goods_services",
+        },
+        "MNA.Q.Y.B6.W0.S1M.S1.D.P31._Z._Z._T.EUR.LR.N": {
+            "component": "demand_trade",
+            "output_id": "eu_household_consumption",
+        },
+        "MNA.Q.Y.B6.W2.S1.S1.B.B1GQ._Z._Z._Z.EUR.LR.N": {
+            "component": "growth_production",
+            "output_id": "eu_gdp",
+        },
+        "STBS.M.I10.Y.PROD.NS0020.4D0.N.IX": {
+            "component": "growth_production",
+            "output_id": "euro_area_industrial_production",
+        },
+    }
+    stress = set(EURO_AREA_FINANCIAL_SERIES_MAP["eur_financial_stress"])
+    assert "CISS.D.U2.Z0Z.4F.EC.SS_CIN.IDX" not in stress
+    assert {
+        "RDF.D.D0.Z0Z.4F.EC.DFTLB.PR",
+        "RDF.D.D0.Z0Z.4F.EC.DFTSV.PR",
+    } <= stress
 
 
 def test_us_entity_and_financial_series_are_non_overlapping():
@@ -123,7 +169,7 @@ def test_us_curve_and_usd_cny_use_tushare_first_with_alfred_only_for_gaps():
         ) == 4
 
 
-def test_implemented_macro_roles_are_released_and_central_bank_remains_blocked():
+def test_all_implemented_macro_roles_are_released_without_curve_permission_gap():
     assert PBOC_SERIES_MAP["pboc_policy_stance"]["required_branches"] == (
         "official.pboc_mpc_meeting_catalog",
         "official.pboc_monetary_policy_report_catalog",
@@ -160,6 +206,7 @@ def test_implemented_macro_roles_are_released_and_central_bank_remains_blocked()
         "china",
         "us_economy",
         "eu_economy",
+        "central_bank",
         "us_financial_conditions",
         "euro_area_financial_conditions",
         "commodities",
@@ -174,17 +221,6 @@ def test_implemented_macro_roles_are_released_and_central_bank_remains_blocked()
             "implicit_fallback": False,
         }
         assert_macro_role_sources_ready(role)
-
-    central_bank = macro_role_source_readiness("central_bank")
-    assert central_bank == {
-        "role": "central_bank",
-        "production_ready": False,
-        "source_gaps": list(MACRO_ROLE_SOURCE_GAPS["central_bank"]),
-        "implicit_fallback": False,
-    }
-    assert any("tushare.yc_cb_" in gap and gap.endswith(":PERMISSION_DENIED") for gap in central_bank["source_gaps"])
-    with pytest.raises(RuntimeError, match="^MACRO_ROLE_SOURCE_GAP:central_bank:"):
-        assert_macro_role_sources_ready("central_bank")
 
     with pytest.raises(ValueError, match="unknown operational macro role"):
         macro_role_source_readiness("not_a_role")

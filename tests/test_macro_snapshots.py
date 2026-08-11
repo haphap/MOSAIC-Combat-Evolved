@@ -24,7 +24,12 @@ from scripts.build_structured_smoke_fixtures import _synthetic_commodity_conditi
 ROLE_SERIES = {
     "china": ("cn_gdp", "cn_cpi", "cn_credit", "cn_export", "cn_fiscal"),
     "us_economy": ("GDPC1", "CPIAUCSL", "PAYEMS", "RSAFS"),
-    "eu_economy": ("eu_gdp", "eu_hicp", "eu_unemployment", "eu_retail"),
+    "eu_economy": (
+        "eu_gdp",
+        "eu_hicp",
+        "eu_unemployment",
+        "eu_household_consumption",
+    ),
     "central_bank": (
         "pboc_omo_net_injection",
         "domestic_liquidity_dr007",
@@ -142,15 +147,17 @@ def source_for(role: str, series_id: str) -> str:
             "cn_fiscal": "official.mof_general_public_budget",
         },
         "eu_economy": {
-            "eu_gdp": "eurostat.namq_10_gdp",
-            "eu_hicp": "eurostat.prc_hicp_minr",
-            "eu_unemployment": "eurostat.une_rt_m",
-            "eu_retail": "eurostat.sts_trtu_m",
+            "eu_gdp": "ecb.MNA.Q.Y.B6.W2.S1.S1.B.B1GQ._Z._Z._Z.EUR.LR.N",
+            "eu_hicp": "ecb.HICP.M.B6.N.000000.4D0.ANR",
+            "eu_unemployment": "ecb.LFSI.M.B6.S.UNEHRT.TOTAL0.15_74.T",
+            "eu_household_consumption": (
+                "ecb.MNA.Q.Y.B6.W0.S1M.S1.D.P31._Z._Z._T.EUR.LR.N"
+            ),
         },
         "central_bank": {
             "pboc_": "official.pboc_omo_catalog",
             "domestic_liquidity_": "tushare.shibor_overnight",
-            "cn_curve_": "tushare.yc_cb_cn_government_10y",
+            "cn_curve_": "official.mof_chinabond_government_10y",
             "credit_condition_": "official.pboc_tsfin_flow_stock",
         },
         "us_financial_conditions": {
@@ -165,7 +172,7 @@ def source_for(role: str, series_id: str) -> str:
             "ecb_": "ecb.FM.B.U2.EUR.4F.KR.DFR.LEV",
             "euro_area_curve_": "ecb.YC.B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y",
             "euro_area_bank_credit_": "ecb.BSI.M.U2.Y.U.A20T.A.I.U2.2240.Z01.A",
-            "eur_": "ecb.CISS.D.U2.Z0Z.4F.EC.SS_CIN.IDX",
+            "eur_": "ecb.RDF.D.D0.Z0Z.4F.EC.DFTSV.PR",
         },
         "commodities": {
             "energy_": "tushare.fut_daily.SC@INE",
@@ -780,12 +787,15 @@ def test_institutional_flow_coverage_is_exact_and_fail_closed():
         )
 
 
-def test_unverified_required_source_branch_blocks_production_load(tmp_path: Path):
+def test_released_required_source_branches_still_require_build_receipt(tmp_path: Path):
     role = "central_bank"
     path = tmp_path / "2024-06-30" / f"{role}.json"
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps(payload(role=role)), encoding="utf-8")
-    with pytest.raises(DataVendorUnavailable, match="MACRO_ROLE_SOURCE_GAP:central_bank"):
+    with pytest.raises(
+        DataVendorUnavailable,
+        match="MACRO_SNAPSHOT_BUILD_RECEIPT_REQUIRED:central_bank:2024-06-30",
+    ):
         load_role_snapshot(role, "2024-06-30", root=tmp_path)
 
 

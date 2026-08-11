@@ -125,6 +125,83 @@ def test_fresh_empty_cache_captures_all_ten_leaves_and_builds_no_event_snapshot(
 
 
 @pytest.mark.parametrize(
+    "route_id",
+    tuple(sorted(ECO_CAL_LOGICAL_ROUTES)),
+)
+def test_route_only_capture_calls_only_requested_currency_leaves(
+    tmp_path: Path,
+    network_disabled: None,
+    route_id: str,
+) -> None:
+    calls: list[dict[str, str]] = []
+
+    def fetch(**request: str) -> list[dict[str, object]]:
+        calls.append(request)
+        return []
+
+    store, ledger = _stores(tmp_path)
+    result = archive_eco_calendar(
+        fetch,
+        as_of_date="2026-07-01",
+        captured_at="2026-07-01T10:00:00+08:00",
+        requested_route_ids=(route_id,),
+        store=store,
+        ledger=ledger,
+    )
+
+    expected_currencies = set(ECO_CAL_LOGICAL_ROUTES[route_id])
+    assert calls == [
+        {"date": "20260701", "country": country}
+        for currency, country in ECO_CAL_REGISTERED_ROUTES
+        if currency in expected_currencies
+    ]
+    assert [
+        receipt.as_dict()["identity"]["route_id"]
+        for receipt in result.source_receipts
+    ] == [route_id]
+    coverage = result.coverage_receipt.as_dict()
+    assert coverage["required_route_ids"] == [route_id]
+    assert [row["route_id"] for row in coverage["route_results"]] == [route_id]
+    assert coverage["coverage_complete"] is True
+
+
+def test_historical_route_only_reuses_exact_date_archive_without_transport(
+    tmp_path: Path,
+    network_disabled: None,
+) -> None:
+    route_id = "tushare.eco_cal.cny"
+    store, ledger = _stores(tmp_path)
+    first = archive_eco_calendar(
+        lambda **_request: [],
+        as_of_date="2026-07-01",
+        captured_at="2026-08-10T15:00:00+08:00",
+        as_of_cutoff="2026-08-10T15:00:00+08:00",
+        requested_route_ids=(route_id,),
+        store=store,
+        ledger=ledger,
+    )
+
+    def fail_transport(**_request: str) -> list[dict[str, object]]:
+        raise AssertionError("historical exact-date archive must be reused")
+
+    replay = archive_eco_calendar(
+        fail_transport,
+        as_of_date="2026-07-01",
+        captured_at="2026-08-10T15:00:01+08:00",
+        as_of_cutoff="2026-08-10T15:00:01+08:00",
+        requested_route_ids=(route_id,),
+        store=store,
+        ledger=ledger,
+    )
+
+    assert replay.batch is None
+    assert [receipt.receipt_hash for receipt in replay.source_receipts] == [
+        receipt.receipt_hash for receipt in first.source_receipts
+    ]
+    assert replay.coverage_receipt.as_dict()["required_route_ids"] == [route_id]
+
+
+@pytest.mark.parametrize(
     ("error", "route_status", "blocker"),
     [
         (TimeoutError("timed out"), "TRANSPORT_FAILED", "TRANSPORT_TIMEOUT"),
@@ -371,6 +448,70 @@ def test_capture_after_decision_cutoff_does_not_call_transport_or_claim_pit(
     assert {row["status"] for row in coverage["route_results"]} == {
         "PIT_INELIGIBLE"
     }
+
+
+def test_historical_retrieval_uses_explicit_replay_cutoff_without_backdating(
+    tmp_path: Path,
+) -> None:
+    calls: list[dict[str, str]] = []
+
+    def fetch(**request: str) -> list[dict[str, object]]:
+        calls.append(request)
+        return []
+
+    store, ledger = _stores(tmp_path)
+    result = archive_eco_calendar(
+        fetch,
+        as_of_date="2026-07-01",
+        captured_at="2026-08-10T15:00:00+08:00",
+        as_of_cutoff="2026-08-10T15:00:00+08:00",
+        store=store,
+        ledger=ledger,
+    )
+
+    assert len(calls) == len(ECO_CAL_REGISTERED_ROUTES)
+    assert result.coverage_receipt.as_dict()["coverage_complete"] is True
+    for receipt in result.source_receipts:
+        payload = receipt.as_dict()
+        assert payload["coverage"]["requested_start"] == "2026-07-01"
+        assert payload["coverage"]["requested_end"] == "2026-07-01"
+        assert payload["time"]["captured_at"] == "2026-08-10T15:00:00+08:00"
+        assert payload["pit"]["as_of_cutoff"] == "2026-08-10T15:00:00+08:00"
+        assert payload["pit"]["pit_mode"] == "OBSERVED_LIVE"
+
+
+def test_capture_after_cutoff_reuses_existing_pit_archive_without_transport(
+    tmp_path: Path,
+) -> None:
+    store, ledger = _stores(tmp_path)
+    first = archive_eco_calendar(
+        lambda **_request: [],
+        as_of_date="2026-07-01",
+        captured_at="2026-07-01T10:00:00+08:00",
+        store=store,
+        ledger=ledger,
+    )
+    called = False
+
+    def fetch(**_request: str) -> list[dict[str, object]]:
+        nonlocal called
+        called = True
+        return []
+
+    replay = archive_eco_calendar(
+        fetch,
+        as_of_date="2026-07-01",
+        captured_at="2026-07-01T15:00:01+08:00",
+        store=store,
+        ledger=ledger,
+    )
+
+    assert called is False
+    assert replay.batch is None
+    assert [receipt.receipt_hash for receipt in replay.source_receipts] == [
+        receipt.receipt_hash for receipt in first.source_receipts
+    ]
+    assert replay.coverage_receipt.as_dict()["coverage_complete"] is True
 
 
 def test_role_event_manifest_bindings_cover_the_currencies_actually_read() -> None:

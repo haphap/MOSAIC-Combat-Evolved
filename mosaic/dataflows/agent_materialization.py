@@ -21,6 +21,9 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 from mosaic.scorecard.canonical_json import canonical_hash
 
+from .runtime_paths import agent_cache_root, isolated_agent_runtime_path
+from .tushare_catalog import TUSHARE_ENDPOINT_IDS
+
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCHEMA_ROOT = _REPO_ROOT / "schemas"
@@ -32,6 +35,9 @@ AGENT_TOOL_CONTRACT_MANIFEST_PATH = (
 )
 
 SUCCESSFUL_ROUTE_STATES = {"SUCCESS", "TRUE_EMPTY"}
+TUSHARE_ENDPOINT_UNAVAILABLE_CODES = frozenset(
+    f"TUSHARE_{endpoint.upper()}_UNAVAILABLE" for endpoint in TUSHARE_ENDPOINT_IDS
+)
 BLOCKER_CODES = frozenset(
     {
         "CAPTURE_AFTER_AS_OF_CUTOFF",
@@ -56,15 +62,20 @@ BLOCKER_CODES = frozenset(
         "TRUNCATED",
         "UNKNOWN_EMPTY_RESULT",
     }
+    | TUSHARE_ENDPOINT_UNAVAILABLE_CODES
 )
 
 
 def agent_data_materialization_db_path() -> Path:
+    isolated = isolated_agent_runtime_path(
+        "agent_materialization/materialization.sqlite3"
+    )
+    if isolated is not None:
+        return isolated
     explicit = os.getenv("MOSAIC_AGENT_MATERIALIZATION_DB")
     if explicit:
         return Path(explicit).expanduser()
-    cache_root = Path(os.getenv("MOSAIC_CACHE_DIR", "~/.mosaic/cache")).expanduser()
-    return cache_root / "agent_materialization" / "materialization.sqlite3"
+    return agent_cache_root() / "agent_materialization" / "materialization.sqlite3"
 
 
 def _json_copy(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -433,6 +444,188 @@ def _validate_materialization_attempt(payload: Mapping[str, Any]) -> None:
         raise ValueError("non-READY materialization requires blocker_codes")
 
 
+def route_eligibility_checker_version(contract_version: str) -> str:
+    return f"{_required_text(contract_version, 'contract_version')}_eligibility_v1"
+
+
+def _validate_route_eligibility(payload: Mapping[str, Any]) -> None:
+    _validate_schema(payload, "route_eligibility_receipt_v1")
+    target = date.fromisoformat(payload["target_date"])
+    evaluated_at = _timestamp(payload["evaluated_at"], "evaluated_at")
+    manifest = load_agent_data_route_manifest()
+    if payload["route_manifest_hash"] != manifest["manifest_hash"]:
+        raise ValueError("route eligibility receipt route manifest hash mismatch")
+    route = next(
+        (row for row in manifest["routes"] if row["route_id"] == payload["route_id"]),
+        None,
+    )
+    if route is None or route["contract_version"] != payload["contract_version"]:
+        raise ValueError("route eligibility receipt route manifest mismatch")
+    if payload["checker_version"] != route_eligibility_checker_version(
+        route["contract_version"]
+    ):
+        raise ValueError("route eligibility receipt checker version mismatch")
+    intervals = payload["eligible_intervals"]
+    interval_pairs = [
+        (date.fromisoformat(value["start"]), date.fromisoformat(value["end"]))
+        for value in intervals
+    ]
+    if any(end < start for start, end in interval_pairs):
+        raise ValueError("route eligibility interval end precedes start")
+    if interval_pairs != sorted(interval_pairs):
+        raise ValueError("route eligibility intervals must be sorted")
+    if any(
+        current[0] <= previous[1]
+        for previous, current in zip(interval_pairs, interval_pairs[1:], strict=False)
+    ):
+        raise ValueError("route eligibility intervals must not overlap")
+    refs = payload["selected_receipt_refs"]
+    blockers = payload["blockers"]
+    if refs != sorted(set(refs)):
+        raise ValueError("route eligibility selected refs must be sorted and unique")
+    if blockers != sorted(set(blockers)):
+        raise ValueError("route eligibility blockers must be sorted and unique")
+    freshness = payload["freshness"]
+    knowledge_at = freshness["knowledge_available_at"]
+    if knowledge_at is not None and _timestamp(
+        knowledge_at, "freshness.knowledge_available_at"
+    ) > evaluated_at:
+        raise ValueError("route eligibility cannot use future knowledge")
+    if payload["status"] == "READY":
+        if (
+            blockers
+            or not refs
+            or freshness["status"] != "FRESH"
+            or knowledge_at is None
+            or not any(start <= target <= end for start, end in interval_pairs)
+        ):
+            raise ValueError("READY route eligibility is not fully supported")
+    elif not blockers or freshness["status"] == "FRESH":
+        raise ValueError("BLOCKED route eligibility requires blockers")
+
+
+def _runtime_route_consumer_stages(route_id: str) -> list[tuple[str, str]]:
+    manifest = load_agent_data_route_manifest()
+    return sorted(
+        {
+            (binding["agent_id"], binding["stage"])
+            for binding in manifest["bindings"]
+            if route_id in binding["required_route_ids"]
+        }
+    )
+
+
+def _validate_runtime_route_not_required(payload: Mapping[str, Any]) -> None:
+    _validate_schema(payload, "runtime_route_not_required_v1")
+    date.fromisoformat(payload["target_date"])
+    _timestamp(payload["evaluated_at"], "evaluated_at")
+    manifest = load_agent_data_route_manifest()
+    route = next(
+        (row for row in manifest["routes"] if row["route_id"] == payload["route_id"]),
+        None,
+    )
+    if (
+        route is None
+        or route["pit_strategy"] != "LOCAL_RUNTIME_AUTHORITY"
+        or route["contract_version"] != payload["contract_version"]
+    ):
+        raise ValueError("runtime not-required receipt route manifest mismatch")
+    if payload["receipt_id"] != (
+        f"runtime-not-required:{payload['run_id']}:{payload['route_id']}"
+    ):
+        raise ValueError("runtime not-required receipt_id mismatch")
+    stages = payload["unexecuted_stages"]
+    actual_keys = [(row["agent_id"], row["stage"]) for row in stages]
+    if actual_keys != sorted(set(actual_keys)):
+        raise ValueError("runtime not-required stages must be sorted and unique")
+    if actual_keys != _runtime_route_consumer_stages(payload["route_id"]):
+        raise ValueError("runtime not-required stages do not close route consumers")
+    authority = payload["upstream_authority_hashes"]
+    if authority["route_manifest_hash"] != manifest["manifest_hash"]:
+        raise ValueError("runtime not-required route manifest hash mismatch")
+    if (
+        authority["agent_tool_contract_manifest_hash"]
+        != manifest["agent_tool_contract_manifest_hash"]
+    ):
+        raise ValueError("runtime not-required Agent tool manifest hash mismatch")
+
+
+def _route_partition() -> tuple[set[str], set[str]]:
+    routes = load_agent_data_route_manifest()["routes"]
+    runtime = {
+        route["route_id"]
+        for route in routes
+        if route["pit_strategy"] == "LOCAL_RUNTIME_AUTHORITY"
+    }
+    return ({route["route_id"] for route in routes} - runtime, runtime)
+
+
+def _validate_agent_cycle_event(payload: Mapping[str, Any]) -> None:
+    _validate_schema(payload, "agent_cycle_event_v1")
+    date.fromisoformat(payload["target_date"])
+    event_at = _timestamp(payload["event_at"], "event_at")
+    opened_at = _timestamp(payload["lease"]["opened_at"], "lease.opened_at")
+    expires_at = _timestamp(payload["lease"]["expires_at"], "lease.expires_at")
+    if not opened_at <= event_at or expires_at <= opened_at:
+        raise ValueError("cycle event lease timestamps are invalid")
+    manifest = load_agent_data_route_manifest()
+    authority = payload["authority_hashes"]
+    if authority["route_manifest_hash"] != manifest["manifest_hash"]:
+        raise ValueError("cycle event route manifest hash mismatch")
+    if (
+        authority["agent_tool_contract_manifest_hash"]
+        != manifest["agent_tool_contract_manifest_hash"]
+    ):
+        raise ValueError("cycle event Agent tool manifest hash mismatch")
+    source_routes, runtime_routes = _route_partition()
+    if set(payload["source_eligibility_receipt_hashes"]) != source_routes:
+        raise ValueError("cycle event must close the exact 26 source routes")
+    runtime_refs = payload["runtime_route_closure_refs"]
+    if not set(runtime_refs) <= runtime_routes:
+        raise ValueError("cycle event contains an unknown runtime route")
+    outcomes = payload["stage_outcomes"]
+    outcome_keys = [(row["agent_id"], row["stage"]) for row in outcomes]
+    if outcome_keys != sorted(set(outcome_keys)):
+        raise ValueError("cycle stage outcomes must be sorted and unique")
+    state = payload["state"]
+    terminal_reason = payload["terminal_reason"]
+    if state == "OPEN":
+        if (
+            runtime_refs
+            or outcomes
+            or payload["accepted_output_closure_hash"] is not None
+            or payload["final_decision_hash"] is not None
+            or terminal_reason is not None
+        ):
+            raise ValueError("OPEN cycle event cannot contain terminal closure")
+    elif state == "COMMITTED":
+        if (
+            set(runtime_refs) != runtime_routes
+            or len(outcomes) != 29
+            or payload["accepted_output_closure_hash"] is None
+            or payload["final_decision_hash"] is None
+            or terminal_reason is not None
+        ):
+            raise ValueError("COMMITTED cycle event is not fully closed")
+    elif (
+        not isinstance(terminal_reason, str)
+        or not terminal_reason.strip()
+        or payload["accepted_output_closure_hash"] is not None
+        or payload["final_decision_hash"] is not None
+    ):
+        raise ValueError("ABORTED cycle event requires one terminal reason")
+    if payload["cycle_kind"] == "PRODUCTION" and payload["mode"] != "enforce":
+        raise ValueError("PRODUCTION cycle requires enforce mode")
+    if payload["cycle_kind"] in {"SHADOW", "REPLAY"} and payload["mode"] != "shadow":
+        raise ValueError(f"{payload['cycle_kind']} cycle requires shadow mode")
+
+
+def _validate_agent_cycle_publication(payload: Mapping[str, Any]) -> None:
+    _validate_schema(payload, "agent_cycle_publication_v1")
+    date.fromisoformat(payload["target_date"])
+    _timestamp(payload["published_at"], "published_at")
+
+
 ReceiptT = TypeVar("ReceiptT", bound="_SealedReceipt")
 
 
@@ -490,6 +683,26 @@ class MaterializationAttemptReceipt(_SealedReceipt):
     validator: ClassVar[Any] = _validate_materialization_attempt
 
 
+@dataclass(frozen=True)
+class RouteEligibilityReceipt(_SealedReceipt):
+    validator: ClassVar[Any] = _validate_route_eligibility
+
+
+@dataclass(frozen=True)
+class RuntimeRouteNotRequiredReceipt(_SealedReceipt):
+    validator: ClassVar[Any] = _validate_runtime_route_not_required
+
+
+@dataclass(frozen=True)
+class AgentCycleEvent(_SealedReceipt):
+    validator: ClassVar[Any] = _validate_agent_cycle_event
+
+
+@dataclass(frozen=True)
+class AgentCyclePublication(_SealedReceipt):
+    validator: ClassVar[Any] = _validate_agent_cycle_publication
+
+
 def validate_agent_data_route_manifest(payload: Mapping[str, Any]) -> dict[str, Any]:
     value = _json_copy(payload)
     _validate_schema(value, "agent_data_route_manifest_v1")
@@ -542,6 +755,10 @@ class AgentDataMaterializationLedger:
         "route_coverage_receipts",
         "snapshot_build_receipts",
         "materialization_attempt_receipts",
+        "route_eligibility_receipts",
+        "runtime_route_not_required_receipts",
+        "agent_cycle_events",
+        "agent_cycle_publications",
     )
 
     def __init__(self, path: Path | None = None, *, create: bool = True) -> None:
@@ -628,7 +845,86 @@ class AgentDataMaterializationLedger:
                 );
                 CREATE INDEX IF NOT EXISTS materialization_attempt_lock
                   ON materialization_attempt_receipts(lock_key, as_of, finished_at);
+                CREATE TABLE IF NOT EXISTS route_eligibility_receipts (
+                    receipt_hash TEXT PRIMARY KEY,
+                    route_id TEXT NOT NULL,
+                    contract_version TEXT NOT NULL,
+                    route_manifest_hash TEXT NOT NULL,
+                    checker_version TEXT NOT NULL,
+                    cycle_run_id TEXT,
+                    target_date TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK(status IN ('READY', 'BLOCKED')),
+                    evaluated_at TEXT NOT NULL,
+                    receipt_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS route_eligibility_status
+                  ON route_eligibility_receipts(
+                    route_id, contract_version, target_date, checker_version, evaluated_at
+                  );
+                CREATE TABLE IF NOT EXISTS runtime_route_not_required_receipts (
+                    receipt_hash TEXT PRIMARY KEY,
+                    receipt_id TEXT NOT NULL UNIQUE,
+                    route_id TEXT NOT NULL,
+                    contract_version TEXT NOT NULL,
+                    target_date TEXT NOT NULL,
+                    run_id TEXT NOT NULL,
+                    evaluated_at TEXT NOT NULL,
+                    receipt_json TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS runtime_route_not_required_cycle
+                  ON runtime_route_not_required_receipts(
+                    run_id, route_id, target_date, evaluated_at
+                  );
+                CREATE TABLE IF NOT EXISTS agent_cycle_events (
+                    receipt_hash TEXT PRIMARY KEY,
+                    event_id TEXT NOT NULL UNIQUE,
+                    run_id TEXT NOT NULL,
+                    target_date TEXT NOT NULL,
+                    cohort TEXT NOT NULL,
+                    cycle_kind TEXT NOT NULL,
+                    state TEXT NOT NULL CHECK(state IN ('OPEN', 'COMMITTED', 'ABORTED')),
+                    event_at TEXT NOT NULL,
+                    receipt_json TEXT NOT NULL
+                );
+                CREATE UNIQUE INDEX IF NOT EXISTS agent_cycle_terminal_per_run
+                  ON agent_cycle_events(run_id)
+                  WHERE state IN ('COMMITTED', 'ABORTED');
+                CREATE UNIQUE INDEX IF NOT EXISTS agent_cycle_production_commit_cas
+                  ON agent_cycle_events(target_date, cohort, cycle_kind)
+                  WHERE state = 'COMMITTED' AND cycle_kind = 'PRODUCTION';
+                CREATE INDEX IF NOT EXISTS agent_cycle_lookup
+                  ON agent_cycle_events(target_date, cohort, cycle_kind, event_at);
+                CREATE TABLE IF NOT EXISTS agent_cycle_publications (
+                    receipt_hash TEXT PRIMARY KEY,
+                    publication_id TEXT NOT NULL UNIQUE,
+                    run_id TEXT NOT NULL UNIQUE,
+                    target_date TEXT NOT NULL,
+                    cohort TEXT NOT NULL,
+                    cycle_kind TEXT NOT NULL,
+                    committed_event_hash TEXT NOT NULL UNIQUE,
+                    final_decision_hash TEXT NOT NULL,
+                    published_at TEXT NOT NULL,
+                    receipt_json TEXT NOT NULL,
+                    FOREIGN KEY(committed_event_hash)
+                      REFERENCES agent_cycle_events(receipt_hash)
+                );
                 """
+            )
+            route_eligibility_columns = {
+                str(row[1])
+                for row in conn.execute(
+                    "PRAGMA table_info(route_eligibility_receipts)"
+                ).fetchall()
+            }
+            if "cycle_run_id" not in route_eligibility_columns:
+                conn.execute(
+                    "ALTER TABLE route_eligibility_receipts "
+                    "ADD COLUMN cycle_run_id TEXT"
+                )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS route_eligibility_cycle "
+                "ON route_eligibility_receipts("
+                "cycle_run_id, route_id, target_date, evaluated_at)"
             )
             for table in self._TABLES:
                 conn.executescript(
@@ -778,6 +1074,591 @@ class AgentDataMaterializationLedger:
         if row is None:
             return None
         return SourceCaptureReceipt.from_dict(json.loads(row["receipt_json"]))
+
+    def source_capture_receipts_for_route(
+        self, *, route_id: str
+    ) -> list[SourceCaptureReceipt]:
+        if route_id not in _route_ids():
+            raise ValueError(f"unknown Agent data route: {route_id}")
+        if not self._available:
+            return []
+        with self._connect(read_only=True) as conn:
+            rows = conn.execute(
+                "SELECT receipt_json FROM source_capture_receipts "
+                "WHERE route_id = ? "
+                "ORDER BY as_of_date DESC, julianday(knowledge_available_at) DESC, "
+                "receipt_hash DESC",
+                (route_id,),
+            ).fetchall()
+        return [
+            SourceCaptureReceipt.from_dict(json.loads(row["receipt_json"]))
+            for row in rows
+        ]
+
+    def append_route_eligibility(self, receipt: RouteEligibilityReceipt) -> str:
+        value = RouteEligibilityReceipt.from_dict(receipt.as_dict())
+        payload = value.as_dict()
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                self._require_receipt_hashes(
+                    payload["selected_receipt_refs"],
+                    tables=("source_capture_receipts", "route_coverage_receipts"),
+                    field="route eligibility selected_receipt_refs",
+                    conn=conn,
+                )
+                receipt_hash = self._append_on_connection(
+                    conn,
+                    "route_eligibility_receipts",
+                    (
+                        "route_id",
+                        "contract_version",
+                        "route_manifest_hash",
+                        "checker_version",
+                        "cycle_run_id",
+                        "target_date",
+                        "status",
+                        "evaluated_at",
+                    ),
+                    (
+                        payload["route_id"],
+                        payload["contract_version"],
+                        payload["route_manifest_hash"],
+                        payload["checker_version"],
+                        payload["cycle_run_id"],
+                        payload["target_date"],
+                        payload["status"],
+                        payload["evaluated_at"],
+                    ),
+                    value,
+                )
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+            conn.execute("COMMIT")
+        return receipt_hash
+
+    def route_eligibility_receipt(
+        self, *, receipt_hash: str
+    ) -> RouteEligibilityReceipt | None:
+        _required_sha256(receipt_hash, "receipt_hash")
+        if not self._available:
+            return None
+        with self._connect(read_only=True) as conn:
+            row = conn.execute(
+                "SELECT receipt_json FROM route_eligibility_receipts "
+                "WHERE receipt_hash = ?",
+                (receipt_hash,),
+            ).fetchone()
+        if row is None:
+            return None
+        return RouteEligibilityReceipt.from_dict(json.loads(row["receipt_json"]))
+
+    def route_eligibility_receipts_for_cycle(
+        self, *, cycle_run_id: str
+    ) -> dict[str, RouteEligibilityReceipt]:
+        _required_text(cycle_run_id, "cycle_run_id")
+        if not self._available:
+            return {}
+        with self._connect(read_only=True) as conn:
+            rows = conn.execute(
+                "SELECT route_id, receipt_json FROM route_eligibility_receipts "
+                "WHERE cycle_run_id = ? AND status = 'READY' "
+                "ORDER BY route_id, julianday(evaluated_at) DESC, receipt_hash DESC",
+                (cycle_run_id,),
+            ).fetchall()
+        result: dict[str, RouteEligibilityReceipt] = {}
+        for row in rows:
+            result.setdefault(
+                str(row["route_id"]),
+                RouteEligibilityReceipt.from_dict(json.loads(row["receipt_json"])),
+            )
+        return result
+
+    def append_runtime_route_not_required(
+        self, receipt: RuntimeRouteNotRequiredReceipt
+    ) -> str:
+        value = RuntimeRouteNotRequiredReceipt.from_dict(receipt.as_dict())
+        payload = value.as_dict()
+        with self._connect() as conn:
+            return self._append_on_connection(
+                conn,
+                "runtime_route_not_required_receipts",
+                (
+                    "receipt_id",
+                    "route_id",
+                    "contract_version",
+                    "target_date",
+                    "run_id",
+                    "evaluated_at",
+                ),
+                (
+                    payload["receipt_id"],
+                    payload["route_id"],
+                    payload["contract_version"],
+                    payload["target_date"],
+                    payload["run_id"],
+                    payload["evaluated_at"],
+                ),
+                value,
+            )
+
+    def runtime_route_not_required_receipt(
+        self, *, receipt_hash: str
+    ) -> RuntimeRouteNotRequiredReceipt | None:
+        _required_sha256(receipt_hash, "receipt_hash")
+        if not self._available:
+            return None
+        with self._connect(read_only=True) as conn:
+            row = conn.execute(
+                "SELECT receipt_json FROM runtime_route_not_required_receipts "
+                "WHERE receipt_hash = ?",
+                (receipt_hash,),
+            ).fetchone()
+        if row is None:
+            return None
+        return RuntimeRouteNotRequiredReceipt.from_dict(
+            json.loads(row["receipt_json"])
+        )
+
+    def _validate_cycle_eligibility_refs(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        refs: Mapping[str, str],
+        run_id: str,
+        target_date: str,
+        expected_routes: set[str],
+    ) -> None:
+        if set(refs) != expected_routes:
+            raise ValueError("cycle eligibility refs do not close the expected routes")
+        for route_id, receipt_hash in refs.items():
+            row = conn.execute(
+                "SELECT receipt_json FROM route_eligibility_receipts "
+                "WHERE receipt_hash = ?",
+                (receipt_hash,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"cycle eligibility receipt is unavailable: {route_id}")
+            receipt = RouteEligibilityReceipt.from_dict(
+                json.loads(row["receipt_json"])
+            ).as_dict()
+            if (
+                receipt["route_id"] != route_id
+                or receipt["target_date"] != target_date
+                or receipt["cycle_run_id"] != run_id
+                or receipt["status"] != "READY"
+            ):
+                raise ValueError(f"cycle eligibility binding mismatch: {route_id}")
+
+    def _validate_cycle_runtime_closure_refs(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        event_payload: Mapping[str, Any],
+        expected_routes: set[str],
+    ) -> None:
+        refs = event_payload["runtime_route_closure_refs"]
+        if set(refs) != expected_routes:
+            raise ValueError("cycle runtime refs do not close the expected routes")
+        outcomes = {
+            (row["agent_id"], row["stage"]): row
+            for row in event_payload["stage_outcomes"]
+        }
+        for route_id, receipt_hash in refs.items():
+            eligibility_row = conn.execute(
+                "SELECT receipt_json FROM route_eligibility_receipts "
+                "WHERE receipt_hash = ?",
+                (receipt_hash,),
+            ).fetchone()
+            if eligibility_row is not None:
+                eligibility = RouteEligibilityReceipt.from_dict(
+                    json.loads(eligibility_row["receipt_json"])
+                ).as_dict()
+                if (
+                    eligibility["route_id"] != route_id
+                    or eligibility["target_date"] != event_payload["target_date"]
+                    or eligibility["cycle_run_id"] != event_payload["run_id"]
+                    or eligibility["status"] != "READY"
+                ):
+                    raise ValueError(
+                        f"cycle runtime eligibility binding mismatch: {route_id}"
+                    )
+                continue
+            row = conn.execute(
+                "SELECT receipt_json FROM runtime_route_not_required_receipts "
+                "WHERE receipt_hash = ?",
+                (receipt_hash,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(
+                    f"cycle runtime closure receipt is unavailable: {route_id}"
+                )
+            not_required = RuntimeRouteNotRequiredReceipt.from_dict(
+                json.loads(row["receipt_json"])
+            ).as_dict()
+            if (
+                not_required["route_id"] != route_id
+                or not_required["target_date"] != event_payload["target_date"]
+                or not_required["run_id"] != event_payload["run_id"]
+                or not_required["upstream_authority_hashes"]
+                != event_payload["authority_hashes"]
+                or _timestamp(not_required["evaluated_at"], "evaluated_at")
+                > _timestamp(event_payload["event_at"], "event_at")
+            ):
+                raise ValueError(
+                    f"cycle runtime not-required binding mismatch: {route_id}"
+                )
+            for skipped in not_required["unexecuted_stages"]:
+                outcome = outcomes.get((skipped["agent_id"], skipped["stage"]))
+                if (
+                    outcome is None
+                    or outcome["outcome_kind"] != "STAGE_SKIP"
+                    or outcome["ref_hash"] != skipped["skip_receipt_hash"]
+                ):
+                    raise ValueError(
+                        f"cycle runtime not-required stage executed: {route_id}"
+                    )
+
+    def append_cycle_open(self, event: AgentCycleEvent) -> str:
+        value = AgentCycleEvent.from_dict(event.as_dict())
+        payload = value.as_dict()
+        if payload["state"] != "OPEN":
+            raise ValueError("append_cycle_open requires an OPEN event")
+        source_routes, _ = _route_partition()
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                committed = conn.execute(
+                    "SELECT 1 FROM agent_cycle_events WHERE target_date = ? "
+                    "AND cohort = ? AND cycle_kind = ? AND state = 'COMMITTED'",
+                    (
+                        payload["target_date"],
+                        payload["cohort"],
+                        payload["cycle_kind"],
+                    ),
+                ).fetchone()
+                if committed is not None and payload["cycle_kind"] == "PRODUCTION":
+                    raise ValueError("production cycle is already COMMITTED")
+                active_rows = conn.execute(
+                    "SELECT receipt_json FROM agent_cycle_events AS opened "
+                    "WHERE opened.target_date = ? AND opened.cohort = ? "
+                    "AND opened.cycle_kind = ? AND opened.state = 'OPEN' "
+                    "AND NOT EXISTS (SELECT 1 FROM agent_cycle_events AS terminal "
+                    "WHERE terminal.run_id = opened.run_id "
+                    "AND terminal.state IN ('COMMITTED', 'ABORTED'))",
+                    (
+                        payload["target_date"],
+                        payload["cohort"],
+                        payload["cycle_kind"],
+                    ),
+                ).fetchall()
+                for row in active_rows:
+                    active = AgentCycleEvent.from_dict(
+                        json.loads(row["receipt_json"])
+                    )
+                    active_payload = active.as_dict()
+                    if active_payload["run_id"] == payload["run_id"]:
+                        continue
+                    if _timestamp(
+                        active_payload["lease"]["expires_at"],
+                        "lease.expires_at",
+                    ) > _timestamp(payload["event_at"], "event_at"):
+                        raise ValueError("another cycle run has an active OPEN lease")
+                    stale = AgentCycleEvent.seal(
+                        {
+                            **active_payload,
+                            "event_id": (
+                                f"cycle-event:{active_payload['run_id']}:"
+                                "aborted:stale-open"
+                            ),
+                            "state": "ABORTED",
+                            "terminal_reason": "STALE_OPEN",
+                            "event_at": payload["event_at"],
+                        }
+                    )
+                    stale_payload = stale.as_dict()
+                    self._append_on_connection(
+                        conn,
+                        "agent_cycle_events",
+                        (
+                            "event_id",
+                            "run_id",
+                            "target_date",
+                            "cohort",
+                            "cycle_kind",
+                            "state",
+                            "event_at",
+                        ),
+                        tuple(
+                            stale_payload[key]
+                            for key in (
+                                "event_id",
+                                "run_id",
+                                "target_date",
+                                "cohort",
+                                "cycle_kind",
+                                "state",
+                                "event_at",
+                            )
+                        ),
+                        stale,
+                    )
+                self._validate_cycle_eligibility_refs(
+                    conn,
+                    refs=payload["source_eligibility_receipt_hashes"],
+                    run_id=payload["run_id"],
+                    target_date=payload["target_date"],
+                    expected_routes=source_routes,
+                )
+                receipt_hash = self._append_on_connection(
+                    conn,
+                    "agent_cycle_events",
+                    (
+                        "event_id",
+                        "run_id",
+                        "target_date",
+                        "cohort",
+                        "cycle_kind",
+                        "state",
+                        "event_at",
+                    ),
+                    tuple(
+                        payload[key]
+                        for key in (
+                            "event_id",
+                            "run_id",
+                            "target_date",
+                            "cohort",
+                            "cycle_kind",
+                            "state",
+                            "event_at",
+                        )
+                    ),
+                    value,
+                )
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+            conn.execute("COMMIT")
+        return receipt_hash
+
+    def _open_cycle_on_connection(
+        self, conn: sqlite3.Connection, *, run_id: str
+    ) -> AgentCycleEvent:
+        rows = conn.execute(
+            "SELECT receipt_json FROM agent_cycle_events "
+            "WHERE run_id = ? AND state = 'OPEN'",
+            (run_id,),
+        ).fetchall()
+        terminal = conn.execute(
+            "SELECT 1 FROM agent_cycle_events WHERE run_id = ? "
+            "AND state IN ('COMMITTED', 'ABORTED')",
+            (run_id,),
+        ).fetchone()
+        if len(rows) != 1 or terminal is not None:
+            raise ValueError("cycle run does not have one active OPEN event")
+        return AgentCycleEvent.from_dict(json.loads(rows[0]["receipt_json"]))
+
+    def open_cycle_event(self, *, run_id: str) -> AgentCycleEvent | None:
+        _required_text(run_id, "run_id")
+        if not self._available:
+            return None
+        with self._connect(read_only=True) as conn:
+            rows = conn.execute(
+                "SELECT receipt_json FROM agent_cycle_events AS opened "
+                "WHERE opened.run_id = ? AND opened.state = 'OPEN' "
+                "AND NOT EXISTS (SELECT 1 FROM agent_cycle_events AS terminal "
+                "WHERE terminal.run_id = opened.run_id "
+                "AND terminal.state IN ('COMMITTED', 'ABORTED'))",
+                (run_id,),
+            ).fetchall()
+        if len(rows) > 1:
+            raise ValueError("cycle run has multiple OPEN events")
+        if not rows:
+            return None
+        return AgentCycleEvent.from_dict(json.loads(rows[0]["receipt_json"]))
+
+    def commit_cycle(
+        self,
+        event: AgentCycleEvent,
+        publication: AgentCyclePublication,
+    ) -> tuple[str, str]:
+        committed = AgentCycleEvent.from_dict(event.as_dict())
+        published = AgentCyclePublication.from_dict(publication.as_dict())
+        event_payload = committed.as_dict()
+        publication_payload = published.as_dict()
+        if event_payload["state"] != "COMMITTED":
+            raise ValueError("commit_cycle requires a COMMITTED event")
+        for field in ("run_id", "target_date", "cohort", "cycle_kind"):
+            if publication_payload[field] != event_payload[field]:
+                raise ValueError(f"cycle publication {field} mismatch")
+        if (
+            publication_payload["committed_event_hash"] != committed.receipt_hash
+            or publication_payload["final_decision_hash"]
+            != event_payload["final_decision_hash"]
+        ):
+            raise ValueError("cycle publication does not bind the committed event")
+        source_routes, runtime_routes = _route_partition()
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                opened = self._open_cycle_on_connection(
+                    conn, run_id=event_payload["run_id"]
+                ).as_dict()
+                for field in (
+                    "run_id",
+                    "target_date",
+                    "cohort",
+                    "mode",
+                    "cycle_kind",
+                    "authority_hashes",
+                    "source_eligibility_receipt_hashes",
+                    "lease",
+                ):
+                    if event_payload[field] != opened[field]:
+                        raise ValueError(f"COMMITTED cycle {field} differs from OPEN")
+                self._validate_cycle_eligibility_refs(
+                    conn,
+                    refs=event_payload["source_eligibility_receipt_hashes"],
+                    run_id=event_payload["run_id"],
+                    target_date=event_payload["target_date"],
+                    expected_routes=source_routes,
+                )
+                self._validate_cycle_runtime_closure_refs(
+                    conn,
+                    event_payload=event_payload,
+                    expected_routes=runtime_routes,
+                )
+                event_hash = self._append_on_connection(
+                    conn,
+                    "agent_cycle_events",
+                    (
+                        "event_id",
+                        "run_id",
+                        "target_date",
+                        "cohort",
+                        "cycle_kind",
+                        "state",
+                        "event_at",
+                    ),
+                    tuple(
+                        event_payload[key]
+                        for key in (
+                            "event_id",
+                            "run_id",
+                            "target_date",
+                            "cohort",
+                            "cycle_kind",
+                            "state",
+                            "event_at",
+                        )
+                    ),
+                    committed,
+                )
+                publication_hash = self._append_on_connection(
+                    conn,
+                    "agent_cycle_publications",
+                    (
+                        "publication_id",
+                        "run_id",
+                        "target_date",
+                        "cohort",
+                        "cycle_kind",
+                        "committed_event_hash",
+                        "final_decision_hash",
+                        "published_at",
+                    ),
+                    tuple(
+                        publication_payload[key]
+                        for key in (
+                            "publication_id",
+                            "run_id",
+                            "target_date",
+                            "cohort",
+                            "cycle_kind",
+                            "committed_event_hash",
+                            "final_decision_hash",
+                            "published_at",
+                        )
+                    ),
+                    published,
+                )
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+            conn.execute("COMMIT")
+        return event_hash, publication_hash
+
+    def append_cycle_abort(self, event: AgentCycleEvent) -> str:
+        value = AgentCycleEvent.from_dict(event.as_dict())
+        payload = value.as_dict()
+        if payload["state"] != "ABORTED":
+            raise ValueError("append_cycle_abort requires an ABORTED event")
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                opened = self._open_cycle_on_connection(
+                    conn, run_id=payload["run_id"]
+                ).as_dict()
+                for field in (
+                    "run_id",
+                    "target_date",
+                    "cohort",
+                    "mode",
+                    "cycle_kind",
+                    "authority_hashes",
+                    "source_eligibility_receipt_hashes",
+                    "lease",
+                ):
+                    if payload[field] != opened[field]:
+                        raise ValueError(f"ABORTED cycle {field} differs from OPEN")
+                receipt_hash = self._append_on_connection(
+                    conn,
+                    "agent_cycle_events",
+                    (
+                        "event_id",
+                        "run_id",
+                        "target_date",
+                        "cohort",
+                        "cycle_kind",
+                        "state",
+                        "event_at",
+                    ),
+                    tuple(
+                        payload[key]
+                        for key in (
+                            "event_id",
+                            "run_id",
+                            "target_date",
+                            "cohort",
+                            "cycle_kind",
+                            "state",
+                            "event_at",
+                        )
+                    ),
+                    value,
+                )
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+            conn.execute("COMMIT")
+        return receipt_hash
+
+    def committed_cycle_publication(
+        self, *, run_id: str
+    ) -> AgentCyclePublication | None:
+        _required_text(run_id, "run_id")
+        if not self._available:
+            return None
+        with self._connect(read_only=True) as conn:
+            row = conn.execute(
+                "SELECT receipt_json FROM agent_cycle_publications WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return AgentCyclePublication.from_dict(json.loads(row["receipt_json"]))
 
     def _validate_route_coverage_on_connection(
         self,
@@ -1291,6 +2172,58 @@ class AgentDataMaterializationLedger:
             "source_statuses": sources,
         }
 
+    def materialize_cycle_dry_run(self, *, as_of: str) -> dict[str, Any]:
+        manifest = load_agent_data_route_manifest()
+        stage_keys = sorted(
+            {
+                (binding["agent_id"], binding["stage"])
+                for binding in manifest["bindings"]
+            }
+        )
+        if len(stage_keys) != 29:
+            raise RuntimeError("Agent cycle stage closure drift")
+        stages = [
+            self.materialize_dry_run(
+                as_of=as_of,
+                agent_id=agent_id,
+                stage=stage,
+            )
+            for agent_id, stage in stage_keys
+        ]
+        statuses = [row["status"] for row in stages]
+        status = (
+            "READY"
+            if all(value == "READY" for value in statuses)
+            else (
+                "BLOCKED"
+                if any(value == "BLOCKED" for value in statuses)
+                else "READY_TO_BUILD"
+            )
+        )
+        return {
+            "schema_version": "agent_cycle_materialization_dry_run_v1",
+            "dry_run": True,
+            "as_of": as_of,
+            "status": status,
+            "stage_count": len(stages),
+            "ready_stage_count": statuses.count("READY"),
+            "ready_to_build_stage_count": statuses.count("READY_TO_BUILD"),
+            "blocked_stage_count": statuses.count("BLOCKED"),
+            "would_collect": any(row["would_collect"] for row in stages),
+            "would_build": any(row["would_build"] for row in stages),
+            "would_issue_capability": all(
+                row["would_issue_capability"] for row in stages
+            ),
+            "missing_route_ids": sorted(
+                {
+                    route_id
+                    for row in stages
+                    for route_id in row["missing_route_ids"]
+                }
+            ),
+            "stages": stages,
+        }
+
 
 def _bindings_for(*, agent_id: str, stage: str) -> list[dict[str, Any]]:
     manifest = load_agent_data_route_manifest()
@@ -1337,14 +2270,19 @@ def open_agent_data_materialization_ledger(*, create: bool = False) -> AgentData
 __all__ = [
     "AGENT_DATA_ROUTE_MANIFEST_PATH",
     "AgentDataMaterializationLedger",
+    "AgentCycleEvent",
+    "AgentCyclePublication",
     "BLOCKER_CODES",
     "MaterializationAttemptReceipt",
     "RouteCoverageReceipt",
+    "RouteEligibilityReceipt",
+    "RuntimeRouteNotRequiredReceipt",
     "SnapshotBuildReceipt",
     "SourceCaptureReceipt",
     "agent_data_materialization_db_path",
     "load_agent_data_route_manifest",
     "materialization_lock_key",
     "open_agent_data_materialization_ledger",
+    "route_eligibility_checker_version",
     "validate_agent_data_route_manifest",
 ]

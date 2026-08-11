@@ -46,7 +46,7 @@ def test_generated_macro_us_overlay_is_current_and_schema_valid():
     assert result.accepted, result.failures
 
 
-def test_overlay_covers_exact_existing_macro_us_bindings_without_surface_change():
+def test_overlay_covers_exact_macro_us_binding_lineage_without_surface_change():
     overlay = build_macro_us_preservation_overlay(ROOT)
     active = json.loads(
         (ROOT / "registry/prompt_checks/agent_tool_contract_manifest_v1.json").read_text(
@@ -77,14 +77,26 @@ def test_overlay_covers_exact_existing_macro_us_bindings_without_surface_change(
         (row["agent_id"], row["semantic_capability_id"], row["tool_id"])
         for row in overlay["bindings"]
     }
+    overlay_binding_ids = {row["binding_id"] for row in overlay["bindings"]}
+    active_binding_ids = {row["binding_id"] for row in active_bindings["bindings"]}
+    approved_binding_migrations = {
+        "binding:09a1f45221b66acbf024d00808aa5bf0312d58b2258061ab92442a10ac1c8586": (
+            "binding:a33422a6e4676a1930db480f01de33e2402ed228f43b2841fc560b54ba849b16"
+        ),
+        "binding:9c0380d8e572a2014178bc01e1c8cc2f281591d2ffcd9e60ca366bdd9c2f27cb": (
+            "binding:60207e0e897c66a971e4bbb49a23669307327fdd70056a1453287b6b03b47b7d"
+        ),
+        "binding:bd7d647d99fc1550c60456640bc4341943ee6601628f04849d3dabd6d1ec5fab": (
+            "binding:c62ae5b4bd2d9e2811d16dd2f2a9c71121edcc1987350e8d52aa439ed68b890d"
+        ),
+    }
 
     assert len(preactivation_tools) == 18
     assert preactivation_tools < active_tools
     assert actual_roster == set(MACRO_US_BINDING_ROSTER)
     assert len(actual_roster) == 8
-    assert {row["binding_id"] for row in overlay["bindings"]} <= {
-        row["binding_id"] for row in active_bindings["bindings"]
-    }
+    assert approved_binding_migrations.keys() == overlay_binding_ids - active_binding_ids
+    assert set(approved_binding_migrations.values()) <= active_binding_ids
     assert all(row["base_activation_state"] == "active" for row in overlay["bindings"])
     assert all(row["source_activation_state"] == "staged" for row in overlay["bindings"])
     assert overlay["activation_state"] == "staged"

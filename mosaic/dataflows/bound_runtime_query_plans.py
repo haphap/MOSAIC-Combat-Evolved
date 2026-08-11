@@ -112,9 +112,12 @@ def _candidate_rows(snapshot: Mapping[str, Any], *, require_non_empty: bool) -> 
         if ticker in seen:
             raise ValueError("candidate_universe contains duplicate tickers")
         seen.add(ticker)
-        sector = raw.get("source_sector_agent_id", "")
-        if not isinstance(sector, str):
+        source_sector_agent_id = raw.get("source_sector_agent_id", "")
+        if not isinstance(source_sector_agent_id, str):
             raise ValueError("candidate source sector must be a string")
+        sector = raw.get("source_direction_id", source_sector_agent_id)
+        if not isinstance(sector, str):
+            raise ValueError("candidate source direction must be a string")
         rows.append({"ticker": ticker, "sector": sector})
     rows.sort(key=lambda row: row["ticker"])
     if require_non_empty and not rows:
@@ -141,7 +144,7 @@ def _l3_plan(
     allowed_tools: Sequence[str],
 ) -> dict[str, Any]:
     expected = tuple(L3_TOOL_ROSTER[agent_id])
-    if tuple(allowed_tools) != expected:
+    if frozenset(allowed_tools) != frozenset(expected):
         raise ValueError("allowed tools do not exact-close the L3 query-plan roster")
     candidates = _candidate_rows(snapshot, require_non_empty=False)
     as_of_date = date.fromisoformat(as_of)

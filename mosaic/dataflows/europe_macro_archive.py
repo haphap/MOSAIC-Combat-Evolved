@@ -32,20 +32,38 @@ from .macro_snapshots import (
     MACRO_SNAPSHOT_SCHEMA_VERSION,
     validate_role_snapshot,
 )
-from .macro_source_contracts import EURO_AREA_FINANCIAL_SERIES_MAP, EU_SERIES_MAP
+from .macro_source_contracts import (
+    EURO_AREA_FINANCIAL_SERIES_MAP,
+    EU_REAL_ECONOMY_SERIES_MAP,
+)
 from .official_macro_adapters import fetch_official_series
+from .runtime_paths import agent_cache_root, isolated_agent_runtime_path
 from .tushare import _query_pro
 from .tushare_catalog import assert_endpoint_capture_preflight_allowed
 
 
-CAPTURE_SCHEMA_VERSION = "europe_macro_capture_group_v1"
-COMPILER_VERSION = "europe_macro_compiler_v1"
+CAPTURE_SCHEMA_VERSION = "europe_macro_capture_group_v2"
+COMPILER_VERSION = "europe_macro_compiler_v2"
 ARCHIVE_LOCK_TIMEOUT_SECONDS = 60 * 60
+HISTORICAL_REPLAY_TIME_POLICY_VERSION = "europe_macro_historical_replay_time_v1"
 LOGICAL_ROUTES = (
+    "ecb.eu_real_economy",
     "ecb.euro_macro",
-    "eurostat.euro_macro",
     "market.euro_fx",
 )
+
+
+def _requested_routes(value: Sequence[str] | None) -> tuple[str, ...]:
+    if value is None:
+        return LOGICAL_ROUTES
+    requested = tuple(value)
+    if (
+        not requested
+        or len(set(requested)) != len(requested)
+        or any(route_id not in LOGICAL_ROUTES for route_id in requested)
+    ):
+        raise ValueError("requested Europe macro routes are invalid")
+    return tuple(route_id for route_id in LOGICAL_ROUTES if route_id in requested)
 ECB_SERIES_IDS = tuple(
     sorted(
         source
@@ -54,33 +72,27 @@ ECB_SERIES_IDS = tuple(
         if not source.startswith(("official.", "tushare."))
     )
 )
-EUROSTAT_SERIES_KEYS = tuple(sorted(EU_SERIES_MAP))
+REAL_ECONOMY_ECB_SERIES_IDS = tuple(sorted(EU_REAL_ECONOMY_SERIES_MAP))
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
 _DECISION_CUTOFF = time(15, 0)
 _SOURCE_SCHEMA_HASH = canonical_hash(
     {
         "schema_version": CAPTURE_SCHEMA_VERSION,
         "routes": list(LOGICAL_ROUTES),
-        "ecb_series_ids": list(ECB_SERIES_IDS),
-        "eurostat_series_keys": list(EUROSTAT_SERIES_KEYS),
+        "financial_ecb_series_ids": list(ECB_SERIES_IDS),
+        "real_economy_ecb_series_ids": list(REAL_ECONOMY_ECB_SERIES_IDS),
         "fx_instrument": "EURUSD.FXCM",
     }
 )
-_EUROSTAT_OUTPUT_IDS = {
-    "eu27_external_exports": "eu_trade_exports",
-    "eu27_external_imports": "eu_trade_imports",
-    "eu27_hicp": "eu_hicp",
-    "eu27_industrial_production": "eu_industrial_production",
-    "eu27_real_gdp": "eu_gdp",
-    "eu27_retail_volume": "eu_retail_volume",
-    "eu27_unemployment": "eu_unemployment",
+_REAL_ECONOMY_ECB_OUTPUT = {
+    series_id: (contract["output_id"], "provider_unit")
+    for series_id, contract in EU_REAL_ECONOMY_SERIES_MAP.items()
 }
 _ECB_OUTPUT = {
     "BSI.M.U2.Y.U.A20T.A.I.U2.2240.Z01.A": (
         "euro_area_bank_credit_loans",
         "provider_unit",
     ),
-    "CISS.D.U2.Z0Z.4F.EC.SS_CIN.IDX": ("eur_ciss", "index"),
     "EST.B.EU000A2X2A25.WT": ("ecb_estr", "percent"),
     "EXR.D.USD.EUR.SP00.A": ("eur_usd_ecb", "USD per EUR"),
     "FM.B.U2.EUR.4F.KR.DFR.LEV": ("ecb_dfr", "percent"),
@@ -88,6 +100,14 @@ _ECB_OUTPUT = {
     "MIR.M.U2.B.A2A.A.R.A.2240.EUR.N": (
         "euro_area_bank_credit_mir",
         "percent",
+    ),
+    "RDF.D.D0.Z0Z.4F.EC.DFTLB.PR": (
+        "eu_large_bank_simultaneous_default_probability",
+        "probability",
+    ),
+    "RDF.D.D0.Z0Z.4F.EC.DFTSV.PR": (
+        "eu_sovereign_simultaneous_default_probability",
+        "probability",
     ),
     "YC.B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y": (
         "euro_area_curve_10y",
@@ -100,8 +120,8 @@ _ECB_OUTPUT = {
 }
 if set(_ECB_OUTPUT) != set(ECB_SERIES_IDS):  # pragma: no cover - import invariant
     raise RuntimeError("Europe ECB output map drifts from the source contract")
-if set(_EUROSTAT_OUTPUT_IDS) != set(EUROSTAT_SERIES_KEYS):  # pragma: no cover
-    raise RuntimeError("Europe Eurostat output map drifts from the source contract")
+if set(_REAL_ECONOMY_ECB_OUTPUT) != set(REAL_ECONOMY_ECB_SERIES_IDS):  # pragma: no cover
+    raise RuntimeError("Europe real-economy output map drifts from the source contract")
 
 
 class EuropeMacroSchemaError(DataVendorUnavailable):
@@ -131,19 +151,23 @@ class EuropeMacroBuildResult:
 
 
 def europe_macro_archive_path() -> Path:
+    isolated = isolated_agent_runtime_path("agent_data/europe_macro.sqlite3")
+    if isolated is not None:
+        return isolated
     explicit = os.getenv("MOSAIC_EUROPE_MACRO_ARCHIVE_DB")
     if explicit:
         return Path(explicit).expanduser()
-    cache_root = Path(os.getenv("MOSAIC_CACHE_DIR", "~/.mosaic/cache")).expanduser()
-    return cache_root / "agent_data" / "europe_macro.sqlite3"
+    return agent_cache_root() / "agent_data" / "europe_macro.sqlite3"
 
 
 def europe_macro_snapshot_root() -> Path:
+    isolated = isolated_agent_runtime_path("agent_data/europe_macro_snapshots")
+    if isolated is not None:
+        return isolated
     explicit = os.getenv("MOSAIC_EUROPE_MACRO_SNAPSHOT_DIR")
     if explicit:
         return Path(explicit).expanduser()
-    cache_root = Path(os.getenv("MOSAIC_CACHE_DIR", "~/.mosaic/cache")).expanduser()
-    return cache_root / "agent_data" / "europe_macro_snapshots"
+    return agent_cache_root() / "agent_data" / "europe_macro_snapshots"
 
 
 def _capture_now() -> datetime:
@@ -386,6 +410,7 @@ def _validate_result_common(
     provider: str,
     series_key: str,
     cutoff: datetime,
+    retrieval_cutoff: datetime | None = None,
     completed: datetime | None = None,
 ) -> dict[str, Any]:
     value = _json_copy(payload)
@@ -402,7 +427,7 @@ def _validate_result_common(
     retrieved = _timestamp(value.get("retrieved_at"), f"{provider}.retrieved_at")
     if completed is not None and retrieved > completed:
         raise EuropeMacroSchemaError(f"{provider} retrieval exceeds capture time")
-    if provider != "ECB" and retrieved > cutoff:
+    if provider != "ECB" and retrieved > (retrieval_cutoff or cutoff):
         raise EuropeMacroSchemaError(f"{provider} retrieval exceeds cutoff")
     return value
 
@@ -415,10 +440,16 @@ def select_ecb_vintage_rows(
     for raw in rows:
         row = _json_copy(raw)
         period = str(row.get("TIME_PERIOD") or "").strip()
-        valid_from = _timestamp(row.get("VALID_FROM"), "ECB.VALID_FROM")
         action = str(row.get("ACTION") or "").strip().casefold()
         if not period or action not in {"insert", "replace", "delete"}:
             raise EuropeMacroSchemaError("ECB history row identity/action mismatch")
+        valid_from_text = str(row.get("VALID_FROM") or "").strip()
+        valid_from = _timestamp(
+            row.get("VALID_TO")
+            if action == "delete" and not valid_from_text
+            else valid_from_text,
+            "ECB.VALID_TO" if action == "delete" and not valid_from_text else "ECB.VALID_FROM",
+        )
         if valid_from > cutoff:
             continue
         previous = latest.get(period)
@@ -472,51 +503,6 @@ def _validate_ecb_payload(
             f"ECB history has no usable cutoff row for {series_id}"
         )
     value["selected_rows"] = selected
-    return value
-
-
-def _validate_eurostat_payload(
-    payload: Mapping[str, Any],
-    *,
-    series_key: str,
-    cutoff: datetime,
-    observation_start: date,
-    observation_end: date,
-) -> dict[str, Any]:
-    value = _validate_result_common(
-        payload,
-        provider="EUROSTAT",
-        series_key=series_key,
-        cutoff=cutoff,
-    )
-    expected_source = f"eurostat.{EU_SERIES_MAP[series_key]['dataset']}"
-    if value.get("source") != expected_source:
-        raise EuropeMacroSchemaError("Eurostat source identity mismatch")
-    updated = _timestamp(
-        value.get("dataset_updated"), f"Eurostat {series_key}.dataset_updated"
-    )
-    if updated > cutoff:
-        raise EuropeMacroSchemaError("Eurostat dataset update exceeds cutoff")
-    retrieved = _timestamp(
-        value.get("retrieved_at"), f"Eurostat {series_key}.retrieved_at"
-    )
-    if updated > retrieved:
-        raise EuropeMacroSchemaError("Eurostat dataset update exceeds retrieval time")
-    usable = []
-    for row in value["rows"]:
-        start, end = _period_bounds(row.get("time"))
-        numeric = row.get("value")
-        if isinstance(numeric, bool) or not isinstance(numeric, (int, float)):
-            raise EuropeMacroSchemaError("Eurostat observation is not numeric")
-        if not math.isfinite(float(numeric)):
-            raise EuropeMacroSchemaError("Eurostat observation is not finite")
-        if observation_start <= end <= observation_end:
-            usable.append(row)
-    if not usable:
-        raise EuropeMacroSchemaError(
-            f"Eurostat capture has no usable observation for {series_key}"
-        )
-    value["usable_rows"] = usable
     return value
 
 
@@ -589,6 +575,8 @@ def _build_group(
     as_of_date: str,
     cutoff_at: str,
     observation_start: str,
+    requested_route_ids: tuple[str, ...],
+    historical_replay: bool,
     fetch_official: Callable[..., dict[str, Any]],
     fetch_tushare: Callable[..., Any],
 ) -> dict[str, Any]:
@@ -596,52 +584,60 @@ def _build_group(
     started = _capture_now()
     if started.tzinfo is None:
         raise EuropeMacroSchemaError("trusted capture clock must include timezone")
-    if started.astimezone(_SHANGHAI).date() < date.fromisoformat(as_of_date):
+    capture_date = started.astimezone(_SHANGHAI).date()
+    as_of = date.fromisoformat(as_of_date)
+    if capture_date < as_of or (historical_replay and capture_date <= as_of):
         raise EuropeMacroCaptureBeforeWindow(
             "Europe macro capture cannot start before the as-of date"
         )
     start_date = date.fromisoformat(observation_start)
     end_date = date.fromisoformat(as_of_date)
-    ecb = []
-    for series_id in ECB_SERIES_IDS:
-        ecb.append(
-            _validate_ecb_payload(
-                fetch_official(
-                    provider="ECB",
-                    series_key=series_id,
-                    as_of=cutoff_at,
-                    include_history=True,
-                    include_raw_payload=True,
-                    observation_start=observation_start,
-                    observation_end=as_of_date,
-                ),
-                series_id=series_id,
-                cutoff=cutoff,
-                observation_start=start_date,
-                observation_end=end_date,
+    requested = frozenset(requested_route_ids)
+    financial_ecb = []
+    if "ecb.euro_macro" in requested:
+        for series_id in ECB_SERIES_IDS:
+            financial_ecb.append(
+                _validate_ecb_payload(
+                    fetch_official(
+                        provider="ECB",
+                        series_key=series_id,
+                        as_of=cutoff_at,
+                        include_history=True,
+                        include_raw_payload=True,
+                        observation_start=observation_start,
+                        observation_end=as_of_date,
+                    ),
+                    series_id=series_id,
+                    cutoff=cutoff,
+                    observation_start=start_date,
+                    observation_end=end_date,
+                )
             )
-        )
+    real_economy_ecb = []
+    if "ecb.eu_real_economy" in requested:
+        for series_id in REAL_ECONOMY_ECB_SERIES_IDS:
+            real_economy_ecb.append(
+                _validate_ecb_payload(
+                    fetch_official(
+                        provider="ECB",
+                        series_key=series_id,
+                        as_of=cutoff_at,
+                        include_history=True,
+                        include_raw_payload=True,
+                        observation_start=observation_start,
+                        observation_end=as_of_date,
+                    ),
+                    series_id=series_id,
+                    cutoff=cutoff,
+                    observation_start=start_date,
+                    observation_end=end_date,
+                )
+            )
 
     historical_miss = started > cutoff
-    eurostat: list[dict[str, Any]] | None = None
+    capture_allowed = not historical_miss or historical_replay
     fx: dict[str, Any] | None = None
-    if not historical_miss:
-        eurostat = [
-            _validate_eurostat_payload(
-                fetch_official(
-                    provider="EUROSTAT",
-                    series_key=series_key,
-                    as_of=cutoff_at,
-                    include_history=False,
-                    include_raw_payload=True,
-                ),
-                series_key=series_key,
-                cutoff=cutoff,
-                observation_start=start_date,
-                observation_end=end_date,
-            )
-            for series_key in EUROSTAT_SERIES_KEYS
-        ]
+    if capture_allowed and "market.euro_fx" in requested:
         fx = _validate_fx_payload(
             fetch_tushare(
                 endpoint="fx_daily",
@@ -655,35 +651,59 @@ def _build_group(
     completed = _capture_now()
     if completed.tzinfo is None:
         raise EuropeMacroSchemaError("trusted capture clock must include timezone")
-    if not historical_miss and completed > cutoff:
+    live_requested = requested.difference(
+        {"ecb.eu_real_economy", "ecb.euro_macro"}
+    )
+    if (
+        live_requested
+        and not historical_replay
+        and not historical_miss
+        and completed > cutoff
+    ):
         raise EuropeMacroCaptureAfterCutoff(
             "live Europe macro capture completed after cutoff"
         )
-    for payload in ecb + (eurostat or []):
+    for payload in financial_ecb + real_economy_ecb:
         if _timestamp(payload["retrieved_at"], "retrieved_at") > completed:
             raise EuropeMacroSchemaError("official retrieval exceeds capture time")
     route_states = {
-        "ecb.euro_macro": "SUCCESS",
-        "eurostat.euro_macro": "CAPTURE_REJECTED" if historical_miss else "SUCCESS",
-        "market.euro_fx": "CAPTURE_REJECTED" if historical_miss else "SUCCESS",
+        route_id: (
+            "SUCCESS"
+            if route_id in {"ecb.eu_real_economy", "ecb.euro_macro"}
+            or capture_allowed
+            else "CAPTURE_REJECTED"
+        )
+        for route_id in requested_route_ids
     }
-    return {
+    group = {
         "schema_version": CAPTURE_SCHEMA_VERSION,
         "capture_key": capture_key,
         "as_of_date": as_of_date,
-        "cutoff_at": cutoff_at,
+        "cutoff_at": completed.isoformat() if historical_replay else cutoff_at,
         "captured_at": completed.isoformat(),
         "observation_start": observation_start,
         "observation_end": as_of_date,
-        "ecb": {"series": ecb, "series_ids": list(ECB_SERIES_IDS)},
-        "eurostat": (
-            {"series": eurostat, "series_keys": list(EUROSTAT_SERIES_KEYS)}
-            if eurostat is not None
-            else None
-        ),
+        "ecb": {"series": financial_ecb, "series_ids": list(ECB_SERIES_IDS)},
+        "ecb_real_economy": {
+            "series": real_economy_ecb,
+            "series_ids": list(REAL_ECONOMY_ECB_SERIES_IDS),
+        },
         "market_fx": fx,
         "route_states": route_states,
     }
+    if historical_replay:
+        group.update(
+            {
+                "historical_replay": True,
+                "historical_replay_time_policy_version": (
+                    HISTORICAL_REPLAY_TIME_POLICY_VERSION
+                ),
+                "requested_cutoff_at": cutoff_at,
+            }
+        )
+    if requested_route_ids != LOGICAL_ROUTES:
+        group["requested_route_ids"] = list(requested_route_ids)
+    return group
 
 
 def _capture_id(capture_key: str, route_id: str) -> str:
@@ -695,8 +715,8 @@ def _receipt_common(group: Mapping[str, Any], route_id: str) -> dict[str, Any]:
         "schema_version": "source_capture_receipt_v1",
         "identity": {
             "source_family": {
+                "ecb.eu_real_economy": "ecb",
                 "ecb.euro_macro": "ecb",
-                "eurostat.euro_macro": "eurostat",
                 "market.euro_fx": "market",
             }[route_id],
             "route_id": route_id,
@@ -705,10 +725,16 @@ def _receipt_common(group: Mapping[str, Any], route_id: str) -> dict[str, Any]:
                     "route_id": route_id,
                     "as_of_date": group["as_of_date"],
                     "cutoff_at": group["cutoff_at"],
+                    "requested_cutoff_at": group.get("requested_cutoff_at"),
+                    "historical_replay_time_policy_version": group.get(
+                        "historical_replay_time_policy_version"
+                    ),
                     "observation_start": group["observation_start"],
                     "observation_end": group["observation_end"],
-                    "ecb_series_ids": group["ecb"]["series_ids"],
-                    "eurostat_series_keys": list(EUROSTAT_SERIES_KEYS),
+                    "financial_ecb_series_ids": group["ecb"]["series_ids"],
+                    "real_economy_ecb_series_ids": group["ecb_real_economy"][
+                        "series_ids"
+                    ],
                     "fx_instrument": "EURUSD.FXCM",
                 }
             ),
@@ -746,10 +772,11 @@ def _receipt_coverage(
     }
 
 
-def _ecb_receipt(group: Mapping[str, Any]) -> SourceCaptureReceipt:
-    route_id = "ecb.euro_macro"
+def _ecb_receipt(
+    group: Mapping[str, Any], *, route_id: str, group_key: str
+) -> SourceCaptureReceipt:
     payload = _receipt_common(group, route_id)
-    series = group["ecb"]["series"]
+    series = group[group_key]["series"]
     selected = [row for item in series for row in item["selected_rows"]]
     knowledge_at = max(
         _timestamp(row["VALID_FROM"], "ECB.VALID_FROM") for row in selected
@@ -791,7 +818,7 @@ def _ecb_receipt(group: Mapping[str, Any]) -> SourceCaptureReceipt:
             "coverage": _receipt_coverage(
                 group=group,
                 periods=[str(row["TIME_PERIOD"]) for row in selected],
-                dimensions={"series_id": group["ecb"]["series_ids"]},
+                dimensions={"series_id": group[group_key]["series_ids"]},
             ),
             "completeness": {
                 "truncated": False,
@@ -812,61 +839,6 @@ def _ecb_receipt(group: Mapping[str, Any]) -> SourceCaptureReceipt:
             },
         }
     )
-    return SourceCaptureReceipt.seal(payload)
-
-
-def _eurostat_receipt(group: Mapping[str, Any]) -> SourceCaptureReceipt:
-    route_id = "eurostat.euro_macro"
-    payload = _receipt_common(group, route_id)
-    series = group["eurostat"]["series"]
-    captured_at = _timestamp(group["captured_at"], "captured_at")
-    released_at = max(
-        _timestamp(item["dataset_updated"], "dataset_updated") for item in series
-    )
-    knowledge_at = max(captured_at, released_at).isoformat()
-    rows = [row for item in series for row in item["usable_rows"]]
-    payload.update(
-        {
-            "transport": {
-                "redacted_url": "https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/<dataset>",
-                "method": "GET",
-                "query_keys": ["dimensions", "format", "lang", "lastTimePeriod"],
-                "pagination_policy": "ONE_BOUNDED_QUERY_PER_REGISTERED_SERIES",
-                "page_count": len(series),
-            },
-            "authority": {
-                "provider": "EUROSTAT",
-                "permission_tier": "public",
-                "api_version": "statistics-1.0",
-                "parser_version": "official_macro_adapters_v1-jsonstat",
-            },
-            "time": {
-                "released_at": released_at.isoformat(),
-                "vintage_at": released_at.isoformat(),
-                "captured_at": group["captured_at"],
-                "knowledge_available_at": knowledge_at,
-            },
-            "content": {
-                "raw_content_hash": canonical_hash(
-                    {item["series_key"]: item["payload_hash"] for item in series}
-                ),
-                "normalized_row_count": len(rows),
-                "schema_hash": _SOURCE_SCHEMA_HASH,
-            },
-            "coverage": _receipt_coverage(
-                group=group,
-                periods=[str(row["time"]) for row in rows],
-                dimensions={"series_key": group["eurostat"]["series_keys"]},
-            ),
-            "completeness": {
-                "truncated": False,
-                "next_page_token_present": False,
-                "duplicate_count": 0,
-                "empty_result_semantics": "NON_EMPTY",
-            },
-        }
-    )
-    payload["pit"].update({"pit_mode": "OBSERVED_LIVE", "vintage_query": None})
     return SourceCaptureReceipt.seal(payload)
 
 
@@ -921,9 +893,23 @@ def _market_receipt(group: Mapping[str, Any]) -> SourceCaptureReceipt:
 
 
 def _source_receipts(group: Mapping[str, Any]) -> tuple[SourceCaptureReceipt, ...]:
-    receipts = [_ecb_receipt(group)]
-    if group["route_states"]["eurostat.euro_macro"] == "SUCCESS":
-        receipts.extend((_eurostat_receipt(group), _market_receipt(group)))
+    requested = tuple(group.get("requested_route_ids", LOGICAL_ROUTES))
+    receipt_builders: dict[str, Callable[[], SourceCaptureReceipt]] = {
+        "ecb.eu_real_economy": lambda: _ecb_receipt(
+            group,
+            route_id="ecb.eu_real_economy",
+            group_key="ecb_real_economy",
+        ),
+        "ecb.euro_macro": lambda: _ecb_receipt(
+            group, route_id="ecb.euro_macro", group_key="ecb"
+        ),
+        "market.euro_fx": lambda: _market_receipt(group),
+    }
+    receipts = [
+        receipt_builders[route_id]()
+        for route_id in requested
+        if group["route_states"][route_id] == "SUCCESS"
+    ]
     return tuple(
         sorted(receipts, key=lambda item: item.as_dict()["identity"]["route_id"])
     )
@@ -935,6 +921,7 @@ def _coverage_receipt(
     cutoff_at: str,
     source_receipts: tuple[SourceCaptureReceipt, ...],
     route_states: Mapping[str, str],
+    required_route_ids: tuple[str, ...],
     blocker_codes: tuple[str, ...],
 ) -> RouteCoverageReceipt:
     hashes = {
@@ -947,7 +934,7 @@ def _coverage_receipt(
             "capture_receipt_hash": hashes.get(route_id),
             "status": route_states[route_id],
         }
-        for route_id in LOGICAL_ROUTES
+        for route_id in required_route_ids
     ]
     complete = all(row["status"] in {"SUCCESS", "TRUE_EMPTY"} for row in route_results)
     coverage_id = "europe-macro-coverage:" + canonical_hash(
@@ -967,7 +954,7 @@ def _coverage_receipt(
                 "end": cutoff_at,
                 "timezone": "Asia/Shanghai",
             },
-            "required_route_ids": list(LOGICAL_ROUTES),
+            "required_route_ids": list(required_route_ids),
             "route_results": route_results,
             "coverage_complete": complete,
             "blocker_codes": list(blocker_codes),
@@ -982,12 +969,14 @@ def _failed_result(
     ledger: AgentDataMaterializationLedger,
     status: str,
     blocker: str,
+    required_route_ids: tuple[str, ...],
 ) -> EuropeMacroArchiveResult:
     coverage = _coverage_receipt(
         as_of_date=as_of_date,
         cutoff_at=cutoff_at,
         source_receipts=(),
-        route_states={route_id: status for route_id in LOGICAL_ROUTES},
+        route_states={route_id: status for route_id in required_route_ids},
+        required_route_ids=required_route_ids,
         blocker_codes=(blocker,),
     )
     ledger.append_route_coverage(coverage)
@@ -999,6 +988,8 @@ def archive_europe_macro_sources(
     as_of_date: str,
     cutoff_at: str,
     observation_start: str,
+    requested_route_ids: Sequence[str] | None = None,
+    historical_replay: bool = False,
     store: EuropeMacroArchiveStore,
     ledger: AgentDataMaterializationLedger,
     fetch_official: Callable[..., dict[str, Any]] = _private_official_fetch,
@@ -1012,19 +1003,33 @@ def archive_europe_macro_sources(
         raise ValueError("observation_start cannot exceed as_of_date")
     if cutoff_local.date() != as_of or cutoff_local.time() != _DECISION_CUTOFF:
         raise ValueError("Europe macro cutoff must be 15:00 Asia/Shanghai on as-of")
+    if not isinstance(historical_replay, bool):
+        raise ValueError("historical_replay must be a boolean")
     normalized_cutoff = cutoff.isoformat()
-    capture_key = canonical_hash(
-        {
-            "schema_version": CAPTURE_SCHEMA_VERSION,
-            "as_of_date": as_of_date,
-            "cutoff_at": normalized_cutoff,
-            "observation_start": observation_start,
-            "observation_end": as_of_date,
-            "ecb_series_ids": list(ECB_SERIES_IDS),
-            "eurostat_series_keys": list(EUROSTAT_SERIES_KEYS),
-            "fx_instrument": "EURUSD.FXCM",
-        }
-    )
+    required_routes = _requested_routes(requested_route_ids)
+    capture_identity = {
+        "schema_version": CAPTURE_SCHEMA_VERSION,
+        "as_of_date": as_of_date,
+        "cutoff_at": normalized_cutoff,
+        "observation_start": observation_start,
+        "observation_end": as_of_date,
+        "financial_ecb_series_ids": list(ECB_SERIES_IDS),
+        "real_economy_ecb_series_ids": list(REAL_ECONOMY_ECB_SERIES_IDS),
+        "fx_instrument": "EURUSD.FXCM",
+        **(
+            {
+                "historical_replay": True,
+                "historical_replay_time_policy_version": (
+                    HISTORICAL_REPLAY_TIME_POLICY_VERSION
+                ),
+            }
+            if historical_replay
+            else {}
+        ),
+    }
+    if required_routes != LOGICAL_ROUTES:
+        capture_identity["requested_route_ids"] = list(required_routes)
+    capture_key = canonical_hash(capture_identity)
     try:
         group, cache_hit = store.get_or_capture(
             capture_key,
@@ -1033,6 +1038,8 @@ def archive_europe_macro_sources(
                 as_of_date=as_of_date,
                 cutoff_at=normalized_cutoff,
                 observation_start=observation_start,
+                requested_route_ids=required_routes,
+                historical_replay=historical_replay,
                 fetch_official=fetch_official,
                 fetch_tushare=fetch_tushare,
             ),
@@ -1040,14 +1047,16 @@ def archive_europe_macro_sources(
         sources = _source_receipts(group)
         blockers = (
             ("CAPTURE_AFTER_AS_OF_CUTOFF",)
-            if group["route_states"]["eurostat.euro_macro"] != "SUCCESS"
+            if group["route_states"].get("market.euro_fx")
+            not in {None, "SUCCESS"}
             else ()
         )
         coverage = _coverage_receipt(
             as_of_date=as_of_date,
-            cutoff_at=normalized_cutoff,
+            cutoff_at=str(group["cutoff_at"]),
             source_receipts=sources,
             route_states=group["route_states"],
+            required_route_ids=required_routes,
             blocker_codes=blockers,
         )
         ledger.append_capture_group(sources, coverage)
@@ -1059,6 +1068,7 @@ def archive_europe_macro_sources(
             ledger=ledger,
             status="PERMISSION_DENIED",
             blocker="PERMISSION_DENIED",
+            required_route_ids=required_routes,
         )
     except (TimeoutError, ConnectionError):
         return _failed_result(
@@ -1067,6 +1077,7 @@ def archive_europe_macro_sources(
             ledger=ledger,
             status="TRANSPORT_FAILED",
             blocker="TRANSPORT_FAILED",
+            required_route_ids=required_routes,
         )
     except EuropeMacroCaptureAfterCutoff:
         return _failed_result(
@@ -1075,6 +1086,7 @@ def archive_europe_macro_sources(
             ledger=ledger,
             status="CAPTURE_REJECTED",
             blocker="CAPTURE_AFTER_AS_OF_CUTOFF",
+            required_route_ids=required_routes,
         )
     except EuropeMacroCaptureBeforeWindow:
         return _failed_result(
@@ -1083,6 +1095,7 @@ def archive_europe_macro_sources(
             ledger=ledger,
             status="CAPTURE_REJECTED",
             blocker="CAPTURE_BEFORE_AS_OF_WINDOW",
+            required_route_ids=required_routes,
         )
     except DataVendorUnavailable as exc:
         if _is_transport_failure(exc):
@@ -1092,6 +1105,7 @@ def archive_europe_macro_sources(
                 ledger=ledger,
                 status="TRANSPORT_FAILED",
                 blocker="TRANSPORT_FAILED",
+                required_route_ids=required_routes,
             )
         return _failed_result(
             as_of_date=as_of_date,
@@ -1099,6 +1113,7 @@ def archive_europe_macro_sources(
             ledger=ledger,
             status="SCHEMA_DRIFT",
             blocker="SCHEMA_DRIFT",
+            required_route_ids=required_routes,
         )
 
 
@@ -1117,50 +1132,21 @@ def _latest_row(
     return row, start, end
 
 
-def _eurostat_observations(
-    group: Mapping[str, Any], receipt: SourceCaptureReceipt
-) -> list[dict[str, Any]]:
-    observations = []
-    as_of = date.fromisoformat(str(group["as_of_date"]))
-    for item in group["eurostat"]["series"]:
-        row, start, end = _latest_row(
-            item["usable_rows"], period_field="time", as_of=as_of
-        )
-        series_key = str(item["series_key"])
-        source = f"eurostat.{EU_SERIES_MAP[series_key]['dataset']}"
-        observations.append(
-            {
-                "series_id": _EUROSTAT_OUTPUT_IDS[series_key],
-                "period_start": start.isoformat(),
-                "period_end": end.isoformat(),
-                "released_at": item["dataset_updated"],
-                "vintage_at": item["dataset_updated"],
-                "actual": float(row["value"]),
-                "previous": None,
-                "expected": None,
-                "unit": str(row.get("unit") or "provider_unit"),
-                "source": source,
-                "pit_status": "AVAILABLE_AS_OF",
-                "evidence_id": (
-                    f"{receipt.receipt_hash}:{series_key}:{row['time']}:"
-                    f"{str(item['payload_hash']).removeprefix('sha256:')}"
-                ),
-            }
-        )
-    return sorted(observations, key=lambda row: row["series_id"])
-
-
 def _ecb_observations(
-    group: Mapping[str, Any], receipt: SourceCaptureReceipt
+    group: Mapping[str, Any],
+    receipt: SourceCaptureReceipt,
+    *,
+    group_key: str,
+    output_map: Mapping[str, tuple[str, str]],
 ) -> list[dict[str, Any]]:
     observations = []
     as_of = date.fromisoformat(str(group["as_of_date"]))
-    for item in group["ecb"]["series"]:
+    for item in group[group_key]["series"]:
         row, start, end = _latest_row(
             item["selected_rows"], period_field="TIME_PERIOD", as_of=as_of
         )
         series_id = str(item["series_key"])
-        output_id, default_unit = _ECB_OUTPUT[series_id]
+        output_id, default_unit = output_map[series_id]
         observations.append(
             {
                 "series_id": output_id,
@@ -1284,11 +1270,17 @@ def compile_europe_macro_snapshots(
         status = ledger.source_status(as_of=group["as_of_date"], route_id=route_id)
         if status["capture_receipt_hash"] != receipt.receipt_hash:
             raise DataVendorUnavailable(f"Europe macro source receipt drift: {route_id}")
-    economy_observations = _eurostat_observations(
-        group, source_by_route["eurostat.euro_macro"]
+    economy_observations = _ecb_observations(
+        group,
+        source_by_route["ecb.eu_real_economy"],
+        group_key="ecb_real_economy",
+        output_map=_REAL_ECONOMY_ECB_OUTPUT,
     )
     financial_observations = _ecb_observations(
-        group, source_by_route["ecb.euro_macro"]
+        group,
+        source_by_route["ecb.euro_macro"],
+        group_key="ecb",
+        output_map=_ECB_OUTPUT,
     )
     financial_observations.append(
         _fx_observation(group, source_by_route["market.euro_fx"])
@@ -1320,8 +1312,8 @@ def compile_europe_macro_snapshots(
             "eu_economy",
             "get_eu_macro_snapshot",
             [
+                source_by_route["ecb.eu_real_economy"].receipt_hash,
                 source_by_route["ecb.euro_macro"].receipt_hash,
-                source_by_route["eurostat.euro_macro"].receipt_hash,
                 calendar_hash,
             ],
         ),
@@ -1389,7 +1381,7 @@ __all__ = [
     "CAPTURE_SCHEMA_VERSION",
     "COMPILER_VERSION",
     "ECB_SERIES_IDS",
-    "EUROSTAT_SERIES_KEYS",
+    "REAL_ECONOMY_ECB_SERIES_IDS",
     "EuropeMacroArchiveResult",
     "EuropeMacroArchiveStore",
     "EuropeMacroBuildResult",

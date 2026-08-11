@@ -88,6 +88,40 @@ def test_trusted_rke_materialization_returns_selected_source_ids_outside_public_
     )
 
 
+def test_relationship_mapper_selects_matching_stock_sector_claim() -> None:
+    context = build_rke_agent_research_context_from_rows(
+        agent_id="relationship_mapper",
+        layer="relationship",
+        ticker="000001.SZ",
+        sector="sector-energy",
+        as_of_date="2026-07-17",
+        max_items=12,
+        forecasts=[
+            {
+                "forecast_claim_id": "FC-RELATIONSHIP",
+                "report_id": "RPT-RELATIONSHIP",
+                "source_id": "SRC-RELATIONSHIP",
+                "target": {"target_type": "stock", "target_id": "000001.SZ"},
+                "metric_proxy_mapping": ["stock_forward_return"],
+                "direction": "positive",
+            }
+        ],
+        metadata=[
+            {
+                "report_id": "RPT-RELATIONSHIP",
+                "source_id": "SRC-RELATIONSHIP",
+                "report_type": "个股研报",
+                "ts_code": "000001.SZ",
+                "sector": "sector-energy",
+                "publish_datetime": "2026-07-16T09:00:00+08:00",
+            }
+        ],
+    )
+
+    assert context["agent_id"] == "sector.relationship_mapper"
+    assert context["summary"]["item_count"] == 1
+
+
 def test_export_rke_agent_context_cli_outputs_three_domain_context(capsys, tmp_path):
     registry_dir = tmp_path / "registry/report_intelligence"
     registry_dir.mkdir(parents=True)
@@ -692,6 +726,60 @@ def test_sector_context_marks_missing_industry_snapshot_boundary():
         "industry_context_snapshot_missing"
     ]
     assert "industry_context_snapshot_missing" in item["ranking_reason_codes"]
+
+
+def test_sector_ascii_keyword_matching_uses_token_boundaries() -> None:
+    consumer = build_rke_agent_research_context_from_rows(
+        agent_id="consumer",
+        layer="sector",
+        ticker="600025.SH",
+        sector="retail",
+        forecasts=[
+            {
+                "forecast_claim_id": "FC-RETAIL",
+                "report_id": "RPT-RETAIL",
+                "target": {"target_type": "stock", "target_id": "600025.SH"},
+                "metric_proxy_mapping": ["stock_forward_return"],
+                "direction": "positive",
+            }
+        ],
+        metadata=[
+            {
+                "report_id": "RPT-RETAIL",
+                "report_type": "个股研报",
+                "sector": "retail",
+                "subsectors": ["食品"],
+                "ts_code": "600025.SH",
+            }
+        ],
+    )
+    technology = build_rke_agent_research_context_from_rows(
+        agent_id="technology",
+        layer="sector",
+        sector="AI infrastructure",
+        forecasts=[
+            {
+                "forecast_claim_id": "FC-AI",
+                "report_id": "RPT-AI",
+                "target": {
+                    "target_type": "industry",
+                    "target_id": "AI infrastructure",
+                },
+                "metric_proxy_mapping": ["industry_etf_forward_return"],
+                "direction": "positive",
+            }
+        ],
+        metadata=[
+            {
+                "report_id": "RPT-AI",
+                "report_type": "行业研报",
+                "sector": "AI infrastructure",
+            }
+        ],
+    )
+
+    assert consumer["summary"]["item_count"] == 1
+    assert technology["summary"]["item_count"] == 1
 
 
 def test_sector_context_uses_available_industry_snapshot():

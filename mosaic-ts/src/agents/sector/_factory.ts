@@ -52,6 +52,7 @@ import {
 import {
   buildRuntimeEvidenceSnapshot,
   type RuntimeEvidenceSnapshot,
+  withRuntimeCitationIds,
 } from "../helpers/evidence_runtime.js";
 import {
   canonicalAcceptedSubmissionBody,
@@ -349,15 +350,12 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
             runtimeSourceStatuses,
           });
           canaryToolStatuses = loopResult.toolStatuses;
-          const relationshipSnapshot = state.darwinian_runtime_binding
-            ? relationshipResearchSnapshotFromToolLoop({
-                messages: loopResult.messages,
-                toolStatuses: loopResult.toolStatuses,
-              })
-            : null;
-          const relationshipOpportunitySet =
-            relationshipSnapshot?.prediction_opportunity_set ?? null;
-          if (relationshipSnapshot) {
+          const relationshipSnapshot = relationshipResearchSnapshotFromToolLoop({
+            messages: loopResult.messages,
+            toolStatuses: loopResult.toolStatuses,
+          });
+          const relationshipOpportunitySet = relationshipSnapshot.prediction_opportunity_set;
+          if (state.darwinian_runtime_binding) {
             assertLiveOutcomeSourceSnapshot({
               state,
               agentId: "relationship_mapper",
@@ -369,24 +367,25 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
             relationshipOpportunitySet &&
             (relationshipOpportunitySet.run_id !== state.trace_id ||
               relationshipOpportunitySet.as_of !== state.as_of_date ||
-              relationshipSnapshot?.as_of_date !== state.as_of_date)
+              relationshipSnapshot.as_of_date !== state.as_of_date)
           ) {
             throw new Error("relationship opportunity snapshot run binding mismatch");
           }
-          const extractionSchema = relationshipOpportunitySet
-            ? (buildRelationshipMapperSchema({
-                maxFactualEdges: relationshipFactualEdgeCapacityFromToolLoop({
-                  messages: loopResult.messages,
-                  toolStatuses: loopResult.toolStatuses,
-                }),
-                factualRelationships: relationshipFactualEdgeCandidatesFromToolLoop({
-                  messages: loopResult.messages,
-                  toolStatuses: loopResult.toolStatuses,
-                }),
-                maxPredictiveEdges: relationshipOpportunitySet.ordered_opportunities.length,
-                predictiveOpportunities: relationshipOpportunitySet.ordered_opportunities,
-              }) as unknown as z.ZodType<TOutput>)
-            : spec.schema;
+          runtimeEvidence = withRuntimeCitationIds(runtimeEvidence, [
+            relationshipOpportunitySet.opportunity_set_id,
+          ]);
+          const extractionSchema = buildRelationshipMapperSchema({
+            maxFactualEdges: relationshipFactualEdgeCapacityFromToolLoop({
+              messages: loopResult.messages,
+              toolStatuses: loopResult.toolStatuses,
+            }),
+            factualRelationships: relationshipFactualEdgeCandidatesFromToolLoop({
+              messages: loopResult.messages,
+              toolStatuses: loopResult.toolStatuses,
+            }),
+            maxPredictiveEdges: relationshipOpportunitySet.ordered_opportunities.length,
+            predictiveOpportunities: relationshipOpportunitySet.ordered_opportunities,
+          }) as unknown as z.ZodType<TOutput>;
 
           // Phase 2: structured extraction.
           onLog(
@@ -886,6 +885,7 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
   };
   const comparisonAuditHash = directionComparisonAuditHash(comparisonAudit);
   const comparisonAuditId = `sector-direction-comparison:${comparisonAuditHash.slice("sha256:".length)}`;
+  const finalRuntimeEvidence = withRuntimeCitationIds(runtimeEvidence, [comparisonAuditId]);
   const conflictReviewAuditRef =
     conflictReviewId && conflictReviewAudit
       ? { id: conflictReviewId, hash: canonicalHash(conflictReviewAudit) }
@@ -932,7 +932,7 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
               ? { acceptedOutputStore: input.deps.acceptedOutputStore }
               : {}),
           }),
-          runtimeEvidence.visibleCatalog,
+          finalRuntimeEvidence.visibleCatalog,
         ].join("\n\n"),
       ),
     ],
@@ -940,6 +940,8 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
     stage: "final_selection",
     runId: input.state.trace_id || input.state.as_of_date || "current_run",
     evidenceSnapshot: {
+      evidenceLedger: finalRuntimeEvidence.evidenceLedger,
+      allowedResearchRuleIds: finalRuntimeEvidence.allowedResearchRuleIds,
       snapshot_hash: runtimeEvidence.snapshotHash,
       directive: modelVisibleDirective(directive),
       final_grounding_hash: canonicalHash(finalGrounding),
@@ -952,7 +954,7 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
         schema: finalSelectionSchema,
         agent: input.spec.agentId,
         stage: "agent_run",
-        runtimeEvidence,
+        runtimeEvidence: finalRuntimeEvidence,
         allowRiskFlagOnly: false,
         validateRoleContract: (candidate) =>
           validateFinalSelectionAgainstDirective(candidate, directive).map(

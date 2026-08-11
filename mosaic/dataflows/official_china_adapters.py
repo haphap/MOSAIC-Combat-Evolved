@@ -10,9 +10,11 @@ from __future__ import annotations
 import base64
 import calendar
 import hashlib
+import json
+import math
 import os
 import re
-from datetime import datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from html import unescape
 from html.parser import HTMLParser
 from typing import Any, Callable, Final
@@ -235,7 +237,10 @@ OFFICIAL_CHINA_CATALOG_SPECS: Final[dict[str, dict[str, str]]] = {
     },
     "customs_monthly_trade": {
         "catalog_url": "https://english.www.gov.cn/archive/statistics/",
-        "title_pattern": r"China(?:'s)? foreign trade (?:expands|maintains|posts|records)",
+        "title_pattern": (
+            r"China(?:'s)?(?:\s+\S+){0,4}\s+foreign trade\s+"
+            r"(?:expands|maintains|posts|records)"
+        ),
     },
     "mof_fiscal_release": {
         "catalog_url": "https://www.mof.gov.cn/zhengwuxinxi/redianzhuanti/quanguocaizhengshouzhiqingkuang/",
@@ -252,10 +257,27 @@ _NBS_PAGE_COUNT_RE = re.compile(
     r"createPageHTML\(\s*(?P<count>\d+)\s*,\s*\d+\s*,\s*['\"]index['\"]",
     re.IGNORECASE,
 )
+_GOV_CN_STATS_PAGE_RE = re.compile(r"/archive/statistics/page_(?P<page>\d+)\.html")
 _TAG_RE = re.compile(r"<[^>]+>")
 _HTTP_TIMEOUT_SECONDS = 20
 _USER_AGENT = "MOSAIC-Agent-Data/official-china-forward-archive"
 FetchText = Callable[[str], str]
+PostJson = Callable[..., Any]
+MOF_CHINABOND_YIELD_CURVE_URL: Final = (
+    "https://yield.chinabond.com.cn/cbweb-czb-web/czb/historyQuery"
+)
+MOF_CHINABOND_CURVE_SCHEMA_VERSION: Final = (
+    "mof_chinabond_government_yield_curve_v1"
+)
+MOF_CHINABOND_REQUIRED_TENORS: Final[dict[int, str]] = {
+    1: "oneYear",
+    2: "twoYear",
+    3: "threeYear",
+    5: "fiveYear",
+    7: "sevenYear",
+    10: "tenYear",
+    30: "thirtyYear",
+}
 _PBOC_TRANSACTION_CATEGORY = next(
     category
     for category in PBOC_OMO_CATEGORIES
@@ -928,6 +950,172 @@ def _fetch_text(url: str) -> str:
     return response.text
 
 
+def _post_json(url: str, *, params: dict[str, str]) -> Any:
+    try:
+        response = requests.post(
+            url,
+            params=params,
+            headers={"User-Agent": _USER_AGENT},
+            timeout=_HTTP_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        return response.json()
+    except (requests.RequestException, ValueError) as exc:
+        raise DataVendorUnavailable(
+            "MOF/ChinaBond government yield curve transport failed"
+        ) from exc
+
+
+def _mof_curve_request_windows(start: date, end: date) -> list[tuple[date, date]]:
+    if end < start:
+        raise ValueError("ChinaBond curve end_date precedes start_date")
+    windows: list[tuple[date, date]] = []
+    cursor = start
+    while cursor <= end:
+        window_end = min(cursor + timedelta(days=364), end)
+        windows.append((cursor, window_end))
+        cursor = window_end + timedelta(days=1)
+    return windows
+
+
+def _mof_curve_date(value: Any) -> date:
+    text = str(value or "").strip().replace("/", "-")[:10]
+    try:
+        return date.fromisoformat(text)
+    except ValueError as exc:
+        raise DataVendorUnavailable(
+            "MOF/ChinaBond curve has an invalid workTime"
+        ) from exc
+
+
+def _mof_curve_yield(value: Any, field: str) -> float:
+    if isinstance(value, bool):
+        raise DataVendorUnavailable(
+            f"MOF/ChinaBond curve has invalid {field} yield"
+        )
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as exc:
+        raise DataVendorUnavailable(
+            f"MOF/ChinaBond curve has invalid {field} yield"
+        ) from exc
+    if not math.isfinite(parsed):
+        raise DataVendorUnavailable(
+            f"MOF/ChinaBond curve has invalid {field} yield"
+        )
+    return parsed
+
+
+def fetch_mof_chinabond_government_yield_curve(
+    *,
+    start_date: str,
+    end_date: str,
+    post_json: PostJson = _post_json,
+) -> dict[str, Any]:
+    """Fetch the official government maturity curve in bounded date windows."""
+    try:
+        start = date.fromisoformat(start_date)
+        end = date.fromisoformat(end_date)
+    except ValueError as exc:
+        raise ValueError("ChinaBond curve dates must be ISO calendar dates") from exc
+    rows: list[dict[str, Any]] = []
+    seen_dates: set[date] = set()
+    request_windows: list[dict[str, str]] = []
+    response_hashes: list[str] = []
+    for window_start, window_end in _mof_curve_request_windows(start, end):
+        params = {
+            "startDate": window_start.isoformat(),
+            "endDate": window_end.isoformat(),
+            "gjqx": "0",
+            "locale": "cn_ZH",
+            "qxmc": "1",
+        }
+        payload = post_json(MOF_CHINABOND_YIELD_CURVE_URL, params=params)
+        if not isinstance(payload, dict) or str(payload.get("flag")) != "0":
+            raise DataVendorUnavailable(
+                "MOF/ChinaBond curve returned an unsuccessful response"
+            )
+        source_rows = payload.get("heList")
+        if not isinstance(source_rows, list):
+            raise DataVendorUnavailable(
+                "MOF/ChinaBond curve response lacks heList"
+            )
+        request_windows.append(
+            {
+                "start_date": window_start.isoformat(),
+                "end_date": window_end.isoformat(),
+            }
+        )
+        response_hashes.append(
+            "sha256:"
+            + hashlib.sha256(
+                json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+        )
+        for source_row in source_rows:
+            if not isinstance(source_row, dict):
+                raise DataVendorUnavailable(
+                    "MOF/ChinaBond curve contains a non-object row"
+                )
+            work_date = _mof_curve_date(source_row.get("workTime"))
+            if work_date < window_start or work_date > window_end:
+                raise DataVendorUnavailable(
+                    "MOF/ChinaBond curve row is outside the requested window"
+                )
+            if work_date in seen_dates:
+                raise DataVendorUnavailable(
+                    "MOF/ChinaBond curve contains a duplicate work date"
+                )
+            missing = [
+                field
+                for field in MOF_CHINABOND_REQUIRED_TENORS.values()
+                if source_row.get(field) in (None, "")
+            ]
+            if missing:
+                raise DataVendorUnavailable(
+                    "MOF/ChinaBond curve lacks the seven required tenors"
+                )
+            seen_dates.add(work_date)
+            released_at = datetime.combine(
+                work_date,
+                time(17, 30),
+                tzinfo=_SHANGHAI,
+            ).isoformat()
+            rows.extend(
+                {
+                    "trade_date": work_date.isoformat(),
+                    "released_at": released_at,
+                    "curve_type": "0",
+                    "curve_term": tenor,
+                    "yield": _mof_curve_yield(source_row[field], field),
+                }
+                for tenor, field in MOF_CHINABOND_REQUIRED_TENORS.items()
+            )
+    if not rows:
+        raise DataVendorUnavailable(
+            "MOF/ChinaBond curve returned no workday rows in the requested window"
+        )
+    return {
+        "schema_version": MOF_CHINABOND_CURVE_SCHEMA_VERSION,
+        "provider": "MOF_CHINABOND",
+        "source_url": MOF_CHINABOND_YIELD_CURVE_URL,
+        "yield_type": "MATURITY",
+        "release_time": "17:30:00+08:00",
+        "request_windows": request_windows,
+        "response_hashes": response_hashes,
+        "rows": sorted(
+            rows,
+            key=lambda row: (row["trade_date"], row["curve_term"]),
+        ),
+    }
+
+
 def _catalog_candidates(
     html: str,
     *,
@@ -977,15 +1165,18 @@ def fetch_latest_official_china_document(
     document_type: str,
     cutoff_at: str,
     retrieved_at: str | None = None,
+    historical_replay: bool = False,
     fetch_text: FetchText = _fetch_text,
 ) -> dict[str, Any]:
     """Fetch the newest allowlisted release that was available by ``cutoff_at``."""
     if document_type not in OFFICIAL_CHINA_CATALOG_SPECS:
         raise ValueError(f"unknown official China document_type: {document_type!r}")
+    if not isinstance(historical_replay, bool):
+        raise ValueError("historical_replay must be a boolean")
     cutoff = _parse_timestamp(cutoff_at, "cutoff_at")
     retrieved_text = retrieved_at or datetime.now(timezone.utc).isoformat()
     retrieved = _parse_timestamp(retrieved_text, "retrieved_at")
-    if retrieved > cutoff:
+    if retrieved > cutoff and not historical_replay:
         raise DataVendorUnavailable(
             "official China retrieval time exceeds the requested cutoff"
         )
@@ -1019,6 +1210,22 @@ def fetch_latest_official_china_document(
             urljoin(catalog_url, f"index_{page}.html")
             for page in range(1, int(page_count.group("count")))
         )
+    elif (
+        parsed_catalog.hostname == "english.www.gov.cn"
+        and parsed_catalog.path.rstrip("/") == "/archive/statistics"
+    ):
+        page_numbers = []
+        for match in _CATALOG_LINK_RE.finditer(first_page):
+            page_url = urljoin(catalog_url, unescape(match.group("href")))
+            parsed_page = urlparse(page_url)
+            page_match = _GOV_CN_STATS_PAGE_RE.fullmatch(parsed_page.path)
+            if parsed_page.hostname == parsed_catalog.hostname and page_match:
+                page_numbers.append(int(page_match.group("page")))
+        if page_numbers:
+            page_urls.extend(
+                urljoin(catalog_url, f"page_{page}.html")
+                for page in range(2, max(page_numbers) + 1)
+            )
     for page_index, page_url in enumerate(page_urls):
         page_html = first_page if page_index == 0 else fetch_text(page_url)
         candidates = _catalog_candidates(
@@ -1049,10 +1256,13 @@ def fetch_official_china_release_set(
     *,
     cutoff_at: str,
     retrieved_at: str | None = None,
+    historical_replay: bool = False,
     document_types: tuple[str, ...] | None = None,
     fetch_text: FetchText = _fetch_text,
 ) -> list[dict[str, Any]]:
     """Fetch one latest eligible release for every requested document contract."""
+    if not isinstance(historical_replay, bool):
+        raise ValueError("historical_replay must be a boolean")
     selected = document_types or tuple(sorted(OFFICIAL_CHINA_CATALOG_SPECS))
     if len(selected) != len(set(selected)):
         raise ValueError("official China document_types must be unique")
@@ -1068,6 +1278,7 @@ def fetch_official_china_release_set(
             document_type=document_type,
             cutoff_at=cutoff_at,
             retrieved_at=retrieved_at,
+            historical_replay=historical_replay,
             fetch_text=cached_fetch,
         )
         for document_type in selected
@@ -1076,9 +1287,13 @@ def fetch_official_china_release_set(
 
 __all__ = [
     "ADAPTER_VERSION",
+    "MOF_CHINABOND_CURVE_SCHEMA_VERSION",
+    "MOF_CHINABOND_REQUIRED_TENORS",
+    "MOF_CHINABOND_YIELD_CURVE_URL",
     "OFFICIAL_CHINA_CATALOG_SPECS",
     "OFFICIAL_CHINA_DOCUMENT_SPECS",
     "fetch_latest_official_china_document",
+    "fetch_mof_chinabond_government_yield_curve",
     "fetch_official_china_release_set",
     "parse_official_china_document",
 ]

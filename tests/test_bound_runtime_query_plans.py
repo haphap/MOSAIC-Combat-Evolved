@@ -85,6 +85,7 @@ def test_l3_plan_derives_exact_candidate_scope_and_finite_legacy_queries() -> No
                 "candidate_ref": "candidate:2",
                 "ts_code": "000858.SZ",
                 "source_sector_agent_id": "consumer",
+                "source_direction_id": "baijiu",
             },
             {
                 "candidate_ref": "candidate:1",
@@ -133,6 +134,13 @@ def test_l3_plan_derives_exact_candidate_scope_and_finite_legacy_queries() -> No
     assert {row["tool_id"] for row in plan["query_requests"]} == set(
         L3_TOOL_ROSTER["ackman"]
     )
+    rke_request = next(
+        row
+        for row in plan["query_requests"]
+        if row["tool_id"] == "get_rke_research_context"
+        and row["args"]["ticker"] == "000858.SZ"
+    )
+    assert rke_request["args"]["sector"] == "baijiu"
     assert not {
         (row["tool_id"], canonical_hash(row["args"]))
         for row in plan["initial_query_requests"]
@@ -223,6 +231,41 @@ def test_bound_plan_rejects_snapshot_hash_and_tool_surface_drift() -> None:
             as_of="2026-08-06",
             initial_payloads={"get_superinvestor_candidate_snapshot": _payload(snapshot)},
             allowed_tools=L3_TOOL_ROSTER["ackman"],
+        )
+
+    druckenmiller = _snapshot(
+        agent_id="druckenmiller",
+        stage="druckenmiller",
+        candidates=[],
+    )
+    runtime_order = (
+        "get_fundamentals",
+        "get_indicators",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_stock_research",
+        "get_yield_curve_cn",
+    )
+    plan = build_bound_runtime_query_plan(
+        agent_id="druckenmiller",
+        stage="druckenmiller",
+        as_of="2026-08-06",
+        initial_payloads={
+            "get_superinvestor_candidate_snapshot": _payload(druckenmiller)
+        },
+        allowed_tools=runtime_order,
+    )
+    assert plan["preservation_stage"] == "druckenmiller"
+    with pytest.raises(ValueError, match="allowed tools"):
+        build_bound_runtime_query_plan(
+            agent_id="druckenmiller",
+            stage="druckenmiller",
+            as_of="2026-08-06",
+            initial_payloads={
+                "get_superinvestor_candidate_snapshot": _payload(druckenmiller)
+            },
+            allowed_tools=runtime_order[:-1],
         )
 
     valid = _snapshot(

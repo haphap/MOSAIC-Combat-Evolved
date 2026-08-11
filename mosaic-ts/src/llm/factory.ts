@@ -194,14 +194,20 @@ function createOpenAiCompatible(
     const names = API_KEY_ENV[provider]?.join(" or ");
     throw new Error(`Missing API key for provider '${provider}'. Set ${names} in the environment.`);
   }
+  const userAgent = provider === "api" ? resolveApiUserAgent() : MOSAIC_USER_AGENT;
+  const thinkingMode = provider === "api" ? resolveApiThinkingMode() : undefined;
+  const modelKwargs =
+    provider === "vllm"
+      ? { chat_template_kwargs: { enable_thinking: false } }
+      : thinkingMode
+        ? { thinking: { type: thinkingMode } }
+        : undefined;
 
   const llm = new ChatOpenAI({
     model,
     ...(!options.useProviderSamplingDefaults ? { temperature: options.temperature ?? 0.2 } : {}),
     ...(options.maxTokens ? { maxTokens: options.maxTokens } : {}),
-    ...(provider === "vllm"
-      ? { modelKwargs: { chat_template_kwargs: { enable_thinking: false } } }
-      : {}),
+    ...(modelKwargs ? { modelKwargs } : {}),
     // Some OpenAI-compatible servers (Lemonade, Ollama, vLLM) reject empty
     // Authorization headers, so pass a placeholder when no key is configured.
     ...(apiKey ? { apiKey } : { apiKey: "not-needed" }),
@@ -209,7 +215,12 @@ function createOpenAiCompatible(
       ? {
           configuration: {
             baseURL: baseUrl,
-            ...(provider === "api" ? { fetch: mosaicApiFetch } : {}),
+            ...(provider === "api"
+              ? {
+                  fetch: (input: string | URL | Request, init?: RequestInit) =>
+                    mosaicApiFetch(input, init, userAgent),
+                }
+              : {}),
           },
         }
       : {}),
@@ -257,10 +268,28 @@ function normalizeOpenAiCompatibleBaseUrl(value: string): string {
   return url.toString().replace(/\/$/, "");
 }
 
-function mosaicApiFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+function mosaicApiFetch(
+  input: string | URL | Request,
+  init: RequestInit | undefined,
+  userAgent: string,
+): Promise<Response> {
   const headers = new Headers(init?.headers);
-  headers.set("User-Agent", MOSAIC_USER_AGENT);
+  headers.set("User-Agent", userAgent);
   return fetch(input, { ...init, headers });
+}
+
+function resolveApiUserAgent(): string {
+  const userAgent = envValue("MOSAIC_LLM_USER_AGENT") ?? MOSAIC_USER_AGENT;
+  if (/\r|\n/.test(userAgent)) {
+    throw new Error("MOSAIC_LLM_USER_AGENT must not contain CR or LF");
+  }
+  return userAgent;
+}
+
+function resolveApiThinkingMode(): "enabled" | "disabled" | undefined {
+  const value = envValue("MOSAIC_LLM_THINKING_MODE");
+  if (value === undefined || value === "enabled" || value === "disabled") return value;
+  throw new Error("MOSAIC_LLM_THINKING_MODE must be 'enabled' or 'disabled'");
 }
 
 function envValue(name: string): string | undefined {

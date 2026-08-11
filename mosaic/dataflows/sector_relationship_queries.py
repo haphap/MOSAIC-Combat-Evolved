@@ -30,6 +30,21 @@ _DIGEST_TOOLS = {
     "get_industry_policy_digest",
     "get_stock_research",
 }
+DIRECT_VENDOR_TOOL_IDS = frozenset(
+    {
+        "get_balance_sheet",
+        "get_broker_research",
+        "get_cashflow",
+        "get_etf_holdings",
+        "get_fundamentals",
+        "get_income_statement",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_stock_data",
+        "get_stock_research",
+        "get_yield_curve_cn",
+    }
+)
 _ROUTE_BY_TOOL = {
     "get_rke_research_context": "private.rke_report_intelligence",
     "get_industry_policy_digest": "official.govcn_policy",
@@ -38,7 +53,7 @@ _ROUTE_BY_TOOL = {
     "get_stock_data": "tushare.sector_market",
     "get_indicators": "tushare.sector_market",
     "get_industry_moneyflow": "tushare.institutional_flow",
-    "get_yield_curve_cn": "tushare.shibor_yield_curve",
+    "get_yield_curve_cn": "composite.cn_rates",
     "get_fundamentals": "tushare.sector_fundamentals",
     "get_income_statement": "tushare.sector_fundamentals",
     "get_balance_sheet": "tushare.sector_fundamentals",
@@ -55,7 +70,7 @@ _PIT_MODE_BY_ROUTE = {
     "tushare.institutional_flow": "OBSERVED_LIVE",
     "tushare.sector_fundamentals": "OBSERVED_LIVE",
     "tushare.sector_market": "OBSERVED_LIVE",
-    "tushare.shibor_yield_curve": "OBSERVED_LIVE",
+    "composite.cn_rates": "OBSERVED_LIVE",
 }
 
 
@@ -231,6 +246,15 @@ class SectorRelationshipQueryMaterializer:
             )
             if set(result) != {"payload", "source_receipt_hashes"}:
                 raise ValueError("supply-chain archive returned an invalid materialization")
+            receipt_hashes = result["source_receipt_hashes"]
+            if (
+                not isinstance(receipt_hashes, Sequence)
+                or isinstance(receipt_hashes, (str, bytes))
+                or not receipt_hashes
+            ):
+                raise ValueError(
+                    "supply-chain materialization requires source receipt hashes"
+                )
             return dict(result)
 
         if tool_id in _DIGEST_TOOLS and self.digest_builder is None:
@@ -251,7 +275,10 @@ class SectorRelationshipQueryMaterializer:
             else:
                 raw_payload = _required_payload(rendered, "RKE payload")
         else:
-            if self.source_preparer is not None:
+            if (
+                tool_id == "get_industry_policy_digest"
+                and self.source_preparer is not None
+            ):
                 self.source_preparer(tool_id, dict(args))
             method, route_args = _legacy_call(tool_id, args)
             raw_payload = _required_payload(self.route_caller(method, *route_args))
@@ -281,7 +308,7 @@ class SectorRelationshipQueryMaterializer:
             source_receipts, (str, bytes)
         ):
             raise ValueError("receipt authority must return a receipt array")
-        if not source_receipts:
+        if not source_receipts and tool_id not in DIRECT_VENDOR_TOOL_IDS:
             raise ValueError("materialized query requires at least one eligible source receipt")
         receipt_hashes = sorted(
             {
@@ -327,4 +354,4 @@ class SectorRelationshipQueryMaterializer:
         return result
 
 
-__all__ = ["SectorRelationshipQueryMaterializer"]
+__all__ = ["DIRECT_VENDOR_TOOL_IDS", "SectorRelationshipQueryMaterializer"]

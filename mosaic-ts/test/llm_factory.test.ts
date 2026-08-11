@@ -11,6 +11,8 @@ const ENV_KEYS = [
   "MOSAIC_LLM_MAX_TOKENS",
   "MOSAIC_LLM_MODEL",
   "MOSAIC_LLM_PROVIDER",
+  "MOSAIC_LLM_THINKING_MODE",
+  "MOSAIC_LLM_USER_AGENT",
   "MOSAIC_RKE_VLLM_BASE_URL",
   "MOSAIC_VLLM_API_KEY",
   "OPENAI_API_KEY",
@@ -122,6 +124,8 @@ describe("createLlmFromConfig", () => {
 
     try {
       process.env.MOSAIC_LLM_API_KEY = "test-api-key";
+      process.env.MOSAIC_LLM_THINKING_MODE = "disabled";
+      process.env.MOSAIC_LLM_USER_AGENT = "mosaic-agent-loop-test/9.9";
       const handle = createLlmFromConfig(config(), {
         provider: "api",
         model: "remote-model",
@@ -138,9 +142,10 @@ describe("createLlmFromConfig", () => {
         body: {
           model: "remote-model",
           max_tokens: 65_536,
+          thinking: { type: "disabled" },
         },
       });
-      expect(request?.userAgent).toContain("mosaic-ts/0.1.0");
+      expect(request?.userAgent).toBe("mosaic-agent-loop-test/9.9");
     } finally {
       server.close();
       await once(server, "close");
@@ -219,6 +224,32 @@ describe("createLlmFromConfig", () => {
     expect(() => createLlmFromConfig(config())).toThrow(
       "MOSAIC_LLM_MAX_TOKENS must be a positive integer",
     );
+  });
+
+  it("rejects CR/LF in the custom API user agent", () => {
+    process.env.MOSAIC_LLM_API_KEY = "test-api-key";
+    process.env.MOSAIC_LLM_USER_AGENT = "mosaic-test\r\ninjected: value";
+
+    expect(() =>
+      createLlmFromConfig(config(), {
+        provider: "api",
+        model: "remote-model",
+        baseUrl: "https://gateway.example/v1",
+      }),
+    ).toThrow("MOSAIC_LLM_USER_AGENT must not contain CR or LF");
+  });
+
+  it("rejects an invalid API thinking mode", () => {
+    process.env.MOSAIC_LLM_API_KEY = "test-api-key";
+    process.env.MOSAIC_LLM_THINKING_MODE = "sometimes";
+
+    expect(() =>
+      createLlmFromConfig(config(), {
+        provider: "api",
+        model: "remote-model",
+        baseUrl: "https://gateway.example/v1",
+      }),
+    ).toThrow("MOSAIC_LLM_THINKING_MODE must be 'enabled' or 'disabled'");
   });
 
   it("disables Qwen thinking output for vLLM requests", () => {

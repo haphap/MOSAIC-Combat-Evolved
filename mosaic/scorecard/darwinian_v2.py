@@ -1806,6 +1806,70 @@ def _accepted_cycle_outputs(
     return sorted(rows, key=lambda row: (row[0], row[2], row[1]))
 
 
+def accepted_cycle_stage_outcome_refs(
+    state: Mapping[str, Any],
+) -> list[dict[str, str]]:
+    """Project the existing 29-stage accepted/skip authority into hash refs."""
+    audits = state.get("agent_run_audits")
+    stage_skips = state.get("outcome_stage_skips")
+    validate_runtime_stage_completion(audits, stage_skips)
+    assert isinstance(audits, list)
+    assert isinstance(stage_skips, Mapping)
+    outputs = _accepted_cycle_outputs(
+        state,
+        skipped_agents=set(stage_skips),
+    )
+    audit_by_key = {
+        (str(audit["agent"]), str(audit["stage"])): audit
+        for audit in audits
+        if isinstance(audit, Mapping)
+    }
+    result: list[dict[str, str]] = []
+    for agent_id, _accepted_kind, stage, record in outputs:
+        record_hash = record.get("accepted_output_hash")
+        if record_hash != canonical_hash(
+            {key: value for key, value in record.items() if key != "accepted_output_hash"}
+        ):
+            raise ValueError(f"accepted output hash mismatch for {agent_id}:{stage}")
+        audit = audit_by_key.get((agent_id, stage))
+        adapter_lineage = record.get("adapter_lineage")
+        if (
+            audit is None
+            or not isinstance(adapter_lineage, Mapping)
+            or adapter_lineage.get("source_agent_output_hash")
+            != audit.get("output_hash")
+        ):
+            raise ValueError(f"accepted output/audit lineage mismatch for {agent_id}:{stage}")
+        result.append(
+            {
+                "agent_id": agent_id,
+                "stage": stage,
+                "outcome_kind": "ACCEPTED_OUTPUT",
+                "ref_hash": str(record_hash),
+            }
+        )
+    for agent_id, skip in stage_skips.items():
+        if not isinstance(agent_id, str) or not isinstance(skip, Mapping):
+            raise ValueError("cycle stage skip must be an Agent-owned object")
+        skip_hash = skip.get("stage_skip_hash")
+        if skip_hash != canonical_hash(
+            {key: value for key, value in skip.items() if key != "stage_skip_hash"}
+        ):
+            raise ValueError(f"cycle stage skip hash mismatch for {agent_id}")
+        result.append(
+            {
+                "agent_id": agent_id,
+                "stage": _audit_stage(agent_id),
+                "outcome_kind": "STAGE_SKIP",
+                "ref_hash": str(skip_hash),
+            }
+        )
+    result.sort(key=lambda row: (row["agent_id"], row["stage"]))
+    if len(result) != 29:
+        raise ValueError("cycle stage outcome projection must contain exactly 29 refs")
+    return result
+
+
 def _accepted_output_stage(agent_id: str, accepted_kind: str) -> str:
     if accepted_kind == "CIO_PROPOSAL":
         return "cio_proposal"
@@ -2184,6 +2248,7 @@ def _is_sha256(value: object) -> bool:
 
 
 __all__ = [
+    "accepted_cycle_stage_outcome_refs",
     "canonical_hash",
     "canonical_json",
     "deterministic_id",

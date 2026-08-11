@@ -1,9 +1,4 @@
-"""Trusted China, commodity, and institutional source archives.
-
-The module materializes four independent append-only route groups.  A known
-permission blocker on the China government curve therefore cannot invalidate
-otherwise complete China, commodity, or institutional captures.
-"""
+"""Trusted China, commodity, institutional, and reference-rate archives."""
 
 from __future__ import annotations
 
@@ -50,7 +45,9 @@ from .macro_source_contracts import (
 from .official_china_adapters import (
     OFFICIAL_CHINA_DOCUMENT_SPECS,
     fetch_official_china_release_set,
+    fetch_mof_chinabond_government_yield_curve,
 )
+from .runtime_paths import agent_cache_root, isolated_agent_runtime_path
 from .sector_archive import _paginate_incremental as _paginate_tushare_incremental
 from .tushare import _query_pro
 from .tushare_catalog import assert_endpoint_capture_preflight_allowed
@@ -58,17 +55,21 @@ from .tushare_catalog import assert_endpoint_capture_preflight_allowed
 
 CAPTURE_SCHEMA_VERSION = "china_agent_data_capture_group_v2"
 COMPILER_VERSION = "china_agent_data_compiler_v2"
+HISTORICAL_REPLAY_TIME_POLICY_VERSION = "china_historical_replay_time_v1"
 ARCHIVE_LOCK_TIMEOUT_SECONDS = 60 * 60
 CHINA_ROUTE_GROUP = "official.cn_macro+tushare.cn_macro"
 COMMODITY_ROUTE_GROUP = "tushare.commodities"
 INSTITUTIONAL_ROUTE_GROUP = "tushare.institutional_flow"
-CURVE_ROUTE_GROUP = "tushare.shibor_yield_curve"
+CURVE_ROUTE_GROUP = "composite.cn_rates"
 ROUTE_GROUPS: dict[str, tuple[str, ...]] = {
     CHINA_ROUTE_GROUP: ("official.cn_macro", "tushare.cn_macro"),
     COMMODITY_ROUTE_GROUP: ("tushare.commodities",),
     INSTITUTIONAL_ROUTE_GROUP: ("tushare.institutional_flow",),
-    CURVE_ROUTE_GROUP: ("tushare.shibor_yield_curve",),
+    CURVE_ROUTE_GROUP: ("composite.cn_rates",),
 }
+LOGICAL_ROUTES = tuple(
+    sorted(route_id for route_ids in ROUTE_GROUPS.values() for route_id in route_ids)
+)
 INSTITUTIONAL_ETF_UNIVERSE = (
     "159915.SZ",
     "510050.SH",
@@ -162,19 +163,23 @@ class ChinaAgentBuildResult:
 
 
 def china_agent_archive_path() -> Path:
+    isolated = isolated_agent_runtime_path("agent_data/china_agent_data.sqlite3")
+    if isolated is not None:
+        return isolated
     explicit = os.getenv("MOSAIC_CHINA_AGENT_ARCHIVE_DB")
     if explicit:
         return Path(explicit).expanduser()
-    cache_root = Path(os.getenv("MOSAIC_CACHE_DIR", "~/.mosaic/cache")).expanduser()
-    return cache_root / "agent_data" / "china_agent_data.sqlite3"
+    return agent_cache_root() / "agent_data" / "china_agent_data.sqlite3"
 
 
 def china_agent_snapshot_root() -> Path:
+    isolated = isolated_agent_runtime_path("agent_data/china_agent_snapshots")
+    if isolated is not None:
+        return isolated
     explicit = os.getenv("MOSAIC_CHINA_AGENT_SNAPSHOT_DIR")
     if explicit:
         return Path(explicit).expanduser()
-    cache_root = Path(os.getenv("MOSAIC_CACHE_DIR", "~/.mosaic/cache")).expanduser()
-    return cache_root / "agent_data" / "china_agent_snapshots"
+    return agent_cache_root() / "agent_data" / "china_agent_snapshots"
 
 
 def _capture_now() -> datetime:
@@ -256,10 +261,13 @@ def _private_tushare_fetch(*, endpoint: str, **params: str) -> Any:
     return value
 
 
-def _private_official_fetch(*, cutoff_at: str) -> list[dict[str, Any]]:
+def _private_official_fetch(
+    *, cutoff_at: str, historical_replay: bool = False
+) -> list[dict[str, Any]]:
     return fetch_official_china_release_set(
         cutoff_at=cutoff_at,
         retrieved_at=_capture_now().isoformat(),
+        historical_replay=historical_replay,
         document_types=tuple(sorted(_REQUIRED_OFFICIAL_DOCUMENTS)),
     )
 
@@ -269,6 +277,65 @@ def _seal_group(payload: Mapping[str, Any]) -> dict[str, Any]:
     body.pop("group_hash", None)
     body["group_hash"] = canonical_hash(body)
     return body
+
+
+def _capture_time_fields(
+    *,
+    completed: datetime,
+    as_of_date: str,
+    cutoff_at: str,
+    historical_replay: bool,
+    label: str,
+) -> dict[str, Any]:
+    if completed.tzinfo is None:
+        raise ChinaAgentDataSchemaError("trusted capture clock must include timezone")
+    if historical_replay:
+        if date.fromisoformat(as_of_date) >= completed.astimezone(_SHANGHAI).date():
+            raise ChinaAgentDataSchemaError(
+                f"{label} historical replay date is not complete"
+            )
+        completed_at = completed.isoformat()
+        return {
+            "cutoff_at": completed_at,
+            "captured_at": completed_at,
+            "historical_replay": True,
+            "historical_replay_time_policy_version": (
+                HISTORICAL_REPLAY_TIME_POLICY_VERSION
+            ),
+        }
+    if completed > _timestamp(cutoff_at, "cutoff_at"):
+        raise ChinaAgentDataSchemaError(f"{label} capture exceeded PIT cutoff")
+    return {"cutoff_at": cutoff_at, "captured_at": completed.isoformat()}
+
+
+def _validate_replay_group(
+    group: Mapping[str, Any], *, historical_replay: bool
+) -> None:
+    if historical_replay:
+        if (
+            group.get("historical_replay") is not True
+            or group.get("historical_replay_time_policy_version")
+            != HISTORICAL_REPLAY_TIME_POLICY_VERSION
+            or group.get("cutoff_at") != group.get("captured_at")
+        ):
+            raise ChinaAgentDataSchemaError(
+                "China historical replay authority is invalid"
+            )
+        captured = _timestamp(group.get("captured_at"), "captured_at")
+        if date.fromisoformat(str(group["as_of_date"])) >= captured.astimezone(
+            _SHANGHAI
+        ).date():
+            raise ChinaAgentDataSchemaError(
+                "China historical replay capture must follow the as-of date"
+            )
+        return
+    if (
+        "historical_replay" in group
+        or "historical_replay_time_policy_version" in group
+    ):
+        raise ChinaAgentDataSchemaError(
+            "live China capture cannot use historical replay authority"
+        )
 
 
 class ChinaAgentDataArchiveStore:
@@ -399,17 +466,21 @@ class ChinaAgentDataArchiveStore:
         if route_group not in ROUTE_GROUPS:
             raise ValueError(f"unknown China agent route group: {route_group}")
         with self._connect(read_only=True) as conn:
-            row = conn.execute(
+            rows = conn.execute(
                 "SELECT * FROM china_agent_capture_groups "
                 "WHERE as_of_date = ? AND route_group = ? "
-                "ORDER BY captured_at DESC LIMIT 1",
+                "ORDER BY captured_at DESC",
                 (as_of_date, route_group),
-            ).fetchone()
-            if row is None:
-                raise FileNotFoundError(
-                    f"no China agent capture group for {route_group} at {as_of_date}"
-                )
-            return self._decode(row)
+            ).fetchall()
+            for row in rows:
+                group = self._decode(row)
+                if tuple(sorted(group.get("route_ids", ()))) == tuple(
+                    sorted(ROUTE_GROUPS[route_group])
+                ):
+                    return group
+            raise FileNotFoundError(
+                f"no complete China agent capture group for {route_group} at {as_of_date}"
+            )
 
     def row_count(self) -> int:
         with self._connect(read_only=True) as conn:
@@ -441,7 +512,10 @@ def _period_bounds(value: Any) -> tuple[str, str]:
 
 
 def _validate_official_documents(
-    value: Any, *, cutoff: datetime
+    value: Any,
+    *,
+    cutoff: datetime,
+    historical_replay_captured_at: datetime | None = None,
 ) -> list[dict[str, Any]]:
     if not isinstance(value, list) or not value:
         raise ChinaAgentDataSchemaError("official China catalog returned no documents")
@@ -466,7 +540,18 @@ def _validate_official_documents(
             )
         published = _timestamp(row.get("published_at"), "official.published_at")
         retrieved = _timestamp(row.get("retrieved_at"), "official.retrieved_at")
-        if published > cutoff or retrieved > cutoff or published > retrieved:
+        if (
+            published > cutoff
+            or published > retrieved
+            or (
+                historical_replay_captured_at is None
+                and retrieved > cutoff
+            )
+            or (
+                historical_replay_captured_at is not None
+                and retrieved > historical_replay_captured_at
+            )
+        ):
             raise ChinaAgentDataSchemaError("official China document exceeds PIT cutoff")
         observations = row.get("observations")
         if not isinstance(observations, list):
@@ -528,37 +613,67 @@ def _build_china_group(
     capture_key: str,
     as_of_date: str,
     cutoff_at: str,
+    historical_replay: bool,
+    requested_route_ids: tuple[str, ...],
     fetch_official: Callable[..., list[dict[str, Any]]],
     fetch_tushare: Callable[..., Any],
 ) -> dict[str, Any]:
     cutoff = _timestamp(cutoff_at, "cutoff_at")
-    official = _validate_official_documents(
-        fetch_official(cutoff_at=cutoff_at), cutoff=cutoff
+    requested = frozenset(requested_route_ids)
+    official_rows = (
+        fetch_official(
+            cutoff_at=cutoff_at,
+            **({"historical_replay": True} if historical_replay else {}),
+        )
+        if "official.cn_macro" in requested
+        else []
     )
     captured = _capture_now()
-    if captured.tzinfo is None or captured > cutoff:
-        raise ChinaAgentDataSchemaError("China macro capture exceeded PIT cutoff")
-    observations = [
-        _latest_macro_observation(
-            endpoint,
-            fetch_tushare(endpoint=endpoint),
-            as_of=date.fromisoformat(as_of_date),
-            captured_at=captured.isoformat(),
+    _capture_time_fields(
+        completed=captured,
+        as_of_date=as_of_date,
+        cutoff_at=cutoff_at,
+        historical_replay=historical_replay,
+        label="China macro",
+    )
+    official = (
+        _validate_official_documents(
+            official_rows,
+            cutoff=cutoff,
+            historical_replay_captured_at=(captured if historical_replay else None),
         )
-        for endpoint in _TUSHARE_MACRO_FIELDS
-    ]
+        if "official.cn_macro" in requested
+        else []
+    )
+    observations = (
+        [
+            _latest_macro_observation(
+                endpoint,
+                fetch_tushare(endpoint=endpoint),
+                as_of=date.fromisoformat(as_of_date),
+                captured_at=captured.isoformat(),
+            )
+            for endpoint in _TUSHARE_MACRO_FIELDS
+        ]
+        if "tushare.cn_macro" in requested
+        else []
+    )
     completed = _capture_now()
-    if completed.tzinfo is None or completed > cutoff:
-        raise ChinaAgentDataSchemaError("China macro capture exceeded PIT cutoff")
+    timing = _capture_time_fields(
+        completed=completed,
+        as_of_date=as_of_date,
+        cutoff_at=cutoff_at,
+        historical_replay=historical_replay,
+        label="China macro",
+    )
     return _seal_group(
         {
             "schema_version": CAPTURE_SCHEMA_VERSION,
             "capture_key": capture_key,
             "route_group": CHINA_ROUTE_GROUP,
-            "route_ids": list(ROUTE_GROUPS[CHINA_ROUTE_GROUP]),
+            "route_ids": list(requested_route_ids),
             "as_of_date": as_of_date,
-            "cutoff_at": cutoff_at,
-            "captured_at": completed.isoformat(),
+            **timing,
             "official_documents": official,
             "tushare_observations": observations,
         }
@@ -715,25 +830,50 @@ def _build_commodity_group(
     capture_key: str,
     as_of_date: str,
     cutoff_at: str,
+    historical_replay: bool,
     market_session_date: str,
     fetch_tushare: Callable[..., Any],
 ) -> dict[str, Any]:
+    session = _date(market_session_date, "market_session_date")
+    session_param = session.strftime("%Y%m%d")
     metadata: list[dict[str, Any]] = []
     daily: list[dict[str, Any]] = []
     transport_call_count = 0
     for exchange in ("INE", "SHFE", "DCE"):
         basic_rows = fetch_tushare(endpoint="fut_basic", exchange=exchange, fut_type="1")
-        daily_rows = fetch_tushare(
-            endpoint="fut_daily", exchange=exchange, trade_date=market_session_date
-        )
-        transport_call_count += 2
-        if not isinstance(basic_rows, list) or not isinstance(daily_rows, list):
-            raise ChinaAgentDataSchemaError("commodity endpoint response must be rows")
+        transport_call_count += 1
+        if not isinstance(basic_rows, list):
+            raise ChinaAgentDataSchemaError("fut_basic response must be rows")
         if len(basic_rows) >= _TUSHARE_HARD_CAPS["fut_basic"]:
             raise ChinaAgentDataSchemaError(
                 "fut_basic reached its hard cap without terminal proof"
             )
         metadata.extend(_json_copy(basic_rows))
+    contract_codes: set[str] = set()
+    for row in metadata:
+        if _family_for_contract(row) is None:
+            continue
+        code = str(row.get("ts_code") or "")
+        if not code:
+            raise ChinaAgentDataSchemaError("fut_basic lacks contract identity")
+        listed = _date(row.get("list_date"), "fut_basic.list_date")
+        delisted = _date(row.get("delist_date"), "fut_basic.delist_date")
+        if listed <= session <= delisted:
+            if code in contract_codes:
+                raise ChinaAgentDataSchemaError("fut_basic contract identity drift")
+            contract_codes.add(code)
+    for code in sorted(contract_codes):
+        daily_rows = fetch_tushare(
+            endpoint="fut_daily",
+            ts_code=code,
+            start_date=session_param,
+            end_date=session_param,
+        )
+        transport_call_count += 1
+        if not isinstance(daily_rows, list):
+            raise ChinaAgentDataSchemaError("fut_daily response must be rows")
+        if any(str(row.get("ts_code") or "") != code for row in daily_rows):
+            raise ChinaAgentDataSchemaError("fut_daily returned an unrelated contract")
         daily.extend(_json_copy(daily_rows))
     try:
         inventory, inventory_call_count, inventory_duplicate_count = (
@@ -754,16 +894,20 @@ def _build_commodity_group(
     if not isinstance(inventory, list) or not inventory:
         raise ChinaAgentDataSchemaError("fut_wsr returned no inventory")
     completed = _capture_now()
-    cutoff = _timestamp(cutoff_at, "cutoff_at")
-    if completed.tzinfo is None or completed > cutoff:
-        raise ChinaAgentDataSchemaError("commodity capture exceeded PIT cutoff")
+    timing = _capture_time_fields(
+        completed=completed,
+        as_of_date=as_of_date,
+        cutoff_at=cutoff_at,
+        historical_replay=historical_replay,
+        label="commodity",
+    )
     condition_input = _normalise_commodity_input(
         as_of_date=as_of_date,
         market_session_date=market_session_date,
         metadata_rows=metadata,
         daily_rows=daily,
         inventory_rows=inventory,
-        captured_at=completed.isoformat(),
+        captured_at=cutoff_at if historical_replay else completed.isoformat(),
     )
     validate_commodity_conditions_input(condition_input, as_of_date=as_of_date)
     return _seal_group(
@@ -773,8 +917,7 @@ def _build_commodity_group(
             "route_group": COMMODITY_ROUTE_GROUP,
             "route_ids": list(ROUTE_GROUPS[COMMODITY_ROUTE_GROUP]),
             "as_of_date": as_of_date,
-            "cutoff_at": cutoff_at,
-            "captured_at": completed.isoformat(),
+            **timing,
             "market_session_date": _date(market_session_date, "market_session_date").isoformat(),
             "condition_input": condition_input,
             "raw_row_counts": {
@@ -793,6 +936,7 @@ def _build_institutional_group(
     capture_key: str,
     as_of_date: str,
     cutoff_at: str,
+    historical_replay: bool,
     market_session_date: str,
     fetch_tushare: Callable[..., Any],
 ) -> dict[str, Any]:
@@ -911,9 +1055,13 @@ def _build_institutional_group(
             "daily_basic has no complete crowding metric rows"
         )
     completed = _capture_now()
-    cutoff = _timestamp(cutoff_at, "cutoff_at")
-    if completed.tzinfo is None or completed > cutoff:
-        raise ChinaAgentDataSchemaError("institutional capture exceeded PIT cutoff")
+    timing = _capture_time_fields(
+        completed=completed,
+        as_of_date=as_of_date,
+        cutoff_at=cutoff_at,
+        historical_replay=historical_replay,
+        label="institutional",
+    )
     return _seal_group(
         {
             "schema_version": CAPTURE_SCHEMA_VERSION,
@@ -921,8 +1069,7 @@ def _build_institutional_group(
             "route_group": INSTITUTIONAL_ROUTE_GROUP,
             "route_ids": list(ROUTE_GROUPS[INSTITUTIONAL_ROUTE_GROUP]),
             "as_of_date": as_of_date,
-            "cutoff_at": cutoff_at,
-            "captured_at": completed.isoformat(),
+            **timing,
             "market_session_date": session.isoformat(),
             "northbound": {"north_money": north_money, "row_count": 1},
             "industry_rows": sorted(industry_rows, key=lambda row: row["industry"]),
@@ -948,67 +1095,112 @@ def _build_curve_group(
     capture_key: str,
     as_of_date: str,
     cutoff_at: str,
+    historical_replay: bool,
     market_session_date: str,
+    fetch_official_curve: Callable[..., dict[str, Any]],
     fetch_tushare: Callable[..., Any],
 ) -> dict[str, Any]:
     session = _date(market_session_date, "market_session_date")
-    session_param = session.strftime("%Y%m%d")
     curve_start = session - timedelta(days=365)
-    # Query the recorded permission blocker first so a disabled yc_cb endpoint
-    # cannot cause a partial Shibor transport on every retry.
-    curve = fetch_tushare(
-        endpoint="yc_cb",
-        start_date=curve_start.strftime("%Y%m%d"),
-        end_date=session_param,
-        curve_type="0",
+    curve_payload = fetch_official_curve(
+        start_date=curve_start.isoformat(),
+        end_date=session.isoformat(),
     )
-    shibor = fetch_tushare(
-        endpoint="shibor", start_date=session_param, end_date=session_param
-    )
-    if not isinstance(curve, list) or not curve or not isinstance(shibor, list) or not shibor:
+    if (
+        not isinstance(curve_payload, dict)
+        or curve_payload.get("provider") != "MOF_CHINABOND"
+        or curve_payload.get("yield_type") != "MATURITY"
+        or curve_payload.get("release_time") != "17:30:00+08:00"
+        or not isinstance(curve_payload.get("request_windows"), list)
+        or not isinstance(curve_payload.get("response_hashes"), list)
+    ):
+        raise ChinaAgentDataSchemaError(
+            "official government curve lineage is incomplete"
+        )
+    curve = curve_payload.get("rows")
+    if not isinstance(curve, list) or not curve:
         raise ChinaAgentDataSchemaError("China curve endpoints returned no rows")
-    shibor_row = shibor[0]
-    shibor_date = _date(
-        shibor_row.get("date") or shibor_row.get("trade_date"), "shibor.date"
-    )
-    if shibor_date != session:
-        raise ChinaAgentDataSchemaError("Shibor row does not match market session")
     required_tenors = {1, 2, 3, 5, 7, 10, 30}
-    latest_tenors: dict[int, float] = {}
+    tenors_by_date: dict[date, dict[int, float]] = {}
     curve_rows: list[dict[str, Any]] = []
     seen_curve_keys: set[tuple[str, int]] = set()
+    cutoff = _timestamp(cutoff_at, "cutoff_at")
     for row in curve:
-        trade_date = _date(row.get("trade_date"), "yc_cb.trade_date")
+        if not isinstance(row, dict):
+            raise ChinaAgentDataSchemaError("official government curve row is invalid")
+        trade_date = _date(row.get("trade_date"), "government_curve.trade_date")
         if trade_date < curve_start or trade_date > session:
-            raise ChinaAgentDataSchemaError("yc_cb row is outside the requested window")
+            raise ChinaAgentDataSchemaError(
+                "official government curve row is outside the requested window"
+            )
         if str(row.get("curve_type")) != "0":
-            continue
-        term = int(_finite(row.get("curve_term"), "yc_cb.curve_term"))
+            raise ChinaAgentDataSchemaError(
+                "official government curve is not a maturity Treasury curve"
+            )
+        term = int(_finite(row.get("curve_term"), "government_curve.curve_term"))
         if term not in required_tenors:
             continue
         key = (trade_date.isoformat(), term)
         if key in seen_curve_keys:
-            raise ChinaAgentDataSchemaError("yc_cb has duplicate date/tenor rows")
+            raise ChinaAgentDataSchemaError(
+                "official government curve has duplicate date/tenor rows"
+            )
         seen_curve_keys.add(key)
-        value = _finite(row.get("yield"), "yc_cb.yield")
+        value = _finite(row.get("yield"), "government_curve.yield")
+        released_at = _timestamp(
+            str(row.get("released_at")), "government_curve.released_at"
+        )
+        expected_release = datetime.combine(
+            trade_date,
+            time(17, 30),
+            tzinfo=_SHANGHAI,
+        )
+        if released_at != expected_release:
+            raise ChinaAgentDataSchemaError(
+                "official government curve violates the 17:30 publication contract"
+            )
+        if released_at > cutoff:
+            continue
         curve_rows.append(
             {
                 "trade_date": trade_date.isoformat(),
+                "released_at": released_at.isoformat(),
                 "curve_type": "0",
                 "curve_term": term,
                 "yield": value,
             }
         )
-        if trade_date == session:
-            latest_tenors[term] = value
-    if set(latest_tenors) != required_tenors:
+        tenors_by_date.setdefault(trade_date, {})[term] = value
+    if not tenors_by_date or any(
+        set(tenors) != required_tenors for tenors in tenors_by_date.values()
+    ):
         raise ChinaAgentDataSchemaError(
-            "yc_cb lacks the seven exact government tenors on the market session"
+            "official government curve lacks seven exact tenors before the cutoff"
         )
+    selected_session = max(tenors_by_date)
+    latest_tenors = tenors_by_date[selected_session]
+    selected_session_param = selected_session.strftime("%Y%m%d")
+    shibor = fetch_tushare(
+        endpoint="shibor",
+        start_date=selected_session_param,
+        end_date=selected_session_param,
+    )
+    if not isinstance(shibor, list) or not shibor:
+        raise ChinaAgentDataSchemaError("China curve endpoints returned no rows")
+    shibor_row = shibor[0]
+    shibor_date = _date(
+        shibor_row.get("date") or shibor_row.get("trade_date"), "shibor.date"
+    )
+    if shibor_date != selected_session:
+        raise ChinaAgentDataSchemaError("Shibor row does not match curve session")
     completed = _capture_now()
-    cutoff = _timestamp(cutoff_at, "cutoff_at")
-    if completed.tzinfo is None or completed > cutoff:
-        raise ChinaAgentDataSchemaError("China curve capture exceeded PIT cutoff")
+    timing = _capture_time_fields(
+        completed=completed,
+        as_of_date=as_of_date,
+        cutoff_at=cutoff_at,
+        historical_replay=historical_replay,
+        label="China curve",
+    )
     return _seal_group(
         {
             "schema_version": CAPTURE_SCHEMA_VERSION,
@@ -1016,9 +1208,9 @@ def _build_curve_group(
             "route_group": CURVE_ROUTE_GROUP,
             "route_ids": list(ROUTE_GROUPS[CURVE_ROUTE_GROUP]),
             "as_of_date": as_of_date,
-            "cutoff_at": cutoff_at,
-            "captured_at": completed.isoformat(),
-            "market_session_date": session.isoformat(),
+            **timing,
+            "market_session_date": selected_session.isoformat(),
+            "requested_market_session_date": session.isoformat(),
             "shibor": {
                 "overnight": _finite(shibor_row.get("on"), "shibor.on"),
                 "three_month": _finite(shibor_row.get("3m"), "shibor.3m"),
@@ -1032,6 +1224,20 @@ def _build_curve_group(
                 "2y": latest_tenors[2],
                 "10y": latest_tenors[10],
             },
+            "government_curve_source": {
+                "schema_version": curve_payload.get("schema_version"),
+                "provider": curve_payload["provider"],
+                "source_url": curve_payload.get("source_url"),
+                "yield_type": curve_payload["yield_type"],
+                "release_time": curve_payload["release_time"],
+                "request_windows": curve_payload["request_windows"],
+                "response_hashes": curve_payload["response_hashes"],
+                "session_released_at": datetime.combine(
+                    selected_session,
+                    time(17, 30),
+                    tzinfo=_SHANGHAI,
+                ).isoformat(),
+            },
         }
     )
 
@@ -1041,24 +1247,34 @@ def _capture_key(
     *,
     as_of_date: str,
     cutoff_at: str,
+    historical_replay: bool,
     market_session_date: str,
+    requested_route_ids: tuple[str, ...],
 ) -> str:
-    return canonical_hash(
-        {
-            "schema_version": CAPTURE_SCHEMA_VERSION,
-            "route_group": route_group,
-            "route_ids": list(ROUTE_GROUPS[route_group]),
-            "as_of_date": as_of_date,
-            "cutoff_at": cutoff_at,
-            "market_session_date": market_session_date,
-            "commodity_families": list(_REQUIRED_COMMODITY_FAMILIES)
-            if route_group == COMMODITY_ROUTE_GROUP
-            else None,
-            "institutional_etf_universe": list(INSTITUTIONAL_ETF_UNIVERSE)
-            if route_group == INSTITUTIONAL_ROUTE_GROUP
-            else None,
-        }
-    )
+    identity = {
+        "schema_version": CAPTURE_SCHEMA_VERSION,
+        "route_group": route_group,
+        "route_ids": list(requested_route_ids),
+        "as_of_date": as_of_date,
+        "market_session_date": market_session_date,
+        "commodity_families": list(_REQUIRED_COMMODITY_FAMILIES)
+        if route_group == COMMODITY_ROUTE_GROUP
+        else None,
+        "institutional_etf_universe": list(INSTITUTIONAL_ETF_UNIVERSE)
+        if route_group == INSTITUTIONAL_ROUTE_GROUP
+        else None,
+        **(
+            {
+                "historical_replay": True,
+                "historical_replay_time_policy_version": (
+                    HISTORICAL_REPLAY_TIME_POLICY_VERSION
+                ),
+            }
+            if historical_replay
+            else {"cutoff_at": cutoff_at}
+        ),
+    }
+    return canonical_hash(identity)
 
 
 def _source_receipt(
@@ -1100,7 +1316,16 @@ def _source_receipt(
         raw_hash = canonical_hash(group["condition_input"])
         dimensions = {"family_id": sorted(_REQUIRED_COMMODITY_FAMILIES)}
         provider = "tushare"
-        query_keys = ["exchange", "fut_type", "limit", "offset", "trade_date"]
+        query_keys = [
+            "end_date",
+            "exchange",
+            "fut_type",
+            "limit",
+            "offset",
+            "start_date",
+            "trade_date",
+            "ts_code",
+        ]
         page_count = int(group["transport_call_count"])
         duplicate_count = int(group["raw_duplicate_counts"]["fut_wsr"])
         pagination_policy = (
@@ -1144,19 +1369,22 @@ def _source_receipt(
         parser_version = COMPILER_VERSION
     elif route_id == CURVE_ROUTE_GROUP:
         row_count = 2 + len(group["government_curve_rows"])
-        released_at = captured_at
+        curve_source = group["government_curve_source"]
+        released_at = curve_source["session_released_at"]
         raw_hash = canonical_hash(
             {
                 "shibor": group["shibor"],
                 "curve": group["government_curve_rows"],
+                "curve_source": curve_source,
             }
         )
         dimensions = {
-            "tenor": ["10y", "1y", "2y", "30y", "3m", "3y", "5y", "7y", "overnight"]
+            "component": ["mof_chinabond_maturity_curve", "tushare_shibor"],
+            "tenor": ["10y", "1y", "2y", "30y", "3m", "3y", "5y", "7y", "overnight"],
         }
-        provider = "tushare"
+        provider = "composite"
         query_keys = ["end_date", "start_date", "trade_date"]
-        page_count = 2
+        page_count = 1 + len(curve_source["request_windows"])
         coverage_start = group["curve_history_start"]
         parser_version = COMPILER_VERSION
     else:  # pragma: no cover - closed route invariant
@@ -1180,6 +1408,15 @@ def _source_receipt(
                         "as_of_date": group["as_of_date"],
                         "cutoff_at": group["cutoff_at"],
                         "market_session_date": group.get("market_session_date"),
+                        **(
+                            {
+                                "requested_market_session_date": group[
+                                    "requested_market_session_date"
+                                ]
+                            }
+                            if route_id == CURVE_ROUTE_GROUP
+                            else {}
+                        ),
                     }
                 ),
                 "capture_id": capture_id,
@@ -1188,7 +1425,12 @@ def _source_receipt(
                 "redacted_url": (
                     "https://official.cn/<allowlisted-catalog>/<document>"
                     if route_id == "official.cn_macro"
-                    else "https://api.tushare.pro/<registered-endpoint>"
+                    else (
+                        "https://yield.chinabond.com.cn/<historyQuery>+"
+                        "https://api.tushare.pro/<shibor>"
+                        if route_id == CURVE_ROUTE_GROUP
+                        else "https://api.tushare.pro/<registered-endpoint>"
+                    )
                 ),
                 "method": "GET" if route_id == "official.cn_macro" else "POST",
                 "query_keys": sorted(query_keys),
@@ -1197,13 +1439,29 @@ def _source_receipt(
             },
             "authority": {
                 "provider": provider,
-                "permission_tier": "public" if route_id == "official.cn_macro" else "configured-runtime",
-                "api_version": "public-web-v1" if route_id == "official.cn_macro" else "pro-v1",
+                "permission_tier": (
+                    "public"
+                    if route_id == "official.cn_macro"
+                    else (
+                        "public/configured-runtime"
+                        if route_id == CURVE_ROUTE_GROUP
+                        else "configured-runtime"
+                    )
+                ),
+                "api_version": (
+                    "public-web-v1"
+                    if route_id == "official.cn_macro"
+                    else (
+                        "mof-chinabond-history-v1/tushare-pro-v1"
+                        if route_id == CURVE_ROUTE_GROUP
+                        else "pro-v1"
+                    )
+                ),
                 "parser_version": parser_version,
             },
             "time": {
                 "released_at": released_at,
-                "vintage_at": captured_at,
+                "vintage_at": released_at,
                 "captured_at": captured_at,
                 "knowledge_available_at": captured_at,
             },
@@ -1265,6 +1523,7 @@ def china_archive_source_receipt(
 def _coverage_receipt(
     *,
     route_group: str,
+    required_route_ids: tuple[str, ...],
     as_of_date: str,
     cutoff_at: str,
     source_receipts: Sequence[SourceCaptureReceipt],
@@ -1281,7 +1540,7 @@ def _coverage_receipt(
             "capture_receipt_hash": by_route.get(route_id),
             "status": "SUCCESS" if route_id in by_route else status,
         }
-        for route_id in sorted(ROUTE_GROUPS[route_group])
+        for route_id in required_route_ids
     ]
     complete = all(row["status"] == "SUCCESS" for row in route_results)
     blockers = [] if complete else sorted(set(str(code) for code in blocker_codes))
@@ -1303,7 +1562,7 @@ def _coverage_receipt(
                 "end": cutoff_at,
                 "timezone": "Asia/Shanghai",
             },
-            "required_route_ids": sorted(ROUTE_GROUPS[route_group]),
+            "required_route_ids": list(required_route_ids),
             "route_results": route_results,
             "coverage_complete": complete,
             "blocker_codes": blockers,
@@ -1314,6 +1573,7 @@ def _coverage_receipt(
 def _failed_route(
     *,
     route_group: str,
+    required_route_ids: tuple[str, ...],
     as_of_date: str,
     cutoff_at: str,
     ledger: AgentDataMaterializationLedger,
@@ -1322,6 +1582,7 @@ def _failed_route(
 ) -> ChinaRouteArchiveResult:
     coverage = _coverage_receipt(
         route_group=route_group,
+        required_route_ids=required_route_ids,
         as_of_date=as_of_date,
         cutoff_at=cutoff_at,
         source_receipts=(),
@@ -1335,20 +1596,24 @@ def _failed_route(
 def _archive_route(
     *,
     route_group: str,
+    required_route_ids: tuple[str, ...],
     capture_key: str,
     as_of_date: str,
     cutoff_at: str,
+    historical_replay: bool,
     store: ChinaAgentDataArchiveStore,
     ledger: AgentDataMaterializationLedger,
     builder: Callable[[], dict[str, Any]],
 ) -> ChinaRouteArchiveResult:
     try:
         group, cache_hit = store.get_or_capture(capture_key, builder)
+        _validate_replay_group(group, historical_replay=historical_replay)
         sources = _source_receipts(group)
         coverage = _coverage_receipt(
             route_group=route_group,
+            required_route_ids=required_route_ids,
             as_of_date=as_of_date,
-            cutoff_at=cutoff_at,
+            cutoff_at=str(group["cutoff_at"]),
             source_receipts=sources,
             status="SUCCESS",
             blocker_codes=(),
@@ -1358,6 +1623,7 @@ def _archive_route(
     except PermissionError:
         return _failed_route(
             route_group=route_group,
+            required_route_ids=required_route_ids,
             as_of_date=as_of_date,
             cutoff_at=cutoff_at,
             ledger=ledger,
@@ -1371,6 +1637,7 @@ def _archive_route(
             status, blocker = "SCHEMA_DRIFT", "SCHEMA_DRIFT"
         return _failed_route(
             route_group=route_group,
+            required_route_ids=required_route_ids,
             as_of_date=as_of_date,
             cutoff_at=cutoff_at,
             ledger=ledger,
@@ -1380,6 +1647,7 @@ def _archive_route(
     except (TimeoutError, ConnectionError):
         return _failed_route(
             route_group=route_group,
+            required_route_ids=required_route_ids,
             as_of_date=as_of_date,
             cutoff_at=cutoff_at,
             ledger=ledger,
@@ -1393,9 +1661,14 @@ def archive_china_agent_sources(
     as_of_date: str,
     cutoff_at: str,
     market_session_date: str,
+    requested_route_ids: Sequence[str] | None = None,
+    historical_replay: bool = False,
     store: ChinaAgentDataArchiveStore,
     ledger: AgentDataMaterializationLedger,
     fetch_official: Callable[..., list[dict[str, Any]]] = _private_official_fetch,
+    fetch_official_curve: Callable[..., dict[str, Any]] = (
+        fetch_mof_chinabond_government_yield_curve
+    ),
     fetch_tushare: Callable[..., Any] = _private_tushare_fetch,
 ) -> ChinaAgentArchiveResult:
     as_of = date.fromisoformat(as_of_date)
@@ -1406,13 +1679,46 @@ def archive_china_agent_sources(
     local_cutoff = cutoff.astimezone(_SHANGHAI)
     if local_cutoff.date() != as_of or local_cutoff.time() != _DECISION_CUTOFF:
         raise ValueError("China agent cutoff must be 15:00 Asia/Shanghai on as-of")
+    if not isinstance(historical_replay, bool):
+        raise ValueError("historical_replay must be a boolean")
     normalized_cutoff = cutoff.isoformat()
+    if requested_route_ids is None:
+        required_routes = LOGICAL_ROUTES
+    else:
+        if isinstance(requested_route_ids, (str, bytes)):
+            raise ValueError("requested_route_ids must be a sequence of route IDs")
+        required_routes = tuple(requested_route_ids)
+        if (
+            not required_routes
+            or required_routes != tuple(sorted(set(required_routes)))
+            or not set(required_routes) <= set(LOGICAL_ROUTES)
+        ):
+            raise ValueError(
+                "requested_route_ids must be a non-empty sorted unique China route subset"
+            )
+    required_set = frozenset(required_routes)
+    selected_groups = tuple(
+        route_group
+        for route_group, route_ids in ROUTE_GROUPS.items()
+        if required_set.intersection(route_ids)
+    )
+    group_routes = {
+        route_group: tuple(
+            route_id
+            for route_id in ROUTE_GROUPS[route_group]
+            if route_id in required_set
+        )
+        for route_group in selected_groups
+    }
     now = _capture_now()
     if now.tzinfo is None:
         raise ChinaAgentDataSchemaError("trusted capture clock must include timezone")
-    if now.astimezone(_SHANGHAI).date() < as_of:
+    local_now_date = now.astimezone(_SHANGHAI).date()
+    if historical_replay and local_now_date <= as_of:
         blocker = "CAPTURE_BEFORE_AS_OF_WINDOW"
-    elif now > cutoff:
+    elif local_now_date < as_of:
+        blocker = "CAPTURE_BEFORE_AS_OF_WINDOW"
+    elif not historical_replay and now > cutoff:
         blocker = "CAPTURE_AFTER_AS_OF_CUTOFF"
     else:
         blocker = None
@@ -1421,13 +1727,14 @@ def archive_china_agent_sources(
             {
                 route_group: _failed_route(
                     route_group=route_group,
+                    required_route_ids=group_routes[route_group],
                     as_of_date=as_of_date,
                     cutoff_at=normalized_cutoff,
                     ledger=ledger,
                     status="CAPTURE_REJECTED",
                     blocker=blocker,
                 )
-                for route_group in ROUTE_GROUPS
+                for route_group in selected_groups
             }
         )
     keys = {
@@ -1435,15 +1742,19 @@ def archive_china_agent_sources(
             route_group,
             as_of_date=as_of_date,
             cutoff_at=normalized_cutoff,
+            historical_replay=historical_replay,
             market_session_date=session.isoformat(),
+            requested_route_ids=group_routes[route_group],
         )
-        for route_group in ROUTE_GROUPS
+        for route_group in selected_groups
     }
     builders: dict[str, Callable[[], dict[str, Any]]] = {
         CHINA_ROUTE_GROUP: lambda: _build_china_group(
             capture_key=keys[CHINA_ROUTE_GROUP],
             as_of_date=as_of_date,
             cutoff_at=normalized_cutoff,
+            historical_replay=historical_replay,
+            requested_route_ids=group_routes[CHINA_ROUTE_GROUP],
             fetch_official=fetch_official,
             fetch_tushare=fetch_tushare,
         ),
@@ -1451,6 +1762,7 @@ def archive_china_agent_sources(
             capture_key=keys[COMMODITY_ROUTE_GROUP],
             as_of_date=as_of_date,
             cutoff_at=normalized_cutoff,
+            historical_replay=historical_replay,
             market_session_date=session.strftime("%Y%m%d"),
             fetch_tushare=fetch_tushare,
         ),
@@ -1458,6 +1770,7 @@ def archive_china_agent_sources(
             capture_key=keys[INSTITUTIONAL_ROUTE_GROUP],
             as_of_date=as_of_date,
             cutoff_at=normalized_cutoff,
+            historical_replay=historical_replay,
             market_session_date=session.strftime("%Y%m%d"),
             fetch_tushare=fetch_tushare,
         ),
@@ -1465,22 +1778,31 @@ def archive_china_agent_sources(
             capture_key=keys[CURVE_ROUTE_GROUP],
             as_of_date=as_of_date,
             cutoff_at=normalized_cutoff,
+            historical_replay=historical_replay,
             market_session_date=session.strftime("%Y%m%d"),
+            fetch_official_curve=fetch_official_curve,
             fetch_tushare=fetch_tushare,
         ),
+    }
+    builders = {
+        route_group: builder
+        for route_group, builder in builders.items()
+        if route_group in selected_groups
     }
     return ChinaAgentArchiveResult(
         {
             route_group: _archive_route(
                 route_group=route_group,
+                required_route_ids=group_routes[route_group],
                 capture_key=keys[route_group],
                 as_of_date=as_of_date,
                 cutoff_at=normalized_cutoff,
+                historical_replay=historical_replay,
                 store=store,
                 ledger=ledger,
                 builder=builders[route_group],
             )
-            for route_group in ROUTE_GROUPS
+            for route_group in selected_groups
         }
     )
 
@@ -1764,25 +2086,30 @@ def _central_bank_snapshot(
             {
                 "series_id": "cn_curve_2y",
                 "actual": curve_group["government_curve"]["2y"],
-                "source": "tushare.yc_cb_cn_government_2y",
+                "source": "official.mof_chinabond_government_2y",
                 "unit": "percent",
             },
             {
                 "series_id": "cn_curve_10y",
                 "actual": curve_group["government_curve"]["10y"],
-                "source": "tushare.yc_cb_cn_government_10y",
+                "source": "official.mof_chinabond_government_10y",
                 "unit": "percent",
             },
         ]
     )
     for index, row in enumerate(selected):
         if "period_start" not in row:
+            availability = (
+                curve_group["government_curve_source"]["session_released_at"]
+                if str(row["series_id"]).startswith("cn_curve_")
+                else curve_group["captured_at"]
+            )
             row.update(
                 {
                     "period_start": session,
                     "period_end": session,
-                    "released_at": curve_group["captured_at"],
-                    "vintage_at": curve_group["captured_at"],
+                    "released_at": availability,
+                    "vintage_at": availability,
                     "previous": None,
                     "expected": None,
                     "pit_status": "AVAILABLE_AS_OF",

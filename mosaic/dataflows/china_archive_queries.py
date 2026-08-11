@@ -138,10 +138,11 @@ class ChinaArchiveQueryReader:
                     f"({start.isoformat()} → {end.isoformat()})"
                 ),
                 subtitle=(
-                    "Source: Tushare yc_cb. Yields in percent. Tenors: "
+                    "Source: MOF/ChinaBond official maturity curve. "
+                    "Yields in percent. Tenors: "
                     "1y/2y/3y/5y/7y/10y/30y benchmarks."
                 ),
-                empty_note="No yc_cb rows in the archived window.",
+                empty_note="No official curve rows in the archived window.",
             )
 
         raise ValueError(f"China archive reader does not own route method {method}")

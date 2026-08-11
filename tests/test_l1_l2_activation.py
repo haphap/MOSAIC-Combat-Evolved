@@ -118,14 +118,111 @@ def test_l1_l2_route_activation_exactly_closes_the_new_tool_surface() -> None:
     overlay = _load(PRESERVATION_ROOT / "sector_relationship_preservation_overlay_v1.json")
     route_by_id = {row["route_id"]: row for row in active_routes["routes"]}
     for row in overlay["routes"]:
+        if row["route_id"] == "tushare.shibor_yield_curve":
+            continue
         assert route_by_id[row["route_id"]] == row
     for binding in overlay["bindings"]:
+        key = (binding["agent_id"], binding["stage"], binding["tool_id"])
+        required_route_ids = (
+            ["composite.cn_rates"]
+            if key == ("financials", "financials", "get_yield_curve_cn")
+            else binding["source_route_ids"]
+        )
         assert {
             "agent_id": binding["agent_id"],
             "stage": binding["stage"],
             "tool_id": binding["tool_id"],
-            "required_route_ids": binding["source_route_ids"],
+            "required_route_ids": required_route_ids,
         } in active_routes["bindings"]
+    assert "tushare.shibor_yield_curve" not in route_by_id
+    assert route_by_id["composite.cn_rates"] == {
+        "route_id": "composite.cn_rates",
+        "source_family": "composite",
+        "contract_version": "composite_cn_rates_mof_chinabond_v1",
+        "pit_strategy": "OBSERVED_LIVE",
+        "implementation_stage": "PR15",
+    }
+    assert set(route_by_id) == {
+        route_id
+        for binding in active_routes["bindings"]
+        for route_id in binding["required_route_ids"]
+    }
+
+
+def test_l1_l2_active_projection_translates_only_approved_europe_routes() -> None:
+    frozen = _load(BASE_ROUTE_SNAPSHOT)
+    active = build_l1_l2_active_route_manifest(ROOT)
+    frozen_routes = {row["route_id"]: row for row in frozen["routes"]}
+    active_routes = {row["route_id"]: row for row in active["routes"]}
+
+    assert frozen_routes["ecb.euro_macro"]["contract_version"] == (
+        "ecb_euro_macro_v1"
+    )
+    assert frozen_routes["eurostat.euro_macro"]["contract_version"] == (
+        "eurostat_forward_archive_v1"
+    )
+    assert "ecb.eu_real_economy" not in frozen_routes
+    assert "eurostat.euro_macro" not in active_routes
+    assert active_routes["ecb.euro_macro"] == {
+        "route_id": "ecb.euro_macro",
+        "source_family": "ecb",
+        "contract_version": "ecb_euro_macro_v2",
+        "pit_strategy": "AUTHORITATIVE_VINTAGE_REPLAY",
+        "implementation_stage": "PR15",
+    }
+    assert active_routes["ecb.eu_real_economy"] == {
+        "route_id": "ecb.eu_real_economy",
+        "source_family": "ecb",
+        "contract_version": "ecb_eu_real_economy_history_v1",
+        "pit_strategy": "AUTHORITATIVE_VINTAGE_REPLAY",
+        "implementation_stage": "PR15",
+    }
+
+    binding_by_key = {
+        (row["agent_id"], row["stage"], row["tool_id"]): row
+        for row in active["bindings"]
+    }
+    assert binding_by_key[("eu_economy", "eu_economy", "get_eu_macro_snapshot")][
+        "required_route_ids"
+    ] == ["ecb.eu_real_economy", "ecb.euro_macro", "tushare.eco_cal.eur"]
+    assert binding_by_key[
+        (
+            "euro_area_financial_conditions",
+            "euro_area_financial_conditions",
+            "get_euro_area_financial_conditions_snapshot",
+        )
+    ]["required_route_ids"] == [
+        "ecb.euro_macro",
+        "market.euro_fx",
+        "tushare.eco_cal.eur",
+    ]
+
+
+def test_l1_l2_writer_keeps_frozen_preservation_inputs_byte_identical(
+    tmp_path: Path,
+) -> None:
+    shutil.copytree(ROOT / "registry", tmp_path / "registry")
+    shutil.copytree(ROOT / "schemas", tmp_path / "schemas")
+    frozen_paths = [
+        PRESERVATION_ROOT.relative_to(ROOT)
+        / "current_agent_tool_contract_snapshot_v1.json",
+        PRESERVATION_ROOT.relative_to(ROOT)
+        / "current_agent_data_route_manifest_snapshot_v1.json",
+        *(
+            PRESERVATION_ROOT.relative_to(ROOT) / name
+            for name in (
+                "sector_relationship_preservation_overlay_v1.json",
+                "l3_l4_preservation_overlay_v1.json",
+                "macro_us_preservation_overlay_v1.json",
+                "macro_europe_preservation_overlay_v1.json",
+            )
+        ),
+    ]
+    before = {path: (tmp_path / path).read_bytes() for path in frozen_paths}
+
+    write_l1_l2_active_manifests(tmp_path)
+
+    assert {path: (tmp_path / path).read_bytes() for path in frozen_paths} == before
 
 
 def test_l1_l2_fixed_point_rejects_half_switch_and_self_resealed_drift() -> None:

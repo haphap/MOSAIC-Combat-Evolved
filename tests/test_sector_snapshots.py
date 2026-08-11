@@ -961,6 +961,62 @@ def test_registered_relationship_compiler_is_source_derived_and_deterministic(
     )
 
 
+def test_registered_relationship_historical_replay_preserves_real_capture_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _source_path, source_snapshot = _relationship_snapshot(tmp_path)
+    _production, batches = _registered_relationship_source_inputs(source_snapshot)
+    replay_captured_at = "2026-08-11T12:00:00+08:00"
+    for batch in batches:
+        batch["released_at"] = f"{AS_OF}T23:59:59+08:00"
+        batch["vintage_at"] = f"{AS_OF}T23:59:59+08:00"
+        batch["captured_at"] = replay_captured_at
+        _rehash_source_batch(batch)
+
+    with pytest.raises(DataVendorUnavailable, match="cutoff"):
+        compile_registered_relationship_snapshot(
+            as_of_date=AS_OF,
+            source_batches=batches,
+        )
+
+    compiled = compile_registered_relationship_snapshot(
+        as_of_date=AS_OF,
+        source_batches=batches,
+        historical_replay_captured_at=replay_captured_at,
+    )
+    root = tmp_path / "historical-relationship"
+    write_registered_relationship_snapshot(
+        as_of_date=AS_OF,
+        snapshot=compiled,
+        source_batches=batches,
+        historical_replay_captured_at=replay_captured_at,
+        root=root,
+    )
+    receipt_path = root / AS_OF / "relationship_mapper.sources.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["historical_replay_captured_at"] == replay_captured_at
+    assert {batch["captured_at"] for batch in receipt["source_batches"]} == {
+        replay_captured_at
+    }
+    monkeypatch.setenv("MOSAIC_SECTOR_SNAPSHOT_DIR", str(root))
+    monkeypatch.delenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", raising=False)
+    assert json.loads(render_relationship_snapshot(AS_OF, "historical"))[
+        "as_of_date"
+    ] == AS_OF
+
+    receipt["historical_replay_captured_at"] = f"{AS_OF}T23:59:59+08:00"
+    receipt["source_bundle_hash"] = _canonical_hash(
+        {
+            key: value
+            for key, value in receipt.items()
+            if key != "source_bundle_hash"
+        }
+    )
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    with pytest.raises(DataVendorUnavailable, match="lookahead|cutoff"):
+        render_relationship_snapshot(AS_OF, "tampered-replay")
+
+
 def test_registered_relationship_builder_binds_source_receipt_and_rejects_lookahead(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1804,6 +1860,53 @@ def test_registered_sector_compiler_is_source_derived_and_deterministic(
     )
 
 
+def test_registered_sector_historical_replay_preserves_real_capture_time(
+    snapshot: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    _production, batches = _registered_source_inputs(snapshot)
+    replay_captured_at = "2026-08-11T12:00:00+08:00"
+    for batch in batches:
+        batch["released_at"] = f"{AS_OF}T23:59:59+08:00"
+        batch["vintage_at"] = f"{AS_OF}T23:59:59+08:00"
+        batch["captured_at"] = replay_captured_at
+        _rehash_source_batch(batch)
+
+    with pytest.raises(DataVendorUnavailable, match="cutoff"):
+        compile_registered_sector_snapshot(
+            role=ROLE,
+            as_of_date=AS_OF,
+            source_batches=batches,
+        )
+
+    compiled = compile_registered_sector_snapshot(
+        role=ROLE,
+        as_of_date=AS_OF,
+        source_batches=batches,
+        historical_replay_captured_at=replay_captured_at,
+    )
+    root = tmp_path / "historical-sector"
+    write_registered_sector_snapshot(
+        role=ROLE,
+        as_of_date=AS_OF,
+        snapshot=compiled,
+        source_batches=batches,
+        historical_replay_captured_at=replay_captured_at,
+        root=root,
+    )
+    receipt = json.loads(
+        (root / AS_OF / f"{ROLE}.sources.json").read_text(encoding="utf-8")
+    )
+    assert receipt["historical_replay_captured_at"] == replay_captured_at
+    loaded_receipt = sector_snapshots_module._load_and_validate_sector_source_receipt(
+        snapshot=compiled,
+        role=ROLE,
+        as_of_date=AS_OF,
+        root=root,
+    )
+    assert loaded_receipt["source_bundle_hash"] == receipt["source_bundle_hash"]
+
+
 def test_registered_sector_rejects_missing_or_false_pagination_provenance(
     snapshot: dict[str, Any],
 ) -> None:
@@ -2174,6 +2277,61 @@ def test_registered_sector_builder_is_route_complete_and_atomic(
             root=root,
         )
     assert snapshot_path.read_bytes() == before
+
+
+def test_registered_sector_snapshot_rename_failure_is_not_loadable_and_retries(
+    snapshot: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    production, batches = _registered_source_inputs(snapshot)
+    root = tmp_path / "rename-failure"
+    snapshot_path = root / AS_OF / f"{ROLE}.json"
+    receipt_path = root / AS_OF / f"{ROLE}.sources.json"
+    real_replace = sector_snapshots_module.os.replace
+
+    def fail_snapshot_replace(source: Path, destination: Path) -> None:
+        if Path(destination) == snapshot_path:
+            raise OSError("injected snapshot rename failure")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(
+        sector_snapshots_module.os,
+        "replace",
+        fail_snapshot_replace,
+    )
+    with pytest.raises(OSError, match="injected snapshot rename failure"):
+        write_registered_sector_snapshot(
+            role=ROLE,
+            as_of_date=AS_OF,
+            snapshot=production,
+            source_batches=batches,
+            root=root,
+        )
+    assert receipt_path.is_file()
+    assert not snapshot_path.exists()
+    with pytest.raises(DataVendorUnavailable, match="no private PIT sector snapshot"):
+        load_sector_snapshot(ROLE, AS_OF, root)
+
+    monkeypatch.setattr(sector_snapshots_module.os, "replace", real_replace)
+    assert (
+        write_registered_sector_snapshot(
+            role=ROLE,
+            as_of_date=AS_OF,
+            snapshot=production,
+            source_batches=batches,
+            root=root,
+        )
+        == production
+    )
+    recovered = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    assert recovered == production
+    sector_snapshots_module._load_and_validate_sector_source_receipt(
+        snapshot=recovered,
+        role=ROLE,
+        as_of_date=AS_OF,
+        root=root,
+    )
 
 
 def test_registered_sector_builder_rejects_omission_route_and_lookahead(

@@ -196,7 +196,6 @@ class SectorArchiveQueryReader:
                     ts_code=ticker,
                     curr_date=as_of,
                     retrieved_at=str(group["captured_at"]),
-                    enrich_names=False,
                 )
             except MissingEtfHoldings as exc:
                 raise DataVendorUnavailable(str(exc)) from exc

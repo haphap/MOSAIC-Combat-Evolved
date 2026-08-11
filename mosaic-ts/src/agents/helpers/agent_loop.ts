@@ -99,6 +99,7 @@ export interface AgentToolLoopResult {
 }
 
 const DEFAULT_MAX_LOOPS = 6;
+const MAX_MODEL_TOOL_EXECUTIONS = 3;
 const DEFAULT_TOOL_OUTPUT_MAX_CHARS = 0;
 const DEFAULT_REPLAY_FULL_TOOL_MAX_CHARS = 0;
 const PRIOR_TOOL_REPLAY_CHARS = 800;
@@ -536,6 +537,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
   let toolCalls = 0;
   let toolCacheHits = 0;
   let toolExecutions = 0;
+  let modelToolExecutions = 0;
   let promptTokens = 0;
   let completionTokens = 0;
   let llmElapsedMs = 0;
@@ -671,8 +673,20 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
   for (let step = 0; step < maxLoops; step++) {
     opts.onLog?.(`analysis_llm=${step + 1}/${maxLoops}`);
     const llmStartedAt = Date.now();
-    const ai = (await llmWithTools.invoke(
-      [new SystemMessage(opts.systemMessage), ...replayMessages],
+    const remainingModelToolExecutions = Math.max(
+      0,
+      MAX_MODEL_TOOL_EXECUTIONS - modelToolExecutions,
+    );
+    const advertiseTools = opts.allowModelToolCalls !== false && remainingModelToolExecutions > 0;
+    const budgetDirective =
+      opts.allowModelToolCalls === false || opts.tools.length === 0
+        ? ""
+        : "\n\nHard tool-call budget: use at most 3 model-selected tool calls total. " +
+          `The remaining budget is ${remainingModelToolExecutions}. ` +
+          `Request no more than ${remainingModelToolExecutions} tool calls now; ` +
+          "when the remaining budget is 0, return the analysis without tool calls.";
+    const ai = (await (advertiseTools ? llmWithTools : opts.llm).invoke(
+      [new SystemMessage(`${opts.systemMessage}${budgetDirective}`), ...replayMessages],
       opts.signal ? { signal: opts.signal } : undefined,
     )) as AIMessage;
     llmElapsedMs += Date.now() - llmStartedAt;
@@ -766,7 +780,31 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
             cacheHit: true,
           }),
         );
+      } else if (modelToolExecutions >= MAX_MODEL_TOOL_EXECUTIONS) {
+        output =
+          `Tool '${name}' not executed: model-selected tool-call budget exhausted ` +
+          `(${MAX_MODEL_TOOL_EXECUTIONS} total). Use already returned evidence and do not call more tools.`;
+        opts.onLog?.(output);
+        const cached = cachedToolResult({
+          name,
+          args: call.args ?? {},
+          output,
+          failed: true,
+        });
+        toolOutputCache.set(fingerprint, cached);
+        toolStatuses.push(
+          buildToolStatus({
+            name,
+            callId: call.id ?? `tool_call_${toolCalls}`,
+            ...(opts.agentInvocationId ? { agentInvocationId: opts.agentInvocationId } : {}),
+            args: call.args,
+            shortFingerprint: fingerprint,
+            cached,
+            cacheHit: false,
+          }),
+        );
       } else {
+        modelToolExecutions++;
         toolExecutions++;
         try {
           const auditedInvoke = (tool as Partial<BridgeStructuredTool>)[BRIDGE_AUDITED_TOOL_INVOKE];

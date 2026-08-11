@@ -949,6 +949,8 @@ def _claim_matches_request(
             return False
     if agent_id.startswith("macro."):
         return _is_macro_claim(claim, report_meta) and agent_id in _macro_agent_candidates(claim)
+    if agent_id == "sector.relationship_mapper":
+        return _claim_domain(claim, report_meta) in {"stock", "industry"}
     if agent_id.startswith("sector."):
         return _sector_agent_for_claim(claim, report_meta) == agent_id
     if agent_id.startswith("superinvestor."):
@@ -1078,11 +1080,26 @@ def _sector_agent_for_claim(
     claim: Mapping[str, Any], report_meta: Mapping[str, Any]
 ) -> str:
     text = _combined_text(report_meta.get("sector"), report_meta.get("subsectors"), claim.get("target"))
-    lowered = text.lower()
     for agent_id, keywords in SECTOR_AGENT_KEYWORDS.items():
-        if any(keyword.lower() in lowered for keyword in keywords):
+        if any(_sector_keyword_matches(keyword, text) for keyword in keywords):
             return agent_id
     return ""
+
+
+def _sector_keyword_matches(keyword: str, text: str) -> bool:
+    normalized_keyword = keyword.casefold()
+    normalized_text = text.casefold()
+    if normalized_keyword.isascii() and any(
+        character.isalnum() for character in normalized_keyword
+    ):
+        return (
+            re.search(
+                rf"(?<![a-z0-9]){re.escape(normalized_keyword)}(?![a-z0-9])",
+                normalized_text,
+            )
+            is not None
+        )
+    return normalized_keyword in normalized_text
 
 
 def _style_fit_score(

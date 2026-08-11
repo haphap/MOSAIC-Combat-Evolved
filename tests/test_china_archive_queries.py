@@ -51,9 +51,9 @@ def _groups() -> dict[str, dict[str, Any]]:
                 },
             ],
         },
-        "tushare.shibor_yield_curve": {
+        "composite.cn_rates": {
             "as_of_date": AS_OF,
-            "route_group": "tushare.shibor_yield_curve",
+            "route_group": "composite.cn_rates",
             "captured_at": "2026-07-09T14:31:00+08:00",
             "curve_history_start": "2025-07-09",
             "government_curve_rows": [
@@ -80,10 +80,11 @@ def test_china_archive_reader_preserves_industry_filter_and_curve_outputs() -> N
 
     curve = reader("get_yield_curve_cn", AS_OF, 30)
     assert "CN Treasury Yield Curve" in curve
+    assert "MOF/ChinaBond official maturity curve" in curve
     assert ",30,2.7" in curve
     assert store.calls == [
         (AS_OF, "tushare.institutional_flow"),
-        (AS_OF, "tushare.shibor_yield_curve"),
+        (AS_OF, "composite.cn_rates"),
     ]
 
 
@@ -92,7 +93,7 @@ def test_china_archive_reader_fails_closed_for_missing_or_short_history() -> Non
     with pytest.raises(DataVendorUnavailable, match="no exact China archive"):
         reader("get_yield_curve_cn", "2026-07-08", 30)
     short = _groups()
-    short["tushare.shibor_yield_curve"]["curve_history_start"] = "2026-07-01"
+    short["composite.cn_rates"]["curve_history_start"] = "2026-07-01"
     with pytest.raises(DataVendorUnavailable, match="does not cover"):
         ChinaArchiveQueryReader(store=_Store(short))(
             "get_yield_curve_cn", AS_OF, 30

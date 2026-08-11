@@ -92,6 +92,20 @@ def test_capture_time_signal_projection_is_deterministic_and_prose_free():
     assert "private prose" not in json.dumps(projection, sort_keys=True)
 
 
+def test_v1_signal_projection_rejects_unsupported_v2_events():
+    row, event, binding_ref, payload, _ = _authority_fixture()
+    event["schema_version"] = "server_tool_result_event_v2"
+
+    with pytest.raises(ValueError, match="not projection eligible"):
+        build_binding_signal_projection_v1(
+            event=event,
+            result_event_hash=canonical_hash(event),
+            binding_ref=binding_ref,
+            payload_text=payload,
+            coverage_row=row,
+        )
+
+
 def test_unstructured_payload_is_explicit_unknown():
     row, event, binding_ref, _, _ = _authority_fixture()
     payload = json.dumps({"summary": "no structured direction"})

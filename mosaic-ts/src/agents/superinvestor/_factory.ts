@@ -49,6 +49,7 @@ import { extractTextContent } from "../helpers/content.js";
 import {
   buildRuntimeEvidenceSnapshot,
   type RuntimeEvidenceSnapshot,
+  withRuntimeCitationIds,
 } from "../helpers/evidence_runtime.js";
 import {
   canonicalAcceptedSubmissionBody,
@@ -299,6 +300,14 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
             toolStatuses: loopResult.toolStatuses,
             runtimeSourceStatuses,
           });
+          const candidateScopeHash =
+            opportunityAuthority?.candidateScopeHash ??
+            preparedCapability?.bundle.candidate_scope_hash;
+          if (candidateScopeHash && /^sha256:[0-9a-f]{64}$/.test(candidateScopeHash)) {
+            runtimeEvidence = withRuntimeCitationIds(runtimeEvidence, [
+              `superinvestor-candidate-scope:${candidateScopeHash.slice("sha256:".length)}`,
+            ]);
+          }
           canaryToolStatuses = loopResult.toolStatuses;
 
           onLog(
@@ -566,24 +575,10 @@ export function buildLayerThreeUserContext(
 
 export function buildLayerThreeInitialToolCalls(
   _state: DailyCycleStateType,
-  agentId: string,
-  preparedInitialToolIds?: ReadonlyArray<string>,
+  _agentId: string,
+  _preparedInitialToolIds?: ReadonlyArray<string>,
 ): AgentInitialToolCall[] {
-  const initialCalls: AgentInitialToolCall[] = [
-    { name: "get_superinvestor_candidate_snapshot", args: {} },
-  ];
-  if (agentId === "ackman" || agentId === "munger") {
-    initialCalls.push({ name: "get_fundamentals", args: {} });
-    initialCalls.push({ name: "get_cashflow", args: {} });
-  } else if (agentId === "burry") {
-    initialCalls.push({ name: "get_fundamentals", args: {} });
-    initialCalls.push({ name: "get_balance_sheet", args: {} });
-  }
-  if (preparedInitialToolIds === undefined) return initialCalls;
-  const prepared = new Set(preparedInitialToolIds);
-  return initialCalls.filter(
-    (call) => call.name === "get_superinvestor_candidate_snapshot" || prepared.has(call.name),
-  );
+  return [{ name: "get_superinvestor_candidate_snapshot", args: {} }];
 }
 
 export interface SuperinvestorOpportunityAuthority {

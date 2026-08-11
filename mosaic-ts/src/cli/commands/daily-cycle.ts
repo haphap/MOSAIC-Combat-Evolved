@@ -16,7 +16,7 @@
  * unit-tested in test/{macro,sector,superinvestor,decision,daily_cycle}*.
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
@@ -69,7 +69,7 @@ import {
   type PaperSuggestion,
   RpcError,
 } from "../../bridge/index.js";
-import type { PromptPreflightResult } from "../../bridge/types.js";
+import type { AgentSourceAdmission, PromptPreflightResult } from "../../bridge/types.js";
 import { buildDailyCycleGraph } from "../../graph/daily_cycle.js";
 import { createLlmFromConfig, type LlmHandle } from "../../llm/factory.js";
 import { redactSensitiveText } from "../../security/redaction.js";
@@ -95,6 +95,7 @@ interface DailyCycleOptions {
   currentPositionsJson?: string;
   currentPositionsFile?: string;
   paperExecuteDeltas?: boolean;
+  cycleKind?: string;
 }
 
 export interface PaperDeltaExecution {
@@ -142,6 +143,10 @@ export function registerDailyCycle(program: Command): void {
       "Per-agent wall-clock timeout in seconds (default 300; 0/off disables)",
     )
     .option("--max-tokens <count>", "Per-request completion cap (structured-smoke default 8192)")
+    .option(
+      "--cycle-kind <kind>",
+      "Cycle authority kind for live runs: shadow, replay, or production",
+    )
     .option("--paper-positions", "Seed current_positions from the active paper account")
     .option("--current-positions-json <json>", "Seed current_positions from an inline JSON fixture")
     .option("--current-positions-file <path>", "Seed current_positions from a JSON fixture file")
@@ -155,12 +160,19 @@ export function registerDailyCycle(program: Command): void {
         fixtureBundleHash: process.env.MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH,
       };
       let client: BridgeClient | null = null;
+      let api: BridgeApi | null = null;
+      let openedCycleRunId: string | null = null;
+      let cycleCommitted = false;
       try {
         if (opts.fakeLlm && opts.structuredSmoke) {
           throw new Error("--fake-llm and --structured-smoke are mutually exclusive");
         }
         const nonProductionSmoke = Boolean(opts.fakeLlm || opts.structuredSmoke);
         const asOfDate = opts.date ?? new Date().toISOString().slice(0, 10);
+        const cycleAuthority = resolveDailyCycleAuthority(opts);
+        const ensureMode = cycleAuthority.mode;
+        applyDailyCycleEnsureMode(process.env, ensureMode);
+        const cycleAuthorityEnabled = cycleAuthority.cycleKind !== null;
         assertDailyCyclePromptSourceMode(opts, nonProductionSmoke);
         if (nonProductionSmoke && opts.promptsRepo) {
           throw new Error(
@@ -193,7 +205,7 @@ export function registerDailyCycle(program: Command): void {
         // BridgeClient snapshots its child environment in the constructor, so
         // construct it only after the production/non-production boundary above.
         client = new BridgeClient();
-        const api = new BridgeApi(client);
+        api = new BridgeApi(client);
         await client.start();
         const config = await api.configGet();
         const maxTokens = opts.maxTokens
@@ -306,10 +318,27 @@ export function registerDailyCycle(program: Command): void {
         }
         const traceId = nonProductionSmoke
           ? `${opts.fakeLlm ? "fake" : "structured"}-smoke-${Date.now()}`
-          : `daily-${createHash("sha256")
-              .update(`${cohort}\u0000${asOfDate}\u0000${rosterRevisionId}`)
-              .digest("hex")
-              .slice(0, 24)}`;
+          : buildProductionCycleTraceId(cohort, asOfDate, rosterRevisionId as string, randomUUID());
+        if (cycleAuthorityEnabled) {
+          const leaseSeconds =
+            agentTimeoutMs > 0
+              ? Math.max(3600, Math.ceil(agentTimeoutMs / 1000) * 29 + 600)
+              : 86_400;
+          const sourceAdmission = await api.dataSourcePreflight({
+            as_of: asOfDate,
+            all_agents: true,
+          });
+          assertDailyCycleSourceAdmissionReady(sourceAdmission);
+          await api.dataCycleOpen({
+            as_of: asOfDate,
+            run_id: traceId,
+            cohort,
+            mode: cycleAuthority.mode,
+            cycle_kind: cycleAuthority.cycleKind,
+            lease_seconds: leaseSeconds,
+          });
+          openedCycleRunId = traceId;
+        }
         const preparedOutcomes = preparedDarwinian
           ? await api.darwinianPrepareDailyCycleOutcomes({
               production_variant_roster_revision_id: rosterRevisionId as string,
@@ -405,7 +434,7 @@ export function registerDailyCycle(program: Command): void {
           throw new Error("accepted daily cycle is missing CIO decision_disposition");
         }
         if (!nonProductionSmoke) {
-          const scorecardWrite = await api.scorecardAppend({
+          const scorecardState: Record<string, unknown> = {
             active_cohort: final.active_cohort,
             as_of_date: final.as_of_date,
             trace_id: final.trace_id,
@@ -424,6 +453,16 @@ export function registerDailyCycle(program: Command): void {
             decision_disposition: decisionDisposition,
             day_outcome_status: "accepted",
             agent_display_narratives: agentDisplayNarratives,
+          };
+          const cycleCommit = cycleAuthorityEnabled
+            ? await api.dataCycleCommit({ state: scorecardState })
+            : null;
+          if (cycleCommit) {
+            cycleCommitted = true;
+          }
+          const scorecardWrite = await api.scorecardAppend({
+            ...scorecardState,
+            ...(cycleCommit ? { agent_cycle_publication_hash: cycleCommit.publication_hash } : {}),
           });
           if (!scorecardWrite.darwinian_v2) {
             throw new Error("accepted live cycle did not create Darwinian v2 ledgers");
@@ -509,6 +548,18 @@ export function registerDailyCycle(program: Command): void {
           printCycleSummary(final, elapsed, agentDisplayNarratives);
         }
       } catch (err) {
+        if (api && openedCycleRunId && !cycleCommitted) {
+          try {
+            await api.dataCycleAbort({
+              run_id: openedCycleRunId,
+              reason: "CYCLE_EXECUTION_FAILED",
+            });
+          } catch (abortError) {
+            console.error(
+              pc.dim(redactSensitiveText(`cycle abort failed: ${(abortError as Error).message}`)),
+            );
+          }
+        }
         if (err instanceof RpcError) {
           console.error(pc.red(`bridge error [${err.code}]: ${redactSensitiveText(err.message)}`));
         } else {
@@ -564,6 +615,98 @@ export function resolveDailyCycleCohort(
   return cohort;
 }
 
+export type DailyCycleEnsureMode = "off" | "shadow" | "enforce";
+
+export type DailyCycleAuthority =
+  | { mode: "off"; cycleKind: null }
+  | { mode: "shadow"; cycleKind: "SHADOW" | "REPLAY" }
+  | { mode: "enforce"; cycleKind: "PRODUCTION" };
+
+export function resolveDailyCycleEnsureMode(
+  env: NodeJS.ProcessEnv = process.env,
+): DailyCycleEnsureMode {
+  const mode = env.MOSAIC_ENSURE_SNAPSHOT_MODE;
+  if (mode === undefined) return "off";
+  if (mode === "off" || mode === "shadow" || mode === "enforce") return mode;
+  throw new Error(
+    "P1_ENSURE_MODE_INVALID: MOSAIC_ENSURE_SNAPSHOT_MODE must be one of off, shadow, enforce",
+  );
+}
+
+export function applyDailyCycleEnsureMode(
+  env: NodeJS.ProcessEnv,
+  mode: DailyCycleEnsureMode,
+): void {
+  env.MOSAIC_ENSURE_SNAPSHOT_MODE = mode;
+}
+
+export function resolveDailyCycleAuthority(
+  opts: Pick<DailyCycleOptions, "fakeLlm" | "structuredSmoke" | "cycleKind">,
+  env: NodeJS.ProcessEnv = process.env,
+): DailyCycleAuthority {
+  const nonProductionSmoke = Boolean(opts.fakeLlm || opts.structuredSmoke);
+  if (nonProductionSmoke) {
+    if (opts.cycleKind !== undefined) {
+      throw new Error("non-production smoke cannot open a cycle authority");
+    }
+    return { mode: "off", cycleKind: null };
+  }
+  if (env.MOSAIC_ENSURE_SNAPSHOT_MODE === undefined) {
+    throw new Error(
+      "P1_ENSURE_MODE_MISSING: MOSAIC_ENSURE_SNAPSHOT_MODE must be explicitly configured for live runs",
+    );
+  }
+  const mode = resolveDailyCycleEnsureMode(env);
+  const requested = opts.cycleKind;
+  if (
+    requested !== undefined &&
+    requested !== "shadow" &&
+    requested !== "replay" &&
+    requested !== "production"
+  ) {
+    throw new Error("cycle kind must be one of shadow, replay, production");
+  }
+  if (mode === "off") {
+    if (requested !== undefined) {
+      throw new Error("P1_ENSURE_MODE_DRIFT: off mode cannot open a cycle authority");
+    }
+    return { mode, cycleKind: null };
+  }
+  if (mode === "enforce") {
+    if (requested !== undefined && requested !== "production") {
+      throw new Error("P1_ENSURE_MODE_DRIFT: enforce mode requires PRODUCTION cycle authority");
+    }
+    return { mode, cycleKind: "PRODUCTION" };
+  }
+  if (requested === "production") {
+    throw new Error("P1_ENSURE_MODE_DRIFT: shadow mode requires SHADOW or REPLAY cycle authority");
+  }
+  return { mode, cycleKind: requested === "replay" ? "REPLAY" : "SHADOW" };
+}
+
+export function buildProductionCycleTraceId(
+  cohort: string,
+  asOfDate: string,
+  rosterRevisionId: string,
+  nonce: string,
+): string {
+  const prefix = createHash("sha256")
+    .update(`${cohort}\u0000${asOfDate}\u0000${rosterRevisionId}`)
+    .digest("hex")
+    .slice(0, 24);
+  return `daily-${prefix}-${nonce}`;
+}
+
+export function assertDailyCycleSourceAdmissionReady(
+  admission: Pick<AgentSourceAdmission, "status" | "blocked_routes">,
+): void {
+  if (admission.status === "SOURCE_READY_PENDING_RUNTIME") return;
+  const blockers = admission.blocked_routes
+    .map((row) => `${row.route_id}:${row.blockers.join("+") || "BLOCKED"}`)
+    .join(",");
+  throw new Error(`source admission blocked: ${blockers || "UNKNOWN"}`);
+}
+
 const STRUCTURED_SMOKE_MARKER_FIELDS = [
   "artifact_inventory",
   "artifact_inventory_hash",
@@ -577,13 +720,18 @@ const STRUCTURED_SMOKE_MARKER_FIELDS = [
   "schema_version",
 ] as const;
 const STRUCTURED_SMOKE_ARTIFACT_ROOTS = [
+  "china_archive",
   "economic_calendar",
+  "forward_archive",
   "geopolitical_events",
+  "gov_policy",
   "macro_snapshots",
   "market_breadth",
   "outcome_runtime",
   "runtime_snapshots",
+  "sector_archive",
   "sector_snapshots",
+  "supply_chain_archive",
 ] as const;
 
 export function validateStructuredSmokeFixtureBundle(

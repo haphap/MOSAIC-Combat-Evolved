@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent cycle event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "run_id",
+    "target_date",
+    "cohort",
+    "mode",
+    "cycle_kind",
+    "state",
+    "authority_hashes",
+    "source_eligibility_receipt_hashes",
+    "runtime_route_closure_refs",
+    "stage_outcomes",
+    "accepted_output_closure_hash",
+    "final_decision_hash",
+    "lease",
+    "terminal_reason",
+    "event_at",
+    "receipt_hash"
+  ],
+  "properties": {
+    "schema_version": {"const": "agent_cycle_event_v1"},
+    "event_id": {"$ref": "#/$defs/id"},
+    "run_id": {"$ref": "#/$defs/id"},
+    "target_date": {"type": "string", "format": "date"},
+    "cohort": {"$ref": "#/$defs/id"},
+    "mode": {"enum": ["enforce", "shadow"]},
+    "cycle_kind": {"enum": ["PRODUCTION", "SHADOW", "REPLAY"]},
+    "state": {"enum": ["OPEN", "COMMITTED", "ABORTED"]},
+    "authority_hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "route_manifest_hash",
+        "agent_tool_contract_manifest_hash",
+        "execution_behavior_release_hash",
+        "knot_coverage_manifest_v2_hash"
+      ],
+      "properties": {
+        "route_manifest_hash": {"$ref": "#/$defs/sha256"},
+        "agent_tool_contract_manifest_hash": {"$ref": "#/$defs/sha256"},
+        "execution_behavior_release_hash": {"$ref": "#/$defs/sha256"},
+        "knot_coverage_manifest_v2_hash": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "source_eligibility_receipt_hashes": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/sha256"}
+    },
+    "runtime_route_closure_refs": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/sha256"}
+    },
+    "stage_outcomes": {
+      "type": "array",
+      "maxItems": 29,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["agent_id", "stage", "outcome_kind", "ref_hash"],
+        "properties": {
+          "agent_id": {"$ref": "#/$defs/id"},
+          "stage": {"$ref": "#/$defs/id"},
+          "outcome_kind": {"enum": ["ACCEPTED_OUTPUT", "STAGE_SKIP"]},
+          "ref_hash": {"$ref": "#/$defs/sha256"}
+        }
+      }
+    },
+    "accepted_output_closure_hash": {
+      "oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+    },
+    "final_decision_hash": {
+      "oneOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]
+    },
+    "lease": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["opened_at", "expires_at"],
+      "properties": {
+        "opened_at": {"type": "string", "format": "date-time"},
+        "expires_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "terminal_reason": {"type": ["string", "null"], "maxLength": 256},
+    "event_at": {"type": "string", "format": "date-time"},
+    "receipt_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+    },
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

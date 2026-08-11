@@ -18,14 +18,13 @@ from mosaic.dataflows.agent_materialization import (
 )
 from mosaic.dataflows.europe_macro_archive import (
     ECB_SERIES_IDS,
-    EUROSTAT_SERIES_KEYS,
+    REAL_ECONOMY_ECB_SERIES_IDS,
     EuropeMacroArchiveStore,
     archive_europe_macro_sources,
     compile_europe_macro_snapshots,
     select_ecb_vintage_rows,
 )
 from mosaic.dataflows.exceptions import DataVendorUnavailable
-from mosaic.dataflows.macro_source_contracts import EU_SERIES_MAP
 from mosaic.scorecard.canonical_json import canonical_hash
 
 
@@ -42,7 +41,6 @@ def _raw_result(
     rows: list[dict],
     source: str,
     retrieved_at: str = "2026-08-08T05:55:00+00:00",
-    dataset_updated: str | None = None,
 ) -> dict:
     raw = f"{provider}:{series_key}:{rows!r}".encode()
     result = {
@@ -52,29 +50,22 @@ def _raw_result(
         "source": source,
         "usage_mode": "PRIMARY",
         "request_url": f"https://example.invalid/{provider}/{series_key}",
-        "content_type": "text/csv" if provider == "ECB" else "application/json",
+        "content_type": "text/csv",
         "retrieved_at": retrieved_at,
         "payload_hash": "sha256:" + hashlib.sha256(raw).hexdigest(),
         "raw_payload_b64": base64.b64encode(raw).decode("ascii"),
         "row_count": len(rows),
         "rows": rows,
-        "pit_status": (
-            "AUTHORITATIVE_VINTAGE_HISTORY"
-            if provider == "ECB"
-            else "CURRENT_RESPONSE_REQUIRES_RELEASE_VINTAGE_JOIN"
-        ),
+        "pit_status": "AUTHORITATIVE_VINTAGE_HISTORY",
     }
-    if dataset_updated is not None:
-        result["dataset_updated"] = dataset_updated
     return result
 
 
 def _callbacks(
     *,
-    dataset_updated: str = "2026-08-07T09:00:00+00:00",
-    eurostat_retrieved_at: str = "2026-08-08T05:55:00+00:00",
+    valid_from: str = "2026-08-08T05:00:00+00:00",
 ) -> tuple[dict[str, int], object, object]:
-    counts = {"ecb": 0, "eurostat": 0, "fx": 0}
+    counts = {"financial_ecb": 0, "real_economy_ecb": 0, "fx": 0}
     lock = threading.Lock()
 
     def increment(key: str) -> int:
@@ -94,45 +85,33 @@ def _callbacks(
     ) -> dict:
         assert as_of == CUTOFF
         assert include_raw_payload is True
-        if provider == "ECB":
-            ordinal = increment("ecb")
-            assert include_history is True
-            assert observation_start == OBSERVATION_START
-            assert observation_end == AS_OF
-            rows = [
-                {
-                    "KEY": series_key,
-                    "TIME_PERIOD": "2026-08-07",
-                    "OBS_VALUE": float(ordinal),
-                    "ACTION": "Replace",
-                    "VALID_FROM": "2026-08-08T05:00:00+00:00",
-                    "VALID_TO": "",
-                    "OBS_STATUS": "A",
-                }
-            ]
-            return _raw_result(
-                provider=provider,
-                series_key=series_key,
-                rows=rows,
-                source=f"ecb.{series_key}",
-            )
-        assert provider == "EUROSTAT"
-        ordinal = increment("eurostat")
-        assert include_history is False
-        contract = EU_SERIES_MAP[series_key]
-        dimensions = {
-            item.split("=", 1)[0]: item.split("=", 1)[1]
-            for item in contract["dimensions"].split(",")
-        }
-        period = "2026-Q2" if series_key == "eu27_real_gdp" else "2026-07"
-        rows = [{**dimensions, "time": period, "value": ordinal}]
+        assert provider == "ECB"
+        counter = (
+            "financial_ecb"
+            if series_key in ECB_SERIES_IDS
+            else "real_economy_ecb"
+        )
+        assert series_key in {*ECB_SERIES_IDS, *REAL_ECONOMY_ECB_SERIES_IDS}
+        ordinal = increment(counter)
+        assert include_history is True
+        assert observation_start == OBSERVATION_START
+        assert observation_end == AS_OF
+        rows = [
+            {
+                "KEY": series_key,
+                "TIME_PERIOD": "2026-08-07",
+                "OBS_VALUE": float(ordinal),
+                "ACTION": "Replace",
+                "VALID_FROM": valid_from,
+                "VALID_TO": "",
+                "OBS_STATUS": "A",
+            }
+        ]
         return _raw_result(
             provider=provider,
             series_key=series_key,
             rows=rows,
-            source=f"eurostat.{contract['dataset']}",
-            retrieved_at=eurostat_retrieved_at,
-            dataset_updated=dataset_updated,
+            source=f"ecb.{series_key}",
         )
 
     def fetch_tushare(*, endpoint: str, **params: str) -> list[dict]:
@@ -243,6 +222,62 @@ def _calendar_receipt() -> SourceCaptureReceipt:
     return SourceCaptureReceipt.seal(payload)
 
 
+@pytest.mark.parametrize(
+    ("route_id", "expected_counts"),
+    (
+        (
+            "ecb.eu_real_economy",
+            {"real_economy_ecb": len(REAL_ECONOMY_ECB_SERIES_IDS)},
+        ),
+        ("ecb.euro_macro", {"financial_ecb": len(ECB_SERIES_IDS)}),
+        ("market.euro_fx", {"fx": 1}),
+    ),
+)
+def test_route_only_capture_calls_only_the_requested_europe_source(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    route_id: str,
+    expected_counts: dict[str, int],
+) -> None:
+    from mosaic.dataflows import europe_macro_archive
+
+    monkeypatch.setattr(europe_macro_archive, "_capture_now", lambda: CAPTURED_AT)
+    store = EuropeMacroArchiveStore(tmp_path / "europe-route-only.sqlite3")
+    ledger = AgentDataMaterializationLedger(tmp_path / "europe-route-ledger.sqlite3")
+    counts, fetch_official, fetch_tushare = _callbacks()
+
+    result = archive_europe_macro_sources(
+        as_of_date=AS_OF,
+        cutoff_at=CUTOFF,
+        observation_start=OBSERVATION_START,
+        requested_route_ids=(route_id,),
+        store=store,
+        ledger=ledger,
+        fetch_official=fetch_official,
+        fetch_tushare=fetch_tushare,
+    )
+
+    assert [
+        receipt.as_dict()["identity"]["route_id"]
+        for receipt in result.source_receipts
+    ] == [route_id]
+    assert result.coverage_receipt.as_dict()["required_route_ids"] == [route_id]
+    assert result.coverage_receipt.as_dict()["coverage_complete"] is True
+    if route_id == "ecb.eu_real_economy":
+        assert result.source_receipts[0].as_dict()["coverage"]["dimensions"] == {
+            "series_id": list(REAL_ECONOMY_ECB_SERIES_IDS)
+        }
+    elif route_id == "ecb.euro_macro":
+        assert result.source_receipts[0].as_dict()["coverage"]["dimensions"] == {
+            "series_id": list(ECB_SERIES_IDS)
+        }
+    assert counts == {
+        "financial_ecb": expected_counts.get("financial_ecb", 0),
+        "real_economy_ecb": expected_counts.get("real_economy_ecb", 0),
+        "fx": expected_counts.get("fx", 0),
+    }
+
+
 def test_empty_cache_archives_three_physical_routes_with_exact_pit_modes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -252,8 +287,8 @@ def test_empty_cache_archives_three_physical_routes_with_exact_pit_modes(
     assert result.group is not None
     assert store.row_count() == 1
     assert counts == {
-        "ecb": len(ECB_SERIES_IDS),
-        "eurostat": len(EUROSTAT_SERIES_KEYS),
+        "financial_ecb": len(ECB_SERIES_IDS),
+        "real_economy_ecb": len(REAL_ECONOMY_ECB_SERIES_IDS),
         "fx": 1,
     }
     by_route = {
@@ -261,14 +296,16 @@ def test_empty_cache_archives_three_physical_routes_with_exact_pit_modes(
         for receipt in result.source_receipts
     }
     assert set(by_route) == {
+        "ecb.eu_real_economy",
         "ecb.euro_macro",
-        "eurostat.euro_macro",
         "market.euro_fx",
     }
+    assert by_route["ecb.eu_real_economy"]["pit"]["pit_mode"] == (
+        "AUTHORITATIVE_VINTAGE_REPLAY"
+    )
     assert by_route["ecb.euro_macro"]["pit"]["pit_mode"] == (
         "AUTHORITATIVE_VINTAGE_REPLAY"
     )
-    assert by_route["eurostat.euro_macro"]["pit"]["pit_mode"] == "OBSERVED_LIVE"
     assert by_route["market.euro_fx"]["pit"]["pit_mode"] == "OBSERVED_LIVE"
     assert result.coverage_receipt.as_dict()["coverage_complete"] is True
     assert ledger.row_counts()["source_capture_receipts"] == 3
@@ -323,8 +360,8 @@ def test_concurrent_same_key_publishes_one_group_and_calls_transport_once(
         results = list(pool.map(lambda _: capture(), range(4)))
 
     assert counts == {
-        "ecb": len(ECB_SERIES_IDS),
-        "eurostat": len(EUROSTAT_SERIES_KEYS),
+        "financial_ecb": len(ECB_SERIES_IDS),
+        "real_economy_ecb": len(REAL_ECONOMY_ECB_SERIES_IDS),
         "fx": 1,
     }
     assert sum(not result.cache_hit for result in results) == 1
@@ -337,7 +374,7 @@ def test_concurrent_same_key_publishes_one_group_and_calls_transport_once(
     assert store.row_count() == 1
 
 
-def test_historical_cache_miss_replays_only_ecb_and_blocks_forward_routes(
+def test_historical_cache_miss_replays_both_ecb_routes_and_blocks_live_fx(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     callbacks = _callbacks()
@@ -348,14 +385,90 @@ def test_historical_cache_miss_replays_only_ecb_and_blocks_forward_routes(
         callbacks=callbacks,
     )
 
-    assert counts == {"ecb": len(ECB_SERIES_IDS), "eurostat": 0, "fx": 0}
+    assert counts == {
+        "financial_ecb": len(ECB_SERIES_IDS),
+        "real_economy_ecb": len(REAL_ECONOMY_ECB_SERIES_IDS),
+        "fx": 0,
+    }
     assert [
         receipt.as_dict()["identity"]["route_id"]
         for receipt in result.source_receipts
-    ] == ["ecb.euro_macro"]
+    ] == ["ecb.eu_real_economy", "ecb.euro_macro"]
     coverage = result.coverage_receipt.as_dict()
     assert coverage["coverage_complete"] is False
     assert coverage["blocker_codes"] == ["CAPTURE_AFTER_AS_OF_CUTOFF"]
+    assert store.row_count() == 1
+    assert ledger.row_counts()["source_capture_receipts"] == 2
+
+
+@pytest.mark.parametrize(
+    ("route_id", "expected_counts"),
+    (
+        (
+            "ecb.eu_real_economy",
+            {
+                "financial_ecb": 0,
+                "real_economy_ecb": len(REAL_ECONOMY_ECB_SERIES_IDS),
+                "fx": 0,
+            },
+        ),
+        (
+            "ecb.euro_macro",
+            {
+                "financial_ecb": len(ECB_SERIES_IDS),
+                "real_economy_ecb": 0,
+                "fx": 0,
+            },
+        ),
+        (
+            "market.euro_fx",
+            {"financial_ecb": 0, "real_economy_ecb": 0, "fx": 1},
+        ),
+    ),
+)
+def test_historical_replay_captures_one_europe_route_without_backdating(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    route_id: str,
+    expected_counts: dict[str, int],
+) -> None:
+    from mosaic.dataflows import europe_macro_archive
+
+    captured_at = datetime(2026, 8, 9, 6, 0, tzinfo=timezone.utc)
+    counts, fetch_official, fetch_tushare = _callbacks()
+    monkeypatch.setattr(europe_macro_archive, "_capture_now", lambda: captured_at)
+    store = EuropeMacroArchiveStore(tmp_path / "europe-replay.sqlite3")
+    ledger = AgentDataMaterializationLedger(tmp_path / "europe-replay-ledger.sqlite3")
+
+    result = archive_europe_macro_sources(
+        as_of_date=AS_OF,
+        cutoff_at=CUTOFF,
+        observation_start=OBSERVATION_START,
+        requested_route_ids=(route_id,),
+        historical_replay=True,
+        store=store,
+        ledger=ledger,
+        fetch_official=fetch_official,
+        fetch_tushare=fetch_tushare,
+    )
+
+    assert counts == expected_counts
+    assert result.group is not None
+    assert result.group["historical_replay"] is True
+    assert result.group["requested_cutoff_at"] == CUTOFF
+    assert result.group["cutoff_at"] == captured_at.isoformat()
+    assert result.group["captured_at"] == captured_at.isoformat()
+    assert [
+        receipt.as_dict()["identity"]["route_id"]
+        for receipt in result.source_receipts
+    ] == [route_id]
+    receipt = result.source_receipts[0].as_dict()
+    assert receipt["time"]["captured_at"] == captured_at.isoformat()
+    assert receipt["pit"]["as_of_cutoff"] == captured_at.isoformat()
+    assert result.coverage_receipt.as_dict()["coverage_complete"] is True
+    assert result.coverage_receipt.as_dict()["window"]["end"] == (
+        captured_at.isoformat()
+    )
     assert store.row_count() == 1
     assert ledger.row_counts()["source_capture_receipts"] == 1
 
@@ -380,7 +493,7 @@ def test_future_as_of_rejects_before_transport_or_archive_insert(
         fetch_tushare=fetch_tushare,
     )
 
-    assert counts == {"ecb": 0, "eurostat": 0, "fx": 0}
+    assert counts == {"financial_ecb": 0, "real_economy_ecb": 0, "fx": 0}
     assert result.group is None
     assert result.source_receipts == ()
     assert result.coverage_receipt.as_dict()["blocker_codes"] == [
@@ -389,32 +502,27 @@ def test_future_as_of_rejects_before_transport_or_archive_insert(
     assert store.row_count() == 0
 
 
-def test_forward_dataset_updated_after_cutoff_rolls_back_atomically(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("route_id", ("ecb.eu_real_economy", "ecb.euro_macro"))
+def test_ecb_history_without_a_cutoff_valid_row_rolls_back_atomically(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, route_id: str
 ) -> None:
-    store, ledger, result, _ = _archive(
-        tmp_path,
-        monkeypatch,
-        callbacks=_callbacks(dataset_updated="2026-08-08T08:00:00+00:00"),
+    from mosaic.dataflows import europe_macro_archive
+
+    monkeypatch.setattr(europe_macro_archive, "_capture_now", lambda: CAPTURED_AT)
+    store = EuropeMacroArchiveStore(tmp_path / "europe-macro.sqlite3")
+    ledger = AgentDataMaterializationLedger(tmp_path / "ledger.sqlite3")
+    _, fetch_official, fetch_tushare = _callbacks(
+        valid_from="2026-08-09T05:00:00+00:00"
     )
-
-    assert result.group is None
-    assert result.source_receipts == ()
-    assert result.coverage_receipt.as_dict()["blocker_codes"] == ["SCHEMA_DRIFT"]
-    assert store.row_count() == 0
-    assert ledger.row_counts()["source_capture_receipts"] == 0
-
-
-def test_forward_dataset_updated_after_retrieval_rolls_back_atomically(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    store, ledger, result, _ = _archive(
-        tmp_path,
-        monkeypatch,
-        callbacks=_callbacks(
-            dataset_updated="2026-08-08T06:00:00+00:00",
-            eurostat_retrieved_at="2026-08-08T05:55:00+00:00",
-        ),
+    result = archive_europe_macro_sources(
+        as_of_date=AS_OF,
+        cutoff_at=CUTOFF,
+        observation_start=OBSERVATION_START,
+        requested_route_ids=(route_id,),
+        store=store,
+        ledger=ledger,
+        fetch_official=fetch_official,
+        fetch_tushare=fetch_tushare,
     )
 
     assert result.group is None
@@ -465,8 +573,8 @@ def test_ecb_vintage_selector_applies_delete_tombstones_and_cutoff() -> None:
             "TIME_PERIOD": "2026-01-01",
             "OBS_VALUE": None,
             "ACTION": "Delete",
-            "VALID_FROM": "2026-03-01T00:00:00+00:00",
-            "VALID_TO": "",
+            "VALID_FROM": "",
+            "VALID_TO": "2026-03-01T00:00:00+00:00",
         },
         {
             "TIME_PERIOD": "2026-01-01",
@@ -533,9 +641,15 @@ def test_receipt_bound_compiler_builds_both_roles_without_transport(
     economy_ids = {
         row["series_id"] for row in built.snapshots["eu_economy"]["observations"]
     }
-    assert {"eu_gdp", "eu_hicp", "eu_unemployment", "eu_retail_volume"} <= (
-        economy_ids
-    )
+    assert economy_ids == {
+        "eu_exports_goods_services",
+        "eu_gdp",
+        "eu_hicp",
+        "eu_household_consumption",
+        "eu_imports_goods_services",
+        "eu_unemployment",
+        "euro_area_industrial_production",
+    }
     financial_ids = {
         row["series_id"]
         for row in built.snapshots["euro_area_financial_conditions"]["observations"]
@@ -544,9 +658,11 @@ def test_receipt_bound_compiler_builds_both_roles_without_transport(
         "ecb_dfr",
         "euro_area_curve_10y",
         "euro_area_bank_credit_loans",
-        "eur_ciss",
+        "eu_large_bank_simultaneous_default_probability",
+        "eu_sovereign_simultaneous_default_probability",
         "eur_usd_market",
     } <= financial_ids
+    assert "eur_ciss" not in financial_ids
     assert all(
         receipt.as_dict()["earliest_trustworthy_date"] == AS_OF
         for receipt in built.build_receipts

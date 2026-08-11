@@ -27,6 +27,7 @@ from typing import Any, Callable, Mapping
 from .exceptions import DataVendorUnavailable
 from .macro_source_contracts import (
     EURO_AREA_FINANCIAL_SERIES_MAP,
+    EU_REAL_ECONOMY_SERIES_MAP,
     EU_SERIES_MAP,
     WORLD_BANK_CONTEXT_MAP,
 )
@@ -172,6 +173,7 @@ def build_ecb_url(
         for item in values
         if not item.startswith("official.") and not item.startswith("tushare.")
     }
+    registered.update(EU_REAL_ECONOMY_SERIES_MAP)
     if series_id not in registered:
         raise DataVendorUnavailable(f"unregistered ECB series: {series_id}")
     if (observation_start is None) != (observation_end is None):
@@ -351,15 +353,21 @@ def parse_ecb_history_csv(payload: bytes) -> list[dict[str, Any]]:
         action = str(raw.get("ACTION") or "").strip()
         if action.casefold() not in {"insert", "replace", "delete"}:
             raise DataVendorUnavailable("ECB history ACTION is missing or unsupported")
-        if not raw.get("TIME_PERIOD") or not raw.get("VALID_FROM"):
+        valid_from_text = str(raw.get("VALID_FROM") or "").strip()
+        valid_to_text = str(raw.get("VALID_TO") or "").strip()
+        if not raw.get("TIME_PERIOD") or (
+            not valid_from_text
+            and not (action.casefold() == "delete" and valid_to_text)
+        ):
             raise DataVendorUnavailable(
-                "ECB history is missing TIME_PERIOD/VALID_FROM"
+                "ECB history is missing TIME_PERIOD/validity timestamp"
             )
         try:
-            valid_from = datetime.fromisoformat(
-                str(raw["VALID_FROM"]).replace("Z", "+00:00")
+            valid_from = (
+                datetime.fromisoformat(valid_from_text.replace("Z", "+00:00"))
+                if valid_from_text
+                else None
             )
-            valid_to_text = str(raw.get("VALID_TO") or "").strip()
             valid_to = (
                 datetime.fromisoformat(valid_to_text.replace("Z", "+00:00"))
                 if valid_to_text
@@ -367,13 +375,17 @@ def parse_ecb_history_csv(payload: bytes) -> list[dict[str, Any]]:
             )
         except ValueError as exc:
             raise DataVendorUnavailable("ECB history validity timestamp is invalid") from exc
-        if valid_from.tzinfo is None or (
+        if (valid_from is not None and valid_from.tzinfo is None) or (
             valid_to is not None and valid_to.tzinfo is None
         ):
             raise DataVendorUnavailable(
                 "ECB history validity timestamp must include timezone"
             )
-        if valid_to is not None and valid_to < valid_from:
+        if (
+            valid_from is not None
+            and valid_to is not None
+            and valid_to < valid_from
+        ):
             raise DataVendorUnavailable("ECB history VALID_TO precedes VALID_FROM")
         value_text = str(raw.get("OBS_VALUE") or "").strip()
         if action.casefold() == "delete":
@@ -395,7 +407,7 @@ def parse_ecb_history_csv(payload: bytes) -> list[dict[str, Any]]:
             {
                 **raw,
                 "ACTION": action.capitalize(),
-                "VALID_FROM": valid_from.isoformat(),
+                "VALID_FROM": valid_from.isoformat() if valid_from is not None else "",
                 "VALID_TO": valid_to.isoformat() if valid_to is not None else "",
                 "OBS_VALUE": value,
             }

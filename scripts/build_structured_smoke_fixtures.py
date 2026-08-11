@@ -52,6 +52,20 @@ from mosaic.dataflows.outcome_runtime_inputs import (
     OPPORTUNITY_PROJECTION_SCHEMA_VERSION,
 )
 from mosaic.dataflows.role_events import build_role_event_snapshot
+from mosaic.dataflows.sector_archive import SectorArchiveStore
+from mosaic.dataflows.china_agent_data_archive import (
+    CAPTURE_SCHEMA_VERSION as CHINA_CAPTURE_SCHEMA_VERSION,
+    CURVE_ROUTE_GROUP,
+    INSTITUTIONAL_ETF_UNIVERSE,
+    INSTITUTIONAL_ROUTE_GROUP,
+    ROUTE_GROUPS as CHINA_ROUTE_GROUPS,
+    ChinaAgentDataArchiveStore,
+)
+from mosaic.dataflows.supply_chain_disclosures import (
+    OfficialSupplyChainDisclosureArchive,
+    capture_official_supply_chain_disclosures,
+)
+from mosaic.dataflows.sector_relationship_query_plans import THS_INDUSTRY_FILTERS
 from mosaic.dataflows.sector_snapshots import (
     RELATIONSHIP_SNAPSHOT_SCHEMA_VERSION,
     SECTOR_DIRECTION_CONTRACT_VERSION,
@@ -61,18 +75,24 @@ from mosaic.dataflows.sector_snapshots import (
     SECTOR_UNIVERSE_MANIFEST,
     _canonical_hash as _sector_canonical_hash,
 )
+from mosaic.rke.agent_research_context import SECTOR_AGENT_KEYWORDS
 from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
 from mosaic.scorecard.opportunity_authority import macro_authority_members
 from mosaic.scorecard.canonical_json import canonical_hash
 
 _FIXTURE_ARTIFACT_ROOTS = (
+    "china_archive",
     "economic_calendar",
+    "forward_archive",
     "geopolitical_events",
+    "gov_policy",
     "macro_snapshots",
     "market_breadth",
     "outcome_runtime",
     "runtime_snapshots",
+    "sector_archive",
     "sector_snapshots",
+    "supply_chain_archive",
 )
 
 
@@ -84,6 +104,16 @@ def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "".join(
+            json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in rows
+        ),
         encoding="utf-8",
     )
 
@@ -250,15 +280,18 @@ def _build_macro_snapshots(root: Path, as_of: date) -> None:
             ("RSAFS", "ALFRED"),
         ),
         "eu_economy": (
-            ("eurostat_gdp", "eurostat.namq_10_gdp"),
-            ("eurostat_hicp", "eurostat.prc_hicp_minr"),
-            ("eurostat_employment", "eurostat.une_rt_m"),
-            ("eurostat_retail", "eurostat.sts_trtu_m"),
+            ("eu_gdp", "ecb.MNA.Q.Y.B6.W2.S1.S1.B.B1GQ._Z._Z._Z.EUR.LR.N"),
+            ("eu_hicp", "ecb.HICP.M.B6.N.000000.4D0.ANR"),
+            ("eu_unemployment", "ecb.LFSI.M.B6.S.UNEHRT.TOTAL0.15_74.T"),
+            (
+                "eu_household_consumption",
+                "ecb.MNA.Q.Y.B6.W0.S1M.S1.D.P31._Z._Z._T.EUR.LR.N",
+            ),
         ),
         "central_bank": (
             ("pboc_policy_rate", "official.pboc_lpr_catalog"),
             ("domestic_liquidity_omo", "official.pboc_omo_catalog"),
-            ("cn_curve_10y", "tushare.yc_cb_cn_government_10y"),
+            ("cn_curve_10y", "official.mof_chinabond_government_10y"),
             ("credit_condition_spread", "official.pboc_tsfin_flow_stock"),
         ),
         "us_financial_conditions": (
@@ -279,7 +312,7 @@ def _build_macro_snapshots(root: Path, as_of: date) -> None:
             ),
             (
                 "euro_area_financial_stress_ciss",
-                "ecb.CISS.D.U2.Z0Z.4F.EC.SS_CIN.IDX",
+                "ecb.RDF.D.D0.Z0Z.4F.EC.DFTSV.PR",
             ),
         ),
         "commodities": (
@@ -603,6 +636,7 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
         universe.sort(key=lambda row: (row["direction_id"], row["ts_code"]))
         security_scoring_rows = []
         for security_ordinal, security in enumerate(universe, start=1):
+            direction_quality = len(universe) - security_ordinal + 1
             scoring_row = {
                 "ts_code": security["ts_code"],
                 "direction_id": security["direction_id"],
@@ -612,12 +646,14 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
                 "released_at": released_at,
                 "vintage_at": released_at,
                 "pit_status": "PIT_VERIFIED",
-                "adjusted_return_20d": (
-                    1e-7 if security_ordinal == 1 else round(0.01 * security_ordinal, 6)
+                "adjusted_return_20d": round(0.04 * direction_quality, 6),
+                "realized_volatility_20d": round(
+                    0.08 + 0.06 * security_ordinal, 6
                 ),
-                "realized_volatility_20d": round(0.12 + 0.005 * security_ordinal, 6),
                 "median_amount_20d_cny": float(100_000_000 - security_ordinal * 10_000),
-                "net_moneyflow_20d_cny": float(1_000_000 + security_ordinal * 10_000),
+                "net_moneyflow_20d_cny": float(
+                    1_000_000 + direction_quality * 100_000
+                ),
                 "observation_count": 20,
                 "required_observation_count": 20,
                 "coverage_ratio": 1.0,
@@ -660,6 +696,13 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
             metrics = []
             for metric_contract in metric_contracts:
                 is_etf = metric_contract["metric_family"] == "ETF_CONFIRMATION"
+                metric_id = metric_contract["metric_id"]
+                if metric_id == "REALIZED_VOLATILITY_60D":
+                    metric_value = round(0.08 + ordinal * 0.08, 4)
+                elif metric_id == "CURRENT_DRAWDOWN_252D":
+                    metric_value = round(-0.05 - (ordinal - 1) * 0.12, 4)
+                else:
+                    metric_value = round(0.8 - (ordinal - 1) * 0.18, 4)
                 metric = {
                     **metric_contract,
                     "direction_id": direction_id,
@@ -668,7 +711,7 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
                     "released_at": as_of.isoformat() if is_etf else released_at,
                     "vintage_at": as_of.isoformat() if is_etf else released_at,
                     "pit_status": "PIT_VERIFIED",
-                    "value": None if is_etf else round(0.25 + ordinal * 0.01, 4),
+                    "value": None if is_etf else metric_value,
                     "observation_count": (
                         0 if is_etf else metric_contract["minimum_observations"]
                     ),
@@ -819,6 +862,668 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
         relationship_snapshot
     )
     _write_json(target / "relationship_mapper.json", relationship_snapshot)
+
+
+def _build_sector_archive(root: Path, as_of: date) -> Path:
+    snapshot_root = root / "sector_snapshots" / as_of.isoformat()
+    snapshots = [
+        json.loads((snapshot_root / f"{agent_id}.json").read_text(encoding="utf-8"))
+        for agent_id in SECTOR_DIRECTION_IDS
+    ]
+    ticker_industries: dict[str, str] = {}
+    for agent_id, snapshot in zip(SECTOR_DIRECTION_IDS, snapshots, strict=True):
+        industry = f"synthetic-{agent_id}"
+        for row in snapshot["eligible_security_universe"]:
+            ticker_industries.setdefault(row["ts_code"], industry)
+    tickers = sorted(ticker_industries)
+    etfs = sorted(
+        {
+            ticker
+            for snapshot in snapshots
+            for card in snapshot["direction_cards"]
+            for ticker in card["etf_family"]["etf_ts_codes"]
+        }
+    )
+    if not tickers or not etfs:
+        raise RuntimeError("structured-smoke sector archive scope is empty")
+
+    start = as_of - timedelta(days=365)
+    daily_rows: list[dict[str, Any]] = []
+    for ticker_ordinal, ticker in enumerate(tickers, start=1):
+        for day_ordinal in range(366):
+            trading_day = start + timedelta(days=day_ordinal)
+            base = 10.0 + ticker_ordinal / 10 + day_ordinal / 100
+            daily_rows.append(
+                {
+                    "ts_code": ticker,
+                    "trade_date": trading_day.strftime("%Y%m%d"),
+                    "open": round(base, 4),
+                    "high": round(base + 0.5, 4),
+                    "low": round(base - 0.5, 4),
+                    "close": round(base + 0.2, 4),
+                    "pre_close": round(base + 0.1, 4),
+                    "change": 0.1,
+                    "pct_chg": 1.0,
+                    "vol": 1_000 + day_ordinal,
+                    "amount": 10_000 + day_ordinal,
+                }
+            )
+
+    annual_end = f"{as_of.year - 1}1231"
+    quarterly_end = f"{as_of.year}0331"
+    announcement = min(as_of, date(as_of.year, 4, 30)).strftime("%Y%m%d")
+    statement_rows: dict[str, list[dict[str, Any]]] = {
+        "income": [],
+        "cashflow": [],
+        "balancesheet": [],
+    }
+    for ticker_ordinal, ticker in enumerate(tickers, start=1):
+        for end_date in (annual_end, quarterly_end):
+            common = {
+                "ts_code": ticker,
+                "ann_date": announcement,
+                "f_ann_date": announcement,
+                "end_date": end_date,
+                "update_flag": "1",
+            }
+            statement_rows["income"].append(
+                {
+                    **common,
+                    "revenue": float(100 + ticker_ordinal),
+                    "total_revenue": float(100 + ticker_ordinal),
+                    "n_income": float(8 + ticker_ordinal),
+                    "rd_exp": float(2 + ticker_ordinal / 10),
+                    "operate_profit": float(10 + ticker_ordinal),
+                }
+            )
+            statement_rows["cashflow"].append(
+                {**common, "n_cashflow_act": float(9 + ticker_ordinal)}
+            )
+            statement_rows["balancesheet"].append(
+                {**common, "total_assets": float(1_000 + ticker_ordinal)}
+            )
+
+    disclosure_date = min(as_of, date(as_of.year, 7, 1)).strftime("%Y%m%d")
+    report_date = date(as_of.year, 6, 30).strftime("%Y%m%d")
+    fund_rows = [
+        {
+            "ts_code": etf,
+            "ann_date": disclosure_date,
+            "end_date": report_date,
+            "symbol": tickers[index % len(tickers)].split(".", 1)[0],
+            "stk_name": f"synthetic-holding-{index + 1}",
+            "stk_mkv_ratio": 9.0,
+            "stk_float_ratio": 2.0,
+        }
+        for index, etf in enumerate(etfs)
+    ]
+    api_as_of = as_of.strftime("%Y%m%d")
+    daily_basic_rows = [
+        {
+            "ts_code": ticker,
+            "trade_date": api_as_of,
+            "close": float(10 + index),
+            "turnover_rate": 1.0,
+            "pe": float(8 + index / 10),
+            "pb": 1.0,
+            "ps": 1.5,
+            "dv_ratio": 2.0,
+            "total_mv": float(100_000 + index * 1_000),
+            "circ_mv": float(80_000 + index * 1_000),
+        }
+        for index, ticker in enumerate(tickers, start=1)
+    ]
+    fina_indicator_rows = [
+        {
+            "ts_code": ticker,
+            "ann_date": announcement,
+            "end_date": quarterly_end,
+            "roe": 10.0,
+            "roa": 5.0,
+            "grossprofit_margin": 30.0,
+            "netprofit_margin": 15.0,
+            "debt_to_assets": 40.0,
+            "ocf_to_or": 12.0,
+            "netprofit_yoy": 8.0,
+        }
+        for ticker in tickers
+    ]
+    company_rows = [
+        {
+            "ts_code": ticker,
+            "exchange": "SSE" if ticker.endswith(".SH") else "SZSE",
+            "employees": 1_000 + index,
+            "introduction": f"synthetic company profile {index}",
+            "main_business": f"synthetic-{ticker_industries[ticker]} business",
+            "business_scope": f"synthetic-{ticker_industries[ticker]} scope",
+        }
+        for index, ticker in enumerate(tickers, start=1)
+    ]
+    main_business_rows = [
+        {
+            "ts_code": ticker,
+            "end_date": annual_end,
+            "bz_item": f"synthetic-segment-{index}",
+            "bz_sales": float(60 + index),
+            "bz_profit": float(12 + index),
+        }
+        for index, ticker in enumerate(tickers, start=1)
+    ]
+    forecast_rows = [
+        {
+            "ts_code": ticker,
+            "ann_date": announcement,
+            "first_ann_date": announcement,
+            "end_date": quarterly_end,
+            "net_profit_min": float(8 + index),
+            "net_profit_max": float(10 + index),
+            "p_change_min": 5.0,
+            "p_change_max": 8.0,
+        }
+        for index, ticker in enumerate(tickers, start=1)
+    ]
+    express_rows = [
+        {
+            "ts_code": ticker,
+            "ann_date": announcement,
+            "end_date": quarterly_end,
+            "revenue": float(100 + index),
+            "n_income": float(8 + index),
+        }
+        for index, ticker in enumerate(tickers, start=1)
+    ]
+    batches = [
+        {
+            "endpoint": "stock_basic",
+            "rows": [
+                {
+                    "ts_code": ticker,
+                    "symbol": ticker.split(".", 1)[0],
+                    "name": f"synthetic-security-{index + 1}",
+                    "area": "synthetic-area",
+                    "industry": ticker_industries[ticker],
+                    "market": "主板",
+                    "list_date": "20200101",
+                    "list_status": "L",
+                }
+                for index, ticker in enumerate(tickers)
+            ],
+        },
+        {"endpoint": "daily", "rows": daily_rows},
+        {"endpoint": "daily_basic", "rows": daily_basic_rows},
+        *(
+            {"endpoint": endpoint, "rows": rows}
+            for endpoint, rows in statement_rows.items()
+        ),
+        {"endpoint": "fina_indicator", "rows": fina_indicator_rows},
+        {"endpoint": "stock_company", "rows": company_rows},
+        {"endpoint": "fina_mainbz", "rows": main_business_rows},
+        {"endpoint": "forecast", "rows": forecast_rows},
+        {"endpoint": "express", "rows": express_rows},
+        {"endpoint": "fund_portfolio", "rows": fund_rows},
+    ]
+    captured_at = f"{as_of.isoformat()}T16:30:00+08:00"
+    group = {
+        "schema_version": "sector_relationship_capture_group_v2",
+        "capture_key": _canonical_hash(
+            {"fixture": "structured-smoke-sector-archive", "as_of": as_of.isoformat()}
+        ),
+        "as_of_date": as_of.isoformat(),
+        "cutoff_at": f"{as_of.isoformat()}T23:59:00+08:00",
+        "captured_at": captured_at,
+        "base_group_hash": _canonical_hash(
+            {"fixture": "structured-smoke-a-share-base", "as_of": as_of.isoformat()}
+        ),
+        "sessions": [
+            (start + timedelta(days=index)).strftime("%Y%m%d")
+            for index in range(366)
+        ],
+        "batches": batches,
+        "page_count": len(batches),
+        "normalized_row_count": sum(len(batch["rows"]) for batch in batches),
+        "duplicate_counts": {},
+    }
+    archive_path = root / "sector_archive" / "sector_relationship.sqlite3"
+    store = SectorArchiveStore(archive_path)
+    store.get_or_capture(group["capture_key"], lambda: group)
+    return archive_path
+
+
+def _build_forward_archive(root: Path, as_of: date) -> Path:
+    snapshot_root = root / "sector_snapshots" / as_of.isoformat()
+    ticker_industries: dict[str, str] = {}
+    direction_ids: set[str] = set()
+    rke_pairs: set[tuple[str, str]] = set()
+    direction_agents: dict[str, str] = {}
+    rke_pair_agents: dict[tuple[str, str], str] = {}
+    for agent_id in SECTOR_DIRECTION_IDS:
+        snapshot = json.loads(
+            (snapshot_root / f"{agent_id}.json").read_text(encoding="utf-8")
+        )
+        direction_ids.update(snapshot["direction_ids"])
+        for direction in snapshot["direction_ids"]:
+            direction_agents[direction] = agent_id
+        industry = f"synthetic-{agent_id}"
+        for row in snapshot["eligible_security_universe"]:
+            ticker_industries.setdefault(row["ts_code"], industry)
+            pair = (row["ts_code"], row["direction_id"])
+            rke_pairs.add(pair)
+            rke_pair_agents[pair] = agent_id
+    relationship_snapshot = json.loads(
+        (snapshot_root / "relationship_mapper.json").read_text(encoding="utf-8")
+    )
+    relationship_rows = list(relationship_snapshot["relationships"])
+    for opportunity in relationship_snapshot["prediction_opportunity_set"][
+        "ordered_opportunities"
+    ]:
+        relationship_rows.append(opportunity)
+        relationship_rows.extend(opportunity["matched_non_edges"])
+    for row in relationship_rows:
+        direction_ids.add(row["target_sector_id"])
+        rke_pairs.add((row["target_entity"], row["target_sector_id"]))
+    if not ticker_industries:
+        raise RuntimeError("structured-smoke forward archive scope is empty")
+
+    publish_date = (as_of - timedelta(days=1)).isoformat()
+    discovered_at = f"{as_of.isoformat()}T08:00:00+08:00"
+
+    def research_row(
+        *, source_id: str, report_type: str, query_key: str, industry: str, ts_code: str
+    ) -> dict[str, Any]:
+        title = f"synthetic {report_type} {query_key}"
+        return {
+            "source_id": source_id,
+            "source_span_id": f"{source_id}:abstract",
+            "source_type": "synthetic_tushare_research_report",
+            "report_type": report_type,
+            "query_key": query_key,
+            "publish_date": publish_date,
+            "discovered_at": discovered_at,
+            "title": title,
+            "abstract": f"{title} fixture abstract",
+            "author": "synthetic analyst",
+            "institution": "synthetic broker",
+            "ts_code": ts_code,
+            "industry": industry,
+            "url": f"https://synthetic.invalid/{source_id}",
+            "source_hash": _canonical_hash(
+                {
+                    "source_id": source_id,
+                    "report_type": report_type,
+                    "query_key": query_key,
+                    "publish_date": publish_date,
+                }
+            ),
+            "point_in_time_available": True,
+            "license_status": "synthetic_non_production",
+        }
+
+    stock_rows = [
+        research_row(
+            source_id=f"structured-smoke-stock-{index}",
+            report_type="个股研报",
+            query_key=ticker,
+            industry=industry,
+            ts_code=ticker,
+        )
+        for index, (ticker, industry) in enumerate(
+            sorted(ticker_industries.items()), start=1
+        )
+    ]
+    broker_rows = [
+        research_row(
+            source_id=f"structured-smoke-industry-{index}",
+            report_type="行业研报",
+            query_key=industry,
+            industry=industry,
+            ts_code="",
+        )
+        for index, industry in enumerate(
+            sorted(set(ticker_industries.values())), start=1
+        )
+    ]
+    direction_rows = []
+    rke_agent_by_source: dict[str, str] = {}
+    for index, direction in enumerate(sorted(direction_ids), start=1):
+        row = research_row(
+            source_id=f"structured-smoke-direction-{index}",
+            report_type="行业研报",
+            query_key=direction,
+            industry=direction,
+            ts_code="",
+        )
+        direction_rows.append(row)
+        if agent_id := direction_agents.get(direction):
+            rke_agent_by_source[row["source_id"]] = agent_id
+    rke_stock_rows = []
+    for index, (ticker, direction) in enumerate(sorted(rke_pairs), start=1):
+        row = research_row(
+            source_id=f"structured-smoke-rke-stock-{index}",
+            report_type="个股研报",
+            query_key=ticker,
+            industry=direction,
+            ts_code=ticker,
+        )
+        rke_stock_rows.append(row)
+        if agent_id := rke_pair_agents.get((ticker, direction)):
+            rke_agent_by_source[row["source_id"]] = agent_id
+    rows = [*stock_rows, *broker_rows, *direction_rows, *rke_stock_rows]
+    archive_root = root / "forward_archive"
+    _write_jsonl(
+        archive_root / "registry/sources/tushare_research_reports.jsonl", rows
+    )
+    rke_rows = [*rke_stock_rows, *direction_rows]
+    report_metadata = []
+    forecast_claims = []
+    for index, row in enumerate(rke_rows, start=1):
+        report_id = f"structured-smoke-rke-report-{index}"
+        is_stock = row["report_type"] == "个股研报"
+        rke_agent_id = rke_agent_by_source.get(row["source_id"], "")
+        report_metadata.append(
+            {
+                "report_id": report_id,
+                "source_id": row["source_id"],
+                "report_type": row["report_type"],
+                "ts_code": row["ts_code"],
+                "sector": row["industry"],
+                "subsectors": (
+                    [SECTOR_AGENT_KEYWORDS[f"sector.{rke_agent_id}"][0]]
+                    if rke_agent_id
+                    else []
+                ),
+                "publish_datetime": f"{publish_date}T09:00:00+08:00",
+                "accessible_datetime": f"{publish_date}T09:00:00+08:00",
+            }
+        )
+        forecast_claims.append(
+            {
+                "forecast_claim_id": f"structured-smoke-rke-claim-{index}",
+                "report_id": report_id,
+                "source_id": row["source_id"],
+                "target": {
+                    "target_type": "stock" if is_stock else "industry",
+                    "target_id": row["ts_code"] if is_stock else row["industry"],
+                },
+                "metric_proxy_mapping": (
+                    ["cashflow", "quality", "stock_forward_return"]
+                    if is_stock
+                    else ["industry_etf_forward_return"]
+                ),
+                "direction": "positive",
+            }
+        )
+    rke_root = archive_root / "registry/report_intelligence"
+    _write_jsonl(rke_root / "report_metadata.jsonl", report_metadata)
+    _write_jsonl(rke_root / "forecast_claims.jsonl", forecast_claims)
+    return archive_root
+
+
+def _build_supply_chain_archive(root: Path, as_of: date) -> Path:
+    archive_path = (
+        root / "supply_chain_archive" / "official_supply_chain_disclosures.sqlite3"
+    )
+    archive = OfficialSupplyChainDisclosureArchive(archive_path)
+    announcement_date = as_of - timedelta(days=30)
+    announced_at = f"{announcement_date.isoformat()}T18:00:00+08:00"
+    report_period = date(announcement_date.year - 1, 12, 31).isoformat()
+    counterparties = {
+        "000001.SZ": "000002.SZ",
+        "000002.SZ": "000001.SZ",
+    }
+    for ticker, counterparty in counterparties.items():
+        org_id = f"structured-smoke-{ticker[:6]}"
+        document_url = (
+            "https://static.cninfo.com.cn/finalpage/"
+            f"{announcement_date.isoformat()}/synthetic-{ticker[:6]}.pdf"
+        )
+        document_content = (
+            f"%PDF-1.7\nsynthetic supply-chain disclosure {ticker}\n%%EOF"
+        ).encode()
+        announcement = {
+            "announcement_id": f"CNINFO-{ticker[:6]}-SYNTHETIC-ANNUAL",
+            "ticker": ticker,
+            "title": "synthetic annual report",
+            "announced_at": announced_at,
+            "report_period": report_period,
+            "document_url": document_url,
+        }
+
+        def search_page(
+            identity: dict[str, str],
+            captured_as_of: str,
+            page_number: int,
+            *,
+            expected_ticker: str = ticker,
+            expected_org_id: str = org_id,
+            expected_announcement: dict[str, str] = announcement,
+        ) -> dict[str, Any]:
+            if identity != {"ticker": expected_ticker, "org_id": expected_org_id}:
+                raise AssertionError("synthetic CNINFO identity mismatch")
+            if captured_as_of != as_of.isoformat():
+                raise AssertionError("synthetic CNINFO as_of mismatch")
+            if page_number == 1:
+                return {
+                    "page_number": 1,
+                    "has_more": False,
+                    "announcements": [expected_announcement],
+                }
+            return {"page_number": 2, "has_more": False, "announcements": []}
+
+        capture_official_supply_chain_disclosures(
+            archive=archive,
+            ticker=ticker,
+            as_of=as_of.isoformat(),
+            resolve_identity=lambda requested_ticker, expected_org_id=org_id: {
+                "ticker": requested_ticker,
+                "org_id": expected_org_id,
+            },
+            search_page=search_page,
+            download_document=lambda _url, content=document_content: content,
+            parse_document=lambda _content, _metadata, peer=counterparty: [
+                {"counterparty_ticker": peer, "counterparty_role": "supplier"}
+            ],
+            parser_version="structured-smoke-supply-chain-v1",
+            build_query_contract=lambda identity, captured_as_of: {
+                "contract_version": "cninfo_annual_report_query_v2",
+                "endpoint": "https://www.cninfo.com.cn/new/hisAnnouncement/query",
+                "method": "POST",
+                "content_type": "application/x-www-form-urlencoded",
+                "identity_endpoint": (
+                    "https://www.cninfo.com.cn/new/information/topSearch/query"
+                ),
+                "identity_method": "POST",
+                "identity_max_results": 10,
+                "identity_match_policy": "UNIQUE_EXACT_CODE",
+                "counterparty_match_policy": "UNIQUE_NORMALIZED_EXACT_NAME",
+                "counterparty_query_limit_per_document": 10,
+                "page_size": 30,
+                "column": "szse",
+                "tab_name": "fulltext",
+                "plate": "",
+                "stock": f"{identity['ticker'][:6]},{identity['org_id']}",
+                "search_key": "",
+                "security_id": "",
+                "category": "category_ndbg_szsh",
+                "trade": "",
+                "start_date": (
+                    date.fromisoformat(captured_as_of) - timedelta(days=5 * 365)
+                ).isoformat(),
+                "end_date": captured_as_of,
+                "sort_name": "time",
+                "sort_type": "desc",
+                "highlight_titles": True,
+            },
+        )
+    return archive_path
+
+
+def _build_china_archive(root: Path, as_of: date) -> Path:
+    archive_path = root / "china_archive" / "china_agent_data.sqlite3"
+    store = ChinaAgentDataArchiveStore(archive_path)
+    start = as_of - timedelta(days=365)
+    captured_at = f"{as_of.isoformat()}T14:45:00+08:00"
+    cutoff_at = f"{as_of.isoformat()}T23:59:00+08:00"
+    industries = sorted(
+        {
+            industry
+            for filters in THS_INDUSTRY_FILTERS.values()
+            for industry in filters
+        }
+        | {"银行"}
+    )
+    industry_history_rows = [
+        {
+            "trade_date": (start + timedelta(days=day_ordinal)).isoformat(),
+            "industry": industry,
+            "net_amount": float(industry_ordinal * 10 + day_ordinal),
+            "lead_stock": f"synthetic-leader-{industry_ordinal}",
+        }
+        for day_ordinal in range(366)
+        for industry_ordinal, industry in enumerate(industries, start=1)
+    ]
+    institutional_body = {
+        "schema_version": CHINA_CAPTURE_SCHEMA_VERSION,
+        "capture_key": _canonical_hash(
+            {"fixture": "structured-smoke-institutional", "as_of": as_of.isoformat()}
+        ),
+        "route_group": INSTITUTIONAL_ROUTE_GROUP,
+        "route_ids": list(CHINA_ROUTE_GROUPS[INSTITUTIONAL_ROUTE_GROUP]),
+        "as_of_date": as_of.isoformat(),
+        "cutoff_at": cutoff_at,
+        "captured_at": captured_at,
+        "market_session_date": as_of.isoformat(),
+        "northbound": {"north_money": 100.0, "row_count": 1},
+        "industry_rows": [
+            {
+                "industry": industry,
+                "net_amount": float(index * 10 + 365),
+            }
+            for index, industry in enumerate(industries, start=1)
+        ],
+        "industry_history_start": start.isoformat(),
+        "industry_history_rows": industry_history_rows,
+        "industry_transport_call_count": 1,
+        "industry_duplicate_count": 0,
+        "fund_share_rows": [
+            {"ts_code": ticker, "fd_share": float(index * 1_000)}
+            for index, ticker in enumerate(INSTITUTIONAL_ETF_UNIVERSE, start=1)
+        ],
+        "crowding_rows": [
+            {
+                "ts_code": "600000.SH",
+                "turnover_rate": 1.5,
+                "volume_ratio": 0.9,
+            }
+        ],
+    }
+    institutional_group = {
+        **institutional_body,
+        "group_hash": _canonical_hash(institutional_body),
+    }
+    store.get_or_capture(
+        institutional_body["capture_key"], lambda: institutional_group
+    )
+
+    tenors = (1, 2, 3, 5, 7, 10, 30)
+    government_curve_rows = [
+        {
+            "trade_date": (start + timedelta(days=day_ordinal)).isoformat(),
+            "released_at": (
+                f"{(start + timedelta(days=day_ordinal)).isoformat()}"
+                "T17:30:00+08:00"
+            ),
+            "curve_type": "0",
+            "curve_term": tenor,
+            "yield": round(1.0 + tenor / 100 + day_ordinal / 10_000, 6),
+        }
+        for day_ordinal in range(366)
+        for tenor in tenors
+    ]
+    latest_government_curve = {
+        f"{row['curve_term']}y": row["yield"]
+        for row in government_curve_rows
+        if row["trade_date"] == as_of.isoformat()
+    }
+    curve_captured_at = f"{as_of.isoformat()}T18:00:00+08:00"
+    curve_body = {
+        "schema_version": CHINA_CAPTURE_SCHEMA_VERSION,
+        "capture_key": _canonical_hash(
+            {"fixture": "structured-smoke-curve", "as_of": as_of.isoformat()}
+        ),
+        "route_group": CURVE_ROUTE_GROUP,
+        "route_ids": list(CHINA_ROUTE_GROUPS[CURVE_ROUTE_GROUP]),
+        "as_of_date": as_of.isoformat(),
+        "cutoff_at": cutoff_at,
+        "captured_at": curve_captured_at,
+        "market_session_date": as_of.isoformat(),
+        "requested_market_session_date": as_of.isoformat(),
+        "shibor": {"overnight": 1.3, "three_month": 1.6},
+        "curve_history_start": start.isoformat(),
+        "government_curve_rows": government_curve_rows,
+        "government_curve": {
+            "2y": latest_government_curve["2y"],
+            "10y": latest_government_curve["10y"],
+        },
+        "government_curve_source": {
+            "schema_version": "mof_chinabond_government_yield_curve_v1",
+            "provider": "MOF_CHINABOND",
+            "source_url": (
+                "https://yield.chinabond.com.cn/cbweb-czb-web/czb/historyQuery"
+            ),
+            "yield_type": "MATURITY",
+            "release_time": "17:30:00+08:00",
+            "request_windows": [
+                {
+                    "start_date": start.isoformat(),
+                    "end_date": as_of.isoformat(),
+                }
+            ],
+            "response_hashes": [
+                _canonical_hash(
+                    {
+                        "fixture": "structured-smoke-official-curve",
+                        "start_date": start.isoformat(),
+                        "end_date": as_of.isoformat(),
+                    }
+                )
+            ],
+            "session_released_at": (
+                f"{as_of.isoformat()}T17:30:00+08:00"
+            ),
+        },
+    }
+    curve_group = {**curve_body, "group_hash": _canonical_hash(curve_body)}
+    store.get_or_capture(curve_body["capture_key"], lambda: curve_group)
+    return archive_path
+
+
+def _build_policy_archive(root: Path, as_of: date) -> Path:
+    policy_root = root / "gov_policy"
+    published_at = (as_of - timedelta(days=1)).isoformat()
+    discovered_at = f"{as_of.isoformat()}T08:30:00+08:00"
+    article_id = f"structured-smoke-policy-{as_of.isoformat()}"
+    row = {
+        "article_id": article_id,
+        "source": "synthetic gov.cn policy fixture",
+        "category_id": "gongwen",
+        "category": "国务院文件",
+        "pub_date": published_at,
+        "puborg": "国务院",
+        "pcode": "synthetic-policy-1",
+        "index": "",
+        "childtype": "国民经济管理、国有资产监管",
+        "title": "synthetic industry policy fixture",
+        "summary": "synthetic policy summary without vendor prose",
+        "url": f"https://synthetic.invalid/{article_id}",
+        "raw_id": article_id,
+        "raw_pubtime": None,
+        "raw_ptime": None,
+        "raw_sha256": _canonical_hash({"article_id": article_id})[7:],
+        "parsed_at": discovered_at,
+        "discovered_at": discovered_at,
+    }
+    _write_jsonl(policy_root / "parsed/policy_documents.jsonl", [row])
+    return policy_root
 
 
 def _structured_smoke_event_id(agent_id: str, as_of: date) -> str:
@@ -1098,6 +1803,7 @@ def _runtime_snapshot(
     upstream: tuple[tuple[dict[str, Any], dict[str, Any]], ...],
     constraints: dict[str, Any],
     role_context: dict[str, Any],
+    candidate_universe: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     contract = BOUND_RUNTIME_SNAPSHOT_CONTRACTS[tool_id]
     refs = [ref for ref, _evidence in upstream]
@@ -1105,8 +1811,8 @@ def _runtime_snapshot(
     evidence_ids = [row["evidence_id"] for row in evidence]
     constraints = {**constraints, "evidence_ids": evidence_ids}
     role_context = {**role_context, "evidence_ids": evidence_ids}
-    candidate_universe: list[dict[str, Any]] = []
-    candidate_status = "EMPTY_CONFIRMED"
+    candidate_universe = candidate_universe or []
+    candidate_status = "AVAILABLE" if candidate_universe else "EMPTY_CONFIRMED"
     candidate_universe_hash = _canonical_hash(
         {
             "candidate_status": candidate_status,
@@ -1206,6 +1912,40 @@ def _build_runtime_snapshots(root: Path, as_of: date) -> None:
         accepted_output_kind="ALPHA_DISCOVERY",
         as_of=as_of,
     )
+    candidate_source_ref = sector[0][0]
+    candidate_source_snapshot = json.loads(
+        (
+            root
+            / "sector_snapshots"
+            / as_of.isoformat()
+            / f"{candidate_source_ref['agent_id']}.json"
+        ).read_text(encoding="utf-8")
+    )
+    candidate_security = candidate_source_snapshot["eligible_security_universe"][0]
+    superinvestor_candidates = [
+        {
+            "candidate_ref": "runtime-candidate:"
+            + _canonical_hash(
+                {
+                    "accepted_output_id": candidate_source_ref["accepted_output_id"],
+                    "pick_local_id": (
+                        "structured-smoke:pick:"
+                        f"{candidate_security['direction_id']}:"
+                        f"{candidate_security['ts_code']}"
+                    ),
+                }
+            ).removeprefix("sha256:"),
+            "ts_code": candidate_security["ts_code"],
+            "source_output_id": candidate_source_ref["accepted_output_id"],
+            "source_output_hash": candidate_source_ref["accepted_output_hash"],
+            "source_sector_agent_id": candidate_source_ref["agent_id"],
+            "source_direction_id": candidate_security["direction_id"],
+            "source_direction": "PREFERRED",
+            "metrics": {"conviction": 0.8},
+            "evidence_ids": list(candidate_source_ref["evidence_ids"]),
+        }
+    ]
+    candidate_origin_hash = _canonical_hash(superinvestor_candidates)
 
     snapshots: list[tuple[str, str, str, dict[str, Any]]] = []
     for agent_id in SUPERINVESTOR_AGENTS:
@@ -1221,17 +1961,19 @@ def _build_runtime_snapshots(root: Path, as_of: date) -> None:
                     as_of=as_of,
                     upstream=(*macro, *sector, relationship),
                     constraints={
-                        "cash_only": True,
-                        "allow_new_positions": False,
+                        "cash_only": False,
+                        "allow_new_positions": True,
                         "max_pick_count": 3,
                         "max_total_conviction": 1.0,
                         "prohibited_ts_codes": [],
                     },
                     role_context={
                         "context_kind": "SUPERINVESTOR_CANDIDATE_SELECTION",
-                        "candidate_origin_set_id": "structured-smoke:sector-origins",
-                        "candidate_origin_set_hash": _canonical_hash([]),
+                        "candidate_origin_set_id": "candidate-origin-set:"
+                        + candidate_origin_hash.removeprefix("sha256:"),
+                        "candidate_origin_set_hash": candidate_origin_hash,
                     },
+                    candidate_universe=superinvestor_candidates,
                 ),
             )
         )
@@ -1423,6 +2165,11 @@ def build_structured_smoke_fixtures(root: Path, as_of_date: str) -> dict[str, st
     manifest_path = _build_geopolitical_cache(root, as_of)
     _build_market_breadth(root, as_of)
     _build_sector_snapshots(root, as_of)
+    sector_archive_path = _build_sector_archive(root, as_of)
+    forward_archive_root = _build_forward_archive(root, as_of)
+    supply_chain_archive_path = _build_supply_chain_archive(root, as_of)
+    china_archive_path = _build_china_archive(root, as_of)
+    _build_policy_archive(root, as_of)
     _build_outcome_event_coverage(root, as_of)
     _build_outcome_opportunity_projections(root, as_of)
     _build_runtime_snapshots(root, as_of)
@@ -1444,7 +2191,15 @@ def build_structured_smoke_fixtures(root: Path, as_of_date: str) -> dict[str, st
     _write_json(root / "structured_smoke_fixture_bundle.json", marker)
     return {
         "MOSAIC_CACHE_DIR": str(root),
+        "MOSAIC_CHINA_AGENT_ARCHIVE_DB": str(china_archive_path),
         "MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST": str(manifest_path),
+        "MOSAIC_FORWARD_ARCHIVE_ROOT": str(forward_archive_root),
+        "MOSAIC_GOV_POLICY_CACHE_DIR": str(root / "gov_policy"),
+        "MOSAIC_REGISTRY_DIR": str(
+            forward_archive_root / "registry/report_intelligence"
+        ),
+        "MOSAIC_SECTOR_ARCHIVE_PATH": str(sector_archive_path),
+        "MOSAIC_SUPPLY_CHAIN_ARCHIVE_PATH": str(supply_chain_archive_path),
         "MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS": "structured_smoke",
         "MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH": marker["bundle_hash"],
     }

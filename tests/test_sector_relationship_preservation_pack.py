@@ -110,6 +110,9 @@ def test_overlay_keeps_frozen_base_and_covers_all_70_activated_bindings():
         for row in overlay["bindings"]
         if row["agent_id"] == "financials"
     }
+    assert _binding_by(
+        overlay, agent_id="financials", tool_id="get_yield_curve_cn"
+    )["source_route_ids"] == ["tushare.shibor_yield_curve"]
     assert {
         "get_rke_research_context",
         "get_stock_research",

@@ -9,6 +9,10 @@ import pytest
 
 from mosaic.dataflows import official_macro_adapters
 from mosaic.dataflows.exceptions import DataVendorUnavailable
+from mosaic.dataflows.macro_source_contracts import (
+    EURO_AREA_FINANCIAL_SERIES_MAP,
+    EU_REAL_ECONOMY_SERIES_MAP,
+)
 from mosaic.dataflows.official_macro_adapters import (
     OfficialApiResponse,
     build_ecb_url,
@@ -26,6 +30,7 @@ from mosaic.dataflows.official_macro_adapters import (
     parse_ny_fed_reference_rates,
     parse_world_bank_json,
 )
+from scripts import probe_official_macro_sources
 
 
 def test_live_fetch_preserves_final_transport_cause(
@@ -79,6 +84,20 @@ def test_official_macro_urls_are_closed_and_bounded() -> None:
     assert "startPeriod=2025-01-01" in ecb_window
     assert "endPeriod=2026-08-01" in ecb_window
     assert "lastNObservations" not in ecb_window
+    real_economy = build_ecb_url(
+        "HICP.M.B6.N.000000.4D0.ANR",
+        last_observations=None,
+        include_history=True,
+        observation_start="2025-01-01",
+        observation_end="2026-08-01",
+    )
+    assert "/HICP/M.B6.N.000000.4D0.ANR?" in real_economy
+    systemic_stress = build_ecb_url(
+        "RDF.D.D0.Z0Z.4F.EC.DFTSV.PR", last_observations=3, include_history=True
+    )
+    assert "/RDF/D.D0.Z0Z.4F.EC.DFTSV.PR?" in systemic_stress
+    with pytest.raises(DataVendorUnavailable, match="unregistered ECB series"):
+        build_ecb_url("CISS.D.U2.Z0Z.4F.EC.SS_CIN.IDX")
 
     world_bank = build_world_bank_url("eu_gdp_growth_context", most_recent=5)
     assert world_bank.startswith("https://api.worldbank.org/v2/country/EUU/")
@@ -143,6 +162,20 @@ def test_ecb_history_preserves_versions_and_delete_tombstones() -> None:
     assert rows[1]["ACTION"] == "Delete"
     assert rows[1]["OBS_VALUE"] is None
     assert rows[1]["VALID_FROM"] == "2025-02-02T10:00:00+00:00"
+
+
+def test_ecb_history_accepts_official_delete_tombstone_with_only_valid_to() -> None:
+    payload = (
+        b"KEY,TIME_PERIOD,OBS_VALUE,ACTION,VALID_FROM,VALID_TO,OBS_STATUS\n"
+        b"RDF,2025-01-01,,Delete,,2025-05-08T09:32:06+02:00,A\n"
+        b"RDF,2025-01-01,2.06,Replace,2025-05-08T14:54:43+02:00,,A\n"
+    )
+
+    rows = parse_ecb_history_csv(payload)
+
+    assert rows[0]["ACTION"] == "Delete"
+    assert rows[0]["VALID_FROM"] == ""
+    assert rows[0]["VALID_TO"] == "2025-05-08T09:32:06+02:00"
 
 
 def test_europe_archive_fetch_retains_provider_vintage_metadata_and_raw_payload() -> None:
@@ -286,6 +319,61 @@ def test_committed_official_preflight_is_metadata_only_and_hash_bound() -> None:
     assert artifact["raw_provider_rows_committed"] is False
     assert artifact["summary"]["production_snapshot_ready"] is False
     assert all("rows" not in check for check in artifact["checks"])
+
+
+def test_official_preflight_probes_only_active_ecb_history_contracts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fetch(**kwargs: object) -> dict[str, object]:
+        calls.append(dict(kwargs))
+        provider = str(kwargs["provider"])
+        series_key = str(kwargs["series_key"])
+        pit_status = (
+            "AUTHORITATIVE_VINTAGE_HISTORY"
+            if provider == "ECB"
+            else "CURRENT_RESPONSE_REQUIRES_RELEASE_VINTAGE_JOIN"
+        )
+        return {
+            "provider": provider,
+            "series_key": series_key,
+            "source": f"{provider.casefold()}.{series_key}",
+            "usage_mode": "PRIMARY" if provider == "ECB" else "CONTEXT_ONLY",
+            "request_url": f"https://example.test/{series_key}",
+            "content_type": "text/csv",
+            "retrieved_at": "2026-08-11T01:00:00+00:00",
+            "payload_hash": f"sha256:{'0' * 64}",
+            "row_count": 1,
+            "elapsed_ms": 1.0,
+            "pit_status": pit_status,
+        }
+
+    monkeypatch.setattr(probe_official_macro_sources, "fetch_official_series", fetch)
+    artifact = probe_official_macro_sources.build_preflight(
+        generated_at="2026-08-11T00:00:00+00:00",
+        as_of_date="2026-07-17",
+    )
+
+    expected_ecb = set(EU_REAL_ECONOMY_SERIES_MAP) | {
+        series_id
+        for series_ids in EURO_AREA_FINANCIAL_SERIES_MAP.values()
+        for series_id in series_ids
+        if not series_id.startswith(("official.", "tushare."))
+    }
+    ecb_calls = [call for call in calls if call["provider"] == "ECB"]
+    assert {str(call["series_key"]) for call in ecb_calls} == expected_ecb
+    assert all(
+        call["include_history"] is True
+        and call["observation_start"] == "2025-01-01"
+        and call["observation_end"] == "2026-07-17"
+        for call in ecb_calls
+    )
+    assert len(calls) == len(expected_ecb)
+    assert all(call["provider"] == "ECB" for call in calls)
+    assert all("CISS." not in str(call["series_key"]) for call in calls)
+    assert artifact["summary"]["check_count"] == len(expected_ecb)
+    assert artifact["summary"]["required_transport_ready"] is True
 
 
 def test_us_official_urls_are_closed_and_exact() -> None:

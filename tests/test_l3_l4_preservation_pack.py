@@ -104,6 +104,12 @@ def test_overlay_preserves_exact_28_l3_and_5_l4_bindings_on_active_surface():
     assert overlay["base_active_agent_tool_manifest_hash"] == canonical_hash(
         preactivation
     )
+    assert _binding_by(
+        overlay,
+        agent_id="druckenmiller",
+        stage="druckenmiller",
+        tool_id="get_yield_curve_cn",
+    )["source_route_ids"] == ["tushare.shibor_yield_curve"]
 
 
 def test_l3_candidate_scope_and_initial_call_contracts_are_explicit():

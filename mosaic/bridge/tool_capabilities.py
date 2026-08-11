@@ -1,9 +1,8 @@
 """Server-enforced, bundle-bound capabilities for model-callable tools.
 
-The model never receives the signed envelope.  The TypeScript runtime keeps it
-out of band and only exposes zero-argument LangChain tools.  Every payload is
-materialised before the model call, hashed into one immutable bundle, and read
-back from the local ledger; ``tools.call`` never reaches a collector.
+The model never receives the signed envelope. The TypeScript runtime keeps it
+out of band. Snapshot payloads are materialised before the model call;
+every tool payload remains bundle-bound.
 """
 
 from __future__ import annotations
@@ -26,12 +25,15 @@ from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import SchemaError, ValidationError
 
 from mosaic.dataflows.exceptions import DataVendorUnavailable
-from mosaic.dataflows.adaptive_query_archives import TrustedArchiveQueryRouter
 from mosaic.dataflows.agent_stage_preparer import (
+    SOURCE_ADMISSION_FAMILY_STAGE_GROUPS,
     ensure_agent_stage_materialization,
     finalize_agent_stage_materialization,
+    prepare_agent_stage_materialization_current_namespace,
+    trusted_deferred_request_only_request,
 )
 from mosaic.dataflows.agent_materialization import (
+    load_agent_data_route_manifest,
     open_agent_data_materialization_ledger,
 )
 from mosaic.dataflows.bound_runtime_snapshots import (
@@ -45,26 +47,26 @@ from mosaic.dataflows.bound_runtime_production import (
 from mosaic.dataflows.cninfo_supply_chain import (
     CninfoSupplyChainDisclosureCollector,
 )
-from mosaic.dataflows.frozen_adaptive_queries import FrozenAdaptiveQueryStore
+from mosaic.dataflows.frozen_adaptive_queries import (
+    CALL_TIME_ARGUMENT_CONTRACT,
+    FrozenAdaptiveQueryStore,
+    PUBLIC_PROJECTION_VERSION,
+    deferred_query_bundle_hash,
+)
 from mosaic.dataflows.frozen_research_digest import FrozenResearchDigestBuilder
 from mosaic.dataflows.forward_archive_queries import (
     ForwardArchiveQueryReader,
     ForwardArchiveSourcePreparer,
 )
-from mosaic.dataflows.china_agent_data_archive import (
-    ChinaAgentDataArchiveStore,
-    china_agent_archive_path,
-)
-from mosaic.dataflows.china_archive_queries import ChinaArchiveQueryReader
+from mosaic.dataflows.interface import route_to_vendor
 from mosaic.dataflows.macro_snapshots import render_role_snapshot
 from mosaic.dataflows.market_breadth import render_market_breadth_snapshot
 from mosaic.dataflows.role_events import render_role_event_snapshot
-from mosaic.dataflows.sector_archive import SectorArchiveStore, sector_archive_path
-from mosaic.dataflows.sector_archive_queries import SectorArchiveQueryReader
 from mosaic.dataflows.sector_relationship_production import (
     SectorRelationshipAdaptiveQueryPreparer,
 )
 from mosaic.dataflows.sector_relationship_queries import (
+    DIRECT_VENDOR_TOOL_IDS,
     SectorRelationshipQueryMaterializer,
 )
 from mosaic.dataflows.sector_relationship_source_evidence import (
@@ -78,6 +80,7 @@ from mosaic.dataflows.sector_snapshots import (
     render_relationship_snapshot,
     render_sector_snapshot,
 )
+from mosaic.dataflows.runtime_paths import isolated_agent_runtime_path
 from mosaic.scorecard.canonical_json import canonical_hash, canonical_json
 from mosaic.scorecard.accepted_output_contracts import _validate_knot_capture_v2
 from mosaic.scorecard.capability_preservation import (
@@ -171,8 +174,15 @@ AGENT_TOOL_IDS: Final[tuple[AgentToolId, ...]] = (
 ADAPTIVE_QUERY_TOOL_IDS: Final[frozenset[AgentToolId]] = frozenset(
     set(AGENT_TOOL_IDS) - set(INITIAL_SNAPSHOT_TOOL_IDS)
 )
-
-
+QUERY_SCOPED_SOURCE_ROUTE_IDS: Final[frozenset[str]] = frozenset(
+    {
+        "official.company_supply_chain_disclosures",
+        "official.govcn_policy",
+        "private.rke_report_intelligence",
+        "private.tushare_research_reports",
+        "tushare.etf_holdings",
+    }
+)
 def _load_runtime_tool_contract() -> tuple[
     tuple[str, ...], dict[str, tuple[str, ...]], dict[str, tuple[AgentToolId, ...]]
 ]:
@@ -2075,13 +2085,18 @@ def _valid_synthetic_fixture_marker(*, root: Path, as_of: str) -> bool:
 
 
 _SYNTHETIC_FIXTURE_ARTIFACT_ROOTS: Final = (
+    "china_archive",
     "economic_calendar",
+    "forward_archive",
     "geopolitical_events",
+    "gov_policy",
     "macro_snapshots",
     "market_breadth",
     "outcome_runtime",
     "runtime_snapshots",
+    "sector_archive",
     "sector_snapshots",
+    "supply_chain_archive",
 )
 
 
@@ -2212,6 +2227,9 @@ class AgentToolCapabilityStore:
         clock: Callable[[], datetime] | None = None,
         adaptive_query_store: FrozenAdaptiveQueryStore | None = None,
         adaptive_query_preparer: Callable[..., Mapping[str, Any]] | None = None,
+        adaptive_query_materializer: (
+            Callable[[str, dict[str, Any]], Mapping[str, Any]] | None
+        ) = None,
         stage_materialization_preparer: Callable[[Mapping[str, Any]], Any] | None = None,
         stage_materialization_finalizer: Callable[[Mapping[str, Any]], Any] | None = None,
         require_knot_v2_audit_authority: bool = False,
@@ -2232,6 +2250,7 @@ class AgentToolCapabilityStore:
             raise ValueError("adaptive query and capability ledgers must use distinct files")
         self.adaptive_query_store = adaptive_query_store
         self.adaptive_query_preparer = adaptive_query_preparer
+        self.adaptive_query_materializer = adaptive_query_materializer
         self.stage_materialization_preparer = stage_materialization_preparer
         self.stage_materialization_finalizer = stage_materialization_finalizer
         self.require_knot_v2_audit_authority = require_knot_v2_audit_authority
@@ -2402,40 +2421,6 @@ class AgentToolCapabilityStore:
                     created_at TEXT NOT NULL,
                     FOREIGN KEY(capability_id) REFERENCES capabilities(capability_id)
                 );
-                CREATE TABLE IF NOT EXISTS adaptive_call_intents (
-                    intent_id TEXT PRIMARY KEY,
-                    capability_id TEXT NOT NULL,
-                    session_id TEXT NOT NULL,
-                    tool_id TEXT NOT NULL,
-                    canonical_args_json TEXT NOT NULL,
-                    canonical_args_hash TEXT NOT NULL,
-                    intent_json TEXT NOT NULL,
-                    intent_hash TEXT NOT NULL UNIQUE,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY(capability_id) REFERENCES capabilities(capability_id)
-                );
-                CREATE TABLE IF NOT EXISTS adaptive_call_completions (
-                    intent_id TEXT PRIMARY KEY,
-                    result_event_id TEXT NOT NULL UNIQUE,
-                    result_event_hash TEXT NOT NULL UNIQUE,
-                    result_authority_hash TEXT NOT NULL,
-                    audit_json TEXT NOT NULL,
-                    audit_hash TEXT NOT NULL UNIQUE,
-                    completion_json TEXT NOT NULL,
-                    completion_hash TEXT NOT NULL UNIQUE,
-                    completed_at TEXT NOT NULL,
-                    FOREIGN KEY(intent_id) REFERENCES adaptive_call_intents(intent_id),
-                    FOREIGN KEY(result_event_id)
-                      REFERENCES tool_result_events(result_event_id)
-                );
-                CREATE TABLE IF NOT EXISTS adaptive_call_aborts (
-                    intent_id TEXT PRIMARY KEY,
-                    error_code TEXT NOT NULL,
-                    abort_json TEXT NOT NULL,
-                    abort_hash TEXT NOT NULL UNIQUE,
-                    aborted_at TEXT NOT NULL,
-                    FOREIGN KEY(intent_id) REFERENCES adaptive_call_intents(intent_id)
-                );
                 CREATE TABLE IF NOT EXISTS sector_model_usage_events (
                     usage_event_id TEXT PRIMARY KEY,
                     capability_id TEXT NOT NULL,
@@ -2581,30 +2566,6 @@ class AgentToolCapabilityStore:
                   BEFORE DELETE ON capability_adaptive_sessions BEGIN
                     SELECT RAISE(ABORT, 'capability adaptive sessions are append-only');
                   END;
-                CREATE TRIGGER IF NOT EXISTS adaptive_call_intents_no_update
-                  BEFORE UPDATE ON adaptive_call_intents BEGIN
-                    SELECT RAISE(ABORT, 'adaptive call intents are append-only');
-                  END;
-                CREATE TRIGGER IF NOT EXISTS adaptive_call_intents_no_delete
-                  BEFORE DELETE ON adaptive_call_intents BEGIN
-                    SELECT RAISE(ABORT, 'adaptive call intents are append-only');
-                  END;
-                CREATE TRIGGER IF NOT EXISTS adaptive_call_completions_no_update
-                  BEFORE UPDATE ON adaptive_call_completions BEGIN
-                    SELECT RAISE(ABORT, 'adaptive call completions are append-only');
-                  END;
-                CREATE TRIGGER IF NOT EXISTS adaptive_call_completions_no_delete
-                  BEFORE DELETE ON adaptive_call_completions BEGIN
-                    SELECT RAISE(ABORT, 'adaptive call completions are append-only');
-                  END;
-                CREATE TRIGGER IF NOT EXISTS adaptive_call_aborts_no_update
-                  BEFORE UPDATE ON adaptive_call_aborts BEGIN
-                    SELECT RAISE(ABORT, 'adaptive call aborts are append-only');
-                  END;
-                CREATE TRIGGER IF NOT EXISTS adaptive_call_aborts_no_delete
-                  BEFORE DELETE ON adaptive_call_aborts BEGIN
-                    SELECT RAISE(ABORT, 'adaptive call aborts are append-only');
-                  END;
                 CREATE TRIGGER IF NOT EXISTS sector_usage_events_no_update
                   BEFORE UPDATE ON sector_model_usage_events BEGIN
                     SELECT RAISE(ABORT, 'sector usage events are append-only');
@@ -2743,12 +2704,36 @@ class AgentToolCapabilityStore:
         as_of: str,
         allowed_tools: Sequence[AgentToolId],
         finalization: Any,
+        deferred_query: Mapping[str, Any] | None,
         created_at: str,
     ) -> dict[str, Any]:
         eligibility = "INELIGIBLE"
         reasons: list[str] = []
         build_receipt_hashes: dict[str, str] = {}
         attempt_receipt_hash: str | None = None
+        deferred_authority: dict[str, Any] | None = None
+        expected_build_tools = set(allowed_tools)
+        if deferred_query is not None:
+            deferred_tool_ids = deferred_query.get("tool_ids")
+            if (
+                set(deferred_query)
+                != {"call_contract", "frozen_bundle_hash", "tool_ids"}
+                or deferred_query.get("call_contract")
+                != CALL_TIME_ARGUMENT_CONTRACT
+                or not _is_sha256(deferred_query.get("frozen_bundle_hash"))
+                or not isinstance(deferred_tool_ids, list)
+                or not deferred_tool_ids
+                or deferred_tool_ids != sorted(set(deferred_tool_ids))
+                or set(deferred_tool_ids)
+                != set(allowed_tools).intersection(ADAPTIVE_QUERY_TOOL_IDS)
+            ):
+                raise ValueError("deferred query snapshot authority is invalid")
+            deferred_authority = {
+                "call_contract": CALL_TIME_ARGUMENT_CONTRACT,
+                "frozen_bundle_hash": deferred_query["frozen_bundle_hash"],
+                "tool_ids": list(deferred_tool_ids),
+            }
+            expected_build_tools -= set(deferred_tool_ids)
         try:
             authority = self._active_knot_audit_authority(
                 agent_id=agent_id,
@@ -2788,24 +2773,40 @@ class AgentToolCapabilityStore:
             )
             tools_match = (
                 isinstance(tool_ids, list)
-                and len(tool_ids) == len(set(tool_ids))
-                and set(tool_ids) == set(allowed_tools)
+                and tool_ids == sorted(expected_build_tools)
                 and isinstance(receipts, Mapping)
-                and set(receipts) == set(allowed_tools)
+                and set(receipts) == expected_build_tools
                 and all(_is_sha256(value) for value in receipts.values())
+            )
+            deferred_matches = deferred_authority is None or (
+                finalization.get("deferred_tool_ids")
+                == deferred_authority["tool_ids"]
+                and finalization.get("deferred_query_bundle_hash")
+                == deferred_authority["frozen_bundle_hash"]
+                and finalization.get("deferred_query_call_contract")
+                == deferred_authority["call_contract"]
             )
             if not identity_matches:
                 reasons.append("MATERIALIZATION_FINALIZER_IDENTITY_MISMATCH")
             if not tools_match:
                 reasons.append("BUILD_RECEIPT_TOOL_CLOSURE_MISMATCH")
-            if not _is_sha256(attempt_hash):
+            if not deferred_matches:
+                reasons.append("DEFERRED_QUERY_AUTHORITY_MISMATCH")
+            attempt_matches = (
+                attempt_hash is None
+                if deferred_authority is not None
+                else _is_sha256(attempt_hash)
+            )
+            if not attempt_matches:
                 reasons.append("MATERIALIZATION_ATTEMPT_RECEIPT_INVALID")
-            if identity_matches and tools_match and _is_sha256(attempt_hash):
+            if identity_matches and tools_match and deferred_matches and attempt_matches:
                 build_receipt_hashes = {
                     tool_id: str(receipts[tool_id])
-                    for tool_id in sorted(allowed_tools)
+                    for tool_id in sorted(expected_build_tools)
                 }
-                attempt_receipt_hash = str(attempt_hash)
+                attempt_receipt_hash = (
+                    str(attempt_hash) if attempt_hash is not None else None
+                )
             if not reasons:
                 eligibility = "ELIGIBLE"
         if (
@@ -2828,6 +2829,11 @@ class AgentToolCapabilityStore:
             "ineligibility_reasons": sorted(reasons),
             "build_receipt_hashes": build_receipt_hashes,
             "materialization_attempt_receipt_hash": attempt_receipt_hash,
+            **(
+                {"deferred_query": deferred_authority}
+                if deferred_authority is not None
+                else {}
+            ),
             **authority,
             "created_at": created_at,
         }
@@ -2867,7 +2873,7 @@ class AgentToolCapabilityStore:
                 _canonical_json(context),
                 context_hash,
                 self.signing_key_id,
-                self._sign_domain("snapshot_bundle_audit_context_v1:", context),
+                self._sign_domain(f"{context['schema_version']}:", context),
                 context["created_at"],
             ),
         )
@@ -2914,14 +2920,20 @@ class AgentToolCapabilityStore:
         context = json.loads(row["context_json"])
         context_hash = _sha256(context)
         if (
-            context.get("schema_version") != "snapshot_bundle_audit_context_v1"
+            context.get("schema_version")
+            not in {
+                "snapshot_bundle_audit_context_v1",
+                "snapshot_bundle_audit_context_v2",
+            }
             or context.get("snapshot_bundle_id") != snapshot_bundle_id
             or context.get("snapshot_bundle_hash") != snapshot_bundle_hash
             or row["context_hash"] != context_hash
             or row["signing_key_id"] != self.signing_key_id
             or not hmac.compare_digest(
                 row["signature"],
-                self._sign_domain("snapshot_bundle_audit_context_v1:", context),
+                self._sign_domain(
+                    f"{context.get('schema_version')}:", context
+                ),
             )
         ):
             raise ValueError("snapshot bundle audit context authority mismatch")
@@ -2997,6 +3009,7 @@ class AgentToolCapabilityStore:
         entries = projection.get("entries")
         max_rounds = projection.get("adaptive_max_rounds")
         initial_payload_count = projection.get("initial_payload_count", 0)
+        deferred = projection.get("call_contract") == CALL_TIME_ARGUMENT_CONTRACT
         if (
             projection.get("bundle_id") != bundle_id
             or projection.get("agent_id") != agent_id
@@ -3006,7 +3019,8 @@ class AgentToolCapabilityStore:
             or not _is_sha256(projection_hash)
             or projection_hash != _sha256(projection_body)
             or not isinstance(entries, list)
-            or projection.get("private_payload_count") != len(entries)
+            or projection.get("private_payload_count")
+            != (0 if deferred else len(entries))
             or max_rounds not in {0, 3}
             or isinstance(initial_payload_count, bool)
             or not isinstance(initial_payload_count, int)
@@ -3023,9 +3037,25 @@ class AgentToolCapabilityStore:
                 or entry.get("tool_id") not in allowed
                 or entry.get("call_mode") not in {"INITIAL", "FOLLOW_UP"}
                 or not _is_sha256(entry.get("request_hash"))
-                or not _is_sha256(entry.get("payload_hash"))
             ):
                 raise ValueError("adaptive query public projection entry is invalid")
+            if deferred:
+                if (
+                    set(entry)
+                    != {
+                        "tool_id",
+                        "request",
+                        "request_hash",
+                        "call_mode",
+                        "binding_id",
+                    }
+                    or not isinstance(entry.get("request"), dict)
+                    or _sha256(entry["request"]) != entry["request_hash"]
+                    or not isinstance(entry.get("binding_id"), str)
+                ):
+                    raise ValueError("deferred query projection entry is invalid")
+            elif "request" in entry or not _is_sha256(entry.get("payload_hash")):
+                raise ValueError("eager query projection entry is invalid")
             tool_id = cast(AgentToolId, entry["tool_id"])
             counts[tool_id] += 1
             if entry["call_mode"] == "INITIAL":
@@ -3035,8 +3065,71 @@ class AgentToolCapabilityStore:
         if (
             sum(initial_counts.values()) != initial_payload_count
             or (max_rounds == 0 and sum(follow_up_counts.values()) != 0)
+            or (
+                deferred
+                and (
+                    deferred_query_bundle_hash(projection) != bundle_hash
+                    or bundle_id != "frozen_bundle_" + bundle_hash[7:]
+                )
+            )
         ):
             raise ValueError("adaptive query call modes do not match the public contract")
+        if deferred:
+            knot_authority = self._active_knot_audit_authority(
+                agent_id=agent_id,
+                stage=stage,
+                allowed_tools=allowed_tools_for_agent(agent_id),
+            )
+            tool_contexts = knot_authority.get("tool_contexts")
+            if not isinstance(tool_contexts, list):
+                raise ValueError("deferred query KNOT tool authority is invalid")
+            active_binding_ids: dict[str, str] = {}
+            for tool_id in adaptive_tools:
+                matching_contexts = [
+                    context
+                    for context in tool_contexts
+                    if isinstance(context, Mapping)
+                    and context.get("tool_id") == tool_id
+                ]
+                binding_refs = (
+                    matching_contexts[0].get("binding_refs")
+                    if len(matching_contexts) == 1
+                    else None
+                )
+                if (
+                    not isinstance(binding_refs, list)
+                    or len(binding_refs) != 1
+                    or not isinstance(binding_refs[0], Mapping)
+                    or not isinstance(binding_refs[0].get("binding_id"), str)
+                    or not binding_refs[0]["binding_id"]
+                ):
+                    raise ValueError(
+                        f"deferred query active binding is not unique for {tool_id}"
+                    )
+                active_binding_ids[tool_id] = binding_refs[0]["binding_id"]
+            rebound_body = {
+                key: value
+                for key, value in projection.items()
+                if key not in {"bundle_id", "bundle_hash", "projection_hash"}
+            }
+            rebound_body["entries"] = [
+                {
+                    **entry,
+                    "binding_id": active_binding_ids[cast(AgentToolId, entry["tool_id"])],
+                }
+                for entry in entries
+            ]
+            bundle_hash = deferred_query_bundle_hash(rebound_body)
+            bundle_id = "frozen_bundle_" + bundle_hash[7:]
+            projection_body = {
+                **rebound_body,
+                "bundle_id": bundle_id,
+                "bundle_hash": bundle_hash,
+            }
+            projection = {
+                **projection_body,
+                "projection_hash": _sha256(projection_body),
+            }
         descriptors = {
             tool_id: _canonical_json(
                 {
@@ -3047,7 +3140,11 @@ class AgentToolCapabilityStore:
                     "prepared_request_count": counts[tool_id],
                     "prepared_initial_count": initial_counts[tool_id],
                     "prepared_follow_up_count": follow_up_counts[tool_id],
-                    "call_contract": "EXACT_FROZEN_ARGS_ONLY",
+                    "call_contract": (
+                        CALL_TIME_ARGUMENT_CONTRACT
+                        if deferred
+                        else "EXACT_FROZEN_ARGS_ONLY"
+                    ),
                     "adaptive_max_rounds": max_rounds,
                 }
             )
@@ -3058,7 +3155,211 @@ class AgentToolCapabilityStore:
             "bundle_hash": bundle_hash,
             "public_projection": projection,
             "max_rounds": max_rounds,
+            "deferred": deferred,
         }
+
+    def prepare_source_admission(
+        self,
+        *,
+        as_of: str,
+        route_id: str | None = None,
+        historical_replay: bool = False,
+        materializer: Callable[..., str] = materialize_tool_payload,
+    ) -> dict[str, Any]:
+        """Prepare the exact external-source union without signing capabilities."""
+        date.fromisoformat(as_of)
+        if not isinstance(historical_replay, bool):
+            raise ValueError("historical_replay must be a boolean")
+        if self.stage_materialization_preparer is None:
+            raise DataVendorUnavailable("source family preparer is unavailable")
+
+        manifest = load_agent_data_route_manifest()
+        runtime_route_ids = {
+            route["route_id"]
+            for route in manifest["routes"]
+            if route["pit_strategy"] == "LOCAL_RUNTIME_AUTHORITY"
+        }
+        external_route_ids = {
+            route["route_id"]
+            for route in manifest["routes"]
+            if route["pit_strategy"] != "LOCAL_RUNTIME_AUTHORITY"
+        }
+        if route_id is not None and route_id not in external_route_ids:
+            raise ValueError("source preparation route must be an external Agent route")
+        bindings_by_stage: dict[tuple[str, str], list[Mapping[str, Any]]] = {}
+        for binding in manifest["bindings"]:
+            key = (binding["agent_id"], binding["stage"])
+            bindings_by_stage.setdefault(key, []).append(binding)
+        source_stage_keys = sorted(
+            key
+            for key, bindings in bindings_by_stage.items()
+            if not runtime_route_ids.intersection(
+                route_id
+                for binding in bindings
+                for route_id in binding["required_route_ids"]
+            )
+        )
+        family_stage_keys = {
+            key
+            for _representative, stage_keys in SOURCE_ADMISSION_FAMILY_STAGE_GROUPS
+            for key in stage_keys
+        }
+        family_route_ids = {
+            route_id
+            for key in family_stage_keys
+            for binding in bindings_by_stage.get(key, ())
+            for route_id in binding["required_route_ids"]
+        }
+        if (
+            len(external_route_ids) != 26
+            or family_route_ids != external_route_ids
+            or family_stage_keys != set(source_stage_keys)
+        ):
+            raise RuntimeError("source admission family closure drift")
+
+        if route_id in QUERY_SCOPED_SOURCE_ROUTE_IDS:
+            blocked_stage_ids = sorted(
+                f"{agent_id}/{stage}"
+                for agent_id, stage in source_stage_keys
+                if any(
+                    route_id in binding["required_route_ids"]
+                    for binding in bindings_by_stage[(agent_id, stage)]
+                )
+            )
+            return {
+                "as_of": as_of,
+                "adaptive_stage_count": 0,
+                "blocked_stage_ids": blocked_stage_ids,
+                "blocked_stage_reasons": {
+                    stage_id: ["QUERY_SCOPE_REQUIRED"]
+                    for stage_id in blocked_stage_ids
+                },
+                "family_stage_count": 0,
+                "route_id": route_id,
+                "status": "SOURCE_PREPARATION_BLOCKED",
+            }
+
+        selected_family_groups = SOURCE_ADMISSION_FAMILY_STAGE_GROUPS
+        if route_id is not None:
+            matching_groups = []
+            for _representative, stage_keys in SOURCE_ADMISSION_FAMILY_STAGE_GROUPS:
+                owning_stage_keys = tuple(
+                    key
+                    for key in stage_keys
+                    if any(
+                        route_id in binding["required_route_ids"]
+                        for binding in bindings_by_stage[key]
+                    )
+                )
+                if owning_stage_keys:
+                    matching_groups.append((owning_stage_keys[0], stage_keys))
+            selected_family_groups = tuple(matching_groups[:1])
+            if not selected_family_groups:
+                raise RuntimeError("source preparation route has no family authority")
+
+        source_stage_preparer = (
+            prepare_agent_stage_materialization_current_namespace
+            if self.stage_materialization_preparer is ensure_agent_stage_materialization
+            else self.stage_materialization_preparer
+        )
+        blocked_stages: set[str] = set()
+        blocked_stage_reasons: dict[str, set[str]] = {}
+
+        def record_blocker(stage_id: str, reason: str) -> None:
+            blocked_stages.add(stage_id)
+            blocked_stage_reasons.setdefault(stage_id, set()).add(reason)
+
+        for (agent_id, stage), _stage_keys in selected_family_groups:
+            stage_id = f"{agent_id}/{stage}"
+            try:
+                source_request = {
+                    "agent_id": agent_id,
+                    "stage": stage,
+                    "as_of": as_of,
+                }
+                if route_id is not None:
+                    source_request["route_id"] = route_id
+                if historical_replay:
+                    source_request["historical_replay"] = True
+                result = source_stage_preparer(source_request)
+            except DataVendorUnavailable as exc:
+                record_blocker(stage_id, exc.reason_code)
+                continue
+            if isinstance(result, Mapping) and result.get("status") == "SHADOW_BLOCKED":
+                record_blocker(stage_id, "SHADOW_ENSURE_BLOCKED")
+
+        adaptive_stage_count = 0
+        adaptive_stage_keys = source_stage_keys if route_id is None else ()
+        for agent_id, stage in adaptive_stage_keys:
+            stage_tools = tuple(
+                cast(AgentToolId, binding["tool_id"])
+                for binding in sorted(
+                    bindings_by_stage[(agent_id, stage)],
+                    key=lambda row: row["tool_id"],
+                )
+            )
+            adaptive_tools = tuple(
+                tool_id
+                for tool_id in stage_tools
+                if tool_id in ADAPTIVE_QUERY_TOOL_IDS
+            )
+            if not adaptive_tools:
+                continue
+            adaptive_stage_count += 1
+            initial_payloads: dict[AgentToolId, str] = {}
+            try:
+                for tool_id in stage_tools:
+                    if tool_id not in INITIAL_SNAPSHOT_TOOL_IDS:
+                        continue
+                    materializer_kwargs = {
+                        "agent_id": agent_id,
+                        "stage": stage,
+                        "as_of": as_of,
+                        "graph_run_id": f"source-preflight:{as_of}",
+                    }
+                    if materializer is materialize_tool_payload:
+                        initial_payloads[tool_id] = materializer(
+                            tool_id,
+                            **materializer_kwargs,
+                            expected_candidate_scope_hash=None,
+                            accepted_output_refs=None,
+                        )
+                    else:
+                        initial_payloads[tool_id] = materializer(
+                            tool_id, **materializer_kwargs
+                        )
+                self._prepare_adaptive_query_descriptors(
+                    agent_id=agent_id,
+                    stage=stage,
+                    as_of=as_of,
+                    initial_payloads=initial_payloads,
+                    runtime_inputs={},
+                    candidate_scope=None,
+                    adaptive_tools=adaptive_tools,
+                )
+            except DataVendorUnavailable as exc:
+                record_blocker(
+                    f"{agent_id}/{stage}",
+                    exc.reason_code,
+                )
+
+        result = {
+            "as_of": as_of,
+            "adaptive_stage_count": adaptive_stage_count,
+            "family_stage_count": len(selected_family_groups),
+            "status": (
+                "SOURCE_PREPARED" if not blocked_stages else "SOURCE_PREPARATION_BLOCKED"
+            ),
+        }
+        if route_id is not None:
+            result["route_id"] = route_id
+        if blocked_stages:
+            result["blocked_stage_ids"] = sorted(blocked_stages)
+            result["blocked_stage_reasons"] = {
+                stage_id: sorted(blocked_stage_reasons[stage_id])
+                for stage_id in sorted(blocked_stage_reasons)
+            }
+        return result
 
     def prepare(
         self,
@@ -3084,20 +3385,42 @@ class AgentToolCapabilityStore:
         if candidate_scope is not None and not isinstance(candidate_scope, dict):
             raise ValueError("candidate_scope must be an object or null")
         runtime_input_hash = _sha256(runtime_inputs)
-
         now = self.clock().astimezone(timezone.utc)
         ttl = request.get("ttl_seconds", DEFAULT_CAPABILITY_TTL_SECONDS)
         if isinstance(ttl, bool) or not isinstance(ttl, int) or not 1 <= ttl <= 3600:
             raise ValueError("ttl_seconds must be an integer in [1, 3600]")
+        allowed_tools = allowed_tools_for_agent(agent_id)
+        adaptive_tools = tuple(
+            tool_id for tool_id in allowed_tools if tool_id in ADAPTIVE_QUERY_TOOL_IDS
+        )
+        adaptive_enabled = bool(adaptive_tools) and self.adaptive_query_store is not None
+        deferred_request_only = adaptive_enabled and isinstance(
+            self.adaptive_query_preparer, ActiveAdaptiveQueryPreparer
+        )
         normalized_request = dict(request)
         normalized_request["stage"] = stage
         normalized_request["runtime_inputs"] = runtime_inputs
         normalized_request["candidate_scope"] = candidate_scope
+        stage_request = (
+            trusted_deferred_request_only_request(
+                normalized_request,
+                tool_ids=adaptive_tools,
+            )
+            if deferred_request_only
+            else normalized_request
+        )
         stage_preparation = (
-            self.stage_materialization_preparer(normalized_request)
+            self.stage_materialization_preparer(stage_request)
             if self.stage_materialization_preparer is not None
             else None
         )
+        ensure_mode = (
+            stage_preparation.get("ensure_mode")
+            if isinstance(stage_preparation, Mapping)
+            else None
+        )
+        if ensure_mode not in {None, "off", "shadow", "enforce"}:
+            raise ValueError("stage preparation returned an invalid ensure_mode")
         try:
             with self._connect() as conn:
                 conn.execute(
@@ -3107,11 +3430,6 @@ class AgentToolCapabilityStore:
         except sqlite3.IntegrityError as exc:
             raise ValueError("materialization_request_id has already been used") from exc
 
-        allowed_tools = allowed_tools_for_agent(agent_id)
-        adaptive_tools = tuple(
-            tool_id for tool_id in allowed_tools if tool_id in ADAPTIVE_QUERY_TOOL_IDS
-        )
-        adaptive_enabled = bool(adaptive_tools) and self.adaptive_query_store is not None
         if adaptive_tools and materializer is materialize_tool_payload and not adaptive_enabled:
             raise DataVendorUnavailable(
                 "adaptive query compiler is unavailable for the active role whitelist"
@@ -3158,6 +3476,10 @@ class AgentToolCapabilityStore:
                 adaptive_tools=adaptive_tools,
             )
             payloads.update(descriptors)
+        if deferred_request_only != bool(
+            adaptive_ref is not None and adaptive_ref["deferred"]
+        ):
+            raise ValueError("adaptive query preparation mode changed after stage preparation")
         if set(payloads) != set(allowed_tools):
             raise ValueError("materialized payload keys do not match allowed tools")
         if any(not isinstance(payload, str) or not payload for payload in payloads.values()):
@@ -3201,7 +3523,10 @@ class AgentToolCapabilityStore:
             tool_id: _sha256_text(payload) for tool_id, payload in payloads.items()
         }
         finalization: Any = None
-        if self.stage_materialization_finalizer is not None:
+        if (
+            self.stage_materialization_finalizer is not None
+            and ensure_mode not in {"off", "shadow"}
+        ):
             finalization = self.stage_materialization_finalizer(
                 {
                     **normalized_request,
@@ -3209,6 +3534,14 @@ class AgentToolCapabilityStore:
                     "tool_payload_hashes": dict(payload_hashes),
                     "adaptive_query": (
                         dict(adaptive_ref) if adaptive_ref is not None else None
+                    ),
+                    **(
+                        {
+                            "deferred_tool_ids": sorted(adaptive_tools),
+                            "initial_snapshot_tool_ids": sorted(materialized_tools),
+                        }
+                        if deferred_request_only
+                        else {}
                     ),
                 }
             )
@@ -3237,6 +3570,15 @@ class AgentToolCapabilityStore:
             as_of=as_of,
             allowed_tools=allowed_tools,
             finalization=finalization,
+            deferred_query=(
+                {
+                    "call_contract": CALL_TIME_ARGUMENT_CONTRACT,
+                    "frozen_bundle_hash": adaptive_ref["bundle_hash"],
+                    "tool_ids": sorted(adaptive_tools),
+                }
+                if deferred_request_only and adaptive_ref is not None
+                else None
+            ),
             created_at=now.isoformat(),
         )
         capability_id = f"cap_{uuid.uuid4().hex}"
@@ -3272,6 +3614,7 @@ class AgentToolCapabilityStore:
             if (
                 adaptive_ref is not None
                 and adaptive_ref["max_rounds"] > 0
+                and not adaptive_ref["deferred"]
                 and self.adaptive_query_store is not None
             )
             else None
@@ -3456,8 +3799,42 @@ class AgentToolCapabilityStore:
             if isinstance(adaptive_projection, dict)
             else None
         )
+        adaptive_deferred = (
+            isinstance(adaptive_projection, dict)
+            and adaptive_projection.get("call_contract")
+            == CALL_TIME_ARGUMENT_CONTRACT
+        )
         if adaptive_row is not None and adaptive_max_rounds not in {0, 3}:
             raise ValueError("adaptive query projection has an invalid round limit")
+        if adaptive_deferred and (
+            adaptive_projection.get("projection_hash")
+            != _sha256(
+                {
+                    key: value
+                    for key, value in adaptive_projection.items()
+                    if key != "projection_hash"
+                }
+            )
+            or deferred_query_bundle_hash(adaptive_projection)
+            != adaptive_row["frozen_bundle_hash"]
+            or adaptive_projection.get("bundle_id")
+            != adaptive_row["frozen_bundle_id"]
+        ):
+            raise ValueError("deferred query projection binding is invalid")
+        if adaptive_deferred:
+            for tool_id in allowed_tools:
+                if tool_id not in ADAPTIVE_QUERY_TOOL_IDS:
+                    continue
+                descriptor = json.loads(payloads[tool_id])
+                if (
+                    descriptor.get("frozen_query_bundle_id")
+                    != adaptive_row["frozen_bundle_id"]
+                    or descriptor.get("frozen_query_bundle_hash")
+                    != adaptive_row["frozen_bundle_hash"]
+                    or descriptor.get("call_contract")
+                    != CALL_TIME_ARGUMENT_CONTRACT
+                ):
+                    raise ValueError("deferred query descriptor binding is invalid")
         adaptive_session_id = (
             self.adaptive_query_store.start_session(
                 bundle_id=adaptive_row["frozen_bundle_id"],
@@ -3467,6 +3844,7 @@ class AgentToolCapabilityStore:
             if (
                 adaptive_row is not None
                 and adaptive_max_rounds > 0
+                and not adaptive_deferred
                 and self.adaptive_query_store is not None
             )
             else None
@@ -4363,34 +4741,151 @@ class AgentToolCapabilityStore:
         return receipt
 
     def list_tools(self, envelope: Mapping[str, Any]) -> list[dict[str, Any]]:
-        manifest, _ = self._verify(envelope)
+        with self._connect() as conn:
+            manifest, bundle_row = self._verify(envelope, conn=conn)
+            adaptive_row = conn.execute(
+                "SELECT frozen_bundle_id, frozen_bundle_hash, public_projection_json "
+                "FROM snapshot_bundle_adaptive_queries WHERE snapshot_bundle_id = ?",
+                (manifest["snapshot_bundle_id"],),
+            ).fetchone()
         agent_id = manifest["agent_id"]
         stage = manifest["stage"]
-        return [
-            {
+        adaptive_projection = (
+            json.loads(adaptive_row["public_projection_json"])
+            if adaptive_row is not None
+            else None
+        )
+        deferred = (
+            isinstance(adaptive_projection, dict)
+            and adaptive_projection.get("call_contract")
+            == CALL_TIME_ARGUMENT_CONTRACT
+        )
+        deferred_entries: list[dict[str, Any]] = []
+        adaptive_descriptors = json.loads(bundle_row["payloads_json"])
+        if deferred:
+            projection_body = {
+                key: value
+                for key, value in adaptive_projection.items()
+                if key != "projection_hash"
+            }
+            entries = adaptive_projection.get("entries")
+            if (
+                adaptive_projection.get("projection_hash") != _sha256(projection_body)
+                or deferred_query_bundle_hash(adaptive_projection)
+                != adaptive_row["frozen_bundle_hash"]
+                or adaptive_projection.get("bundle_id")
+                != adaptive_row["frozen_bundle_id"]
+                or adaptive_projection.get("agent_id") != agent_id
+                or adaptive_projection.get("stage") != stage
+                or adaptive_projection.get("as_of") != manifest["as_of"]
+                or adaptive_projection.get("private_payload_count") != 0
+                or not isinstance(entries, list)
+            ):
+                raise ValueError("deferred query projection binding is invalid")
+            for entry in entries:
+                if (
+                    not isinstance(entry, dict)
+                    or set(entry)
+                    != {
+                        "tool_id",
+                        "request",
+                        "request_hash",
+                        "call_mode",
+                        "binding_id",
+                    }
+                    or entry.get("tool_id") not in manifest["allowed_tools"]
+                    or entry.get("call_mode") not in {"INITIAL", "FOLLOW_UP"}
+                    or not isinstance(entry.get("request"), dict)
+                    or _sha256(entry["request"]) != entry.get("request_hash")
+                    or not isinstance(entry.get("binding_id"), str)
+                ):
+                    raise ValueError("deferred query projection entry is invalid")
+                deferred_entries.append(entry)
+        tools: list[dict[str, Any]] = []
+        for tool_id in manifest["allowed_tools"]:
+            if tool_id in ADAPTIVE_QUERY_TOOL_IDS:
+                args_schema = (
+                    l3_l4_argument_schema_for_binding(
+                        agent_id=agent_id,
+                        stage=l3_l4_overlay_stage_for_active(agent_id, stage),
+                        tool_id=tool_id,
+                    )
+                    if agent_id in {*SUPERINVESTOR_AGENTS, *DECISION_AGENTS}
+                    else argument_schema_for_tool(tool_id)
+                )
+                if adaptive_row is not None:
+                    if deferred:
+                        descriptor = json.loads(adaptive_descriptors[tool_id])
+                        if (
+                            descriptor.get("frozen_query_bundle_id")
+                            != adaptive_row["frozen_bundle_id"]
+                            or descriptor.get("frozen_query_bundle_hash")
+                            != adaptive_row["frozen_bundle_hash"]
+                            or descriptor.get("call_contract")
+                            != CALL_TIME_ARGUMENT_CONTRACT
+                        ):
+                            raise ValueError("deferred query descriptor binding is invalid")
+                        exact_args = [
+                            entry["request"]
+                            for entry in deferred_entries
+                            if entry["tool_id"] == tool_id
+                        ]
+                    else:
+                        if self.adaptive_query_store is None:
+                            raise ValueError("adaptive query store is unavailable")
+                        exact_args = self.adaptive_query_store.argument_sets(
+                            bundle_id=adaptive_row["frozen_bundle_id"],
+                            tool_id=tool_id,
+                            expected_bundle_hash=adaptive_row["frozen_bundle_hash"],
+                        )
+                    if exact_args:
+                        try:
+                            Draft202012Validator.check_schema(args_schema)
+                            validator = Draft202012Validator(
+                                args_schema, format_checker=FormatChecker()
+                            )
+                            variants: list[dict[str, Any]] = []
+                            base_properties = args_schema.get("properties", {})
+                            for args in exact_args:
+                                validator.validate(args)
+                                variants.append(
+                                    {
+                                        "type": "object",
+                                        "properties": {
+                                            name: {
+                                                **base_properties[name],
+                                                "const": args[name],
+                                            }
+                                            for name in base_properties
+                                            if name in args
+                                        },
+                                        "required": [
+                                            name for name in base_properties if name in args
+                                        ],
+                                        "additionalProperties": False,
+                                    }
+                                )
+                            args_schema = {"type": "object", "oneOf": variants}
+                            Draft202012Validator.check_schema(args_schema)
+                        except (SchemaError, ValidationError) as exc:
+                            raise ValueError(
+                                f"frozen query arguments violate {tool_id} schema"
+                            ) from exc
+            else:
+                args_schema = {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                    "additionalProperties": False,
+                }
+            tools.append(
+                {
                 "name": tool_id,
                 "description": TOOL_DESCRIPTIONS[tool_id],
-                "args_schema": (
-                    (
-                        l3_l4_argument_schema_for_binding(
-                            agent_id=agent_id,
-                            stage=l3_l4_overlay_stage_for_active(agent_id, stage),
-                            tool_id=tool_id,
-                        )
-                        if agent_id in {*SUPERINVESTOR_AGENTS, *DECISION_AGENTS}
-                        else argument_schema_for_tool(tool_id)
-                    )
-                    if tool_id in ADAPTIVE_QUERY_TOOL_IDS
-                    else {
-                        "type": "object",
-                        "properties": {},
-                        "required": [],
-                        "additionalProperties": False,
-                    }
-                ),
-            }
-            for tool_id in manifest["allowed_tools"]
-        ]
+                    "args_schema": args_schema,
+                }
+            )
+        return tools
 
     def _append_result_event(
         self,
@@ -4415,7 +4910,8 @@ class AgentToolCapabilityStore:
         if status == "SUCCEEDED":
             if (
                 payload is None
-                or result_authority_type not in {"SNAPSHOT_BUILD", "FROZEN_QUERY"}
+                or result_authority_type
+                not in {"SNAPSHOT_BUILD", "FROZEN_QUERY"}
                 or not _is_sha256(result_authority_hash)
                 or error_code is not None
             ):
@@ -4596,7 +5092,7 @@ class AgentToolCapabilityStore:
                     recorded_at,
                 ),
             )
-        return {
+        audit = {
             "schema_version": "tool_call_audit_v1",
             "result_event_id": result_event_id,
             "result_event_hash": result_event_hash,
@@ -4624,6 +5120,7 @@ class AgentToolCapabilityStore:
                 for ref in binding_refs
             ],
         }
+        return audit
 
     def _record_failed_result_event(
         self,
@@ -4655,6 +5152,439 @@ class AgentToolCapabilityStore:
             except Exception:
                 conn.execute("ROLLBACK")
                 raise
+
+    def _best_effort_failed_result_event(
+        self,
+        *,
+        envelope: Mapping[str, Any],
+        manifest: Mapping[str, Any],
+        tool_id: str,
+        call_mode: Literal["INITIAL", "FOLLOW_UP"],
+        args: Mapping[str, Any],
+        error_code: str,
+    ) -> None:
+        try:
+            self._record_failed_result_event(
+                envelope=envelope,
+                manifest=manifest,
+                tool_id=tool_id,
+                call_mode=call_mode,
+                args=args,
+                error_code=error_code,
+            )
+        except Exception:
+            pass
+
+    def _validated_deferred_call(
+        self,
+        *,
+        envelope: Mapping[str, Any],
+        manifest: Mapping[str, Any],
+        tool_id: str,
+        args: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        if not isinstance(args, Mapping):
+            raise ValueError("deferred query args must be an object")
+        client_args = dict(args)
+        with self._connect() as conn:
+            verified_manifest, bundle_row = self._verify(envelope, conn=conn)
+            if verified_manifest != manifest:
+                raise ValueError("deferred query capability identity mismatch")
+            adaptive_row = conn.execute(
+                "SELECT frozen_bundle_id, frozen_bundle_hash, public_projection_json "
+                "FROM snapshot_bundle_adaptive_queries WHERE snapshot_bundle_id = ?",
+                (manifest["snapshot_bundle_id"],),
+            ).fetchone()
+            if adaptive_row is None:
+                return None
+            payloads = json.loads(bundle_row["payloads_json"])
+            descriptor = json.loads(payloads[tool_id])
+            projection = json.loads(adaptive_row["public_projection_json"])
+            if not isinstance(descriptor, dict) or not isinstance(projection, dict):
+                raise ValueError("adaptive query authority is malformed")
+            projection_deferred = (
+                projection.get("call_contract") == CALL_TIME_ARGUMENT_CONTRACT
+            )
+            descriptor_deferred = (
+                descriptor.get("call_contract") == CALL_TIME_ARGUMENT_CONTRACT
+            )
+            if not projection_deferred and not descriptor_deferred:
+                return None
+            if not projection_deferred or not descriptor_deferred:
+                raise ValueError("deferred query call contract binding mismatch")
+
+            required_projection_fields = {
+                "schema_version",
+                "call_contract",
+                "agent_id",
+                "stage",
+                "as_of",
+                "authorized_scope_hash",
+                "preservation_overlay_hash",
+                "query_bundle_contract_version",
+                "private_payload_count",
+                "initial_payload_count",
+                "adaptive_max_rounds",
+                "entries",
+                "bundle_id",
+                "bundle_hash",
+                "projection_hash",
+            }
+            expected_projection_fields = set(required_projection_fields)
+            if "preservation_stage" in projection:
+                expected_projection_fields.add("preservation_stage")
+            projection_body = {
+                key: value
+                for key, value in projection.items()
+                if key != "projection_hash"
+            }
+            entries = projection.get("entries")
+            max_rounds = projection.get("adaptive_max_rounds")
+            initial_payload_count = projection.get("initial_payload_count")
+            if (
+                set(projection) != expected_projection_fields
+                or projection.get("schema_version") != PUBLIC_PROJECTION_VERSION
+                or projection.get("call_contract") != CALL_TIME_ARGUMENT_CONTRACT
+                or projection.get("agent_id") != manifest["agent_id"]
+                or projection.get("stage") != manifest["stage"]
+                or projection.get("as_of") != manifest["as_of"]
+                or (
+                    "preservation_stage" in projection
+                    and (
+                        not isinstance(projection["preservation_stage"], str)
+                        or not projection["preservation_stage"]
+                    )
+                )
+                or not _is_sha256(projection.get("authorized_scope_hash"))
+                or not _is_sha256(projection.get("preservation_overlay_hash"))
+                or not isinstance(
+                    projection.get("query_bundle_contract_version"), str
+                )
+                or not projection["query_bundle_contract_version"]
+                or projection.get("private_payload_count") != 0
+                or isinstance(initial_payload_count, bool)
+                or not isinstance(initial_payload_count, int)
+                or initial_payload_count < 0
+                or isinstance(max_rounds, bool)
+                or max_rounds not in {0, 3}
+                or not isinstance(entries, list)
+                or not _is_sha256(projection.get("bundle_hash"))
+                or projection.get("projection_hash") != _sha256(projection_body)
+                or deferred_query_bundle_hash(projection)
+                != adaptive_row["frozen_bundle_hash"]
+                or projection.get("bundle_hash")
+                != adaptive_row["frozen_bundle_hash"]
+                or projection.get("bundle_id") != adaptive_row["frozen_bundle_id"]
+                or projection.get("bundle_id")
+                != "frozen_bundle_" + projection["bundle_hash"][7:]
+            ):
+                raise ValueError("deferred query projection binding is invalid")
+
+            validated_entries: list[dict[str, Any]] = []
+            for entry in entries:
+                if (
+                    not isinstance(entry, dict)
+                    or set(entry)
+                    != {
+                        "tool_id",
+                        "request",
+                        "request_hash",
+                        "call_mode",
+                        "binding_id",
+                    }
+                    or entry.get("tool_id") not in manifest["allowed_tools"]
+                    or entry.get("tool_id") not in ADAPTIVE_QUERY_TOOL_IDS
+                    or entry.get("call_mode") not in {"INITIAL", "FOLLOW_UP"}
+                    or not isinstance(entry.get("request"), dict)
+                    or not entry["request"]
+                    or entry.get("request_hash") != _sha256(entry["request"])
+                    or not isinstance(entry.get("binding_id"), str)
+                    or not entry["binding_id"]
+                ):
+                    raise ValueError("deferred query projection entry is invalid")
+                validated_entries.append(entry)
+            if sum(
+                entry["call_mode"] == "INITIAL" for entry in validated_entries
+            ) != initial_payload_count:
+                raise ValueError("deferred query initial count is invalid")
+
+            tool_entries = [
+                entry for entry in validated_entries if entry["tool_id"] == tool_id
+            ]
+            initial_count = sum(
+                entry["call_mode"] == "INITIAL" for entry in tool_entries
+            )
+            follow_up_count = sum(
+                entry["call_mode"] == "FOLLOW_UP" for entry in tool_entries
+            )
+            expected_descriptor = {
+                "schema_version": "adaptive_tool_bundle_descriptor_v1",
+                "tool_id": tool_id,
+                "frozen_query_bundle_id": adaptive_row["frozen_bundle_id"],
+                "frozen_query_bundle_hash": adaptive_row["frozen_bundle_hash"],
+                "prepared_request_count": len(tool_entries),
+                "prepared_initial_count": initial_count,
+                "prepared_follow_up_count": follow_up_count,
+                "call_contract": CALL_TIME_ARGUMENT_CONTRACT,
+                "adaptive_max_rounds": max_rounds,
+            }
+            if descriptor != expected_descriptor:
+                raise ValueError("deferred query descriptor binding is invalid")
+
+            snapshot_row = conn.execute(
+                "SELECT * FROM snapshot_bundle_audit_contexts "
+                "WHERE snapshot_bundle_id = ?",
+                (manifest["snapshot_bundle_id"],),
+            ).fetchone()
+            capability_row = conn.execute(
+                "SELECT * FROM capability_audit_contexts WHERE capability_id = ?",
+                (manifest["capability_id"],),
+            ).fetchone()
+            if snapshot_row is None or capability_row is None:
+                raise ValueError("deferred query KNOT audit authority is unavailable")
+            snapshot_context, snapshot_context_hash = (
+                self._validated_snapshot_audit_context(
+                    snapshot_row,
+                    snapshot_bundle_id=manifest["snapshot_bundle_id"],
+                    snapshot_bundle_hash=manifest["snapshot_bundle_hash"],
+                )
+            )
+            capability_context, _ = self._validated_capability_audit_context(
+                capability_row,
+                manifest=manifest,
+                snapshot_context_hash=snapshot_context_hash,
+            )
+            normal_eligible = (
+                snapshot_context.get("knot_v2_eligibility") == "ELIGIBLE"
+                and capability_context.get("knot_v2_eligibility") == "ELIGIBLE"
+            )
+            synthetic_non_production_bypass = (
+                snapshot_context.get("knot_v2_eligibility") == "INELIGIBLE"
+                and snapshot_context.get("ineligibility_reasons")
+                == ["SYNTHETIC_NON_PRODUCTION_BYPASS"]
+                and capability_context.get("knot_v2_eligibility") == "INELIGIBLE"
+            )
+            if (
+                snapshot_context.get("agent_id") != manifest["agent_id"]
+                or snapshot_context.get("stage") != manifest["stage"]
+                or snapshot_context.get("as_of") != manifest["as_of"]
+                or capability_context.get("agent_id") != manifest["agent_id"]
+                or capability_context.get("stage") != manifest["stage"]
+                or not (normal_eligible or synthetic_non_production_bypass)
+            ):
+                raise ValueError("deferred query KNOT audit authority is ineligible")
+            deferred_context = snapshot_context.get("deferred_query")
+            expected_deferred_tool_ids = sorted(
+                candidate
+                for candidate in manifest["allowed_tools"]
+                if candidate in ADAPTIVE_QUERY_TOOL_IDS
+            )
+            if (
+                not isinstance(deferred_context, Mapping)
+                or set(deferred_context)
+                != {"call_contract", "frozen_bundle_hash", "tool_ids"}
+                or deferred_context.get("call_contract")
+                != CALL_TIME_ARGUMENT_CONTRACT
+                or deferred_context.get("frozen_bundle_hash")
+                != adaptive_row["frozen_bundle_hash"]
+                or deferred_context.get("tool_ids") != expected_deferred_tool_ids
+            ):
+                raise ValueError("deferred query signed snapshot closure mismatch")
+            tool_contexts = [
+                context
+                for context in snapshot_context.get("tool_contexts", [])
+                if context.get("tool_id") == tool_id
+            ]
+            if len(tool_contexts) != 1:
+                raise ValueError("deferred query KNOT tool authority is unavailable")
+            binding_refs = tool_contexts[0].get("binding_refs")
+            if (
+                not isinstance(binding_refs, list)
+                or not binding_refs
+                or any(
+                    not isinstance(ref, Mapping)
+                    or not isinstance(ref.get("binding_id"), str)
+                    or not ref["binding_id"]
+                    for ref in binding_refs
+                )
+            ):
+                raise ValueError("deferred query KNOT binding authority is invalid")
+            active_binding_ids = {ref["binding_id"] for ref in binding_refs}
+            if len(active_binding_ids) != len(binding_refs) or any(
+                entry["binding_id"] not in active_binding_ids
+                for entry in tool_entries
+            ):
+                raise ValueError("deferred query projection binding is not active")
+
+            if client_args:
+                request_hash = _sha256(client_args)
+                matches = [
+                    entry
+                    for entry in tool_entries
+                    if entry["call_mode"] == "FOLLOW_UP"
+                    and entry["request_hash"] == request_hash
+                    and entry["request"] == client_args
+                ]
+                if len(matches) != 1 or max_rounds != 3:
+                    raise ValueError("frozen follow-up request is not uniquely authorized")
+                successful_follow_ups = conn.execute(
+                    "SELECT COUNT(*) FROM tool_result_events "
+                    "WHERE capability_id = ? AND status = 'SUCCEEDED' "
+                    "AND call_mode = 'FOLLOW_UP'",
+                    (manifest["capability_id"],),
+                ).fetchone()[0]
+                if successful_follow_ups >= 3:
+                    raise ValueError("frozen follow-up round limit is exhausted")
+                call_mode: Literal["INITIAL", "FOLLOW_UP"] = "FOLLOW_UP"
+            else:
+                matches = [
+                    entry
+                    for entry in tool_entries
+                    if entry["call_mode"] == "INITIAL"
+                ]
+                if len(matches) != 1 or not matches[0]["request"]:
+                    raise ValueError("frozen initial request is not uniquely authorized")
+                call_mode = "INITIAL"
+            match = matches[0]
+            return {
+                "bundle_hash": adaptive_row["frozen_bundle_hash"],
+                "call_mode": call_mode,
+                "request_hash": match["request_hash"],
+                "resolved_args": dict(match["request"]),
+                "synthetic_non_production_bypass": (
+                    synthetic_non_production_bypass
+                ),
+            }
+
+    def _call_deferred_tool_result(
+        self,
+        *,
+        envelope: Mapping[str, Any],
+        manifest: Mapping[str, Any],
+        tool_id: str,
+        call: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        call_mode = cast(Literal["INITIAL", "FOLLOW_UP"], call["call_mode"])
+        resolved_args = dict(call["resolved_args"])
+        if self.adaptive_query_materializer is None:
+            self._best_effort_failed_result_event(
+                envelope=envelope,
+                manifest=manifest,
+                tool_id=tool_id,
+                call_mode=call_mode,
+                args=resolved_args,
+                error_code="FROZEN_QUERY_REJECTED",
+            )
+            raise ValueError("deferred query materializer is unavailable")
+        try:
+            materialized = self.adaptive_query_materializer(
+                tool_id, dict(resolved_args)
+            )
+        except Exception:
+            self._best_effort_failed_result_event(
+                envelope=envelope,
+                manifest=manifest,
+                tool_id=tool_id,
+                call_mode=call_mode,
+                args=resolved_args,
+                error_code="PAYLOAD_VALIDATION_FAILED",
+            )
+            raise
+        try:
+            if not isinstance(materialized, Mapping) or not {
+                "payload"
+            } <= set(materialized) <= {
+                "payload",
+                "source_receipt_hashes",
+                "derivation",
+            }:
+                raise ValueError("deferred query materializer returned an invalid object")
+            payload = materialized.get("payload")
+            if not isinstance(payload, str) or not payload:
+                raise ValueError("deferred query materializer returned an empty payload")
+            receipt_hashes = materialized.get("source_receipt_hashes", [])
+            if (
+                not isinstance(receipt_hashes, list)
+                or not all(_is_sha256(value) for value in receipt_hashes)
+                or receipt_hashes != sorted(set(receipt_hashes))
+            ):
+                raise ValueError("deferred query source receipt hashes are invalid")
+            derivation = materialized.get("derivation")
+            derivation_hash: str | None = None
+            if derivation is not None:
+                if (
+                    not isinstance(derivation, Mapping)
+                    or set(derivation)
+                    != {
+                        "derivation_contract_version",
+                        "model_hash",
+                        "prompt_hash",
+                        "source_payload_hash",
+                    }
+                    or derivation.get("derivation_contract_version")
+                    != "frozen_research_digest_lineage_v1"
+                    or not all(
+                        _is_sha256(derivation.get(field))
+                        for field in (
+                            "model_hash",
+                            "prompt_hash",
+                            "source_payload_hash",
+                        )
+                    )
+                ):
+                    raise ValueError("deferred query derivation is invalid")
+                derivation_hash = _sha256(dict(derivation))
+            payload_hash = _sha256({"text": payload})
+            receipt_hashes = list(receipt_hashes)
+            authority = {
+                "schema_version": "frozen_query_result_authority_v1",
+                "authority_type": "FROZEN_QUERY",
+                "frozen_bundle_hash": call["bundle_hash"],
+                "tool_id": tool_id,
+                "resolved_args": resolved_args,
+                "request_hash": call["request_hash"],
+                "payload_hash": payload_hash,
+                "source_receipt_hashes": receipt_hashes,
+                "source_receipt_set_hash": _sha256(receipt_hashes),
+                "derivation_hash": derivation_hash,
+            }
+            authority_hash = _sha256(authority)
+        except ValueError:
+            self._best_effort_failed_result_event(
+                envelope=envelope,
+                manifest=manifest,
+                tool_id=tool_id,
+                call_mode=call_mode,
+                args=resolved_args,
+                error_code="PAYLOAD_VALIDATION_FAILED",
+            )
+            raise
+
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                self._verify(envelope, conn=conn)
+                audit = self._append_result_event(
+                    conn,
+                    manifest=manifest,
+                    tool_id=tool_id,
+                    call_mode=call_mode,
+                    args=resolved_args,
+                    payload=payload,
+                    result_authority_type="FROZEN_QUERY",
+                    result_authority_hash=authority_hash,
+                    status="SUCCEEDED",
+                )
+                if audit is None and not call["synthetic_non_production_bypass"]:
+                    raise ValueError("deferred query result audit authority is unavailable")
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
+        result: dict[str, Any] = {"text": payload}
+        if audit is not None:
+            result["audit"] = audit
+        return result
 
     def _record_security_rejection(
         self,
@@ -4714,557 +5644,6 @@ class AgentToolCapabilityStore:
                 conn.execute("ROLLBACK")
                 raise
 
-    def _adaptive_recovery_is_required(
-        self, conn: sqlite3.Connection, *, manifest: Mapping[str, Any]
-    ) -> bool:
-        snapshot_row = conn.execute(
-            "SELECT * FROM snapshot_bundle_audit_contexts "
-            "WHERE snapshot_bundle_id = ?",
-            (manifest["snapshot_bundle_id"],),
-        ).fetchone()
-        capability_row = conn.execute(
-            "SELECT * FROM capability_audit_contexts WHERE capability_id = ?",
-            (manifest["capability_id"],),
-        ).fetchone()
-        if snapshot_row is None or capability_row is None:
-            return False
-        snapshot_context, snapshot_context_hash = (
-            self._validated_snapshot_audit_context(
-                snapshot_row,
-                snapshot_bundle_id=manifest["snapshot_bundle_id"],
-                snapshot_bundle_hash=manifest["snapshot_bundle_hash"],
-            )
-        )
-        capability_context, _ = self._validated_capability_audit_context(
-            capability_row,
-            manifest=manifest,
-            snapshot_context_hash=snapshot_context_hash,
-        )
-        return (
-            snapshot_context["knot_v2_eligibility"] == "ELIGIBLE"
-            and capability_context["knot_v2_eligibility"] == "ELIGIBLE"
-        )
-
-    def _validated_adaptive_intent(
-        self,
-        row: sqlite3.Row,
-        *,
-        manifest: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        try:
-            args = json.loads(row["canonical_args_json"])
-            intent = json.loads(row["intent_json"])
-        except json.JSONDecodeError as exc:
-            raise ValueError("adaptive call intent authority is malformed") from exc
-        if not isinstance(args, dict) or _canonical_json(args) != row[
-            "canonical_args_json"
-        ]:
-            raise ValueError("adaptive call intent args authority mismatch")
-        expected_args_hash = _sha256(args)
-        body = {
-            "schema_version": "adaptive_call_intent_v1",
-            "intent_id": row["intent_id"],
-            "capability_id": row["capability_id"],
-            "capability_manifest_hash": _sha256(manifest),
-            "session_id": row["session_id"],
-            "tool_id": row["tool_id"],
-            "canonical_args_hash": expected_args_hash,
-            "created_at": row["created_at"],
-        }
-        intent_hash = _sha256(body)
-        if (
-            row["capability_id"] != manifest["capability_id"]
-            or row["canonical_args_hash"] != expected_args_hash
-            or row["intent_hash"] != intent_hash
-            or intent != {**body, "intent_hash": intent_hash}
-        ):
-            raise ValueError("adaptive call intent authority mismatch")
-        return {**intent, "canonical_args": args}
-
-    def _validated_adaptive_completion(
-        self,
-        conn: sqlite3.Connection,
-        *,
-        intent: Mapping[str, Any],
-        row: sqlite3.Row,
-    ) -> dict[str, Any]:
-        try:
-            audit = json.loads(row["audit_json"])
-            completion = json.loads(row["completion_json"])
-        except json.JSONDecodeError as exc:
-            raise ValueError("adaptive call completion authority is malformed") from exc
-        event_row = conn.execute(
-            "SELECT * FROM tool_result_events WHERE result_event_id = ?",
-            (row["result_event_id"],),
-        ).fetchone()
-        if event_row is None:
-            raise ValueError("adaptive call completion result event is unavailable")
-        try:
-            event = json.loads(event_row["event_json"])
-        except json.JSONDecodeError as exc:
-            raise ValueError("adaptive call completion result event is malformed") from exc
-        if (
-            event_row["result_event_hash"] != _sha256(event)
-            or event_row["result_event_hash"] != row["result_event_hash"]
-            or event.get("result_event_id") != row["result_event_id"]
-            or event.get("capability_id") != intent["capability_id"]
-            or event.get("tool_id") != intent["tool_id"]
-            or event.get("call_mode") != "FOLLOW_UP"
-            or event.get("canonical_args_hash") != intent["canonical_args_hash"]
-            or event.get("status") != "SUCCEEDED"
-            or event.get("error_code") is not None
-            or not _is_sha256(event.get("payload_hash"))
-        ):
-            raise ValueError("adaptive call completion result event authority mismatch")
-        result_authority = event.get("result_authority")
-        if (
-            not isinstance(result_authority, dict)
-            or result_authority.get("authority_type") != "FROZEN_QUERY"
-            or result_authority.get("authority_hash")
-            != row["result_authority_hash"]
-        ):
-            raise ValueError("adaptive call completion result authority mismatch")
-        expected_audit = {
-            "schema_version": "tool_call_audit_v1",
-            "result_event_id": event["result_event_id"],
-            "result_event_hash": event_row["result_event_hash"],
-            "status": "SUCCEEDED",
-            "result_authority_type": "FROZEN_QUERY",
-            "result_authority_hash": result_authority["authority_hash"],
-            "tool_environment_hash": event["tool_environment_hash"],
-            "execution_behavior_release_hash": event[
-                "execution_behavior_release_hash"
-            ],
-            "capability_bundle_hash": event["capability_bundle_hash"],
-            "knot_coverage_manifest_v2_hash": event[
-                "knot_coverage_manifest_v2_hash"
-            ],
-            "knot_audit_capability_track_v2_hash": event[
-                "knot_audit_capability_track_v2_hash"
-            ],
-            "binding_result_refs": [
-                {
-                    "binding_id": ref["binding_id"],
-                    "binding_result_fingerprint": ref[
-                        "binding_result_fingerprint"
-                    ],
-                }
-                for ref in event["binding_refs"]
-            ],
-        }
-        audit_hash = _sha256(expected_audit)
-        completion_body = {
-            "schema_version": "adaptive_call_completion_v1",
-            "intent_id": intent["intent_id"],
-            "result_event_id": event["result_event_id"],
-            "result_event_hash": event_row["result_event_hash"],
-            "result_authority_hash": result_authority["authority_hash"],
-            "audit_hash": audit_hash,
-            "completed_at": row["completed_at"],
-        }
-        completion_hash = _sha256(completion_body)
-        if (
-            audit != expected_audit
-            or row["audit_hash"] != audit_hash
-            or row["completion_hash"] != completion_hash
-            or completion != {**completion_body, "completion_hash": completion_hash}
-        ):
-            raise ValueError("adaptive call completion authority mismatch")
-        return {
-            "audit": audit,
-            "event": event,
-            "completion": completion,
-        }
-
-    def _begin_or_resume_adaptive_call(
-        self,
-        *,
-        envelope: Mapping[str, Any],
-        manifest: Mapping[str, Any],
-        session_id: str,
-        tool_id: str,
-        args: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        if self.adaptive_query_store is None:
-            raise ValueError("adaptive query store is unavailable")
-        canonical_args_json = _canonical_json(dict(args))
-        canonical_args_hash = _sha256(dict(args))
-        with self._connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                self._verify(envelope, conn=conn)
-                rows = conn.execute(
-                    "SELECT * FROM adaptive_call_intents "
-                    "WHERE capability_id = ? ORDER BY rowid",
-                    (manifest["capability_id"],),
-                ).fetchall()
-                pending: list[dict[str, Any]] = []
-                recoverable: list[dict[str, Any]] = []
-                for row in rows:
-                    intent = self._validated_adaptive_intent(row, manifest=manifest)
-                    completion_row = conn.execute(
-                        "SELECT * FROM adaptive_call_completions WHERE intent_id = ?",
-                        (intent["intent_id"],),
-                    ).fetchone()
-                    abort_row = conn.execute(
-                        "SELECT * FROM adaptive_call_aborts WHERE intent_id = ?",
-                        (intent["intent_id"],),
-                    ).fetchone()
-                    if completion_row is not None and abort_row is not None:
-                        raise ValueError("adaptive call intent has conflicting terminal states")
-                    if abort_row is not None:
-                        try:
-                            abort = json.loads(abort_row["abort_json"])
-                        except json.JSONDecodeError as exc:
-                            raise ValueError("adaptive call abort authority is malformed") from exc
-                        abort_body = {
-                            "schema_version": "adaptive_call_abort_v1",
-                            "intent_id": intent["intent_id"],
-                            "error_code": abort_row["error_code"],
-                            "aborted_at": abort_row["aborted_at"],
-                        }
-                        abort_hash = _sha256(abort_body)
-                        if (
-                            abort_row["abort_hash"] != abort_hash
-                            or abort != {**abort_body, "abort_hash": abort_hash}
-                        ):
-                            raise ValueError("adaptive call abort authority mismatch")
-                        continue
-                    if completion_row is None:
-                        pending.append(intent)
-                        continue
-                    completed = self._validated_adaptive_completion(
-                        conn, intent=intent, row=completion_row
-                    )
-                    finalization = (
-                        self.adaptive_query_store.read_reserved_finalization(
-                            reservation_id=str(intent["intent_id"])
-                        )
-                    )
-                    completion = completed["completion"]
-                    if finalization is not None:
-                        if (
-                            finalization["result_event_id"]
-                            != completion["result_event_id"]
-                            or finalization["result_event_hash"]
-                            != completion["result_event_hash"]
-                        ):
-                            raise ValueError(
-                                "adaptive call completion/finalization mismatch"
-                            )
-                        continue
-                    exact_request = (
-                        intent["session_id"] == session_id
-                        and intent["tool_id"] == tool_id
-                        and intent["canonical_args_hash"] == canonical_args_hash
-                        and _canonical_json(intent["canonical_args"])
-                        == canonical_args_json
-                    )
-                    if exact_request:
-                        recoverable.append({"intent": intent, **completed})
-                    else:
-                        self.adaptive_query_store.finalize_reserved_result(
-                            reservation_id=str(intent["intent_id"]),
-                            result_event_id=str(completion["result_event_id"]),
-                            result_event_hash=str(completion["result_event_hash"]),
-                        )
-                if len(pending) > 1 or len(recoverable) > 1:
-                    raise ValueError("multiple unfinished adaptive calls are present")
-                if pending and recoverable:
-                    raise ValueError("adaptive call recovery state is ambiguous")
-                if recoverable:
-                    conn.execute("COMMIT")
-                    return {**recoverable[0], "new_intent": False}
-                if pending:
-                    intent = pending[0]
-                    if (
-                        intent["session_id"] != session_id
-                        or intent["tool_id"] != tool_id
-                        or intent["canonical_args_hash"] != canonical_args_hash
-                        or _canonical_json(intent["canonical_args"])
-                        != canonical_args_json
-                    ):
-                        raise ValueError(
-                            "unfinished adaptive call must be recovered before a new call"
-                        )
-                    conn.execute("COMMIT")
-                    return {"intent": intent, "new_intent": False}
-                created_at = self.clock().astimezone(timezone.utc).isoformat()
-                intent_id = f"adaptive_intent_{uuid.uuid4().hex}"
-                intent_body = {
-                    "schema_version": "adaptive_call_intent_v1",
-                    "intent_id": intent_id,
-                    "capability_id": manifest["capability_id"],
-                    "capability_manifest_hash": _sha256(manifest),
-                    "session_id": session_id,
-                    "tool_id": tool_id,
-                    "canonical_args_hash": canonical_args_hash,
-                    "created_at": created_at,
-                }
-                intent_hash = _sha256(intent_body)
-                intent = {**intent_body, "intent_hash": intent_hash}
-                conn.execute(
-                    "INSERT INTO adaptive_call_intents VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        intent_id,
-                        manifest["capability_id"],
-                        session_id,
-                        tool_id,
-                        canonical_args_json,
-                        canonical_args_hash,
-                        _canonical_json(intent),
-                        intent_hash,
-                        created_at,
-                    ),
-                )
-                conn.execute("COMMIT")
-                return {
-                    "intent": {**intent, "canonical_args": dict(args)},
-                    "new_intent": True,
-                }
-            except Exception:
-                conn.execute("ROLLBACK")
-                raise
-
-    def _abort_adaptive_call(
-        self,
-        *,
-        envelope: Mapping[str, Any],
-        intent_id: str,
-        error_code: str,
-    ) -> None:
-        with self._connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                manifest, _ = self._verify(envelope, conn=conn)
-                intent_row = conn.execute(
-                    "SELECT * FROM adaptive_call_intents WHERE intent_id = ?",
-                    (intent_id,),
-                ).fetchone()
-                if intent_row is None:
-                    raise ValueError("adaptive call intent is unavailable")
-                self._validated_adaptive_intent(intent_row, manifest=manifest)
-                terminal = conn.execute(
-                    "SELECT (SELECT count(*) FROM adaptive_call_completions "
-                    "WHERE intent_id = ?) + (SELECT count(*) FROM adaptive_call_aborts "
-                    "WHERE intent_id = ?)",
-                    (intent_id, intent_id),
-                ).fetchone()[0]
-                if terminal:
-                    raise ValueError("adaptive call intent is already terminal")
-                aborted_at = self.clock().astimezone(timezone.utc).isoformat()
-                abort_body = {
-                    "schema_version": "adaptive_call_abort_v1",
-                    "intent_id": intent_id,
-                    "error_code": error_code,
-                    "aborted_at": aborted_at,
-                }
-                abort_hash = _sha256(abort_body)
-                conn.execute(
-                    "INSERT INTO adaptive_call_aborts VALUES (?, ?, ?, ?, ?)",
-                    (
-                        intent_id,
-                        error_code,
-                        _canonical_json({**abort_body, "abort_hash": abort_hash}),
-                        abort_hash,
-                        aborted_at,
-                    ),
-                )
-                conn.execute("COMMIT")
-            except Exception:
-                conn.execute("ROLLBACK")
-                raise
-
-    def _complete_adaptive_call(
-        self,
-        *,
-        envelope: Mapping[str, Any],
-        manifest: Mapping[str, Any],
-        intent: Mapping[str, Any],
-        tool_id: str,
-        args: Mapping[str, Any],
-        payload: str,
-        result_authority_hash: str,
-    ) -> dict[str, Any]:
-        with self._connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                self._verify(envelope, conn=conn)
-                intent_row = conn.execute(
-                    "SELECT * FROM adaptive_call_intents WHERE intent_id = ?",
-                    (intent["intent_id"],),
-                ).fetchone()
-                if intent_row is None:
-                    raise ValueError("adaptive call intent is unavailable")
-                validated_intent = self._validated_adaptive_intent(
-                    intent_row, manifest=manifest
-                )
-                if (
-                    validated_intent["session_id"] != intent["session_id"]
-                    or validated_intent["tool_id"] != tool_id
-                    or validated_intent["canonical_args_hash"] != _sha256(dict(args))
-                    or conn.execute(
-                        "SELECT (SELECT count(*) FROM adaptive_call_completions "
-                        "WHERE intent_id = ?) + (SELECT count(*) FROM adaptive_call_aborts "
-                        "WHERE intent_id = ?)",
-                        (intent["intent_id"], intent["intent_id"]),
-                    ).fetchone()[0]
-                ):
-                    raise ValueError("adaptive call intent completion mismatch")
-                audit = self._append_result_event(
-                    conn,
-                    manifest=manifest,
-                    tool_id=tool_id,
-                    call_mode="FOLLOW_UP",
-                    args=args,
-                    payload=payload,
-                    result_authority_type="FROZEN_QUERY",
-                    result_authority_hash=result_authority_hash,
-                    status="SUCCEEDED",
-                )
-                if audit is None:
-                    raise ValueError("current adaptive call audit authority is unavailable")
-                completed_at = self.clock().astimezone(timezone.utc).isoformat()
-                audit_hash = _sha256(audit)
-                completion_body = {
-                    "schema_version": "adaptive_call_completion_v1",
-                    "intent_id": intent["intent_id"],
-                    "result_event_id": audit["result_event_id"],
-                    "result_event_hash": audit["result_event_hash"],
-                    "result_authority_hash": audit["result_authority_hash"],
-                    "audit_hash": audit_hash,
-                    "completed_at": completed_at,
-                }
-                completion_hash = _sha256(completion_body)
-                conn.execute(
-                    "INSERT INTO adaptive_call_completions VALUES "
-                    "(?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        intent["intent_id"],
-                        audit["result_event_id"],
-                        audit["result_event_hash"],
-                        audit["result_authority_hash"],
-                        _canonical_json(audit),
-                        audit_hash,
-                        _canonical_json(
-                            {**completion_body, "completion_hash": completion_hash}
-                        ),
-                        completion_hash,
-                        completed_at,
-                    ),
-                )
-                conn.execute("COMMIT")
-                return audit
-            except Exception:
-                conn.execute("ROLLBACK")
-                raise
-
-    def _call_recoverable_adaptive_followup(
-        self,
-        *,
-        envelope: Mapping[str, Any],
-        manifest: Mapping[str, Any],
-        session_id: str,
-        tool_id: str,
-        args: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        if self.adaptive_query_store is None:
-            raise ValueError("adaptive query store is unavailable")
-        state = self._begin_or_resume_adaptive_call(
-            envelope=envelope,
-            manifest=manifest,
-            session_id=session_id,
-            tool_id=tool_id,
-            args=args,
-        )
-        intent = state["intent"]
-        if "completion" in state:
-            adaptive_result = self.adaptive_query_store.read_reserved_result(
-                reservation_id=str(intent["intent_id"])
-            )
-            audit = state["audit"]
-            event = state["event"]
-            if (
-                adaptive_result["reservation"]["session_id"] != session_id
-                or adaptive_result["tool_id"] != tool_id
-                or adaptive_result["request_hash"] != _sha256(dict(args))
-                or adaptive_result["payload_hash"] != event["payload_hash"]
-                or adaptive_result["result_authority"]["authority_hash"]
-                != audit["result_authority_hash"]
-            ):
-                raise ValueError("recovered adaptive result authority mismatch")
-            self.adaptive_query_store.finalize_reserved_result(
-                reservation_id=str(intent["intent_id"]),
-                result_event_id=str(audit["result_event_id"]),
-                result_event_hash=str(audit["result_event_hash"]),
-            )
-            return {"text": str(adaptive_result["payload"]), "audit": audit}
-        try:
-            adaptive_result = self.adaptive_query_store.reserve_next_result(
-                reservation_id=str(intent["intent_id"]),
-                session_id=session_id,
-                tool_id=tool_id,
-                args=args,
-            )
-        except ValueError:
-            if state["new_intent"]:
-                self._abort_adaptive_call(
-                    envelope=envelope,
-                    intent_id=str(intent["intent_id"]),
-                    error_code="FROZEN_QUERY_REJECTED",
-                )
-            self._record_failed_result_event(
-                envelope=envelope,
-                manifest=manifest,
-                tool_id=tool_id,
-                call_mode="FOLLOW_UP",
-                args=args,
-                error_code="FROZEN_QUERY_REJECTED",
-            )
-            raise
-        payload = str(adaptive_result["payload"])
-        result_authority = adaptive_result.get("result_authority")
-        if (
-            not isinstance(result_authority, Mapping)
-            or result_authority.get("authority_type") != "FROZEN_QUERY"
-            or not _is_sha256(result_authority.get("authority_hash"))
-        ):
-            self._record_failed_result_event(
-                envelope=envelope,
-                manifest=manifest,
-                tool_id=tool_id,
-                call_mode="FOLLOW_UP",
-                args=args,
-                error_code="PAYLOAD_VALIDATION_FAILED",
-            )
-            raise ValueError("frozen query result authority is invalid")
-        try:
-            audit = self._complete_adaptive_call(
-                envelope=envelope,
-                manifest=manifest,
-                intent=intent,
-                tool_id=tool_id,
-                args=args,
-                payload=payload,
-                result_authority_hash=str(result_authority["authority_hash"]),
-            )
-        except ValueError:
-            self._record_failed_result_event(
-                envelope=envelope,
-                manifest=manifest,
-                tool_id=tool_id,
-                call_mode="FOLLOW_UP",
-                args=args,
-                error_code="PAYLOAD_VALIDATION_FAILED",
-            )
-            raise
-        self.adaptive_query_store.finalize_reserved_result(
-            reservation_id=str(intent["intent_id"]),
-            result_event_id=str(audit["result_event_id"]),
-            result_event_hash=str(audit["result_event_hash"]),
-        )
-        return {"text": payload, "audit": audit}
-
     def call_tool_result(
         self,
         envelope: Mapping[str, Any],
@@ -5282,28 +5661,30 @@ class AgentToolCapabilityStore:
         if tool_id in ADAPTIVE_QUERY_TOOL_IDS:
             if self.adaptive_query_store is None:
                 raise ValueError("adaptive query store is unavailable")
-            if args:
-                with self._connect() as recovery_conn:
-                    self._verify(envelope, conn=recovery_conn)
-                    recovery_session = recovery_conn.execute(
-                        "SELECT session_id FROM capability_adaptive_sessions "
-                        "WHERE capability_id = ?",
-                        (manifest["capability_id"],),
-                    ).fetchone()
-                    recovery_required = (
-                        recovery_session is not None
-                        and self._adaptive_recovery_is_required(
-                            recovery_conn, manifest=manifest
-                        )
-                    )
-                if recovery_required:
-                    return self._call_recoverable_adaptive_followup(
-                        envelope=envelope,
-                        manifest=manifest,
-                        session_id=str(recovery_session["session_id"]),
-                        tool_id=tool_id,
-                        args=args,
-                    )
+            try:
+                deferred_call = self._validated_deferred_call(
+                    envelope=envelope,
+                    manifest=manifest,
+                    tool_id=tool_id,
+                    args=args,
+                )
+            except ValueError:
+                self._best_effort_failed_result_event(
+                    envelope=envelope,
+                    manifest=manifest,
+                    tool_id=tool_id,
+                    call_mode="FOLLOW_UP" if args else "INITIAL",
+                    args=args,
+                    error_code="FROZEN_QUERY_REJECTED",
+                )
+                raise
+            if deferred_call is not None:
+                return self._call_deferred_tool_result(
+                    envelope=envelope,
+                    manifest=manifest,
+                    tool_id=tool_id,
+                    call=deferred_call,
+                )
             failure_code = "FROZEN_QUERY_REJECTED"
             with self._connect() as conn:
                 conn.execute("BEGIN IMMEDIATE")
@@ -5928,6 +6309,8 @@ class AgentToolCapabilityStore:
             event = cast(dict[str, Any], json.loads(row["event_json"]))
             if row["result_event_hash"] != _sha256(event):
                 raise ValueError("KNOT history result event hash mismatch")
+            if event.get("schema_version") != "server_tool_result_event_v1":
+                raise ValueError("KNOT history result event version is unsupported")
             for binding_ref in event["binding_refs"]:
                 by_binding.setdefault(str(binding_ref["binding_id"]), []).append(
                     {
@@ -6196,19 +6579,16 @@ _EPHEMERAL_SIGNING_KEY = secrets.token_bytes(32)
 
 
 def capability_ledger_path() -> Path:
+    isolated = isolated_agent_runtime_path(
+        "runtime/agent_tool_capabilities.sqlite3"
+    )
+    if isolated is not None:
+        return isolated.resolve()
     explicit = os.getenv("MOSAIC_AGENT_TOOL_LEDGER_PATH")
     if explicit:
         return Path(explicit).expanduser().resolve()
     cache = Path(os.getenv("MOSAIC_CACHE_DIR", "~/.mosaic/cache")).expanduser()
     return (cache / "runtime" / "agent_tool_capabilities.sqlite3").resolve()
-
-
-def _frozen_research_digest(
-    tool_id: str,
-    raw_payload: str,
-    args: dict[str, Any],
-) -> Mapping[str, Any]:
-    return FrozenResearchDigestBuilder()(tool_id, raw_payload, args)
 
 
 def get_capability_store() -> AgentToolCapabilityStore:
@@ -6229,52 +6609,90 @@ def get_capability_store() -> AgentToolCapabilityStore:
                 runtime_dir / "agent_staged_query_receipts.sqlite3"
             )
             agent_data_ledger = open_agent_data_materialization_ledger(create=True)
-            sector_archive_store = SectorArchiveStore(
-                sector_archive_path(), create=False
-            )
-            china_archive_store = ChinaAgentDataArchiveStore(
-                china_agent_archive_path(), create=False
-            )
-            sector_query_reader = SectorArchiveQueryReader(store=sector_archive_store)
-            china_query_reader = ChinaArchiveQueryReader(store=china_archive_store)
+            forward_archive_root = Path(
+                os.getenv(
+                    "MOSAIC_FORWARD_ARCHIVE_ROOT",
+                    str(Path(__file__).resolve().parents[2]),
+                )
+            ).expanduser()
             forward_query_reader = ForwardArchiveQueryReader(
-                root=Path(__file__).resolve().parents[2],
-                sector_archive_store=sector_archive_store,
+                root=forward_archive_root,
+                sector_archive_store=None,
+                policy_cache_dir=os.getenv("MOSAIC_GOV_POLICY_CACHE_DIR"),
             )
             forward_source_preparer = ForwardArchiveSourcePreparer(
                 reader=forward_query_reader
             )
-            archive_query_router = TrustedArchiveQueryRouter(
-                {
-                    "get_balance_sheet": sector_query_reader,
-                    "get_cashflow": sector_query_reader,
-                    "get_etf_holdings": sector_query_reader,
-                    "get_fundamentals": sector_query_reader,
-                    "get_income_statement": sector_query_reader,
-                    "get_indicators": sector_query_reader,
-                    "get_stock_data": sector_query_reader,
-                    "get_industry_moneyflow": china_query_reader,
-                    "get_yield_curve_cn": china_query_reader,
-                    "get_broker_research": forward_query_reader,
-                    "get_industry_policy": forward_query_reader,
-                    "get_stock_research": forward_query_reader,
-                }
-            )
-            source_evidence = SectorRelationshipSourceEvidenceAuthority(
-                root=Path(__file__).resolve().parents[2],
+            source_evidence_authority = SectorRelationshipSourceEvidenceAuthority(
+                root=forward_archive_root,
                 receipt_store=receipt_store,
-                sector_archive_store=sector_archive_store,
-                china_archive_store=china_archive_store,
                 forward_archive_reader=forward_query_reader,
                 agent_data_ledger=agent_data_ledger,
             )
+            def original_query_owner(method: str, *args: Any) -> Any:
+                if method == "get_industry_policy":
+                    return forward_query_reader(method, *args)
+                return route_to_vendor(method, *args)
+
+            def source_evidence(
+                tool_id: str,
+                args: Mapping[str, Any],
+                raw_payload: str,
+                descriptor: Mapping[str, Any],
+                source_ids: Sequence[str],
+            ) -> Sequence[Mapping[str, Any]] | None:
+                if tool_id in DIRECT_VENDOR_TOOL_IDS:
+                    return []
+                if tool_id not in {
+                    "get_industry_policy_digest",
+                    "get_rke_research_context",
+                }:
+                    raise ValueError(
+                        f"no source evidence owner for deferred tool {tool_id}"
+                    )
+                return source_evidence_authority(
+                    tool_id,
+                    args,
+                    raw_payload,
+                    descriptor,
+                    source_ids,
+                )
+
+            digest_builder_lock = threading.Lock()
+            digest_builder: FrozenResearchDigestBuilder | None = None
+
+            def frozen_research_digest(
+                tool_id: str,
+                raw_payload: str,
+                args: dict[str, Any],
+            ) -> Mapping[str, Any]:
+                nonlocal digest_builder
+                with digest_builder_lock:
+                    if digest_builder is None:
+                        digest_builder = FrozenResearchDigestBuilder()
+                    builder = digest_builder
+                return builder(tool_id, raw_payload, args)
+
             query_materializer = SectorRelationshipQueryMaterializer(
                 receipt_authority=receipt_store,
-                route_caller=archive_query_router,
-                digest_builder=_frozen_research_digest,
+                route_caller=original_query_owner,
+                digest_builder=frozen_research_digest,
                 supply_chain_archive=CninfoSupplyChainDisclosureCollector(
                     archive=OfficialSupplyChainDisclosureArchive(
-                        runtime_dir / "official_supply_chain_disclosures.sqlite3"
+                        Path(
+                            os.getenv(
+                                "MOSAIC_SUPPLY_CHAIN_ARCHIVE_PATH",
+                                str(
+                                    runtime_dir
+                                    / "official_supply_chain_disclosures.sqlite3"
+                                ),
+                            )
+                        ),
+                        create=not (
+                            os.getenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS")
+                            == "structured_smoke"
+                            and os.getenv("MOSAIC_SUPPLY_CHAIN_ARCHIVE_PATH")
+                        ),
                     ),
                     receipt_store=receipt_store,
                     agent_data_ledger=agent_data_ledger,
@@ -6302,6 +6720,7 @@ def get_capability_store() -> AgentToolCapabilityStore:
                 signing_key_id=key_id,
                 adaptive_query_store=adaptive_store,
                 adaptive_query_preparer=adaptive_preparer,
+                adaptive_query_materializer=query_materializer,
                 stage_materialization_preparer=ensure_agent_stage_materialization,
                 stage_materialization_finalizer=lambda context: (
                     finalize_agent_stage_materialization(

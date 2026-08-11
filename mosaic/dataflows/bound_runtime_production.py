@@ -70,6 +70,7 @@ class BoundRuntimeAdaptiveQueryPreparer:
             query_requests=plan["query_requests"],
             preservation_overlay=build_l3_l4_preservation_overlay(self.root),
             materializer=self.materializer,
+            defer_materialization=True,
         )
 
 

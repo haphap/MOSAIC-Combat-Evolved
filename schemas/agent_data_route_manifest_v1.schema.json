@@ -21,7 +21,7 @@
           "source_family": {"$ref": "#/$defs/id"},
           "contract_version": {"$ref": "#/$defs/id"},
           "pit_strategy": {"enum": ["OBSERVED_LIVE", "AUTHORITATIVE_VINTAGE_REPLAY", "FORWARD_ARCHIVE", "LOCAL_RUNTIME_AUTHORITY", "DERIVED_FROM_PIT_ARCHIVE"]},
-          "implementation_stage": {"enum": ["PR2", "PR3", "PR4", "PR5", "PR6", "PR7", "PR8", "PR9", "PR10"]}
+          "implementation_stage": {"enum": ["PR2", "PR3", "PR4", "PR5", "PR6", "PR7", "PR8", "PR9", "PR10", "PR15"]}
         }
       }
     },

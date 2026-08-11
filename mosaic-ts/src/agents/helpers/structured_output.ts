@@ -368,7 +368,7 @@ function safeJsonSchema<T>(schema: z.ZodType<T>): string {
   }
 }
 
-function tryParseJsonObject(text: string): unknown | null {
+export function tryParseJsonObject(text: string): unknown | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
   try {

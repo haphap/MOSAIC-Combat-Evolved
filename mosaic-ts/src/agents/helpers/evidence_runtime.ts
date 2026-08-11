@@ -226,6 +226,22 @@ export function buildRuntimeEvidenceSnapshot(input: {
   };
 }
 
+export function withRuntimeCitationIds(
+  runtime: RuntimeEvidenceSnapshot,
+  citationIds: ReadonlyArray<string>,
+): RuntimeEvidenceSnapshot {
+  const allowedResearchRuleIds = new Set([...runtime.allowedResearchRuleIds, ...citationIds]);
+  return {
+    ...runtime,
+    allowedResearchRuleIds,
+    visibleCatalog: renderRuntimeEvidenceCatalog(
+      runtime.evidenceLedger,
+      allowedResearchRuleIds,
+      runtime.agentInvocationId,
+    ),
+  };
+}
+
 export function selectOutputByClaimEvidence<T>(
   rawOutput: T,
   fallbackFactory: () => T,

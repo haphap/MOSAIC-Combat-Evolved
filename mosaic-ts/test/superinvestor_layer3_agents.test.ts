@@ -348,31 +348,27 @@ describe("Layer-3 upstream consumption", () => {
     expect(rendered).not.toContain("layer1_consensus");
   });
 
-  it("builds the deterministic initial subset for each role", () => {
-    expect(buildLayerThreeInitialToolCalls(state(), "munger").map((call) => call.name)).toEqual([
-      "get_superinvestor_candidate_snapshot",
-      "get_fundamentals",
-      "get_cashflow",
-    ]);
-    expect(buildLayerThreeInitialToolCalls(state(), "burry").map((call) => call.name)).toEqual([
-      "get_superinvestor_candidate_snapshot",
-      "get_fundamentals",
-      "get_balance_sheet",
-    ]);
-    expect(
-      buildLayerThreeInitialToolCalls(state(), "druckenmiller").map((call) => call.name),
-    ).toEqual(["get_superinvestor_candidate_snapshot"]);
+  it("uses only the frozen candidate snapshot as the deterministic initial call", () => {
+    for (const spec of specs) {
+      expect(buildLayerThreeInitialToolCalls(state(), spec.agentId)).toEqual([
+        { name: "get_superinvestor_candidate_snapshot", args: {} },
+      ]);
+    }
   });
 
-  it("suppresses private initial calls when the prepared candidate scope is empty", () => {
-    expect(buildLayerThreeInitialToolCalls(state(), "munger", [])).toEqual([
+  it("keeps prepared adaptive tools model-selectable instead of calling them initially", () => {
+    expect(buildLayerThreeInitialToolCalls(state(), "munger", ["get_fundamentals"])).toEqual([
       { name: "get_superinvestor_candidate_snapshot", args: {} },
     ]);
-    expect(
-      buildLayerThreeInitialToolCalls(state(), "munger", ["get_fundamentals"]).map(
-        (call) => call.name,
-      ),
-    ).toEqual(["get_superinvestor_candidate_snapshot", "get_fundamentals"]);
+    expect(mungerSpec.requiredTools).toEqual(
+      expect.arrayContaining(["get_fundamentals", "get_cashflow", "get_balance_sheet"]),
+    );
+    expect(burrySpec.requiredTools).toEqual(
+      expect.arrayContaining(["get_fundamentals", "get_cashflow", "get_balance_sheet"]),
+    );
+    expect(ackmanSpec.requiredTools).toEqual(
+      expect.arrayContaining(["get_fundamentals", "get_cashflow", "get_balance_sheet"]),
+    );
   });
 });
 

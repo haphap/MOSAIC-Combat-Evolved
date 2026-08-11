@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent cycle publication v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "publication_id",
+    "run_id",
+    "target_date",
+    "cohort",
+    "cycle_kind",
+    "committed_event_hash",
+    "final_decision_hash",
+    "published_at",
+    "receipt_hash"
+  ],
+  "properties": {
+    "schema_version": {"const": "agent_cycle_publication_v1"},
+    "publication_id": {"$ref": "#/$defs/id"},
+    "run_id": {"$ref": "#/$defs/id"},
+    "target_date": {"type": "string", "format": "date"},
+    "cohort": {"$ref": "#/$defs/id"},
+    "cycle_kind": {"enum": ["PRODUCTION", "SHADOW", "REPLAY"]},
+    "committed_event_hash": {"$ref": "#/$defs/sha256"},
+    "final_decision_hash": {"$ref": "#/$defs/sha256"},
+    "published_at": {"type": "string", "format": "date-time"},
+    "receipt_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+    },
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

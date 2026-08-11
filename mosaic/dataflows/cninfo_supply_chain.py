@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import io
-import json
 import re
+import unicodedata
 import urllib.error
-import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
+
+import requests
 
 from mosaic.dataflows.agent_materialization import AgentDataMaterializationLedger
 from mosaic.dataflows.staged_query_receipt_store import StagedQueryReceiptStore
@@ -21,10 +22,10 @@ from mosaic.dataflows.supply_chain_disclosures import (
 )
 
 
-IDENTITY_URL = "https://www.cninfo.com.cn/new/data/szse_stock.json"
+IDENTITY_QUERY_URL = "https://www.cninfo.com.cn/new/information/topSearch/query"
 QUERY_URL = "https://www.cninfo.com.cn/new/hisAnnouncement/query"
 DOCUMENT_ROOT = "https://static.cninfo.com.cn/"
-PARSER_VERSION = "cninfo_annual_report_listed_counterparties_v1"
+PARSER_VERSION = "cninfo_annual_report_listed_counterparties_v2"
 _USER_AGENT = "mosaic-rke/0.1.0"
 _REFERER = (
     "https://www.cninfo.com.cn/new/commonUrl/pageOfSearch?"
@@ -33,8 +34,22 @@ _REFERER = (
 _PAGE_SIZE = 30
 _LOOKBACK_DAYS = 5 * 365
 _MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
+_IDENTITY_MAX_RESULTS = 10
+_COUNTERPARTY_QUERY_LIMIT_PER_DOCUMENT = 10
+_ROLE_ROW_LIMIT = 5
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
 _ANNUAL_REPORT = re.compile(r"(?P<year>20\d{2})年年度报告")
+_RANKED_TABLE_ROW = re.compile(
+    r"^\s*(?P<rank>[1-5])(?:[.、．:：)）]\s*|\s+)(?P<body>.+)$"
+)
+_EXPLICIT_SECURITY_CODE = re.compile(
+    r"(?:股票|证券)?代码\s*[:：]?\s*(?P<labelled>\d{6})"
+    r"|[（(]\s*(?P<parenthesized>\d{6})\s*[）)]"
+)
+_NUMERIC_COLUMN = re.compile(
+    r"\s+(?=[-+]?\d[\d,]*(?:\.\d+)?(?:%|万|亿|元)?(?:\s|$))"
+)
+_NUMERIC_VALUE = re.compile(r"[-+]?\d[\d,]*(?:\.\d+)?(?:%|万|亿|元)?")
 _ROLE_ANCHORS = {
     "supplier": ("前五名供应商", "前五大供应商", "主要供应商"),
     "customer": ("前五名客户", "前五大客户", "主要客户"),
@@ -56,25 +71,31 @@ def _default_get_bytes(url: str) -> bytes:
     return payload
 
 
-def _default_post_form(url: str, form: Mapping[str, str]) -> dict[str, Any]:
-    request = urllib.request.Request(
-        url,
-        data=urllib.parse.urlencode(form).encode("utf-8"),
-        headers={
-            "Content-Type": "application/x-www-form-urlencoded",
-            "User-Agent": _USER_AGENT,
-            "Referer": _REFERER,
-        },
-        method="POST",
-    )
+def _default_post_form(url: str, form: Mapping[str, str]) -> Any:
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "User-Agent": _USER_AGENT,
+        "Referer": _REFERER,
+    }
     try:
-        with urllib.request.urlopen(request, timeout=120) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
-        raise ValueError("CNINFO announcement query failed") from exc
-    if not isinstance(payload, dict):
-        raise ValueError("CNINFO announcement response must be an object")
-    return payload
+        if url == IDENTITY_QUERY_URL:
+            response = requests.post(
+                url,
+                params=dict(form),
+                headers=headers,
+                timeout=120,
+            )
+        else:
+            response = requests.post(
+                url,
+                data=dict(form),
+                headers=headers,
+                timeout=120,
+            )
+        response.raise_for_status()
+        return response.json()
+    except (requests.RequestException, ValueError) as exc:
+        raise ValueError("CNINFO POST request failed") from exc
 
 
 def _default_pdf_text_extractor(content: bytes) -> str:
@@ -91,6 +112,8 @@ def _default_pdf_text_extractor(content: bytes) -> str:
 
 
 def _ticker_for_code(code: str) -> str:
+    if len(code) != 6 or not code.isdigit() or code[0] not in "034689":
+        raise ValueError("CNINFO code must be a supported A-share code")
     if code.startswith(("4", "8", "9")):
         suffix = "BJ"
     elif code.startswith("6"):
@@ -109,6 +132,52 @@ def _announced_at(value: Any) -> str:
     return datetime.combine(published_date, time.max, tzinfo=_SHANGHAI).isoformat()
 
 
+def _normalized_security_name(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", value)
+    return re.sub(r"\s+", "", normalized).strip("()（）[]【】")
+
+
+def _ranked_role_rows(
+    lines: list[str], anchors: tuple[str, ...]
+) -> list[tuple[int, str]]:
+    for anchor_index, line in enumerate(lines):
+        if not any(anchor in line for anchor in anchors):
+            continue
+        rows: list[tuple[int, str]] = []
+        expected_rank = 1
+        for candidate in lines[anchor_index + 1 : anchor_index + 81]:
+            match = _RANKED_TABLE_ROW.fullmatch(candidate)
+            if match is None:
+                continue
+            rank = int(match.group("rank"))
+            if rank != expected_rank:
+                continue
+            body = match.group("body").strip()
+            numeric_columns = _NUMERIC_VALUE.findall(body)
+            if len(numeric_columns) < 2 and "%" not in body:
+                continue
+            rows.append((rank, body))
+            expected_rank += 1
+            if len(rows) == _ROLE_ROW_LIMIT:
+                return rows
+        if rows:
+            return rows
+    return []
+
+
+def _row_security_candidate(body: str) -> tuple[str | None, str | None]:
+    explicit = _EXPLICIT_SECURITY_CODE.search(body)
+    if explicit is not None:
+        labelled = explicit.group("labelled")
+        numeric_columns = _NUMERIC_VALUE.findall(body)
+        if labelled is not None or len(numeric_columns) >= 3:
+            return labelled or explicit.group("parenthesized"), None
+    name = _NUMERIC_COLUMN.split(body, maxsplit=1)[0].strip(" ,，;；:：")
+    if len(_normalized_security_name(name)) < 2:
+        return None, None
+    return None, name
+
+
 class CninfoSupplyChainDisclosureCollector:
     """Capture annual-report counterparty evidence into the immutable archive."""
 
@@ -119,9 +188,7 @@ class CninfoSupplyChainDisclosureCollector:
         receipt_store: StagedQueryReceiptStore | None = None,
         agent_data_ledger: AgentDataMaterializationLedger | None = None,
         get_bytes: Callable[[str], bytes] = _default_get_bytes,
-        post_form: Callable[[str, Mapping[str, str]], Mapping[str, Any]] = (
-            _default_post_form
-        ),
+        post_form: Callable[[str, Mapping[str, str]], Any] = _default_post_form,
         pdf_text_extractor: Callable[[bytes], str] = _default_pdf_text_extractor,
     ) -> None:
         if (receipt_store is None) != (agent_data_ledger is None):
@@ -135,48 +202,61 @@ class CninfoSupplyChainDisclosureCollector:
         self.get_bytes = get_bytes
         self.post_form = post_form
         self.pdf_text_extractor = pdf_text_extractor
-        self._identity_by_code: dict[str, dict[str, str]] | None = None
-        self._ticker_by_name: dict[str, str] | None = None
+        self._issuer_identity_cache: dict[str, dict[str, str]] = {}
+        self._counterparty_ticker_cache: dict[str, str | None] = {}
 
-    def _load_identities(self) -> None:
-        try:
-            payload = json.loads(self.get_bytes(IDENTITY_URL).decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ValueError("CNINFO identity response is malformed") from exc
-        rows = payload.get("stockList") if isinstance(payload, Mapping) else None
-        if not isinstance(rows, list):
-            raise ValueError("CNINFO identity stockList is missing")
-        identity_by_code: dict[str, dict[str, str]] = {}
-        ticker_candidates_by_name: dict[str, set[str]] = {}
-        for row in rows:
+    def _query_security_identities(self, keyword: str) -> list[dict[str, str]]:
+        raw = self.post_form(
+            IDENTITY_QUERY_URL,
+            {"keyWord": keyword, "maxNum": str(_IDENTITY_MAX_RESULTS)},
+        )
+        if not isinstance(raw, list) or len(raw) > _IDENTITY_MAX_RESULTS:
+            raise ValueError("CNINFO identity response must be a bounded array")
+        identities: list[dict[str, str]] = []
+        for row in raw:
             if not isinstance(row, Mapping):
                 raise ValueError("CNINFO identity row must be an object")
             code = str(row.get("code") or "").strip()
             org_id = str(row.get("orgId") or "").strip()
             name = str(row.get("zwjc") or "").strip()
-            if len(code) != 6 or not code.isdigit() or not org_id or not name:
+            if not code or not org_id or not name:
                 raise ValueError("CNINFO identity row is incomplete")
-            identity = {"ticker": _ticker_for_code(code), "org_id": org_id}
-            previous = identity_by_code.get(code)
-            if previous is not None and previous != identity:
-                raise ValueError("CNINFO identity code is ambiguous")
-            identity_by_code[code] = identity
-            if len(name) >= 3:
-                ticker_candidates_by_name.setdefault(name, set()).add(identity["ticker"])
-        self._identity_by_code = identity_by_code
-        self._ticker_by_name = {
-            name: next(iter(tickers))
-            for name, tickers in ticker_candidates_by_name.items()
-            if len(tickers) == 1
-        }
+            identities.append({"code": code, "org_id": org_id, "name": name})
+        return identities
 
     def _resolve_identity(self, ticker: str) -> dict[str, str]:
-        if self._identity_by_code is None:
-            self._load_identities()
-        identity = (self._identity_by_code or {}).get(ticker[:6])
-        if identity is None or identity["ticker"] != ticker:
+        cached = self._issuer_identity_cache.get(ticker)
+        if cached is not None:
+            return dict(cached)
+        matches = {
+            (row["code"], row["org_id"], row["name"]): row
+            for row in self._query_security_identities(ticker[:6])
+            if row["code"] == ticker[:6]
+        }
+        if len(matches) != 1:
             raise ValueError("CNINFO identity is unavailable for ticker")
+        match = next(iter(matches.values()))
+        if _ticker_for_code(match["code"]) != ticker:
+            raise ValueError("CNINFO identity is unavailable for ticker")
+        identity = {"ticker": ticker, "org_id": match["org_id"]}
+        self._issuer_identity_cache[ticker] = identity
         return dict(identity)
+
+    def _resolve_counterparty_name(self, name: str) -> str | None:
+        normalized = _normalized_security_name(name)
+        if normalized in self._counterparty_ticker_cache:
+            return self._counterparty_ticker_cache[normalized]
+        matches: set[str] = set()
+        for row in self._query_security_identities(name):
+            if _normalized_security_name(row["name"]) != normalized:
+                continue
+            try:
+                matches.add(_ticker_for_code(row["code"]))
+            except ValueError:
+                continue
+        ticker = next(iter(matches)) if len(matches) == 1 else None
+        self._counterparty_ticker_cache[normalized] = ticker
+        return ticker
 
     def _search_page(
         self,
@@ -204,12 +284,11 @@ class CninfoSupplyChainDisclosureCollector:
         raw = self.post_form(QUERY_URL, form)
         announcements = raw.get("announcements") if isinstance(raw, Mapping) else None
         total = raw.get("totalRecordNum") if isinstance(raw, Mapping) else None
-        if (
-            not isinstance(announcements, list)
-            or isinstance(total, bool)
-            or not isinstance(total, int)
-            or total < 0
-        ):
+        if isinstance(total, bool) or not isinstance(total, int) or total < 0:
+            raise ValueError("CNINFO announcement response fields are malformed")
+        if total == 0 and announcements is None:
+            announcements = []
+        if not isinstance(announcements, list):
             raise ValueError("CNINFO announcement response fields are malformed")
         if total > (page_number - 1) * _PAGE_SIZE and not announcements:
             raise ValueError("CNINFO pagination advertised a non-empty page but returned none")
@@ -251,10 +330,18 @@ class CninfoSupplyChainDisclosureCollector:
         as_of_date = date.fromisoformat(as_of)
         start_date = as_of_date - timedelta(days=_LOOKBACK_DAYS)
         return {
-            "contract_version": "cninfo_annual_report_query_v1",
+            "contract_version": "cninfo_annual_report_query_v2",
             "endpoint": QUERY_URL,
             "method": "POST",
             "content_type": "application/x-www-form-urlencoded",
+            "identity_endpoint": IDENTITY_QUERY_URL,
+            "identity_method": "POST",
+            "identity_max_results": _IDENTITY_MAX_RESULTS,
+            "identity_match_policy": "UNIQUE_EXACT_CODE",
+            "counterparty_match_policy": "UNIQUE_NORMALIZED_EXACT_NAME",
+            "counterparty_query_limit_per_document": (
+                _COUNTERPARTY_QUERY_LIMIT_PER_DOCUMENT
+            ),
             "page_size": _PAGE_SIZE,
             "column": "szse",
             "tab_name": "fulltext",
@@ -288,30 +375,36 @@ class CninfoSupplyChainDisclosureCollector:
             raise ValueError("CNINFO PDF text extraction failed") from exc
         if not isinstance(text, str) or not text.strip():
             raise ValueError("CNINFO PDF text extraction returned no text")
-        if self._ticker_by_name is None:
-            self._load_identities()
-        lines = [line.strip() for line in text.replace("\r", "\n").splitlines()]
+        lines = [
+            line.strip()
+            for line in text.replace("\r", "\n").splitlines()
+            if line.strip()
+        ]
         facts: set[tuple[str, str]] = set()
+        queried_names: set[str] = set()
         for role, anchors in _ROLE_ANCHORS.items():
-            anchor_indexes = [
-                index
-                for index, line in enumerate(lines)
-                if any(anchor in line for anchor in anchors)
-            ]
-            for anchor_index in anchor_indexes:
-                window = lines[anchor_index : anchor_index + 80]
-                for name, ticker in (self._ticker_by_name or {}).items():
-                    if ticker == announcement["ticker"]:
+            for _, body in _ranked_role_rows(lines, anchors):
+                code, name = _row_security_candidate(body)
+                if code is not None:
+                    ticker = _ticker_for_code(code)
+                elif name is not None:
+                    normalized = _normalized_security_name(name)
+                    if normalized in queried_names:
+                        ticker = self._counterparty_ticker_cache.get(normalized)
+                    else:
+                        queried_names.add(normalized)
+                        if (
+                            len(queried_names)
+                            > _COUNTERPARTY_QUERY_LIMIT_PER_DOCUMENT
+                        ):
+                            raise ValueError("CNINFO counterparty query limit exceeded")
+                        ticker = self._resolve_counterparty_name(name)
+                    if ticker is None:
                         continue
-                    for line_index, line in enumerate(window):
-                        if name not in line:
-                            continue
-                        nearby = " ".join(
-                            window[max(0, line_index - 1) : line_index + 2]
-                        )
-                        if any(character.isdigit() for character in nearby):
-                            facts.add((ticker, role))
-                            break
+                else:
+                    continue
+                if ticker != announcement["ticker"]:
+                    facts.add((ticker, role))
         return [
             {"counterparty_ticker": ticker, "counterparty_role": role}
             for ticker, role in sorted(facts, key=lambda item: (item[1], item[0]))
