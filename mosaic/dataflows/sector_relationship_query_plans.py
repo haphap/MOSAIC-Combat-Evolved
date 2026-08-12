@@ -47,6 +47,7 @@ _STANDARD_SECTOR_TOOLS = frozenset(
         "get_industry_policy_digest",
         "get_rke_research_context",
         "get_stock_data",
+        "get_supply_chain_evidence",
     }
 )
 _EXPECTED_TOOLS = {

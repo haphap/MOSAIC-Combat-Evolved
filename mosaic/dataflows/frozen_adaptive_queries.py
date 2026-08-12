@@ -21,6 +21,10 @@ from typing import Any
 
 from jsonschema import Draft202012Validator, FormatChecker
 
+from mosaic.scorecard.capability_preservation import (
+    load_capability_contract_bundle,
+    validate_capability_contract_bundle,
+)
 from mosaic.scorecard.canonical_json import canonical_hash
 from mosaic.scorecard.l3_l4_preservation import (
     L3_TOOL_ROSTER,
@@ -32,6 +36,7 @@ from mosaic.scorecard.l3_l4_activation import active_stage_for_l3_l4_overlay
 from mosaic.scorecard.sector_relationship_preservation import (
     QUERY_BUNDLE_CONTRACT_VERSION as SECTOR_QUERY_BUNDLE_CONTRACT_VERSION,
     SECTOR_AGENT_IDS,
+    argument_schema_for_tool,
     validate_sector_relationship_preservation_overlay,
 )
 
@@ -103,6 +108,58 @@ def _validate_string_list(value: Any, field: str, *, allow_empty: bool = False) 
     if len(value) != len(set(value)):
         raise ValueError(f"{field} must contain unique values")
     return list(value)
+
+
+def _load_active_sector_bindings(
+    *, agent_id: str, stage: str, query_requests: Sequence[Mapping[str, Any]]
+) -> dict[str, dict[str, Any]]:
+    current_tool_manifest_path = (
+        _REPO_ROOT / "registry/prompt_checks/agent_tool_contract_manifest_v1.json"
+    )
+    try:
+        current_tool_manifest = json.loads(
+            current_tool_manifest_path.read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("active Agent tool authority is unavailable") from exc
+    bundle = load_capability_contract_bundle(_REPO_ROOT)
+    validate_capability_contract_bundle(
+        bundle, current_tool_manifest=current_tool_manifest
+    )
+    requested_tool_ids = {
+        str(row["tool_id"])
+        for row in query_requests
+        if isinstance(row, Mapping) and isinstance(row.get("tool_id"), str)
+    }
+    rows_by_tool: dict[str, list[Mapping[str, Any]]] = {
+        tool_id: [] for tool_id in requested_tool_ids
+    }
+    for row in bundle["binding_manifest"]["bindings"]:
+        tool_id = str(row["tool_id"])
+        if (
+            row["agent_id"] == agent_id
+            and row["stage"] == stage
+            and tool_id in rows_by_tool
+        ):
+            rows_by_tool[tool_id].append(row)
+    bindings: dict[str, dict[str, Any]] = {}
+    for tool_id, rows in rows_by_tool.items():
+        if len(rows) != 1:
+            raise ValueError(
+                f"active Sector binding is not unique for {agent_id}/{tool_id}"
+            )
+        schema = argument_schema_for_tool(tool_id)
+        binding = rows[0]
+        if (
+            binding["argument_schema_hash"] != canonical_hash(schema)
+            or binding["query_bundle_contract_version"]
+            != SECTOR_QUERY_BUNDLE_CONTRACT_VERSION
+        ):
+            raise ValueError(
+                f"active Sector binding contract drift for {agent_id}/{tool_id}"
+            )
+        bindings[tool_id] = {**binding, "argument_schema": schema}
+    return bindings
 
 
 class FrozenAdaptiveQueryStore:
@@ -525,11 +582,19 @@ class FrozenAdaptiveQueryStore:
             scope = self._validate_scope(authorized_scope, as_of=as_of)
             if agent_id not in {*SECTOR_AGENT_IDS, "relationship_mapper"}:
                 raise ValueError("Agent is outside the PR6 frozen-query roster")
-            bindings = {
-                row["tool_id"]: row
-                for row in preservation_overlay["bindings"]
-                if row["agent_id"] == agent_id and row["stage"] == stage
-            }
+            bindings = (
+                _load_active_sector_bindings(
+                    agent_id=agent_id,
+                    stage=stage,
+                    query_requests=query_requests,
+                )
+                if agent_id in SECTOR_AGENT_IDS
+                else {
+                    row["tool_id"]: row
+                    for row in preservation_overlay["bindings"]
+                    if row["agent_id"] == agent_id and row["stage"] == stage
+                }
+            )
             follow_up_requests = self._validate_requests(
                 query_requests,
                 bindings=bindings,
@@ -652,6 +717,17 @@ class FrozenAdaptiveQueryStore:
                 "as_of": as_of,
                 "authorized_scope": scope,
                 "requests": private_request_descriptor,
+                **(
+                    {
+                        "binding_ids": {
+                            tool_id: bindings[tool_id]["binding_id"]
+                            for tool_id in sorted({row[0] for row in requests})
+                        }
+                    }
+                    if overlay_version
+                    == "sector_relationship_preservation_overlay_v1"
+                    else {}
+                ),
                 "max_rounds": max_rounds,
                 "overlay_hash": overlay_hash,
             }

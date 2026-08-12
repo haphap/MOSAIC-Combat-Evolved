@@ -8,6 +8,10 @@ import pytest
 
 import mosaic.dataflows.sector_snapshots as sector_snapshots_module
 import scripts.build_structured_smoke_fixtures as structured_smoke_fixtures
+from mosaic.bridge.tool_capabilities import (
+    INITIAL_SNAPSHOT_TOOL_IDS,
+    allowed_tools_for_agent,
+)
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.frozen_adaptive_queries import FrozenAdaptiveQueryStore
 from mosaic.dataflows.sector_snapshots import _build_sector_etf_direction_authority
@@ -20,6 +24,7 @@ from mosaic.dataflows.sector_relationship_query_plans import (
     THS_INDUSTRY_FILTERS,
     build_sector_relationship_query_plan,
 )
+from mosaic.scorecard.capability_preservation import load_capability_contract_bundle
 from mosaic.scorecard.canonical_json import canonical_hash
 from mosaic.scorecard.sector_relationship_preservation import (
     SECTOR_AGENT_IDS,
@@ -44,13 +49,10 @@ def sector_payloads(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
 
 
 def _allowed_tools(agent_id: str) -> tuple[str, ...]:
-    overlay = build_sector_relationship_preservation_overlay(ROOT)
     return tuple(
-        sorted(
-            row["tool_id"]
-            for row in overlay["bindings"]
-            if row["agent_id"] == agent_id and row["stage"] == agent_id
-        )
+        tool_id
+        for tool_id in allowed_tools_for_agent(agent_id)
+        if tool_id not in INITIAL_SNAPSHOT_TOOL_IDS
     )
 
 
@@ -289,6 +291,13 @@ def test_every_sector_relationship_stage_compiles_a_frozen_adaptive_bundle(
 
     projection = prepared["public_projection"]
     prepared_tools = {row["tool_id"] for row in projection["entries"]}
+    active_binding_ids = {
+        row["tool_id"]: row["binding_id"]
+        for row in load_capability_contract_bundle(ROOT)["binding_manifest"][
+            "bindings"
+        ]
+        if row["agent_id"] == agent_id and row["stage"] == agent_id
+    }
     expected_tools = set(_allowed_tools(agent_id))
     assert projection["private_payload_count"] == 0
     if not any(
@@ -296,6 +305,9 @@ def test_every_sector_relationship_stage_compiles_a_frozen_adaptive_bundle(
     ):
         expected_tools.discard("get_etf_holdings")
     assert prepared_tools == expected_tools
+    assert {
+        row["tool_id"]: row["binding_id"] for row in projection["entries"]
+    } == {tool_id: active_binding_ids[tool_id] for tool_id in prepared_tools}
     assert projection["agent_id"] == agent_id
     assert projection["stage"] == agent_id
     assert projection["as_of"] == AS_OF

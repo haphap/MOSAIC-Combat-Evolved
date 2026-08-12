@@ -1342,11 +1342,19 @@ def _load_restored_bindings(root: Path) -> Sequence[Mapping[str, Any]]:
 
 
 def _load_active_restored_bindings(
-    root: Path, current_tool_manifest: Mapping[str, Any]
+    root: Path,
+    current_tool_manifest: Mapping[str, Any],
+    route_manifest: Mapping[str, Any],
 ) -> Sequence[Mapping[str, Any]]:
+    from mosaic.scorecard.sector_relationship_preservation import (
+        SECTOR_AGENT_IDS,
+        _binding_body as build_sector_relationship_binding_body,
+    )
+
     active_surface = _surface(current_tool_manifest)
+    restored_source = _load_restored_bindings(root)
     restored_bindings: list[Mapping[str, Any]] = []
-    for row in _load_restored_bindings(root):
+    for row in restored_source:
         key = (str(row["agent_id"]), str(row["stage"]), str(row["tool_id"]))
         if key in active_surface:
             restored_bindings.append(row)
@@ -1354,6 +1362,47 @@ def _load_active_restored_bindings(
             raise ValueError(
                 "restored capability overlay is outside the active tool surface"
             )
+    _, routes_by_id = _route_contract_authority(
+        current_tool_manifest, route_manifest
+    )
+    legacy_supply_chain_rows = [
+        row
+        for row in restored_source
+        if row["agent_id"] == "relationship_mapper"
+        and row["stage"] == "relationship_mapper"
+        and row["tool_id"] == "get_supply_chain_evidence"
+    ]
+    expected_legacy_supply_chain = build_sector_relationship_binding_body(
+        agent_id="relationship_mapper",
+        stage="relationship_mapper",
+        tool_id="get_supply_chain_evidence",
+        routes_by_id=routes_by_id,
+    )
+    expected_legacy_supply_chain = {
+        "binding_id": canonical_binding_id(expected_legacy_supply_chain),
+        **expected_legacy_supply_chain,
+    }
+    if (
+        len(legacy_supply_chain_rows) != 1
+        or canonical_json(legacy_supply_chain_rows[0])
+        != canonical_json(expected_legacy_supply_chain)
+    ):
+        raise ValueError("legacy Relationship supply-chain binding authority drift")
+    sector_supply_chain_surface = {
+        (agent_id, agent_id, "get_supply_chain_evidence")
+        for agent_id in SECTOR_AGENT_IDS
+    }
+    if not sector_supply_chain_surface <= active_surface:
+        raise ValueError("active Sector supply-chain binding surface is incomplete")
+    restored_bindings.extend(
+        build_sector_relationship_binding_body(
+            agent_id=agent_id,
+            stage=agent_id,
+            tool_id="get_supply_chain_evidence",
+            routes_by_id=routes_by_id,
+        )
+        for agent_id in SECTOR_AGENT_IDS
+    )
     return restored_bindings
 
 
@@ -1371,7 +1420,7 @@ def build_default_contract_artifacts(root: Path) -> dict[str, dict[str, Any]]:
     binding = build_binding_manifest(
         current,
         routes,
-        restored_bindings=_load_active_restored_bindings(root, current),
+        restored_bindings=_load_active_restored_bindings(root, current, routes),
     )
     staged = build_staged_tool_contract_manifest(current, routes, binding)
     environment = build_tool_environment_manifest(root, current, binding, staged)
@@ -1591,7 +1640,7 @@ def validate_capability_contract_bundle(
         current_tool_manifest,
         route_manifest,
         restored_bindings=_load_active_restored_bindings(
-            repository_root, current_tool_manifest
+            repository_root, current_tool_manifest, route_manifest
         ),
     )
     if canonical_hash(binding) != canonical_hash(expected_binding):
