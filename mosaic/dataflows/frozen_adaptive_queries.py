@@ -36,7 +36,6 @@ from mosaic.scorecard.l3_l4_activation import active_stage_for_l3_l4_overlay
 from mosaic.scorecard.sector_relationship_preservation import (
     QUERY_BUNDLE_CONTRACT_VERSION as SECTOR_QUERY_BUNDLE_CONTRACT_VERSION,
     SECTOR_AGENT_IDS,
-    argument_schema_for_tool,
     validate_sector_relationship_preservation_overlay,
 )
 
@@ -111,7 +110,11 @@ def _validate_string_list(value: Any, field: str, *, allow_empty: bool = False) 
 
 
 def _load_active_sector_bindings(
-    *, agent_id: str, stage: str, query_requests: Sequence[Mapping[str, Any]]
+    *,
+    agent_id: str,
+    stage: str,
+    query_requests: Sequence[Mapping[str, Any]],
+    preservation_overlay: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
     current_tool_manifest_path = (
         _REPO_ROOT / "registry/prompt_checks/agent_tool_contract_manifest_v1.json"
@@ -148,17 +151,44 @@ def _load_active_sector_bindings(
             raise ValueError(
                 f"active Sector binding is not unique for {agent_id}/{tool_id}"
             )
-        schema = argument_schema_for_tool(tool_id)
+        full_rows = [
+            row
+            for row in preservation_overlay["bindings"]
+            if row["agent_id"] == agent_id
+            and row["stage"] == stage
+            and row["tool_id"] == tool_id
+        ]
+        if tool_id == "get_supply_chain_evidence" and not full_rows:
+            full_rows = [
+                row
+                for row in preservation_overlay["bindings"]
+                if row["agent_id"] == "relationship_mapper"
+                and row["stage"] == "relationship_mapper"
+                and row["tool_id"] == tool_id
+            ]
+        if len(full_rows) != 1:
+            raise ValueError(
+                f"historical full binding is not unique for {agent_id}/{tool_id}"
+            )
+        full_binding = full_rows[0]
+        schema = full_binding["argument_schema"]
+        materializer_contract = full_binding["materializer_contract"]
         binding = rows[0]
         if (
             binding["argument_schema_hash"] != canonical_hash(schema)
+            or binding["materializer_contract_hash"]
+            != canonical_hash(materializer_contract)
             or binding["query_bundle_contract_version"]
             != SECTOR_QUERY_BUNDLE_CONTRACT_VERSION
         ):
             raise ValueError(
                 f"active Sector binding contract drift for {agent_id}/{tool_id}"
             )
-        bindings[tool_id] = {**binding, "argument_schema": schema}
+        bindings[tool_id] = {
+            **binding,
+            "argument_schema": schema,
+            "materializer_contract": materializer_contract,
+        }
     return bindings
 
 
@@ -587,6 +617,7 @@ class FrozenAdaptiveQueryStore:
                     agent_id=agent_id,
                     stage=stage,
                     query_requests=query_requests,
+                    preservation_overlay=preservation_overlay,
                 )
                 if agent_id in SECTOR_AGENT_IDS
                 else {
