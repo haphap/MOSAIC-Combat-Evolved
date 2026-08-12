@@ -52,7 +52,10 @@ from mosaic.dataflows.outcome_runtime_inputs import (
     OPPORTUNITY_PROJECTION_SCHEMA_VERSION,
 )
 from mosaic.dataflows.role_events import build_role_event_snapshot
-from mosaic.dataflows.sector_archive import SectorArchiveStore
+from mosaic.dataflows.sector_archive import (
+    LOGICAL_ROUTES as SECTOR_ARCHIVE_LOGICAL_ROUTES,
+    SectorArchiveStore,
+)
 from mosaic.dataflows.china_agent_data_archive import (
     CAPTURE_SCHEMA_VERSION as CHINA_CAPTURE_SCHEMA_VERSION,
     CURVE_ROUTE_GROUP,
@@ -782,20 +785,18 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
         _write_json(target / f"{agent_id}.json", snapshot)
 def _build_sector_archive(root: Path, as_of: date) -> Path:
     snapshot_root = root / "sector_snapshots" / as_of.isoformat()
-    snapshots = [
-        json.loads((snapshot_root / f"{agent_id}.json").read_text(encoding="utf-8"))
-        for agent_id in SECTOR_DIRECTION_IDS
-    ]
+    agent_id = "semiconductor"
+    snapshot = json.loads(
+        (snapshot_root / f"{agent_id}.json").read_text(encoding="utf-8")
+    )
     ticker_industries: dict[str, str] = {}
-    for agent_id, snapshot in zip(SECTOR_DIRECTION_IDS, snapshots, strict=True):
-        industry = f"synthetic-{agent_id}"
-        for row in snapshot["eligible_security_universe"]:
-            ticker_industries.setdefault(row["ts_code"], industry)
+    industry = f"synthetic-{agent_id}"
+    for row in snapshot["eligible_security_universe"]:
+        ticker_industries.setdefault(row["ts_code"], industry)
     tickers = sorted(ticker_industries)
     etfs = sorted(
         {
             ticker
-            for snapshot in snapshots
             for card in snapshot["direction_cards"]
             for ticker in card["etf_family"]["etf_ts_codes"]
         }
@@ -979,14 +980,26 @@ def _build_sector_archive(root: Path, as_of: date) -> Path:
         {"endpoint": "fund_portfolio", "rows": fund_rows},
     ]
     captured_at = f"{as_of.isoformat()}T16:30:00+08:00"
+    capture_scope = {
+        "sector_agent_ids": [agent_id],
+        "security_codes": tickers,
+        "etf_codes": etfs,
+    }
     group = {
         "schema_version": "sector_relationship_capture_group_v2",
         "capture_key": _canonical_hash(
-            {"fixture": "structured-smoke-sector-archive", "as_of": as_of.isoformat()}
+            {
+                "fixture": "structured-smoke-sector-archive",
+                "as_of": as_of.isoformat(),
+                "sector_agent_id": agent_id,
+            }
         ),
         "as_of_date": as_of.isoformat(),
         "cutoff_at": f"{as_of.isoformat()}T23:59:00+08:00",
         "captured_at": captured_at,
+        "capture_scope": capture_scope,
+        "capture_scope_hash": _canonical_hash(capture_scope),
+        "requested_route_ids": list(SECTOR_ARCHIVE_LOGICAL_ROUTES),
         "base_group_hash": _canonical_hash(
             {"fixture": "structured-smoke-a-share-base", "as_of": as_of.isoformat()}
         ),

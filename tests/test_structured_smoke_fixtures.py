@@ -350,8 +350,7 @@ def test_structured_smoke_bundle_seals_sector_adaptive_archive(
     ticker = security["ts_code"]
     etf = next(
         ticker
-        for path in (tmp_path / "cache" / "sector_snapshots" / as_of).glob("*.json")
-        for card in json.loads(path.read_text(encoding="utf-8"))["direction_cards"]
+        for card in snapshot["direction_cards"]
         for ticker in card["etf_family"]["etf_ts_codes"]
     )
 

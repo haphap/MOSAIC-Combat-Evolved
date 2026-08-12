@@ -151,6 +151,8 @@ def test_source_admission_preparation_reuses_exact_families_without_signing_capa
         assert conn.execute("SELECT count(*) FROM capabilities").fetchone()[0] == 0
 
     materializer_count = len(materializer_calls)
+    family_calls.clear()
+    adaptive_calls.clear()
     route_result = store.prepare_source_admission(
         as_of="2026-07-09",
         route_id="tushare.sector_market",

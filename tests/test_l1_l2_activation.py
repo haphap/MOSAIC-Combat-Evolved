@@ -54,7 +54,7 @@ def test_l1_l2_tool_activation_is_exact_base_union_pr6_overlay() -> None:
     assert base["execution_stage_count"] == 29
     assert active["agent_count"] == 27
     assert active["execution_stage_count"] == 28
-    assert active["tool_count"] == 31
+    assert active["tool_count"] == 29
     assert overlay["activation_state"] == "staged"
     assert overlay["base_agent_data_route_manifest_hash"] == canonical_hash(base_routes)
 
@@ -150,6 +150,32 @@ def test_l1_l2_route_activation_exactly_closes_the_new_tool_surface() -> None:
         assert route_by_id[row["route_id"]] == row
     for binding in overlay["bindings"]:
         key = (binding["agent_id"], binding["stage"], binding["tool_id"])
+        if binding["agent_id"] == "relationship_mapper":
+            assert {
+                "agent_id": binding["agent_id"],
+                "stage": binding["stage"],
+                "tool_id": binding["tool_id"],
+                "required_route_ids": binding["source_route_ids"],
+            } not in active_routes["bindings"]
+            if binding["tool_id"] == "get_supply_chain_evidence":
+                for sector_agent_id in (
+                    "agriculture",
+                    "biotech",
+                    "consumer",
+                    "energy",
+                    "financials",
+                    "industrials",
+                    "real_estate_construction",
+                    "semiconductor",
+                    "technology",
+                ):
+                    assert {
+                        "agent_id": sector_agent_id,
+                        "stage": sector_agent_id,
+                        "tool_id": binding["tool_id"],
+                        "required_route_ids": binding["source_route_ids"],
+                    } in active_routes["bindings"]
+            continue
         required_route_ids = (
             ["composite.cn_rates"]
             if key == ("financials", "financials", "get_yield_curve_cn")

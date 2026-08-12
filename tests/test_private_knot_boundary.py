@@ -74,7 +74,7 @@ def test_execution_release_boundary_accepts_only_execution_only_v4(
         "schema_version": "execution_behavior_release_manifest_v4",
         "provider_binding": {"provider": "fixture"},
         "active_production_variants": [{"index": index} for index in range(16)],
-        "execution_contracts": [{"index": index} for index in range(56)],
+        "execution_contracts": [{"index": index} for index in range(54)],
     }
     release_id = (
         "execution-behavior-release:"
