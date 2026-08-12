@@ -215,14 +215,25 @@ def _validate_source_capture(payload: Mapping[str, Any]) -> None:
     knowledge_at = _timestamp(
         times["knowledge_available_at"], "time.knowledge_available_at"
     )
+    pit_mode = payload["pit"]["pit_mode"]
+    late_observed_policy = (
+        identity["route_id"] == "official.govcn_policy"
+        and pit_mode == "OBSERVED_LIVE"
+    )
     cutoff = _timestamp(payload["pit"]["as_of_cutoff"], "pit.as_of_cutoff")
-    if not released_at <= vintage_at <= knowledge_at <= cutoff:
+    if late_observed_policy:
+        valid_time_order = (
+            released_at <= vintage_at <= knowledge_at
+            and captured_at == knowledge_at
+        )
+    else:
+        valid_time_order = released_at <= vintage_at <= knowledge_at <= cutoff
+    if not valid_time_order:
         raise ValueError(
             "source capture time order must satisfy released_at <= vintage_at <= "
             "knowledge_available_at <= as_of_cutoff"
         )
 
-    pit_mode = payload["pit"]["pit_mode"]
     allowed_pit_modes = {
         "AUTHORITATIVE_VINTAGE_REPLAY": {"AUTHORITATIVE_VINTAGE_REPLAY"},
         "DERIVED_FROM_PIT_ARCHIVE": {"AUTHORITATIVE_VINTAGE_REPLAY"},

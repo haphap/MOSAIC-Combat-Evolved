@@ -453,17 +453,15 @@ class ForwardArchiveQueryReader:
         start_date, end_date = _date_window(as_of, lookback)
         cache_root = gov_policy_cache_dir(self.policy_cache_dir)
         rows = load_gov_policy_records(cache_root)
-        cutoff = _cutoff(as_of)
         visible = []
         for row in rows:
             discovered = _timestamp(
                 row.get("discovered_at") or row.get("parsed_at"),
                 "policy discovered_at",
             )
-            if discovered <= cutoff:
-                normalized = dict(row)
-                normalized.setdefault("discovered_at", discovered.isoformat())
-                visible.append(normalized)
+            normalized = dict(row)
+            normalized.setdefault("discovered_at", discovered.isoformat())
+            visible.append(normalized)
         selected = _records_in_window(visible, start_date, end_date)
         if normalized_topic:
             selected = [
@@ -612,7 +610,7 @@ class ForwardArchiveQueryReader:
         selection: _Selection, as_of: str
     ) -> SourceCaptureReceipt:
         cutoff = _cutoff(as_of)
-        if selection.captured_at > cutoff:
+        if selection.route_id != _POLICY_ROUTE and selection.captured_at > cutoff:
             raise DataVendorUnavailable("forward archive capture is after query as_of")
         request_hash = canonical_hash(selection.request)
         content_identity = {

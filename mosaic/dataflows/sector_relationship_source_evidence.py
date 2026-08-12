@@ -181,7 +181,12 @@ class SectorRelationshipSourceEvidenceAuthority:
         raw_payload: str,
         descriptor: Mapping[str, Any],
     ) -> dict[str, Any]:
-        if descriptor.get("pit_mode") != "DERIVED_FROM_PIT_ARCHIVE":
+        expected_pit_mode = (
+            "OBSERVED_LIVE"
+            if tool_id == "get_industry_policy_digest"
+            else "DERIVED_FROM_PIT_ARCHIVE"
+        )
+        if descriptor.get("pit_mode") != expected_pit_mode:
             raise DataVendorUnavailable("forward archive query PIT mode is invalid")
         upstream_receipt = self.forward_archive_reader.source_receipt(
             tool_id,

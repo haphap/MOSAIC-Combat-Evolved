@@ -63,7 +63,7 @@ _ROUTE_BY_TOOL = {
 }
 _PIT_MODE_BY_ROUTE = {
     "official.company_supply_chain_disclosures": "AUTHORITATIVE_VINTAGE_REPLAY",
-    "official.govcn_policy": "DERIVED_FROM_PIT_ARCHIVE",
+    "official.govcn_policy": "OBSERVED_LIVE",
     "private.rke_report_intelligence": "DERIVED_FROM_PIT_ARCHIVE",
     "private.tushare_research_reports": "DERIVED_FROM_PIT_ARCHIVE",
     "tushare.etf_holdings": "AUTHORITATIVE_VINTAGE_REPLAY",

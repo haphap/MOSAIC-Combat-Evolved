@@ -297,38 +297,79 @@ def test_broker_research_falls_back_to_archived_stock_basic_with_parent_lineage(
     ]
 
 
-def test_policy_reader_preserves_window_and_discovery_cutoff(tmp_path):
+def test_late_captured_policy_materializes_by_pub_date_window_and_topic(tmp_path):
     reader = _reader(
         tmp_path,
         [],
         [
-            _policy_row(
-                article_id="energy",
-                title="能源政策",
-                pub_date="2026-06-03",
-                discovered_at="2026-06-03T06:00:00+00:00",
-            ),
-            _policy_row(
-                article_id="late",
-                title="能源政策 late",
-                pub_date="2026-06-04",
-                discovered_at="2026-06-06T06:00:00+00:00",
-            ),
-            _policy_row(
-                article_id="agri",
-                title="农业政策",
-                pub_date="2026-06-03",
-                discovered_at="2026-06-03T06:00:00+00:00",
-            ),
+            {
+                **_policy_row(
+                    article_id="biotech-late",
+                    title="正文命中但标题摘要不含主题",
+                    pub_date="2026-06-20",
+                    discovered_at="2026-08-12T06:00:00+00:00",
+                ),
+                "matched_queries": ["生物制品"],
+            },
+            {
+                **_policy_row(
+                    article_id="other-topic",
+                    title="农业政策",
+                    pub_date="2026-06-20",
+                    discovered_at="2026-08-12T06:00:00+00:00",
+                ),
+                "matched_queries": ["农业"],
+            },
         ],
     )
+    store = StagedQueryReceiptStore(tmp_path / "policy-staged.sqlite3")
+    authority = SectorRelationshipSourceEvidenceAuthority(
+        root=tmp_path,
+        receipt_store=store,
+        forward_archive_reader=reader,
+    )
+    captured: dict[str, object] = {}
 
-    payload = reader("get_industry_policy", "2026-06-05", 7, "govcn")
+    def source_evidence(tool_id, args, raw_payload, descriptor, source_ids):
+        captured.update(
+            args=dict(args), raw_payload=raw_payload, descriptor=dict(descriptor)
+        )
+        return authority(tool_id, args, raw_payload, descriptor, source_ids)
 
-    assert "能源政策" in payload
-    assert "能源政策 late" not in payload
-    assert "农业政策" in payload
-    assert "forward archive" in payload
+    materializer = SectorRelationshipQueryMaterializer(
+        receipt_authority=lambda descriptor: pytest.fail(
+            f"generic authority must not attest policy archive: {descriptor}"
+        ),
+        route_caller=TrustedArchiveQueryRouter({"get_industry_policy": reader}),
+        digest_builder=lambda tool_id, raw, args: {
+            "digest": "policy digest",
+            "model_hash": canonical_hash({"model": "fixture"}),
+            "prompt_hash": canonical_hash({"prompt": "fixture"}),
+        },
+        source_evidence_authority=source_evidence,
+    )
+    args = {
+        "as_of": "2026-07-08",
+        "lookback_days": 30,
+        "source": "govcn",
+        "topic": "生物制品",
+    }
+
+    result = materializer("get_industry_policy_digest", args)
+
+    assert result["payload"] == "policy digest"
+    assert len(result["source_receipt_hashes"]) == 1
+    assert captured["descriptor"]["pit_mode"] == "OBSERVED_LIVE"
+    assert "正文命中但标题摘要不含主题" in captured["raw_payload"]
+    assert "农业政策" not in captured["raw_payload"]
+    receipt = reader.source_receipt(
+        "get_industry_policy_digest",
+        args,
+        captured["raw_payload"],
+        captured["descriptor"],
+    ).as_dict()
+    assert receipt["time"]["captured_at"] == "2026-08-12T06:00:00+00:00"
+    assert receipt["pit"]["pit_mode"] == "OBSERVED_LIVE"
 
 
 def test_policy_topic_is_bound_to_archive_selection_and_receipt(tmp_path):
@@ -375,7 +416,8 @@ def test_policy_topic_is_bound_to_archive_selection_and_receipt(tmp_path):
             "official.govcn_policy",
             args,
             payload,
-        ),
+        )
+        | {"pit_mode": "OBSERVED_LIVE"},
     ).as_dict()
     assert receipt["identity"]["request_hash"] == canonical_hash(
         {

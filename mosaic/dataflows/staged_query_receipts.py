@@ -191,7 +191,11 @@ def validate_staged_query_source_receipt(
     as_of_end = datetime.combine(
         date.fromisoformat(expected["as_of"]), time.max, tzinfo=_SHANGHAI
     )
-    if knowledge > as_of_end:
+    late_observed_policy = (
+        expected["route_id"] == "official.govcn_policy"
+        and expected["pit_mode"] == "OBSERVED_LIVE"
+    )
+    if not late_observed_policy and knowledge > as_of_end:
         raise ValueError("staged source receipt knowledge is after query as_of")
     if require_eligible and not eligible:
         raise ValueError("staged source receipt is not PIT eligible")
