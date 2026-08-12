@@ -45,8 +45,14 @@ def test_empty_archive_publishes_specific_blocked_receipts_without_snapshot(
     assert build["output_hash"] is None
     assert build["missing_route_ids"] == [
         "geopolitical.required_coverage",
+        "tushare.eco_cal.cny",
+        "tushare.eco_cal.eur",
+        "tushare.eco_cal.usd",
     ]
-    assert build["blocker_codes"] == ["INCOMPLETE_COVERAGE"]
+    assert build["blocker_codes"] == [
+        "INCOMPLETE_COVERAGE",
+        "REQUIRED_ROUTE_MISSING",
+    ]
     assert not output_root.exists()
     assert ledger.row_counts() == {
         "source_capture_receipts": 0,
