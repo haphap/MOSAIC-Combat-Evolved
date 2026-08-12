@@ -2149,6 +2149,7 @@ def materialize_tool_payload(
     graph_run_id: str = "standalone_tool_materialization",
     expected_candidate_scope_hash: str | None = None,
     accepted_output_refs: Any | None = None,
+    historical_replay_captured_at: str | None = None,
 ) -> str:
     """Materialise one payload before capability issuance."""
     synthetic_fixture_validated = False
@@ -2169,7 +2170,11 @@ def materialize_tool_payload(
     if tool_id == "get_sector_research_snapshot":
         return render_sector_snapshot(agent_id, as_of)
     if tool_id == "get_role_event_snapshot":
-        return render_role_event_snapshot(agent_id, as_of)
+        return render_role_event_snapshot(
+            agent_id,
+            as_of,
+            historical_replay_captured_at=historical_replay_captured_at,
+        )
     return _load_bound_snapshot(
         tool_id=tool_id,
         agent_id=agent_id,
@@ -3402,6 +3407,17 @@ class AgentToolCapabilityStore:
         )
         if ensure_mode not in {None, "off", "shadow", "enforce"}:
             raise ValueError("stage preparation returned an invalid ensure_mode")
+        historical_replay_captured_at = (
+            stage_preparation.get("historical_replay_captured_at")
+            if isinstance(stage_preparation, Mapping)
+            else None
+        )
+        if historical_replay_captured_at is not None and not isinstance(
+            historical_replay_captured_at, str
+        ):
+            raise ValueError(
+                "stage preparation historical replay capture must be a string"
+            )
         try:
             with self._connect() as conn:
                 conn.execute(
@@ -3442,6 +3458,7 @@ class AgentToolCapabilityStore:
                         if isinstance(candidate_scope, dict)
                         else None
                     ),
+                    historical_replay_captured_at=historical_replay_captured_at,
                 )
             else:
                 payloads[tool_id] = materializer(tool_id, **materializer_kwargs)

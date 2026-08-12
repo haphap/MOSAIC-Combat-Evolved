@@ -34,8 +34,6 @@ from .bound_runtime_snapshots import (
     runtime_snapshot_root,
 )
 from .china_agent_data_archive import (
-    CURVE_ROUTE_GROUP,
-    INSTITUTIONAL_ROUTE_GROUP,
     LOGICAL_ROUTES as CHINA_AGENT_ROUTE_IDS,
     ChinaAgentDataArchiveStore,
     _private_tushare_fetch as _china_tushare_fetch,
@@ -143,16 +141,6 @@ _EUROPE_FAMILY_STAGES = (
 )
 _GEOPOLITICAL_FAMILY_STAGES = (("geopolitical", "geopolitical"),)
 _MARKET_BREADTH_FAMILY_STAGES = (("market_breadth", "market_breadth"),)
-_SECTOR_ROLE_EVENT_STAGES = (
-    "semiconductor",
-    "technology",
-    "energy",
-    "consumer",
-    "industrials",
-    "real_estate_construction",
-    "financials",
-    "agriculture",
-)
 _SECTOR_RELATIONSHIP_FAMILY_STAGES = tuple(
     (stage, stage)
     for stage in (
@@ -217,6 +205,55 @@ def _historical_replay(request: Mapping[str, Any]) -> bool:
     if not isinstance(value, bool):
         raise ValueError("historical_replay must be a boolean")
     return value
+
+
+def _canonical_role_event_replay_capture(
+    source_receipts: Sequence[Any],
+    *,
+    required_route_ids: Sequence[str],
+    as_of: str,
+) -> str:
+    if not source_receipts:
+        raise DataVendorUnavailable("role-event replay has no source receipts")
+    payloads = [
+        receipt.as_dict() if hasattr(receipt, "as_dict") else receipt
+        for receipt in source_receipts
+    ]
+    if any(not isinstance(payload, Mapping) for payload in payloads):
+        raise DataVendorUnavailable("role-event replay source receipt is invalid")
+    try:
+        route_ids = [str(payload["identity"]["route_id"]) for payload in payloads]
+    except (KeyError, TypeError) as exc:
+        raise DataVendorUnavailable(
+            "role-event replay source receipt has no route identity"
+        ) from exc
+    if len(route_ids) != len(required_route_ids) or set(route_ids) != set(
+        required_route_ids
+    ):
+        raise DataVendorUnavailable("role-event replay source route closure mismatch")
+    captures: list[datetime] = []
+    try:
+        for payload in payloads:
+            captured_at = datetime.fromisoformat(
+                str(payload["time"]["captured_at"]).replace("Z", "+00:00")
+            )
+            if captured_at.tzinfo is None:
+                raise ValueError
+            captures.append(captured_at)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DataVendorUnavailable(
+            "role-event replay capture must be a timezone-aware timestamp"
+        ) from exc
+    if any(capture != captures[0] for capture in captures[1:]):
+        raise DataVendorUnavailable("role-event replay captures disagree")
+    cutoff = datetime.combine(
+        date.fromisoformat(as_of), time(15, 0), tzinfo=_SHANGHAI
+    )
+    if captures[0] <= cutoff:
+        raise DataVendorUnavailable(
+            "role-event replay capture must follow the historical decision cutoff"
+        )
+    return captures[0].isoformat()
 
 
 def _stage_bindings(agent_id: str, stage: str) -> list[dict[str, Any]]:
@@ -965,6 +1002,16 @@ class TrustedAgentStagePreparer:
         stage = _required_text(request, "stage")
         as_of = _required_text(request, "as_of")
         stage_key = (agent_id, stage)
+        historical_replay = _historical_replay(request)
+        role_event_binding = next(
+            (
+                binding
+                for binding in _stage_bindings(agent_id, stage)
+                if binding["tool_id"] == "get_role_event_snapshot"
+            ),
+            None,
+        )
+        cache_status: str | None = None
         if stage_key not in self.always_prepare_stages:
             try:
                 _ready_stage_receipts(
@@ -973,35 +1020,55 @@ class TrustedAgentStagePreparer:
                     stage=stage,
                     as_of=as_of,
                 )
-                return {
-                    "agent_id": agent_id,
-                    "stage": stage,
-                    "as_of": as_of,
-                    "cache_status": "HIT",
-                }
+                cache_status = "HIT"
             except DataVendorUnavailable as exc:
                 if not str(exc).startswith("no READY build for "):
                     raise
 
-        family_preparer = self.family_preparers.get(stage_key)
-        if family_preparer is None:
-            raise DataVendorUnavailable(
-                f"no registered family preparer for {agent_id}/{stage}"
+        if cache_status is None:
+            family_preparer = self.family_preparers.get(stage_key)
+            if family_preparer is None:
+                raise DataVendorUnavailable(
+                    f"no registered family preparer for {agent_id}/{stage}"
+                )
+            prepared = family_preparer(request, ledger)
+            cache_status = (
+                str(prepared.get("cache_status", "MISS"))
+                if isinstance(prepared, Mapping)
+                else "MISS"
             )
-        prepared = family_preparer(request, ledger)
-        cache_status = (
-            str(prepared.get("cache_status", "MISS"))
-            if isinstance(prepared, Mapping)
-            else "MISS"
-        )
         if cache_status not in {"HIT", "MISS", "MIXED"}:
             raise ValueError("family preparer returned an invalid cache_status")
-        return {
+        result = {
             "agent_id": agent_id,
             "stage": stage,
             "as_of": as_of,
             "cache_status": cache_status,
         }
+        if historical_replay and role_event_binding is not None:
+            _, _, source_receipts = _ready_stage_receipts(
+                ledger=ledger,
+                agent_id=agent_id,
+                stage=stage,
+                as_of=as_of,
+                tool_ids=("get_role_event_snapshot",),
+            )
+            receipts = []
+            for receipt_hash in source_receipts["get_role_event_snapshot"]:
+                receipt = ledger.source_capture_receipt(receipt_hash=receipt_hash)
+                if receipt is None:
+                    raise DataVendorUnavailable(
+                        "role-event replay source receipt is missing"
+                    )
+                receipts.append(receipt)
+            result["historical_replay_captured_at"] = (
+                _canonical_role_event_replay_capture(
+                    receipts,
+                    required_route_ids=role_event_binding["required_route_ids"],
+                    as_of=as_of,
+                )
+            )
+        return result
 
 
 class TrustedAgentStageFinalizer:
@@ -1137,6 +1204,7 @@ def compile_role_event_builds(
     store: EconomicCalendarStore,
     ledger: AgentDataMaterializationLedger,
     agent_ids: tuple[str, ...],
+    historical_replay: bool = False,
 ) -> tuple[SnapshotBuildReceipt, ...]:
     """Seal exact role-event builds for the selected active consumers."""
     coverage = archive.coverage_receipt.as_dict()
@@ -1162,7 +1230,21 @@ def compile_role_event_builds(
         if complete:
             if not set(required_routes) <= set(source_by_route):
                 raise ValueError("calendar source receipt closure drift")
-            snapshot = build_role_event_snapshot(agent_id, as_of, store=store)
+            replay_capture = (
+                _canonical_role_event_replay_capture(
+                    [source_by_route[route_id] for route_id in required_routes],
+                    required_route_ids=required_routes,
+                    as_of=as_of,
+                )
+                if historical_replay
+                else None
+            )
+            snapshot = build_role_event_snapshot(
+                agent_id,
+                as_of,
+                store=store,
+                historical_replay_captured_at=replay_capture,
+            )
             if snapshot["coverage"]["coverage_completeness"] != "COMPLETE":
                 raise DataVendorUnavailable("role-event calendar coverage is incomplete")
             source_hashes = sorted(
@@ -1221,13 +1303,16 @@ def compile_sector_role_event_builds(
     archive: Any,
     store: EconomicCalendarStore,
     ledger: AgentDataMaterializationLedger,
+    agent_id: str,
+    historical_replay: bool = False,
 ) -> tuple[SnapshotBuildReceipt, ...]:
-    """Seal exact role-event builds for the eight bound Sector consumers."""
+    """Seal the exact role-event build for one bound Sector consumer."""
     return compile_role_event_builds(
         archive=archive,
         store=store,
         ledger=ledger,
-        agent_ids=_SECTOR_ROLE_EVENT_STAGES,
+        agent_ids=(agent_id,),
+        historical_replay=historical_replay,
     )
 
 
@@ -1335,6 +1420,18 @@ def prepare_sector_relationship_family(
     else:
         raise ValueError("agent is outside the standard Sector stage roster")
     if not route_only:
+        role_event_binding = next(
+            (
+                binding
+                for binding in _stage_bindings(agent_id, agent_id)
+                if binding["tool_id"] == "get_role_event_snapshot"
+            ),
+            None,
+        )
+        if role_event_binding is None:
+            raise DataVendorUnavailable(
+                f"no role-event binding for Sector agent {agent_id}"
+            )
         captured_at = _stage_capture_now().astimezone(timezone.utc).isoformat()
         calendar_store = EconomicCalendarStore()
         calendar = archive_eco_calendar(
@@ -1342,6 +1439,7 @@ def prepare_sector_relationship_family(
             as_of_date=as_of,
             captured_at=captured_at,
             as_of_cutoff=captured_at if historical_replay else None,
+            requested_route_ids=tuple(role_event_binding["required_route_ids"]),
             store=calendar_store,
             ledger=ledger,
         )
@@ -1349,6 +1447,8 @@ def prepare_sector_relationship_family(
             archive=calendar,
             store=calendar_store,
             ledger=ledger,
+            agent_id=agent_id,
+            historical_replay=historical_replay,
         )
         if not calendar.coverage_receipt.as_dict()["coverage_complete"]:
             raise DataVendorUnavailable("economic calendar archive is blocked")
@@ -1375,14 +1475,6 @@ def prepare_sector_relationship_family(
         sector_archive,
         ledger=ledger,
         output_root=snapshot_cache_root(),
-    )
-    china_route_ids = [INSTITUTIONAL_ROUTE_GROUP]
-    if agent_id == "financials":
-        china_route_ids.append(CURVE_ROUTE_GROUP)
-    _prepare_china_agent_archive(
-        as_of=as_of,
-        ledger=ledger,
-        requested_route_ids=tuple(china_route_ids),
     )
 
 

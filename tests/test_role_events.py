@@ -182,6 +182,60 @@ def test_same_day_calendar_poll_after_decision_cutoff_is_not_visible(
     assert snapshot["coverage"]["coverage_completeness"] == "INCOMPLETE"
 
 
+def test_historical_replay_capture_completes_coverage_without_expanding_events(
+    tmp_path: Path,
+) -> None:
+    store = EconomicCalendarStore(tmp_path / "eco-cal.sqlite3")
+    _collect(store, ["CNY"], retrieved_at="2026-07-01T14:59:59+08:00")
+    replay_capture = "2026-08-12T03:46:26.959816+00:00"
+    _collect(store, ["CNY", "USD", "EUR"], retrieved_at=replay_capture)
+
+    default = build_role_event_snapshot("semiconductor", "2026-07-01", store=store)
+    replay = build_role_event_snapshot(
+        "semiconductor",
+        "2026-07-01",
+        store=store,
+        historical_replay_captured_at=replay_capture,
+    )
+
+    assert default["coverage"]["coverage_completeness"] == "INCOMPLETE"
+    assert replay["coverage"]["coverage_completeness"] == "COMPLETE"
+    assert replay["coverage"]["coverage_as_of"] == replay_capture
+    assert replay["as_of"] == "2026-07-01T15:00:00+08:00"
+    assert [row["normalized_event"] for row in replay["projections"]] == [
+        "工业生产"
+    ]
+    assert {row["currency"] for row in store.events_as_of(replay_capture)} == {
+        "CNY",
+        "EUR",
+        "USD",
+    }
+
+
+@pytest.mark.parametrize(
+    "captured_at",
+    (
+        "not-a-timestamp",
+        "2026-07-01T15:00:00+08:00",
+        "2026-07-01T14:59:59+08:00",
+        "2026-07-02T00:00:00",
+    ),
+)
+def test_historical_replay_capture_fails_closed_at_or_before_decision_cutoff(
+    tmp_path: Path,
+    captured_at: str,
+) -> None:
+    store = EconomicCalendarStore(tmp_path / "eco-cal.sqlite3")
+
+    with pytest.raises(DataVendorUnavailable, match="historical replay capture"):
+        build_role_event_snapshot(
+            "semiconductor",
+            "2026-07-01",
+            store=store,
+            historical_replay_captured_at=captured_at,
+        )
+
+
 def test_denied_or_incomplete_role_event_access_fails_closed(tmp_path: Path) -> None:
     store = EconomicCalendarStore(tmp_path / "eco-cal.sqlite3")
     _collect(store, ["CNY"])

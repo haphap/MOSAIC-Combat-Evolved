@@ -1415,7 +1415,10 @@ def test_prepare_runs_stage_preparer_then_materializer_then_finalizer(
 
     def stage_preparer(request: dict) -> dict:
         events.append(("prepare", request["stage"]))
-        return {"cache_status": "MISS"}
+        return {
+            "cache_status": "MISS",
+            "historical_replay_captured_at": "2026-08-12T03:46:26.959816+00:00",
+        }
 
     def materializer(
         tool_id: str, *, agent_id: str, stage: str, as_of: str, graph_run_id: str
@@ -1424,7 +1427,10 @@ def test_prepare_runs_stage_preparer_then_materializer_then_finalizer(
         return f'{{"tool":"{tool_id}","frozen":true}}'
 
     def stage_finalizer(context: dict) -> None:
-        assert context["stage_preparation"] == {"cache_status": "MISS"}
+        assert context["stage_preparation"] == {
+            "cache_status": "MISS",
+            "historical_replay_captured_at": "2026-08-12T03:46:26.959816+00:00",
+        }
         assert context["adaptive_query"] is None
         assert set(context["tool_payload_hashes"]) == {"get_china_macro_snapshot"}
         events.append(("finalize", context["stage"]))
@@ -1445,6 +1451,50 @@ def test_prepare_runs_stage_preparer_then_materializer_then_finalizer(
         ("materialize", "china"),
         ("finalize", "china"),
     ]
+
+
+def test_default_role_event_materializer_receives_trusted_replay_capture_on_miss_and_hit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    replay_capture = "2026-08-12T03:46:26.959816+00:00"
+    cache_statuses = iter(("MISS", "HIT"))
+    rendered_captures: list[str | None] = []
+    monkeypatch.setitem(
+        capability_module.AGENT_TOOL_MATRIX,
+        "cro",
+        ("get_role_event_snapshot",),
+    )
+    monkeypatch.setattr(
+        capability_module,
+        "render_role_event_snapshot",
+        lambda _agent_id, _as_of, *, historical_replay_captured_at=None: (
+            rendered_captures.append(historical_replay_captured_at) or "{}"
+        ),
+    )
+    store = AgentToolCapabilityStore(
+        tmp_path / "role-replay-capabilities.sqlite3",
+        signing_key=b"test-signing-key-32-bytes-long!!!",
+        signing_key_id="test-key-v1",
+        clock=lambda: datetime(2026, 7, 9, tzinfo=timezone.utc),
+        stage_materialization_preparer=lambda _request: {
+            "cache_status": next(cache_statuses),
+            "historical_replay_captured_at": replay_capture,
+        },
+    )
+    first = _request("cro")
+    second = {
+        **first,
+        "materialization_request_id": "materialize-cro-hit",
+        "run_slot_id": "slot-cro-hit",
+        "run_id": "run-cro-hit",
+        "node_id": "node-cro-hit",
+    }
+
+    store.prepare(first)
+    store.prepare(second)
+
+    assert rendered_captures == [replay_capture, replay_capture]
 
 
 @pytest.mark.parametrize(
