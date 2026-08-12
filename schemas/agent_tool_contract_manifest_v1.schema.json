@@ -8,19 +8,19 @@
     },
     "agent_count": {
       "type": "number",
-      "const": 28
+      "const": 27
     },
     "execution_stage_count": {
       "type": "number",
-      "const": 29
+      "const": 28
     },
     "tool_count": {
       "type": "number",
       "enum": [18, 31, 32]
     },
     "agents": {
-      "minItems": 28,
-      "maxItems": 28,
+      "minItems": 27,
+      "maxItems": 27,
       "type": "array",
       "items": {
         "type": "object",
@@ -47,7 +47,6 @@
               "real_estate_construction",
               "financials",
               "agriculture",
-              "relationship_mapper",
               "druckenmiller",
               "munger",
               "burry",
@@ -92,7 +91,6 @@
                 "real_estate_construction",
                 "financials",
                 "agriculture",
-                "relationship_mapper",
                 "druckenmiller",
                 "munger",
                 "burry",
@@ -123,7 +121,6 @@
                 "get_market_positioning_snapshot",
                 "get_sector_research_snapshot",
                 "get_role_event_snapshot",
-                "get_relationship_graph_snapshot",
                 "get_superinvestor_candidate_snapshot",
                 "get_cro_risk_snapshot",
                 "get_alpha_candidate_snapshot",

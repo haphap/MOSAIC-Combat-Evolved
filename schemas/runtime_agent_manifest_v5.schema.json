@@ -12,8 +12,8 @@
   ],
   "properties": {
     "schema_version": { "const": "runtime_agent_manifest_v5" },
-    "runtime_agent_count": { "const": 28 },
-    "runtime_stage_count": { "const": 29 },
+    "runtime_agent_count": { "const": 27 },
+    "runtime_stage_count": { "const": 28 },
     "canonical_l4_sequence": {
       "const": [
         "alpha_discovery",
@@ -25,8 +25,8 @@
     },
     "agents": {
       "type": "array",
-      "minItems": 28,
-      "maxItems": 28,
+      "minItems": 27,
+      "maxItems": 27,
       "items": {
         "type": "object",
         "additionalProperties": false,

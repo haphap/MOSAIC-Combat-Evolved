@@ -19,8 +19,8 @@
   ],
   "properties": {
     "manifest_version": { "const": "agent_outcome_contract_manifest_v2" },
-    "contract_count": { "const": 28 },
-    "usage_track_count": { "const": 24 },
+    "contract_count": { "const": 27 },
+    "usage_track_count": { "const": 23 },
     "evolution_only_track_count": { "const": 4 },
     "registry_hash": { "$ref": "#/$defs/hash" },
     "metric_schema_count": { "const": 8 },
@@ -39,8 +39,8 @@
     },
     "contracts": {
       "type": "array",
-      "minItems": 28,
-      "maxItems": 28,
+      "minItems": 27,
+      "maxItems": 27,
       "items": { "$ref": "#/$defs/contract" }
     }
   },

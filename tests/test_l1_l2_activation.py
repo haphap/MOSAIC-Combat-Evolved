@@ -50,8 +50,10 @@ def test_l1_l2_tool_activation_is_exact_base_union_pr6_overlay() -> None:
     base_routes = _load(BASE_ROUTE_SNAPSHOT)
     active = build_l1_l2_active_tool_manifest(ROOT)
 
-    assert active["agent_count"] == base["agent_count"] == 28
-    assert active["execution_stage_count"] == base["execution_stage_count"] == 29
+    assert base["agent_count"] == 28
+    assert base["execution_stage_count"] == 29
+    assert active["agent_count"] == 27
+    assert active["execution_stage_count"] == 28
     assert active["tool_count"] == 31
     assert overlay["activation_state"] == "staged"
     assert overlay["base_agent_data_route_manifest_hash"] == canonical_hash(base_routes)
@@ -60,6 +62,23 @@ def test_l1_l2_tool_activation_is_exact_base_union_pr6_overlay() -> None:
     active_by_agent = {row["agent_id"]: row for row in active["agents"]}
     restored_by_agent: dict[str, set[str]] = {}
     for binding in overlay["bindings"]:
+        if binding["agent_id"] == "relationship_mapper":
+            if binding["tool_id"] == "get_supply_chain_evidence":
+                for sector_agent_id in (
+                    "agriculture",
+                    "biotech",
+                    "consumer",
+                    "energy",
+                    "financials",
+                    "industrials",
+                    "real_estate_construction",
+                    "semiconductor",
+                    "technology",
+                ):
+                    restored_by_agent.setdefault(sector_agent_id, set()).add(
+                        binding["tool_id"]
+                    )
+            continue
         restored_by_agent.setdefault(binding["agent_id"], set()).add(
             binding["tool_id"]
         )
@@ -72,11 +91,13 @@ def test_l1_l2_tool_activation_is_exact_base_union_pr6_overlay() -> None:
         "financials",
         "industrials",
         "real_estate_construction",
-        "relationship_mapper",
         "semiconductor",
         "technology",
     }
     for agent_id, base_row in base_by_agent.items():
+        if agent_id == "relationship_mapper":
+            assert agent_id not in active_by_agent
+            continue
         expected = [
             *base_row["allowed_tools"],
             *sorted(restored_by_agent.get(agent_id, set())),
@@ -88,10 +109,16 @@ def test_l1_l2_tool_activation_is_exact_base_union_pr6_overlay() -> None:
         ]
 
     added_surface = _surface(active) - _surface(base)
-    assert added_surface == {
+    expected_overlay_surface = {
         (binding["agent_id"], binding["stage"], binding["tool_id"])
         for binding in overlay["bindings"]
+        if binding["agent_id"] != "relationship_mapper"
     }
+    expected_overlay_surface.update(
+        (agent_id, agent_id, "get_supply_chain_evidence")
+        for agent_id in restored_by_agent
+    )
+    assert added_surface == expected_overlay_surface
 
 
 def test_l1_l2_route_activation_exactly_closes_the_new_tool_surface() -> None:

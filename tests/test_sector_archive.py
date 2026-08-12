@@ -23,7 +23,10 @@ AS_OF = "2026-08-06"
 CUTOFF = "2026-08-06T23:59:00+08:00"
 
 
-def _sealed_group(capture_key: str) -> dict[str, Any]:
+def _sealed_group(
+    capture_key: str,
+    agent_ids: tuple[str, ...] = sector_archive.STANDARD_SECTOR_AGENT_IDS,
+) -> dict[str, Any]:
     group = {
         "schema_version": "sector_relationship_capture_group_v2",
         "capture_key": capture_key,
@@ -44,8 +47,9 @@ def _sealed_group(capture_key: str) -> dict[str, Any]:
         ],
         "page_count": 7,
         "normalized_row_count": 11,
+        "requested_route_ids": list(sector_archive.LOGICAL_ROUTES),
         "capture_scope": {
-            "sector_agent_ids": list(sector_archive.STANDARD_SECTOR_AGENT_IDS),
+            "sector_agent_ids": list(agent_ids),
             "security_codes": [],
             "etf_codes": [],
         },
@@ -197,9 +201,15 @@ def test_sector_archive_historical_replay_seals_real_completion_cutoff(
     ledger = AgentDataMaterializationLedger(tmp_path / "ledger.sqlite3")
     completion = "2026-08-10T23:30:00+08:00"
 
-    def build(*_args, capture_key: str, historical_replay: bool, **_kwargs):
+    def build(
+        *_args,
+        capture_key: str,
+        historical_replay: bool,
+        requested_agent_ids,
+        **_kwargs,
+    ):
         assert historical_replay is True
-        group = _sealed_group(capture_key)
+        group = _sealed_group(capture_key, tuple(requested_agent_ids))
         group["captured_at"] = completion
         group["cutoff_at"] = completion
         group["historical_replay"] = True
@@ -220,6 +230,7 @@ def test_sector_archive_historical_replay_seals_real_completion_cutoff(
         as_of_date=AS_OF,
         cutoff_at=CUTOFF,
         historical_replay=True,
+        requested_agent_ids=("semiconductor",),
         store=store,
         ledger=ledger,
     )
@@ -326,17 +337,20 @@ def test_sector_core_snapshots_publish_exact_builds_and_replay(
     store = SectorArchiveStore(tmp_path / "sector.sqlite3")
     ledger = AgentDataMaterializationLedger(tmp_path / "ledger.sqlite3")
     snapshots = {
-        role: {
-            "snapshot_hash": sector_archive.canonical_hash({"role": role})
+        "semiconductor": {
+            "snapshot_hash": sector_archive.canonical_hash(
+                {"role": "semiconductor"}
+            )
         }
-        for role in (*sector_archive.SECTOR_DIRECTION_IDS, "relationship_mapper")
     }
     writes: list[tuple[str, str]] = []
 
     monkeypatch.setattr(
         sector_archive,
         "_build_capture_group",
-        lambda *_args, capture_key, **_kwargs: _sealed_group(capture_key),
+        lambda *_args, capture_key, requested_agent_ids, **_kwargs: _sealed_group(
+            capture_key, tuple(requested_agent_ids)
+        ),
     )
     monkeypatch.setattr(
         sector_archive, "compile_sector_archive_group", lambda _group: snapshots
@@ -346,23 +360,14 @@ def test_sector_core_snapshots_publish_exact_builds_and_replay(
         writes.append(("sector", kwargs["role"]))
         return kwargs["snapshot"]
 
-    def write_relationship(**kwargs):
-        writes.append(("relationship", "relationship_mapper"))
-        return kwargs["snapshot"]
-
     monkeypatch.setattr(
         sector_archive, "write_registered_sector_snapshot", write_sector
     )
-    monkeypatch.setattr(
-        sector_archive,
-        "write_registered_relationship_snapshot",
-        write_relationship,
-    )
-
     archived = archive_sector_relationship(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("transport")),
         as_of_date=AS_OF,
         cutoff_at=CUTOFF,
+        requested_agent_ids=("semiconductor",),
         store=store,
         ledger=ledger,
     )
@@ -377,16 +382,12 @@ def test_sector_core_snapshots_publish_exact_builds_and_replay(
         output_root=tmp_path / "snapshots",
     )
 
-    assert set(first.snapshots) == {
-        *sector_archive.SECTOR_DIRECTION_IDS,
-        "relationship_mapper",
-    }
-    assert len(first.build_receipts) == 10
+    assert set(first.snapshots) == {"semiconductor"}
+    assert len(first.build_receipts) == 1
     assert [row.receipt_hash for row in replay.build_receipts] == [
         row.receipt_hash for row in first.build_receipts
     ]
-    assert writes.count(("relationship", "relationship_mapper")) == 2
-    assert len([row for row in writes if row[0] == "sector"]) == 18
+    assert writes == [("sector", "semiconductor"), ("sector", "semiconductor")]
     route_hashes = {
         receipt.as_dict()["identity"]["route_id"]: receipt.receipt_hash
         for receipt in archived.source_receipts
@@ -403,16 +404,7 @@ def test_sector_core_snapshots_publish_exact_builds_and_replay(
             route_hashes["tushare.sector_market"],
         ]
     )
-    relationship = ledger.ready_snapshot_build_receipts(
-        agent_id="relationship_mapper",
-        stage="relationship_mapper",
-        tool_id="get_relationship_graph_snapshot",
-        as_of=AS_OF,
-    )[0].as_dict()
-    assert relationship["source_receipt_hashes"] == [
-        route_hashes["tushare.relationship_graph"]
-    ]
-    assert ledger.row_counts()["snapshot_build_receipts"] == 10
+    assert ledger.row_counts()["snapshot_build_receipts"] == 1
 
 
 def test_sector_archive_same_key_concurrency_runs_one_builder(tmp_path) -> None:
@@ -459,6 +451,7 @@ def test_sector_archive_transport_failure_publishes_no_source(
         lambda *_args, **_kwargs: None,
         as_of_date=AS_OF,
         cutoff_at=CUTOFF,
+        requested_agent_ids=("semiconductor",),
         store=store,
         ledger=ledger,
     )
@@ -467,24 +460,10 @@ def test_sector_archive_transport_failure_publishes_no_source(
     assert result.coverage_receipt.as_dict()["coverage_complete"] is False
     assert result.coverage_receipt.as_dict()["blocker_codes"] == ["TRANSPORT_FAILED"]
     assert store.row_count() == 0
-    publication = compile_sector_relationship_core_snapshots(
-        result,
-        ledger=ledger,
-        output_root=tmp_path / "snapshots",
-    )
-    assert len(publication.build_receipts) == 10
-    assert {
-        receipt.as_dict()["terminal_state"]
-        for receipt in publication.build_receipts
-    } == {"BLOCKED"}
-    assert {
-        tuple(receipt.as_dict()["blocker_codes"])
-        for receipt in publication.build_receipts
-    } == {("TRANSPORT_FAILED",)}
     counts = ledger.row_counts()
     assert counts["source_capture_receipts"] == 0
     assert counts["route_coverage_receipts"] == 1
-    assert counts["snapshot_build_receipts"] == 10
+    assert counts["snapshot_build_receipts"] == 0
 
 
 def test_compiler_failure_preserves_raw_capture_for_zero_transport_replay(
@@ -494,9 +473,9 @@ def test_compiler_failure_preserves_raw_capture_for_zero_transport_replay(
     ledger = AgentDataMaterializationLedger(tmp_path / "ledger.sqlite3")
     calls = {"builder": 0}
 
-    def build(*_args, capture_key: str, **_kwargs):
+    def build(*_args, capture_key: str, requested_agent_ids, **_kwargs):
         calls["builder"] += 1
-        return _sealed_group(capture_key)
+        return _sealed_group(capture_key, tuple(requested_agent_ids))
 
     monkeypatch.setattr(sector_archive, "_build_capture_group", build)
     monkeypatch.setattr(
@@ -510,6 +489,7 @@ def test_compiler_failure_preserves_raw_capture_for_zero_transport_replay(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("transport")),
         as_of_date=AS_OF,
         cutoff_at=CUTOFF,
+        requested_agent_ids=("semiconductor",),
         store=store,
         ledger=ledger,
     )
@@ -530,6 +510,7 @@ def test_compiler_failure_preserves_raw_capture_for_zero_transport_replay(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("transport")),
         as_of_date=AS_OF,
         cutoff_at=CUTOFF,
+        requested_agent_ids=("semiconductor",),
         store=store,
         ledger=ledger,
     )
@@ -561,6 +542,7 @@ def test_sector_archive_preserves_sanitized_endpoint_failure_code(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("transport")),
         as_of_date=AS_OF,
         cutoff_at=CUTOFF,
+        requested_agent_ids=("semiconductor",),
         store=store,
         ledger=ledger,
     )
@@ -581,6 +563,7 @@ def test_sector_archive_rejects_preclose_and_next_day_cutoffs(tmp_path) -> None:
             ),
             as_of_date=AS_OF,
             cutoff_at=cutoff,
+            requested_agent_ids=("semiconductor",),
             store=SectorArchiveStore(tmp_path / f"sector-{index}.sqlite3"),
             ledger=AgentDataMaterializationLedger(
                 tmp_path / f"ledger-{index}.sqlite3"
@@ -845,6 +828,26 @@ def test_capture_group_executes_registered_incremental_routes(
         calls.append((endpoint, dict(params)))
         if int(params.get("offset", 0)):
             return []
+        if endpoint == "trade_cal":
+            start = sector_archive.date.fromisoformat(
+                f"{params['start_date'][:4]}-{params['start_date'][4:6]}-"
+                f"{params['start_date'][6:]}"
+            )
+            end = sector_archive.date.fromisoformat(
+                f"{params['end_date'][:4]}-{params['end_date'][4:6]}-"
+                f"{params['end_date'][6:]}"
+            )
+            return [
+                {
+                    **_endpoint_row(endpoint, params),
+                    "cal_date": day.strftime("%Y%m%d"),
+                    "is_open": 1,
+                }
+                for day in (
+                    start + sector_archive.timedelta(days=offset)
+                    for offset in range((end - start).days + 1)
+                )
+            ]
         return [_endpoint_row(endpoint, params)]
 
     group = _build_capture_group(
@@ -852,11 +855,16 @@ def test_capture_group_executes_registered_incremental_routes(
         as_of_date=sector_archive.date.fromisoformat(AS_OF),
         cutoff_at=CUTOFF,
         capture_key=f"sha256:{'d' * 64}",
+        requested_agent_ids=("semiconductor",),
     )
 
     assert {batch["endpoint"] for batch in group["batches"]} == {
         "stock_basic",
+        "trade_cal",
         "daily",
+        "adj_factor",
+        "suspend_d",
+        "daily_basic",
         "index_member_all",
         "moneyflow",
         "income",
@@ -868,14 +876,13 @@ def test_capture_group_executes_registered_incremental_routes(
         "fund_share",
         "fund_nav",
         "fund_portfolio",
-        "top10_holders",
     }
     assert group["page_count"] == len(calls)
     assert "compiled_snapshot_hashes" not in group
     assert all(
         batch.get("coverage_ratio") == 1.0
         for batch in group["batches"]
-        if batch["endpoint"] not in {"stock_basic", "daily"}
+        if batch["endpoint"] not in {"stock_basic", "trade_cal", "daily"}
     )
     policies = {
         batch["endpoint"]: batch["pagination_policy"]
@@ -894,7 +901,6 @@ def test_capture_group_executes_registered_incremental_routes(
         "income": "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP",
         "index_member_all": "OFFSET_WITH_TERMINAL_CONFIRMATION",
         "moneyflow": "OFFSET_WITH_TERMINAL_CONFIRMATION",
-        "top10_holders": "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP",
     }
 
 

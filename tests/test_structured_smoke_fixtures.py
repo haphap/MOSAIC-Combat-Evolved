@@ -64,7 +64,7 @@ def test_structured_smoke_artifact_root_allowlists_are_identical() -> None:
     ) == set(geopolitical_events_module._STRUCTURED_SMOKE_ARTIFACT_ROOTS)
 
 
-def test_structured_smoke_bundle_materializes_all_29_stage_initial_snapshots(
+def test_structured_smoke_bundle_materializes_all_28_stage_initial_snapshots(
     tmp_path: Path, monkeypatch
 ) -> None:
     as_of = "2026-07-17"
@@ -87,7 +87,7 @@ def test_structured_smoke_bundle_materializes_all_29_stage_initial_snapshots(
             ("cio_proposal", "cio_final") if agent_id == "cio" else (agent_id,)
         )
     ]
-    assert len(stages) == 29
+    assert len(stages) == 28
     for agent_id, stage in stages:
         tool_ids = AGENT_TOOL_MATRIX[agent_id]
         initial_tools = tuple(
@@ -351,7 +351,6 @@ def test_structured_smoke_bundle_seals_sector_adaptive_archive(
     etf = next(
         ticker
         for path in (tmp_path / "cache" / "sector_snapshots" / as_of).glob("*.json")
-        if path.stem != "relationship_mapper"
         for card in json.loads(path.read_text(encoding="utf-8"))["direction_cards"]
         for ticker in card["etf_family"]["etf_ts_codes"]
     )
@@ -432,18 +431,6 @@ def test_structured_smoke_bundle_seals_sector_adaptive_archive(
         "private.rke_report_intelligence"
     )
 
-    relationship_rke = build_rke_agent_research_materialization(
-        root=Path(bindings["MOSAIC_FORWARD_ARCHIVE_ROOT"]),
-        registry_dir=bindings["MOSAIC_REGISTRY_DIR"],
-        agent_id="relationship_mapper",
-        as_of_date=as_of,
-        layer="relationship",
-        ticker="000001.SZ",
-        sector="sector-energy",
-        max_items=12,
-    )
-    assert relationship_rke["source_ids"]
-    assert relationship_rke["context"]["summary"]["item_count"] >= 1
     supply_chain_archive = OfficialSupplyChainDisclosureArchive(
         Path(bindings["MOSAIC_SUPPLY_CHAIN_ARCHIVE_PATH"]), create=False
     )
@@ -500,7 +487,6 @@ def test_structured_smoke_l1_l3_opportunities_use_exact_member_authorities(
             "security_shortlist_hash",
             "security_ts_codes",
         },
-        "RELATIONSHIP_EDGES": {"edge_candidate_id", "materiality_weight"},
         "SUPERINVESTOR_PICKS": {"candidate_ref", "ts_code"},
     }
     for agent_id, contract in OUTCOME_CONTRACTS.items():

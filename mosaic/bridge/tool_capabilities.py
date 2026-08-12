@@ -6375,7 +6375,7 @@ class AgentToolCapabilityStore:
         audit_track = bundle["knot_audit_capability_track_v2"]
         accepted_track = bundle["accepted_output_capability_track"]
         binding_ids = [str(row["binding_id"]) for row in coverage["coverage"]]
-        if len(binding_ids) != 187 or binding_ids != sorted(set(binding_ids)):
+        if len(binding_ids) != 192 or binding_ids != sorted(set(binding_ids)):
             raise ValueError("KNOT history active binding closure mismatch")
         fixed_point = {
             "tool_environment_hash": accepted_track["tool_environment_hash"],

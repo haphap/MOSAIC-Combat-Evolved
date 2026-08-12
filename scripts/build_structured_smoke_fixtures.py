@@ -2,7 +2,7 @@
 """Build explicit, synthetic PIT inputs for the real-LLM structured smoke.
 
 The generated cache is non-production and contains no vendor prose.  It lets
-the 29-stage graph exercise real structured output without weakening any
+the 28-stage graph exercise real structured output without weakening any
 production snapshot fallback or writing to the scorecard/release ledgers.
 """
 
@@ -67,7 +67,6 @@ from mosaic.dataflows.supply_chain_disclosures import (
 )
 from mosaic.dataflows.sector_relationship_query_plans import THS_INDUSTRY_FILTERS
 from mosaic.dataflows.sector_snapshots import (
-    RELATIONSHIP_SNAPSHOT_SCHEMA_VERSION,
     SECTOR_DIRECTION_CONTRACT_VERSION,
     SECTOR_DIRECTION_IDS,
     SECTOR_ETF_DIRECTION_AUTHORITY,
@@ -781,89 +780,6 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
         }
         snapshot["snapshot_hash"] = _sector_canonical_hash(snapshot)
         _write_json(target / f"{agent_id}.json", snapshot)
-    relationship_evidence = {
-        "evidence_id": "structured-smoke:relationship:1",
-        "evidence_kind": "SYNTHETIC_RELATIONSHIP_RECORD",
-        "source_id": "synthetic_structured_smoke",
-        "source_endpoint": "synthetic_relationship_fixture",
-        "observation_date": released_at,
-        "released_at": released_at,
-        "vintage_at": released_at,
-        "pit_status": "PIT_VERIFIED",
-        "content_hash": _sector_canonical_hash(
-            {"fixture": "relationship-source-batch"}
-        ),
-    }
-    relationship_evidence["evidence_record_hash"] = _sector_canonical_hash(
-        relationship_evidence
-    )
-    relationship_row = {
-        "edge_candidate_id": "structured-smoke-edge-1",
-        "source_entity": "synthetic-holder",
-        "source_entity_type": "HOLDER",
-        "target_entity": "000001.SZ",
-        "target_entity_type": "PIT_ELIGIBLE_SECURITY",
-        "target_sector_id": "sector-energy",
-        "edge_type": "SHAREHOLDING",
-        "activation_trigger": "synthetic smoke trigger",
-        "observation_date": released_at,
-        "released_at": released_at,
-        "vintage_at": released_at,
-        "pit_status": "PIT_VERIFIED",
-        "evidence_ids": [relationship_evidence["evidence_id"]],
-    }
-    relationship_row["relationship_row_hash"] = _sector_canonical_hash(relationship_row)
-    matched_non_edges = [
-        {
-            "source_entity": "synthetic-holder",
-            "source_entity_type": "HOLDER",
-            "target_entity": "000002.SZ",
-            "target_entity_type": "PIT_ELIGIBLE_SECURITY",
-            "target_sector_id": "sector-energy",
-            "edge_type": "SHAREHOLDING",
-            "materiality_bucket": "MEDIUM",
-        }
-    ]
-    relationship_snapshot = {
-        "schema_version": RELATIONSHIP_SNAPSHOT_SCHEMA_VERSION,
-        "as_of_date": as_of.isoformat(),
-        "frozen_holder_domain_hash": _sector_canonical_hash(["synthetic-holder"]),
-        "frozen_security_domain_hash": _sector_canonical_hash(
-            ["000001.SZ", "000002.SZ"]
-        ),
-        "relationships": [relationship_row],
-        "prediction_opportunity_set": {
-            "candidate_generation_contract_version": "relationship_candidate_generation_v1",
-            "scoring_contract_version": "relationship_graph_validation_20d_v1",
-            "ordered_opportunities": [
-                {
-                    "edge_candidate_id": "structured-smoke-edge-1",
-                    "source_entity": "synthetic-holder",
-                    "source_entity_type": "HOLDER",
-                    "target_entity": "000001.SZ",
-                    "target_entity_type": "PIT_ELIGIBLE_SECURITY",
-                    "target_sector_id": "sector-energy",
-                    "edge_type": "SHAREHOLDING",
-                    "materiality_weight": 1.0,
-                    "materiality_bucket": "MEDIUM",
-                    "matched_non_edge_set_id": "structured-smoke-non-edge-1",
-                    "matched_non_edge_set_hash": _sector_canonical_hash(
-                        matched_non_edges
-                    ),
-                    "matched_non_edges": matched_non_edges,
-                }
-            ],
-        },
-        "evidence_catalog": [relationship_evidence],
-        "evidence_catalog_hash": _sector_canonical_hash([relationship_evidence]),
-        "fixture_class": "SYNTHETIC_NON_PRODUCTION",
-    }
-    relationship_snapshot["snapshot_hash"] = _sector_canonical_hash(
-        relationship_snapshot
-    )
-    _write_json(target / "relationship_mapper.json", relationship_snapshot)
-
-
 def _build_sector_archive(root: Path, as_of: date) -> Path:
     snapshot_root = root / "sector_snapshots" / as_of.isoformat()
     snapshots = [
@@ -1109,18 +1025,6 @@ def _build_forward_archive(root: Path, as_of: date) -> Path:
             pair = (row["ts_code"], row["direction_id"])
             rke_pairs.add(pair)
             rke_pair_agents[pair] = agent_id
-    relationship_snapshot = json.loads(
-        (snapshot_root / "relationship_mapper.json").read_text(encoding="utf-8")
-    )
-    relationship_rows = list(relationship_snapshot["relationships"])
-    for opportunity in relationship_snapshot["prediction_opportunity_set"][
-        "ordered_opportunities"
-    ]:
-        relationship_rows.append(opportunity)
-        relationship_rows.extend(opportunity["matched_non_edges"])
-    for row in relationship_rows:
-        direction_ids.add(row["target_sector_id"])
-        rke_pairs.add((row["target_entity"], row["target_sector_id"]))
     if not ticker_industries:
         raise RuntimeError("structured-smoke forward archive scope is empty")
 
@@ -1680,24 +1584,6 @@ def _build_outcome_opportunity_projections(root: Path, as_of: date) -> None:
                         "security_ts_codes": [row["ts_code"] for row in rows],
                     }
                 )
-        elif contract["evaluation_object_type"] == "RELATIONSHIP_EDGES":
-            snapshot = json.loads(
-                (
-                    root
-                    / "sector_snapshots"
-                    / as_of.isoformat()
-                    / "relationship_mapper.json"
-                ).read_text(encoding="utf-8")
-            )
-            member_refs = [
-                {
-                    "edge_candidate_id": row["edge_candidate_id"],
-                    "materiality_weight": row["materiality_weight"],
-                }
-                for row in snapshot["prediction_opportunity_set"][
-                    "ordered_opportunities"
-                ]
-            ]
         elif contract["evaluation_object_type"] == "SUPERINVESTOR_PICKS":
             # The exact L2-derived candidate universe is unavailable until the
             # corresponding L3 stage boundary; this artifact proves readiness only.
@@ -1879,12 +1765,6 @@ def _build_runtime_snapshots(root: Path, as_of: date) -> None:
         )
         for agent_id in STANDARD_SECTOR_AGENTS
     )
-    relationship = _runtime_accepted_ref(
-        agent_id="relationship_mapper",
-        stage="relationship_mapper",
-        accepted_output_kind="RELATIONSHIP_GRAPH",
-        as_of=as_of,
-    )
     superinvestors = tuple(
         _runtime_accepted_ref(
             agent_id=agent_id,
@@ -1959,7 +1839,7 @@ def _build_runtime_snapshots(root: Path, as_of: date) -> None:
                     stage=agent_id,
                     tool_id="get_superinvestor_candidate_snapshot",
                     as_of=as_of,
-                    upstream=(*macro, *sector, relationship),
+                    upstream=(*macro, *sector),
                     constraints={
                         "cash_only": False,
                         "allow_new_positions": True,
@@ -1989,7 +1869,7 @@ def _build_runtime_snapshots(root: Path, as_of: date) -> None:
                     stage="alpha_discovery",
                     tool_id="get_alpha_candidate_snapshot",
                     as_of=as_of,
-                    upstream=(*sector, relationship, *superinvestors),
+                    upstream=(*sector, *superinvestors),
                     constraints={
                         "cash_only": True,
                         "allow_new_positions": False,
@@ -2088,7 +1968,7 @@ def _build_runtime_snapshots(root: Path, as_of: date) -> None:
                     stage="cio_proposal",
                     tool_id="get_cio_decision_snapshot",
                     as_of=as_of,
-                    upstream=(*macro, *sector, relationship, *superinvestors, alpha),
+                    upstream=(*macro, *sector, *superinvestors, alpha),
                     constraints={
                         "max_total_target_weight": 1.0,
                         "min_cash_weight": 0.0,

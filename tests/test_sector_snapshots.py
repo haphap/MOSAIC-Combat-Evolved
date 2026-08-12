@@ -27,6 +27,7 @@ from mosaic.dataflows.sector_snapshots import (
 from mosaic.dataflows.sector_snapshots import (
     RELATIONSHIP_MAX_FACTUAL_EDGES,
     RELATIONSHIP_REQUIRED_SOURCE_ENDPOINTS,
+    RELATIONSHIP_SNAPSHOT_SCHEMA_VERSION,
     RELATIONSHIP_SOURCE_EXTRACTOR_CONTRACT_VERSION,
     SECTOR_ETF_SOURCE_ENDPOINTS,
     SECTOR_REQUIRED_SOURCE_ENDPOINTS,
@@ -110,6 +111,80 @@ def _rehash_relationship_snapshot(snapshot: dict[str, Any]) -> None:
 def _relationship_snapshot(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
     _build_sector_snapshots(tmp_path, date.fromisoformat(AS_OF))
     source_path = tmp_path / "sector_snapshots" / AS_OF / "relationship_mapper.json"
+    released_at = (date.fromisoformat(AS_OF) - timedelta(days=1)).isoformat()
+    evidence = {
+        "evidence_id": "structured-smoke:relationship:1",
+        "evidence_kind": "SYNTHETIC_RELATIONSHIP_RECORD",
+        "source_id": "synthetic_structured_smoke",
+        "source_endpoint": "synthetic_relationship_fixture",
+        "observation_date": released_at,
+        "released_at": released_at,
+        "vintage_at": released_at,
+        "pit_status": "PIT_VERIFIED",
+        "content_hash": _canonical_hash({"fixture": "relationship-source-batch"}),
+    }
+    evidence["evidence_record_hash"] = _canonical_hash(evidence)
+    relationship = {
+        "edge_candidate_id": "structured-smoke-edge-1",
+        "source_entity": "synthetic-holder",
+        "source_entity_type": "HOLDER",
+        "target_entity": "000001.SZ",
+        "target_entity_type": "PIT_ELIGIBLE_SECURITY",
+        "target_sector_id": "sector-energy",
+        "edge_type": "SHAREHOLDING",
+        "activation_trigger": "synthetic smoke trigger",
+        "observation_date": released_at,
+        "released_at": released_at,
+        "vintage_at": released_at,
+        "pit_status": "PIT_VERIFIED",
+        "evidence_ids": [evidence["evidence_id"]],
+    }
+    relationship["relationship_row_hash"] = _canonical_hash(relationship)
+    matched_non_edges = [
+        {
+            "source_entity": "synthetic-holder",
+            "source_entity_type": "HOLDER",
+            "target_entity": "000002.SZ",
+            "target_entity_type": "PIT_ELIGIBLE_SECURITY",
+            "target_sector_id": "sector-energy",
+            "edge_type": "SHAREHOLDING",
+            "materiality_bucket": "MEDIUM",
+        }
+    ]
+    payload = {
+        "schema_version": RELATIONSHIP_SNAPSHOT_SCHEMA_VERSION,
+        "as_of_date": AS_OF,
+        "frozen_holder_domain_hash": _canonical_hash(["synthetic-holder"]),
+        "frozen_security_domain_hash": _canonical_hash(
+            ["000001.SZ", "000002.SZ"]
+        ),
+        "relationships": [relationship],
+        "prediction_opportunity_set": {
+            "candidate_generation_contract_version": "relationship_candidate_generation_v1",
+            "scoring_contract_version": "relationship_graph_validation_20d_v1",
+            "ordered_opportunities": [
+                {
+                    "edge_candidate_id": "structured-smoke-edge-1",
+                    "source_entity": "synthetic-holder",
+                    "source_entity_type": "HOLDER",
+                    "target_entity": "000001.SZ",
+                    "target_entity_type": "PIT_ELIGIBLE_SECURITY",
+                    "target_sector_id": "sector-energy",
+                    "edge_type": "SHAREHOLDING",
+                    "materiality_weight": 1.0,
+                    "materiality_bucket": "MEDIUM",
+                    "matched_non_edge_set_id": "structured-smoke-non-edge-1",
+                    "matched_non_edge_set_hash": _canonical_hash(matched_non_edges),
+                    "matched_non_edges": matched_non_edges,
+                }
+            ],
+        },
+        "evidence_catalog": [evidence],
+        "evidence_catalog_hash": _canonical_hash([evidence]),
+        "fixture_class": "SYNTHETIC_NON_PRODUCTION",
+    }
+    payload["snapshot_hash"] = _canonical_hash(payload)
+    source_path.write_text(json.dumps(payload), encoding="utf-8")
     return source_path, json.loads(source_path.read_text(encoding="utf-8"))
 
 
@@ -782,6 +857,14 @@ def _rehash_source_batch(batch: dict[str, Any]) -> None:
     ].removeprefix("sha256:")
 
 
+def _rebind_scoped_stock_request(batch: dict[str, Any]) -> None:
+    requested_codes = sorted({str(row["ts_code"]) for row in batch["rows"]})
+    batch["request"] = {"ts_codes": requested_codes}
+    batch["query_count"] = len(requested_codes)
+    batch["completed_query_count"] = len(requested_codes)
+    _rehash_source_batch(batch)
+
+
 def _collector_row(
     endpoint: str, columns: list[str], ts_code: str, trade_date: str = AS_OF
 ) -> dict[str, Any]:
@@ -1314,7 +1397,8 @@ def test_registered_relationship_keeps_facts_without_eligible_controls(
     held_with_control["ts_code"] = "000003.SZ"
     held_with_control["holder_name"] = "institution-b"
     holder_batch["rows"].extend((held_without_control, held_with_control))
-    for batch in (membership_batch, stock_batch, holder_batch):
+    _rebind_scoped_stock_request(stock_batch)
+    for batch in (membership_batch, holder_batch):
         _rehash_source_batch(batch)
 
     compiled = compile_registered_relationship_snapshot(
@@ -1352,7 +1436,8 @@ def test_registered_relationship_bounds_large_factual_and_opportunity_domains(
         holder["ts_code"] = ts_code
         holder["holder_name"] = f"institution-{index:06d}"
         holder_batch["rows"].append(holder)
-    for batch in (membership_batch, stock_batch, holder_batch):
+    _rebind_scoped_stock_request(stock_batch)
+    for batch in (membership_batch, holder_batch):
         _rehash_source_batch(batch)
 
     first = compile_registered_relationship_snapshot(
@@ -1916,19 +2001,17 @@ def test_registered_sector_rejects_missing_or_false_pagination_provenance(
         )
 
 
-def test_registered_sector_compiler_requires_exhaustive_stock_statuses(
+def test_registered_sector_compiler_requires_exact_scoped_stock_statuses(
     snapshot: dict[str, Any],
 ) -> None:
     _expected, batches = _registered_source_inputs(snapshot)
     stock_basic = next(
         batch for batch in batches if batch["endpoint"] == "stock_basic"
     )
-    stock_basic["request"]["request_count"] = 2
-    stock_basic["query_count"] = 2
-    stock_basic["completed_query_count"] = 2
+    stock_basic["request"]["ts_codes"] = stock_basic["request"]["ts_codes"][:-1]
     _rehash_source_batch(stock_basic)
 
-    with pytest.raises(DataVendorUnavailable, match="exhaustive across D/L/P"):
+    with pytest.raises(DataVendorUnavailable, match="scoped ticker authority"):
         compile_registered_sector_snapshot(
             role=ROLE,
             as_of_date=AS_OF,
@@ -1966,7 +2049,7 @@ def test_registered_sector_compiler_excludes_delisted_membership_rows(
     )
     stock_basic["rows"].append(stale_stock)
     _rehash_source_batch(membership)
-    _rehash_source_batch(stock_basic)
+    _rebind_scoped_stock_request(stock_basic)
 
     compiled = compile_registered_sector_snapshot(
         role=ROLE, as_of_date=AS_OF, source_batches=batches

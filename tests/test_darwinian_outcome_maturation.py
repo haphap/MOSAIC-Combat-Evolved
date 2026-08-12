@@ -960,7 +960,7 @@ def test_server_authority_ledger_proves_freeze_precedes_accepted_output(
     ]
 
 
-def test_all_28_agents_materialize_role_owned_outcomes_without_cio_attribution(
+def test_all_27_agents_materialize_role_owned_outcomes_without_cio_attribution(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1004,14 +1004,13 @@ def test_all_28_agents_materialize_role_owned_outcomes_without_cio_attribution(
             trading_dates=_trading_dates(),
         )
 
-        assert batch["due_pending_count"] == 28
-        assert batch["scored_count"] == 28
+        assert batch["due_pending_count"] == 27
+        assert batch["scored_count"] == 27
         assert batch["abstained_count"] == 0
         assert batch["unresolved_count"] == 0
         assert {OUTCOME_CONTRACTS[row["agent_id"]]["metric_family"] for row in batch["results"]} == {
             "MACRO_TRANSMISSION",
             "STANDARD_SECTOR",
-            "RELATIONSHIP",
             "SUPERINVESTOR",
             "CRO",
             "ALPHA",
@@ -1021,7 +1020,7 @@ def test_all_28_agents_materialize_role_owned_outcomes_without_cio_attribution(
         assert sum(
             row["darwin_application_mode"] == "DOWNSTREAM_USAGE_WEIGHT"
             for row in batch["results"]
-        ) == 24
+        ) == 23
         assert sum(
             row["darwin_application_mode"] == "EVOLUTION_ONLY"
             for row in batch["results"]
@@ -1029,7 +1028,7 @@ def test_all_28_agents_materialize_role_owned_outcomes_without_cio_attribution(
         label_count = conn.execute(
             "SELECT COUNT(*) FROM agent_outcome_labels_v2"
         ).fetchone()[0]
-        assert label_count == 28
+        assert label_count == 27
         upstream_raw = [
             json.loads(row[0])["raw_metrics"]
             for row in conn.execute(
@@ -1580,7 +1579,7 @@ def test_generation_failure_without_eligibility_audit_remains_unresolved(
     )
 
 
-def test_refresh_rpc_path_materializes_before_building_all_28_windows(
+def test_refresh_rpc_path_materializes_before_building_all_27_windows(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1630,7 +1629,7 @@ def test_refresh_rpc_path_materializes_before_building_all_28_windows(
     )
 
     assert result["outcome_maturation"]["scored_count"] == 1
-    assert len(result["evaluation_windows"]) == 28
+    assert len(result["evaluation_windows"]) == 27
 
 
 def test_registered_trading_day_maturity_and_slot_hash_fail_closed(

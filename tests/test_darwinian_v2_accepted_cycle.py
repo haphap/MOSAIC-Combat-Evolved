@@ -1045,7 +1045,7 @@ def test_cycle_stage_outcome_refs_reuse_exact_accepted_output_authority(
 
     outcomes = accepted_cycle_stage_outcome_refs(state)
 
-    assert len(outcomes) == 29
+    assert len(outcomes) == 28
     assert outcomes == sorted(outcomes, key=lambda row: (row["agent_id"], row["stage"]))
     assert {row["outcome_kind"] for row in outcomes} == {"ACCEPTED_OUTPUT"}
     accepted_hashes = {
@@ -2275,7 +2275,7 @@ def _attach_schedule(
     return len(scheduled), component_signal_count
 
 
-def test_accepted_cycle_writes_29_outputs_and_28_operational_audits(
+def test_accepted_cycle_writes_28_outputs_and_27_operational_audits(
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "scorecard.db"
@@ -2284,8 +2284,8 @@ def test_accepted_cycle_writes_29_outputs_and_28_operational_audits(
     scheduled_count, component_signal_count = _attach_schedule(store, state)
     _attach_accepted_records(state)
     result = store.append_darwinian_v2_accepted_cycle(state)
-    assert result["accepted_output_records"] == 29
-    assert result["operational_opportunity_audits"] == 28
+    assert result["accepted_output_records"] == 28
+    assert result["operational_opportunity_audits"] == 27
     assert result["evaluation_tracks_inserted"] == 0
     assert result["usage_tracks_inserted"] == 0
     assert result["cold_start_weights_inserted"] == 0
@@ -2301,8 +2301,8 @@ def test_accepted_cycle_writes_29_outputs_and_28_operational_audits(
             "SELECT agent_id, run_slot_kind, scheduled_sample_id "
             "FROM operational_opportunity_audits_v2"
         ).fetchall()
-    assert len(accepted) == 29
-    assert len(operational) == 28
+    assert len(accepted) == 28
+    assert len(operational) == 27
     cio = [row for row in accepted if row[0] == "cio"]
     assert {row[1] for row in cio} == {"CIO_PROPOSAL", "CIO_FINAL"}
     assert len({row[2] for row in cio}) == 1
@@ -2343,7 +2343,7 @@ def test_accepted_cycle_keeps_pre_capability_track_record_labelable(
 
     result = store.append_darwinian_v2_accepted_cycle(state)
 
-    assert result["accepted_output_records"] == 29
+    assert result["accepted_output_records"] == 28
     with sqlite3.connect(db_path) as conn:
         stored = json.loads(
             conn.execute(
@@ -2380,7 +2380,7 @@ def test_accepted_cycle_keeps_cross_generation_capability_track_labelable(
 
     result = store.append_darwinian_v2_accepted_cycle(state)
 
-    assert result["accepted_output_records"] == 29
+    assert result["accepted_output_records"] == 28
 
 
 def test_accepted_cycle_excludes_stage_skip_from_outputs_and_samples(
@@ -2402,8 +2402,8 @@ def test_accepted_cycle_excludes_stage_skip_from_outputs_and_samples(
     _attach_accepted_records(state)
 
     result = store.append_darwinian_v2_accepted_cycle(state)
-    assert result["accepted_output_records"] == 28
-    assert result["operational_opportunity_audits"] == 27
+    assert result["accepted_output_records"] == 27
+    assert result["operational_opportunity_audits"] == 26
     assert result["no_evaluation_object_stage_skips"] == 1
     assert result["outcome_eligibility_pending_revisions"] == scheduled_count - 1
     assert result["component_calibration_signals"] == component_signal_count
@@ -2807,87 +2807,6 @@ def test_accepted_cycle_rejects_well_formed_forged_decision_identity(
     _reseal_record(state, record)
 
     with pytest.raises(ValueError, match="accepted Alpha discovery ID mismatch"):
-        store.append_darwinian_v2_accepted_cycle(state)
-
-
-def test_accepted_cycle_rejects_forged_relationship_edge_identity(
-    tmp_path: Path,
-) -> None:
-    store = ScorecardStore(tmp_path / "scorecard.db")
-    state = _state()
-    _attach_schedule(store, state)
-    _attach_accepted_records(state)
-    record = next(
-        row
-        for row in state["accepted_output_records"]
-        if row["accepted_output_kind"] == "RELATIONSHIP_GRAPH"
-    )
-    payload = record["output"]["payload"]
-    claim = payload["claims"][0]
-    forged_hash = canonical_hash("forged-factual-edge")
-    payload["factual_edges"] = [
-        {
-            "edge_id": f"relationship-factual-edge:{forged_hash[7:]}",
-            "edge_hash": forged_hash,
-            "edge_candidate_id": "relationship:fixture",
-            "relationship_row_hash": canonical_hash("relationship-row"),
-            "source_entity": "holder:fixture",
-            "source_entity_type": "HOLDER",
-            "target_entity": "600001.SH",
-            "target_entity_type": "PIT_ELIGIBLE_SECURITY",
-            "target_sector_id": "sector:fixture",
-            "edge_type": "OWNS",
-            "activation_trigger": "Fixture activation trigger.",
-            "evidence_ids": claim["evidence_ids"],
-            "claim_refs": [claim["claim_id"]],
-        }
-    ]
-    _reseal_record(state, record)
-
-    with pytest.raises(ValueError, match="factual relationship edge identity mismatch"):
-        store.append_darwinian_v2_accepted_cycle(state)
-
-
-def test_accepted_cycle_rejects_duplicate_relationship_semantic_tuple(
-    tmp_path: Path,
-) -> None:
-    store = ScorecardStore(tmp_path / "scorecard.db")
-    state = _state()
-    _attach_schedule(store, state)
-    _attach_accepted_records(state)
-    record = next(
-        row
-        for row in state["accepted_output_records"]
-        if row["accepted_output_kind"] == "RELATIONSHIP_GRAPH"
-    )
-    payload = record["output"]["payload"]
-    claim = payload["claims"][0]
-
-    def edge(candidate_id: str) -> dict[str, Any]:
-        body = {
-            "edge_candidate_id": candidate_id,
-            "relationship_row_hash": canonical_hash(f"row:{candidate_id}"),
-            "source_entity": "holder:fixture",
-            "source_entity_type": "HOLDER",
-            "target_entity": "600001.SH",
-            "target_entity_type": "PIT_ELIGIBLE_SECURITY",
-            "target_sector_id": "sector:fixture",
-            "edge_type": "OWNS",
-            "activation_trigger": "Fixture activation trigger.",
-            "evidence_ids": claim["evidence_ids"],
-        }
-        edge_hash = canonical_hash(body)
-        return {
-            "edge_id": f"relationship-factual-edge:{edge_hash[7:]}",
-            "edge_hash": edge_hash,
-            **body,
-            "claim_refs": [claim["claim_id"]],
-        }
-
-    payload["factual_edges"] = [edge("relationship:one"), edge("relationship:two")]
-    _reseal_record(state, record)
-
-    with pytest.raises(ValueError, match=r"factual_edges\..* must be unique"):
         store.append_darwinian_v2_accepted_cycle(state)
 
 

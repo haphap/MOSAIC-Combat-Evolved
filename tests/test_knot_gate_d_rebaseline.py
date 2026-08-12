@@ -257,11 +257,11 @@ def _build(data: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def test_gate_d_candidate_closes_28_stages_183_bindings_and_shared_cio_prompt():
+def test_gate_d_candidate_closes_28_stages_192_bindings_and_shared_cio_prompt():
     data = _fixture()
     candidate = _build(data)
     assert candidate["runtime_stage_count"] == 28
-    assert candidate["binding_count"] == 183
+    assert candidate["binding_count"] == 192
     assert len(candidate["stage_evidence"]) == 28
     proposal = next(
         row
@@ -292,8 +292,8 @@ def test_gate_d_fixture_evidence_is_derived_from_current_overlays_and_tracks():
         capability_bundle=data["bundle"],
         training_projections_by_stage=data["projections"],
     )
-    assert evidence["significance_fixture_count"] == 112
-    assert evidence["runtime_binding_count"] == 183
+    assert evidence["significance_fixture_count"] == 110
+    assert evidence["runtime_binding_count"] == 192
     assert evidence["projection_count"] == 28
     assert evidence["source_route_migration_count"] == 6
     assert evidence["source_route_migrations_hash"] == canonical_hash(

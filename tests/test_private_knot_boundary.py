@@ -405,8 +405,8 @@ def test_private_bootstrap_closes_private_prompt_and_state_trees(
         path.write_text(path.read_text(encoding="utf-8") + "runtime rebase\n", encoding="utf-8")
     authority = {
         "schema_version": "agent_tool_contract_manifest_v1",
-        "agent_count": 28,
-        "execution_stage_count": 29,
+        "agent_count": 27,
+        "execution_stage_count": 28,
         "tool_count": 31,
         "agents": [],
     }

@@ -17,8 +17,8 @@ from mosaic.scorecard.outcome_contracts import (
 
 
 def test_outcome_contracts_cover_exact_runtime_roster_and_modes() -> None:
-    assert len(OUTCOME_CONTRACTS) == 28
-    assert len(USAGE_WEIGHT_AGENT_IDS) == 24
+    assert len(OUTCOME_CONTRACTS) == 27
+    assert len(USAGE_WEIGHT_AGENT_IDS) == 23
     assert set(EVOLUTION_ONLY_AGENT_IDS) == {
         "alpha_discovery",
         "autonomous_execution",
@@ -29,7 +29,7 @@ def test_outcome_contracts_cover_exact_runtime_roster_and_modes() -> None:
     assert len(OUTCOME_REALIZED_METRIC_SCHEMAS) == 8
     assert {
         row["realized_metric_schema_id"] for row in OUTCOME_CONTRACTS.values()
-    } == set(OUTCOME_REALIZED_METRIC_SCHEMAS)
+    } == set(OUTCOME_REALIZED_METRIC_SCHEMAS) - {"relationship_realized_metrics_v1"}
 
 
 def test_outcome_contracts_freeze_schedule_and_label_ownership() -> None:

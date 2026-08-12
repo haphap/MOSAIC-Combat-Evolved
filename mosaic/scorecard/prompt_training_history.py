@@ -1100,7 +1100,7 @@ def _validate_knot_history_partition_v2(
     expected_binding_ids = [str(row["binding_id"]) for row in coverage["coverage"]]
     actual_binding_ids = [str(row.get("binding_id")) for row in aggregates]
     if (
-        len(expected_binding_ids) != 187
+        len(expected_binding_ids) != 192
         or expected_binding_ids != sorted(set(expected_binding_ids))
         or actual_binding_ids != expected_binding_ids
     ):

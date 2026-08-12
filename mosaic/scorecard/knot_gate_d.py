@@ -23,9 +23,11 @@ from mosaic.scorecard.darwinian_v2 import (
 
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
-_EXPECTED_RUNTIME_STAGE_COUNT = 29
-_EXPECTED_BINDING_COUNT = 187
-_EXPECTED_SIGNIFICANCE_FIXTURE_COUNT = 113
+_EXPECTED_RUNTIME_STAGE_COUNT = 28
+_EXPECTED_BINDING_COUNT = 192
+_EXPECTED_SIGNIFICANCE_FIXTURE_COUNT = 110
+_EXPECTED_RETIRED_SIGNIFICANCE_FIXTURE_COUNT = 3
+_RETIRED_ACTIVE_AGENT_IDS = frozenset({"relationship_mapper"})
 _LEGACY_CN_CURVE_ROUTE_ID = "tushare.shibor_yield_curve"
 _ACTIVE_CN_RATES_ROUTE_ID = "composite.cn_rates"
 _CN_CURVE_PRESERVATION_BINDING_IDS = frozenset(
@@ -497,6 +499,8 @@ def build_knot_gate_d_fixture_evidence(
     overlay_hashes: dict[str, str] = {}
     fixtures: list[Mapping[str, Any]] = []
     source_bindings: dict[str, Mapping[str, Any]] = {}
+    retired_binding_ids: set[str] = set()
+    retired_fixture_ids: set[str] = set()
     for name, filename, validator in overlay_specs:
         overlay = json.loads((directory / filename).read_text(encoding="utf-8"))
         validator(overlay, root=root)
@@ -514,10 +518,23 @@ def build_knot_gate_d_fixture_evidence(
             raise ValueError("Gate D significance fixtures are invalid")
         for binding in bindings:
             binding_id = str(binding.get("binding_id"))
+            if binding.get("agent_id") in _RETIRED_ACTIVE_AGENT_IDS:
+                retired_binding_ids.add(binding_id)
+                continue
             if binding_id in source_bindings:
                 raise ValueError("Gate D fixture source binding is duplicated")
             source_bindings[binding_id] = binding
-        fixtures.extend(rows)
+        for row in rows:
+            binding_id = str(row.get("binding_id"))
+            if binding_id in retired_binding_ids:
+                retired_fixture_ids.add(binding_id)
+                continue
+            fixtures.append(row)
+    if (
+        retired_binding_ids != retired_fixture_ids
+        or len(retired_binding_ids) != _EXPECTED_RETIRED_SIGNIFICANCE_FIXTURE_COUNT
+    ):
+        raise ValueError("Gate D retired significance fixture closure mismatch")
     fixtures = sorted(fixtures, key=lambda row: str(row.get("binding_id")))
     fixture_binding_ids = [str(row.get("binding_id")) for row in fixtures]
     current_bindings = capability_bundle["binding_manifest"]["bindings"]

@@ -14,6 +14,7 @@ from mosaic.scorecard.preservation_snapshots import (
     load_preactivation_agent_manifests,
 )
 from mosaic.scorecard.sector_relationship_preservation import (
+    SECTOR_AGENT_IDS,
     validate_sector_relationship_preservation_overlay,
 )
 
@@ -26,6 +27,11 @@ _ACTIVE_TOOL_MANIFEST = Path(
 _ACTIVE_ROUTE_MANIFEST = Path(
     "registry/data_sources/agent_data_route_manifest_v1.json"
 )
+_RETIRED_ACTIVE_AGENT_IDS = frozenset({"relationship_mapper"})
+_RETIRED_RELATIONSHIP_TOOL_IDS = frozenset(
+    {"get_rke_research_context", "get_stock_research", "get_supply_chain_evidence"}
+)
+_MIGRATED_RELATIONSHIP_TOOL_ID = "get_supply_chain_evidence"
 _APPROVED_ACTIVE_ROUTE_REPLACEMENTS = {
     "tushare.shibor_yield_curve": {
         "route_id": "composite.cn_rates",
@@ -157,18 +163,30 @@ def build_l1_l2_active_tool_manifest(root: Path) -> dict[str, Any]:
 
     base, overlay = _load_inputs(root)
     restored_by_agent: dict[str, set[str]] = {}
+    retired_relationship_tool_ids: set[str] = set()
     for binding in overlay["bindings"]:
         agent_id = str(binding["agent_id"])
+        if agent_id in _RETIRED_ACTIVE_AGENT_IDS:
+            tool_id = str(binding["tool_id"])
+            retired_relationship_tool_ids.add(tool_id)
+            if tool_id == _MIGRATED_RELATIONSHIP_TOOL_ID:
+                for sector_agent_id in SECTOR_AGENT_IDS:
+                    restored_by_agent.setdefault(sector_agent_id, set()).add(tool_id)
+            continue
         stage = str(binding["stage"])
         if stage != agent_id:
             raise ValueError("PR6 restored binding stage differs from its Agent")
         restored_by_agent.setdefault(agent_id, set()).add(str(binding["tool_id"]))
+    if retired_relationship_tool_ids != _RETIRED_RELATIONSHIP_TOOL_IDS:
+        raise ValueError("retired Relationship binding tool roster drift")
 
     agents: list[dict[str, Any]] = []
     known_agents: set[str] = set()
     for source in base["agents"]:
         row = _copy(source)
         agent_id = str(row["agent_id"])
+        if agent_id in _RETIRED_ACTIVE_AGENT_IDS:
+            continue
         if agent_id in known_agents:
             raise ValueError("base Agent tool manifest contains duplicate agents")
         known_agents.add(agent_id)
@@ -196,10 +214,15 @@ def build_l1_l2_active_tool_manifest(root: Path) -> dict[str, Any]:
         "agents": agents,
     }
     _tool_surface(body)
-    if body["agent_count"] != base["agent_count"] or body[
+    expected_agents = [
+        row
+        for row in base["agents"]
+        if row["agent_id"] not in _RETIRED_ACTIVE_AGENT_IDS
+    ]
+    if body["agent_count"] != len(expected_agents) or body[
         "execution_stage_count"
-    ] != base["execution_stage_count"]:
-        raise ValueError("L1/L2 activation changed the Agent or stage roster")
+    ] != sum(len(row["execution_stages"]) for row in expected_agents):
+        raise ValueError("L1/L2 activation active Agent or stage roster drift")
     return body
 
 
@@ -296,13 +319,48 @@ def build_l1_l2_active_route_manifest(
             raise ValueError(f"PR6 route {route_id} conflicts with the base route")
         route_by_id[route_id] = row
 
+    retired_route_ids = {
+        route_id
+        for row in base_routes["bindings"]
+        if row["agent_id"] in _RETIRED_ACTIVE_AGENT_IDS
+        for route_id in row["required_route_ids"]
+    }
+    retired_route_ids.update(
+        route_id
+        for row in overlay["bindings"]
+        if row["agent_id"] in _RETIRED_ACTIVE_AGENT_IDS
+        for route_id in row["source_route_ids"]
+    )
     binding_by_key = {
         (row["agent_id"], row["stage"], row["tool_id"]): _copy(row)
         for row in base_routes["bindings"]
+        if row["agent_id"] not in _RETIRED_ACTIVE_AGENT_IDS
     }
-    if len(binding_by_key) != len(base_routes["bindings"]):
+    if len(binding_by_key) != sum(
+        row["agent_id"] not in _RETIRED_ACTIVE_AGENT_IDS
+        for row in base_routes["bindings"]
+    ):
         raise ValueError("base route manifest contains duplicate bindings")
     for source in overlay["bindings"]:
+        if source["agent_id"] in _RETIRED_ACTIVE_AGENT_IDS:
+            if source["tool_id"] == _MIGRATED_RELATIONSHIP_TOOL_ID:
+                for sector_agent_id in SECTOR_AGENT_IDS:
+                    key = (
+                        sector_agent_id,
+                        sector_agent_id,
+                        _MIGRATED_RELATIONSHIP_TOOL_ID,
+                    )
+                    if key in binding_by_key:
+                        raise ValueError(
+                            "migrated Relationship binding overlaps active Sector surface"
+                        )
+                    binding_by_key[key] = {
+                        "agent_id": sector_agent_id,
+                        "stage": sector_agent_id,
+                        "tool_id": _MIGRATED_RELATIONSHIP_TOOL_ID,
+                        "required_route_ids": list(source["source_route_ids"]),
+                    }
+            continue
         key = (source["agent_id"], source["stage"], source["tool_id"])
         if key in binding_by_key:
             raise ValueError("PR6 restored route binding overlaps the base surface")
@@ -330,9 +388,17 @@ def build_l1_l2_active_route_manifest(
         for binding in binding_by_key.values()
         for route_id in binding["required_route_ids"]
     }
-    retired_route_ids = set(_APPROVED_ACTIVE_ROUTE_REPLACEMENTS)
-    if retired_route_ids.intersection(referenced_route_ids):
+    replaced_route_ids = set(_APPROVED_ACTIVE_ROUTE_REPLACEMENTS)
+    if replaced_route_ids.intersection(referenced_route_ids):
         raise ValueError("retired route remains reachable after overlay migration")
+    orphan_route_ids = set(route_by_id) - referenced_route_ids
+    if not orphan_route_ids.issubset(retired_route_ids):
+        raise ValueError("active route catalog contains non-retirement orphans")
+    route_by_id = {
+        route_id: row
+        for route_id, row in route_by_id.items()
+        if route_id in referenced_route_ids
+    }
     if set(route_by_id) != referenced_route_ids:
         raise ValueError("active route catalog does not exactly close binding routes")
 

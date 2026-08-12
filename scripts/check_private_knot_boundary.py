@@ -381,7 +381,7 @@ def _check_execution_release() -> Mapping[str, str]:
         not isinstance(release.get("active_production_variants"), list)
         or len(release["active_production_variants"]) != 16
         or not isinstance(release.get("execution_contracts"), list)
-        or len(release["execution_contracts"]) != 56
+        or len(release["execution_contracts"]) != 54
     ):
         raise ValueError("execution behavior release archive schema mismatch")
     without_hash = {
@@ -546,8 +546,8 @@ def _check_runtime_contract_rebase_receipt(
     )
     if (
         authority.get("schema_version") != "agent_tool_contract_manifest_v1"
-        or authority.get("agent_count") != 28
-        or authority.get("execution_stage_count") != 29
+        or authority.get("agent_count") != 27
+        or authority.get("execution_stage_count") != 28
         or authority.get("tool_count") != 31
         or canonical_hash(authority)
         != receipt["runtime_contract_authority_hash"]
@@ -743,9 +743,9 @@ def _check_public_boundary() -> str:
     )
     if runtime_manifest.get("schema_version") != "runtime_agent_manifest_v5":
         raise ValueError("active runtime Agent manifest version mismatch")
-    if runtime_manifest.get("runtime_agent_count") != 28:
+    if runtime_manifest.get("runtime_agent_count") != 27:
         raise ValueError("active runtime Agent roster mismatch")
-    if runtime_manifest.get("runtime_stage_count") != 29:
+    if runtime_manifest.get("runtime_stage_count") != 28:
         raise ValueError("active runtime stage roster mismatch")
     if "knot" in json.dumps(runtime_manifest, sort_keys=True).lower():
         raise ValueError("KNOT authority leaked into the active runtime manifest")

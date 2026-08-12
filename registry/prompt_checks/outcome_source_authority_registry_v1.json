@@ -1,8 +1,8 @@
 {
   "registry_version": "outcome_source_authority_registry_v1",
   "provisioning_status": "PROVISIONING_REQUIRED",
-  "registry_schema_hash": "sha256:699ee2f15af105436dd96d961965c89b00405a766dfda30e69a1f89d89f5eea8",
-  "registry_hash": "sha256:b26e0a82b7b7240743efe7e6f156c0b73f2d53466b391ae0edf316375d29f9eb",
+  "registry_schema_hash": "sha256:44e62f3e6ea75159f12d0e9bf1fe222edb3c1ade670066a96c794f33f4a9e129",
+  "registry_hash": "sha256:c367876f91eb223219d83fc49ad8454b0befe547d3eae366a2474a003c6a88f3",
   "entries": [
     {
       "entry_version": "outcome_source_authority_entry_v1",
@@ -321,57 +321,6 @@
         "cro_realized_metrics_v1": ["candidate_states"]
       },
       "entry_hash": "sha256:4ce87b4fbcdde971edd1eec66a3b24badad9ded6bff126e2eced47eeb958816d"
-    },
-    {
-      "entry_version": "outcome_source_authority_entry_v1",
-      "required_source_id": "relationship_edge_realized_path_v2",
-      "source_owner": "mosaic.relationship_outcome_authority",
-      "adapter_contract_id": "relationship_edge_realized_path_adapter",
-      "adapter_contract_version": "1.0.0",
-      "verifier_id": "mosaic.relationship_outcome_authority.verifier.v1",
-      "signing_key_id": "relationship_edge_realized_path_v2.ed25519.2026-01",
-      "signature_algorithm": "Ed25519",
-      "ed25519_public_key_base64url": "4DmvxIqbp5hs0IJKiNGSTGC3hfEXqYlE6YVfTf_8A4U",
-      "effective_from": "2020-01-01T00:00:00+08:00",
-      "effective_until": null,
-      "owned_realized_fields_by_schema_id": {
-        "relationship_realized_metrics_v1": ["edge_paths"]
-      },
-      "entry_hash": "sha256:2e361eece3c4aca50c37d11739c1da2b60e71095427b396a45ca9a42ba3b4b4d"
-    },
-    {
-      "entry_version": "outcome_source_authority_entry_v1",
-      "required_source_id": "relationship_graph_candidate_snapshot_v2",
-      "source_owner": "mosaic.relationship_candidate_registry",
-      "adapter_contract_id": "relationship_graph_candidate_snapshot_adapter",
-      "adapter_contract_version": "1.0.0",
-      "verifier_id": "mosaic.relationship_candidate_registry.verifier.v1",
-      "signing_key_id": "relationship_graph_candidate_snapshot_v2.ed25519.2026-01",
-      "signature_algorithm": "Ed25519",
-      "ed25519_public_key_base64url": "cGdfDCU3LtQkHMtjEhx4iJzDX5ItkWiXRx3LXLYkDGE",
-      "effective_from": "2020-01-01T00:00:00+08:00",
-      "effective_until": null,
-      "owned_realized_fields_by_schema_id": {
-        "relationship_realized_metrics_v1": []
-      },
-      "entry_hash": "sha256:828214fc2d56135beac421d6b62545c166794c2a81a8f188af82b9797f4b07d5"
-    },
-    {
-      "entry_version": "outcome_source_authority_entry_v1",
-      "required_source_id": "relationship_matched_non_edge_sample_v2",
-      "source_owner": "mosaic.relationship_control_authority",
-      "adapter_contract_id": "relationship_matched_non_edge_sample_adapter",
-      "adapter_contract_version": "1.0.0",
-      "verifier_id": "mosaic.relationship_control_authority.verifier.v1",
-      "signing_key_id": "relationship_matched_non_edge_sample_v2.ed25519.2026-01",
-      "signature_algorithm": "Ed25519",
-      "ed25519_public_key_base64url": "KVIRkWvz41eJL1oj2BXw0Y__QJGuZN1syGZS1JxDpdo",
-      "effective_from": "2020-01-01T00:00:00+08:00",
-      "effective_until": null,
-      "owned_realized_fields_by_schema_id": {
-        "relationship_realized_metrics_v1": []
-      },
-      "entry_hash": "sha256:588ea70716c5418f861eac144d9959af994c6c3f8d1b937d16f8aff387f58f23"
     },
     {
       "entry_version": "outcome_source_authority_entry_v1",

@@ -42,8 +42,8 @@ def test_l3_l4_activation_adds_exact_overlay_bindings_without_roster_drift() -> 
     active_tools = build_l3_l4_active_tool_manifest(ROOT)
     overlay = _load("l3_l4_preservation_overlay_v1.json")
 
-    assert active_tools["agent_count"] == 28
-    assert active_tools["execution_stage_count"] == 29
+    assert active_tools["agent_count"] == 27
+    assert active_tools["execution_stage_count"] == 28
     assert _surface(base_tools) < _surface(active_tools)
     expected_additions = {
         (
