@@ -23,7 +23,7 @@ Runtime supplies the only valid evidence catalog and opaque permitted citation i
 
 Output fields include: `agent`, `selection_status`, `preferred_direction`, `least_preferred_direction`, `persistence_horizon`, `confidence`, `key_drivers`, `risks`, `claims`, `claim_refs`, `preferred_security_status`, `preferred_security_abstention_confidence`, `long_picks`, `least_preferred_security_status`, `least_preferred_security_abstention_confidence`, `short_or_avoid_picks`, `macro_input_attributions`.
 
-Required runtime tools: `get_sector_research_snapshot`, `get_broker_research`, `get_etf_holdings`, `get_indicators`, `get_industry_moneyflow`, `get_industry_policy_digest`, `get_rke_research_context`, `get_stock_data`.
+Required runtime tools: `get_sector_research_snapshot`, `get_broker_research`, `get_etf_holdings`, `get_indicators`, `get_industry_moneyflow`, `get_industry_policy_digest`, `get_rke_research_context`, `get_stock_data`, `get_supply_chain_evidence`.
 
 Emit `claims` and `claim_refs`. Every claim must cite catalog `evidence_id` values through `evidence_ids`; every `INTERPRETATION` claim must also cite a permitted opaque identifier through `research_rule_refs`. Every direction and security selection must cite supporting claims through `claim_refs`. If direction evidence is insufficient or no unique preferred and least-preferred pair can be established, reject the stage without a Sector output. Only an insufficient security candidate set that runtime proves is an empty frozen shortlist may use `NO_QUALIFIED_SECURITY`; a non-empty shortlist must produce picks. Never invent evidence ids, fingerprints, citation identifiers, or cross-run references.
 

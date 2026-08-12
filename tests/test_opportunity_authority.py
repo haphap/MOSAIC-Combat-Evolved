@@ -11,7 +11,6 @@ from mosaic.scorecard.opportunity_authority import (
     assert_authoritative_member_match,
     macro_authority_members,
     materialize_pre_run_authority,
-    relationship_authority_members,
     sector_authority_members,
     superinvestor_authority_members,
 )
@@ -136,30 +135,6 @@ def test_sector_authority_rejects_ticker_hash_and_member_tampering() -> None:
                 projected_members=tampered,
                 authoritative_members=authoritative,
             )
-
-
-def test_relationship_authority_rejects_materiality_weight_tamper() -> None:
-    authoritative = relationship_authority_members(
-        {
-            "prediction_opportunity_set": {
-                "ordered_opportunities": [
-                    {
-                        "edge_candidate_id": "edge:1",
-                        "materiality_weight": 0.75,
-                    }
-                ]
-            }
-        }
-    )
-    tampered = copy.deepcopy(authoritative)
-    tampered[0]["materiality_weight"] = 0.5
-
-    with pytest.raises(ValueError, match="authoritative source"):
-        assert_authoritative_member_match(
-            agent_id="relationship_mapper",
-            projected_members=tampered,
-            authoritative_members=authoritative,
-        )
 
 
 def test_superinvestor_authority_rejects_deleted_changed_or_forged_empty_set() -> None:

@@ -100,11 +100,6 @@ _ROLE_COMPONENT_SPECS: dict[str, tuple[tuple[int, str, str | None], ...]] = {
     "geopolitical": ((5, "NORMALIZED_SCORE", None),),
     "market_breadth": ((5, "NORMALIZED_SCORE", None),),
     "institutional_flow": ((5, "NORMALIZED_SCORE", None),),
-    "relationship_mapper": (
-        (1, "EDGE_MEAN", "edge_utility_delta"),
-        (2, "EDGE_MEAN", "activation_direction_brier_skill"),
-        (4, "EDGE_MEAN", "path_lift_utility_delta"),
-    ),
     "druckenmiller": ((4, "NORMALIZED_SCORE", None),),
     "munger": ((4, "NORMALIZED_SCORE", None),),
     "burry": ((4, "NORMALIZED_SCORE", None),),
