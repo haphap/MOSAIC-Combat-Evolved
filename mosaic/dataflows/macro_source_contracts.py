@@ -487,6 +487,7 @@ MACRO_OBSERVATION_SOURCE_COMPONENTS: Final[
     },
     "institutional_flow": {
         "tushare.moneyflow": frozenset({"market_wide_flow"}),
+        "tushare.moneyflow_hsgt": frozenset({"market_wide_flow"}),
         "tushare.moneyflow_ind_ths": frozenset({"sector_rotation"}),
         "tushare.fund_share": frozenset({"etf_share"}),
         "tushare.daily_basic": frozenset({"crowding"}),

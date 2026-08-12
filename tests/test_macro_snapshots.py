@@ -315,7 +315,10 @@ def test_active_snapshot_schema_accepts_loaded_event_bound_tool_payload(
     monkeypatch.setenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", "structured_smoke")
     monkeypatch.setattr(
         "mosaic.dataflows.macro_snapshots.build_role_event_snapshot",
-        lambda consumer_agent, _as_of_date: _role_event_snapshot(consumer_agent),
+        lambda consumer_agent,
+        _as_of_date,
+        *,
+        historical_replay_captured_at=None: _role_event_snapshot(consumer_agent),
     )
 
     snapshot = load_role_snapshot(role, "2024-06-30", root=tmp_path)
@@ -804,7 +807,7 @@ def test_structured_smoke_gap_bypass_requires_explicit_fixture_marker(
     monkeypatch.setenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", "structured_smoke")
     monkeypatch.setattr(
         "mosaic.dataflows.macro_snapshots.build_role_event_snapshot",
-        lambda *_args: {
+        lambda *_args, historical_replay_captured_at=None: {
             "coverage": {"coverage_completeness": "COMPLETE"},
             "role_event_snapshot_hash": "sha256:fixture",
         },

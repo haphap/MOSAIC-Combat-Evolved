@@ -30,6 +30,7 @@ _ACTIVE_TOOL_MANIFEST = Path(
     "registry/prompt_checks/agent_tool_contract_manifest_v1.json"
 )
 _ACTIVE_ROUTE_MANIFEST = Path("registry/data_sources/agent_data_route_manifest_v1.json")
+_ACTIVE_ROUTE_MANIFEST_VERSION = "agent_data_routes_20260812_v1"
 _ACTIVE_STAGE_BY_OVERLAY_STAGE = {
     **{(agent_id, agent_id): agent_id for agent_id in L3_TOOL_ROSTER},
     ("alpha_discovery", "alpha_discovery"): "alpha_discovery",
@@ -218,6 +219,7 @@ def build_l3_l4_active_route_manifest(
     }
     body.update(
         {
+            "manifest_version": _ACTIVE_ROUTE_MANIFEST_VERSION,
             "agent_tool_contract_manifest_hash": canonical_hash(active),
             "routes": [route_by_id[key] for key in sorted(route_by_id)],
             "bindings": [binding_by_key[key] for key in expected_order],

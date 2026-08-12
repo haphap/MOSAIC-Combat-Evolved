@@ -1874,6 +1874,7 @@ def test_china_family_reuses_calendar_archive_and_compiler(
         "store": china_store,
         "ledger": ledger,
         "output_root": output_root,
+        "exact_calendar_evidence_hash": HASH_A,
     }
 
 
@@ -2629,6 +2630,8 @@ def test_us_family_route_only_capture_skips_unrelated_calendar_and_compile(
 
     request = {
         **_ready_stage_request("us-replay-route"),
+        "agent_id": "us_economy",
+        "stage": "us_economy",
         "route_id": route_id,
     }
     prepare_us_macro_family(request, ledger)
@@ -2675,6 +2678,8 @@ def test_us_family_route_only_forwards_historical_replay(
 
     request = {
         **_ready_stage_request("us-historical-replay"),
+        "agent_id": "us_economy",
+        "stage": "us_economy",
         "route_id": "tushare.us_tycr",
         "historical_replay": True,
     }
@@ -2914,6 +2919,8 @@ def test_europe_family_route_only_capture_skips_unrelated_calendar_and_compile(
 
     request = {
         **_ready_stage_request("europe-replay-route"),
+        "agent_id": "eu_economy",
+        "stage": "eu_economy",
         "route_id": route_id,
     }
     prepare_europe_macro_family(request, ledger)
@@ -2965,6 +2972,8 @@ def test_europe_family_route_only_forwards_historical_replay(
     prepare_europe_macro_family(
         {
             **_ready_stage_request("europe-replay-forward"),
+            "agent_id": "eu_economy",
+            "stage": "eu_economy",
             "route_id": "market.euro_fx",
             "historical_replay": True,
         },
@@ -2975,22 +2984,28 @@ def test_europe_family_route_only_forwards_historical_replay(
 
 
 @pytest.mark.parametrize(
-    ("preparer", "route_id", "unrelated_archive"),
+    ("preparer", "route_id", "unrelated_archive", "agent_id", "stage"),
     (
         (
             prepare_china_agent_family,
             "tushare.eco_cal.cny",
             "archive_china_agent_sources",
+            "china",
+            "china",
         ),
         (
             prepare_us_macro_family,
             "tushare.eco_cal.usd",
             "archive_us_macro_sources",
+            "us_economy",
+            "us_economy",
         ),
         (
             prepare_europe_macro_family,
             "tushare.eco_cal.eur",
             "archive_europe_macro_sources",
+            "eu_economy",
+            "eu_economy",
         ),
     ),
 )
@@ -3000,6 +3015,8 @@ def test_calendar_route_only_capture_skips_unrelated_family_archive(
     preparer: Callable[..., None],
     route_id: str,
     unrelated_archive: str,
+    agent_id: str,
+    stage: str,
 ) -> None:
     ledger = AgentDataMaterializationLedger(
         tmp_path / f"{route_id.replace('.', '-')}.sqlite3"
@@ -3032,6 +3049,8 @@ def test_calendar_route_only_capture_skips_unrelated_family_archive(
 
     request = {
         **_ready_stage_request(f"calendar-only-{route_id}"),
+        "agent_id": agent_id,
+        "stage": stage,
         "route_id": route_id,
         "historical_replay": True,
     }

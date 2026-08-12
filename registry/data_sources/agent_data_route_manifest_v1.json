@@ -1,7 +1,7 @@
 {
-  "schema_version": "agent_data_route_manifest_v1",
-  "manifest_version": "agent_data_routes_20260812_v1",
   "generated_at": "2026-08-06T00:00:00+00:00",
+  "manifest_version": "agent_data_routes_20260812_v1",
+  "schema_version": "agent_data_route_manifest_v1",
   "agent_tool_contract_manifest_hash": "sha256:afa3c798dbf547d8812802d1ab6faa1af91bd1f6b37f00b4f16b53249fd7b491",
   "routes": [
     {
@@ -286,7 +286,12 @@
     },
     {
       "agent_id": "geopolitical",
-      "required_route_ids": ["geopolitical.required_coverage"],
+      "required_route_ids": [
+        "geopolitical.required_coverage",
+        "tushare.eco_cal.cny",
+        "tushare.eco_cal.eur",
+        "tushare.eco_cal.usd"
+      ],
       "stage": "geopolitical",
       "tool_id": "get_geopolitical_events_snapshot"
     },
@@ -407,11 +412,11 @@
     },
     {
       "agent_id": "semiconductor",
+      "required_route_ids": [
+        "official.company_supply_chain_disclosures"
+      ],
       "stage": "semiconductor",
-      "tool_id": "get_supply_chain_evidence",
-      "required_route_ids": [
-        "official.company_supply_chain_disclosures"
-      ]
+      "tool_id": "get_supply_chain_evidence"
     },
     {
       "agent_id": "technology",
@@ -490,11 +495,11 @@
     },
     {
       "agent_id": "technology",
+      "required_route_ids": [
+        "official.company_supply_chain_disclosures"
+      ],
       "stage": "technology",
-      "tool_id": "get_supply_chain_evidence",
-      "required_route_ids": [
-        "official.company_supply_chain_disclosures"
-      ]
+      "tool_id": "get_supply_chain_evidence"
     },
     {
       "agent_id": "energy",
@@ -573,11 +578,11 @@
     },
     {
       "agent_id": "energy",
+      "required_route_ids": [
+        "official.company_supply_chain_disclosures"
+      ],
       "stage": "energy",
-      "tool_id": "get_supply_chain_evidence",
-      "required_route_ids": [
-        "official.company_supply_chain_disclosures"
-      ]
+      "tool_id": "get_supply_chain_evidence"
     },
     {
       "agent_id": "biotech",
@@ -646,11 +651,11 @@
     },
     {
       "agent_id": "biotech",
-      "stage": "biotech",
-      "tool_id": "get_supply_chain_evidence",
       "required_route_ids": [
         "official.company_supply_chain_disclosures"
-      ]
+      ],
+      "stage": "biotech",
+      "tool_id": "get_supply_chain_evidence"
     },
     {
       "agent_id": "consumer",
@@ -729,11 +734,11 @@
     },
     {
       "agent_id": "consumer",
-      "stage": "consumer",
-      "tool_id": "get_supply_chain_evidence",
       "required_route_ids": [
         "official.company_supply_chain_disclosures"
-      ]
+      ],
+      "stage": "consumer",
+      "tool_id": "get_supply_chain_evidence"
     },
     {
       "agent_id": "industrials",
@@ -812,11 +817,11 @@
     },
     {
       "agent_id": "industrials",
-      "stage": "industrials",
-      "tool_id": "get_supply_chain_evidence",
       "required_route_ids": [
         "official.company_supply_chain_disclosures"
-      ]
+      ],
+      "stage": "industrials",
+      "tool_id": "get_supply_chain_evidence"
     },
     {
       "agent_id": "real_estate_construction",
@@ -893,11 +898,11 @@
     },
     {
       "agent_id": "real_estate_construction",
-      "stage": "real_estate_construction",
-      "tool_id": "get_supply_chain_evidence",
       "required_route_ids": [
         "official.company_supply_chain_disclosures"
-      ]
+      ],
+      "stage": "real_estate_construction",
+      "tool_id": "get_supply_chain_evidence"
     },
     {
       "agent_id": "financials",
@@ -976,11 +981,11 @@
     },
     {
       "agent_id": "financials",
-      "stage": "financials",
-      "tool_id": "get_supply_chain_evidence",
       "required_route_ids": [
         "official.company_supply_chain_disclosures"
-      ]
+      ],
+      "stage": "financials",
+      "tool_id": "get_supply_chain_evidence"
     },
     {
       "agent_id": "financials",
@@ -1067,11 +1072,11 @@
     },
     {
       "agent_id": "agriculture",
-      "stage": "agriculture",
-      "tool_id": "get_supply_chain_evidence",
       "required_route_ids": [
         "official.company_supply_chain_disclosures"
-      ]
+      ],
+      "stage": "agriculture",
+      "tool_id": "get_supply_chain_evidence"
     },
     {
       "agent_id": "druckenmiller",
@@ -1452,5 +1457,5 @@
       ]
     }
   ],
-  "manifest_hash": "sha256:a38b5cd8c8124a737c7d79d83ab99f6b6206cfe12c2094ce57ccbebb89feaf72"
+  "manifest_hash": "sha256:67d180fee0e443779f2bda45964bf5ac0363d283765b5f752e1a9b2ac620b7bb"
 }

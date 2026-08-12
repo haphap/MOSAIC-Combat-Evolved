@@ -1788,8 +1788,8 @@ def test_commodity_inventory_blocks_family_without_direct_or_derivable_row(
 
     def fetch_tushare(*, endpoint: str, **params: str) -> list[dict]:
         rows = base_fetch(endpoint=endpoint, **params)
-        if endpoint == "fut_wsr" and rows:
-            target = next(row for row in rows if row["symbol"] == "SC")
+        if endpoint == "fut_wsr" and params.get("symbol") == "SC" and rows:
+            target = rows[0]
             target["pre_vol"] = None
             target["vol_chg"] = None
         return rows

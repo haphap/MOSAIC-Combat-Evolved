@@ -84,6 +84,7 @@ def test_live_manifests_are_the_l3_l4_fixed_point() -> None:
         )
     )
 
+    assert expected_routes["manifest_version"] == "agent_data_routes_20260812_v1"
     assert canonical_json(live_tools) == canonical_json(expected_tools)
     assert canonical_json(live_routes) == canonical_json(expected_routes)
 
