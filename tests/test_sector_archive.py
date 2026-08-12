@@ -784,6 +784,55 @@ def _endpoint_row(endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def test_membership_batches_runs_vendor_fetches_on_caller_thread(
+    monkeypatch,
+) -> None:
+    plan = {
+        "sector_agent_id": "semiconductor",
+        "query_plan_hash": f"sha256:{'b' * 64}",
+        "branches": [
+            {
+                "endpoint": "index_member_all",
+                "parameter": "l3_code",
+                "classification_code": "850111.SI",
+                "is_new": "Y",
+            },
+            {
+                "endpoint": "index_member_all",
+                "parameter": "l2_code",
+                "classification_code": "801011.SI",
+                "is_new": "Y",
+            },
+        ],
+    }
+    monkeypatch.setitem(
+        sector_archive.SECTOR_UNIVERSE_MANIFEST,
+        "membership_query_plans",
+        [plan],
+    )
+    caller_id = threading.get_ident()
+    calls: list[tuple[int, str, dict[str, Any]]] = []
+
+    def fetch(endpoint: str, **params: Any) -> list[dict[str, Any]]:
+        calls.append((threading.get_ident(), endpoint, dict(params)))
+        if int(params.get("offset", 0)):
+            return []
+        return [_endpoint_row(endpoint, params)]
+
+    batches, _duplicates, pages = sector_archive._membership_batches(
+        fetch,
+        "2026-08-06T15:01:00+08:00",
+        requested_agent_ids=("semiconductor",),
+    )
+
+    assert {thread_id for thread_id, _endpoint, _params in calls} == {caller_id}
+    assert len(batches) == 2
+    assert {
+        batch["request"]["classification_code"] for batch in batches
+    } == {"850111.SI", "801011.SI"}
+    assert pages == len(calls)
+
+
 
 
 def test_capture_group_executes_registered_incremental_routes(

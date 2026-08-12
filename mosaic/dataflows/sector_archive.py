@@ -8,7 +8,6 @@ import re
 import sqlite3
 import time as wall_time
 import zlib
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -112,7 +111,6 @@ _OPTIONAL_RESPONSE_COLUMNS = {
 }
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
 _MARKET_CLOSE = time(15, 0)
-_MAX_WORKERS = 6
 # A live capture can legally occupy the complete post-close-to-midnight window.
 _LOCK_TIMEOUT_SECONDS = 9 * 60 * 60
 _PAGE_SIZE = 6000
@@ -558,51 +556,38 @@ def _seal_batch(
     rows: list[dict[str, Any]] = []
     page_count = 0
     duplicate_count = 0
-    with ThreadPoolExecutor(max_workers=min(_MAX_WORKERS, len(requests))) as pool:
-        futures = [
-            pool.submit(
-                _paginate_incremental,
-                fetch,
-                endpoint,
-                request,
-                confirm_terminal=confirm_terminal,
+    # Keep vendor response construction on the caller thread to avoid worker-init crashes.
+    for request in requests:
+        leaf_rows, leaf_pages, leaf_duplicates = _paginate_incremental(
+            fetch,
+            endpoint,
+            request,
+            confirm_terminal=confirm_terminal,
+        )
+        if require_each_nonempty and not leaf_rows:
+            raise ConnectionError(
+                f"{endpoint} returned an unconfirmed empty required leaf"
             )
-            for request in requests
-        ]
-        try:
-            for request, future in zip(requests, futures, strict=True):
-                leaf_rows, leaf_pages, leaf_duplicates = future.result()
-                if require_each_nonempty and not leaf_rows:
-                    raise ConnectionError(
-                        f"{endpoint} returned an unconfirmed empty required leaf"
-                    )
-                for field in (
-                    "ts_code",
-                    "trade_date",
-                    "market",
-                    "is_new",
-                    "l1_code",
-                    "l2_code",
-                    "l3_code",
-                ):
-                    if field in request and any(
-                        str(row.get(field)) != str(request[field])
-                        for row in leaf_rows
-                    ):
-                        raise AShareSchemaError(
-                            f"{endpoint} returned rows outside requested {field}"
-                        )
-                rows.extend(
-                    row
-                    for row in leaf_rows
-                    if row_filter is None or row_filter(row)
+        for field in (
+            "ts_code",
+            "trade_date",
+            "market",
+            "is_new",
+            "l1_code",
+            "l2_code",
+            "l3_code",
+        ):
+            if field in request and any(
+                str(row.get(field)) != str(request[field]) for row in leaf_rows
+            ):
+                raise AShareSchemaError(
+                    f"{endpoint} returned rows outside requested {field}"
                 )
-                page_count += leaf_pages
-                duplicate_count += leaf_duplicates
-        except Exception:
-            for future in futures:
-                future.cancel()
-            raise
+        rows.extend(
+            row for row in leaf_rows if row_filter is None or row_filter(row)
+        )
+        page_count += leaf_pages
+        duplicate_count += leaf_duplicates
     registration = endpoint_registration(endpoint)
     body: dict[str, Any] = {
         "source_id": f"tushare.{endpoint}",
@@ -690,25 +675,20 @@ def _membership_batches(
     batches: list[dict[str, Any]] = []
     pages = 0
     duplicates = 0
-    with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
-        futures = [
-            pool.submit(
-                _seal_batch,
-                endpoint="index_member_all",
-                requests=(transport,),
-                request_contract=contract,
-                fetch=fetch,
-                captured_at=captured_at,
-                require_each_nonempty=False,
-                confirm_terminal=True,
-            )
-            for transport, contract in specs
-        ]
-        for future in futures:
-            batch, duplicate_count, page_count = future.result()
-            batches.append(batch)
-            duplicates += duplicate_count
-            pages += page_count
+    # Preserve caller-thread ownership across membership leaves and vendor parsing.
+    for transport, contract in specs:
+        batch, duplicate_count, page_count = _seal_batch(
+            endpoint="index_member_all",
+            requests=(transport,),
+            request_contract=contract,
+            fetch=fetch,
+            captured_at=captured_at,
+            require_each_nonempty=False,
+            confirm_terminal=True,
+        )
+        batches.append(batch)
+        duplicates += duplicate_count
+        pages += page_count
     return batches, duplicates, pages
 
 
