@@ -1551,6 +1551,18 @@ def _registered_source_inputs(
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     snapshot = copy.deepcopy(source_snapshot)
     snapshot.pop("fixture_class")
+    for member in snapshot["eligible_security_universe"]:
+        member["l2_code"] = "801081.SI"
+        member["membership_row_hash"] = _canonical_hash(
+            {
+                key: value
+                for key, value in member.items()
+                if key != "membership_row_hash"
+            }
+        )
+    snapshot["membership_hash"] = _canonical_hash(
+        snapshot["eligible_security_universe"]
+    )
     authority = sector_snapshots_module.SECTOR_ETF_DIRECTION_AUTHORITY
     authority_codes = {
         (row["sector_agent_id"], row["direction_id"]): row["etf_ts_codes"]
@@ -1592,35 +1604,35 @@ def _registered_source_inputs(
         for row in SECTOR_UNIVERSE_MANIFEST["membership_query_plans"]
         if row["sector_agent_id"] == ROLE
     )
-    members_by_code: dict[str, list[dict[str, Any]]] = {}
-    for member in snapshot["eligible_security_universe"]:
-        code = next(
-            member[field]
-            for field in ("l1_code", "l2_code", "l3_code")
-            if member[field] is not None
-        )
-        members_by_code.setdefault(code, []).append(member)
-
     batches: list[dict[str, Any]] = []
-    for branch in plan["branches"]:
-        rows = []
-        if branch["is_new"] == "Y":
-            for member in members_by_code.get(branch["classification_code"], []):
-                rows.append(
-                    {
-                        "l1_code": member["l1_code"],
-                        "l1_name": "",
-                        "l2_code": member["l2_code"],
-                        "l2_name": "",
-                        "l3_code": member["l3_code"],
-                        "l3_name": "",
-                        "ts_code": member["ts_code"],
-                        "name": "synthetic registered row",
-                        "in_date": member["in_date"],
-                        "out_date": member["out_date"],
-                        "is_new": "Y",
-                    }
-                )
+    covered_l3_codes = sorted(
+        {
+            branch["classification_code"]
+            for branch in plan["branches"]
+            if branch["parameter"] == "l3_code"
+        }
+    )
+    for is_new in ("Y", "N"):
+        rows = (
+            [
+                {
+                    "l1_code": member["l1_code"],
+                    "l1_name": "",
+                    "l2_code": "801081.SI",
+                    "l2_name": "",
+                    "l3_code": member["l3_code"],
+                    "l3_name": "",
+                    "ts_code": member["ts_code"],
+                    "name": "synthetic registered row",
+                    "in_date": member["in_date"],
+                    "out_date": member["out_date"],
+                    "is_new": "Y",
+                }
+                for member in snapshot["eligible_security_universe"]
+            ]
+            if is_new == "Y"
+            else []
+        )
         batch = {
             "source_batch_id": "pending",
             "source_id": "tushare.index_member_all",
@@ -1630,9 +1642,10 @@ def _registered_source_inputs(
             ],
             "request": {
                 "query_plan_hash": plan["query_plan_hash"],
-                "parameter": branch["parameter"],
-                "classification_code": branch["classification_code"],
-                "is_new": branch["is_new"],
+                "parameter": "l2_code",
+                "classification_code": "801081.SI",
+                "is_new": is_new,
+                "covered_l3_codes": covered_l3_codes,
             },
             "captured_at": f"{AS_OF}T07:00:00Z",
             "released_at": f"{AS_OF}T05:00:00Z",
@@ -1640,6 +1653,9 @@ def _registered_source_inputs(
             "pit_status": "PIT_VERIFIED",
             "pagination_complete": True,
             "truncated": False,
+            "pagination_policy": (
+                sector_snapshots_module.EXACT_SINGLE_PAGE_OFFICIAL_CAP
+            ),
             "query_count": 1,
             "completed_query_count": 1,
             "coverage_ratio": 1.0,
@@ -1880,6 +1896,9 @@ def _registered_source_inputs(
         for direction_id in snapshot["direction_ids"]
     }
     for card in snapshot["direction_cards"]:
+        card["membership_hash"] = _canonical_hash(
+            members_by_direction[card["direction_id"]]
+        )
         card_refs = set(card["etf_family"]["evidence_ids"])
         card_refs.update(
             evidence_id

@@ -238,7 +238,7 @@ _CONTRACT_RECEIPT_POLICIES = {
         "public-license-verified",
         "source-manifest-v2",
         "source-specific-terminal-v1",
-        required_dimensions={"preflight_receipt_id": (), "source_id": ()},
+        required_dimensions={"source_capture_id": (), "source_id": ()},
     ),
     "euro_fx_market_v1": _policy(
         "tushare",
@@ -398,12 +398,12 @@ _CONTRACT_RECEIPT_POLICIES = {
         "tushare",
         "configured-runtime",
         "pro-v1",
-        "REGISTERED_BOUNDED_REQUEST_SET",
+        "EXACT_REQUEST_SET_NO_PAGINATION",
         required_dimensions={
             "endpoint": (
                 "daily_basic",
                 "fund_share",
-                "moneyflow_hsgt",
+                "moneyflow",
                 "moneyflow_ind_ths",
             ),
             "etf": (),

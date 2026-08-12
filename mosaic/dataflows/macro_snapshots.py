@@ -417,7 +417,6 @@ MACRO_EVENT_ROLES = frozenset(
         "us_financial_conditions",
         "euro_area_financial_conditions",
         "commodities",
-        "geopolitical",
     }
 )
 
@@ -494,7 +493,17 @@ def _snapshot_candidates(role: str, as_of_date: str, root: Path) -> tuple[Path, 
     )
 
 
-def _validate_observation(role: str, row: Any, cutoff: datetime) -> dict[str, Any]:
+def _validate_observation(
+    role: str,
+    row: Any,
+    cutoff: datetime,
+    *,
+    knowledge_cutoff: datetime | None = None,
+) -> dict[str, Any]:
+    if knowledge_cutoff is None:
+        knowledge_cutoff = cutoff
+    elif knowledge_cutoff.tzinfo is None:
+        raise DataVendorUnavailable("macro knowledge cutoff must include a timezone")
     if not isinstance(row, dict):
         raise DataVendorUnavailable("macro snapshot observations must be objects")
     if set(row) != _OBSERVATION_FIELDS:
@@ -516,7 +525,7 @@ def _validate_observation(role: str, row: Any, cutoff: datetime) -> dict[str, An
         )
     released_at = _parse_datetime(row["released_at"], "released_at")
     vintage_at = _parse_datetime(row["vintage_at"], "vintage_at")
-    if released_at > cutoff or vintage_at > cutoff:
+    if released_at > knowledge_cutoff or vintage_at > knowledge_cutoff:
         raise DataVendorUnavailable(
             f"future macro observation rejected for {row.get('series_id')}: "
             f"released_at/vintage_at exceeds as_of"
@@ -761,7 +770,13 @@ def _build_real_economy_context_projection(
     }
 
 
-def validate_role_snapshot(payload: Any, role: str, as_of_date: str) -> dict[str, Any]:
+def validate_role_snapshot(
+    payload: Any,
+    role: str,
+    as_of_date: str,
+    *,
+    knowledge_cutoff: datetime | None = None,
+) -> dict[str, Any]:
     if role not in ROLE_SNAPSHOT_NAMES:
         raise DataVendorUnavailable(f"unknown macro snapshot role {role!r}")
     if not isinstance(payload, dict):
@@ -795,7 +810,9 @@ def validate_role_snapshot(payload: Any, role: str, as_of_date: str) -> dict[str
         raise DataVendorUnavailable("macro role snapshot role/as_of mismatch")
     cutoff = _as_of_cutoff(as_of_date)
     observations = [
-        _validate_observation(role, row, cutoff)
+        _validate_observation(
+            role, row, cutoff, knowledge_cutoff=knowledge_cutoff
+        )
         for row in payload.get("observations", [])
     ]
     context_projection: dict[str, Any] | None = None
@@ -814,7 +831,10 @@ def validate_role_snapshot(payload: Any, role: str, as_of_date: str) -> dict[str
             )
         context_role = DETERMINISTIC_CONTEXT_SOURCE_ROLES[role]
         context_observations = [
-            _validate_observation(context_role, row, cutoff) for row in raw_context
+            _validate_observation(
+                context_role, row, cutoff, knowledge_cutoff=knowledge_cutoff
+            )
+            for row in raw_context
         ]
         _validate_component_freshness(
             role=context_role,
@@ -917,9 +937,9 @@ def validate_role_snapshot(payload: Any, role: str, as_of_date: str) -> dict[str
 def _assert_ready_build_receipt(
     role: str,
     as_of_date: str,
-    snapshot: dict[str, Any],
+    payload: dict[str, Any],
     ledger: AgentDataMaterializationLedger | None,
-) -> None:
+) -> tuple[dict[str, Any], dict[str, Any], datetime | None]:
     receipt_ledger = ledger or AgentDataMaterializationLedger(create=False)
     candidates = receipt_ledger.ready_snapshot_build_receipts(
         agent_id=role,
@@ -931,13 +951,27 @@ def _assert_ready_build_receipt(
         raise DataVendorUnavailable(
             f"MACRO_SNAPSHOT_BUILD_RECEIPT_REQUIRED:{role}:{as_of_date}"
         )
-    if not any(
-        receipt.as_dict()["output_hash"] == snapshot["snapshot_hash"]
-        for receipt in candidates
-    ):
-        raise DataVendorUnavailable(
-            f"MACRO_SNAPSHOT_BUILD_RECEIPT_MISMATCH:{role}:{as_of_date}"
+    historical_cutoff = _as_of_cutoff(as_of_date)
+    for receipt in candidates:
+        candidate = receipt.as_dict()
+        receipt_cutoff = _parse_datetime(candidate["as_of_cutoff"], "as_of_cutoff")
+        knowledge_cutoff = (
+            receipt_cutoff if receipt_cutoff > historical_cutoff else None
         )
+        try:
+            snapshot = validate_role_snapshot(
+                payload,
+                role,
+                as_of_date,
+                knowledge_cutoff=knowledge_cutoff,
+            )
+        except DataVendorUnavailable:
+            continue
+        if snapshot["snapshot_hash"] == candidate["output_hash"]:
+            return candidate, snapshot, knowledge_cutoff
+    raise DataVendorUnavailable(
+        f"MACRO_SNAPSHOT_BUILD_RECEIPT_MISMATCH:{role}:{as_of_date}"
+    )
 
 
 def load_role_snapshot(
@@ -948,18 +982,7 @@ def load_role_snapshot(
     ledger: AgentDataMaterializationLedger | None = None,
 ) -> dict[str, Any]:
     if role == "geopolitical":
-        snapshot = build_geopolitical_role_snapshot(as_of_date)
-        role_events = build_role_event_snapshot(role, as_of_date)
-        if role_events["coverage"]["coverage_completeness"] != "COMPLETE":
-            raise DataVendorUnavailable(
-                "geopolitical economic-calendar coverage is incomplete"
-            )
-        snapshot["role_event_snapshot"] = role_events
-        without_hash = {
-            key: value for key, value in snapshot.items() if key != "snapshot_hash"
-        }
-        snapshot["snapshot_hash"] = canonical_hash(without_hash)
-        return snapshot
+        return build_geopolitical_role_snapshot(as_of_date)
     cache_root = root or snapshot_cache_root()
     path = next(
         (
@@ -993,11 +1016,23 @@ def load_role_snapshot(
                 )
         except RuntimeError as exc:
             raise DataVendorUnavailable(str(exc)) from exc
-    snapshot = validate_role_snapshot(payload, role, as_of_date)
-    if not synthetic_source_gap_bypass:
-        _assert_ready_build_receipt(role, as_of_date, snapshot, ledger)
+    if synthetic_source_gap_bypass:
+        build_receipt = None
+        knowledge_cutoff = None
+        snapshot = validate_role_snapshot(payload, role, as_of_date)
+    else:
+        build_receipt, snapshot, knowledge_cutoff = _assert_ready_build_receipt(
+            role, as_of_date, payload, ledger
+        )
     if role in MACRO_EVENT_ROLES:
-        role_events = build_role_event_snapshot(role, as_of_date)
+        historical_replay_captured_at = None
+        if knowledge_cutoff is not None:
+            historical_replay_captured_at = str(build_receipt["as_of_cutoff"])
+        role_events = build_role_event_snapshot(
+            role,
+            as_of_date,
+            historical_replay_captured_at=historical_replay_captured_at,
+        )
         if role_events["coverage"]["coverage_completeness"] != "COMPLETE":
             raise DataVendorUnavailable(
                 f"{role} economic-calendar coverage is incomplete"

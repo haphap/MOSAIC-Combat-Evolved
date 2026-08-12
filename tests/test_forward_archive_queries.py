@@ -331,6 +331,64 @@ def test_policy_reader_preserves_window_and_discovery_cutoff(tmp_path):
     assert "forward archive" in payload
 
 
+def test_policy_topic_is_bound_to_archive_selection_and_receipt(tmp_path):
+    reader = _reader(
+        tmp_path,
+        [],
+        [
+            {
+                **_policy_row(
+                    article_id="semi",
+                    title="正文命中但标题不含主题",
+                    pub_date="2026-06-12",
+                    discovered_at="2026-06-12T06:00:00+00:00",
+                ),
+                "matched_queries": ["半导体"],
+            },
+            {
+                **_policy_row(
+                    article_id="other",
+                    title="农业政策",
+                    pub_date="2026-06-12",
+                    discovered_at="2026-06-12T06:00:00+00:00",
+                ),
+                "matched_queries": ["农业"],
+            },
+        ],
+    )
+    args = {
+        "as_of": "2026-06-17",
+        "lookback_days": 7,
+        "source": "govcn",
+        "topic": "半导体",
+    }
+    payload = reader("get_industry_policy", "2026-06-17", 7, "govcn", "半导体")
+    assert "正文命中但标题不含主题" in payload
+    assert "农业政策" not in payload
+
+    receipt = reader.source_receipt(
+        "get_industry_policy_digest",
+        args,
+        payload,
+        _descriptor(
+            "get_industry_policy_digest",
+            "official.govcn_policy",
+            args,
+            payload,
+        ),
+    ).as_dict()
+    assert receipt["identity"]["request_hash"] == canonical_hash(
+        {
+            "end_date": "2026-06-17",
+            "look_back_days": 7,
+            "q": "半导体",
+            "source": "govcn",
+            "start_date": "2026-06-10",
+        }
+    )
+    assert "q" in receipt["transport"]["query_keys"]
+
+
 def test_forward_archive_queries_fail_closed_without_eligible_rows(tmp_path):
     reader = _reader(
         tmp_path,
@@ -576,12 +634,15 @@ def test_forward_source_preparer_captures_broker_and_policy_sources(
         _write_jsonl(
             Path(kwargs["cache_dir"]) / "parsed/policy_documents.jsonl",
             [
-                _policy_row(
-                    article_id="POLICY-COLD-1",
-                    title="Cold policy",
-                    pub_date="2026-06-04",
-                    discovered_at="2026-06-04T06:00:00+00:00",
-                )
+                {
+                    **_policy_row(
+                        article_id="POLICY-COLD-1",
+                        title="半导体 Cold policy",
+                        pub_date="2026-06-04",
+                        discovered_at="2026-06-04T06:00:00+00:00",
+                    ),
+                    "matched_queries": ["半导体"],
+                }
             ],
         )
 
@@ -602,7 +663,12 @@ def test_forward_source_preparer_captures_broker_and_policy_sources(
     )
     preparer(
         "get_industry_policy_digest",
-        {"as_of": "2026-06-05", "lookback_days": 4, "source": "govcn"},
+        {
+            "as_of": "2026-06-05",
+            "lookback_days": 4,
+            "source": "govcn",
+            "topic": "半导体",
+        },
     )
 
     assert research_calls[0]["stock_codes"] == ()
@@ -614,6 +680,7 @@ def test_forward_source_preparer_captures_broker_and_policy_sources(
             "cache_dir": reader.policy_cache_dir,
             "start_date": "2026-06-01",
             "end_date": "2026-06-05",
+            "q": "半导体",
         }
     ]
 

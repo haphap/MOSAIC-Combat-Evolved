@@ -54,6 +54,7 @@ def _find_qlib_data_path() -> Optional[Path]:
 
 
 _cached_data_path: Optional[Path] = None
+_INDICATOR_WARMUP_CALENDAR_DAYS = 365
 
 
 def _get_data_path() -> Path:
@@ -410,7 +411,9 @@ def get_stock(symbol: str, start_date: str, end_date: str) -> str:
 
 
 def _load_price_frame(
-    symbol: str, curr_date: str, look_back_days: int = 260
+    symbol: str,
+    curr_date: str,
+    look_back_days: int = 260,
 ) -> pd.DataFrame:
     """
     Load price DataFrame needed by get_indicator (stockstats format).
@@ -419,7 +422,9 @@ def _load_price_frame(
     """
     instrument = _to_qlib_instrument(symbol)
     end_dt = datetime.strptime(curr_date, "%Y-%m-%d")
-    start_dt = end_dt - timedelta(days=look_back_days)
+    start_dt = end_dt - timedelta(
+        days=look_back_days + _INDICATOR_WARMUP_CALENDAR_DAYS
+    )
     start_date = start_dt.strftime("%Y-%m-%d")
 
     df = _load_ohlcv(instrument, start_date, curr_date)
@@ -478,7 +483,7 @@ def get_indicator(
     current_dt = datetime.strptime(curr_date, "%Y-%m-%d")
     start_dt = current_dt - timedelta(days=look_back_days)
 
-    stats_df = wrap(_load_price_frame(symbol, curr_date))
+    stats_df = wrap(_load_price_frame(symbol, curr_date, look_back_days))
     stats_df["Date"] = pd.to_datetime(stats_df["Date"]).dt.strftime("%Y-%m-%d")
     # Trigger computation
     _ = stats_df[indicator]

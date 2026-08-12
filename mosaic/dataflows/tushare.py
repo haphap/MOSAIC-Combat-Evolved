@@ -956,6 +956,13 @@ def _render_etf_holdings(
     if df.empty:
         raise MissingEtfHoldings(f"No ETF holdings data found for '{ts_code}' up to {curr_date}.")
 
+    if "end_date" in df.columns:
+        latest_end_date = str(df.iloc[0]["end_date"])
+        df = df[df["end_date"].astype(str) == latest_end_date]
+    if "ann_date" in df.columns:
+        latest_ann_date = str(df.iloc[0]["ann_date"])
+        df = df[df["ann_date"].astype(str) == latest_ann_date]
+
     summary_lines: list[str] = []
     latest = df.iloc[0]
     _append_if_present(summary_lines, "Ticker", latest.get("ts_code"))

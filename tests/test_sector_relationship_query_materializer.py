@@ -277,10 +277,12 @@ def test_rke_uses_local_public_safe_renderer_and_never_routes_to_vendor():
 
 def test_materializer_prepares_only_policy_source_before_route_call():
     events: list[tuple[str, str]] = []
+    policy_route_args: list[tuple[object, ...]] = []
     policy_args = {
         "as_of": AS_OF,
         "lookback_days": 7,
         "source": "govcn",
+        "topic": "半导体",
     }
     research_args = {
         "ticker": "600000.SH",
@@ -295,6 +297,8 @@ def test_materializer_prepares_only_policy_source_before_route_call():
 
     def call(method: str, *route_args: object) -> str:
         events.append(("route", method))
+        if method == "get_industry_policy":
+            policy_route_args.append(route_args)
         return "archived report payload"
 
     materializer = SectorRelationshipQueryMaterializer(
@@ -327,6 +331,7 @@ def test_materializer_prepares_only_policy_source_before_route_call():
         ("route", "get_stock_research"),
         ("render", "financials"),
     ]
+    assert policy_route_args == [(AS_OF, 7, "govcn", "半导体")]
 
 
 def test_materializer_limits_empty_receipts_to_direct_tools_and_validates_receipts():
@@ -562,3 +567,51 @@ def test_prepare_keeps_digest_lineage_private_and_projects_only_its_hash(tmp_pat
             ).fetchone()[0]
         )
     assert private_lineage["model_hash"] == canonical_hash({"model": "digest-model-v1"})
+
+
+def test_tushare_etf_holdings_uses_latest_cutoff_disclosure(monkeypatch):
+    import pandas as pd
+
+    from mosaic.dataflows import tushare
+
+    rows = pd.DataFrame(
+        [
+            {
+                "ts_code": "512480.SH",
+                "end_date": "20260615",
+                "ann_date": "20260616",
+                "symbol": "600001.SH",
+                "stk_name": "Latest holding",
+                "stk_mkv_ratio": 9.0,
+            },
+            {
+                "ts_code": "512480.SH",
+                "end_date": "20260331",
+                "ann_date": "20260430",
+                "symbol": "600002.SH",
+                "stk_name": "Older holding",
+                "stk_mkv_ratio": 8.0,
+            },
+        ]
+    )
+    calls: list[tuple[str, dict[str, str]]] = []
+
+    def query(api_name: str, **params: str) -> pd.DataFrame:
+        calls.append((api_name, params))
+        return rows
+
+    monkeypatch.setattr(tushare, "_query_pro", query)
+    payload = tushare.get_etf_holdings("512480.SH", "2026-06-17")
+
+    assert calls == [
+        (
+            "fund_portfolio",
+            {
+                "ts_code": "512480.SH",
+                "start_date": "20250513",
+                "end_date": "20260617",
+            },
+        )
+    ]
+    assert "600001.SH" in payload
+    assert "600002.SH" not in payload

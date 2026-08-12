@@ -6,7 +6,7 @@
   "required": ["schema_version", "manifest_version", "generated_at", "agent_tool_contract_manifest_hash", "routes", "bindings", "manifest_hash"],
   "properties": {
     "schema_version": {"const": "agent_data_route_manifest_v1"},
-    "manifest_version": {"const": "agent_data_routes_20260806_v1"},
+    "manifest_version": {"const": "agent_data_routes_20260812_v1"},
     "generated_at": {"type": "string", "format": "date-time"},
     "agent_tool_contract_manifest_hash": {"$ref": "#/$defs/sha256"},
     "routes": {

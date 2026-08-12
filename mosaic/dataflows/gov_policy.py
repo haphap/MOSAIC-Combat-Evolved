@@ -437,6 +437,12 @@ def _merge_records(
                 ).strip()
                 if first_seen:
                     merged["discovered_at"] = first_seen
+                matched_queries = sorted(
+                    set(existing.get("matched_queries", []))
+                    | set(merged.get("matched_queries", []))
+                )
+                if matched_queries:
+                    merged["matched_queries"] = matched_queries
             by_key[key] = merged
     return list(by_key.values())
 
@@ -497,6 +503,10 @@ def crawl_gov_policy_documents(
             total_count = int(parsed.get("total_count") or 0)
             total_pages = max(int(parsed.get("total_pages") or 1), 1)
             records = list(parsed.get("records") or [])
+            normalized_query = str(q or "").strip()
+            if normalized_query:
+                for record in records:
+                    record["matched_queries"] = [normalized_query]
             new_records.extend(records)
             category_records += len(records)
             if page >= total_pages or not records:

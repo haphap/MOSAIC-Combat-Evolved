@@ -687,6 +687,36 @@ def test_license_decision_is_append_only_and_revalidated_on_read(tmp_path: Path)
         store.source_license_decision(decision["decision_id"])
 
 
+def test_latest_source_license_decisions_keeps_latest_blocked_state(
+    tmp_path: Path,
+):
+    store = GeopoliticalEventStore(tmp_path / "events.sqlite3")
+    approved = build_geopolitical_source_license_decision(
+        "ofac_recent_actions",
+        decision_status="APPROVED",
+        decided_at="2026-07-16T00:00:00+00:00",
+        authority_id="mosaic-data-governance-test",
+    )
+    blocked = build_geopolitical_source_license_decision(
+        "ofac_recent_actions",
+        decision_status="BLOCKED",
+        decided_at="2026-07-17T00:00:00+00:00",
+        authority_id="mosaic-data-governance-test",
+    )
+    store.append_source_license_decision(approved)
+    store.append_source_license_decision(blocked)
+
+    latest = store.latest_source_license_decisions(
+        datetime(2026, 7, 18, tzinfo=timezone.utc)
+    )
+
+    assert latest["ofac_recent_actions"]["decision_id"] == blocked["decision_id"]
+    assert latest["ofac_recent_actions"]["decision_hash"] == blocked[
+        "decision_hash"
+    ]
+    assert latest["ofac_recent_actions"]["decision_status"] == "BLOCKED"
+
+
 def test_trusted_capture_rejects_caller_transport_and_clock(tmp_path: Path):
     with pytest.raises(DataVendorUnavailable, match="trusted runtime"):
         capture_geopolitical_source(
@@ -699,6 +729,18 @@ def test_trusted_capture_rejects_caller_transport_and_clock(tmp_path: Path):
             "ofac_recent_actions",
             poll_started_at="2026-07-17T12:00:00Z",
             store=GeopoliticalEventStore(tmp_path / "events-2.sqlite3"),
+        )
+
+
+def test_capture_rejects_window_end_after_poll_start(tmp_path: Path):
+    with pytest.raises(DataVendorUnavailable, match="window_end exceeds"):
+        capture_geopolitical_source(
+            "ofac_recent_actions",
+            fetch=lambda *_: _response("ofac_recent_actions"),
+            store=GeopoliticalEventStore(tmp_path / "events.sqlite3"),
+            poll_started_at="2026-07-17T12:00:00Z",
+            window_end="2026-07-17T12:01:00Z",
+            nonproduction_transport_override=True,
         )
 
 

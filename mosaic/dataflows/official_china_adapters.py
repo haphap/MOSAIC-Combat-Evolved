@@ -164,7 +164,7 @@ OFFICIAL_CHINA_DOCUMENT_SPECS: Final[dict[str, dict[str, Any]]] = {
     },
     "customs_monthly_trade": {
         "provider": "GACC_VIA_GOV_CN",
-        "hosts": ("english.www.gov.cn",),
+        "hosts": ("english.www.gov.cn", "www.gov.cn"),
         "branches": (
             "official.customs_total_trade",
             "official.customs_partner_trade",
@@ -670,6 +670,42 @@ def _parse_pboc_financial(text: str) -> list[dict[str, Any]]:
 
 
 def _parse_customs(text: str) -> list[dict[str, Any]]:
+    if "货物进出口" in text:
+        patterns = (
+            (
+                "cn_trade_total_yoy",
+                "official.customs_total_trade",
+                r"货物进出口总额[^。；]*?同比(?P<direction>增长|下降)\s*"
+                r"(?P<value>\d+(?:\.\d+)?)\s*%",
+            ),
+            (
+                "cn_trade_exports_yoy",
+                "official.customs_partner_trade",
+                r"出口[^。；]*?(?P<direction>增长|下降)\s*"
+                r"(?P<value>\d+(?:\.\d+)?)\s*%",
+            ),
+            (
+                "cn_trade_imports_yoy",
+                "official.customs_partner_trade",
+                r"进口[^。；]*?(?P<direction>增长|下降)\s*"
+                r"(?P<value>\d+(?:\.\d+)?)\s*%",
+            ),
+            (
+                "cn_trade_electromechanical_exports_yoy",
+                "official.customs_major_goods_trade",
+                r"机电产品出口[^。；]*?(?P<direction>增长|下降)\s*"
+                r"(?P<value>\d+(?:\.\d+)?)\s*%",
+            ),
+        )
+        return [
+            _metric(
+                series_id=series_id,
+                source=source,
+                actual=_directional(_required_match(pattern, text, series_id)),
+                unit="percent_yoy",
+            )
+            for series_id, source, pattern in patterns
+        ]
     direction = (
         r"(?P<direction>grew|rose|increased|surged|jumped|expanded|fell|"
         r"decreased|declined|dropped|contracted)"

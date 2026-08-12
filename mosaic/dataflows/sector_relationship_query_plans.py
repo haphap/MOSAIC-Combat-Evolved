@@ -312,11 +312,34 @@ def build_sector_relationship_query_plan(
                 },
             )
         for lookback in POLICY_LOOKBACK_PROFILES:
+            policy_args = {
+                "as_of": as_of,
+                "lookback_days": lookback,
+                "source": "govcn",
+            }
+            if agent_id == "semiconductor":
+                policy_args["topic"] = "半导体"
+            elif agent_id == "biotech":
+                policy_args["topic"] = "生物制品"
+            elif agent_id == "technology":
+                policy_args["topic"] = "软件"
+            elif agent_id == "energy":
+                policy_args["topic"] = "煤炭"
+            elif agent_id == "financials":
+                policy_args["topic"] = "银行"
+            elif agent_id == "agriculture":
+                policy_args["topic"] = "养殖"
+            elif agent_id == "consumer":
+                policy_args["topic"] = "食品"
+            elif agent_id == "industrials":
+                policy_args["topic"] = "钢铁"
+            elif agent_id == "real_estate_construction":
+                policy_args["topic"] = "房地产"
             _append(
                 requests,
                 allowed,
                 "get_industry_policy_digest",
-                {"as_of": as_of, "lookback_days": lookback, "source": "govcn"},
+                policy_args,
             )
         for lookback in CURVE_LOOKBACK_PROFILES:
             _append(

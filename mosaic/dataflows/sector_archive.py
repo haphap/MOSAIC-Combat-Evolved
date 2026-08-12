@@ -34,6 +34,7 @@ from .agent_materialization import (
 from .exceptions import DataVendorUnavailable
 from .runtime_paths import isolated_agent_runtime_path
 from .sector_snapshots import (
+    EXACT_SINGLE_PAGE_OFFICIAL_CAP,
     RELATIONSHIP_REQUIRED_SOURCE_ENDPOINTS,
     RELATIONSHIP_SNAPSHOT_SCHEMA_VERSION,
     PAGINATION_POLICY_OFFICIAL_CAP,
@@ -115,6 +116,7 @@ _MARKET_CLOSE = time(15, 0)
 _LOCK_TIMEOUT_SECONDS = 9 * 60 * 60
 _PAGE_SIZE = 6000
 _MAX_PAGES_PER_QUERY = 20
+_INDEX_MEMBER_ALL_EXACT_PAGE_CAP = 2000
 _EMPTY_RESPONSE_BACKOFF_SECONDS = (0.5, 1.5)
 HISTORICAL_REPLAY_TIME_POLICY_VERSION = "sector_historical_replay_time_v1"
 
@@ -539,17 +541,27 @@ def _seal_batch(
     require_each_nonempty: bool,
     confirm_terminal: bool,
     row_filter: Callable[[dict[str, Any]], bool] | None = None,
+    exact_single_page: bool = False,
 ) -> tuple[dict[str, Any], int, int]:
     if not requests:
         raise DataVendorUnavailable(f"{endpoint} capture requires at least one request")
+    if exact_single_page and endpoint not in {"index_member_all", "stock_basic"}:
+        raise ValueError(
+            "exact single-page capture is only valid for index_member_all or stock_basic"
+        )
     pagination_policy = (
-        PAGINATION_POLICY_TERMINAL_CONFIRMED
-        if confirm_terminal
-        else PAGINATION_POLICY_OFFICIAL_CAP
+        EXACT_SINGLE_PAGE_OFFICIAL_CAP
+        if exact_single_page
+        else (
+            PAGINATION_POLICY_TERMINAL_CONFIRMED
+            if confirm_terminal
+            else PAGINATION_POLICY_OFFICIAL_CAP
+        )
     )
     expected_pagination_policy = SOURCE_BATCH_PAGINATION_POLICIES.get(endpoint)
     if (
-        expected_pagination_policy is not None
+        not exact_single_page
+        and expected_pagination_policy is not None
         and expected_pagination_policy != pagination_policy
     ):
         raise ValueError(f"{endpoint} pagination proof does not match its contract")
@@ -558,12 +570,51 @@ def _seal_batch(
     duplicate_count = 0
     # Keep vendor response construction on the caller thread to avoid worker-init crashes.
     for request in requests:
-        leaf_rows, leaf_pages, leaf_duplicates = _paginate_incremental(
-            fetch,
-            endpoint,
-            request,
-            confirm_terminal=confirm_terminal,
-        )
+        if exact_single_page:
+            try:
+                response = fetch(endpoint, **dict(request))
+            except DataVendorUnavailable as exc:
+                raise DataVendorUnavailable(
+                    f"Tushare endpoint '{endpoint}' unavailable",
+                    reason_code=f"TUSHARE_{endpoint.upper()}_UNAVAILABLE",
+                ) from exc
+            leaf_rows = _response_rows(response)
+            if len(leaf_rows) >= (
+                _INDEX_MEMBER_ALL_EXACT_PAGE_CAP
+                if endpoint == "index_member_all"
+                else 2
+            ):
+                raise ASharePaginationError(
+                    f"{endpoint} exact single-page response reached the official cap"
+                )
+            required_columns = frozenset(
+                PREFLIGHT_ENDPOINT_CHECKS[endpoint]["expected_columns"]
+            ) - _OPTIONAL_RESPONSE_COLUMNS.get(endpoint, frozenset())
+            for row in leaf_rows:
+                missing = required_columns - set(row)
+                if missing:
+                    raise AShareSchemaError(
+                        f"{endpoint} response missing columns: {sorted(missing)}"
+                    )
+            unique_rows: list[dict[str, Any]] = []
+            seen_hashes: set[str] = set()
+            leaf_duplicates = 0
+            for row in leaf_rows:
+                row_hash = canonical_hash(row)
+                if row_hash in seen_hashes:
+                    leaf_duplicates += 1
+                    continue
+                seen_hashes.add(row_hash)
+                unique_rows.append(row)
+            leaf_rows = unique_rows
+            leaf_pages = 1
+        else:
+            leaf_rows, leaf_pages, leaf_duplicates = _paginate_incremental(
+                fetch,
+                endpoint,
+                request,
+                confirm_terminal=confirm_terminal,
+            )
         if require_each_nonempty and not leaf_rows:
             raise ConnectionError(
                 f"{endpoint} returned an unconfirmed empty required leaf"
@@ -653,9 +704,35 @@ def _membership_batches(
     requested_agent_ids: Sequence[str] | None = None,
 ) -> tuple[list[dict[str, Any]], int, int]:
     agent_ids = set(_requested_sector_agents(requested_agent_ids))
-    specs: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    specs: list[tuple[dict[str, Any], dict[str, Any], bool]] = []
     for plan in SECTOR_UNIVERSE_MANIFEST["membership_query_plans"]:
         if plan["sector_agent_id"] not in agent_ids:
+            continue
+        covered_l3_codes = sorted(
+            {
+                branch["classification_code"]
+                for branch in plan["branches"]
+                if branch["parameter"] == "l3_code"
+            }
+        )
+        if agent_ids == {"semiconductor"} and len(covered_l3_codes) == 7:
+            for is_new in ("Y", "N"):
+                specs.append(
+                    (
+                        {
+                            "l2_code": "801081.SI",
+                            "is_new": is_new,
+                        },
+                        {
+                            "query_plan_hash": plan["query_plan_hash"],
+                            "parameter": "l2_code",
+                            "classification_code": "801081.SI",
+                            "is_new": is_new,
+                            "covered_l3_codes": covered_l3_codes,
+                        },
+                        True,
+                    )
+                )
             continue
         for branch in plan["branches"]:
             specs.append(
@@ -670,13 +747,14 @@ def _membership_batches(
                         "classification_code": branch["classification_code"],
                         "is_new": branch["is_new"],
                     },
+                    False,
                 )
             )
     batches: list[dict[str, Any]] = []
     pages = 0
     duplicates = 0
     # Preserve caller-thread ownership across membership leaves and vendor parsing.
-    for transport, contract in specs:
+    for transport, contract, exact_single_page in specs:
         batch, duplicate_count, page_count = _seal_batch(
             endpoint="index_member_all",
             requests=(transport,),
@@ -685,6 +763,7 @@ def _membership_batches(
             captured_at=captured_at,
             require_each_nonempty=False,
             confirm_terminal=True,
+            exact_single_page=exact_single_page,
         )
         batches.append(batch)
         duplicates += duplicate_count
@@ -801,15 +880,22 @@ def _build_capture_group(
             request_contract={"ts_codes": list(security_codes)},
             fetch=fetch,
             captured_at=started_at,
-            require_each_nonempty=True,
-            confirm_terminal=True,
+            require_each_nonempty=agent_ids != ("semiconductor",),
+            confirm_terminal=agent_ids != ("semiconductor",),
+            exact_single_page=agent_ids == ("semiconductor",),
         )
-        if {str(row.get("ts_code")) for row in stock_basic["rows"]} != {
-            *security_codes
-        }:
+        stock_codes = {str(row.get("ts_code")) for row in stock_basic["rows"]}
+        stock_codes_valid = (
+            stock_codes <= set(security_codes)
+            if agent_ids == ("semiconductor",)
+            else stock_codes == set(security_codes)
+        )
+        if not stock_codes_valid:
             raise AShareSchemaError(
                 "stock_basic rows are outside the requested exact ticker"
             )
+        if agent_ids == ("semiconductor",):
+            security_codes = sorted(stock_codes)
         batches.append(stock_basic)
         page_counts["stock_basic"] = pages
         duplicate_counts["stock_basic"] = duplicates

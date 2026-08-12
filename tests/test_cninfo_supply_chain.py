@@ -21,6 +21,7 @@ AS_OF = "2026-07-09"
 IDENTITY_URL = "https://www.cninfo.com.cn/new/information/topSearch/query"
 QUERY_URL = "https://www.cninfo.com.cn/new/hisAnnouncement/query"
 PDF_URL = "https://static.cninfo.com.cn/finalpage/2026-03-31/full.PDF"
+ORIGINAL_PDF_URL = "https://static.cninfo.com.cn/finalpage/2026-03-30/original.PDF"
 
 
 def test_default_post_form_uses_query_params_only_for_identity(monkeypatch) -> None:
@@ -136,14 +137,23 @@ def test_cninfo_collector_captures_full_annual_reports_and_reuses_warm_archive(
         assert url == QUERY_URL
         if form["pageNum"] == "1":
             return {
-                "totalAnnouncement": 2,
-                "totalRecordNum": 2,
+                "totalAnnouncement": 3,
+                "totalRecordNum": 3,
                 "announcements": [
+                    {
+                        "announcementId": "original",
+                        "secCode": "600000",
+                        "orgId": "gssh0600000",
+                        "announcementTitle": "浦发银行2025年年度报告",
+                        "announcementTime": 1774800000000,
+                        "adjunctUrl": "finalpage/2026-03-30/original.PDF",
+                        "adjunctType": "PDF",
+                    },
                     {
                         "announcementId": "full",
                         "secCode": "600000",
                         "orgId": "gssh0600000",
-                        "announcementTitle": "浦发银行2025年年度报告",
+                        "announcementTitle": "浦发银行2025年年度报告（修订版）",
                         "announcementTime": 1774886400000,
                         "adjunctUrl": "finalpage/2026-03-31/full.PDF",
                         "adjunctType": "PDF",
@@ -206,7 +216,16 @@ def test_cninfo_collector_captures_full_annual_reports_and_reuses_warm_archive(
     assert announcement_calls[0]["stock"] == "600000,gssh0600000"
     assert announcement_calls[0]["category"] == "category_ndbg_szsh"
     assert announcement_calls[0]["seDate"] == "2021-07-10~2026-07-09"
+    assert len(post_calls) + len(get_calls) == 5
+    assert (
+        1
+        + cninfo_supply_chain._MAX_SEARCH_PAGES
+        + cninfo_supply_chain._MAX_REPORT_YEARS
+        * (1 + cninfo_supply_chain._COUNTERPARTY_QUERY_LIMIT_PER_DOCUMENT)
+        == 58
+    )
     assert not any("szse_stock.json" in url for url in get_calls)
+    assert ORIGINAL_PDF_URL not in get_calls
     assert not any("summary.PDF" in url for url in get_calls)
     with sqlite3.connect(archive.db_path) as connection:
         manifest = json.loads(
@@ -323,7 +342,7 @@ def test_cninfo_collector_rejects_malformed_or_non_terminal_provider_pages(
         post_form=post_form,
         pdf_text_extractor=lambda content: "",
     )
-    with pytest.raises(ValueError, match="non-empty|pagination"):
+    with pytest.raises(ValueError, match="candidate set exceeds one page"):
         collector.materialize(ticker="600000.SH", as_of=AS_OF)
 
 

@@ -139,6 +139,7 @@ def _archive(
     monkeypatch: pytest.MonkeyPatch,
     *,
     captured_at: datetime = CAPTURED_AT,
+    requested_route_ids: tuple[str, ...] | None = None,
     callbacks: tuple[dict[str, int], object, object] | None = None,
 ):
     from mosaic.dataflows import europe_macro_archive
@@ -151,6 +152,7 @@ def _archive(
         as_of_date=AS_OF,
         cutoff_at=CUTOFF,
         observation_start=OBSERVATION_START,
+        requested_route_ids=requested_route_ids,
         store=store,
         ledger=ledger,
         fetch_official=fetch_official,
@@ -473,6 +475,45 @@ def test_historical_replay_captures_one_europe_route_without_backdating(
     assert ledger.row_counts()["source_capture_receipts"] == 1
 
 
+def test_historical_replay_uses_capture_time_for_ecb_selection_but_live_uses_cutoff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mosaic.dataflows import europe_macro_archive
+
+    captured_at = datetime(2026, 8, 9, 6, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(europe_macro_archive, "_capture_now", lambda: captured_at)
+    _, fetch_official, fetch_tushare = _callbacks(
+        valid_from="2026-08-09T05:00:00+00:00"
+    )
+
+    replay = archive_europe_macro_sources(
+        as_of_date=AS_OF,
+        cutoff_at=CUTOFF,
+        observation_start=OBSERVATION_START,
+        requested_route_ids=("ecb.eu_real_economy",),
+        historical_replay=True,
+        store=EuropeMacroArchiveStore(tmp_path / "replay.sqlite3"),
+        ledger=AgentDataMaterializationLedger(tmp_path / "replay-ledger.sqlite3"),
+        fetch_official=fetch_official,
+        fetch_tushare=fetch_tushare,
+    )
+    assert replay.group is not None
+    assert replay.coverage_receipt.as_dict()["coverage_complete"] is True
+
+    live = archive_europe_macro_sources(
+        as_of_date=AS_OF,
+        cutoff_at=CUTOFF,
+        observation_start=OBSERVATION_START,
+        requested_route_ids=("ecb.eu_real_economy",),
+        store=EuropeMacroArchiveStore(tmp_path / "live.sqlite3"),
+        ledger=AgentDataMaterializationLedger(tmp_path / "live-ledger.sqlite3"),
+        fetch_official=fetch_official,
+        fetch_tushare=fetch_tushare,
+    )
+    assert live.group is None
+    assert live.coverage_receipt.as_dict()["blocker_codes"] == ["SCHEMA_DRIFT"]
+
+
 def test_future_as_of_rejects_before_transport_or_archive_insert(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -671,6 +712,114 @@ def test_receipt_bound_compiler_builds_both_roles_without_transport(
         receipt.receipt_hash for receipt in built.build_receipts
     ]
     assert ledger.row_counts()["snapshot_build_receipts"] == 2
+
+
+def test_financial_only_archive_closes_context_into_ecb_receipt_and_compiles_one_role(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, ledger, result, _ = _archive(
+        tmp_path,
+        monkeypatch,
+        requested_route_ids=("ecb.euro_macro", "market.euro_fx"),
+    )
+    assert result.group is not None
+    assert set(
+        receipt.as_dict()["identity"]["route_id"]
+        for receipt in result.source_receipts
+    ) == {"ecb.euro_macro", "market.euro_fx"}
+    ecb_receipt = next(
+        receipt.as_dict()
+        for receipt in result.source_receipts
+        if receipt.as_dict()["identity"]["route_id"] == "ecb.euro_macro"
+    )
+    combined_series = (
+        result.group["ecb"]["series"]
+        + result.group["ecb_real_economy"]["series"]
+    )
+    combined_count = len(ECB_SERIES_IDS) + len(REAL_ECONOMY_ECB_SERIES_IDS)
+    assert len(result.group["ecb_real_economy"]["series"]) == len(
+        REAL_ECONOMY_ECB_SERIES_IDS
+    )
+    assert ecb_receipt["transport"]["page_count"] == combined_count
+    assert ecb_receipt["content"]["normalized_row_count"] == combined_count
+    assert set(ecb_receipt["coverage"]["dimensions"]["series_id"]) == {
+        *ECB_SERIES_IDS,
+        *REAL_ECONOMY_ECB_SERIES_IDS,
+    }
+    assert ecb_receipt["content"]["raw_content_hash"] == canonical_hash(
+        {item["series_key"]: item["payload_hash"] for item in combined_series}
+    )
+    assert result.coverage_receipt.as_dict()["coverage_complete"] is True
+
+    calendar = _calendar_receipt()
+    ledger.append_source_capture(calendar)
+    built = compile_europe_macro_snapshots(
+        capture_key=result.group["capture_key"],
+        store=store,
+        ledger=ledger,
+        output_root=tmp_path / "snapshots",
+        requested_roles=("euro_area_financial_conditions",),
+        exact_calendar_evidence_hash=calendar.receipt_hash,
+    )
+
+    assert set(built.snapshots) == {"euro_area_financial_conditions"}
+    assert len(built.build_receipts) == 1
+    build = built.build_receipts[0].as_dict()
+    assert build["agent_id"] == "euro_area_financial_conditions"
+    archive_hashes = {
+        receipt.receipt_hash for receipt in result.source_receipts
+    }
+    assert set(build["source_receipt_hashes"]) == archive_hashes | {
+        calendar.receipt_hash
+    }
+    assert not any(
+        receipt.as_dict()["agent_id"] == "eu_economy"
+        for receipt in built.build_receipts
+    )
+
+
+def test_historical_replay_compiler_uses_capture_cutoff_for_observation_knowledge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mosaic.dataflows import europe_macro_archive
+
+    captured_at = datetime(2026, 8, 9, 6, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(europe_macro_archive, "_capture_now", lambda: captured_at)
+    _, fetch_official, fetch_tushare = _callbacks(
+        valid_from="2026-08-09T05:00:00+00:00"
+    )
+    store = EuropeMacroArchiveStore(tmp_path / "europe-replay.sqlite3")
+    ledger = AgentDataMaterializationLedger(tmp_path / "europe-replay-ledger.sqlite3")
+    archive = archive_europe_macro_sources(
+        as_of_date=AS_OF,
+        cutoff_at=CUTOFF,
+        observation_start=OBSERVATION_START,
+        requested_route_ids=("ecb.eu_real_economy", "ecb.euro_macro"),
+        historical_replay=True,
+        store=store,
+        ledger=ledger,
+        fetch_official=fetch_official,
+        fetch_tushare=fetch_tushare,
+    )
+    assert archive.group is not None
+    calendar = _calendar_receipt()
+    ledger.append_source_capture(calendar)
+
+    built = compile_europe_macro_snapshots(
+        capture_key=archive.group["capture_key"],
+        store=store,
+        ledger=ledger,
+        output_root=tmp_path / "snapshots",
+        requested_roles=("eu_economy",),
+        exact_calendar_evidence_hash=calendar.receipt_hash,
+    )
+    row = next(
+        observation
+        for observation in built.snapshots["eu_economy"]["observations"]
+        if observation["series_id"] == "eu_exports_goods_services"
+    )
+    assert row["released_at"] == "2026-08-09T05:00:00+00:00"
+    assert row["period_end"] <= AS_OF
 
 
 def test_archive_recomputes_hash_when_loading_private_payload(

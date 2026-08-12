@@ -882,45 +882,289 @@ def test_get_industry_moneyflow_windowed(mock_query_pro):
         return _df_with_rows([{"industry": "半导体", "net_amount": 4200.0}])
 
     mock_query_pro(None, side_effect=_capture)
-    out = macro_data.get_industry_moneyflow("2024-06-30", look_back_days=5)
+    out = macro_data.get_industry_moneyflow(
+        "2024-06-30", look_back_days=5, industries="半导体"
+    )
     assert "Industry Money Flow" in out
     assert captured["api"] == "moneyflow_ind_ths"
     assert captured["params"]["start_date"] == "20240625"
     assert captured["params"]["end_date"] == "20240630"
+    assert captured["params"]["ts_code"] == "881121.TI"
 
 
-def test_get_industry_moneyflow_empty(mock_query_pro):
-    mock_query_pro(_df_with_rows([]))
-    out = macro_data.get_industry_moneyflow("2024-06-30")
-    assert "No industry moneyflow" in out
+def test_get_industry_moneyflow_semiconductor_binds_exact_ths_code(mock_query_pro):
+    captured = {}
+
+    def _capture(api_name, **params):
+        captured["api"] = api_name
+        captured["params"] = params
+        return _df_with_rows(
+            [{"ts_code": "881121.TI", "industry": "半导体", "net_amount": 4200.0}]
+        )
+
+    mock_query_pro(None, side_effect=_capture)
+    out = macro_data.get_industry_moneyflow(
+        "2026-06-17", look_back_days=5, industries=" 半导体 "
+    )
+
+    assert "Industry Money Flow" in out
+    assert captured == {
+        "api": "moneyflow_ind_ths",
+        "params": {
+            "ts_code": "881121.TI",
+            "start_date": "20260612",
+            "end_date": "20260617",
+        },
+    }
 
 
-def test_get_industry_moneyflow_filters_to_named(mock_query_pro):
-    mock_query_pro(
-        _df_with_rows(
+def test_get_industry_moneyflow_biotech_binds_exact_ths_code(mock_query_pro):
+    captured = {}
+    calls = []
+
+    def _capture(api_name, **params):
+        calls.append((api_name, params))
+        captured["api"] = api_name
+        captured["params"] = params
+        return _df_with_rows(
+            [{"ts_code": "881142.TI", "industry": "生物制品", "net_amount": 4200.0}]
+        )
+
+    mock_query_pro(None, side_effect=_capture)
+    out = macro_data.get_industry_moneyflow(
+        "2026-07-08", look_back_days=5, industries="医药,医疗,生物制品,中药"
+    )
+
+    assert "生物制品" in out
+    assert len(calls) == 1
+    assert captured == {
+        "api": "moneyflow_ind_ths",
+        "params": {
+            "ts_code": "881142.TI",
+            "start_date": "20260703",
+            "end_date": "20260708",
+        },
+    }
+
+
+def test_get_industry_moneyflow_technology_binds_exact_ths_code(mock_query_pro):
+    captured = {}
+
+    def _capture(api_name, **params):
+        captured["api"] = api_name
+        captured["params"] = params
+        return _df_with_rows(
+            [{"ts_code": "881272.TI", "industry": "软件开发", "net_amount": 4200.0}]
+        )
+
+    mock_query_pro(None, side_effect=_capture)
+    out = macro_data.get_industry_moneyflow(
+        "2026-07-08", look_back_days=5, industries="电子,计算机,传媒,通信"
+    )
+
+    assert "软件开发" in out
+    assert captured == {
+        "api": "moneyflow_ind_ths",
+        "params": {
+            "ts_code": "881272.TI",
+            "start_date": "20260703",
+            "end_date": "20260708",
+        },
+    }
+
+
+def test_get_industry_moneyflow_energy_binds_exact_ths_code(mock_query_pro):
+    captured = {}
+
+    def _capture(api_name, **params):
+        captured["api"] = api_name
+        captured["params"] = params
+        return _df_with_rows(
             [
-                {"industry": "半导体", "net_amount": 4200.0},
-                {"industry": "银行", "net_amount": -1500.0},
-                {"industry": "证券", "net_amount": 800.0},
+                {
+                    "ts_code": "881105.TI",
+                    "industry": "煤炭开采加工",
+                    "net_amount": 4200.0,
+                }
             ]
         )
+
+    mock_query_pro(None, side_effect=_capture)
+    out = macro_data.get_industry_moneyflow(
+        "2026-07-08",
+        look_back_days=5,
+        industries="煤炭,石油,天然气,电力,光伏,风电,电池",
     )
-    out = macro_data.get_industry_moneyflow("2024-06-30", industries="银行,证券")
-    assert "银行" in out and "证券" in out
-    assert "半导体" not in out
-    assert "Filtered to industries" in out
+
+    assert "煤炭开采加工" in out
+    assert captured == {
+        "api": "moneyflow_ind_ths",
+        "params": {
+            "ts_code": "881105.TI",
+            "start_date": "20260703",
+            "end_date": "20260708",
+        },
+    }
 
 
-def test_get_industry_moneyflow_filter_miss_returns_empty(mock_query_pro):
-    mock_query_pro(
-        _df_with_rows(
+def test_get_industry_moneyflow_financials_binds_exact_ths_code(mock_query_pro):
+    calls = []
+
+    def _capture(api_name, **params):
+        calls.append((api_name, params))
+        return _df_with_rows(
+            [{"ts_code": "881155.TI", "industry": "银行", "net_amount": 4200.0}]
+        )
+
+    mock_query_pro(None, side_effect=_capture)
+    out = macro_data.get_industry_moneyflow(
+        "2026-07-08",
+        look_back_days=5,
+        industries="银行,证券,保险,多元金融",
+    )
+
+    assert "银行" in out
+    assert calls == [
+        (
+            "moneyflow_ind_ths",
+            {
+                "ts_code": "881155.TI",
+                "start_date": "20260703",
+                "end_date": "20260708",
+            },
+        )
+    ]
+
+
+def test_get_industry_moneyflow_agriculture_binds_exact_ths_code(mock_query_pro):
+    calls = []
+
+    def _capture(api_name, **params):
+        calls.append((api_name, params))
+        return _df_with_rows(
+            [{"ts_code": "881102.TI", "industry": "养殖业", "net_amount": 4200.0}]
+        )
+
+    mock_query_pro(None, side_effect=_capture)
+    out = macro_data.get_industry_moneyflow(
+        "2026-07-08",
+        look_back_days=5,
+        industries="农业,种植,养殖,林业,饲料,动物保健",
+    )
+
+    assert "养殖业" in out
+    assert calls == [
+        (
+            "moneyflow_ind_ths",
+            {
+                "ts_code": "881102.TI",
+                "start_date": "20260703",
+                "end_date": "20260708",
+            },
+        )
+    ]
+
+
+def test_get_industry_moneyflow_consumer_binds_exact_ths_code(mock_query_pro):
+    calls = []
+
+    def _capture(api_name, **params):
+        calls.append((api_name, params))
+        return _df_with_rows(
             [
-                {"industry": "半导体", "net_amount": 4200.0},
-                {"industry": "银行", "net_amount": -1500.0},
+                {
+                    "ts_code": "881136.TI",
+                    "industry": "服装家纺",
+                    "net_amount": 4200.0,
+                }
             ]
         )
+
+    mock_query_pro(None, side_effect=_capture)
+    out = macro_data.get_industry_moneyflow(
+        "2026-07-08",
+        look_back_days=5,
+        industries="家电,食品,饮料,纺织,服装,零售,旅游,美容,汽车",
     )
-    out = macro_data.get_industry_moneyflow("2024-06-30", industries="不存在的行业")
-    assert "No industry moneyflow rows" in out
-    assert "半导体" not in out
-    assert "银行" not in out
+
+    assert "服装家纺" in out
+    assert calls == [
+        (
+            "moneyflow_ind_ths",
+            {
+                "ts_code": "881136.TI",
+                "start_date": "20260703",
+                "end_date": "20260708",
+            },
+        )
+    ]
+
+
+def test_get_industry_moneyflow_industrials_binds_exact_ths_code(mock_query_pro):
+    calls = []
+
+    def _capture(api_name, **params):
+        calls.append((api_name, params))
+        return _df_with_rows(
+            [{"ts_code": "881112.TI", "industry": "钢铁", "net_amount": 4200.0}]
+        )
+
+    mock_query_pro(None, side_effect=_capture)
+    out = macro_data.get_industry_moneyflow(
+        "2026-07-08",
+        look_back_days=5,
+        industries="化学,钢铁,有色,机械,军工,电气设备,交通运输,环保",
+    )
+
+    assert "钢铁" in out
+    assert calls == [
+        (
+            "moneyflow_ind_ths",
+            {
+                "ts_code": "881112.TI",
+                "start_date": "20260703",
+                "end_date": "20260708",
+            },
+        )
+    ]
+
+
+def test_get_industry_moneyflow_real_estate_binds_exact_ths_code(mock_query_pro):
+    calls = []
+
+    def _capture(api_name, **params):
+        calls.append((api_name, params))
+        return _df_with_rows(
+            [{"ts_code": "881153.TI", "industry": "房地产", "net_amount": 4200.0}]
+        )
+
+    mock_query_pro(None, side_effect=_capture)
+    out = macro_data.get_industry_moneyflow(
+        "2026-07-08",
+        look_back_days=5,
+        industries="房地产,建筑材料,建筑装饰",
+    )
+
+    assert "房地产" in out
+    assert calls == [
+        (
+            "moneyflow_ind_ths",
+            {
+                "ts_code": "881153.TI",
+                "start_date": "20260703",
+                "end_date": "20260708",
+            },
+        )
+    ]
+
+
+@pytest.mark.parametrize("industries", ["", "不存在的行业"])
+def test_get_industry_moneyflow_rejects_unapproved_scope_before_transport(
+    mock_query_pro, industries
+):
+    transport = mock_query_pro(_df_with_rows([]))
+
+    with pytest.raises(DataVendorUnavailable, match="authorized exact industry scope"):
+        macro_data.get_industry_moneyflow("2024-06-30", industries=industries)
+
+    transport.assert_not_called()

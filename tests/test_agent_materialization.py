@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -37,6 +38,7 @@ from mosaic.dataflows.agent_stage_preparer import (
 )
 from mosaic.dataflows.economic_calendar import EconomicCalendarStore
 from mosaic.dataflows.exceptions import DataVendorUnavailable
+from mosaic.dataflows.geopolitical_events import REQUIRED_SOURCE_IDS
 from mosaic.dataflows.frozen_adaptive_queries import FrozenAdaptiveQueryStore
 from mosaic.dataflows.role_events import build_role_event_snapshot
 from mosaic.dataflows.source_archive import archive_eco_calendar
@@ -233,9 +235,7 @@ def _attempt_payload(
         "candidate_scope_hash": HASH_C,
         "runtime_input_hash": HASH_D,
         "contract_version": "agent_materialization_contract_v1",
-        "source_receipts": {
-            "get_china_macro_snapshot": source_hashes or [HASH_A]
-        }
+        "source_receipts": {"get_china_macro_snapshot": source_hashes or [HASH_A]}
         if ready
         else {},
         "build_receipts": {"get_china_macro_snapshot": build_hash} if ready else {},
@@ -283,9 +283,7 @@ def _ready_stage_build(
             "compiler_version": "test_stage_compiler_v1",
             "output_contract_version": "test_stage_snapshot_v1",
             "output_path": f"runtime_snapshots/2026-07-01/{agent_id}-{tool_id}.json",
-            "output_hash": canonical_hash(
-                {"agent_id": agent_id, "tool_id": tool_id}
-            ),
+            "output_hash": canonical_hash({"agent_id": agent_id, "tool_id": tool_id}),
             "pit_mode": "OBSERVED_LIVE",
             "earliest_trustworthy_date": "2026-07-01",
             "required_route_ids": sorted(required_route_ids),
@@ -371,7 +369,10 @@ def test_source_capture_receipt_round_trips_both_pit_modes() -> None:
         )
     )
     assert live.receipt_hash == live.as_dict()["receipt_hash"]
-    assert replay.as_dict()["time"]["captured_at"] > replay.as_dict()["pit"]["as_of_cutoff"]
+    assert (
+        replay.as_dict()["time"]["captured_at"]
+        > replay.as_dict()["pit"]["as_of_cutoff"]
+    )
     assert SourceCaptureReceipt.from_dict(live.as_dict()) == live
 
 
@@ -381,7 +382,11 @@ def test_source_capture_receipt_round_trips_both_pit_modes() -> None:
         (("time", "released_at"), "2026-07-01T05:31:00+00:00", "time order"),
         (("time", "vintage_at"), "2026-07-01T06:01:00+00:00", "time order"),
         (("time", "knowledge_available_at"), "2026-07-01T07:01:00+00:00", "time order"),
-        (("time", "captured_at"), "2026-07-01T06:01:00+00:00", "knowledge_available_at"),
+        (
+            ("time", "captured_at"),
+            "2026-07-01T06:01:00+00:00",
+            "knowledge_available_at",
+        ),
         (
             ("time", "captured_at"),
             "2026-07-01T06:00:00",
@@ -463,9 +468,7 @@ def test_source_capture_pit_mode_must_match_manifest_strategy() -> None:
 def test_source_capture_rejects_credentials_in_redacted_url() -> None:
     payload = _source_payload()
     payload.pop("receipt_hash")
-    payload["transport"]["redacted_url"] = (
-        "https://example.test/data?api_key=secret"
-    )
+    payload["transport"]["redacted_url"] = "https://example.test/data?api_key=secret"
     with pytest.raises(ValueError, match="credential"):
         SourceCaptureReceipt.seal(payload)
 
@@ -502,12 +505,22 @@ def test_route_manifest_has_exact_agent_stage_tool_coverage() -> None:
     manifest = load_agent_data_route_manifest()
     validated = validate_agent_data_route_manifest(manifest)
     assert len({binding["agent_id"] for binding in validated["bindings"]}) == 27
-    assert len({(binding["agent_id"], binding["stage"]) for binding in validated["bindings"]}) == 28
+    assert (
+        len(
+            {
+                (binding["agent_id"], binding["stage"])
+                for binding in validated["bindings"]
+            }
+        )
+        == 28
+    )
     assert len({binding["tool_id"] for binding in validated["bindings"]}) == 31
     assert all(binding["required_route_ids"] for binding in validated["bindings"])
 
 
-def test_route_manifest_replaces_yc_cb_curve_route_and_three_bindings_atomically() -> None:
+def test_route_manifest_replaces_yc_cb_curve_route_and_three_bindings_atomically() -> (
+    None
+):
     manifest = load_agent_data_route_manifest()
     routes = {route["route_id"]: route for route in manifest["routes"]}
     assert len(routes) == 29
@@ -525,8 +538,7 @@ def test_route_manifest_replaces_yc_cb_curve_route_and_three_bindings_atomically
         if "composite.cn_rates" in binding["required_route_ids"]
     ]
     assert [
-        (binding["agent_id"], binding["stage"], binding["tool_id"])
-        for binding in bound
+        (binding["agent_id"], binding["stage"], binding["tool_id"]) for binding in bound
     ] == [
         ("central_bank", "central_bank", "get_central_bank_snapshot"),
         ("financials", "financials", "get_yield_curve_cn"),
@@ -606,8 +618,16 @@ def test_coverage_receipt_distinguishes_success_from_transport_failure() -> None
 
 
 def test_snapshot_and_attempt_receipts_fail_closed() -> None:
-    assert SnapshotBuildReceipt.from_dict(_build_payload()).as_dict()["terminal_state"] == "READY"
-    assert MaterializationAttemptReceipt.from_dict(_attempt_payload()).as_dict()["terminal_state"] == "READY"
+    assert (
+        SnapshotBuildReceipt.from_dict(_build_payload()).as_dict()["terminal_state"]
+        == "READY"
+    )
+    assert (
+        MaterializationAttemptReceipt.from_dict(_attempt_payload()).as_dict()[
+            "terminal_state"
+        ]
+        == "READY"
+    )
 
     stale = _attempt_payload()
     stale.pop("receipt_hash")
@@ -637,7 +657,9 @@ def test_snapshot_and_attempt_receipts_fail_closed() -> None:
         MaterializationAttemptReceipt.seal(expired_lease)
 
 
-def test_ledger_is_append_only_idempotent_and_status_is_read_only(tmp_path: Path) -> None:
+def test_ledger_is_append_only_idempotent_and_status_is_read_only(
+    tmp_path: Path,
+) -> None:
     ledger = AgentDataMaterializationLedger(tmp_path / "materialization.sqlite3")
     sources = [
         SourceCaptureReceipt.from_dict(
@@ -674,12 +696,15 @@ def test_ledger_is_append_only_idempotent_and_status_is_read_only(tmp_path: Path
         tool_id="get_china_macro_snapshot",
         as_of="2026-07-01",
     ) == (build,)
-    assert ledger.ready_snapshot_build_receipts(
-        agent_id="china",
-        stage="china",
-        tool_id="get_us_macro_snapshot",
-        as_of="2026-07-01",
-    ) == ()
+    assert (
+        ledger.ready_snapshot_build_receipts(
+            agent_id="china",
+            stage="china",
+            tool_id="get_us_macro_snapshot",
+            as_of="2026-07-01",
+        )
+        == ()
+    )
     mismatched_attempt = MaterializationAttemptReceipt.from_dict(
         _attempt_payload(
             source_hashes=source_hashes[:1],
@@ -691,9 +716,15 @@ def test_ledger_is_append_only_idempotent_and_status_is_read_only(tmp_path: Path
     assert ledger.append_materialization_attempt(attempt) == attempt.receipt_hash
 
     before = ledger.row_counts()
-    source_status = ledger.source_status(as_of="2026-07-01", route_id="tushare.eco_cal.cny")
-    snapshot_status = ledger.snapshot_status(as_of="2026-07-01", agent_id="china", stage="china")
-    dry_run = ledger.materialize_dry_run(as_of="2026-07-01", agent_id="china", stage="china")
+    source_status = ledger.source_status(
+        as_of="2026-07-01", route_id="tushare.eco_cal.cny"
+    )
+    snapshot_status = ledger.snapshot_status(
+        as_of="2026-07-01", agent_id="china", stage="china"
+    )
+    dry_run = ledger.materialize_dry_run(
+        as_of="2026-07-01", agent_id="china", stage="china"
+    )
     assert ledger.row_counts() == before
     assert source_status["status"] == "READY"
     assert snapshot_status["status"] == "READY"
@@ -746,8 +777,7 @@ def test_cycle_dry_run_covers_exact_28_stages_without_mutating_ledger(
     assert len(report["stages"]) == 28
     assert len({(row["agent_id"], row["stage"]) for row in report["stages"]}) == 28
     assert set(report["missing_route_ids"]) == {
-        route["route_id"]
-        for route in load_agent_data_route_manifest()["routes"]
+        route["route_id"] for route in load_agent_data_route_manifest()["routes"]
     }
     assert ledger.row_counts() == before
 
@@ -952,8 +982,14 @@ def test_capture_group_rolls_back_partial_sources_and_retries_idempotently(
         ledger.append_capture_group(sources, coverage)
 
     with sqlite3.connect(ledger.path) as conn:
-        assert conn.execute("SELECT count(*) FROM source_capture_receipts").fetchone()[0] == 0
-        assert conn.execute("SELECT count(*) FROM route_coverage_receipts").fetchone()[0] == 0
+        assert (
+            conn.execute("SELECT count(*) FROM source_capture_receipts").fetchone()[0]
+            == 0
+        )
+        assert (
+            conn.execute("SELECT count(*) FROM route_coverage_receipts").fetchone()[0]
+            == 0
+        )
 
     monkeypatch.setattr(
         AgentDataMaterializationLedger,
@@ -964,8 +1000,14 @@ def test_capture_group_rolls_back_partial_sources_and_retries_idempotently(
     retry = ledger.append_capture_group(sources, coverage)
     assert retry == first
     with sqlite3.connect(ledger.path) as conn:
-        assert conn.execute("SELECT count(*) FROM source_capture_receipts").fetchone()[0] == 3
-        assert conn.execute("SELECT count(*) FROM route_coverage_receipts").fetchone()[0] == 1
+        assert (
+            conn.execute("SELECT count(*) FROM source_capture_receipts").fetchone()[0]
+            == 3
+        )
+        assert (
+            conn.execute("SELECT count(*) FROM route_coverage_receipts").fetchone()[0]
+            == 1
+        )
 
 
 def test_status_queries_order_mixed_offsets_by_instant(tmp_path: Path) -> None:
@@ -1068,19 +1110,23 @@ def test_status_queries_order_mixed_offsets_by_instant(tmp_path: Path) -> None:
     snapshot_status = ledger.snapshot_status(
         as_of="2026-07-01", agent_id="china", stage="china"
     )
-    assert snapshot_status["build_receipt_hashes"][
-        "get_china_macro_snapshot"
-    ] == older_build.receipt_hash
+    assert (
+        snapshot_status["build_receipt_hashes"]["get_china_macro_snapshot"]
+        == older_build.receipt_hash
+    )
     assert (
         snapshot_status["materialization_attempt_receipt_hash"]
         == older_attempt.receipt_hash
     )
     with sqlite3.connect(ledger.path) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM materialization_attempt_receipts "
-            "WHERE lock_key = ? AND terminal_state = 'READY'",
-            (older_attempt.as_dict()["lock"]["key"],),
-        ).fetchone()[0] == 1
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM materialization_attempt_receipts "
+                "WHERE lock_key = ? AND terminal_state = 'READY'",
+                (older_attempt.as_dict()["lock"]["key"],),
+            ).fetchone()[0]
+            == 1
+        )
 
 
 def test_concurrent_ready_attempts_publish_one_frozen_result(tmp_path: Path) -> None:
@@ -1118,11 +1164,14 @@ def test_concurrent_ready_attempts_publish_one_frozen_result(tmp_path: Path) -> 
     assert len(set(published_hashes)) == 1
     assert published_hashes[0] in {attempt.receipt_hash for attempt in attempts}
     with sqlite3.connect(ledger.path) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM materialization_attempt_receipts "
-            "WHERE lock_key = ? AND terminal_state = 'READY'",
-            (attempts[0].as_dict()["lock"]["key"],),
-        ).fetchone()[0] == 1
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM materialization_attempt_receipts "
+                "WHERE lock_key = ? AND terminal_state = 'READY'",
+                (attempts[0].as_dict()["lock"]["key"],),
+            ).fetchone()[0]
+            == 1
+        )
 
 
 def _ready_stage_request(suffix: str) -> dict:
@@ -1187,10 +1236,13 @@ def test_publish_ready_stage_materialization_closes_existing_builds(
     )
     assert replay == published
     with sqlite3.connect(ledger.path) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM materialization_attempt_receipts "
-            "WHERE terminal_state = 'READY'"
-        ).fetchone()[0] == 1
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM materialization_attempt_receipts "
+                "WHERE terminal_state = 'READY'"
+            ).fetchone()[0]
+            == 1
+        )
 
 
 def test_trusted_stage_preparer_uses_warm_build_without_family_dispatch(
@@ -1229,9 +1281,12 @@ def test_trusted_stage_preparer_uses_warm_build_without_family_dispatch(
     }
     assert calls == []
     with sqlite3.connect(ledger.path) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM materialization_attempt_receipts"
-        ).fetchone()[0] == 0
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM materialization_attempt_receipts"
+            ).fetchone()[0]
+            == 0
+        )
 
 
 def test_trusted_stage_preparer_dispatches_cold_family_without_publishing(
@@ -1248,7 +1303,9 @@ def test_trusted_stage_preparer_dispatches_cold_family_without_publishing(
                     route_id="official.cn_macro", source_family="official_cn"
                 )
             ),
-            SourceCaptureReceipt.from_dict(_source_payload(route_id="tushare.cn_macro")),
+            SourceCaptureReceipt.from_dict(
+                _source_payload(route_id="tushare.cn_macro")
+            ),
             SourceCaptureReceipt.from_dict(_source_payload()),
         ]
         for source in sources:
@@ -1277,9 +1334,12 @@ def test_trusted_stage_preparer_dispatches_cold_family_without_publishing(
     }
     assert calls == ["family"]
     with sqlite3.connect(ledger.path) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM materialization_attempt_receipts"
-        ).fetchone()[0] == 0
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM materialization_attempt_receipts"
+            ).fetchone()[0]
+            == 0
+        )
 
 
 def test_trusted_stage_preparer_recovers_same_role_event_replay_capture_on_miss_and_hit(
@@ -1311,9 +1371,7 @@ def test_trusted_stage_preparer_recovers_same_role_event_replay_capture_on_miss_
     )
     family_calls = 0
 
-    def prepare_family(
-        _request: dict, target: AgentDataMaterializationLedger
-    ) -> None:
+    def prepare_family(_request: dict, target: AgentDataMaterializationLedger) -> None:
         nonlocal family_calls
         family_calls += 1
         stage_preparer_module.compile_role_event_builds(
@@ -1470,9 +1528,12 @@ def test_trusted_stage_finalizer_publishes_after_payload_materialization(
         "get_china_macro_snapshot": build.receipt_hash
     }
     with sqlite3.connect(ledger.path) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM materialization_attempt_receipts"
-        ).fetchone()[0] == 1
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM materialization_attempt_receipts"
+            ).fetchone()[0]
+            == 1
+        )
 
 
 def test_trusted_stage_finalizer_compiles_adaptive_builds_before_publish(
@@ -1496,8 +1557,12 @@ def test_trusted_stage_finalizer_compiles_adaptive_builds_before_publish(
         events.append("publish")
         return {"status": "READY"}
 
-    monkeypatch.setattr(stage_preparer_module, "compile_adaptive_query_builds", compile_builds)
-    monkeypatch.setattr(stage_preparer_module, "publish_ready_stage_materialization", publish)
+    monkeypatch.setattr(
+        stage_preparer_module, "compile_adaptive_query_builds", compile_builds
+    )
+    monkeypatch.setattr(
+        stage_preparer_module, "publish_ready_stage_materialization", publish
+    )
     finalizer = TrustedAgentStageFinalizer(
         ledger_factory=lambda: ledger,
         adaptive_query_store=adaptive_store,
@@ -1591,11 +1656,15 @@ def _adaptive_financials_evidence(
             "source_receipt_hashes": [staged["receipt_hash"]],
         },
     )
-    return frozen_store, staged_store, {
-        "bundle_id": prepared["bundle_id"],
-        "bundle_hash": prepared["public_projection"]["bundle_hash"],
-        "public_projection": prepared["public_projection"],
-    }
+    return (
+        frozen_store,
+        staged_store,
+        {
+            "bundle_id": prepared["bundle_id"],
+            "bundle_hash": prepared["public_projection"]["bundle_hash"],
+            "public_projection": prepared["public_projection"],
+        },
+    )
 
 
 def test_compile_adaptive_query_builds_promotes_exact_route_lineage_and_replays(
@@ -1641,10 +1710,13 @@ def test_compile_adaptive_query_builds_promotes_exact_route_lineage_and_replays(
     assert build["terminal_state"] == "READY"
     assert build["output_hash"].startswith("sha256:")
     with sqlite3.connect(ledger.path) as conn:
-        assert conn.execute(
-            "SELECT count(*) FROM snapshot_build_receipts "
-            "WHERE agent_id = 'financials' AND tool_id = 'get_indicators'"
-        ).fetchone()[0] == 1
+        assert (
+            conn.execute(
+                "SELECT count(*) FROM snapshot_build_receipts "
+                "WHERE agent_id = 'financials' AND tool_id = 'get_indicators'"
+            ).fetchone()[0]
+            == 1
+        )
 
 
 def test_compile_adaptive_query_builds_rejects_unregistered_upstream_source(
@@ -1689,12 +1761,14 @@ def test_china_family_reuses_calendar_archive_and_compiler(
     ledger = AgentDataMaterializationLedger(tmp_path / "china-family.sqlite3")
     calendar_store = object()
     china_store = object()
-    archived = object()
+    archived = SimpleNamespace()
     output_root = tmp_path / "macro-snapshots"
     events: list[tuple[str, dict]] = []
     calendar_requests: list[dict[str, str]] = []
 
     class CompleteCoverage:
+        receipt_hash = HASH_A
+
         @staticmethod
         def as_dict() -> dict:
             return {"coverage_complete": True}
@@ -1705,6 +1779,22 @@ def test_china_family_reuses_calendar_archive_and_compiler(
 
     def archive_china(**kwargs: object) -> object:
         events.append(("china", kwargs))
+        source_receipts = (
+            SourceCaptureReceipt.from_dict(
+                _source_payload(
+                    route_id="official.cn_macro", source_family="official_cn"
+                )
+            ),
+            SourceCaptureReceipt.from_dict(
+                _source_payload(route_id="tushare.cn_macro")
+            ),
+        )
+        archived.routes = {
+            "official.cn_macro+tushare.cn_macro": SimpleNamespace(
+                source_receipts=source_receipts,
+                coverage_receipt=CompleteCoverage(),
+            )
+        }
         return archived
 
     def compile_china(**kwargs: object) -> object:
@@ -1718,7 +1808,7 @@ def test_china_family_reuses_calendar_archive_and_compiler(
     monkeypatch.setattr(
         stage_preparer_module,
         "_stage_capture_now",
-        lambda: datetime(2026, 7, 1, 6, 30, tzinfo=timezone.utc),
+        lambda: datetime(2026, 7, 17, 6, 30, tzinfo=timezone.utc),
     )
     monkeypatch.setattr(stage_preparer_module, "_china_tushare_fetch", fetch_tushare)
     monkeypatch.setattr(
@@ -1732,13 +1822,20 @@ def test_china_family_reuses_calendar_archive_and_compiler(
         stage_preparer_module, "archive_china_agent_sources", archive_china
     )
     monkeypatch.setattr(
-        stage_preparer_module, "compile_china_agent_snapshots", compile_china
+        stage_preparer_module, "compile_china_agent_snapshot", compile_china
+    )
+    monkeypatch.setattr(
+        stage_preparer_module,
+        "compile_china_agent_snapshots",
+        lambda **_kwargs: pytest.fail("normal China stage must not use full compiler"),
     )
     monkeypatch.setattr(
         stage_preparer_module, "snapshot_cache_root", lambda: output_root
     )
 
-    prepare_china_agent_family(_ready_stage_request("china-family"), ledger)
+    request = _ready_stage_request("china-family")
+    request["as_of"] = "2026-07-17"
+    prepare_china_agent_family(request, ledger)
 
     assert [name for name, _ in events] == ["calendar", "china", "compile"]
     calendar_fetch = events[0][1].pop("fetch")
@@ -1747,15 +1844,28 @@ def test_china_family_reuses_calendar_archive_and_compiler(
         {"endpoint": "eco_cal", "date": "20260701", "country": "中国"}
     ]
     assert events[0][1] == {
-        "as_of_date": "2026-07-01",
-        "captured_at": "2026-07-01T06:30:00+00:00",
+        "as_of_date": "2026-07-17",
+        "captured_at": "2026-07-17T06:30:00+00:00",
+        "requested_route_ids": ("tushare.eco_cal.cny",),
         "store": calendar_store,
         "ledger": ledger,
     }
     assert events[1][1] == {
-        "as_of_date": "2026-07-01",
-        "cutoff_at": "2026-07-01T15:00:00+08:00",
-        "market_session_date": "2026-07-01",
+        "as_of_date": "2026-07-17",
+        "cutoff_at": "2026-07-17T15:00:00+08:00",
+        "market_session_date": "2026-07-17",
+        "official_document_types": (
+            "customs_monthly_trade",
+            "mof_fiscal_release",
+            "nbs_cpi_release",
+            "nbs_employment_release",
+            "nbs_fixed_asset_investment",
+            "nbs_industrial_activity",
+            "nbs_ppi_release",
+            "nbs_retail_sales",
+            "pboc_financial_statistics",
+        ),
+        "requested_route_ids": ("official.cn_macro", "tushare.cn_macro"),
         "store": china_store,
         "ledger": ledger,
     }
@@ -1765,6 +1875,141 @@ def test_china_family_reuses_calendar_archive_and_compiler(
         "ledger": ledger,
         "output_root": output_root,
     }
+
+
+def test_non_china_family_stage_requests_only_its_role(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ledger = AgentDataMaterializationLedger(tmp_path / "central-bank-family.sqlite3")
+    events: list[tuple[str, dict]] = []
+    compile_calls: list[dict[str, object]] = []
+
+    class CompleteCoverage:
+        receipt_hash = HASH_A
+
+        @staticmethod
+        def as_dict() -> dict:
+            return {"coverage_complete": True}
+
+    def archive_calendar(_fetch: object, **kwargs: object) -> SimpleNamespace:
+        events.append(("calendar", kwargs))
+        return SimpleNamespace(coverage_receipt=CompleteCoverage())
+
+    def archive_china(**kwargs: object) -> SimpleNamespace:
+        events.append(("china", kwargs))
+
+        def receipt(route_id: str) -> SimpleNamespace:
+            return SimpleNamespace(as_dict=lambda: {"identity": {"route_id": route_id}})
+
+        return SimpleNamespace(
+            routes={
+                "official.cn_macro": SimpleNamespace(
+                    source_receipts=(receipt("official.cn_macro"),),
+                    coverage_receipt=CompleteCoverage(),
+                ),
+                "composite.cn_rates": SimpleNamespace(
+                    source_receipts=(receipt("composite.cn_rates"),),
+                    coverage_receipt=CompleteCoverage(),
+                ),
+            }
+        )
+
+    def compile_china(**kwargs: object) -> object:
+        events.append(("compile", kwargs))
+        compile_calls.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(stage_preparer_module, "archive_eco_calendar", archive_calendar)
+    monkeypatch.setattr(
+        stage_preparer_module, "archive_china_agent_sources", archive_china
+    )
+    monkeypatch.setattr(
+        stage_preparer_module, "ChinaAgentDataArchiveStore", lambda: object()
+    )
+    monkeypatch.setattr(
+        stage_preparer_module, "compile_china_agent_snapshots", compile_china
+    )
+    monkeypatch.setattr(
+        stage_preparer_module, "snapshot_cache_root", lambda: tmp_path / "snapshots"
+    )
+    monkeypatch.setattr(
+        stage_preparer_module,
+        "_stage_capture_now",
+        lambda: datetime(2026, 7, 17, 6, 30, tzinfo=timezone.utc),
+    )
+
+    request = _ready_stage_request("central-bank-family")
+    request["agent_id"] = "central_bank"
+    request["stage"] = "central_bank"
+    request["as_of"] = "2026-07-17"
+    prepare_china_agent_family(request, ledger)
+
+    assert [name for name, _ in events] == ["calendar", "china", "compile"]
+    assert events[0][1]["requested_route_ids"] == ("tushare.eco_cal.cny",)
+    assert events[1][1]["requested_route_ids"] == (
+        "composite.cn_rates",
+        "official.cn_macro",
+    )
+    assert events[1][1]["official_document_types"] == (
+        "nbs_cpi_release",
+        "nbs_industrial_activity",
+        "nbs_ppi_release",
+        "pboc_financial_statistics",
+        "pboc_lpr_document",
+        "pboc_omo_document",
+    )
+    assert len(compile_calls) == 1
+    assert compile_calls[0]["requested_roles"] == ("central_bank",)
+    assert compile_calls[0]["exact_calendar_evidence_hash"] == HASH_A
+
+
+def test_institutional_prepare_compiles_only_narrow_historical_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    as_of = "2026-06-17"
+    calls: list[dict[str, object]] = []
+
+    def prepare_archive(**kwargs: object) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr(
+        stage_preparer_module,
+        "_prepare_china_agent_archive",
+        prepare_archive,
+    )
+    monkeypatch.setattr(
+        stage_preparer_module,
+        "archive_eco_calendar",
+        lambda *_args, **_kwargs: pytest.fail(
+            "institutional stage must not capture calendar"
+        ),
+    )
+    monkeypatch.setattr(
+        stage_preparer_module,
+        "archive_china_agent_sources",
+        lambda **_kwargs: pytest.fail("institutional stage must use narrow preparer"),
+    )
+
+    request = _ready_stage_request("institutional-narrow")
+    request.update(
+        {
+            "agent_id": "institutional_flow",
+            "stage": "institutional_flow",
+            "as_of": as_of,
+            "historical_replay": True,
+        }
+    )
+    prepare_china_agent_family(
+        request,
+        AgentDataMaterializationLedger(tmp_path / "institutional-stage.sqlite3"),
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["requested_route_ids"] == ("tushare.institutional_flow",)
+    assert calls[0]["requested_roles"] == ("institutional_flow",)
+    assert calls[0]["historical_replay"] is True
 
 
 @pytest.mark.parametrize(
@@ -1840,16 +2085,27 @@ def test_china_route_only_capture_skips_calendar_and_compile(
 
     prepare_china_agent_family(request, ledger)
 
-    assert calls == [
-        {
-            "as_of_date": "2026-07-01",
-            "cutoff_at": "2026-07-01T15:00:00+08:00",
-            "market_session_date": "2026-07-01",
-            "requested_route_ids": (route_id,),
-            "store": china_store,
-            "ledger": ledger,
-        }
-    ]
+    expected = {
+        "as_of_date": "2026-07-01",
+        "cutoff_at": "2026-07-01T15:00:00+08:00",
+        "market_session_date": "2026-07-01",
+        "requested_route_ids": (route_id,),
+        "store": china_store,
+        "ledger": ledger,
+    }
+    if route_id == "official.cn_macro":
+        expected["official_document_types"] = (
+            "customs_monthly_trade",
+            "mof_fiscal_release",
+            "nbs_cpi_release",
+            "nbs_employment_release",
+            "nbs_fixed_asset_investment",
+            "nbs_industrial_activity",
+            "nbs_ppi_release",
+            "nbs_retail_sales",
+            "pboc_financial_statistics",
+        )
+    assert calls == [expected]
 
 
 def test_china_route_only_forwards_historical_replay(
@@ -1907,16 +2163,18 @@ def test_china_family_stops_when_calendar_coverage_is_blocked(
         def as_dict() -> dict:
             return {"coverage_complete": False, "blocker_codes": ["PERMISSION_DENIED"]}
 
-    monkeypatch.setattr(stage_preparer_module, "EconomicCalendarStore", lambda: object())
+    monkeypatch.setattr(
+        stage_preparer_module, "EconomicCalendarStore", lambda: object()
+    )
     monkeypatch.setattr(
         stage_preparer_module,
         "archive_eco_calendar",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            coverage_receipt=BlockedCoverage()
-        ),
+        lambda *_args, **_kwargs: SimpleNamespace(coverage_receipt=BlockedCoverage()),
     )
 
-    with pytest.raises(DataVendorUnavailable, match="economic calendar archive is blocked"):
+    with pytest.raises(
+        DataVendorUnavailable, match="economic calendar archive is blocked"
+    ):
         prepare_china_agent_family(_ready_stage_request("china-blocked"), ledger)
 
 
@@ -1971,23 +2229,28 @@ def test_sector_role_event_compiler_seals_exact_ready_builds_and_replays(
         assert payload["terminal_state"] == "READY"
         assert payload["required_route_ids"] == binding["required_route_ids"]
         assert payload["source_receipt_hashes"] == sorted(
-            source_by_route[route_id]
-            for route_id in binding["required_route_ids"]
+            source_by_route[route_id] for route_id in binding["required_route_ids"]
         )
-        assert payload["output_hash"] == build_role_event_snapshot(
-            agent_id,
-            "2026-07-01",
-            store=calendar_store,
-            historical_replay_captured_at=replay_capture,
-        )["role_event_snapshot_hash"]
-        assert len(
-            ledger.ready_snapshot_build_receipts(
-                agent_id=agent_id,
-                stage=agent_id,
-                tool_id="get_role_event_snapshot",
-                as_of="2026-07-01",
+        assert (
+            payload["output_hash"]
+            == build_role_event_snapshot(
+                agent_id,
+                "2026-07-01",
+                store=calendar_store,
+                historical_replay_captured_at=replay_capture,
+            )["role_event_snapshot_hash"]
+        )
+        assert (
+            len(
+                ledger.ready_snapshot_build_receipts(
+                    agent_id=agent_id,
+                    stage=agent_id,
+                    tool_id="get_role_event_snapshot",
+                    as_of="2026-07-01",
+                )
             )
-        ) == 1
+            == 1
+        )
 
     single_route = compile_sector_role_event_builds(
         archive=archive,
@@ -2004,7 +2267,9 @@ def test_sector_role_event_compiler_seals_blocked_builds_from_calendar_coverage(
     tmp_path: Path,
 ) -> None:
     ledger = AgentDataMaterializationLedger(tmp_path / "sector-role-blocked.sqlite3")
-    calendar_store = EconomicCalendarStore(tmp_path / "sector-role-blocked-calendar.sqlite3")
+    calendar_store = EconomicCalendarStore(
+        tmp_path / "sector-role-blocked-calendar.sqlite3"
+    )
     archive = archive_eco_calendar(
         lambda **_request: (_ for _ in ()).throw(PermissionError("denied")),
         as_of_date="2026-07-01",
@@ -2036,120 +2301,25 @@ def test_sector_relationship_family_reuses_all_existing_archives_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ledger = AgentDataMaterializationLedger(tmp_path / "sector-family.sqlite3")
-    calendar_store = object()
-    sector_store = object()
-    calendar_archive = SimpleNamespace(
-        coverage_receipt=SimpleNamespace(
-            as_dict=lambda: {"coverage_complete": True}
-        )
-    )
-    sector_archive = SimpleNamespace(
-        coverage_receipt=SimpleNamespace(
-            as_dict=lambda: {"coverage_complete": True}
-        )
-    )
-    events: list[tuple[str, dict]] = []
-
+    archive_calendar = Mock()
+    archive_sector = Mock()
+    monkeypatch.setattr(stage_preparer_module, "archive_eco_calendar", archive_calendar)
     monkeypatch.setattr(
-        stage_preparer_module,
-        "_stage_capture_now",
-        lambda: datetime(2026, 7, 1, 6, 30, tzinfo=timezone.utc),
-    )
-    monkeypatch.setattr(
-        stage_preparer_module, "EconomicCalendarStore", lambda: calendar_store
-    )
-    monkeypatch.setattr(stage_preparer_module, "SectorArchiveStore", lambda: sector_store)
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "archive_eco_calendar",
-        lambda fetch, **kwargs: events.append(
-            ("calendar", {"fetch": fetch, **kwargs})
-        )
-        or calendar_archive,
-    )
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "compile_sector_role_event_builds",
-        lambda **kwargs: events.append(("role", kwargs)) or (),
-    )
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "archive_a_share_breadth",
-        lambda *_args, **_kwargs: pytest.fail(
-            "Sector object preparation must not capture A-share breadth"
-        ),
-    )
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "capture_a_share_parent_sources",
-        lambda *_args, **_kwargs: pytest.fail(
-            "Sector object preparation must not capture A-share parents"
-        ),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "archive_sector_relationship",
-        lambda fetch, **kwargs: events.append(
-            ("sector", {"fetch": fetch, **kwargs})
-        )
-        or sector_archive,
-    )
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "compile_sector_relationship_core_snapshots",
-        lambda archive, **kwargs: events.append(
-            ("core", {"archive": archive, **kwargs})
-        ),
-    )
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "_prepare_china_agent_archive",
-        lambda **_kwargs: pytest.fail(
-            "Sector preparation must not capture China institutional or curve data"
-        ),
-    )
-    monkeypatch.setattr(
-        stage_preparer_module, "snapshot_cache_root", lambda: tmp_path / "snapshots"
+        stage_preparer_module, "archive_sector_relationship", archive_sector
     )
 
-    prepare_sector_relationship_family(
-        {
-            **_ready_stage_request("sector-family"),
-            "agent_id": "semiconductor",
-            "stage": "semiconductor",
-        },
-        ledger,
-    )
+    with pytest.raises(DataVendorUnavailable, match="no bounded authority"):
+        prepare_sector_relationship_family(
+            {
+                **_ready_stage_request("sector-family"),
+                "agent_id": "semiconductor",
+                "stage": "semiconductor",
+            },
+            ledger,
+        )
 
-    assert [name for name, _ in events] == [
-        "calendar",
-        "role",
-        "sector",
-        "core",
-    ]
-    assert events[0][1]["store"] is calendar_store
-    assert events[0][1]["requested_route_ids"] == (
-        "tushare.eco_cal.cny",
-        "tushare.eco_cal.eur",
-        "tushare.eco_cal.usd",
-    )
-    assert events[1][1] == {
-        "archive": calendar_archive,
-        "store": calendar_store,
-        "ledger": ledger,
-        "agent_id": "semiconductor",
-        "historical_replay": False,
-    }
-    assert events[2][1]["store"] is sector_store
-    assert "base_store" not in events[2][1]
-    assert events[2][1]["requested_route_ids"] == (
-        "tushare.sector_fundamentals",
-        "tushare.sector_market",
-    )
-    assert events[2][1]["requested_agent_ids"] == ("semiconductor",)
-    assert "requested_security_codes" not in events[2][1]
-    assert events[3][1]["archive"] is sector_archive
+    archive_calendar.assert_not_called()
+    archive_sector.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -2177,19 +2347,12 @@ def test_sector_route_only_historical_replay_skips_parent_archives(
     ledger = AgentDataMaterializationLedger(tmp_path / "sector-route-only.sqlite3")
     sector_store = object()
     sector_archive = SimpleNamespace(
-        coverage_receipt=SimpleNamespace(
-            as_dict=lambda: {"coverage_complete": True}
-        )
+        coverage_receipt=SimpleNamespace(as_dict=lambda: {"coverage_complete": True})
     )
     events: list[tuple[str, dict]] = []
 
-    monkeypatch.setattr(stage_preparer_module, "SectorArchiveStore", lambda: sector_store)
     monkeypatch.setattr(
-        stage_preparer_module,
-        "archive_a_share_breadth",
-        lambda *_args, **_kwargs: pytest.fail(
-            "route-only Sector object preparation must not capture A-share breadth"
-        ),
+        stage_preparer_module, "SectorArchiveStore", lambda: sector_store
     )
     monkeypatch.setattr(
         stage_preparer_module,
@@ -2202,20 +2365,15 @@ def test_sector_route_only_historical_replay_skips_parent_archives(
     monkeypatch.setattr(
         stage_preparer_module,
         "archive_sector_relationship",
-        lambda fetch, **kwargs: events.append(("sector", {"fetch": fetch, **kwargs}))
-        or sector_archive,
+        lambda fetch, **kwargs: (
+            events.append(("sector", {"fetch": fetch, **kwargs})) or sector_archive
+        ),
     )
     monkeypatch.setattr(
         stage_preparer_module,
         "archive_eco_calendar",
         lambda *_args, **_kwargs: pytest.fail("route-only capture must skip calendar"),
     )
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "compile_sector_relationship_core_snapshots",
-        lambda *_args, **_kwargs: pytest.fail("route-only capture must skip compilers"),
-    )
-
     prepare_sector_relationship_family(
         {
             **_ready_stage_request(f"sector-route-only-{route_id}"),
@@ -2236,74 +2394,6 @@ def test_sector_route_only_historical_replay_skips_parent_archives(
     assert "requested_security_codes" not in events[0][1]
 
 
-def test_sector_relationship_family_stops_after_blocked_calendar_builds(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    ledger = AgentDataMaterializationLedger(tmp_path / "sector-blocked-family.sqlite3")
-    events: list[str] = []
-    blocked = SimpleNamespace(
-        coverage_receipt=SimpleNamespace(
-            as_dict=lambda: {"coverage_complete": False}
-        )
-    )
-    monkeypatch.setattr(stage_preparer_module, "EconomicCalendarStore", lambda: object())
-    monkeypatch.setattr(
-        stage_preparer_module, "archive_eco_calendar", lambda *_args, **_kwargs: blocked
-    )
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "compile_sector_role_event_builds",
-        lambda **_kwargs: events.append("role"),
-    )
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "archive_a_share_breadth",
-        lambda *_args, **_kwargs: pytest.fail("A-share capture must not start"),
-    )
-
-    with pytest.raises(DataVendorUnavailable, match="economic calendar archive is blocked"):
-        prepare_sector_relationship_family(
-            {
-                **_ready_stage_request("sector-blocked"),
-                "agent_id": "semiconductor",
-                "stage": "semiconductor",
-            },
-            ledger,
-        )
-
-    assert events == ["role"]
-
-
-def test_sector_relationship_family_fails_closed_without_role_event_binding(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    ledger = AgentDataMaterializationLedger(tmp_path / "sector-binding-missing.sqlite3")
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "_stage_bindings",
-        lambda _agent_id, _stage: [
-            {
-                "agent_id": "semiconductor",
-                "stage": "semiconductor",
-                "tool_id": "get_sector_research_snapshot",
-                "required_route_ids": ["tushare.sector_market"],
-            }
-        ],
-    )
-
-    with pytest.raises(DataVendorUnavailable, match="no role-event binding"):
-        prepare_sector_relationship_family(
-            {
-                **_ready_stage_request("sector-binding-missing"),
-                "agent_id": "semiconductor",
-                "stage": "semiconductor",
-            },
-            ledger,
-        )
-
-
 def test_us_family_reuses_calendar_archive_and_compiler(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2316,13 +2406,23 @@ def test_us_family_reuses_calendar_archive_and_compiler(
     calendar_requests: list[dict[str, str]] = []
 
     class CompleteCoverage:
+        receipt_hash = HASH_A
+
         @staticmethod
         def as_dict() -> dict:
             return {"coverage_complete": True}
 
     def archive_calendar(fetch: object, **kwargs: object) -> SimpleNamespace:
         events.append(("calendar", {"fetch": fetch, **kwargs}))
-        return SimpleNamespace(coverage_receipt=CompleteCoverage())
+        return SimpleNamespace(
+            coverage_receipt=CompleteCoverage(),
+            source_receipts=(
+                SimpleNamespace(
+                    receipt_hash=HASH_A,
+                    as_dict=lambda: {"identity": {"route_id": "tushare.eco_cal.usd"}},
+                ),
+            ),
+        )
 
     def archive_us(**kwargs: object) -> SimpleNamespace:
         events.append(("us", kwargs))
@@ -2356,7 +2456,12 @@ def test_us_family_reuses_calendar_archive_and_compiler(
         stage_preparer_module, "snapshot_cache_root", lambda: output_root
     )
 
-    prepare_us_macro_family(_ready_stage_request("us-family"), ledger)
+    request = {
+        **_ready_stage_request("us-family"),
+        "agent_id": "us_economy",
+        "stage": "us_economy",
+    }
+    prepare_us_macro_family(request, ledger)
 
     assert us_macro_observation_start("2026-07-01") == "2025-01-01"
     assert [name for name, _ in events] == ["calendar", "us", "compile"]
@@ -2369,6 +2474,8 @@ def test_us_family_reuses_calendar_archive_and_compiler(
         "as_of_date": "2026-07-01",
         "cutoff_at": "2026-07-01T15:00:00+08:00",
         "observation_start": "2025-01-01",
+        "requested_route_ids": ("alfred.us_macro", "official.us_policy"),
+        "alfred_series_ids": stage_preparer_module._US_ECONOMY_ALFRED_SERIES_IDS,
         "store": us_store,
         "ledger": ledger,
     }
@@ -2377,7 +2484,96 @@ def test_us_family_reuses_calendar_archive_and_compiler(
         "store": us_store,
         "ledger": ledger,
         "output_root": output_root,
+        "requested_roles": ("us_economy",),
+        "exact_calendar_evidence_hash": HASH_A,
     }
+    assert len(events[1][1]["alfred_series_ids"]) == 10
+    assert not set(events[1][1]["alfred_series_ids"]) & {
+        "DFII5",
+        "DFII10",
+        "DFII30",
+        "BAA10Y",
+        "NFCI",
+        "VIXCLS",
+        "DTWEXBGS",
+    }
+    assert events[0][1]["requested_route_ids"] == ("tushare.eco_cal.usd",)
+    assert events[2][1]["requested_roles"] == ("us_economy",)
+
+
+def test_us_financial_family_binds_each_calendar_source_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ledger = AgentDataMaterializationLedger(tmp_path / "us-financial-family.sqlite3")
+    events: list[tuple[str, dict]] = []
+
+    class CompleteCoverage:
+        @staticmethod
+        def as_dict() -> dict:
+            return {"coverage_complete": True}
+
+    def receipt(route_id: str, receipt_hash: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            receipt_hash=receipt_hash,
+            as_dict=lambda: {"identity": {"route_id": route_id}},
+        )
+
+    def archive_calendar(_fetch: object, **kwargs: object) -> SimpleNamespace:
+        events.append(("calendar", kwargs))
+        return SimpleNamespace(
+            coverage_receipt=CompleteCoverage(),
+            source_receipts=(
+                receipt("tushare.eco_cal.cny", HASH_A),
+                receipt("tushare.eco_cal.usd", HASH_B),
+            ),
+        )
+
+    def archive_us(**kwargs: object) -> SimpleNamespace:
+        events.append(("us", kwargs))
+        return SimpleNamespace(
+            coverage_receipt=CompleteCoverage(),
+            group={"capture_key": "us-financial-capture-key"},
+        )
+
+    def compile_us(**kwargs: object) -> object:
+        events.append(("compile", kwargs))
+        return object()
+
+    monkeypatch.setattr(
+        stage_preparer_module,
+        "_stage_capture_now",
+        lambda: datetime(2026, 7, 1, 6, 30, tzinfo=timezone.utc),
+    )
+    monkeypatch.setattr(
+        stage_preparer_module, "EconomicCalendarStore", lambda: object()
+    )
+    monkeypatch.setattr(stage_preparer_module, "USMacroArchiveStore", lambda: object())
+    monkeypatch.setattr(stage_preparer_module, "archive_eco_calendar", archive_calendar)
+    monkeypatch.setattr(stage_preparer_module, "archive_us_macro_sources", archive_us)
+    monkeypatch.setattr(stage_preparer_module, "compile_us_macro_snapshots", compile_us)
+    monkeypatch.setattr(
+        stage_preparer_module, "snapshot_cache_root", lambda: tmp_path / "snapshots"
+    )
+
+    request = {
+        **_ready_stage_request("us-financial-family"),
+        "agent_id": "us_financial_conditions",
+        "stage": "us_financial_conditions",
+    }
+    prepare_us_macro_family(request, ledger)
+
+    assert [name for name, _ in events] == ["calendar", "us", "compile"]
+    assert events[0][1]["requested_route_ids"] == (
+        "tushare.eco_cal.cny",
+        "tushare.eco_cal.usd",
+    )
+    assert (
+        events[1][1]["requested_route_ids"] == stage_preparer_module.US_MACRO_ROUTE_IDS
+    )
+    assert events[2][1]["requested_roles"] == ("us_financial_conditions",)
+    assert events[2][1]["exact_calendar_evidence_hash"] == HASH_B
+    assert events[2][1]["exact_cny_calendar_evidence_hash"] == HASH_A
 
 
 def test_us_macro_observation_start_crosses_year_boundary() -> None:
@@ -2408,9 +2604,7 @@ def test_us_family_route_only_capture_skips_unrelated_calendar_and_compile(
         events.append(("us", kwargs))
         return SimpleNamespace(
             source_receipts=(
-                SimpleNamespace(
-                    as_dict=lambda: {"identity": {"route_id": route_id}}
-                ),
+                SimpleNamespace(as_dict=lambda: {"identity": {"route_id": route_id}}),
             ),
             coverage_receipt=SimpleNamespace(
                 as_dict=lambda: {"coverage_complete": False}
@@ -2422,7 +2616,9 @@ def test_us_family_route_only_capture_skips_unrelated_calendar_and_compile(
     monkeypatch.setattr(
         stage_preparer_module,
         "archive_eco_calendar",
-        lambda *_args, **_kwargs: pytest.fail("calendar must not gate route-only capture"),
+        lambda *_args, **_kwargs: pytest.fail(
+            "calendar must not gate route-only capture"
+        ),
     )
     monkeypatch.setattr(stage_preparer_module, "archive_us_macro_sources", archive_us)
     monkeypatch.setattr(
@@ -2463,9 +2659,7 @@ def test_us_family_route_only_forwards_historical_replay(
         return SimpleNamespace(
             source_receipts=(
                 SimpleNamespace(
-                    as_dict=lambda: {
-                        "identity": {"route_id": "tushare.us_tycr"}
-                    }
+                    as_dict=lambda: {"identity": {"route_id": "tushare.us_tycr"}}
                 ),
             ),
             coverage_receipt=SimpleNamespace(
@@ -2511,6 +2705,8 @@ def test_europe_family_reuses_calendar_archive_and_compiler(
     calendar_requests: list[dict[str, str]] = []
 
     class CompleteCoverage:
+        receipt_hash = HASH_A
+
         @staticmethod
         def as_dict() -> dict:
             return {"coverage_complete": True}
@@ -2557,7 +2753,12 @@ def test_europe_family_reuses_calendar_archive_and_compiler(
         stage_preparer_module, "snapshot_cache_root", lambda: output_root
     )
 
-    prepare_europe_macro_family(_ready_stage_request("europe-family"), ledger)
+    request = {
+        **_ready_stage_request("europe-family"),
+        "agent_id": "eu_economy",
+        "stage": "eu_economy",
+    }
+    prepare_europe_macro_family(request, ledger)
 
     assert [name for name, _ in events] == ["calendar", "europe", "compile"]
     calendar_fetch = events[0][1]["fetch"]
@@ -2569,6 +2770,10 @@ def test_europe_family_reuses_calendar_archive_and_compiler(
         "as_of_date": "2026-07-01",
         "cutoff_at": "2026-07-01T15:00:00+08:00",
         "observation_start": "2025-01-01",
+        "requested_route_ids": (
+            "ecb.eu_real_economy",
+            "ecb.euro_macro",
+        ),
         "store": europe_store,
         "ledger": ledger,
     }
@@ -2577,7 +2782,90 @@ def test_europe_family_reuses_calendar_archive_and_compiler(
         "store": europe_store,
         "ledger": ledger,
         "output_root": output_root,
+        "requested_roles": ("eu_economy",),
+        "exact_calendar_evidence_hash": HASH_A,
     }
+    assert events[0][1]["requested_route_ids"] == ("tushare.eco_cal.eur",)
+    assert "market.euro_fx" not in events[1][1]["requested_route_ids"]
+    assert events[2][1]["requested_roles"] == ("eu_economy",)
+
+
+def test_europe_financial_family_requests_exact_routes_and_eur_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ledger = AgentDataMaterializationLedger(
+        tmp_path / "europe-financial-family.sqlite3"
+    )
+    events: list[tuple[str, dict]] = []
+
+    class CompleteCoverage:
+        receipt_hash = HASH_A
+
+        @staticmethod
+        def as_dict() -> dict:
+            return {"coverage_complete": True}
+
+    def archive_calendar(_fetch: object, **kwargs: object) -> SimpleNamespace:
+        events.append(("calendar", kwargs))
+        return SimpleNamespace(
+            coverage_receipt=CompleteCoverage(),
+            source_receipts=(
+                SimpleNamespace(
+                    receipt_hash=HASH_B,
+                    as_dict=lambda: {"identity": {"route_id": "tushare.eco_cal.eur"}},
+                ),
+            ),
+        )
+
+    def archive_europe(**kwargs: object) -> SimpleNamespace:
+        events.append(("europe", kwargs))
+        return SimpleNamespace(
+            coverage_receipt=CompleteCoverage(),
+            group={"capture_key": "europe-financial-capture-key"},
+        )
+
+    def compile_europe(**kwargs: object) -> object:
+        events.append(("compile", kwargs))
+        return object()
+
+    monkeypatch.setattr(
+        stage_preparer_module,
+        "_stage_capture_now",
+        lambda: datetime(2026, 7, 1, 6, 30, tzinfo=timezone.utc),
+    )
+    monkeypatch.setattr(
+        stage_preparer_module, "EconomicCalendarStore", lambda: object()
+    )
+    monkeypatch.setattr(
+        stage_preparer_module, "EuropeMacroArchiveStore", lambda: object()
+    )
+    monkeypatch.setattr(stage_preparer_module, "archive_eco_calendar", archive_calendar)
+    monkeypatch.setattr(
+        stage_preparer_module, "archive_europe_macro_sources", archive_europe
+    )
+    monkeypatch.setattr(
+        stage_preparer_module, "compile_europe_macro_snapshots", compile_europe
+    )
+    monkeypatch.setattr(
+        stage_preparer_module, "snapshot_cache_root", lambda: tmp_path / "snapshots"
+    )
+
+    request = {
+        **_ready_stage_request("europe-financial-family"),
+        "agent_id": "euro_area_financial_conditions",
+        "stage": "euro_area_financial_conditions",
+    }
+    prepare_europe_macro_family(request, ledger)
+
+    assert [name for name, _ in events] == ["calendar", "europe", "compile"]
+    assert events[0][1]["requested_route_ids"] == ("tushare.eco_cal.eur",)
+    assert events[1][1]["requested_route_ids"] == (
+        "ecb.euro_macro",
+        "market.euro_fx",
+    )
+    assert events[2][1]["requested_roles"] == ("euro_area_financial_conditions",)
+    assert events[2][1]["exact_calendar_evidence_hash"] == HASH_B
 
 
 @pytest.mark.parametrize(
@@ -2597,9 +2885,7 @@ def test_europe_family_route_only_capture_skips_unrelated_calendar_and_compile(
         events.append(("europe", kwargs))
         return SimpleNamespace(
             source_receipts=(
-                SimpleNamespace(
-                    as_dict=lambda: {"identity": {"route_id": route_id}}
-                ),
+                SimpleNamespace(as_dict=lambda: {"identity": {"route_id": route_id}}),
             ),
             coverage_receipt=SimpleNamespace(
                 as_dict=lambda: {"coverage_complete": False}
@@ -2613,7 +2899,9 @@ def test_europe_family_route_only_capture_skips_unrelated_calendar_and_compile(
     monkeypatch.setattr(
         stage_preparer_module,
         "archive_eco_calendar",
-        lambda *_args, **_kwargs: pytest.fail("calendar must not gate route-only capture"),
+        lambda *_args, **_kwargs: pytest.fail(
+            "calendar must not gate route-only capture"
+        ),
     )
     monkeypatch.setattr(
         stage_preparer_module, "archive_europe_macro_sources", archive_europe
@@ -2658,9 +2946,7 @@ def test_europe_family_route_only_forwards_historical_replay(
         return SimpleNamespace(
             source_receipts=(
                 SimpleNamespace(
-                    as_dict=lambda: {
-                        "identity": {"route_id": "market.euro_fx"}
-                    }
+                    as_dict=lambda: {"identity": {"route_id": "market.euro_fx"}}
                 ),
             ),
             coverage_receipt=SimpleNamespace(
@@ -2762,21 +3048,32 @@ def test_geopolitical_family_captures_then_materializes_existing_authority(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ledger = AgentDataMaterializationLedger(tmp_path / "geopolitical-family.sqlite3")
-    event_store = object()
+    license_decisions = {
+        source_id: {
+            "source_id": source_id,
+            "decision_id": f"decision:{source_id}",
+            "decision_hash": f"hash:{source_id}",
+            "decision_status": "APPROVED",
+            "permitted_use": "PUBLIC_METADATA_HASH_AND_DERIVED_EVENT",
+            "raw_source_content_commit_allowed": False,
+        }
+        for source_id in REQUIRED_SOURCE_IDS
+    }
+    event_store = SimpleNamespace(
+        latest_source_license_decisions=lambda _cutoff: license_decisions
+    )
     event_store_path = tmp_path / "geopolitical-events.sqlite3"
     output_root = tmp_path / "macro-snapshots"
     events: list[tuple[str, dict]] = []
 
     def capture_geo(**kwargs: object) -> dict:
         events.append(("geo", kwargs))
-        return {"all_sources_attempted": True}
+        return {"source_results": []}
 
     def materialize_geo(**kwargs: object) -> SimpleNamespace:
         events.append(("materialize", kwargs))
         return SimpleNamespace(
-            build_receipt=SimpleNamespace(
-                as_dict=lambda: {"terminal_state": "READY"}
-            )
+            build_receipt=SimpleNamespace(as_dict=lambda: {"terminal_state": "READY"})
         )
 
     monkeypatch.setattr(
@@ -2809,43 +3106,38 @@ def test_geopolitical_family_captures_then_materializes_existing_authority(
     prepare_geopolitical_family(_ready_stage_request("geopolitical-family"), ledger)
 
     assert [name for name, _ in events] == ["geo", "materialize"]
-    assert events[0][1] == {"store": event_store}
+    assert events[0][1] == {
+        "store": event_store,
+        "window_end": "2026-07-01T07:00:00+00:00",
+    }
     assert events[1][1] == {
         "as_of_date": "2026-07-01",
         "event_store": event_store,
         "ledger": ledger,
         "output_root": output_root,
+        "capture_group": {"source_results": []},
+        "license_decisions": license_decisions,
     }
 
 
-def test_geopolitical_family_fails_closed_when_materialization_is_blocked(
+def test_geopolitical_family_blocks_without_license_before_capture(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ledger = AgentDataMaterializationLedger(tmp_path / "geopolitical-blocked.sqlite3")
-    event_store = object()
+    event_store = SimpleNamespace(
+        latest_source_license_decisions=lambda _cutoff: {}
+    )
     monkeypatch.setattr(
         stage_preparer_module, "GeopoliticalEventStore", lambda _path: event_store
     )
     monkeypatch.setattr(
         stage_preparer_module,
         "capture_required_geopolitical_sources",
-        lambda **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        stage_preparer_module, "archive_eco_calendar", lambda *_args, **_kwargs: None
-    )
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "materialize_geopolitical_snapshot",
-        lambda **_kwargs: SimpleNamespace(
-            build_receipt=SimpleNamespace(
-                as_dict=lambda: {"terminal_state": "BLOCKED"}
-            )
-        ),
+        lambda **_kwargs: pytest.fail("license failure must precede transport"),
     )
 
-    with pytest.raises(DataVendorUnavailable, match="geopolitical archive is blocked"):
+    with pytest.raises(DataVendorUnavailable, match="licenses"):
         prepare_geopolitical_family(
             _ready_stage_request("geopolitical-blocked"), ledger
         )
@@ -2856,75 +3148,32 @@ def test_market_breadth_family_reuses_archive_adapter_and_compiler(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ledger = AgentDataMaterializationLedger(tmp_path / "market-breadth-family.sqlite3")
-    store = object()
-    archived = object()
-    events: list[tuple[str, dict]] = []
-
-    def archive_breadth(fetch: object, **kwargs: object) -> object:
-        events.append(("archive", {"fetch": fetch, **kwargs}))
-        return archived
-
-    def compile_breadth(archive: object, **kwargs: object) -> SimpleNamespace:
-        events.append(("compile", {"archive": archive, **kwargs}))
-        return SimpleNamespace(as_dict=lambda: {"terminal_state": "READY"})
-
-    monkeypatch.setattr(stage_preparer_module, "AShareArchiveStore", lambda: store)
+    archive_breadth = Mock()
+    compile_breadth = Mock()
     monkeypatch.setattr(
-        stage_preparer_module, "archive_a_share_breadth", archive_breadth
+        stage_preparer_module,
+        "archive_a_share_breadth",
+        archive_breadth,
+        raising=False,
     )
     monkeypatch.setattr(
         stage_preparer_module,
         "compile_a_share_breadth_snapshot",
         compile_breadth,
+        raising=False,
     )
 
-    prepare_market_breadth_family(
-        {
-            **_ready_stage_request("market-breadth-family"),
-            "historical_replay": True,
-        },
-        ledger,
-    )
-
-    assert [name for name, _ in events] == ["archive", "compile"]
-    assert events[0][1] == {
-        "fetch": stage_preparer_module.fetch_a_share_tushare_endpoint,
-        "as_of_date": "2026-07-01",
-        "cutoff_at": "2026-07-01T16:00:00+08:00",
-        "historical_replay": True,
-        "store": store,
-        "ledger": ledger,
-    }
-    assert events[1][1] == {
-        "archive": archived,
-        "as_of_date": "2026-07-01",
-        "ledger": ledger,
-    }
-
-
-def test_market_breadth_family_fails_closed_when_build_is_blocked(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    ledger = AgentDataMaterializationLedger(tmp_path / "market-breadth-blocked.sqlite3")
-    monkeypatch.setattr(stage_preparer_module, "AShareArchiveStore", lambda: object())
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "archive_a_share_breadth",
-        lambda *_args, **_kwargs: object(),
-    )
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "compile_a_share_breadth_snapshot",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            as_dict=lambda: {"terminal_state": "BLOCKED"}
-        ),
-    )
-
-    with pytest.raises(DataVendorUnavailable, match="A-share breadth archive is blocked"):
+    with pytest.raises(DataVendorUnavailable, match="no bounded aggregate authority"):
         prepare_market_breadth_family(
-            _ready_stage_request("market-breadth-blocked"), ledger
+            {
+                **_ready_stage_request("market-breadth-family"),
+                "historical_replay": True,
+            },
+            ledger,
         )
+
+    archive_breadth.assert_not_called()
+    compile_breadth.assert_not_called()
 
 
 def test_production_registry_includes_market_breadth_and_sector_families(
@@ -2970,8 +3219,7 @@ def test_production_registry_includes_market_breadth_and_sector_families(
     assert {
         agent_id
         for agent_id in sector_stages
-        if family_preparers[(agent_id, agent_id)]
-        is prepare_sector_relationship_family
+        if family_preparers[(agent_id, agent_id)] is prepare_sector_relationship_family
     } == sector_stages
 
 

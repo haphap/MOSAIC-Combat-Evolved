@@ -29,7 +29,6 @@ ROLE_EVENT_CURRENCIES: Final[dict[str, tuple[str, ...]]] = {
     "us_financial_conditions": ("USD", "CNY"),
     "euro_area_financial_conditions": ("EUR",),
     "commodities": ("USD", "CNY", "EUR"),
-    "geopolitical": ("CNY", "USD", "EUR"),
     "semiconductor": ("CNY", "USD", "EUR"),
     "technology": ("CNY", "USD", "EUR"),
     "energy": ("CNY", "USD", "EUR"),
@@ -131,8 +130,6 @@ def _projection_policy(
     }:
         if consumer == macro_owner:
             return consumer, "PRIMARY", "MACRO_FACTOR", "SIGNAL"
-        return macro_owner, "CONTEXT_ONLY", "MACRO_FACTOR", "TRANSMISSION"
-    if consumer == "geopolitical":
         return macro_owner, "CONTEXT_ONLY", "MACRO_FACTOR", "TRANSMISSION"
     if consumer in _SECTOR_KEYWORDS:
         text = str(event.get("normalized_event") or "")

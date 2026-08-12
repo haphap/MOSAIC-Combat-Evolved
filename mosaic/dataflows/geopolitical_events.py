@@ -16,7 +16,7 @@ import sqlite3
 from copy import deepcopy
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 from .cross_runtime_json import canonical_hash, canonical_json
@@ -1202,6 +1202,41 @@ class GeopoliticalEventStore:
             manifest=manifest or GEOPOLITICAL_INITIAL_SOURCE_MANIFEST,
         )
 
+    def latest_source_license_decisions(
+        self,
+        cutoff: datetime,
+        *,
+        manifest: Mapping[str, Any] | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        """Return the latest archived decision for each required source."""
+        if cutoff.tzinfo is None:
+            raise DataVendorUnavailable(
+                "geopolitical license decision cutoff must include a timezone"
+            )
+        resolved = manifest or GEOPOLITICAL_INITIAL_SOURCE_MANIFEST
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT payload_json FROM source_license_decisions "
+                "WHERE decided_at <= ? "
+                "ORDER BY source_id, decided_at DESC, decision_id DESC",
+                (cutoff.astimezone(timezone.utc).isoformat(),),
+            ).fetchall()
+        latest: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            payload = json.loads(row["payload_json"])
+            source_id = payload.get("source_id")
+            if source_id in latest:
+                continue
+            decision = validate_geopolitical_source_license_decision(
+                payload, manifest=resolved
+            )
+            latest[str(decision["source_id"])] = decision
+        return {
+            source_id: latest[source_id]
+            for source_id in sorted(REQUIRED_SOURCE_IDS)
+            if source_id in latest
+        }
+
     def latest_continuous_preflight_receipts(
         self, cutoff: datetime | None = None
     ) -> dict[str, dict[str, Any]]:
@@ -2036,20 +2071,98 @@ def build_geopolitical_events_snapshot(
     *,
     store: GeopoliticalEventStore | None = None,
     manifest: Mapping[str, Any] | None = None,
+    direct_source_capture_ids: Sequence[str] | None = None,
+    license_decisions: Mapping[str, Mapping[str, Any]] | None = None,
     allow_nonproduction_fixture: bool = False,
 ) -> dict[str, Any]:
     store = store or GeopoliticalEventStore(geopolitical_store_path())
     cutoff = _as_of_cutoff(as_of)
-    preflight_receipts = store.latest_continuous_preflight_receipts(cutoff)
+    base_manifest = dict(manifest or GEOPOLITICAL_INITIAL_SOURCE_MANIFEST)
+    direct_captures: dict[str, dict[str, Any]] = {}
+    direct_capture_cutoff: datetime | None = None
+    if direct_source_capture_ids is not None:
+        capture_ids = list(direct_source_capture_ids)
+        if len(capture_ids) != len(REQUIRED_SOURCE_IDS) or len(
+            set(capture_ids)
+        ) != len(capture_ids):
+            raise DataVendorUnavailable(
+                "geopolitical direct capture closure is not exactly one per source"
+            )
+        for capture_id in capture_ids:
+            capture = validate_source_capture_observation(
+                store.source_capture(capture_id), manifest=base_manifest
+            )
+            if capture["source_id"] in direct_captures:
+                raise DataVendorUnavailable(
+                    "geopolitical direct capture closure has duplicate source"
+                )
+            if (
+                capture["parse_result"] != "SUCCESS"
+                or capture["ingestion_mode"] != "TRUSTED_REGISTERED_PARSER"
+                or capture["pagination_complete"] is not True
+                or capture["truncated"] is not False
+                or capture["schema_verified"] is not True
+                or capture["publication_time_verified"] is not True
+                or capture["error_class"] is not None
+            ):
+                raise DataVendorUnavailable(
+                    f"geopolitical direct capture is not production-eligible: "
+                    f"{capture['source_id']}"
+                )
+            direct_captures[str(capture["source_id"])] = capture
+        if set(direct_captures) != set(REQUIRED_SOURCE_IDS):
+            raise DataVendorUnavailable(
+                "geopolitical direct capture closure lacks a required source"
+            )
+        direct_capture_cutoff = max(
+            _parse_datetime(capture["poll_completed_at"], "poll_completed_at")
+            for capture in direct_captures.values()
+        )
+        if not isinstance(license_decisions, Mapping) or set(
+            license_decisions
+        ) != set(REQUIRED_SOURCE_IDS):
+            raise DataVendorUnavailable(
+                "geopolitical direct capture lacks exact license decisions"
+            )
+        for source_id in sorted(REQUIRED_SOURCE_IDS):
+            decision = validate_geopolitical_source_license_decision(
+                license_decisions[source_id], manifest=base_manifest
+            )
+            if (
+                decision["source_id"] != source_id
+                or decision["decision_status"] != "APPROVED"
+                or decision["permitted_use"]
+                != "PUBLIC_METADATA_HASH_AND_DERIVED_EVENT"
+                or decision["raw_source_content_commit_allowed"] is not False
+                or _parse_datetime(decision["decided_at"], "license decided_at")
+                > direct_capture_cutoff
+            ):
+                raise DataVendorUnavailable(
+                    f"geopolitical source license is not approved: {source_id}"
+                )
+        preflight_receipts: dict[str, dict[str, Any]] = {}
+    else:
+        preflight_receipts = store.latest_continuous_preflight_receipts(cutoff)
     manifest = validate_geopolitical_manifest(
-        dict(manifest or GEOPOLITICAL_INITIAL_SOURCE_MANIFEST),
+        base_manifest,
         trusted_preflight_receipts=preflight_receipts,
         preflight_store=store,
     )
     registrations, adapters, _ = _manifest_indexes(manifest)
 
     latest_poll: dict[str, dict[str, Any]] = {}
-    for observation in store.polls_as_of(cutoff):
+    poll_rows = store.polls_as_of(direct_capture_cutoff or cutoff)
+    if direct_captures:
+        direct_poll_keys = {
+            (source_id, capture["poll_completed_at"])
+            for source_id, capture in direct_captures.items()
+        }
+        poll_rows = [
+            row
+            for row in poll_rows
+            if (row["source_id"], row["poll_completed_at"]) in direct_poll_keys
+        ]
+    for observation in poll_rows:
         current = latest_poll.get(observation["coverage_query_key"])
         if (
             current is None
@@ -2085,7 +2198,8 @@ def build_geopolitical_events_snapshot(
                 completed_at = observation["poll_completed_at"]
                 evidence_id = observation["coverage_evidence_id"]
                 completed = _parse_datetime(completed_at, "poll_completed_at")
-                age_minutes = (cutoff - completed).total_seconds() / 60
+                age_cutoff = direct_capture_cutoff or cutoff
+                age_minutes = (age_cutoff - completed).total_seconds() / 60
                 preflight_age_minutes = None
                 if preflight_receipt is not None:
                     preflight_completed = _parse_datetime(
@@ -2120,7 +2234,8 @@ def build_geopolitical_events_snapshot(
                     or observation["pagination_complete"] is not True
                     or observation["truncated"] is True
                     or (
-                        not allow_nonproduction_fixture
+                        not direct_captures
+                        and not allow_nonproduction_fixture
                         and (
                             preflight_receipt is None
                             or preflight_receipt.get("status") != "READY"
@@ -2170,8 +2285,20 @@ def build_geopolitical_events_snapshot(
             route_source_coverage.append(coverage)
 
     latest_events: dict[str, dict[str, Any]] = {}
-    for event in store.events_as_of(cutoff):
-        if _parse_datetime(event["retrieved_at"], "retrieved_at") > cutoff:
+    event_rows = store.events_as_of(direct_capture_cutoff or cutoff)
+    if direct_captures:
+        direct_completed_at = {
+            capture["poll_completed_at"] for capture in direct_captures.values()
+        }
+        event_rows = [
+            event
+            for event in event_rows
+            if event["retrieved_at"] in direct_completed_at
+        ]
+    for event in event_rows:
+        if not direct_captures and _parse_datetime(
+            event["retrieved_at"], "retrieved_at"
+        ) > cutoff:
             continue
         current = latest_events.get(event["geopolitical_event_id"])
         if current is None or event["retrieved_at"] > current["retrieved_at"]:
@@ -2250,7 +2377,7 @@ def build_geopolitical_events_snapshot(
     complete = all(
         row["status"] != "COVERAGE_UNAVAILABLE" for row in coverage_by_event_type
     )
-    manifest_ready = (
+    manifest_ready = bool(direct_captures) or (
         manifest["manifest_readiness"] == "READY" or allow_nonproduction_fixture
     )
     snapshot = {
@@ -2303,6 +2430,8 @@ def build_geopolitical_role_snapshot(
     *,
     store: GeopoliticalEventStore | None = None,
     manifest: Mapping[str, Any] | None = None,
+    direct_source_capture_ids: Sequence[str] | None = None,
+    license_decisions: Mapping[str, Mapping[str, Any]] | None = None,
     allow_nonproduction_fixture: bool = False,
 ) -> dict[str, Any]:
     """Project the full coverage audit into a bounded model-visible snapshot.
@@ -2319,6 +2448,8 @@ def build_geopolitical_role_snapshot(
             as_of,
             store=store,
             manifest=manifest,
+            direct_source_capture_ids=direct_source_capture_ids,
+            license_decisions=license_decisions,
             allow_nonproduction_fixture=allow_nonproduction_fixture,
         )
         if snapshot["readiness"] != "READY":

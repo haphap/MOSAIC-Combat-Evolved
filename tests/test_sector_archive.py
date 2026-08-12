@@ -784,53 +784,76 @@ def _endpoint_row(endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def test_membership_batches_runs_vendor_fetches_on_caller_thread(
-    monkeypatch,
-) -> None:
-    plan = {
-        "sector_agent_id": "semiconductor",
-        "query_plan_hash": f"sha256:{'b' * 64}",
-        "branches": [
-            {
-                "endpoint": "index_member_all",
-                "parameter": "l3_code",
-                "classification_code": "850111.SI",
-                "is_new": "Y",
-            },
-            {
-                "endpoint": "index_member_all",
-                "parameter": "l2_code",
-                "classification_code": "801011.SI",
-                "is_new": "Y",
-            },
-        ],
-    }
-    monkeypatch.setitem(
-        sector_archive.SECTOR_UNIVERSE_MANIFEST,
-        "membership_query_plans",
-        [plan],
-    )
+def test_membership_batches_runs_vendor_fetches_on_caller_thread() -> None:
     caller_id = threading.get_ident()
     calls: list[tuple[int, str, dict[str, Any]]] = []
 
     def fetch(endpoint: str, **params: Any) -> list[dict[str, Any]]:
         calls.append((threading.get_ident(), endpoint, dict(params)))
-        if int(params.get("offset", 0)):
-            return []
-        return [_endpoint_row(endpoint, params)]
+        row = _endpoint_row(endpoint, params)
+        row.update(
+            {
+                "l2_code": params["l2_code"],
+                "l3_code": "850812.SI",
+                "is_new": params["is_new"],
+            }
+        )
+        return [row, dict(row)] if params["is_new"] == "Y" else [row]
 
-    batches, _duplicates, pages = sector_archive._membership_batches(
+    batches, duplicates, pages = sector_archive._membership_batches(
         fetch,
         "2026-08-06T15:01:00+08:00",
         requested_agent_ids=("semiconductor",),
     )
 
     assert {thread_id for thread_id, _endpoint, _params in calls} == {caller_id}
+    assert len(calls) == 2
     assert len(batches) == 2
+    assert [params for _thread_id, _endpoint, params in calls] == [
+        {"l2_code": "801081.SI", "is_new": "Y"},
+        {"l2_code": "801081.SI", "is_new": "N"},
+    ]
+    assert all(
+        "offset" not in params and "limit" not in params
+        for _, _, params in calls
+    )
+    assert duplicates == 1
+    assert pages == 2
     assert {
         batch["request"]["classification_code"] for batch in batches
-    } == {"850111.SI", "801011.SI"}
-    assert pages == len(calls)
+    } == {"801081.SI"}
+    assert {batch["request"]["parameter"] for batch in batches} == {"l2_code"}
+    assert all(
+        batch["request"]["covered_l3_codes"]
+        == [
+            "850812.SI",
+            "850813.SI",
+            "850814.SI",
+            "850815.SI",
+            "850816.SI",
+            "850817.SI",
+            "850818.SI",
+        ]
+        for batch in batches
+    )
+
+    def capped_fetch(endpoint: str, **params: Any) -> list[dict[str, Any]]:
+        row = _endpoint_row(endpoint, params)
+        row.update(
+            {
+                "l2_code": params["l2_code"],
+                "l3_code": "850812.SI",
+                "is_new": params["is_new"],
+            }
+        )
+        return [{**row, "ts_code": f"{index:06d}.SZ"} for index in range(2000)]
+
+    with pytest.raises(ASharePaginationError, match="official cap"):
+        sector_archive._membership_batches(
+            capped_fetch,
+            "2026-08-06T15:01:00+08:00",
+            requested_agent_ids=("semiconductor",),
+        )
 
 
 
@@ -877,6 +900,8 @@ def test_capture_group_executes_registered_incremental_routes(
         calls.append((endpoint, dict(params)))
         if int(params.get("offset", 0)):
             return []
+        if endpoint == "stock_basic" and params["ts_code"] == "002257.SZ":
+            return []
         if endpoint == "trade_cal":
             start = sector_archive.date.fromisoformat(
                 f"{params['start_date'][:4]}-{params['start_date'][4:6]}-"
@@ -897,7 +922,10 @@ def test_capture_group_executes_registered_incremental_routes(
                     for offset in range((end - start).days + 1)
                 )
             ]
-        return [_endpoint_row(endpoint, params)]
+        row = _endpoint_row(endpoint, params)
+        if endpoint == "index_member_all":
+            return [row, {**row, "ts_code": "002257.SZ"}]
+        return [row]
 
     group = _build_capture_group(
         fetch,
@@ -928,6 +956,21 @@ def test_capture_group_executes_registered_incremental_routes(
     }
     assert group["page_count"] == len(calls)
     assert "compiled_snapshot_hashes" not in group
+    stock_basic = next(
+        batch for batch in group["batches"] if batch["endpoint"] == "stock_basic"
+    )
+    assert stock_basic["request"]["ts_codes"] == ["000001.SZ", "002257.SZ"]
+    assert {row["ts_code"] for row in stock_basic["rows"]} == {"000001.SZ"}
+    assert stock_basic["query_count"] == stock_basic["completed_query_count"] == 2
+    assert [
+        params for endpoint, params in calls if endpoint == "stock_basic"
+    ] == [{"ts_code": "000001.SZ"}, {"ts_code": "002257.SZ"}]
+    assert all(
+        params.get("ts_code") != "002257.SZ"
+        for endpoint, params in calls
+        if endpoint not in {"index_member_all", "stock_basic"}
+    )
+    assert group["capture_scope"]["security_codes"] == ["000001.SZ"]
     assert all(
         batch.get("coverage_ratio") == 1.0
         for batch in group["batches"]

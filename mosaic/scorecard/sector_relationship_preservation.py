@@ -183,13 +183,15 @@ def argument_schema_for_tool(tool_id: str) -> dict[str, Any]:
             }
         )
     if tool_id == "get_industry_policy_digest":
-        return _object_schema(
+        schema = _object_schema(
             {
                 "as_of": date_schema,
                 "lookback_days": {"type": "integer", "minimum": 1, "default": 7},
                 "source": {"type": "string", "enum": ["govcn"], "default": "govcn"},
             }
         )
+        schema["properties"]["topic"] = {"type": "string", "minLength": 1}
+        return schema
     if tool_id in {"get_broker_research", "get_stock_research"}:
         return _object_schema(
             {

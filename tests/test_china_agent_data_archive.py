@@ -5,6 +5,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -20,6 +21,7 @@ from mosaic.dataflows.china_agent_data_archive import (
     INSTITUTIONAL_ETF_UNIVERSE,
     ChinaAgentDataArchiveStore,
     archive_china_agent_sources as _archive_china_agent_sources_impl,
+    compile_china_agent_snapshot,
     compile_china_agent_snapshots,
 )
 from mosaic.dataflows.exceptions import DataVendorUnavailable
@@ -42,9 +44,7 @@ def _official_curve_fixture(
     return {
         "schema_version": "mof_chinabond_government_yield_curve_v1",
         "provider": "MOF_CHINABOND",
-        "source_url": (
-            "https://yield.chinabond.com.cn/cbweb-czb-web/czb/historyQuery"
-        ),
+        "source_url": ("https://yield.chinabond.com.cn/cbweb-czb-web/czb/historyQuery"),
         "yield_type": "MATURITY",
         "release_time": "17:30:00+08:00",
         "request_windows": [{"start_date": start_date, "end_date": end_date}],
@@ -118,11 +118,21 @@ def _official_documents() -> list[dict]:
     return [
         _document(
             "nbs_industrial_activity",
-            [_observation("cn_industrial_yoy", "official.nbs_industrial_value_added", 5.1)],
+            [
+                _observation(
+                    "cn_industrial_yoy", "official.nbs_industrial_value_added", 5.1
+                )
+            ],
         ),
         _document(
             "nbs_fixed_asset_investment",
-            [_observation("cn_fixed_asset_investment_yoy", "official.nbs_fixed_asset_investment", 3.2)],
+            [
+                _observation(
+                    "cn_fixed_asset_investment_yoy",
+                    "official.nbs_fixed_asset_investment",
+                    3.2,
+                )
+            ],
         ),
         _document(
             "nbs_retail_sales",
@@ -130,21 +140,44 @@ def _official_documents() -> list[dict]:
         ),
         _document(
             "nbs_employment_release",
-            [_observation("cn_urban_unemployment_rate", "official.nbs_employment_release", 5.0)],
+            [
+                _observation(
+                    "cn_urban_unemployment_rate", "official.nbs_employment_release", 5.0
+                )
+            ],
         ),
         _document(
             "nbs_cpi_release",
-            [_observation("cn_cpi_official_yoy", "official.nbs_price_release_verification", 0.6)],
+            [
+                _observation(
+                    "cn_cpi_official_yoy",
+                    "official.nbs_price_release_verification",
+                    0.6,
+                )
+            ],
         ),
         _document(
             "nbs_ppi_release",
-            [_observation("cn_ppi_official_yoy", "official.nbs_price_release_verification", -0.8)],
+            [
+                _observation(
+                    "cn_ppi_official_yoy",
+                    "official.nbs_price_release_verification",
+                    -0.8,
+                )
+            ],
         ),
         _document(
             "pboc_financial_statistics",
             [
-                _observation("cn_tsfin_stock_yoy", "official.pboc_tsfin_flow_stock", 8.8),
-                _observation("cn_rmb_loan_flow", "official.pboc_rmb_loans", 1.2, unit="trillion_cny"),
+                _observation(
+                    "cn_tsfin_stock_yoy", "official.pboc_tsfin_flow_stock", 8.8
+                ),
+                _observation(
+                    "cn_rmb_loan_flow",
+                    "official.pboc_rmb_loans",
+                    1.2,
+                    unit="trillion_cny",
+                ),
                 _observation("cn_m2_yoy", "official.pboc_money_stock", 7.1),
             ],
         ),
@@ -162,16 +195,32 @@ def _official_documents() -> list[dict]:
             "customs_monthly_trade",
             [
                 _observation("cn_trade_total_yoy", "official.customs_total_trade", 5.0),
-                _observation("cn_trade_exports_yoy", "official.customs_partner_trade", 6.0),
-                _observation("cn_trade_imports_yoy", "official.customs_partner_trade", 4.0),
-                _observation("cn_trade_high_tech_exports_yoy", "official.customs_major_goods_trade", 3.0),
+                _observation(
+                    "cn_trade_exports_yoy", "official.customs_partner_trade", 6.0
+                ),
+                _observation(
+                    "cn_trade_imports_yoy", "official.customs_partner_trade", 4.0
+                ),
+                _observation(
+                    "cn_trade_high_tech_exports_yoy",
+                    "official.customs_major_goods_trade",
+                    3.0,
+                ),
             ],
         ),
         _document(
             "mof_fiscal_release",
             [
-                _observation("cn_fiscal_general_budget_yoy", "official.mof_general_public_budget", 2.0),
-                _observation("cn_fiscal_government_fund_yoy", "official.mof_government_fund_budget", -1.0),
+                _observation(
+                    "cn_fiscal_general_budget_yoy",
+                    "official.mof_general_public_budget",
+                    2.0,
+                ),
+                _observation(
+                    "cn_fiscal_government_fund_yoy",
+                    "official.mof_government_fund_budget",
+                    -1.0,
+                ),
             ],
         ),
     ]
@@ -226,13 +275,16 @@ def _fake_callbacks(*, deny_curve: bool = True):
         if endpoint == "cn_gdp":
             return [{"quarter": "2026Q2", "gdp_yoy": 5.0}]
         if endpoint == "cn_pmi":
-            return [{"MONTH": "202607", "PMI010000": 50.2}]
+            return [{"month": "202607", "pmi010000": 50.2}]
         if endpoint == "cn_cpi":
             return [{"month": "202607", "nt_yoy": 0.6}]
         if endpoint == "cn_ppi":
             return [{"month": "202607", "ppi_yoy": -0.8}]
         if endpoint == "fut_basic":
-            return _contract_rows(params["exchange"])
+            rows = _contract_rows(params["exchange"])
+            if params.get("fut_code"):
+                rows = [row for row in rows if row["fut_code"] == params["fut_code"]]
+            return rows
         if endpoint == "fut_daily":
             requested_code = params.get("ts_code")
             exchanges = (
@@ -263,7 +315,7 @@ def _fake_callbacks(*, deny_curve: bool = True):
         if endpoint == "fut_wsr":
             if int(params.get("offset", 0)):
                 return []
-            return [
+            rows = [
                 {
                     "trade_date": SESSION,
                     "symbol": family.split("@", 1)[0],
@@ -276,12 +328,23 @@ def _fake_callbacks(*, deny_curve: bool = True):
                 }
                 for family in ("SC@INE", "CU@SHFE", "AU@SHFE", "C@DCE", "M@DCE")
             ]
+            if params.get("symbol"):
+                rows = [row for row in rows if row["symbol"] == params["symbol"]]
+            return rows
         if endpoint == "moneyflow_hsgt":
-            return [{"trade_date": SESSION, "north_money": 12.5, "hgt": 6.0, "sgt": 6.5}]
-        if endpoint == "moneyflow_ind_ths":
-            if int(params.get("offset", 0)):
-                return []
             return [
+                {"trade_date": SESSION, "north_money": 12.5, "hgt": 6.0, "sgt": 6.5}
+            ]
+        if endpoint == "moneyflow":
+            return [
+                {
+                    "trade_date": SESSION,
+                    "ts_code": params["ts_code"],
+                    "net_mf_amount": 10.0,
+                }
+            ]
+        if endpoint == "moneyflow_ind_ths":
+            rows = [
                 {
                     "trade_date": SESSION,
                     "ts_code": "881155.TI",
@@ -311,6 +374,7 @@ def _fake_callbacks(*, deny_curve: bool = True):
                     "net_amount": -2.0,
                 },
             ]
+            return [row for row in rows if row["ts_code"] == params["ts_code"]]
         if endpoint == "fund_share":
             return [
                 {
@@ -322,10 +386,21 @@ def _fake_callbacks(*, deny_curve: bool = True):
                 }
             ]
         if endpoint == "daily_basic":
-            return [
-                {"ts_code": "000001.SZ", "trade_date": SESSION, "turnover_rate": 2.0, "volume_ratio": 1.1},
-                {"ts_code": "600000.SH", "trade_date": SESSION, "turnover_rate": 1.5, "volume_ratio": 0.9},
+            rows = [
+                {
+                    "ts_code": "000001.SZ",
+                    "trade_date": SESSION,
+                    "turnover_rate": 2.0,
+                    "volume_ratio": 1.1,
+                },
+                {
+                    "ts_code": "600000.SH",
+                    "trade_date": SESSION,
+                    "turnover_rate": 1.5,
+                    "volume_ratio": 0.9,
+                },
             ]
+            return [row for row in rows if row["ts_code"] == params["ts_code"]]
         if endpoint == "shibor":
             return [{"date": SESSION, "on": 1.4, "3m": 1.6}]
         raise AssertionError(f"unexpected endpoint: {endpoint}")
@@ -395,7 +470,9 @@ def _calendar_receipt(route_id: str) -> SourceCaptureReceipt:
     return SourceCaptureReceipt.seal(payload)
 
 
-def _archive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, deny_curve: bool = True):
+def _archive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, deny_curve: bool = True
+):
     from mosaic.dataflows import china_agent_data_archive
 
     monkeypatch.setattr(china_agent_data_archive, "_capture_now", lambda: CAPTURED_AT)
@@ -428,9 +505,24 @@ def test_empty_cache_archives_three_ready_routes_and_official_curve_blocker(
         "tushare.institutional_flow",
         "composite.cn_rates",
     }
-    assert result.routes["official.cn_macro+tushare.cn_macro"].coverage_receipt.as_dict()["coverage_complete"] is True
-    assert result.routes["tushare.commodities"].coverage_receipt.as_dict()["coverage_complete"] is True
-    assert result.routes["tushare.institutional_flow"].coverage_receipt.as_dict()["coverage_complete"] is True
+    assert (
+        result.routes["official.cn_macro+tushare.cn_macro"].coverage_receipt.as_dict()[
+            "coverage_complete"
+        ]
+        is True
+    )
+    assert (
+        result.routes["tushare.commodities"].coverage_receipt.as_dict()[
+            "coverage_complete"
+        ]
+        is True
+    )
+    assert (
+        result.routes["tushare.institutional_flow"].coverage_receipt.as_dict()[
+            "coverage_complete"
+        ]
+        is True
+    )
     curve = result.routes["composite.cn_rates"]
     assert curve.group is None
     assert curve.coverage_receipt.as_dict()["blocker_codes"] == ["SCHEMA_DRIFT"]
@@ -438,25 +530,23 @@ def test_empty_cache_archives_three_ready_routes_and_official_curve_blocker(
     assert counts["official"] == 1
     assert "yc_cb" not in counts
     assert counts["fund_share"] == len(INSTITUTIONAL_ETF_UNIVERSE)
-    assert counts["fut_wsr"] == 4
+    assert counts["fut_wsr"] == 5
     assert {
         row["ts_code"]
-        for row in result.routes["tushare.institutional_flow"].group[
-            "fund_share_rows"
-        ]
+        for row in result.routes["tushare.institutional_flow"].group["fund_share_rows"]
     } == set(INSTITUTIONAL_ETF_UNIVERSE)
     institutional_group = result.routes["tushare.institutional_flow"].group
-    assert institutional_group["industry_history_start"] == "2026-06-08"
-    assert {row["trade_date"] for row in institutional_group["industry_history_rows"]} == {
-        f"{SESSION[:4]}-{SESSION[4:6]}-{SESSION[6:]}"
+    assert {row["ts_code"] for row in institutional_group["industry_rows"]} == {
+        "881121.TI",
+        "881155.TI",
     }
-    assert institutional_group["industry_transport_call_count"] == 4
-    assert institutional_group["industry_transport_call_count"] == counts[
-        "moneyflow_ind_ths"
-    ]
-    official_dimensions = result.routes[CHINA_ROUTE_GROUP].source_receipts[0].as_dict()[
-        "coverage"
-    ]["dimensions"]
+    assert counts["moneyflow_ind_ths"] == 2
+    assert counts["daily_basic"] == 2
+    official_dimensions = (
+        result.routes[CHINA_ROUTE_GROUP]
+        .source_receipts[0]
+        .as_dict()["coverage"]["dimensions"]
+    )
     assert set(official_dimensions["document_type"]) == {
         "nbs_industrial_activity",
         "nbs_fixed_asset_investment",
@@ -472,9 +562,12 @@ def test_empty_cache_archives_three_ready_routes_and_official_curve_blocker(
         "customs_monthly_trade",
         "mof_fiscal_release",
     }
-    assert ledger.source_status(as_of=AS_OF, route_id="tushare.commodities")["status"] == "READY"
+    assert (
+        ledger.source_status(as_of=AS_OF, route_id="tushare.commodities")["status"]
+        == "READY"
+    )
     commodity_receipt = result.routes["tushare.commodities"].source_receipts[0]
-    assert commodity_receipt.as_dict()["transport"]["page_count"] == 17
+    assert commodity_receipt.as_dict()["transport"]["page_count"] == 20
 
 
 def test_institutional_historical_replay_preserves_real_capture_time(
@@ -483,9 +576,7 @@ def test_institutional_historical_replay_preserves_real_capture_time(
     from mosaic.dataflows import china_agent_data_archive
 
     captured_at = datetime(2026, 8, 11, 7, 40, tzinfo=timezone.utc)
-    monkeypatch.setattr(
-        china_agent_data_archive, "_capture_now", lambda: captured_at
-    )
+    monkeypatch.setattr(china_agent_data_archive, "_capture_now", lambda: captured_at)
     store = ChinaAgentDataArchiveStore(tmp_path / "historical-china.sqlite3")
     ledger = AgentDataMaterializationLedger(tmp_path / "historical-ledger.sqlite3")
     counts, fetch_official, fetch_tushare = _fake_callbacks()
@@ -509,14 +600,207 @@ def test_institutional_historical_replay_preserves_real_capture_time(
     assert route.group["captured_at"] == captured_at.isoformat()
     assert route.group["cutoff_at"] == captured_at.isoformat()
     receipt = route.source_receipts[0].as_dict()
+    assert receipt["pit"]["eligible"] is True
     assert receipt["time"]["captured_at"] == captured_at.isoformat()
     assert receipt["pit"]["as_of_cutoff"] == captured_at.isoformat()
     assert set(counts) == {
-        "moneyflow_hsgt",
+        "moneyflow",
         "moneyflow_ind_ths",
         "fund_share",
         "daily_basic",
     }
+
+
+def test_institutional_capture_uses_fixed_universe_without_pagination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mosaic.dataflows import china_agent_data_archive
+
+    as_of = "2026-06-17"
+    session = "20260617"
+    cutoff = "2026-06-17T15:00:00+08:00"
+    captured_at = datetime(2026, 8, 12, 6, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(china_agent_data_archive, "_capture_now", lambda: captured_at)
+    calls: list[tuple[str, dict[str, str]]] = []
+
+    def fetch_tushare(*, endpoint: str, **params: str) -> list[dict]:
+        calls.append((endpoint, dict(params)))
+        if endpoint == "moneyflow":
+            return [
+                {
+                    "trade_date": session,
+                    "ts_code": params["ts_code"],
+                    "net_mf_amount": 10.0,
+                }
+            ]
+        if endpoint == "moneyflow_ind_ths":
+            return [
+                {
+                    "trade_date": session,
+                    "ts_code": params["ts_code"],
+                    "industry": "银行" if params["ts_code"] == "881121.TI" else "电子",
+                    "net_amount": 10.0,
+                }
+            ]
+        if endpoint == "fund_share":
+            return [
+                {
+                    "trade_date": session,
+                    "ts_code": params["ts_code"],
+                    "fd_share": 100.0,
+                }
+            ]
+        if endpoint == "daily_basic":
+            return [
+                {
+                    "trade_date": session,
+                    "ts_code": params["ts_code"],
+                    "turnover_rate": 2.0,
+                    "volume_ratio": 1.0,
+                }
+            ]
+        raise AssertionError(endpoint)
+
+    store = ChinaAgentDataArchiveStore(tmp_path / "institutional-exact.sqlite3")
+    ledger = AgentDataMaterializationLedger(
+        tmp_path / "institutional-exact-ledger.sqlite3"
+    )
+    result = archive_china_agent_sources(
+        as_of_date=as_of,
+        cutoff_at=cutoff,
+        market_session_date=session,
+        requested_route_ids=(INSTITUTIONAL_ROUTE_GROUP,),
+        historical_replay=True,
+        store=store,
+        ledger=ledger,
+        fetch_tushare=fetch_tushare,
+    )
+    route = result.routes[INSTITUTIONAL_ROUTE_GROUP]
+    assert route.group is not None
+    assert route.coverage_receipt.as_dict()["coverage_complete"] is True
+    assert len(calls) == 11
+    assert [endpoint for endpoint, _ in calls].count("moneyflow") == 2
+    assert [endpoint for endpoint, _ in calls].count("moneyflow_ind_ths") == 2
+    assert [endpoint for endpoint, _ in calls].count("fund_share") == 5
+    assert [endpoint for endpoint, _ in calls].count("daily_basic") == 2
+    assert all("offset" not in params and "limit" not in params for _, params in calls)
+    assert all(
+        set(params) == {"ts_code", "trade_date"}
+        for endpoint, params in calls
+        if endpoint == "moneyflow"
+    )
+    assert all(
+        set(params) == {"ts_code", "trade_date"}
+        for endpoint, params in calls
+        if endpoint in {"moneyflow_ind_ths", "daily_basic"}
+    )
+    assert all(
+        set(params) == {"ts_code", "start_date", "end_date"}
+        and params["start_date"] == params["end_date"] == session
+        for endpoint, params in calls
+        if endpoint == "fund_share"
+    )
+    receipt = route.source_receipts[0].as_dict()
+    assert receipt["transport"]["page_count"] == 11
+    assert receipt["transport"]["pagination_policy"] == (
+        "EXACT_REQUEST_SET_NO_PAGINATION"
+    )
+    assert receipt["transport"]["query_keys"] == [
+        "end_date",
+        "start_date",
+        "trade_date",
+        "ts_code",
+    ]
+    assert receipt["content"]["normalized_row_count"] == 11
+    assert receipt["coverage"]["dimensions"]["endpoint"] == [
+        "daily_basic",
+        "fund_share",
+        "moneyflow",
+        "moneyflow_ind_ths",
+    ]
+    assert receipt["coverage"]["dimensions"]["industry"] == [
+        "881121.TI",
+        "881155.TI",
+    ]
+    assert receipt["coverage"]["dimensions"]["crowding"] == [
+        "000001.SZ",
+        "600000.SH",
+    ]
+    assert receipt["coverage"]["dimensions"]["etf"] == list(INSTITUTIONAL_ETF_UNIVERSE)
+    assert route.group["industry_rows"]
+    assert "industry_history_rows" not in route.group
+    assert "industry_transport_call_count" not in route.group
+    raw, _ = china_agent_data_archive._institutional_snapshot(
+        route.group, route.source_receipts[0]
+    )
+    assert raw["component_coverage"]["market_wide_flow"] == {
+        "eligible_count": 2,
+        "observed_count": 2,
+        "coverage_ratio": 1.0,
+    }
+    assert {row["series_id"] for row in raw["observations"]} == {
+        "market_flow_registered_universe_net_amount",
+        "sector_rotation_registered_universe_net_amount",
+        "etf_share_registered_universe",
+        "crowding_registered_universe_turnover_median",
+    }
+    assert (
+        next(
+            row
+            for row in raw["observations"]
+            if row["series_id"] == "market_flow_registered_universe_net_amount"
+        )["unit"]
+        == "10k_cny"
+    )
+    assert (
+        next(
+            row
+            for row in raw["observations"]
+            if row["series_id"] == "market_flow_registered_universe_net_amount"
+        )["actual"]
+        == 20.0
+    )
+    output_root = tmp_path / "institutional-snapshots"
+    built = compile_china_agent_snapshots(
+        archive=result,
+        store=store,
+        ledger=ledger,
+        output_root=output_root,
+        requested_roles=("institutional_flow",),
+    )
+    assert set(built.snapshots) == {"institutional_flow"}
+    assert len(built.build_receipts) == 1
+    assert len(built.build_receipts[0].as_dict()["source_receipt_hashes"]) == 1
+    assert sorted(path.name for path in (output_root / as_of).iterdir()) == [
+        "institutional_flow.json"
+    ]
+    assert all(
+        observation["released_at"] <= cutoff and observation["vintage_at"] <= cutoff
+        for observation in built.snapshots["institutional_flow"]["observations"]
+    )
+
+    def unrelated_industry(*, endpoint: str, **params: str) -> list[dict]:
+        rows = fetch_tushare(endpoint=endpoint, **params)
+        if endpoint == "moneyflow_ind_ths" and params["ts_code"] == "881121.TI":
+            rows[0]["ts_code"] = "999999.TI"
+        return rows
+
+    blocked = archive_china_agent_sources(
+        as_of_date=as_of,
+        cutoff_at=cutoff,
+        market_session_date=session,
+        requested_route_ids=(INSTITUTIONAL_ROUTE_GROUP,),
+        historical_replay=True,
+        store=ChinaAgentDataArchiveStore(tmp_path / "institutional-bad.sqlite3"),
+        ledger=AgentDataMaterializationLedger(
+            tmp_path / "institutional-bad-ledger.sqlite3"
+        ),
+        fetch_tushare=unrelated_industry,
+    )
+    assert blocked.routes[INSTITUTIONAL_ROUTE_GROUP].group is None
+    assert blocked.routes[INSTITUTIONAL_ROUTE_GROUP].coverage_receipt.as_dict()[
+        "blocker_codes"
+    ] == ["SCHEMA_DRIFT"]
 
 
 @pytest.mark.parametrize(
@@ -546,9 +830,7 @@ def test_each_remaining_china_route_preserves_historical_replay_capture_time(
     from mosaic.dataflows import china_agent_data_archive
 
     captured_at = datetime(2026, 8, 11, 7, 45, tzinfo=timezone.utc)
-    monkeypatch.setattr(
-        china_agent_data_archive, "_capture_now", lambda: captured_at
-    )
+    monkeypatch.setattr(china_agent_data_archive, "_capture_now", lambda: captured_at)
     store = ChinaAgentDataArchiveStore(tmp_path / f"historical-{route_id}.sqlite3")
     ledger = AgentDataMaterializationLedger(
         tmp_path / f"historical-{route_id}-ledger.sqlite3"
@@ -600,9 +882,7 @@ def test_official_historical_replay_accepts_real_retrieval_after_historical_cuto
     from mosaic.dataflows import china_agent_data_archive
 
     captured_at = datetime(2026, 8, 11, 7, 50, tzinfo=timezone.utc)
-    monkeypatch.setattr(
-        china_agent_data_archive, "_capture_now", lambda: captured_at
-    )
+    monkeypatch.setattr(china_agent_data_archive, "_capture_now", lambda: captured_at)
     documents = _official_documents()
     for document in documents:
         document["retrieved_at"] = captured_at.isoformat()
@@ -653,7 +933,7 @@ def test_official_historical_replay_accepts_real_retrieval_after_historical_cuto
         (
             INSTITUTIONAL_ROUTE_GROUP,
             INSTITUTIONAL_ROUTE_GROUP,
-            {"moneyflow_hsgt", "moneyflow_ind_ths", "fund_share", "daily_basic"},
+            {"moneyflow", "moneyflow_ind_ths", "fund_share", "daily_basic"},
         ),
         (CURVE_ROUTE_GROUP, CURVE_ROUTE_GROUP, {"shibor"}),
     ),
@@ -688,8 +968,7 @@ def test_route_only_capture_calls_only_requested_china_source(
     assert route.group is not None
     assert route.group["route_ids"] == [route_id]
     assert {
-        receipt.as_dict()["identity"]["route_id"]
-        for receipt in route.source_receipts
+        receipt.as_dict()["identity"]["route_id"] for receipt in route.source_receipts
     } == {route_id}
     coverage = route.coverage_receipt.as_dict()
     assert coverage["required_route_ids"] == [route_id]
@@ -721,9 +1000,7 @@ def test_curve_route_uses_official_mof_curve_and_never_calls_yc_cb(
             "source_url": "https://yield.chinabond.com.cn/cbweb-czb-web/czb/historyQuery",
             "yield_type": "MATURITY",
             "release_time": "17:30:00+08:00",
-            "request_windows": [
-                {"start_date": start_date, "end_date": end_date}
-            ],
+            "request_windows": [{"start_date": start_date, "end_date": end_date}],
             "response_hashes": [canonical_hash({"fixture": SESSION})],
             "rows": [
                 {
@@ -781,9 +1058,7 @@ def test_curve_route_selects_latest_complete_session_released_before_cutoff(
             ),
             "yield_type": "MATURITY",
             "release_time": "17:30:00+08:00",
-            "request_windows": [
-                {"start_date": start_date, "end_date": end_date}
-            ],
+            "request_windows": [{"start_date": start_date, "end_date": end_date}],
             "response_hashes": [canonical_hash({"fixture": end_date})],
             "rows": [
                 {
@@ -820,9 +1095,7 @@ def test_curve_route_selects_latest_complete_session_released_before_cutoff(
     assert {row["trade_date"] for row in group["government_curve_rows"]} == {
         "2026-08-07"
     }
-    assert tushare_calls == [
-        {"start_date": "20260807", "end_date": "20260807"}
-    ]
+    assert tushare_calls == [{"start_date": "20260807", "end_date": "20260807"}]
 
 
 def test_commodity_daily_capture_queries_only_registered_exact_contracts(
@@ -834,11 +1107,11 @@ def test_commodity_daily_capture_queries_only_registered_exact_contracts(
     store = ChinaAgentDataArchiveStore(tmp_path / "commodity-exact.sqlite3")
     ledger = AgentDataMaterializationLedger(tmp_path / "commodity-exact-ledger.sqlite3")
     _, fetch_official, base_fetch = _fake_callbacks(deny_curve=False)
-    daily_requests: list[dict[str, str]] = []
+    requests: list[tuple[str, dict[str, str]]] = []
 
     def fetch_tushare(*, endpoint: str, **params: str) -> list[dict]:
-        if endpoint == "fut_daily":
-            daily_requests.append(dict(params))
+        if endpoint in {"fut_basic", "fut_daily", "fut_wsr"}:
+            requests.append((endpoint, dict(params)))
         return base_fetch(endpoint=endpoint, **params)
 
     result = archive_china_agent_sources(
@@ -852,23 +1125,211 @@ def test_commodity_daily_capture_queries_only_registered_exact_contracts(
         fetch_tushare=fetch_tushare,
     )
 
+    assert len(requests) == 20
+    assert [endpoint for endpoint, _ in requests].count("fut_basic") == 5
+    assert [endpoint for endpoint, _ in requests].count("fut_daily") == 10
+    assert [endpoint for endpoint, _ in requests].count("fut_wsr") == 5
+    assert all(
+        set(params) == {"exchange", "fut_type", "fut_code"}
+        for endpoint, params in requests
+        if endpoint == "fut_basic"
+    )
     expected_codes = sorted(
         row["ts_code"]
         for exchange in ("INE", "SHFE", "DCE")
         for row in _contract_rows(exchange)
     )
+    daily_requests = [
+        params for endpoint, params in requests if endpoint == "fut_daily"
+    ]
     assert sorted(request["ts_code"] for request in daily_requests) == expected_codes
     assert all(
-        request == {
-            "ts_code": request["ts_code"],
-            "start_date": SESSION,
-            "end_date": SESSION,
-        }
+        set(request) == {"ts_code", "start_date", "end_date"}
+        and request["start_date"] == SESSION
+        and request["end_date"] == SESSION
         for request in daily_requests
     )
-    assert result.routes[COMMODITY_ROUTE_GROUP].coverage_receipt.as_dict()[
-        "coverage_complete"
-    ] is True
+    inventory_requests = [
+        params for endpoint, params in requests if endpoint == "fut_wsr"
+    ]
+    assert {tuple(sorted(params)) for params in inventory_requests} == {
+        ("symbol", "trade_date")
+    }
+    assert {params["symbol"] for params in inventory_requests} == {
+        "SC",
+        "CU",
+        "AU",
+        "C",
+        "M",
+    }
+    receipt = result.routes[COMMODITY_ROUTE_GROUP].source_receipts[0].as_dict()
+    assert receipt["transport"]["page_count"] == 20
+    assert (
+        receipt["transport"]["pagination_policy"] == "EXACT_REQUEST_SET_NO_PAGINATION"
+    )
+    assert "offset" not in receipt["transport"]["query_keys"]
+    assert "limit" not in receipt["transport"]["query_keys"]
+    assert (
+        result.routes[COMMODITY_ROUTE_GROUP].coverage_receipt.as_dict()[
+            "coverage_complete"
+        ]
+        is True
+    )
+
+    _, rejecting_fetch = _fake_callbacks(deny_curve=False)[1:]
+
+    def fetch_with_unrelated_metadata(*, endpoint: str, **params: str) -> list[dict]:
+        rows = rejecting_fetch(endpoint=endpoint, **params)
+        if endpoint == "fut_basic":
+            rows.append(
+                {
+                    "ts_code": "UNRELATED999.INE",
+                    "exchange": params["exchange"],
+                    "fut_code": "UNRELATED",
+                }
+            )
+        return rows
+
+    blocked = archive_china_agent_sources(
+        as_of_date=AS_OF,
+        cutoff_at=CUTOFF,
+        market_session_date=SESSION,
+        requested_route_ids=(COMMODITY_ROUTE_GROUP,),
+        store=ChinaAgentDataArchiveStore(tmp_path / "commodity-unrelated.sqlite3"),
+        ledger=AgentDataMaterializationLedger(
+            tmp_path / "commodity-unrelated-ledger.sqlite3"
+        ),
+        fetch_official=fetch_official,
+        fetch_tushare=fetch_with_unrelated_metadata,
+    )
+    assert blocked.routes[COMMODITY_ROUTE_GROUP].group is None
+    assert blocked.routes[COMMODITY_ROUTE_GROUP].coverage_receipt.as_dict()[
+        "blocker_codes"
+    ] == ["SCHEMA_DRIFT"]
+
+
+def test_commodity_prepare_and_compiler_bind_only_exact_four_sources(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mosaic.dataflows import agent_stage_preparer
+
+    calendar_routes = (
+        "tushare.eco_cal.cny",
+        "tushare.eco_cal.eur",
+        "tushare.eco_cal.usd",
+    )
+    calendar_sources = tuple(_calendar_receipt(route) for route in calendar_routes)
+    commodity_source = _calendar_receipt(COMMODITY_ROUTE_GROUP)
+    prep_calls: list[tuple[str, dict]] = []
+
+    class CompleteCoverage:
+        @staticmethod
+        def as_dict() -> dict[str, bool]:
+            return {"coverage_complete": True}
+
+    def archive_calendar(_fetch: object, **kwargs: object) -> SimpleNamespace:
+        prep_calls.append(("calendar", kwargs))
+        return SimpleNamespace(
+            source_receipts=calendar_sources,
+            coverage_receipt=CompleteCoverage(),
+        )
+
+    def archive_commodity(**kwargs: object) -> SimpleNamespace:
+        prep_calls.append(("commodity", kwargs))
+        return SimpleNamespace(
+            routes={
+                COMMODITY_ROUTE_GROUP: SimpleNamespace(
+                    source_receipts=(commodity_source,),
+                    coverage_receipt=CompleteCoverage(),
+                )
+            }
+        )
+
+    def compile_commodity(**kwargs: object) -> object:
+        prep_calls.append(("compile", kwargs))
+        return object()
+
+    monkeypatch.setattr(agent_stage_preparer, "archive_eco_calendar", archive_calendar)
+    monkeypatch.setattr(
+        agent_stage_preparer, "archive_china_agent_sources", archive_commodity
+    )
+    monkeypatch.setattr(
+        agent_stage_preparer, "ChinaAgentDataArchiveStore", lambda: object()
+    )
+    monkeypatch.setattr(
+        agent_stage_preparer, "compile_china_agent_snapshots", compile_commodity
+    )
+    monkeypatch.setattr(
+        agent_stage_preparer, "snapshot_cache_root", lambda: tmp_path / "snapshots"
+    )
+    monkeypatch.setattr(agent_stage_preparer, "_stage_capture_now", lambda: CAPTURED_AT)
+    prep_ledger = AgentDataMaterializationLedger(tmp_path / "prepare-ledger.sqlite3")
+    agent_stage_preparer.prepare_china_agent_family(
+        {
+            "agent_id": "commodities",
+            "stage": "commodities",
+            "as_of": AS_OF,
+        },
+        prep_ledger,
+    )
+
+    assert [name for name, _ in prep_calls] == ["calendar", "commodity", "compile"]
+    assert prep_calls[0][1]["requested_route_ids"] == calendar_routes
+    assert prep_calls[1][1]["requested_route_ids"] == (COMMODITY_ROUTE_GROUP,)
+    assert prep_calls[2][1]["requested_roles"] == ("commodities",)
+    assert prep_calls[2][1]["exact_calendar_evidence_hashes"] == tuple(
+        source.receipt_hash for source in calendar_sources
+    )
+
+    monkeypatch.setattr(
+        "mosaic.dataflows.china_agent_data_archive._capture_now",
+        lambda: CAPTURED_AT + timedelta(days=4),
+    )
+    store = ChinaAgentDataArchiveStore(tmp_path / "compiler.sqlite3")
+    ledger = AgentDataMaterializationLedger(tmp_path / "compiler-ledger.sqlite3")
+    _, fetch_official, fetch_tushare = _fake_callbacks(deny_curve=False)
+    archived = archive_china_agent_sources(
+        as_of_date=AS_OF,
+        cutoff_at=CUTOFF,
+        market_session_date=SESSION,
+        requested_route_ids=(COMMODITY_ROUTE_GROUP,),
+        store=store,
+        ledger=ledger,
+        fetch_official=fetch_official,
+        fetch_tushare=fetch_tushare,
+        historical_replay=True,
+    )
+    for source in calendar_sources:
+        ledger.append_source_capture(source)
+    built = compile_china_agent_snapshots(
+        archive=archived,
+        store=store,
+        ledger=ledger,
+        output_root=tmp_path / "compiler-snapshots",
+        requested_roles=("commodities",),
+        exact_calendar_evidence_hashes=tuple(
+            source.receipt_hash for source in calendar_sources
+        ),
+    )
+    assert set(built.snapshots) == {"commodities"}
+    assert {
+        observation["released_at"]
+        for observation in built.snapshots["commodities"]["observations"]
+    } == {CUTOFF}
+    assert {
+        observation["vintage_at"]
+        for observation in built.snapshots["commodities"]["observations"]
+    } == {CUTOFF}
+    assert len(built.build_receipts) == 1
+    build = built.build_receipts[0].as_dict()
+    assert set(build["source_receipt_hashes"]) == {
+        archived.routes[COMMODITY_ROUTE_GROUP].source_receipts[0].receipt_hash,
+        *(source.receipt_hash for source in calendar_sources),
+    }
+    assert ledger.row_counts()["snapshot_build_receipts"] == 1
+    assert sorted(
+        path.name for path in (tmp_path / "compiler-snapshots" / AS_OF).iterdir()
+    ) == ["commodities.json"]
 
 
 def test_partial_macro_capture_does_not_replace_complete_group_reader(
@@ -876,9 +1337,7 @@ def test_partial_macro_capture_does_not_replace_complete_group_reader(
 ) -> None:
     from mosaic.dataflows import china_agent_data_archive
 
-    store, ledger, _, _, _, _ = _archive(
-        tmp_path, monkeypatch, deny_curve=False
-    )
+    store, ledger, _, _, _, _ = _archive(tmp_path, monkeypatch, deny_curve=False)
     later = CAPTURED_AT + timedelta(minutes=1)
     monkeypatch.setattr(china_agent_data_archive, "_capture_now", lambda: later)
     _, fetch_official, fetch_tushare = _fake_callbacks(deny_curve=False)
@@ -895,9 +1354,7 @@ def test_partial_macro_capture_does_not_replace_complete_group_reader(
     )
 
     assert partial.routes[CHINA_ROUTE_GROUP].group is not None
-    assert partial.routes[CHINA_ROUTE_GROUP].group["route_ids"] == [
-        "official.cn_macro"
-    ]
+    assert partial.routes[CHINA_ROUTE_GROUP].group["route_ids"] == ["official.cn_macro"]
     assert store.load_route_group(AS_OF, CHINA_ROUTE_GROUP)["route_ids"] == [
         "official.cn_macro",
         "tushare.cn_macro",
@@ -949,6 +1406,176 @@ def test_private_tushare_transport_normalizes_dataframe_to_row_dicts(
     assert china_agent_data_archive._private_tushare_fetch(
         endpoint="moneyflow_hsgt", trade_date=SESSION
     ) == [{"trade_date": SESSION, "north_money": 1.0, "optional": None}]
+
+
+def test_china_macro_capture_binds_exact_period_fields_and_nine_official_documents(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mosaic.dataflows import china_agent_data_archive
+
+    as_of = "2026-07-17"
+    cutoff = "2026-07-17T15:00:00+08:00"
+    monkeypatch.setattr(
+        china_agent_data_archive,
+        "_capture_now",
+        lambda: datetime(2026, 7, 17, 6, 0, tzinfo=timezone.utc),
+    )
+    store = ChinaAgentDataArchiveStore(tmp_path / "china-exact.sqlite3")
+    ledger = AgentDataMaterializationLedger(tmp_path / "china-exact-ledger.sqlite3")
+    official_calls: list[dict[str, object]] = []
+    macro_calls: dict[str, dict[str, str]] = {}
+    china_documents = {
+        "nbs_industrial_activity",
+        "nbs_fixed_asset_investment",
+        "nbs_retail_sales",
+        "nbs_employment_release",
+        "nbs_cpi_release",
+        "nbs_ppi_release",
+        "pboc_financial_statistics",
+        "customs_monthly_trade",
+        "mof_fiscal_release",
+    }
+
+    def fetch_official(**params: object) -> list[dict]:
+        official_calls.append(params)
+        assert set(params["document_types"]) == china_documents
+        documents = _official_documents()
+        for document in documents:
+            document["published_at"] = "2026-07-16T10:00:00+08:00"
+            document["retrieved_at"] = "2026-07-17T05:30:00+00:00"
+            for observation in document["observations"]:
+                observation["period_start"] = "2026-06-01"
+                observation["period_end"] = "2026-06-30"
+        return [row for row in documents if row["document_type"] in china_documents]
+
+    def fetch_tushare(*, endpoint: str, **params: str) -> list[dict]:
+        if endpoint in {"cn_gdp", "cn_pmi", "cn_cpi", "cn_ppi"}:
+            macro_calls[endpoint] = dict(params)
+        return {
+            "cn_gdp": [{"quarter": "2026Q2", "gdp_yoy": 5.0}],
+            "cn_pmi": [{"month": "202606", "pmi010000": 50.2}],
+            "cn_cpi": [{"month": "202606", "nt_yoy": 0.6}],
+            "cn_ppi": [{"month": "202606", "ppi_yoy": -0.8}],
+        }[endpoint]
+
+    result = archive_china_agent_sources(
+        as_of_date=as_of,
+        cutoff_at=cutoff,
+        market_session_date=as_of,
+        requested_route_ids=("official.cn_macro", "tushare.cn_macro"),
+        official_document_types=tuple(sorted(china_documents)),
+        store=store,
+        ledger=ledger,
+        fetch_official=fetch_official,
+        fetch_tushare=fetch_tushare,
+    )
+
+    coverage = result.routes[CHINA_ROUTE_GROUP].coverage_receipt.as_dict()
+    assert coverage["coverage_complete"] is True, coverage
+    assert official_calls == [
+        {
+            "cutoff_at": cutoff,
+            "document_types": tuple(sorted(china_documents)),
+        }
+    ]
+    assert macro_calls == {
+        "cn_gdp": {"q": "2026Q2", "fields": "quarter,gdp_yoy"},
+        "cn_pmi": {"m": "202606", "fields": "month,pmi010000"},
+        "cn_cpi": {"m": "202606", "fields": "month,nt_yoy"},
+        "cn_ppi": {"m": "202606", "fields": "month,ppi_yoy"},
+    }
+    tushare_receipt = result.routes[CHINA_ROUTE_GROUP].source_receipts[1].as_dict()
+    assert set(tushare_receipt["coverage"]["dimensions"]["request_params"]) == {
+        "cn_cpi:fields=month,nt_yoy&m=202606",
+        "cn_gdp:fields=quarter,gdp_yoy&q=2026Q2",
+        "cn_pmi:fields=month,pmi010000&m=202606",
+        "cn_ppi:fields=month,ppi_yoy&m=202606",
+    }
+
+
+def test_china_compiler_uses_group_receipt_when_latest_scope_differs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mosaic.dataflows import china_agent_data_archive
+
+    monkeypatch.setattr(china_agent_data_archive, "_capture_now", lambda: CAPTURED_AT)
+    store = ChinaAgentDataArchiveStore(tmp_path / "scope-drift.sqlite3")
+    ledger = AgentDataMaterializationLedger(tmp_path / "scope-drift-ledger.sqlite3")
+    _, _, fetch_tushare = _fake_callbacks()
+    all_documents = _official_documents()
+    china_documents = tuple(
+        sorted(
+            {
+                "nbs_industrial_activity",
+                "nbs_fixed_asset_investment",
+                "nbs_retail_sales",
+                "nbs_employment_release",
+                "nbs_cpi_release",
+                "nbs_ppi_release",
+                "pboc_financial_statistics",
+                "customs_monthly_trade",
+                "mof_fiscal_release",
+            }
+        )
+    )
+
+    def fetch_official(**params: object) -> list[dict]:
+        document_types = params.pop("document_types", None)
+        assert params == {"cutoff_at": CUTOFF}
+        return [
+            row
+            for row in all_documents
+            if document_types is None or row["document_type"] in document_types
+        ]
+
+    first = archive_china_agent_sources(
+        as_of_date=AS_OF,
+        cutoff_at=CUTOFF,
+        market_session_date=SESSION,
+        requested_route_ids=("official.cn_macro", "tushare.cn_macro"),
+        store=store,
+        ledger=ledger,
+        fetch_official=fetch_official,
+        fetch_tushare=fetch_tushare,
+    )
+    second = archive_china_agent_sources(
+        as_of_date=AS_OF,
+        cutoff_at=CUTOFF,
+        market_session_date=SESSION,
+        requested_route_ids=("official.cn_macro", "tushare.cn_macro"),
+        official_document_types=china_documents,
+        store=store,
+        ledger=ledger,
+        fetch_official=fetch_official,
+        fetch_tushare=fetch_tushare,
+    )
+    ledger.append_source_capture(_calendar_receipt("tushare.eco_cal.cny"))
+
+    first_receipt_hash = next(
+        receipt.receipt_hash
+        for receipt in first.routes[CHINA_ROUTE_GROUP].source_receipts
+        if receipt.as_dict()["identity"]["route_id"] == "official.cn_macro"
+    )
+    second_receipt_hash = next(
+        receipt.receipt_hash
+        for receipt in second.routes[CHINA_ROUTE_GROUP].source_receipts
+        if receipt.as_dict()["identity"]["route_id"] == "official.cn_macro"
+    )
+    assert first_receipt_hash != second_receipt_hash
+    built = compile_china_agent_snapshot(
+        archive=first,
+        store=store,
+        ledger=ledger,
+        output_root=tmp_path / "snapshots",
+    )
+    assert set(built.snapshots) == {"china"}
+    assert (
+        first_receipt_hash in built.build_receipts[0].as_dict()["source_receipt_hashes"]
+    )
+    assert (
+        second_receipt_hash
+        not in built.build_receipts[0].as_dict()["source_receipt_hashes"]
+    )
 
 
 def test_historical_null_macro_value_does_not_hide_latest_valid_observation(
@@ -1027,7 +1654,7 @@ def test_physical_commodity_contract_uses_documented_per_unit(
     } == {10.0}
 
 
-def test_commodity_ignores_zero_volume_contract_when_two_traded_contracts_remain(
+def test_commodity_does_not_fetch_third_contract_when_first_two_fail(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from mosaic.dataflows import china_agent_data_archive
@@ -1036,6 +1663,7 @@ def test_commodity_ignores_zero_volume_contract_when_two_traded_contracts_remain
     store = ChinaAgentDataArchiveStore(tmp_path / "zero-volume.sqlite3")
     ledger = AgentDataMaterializationLedger(tmp_path / "zero-volume-ledger.sqlite3")
     _, fetch_official, base_fetch = _fake_callbacks()
+    daily_requests: list[str] = []
 
     def fetch_tushare(*, endpoint: str, **params: str) -> list[dict]:
         rows = base_fetch(endpoint=endpoint, **params)
@@ -1052,18 +1680,10 @@ def test_commodity_ignores_zero_volume_contract_when_two_traded_contracts_remain
                 }
             )
             rows.append(third)
-        if endpoint == "fut_daily" and params["ts_code"] == "SC2610.INE":
-            rows[0]["vol"] = 0.0
-        if endpoint == "fut_daily" and params["ts_code"] == "SC2701.INE":
-            return [
-                {
-                    "ts_code": "SC2701.INE",
-                    "trade_date": SESSION,
-                    "settle": 102.0,
-                    "vol": 1000.0,
-                    "oi": 2000.0,
-                }
-            ]
+        if endpoint == "fut_daily":
+            daily_requests.append(params["ts_code"])
+            if params["ts_code"] == "SC2610.INE":
+                rows[0]["vol"] = 0.0
         return rows
 
     result = archive_china_agent_sources(
@@ -1077,17 +1697,10 @@ def test_commodity_ignores_zero_volume_contract_when_two_traded_contracts_remain
     )
 
     commodity = result.routes["tushare.commodities"]
-    assert commodity.group is not None
-    sc = next(
-        family
-        for family in commodity.group["condition_input"]["families"]
-        if family["family_id"] == "SC@INE"
-    )
-    assert {contract["ts_code"] for contract in sc["contracts"]} == {
-        "SC2612.INE",
-        "SC2701.INE",
-    }
-    assert all(contract["volume"] > 0 for contract in sc["contracts"])
+    assert commodity.group is None
+    assert commodity.coverage_receipt.as_dict()["blocker_codes"] == ["SCHEMA_DRIFT"]
+    assert len(daily_requests) == 10
+    assert "SC2701.INE" not in daily_requests
 
 
 def test_commodity_blocks_when_filtering_leaves_fewer_than_two_contracts(
@@ -1097,7 +1710,9 @@ def test_commodity_blocks_when_filtering_leaves_fewer_than_two_contracts(
 
     monkeypatch.setattr(china_agent_data_archive, "_capture_now", lambda: CAPTURED_AT)
     store = ChinaAgentDataArchiveStore(tmp_path / "one-traded-contract.sqlite3")
-    ledger = AgentDataMaterializationLedger(tmp_path / "one-traded-contract-ledger.sqlite3")
+    ledger = AgentDataMaterializationLedger(
+        tmp_path / "one-traded-contract-ledger.sqlite3"
+    )
     _, fetch_official, base_fetch = _fake_callbacks()
 
     def fetch_tushare(*, endpoint: str, **params: str) -> list[dict]:
@@ -1118,9 +1733,7 @@ def test_commodity_blocks_when_filtering_leaves_fewer_than_two_contracts(
 
     commodity = result.routes["tushare.commodities"]
     assert commodity.group is None
-    assert commodity.coverage_receipt.as_dict()["blocker_codes"] == [
-        "SCHEMA_DRIFT"
-    ]
+    assert commodity.coverage_receipt.as_dict()["blocker_codes"] == ["SCHEMA_DRIFT"]
 
 
 def test_commodity_inventory_derives_previous_from_documented_change(
@@ -1130,7 +1743,9 @@ def test_commodity_inventory_derives_previous_from_documented_change(
 
     monkeypatch.setattr(china_agent_data_archive, "_capture_now", lambda: CAPTURED_AT)
     store = ChinaAgentDataArchiveStore(tmp_path / "inventory-derived.sqlite3")
-    ledger = AgentDataMaterializationLedger(tmp_path / "inventory-derived-ledger.sqlite3")
+    ledger = AgentDataMaterializationLedger(
+        tmp_path / "inventory-derived-ledger.sqlite3"
+    )
     _, fetch_official, base_fetch = _fake_callbacks()
 
     def fetch_tushare(*, endpoint: str, **params: str) -> list[dict]:
@@ -1166,7 +1781,9 @@ def test_commodity_inventory_blocks_family_without_direct_or_derivable_row(
 
     monkeypatch.setattr(china_agent_data_archive, "_capture_now", lambda: CAPTURED_AT)
     store = ChinaAgentDataArchiveStore(tmp_path / "inventory-unusable.sqlite3")
-    ledger = AgentDataMaterializationLedger(tmp_path / "inventory-unusable-ledger.sqlite3")
+    ledger = AgentDataMaterializationLedger(
+        tmp_path / "inventory-unusable-ledger.sqlite3"
+    )
     _, fetch_official, base_fetch = _fake_callbacks()
 
     def fetch_tushare(*, endpoint: str, **params: str) -> list[dict]:
@@ -1189,24 +1806,22 @@ def test_commodity_inventory_blocks_family_without_direct_or_derivable_row(
 
     commodity = result.routes["tushare.commodities"]
     assert commodity.group is None
-    assert commodity.coverage_receipt.as_dict()["blocker_codes"] == [
-        "SCHEMA_DRIFT"
-    ]
+    assert commodity.coverage_receipt.as_dict()["blocker_codes"] == ["SCHEMA_DRIFT"]
 
 
-def test_institutional_crowding_keeps_only_complete_metric_rows(
+def test_institutional_crowding_rejects_missing_registered_metric(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from mosaic.dataflows import china_agent_data_archive
 
     monkeypatch.setattr(china_agent_data_archive, "_capture_now", lambda: CAPTURED_AT)
-    store = ChinaAgentDataArchiveStore(tmp_path / "crowding-partial.sqlite3")
-    ledger = AgentDataMaterializationLedger(tmp_path / "crowding-partial-ledger.sqlite3")
+    store = ChinaAgentDataArchiveStore(tmp_path / "crowding-empty.sqlite3")
+    ledger = AgentDataMaterializationLedger(tmp_path / "crowding-empty-ledger.sqlite3")
     _, fetch_official, base_fetch = _fake_callbacks()
 
     def fetch_tushare(*, endpoint: str, **params: str) -> list[dict]:
         rows = base_fetch(endpoint=endpoint, **params)
-        if endpoint == "daily_basic":
+        if endpoint == "daily_basic" and params["ts_code"] == "000001.SZ":
             rows[0]["volume_ratio"] = None
         return rows
 
@@ -1221,44 +1836,8 @@ def test_institutional_crowding_keeps_only_complete_metric_rows(
     )
 
     institutional = result.routes["tushare.institutional_flow"]
-    assert institutional.group is not None
-    assert institutional.group["crowding_rows"] == [
-        {"ts_code": "600000.SH", "turnover_rate": 1.5, "volume_ratio": 0.9}
-    ]
-
-
-def test_institutional_crowding_requires_one_complete_metric_row(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from mosaic.dataflows import china_agent_data_archive
-
-    monkeypatch.setattr(china_agent_data_archive, "_capture_now", lambda: CAPTURED_AT)
-    store = ChinaAgentDataArchiveStore(tmp_path / "crowding-empty.sqlite3")
-    ledger = AgentDataMaterializationLedger(tmp_path / "crowding-empty-ledger.sqlite3")
-    _, fetch_official, base_fetch = _fake_callbacks()
-
-    def fetch_tushare(*, endpoint: str, **params: str) -> list[dict]:
-        rows = base_fetch(endpoint=endpoint, **params)
-        if endpoint == "daily_basic":
-            for row in rows:
-                row["volume_ratio"] = None
-        return rows
-
-    result = archive_china_agent_sources(
-        as_of_date=AS_OF,
-        cutoff_at=CUTOFF,
-        market_session_date=SESSION,
-        store=store,
-        ledger=ledger,
-        fetch_official=fetch_official,
-        fetch_tushare=fetch_tushare,
-    )
-
-    institutional = result.routes["tushare.institutional_flow"]
     assert institutional.group is None
-    assert institutional.coverage_receipt.as_dict()["blocker_codes"] == [
-        "SCHEMA_DRIFT"
-    ]
+    assert institutional.coverage_receipt.as_dict()["blocker_codes"] == ["SCHEMA_DRIFT"]
 
 
 def test_warm_retry_and_concurrent_same_key_are_zero_extra_transport(
@@ -1290,17 +1869,20 @@ def test_warm_retry_and_concurrent_same_key_are_zero_extra_transport(
     assert counts == before
     assert store.row_count() == 4
     assert all(route.cache_hit for route in replay.routes.values())
-    assert len(
-        {
-            tuple(
-                sorted(
-                    (route_id, route.group["group_hash"])
-                    for route_id, route in result.routes.items()
+    assert (
+        len(
+            {
+                tuple(
+                    sorted(
+                        (route_id, route.group["group_hash"])
+                        for route_id, route in result.routes.items()
+                    )
                 )
-            )
-            for result in results
-        }
-    ) == 1
+                for result in results
+            }
+        )
+        == 1
+    )
 
 
 def test_historical_forward_archive_miss_is_zero_transport(
@@ -1402,45 +1984,6 @@ def test_partial_commodity_schema_failure_rolls_back_only_that_route(
     assert counts["fut_daily"] >= 1
 
 
-def test_commodity_inventory_rejects_rows_after_terminal_short_page(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from mosaic.dataflows import china_agent_data_archive
-
-    monkeypatch.setattr(china_agent_data_archive, "_capture_now", lambda: CAPTURED_AT)
-    store = ChinaAgentDataArchiveStore(tmp_path / "hidden-inventory-page.sqlite3")
-    ledger = AgentDataMaterializationLedger(
-        tmp_path / "hidden-inventory-page-ledger.sqlite3"
-    )
-    _, fetch_official, base_fetch = _fake_callbacks()
-    offsets: list[int] = []
-
-    def fetch_tushare(*, endpoint: str, **params: str) -> list[dict]:
-        if endpoint == "fut_wsr":
-            offset = int(params.get("offset", 0))
-            offsets.append(offset)
-            rows = base_fetch(endpoint=endpoint, **{**params, "offset": 0})
-            return rows if offset == 0 else [rows[0]]
-        return base_fetch(endpoint=endpoint, **params)
-
-    result = archive_china_agent_sources(
-        as_of_date=AS_OF,
-        cutoff_at=CUTOFF,
-        market_session_date=SESSION,
-        store=store,
-        ledger=ledger,
-        fetch_official=fetch_official,
-        fetch_tushare=fetch_tushare,
-    )
-
-    commodity = result.routes["tushare.commodities"]
-    assert commodity.group is None
-    assert commodity.coverage_receipt.as_dict()["blocker_codes"] == [
-        "SCHEMA_DRIFT"
-    ]
-    assert offsets == [0, 5]
-
-
 def test_official_document_branch_drift_blocks_only_china_route(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1477,7 +2020,7 @@ def test_official_document_branch_drift_blocks_only_china_route(
     ("target_endpoint", "hard_cap", "blocked_route"),
     [
         ("fut_basic", 10_000, "tushare.commodities"),
-        ("moneyflow_hsgt", 300, "tushare.institutional_flow"),
+        ("moneyflow", 300, "tushare.institutional_flow"),
         ("moneyflow_ind_ths", 5_000, "tushare.institutional_flow"),
         ("daily_basic", 6_000, "tushare.institutional_flow"),
     ],
@@ -1513,12 +2056,9 @@ def test_exact_endpoint_hard_caps_fail_closed_without_terminal_proof(
                 }
                 for index in range(hard_cap - len(rows))
             ]
-        if target_endpoint == "moneyflow_hsgt" and endpoint == "moneyflow_hsgt":
+        if target_endpoint == "moneyflow" and endpoint == "moneyflow":
             return rows * hard_cap
-        if (
-            target_endpoint == "moneyflow_ind_ths"
-            and endpoint == "moneyflow_ind_ths"
-        ):
+        if target_endpoint == "moneyflow_ind_ths" and endpoint == "moneyflow_ind_ths":
             return [
                 {
                     "trade_date": SESSION,
@@ -1550,17 +2090,15 @@ def test_exact_endpoint_hard_caps_fail_closed_without_terminal_proof(
     )
 
     assert result.routes[blocked_route].group is None
-    assert result.routes[blocked_route].coverage_receipt.as_dict()[
-        "blocker_codes"
-    ] == ["SCHEMA_DRIFT"]
+    assert result.routes[blocked_route].coverage_receipt.as_dict()["blocker_codes"] == [
+        "SCHEMA_DRIFT"
+    ]
 
 
 def test_archive_payload_hash_tamper_is_rejected_on_read(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    store, _, archived, _, _, _ = _archive(
-        tmp_path, monkeypatch, deny_curve=False
-    )
+    store, _, archived, _, _, _ = _archive(tmp_path, monkeypatch, deny_curve=False)
     capture_key = archived.routes[CHINA_ROUTE_GROUP].group["capture_key"]
     with sqlite3.connect(store.path) as conn:
         conn.execute("DROP TRIGGER china_agent_capture_groups_no_update")
@@ -1576,9 +2114,7 @@ def test_archive_payload_hash_tamper_is_rejected_on_read(
 def test_compiler_rejects_source_receipt_drift_from_frozen_group(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    store, _, archived, _, _, _ = _archive(
-        tmp_path, monkeypatch, deny_curve=False
-    )
+    store, _, archived, _, _, _ = _archive(tmp_path, monkeypatch, deny_curve=False)
     drift_ledger = AgentDataMaterializationLedger(tmp_path / "drift-ledger.sqlite3")
     for route in archived.routes.values():
         for receipt in route.source_receipts:
@@ -1639,23 +2175,24 @@ def test_compiler_publishes_three_ready_snapshots_and_repeatable_blocked_central
 
     for role, snapshot in built.snapshots.items():
         persisted = json.loads(
-            (tmp_path / "snapshots" / snapshot["as_of_date"] / f"{role}.json").read_text(
-                encoding="utf-8"
-            )
+            (
+                tmp_path / "snapshots" / snapshot["as_of_date"] / f"{role}.json"
+            ).read_text(encoding="utf-8")
         )
-        assert validate_role_snapshot(
-            persisted, role, snapshot["as_of_date"]
-        ) == snapshot
+        assert (
+            validate_role_snapshot(persisted, role, snapshot["as_of_date"]) == snapshot
+        )
 
-    assert load_role_snapshot(
-        "institutional_flow",
-        AS_OF,
-        root=tmp_path / "snapshots",
-        ledger=ledger,
-    ) == built.snapshots["institutional_flow"]
-    institutional_path = (
-        tmp_path / "snapshots" / AS_OF / "institutional_flow.json"
+    assert (
+        load_role_snapshot(
+            "institutional_flow",
+            AS_OF,
+            root=tmp_path / "snapshots",
+            ledger=ledger,
+        )
+        == built.snapshots["institutional_flow"]
     )
+    institutional_path = tmp_path / "snapshots" / AS_OF / "institutional_flow.json"
     tampered = json.loads(institutional_path.read_text(encoding="utf-8"))
     tampered["observations"][0]["actual"] = 123456.0
     institutional_path.write_text(json.dumps(tampered), encoding="utf-8")
@@ -1686,7 +2223,10 @@ def test_compiler_publishes_three_ready_snapshots_and_repeatable_blocked_central
         "crowding",
     }
     assert len(INSTITUTIONAL_ETF_UNIVERSE) >= 5
-    by_role = {receipt.as_dict()["agent_id"]: receipt.as_dict() for receipt in built.build_receipts}
+    by_role = {
+        receipt.as_dict()["agent_id"]: receipt.as_dict()
+        for receipt in built.build_receipts
+    }
     assert by_role["central_bank"]["terminal_state"] == "BLOCKED"
     assert by_role["central_bank"]["output_hash"] is None
     assert by_role["central_bank"]["missing_route_ids"] == ["composite.cn_rates"]
@@ -1699,31 +2239,75 @@ def test_compiler_publishes_three_ready_snapshots_and_repeatable_blocked_central
 def test_compiler_publishes_ready_central_bank_when_curve_route_is_available(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    store, ledger, archived, counts, _, _ = _archive(
-        tmp_path, monkeypatch, deny_curve=False
+    monkeypatch.setattr(
+        "mosaic.dataflows.china_agent_data_archive._capture_now",
+        lambda: CAPTURED_AT,
     )
-    for route_id in (
-        "tushare.eco_cal.cny",
-        "tushare.eco_cal.eur",
-        "tushare.eco_cal.usd",
-    ):
-        ledger.append_source_capture(_calendar_receipt(route_id))
+    store = ChinaAgentDataArchiveStore(tmp_path / "china-agent-data.sqlite3")
+    ledger = AgentDataMaterializationLedger(tmp_path / "ledger.sqlite3")
+    counts, _, fetch_tushare = _fake_callbacks(deny_curve=False)
+    central_document_types = (
+        "nbs_cpi_release",
+        "nbs_industrial_activity",
+        "nbs_ppi_release",
+        "pboc_financial_statistics",
+        "pboc_lpr_document",
+        "pboc_omo_document",
+    )
+    documents_by_type = {row["document_type"]: row for row in _official_documents()}
+
+    def fetch_official(**params: str) -> list[dict]:
+        counts["official"] = counts.get("official", 0) + 1
+        assert params.pop("cutoff_at") == CUTOFF
+        assert tuple(params.pop("document_types")) == central_document_types
+        assert params == {}
+        return [
+            documents_by_type[document_type] for document_type in central_document_types
+        ]
+
+    archived = archive_china_agent_sources(
+        as_of_date=AS_OF,
+        cutoff_at=CUTOFF,
+        market_session_date=SESSION,
+        requested_route_ids=("composite.cn_rates", "official.cn_macro"),
+        official_document_types=central_document_types,
+        store=store,
+        ledger=ledger,
+        fetch_official=fetch_official,
+        fetch_official_curve=_official_curve_fixture,
+        fetch_tushare=fetch_tushare,
+    )
+    assert set(archived.routes) == {CHINA_ROUTE_GROUP, CURVE_ROUTE_GROUP}
+    assert set(
+        archived.routes[CHINA_ROUTE_GROUP]
+        .source_receipts[0]
+        .as_dict()["coverage"]["dimensions"]["document_type"]
+    ) == set(central_document_types)
+    assert not any(endpoint.startswith("cn_") for endpoint in counts)
+
+    calendar_receipt = _calendar_receipt("tushare.eco_cal.cny")
+    ledger.append_source_capture(calendar_receipt)
     before = dict(counts)
+    before_build_receipts = ledger.row_counts()["snapshot_build_receipts"]
 
     built = compile_china_agent_snapshots(
         archive=archived,
         store=store,
         ledger=ledger,
         output_root=tmp_path / "snapshots",
+        requested_roles=("central_bank",),
+        exact_calendar_evidence_hash=calendar_receipt.receipt_hash,
     )
 
     assert counts == before
-    assert set(built.snapshots) == {
-        "china",
-        "central_bank",
-        "commodities",
-        "institutional_flow",
+    assert set(built.snapshots) == {"central_bank"}
+    assert {row.as_dict()["agent_id"] for row in built.build_receipts} == {
+        "central_bank"
     }
+    assert ledger.row_counts()["snapshot_build_receipts"] == before_build_receipts + 1
+    for role in ("china", "commodities", "institutional_flow"):
+        assert not (tmp_path / "snapshots" / AS_OF / f"{role}.json").exists()
+    assert (tmp_path / "snapshots" / AS_OF / "central_bank.json").exists()
     central = built.snapshots["central_bank"]
     assert {row["series_id"] for row in central["observations"]} >= {
         "pboc_omo_rate",

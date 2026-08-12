@@ -220,3 +220,33 @@ def test_missing_data_raises_when_path_unset(monkeypatch, tmp_path: Path):
 
     with pytest.raises(DataVendorUnavailable, match="Qlib CN data not found"):
         qlib_local._get_data_path()
+
+
+def test_indicator_loader_uses_requested_window_plus_fixed_warmup(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import mosaic.dataflows.qlib_local as qlib_local
+
+    calls: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(qlib_local, "_to_qlib_instrument", lambda _: "sh688981")
+    monkeypatch.setattr(
+        qlib_local, "_ensure_local_data_is_current", lambda *_args: None
+    )
+
+    def load_ohlcv(instrument: str, start_date: str, end_date: str) -> pd.DataFrame:
+        calls.append((instrument, start_date, end_date))
+        return pd.DataFrame(
+            {
+                "open": [1.0] * 5,
+                "high": [1.0] * 5,
+                "low": [1.0] * 5,
+                "close": [1.0] * 5,
+                "volume": [1.0] * 5,
+            },
+            index=pd.date_range("2026-06-10", periods=5),
+        )
+
+    monkeypatch.setattr(qlib_local, "_load_ohlcv", load_ohlcv)
+    qlib_local._load_price_frame("688981.SH", "2026-06-17", 30)
+
+    assert calls == [("sh688981", "2025-05-18", "2026-06-17")]

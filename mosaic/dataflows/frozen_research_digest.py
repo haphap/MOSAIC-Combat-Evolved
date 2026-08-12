@@ -250,7 +250,6 @@ class FrozenResearchDigestBuilder:
             try:
                 with self.urlopen(request, timeout=self.timeout_seconds) as response:
                     response_payload = json.loads(response.read().decode("utf-8"))
-                break
             except (
                 OSError,
                 urllib.error.URLError,
@@ -260,7 +259,15 @@ class FrozenResearchDigestBuilder:
                 if not _retryable_request_error(exc) or attempt + 1 == self.max_attempts:
                     raise ValueError("frozen research digest request failed") from exc
                 self.sleep(self.retry_delay_seconds * (2**attempt))
-        digest = _digest_object(_response_content(response_payload))
+                continue
+            try:
+                digest = _digest_object(_response_content(response_payload))
+            except ValueError:
+                if attempt + 1 == self.max_attempts:
+                    raise
+                self.sleep(self.retry_delay_seconds * (2**attempt))
+                continue
+            break
         return {
             "digest": json.dumps(
                 digest,

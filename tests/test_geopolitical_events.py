@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from mosaic.dataflows import geopolitical_events as geopolitical_events_module
 from mosaic.dataflows.cross_runtime_json import canonical_hash
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.geopolitical_events import (
@@ -52,6 +53,49 @@ def rehash_manifest(payload: dict) -> dict:
 
 def preflight_complete_manifest() -> dict:
     return copy.deepcopy(GEOPOLITICAL_INITIAL_SOURCE_MANIFEST)
+
+
+def test_direct_capture_closure_rejects_nonproduction_capture(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    source_ids = sorted(REQUIRED_SOURCE_IDS)
+    captures = {
+        f"capture:{source_id}": {
+            "source_id": source_id,
+            "parse_result": "SUCCESS",
+            "ingestion_mode": (
+                "NON_PRODUCTION_CALLBACK"
+                if source_id == source_ids[0]
+                else "TRUSTED_REGISTERED_PARSER"
+            ),
+            "pagination_complete": True,
+            "truncated": False,
+            "schema_verified": True,
+            "publication_time_verified": True,
+            "error_class": None,
+            "poll_completed_at": "2026-08-12T00:00:00+00:00",
+        }
+        for source_id in source_ids
+    }
+
+    class CaptureStore:
+        def source_capture(self, capture_id: str) -> dict:
+            return captures[capture_id]
+
+    monkeypatch.setattr(
+        geopolitical_events_module,
+        "validate_source_capture_observation",
+        lambda payload, manifest: dict(payload),
+    )
+
+    with pytest.raises(
+        DataVendorUnavailable, match="not production-eligible"
+    ):
+        build_geopolitical_events_snapshot(
+            "2026-06-17",
+            store=CaptureStore(),
+            direct_source_capture_ids=tuple(captures),
+        )
 
 
 def test_initial_manifest_is_exact_and_truthfully_fail_closed():

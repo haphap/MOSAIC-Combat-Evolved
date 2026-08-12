@@ -13,9 +13,6 @@ from zoneinfo import ZoneInfo
 from mosaic.scorecard.canonical_json import canonical_hash
 
 from .a_share_archive import (
-    AShareArchiveStore,
-    archive_a_share_breadth,
-    compile_a_share_breadth_snapshot,
     fetch_a_share_tushare_endpoint,
 )
 from .agent_materialization import (
@@ -36,8 +33,10 @@ from .bound_runtime_snapshots import (
 from .china_agent_data_archive import (
     LOGICAL_ROUTES as CHINA_AGENT_ROUTE_IDS,
     ChinaAgentDataArchiveStore,
+    _CHINA_OFFICIAL_DOCUMENTS,
     _private_tushare_fetch as _china_tushare_fetch,
     archive_china_agent_sources,
+    compile_china_agent_snapshot,
     compile_china_agent_snapshots,
 )
 from .economic_calendar import EconomicCalendarStore
@@ -49,8 +48,15 @@ from .europe_macro_archive import (
     archive_europe_macro_sources,
     compile_europe_macro_snapshots,
 )
-from .geopolitical_archive import materialize_geopolitical_snapshot
-from .geopolitical_events import GeopoliticalEventStore, geopolitical_store_path
+from .geopolitical_archive import (
+    _as_of_cutoff as _geopolitical_as_of_cutoff,
+    materialize_geopolitical_snapshot,
+)
+from .geopolitical_events import (
+    REQUIRED_SOURCE_IDS,
+    GeopoliticalEventStore,
+    geopolitical_store_path,
+)
 from .geopolitical_source_adapters import capture_required_geopolitical_sources
 from .frozen_adaptive_queries import (
     CALL_TIME_ARGUMENT_CONTRACT,
@@ -68,12 +74,12 @@ from .sector_archive import (
     STANDARD_SECTOR_AGENT_IDS,
     SectorArchiveStore,
     archive_sector_relationship,
-    compile_sector_relationship_core_snapshots,
 )
 from .source_archive import archive_eco_calendar
 from .staged_query_receipt_store import StagedQueryReceiptStore
 from .us_macro_archive import (
     LOGICAL_ROUTES as US_MACRO_ROUTE_IDS,
+    _US_ECONOMY_ALFRED_SERIES_IDS,
     USMacroArchiveStore,
     _private_tushare_fetch as _us_tushare_fetch,
     archive_us_macro_sources,
@@ -130,6 +136,16 @@ _CHINA_FAMILY_STAGES = (
     ("china", "china"),
     ("commodities", "commodities"),
     ("institutional_flow", "institutional_flow"),
+)
+_CHINA_MACRO_ROUTE_IDS = ("official.cn_macro", "tushare.cn_macro")
+_CHINA_OFFICIAL_DOCUMENT_TYPES = tuple(sorted(_CHINA_OFFICIAL_DOCUMENTS))
+_CENTRAL_BANK_OFFICIAL_DOCUMENT_TYPES = (
+    "nbs_cpi_release",
+    "nbs_industrial_activity",
+    "nbs_ppi_release",
+    "pboc_financial_statistics",
+    "pboc_lpr_document",
+    "pboc_omo_document",
 )
 _US_FAMILY_STAGES = (
     ("us_economy", "us_economy"),
@@ -1321,6 +1337,11 @@ def _prepare_china_agent_archive(
     as_of: str,
     ledger: AgentDataMaterializationLedger,
     requested_route_ids: tuple[str, ...] | None = None,
+    official_document_types: tuple[str, ...] | None = None,
+    china_only: bool = False,
+    requested_roles: tuple[str, ...] | None = None,
+    exact_calendar_evidence_hash: str | None = None,
+    exact_calendar_evidence_hashes: tuple[str, ...] | None = None,
     historical_replay: bool = False,
 ) -> None:
     store = ChinaAgentDataArchiveStore()
@@ -1331,6 +1352,11 @@ def _prepare_china_agent_archive(
         **(
             {"requested_route_ids": requested_route_ids}
             if requested_route_ids is not None
+            else {}
+        ),
+        **(
+            {"official_document_types": official_document_types}
+            if official_document_types is not None
             else {}
         ),
         **({"historical_replay": True} if historical_replay else {}),
@@ -1351,13 +1377,32 @@ def _prepare_china_agent_archive(
                 "China route-only archive is blocked",
                 reason_code="CHINA_ROUTE_CAPTURE_BLOCKED",
             )
-        return
-    compile_china_agent_snapshots(
-        archive=archive,
-        store=store,
-        ledger=ledger,
-        output_root=snapshot_cache_root(),
+        if not china_only and requested_roles is None:
+            return
+    compiler = (
+        compile_china_agent_snapshot if china_only else compile_china_agent_snapshots
     )
+    compile_kwargs = {
+        "archive": archive,
+        "store": store,
+        "ledger": ledger,
+        "output_root": snapshot_cache_root(),
+    }
+    if not china_only:
+        compile_kwargs["requested_roles"] = requested_roles
+        if exact_calendar_evidence_hash is not None:
+            compile_kwargs["exact_calendar_evidence_hash"] = (
+                exact_calendar_evidence_hash
+            )
+        if exact_calendar_evidence_hashes is not None:
+            compile_kwargs["exact_calendar_evidence_hashes"] = (
+                exact_calendar_evidence_hashes
+            )
+    elif exact_calendar_evidence_hash is not None:
+        compile_kwargs["exact_calendar_evidence_hash"] = exact_calendar_evidence_hash
+    elif exact_calendar_evidence_hashes is not None:
+        compile_kwargs["exact_calendar_evidence_hashes"] = exact_calendar_evidence_hashes
+    compiler(**compile_kwargs)
 
 
 def prepare_china_agent_family(
@@ -1365,13 +1410,147 @@ def prepare_china_agent_family(
     ledger: AgentDataMaterializationLedger,
 ) -> None:
     """Reuse the trusted calendar and China archive/compiler for four stages."""
+    agent_id = _required_text(request, "agent_id")
+    stage = _required_text(request, "stage")
+    if (agent_id, stage) not in _CHINA_FAMILY_STAGES or agent_id != stage:
+        raise DataVendorUnavailable(
+            f"unsupported China family stage {agent_id}/{stage}"
+        )
     as_of = _required_text(request, "as_of")
     route_id = request.get("route_id")
+    if route_id == "tushare.eco_cal.cny":
+        captured_at = _stage_capture_now().astimezone(timezone.utc).isoformat()
+        calendar = archive_eco_calendar(
+            partial(_china_tushare_fetch, endpoint="eco_cal"),
+            as_of_date=as_of,
+            captured_at=captured_at,
+            requested_route_ids=(route_id,),
+            **({"as_of_cutoff": captured_at} if _historical_replay(request) else {}),
+            store=EconomicCalendarStore(),
+            ledger=ledger,
+        )
+        if not calendar.coverage_receipt.as_dict()["coverage_complete"]:
+            raise DataVendorUnavailable("economic calendar archive is blocked")
+        return
     if isinstance(route_id, str) and route_id in CHINA_AGENT_ROUTE_IDS:
+        china_route = agent_id == "china" and stage == "china"
+        central_bank_route = agent_id == "central_bank" and stage == "central_bank"
         _prepare_china_agent_archive(
             as_of=as_of,
             ledger=ledger,
             requested_route_ids=(route_id,),
+            official_document_types=(
+                _CHINA_OFFICIAL_DOCUMENT_TYPES
+                if china_route and route_id == "official.cn_macro"
+                else (
+                    _CENTRAL_BANK_OFFICIAL_DOCUMENT_TYPES
+                    if central_bank_route and route_id == "official.cn_macro"
+                    else None
+                )
+            ),
+            historical_replay=_historical_replay(request),
+        )
+        return
+    if agent_id == "central_bank" and stage == "central_bank":
+        captured_at = _stage_capture_now().astimezone(timezone.utc).isoformat()
+        calendar = archive_eco_calendar(
+            partial(_china_tushare_fetch, endpoint="eco_cal"),
+            as_of_date=as_of,
+            captured_at=captured_at,
+            requested_route_ids=("tushare.eco_cal.cny",),
+            **({"as_of_cutoff": captured_at} if _historical_replay(request) else {}),
+            store=EconomicCalendarStore(),
+            ledger=ledger,
+        )
+        if not calendar.coverage_receipt.as_dict()["coverage_complete"]:
+            raise DataVendorUnavailable("economic calendar archive is blocked")
+        _prepare_china_agent_archive(
+            as_of=as_of,
+            ledger=ledger,
+            requested_route_ids=("composite.cn_rates", "official.cn_macro"),
+            official_document_types=_CENTRAL_BANK_OFFICIAL_DOCUMENT_TYPES,
+            requested_roles=("central_bank",),
+            exact_calendar_evidence_hash=calendar.coverage_receipt.receipt_hash,
+            historical_replay=_historical_replay(request),
+        )
+        return
+    if agent_id == "china" and stage == "china":
+        captured_at = _stage_capture_now().astimezone(timezone.utc).isoformat()
+        calendar = archive_eco_calendar(
+            partial(_china_tushare_fetch, endpoint="eco_cal"),
+            as_of_date=as_of,
+            captured_at=captured_at,
+            requested_route_ids=("tushare.eco_cal.cny",),
+            **({"as_of_cutoff": captured_at} if _historical_replay(request) else {}),
+            store=EconomicCalendarStore(),
+            ledger=ledger,
+        )
+        if not calendar.coverage_receipt.as_dict()["coverage_complete"]:
+            raise DataVendorUnavailable("economic calendar archive is blocked")
+        _prepare_china_agent_archive(
+            as_of=as_of,
+            ledger=ledger,
+            requested_route_ids=_CHINA_MACRO_ROUTE_IDS,
+            official_document_types=_CHINA_OFFICIAL_DOCUMENT_TYPES,
+            china_only=True,
+            exact_calendar_evidence_hash=calendar.coverage_receipt.receipt_hash,
+            historical_replay=_historical_replay(request),
+        )
+        return
+    if agent_id == "commodities" and stage == "commodities" and route_id is None:
+        captured_at = _stage_capture_now().astimezone(timezone.utc).isoformat()
+        calendar = archive_eco_calendar(
+            partial(_china_tushare_fetch, endpoint="eco_cal"),
+            as_of_date=as_of,
+            captured_at=captured_at,
+            **(
+                {"as_of_cutoff": captured_at}
+                if _historical_replay(request)
+                else {}
+            ),
+            requested_route_ids=(
+                "tushare.eco_cal.cny",
+                "tushare.eco_cal.eur",
+                "tushare.eco_cal.usd",
+            ),
+            store=EconomicCalendarStore(),
+            ledger=ledger,
+        )
+        if not calendar.coverage_receipt.as_dict()["coverage_complete"]:
+            raise DataVendorUnavailable("economic calendar archive is blocked")
+        calendar_receipts = {
+            receipt.as_dict()["identity"]["route_id"]: receipt
+            for receipt in calendar.source_receipts
+        }
+        required_calendar_routes = (
+            "tushare.eco_cal.cny",
+            "tushare.eco_cal.eur",
+            "tushare.eco_cal.usd",
+        )
+        if set(calendar_receipts) != set(required_calendar_routes):
+            raise DataVendorUnavailable("calendar source receipts are incomplete")
+        _prepare_china_agent_archive(
+            as_of=as_of,
+            ledger=ledger,
+            requested_route_ids=("tushare.commodities",),
+            requested_roles=("commodities",),
+            exact_calendar_evidence_hashes=tuple(
+                calendar_receipts[route_id].receipt_hash
+                for route_id in required_calendar_routes
+            ),
+            historical_replay=_historical_replay(request),
+        )
+        return
+    if (
+        agent_id == "institutional_flow"
+        and stage == "institutional_flow"
+        and route_id is None
+    ):
+        _prepare_china_agent_archive(
+            as_of=as_of,
+            ledger=ledger,
+            requested_route_ids=("tushare.institutional_flow",),
+            requested_roles=("institutional_flow",),
             historical_replay=_historical_replay(request),
         )
         return
@@ -1381,21 +1560,15 @@ def prepare_china_agent_family(
         as_of_date=as_of,
         captured_at=captured_at,
         **({"as_of_cutoff": captured_at} if _historical_replay(request) else {}),
-        **(
-            {"requested_route_ids": (str(route_id),)}
-            if route_id == "tushare.eco_cal.cny"
-            else {}
-        ),
         store=EconomicCalendarStore(),
         ledger=ledger,
     )
     if not calendar.coverage_receipt.as_dict()["coverage_complete"]:
         raise DataVendorUnavailable("economic calendar archive is blocked")
-    if route_id == "tushare.eco_cal.cny":
-        return
     _prepare_china_agent_archive(
         as_of=as_of,
         ledger=ledger,
+        requested_roles=(agent_id,),
         historical_replay=_historical_replay(request),
     )
 
@@ -1420,38 +1593,10 @@ def prepare_sector_relationship_family(
     else:
         raise ValueError("agent is outside the standard Sector stage roster")
     if not route_only:
-        role_event_binding = next(
-            (
-                binding
-                for binding in _stage_bindings(agent_id, agent_id)
-                if binding["tool_id"] == "get_role_event_snapshot"
-            ),
-            None,
+        raise DataVendorUnavailable(
+            "standard Sector snapshot cold miss has no bounded authority",
+            reason_code="SECTOR_RELATIONSHIP_ARCHIVE_BLOCKED",
         )
-        if role_event_binding is None:
-            raise DataVendorUnavailable(
-                f"no role-event binding for Sector agent {agent_id}"
-            )
-        captured_at = _stage_capture_now().astimezone(timezone.utc).isoformat()
-        calendar_store = EconomicCalendarStore()
-        calendar = archive_eco_calendar(
-            partial(_china_tushare_fetch, endpoint="eco_cal"),
-            as_of_date=as_of,
-            captured_at=captured_at,
-            as_of_cutoff=captured_at if historical_replay else None,
-            requested_route_ids=tuple(role_event_binding["required_route_ids"]),
-            store=calendar_store,
-            ledger=ledger,
-        )
-        compile_sector_role_event_builds(
-            archive=calendar,
-            store=calendar_store,
-            ledger=ledger,
-            agent_id=agent_id,
-            historical_replay=historical_replay,
-        )
-        if not calendar.coverage_receipt.as_dict()["coverage_complete"]:
-            raise DataVendorUnavailable("economic calendar archive is blocked")
 
     sector_store = SectorArchiveStore()
     sector_archive = archive_sector_relationship(
@@ -1469,13 +1614,7 @@ def prepare_sector_relationship_family(
             "sector relationship archive is blocked",
             reason_code="SECTOR_RELATIONSHIP_ARCHIVE_BLOCKED",
         )
-    if route_only:
-        return
-    compile_sector_relationship_core_snapshots(
-        sector_archive,
-        ledger=ledger,
-        output_root=snapshot_cache_root(),
-    )
+    return
 
 
 def us_macro_observation_start(as_of: str) -> str:
@@ -1489,6 +1628,10 @@ def prepare_us_macro_family(
     ledger: AgentDataMaterializationLedger,
 ) -> None:
     """Reuse the trusted calendar and US archive/compiler for two stages."""
+    agent_id = _required_text(request, "agent_id")
+    stage = _required_text(request, "stage")
+    if (agent_id, stage) not in _US_FAMILY_STAGES or agent_id != stage:
+        raise DataVendorUnavailable(f"unsupported US macro family stage {agent_id}/{stage}")
     as_of = _required_text(request, "as_of")
     route_id = request.get("route_id")
     if route_id in US_MACRO_ROUTE_IDS:
@@ -1519,6 +1662,132 @@ def prepare_us_macro_family(
                 ),
             )
         return
+    if agent_id == "us_economy" and stage == "us_economy" and route_id is None:
+        captured_at = _stage_capture_now().astimezone(timezone.utc).isoformat()
+        calendar = archive_eco_calendar(
+            partial(_us_tushare_fetch, endpoint="eco_cal"),
+            as_of_date=as_of,
+            captured_at=captured_at,
+            **(
+                {"as_of_cutoff": captured_at}
+                if _historical_replay(request)
+                else {}
+            ),
+            requested_route_ids=("tushare.eco_cal.usd",),
+            store=EconomicCalendarStore(),
+            ledger=ledger,
+        )
+        if not calendar.coverage_receipt.as_dict()["coverage_complete"]:
+            raise DataVendorUnavailable("economic calendar archive is blocked")
+        usd_calendar_receipt = next(
+            (
+                receipt
+                for receipt in calendar.source_receipts
+                if receipt.as_dict()["identity"]["route_id"]
+                == "tushare.eco_cal.usd"
+            ),
+            None,
+        )
+        if usd_calendar_receipt is None:
+            raise DataVendorUnavailable("USD calendar source receipt is missing")
+        store = USMacroArchiveStore()
+        archive = archive_us_macro_sources(
+            as_of_date=as_of,
+            cutoff_at=f"{as_of}T15:00:00+08:00",
+            observation_start=us_macro_observation_start(as_of),
+            requested_route_ids=("alfred.us_macro", "official.us_policy"),
+            alfred_series_ids=_US_ECONOMY_ALFRED_SERIES_IDS,
+            **(
+                {"historical_replay": True} if _historical_replay(request) else {}
+            ),
+            store=store,
+            ledger=ledger,
+        )
+        if (
+            not archive.coverage_receipt.as_dict()["coverage_complete"]
+            or archive.group is None
+        ):
+            raise DataVendorUnavailable("US macro archive is blocked")
+        compile_us_macro_snapshots(
+            capture_key=archive.group["capture_key"],
+            store=store,
+            ledger=ledger,
+            output_root=snapshot_cache_root(),
+            requested_roles=("us_economy",),
+            exact_calendar_evidence_hash=usd_calendar_receipt.receipt_hash,
+        )
+        return
+    if (
+        agent_id == "us_financial_conditions"
+        and stage == "us_financial_conditions"
+        and route_id is None
+    ):
+        captured_at = _stage_capture_now().astimezone(timezone.utc).isoformat()
+        calendar = archive_eco_calendar(
+            partial(_us_tushare_fetch, endpoint="eco_cal"),
+            as_of_date=as_of,
+            captured_at=captured_at,
+            **(
+                {"as_of_cutoff": captured_at}
+                if _historical_replay(request)
+                else {}
+            ),
+            requested_route_ids=(
+                "tushare.eco_cal.cny",
+                "tushare.eco_cal.usd",
+            ),
+            store=EconomicCalendarStore(),
+            ledger=ledger,
+        )
+        if not calendar.coverage_receipt.as_dict()["coverage_complete"]:
+            raise DataVendorUnavailable("economic calendar archive is blocked")
+        cny_calendar_receipt = next(
+            (
+                receipt
+                for receipt in calendar.source_receipts
+                if receipt.as_dict()["identity"]["route_id"]
+                == "tushare.eco_cal.cny"
+            ),
+            None,
+        )
+        usd_calendar_receipt = next(
+            (
+                receipt
+                for receipt in calendar.source_receipts
+                if receipt.as_dict()["identity"]["route_id"]
+                == "tushare.eco_cal.usd"
+            ),
+            None,
+        )
+        if cny_calendar_receipt is None or usd_calendar_receipt is None:
+            raise DataVendorUnavailable("US calendar source receipt is missing")
+        store = USMacroArchiveStore()
+        archive = archive_us_macro_sources(
+            as_of_date=as_of,
+            cutoff_at=f"{as_of}T15:00:00+08:00",
+            observation_start=us_macro_observation_start(as_of),
+            requested_route_ids=US_MACRO_ROUTE_IDS,
+            **(
+                {"historical_replay": True} if _historical_replay(request) else {}
+            ),
+            store=store,
+            ledger=ledger,
+        )
+        if (
+            not archive.coverage_receipt.as_dict()["coverage_complete"]
+            or archive.group is None
+        ):
+            raise DataVendorUnavailable("US macro archive is blocked")
+        compile_us_macro_snapshots(
+            capture_key=archive.group["capture_key"],
+            store=store,
+            ledger=ledger,
+            output_root=snapshot_cache_root(),
+            requested_roles=("us_financial_conditions",),
+            exact_calendar_evidence_hash=usd_calendar_receipt.receipt_hash,
+            exact_cny_calendar_evidence_hash=cny_calendar_receipt.receipt_hash,
+        )
+        return
     captured_at = _stage_capture_now().astimezone(timezone.utc).isoformat()
     calendar = archive_eco_calendar(
         partial(_us_tushare_fetch, endpoint="eco_cal"),
@@ -1527,7 +1796,7 @@ def prepare_us_macro_family(
         **({"as_of_cutoff": captured_at} if _historical_replay(request) else {}),
         **(
             {"requested_route_ids": (str(route_id),)}
-            if route_id == "tushare.eco_cal.usd"
+            if route_id in {"tushare.eco_cal.cny", "tushare.eco_cal.usd"}
             else {}
         ),
         store=EconomicCalendarStore(),
@@ -1535,7 +1804,10 @@ def prepare_us_macro_family(
     )
     if not calendar.coverage_receipt.as_dict()["coverage_complete"]:
         raise DataVendorUnavailable("economic calendar archive is blocked")
-    if request.get("route_id") == "tushare.eco_cal.usd":
+    if request.get("route_id") in {
+        "tushare.eco_cal.cny",
+        "tushare.eco_cal.usd",
+    }:
         return
     store = USMacroArchiveStore()
     archive = archive_us_macro_sources(
@@ -1566,6 +1838,12 @@ def prepare_europe_macro_family(
     ledger: AgentDataMaterializationLedger,
 ) -> None:
     """Reuse the trusted calendar and Europe archive/compiler for two stages."""
+    agent_id = _required_text(request, "agent_id")
+    stage = _required_text(request, "stage")
+    if (agent_id, stage) not in _EUROPE_FAMILY_STAGES or agent_id != stage:
+        raise DataVendorUnavailable(
+            f"unsupported Europe macro family stage {agent_id}/{stage}"
+        )
     as_of = _required_text(request, "as_of")
     route_id = request.get("route_id")
     if route_id in EUROPE_MACRO_ROUTE_IDS:
@@ -1595,6 +1873,110 @@ def prepare_europe_macro_family(
                     else "EUROPE_MACRO_ROUTE_CAPTURE_BLOCKED"
                 ),
             )
+        return
+    if agent_id == "eu_economy" and stage == "eu_economy" and route_id is None:
+        captured_at = _stage_capture_now().astimezone(timezone.utc).isoformat()
+        calendar = archive_eco_calendar(
+            partial(_europe_tushare_fetch, endpoint="eco_cal"),
+            as_of_date=as_of,
+            captured_at=captured_at,
+            **(
+                {"as_of_cutoff": captured_at}
+                if _historical_replay(request)
+                else {}
+            ),
+            requested_route_ids=("tushare.eco_cal.eur",),
+            store=EconomicCalendarStore(),
+            ledger=ledger,
+        )
+        if not calendar.coverage_receipt.as_dict()["coverage_complete"]:
+            raise DataVendorUnavailable("economic calendar archive is blocked")
+        store = EuropeMacroArchiveStore()
+        archive = archive_europe_macro_sources(
+            as_of_date=as_of,
+            cutoff_at=f"{as_of}T15:00:00+08:00",
+            observation_start=us_macro_observation_start(as_of),
+            requested_route_ids=(
+                "ecb.eu_real_economy",
+                "ecb.euro_macro",
+            ),
+            **(
+                {"historical_replay": True} if _historical_replay(request) else {}
+            ),
+            store=store,
+            ledger=ledger,
+        )
+        if (
+            not archive.coverage_receipt.as_dict()["coverage_complete"]
+            or archive.group is None
+        ):
+            raise DataVendorUnavailable("Europe macro archive is blocked")
+        compile_europe_macro_snapshots(
+            capture_key=archive.group["capture_key"],
+            store=store,
+            ledger=ledger,
+            output_root=snapshot_cache_root(),
+            requested_roles=("eu_economy",),
+            exact_calendar_evidence_hash=calendar.coverage_receipt.receipt_hash,
+        )
+        return
+    if (
+        agent_id == "euro_area_financial_conditions"
+        and stage == "euro_area_financial_conditions"
+        and route_id is None
+    ):
+        captured_at = _stage_capture_now().astimezone(timezone.utc).isoformat()
+        calendar = archive_eco_calendar(
+            partial(_europe_tushare_fetch, endpoint="eco_cal"),
+            as_of_date=as_of,
+            captured_at=captured_at,
+            **(
+                {"as_of_cutoff": captured_at}
+                if _historical_replay(request)
+                else {}
+            ),
+            requested_route_ids=("tushare.eco_cal.eur",),
+            store=EconomicCalendarStore(),
+            ledger=ledger,
+        )
+        if not calendar.coverage_receipt.as_dict()["coverage_complete"]:
+            raise DataVendorUnavailable("economic calendar archive is blocked")
+        eur_calendar_receipt = next(
+            (
+                receipt
+                for receipt in calendar.source_receipts
+                if receipt.as_dict()["identity"]["route_id"]
+                == "tushare.eco_cal.eur"
+            ),
+            None,
+        )
+        if eur_calendar_receipt is None:
+            raise DataVendorUnavailable("EUR calendar source receipt is missing")
+        store = EuropeMacroArchiveStore()
+        archive = archive_europe_macro_sources(
+            as_of_date=as_of,
+            cutoff_at=f"{as_of}T15:00:00+08:00",
+            observation_start=us_macro_observation_start(as_of),
+            requested_route_ids=("ecb.euro_macro", "market.euro_fx"),
+            **(
+                {"historical_replay": True} if _historical_replay(request) else {}
+            ),
+            store=store,
+            ledger=ledger,
+        )
+        if (
+            not archive.coverage_receipt.as_dict()["coverage_complete"]
+            or archive.group is None
+        ):
+            raise DataVendorUnavailable("Europe macro archive is blocked")
+        compile_europe_macro_snapshots(
+            capture_key=archive.group["capture_key"],
+            store=store,
+            ledger=ledger,
+            output_root=snapshot_cache_root(),
+            requested_roles=("euro_area_financial_conditions",),
+            exact_calendar_evidence_hash=eur_calendar_receipt.receipt_hash,
+        )
         return
     captured_at = _stage_capture_now().astimezone(timezone.utc).isoformat()
     calendar = archive_eco_calendar(
@@ -1644,15 +2026,33 @@ def prepare_geopolitical_family(
     request: Mapping[str, Any],
     ledger: AgentDataMaterializationLedger,
 ) -> None:
-    """Capture every Geo source, then reuse existing preflight authority to build."""
+    """Capture the exact geopolitical source set after license admission."""
     as_of = _required_text(request, "as_of")
     event_store = GeopoliticalEventStore(geopolitical_store_path())
-    capture_required_geopolitical_sources(store=event_store)
+    license_decisions = event_store.latest_source_license_decisions(
+        _stage_capture_now().astimezone(timezone.utc)
+    )
+    if set(license_decisions) != set(REQUIRED_SOURCE_IDS) or any(
+        decision["decision_status"] != "APPROVED"
+        or decision["permitted_use"]
+        != "PUBLIC_METADATA_HASH_AND_DERIVED_EVENT"
+        or decision["raw_source_content_commit_allowed"] is not False
+        for decision in license_decisions.values()
+    ):
+        raise DataVendorUnavailable(
+            "geopolitical source licenses are not approved for one-shot capture"
+        )
+    capture_group = capture_required_geopolitical_sources(
+        store=event_store,
+        window_end=_geopolitical_as_of_cutoff(as_of).isoformat(),
+    )
     result = materialize_geopolitical_snapshot(
         as_of_date=as_of,
         event_store=event_store,
         ledger=ledger,
         output_root=snapshot_cache_root(),
+        capture_group=capture_group,
+        license_decisions=license_decisions,
     )
     if result.build_receipt.as_dict()["terminal_state"] != "READY":
         raise DataVendorUnavailable("geopolitical archive is blocked")
@@ -1662,26 +2062,12 @@ def prepare_market_breadth_family(
     request: Mapping[str, Any],
     ledger: AgentDataMaterializationLedger,
 ) -> None:
-    """Reuse the trusted A-share archive and deterministic breadth compiler."""
-    as_of = _required_text(request, "as_of")
-    archive = archive_a_share_breadth(
-        fetch_a_share_tushare_endpoint,
-        as_of_date=as_of,
-        cutoff_at=f"{as_of}T16:00:00+08:00",
-        historical_replay=_historical_replay(request),
-        store=AShareArchiveStore(),
-        ledger=ledger,
+    """Fail closed when a breadth cold miss has no bounded authority."""
+    _required_text(request, "as_of")
+    raise DataVendorUnavailable(
+        "A-share breadth snapshot cold miss has no bounded aggregate authority",
+        reason_code="A_SHARE_BREADTH_ARCHIVE_BLOCKED",
     )
-    build = compile_a_share_breadth_snapshot(
-        archive,
-        as_of_date=as_of,
-        ledger=ledger,
-    )
-    if build.as_dict()["terminal_state"] != "READY":
-        raise DataVendorUnavailable(
-            "A-share breadth archive is blocked",
-            reason_code="A_SHARE_BREADTH_ARCHIVE_BLOCKED",
-        )
 
 
 def _ensure_agent_stage_materialization_core(

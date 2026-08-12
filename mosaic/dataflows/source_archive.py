@@ -497,6 +497,12 @@ def archive_eco_calendar(
             raise ValueError(
                 "requested calendar routes do not cover the role-event consumer"
             )
+        route_ids = tuple(sorted(consumer_routes))
+        currencies = tuple(
+            currency
+            for currency in ECO_CAL_REGISTERED_CURRENCIES
+            if currency in ROLE_EVENT_CURRENCIES[consumer_agent]
+        )
     historical_replay = cutoff.astimezone(_SHANGHAI).date() > date.fromisoformat(
         as_of_date
     )
@@ -617,7 +623,11 @@ def archive_eco_calendar(
     receipts = tuple(
         _source_receipt(
             route_id=route_id,
-            currencies=currencies,
+            currencies=tuple(
+                currency
+                for currency in ECO_CAL_LOGICAL_ROUTES[route_id]
+                if currency in currencies
+            ),
             audits=audits,
             as_of_date=as_of_date,
             captured_at=captured.isoformat(),
@@ -625,7 +635,6 @@ def archive_eco_calendar(
             batch_id=str(batch["retrieval_batch_id"]),
         )
         for route_id in route_ids
-        for currencies in (ECO_CAL_LOGICAL_ROUTES[route_id],)
     )
     results = [
         {

@@ -60,6 +60,7 @@ _POLICY_FIELDS = (
     "category_id",
     "childtype",
     "discovered_at",
+    "matched_queries",
     "pcode",
     "pub_date",
     "puborg",
@@ -438,10 +439,17 @@ class ForwardArchiveQueryReader:
             additional_capture=parent_captured,
         )
 
-    def _policy_selection(self, as_of: str, lookback: int, source: str) -> _Selection:
+    def _policy_selection(
+        self,
+        as_of: str,
+        lookback: int,
+        source: str,
+        topic: str | None = None,
+    ) -> _Selection:
         del source
         if lookback < 0:
             raise DataVendorUnavailable("look_back_days must be >= 0")
+        normalized_topic = str(topic or "").strip()
         start_date, end_date = _date_window(as_of, lookback)
         cache_root = gov_policy_cache_dir(self.policy_cache_dir)
         rows = load_gov_policy_records(cache_root)
@@ -457,15 +465,22 @@ class ForwardArchiveQueryReader:
                 normalized.setdefault("discovered_at", discovered.isoformat())
                 visible.append(normalized)
         selected = _records_in_window(visible, start_date, end_date)
+        if normalized_topic:
+            selected = [
+                row
+                for row in selected
+                if normalized_topic in row.get("matched_queries", ())
+            ]
         if not selected:
             raise DataVendorUnavailable("policy forward archive has no proven coverage")
         category_names = " / ".join(category.name for category in GOV_POLICY_CATEGORIES)
+        topic_suffix = f"; topic={normalized_topic}" if normalized_topic else ""
         payload = _records_to_markdown_csv(
             selected,
             title=f"产业政策 / Gov.cn Policy Documents ({start_date} → {end_date})",
             subtitle=(
                 "Source: State Council policy document library (forward archive). "
-                f"Categories: {category_names}."
+                f"Categories: {category_names}{topic_suffix}."
             ),
             empty_note=(
                 f"No gov.cn policy documents recorded between {start_date} and {end_date}."
@@ -477,6 +492,8 @@ class ForwardArchiveQueryReader:
             "source": "govcn",
             "start_date": start_date,
         }
+        if normalized_topic:
+            request["q"] = normalized_topic
         return self._selection(
             route_id=_POLICY_ROUTE,
             source_family="govcn",
@@ -549,7 +566,10 @@ class ForwardArchiveQueryReader:
             )
         if method == "get_industry_policy":
             return self._policy_selection(
-                str(route_args[0]), int(route_args[1]), str(route_args[2])
+                str(route_args[0]),
+                int(route_args[1]),
+                str(route_args[2]),
+                str(route_args[3]) if len(route_args) > 3 else None,
             )
         raise ValueError(f"forward archive reader does not own route method {method}")
 
@@ -574,6 +594,8 @@ class ForwardArchiveQueryReader:
         elif tool_id == "get_industry_policy_digest":
             method = "get_industry_policy"
             route_args = (args["as_of"], args["lookback_days"], args["source"])
+            if "topic" in args:
+                route_args += (args["topic"],)
         else:
             raise ValueError(f"forward archive reader has no receipt for {tool_id}")
         selection = self._select(method, route_args)
@@ -727,11 +749,14 @@ class ForwardArchiveSourcePreparer:
                 args["max_reports"],
             )
         if tool_id == "get_industry_policy_digest":
-            return "get_industry_policy", (
+            route_args: tuple[Any, ...] = (
                 args["as_of"],
                 args["lookback_days"],
                 args["source"],
             )
+            if "topic" in args:
+                route_args += (args["topic"],)
+            return "get_industry_policy", route_args
         return None
 
     def _archive_ready(self, method: str, route_args: Sequence[Any]) -> bool:
@@ -790,11 +815,19 @@ class ForwardArchiveSourcePreparer:
         start_date, end_date = _date_window(
             str(args["as_of"]), int(args["lookback_days"])
         )
+        topic = str(args.get("topic") or "").strip()
         try:
             refresher(
                 cache_dir=self.reader.policy_cache_dir,
                 start_date=start_date,
                 end_date=end_date,
+                **(
+                    {
+                        "q": topic,
+                    }
+                    if topic
+                    else {}
+                ),
             )
         except DataVendorUnavailable:
             raise

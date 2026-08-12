@@ -73,7 +73,7 @@ def _archive(
     return result, store, ledger
 
 
-def test_fresh_empty_cache_captures_all_ten_leaves_and_builds_no_event_snapshot(
+def test_fresh_empty_cache_captures_three_semiconductor_leaves_and_builds_no_event_snapshot(
     tmp_path: Path,
     network_disabled: None,
 ) -> None:
@@ -86,12 +86,13 @@ def test_fresh_empty_cache_captures_all_ten_leaves_and_builds_no_event_snapshot(
     result, _store, ledger = _archive(
         tmp_path,
         fetch,
-        consumer_agent="eu_economy",
+        consumer_agent="semiconductor",
     )
 
     assert calls == [
         {"date": "20260701", "country": country}
-        for _currency, country in ECO_CAL_REGISTERED_ROUTES
+        for currency, country in ECO_CAL_REGISTERED_ROUTES
+        if currency in ROLE_EVENT_CURRENCIES["semiconductor"]
     ]
     assert len(result.source_receipts) == 3
     assert result.coverage_receipt.as_dict()["coverage_complete"] is True
@@ -103,9 +104,15 @@ def test_fresh_empty_cache_captures_all_ten_leaves_and_builds_no_event_snapshot(
         receipt.as_dict()["identity"]["route_id"]: receipt.as_dict()
         for receipt in result.source_receipts
     }
+    assert by_route["tushare.eco_cal.cny"]["coverage"]["dimensions"][
+        "currency"
+    ] == ["CNY"]
+    assert by_route["tushare.eco_cal.usd"]["coverage"]["dimensions"][
+        "currency"
+    ] == ["USD"]
     assert by_route["tushare.eco_cal.eur"]["coverage"]["dimensions"][
         "currency"
-    ] == sorted(ECO_CAL_LOGICAL_ROUTES["tushare.eco_cal.eur"])
+    ] == ["EUR"]
     assert all(
         receipt["completeness"]["empty_result_semantics"] == "TRUE_EMPTY"
         and receipt["content"]["normalized_row_count"] == 0

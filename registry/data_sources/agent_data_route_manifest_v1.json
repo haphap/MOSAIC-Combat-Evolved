@@ -1,6 +1,6 @@
 {
   "schema_version": "agent_data_route_manifest_v1",
-  "manifest_version": "agent_data_routes_20260806_v1",
+  "manifest_version": "agent_data_routes_20260812_v1",
   "generated_at": "2026-08-06T00:00:00+00:00",
   "agent_tool_contract_manifest_hash": "sha256:afa3c798dbf547d8812802d1ab6faa1af91bd1f6b37f00b4f16b53249fd7b491",
   "routes": [
@@ -286,12 +286,7 @@
     },
     {
       "agent_id": "geopolitical",
-      "required_route_ids": [
-        "geopolitical.required_coverage",
-        "tushare.eco_cal.cny",
-        "tushare.eco_cal.eur",
-        "tushare.eco_cal.usd"
-      ],
+      "required_route_ids": ["geopolitical.required_coverage"],
       "stage": "geopolitical",
       "tool_id": "get_geopolitical_events_snapshot"
     },
@@ -1457,5 +1452,5 @@
       ]
     }
   ],
-  "manifest_hash": "sha256:bf1e87c9397f5d73b720823e720543ebbeb6754d700d9f43e0767e2590111489"
+  "manifest_hash": "sha256:a38b5cd8c8124a737c7d79d83ab99f6b6206cfe12c2094ce57ccbebb89feaf72"
 }

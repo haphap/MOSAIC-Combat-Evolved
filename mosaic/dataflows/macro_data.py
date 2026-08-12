@@ -1104,30 +1104,67 @@ def get_industry_moneyflow(
     funds are rotating into / out of. Columns are passed through defensively
     (THS schema: industry / net_amount / pct_change / lead_stock / …).
 
-    ``industries`` optionally narrows the ~90-industry table to just the THS
-    industries a caller cares about — a comma-separated list of 同花顺行业 name
-    substrings (ASCII ``,`` or CJK ``，`` / ``、``; e.g. ``"半导体"`` or
-    ``"银行,证券,保险"``). The match is a **substring** test on the ``industry``
-    column — deliberately broad, so a single token like ``"医疗"`` captures the
-    whole family (医疗器械 / 医疗服务 / …); pass a narrower exact name to tighten
-    it. If nothing matches, the result is empty rather than exposing unrelated
-    industries.
+    ``industries`` must match one authorized sector-agent scope exactly. Each
+    scope binds one THS industry code before transport; unknown or empty scopes
+    fail closed rather than fetching the full industry table.
     """
     start_date, end_date = _date_range_from_lookback(curr_date, look_back_days)
-    df = _query_tushare(
-        "moneyflow_ind_ths",
-        start_date=_to_tushare_date(start_date),
-        end_date=_to_tushare_date(end_date),
-    )
+    tokens = [t.strip() for t in re.split(r"[,，、]", industries) if t.strip()]
+    scope = tuple(tokens)
+    scope_codes = {
+        ("半导体",): "881121.TI",
+        ("医药", "医疗", "生物制品", "中药"): "881142.TI",
+        ("电子", "计算机", "传媒", "通信"): "881272.TI",
+        ("煤炭", "石油", "天然气", "电力", "光伏", "风电", "电池"): "881105.TI",
+        ("银行", "证券", "保险", "多元金融"): "881155.TI",
+        ("农业", "种植", "养殖", "林业", "饲料", "动物保健"): "881102.TI",
+        (
+            "家电",
+            "食品",
+            "饮料",
+            "纺织",
+            "服装",
+            "零售",
+            "旅游",
+            "美容",
+            "汽车",
+        ): "881136.TI",
+        (
+            "化学",
+            "钢铁",
+            "有色",
+            "机械",
+            "军工",
+            "电气设备",
+            "交通运输",
+            "环保",
+        ): "881112.TI",
+        ("房地产", "建筑材料", "建筑装饰"): "881153.TI",
+    }
+    ts_code = scope_codes.get(scope)
+    if ts_code is None:
+        raise DataVendorUnavailable(
+            "industry moneyflow requires an authorized exact industry scope"
+        )
+    request_params = {
+        "ts_code": ts_code,
+        "start_date": _to_tushare_date(start_date),
+        "end_date": _to_tushare_date(end_date),
+    }
+    df = _query_tushare("moneyflow_ind_ths", **request_params)
     subtitle = (
         "Source: Tushare moneyflow_ind_ths (同花顺行业). net_amount = 行业净流入; "
         "positive = main funds rotating in."
     )
 
-    tokens = [t.strip() for t in re.split(r"[,，、]", industries) if t.strip()]
     if tokens and df is not None and not df.empty:
         if "industry" in df.columns:
-            pattern = "|".join(re.escape(t) for t in tokens)
+            match_tokens = (
+                [*tokens, "软件开发"]
+                if scope == ("电子", "计算机", "传媒", "通信")
+                else tokens
+            )
+            pattern = "|".join(re.escape(t) for t in match_tokens)
             df = df[df["industry"].astype(str).str.contains(pattern, na=False)]
         else:
             df = df.iloc[0:0].copy()

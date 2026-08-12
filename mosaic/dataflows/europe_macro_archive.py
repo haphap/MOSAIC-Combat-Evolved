@@ -592,7 +592,12 @@ def _build_group(
         )
     start_date = date.fromisoformat(observation_start)
     end_date = date.fromisoformat(as_of_date)
+    selection_cutoff = started if historical_replay else cutoff
     requested = frozenset(requested_route_ids)
+    financial_only_context = requested == {
+        "ecb.euro_macro",
+        "market.euro_fx",
+    }
     financial_ecb = []
     if "ecb.euro_macro" in requested:
         for series_id in ECB_SERIES_IDS:
@@ -608,13 +613,13 @@ def _build_group(
                         observation_end=as_of_date,
                     ),
                     series_id=series_id,
-                    cutoff=cutoff,
+                    cutoff=selection_cutoff,
                     observation_start=start_date,
                     observation_end=end_date,
                 )
             )
     real_economy_ecb = []
-    if "ecb.eu_real_economy" in requested:
+    if "ecb.eu_real_economy" in requested or financial_only_context:
         for series_id in REAL_ECONOMY_ECB_SERIES_IDS:
             real_economy_ecb.append(
                 _validate_ecb_payload(
@@ -628,7 +633,7 @@ def _build_group(
                         observation_end=as_of_date,
                     ),
                     series_id=series_id,
-                    cutoff=cutoff,
+                    cutoff=selection_cutoff,
                     observation_start=start_date,
                     observation_end=end_date,
                 )
@@ -776,8 +781,18 @@ def _ecb_receipt(
     group: Mapping[str, Any], *, route_id: str, group_key: str
 ) -> SourceCaptureReceipt:
     payload = _receipt_common(group, route_id)
-    series = group[group_key]["series"]
+    series = list(group[group_key]["series"])
+    context_in_financial_route = (
+        route_id == "ecb.euro_macro"
+        and set(group.get("requested_route_ids", LOGICAL_ROUTES))
+        == {"ecb.euro_macro", "market.euro_fx"}
+    )
+    if context_in_financial_route:
+        series.extend(group["ecb_real_economy"]["series"])
     selected = [row for item in series for row in item["selected_rows"]]
+    series_ids = list(group[group_key]["series_ids"])
+    if context_in_financial_route:
+        series_ids.extend(group["ecb_real_economy"]["series_ids"])
     knowledge_at = max(
         _timestamp(row["VALID_FROM"], "ECB.VALID_FROM") for row in selected
     ).isoformat()
@@ -818,7 +833,7 @@ def _ecb_receipt(
             "coverage": _receipt_coverage(
                 group=group,
                 periods=[str(row["TIME_PERIOD"]) for row in selected],
-                dimensions={"series_id": group[group_key]["series_ids"]},
+                dimensions={"series_id": series_ids},
             ),
             "completeness": {
                 "truncated": False,
@@ -1254,11 +1269,51 @@ def compile_europe_macro_snapshots(
     store: EuropeMacroArchiveStore,
     ledger: AgentDataMaterializationLedger,
     output_root: Path | None = None,
+    requested_roles: Sequence[str] | None = None,
+    exact_calendar_evidence_hash: str | None = None,
 ) -> EuropeMacroBuildResult:
     group = store.load_group(capture_key)
     if group.get("schema_version") != CAPTURE_SCHEMA_VERSION:
         raise DataVendorUnavailable("Europe macro archive schema drift")
-    if any(group["route_states"][route] != "SUCCESS" for route in LOGICAL_ROUTES):
+    if requested_roles is None:
+        selected_roles = ("eu_economy", "euro_area_financial_conditions")
+    else:
+        if isinstance(requested_roles, (str, bytes)):
+            raise ValueError("requested_roles must be a sequence")
+        requested = tuple(requested_roles)
+        if (
+            not requested
+            or len(requested) != len(set(requested))
+            or any(
+                role not in {"eu_economy", "euro_area_financial_conditions"}
+                for role in requested
+            )
+        ):
+            raise ValueError("requested_roles must be a non-empty Europe macro role subset")
+        selected_roles = tuple(
+            role
+            for role in ("eu_economy", "euro_area_financial_conditions")
+            if role in requested
+        )
+    selected_role_set = set(selected_roles)
+    requested_archive_routes = tuple(
+        group.get("requested_route_ids", LOGICAL_ROUTES)
+    )
+    required_archive_routes = (
+        ("ecb.eu_real_economy", "ecb.euro_macro")
+        if selected_role_set == {"eu_economy"}
+        else ("ecb.euro_macro", "market.euro_fx")
+        if selected_role_set == {"euro_area_financial_conditions"}
+        else LOGICAL_ROUTES
+    )
+    if requested_archive_routes != required_archive_routes:
+        raise DataVendorUnavailable(
+            "Europe macro capture route scope does not match roles"
+        )
+    if any(
+        group["route_states"].get(route) != "SUCCESS"
+        for route in required_archive_routes
+    ):
         raise DataVendorUnavailable(
             "Europe macro capture does not cover every required route"
         )
@@ -1266,67 +1321,109 @@ def compile_europe_macro_snapshots(
     source_by_route = {
         receipt.as_dict()["identity"]["route_id"]: receipt for receipt in sources
     }
+    if set(source_by_route) != set(required_archive_routes):
+        raise DataVendorUnavailable("Europe macro source route closure mismatch")
     for route_id, receipt in source_by_route.items():
-        status = ledger.source_status(as_of=group["as_of_date"], route_id=route_id)
-        if status["capture_receipt_hash"] != receipt.receipt_hash:
+        registered = ledger.source_capture_receipt(receipt_hash=receipt.receipt_hash)
+        if (
+            registered is None
+            or registered.receipt_hash != receipt.receipt_hash
+            or registered.as_dict() != receipt.as_dict()
+        ):
             raise DataVendorUnavailable(f"Europe macro source receipt drift: {route_id}")
+        payload = registered.as_dict()
+        if (
+            payload.get("identity", {}).get("route_id") != route_id
+            or payload.get("pit", {}).get("eligible") is not True
+            or payload.get("pit", {}).get("as_of_cutoff") != group["cutoff_at"]
+            or payload.get("coverage", {}).get("requested_end")
+            != group["as_of_date"]
+        ):
+            raise DataVendorUnavailable(f"Europe macro source receipt drift: {route_id}")
+    context_receipt = (
+        source_by_route["ecb.eu_real_economy"]
+        if "ecb.eu_real_economy" in source_by_route
+        else source_by_route["ecb.euro_macro"]
+    )
     economy_observations = _ecb_observations(
         group,
-        source_by_route["ecb.eu_real_economy"],
+        context_receipt,
         group_key="ecb_real_economy",
         output_map=_REAL_ECONOMY_ECB_OUTPUT,
     )
-    financial_observations = _ecb_observations(
-        group,
-        source_by_route["ecb.euro_macro"],
-        group_key="ecb",
-        output_map=_ECB_OUTPUT,
-    )
-    financial_observations.append(
-        _fx_observation(group, source_by_route["market.euro_fx"])
-    )
-    raw_snapshots = {
-        "eu_economy": {
+    raw_snapshots: dict[str, dict[str, Any]] = {}
+    if "eu_economy" in selected_role_set:
+        raw_snapshots["eu_economy"] = {
             "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
             "role": "eu_economy",
             "as_of_date": group["as_of_date"],
             "observations": economy_observations,
             "events": [],
-        },
-        "euro_area_financial_conditions": {
+        }
+    if "euro_area_financial_conditions" in selected_role_set:
+        financial_observations = _ecb_observations(
+            group,
+            source_by_route["ecb.euro_macro"],
+            group_key="ecb",
+            output_map=_ECB_OUTPUT,
+        )
+        financial_observations.append(
+            _fx_observation(group, source_by_route["market.euro_fx"])
+        )
+        raw_snapshots["euro_area_financial_conditions"] = {
             "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
             "role": "euro_area_financial_conditions",
             "as_of_date": group["as_of_date"],
             "observations": financial_observations,
             "context_observations": economy_observations,
             "events": [],
-        },
-    }
+        }
+    knowledge_cutoff = (
+        _timestamp(group["cutoff_at"], "cutoff_at")
+        if group.get("historical_replay") is True
+        else None
+    )
     snapshots = {
-        role: validate_role_snapshot(raw, role, group["as_of_date"])
+        role: validate_role_snapshot(
+            raw,
+            role,
+            group["as_of_date"],
+            knowledge_cutoff=knowledge_cutoff,
+        )
         for role, raw in raw_snapshots.items()
     }
-    calendar_hash = _calendar_hash(ledger, as_of_date=group["as_of_date"])
-    build_specs = (
-        (
-            "eu_economy",
-            "get_eu_macro_snapshot",
-            [
-                source_by_route["ecb.eu_real_economy"].receipt_hash,
-                source_by_route["ecb.euro_macro"].receipt_hash,
-                calendar_hash,
-            ],
-        ),
-        (
-            "euro_area_financial_conditions",
-            "get_euro_area_financial_conditions_snapshot",
-            [
-                source_by_route["ecb.euro_macro"].receipt_hash,
-                source_by_route["market.euro_fx"].receipt_hash,
-                calendar_hash,
-            ],
-        ),
+    if selected_role_set == {"eu_economy"} and exact_calendar_evidence_hash is None:
+        raise DataVendorUnavailable("EU economy requires exact calendar evidence")
+    calendar_hash = (
+        str(exact_calendar_evidence_hash)
+        if exact_calendar_evidence_hash is not None
+        else _calendar_hash(ledger, as_of_date=group["as_of_date"])
     )
+    build_specs: list[tuple[str, str, list[str]]] = []
+    if "eu_economy" in selected_role_set:
+        build_specs.append(
+            (
+                "eu_economy",
+                "get_eu_macro_snapshot",
+                [
+                    source_by_route["ecb.eu_real_economy"].receipt_hash,
+                    source_by_route["ecb.euro_macro"].receipt_hash,
+                    calendar_hash,
+                ],
+            )
+        )
+    if "euro_area_financial_conditions" in selected_role_set:
+        build_specs.append(
+            (
+                "euro_area_financial_conditions",
+                "get_euro_area_financial_conditions_snapshot",
+                [
+                    source_by_route["ecb.euro_macro"].receipt_hash,
+                    source_by_route["market.euro_fx"].receipt_hash,
+                    calendar_hash,
+                ],
+            )
+        )
     now = _capture_now().isoformat()
     build_receipts = []
     for role, tool_id, source_hashes in build_specs:

@@ -52,6 +52,7 @@ RELATIONSHIP_MAX_EDGE_EVIDENCE_IDS = 32
 RELATIONSHIP_MAX_ID_LENGTH = 128
 PAGINATION_POLICY_TERMINAL_CONFIRMED = "OFFSET_WITH_TERMINAL_CONFIRMATION"
 PAGINATION_POLICY_OFFICIAL_CAP = "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP"
+EXACT_SINGLE_PAGE_OFFICIAL_CAP = "EXACT_SINGLE_PAGE_OFFICIAL_CAP"
 _RELATIONSHIP_SECURITY_ID_PATTERN = re.compile(r"^\d{6}\.(?:SH|SZ|BJ)$")
 _RELATIONSHIP_TIMESTAMP_PATTERN = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
@@ -1003,6 +1004,38 @@ def _manifest_bindings(role: str) -> tuple[dict[str, Any], dict[str, dict[str, A
     return plan, directions
 
 
+def _is_semiconductor_exact_membership_request(request: Any) -> bool:
+    if not isinstance(request, Mapping):
+        return False
+    if set(request) != {
+        "query_plan_hash",
+        "parameter",
+        "classification_code",
+        "is_new",
+        "covered_l3_codes",
+    }:
+        return False
+    plan = next(
+        row
+        for row in SECTOR_UNIVERSE_MANIFEST["membership_query_plans"]
+        if row["sector_agent_id"] == "semiconductor"
+    )
+    covered_l3_codes = sorted(
+        {
+            branch["classification_code"]
+            for branch in plan["branches"]
+            if branch["parameter"] == "l3_code"
+        }
+    )
+    return (
+        request.get("query_plan_hash") == plan["query_plan_hash"]
+        and request.get("parameter") == "l2_code"
+        and request.get("classification_code") == "801081.SI"
+        and request.get("is_new") in {"Y", "N"}
+        and request.get("covered_l3_codes") == covered_l3_codes
+    )
+
+
 def _direction_for_security(
     security: dict[str, Any], direction_contracts: dict[str, dict[str, Any]]
 ) -> str:
@@ -1747,7 +1780,12 @@ def _validate_source_batch(
         or value.get("truncated") is not False
     ):
         raise DataVendorUnavailable("sector source batch pagination is incomplete")
-    expected_pagination_policy = SOURCE_BATCH_PAGINATION_POLICIES.get(endpoint)
+    expected_pagination_policy = (
+        EXACT_SINGLE_PAGE_OFFICIAL_CAP
+        if endpoint == "index_member_all"
+        and _is_semiconductor_exact_membership_request(value.get("request"))
+        else SOURCE_BATCH_PAGINATION_POLICIES.get(endpoint)
+    )
     if (
         expected_pagination_policy is not None
         and value.get("pagination_policy") != expected_pagination_policy
@@ -1855,7 +1893,14 @@ def _registered_active_stock_rows(
         "exchange": "",
     }
     scoped_codes = stock_batch["request"].get("ts_codes")
+    semiconductor_exact = False
     if set(stock_batch["request"]) == {"ts_codes"}:
+        observed_codes = {row.get("ts_code") for row in stock_batch["rows"]}
+        semiconductor_exact = any(
+            batch["endpoint"] == "index_member_all"
+            and _is_semiconductor_exact_membership_request(batch.get("request"))
+            for batch in batches
+        )
         if (
             not isinstance(scoped_codes, list)
             or not scoped_codes
@@ -1867,8 +1912,12 @@ def _registered_active_stock_rows(
             )
             or stock_batch["query_count"] != len(scoped_codes)
             or stock_batch["completed_query_count"] != len(scoped_codes)
-            or {row.get("ts_code") for row in stock_batch["rows"]}
-            != set(scoped_codes)
+            or not observed_codes
+            or (
+                not observed_codes <= set(scoped_codes)
+                if semiconductor_exact
+                else observed_codes != set(scoped_codes)
+            )
         ):
             raise DataVendorUnavailable(
                 "sector stock_basic scoped ticker authority is incomplete"
@@ -1952,38 +2001,65 @@ def _validate_membership_batches(
         )
         for branch in plan["branches"]
     }
+    semiconductor_exact = role == "semiconductor"
+    if semiconductor_exact and len(membership_batches) != 2:
+        raise DataVendorUnavailable(
+            "sector semiconductor membership requires exactly two source batches"
+        )
     observed_branches: set[tuple[str, str, str]] = set()
+    observed_is_new: set[str] = set()
     reconstructed: dict[tuple[Any, ...], dict[str, Any]] = {}
     for batch in membership_batches:
         request = batch["request"]
-        if (
-            set(request)
-            != {
-                "query_plan_hash",
-                "parameter",
-                "classification_code",
-                "is_new",
-            }
-            or request.get("query_plan_hash") != plan["query_plan_hash"]
-        ):
-            raise DataVendorUnavailable(
-                "sector membership source batch request is not plan-bound"
-            )
-        branch = (
-            request["parameter"],
-            request["classification_code"],
-            request["is_new"],
-        )
-        if branch not in required_branches or branch in observed_branches:
-            raise DataVendorUnavailable(
-                "sector membership source batch has an unknown or duplicate branch"
-            )
-        observed_branches.add(branch)
-        for row in batch["rows"]:
+        if semiconductor_exact:
+            if not _is_semiconductor_exact_membership_request(request):
+                raise DataVendorUnavailable(
+                    "sector semiconductor membership request is not plan-bound"
+                )
+            is_new = request["is_new"]
+            if is_new in observed_is_new:
+                raise DataVendorUnavailable(
+                    "sector semiconductor membership request is duplicated"
+                )
+            observed_is_new.add(is_new)
+        else:
             if (
-                row.get(request["parameter"]) != request["classification_code"]
-                or row.get("is_new") != request["is_new"]
+                set(request)
+                != {
+                    "query_plan_hash",
+                    "parameter",
+                    "classification_code",
+                    "is_new",
+                }
+                or request.get("query_plan_hash") != plan["query_plan_hash"]
             ):
+                raise DataVendorUnavailable(
+                    "sector membership source batch request is not plan-bound"
+                )
+            branch = (
+                request["parameter"],
+                request["classification_code"],
+                request["is_new"],
+            )
+            if branch not in required_branches or branch in observed_branches:
+                raise DataVendorUnavailable(
+                    "sector membership source batch has an unknown or duplicate branch"
+                )
+            observed_branches.add(branch)
+        for row in batch["rows"]:
+            if semiconductor_exact:
+                outside_request = (
+                    row.get("l2_code") != "801081.SI"
+                    or row.get("is_new") != request["is_new"]
+                    or row.get("l3_code") not in request["covered_l3_codes"]
+                )
+            else:
+                outside_request = (
+                    row.get(request["parameter"])
+                    != request["classification_code"]
+                    or row.get("is_new") != request["is_new"]
+                )
+            if outside_request:
                 raise DataVendorUnavailable(
                     "sector membership row is outside its registered branch"
                 )
@@ -2002,7 +2078,11 @@ def _validate_membership_batches(
                 continue
             key = membership_key(row)
             reconstructed[key] = row
-    if observed_branches != required_branches:
+    if semiconductor_exact and observed_is_new != {"Y", "N"}:
+        raise DataVendorUnavailable(
+            "sector semiconductor membership Y/N closure is incomplete"
+        )
+    if not semiconductor_exact and observed_branches != required_branches:
         raise DataVendorUnavailable("sector membership source branches are incomplete")
 
     expected_keys = {
@@ -3523,22 +3603,65 @@ def compile_registered_sector_snapshot(
         for branch in plan["branches"]
     }
     membership_batches: dict[tuple[str, str, str], dict[str, Any]] = {}
-    for batch in batches:
-        if batch["endpoint"] != "index_member_all":
-            continue
-        request = batch["request"]
-        branch = (
-            request.get("parameter"),
-            request.get("classification_code"),
-            request.get("is_new"),
+    if role == "semiconductor":
+        covered_l3_codes = sorted(
+            {
+                branch["classification_code"]
+                for branch in plan["branches"]
+                if branch["parameter"] == "l3_code"
+            }
         )
-        if request.get("query_plan_hash") != plan["query_plan_hash"]:
-            raise DataVendorUnavailable("sector compiler membership plan mismatch")
-        if branch not in required_branches or branch in membership_batches:
-            raise DataVendorUnavailable("sector compiler membership branch mismatch")
-        membership_batches[branch] = batch
-    if set(membership_batches) != required_branches:
-        raise DataVendorUnavailable("sector compiler membership branches are incomplete")
+        exact_batches = [
+            batch
+            for batch in batches
+            if batch["endpoint"] == "index_member_all"
+        ]
+        if len(exact_batches) != 2:
+            raise DataVendorUnavailable(
+                "sector compiler semiconductor membership closure mismatch"
+            )
+        for batch in exact_batches:
+            request = batch["request"]
+            if not _is_semiconductor_exact_membership_request(request):
+                raise DataVendorUnavailable(
+                    "sector compiler semiconductor membership request mismatch"
+                )
+            if any(
+                str(row.get("l2_code")) != "801081.SI"
+                or str(row.get("is_new")) != str(request["is_new"])
+                or str(row.get("l3_code")) not in covered_l3_codes
+                for row in batch["rows"]
+            ):
+                raise DataVendorUnavailable(
+                    "sector compiler semiconductor membership row mismatch"
+                )
+            branch = (
+                request["parameter"],
+                request["classification_code"],
+                request["is_new"],
+            )
+            membership_batches[branch] = batch
+        if {batch["request"]["is_new"] for batch in exact_batches} != {"Y", "N"}:
+            raise DataVendorUnavailable(
+                "sector compiler semiconductor membership is_new closure mismatch"
+            )
+    else:
+        for batch in batches:
+            if batch["endpoint"] != "index_member_all":
+                continue
+            request = batch["request"]
+            branch = (
+                request.get("parameter"),
+                request.get("classification_code"),
+                request.get("is_new"),
+            )
+            if request.get("query_plan_hash") != plan["query_plan_hash"]:
+                raise DataVendorUnavailable("sector compiler membership plan mismatch")
+            if branch not in required_branches or branch in membership_batches:
+                raise DataVendorUnavailable("sector compiler membership branch mismatch")
+            membership_batches[branch] = batch
+        if set(membership_batches) != required_branches:
+            raise DataVendorUnavailable("sector compiler membership branches are incomplete")
 
     stock_batch, active_stock_rows = _registered_active_stock_rows(batches, as_of)
     stock_evidence = _compiled_batch_evidence(
@@ -3983,7 +4106,12 @@ def _validate_sector_source_receipt(
             or batch.get("coverage_ratio", 0) < 0.9
         ):
             raise DataVendorUnavailable("sector source receipt is not ready")
-        expected_pagination_policy = SOURCE_BATCH_PAGINATION_POLICIES.get(endpoint)
+        expected_pagination_policy = (
+            EXACT_SINGLE_PAGE_OFFICIAL_CAP
+            if endpoint == "index_member_all"
+            and _is_semiconductor_exact_membership_request(batch.get("request"))
+            else SOURCE_BATCH_PAGINATION_POLICIES.get(endpoint)
+        )
         if (
             require_pagination_policy
             and expected_pagination_policy is not None

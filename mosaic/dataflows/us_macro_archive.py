@@ -72,6 +72,13 @@ _ALFRED_METADATA = {
     mapping["series_id"]: mapping for mapping in ALFRED_SERIES_MAP.values()
 }
 _ALFRED_SERIES_IDS = tuple(sorted(ALFRED_SERIES_ROLE_MAP))
+_US_ECONOMY_ALFRED_SERIES_IDS = tuple(
+    sorted(
+        series_id
+        for series_id, role in ALFRED_SERIES_ROLE_MAP.items()
+        if role == "us_economy"
+    )
+)
 _TUSHARE_TREASURY_FIELDS = {
     "DGS2": "y2",
     "DGS3MO": "m3",
@@ -541,6 +548,7 @@ def _build_group(
     cutoff_at: str,
     observation_start: str,
     requested_route_ids: tuple[str, ...],
+    alfred_series_ids: tuple[str, ...],
     historical_replay: bool,
     select_vintage: Callable[..., str],
     fetch_vintage: Callable[..., dict[str, Any]],
@@ -561,7 +569,7 @@ def _build_group(
     requested = frozenset(requested_route_ids)
     series: list[dict[str, Any]] = []
     if "alfred.us_macro" in requested:
-        for series_id in _ALFRED_SERIES_IDS:
+        for series_id in alfred_series_ids:
             vintage_date = select_vintage(series_id, as_of_cutoff=cutoff_at)
             payload = fetch_vintage(
                 series_id,
@@ -688,7 +696,7 @@ def _build_group(
         "observation_end": as_of_date,
         "alfred": {
             "series": series,
-            "series_ids": [item["series_id"] for item in series],
+            "series_ids": list(alfred_series_ids),
             "vintage_dates": sorted({item["vintage_date"] for item in series}),
         },
         "official_policy": official_policy,
@@ -1174,6 +1182,7 @@ def archive_us_macro_sources(
     cutoff_at: str,
     observation_start: str,
     requested_route_ids: Sequence[str] | None = None,
+    alfred_series_ids: Sequence[str] | None = None,
     historical_replay: bool = False,
     store: USMacroArchiveStore,
     ledger: AgentDataMaterializationLedger,
@@ -1195,14 +1204,31 @@ def archive_us_macro_sources(
         raise ValueError("historical_replay must be a boolean")
     normalized_cutoff = cutoff.isoformat()
     required_routes = _requested_routes(requested_route_ids)
+    selected_alfred_series_ids = tuple(
+        _ALFRED_SERIES_IDS if alfred_series_ids is None else alfred_series_ids
+    )
+    if (
+        not selected_alfred_series_ids
+        or len(selected_alfred_series_ids) != len(set(selected_alfred_series_ids))
+        or any(
+            not isinstance(series_id, str) or series_id not in _ALFRED_SERIES_IDS
+            for series_id in selected_alfred_series_ids
+        )
+    ):
+        raise ValueError("alfred_series_ids are invalid")
+    selected_alfred_series_ids = tuple(sorted(selected_alfred_series_ids))
     capture_identity = {
         "schema_version": CAPTURE_SCHEMA_VERSION,
         "as_of_date": as_of_date,
         "cutoff_at": normalized_cutoff,
         "observation_start": observation_start,
         "observation_end": as_of_date,
-        "series_ids": list(_ALFRED_SERIES_IDS),
-        "tushare_endpoints": ["fx_daily", "us_tycr"],
+        "series_ids": list(selected_alfred_series_ids),
+        "tushare_endpoints": [
+            route_id.removeprefix("tushare.")
+            for route_id in required_routes
+            if route_id.startswith("tushare.")
+        ],
         **(
             {
                 "historical_replay": True,
@@ -1226,6 +1252,7 @@ def archive_us_macro_sources(
                 cutoff_at=normalized_cutoff,
                 observation_start=observation_start,
                 requested_route_ids=required_routes,
+                alfred_series_ids=selected_alfred_series_ids,
                 historical_replay=historical_replay,
                 select_vintage=select_vintage,
                 fetch_vintage=fetch_vintage,
@@ -1529,81 +1556,165 @@ def compile_us_macro_snapshots(
     store: USMacroArchiveStore,
     ledger: AgentDataMaterializationLedger,
     output_root: Path | None = None,
+    requested_roles: Sequence[str] | None = None,
+    exact_calendar_evidence_hash: str | None = None,
+    exact_cny_calendar_evidence_hash: str | None = None,
 ) -> USMacroBuildResult:
     group = store.load_group(capture_key)
     if group.get("schema_version") != CAPTURE_SCHEMA_VERSION:
         raise DataVendorUnavailable("US macro archive schema drift")
-    if any(group["route_states"][route] != "SUCCESS" for route in LOGICAL_ROUTES):
+    if requested_roles is None:
+        selected_roles = ("us_economy", "us_financial_conditions")
+    else:
+        if isinstance(requested_roles, (str, bytes)):
+            raise ValueError("requested_roles must be a sequence")
+        requested = tuple(requested_roles)
+        if (
+            not requested
+            or len(requested) != len(set(requested))
+            or any(role not in {"us_economy", "us_financial_conditions"} for role in requested)
+        ):
+            raise ValueError("requested_roles must be a non-empty US macro role subset")
+        selected_roles = tuple(
+            role
+            for role in ("us_economy", "us_financial_conditions")
+            if role in requested
+        )
+    selected_role_set = set(selected_roles)
+    requested_archive_routes = tuple(
+        group.get("requested_route_ids", LOGICAL_ROUTES)
+    )
+    required_archive_routes = (
+        ("alfred.us_macro", "official.us_policy")
+        if selected_role_set == {"us_economy"}
+        else LOGICAL_ROUTES
+    )
+    if requested_archive_routes != required_archive_routes:
+        raise DataVendorUnavailable("US macro capture route scope does not match roles")
+    if any(
+        group["route_states"].get(route) != "SUCCESS"
+        for route in required_archive_routes
+    ):
         raise DataVendorUnavailable("US macro capture does not cover every required route")
     sources = _source_receipts(group)
     source_by_route = {
         receipt.as_dict()["identity"]["route_id"]: receipt for receipt in sources
     }
+    if set(source_by_route) != set(required_archive_routes):
+        raise DataVendorUnavailable("US macro source route closure mismatch")
     for route_id, receipt in source_by_route.items():
-        status = ledger.source_status(as_of=group["as_of_date"], route_id=route_id)
-        if status["capture_receipt_hash"] != receipt.receipt_hash:
+        registered = ledger.source_capture_receipt(receipt_hash=receipt.receipt_hash)
+        if (
+            registered is None
+            or registered.receipt_hash != receipt.receipt_hash
+            or registered.as_dict() != receipt.as_dict()
+        ):
+            raise DataVendorUnavailable(f"US macro source receipt drift: {route_id}")
+        payload = registered.as_dict()
+        if (
+            payload.get("identity", {}).get("route_id") != route_id
+            or payload.get("pit", {}).get("eligible") is not True
+            or payload.get("pit", {}).get("as_of_cutoff") != group["cutoff_at"]
+            or payload.get("coverage", {}).get("requested_end")
+            != group["as_of_date"]
+        ):
             raise DataVendorUnavailable(f"US macro source receipt drift: {route_id}")
 
-    observations = _alfred_observations(group, source_by_route["alfred.us_macro"])
-    market = _market_observations(group, source_by_route["market.us_conditions"])
-    tushare = _tushare_observations(
-        group,
-        treasury_receipt=source_by_route["tushare.us_tycr"],
-        fx_receipt=source_by_route["tushare.fx_daily"],
+    observations = _alfred_observations(
+        group, source_by_route["alfred.us_macro"]
     )
-    economy_raw = {
-        "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
-        "role": "us_economy",
-        "as_of_date": group["as_of_date"],
-        "observations": observations["us_economy"],
-        "events": [],
-    }
-    financial_raw = {
-        "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
-        "role": "us_financial_conditions",
-        "as_of_date": group["as_of_date"],
-        "observations": observations["us_financial_conditions"] + market + tushare,
-        "context_observations": observations["us_economy"],
-        "events": [],
-    }
-    raw_snapshots = {
-        "us_economy": economy_raw,
-        "us_financial_conditions": financial_raw,
-    }
+    raw_snapshots: dict[str, dict[str, Any]] = {}
+    if "us_economy" in selected_role_set:
+        raw_snapshots["us_economy"] = {
+            "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
+            "role": "us_economy",
+            "as_of_date": group["as_of_date"],
+            "observations": observations["us_economy"],
+            "events": [],
+        }
+    if "us_financial_conditions" in selected_role_set:
+        market = _market_observations(
+            group, source_by_route["market.us_conditions"]
+        )
+        tushare = _tushare_observations(
+            group,
+            treasury_receipt=source_by_route["tushare.us_tycr"],
+            fx_receipt=source_by_route["tushare.fx_daily"],
+        )
+        raw_snapshots["us_financial_conditions"] = {
+            "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
+            "role": "us_financial_conditions",
+            "as_of_date": group["as_of_date"],
+            "observations": observations["us_financial_conditions"] + market + tushare,
+            "context_observations": observations["us_economy"],
+            "events": [],
+        }
+    knowledge_cutoff = (
+        _timestamp(group["cutoff_at"], "cutoff_at")
+        if group.get("historical_replay") is True
+        else None
+    )
     snapshots = {
-        role: validate_role_snapshot(raw, role, group["as_of_date"])
+        role: validate_role_snapshot(
+            raw,
+            role,
+            group["as_of_date"],
+            knowledge_cutoff=knowledge_cutoff,
+        )
         for role, raw in raw_snapshots.items()
     }
-    calendar_hashes = {
-        "cny": _calendar_hashes(
-            ledger,
-            as_of_date=group["as_of_date"],
-            route_ids=("tushare.eco_cal.cny",),
-        )[0],
-        "usd": _calendar_hashes(
+    if selected_role_set == {"us_economy"} and exact_calendar_evidence_hash is None:
+        raise DataVendorUnavailable("US economy requires exact calendar evidence")
+    if selected_role_set == {"us_financial_conditions"} and (
+        exact_calendar_evidence_hash is None
+        or exact_cny_calendar_evidence_hash is None
+    ):
+        raise DataVendorUnavailable(
+            "US financial conditions requires exact CNY and USD calendar evidence"
+        )
+    calendar_hashes: dict[str, str] = {}
+    if "us_financial_conditions" in selected_role_set:
+        calendar_hashes["cny"] = (
+            str(exact_cny_calendar_evidence_hash)
+            if selected_role_set == {"us_financial_conditions"}
+            else _calendar_hashes(
+                ledger,
+                as_of_date=group["as_of_date"],
+                route_ids=("tushare.eco_cal.cny",),
+            )[0]
+        )
+    calendar_hashes["usd"] = (
+        str(exact_calendar_evidence_hash)
+        if exact_calendar_evidence_hash is not None
+        else _calendar_hashes(
             ledger,
             as_of_date=group["as_of_date"],
             route_ids=("tushare.eco_cal.usd",),
-        )[0],
-    }
-    now = _capture_now().isoformat()
-    build_specs = (
-        (
-            "us_economy",
-            "get_us_macro_snapshot",
-            [
-                source_by_route["alfred.us_macro"].receipt_hash,
-                source_by_route["official.us_policy"].receipt_hash,
-                calendar_hashes["usd"],
-            ],
-        ),
-        (
-            "us_financial_conditions",
-            "get_us_financial_conditions_snapshot",
-            [receipt.receipt_hash for receipt in sources]
-            + [calendar_hashes["cny"], calendar_hashes["usd"]],
-        ),
+        )[0]
     )
+    now = _capture_now().isoformat()
+    build_specs: list[tuple[str, str, list[str]]] = []
+    if "us_economy" in selected_role_set:
+        build_specs.append(
+            (
+                "us_economy",
+                "get_us_macro_snapshot",
+                [
+                    source_by_route["alfred.us_macro"].receipt_hash,
+                    source_by_route["official.us_policy"].receipt_hash,
+                    calendar_hashes["usd"],
+                ],
+            )
+        )
+    if "us_financial_conditions" in selected_role_set:
+        build_specs.append(
+            (
+                "us_financial_conditions",
+                "get_us_financial_conditions_snapshot",
+                [receipt.receipt_hash for receipt in sources]
+                + [calendar_hashes["cny"], calendar_hashes["usd"]],
+            )
+        )
     build_receipts = []
     for role, tool_id, source_hashes in build_specs:
         required_routes = _required_routes(role, tool_id)

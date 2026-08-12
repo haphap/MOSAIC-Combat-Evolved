@@ -107,11 +107,14 @@ def _default_rke_renderer(args: dict[str, Any]) -> Mapping[str, Any]:
 
 def _legacy_call(tool_id: str, args: dict[str, Any]) -> tuple[str, tuple[Any, ...]]:
     if tool_id == "get_industry_policy_digest":
-        return "get_industry_policy", (
+        route_args: tuple[Any, ...] = (
             args["as_of"],
             args["lookback_days"],
             args["source"],
         )
+        if "topic" in args:
+            route_args += (args["topic"],)
+        return "get_industry_policy", route_args
     if tool_id in {"get_broker_research", "get_stock_research"}:
         return tool_id, (
             args["ticker"],

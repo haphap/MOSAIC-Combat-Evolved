@@ -211,6 +211,7 @@ def _archive(
     monkeypatch: pytest.MonkeyPatch,
     *,
     captured_at: datetime = CAPTURED_AT,
+    historical_replay: bool = False,
     callbacks: tuple[dict[str, int], object, object, object, object, object] | None = None,
 ):
     from mosaic.dataflows import us_macro_archive
@@ -231,6 +232,7 @@ def _archive(
         fetch_fomc=fetch_fomc,
         fetch_nyfed=fetch_nyfed,
         fetch_tushare=fetch_tushare,
+        historical_replay=historical_replay,
     )
     return store, ledger, result, counts
 
@@ -918,6 +920,75 @@ def test_receipt_bound_compiler_builds_both_snapshots_without_fomc_invention(
         (tmp_path / "snapshots" / AS_OF / f"{role}.json").is_file()
         for role in built.snapshots
     )
+
+
+def test_financial_only_compiler_binds_both_calendar_receipts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store, ledger, result, _ = _archive(tmp_path, monkeypatch)
+    cny_receipt = _calendar_receipt("tushare.eco_cal.cny")
+    usd_receipt = _calendar_receipt("tushare.eco_cal.usd")
+    ledger.append_source_capture(cny_receipt)
+    ledger.append_source_capture(usd_receipt)
+
+    built = compile_us_macro_snapshots(
+        capture_key=result.group["capture_key"],
+        store=store,
+        ledger=ledger,
+        output_root=tmp_path / "snapshots",
+        requested_roles=("us_financial_conditions",),
+        exact_calendar_evidence_hash=usd_receipt.receipt_hash,
+        exact_cny_calendar_evidence_hash=cny_receipt.receipt_hash,
+    )
+
+    assert set(built.snapshots) == {"us_financial_conditions"}
+    assert len(built.build_receipts) == 1
+    build = built.build_receipts[0].as_dict()
+    assert build["agent_id"] == "us_financial_conditions"
+    assert set(build["source_receipt_hashes"]) == {
+        receipt.receipt_hash for receipt in result.source_receipts
+    } | {cny_receipt.receipt_hash, usd_receipt.receipt_hash}
+    assert not any(
+        receipt.as_dict()["agent_id"] == "us_economy"
+        for receipt in built.build_receipts
+    )
+
+
+def test_historical_replay_financial_compiler_preserves_capture_timestamps(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured_at = datetime(2026, 8, 9, 6, 0, tzinfo=timezone.utc)
+    store, ledger, result, _ = _archive(
+        tmp_path,
+        monkeypatch,
+        captured_at=captured_at,
+        historical_replay=True,
+        callbacks=_source_callbacks(
+            official_adapter_cutoff="2026-08-09T06:05:00+00:00"
+        ),
+    )
+    cny_receipt = _calendar_receipt("tushare.eco_cal.cny")
+    usd_receipt = _calendar_receipt("tushare.eco_cal.usd")
+    ledger.append_source_capture(cny_receipt)
+    ledger.append_source_capture(usd_receipt)
+
+    built = compile_us_macro_snapshots(
+        capture_key=result.group["capture_key"],
+        store=store,
+        ledger=ledger,
+        output_root=tmp_path / "snapshots",
+        requested_roles=("us_financial_conditions",),
+        exact_calendar_evidence_hash=usd_receipt.receipt_hash,
+        exact_cny_calendar_evidence_hash=cny_receipt.receipt_hash,
+    )
+
+    financial = built.snapshots["us_financial_conditions"]
+    by_series = {row["series_id"]: row for row in financial["observations"]}
+    expected_timestamp = captured_at.isoformat()
+    assert by_series["fed_effr"]["released_at"] == expected_timestamp
+    assert by_series["fed_effr"]["vintage_at"] == expected_timestamp
+    assert by_series["USDCNH"]["released_at"] == expected_timestamp
+    assert by_series["USDCNH"]["vintage_at"] == expected_timestamp
 
 
 def test_compiler_uses_each_alfred_rows_availability_vintage_not_series_query_date(

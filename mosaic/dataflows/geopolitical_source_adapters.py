@@ -1861,6 +1861,7 @@ def capture_geopolitical_source(
     store: GeopoliticalEventStore | None = None,
     manifest: Mapping[str, object] | None = None,
     poll_started_at: str | None = None,
+    window_end: str | None = None,
     nonproduction_transport_override: bool = False,
 ) -> dict[str, object]:
     """Capture one source once and project it into every registered route."""
@@ -1889,6 +1890,13 @@ def capture_geopolitical_source(
         transport = _live_fetch
         started = _utc_now().astimezone(timezone.utc)
         ingestion_mode = "TRUSTED_REGISTERED_PARSER"
+    requested_window_end = (
+        _parse_utc(window_end, "window_end") if window_end is not None else started
+    )
+    if requested_window_end > started:
+        raise DataVendorUnavailable(
+            "geopolitical requested window_end exceeds poll start"
+        )
 
     canonical_url = str(adapter["canonical_url_or_api"])
     initial_host = urllib.parse.urlparse(canonical_url).hostname
@@ -1907,7 +1915,7 @@ def capture_geopolitical_source(
     )
     ledger = store or GeopoliticalEventStore(geopolitical_store_path())
     current_url: str | None = _request_url(
-        source_id, canonical_url, window_end=started
+        source_id, canonical_url, window_end=requested_window_end
     )
     visited_urls: set[str] = set()
     page_rows_without_capture: list[dict[str, object]] = []
@@ -2114,6 +2122,7 @@ def capture_geopolitical_source(
         "parser_version": GEOPOLITICAL_SOURCE_PARSER_VERSION,
         "source_id": source_id,
         "source_capture_id": capture["source_capture_id"],
+        "capture_hash": capture["capture_hash"],
         "page_count": len(page_rows),
         "parsed_publication_count": len(publications),
         "event_revision_count": len(revisions),
@@ -2133,6 +2142,7 @@ def capture_required_geopolitical_sources(
     *,
     store: GeopoliticalEventStore | None = None,
     manifest: Mapping[str, object] | None = None,
+    window_end: str | None = None,
 ) -> dict[str, object]:
     """Attempt every required source once without substitution or early abort."""
     resolved_manifest = manifest or load_geopolitical_manifest()
@@ -2144,6 +2154,7 @@ def capture_required_geopolitical_sources(
                 source_id,
                 store=ledger,
                 manifest=resolved_manifest,
+                window_end=window_end,
             )
             results.append(
                 {

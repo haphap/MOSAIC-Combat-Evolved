@@ -190,6 +190,62 @@ def test_digest_builder_retries_transient_http_errors_only() -> None:
     assert bad_request_delays == []
 
 
+@pytest.mark.parametrize("invalid_content", ["", "not-json"])
+def test_digest_builder_retries_invalid_provider_content(invalid_content: str) -> None:
+    calls = 0
+    delays: list[float] = []
+
+    class Response:
+        def __init__(self, content: str) -> None:
+            self.content = content
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {"choices": [{"message": {"content": self.content}}]}
+            ).encode()
+
+    def invalid_then_success(request: Request, timeout: int):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return Response(invalid_content)
+        return Response(
+            json.dumps(
+                {
+                    "summary": "retry succeeded",
+                    "evidence_points": [],
+                    "counterevidence": [],
+                    "uncertainties": [],
+                }
+            )
+        )
+
+    builder = FrozenResearchDigestBuilder(
+        endpoint="https://gateway.example/v1",
+        model="remote-model",
+        api_key="test-key",
+        urlopen=invalid_then_success,
+        max_attempts=2,
+        sleep=delays.append,
+        retry_delay_seconds=0.01,
+    )
+
+    digest = json.loads(
+        builder("get_broker_research", "source", {"ticker": "600000.SH"})[
+            "digest"
+        ]
+    )
+    assert digest["summary"] == "retry succeeded"
+    assert calls == 2
+    assert delays == [0.01]
+
+
 def test_digest_builder_fails_closed_on_missing_env_or_malformed_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

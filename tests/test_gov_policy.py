@@ -212,6 +212,7 @@ def test_crawl_preserves_first_discovery_time_across_refreshes(tmp_path, monkeyp
         start_date="2026-06-01",
         end_date="2026-06-02",
         categories=["gongwen"],
+        q="农业",
         fetcher=lambda params: _payload([ROW_POLICY], page=int(params["p"])),
     )
 
@@ -222,6 +223,7 @@ def test_crawl_preserves_first_discovery_time_across_refreshes(tmp_path, monkeyp
         start_date="2026-06-01",
         end_date="2026-06-03",
         categories=["gongwen"],
+        q="半导体",
         fetcher=lambda params: _payload([refreshed], page=int(params["p"])),
     )
 
@@ -229,3 +231,4 @@ def test_crawl_preserves_first_discovery_time_across_refreshes(tmp_path, monkeyp
     assert record["discovered_at"] == "2026-06-02T08:00:00+00:00"
     assert record["parsed_at"] == "2026-06-03T08:00:00+00:00"
     assert record["summary"] == "updated parser payload"
+    assert record["matched_queries"] == ["农业", "半导体"]

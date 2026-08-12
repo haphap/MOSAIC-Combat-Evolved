@@ -158,9 +158,9 @@ def test_sector_plan_uses_full_validated_scope_and_versioned_parameter_profiles(
         tuple(THS_INDUSTRY_FILTERS["semiconductor"])
     }
     assert {row["lookback"] for row in moneyflow} == {5, 20, 60}
-    assert {row["lookback_days"] for row in _requests_for(
-        plan, "get_industry_policy_digest"
-    )} == {7, 30, 90}
+    policy = _requests_for(plan, "get_industry_policy_digest")
+    assert {row["lookback_days"] for row in policy} == {7, 30, 90}
+    assert {row["topic"] for row in policy} == {"半导体"}
 
     holdings = _requests_for(plan, "get_etf_holdings")
     assert len(holdings) == len(etfs) * 12
@@ -240,6 +240,54 @@ def test_every_sector_stage_exactly_materializes_its_adaptive_tool_roster(
         any(row["tool_id"] == tool_id for row in plan["query_requests"])
         for tool_id in expected
     )
+    if agent_id == "technology":
+        assert {
+            row["args"]["topic"]
+            for row in plan["query_requests"]
+            if row["tool_id"] == "get_industry_policy_digest"
+        } == {"软件"}
+    elif agent_id == "biotech":
+        assert {
+            row["args"]["topic"]
+            for row in plan["query_requests"]
+            if row["tool_id"] == "get_industry_policy_digest"
+        } == {"生物制品"}
+    elif agent_id == "energy":
+        assert {
+            row["args"]["topic"]
+            for row in plan["query_requests"]
+            if row["tool_id"] == "get_industry_policy_digest"
+        } == {"煤炭"}
+    elif agent_id == "financials":
+        assert {
+            row["args"]["topic"]
+            for row in plan["query_requests"]
+            if row["tool_id"] == "get_industry_policy_digest"
+        } == {"银行"}
+    elif agent_id == "agriculture":
+        assert {
+            row["args"]["topic"]
+            for row in plan["query_requests"]
+            if row["tool_id"] == "get_industry_policy_digest"
+        } == {"养殖"}
+    elif agent_id == "consumer":
+        assert {
+            row["args"]["topic"]
+            for row in plan["query_requests"]
+            if row["tool_id"] == "get_industry_policy_digest"
+        } == {"食品"}
+    elif agent_id == "industrials":
+        assert {
+            row["args"]["topic"]
+            for row in plan["query_requests"]
+            if row["tool_id"] == "get_industry_policy_digest"
+        } == {"钢铁"}
+    elif agent_id == "real_estate_construction":
+        assert {
+            row["args"]["topic"]
+            for row in plan["query_requests"]
+            if row["tool_id"] == "get_industry_policy_digest"
+        } == {"房地产"}
 
 
 @pytest.mark.parametrize("agent_id", SECTOR_AGENT_IDS)

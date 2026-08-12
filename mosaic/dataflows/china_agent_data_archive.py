@@ -18,7 +18,6 @@ import requests
 
 from mosaic.scorecard.canonical_json import canonical_hash
 
-from .a_share_archive import ASharePaginationError, AShareSchemaError
 from .agent_materialization import (
     AgentDataMaterializationLedger,
     RouteCoverageReceipt,
@@ -48,7 +47,6 @@ from .official_china_adapters import (
     fetch_mof_chinabond_government_yield_curve,
 )
 from .runtime_paths import agent_cache_root, isolated_agent_runtime_path
-from .sector_archive import _paginate_incremental as _paginate_tushare_incremental
 from .tushare import _query_pro
 from .tushare_catalog import assert_endpoint_capture_preflight_allowed
 
@@ -77,11 +75,14 @@ INSTITUTIONAL_ETF_UNIVERSE = (
     "510500.SH",
     "588000.SH",
 )
+INSTITUTIONAL_INDUSTRY_UNIVERSE = ("881121.TI", "881155.TI")
+INSTITUTIONAL_CROWDING_UNIVERSE = ("000001.SZ", "600000.SH")
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
 _DECISION_CUTOFF = time(15, 0)
 _TUSHARE_HARD_CAPS = {
     "daily_basic": 6_000,
     "fut_basic": 10_000,
+    "fut_wsr": 1_000,
     "moneyflow_hsgt": 300,
     "moneyflow_ind_ths": 5_000,
 }
@@ -107,11 +108,30 @@ _REQUIRED_OFFICIAL_DOCUMENTS = frozenset(
         "mof_fiscal_release",
     }
 )
+_CHINA_OFFICIAL_DOCUMENTS = frozenset(
+    {
+        "nbs_industrial_activity",
+        "nbs_fixed_asset_investment",
+        "nbs_retail_sales",
+        "nbs_employment_release",
+        "nbs_cpi_release",
+        "nbs_ppi_release",
+        "pboc_financial_statistics",
+        "customs_monthly_trade",
+        "mof_fiscal_release",
+    }
+)
 _TUSHARE_MACRO_FIELDS = {
     "cn_gdp": ("quarter", "gdp_yoy", "cn_gdp_yoy", "percent_yoy"),
-    "cn_pmi": ("MONTH", "PMI010000", "cn_pmi_headline", "index"),
+    "cn_pmi": ("month", "pmi010000", "cn_pmi_headline", "index"),
     "cn_cpi": ("month", "nt_yoy", "cn_cpi_yoy", "percent_yoy"),
     "cn_ppi": ("month", "ppi_yoy", "cn_ppi_yoy", "percent_yoy"),
+}
+_TUSHARE_MACRO_REQUEST_FIELDS = {
+    "cn_gdp": "quarter,gdp_yoy",
+    "cn_pmi": "month,pmi010000",
+    "cn_cpi": "month,nt_yoy",
+    "cn_ppi": "month,ppi_yoy",
 }
 _CHINA_SERIES_PROJECTION = {
     "cn_fixed_asset_investment_yoy": "china_growth_fixed_asset_investment_yoy",
@@ -133,8 +153,10 @@ _SOURCE_SCHEMA_HASH = canonical_hash(
         "macro_endpoints": sorted(_TUSHARE_MACRO_FIELDS),
         "commodity_families": list(_REQUIRED_COMMODITY_FAMILIES),
         "institutional_etf_universe": list(INSTITUTIONAL_ETF_UNIVERSE),
+        "institutional_industry_universe": list(INSTITUTIONAL_INDUSTRY_UNIVERSE),
+        "institutional_crowding_universe": list(INSTITUTIONAL_CROWDING_UNIVERSE),
         "tushare_hard_caps": _TUSHARE_HARD_CAPS,
-        "commodity_inventory_pagination": "OFFSET_WITH_TERMINAL_CONFIRMATION",
+        "commodity_inventory_pagination": "EXACT_SYMBOL_SINGLE_REQUEST",
     }
 )
 
@@ -262,13 +284,22 @@ def _private_tushare_fetch(*, endpoint: str, **params: str) -> Any:
 
 
 def _private_official_fetch(
-    *, cutoff_at: str, historical_replay: bool = False
+    *,
+    cutoff_at: str,
+    historical_replay: bool = False,
+    document_types: Sequence[str] | None = None,
 ) -> list[dict[str, Any]]:
     return fetch_official_china_release_set(
         cutoff_at=cutoff_at,
         retrieved_at=_capture_now().isoformat(),
         historical_replay=historical_replay,
-        document_types=tuple(sorted(_REQUIRED_OFFICIAL_DOCUMENTS)),
+        document_types=tuple(
+            sorted(
+                _REQUIRED_OFFICIAL_DOCUMENTS
+                if document_types is None
+                else document_types
+            )
+        ),
     )
 
 
@@ -511,11 +542,50 @@ def _period_bounds(value: Any) -> tuple[str, str]:
     raise ChinaAgentDataSchemaError(f"unsupported China macro period: {value!r}")
 
 
+def _last_day_of_month(year: int, month: int) -> date:
+    if month == 12:
+        next_month = date(year + 1, 1, 1)
+    else:
+        next_month = date(year, month + 1, 1)
+    return next_month - timedelta(days=1)
+
+
+def _latest_complete_macro_period(endpoint: str, as_of: date) -> str:
+    if endpoint in {"cn_cpi", "cn_pmi", "cn_ppi"}:
+        month = as_of.month
+        year = as_of.year
+        if as_of < _last_day_of_month(year, month):
+            month -= 1
+            if month == 0:
+                year -= 1
+                month = 12
+        return f"{year:04d}{month:02d}"
+    if endpoint == "cn_gdp":
+        quarter = (as_of.month - 1) // 3 + 1
+        quarter_end = _last_day_of_month(as_of.year, quarter * 3)
+        if as_of < quarter_end:
+            quarter -= 1
+            if quarter == 0:
+                return f"{as_of.year - 1}Q4"
+        return f"{as_of.year}Q{quarter}"
+    raise ChinaAgentDataSchemaError(f"unsupported China macro endpoint: {endpoint!r}")
+
+
+def _china_macro_request(endpoint: str, as_of: date) -> dict[str, str]:
+    fields = _TUSHARE_MACRO_REQUEST_FIELDS[endpoint]
+    period = _latest_complete_macro_period(endpoint, as_of)
+    return {
+        ("q" if endpoint == "cn_gdp" else "m"): period,
+        "fields": fields,
+    }
+
+
 def _validate_official_documents(
     value: Any,
     *,
     cutoff: datetime,
     historical_replay_captured_at: datetime | None = None,
+    required_document_types: frozenset[str] = _REQUIRED_OFFICIAL_DOCUMENTS,
 ) -> list[dict[str, Any]]:
     if not isinstance(value, list) or not value:
         raise ChinaAgentDataSchemaError("official China catalog returned no documents")
@@ -523,10 +593,16 @@ def _validate_official_documents(
     document_types = [str(row.get("document_type") or "") for row in documents]
     if len(document_types) != len(set(document_types)):
         raise ChinaAgentDataSchemaError("official China document types are duplicated")
-    missing = sorted(_REQUIRED_OFFICIAL_DOCUMENTS - set(document_types))
+    missing = sorted(required_document_types - set(document_types))
     if missing:
         raise ChinaAgentDataSchemaError(
             "official China catalog lacks required documents: " + ", ".join(missing)
+        )
+    unexpected = sorted(set(document_types) - required_document_types)
+    if unexpected:
+        raise ChinaAgentDataSchemaError(
+            "official China catalog returned out-of-scope documents: "
+            + ", ".join(unexpected)
         )
     for row in documents:
         document_type = str(row.get("document_type") or "")
@@ -580,18 +656,22 @@ def _latest_macro_observation(
     if not isinstance(rows, list) or not rows:
         raise ChinaAgentDataSchemaError(f"Tushare {endpoint} returned no rows")
     period_field, value_field, series_id, unit = _TUSHARE_MACRO_FIELDS[endpoint]
+    expected_period = _latest_complete_macro_period(endpoint, as_of)
     candidates = []
     for raw in rows:
         if not isinstance(raw, dict) or period_field not in raw or value_field not in raw:
             raise ChinaAgentDataSchemaError(f"Tushare {endpoint} schema drift")
         start, end = _period_bounds(raw[period_field])
-        if date.fromisoformat(end) <= as_of:
-            if raw[value_field] is None:
-                continue
-            candidates.append((end, start, _finite(raw[value_field], value_field)))
-    if not candidates:
-        raise ChinaAgentDataSchemaError(f"Tushare {endpoint} has no PIT-eligible row")
-    end, start, actual = max(candidates, key=lambda row: row[0])
+        if str(raw[period_field]).upper() != expected_period:
+            continue
+        if raw[value_field] is None:
+            continue
+        candidates.append((end, start, _finite(raw[value_field], value_field)))
+    if len(candidates) != 1:
+        raise ChinaAgentDataSchemaError(
+            f"Tushare {endpoint} did not return exactly one requested period"
+        )
+    end, start, actual = candidates[0]
     return {
         "series_id": series_id,
         "period_start": start,
@@ -615,16 +695,28 @@ def _build_china_group(
     cutoff_at: str,
     historical_replay: bool,
     requested_route_ids: tuple[str, ...],
+    official_document_types: tuple[str, ...] | None,
     fetch_official: Callable[..., list[dict[str, Any]]],
     fetch_tushare: Callable[..., Any],
 ) -> dict[str, Any]:
     cutoff = _timestamp(cutoff_at, "cutoff_at")
     requested = frozenset(requested_route_ids)
+    required_official_documents = frozenset(
+        _REQUIRED_OFFICIAL_DOCUMENTS
+        if official_document_types is None
+        else official_document_types
+    )
+    official_request = {
+        "cutoff_at": cutoff_at,
+        **({"historical_replay": True} if historical_replay else {}),
+        **(
+            {"document_types": tuple(sorted(required_official_documents))}
+            if official_document_types is not None
+            else {}
+        ),
+    }
     official_rows = (
-        fetch_official(
-            cutoff_at=cutoff_at,
-            **({"historical_replay": True} if historical_replay else {}),
-        )
+        fetch_official(**official_request)
         if "official.cn_macro" in requested
         else []
     )
@@ -641,15 +733,20 @@ def _build_china_group(
             official_rows,
             cutoff=cutoff,
             historical_replay_captured_at=(captured if historical_replay else None),
+            required_document_types=required_official_documents,
         )
         if "official.cn_macro" in requested
         else []
     )
+    macro_requests = {
+        endpoint: _china_macro_request(endpoint, date.fromisoformat(as_of_date))
+        for endpoint in _TUSHARE_MACRO_FIELDS
+    }
     observations = (
         [
             _latest_macro_observation(
                 endpoint,
-                fetch_tushare(endpoint=endpoint),
+                fetch_tushare(endpoint=endpoint, **macro_requests[endpoint]),
                 as_of=date.fromisoformat(as_of_date),
                 captured_at=captured.isoformat(),
             )
@@ -675,6 +772,7 @@ def _build_china_group(
             "as_of_date": as_of_date,
             **timing,
             "official_documents": official,
+            "tushare_macro_requests": macro_requests,
             "tushare_observations": observations,
         }
     )
@@ -838,59 +936,90 @@ def _build_commodity_group(
     session_param = session.strftime("%Y%m%d")
     metadata: list[dict[str, Any]] = []
     daily: list[dict[str, Any]] = []
+    inventory: list[dict[str, Any]] = []
+    commodity_requests = {
+        "fut_basic": [],
+        "fut_daily": [],
+        "fut_wsr": [],
+    }
     transport_call_count = 0
-    for exchange in ("INE", "SHFE", "DCE"):
-        basic_rows = fetch_tushare(endpoint="fut_basic", exchange=exchange, fut_type="1")
+    for family_id in _REQUIRED_COMMODITY_FAMILIES:
+        contract = COMMODITY_FAMILY_CONTRACTS[family_id]
+        basic_params = {
+            "exchange": contract["exchange"],
+            "fut_type": "1",
+            "fut_code": contract["product_code"],
+        }
+        basic_rows = fetch_tushare(endpoint="fut_basic", **basic_params)
         transport_call_count += 1
+        commodity_requests["fut_basic"].append(dict(basic_params))
         if not isinstance(basic_rows, list):
             raise ChinaAgentDataSchemaError("fut_basic response must be rows")
         if len(basic_rows) >= _TUSHARE_HARD_CAPS["fut_basic"]:
             raise ChinaAgentDataSchemaError(
                 "fut_basic reached its hard cap without terminal proof"
             )
-        metadata.extend(_json_copy(basic_rows))
-    contract_codes: set[str] = set()
-    for row in metadata:
-        if _family_for_contract(row) is None:
-            continue
-        code = str(row.get("ts_code") or "")
-        if not code:
-            raise ChinaAgentDataSchemaError("fut_basic lacks contract identity")
-        listed = _date(row.get("list_date"), "fut_basic.list_date")
-        delisted = _date(row.get("delist_date"), "fut_basic.delist_date")
-        if listed <= session <= delisted:
-            if code in contract_codes:
-                raise ChinaAgentDataSchemaError("fut_basic contract identity drift")
-            contract_codes.add(code)
-    for code in sorted(contract_codes):
-        daily_rows = fetch_tushare(
-            endpoint="fut_daily",
-            ts_code=code,
-            start_date=session_param,
-            end_date=session_param,
-        )
-        transport_call_count += 1
-        if not isinstance(daily_rows, list):
-            raise ChinaAgentDataSchemaError("fut_daily response must be rows")
-        if any(str(row.get("ts_code") or "") != code for row in daily_rows):
-            raise ChinaAgentDataSchemaError("fut_daily returned an unrelated contract")
-        daily.extend(_json_copy(daily_rows))
-    try:
-        inventory, inventory_call_count, inventory_duplicate_count = (
-            _paginate_tushare_incremental(
-                lambda endpoint, **params: fetch_tushare(
-                    endpoint=endpoint, **params
-                ),
-                "fut_wsr",
-                {"trade_date": market_session_date},
-                confirm_terminal=True,
+        eligible = []
+        for raw in basic_rows:
+            row = _json_copy(raw)
+            if _family_for_contract(row) != family_id:
+                raise ChinaAgentDataSchemaError(
+                    "fut_basic returned an unrelated product"
+                )
+            code = str(row.get("ts_code") or "")
+            if not code:
+                raise ChinaAgentDataSchemaError("fut_basic lacks contract identity")
+            listed = _date(row.get("list_date"), "fut_basic.list_date")
+            delisted = _date(row.get("delist_date"), "fut_basic.delist_date")
+            if (
+                listed <= session <= delisted
+                and (delisted - session).days
+                >= COMMODITY_FAMILY_CONTRACTS[family_id]["roll_rule"][
+                    "minimum_days_to_delist"
+                ]
+            ):
+                eligible.append(row)
+        eligible.sort(key=lambda row: (row["delist_date"], row["ts_code"]))
+        selected = eligible[:2]
+        if len(selected) != 2 or len({row["ts_code"] for row in selected}) != 2:
+            raise ChinaAgentDataSchemaError(
+                f"commodity {family_id} lacks exactly two roll-eligible contracts"
             )
-        )
-    except (ASharePaginationError, AShareSchemaError) as exc:
-        raise ChinaAgentDataSchemaError(
-            "fut_wsr pagination/schema closure failed"
-        ) from exc
-    transport_call_count += inventory_call_count
+        metadata.extend(selected)
+        for row in selected:
+            code = str(row["ts_code"])
+            daily_params = {
+                "ts_code": code,
+                "start_date": session_param,
+                "end_date": session_param,
+            }
+            commodity_requests["fut_daily"].append(dict(daily_params))
+            daily_rows = fetch_tushare(endpoint="fut_daily", **daily_params)
+            transport_call_count += 1
+            if not isinstance(daily_rows, list):
+                raise ChinaAgentDataSchemaError("fut_daily response must be rows")
+            if any(str(row.get("ts_code") or "") != code for row in daily_rows):
+                raise ChinaAgentDataSchemaError("fut_daily returned an unrelated contract")
+            daily.extend(_json_copy(daily_rows))
+        inventory_params = {
+            "trade_date": market_session_date,
+            "symbol": contract["product_code"],
+        }
+        commodity_requests["fut_wsr"].append(dict(inventory_params))
+        inventory_rows = fetch_tushare(endpoint="fut_wsr", **inventory_params)
+        transport_call_count += 1
+        if not isinstance(inventory_rows, list):
+            raise ChinaAgentDataSchemaError("fut_wsr response must be rows")
+        if len(inventory_rows) >= _TUSHARE_HARD_CAPS["fut_wsr"]:
+            raise ChinaAgentDataSchemaError(
+                "fut_wsr reached its hard cap without terminal proof"
+            )
+        if any(
+            str(row.get("symbol") or "").upper() != contract["product_code"]
+            for row in inventory_rows
+        ):
+            raise ChinaAgentDataSchemaError("fut_wsr returned an unrelated product")
+        inventory.extend(_json_copy(inventory_rows))
     if not isinstance(inventory, list) or not inventory:
         raise ChinaAgentDataSchemaError("fut_wsr returned no inventory")
     completed = _capture_now()
@@ -925,7 +1054,8 @@ def _build_commodity_group(
                 "fut_daily": len(daily),
                 "fut_wsr": len(inventory),
             },
-            "raw_duplicate_counts": {"fut_wsr": inventory_duplicate_count},
+            "raw_duplicate_counts": {"fut_wsr": 0},
+            "commodity_requests": commodity_requests,
             "transport_call_count": transport_call_count,
         }
     )
@@ -942,85 +1072,109 @@ def _build_institutional_group(
 ) -> dict[str, Any]:
     session = _date(market_session_date, "market_session_date")
     session_param = session.strftime("%Y%m%d")
-    northbound = fetch_tushare(
-        endpoint="moneyflow_hsgt", trade_date=session_param
-    )
-    industry_start = session - timedelta(days=60)
-    try:
-        industries, industry_call_count, industry_duplicates = (
-            _paginate_tushare_incremental(
-                lambda endpoint, **params: fetch_tushare(
-                    endpoint=endpoint, **params
+    request_sets = {
+        "moneyflow": [
+            {"ts_code": ts_code, "trade_date": session_param}
+            for ts_code in INSTITUTIONAL_CROWDING_UNIVERSE
+        ],
+        "moneyflow_ind_ths": [
+            {"ts_code": ts_code, "trade_date": session_param}
+            for ts_code in INSTITUTIONAL_INDUSTRY_UNIVERSE
+        ],
+        "fund_share": [
+            {"ts_code": ts_code, "start_date": session_param, "end_date": session_param}
+            for ts_code in INSTITUTIONAL_ETF_UNIVERSE
+        ],
+        "daily_basic": [
+            {"ts_code": ts_code, "trade_date": session_param}
+            for ts_code in INSTITUTIONAL_CROWDING_UNIVERSE
+        ],
+    }
+    market_flow_rows: list[dict[str, Any]] = []
+    for request in request_sets["moneyflow"]:
+        rows = fetch_tushare(endpoint="moneyflow", **request)
+        if not isinstance(rows, list) or len(rows) != 1:
+            raise ChinaAgentDataSchemaError("moneyflow exact request is not unique")
+        row = rows[0]
+        if (
+            not isinstance(row, dict)
+            or str(row.get("ts_code") or "") != request["ts_code"]
+            or _date(row.get("trade_date"), "moneyflow.trade_date") != session
+        ):
+            raise ChinaAgentDataSchemaError("moneyflow identity/session drift")
+        market_flow_rows.append(
+            {
+                "ts_code": request["ts_code"],
+                "net_mf_amount": _finite(
+                    row.get("net_mf_amount"), "moneyflow.net_mf_amount"
                 ),
-                "moneyflow_ind_ths",
-                {
-                    "start_date": industry_start.strftime("%Y%m%d"),
-                    "end_date": session_param,
-                },
-                confirm_terminal=True,
-            )
+            }
         )
-    except (ASharePaginationError, AShareSchemaError) as exc:
-        raise ChinaAgentDataSchemaError(
-            "moneyflow_ind_ths pagination/schema closure failed"
-        ) from exc
-    fund_rows = [
-        row
-        for ts_code in INSTITUTIONAL_ETF_UNIVERSE
-        for row in fetch_tushare(
-            endpoint="fund_share",
-            ts_code=ts_code,
-            start_date=session_param,
-            end_date=session_param,
-        )
-    ]
-    crowding = fetch_tushare(endpoint="daily_basic", trade_date=session_param)
-    for endpoint, rows in (
-        ("moneyflow_hsgt", northbound),
-        ("fund_share", fund_rows),
-        ("daily_basic", crowding),
-    ):
-        if not isinstance(rows, list) or not rows:
-            raise ChinaAgentDataSchemaError(f"{endpoint} returned no rows")
-        hard_cap = _TUSHARE_HARD_CAPS.get(endpoint)
-        if hard_cap is not None and len(rows) >= hard_cap:
+    industries: list[dict[str, Any]] = []
+    for request in request_sets["moneyflow_ind_ths"]:
+        rows = fetch_tushare(endpoint="moneyflow_ind_ths", **request)
+        if not isinstance(rows, list) or len(rows) != 1:
             raise ChinaAgentDataSchemaError(
-                f"{endpoint} reached its hard cap without terminal proof"
+                "moneyflow_ind_ths exact request is not unique"
             )
-        for row in rows:
-            if not isinstance(row, dict) or _date(
-                row.get("trade_date"), f"{endpoint}.trade_date"
-            ) != session:
-                raise ChinaAgentDataSchemaError(f"{endpoint} session/schema drift")
-    if len(northbound) != 1:
-        raise ChinaAgentDataSchemaError("moneyflow_hsgt exact-day query is not unique")
-    north_money = _finite(northbound[0].get("north_money"), "north_money")
-    industry_history_rows = []
+        row = rows[0]
+        if (
+            not isinstance(row, dict)
+            or str(row.get("ts_code") or "") != request["ts_code"]
+            or _date(row.get("trade_date"), "moneyflow_ind_ths.trade_date")
+            != session
+        ):
+            raise ChinaAgentDataSchemaError("moneyflow_ind_ths identity/session drift")
+        industries.append(row)
+    fund_rows: list[dict[str, Any]] = []
+    for request in request_sets["fund_share"]:
+        rows = fetch_tushare(endpoint="fund_share", **request)
+        if not isinstance(rows, list) or len(rows) != 1:
+            raise ChinaAgentDataSchemaError("fund_share exact request is not unique")
+        row = rows[0]
+        if (
+            not isinstance(row, dict)
+            or str(row.get("ts_code") or "") != request["ts_code"]
+            or _date(row.get("trade_date"), "fund_share.trade_date") != session
+        ):
+            raise ChinaAgentDataSchemaError("fund_share identity/session drift")
+        fund_rows.append(row)
+    crowding: list[dict[str, Any]] = []
+    for request in request_sets["daily_basic"]:
+        rows = fetch_tushare(endpoint="daily_basic", **request)
+        if not isinstance(rows, list) or len(rows) != 1:
+            raise ChinaAgentDataSchemaError("daily_basic exact request is not unique")
+        row = rows[0]
+        if (
+            not isinstance(row, dict)
+            or str(row.get("ts_code") or "") != request["ts_code"]
+            or _date(row.get("trade_date"), "daily_basic.trade_date") != session
+        ):
+            raise ChinaAgentDataSchemaError("daily_basic identity/session drift")
+        crowding.append(row)
     industry_rows = []
     for row in industries:
-        trade_date = _date(
-            row.get("trade_date"), "moneyflow_ind_ths.trade_date"
-        )
-        if trade_date < industry_start or trade_date > session:
-            raise ChinaAgentDataSchemaError(
-                "moneyflow_ind_ths history is outside the requested window"
-            )
+        trade_date = _date(row.get("trade_date"), "moneyflow_ind_ths.trade_date")
+        if str(row.get("ts_code") or "") not in INSTITUTIONAL_INDUSTRY_UNIVERSE:
+            raise ChinaAgentDataSchemaError("moneyflow_ind_ths identity drift")
         industry = str(row.get("industry") or row.get("name") or "").strip()
         if not industry:
             raise ChinaAgentDataSchemaError("moneyflow_ind_ths lacks industry identity")
         amount_field = "net_amount" if "net_amount" in row else "net_amount_rate"
-        normalized = _json_copy(row)
-        normalized["trade_date"] = trade_date.isoformat()
-        normalized["industry"] = industry
-        normalized["net_amount"] = _finite(row.get(amount_field), amount_field)
-        industry_history_rows.append(normalized)
-        if trade_date == session:
-            industry_rows.append(
-                {"industry": industry, "net_amount": normalized["net_amount"]}
-            )
-    if not industry_rows:
+        if trade_date != session:
+            raise ChinaAgentDataSchemaError("moneyflow_ind_ths session/schema drift")
+        industry_rows.append(
+            {
+                "ts_code": str(row["ts_code"]),
+                "industry": industry,
+                "net_amount": _finite(row.get(amount_field), amount_field),
+            }
+        )
+    if len(industry_rows) != len(INSTITUTIONAL_INDUSTRY_UNIVERSE) or len(
+        {row["ts_code"] for row in industry_rows}
+    ) != len(INSTITUTIONAL_INDUSTRY_UNIVERSE):
         raise ChinaAgentDataSchemaError(
-            "moneyflow_ind_ths lacks latest market-session rows"
+            "moneyflow_ind_ths fixed universe is incomplete"
         )
     fund_by_code: dict[str, dict[str, Any]] = {}
     for row in fund_rows:
@@ -1039,10 +1193,12 @@ def _build_institutional_group(
     crowding_rows = []
     for row in crowding:
         code = str(row.get("ts_code") or "")
-        if not code:
-            raise ChinaAgentDataSchemaError("daily_basic lacks security identity")
+        if code not in INSTITUTIONAL_CROWDING_UNIVERSE:
+            raise ChinaAgentDataSchemaError("daily_basic identity drift")
+        if _date(row.get("trade_date"), "daily_basic.trade_date") != session:
+            raise ChinaAgentDataSchemaError("daily_basic session/schema drift")
         if row.get("turnover_rate") is None or row.get("volume_ratio") is None:
-            continue
+            raise ChinaAgentDataSchemaError("daily_basic fixed universe is incomplete")
         crowding_rows.append(
             {
                 "ts_code": code,
@@ -1050,9 +1206,13 @@ def _build_institutional_group(
                 "volume_ratio": _finite(row.get("volume_ratio"), "volume_ratio"),
             }
         )
-    if not crowding_rows:
+    if (
+        len(crowding_rows) != len(INSTITUTIONAL_CROWDING_UNIVERSE)
+        or len({row["ts_code"] for row in crowding_rows})
+        != len(INSTITUTIONAL_CROWDING_UNIVERSE)
+    ):
         raise ChinaAgentDataSchemaError(
-            "daily_basic has no complete crowding metric rows"
+            "daily_basic fixed universe is incomplete"
         )
     completed = _capture_now()
     timing = _capture_time_fields(
@@ -1071,21 +1231,13 @@ def _build_institutional_group(
             "as_of_date": as_of_date,
             **timing,
             "market_session_date": session.isoformat(),
-            "northbound": {"north_money": north_money, "row_count": 1},
-            "industry_rows": sorted(industry_rows, key=lambda row: row["industry"]),
-            "industry_history_start": industry_start.isoformat(),
-            "industry_history_rows": sorted(
-                industry_history_rows,
-                key=lambda row: (
-                    row["trade_date"],
-                    row["industry"],
-                    str(row.get("ts_code") or ""),
-                ),
+            "market_flow_rows": sorted(
+                market_flow_rows, key=lambda row: row["ts_code"]
             ),
-            "industry_transport_call_count": industry_call_count,
-            "industry_duplicate_count": industry_duplicates,
+            "industry_rows": sorted(industry_rows, key=lambda row: row["ts_code"]),
             "fund_share_rows": [fund_by_code[code] for code in INSTITUTIONAL_ETF_UNIVERSE],
             "crowding_rows": sorted(crowding_rows, key=lambda row: row["ts_code"]),
+            "institutional_requests": request_sets,
         }
     )
 
@@ -1250,6 +1402,7 @@ def _capture_key(
     historical_replay: bool,
     market_session_date: str,
     requested_route_ids: tuple[str, ...],
+    official_document_types: tuple[str, ...] | None = None,
 ) -> str:
     identity = {
         "schema_version": CAPTURE_SCHEMA_VERSION,
@@ -1260,9 +1413,51 @@ def _capture_key(
         "commodity_families": list(_REQUIRED_COMMODITY_FAMILIES)
         if route_group == COMMODITY_ROUTE_GROUP
         else None,
+        "commodity_request_contract": (
+            {
+                "fut_basic": [
+                    {
+                        "exchange": COMMODITY_FAMILY_CONTRACTS[family]["exchange"],
+                        "fut_type": "1",
+                        "fut_code": COMMODITY_FAMILY_CONTRACTS[family][
+                            "product_code"
+                        ],
+                    }
+                    for family in _REQUIRED_COMMODITY_FAMILIES
+                ],
+                "fut_daily": {
+                    "fields": ["ts_code", "start_date", "end_date"],
+                    "window": market_session_date,
+                },
+                "fut_wsr": {
+                    "fields": ["trade_date", "symbol"],
+                    "trade_date": market_session_date,
+                    "pagination": "NONE",
+                },
+            }
+            if route_group == COMMODITY_ROUTE_GROUP
+            else None
+        ),
         "institutional_etf_universe": list(INSTITUTIONAL_ETF_UNIVERSE)
         if route_group == INSTITUTIONAL_ROUTE_GROUP
         else None,
+        "institutional_industry_universe": list(INSTITUTIONAL_INDUSTRY_UNIVERSE)
+        if route_group == INSTITUTIONAL_ROUTE_GROUP
+        else None,
+        "institutional_crowding_universe": list(INSTITUTIONAL_CROWDING_UNIVERSE)
+        if route_group == INSTITUTIONAL_ROUTE_GROUP
+        else None,
+        "institutional_request_contract": (
+            {
+                "moneyflow": ["ts_code", "trade_date"],
+                "moneyflow_ind_ths": ["ts_code", "trade_date"],
+                "fund_share": ["ts_code", "start_date", "end_date"],
+                "daily_basic": ["ts_code", "trade_date"],
+                "pagination": "NONE",
+            }
+            if route_group == INSTITUTIONAL_ROUTE_GROUP
+            else None
+        ),
         **(
             {
                 "historical_replay": True,
@@ -1274,6 +1469,13 @@ def _capture_key(
             else {"cutoff_at": cutoff_at}
         ),
     }
+    if route_group == CHINA_ROUTE_GROUP:
+        identity["tushare_macro_request_contract"] = {
+            endpoint: _china_macro_request(endpoint, date.fromisoformat(as_of_date))
+            for endpoint in _TUSHARE_MACRO_FIELDS
+        }
+        if official_document_types is not None:
+            identity["official_document_types"] = list(official_document_types)
     return canonical_hash(identity)
 
 
@@ -1304,9 +1506,27 @@ def _source_receipt(
         row_count = len(rows)
         released_at = captured_at
         raw_hash = canonical_hash(rows)
-        dimensions = {"endpoint": sorted(_TUSHARE_MACRO_FIELDS)}
+        macro_requests = group.get("tushare_macro_requests", {})
+        dimensions = {
+            "endpoint": sorted(_TUSHARE_MACRO_FIELDS),
+            "request_params": [
+                endpoint
+                + ":"
+                + "&".join(
+                    f"{key}={macro_requests[endpoint][key]}"
+                    for key in sorted(macro_requests[endpoint])
+                )
+                for endpoint in sorted(macro_requests)
+            ],
+        }
         provider = "tushare"
-        query_keys = []
+        query_keys = sorted(
+            {
+                key
+                for request in macro_requests.values()
+                for key in request
+            }
+        )
         page_count = len(_TUSHARE_MACRO_FIELDS)
         parser_version = COMPILER_VERSION
     elif route_id == COMMODITY_ROUTE_GROUP:
@@ -1314,58 +1534,78 @@ def _source_receipt(
         row_count = sum(int(value) for value in counts.values())
         released_at = captured_at
         raw_hash = canonical_hash(group["condition_input"])
-        dimensions = {"family_id": sorted(_REQUIRED_COMMODITY_FAMILIES)}
+        requests = group["commodity_requests"]
+        request_dimensions = {
+            endpoint: sorted(
+                {
+                    endpoint
+                    + ":"
+                    + "&".join(f"{key}={request[key]}" for key in sorted(request))
+                    for request in requests[endpoint]
+                }
+            )
+            for endpoint in requests
+        }
+        dimensions = {
+            "family_id": sorted(_REQUIRED_COMMODITY_FAMILIES),
+            **request_dimensions,
+        }
         provider = "tushare"
-        query_keys = [
-            "end_date",
-            "exchange",
-            "fut_type",
-            "limit",
-            "offset",
-            "start_date",
-            "trade_date",
-            "ts_code",
-        ]
+        query_keys = sorted(
+            {
+                key
+                for request_set in requests.values()
+                for request in request_set
+                for key in request
+            }
+        )
         page_count = int(group["transport_call_count"])
         duplicate_count = int(group["raw_duplicate_counts"]["fut_wsr"])
-        pagination_policy = (
-            "REGISTERED_REQUEST_SET_WITH_OFFSET_TERMINAL_CONFIRMATION"
-        )
+        pagination_policy = "EXACT_REQUEST_SET_NO_PAGINATION"
         parser_version = COMPILER_VERSION
     elif route_id == INSTITUTIONAL_ROUTE_GROUP:
         row_count = (
-            1
-            + len(group["industry_history_rows"])
+            len(group["market_flow_rows"])
+            + len(group["industry_rows"])
             + len(group["fund_share_rows"])
             + len(group["crowding_rows"])
         )
-        released_at = captured_at
+        released_at = (
+            f"{group['market_session_date']}T15:00:00+08:00"
+            if group.get("historical_replay") is True
+            else captured_at
+        )
         raw_hash = canonical_hash(
             {
-                "northbound": group["northbound"],
-                "industry_history_rows": group["industry_history_rows"],
+                "market_flow_rows": group["market_flow_rows"],
+                "industry_rows": group["industry_rows"],
                 "fund_share_rows": group["fund_share_rows"],
                 "crowding_rows": group["crowding_rows"],
+                "institutional_requests": group["institutional_requests"],
+            }
+        )
+        requests = group["institutional_requests"]
+        request_strings = sorted(
+            {
+                endpoint
+                + ":"
+                + "&".join(f"{key}={request[key]}" for key in sorted(request))
+                for endpoint, request_set in requests.items()
+                for request in request_set
             }
         )
         dimensions = {
-            "endpoint": [
-                "daily_basic",
-                "fund_share",
-                "moneyflow_hsgt",
-                "moneyflow_ind_ths",
-            ],
+            "endpoint": sorted(requests),
+            "request": request_strings,
+            "industry": list(INSTITUTIONAL_INDUSTRY_UNIVERSE),
+            "crowding": list(INSTITUTIONAL_CROWDING_UNIVERSE),
             "etf": list(INSTITUTIONAL_ETF_UNIVERSE),
         }
         provider = "tushare"
         query_keys = ["end_date", "start_date", "trade_date", "ts_code"]
-        page_count = (
-            2
-            + len(INSTITUTIONAL_ETF_UNIVERSE)
-            + int(group["industry_transport_call_count"])
-        )
-        duplicate_count = int(group["industry_duplicate_count"])
-        coverage_start = group["industry_history_start"]
+        page_count = sum(len(request_set) for request_set in requests.values())
+        duplicate_count = 0
+        pagination_policy = "EXACT_REQUEST_SET_NO_PAGINATION"
         parser_version = COMPILER_VERSION
     elif route_id == CURVE_ROUTE_GROUP:
         row_count = 2 + len(group["government_curve_rows"])
@@ -1415,6 +1655,35 @@ def _source_receipt(
                                 ]
                             }
                             if route_id == CURVE_ROUTE_GROUP
+                            else {}
+                        ),
+                        **(
+                            {"macro_request_contract": group["tushare_macro_requests"]}
+                            if route_id == "tushare.cn_macro"
+                            else {}
+                        ),
+                        **(
+                            {
+                                "official_document_types": sorted(
+                                    str(row["document_type"])
+                                    for row in group["official_documents"]
+                                )
+                            }
+                            if route_id == "official.cn_macro"
+                            else {}
+                        ),
+                        **(
+                            {"commodity_requests": group["commodity_requests"]}
+                            if route_id == COMMODITY_ROUTE_GROUP
+                            else {}
+                        ),
+                        **(
+                            {
+                                "institutional_requests": group[
+                                    "institutional_requests"
+                                ]
+                            }
+                            if route_id == INSTITUTIONAL_ROUTE_GROUP
                             else {}
                         ),
                     }
@@ -1662,6 +1931,7 @@ def archive_china_agent_sources(
     cutoff_at: str,
     market_session_date: str,
     requested_route_ids: Sequence[str] | None = None,
+    official_document_types: Sequence[str] | None = None,
     historical_replay: bool = False,
     store: ChinaAgentDataArchiveStore,
     ledger: AgentDataMaterializationLedger,
@@ -1681,6 +1951,21 @@ def archive_china_agent_sources(
         raise ValueError("China agent cutoff must be 15:00 Asia/Shanghai on as-of")
     if not isinstance(historical_replay, bool):
         raise ValueError("historical_replay must be a boolean")
+    explicit_official_document_types = None
+    if official_document_types is not None:
+        if isinstance(official_document_types, (str, bytes)):
+            raise ValueError("official_document_types must be a sequence")
+        explicit_official_document_types = tuple(official_document_types)
+        if (
+            not explicit_official_document_types
+            or explicit_official_document_types
+            != tuple(sorted(set(explicit_official_document_types)))
+            or not set(explicit_official_document_types)
+            <= set(_REQUIRED_OFFICIAL_DOCUMENTS)
+        ):
+            raise ValueError(
+                "official_document_types must be a sorted registered document subset"
+            )
     normalized_cutoff = cutoff.isoformat()
     if requested_route_ids is None:
         required_routes = LOGICAL_ROUTES
@@ -1745,6 +2030,11 @@ def archive_china_agent_sources(
             historical_replay=historical_replay,
             market_session_date=session.isoformat(),
             requested_route_ids=group_routes[route_group],
+            official_document_types=(
+                explicit_official_document_types
+                if route_group == CHINA_ROUTE_GROUP
+                else None
+            ),
         )
         for route_group in selected_groups
     }
@@ -1755,6 +2045,7 @@ def archive_china_agent_sources(
             cutoff_at=normalized_cutoff,
             historical_replay=historical_replay,
             requested_route_ids=group_routes[CHINA_ROUTE_GROUP],
+            official_document_types=explicit_official_document_types,
             fetch_official=fetch_official,
             fetch_tushare=fetch_tushare,
         ),
@@ -1813,14 +2104,23 @@ def _load_ready_group(
     archive: ChinaAgentArchiveResult,
     store: ChinaAgentDataArchiveStore,
     ledger: AgentDataMaterializationLedger,
+    expected_route_ids: Sequence[str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, SourceCaptureReceipt]]:
-    result = archive.routes[route_group]
+    result = archive.routes.get(route_group)
+    if result is None:
+        raise DataVendorUnavailable(f"required China route group is missing: {route_group}")
     if result.group is None:
         raise DataVendorUnavailable(f"required China route group is blocked: {route_group}")
     group = store.load_group(str(result.group["capture_key"]))
+    expected_routes = set(
+        ROUTE_GROUPS[route_group]
+        if expected_route_ids is None
+        else expected_route_ids
+    )
     if (
         group.get("schema_version") != CAPTURE_SCHEMA_VERSION
         or group.get("route_group") != route_group
+        or set(group.get("route_ids", ())) != expected_routes
     ):
         raise DataVendorUnavailable("China agent archive schema/route drift")
     receipts = {
@@ -1828,8 +2128,25 @@ def _load_ready_group(
         for receipt in _source_receipts(group)
     }
     for route_id, receipt in receipts.items():
-        status = ledger.source_status(as_of=group["as_of_date"], route_id=route_id)
-        if status["capture_receipt_hash"] != receipt.receipt_hash:
+        registered = ledger.source_capture_receipt(
+            receipt_hash=receipt.receipt_hash
+        )
+        if registered is None:
+            raise DataVendorUnavailable(f"China agent source receipt drift: {route_id}")
+        if (
+            registered.receipt_hash != receipt.receipt_hash
+            or registered.as_dict() != receipt.as_dict()
+        ):
+            raise DataVendorUnavailable(f"China agent source receipt drift: {route_id}")
+        payload = registered.as_dict()
+        if (
+            payload.get("identity", {}).get("route_id") != route_id
+            or payload.get("pit", {}).get("eligible") is not True
+            or payload.get("coverage", {}).get("requested_end")
+            != group["as_of_date"]
+            or payload.get("coverage", {}).get("observed_end")
+            != group["as_of_date"]
+        ):
             raise DataVendorUnavailable(f"China agent source receipt drift: {route_id}")
     return group, receipts
 
@@ -1862,19 +2179,27 @@ def _official_observations(
     return observations
 
 
-def _china_observations(
-    group: Mapping[str, Any], receipts: Mapping[str, SourceCaptureReceipt]
+def _official_china_context_observations(
+    group: Mapping[str, Any], receipt: SourceCaptureReceipt
 ) -> list[dict[str, Any]]:
-    rows = [
+    return [
         {
             **row,
             "series_id": _CHINA_SERIES_PROJECTION.get(
                 str(row["series_id"]), str(row["series_id"])
             ),
         }
-        for row in _official_observations(group, receipts["official.cn_macro"])
+        for row in _official_observations(group, receipt)
         if row["source"] in _CHINA_OFFICIAL_BRANCHES
     ]
+
+
+def _china_observations(
+    group: Mapping[str, Any], receipts: Mapping[str, SourceCaptureReceipt]
+) -> list[dict[str, Any]]:
+    rows = _official_china_context_observations(
+        group, receipts["official.cn_macro"]
+    )
     tushare_receipt = receipts["tushare.cn_macro"]
     rows.extend(
         {
@@ -1903,13 +2228,24 @@ def _commodity_snapshot(
     for family_id in _REQUIRED_COMMODITY_FAMILIES:
         family = conditions["families"][family_id]
         term = family["term_structure"]
+        if group.get("historical_replay") is True:
+            near_contract = next(
+                contract
+                for contract in family["contracts"]
+                if contract["ts_code"] == term["near_contract"]
+            )
+            released_at = near_contract["price_released_at"]
+            vintage_at = near_contract["price_vintage_at"]
+        else:
+            released_at = group["captured_at"]
+            vintage_at = group["captured_at"]
         observations.append(
             {
                 "series_id": prefixes[family_id],
                 "period_start": group["market_session_date"],
                 "period_end": group["market_session_date"],
-                "released_at": group["captured_at"],
-                "vintage_at": group["captured_at"],
+                "released_at": released_at,
+                "vintage_at": vintage_at,
                 "actual": float(term["near_settle"]),
                 "previous": None,
                 "expected": None,
@@ -1943,30 +2279,37 @@ def _institutional_snapshot(
     group: Mapping[str, Any], receipt: SourceCaptureReceipt
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     session = group["market_session_date"]
+    availability = (
+        f"{session}T15:00:00+08:00"
+        if group.get("historical_replay") is True
+        else group["captured_at"]
+    )
     industry_amounts = [float(row["net_amount"]) for row in group["industry_rows"]]
     fund_shares = [float(row["fd_share"]) for row in group["fund_share_rows"]]
     turnovers = [float(row["turnover_rate"]) for row in group["crowding_rows"]]
     observations = [
         {
-            "series_id": "market_flow_northbound",
+            "series_id": "market_flow_registered_universe_net_amount",
             "period_start": session,
             "period_end": session,
-            "released_at": group["captured_at"],
-            "vintage_at": group["captured_at"],
-            "actual": float(group["northbound"]["north_money"]),
+            "released_at": availability,
+            "vintage_at": availability,
+            "actual": sum(
+                float(row["net_mf_amount"]) for row in group["market_flow_rows"]
+            ),
             "previous": None,
             "expected": None,
-            "unit": "100m_cny",
-            "source": "tushare.moneyflow_hsgt",
+            "unit": "10k_cny",
+            "source": "tushare.moneyflow",
             "pit_status": "AVAILABLE_AS_OF",
-            "evidence_id": f"{receipt.receipt_hash}:northbound:{session}",
+            "evidence_id": f"{receipt.receipt_hash}:market-flow:{session}",
         },
         {
-            "series_id": "sector_rotation_net_amount",
+            "series_id": "sector_rotation_registered_universe_net_amount",
             "period_start": session,
             "period_end": session,
-            "released_at": group["captured_at"],
-            "vintage_at": group["captured_at"],
+            "released_at": availability,
+            "vintage_at": availability,
             "actual": sum(industry_amounts),
             "previous": None,
             "expected": None,
@@ -1979,8 +2322,8 @@ def _institutional_snapshot(
             "series_id": "etf_share_registered_universe",
             "period_start": session,
             "period_end": session,
-            "released_at": group["captured_at"],
-            "vintage_at": group["captured_at"],
+            "released_at": availability,
+            "vintage_at": availability,
             "actual": sum(fund_shares),
             "previous": None,
             "expected": None,
@@ -1990,11 +2333,11 @@ def _institutional_snapshot(
             "evidence_id": f"{receipt.receipt_hash}:etf-share:{session}",
         },
         {
-            "series_id": "crowding_turnover_median",
+            "series_id": "crowding_registered_universe_turnover_median",
             "period_start": session,
             "period_end": session,
-            "released_at": group["captured_at"],
-            "vintage_at": group["captured_at"],
+            "released_at": availability,
+            "vintage_at": availability,
             "actual": statistics.median(turnovers),
             "previous": None,
             "expected": None,
@@ -2006,8 +2349,8 @@ def _institutional_snapshot(
     ]
     component_coverage = {
         "market_wide_flow": {
-            "eligible_count": 1,
-            "observed_count": 1,
+            "eligible_count": len(INSTITUTIONAL_CROWDING_UNIVERSE),
+            "observed_count": len(group["market_flow_rows"]),
             "coverage_ratio": 1.0,
         },
         "sector_rotation": {
@@ -2049,6 +2392,7 @@ def _central_bank_snapshot(
     curve_group: Mapping[str, Any],
     curve_receipt: SourceCaptureReceipt,
     china_context: Sequence[Mapping[str, Any]],
+    knowledge_cutoff: datetime | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     official = _official_observations(
         china_group, china_receipts["official.cn_macro"]
@@ -2138,6 +2482,7 @@ def _central_bank_snapshot(
         raw,
         "central_bank",
         china_group["as_of_date"],
+        knowledge_cutoff=knowledge_cutoff,
     )
 
 
@@ -2238,13 +2583,245 @@ def _build_receipt(
     )
 
 
+_CHINA_COMPILED_ROLES = (
+    "china",
+    "commodities",
+    "institutional_flow",
+    "central_bank",
+)
+
+
+def _normalise_requested_roles(
+    requested_roles: Sequence[str] | None,
+) -> tuple[str, ...] | None:
+    if requested_roles is None:
+        return None
+    if isinstance(requested_roles, (str, bytes)):
+        raise ValueError("requested_roles must be a sequence")
+    roles = tuple(requested_roles)
+    if (
+        not roles
+        or any(not isinstance(role, str) for role in roles)
+        or len(roles) != len(set(roles))
+        or any(role not in _CHINA_COMPILED_ROLES for role in roles)
+    ):
+        raise ValueError("requested_roles must be a non-empty unique China role subset")
+    return roles
+
+
+def _build_china_snapshot(
+    group: Mapping[str, Any], receipts: Mapping[str, SourceCaptureReceipt]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    china_observations = _china_observations(group, receipts)
+    if group.get("historical_replay") is True:
+        cutoff = _timestamp(
+            f"{group['as_of_date']}T15:00:00+08:00", "historical_replay_cutoff"
+        )
+        for row in china_observations:
+            released = min(_timestamp(row["released_at"], "released_at"), cutoff)
+            vintage = max(
+                released,
+                min(_timestamp(row["vintage_at"], "vintage_at"), cutoff),
+            )
+            row["released_at"] = released.isoformat()
+            row["vintage_at"] = vintage.isoformat()
+    china_raw = {
+        "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
+        "role": "china",
+        "as_of_date": group["as_of_date"],
+        "observations": china_observations,
+        "events": [],
+    }
+    return china_raw, validate_role_snapshot(
+        china_raw,
+        "china",
+        group["as_of_date"],
+    )
+
+
+def compile_china_agent_snapshot(
+    *,
+    archive: ChinaAgentArchiveResult,
+    store: ChinaAgentDataArchiveStore,
+    ledger: AgentDataMaterializationLedger,
+    output_root: Path | None = None,
+    exact_calendar_evidence_hash: str | None = None,
+) -> ChinaAgentBuildResult:
+    """Compile only the China snapshot from its three bound source routes."""
+    china_group, china_receipts = _load_ready_group(
+        route_group=CHINA_ROUTE_GROUP,
+        archive=archive,
+        store=store,
+        ledger=ledger,
+    )
+    expected_routes = {"official.cn_macro", "tushare.cn_macro"}
+    if (
+        set(china_group.get("route_ids", ())) != expected_routes
+        or set(china_receipts) != expected_routes
+    ):
+        raise DataVendorUnavailable(
+            "China snapshot source receipts do not close the required routes"
+        )
+    china_raw, china_snapshot = _build_china_snapshot(china_group, china_receipts)
+    as_of_date = str(china_group["as_of_date"])
+    calendar_cny = exact_calendar_evidence_hash or _calendar_hash(
+        ledger, as_of_date=as_of_date, route_id="tushare.eco_cal.cny"
+    )
+    receipt = _build_receipt(
+        role="china",
+        tool_id="get_china_macro_snapshot",
+        as_of_date=as_of_date,
+        cutoff_at=china_group["cutoff_at"],
+        source_hashes=[
+            china_receipts["official.cn_macro"].receipt_hash,
+            china_receipts["tushare.cn_macro"].receipt_hash,
+            calendar_cny,
+        ],
+        snapshot=china_snapshot,
+    )
+    _write_snapshot(output_root or china_agent_snapshot_root(), "china", as_of_date, china_raw)
+    persisted = (ledger.append_or_reuse_snapshot_build(receipt),)
+    return ChinaAgentBuildResult({"china": china_snapshot}, persisted)
+
+
 def compile_china_agent_snapshots(
     *,
     archive: ChinaAgentArchiveResult,
     store: ChinaAgentDataArchiveStore,
     ledger: AgentDataMaterializationLedger,
     output_root: Path | None = None,
+    requested_roles: Sequence[str] | None = None,
+    exact_calendar_evidence_hash: str | None = None,
+    exact_calendar_evidence_hashes: Sequence[str] | None = None,
 ) -> ChinaAgentBuildResult:
+    selected_roles = _normalise_requested_roles(requested_roles)
+    selected_role_set = set(_CHINA_COMPILED_ROLES if selected_roles is None else selected_roles)
+    if selected_role_set == {"central_bank"}:
+        china_group, china_receipts = _load_ready_group(
+            route_group=CHINA_ROUTE_GROUP,
+            archive=archive,
+            store=store,
+            ledger=ledger,
+            expected_route_ids=("official.cn_macro",),
+        )
+        curve_group, curve_receipts = _load_ready_group(
+            route_group=CURVE_ROUTE_GROUP,
+            archive=archive,
+            store=store,
+            ledger=ledger,
+        )
+        china_context = _official_china_context_observations(
+            china_group, china_receipts["official.cn_macro"]
+        )
+        knowledge_cutoff = None
+        if china_group.get("historical_replay") is True:
+            knowledge_cutoff = max(
+                _timestamp(china_group["cutoff_at"], "cutoff_at"),
+                _timestamp(curve_group["cutoff_at"], "cutoff_at"),
+            )
+        central_bank_raw, central_bank_snapshot = _central_bank_snapshot(
+            china_group=china_group,
+            china_receipts=china_receipts,
+            curve_group=curve_group,
+            curve_receipt=curve_receipts[CURVE_ROUTE_GROUP],
+            china_context=china_context,
+            knowledge_cutoff=knowledge_cutoff,
+        )
+        as_of_date = str(china_group["as_of_date"])
+        calendar_cny = exact_calendar_evidence_hash or _calendar_hash(
+            ledger, as_of_date=as_of_date, route_id="tushare.eco_cal.cny"
+        )
+        receipt = _build_receipt(
+            role="central_bank",
+            tool_id="get_central_bank_snapshot",
+            as_of_date=as_of_date,
+            cutoff_at=china_group["cutoff_at"],
+            source_hashes=[
+                china_receipts["official.cn_macro"].receipt_hash,
+                curve_receipts[CURVE_ROUTE_GROUP].receipt_hash,
+                calendar_cny,
+            ],
+            snapshot=central_bank_snapshot,
+        )
+        destination_root = output_root or china_agent_snapshot_root()
+        _write_snapshot(destination_root, "central_bank", as_of_date, central_bank_raw)
+        persisted = (ledger.append_or_reuse_snapshot_build(receipt),)
+        return ChinaAgentBuildResult({"central_bank": central_bank_snapshot}, persisted)
+    if selected_role_set == {"commodities"}:
+        commodity_group, commodity_receipts = _load_ready_group(
+            route_group=COMMODITY_ROUTE_GROUP,
+            archive=archive,
+            store=store,
+            ledger=ledger,
+        )
+        if exact_calendar_evidence_hashes is None or isinstance(
+            exact_calendar_evidence_hashes, (str, bytes)
+        ):
+            raise DataVendorUnavailable(
+                "commodity compiler requires three exact calendar receipts"
+            )
+        calendar_hashes = tuple(exact_calendar_evidence_hashes)
+        if (
+            len(calendar_hashes) != 3
+            or len(set(calendar_hashes)) != 3
+            or any(not isinstance(value, str) or not value for value in calendar_hashes)
+        ):
+            raise DataVendorUnavailable(
+                "commodity compiler requires three unique calendar receipts"
+            )
+        commodity_raw, commodity_snapshot = _commodity_snapshot(
+            commodity_group,
+            commodity_receipts[COMMODITY_ROUTE_GROUP],
+        )
+        as_of_date = str(commodity_group["as_of_date"])
+        receipt = _build_receipt(
+            role="commodities",
+            tool_id="get_commodity_conditions_snapshot",
+            as_of_date=as_of_date,
+            cutoff_at=commodity_group["cutoff_at"],
+            source_hashes=[
+                commodity_receipts[COMMODITY_ROUTE_GROUP].receipt_hash,
+                *calendar_hashes,
+            ],
+            snapshot=commodity_snapshot,
+        )
+        destination_root = output_root or china_agent_snapshot_root()
+        _write_snapshot(destination_root, "commodities", as_of_date, commodity_raw)
+        persisted = (ledger.append_or_reuse_snapshot_build(receipt),)
+        return ChinaAgentBuildResult({"commodities": commodity_snapshot}, persisted)
+    if selected_role_set == {"institutional_flow"}:
+        institutional_group, institutional_receipts = _load_ready_group(
+            route_group=INSTITUTIONAL_ROUTE_GROUP,
+            archive=archive,
+            store=store,
+            ledger=ledger,
+        )
+        institutional_raw, institutional_snapshot = _institutional_snapshot(
+            institutional_group,
+            institutional_receipts[INSTITUTIONAL_ROUTE_GROUP],
+        )
+        as_of_date = str(institutional_group["as_of_date"])
+        receipt = _build_receipt(
+            role="institutional_flow",
+            tool_id="get_market_positioning_snapshot",
+            as_of_date=as_of_date,
+            cutoff_at=institutional_group["cutoff_at"],
+            source_hashes=[
+                institutional_receipts[INSTITUTIONAL_ROUTE_GROUP].receipt_hash
+            ],
+            snapshot=institutional_snapshot,
+        )
+        destination_root = output_root or china_agent_snapshot_root()
+        _write_snapshot(
+            destination_root,
+            "institutional_flow",
+            as_of_date,
+            institutional_raw,
+        )
+        persisted = (ledger.append_or_reuse_snapshot_build(receipt),)
+        return ChinaAgentBuildResult(
+            {"institutional_flow": institutional_snapshot}, persisted
+        )
     china_group, china_receipts = _load_ready_group(
         route_group=CHINA_ROUTE_GROUP,
         archive=archive,
@@ -2263,14 +2840,8 @@ def compile_china_agent_snapshots(
         store=store,
         ledger=ledger,
     )
-    china_observations = _china_observations(china_group, china_receipts)
-    china_raw = {
-        "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
-        "role": "china",
-        "as_of_date": china_group["as_of_date"],
-        "observations": china_observations,
-        "events": [],
-    }
+    china_raw, china_snapshot = _build_china_snapshot(china_group, china_receipts)
+    china_observations = china_raw["observations"]
     commodity_raw, commodity_snapshot = _commodity_snapshot(
         commodity_group, commodity_receipts[COMMODITY_ROUTE_GROUP]
     )
@@ -2284,9 +2855,7 @@ def compile_china_agent_snapshots(
         "institutional_flow": institutional_raw,
     }
     snapshots = {
-        "china": validate_role_snapshot(
-            china_raw, "china", china_group["as_of_date"]
-        ),
+        "china": china_snapshot,
         "commodities": commodity_snapshot,
         "institutional_flow": institutional_snapshot,
     }
@@ -2386,14 +2955,27 @@ def compile_china_agent_snapshots(
                 snapshot=snapshots["central_bank"],
             )
         )
+    selected_raw_snapshots = {
+        role: raw for role, raw in raw_snapshots.items() if role in selected_role_set
+    }
+    selected_snapshots = {
+        role: snapshot
+        for role, snapshot in snapshots.items()
+        if role in selected_role_set
+    }
+    selected_build_receipts = tuple(
+        receipt
+        for receipt in build_receipts
+        if receipt.as_dict()["agent_id"] in selected_role_set
+    )
     destination_root = output_root or china_agent_snapshot_root()
-    for role, raw in raw_snapshots.items():
+    for role, raw in selected_raw_snapshots.items():
         _write_snapshot(destination_root, role, as_of_date, raw)
     persisted = tuple(
         ledger.append_or_reuse_snapshot_build(receipt)
-        for receipt in build_receipts
+        for receipt in selected_build_receipts
     )
-    return ChinaAgentBuildResult(snapshots, persisted)
+    return ChinaAgentBuildResult(selected_snapshots, persisted)
 
 
 __all__ = [
@@ -2414,5 +2996,6 @@ __all__ = [
     "china_agent_archive_path",
     "china_archive_source_receipt",
     "china_agent_snapshot_root",
+    "compile_china_agent_snapshot",
     "compile_china_agent_snapshots",
 ]

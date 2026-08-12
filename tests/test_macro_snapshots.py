@@ -181,7 +181,7 @@ def source_for(role: str, series_id: str) -> str:
             "agriculture_": "tushare.fut_daily.C@DCE",
         },
         "institutional_flow": {
-            "market_flow_": "tushare.moneyflow_hsgt",
+            "market_flow_": "tushare.moneyflow",
             "sector_rotation_": "tushare.moneyflow_ind_ths",
             "etf_share_": "tushare.fund_share",
             "crowding_": "tushare.daily_basic",
@@ -249,9 +249,7 @@ def payload(role="china", **overrides):
                     else [
                         observation(
                             series_id=series_id,
-                            source=source_for(
-                                FINANCIAL_CONTEXT_ROLE[role], series_id
-                            ),
+                            source=source_for(FINANCIAL_CONTEXT_ROLE[role], series_id),
                         )
                         for series_id in (
                             ROLE_SERIES["china"][:3]
@@ -361,7 +359,8 @@ def test_commodities_snapshot_requires_deterministic_curve_and_inventory_inputs(
         "M@DCE",
     }
     assert all(
-        family["term_structure"]["state"] in {
+        family["term_structure"]["state"]
+        in {
             "CONTANGO",
             "BACKWARDATION",
             "FLAT",
@@ -425,9 +424,7 @@ def test_same_day_observation_after_a_share_decision_cutoff_is_rejected(field):
     rows = payload()["observations"]
     rows[0] = {**rows[0], field: "2024-06-30T15:00:01+08:00"}
     with pytest.raises(DataVendorUnavailable, match="future macro observation"):
-        validate_role_snapshot(
-            payload(observations=rows), "china", "2024-06-30"
-        )
+        validate_role_snapshot(payload(observations=rows), "china", "2024-06-30")
 
 
 @pytest.mark.parametrize("field", ["released_at", "vintage_at"])
@@ -456,9 +453,7 @@ def test_role_snapshot_rejects_cross_role_series():
     bad = payload(
         role="central_bank",
         observations=[
-            observation(
-                series_id="cn_cpi", source="official.pboc_omo_catalog"
-            )
+            observation(series_id="cn_cpi", source="official.pboc_omo_catalog")
         ],
     )
     with pytest.raises(
@@ -675,9 +670,7 @@ def test_observations_reject_news_and_unregistered_sources():
         validate_role_snapshot(unknown, "china", "2024-06-30")
 
     wrong_endpoint = payload(
-        observations=[
-            observation(series_id="cn_cpi", source="tushare.cn_gdp")
-        ]
+        observations=[observation(series_id="cn_cpi", source="tushare.cn_gdp")]
     )
     with pytest.raises(DataVendorUnavailable, match="not registered for china/prices"):
         validate_role_snapshot(wrong_endpoint, "china", "2024-06-30")
@@ -706,9 +699,7 @@ def test_registered_snapshot_builder_rejects_identity_only_sources(tmp_path, rol
             as_of_date="2024-06-30",
             observations=payload(role=role)["observations"],
             component_coverage=(
-                INSTITUTIONAL_FLOW_COVERAGE
-                if role == "institutional_flow"
-                else None
+                INSTITUTIONAL_FLOW_COVERAGE if role == "institutional_flow" else None
             ),
             root=tmp_path,
         )
@@ -731,7 +722,9 @@ def test_institutional_flow_requires_all_four_market_components():
             "etf_share_change",
         ],
     ):
-        with pytest.raises(DataVendorUnavailable, match="missing required components|does not map"):
+        with pytest.raises(
+            DataVendorUnavailable, match="missing required components|does not map"
+        ):
             validate_role_snapshot(
                 payload(
                     role="institutional_flow",

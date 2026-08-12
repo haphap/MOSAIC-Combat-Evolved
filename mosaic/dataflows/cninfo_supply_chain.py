@@ -33,12 +33,14 @@ _REFERER = (
 )
 _PAGE_SIZE = 30
 _LOOKBACK_DAYS = 5 * 365
+_MAX_REPORT_YEARS = _LOOKBACK_DAYS // 365
+_MAX_SEARCH_PAGES = 2
 _MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
 _IDENTITY_MAX_RESULTS = 10
 _COUNTERPARTY_QUERY_LIMIT_PER_DOCUMENT = 10
 _ROLE_ROW_LIMIT = 5
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
-_ANNUAL_REPORT = re.compile(r"(?P<year>20\d{2})年年度报告")
+_ANNUAL_REPORT = re.compile(r"(?P<year>20\d{2})年年度报告(?:[（(][^）)]*[）)])?$")
 _RANKED_TABLE_ROW = re.compile(
     r"^\s*(?P<rank>[1-5])(?:[.、．:：)）]\s*|\s+)(?P<body>.+)$"
 )
@@ -264,6 +266,8 @@ class CninfoSupplyChainDisclosureCollector:
         as_of: str,
         page_number: int,
     ) -> dict[str, Any]:
+        if page_number < 1 or page_number > _MAX_SEARCH_PAGES:
+            raise ValueError("CNINFO annual-report search exceeded its exact page bound")
         contract = self._query_contract(identity, as_of)
         form = {
             "pageNum": str(page_number),
@@ -290,6 +294,10 @@ class CninfoSupplyChainDisclosureCollector:
             announcements = []
         if not isinstance(announcements, list):
             raise ValueError("CNINFO announcement response fields are malformed")
+        if total > _PAGE_SIZE or len(announcements) > _PAGE_SIZE:
+            raise ValueError("CNINFO annual-report candidate set exceeds one page")
+        if page_number == 1 and len(announcements) != total:
+            raise ValueError("CNINFO annual-report candidate page is incomplete")
         if total > (page_number - 1) * _PAGE_SIZE and not announcements:
             raise ValueError("CNINFO pagination advertised a non-empty page but returned none")
 
@@ -318,6 +326,27 @@ class CninfoSupplyChainDisclosureCollector:
                     "report_period": f"{match.group('year')}-12-31",
                     "document_url": DOCUMENT_ROOT + adjunct_url,
                 }
+            )
+        if page_number == 1:
+            latest_by_year: dict[str, dict[str, Any]] = {}
+            for announcement in normalized:
+                year = announcement["report_period"][:4]
+                current = latest_by_year.get(year)
+                selection_key = (
+                    "修订" in announcement["title"],
+                    announcement["announced_at"],
+                    announcement["announcement_id"],
+                )
+                if current is None or selection_key > (
+                    "修订" in current["title"],
+                    current["announced_at"],
+                    current["announcement_id"],
+                ):
+                    latest_by_year[year] = announcement
+            if len(latest_by_year) > _MAX_REPORT_YEARS:
+                raise ValueError("CNINFO annual reports exceed the five-year window")
+            normalized = sorted(
+                latest_by_year.values(), key=lambda row: row["report_period"]
             )
         return {
             "page_number": page_number,
