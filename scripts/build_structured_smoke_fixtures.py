@@ -59,7 +59,9 @@ from mosaic.dataflows.sector_archive import (
 from mosaic.dataflows.china_agent_data_archive import (
     CAPTURE_SCHEMA_VERSION as CHINA_CAPTURE_SCHEMA_VERSION,
     CURVE_ROUTE_GROUP,
+    INSTITUTIONAL_CROWDING_UNIVERSE,
     INSTITUTIONAL_ETF_UNIVERSE,
+    INSTITUTIONAL_INDUSTRY_UNIVERSE,
     INSTITUTIONAL_ROUTE_GROUP,
     ROUTE_GROUPS as CHINA_ROUTE_GROUPS,
     ChinaAgentDataArchiveStore,
@@ -1310,6 +1312,10 @@ def _build_china_archive(root: Path, as_of: date) -> Path:
         "captured_at": captured_at,
         "market_session_date": as_of.isoformat(),
         "northbound": {"north_money": 100.0, "row_count": 1},
+        "market_flow_rows": [
+            {"ts_code": ticker, "net_mf_amount": float(index * 100)}
+            for index, ticker in enumerate(INSTITUTIONAL_CROWDING_UNIVERSE, start=1)
+        ],
         "industry_rows": [
             {
                 "industry": industry,
@@ -1332,6 +1338,28 @@ def _build_china_archive(root: Path, as_of: date) -> Path:
                 "volume_ratio": 0.9,
             }
         ],
+        "institutional_requests": {
+            "moneyflow": [
+                {"ts_code": ticker, "trade_date": as_of.strftime("%Y%m%d")}
+                for ticker in INSTITUTIONAL_CROWDING_UNIVERSE
+            ],
+            "moneyflow_ind_ths": [
+                {"ts_code": ticker, "trade_date": as_of.strftime("%Y%m%d")}
+                for ticker in INSTITUTIONAL_INDUSTRY_UNIVERSE
+            ],
+            "fund_share": [
+                {
+                    "ts_code": ticker,
+                    "start_date": as_of.strftime("%Y%m%d"),
+                    "end_date": as_of.strftime("%Y%m%d"),
+                }
+                for ticker in INSTITUTIONAL_ETF_UNIVERSE
+            ],
+            "daily_basic": [
+                {"ts_code": ticker, "trade_date": as_of.strftime("%Y%m%d")}
+                for ticker in INSTITUTIONAL_CROWDING_UNIVERSE
+            ],
+        },
     }
     institutional_group = {
         **institutional_body,

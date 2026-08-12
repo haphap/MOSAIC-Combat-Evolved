@@ -31,6 +31,11 @@ from .geopolitical_events import (
 GEOPOLITICAL_LOGICAL_ROUTE_ID = "geopolitical.required_coverage"
 GEOPOLITICAL_TOOL_ID = "get_geopolitical_events_snapshot"
 GEOPOLITICAL_COMPILER_VERSION = "geopolitical_agent_compiler_v1"
+_CALENDAR_ROUTE_IDS = (
+    "tushare.eco_cal.cny",
+    "tushare.eco_cal.eur",
+    "tushare.eco_cal.usd",
+)
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
@@ -388,6 +393,20 @@ def _build_receipt(
     )
 
 
+def _available_calendar_hashes(
+    ledger: AgentDataMaterializationLedger, *, as_of_date: str
+) -> tuple[list[str], list[str]]:
+    hashes: list[str] = []
+    missing: list[str] = []
+    for route_id in _CALENDAR_ROUTE_IDS:
+        status = ledger.source_status(as_of=as_of_date, route_id=route_id)
+        if status["status"] == "READY" and status["capture_receipt_hash"]:
+            hashes.append(str(status["capture_receipt_hash"]))
+        else:
+            missing.append(route_id)
+    return hashes, missing
+
+
 def _write_snapshot(
     output_root: Path, *, as_of_date: str, snapshot: Mapping[str, Any]
 ) -> None:
@@ -492,12 +511,17 @@ def materialize_geopolitical_snapshot(
     else:
         ledger.append_capture_group((source_receipt,), coverage)
 
-    source_hashes = [coverage.receipt_hash]
-    missing_routes: list[str] = []
+    calendar_hashes, missing_calendars = _available_calendar_hashes(
+        ledger, as_of_date=as_of_date
+    )
+    source_hashes = [coverage.receipt_hash, *calendar_hashes]
+    missing_routes = list(missing_calendars)
     blockers: list[str] = []
     if source_receipt is None:
         missing_routes.append(GEOPOLITICAL_LOGICAL_ROUTE_ID)
         blockers.append("INCOMPLETE_COVERAGE")
+    if missing_calendars:
+        blockers.append("REQUIRED_ROUTE_MISSING")
     ready_snapshot = snapshot if not missing_routes else None
     build = _build_receipt(
         as_of_date=as_of_date,
