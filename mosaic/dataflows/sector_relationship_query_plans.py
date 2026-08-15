@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping, Sequence
 from datetime import date, timedelta
 from typing import Any
 
 from mosaic.dataflows.sector_snapshots import (
+    SECTOR_DIRECTION_IDS,
+    _authoritative_etf_codes,
     validate_relationship_runtime_snapshot,
     validate_sector_runtime_snapshot,
 )
@@ -118,14 +121,103 @@ def _sector_plan(
 ) -> tuple[dict[str, Any], dict[str, str], list[tuple[str, str]]]:
     if "get_sector_research_snapshot" not in initial_payloads:
         raise ValueError("Sector query plan requires get_sector_research_snapshot")
-    payload = validate_sector_runtime_snapshot(
-        _decode_payload(
-            initial_payloads["get_sector_research_snapshot"],
-            "get_sector_research_snapshot",
-        ),
-        agent_id,
-        as_of,
+    payload = _decode_payload(
+        initial_payloads["get_sector_research_snapshot"],
+        "get_sector_research_snapshot",
     )
+    if payload.get("kind") == "etf_holdings_candidates":
+        basket_shape = "trade_date" in payload
+        required = {
+            "kind",
+            "status",
+            "sector_agent_id",
+            "as_of_date",
+            "direction_id",
+            "etf_ts_code",
+            *(("trade_date",) if basket_shape else ("disclosure_date", "report_date")),
+            "candidates",
+            "source_route_id",
+            "source_content_hash",
+            "snapshot_hash",
+        }
+        if set(payload) != required or payload.get("status") != "READY":
+            raise ValueError("ETF candidate snapshot fields are invalid")
+        if (
+            payload.get("sector_agent_id") != agent_id
+            or payload.get("as_of_date") != as_of
+            or payload.get("source_route_id") != "tushare.etf_holdings"
+            or not isinstance(payload.get("source_content_hash"), str)
+            or not payload["source_content_hash"].startswith("sha256:")
+            or len(payload["source_content_hash"]) != 71
+        ):
+            raise ValueError("ETF candidate snapshot identity is invalid")
+        date_fields = ("trade_date",) if basket_shape else ("disclosure_date", "report_date")
+        for field in date_fields:
+            try:
+                if date.fromisoformat(payload[field]) > date.fromisoformat(as_of):
+                    raise ValueError(f"ETF candidate {field} is after as_of")
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"ETF candidate {field} is invalid") from exc
+        body = {key: value for key, value in payload.items() if key != "snapshot_hash"}
+        if payload.get("snapshot_hash") != canonical_hash(body):
+            raise ValueError("ETF candidate snapshot hash mismatch")
+        direction_id = payload.get("direction_id")
+        etf_ts_code = payload.get("etf_ts_code")
+        if (
+            not isinstance(direction_id, str)
+            or direction_id not in SECTOR_DIRECTION_IDS.get(agent_id, ())
+            or not isinstance(etf_ts_code, str)
+            or _authoritative_etf_codes(agent_id, direction_id, date.fromisoformat(as_of))
+            != [etf_ts_code]
+        ):
+            raise ValueError("ETF candidate direction authority mismatch")
+        raw_candidates = payload.get("candidates")
+        if not isinstance(raw_candidates, list) or not 1 <= len(raw_candidates) <= 12:
+            raise ValueError("ETF candidate universe is invalid")
+        tickers: list[str] = []
+        for row in raw_candidates:
+            if not isinstance(row, dict) or not isinstance(row.get("ticker"), str):
+                raise ValueError("ETF candidate row is invalid")
+            if basket_shape:
+                quantity = row.get("basket_quantity")
+                valid_quantity = (
+                    set(row) == {"ticker", "basket_quantity"}
+                    and not isinstance(quantity, bool)
+                    and isinstance(quantity, (int, float))
+                    and math.isfinite(float(quantity))
+                    and float(quantity) >= 0
+                )
+            else:
+                weight = row.get("weight_pct")
+                valid_quantity = (
+                    set(row) == {"ticker", "weight_pct"}
+                    and not isinstance(weight, bool)
+                    and isinstance(weight, (int, float))
+                    and math.isfinite(float(weight))
+                    and 0 <= float(weight) <= 100
+                )
+            if (
+                not valid_quantity
+                or not row["ticker"][:6].isdigit()
+                or row["ticker"][6:] not in {".SH", ".SZ", ".BJ"}
+                or row["ticker"] in tickers
+            ):
+                raise ValueError("ETF candidate row is invalid")
+            tickers.append(row["ticker"])
+        scope = {
+            "tickers": sorted(tickers),
+            "etfs": [etf_ts_code],
+            "sectors": [direction_id],
+            "indicator_families": list(
+                argument_schema_for_tool("get_indicators")["properties"]["indicator"][
+                    "enum"
+                ]
+            ),
+        }
+        return scope, {"snapshot_hash": payload["snapshot_hash"]}, [
+            (ticker, direction_id) for ticker in sorted(tickers)
+        ]
+    payload = validate_sector_runtime_snapshot(payload, agent_id, as_of)
     if payload.get("sector_agent_id") != agent_id:
         raise ValueError("Sector snapshot agent identity mismatch")
     tickers = sorted(row["ts_code"] for row in payload["eligible_security_universe"])

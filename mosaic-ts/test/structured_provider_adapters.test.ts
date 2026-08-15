@@ -570,7 +570,7 @@ describe("strict structured provider adapters", () => {
   });
 
   it("compacts DIRECT Macro extraction without losing its authored judgment", () => {
-    const domainSchema = createMacroSubmissionSchema("geopolitical");
+    const domainSchema = createMacroSubmissionSchema("institutional_flow");
     const providerSchema = adaptStrictProviderJsonSchema(z.toJSONSchema(domainSchema)) as {
       properties: {
         provider_contract: { const: string };
@@ -608,7 +608,7 @@ describe("strict structured provider adapters", () => {
         channel: "A-share risk premium",
         claim_kind: "EVENT",
         statement: "The registered event remains active",
-        subject: "registered geopolitical event",
+        subject: "registered ETF share observation",
         state: "The event is escalating",
         a_share_transmission: "Risk appetite faces an adverse external shock",
         evidence_id: `evidence:${"a".repeat(64)}`,
@@ -630,7 +630,7 @@ describe("strict structured provider adapters", () => {
       statement: "The registered event remains active",
       structured_conclusion: {
         conclusion_type: "MACRO_EVENT",
-        subject: "registered geopolitical event",
+        subject: "registered ETF share observation",
         state: "The event is escalating",
         a_share_transmission: "Risk appetite faces an adverse external shock",
       },
@@ -642,7 +642,7 @@ describe("strict structured provider adapters", () => {
   });
 
   it("rejects numeric-word and placeholder prose materialized from compact Macro payloads", () => {
-    const domainSchema = createMacroSubmissionSchema("geopolitical");
+    const domainSchema = createMacroSubmissionSchema("institutional_flow");
     const judgment = {
       signal: { direction: "ADVERSE", strength: 2 },
       persistence_horizon: "WEEKS",
@@ -650,7 +650,7 @@ describe("strict structured provider adapters", () => {
       channel: "A-share risk appetite",
       claim_kind: "EVENT",
       statement: "The registered event remains active",
-      subject: "registered geopolitical event",
+      subject: "registered ETF share observation",
       state: "The event remains unresolved",
       a_share_transmission: "Risk appetite faces an adverse external shock",
       evidence_id: `evidence:${"b".repeat(64)}`,

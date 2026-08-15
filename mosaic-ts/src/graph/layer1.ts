@@ -5,10 +5,10 @@
  *
  *   START → china → us_economy → eu_economy → central_bank
  *         → us_financial_conditions → euro_area_financial_conditions
- *         → commodities → geopolitical → market_breadth
- *         → institutional_flow → macro_input_gate → END
+ *         → commodities → institutional_flow
+ *         → macro_input_gate → END
  *
- * The 10 macro nodes run serially in a deterministic order. This keeps one
+ * The 8 macro nodes run serially in a deterministic order. This keeps one
  * LLM/tool call stream active at a time, avoiding provider rate-limit bursts
  * and Python bridge queue timeouts. State writes still converge through the
  * dict-merge reducer on ``layer1_outputs``.
@@ -25,9 +25,7 @@ import { buildChinaNode } from "../agents/macro/china.js";
 import { buildCommoditiesNode } from "../agents/macro/commodities.js";
 import { buildEuEconomyNode } from "../agents/macro/eu_economy.js";
 import { buildEuroAreaFinancialConditionsNode } from "../agents/macro/euro_area_financial_conditions.js";
-import { buildGeopoliticalNode } from "../agents/macro/geopolitical.js";
 import { buildInstitutionalFlowNode } from "../agents/macro/institutional_flow.js";
-import { buildMarketBreadthNode } from "../agents/macro/market_breadth.js";
 import { buildUsEconomyNode } from "../agents/macro/us_economy.js";
 import { buildUsFinancialConditionsNode } from "../agents/macro/us_financial_conditions.js";
 import type { PromptReleaseLoadContext } from "../agents/prompts/release_prompt_loader.js";
@@ -57,7 +55,7 @@ export interface BuildLayer1GraphDeps {
   acceptedOutputStore?: AcceptedAgentOutputStore;
 }
 
-/** Names of the 10 macro nodes in graph order. Exported for tests + 2D. */
+/** Names of the 8 macro nodes in graph order. Exported for tests + 2D. */
 export const LAYER1_AGENT_NODES = [
   "china",
   "us_economy",
@@ -66,8 +64,6 @@ export const LAYER1_AGENT_NODES = [
   "us_financial_conditions",
   "euro_area_financial_conditions",
   "commodities",
-  "geopolitical",
-  "market_breadth",
   "institutional_flow",
 ] as const;
 
@@ -88,8 +84,6 @@ export function buildLayer1Graph(deps: BuildLayer1GraphDeps) {
     .addNode("us_financial_conditions", buildUsFinancialConditionsNode(runDeps))
     .addNode("euro_area_financial_conditions", buildEuroAreaFinancialConditionsNode(runDeps))
     .addNode("commodities", buildCommoditiesNode(runDeps))
-    .addNode("geopolitical", buildGeopoliticalNode(runDeps))
-    .addNode("market_breadth", buildMarketBreadthNode(runDeps))
     .addNode("institutional_flow", buildInstitutionalFlowNode(runDeps))
     .addNode(LAYER1_INPUT_GATE_NODE, buildMacroInputGateNode(acceptedOutputStore));
 

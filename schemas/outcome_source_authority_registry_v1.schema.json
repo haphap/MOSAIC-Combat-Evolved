@@ -20,8 +20,8 @@
     },
     "entries": {
       "type": "array",
-      "minItems": 23,
-      "maxItems": 23,
+      "minItems": 21,
+      "maxItems": 21,
       "items": {
         "type": "object",
         "properties": {

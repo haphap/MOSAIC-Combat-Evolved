@@ -178,9 +178,9 @@ _BASELINE_CAPABILITIES: tuple[dict[str, Any], ...] = (
         "baseline_tool_id": "get_geopolitical_events_snapshot",
         "baseline_consumers": ["geopolitical"],
         "baseline_argument_fields": ["as_of"],
-        "current_owners": ["geopolitical"],
-        "replacement_tools": ["get_geopolitical_events_snapshot"],
-        "disposition": "preserved",
+        "current_owners": [],
+        "replacement_tools": [],
+        "disposition": "partial",
     },
     {
         "semantic_capability_id": "volatility",
@@ -196,9 +196,9 @@ _BASELINE_CAPABILITIES: tuple[dict[str, Any], ...] = (
         "baseline_tool_id": "get_market_breadth_snapshot",
         "baseline_consumers": ["market_breadth"],
         "baseline_argument_fields": ["as_of"],
-        "current_owners": ["market_breadth"],
-        "replacement_tools": ["get_market_breadth_snapshot"],
-        "disposition": "preserved",
+        "current_owners": [],
+        "replacement_tools": [],
+        "disposition": "partial",
     },
     {
         "semantic_capability_id": "market_positioning",
@@ -552,8 +552,8 @@ def build_preservation_manifest(
         "baseline_agent_count": 25,
         "baseline_stage_count": 26,
         "baseline_capability_count": 23,
-        "current_agent_count": 28,
-        "current_stage_count": 29,
+        "current_agent_count": 25,
+        "current_stage_count": 26,
         "introduced_roles": list(_INTRODUCED_ROLES),
         "capabilities": capabilities,
         "introduced_capabilities": introduced,
@@ -1346,6 +1346,14 @@ def _load_active_restored_bindings(
     current_tool_manifest: Mapping[str, Any],
     route_manifest: Mapping[str, Any],
 ) -> Sequence[Mapping[str, Any]]:
+    from mosaic.scorecard.l3_l4_activation import (
+        active_argument_schema_for_l3_l4_binding,
+    )
+    from mosaic.scorecard.l3_l4_preservation import (
+        L3_TOOL_ROSTER,
+        L4_STAGE_ROSTER,
+        _domain_contract,
+    )
     from mosaic.scorecard.sector_relationship_preservation import (
         SECTOR_AGENT_IDS,
         _binding_body as build_sector_relationship_binding_body,
@@ -1354,10 +1362,22 @@ def _load_active_restored_bindings(
     active_surface = _surface(current_tool_manifest)
     restored_source = _load_restored_bindings(root)
     restored_bindings: list[Mapping[str, Any]] = []
+    l3_l4_agents = {*L3_TOOL_ROSTER, *(agent_id for agent_id, _ in L4_STAGE_ROSTER)}
     for row in restored_source:
         key = (str(row["agent_id"]), str(row["stage"]), str(row["tool_id"]))
         if key in active_surface:
-            restored_bindings.append(row)
+            active_row = row
+            if key[0] in l3_l4_agents:
+                schema = active_argument_schema_for_l3_l4_binding(*key)
+                schema_hash = canonical_hash(schema)
+                if schema_hash != row["argument_schema_hash"]:
+                    active_row = dict(row)
+                    domain = _domain_contract(
+                        agent_id=key[0], stage=key[1], tool_id=key[2], schema=schema
+                    )
+                    active_row["argument_schema_hash"] = schema_hash
+                    active_row["argument_domain_selector_hash"] = canonical_hash(domain)
+            restored_bindings.append(active_row)
         elif str(row["agent_id"]) != "relationship_mapper":
             raise ValueError(
                 "restored capability overlay is outside the active tool surface"

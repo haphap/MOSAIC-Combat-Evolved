@@ -5,9 +5,9 @@ import { fallbackSuperinvestorOutput } from "../src/agents/superinvestor/_factor
 import { evaluateHistoricalDecisionHealth } from "../src/backtest/decision_health.js";
 
 function acceptedCalls() {
-  return Array.from({ length: 28 }, (_, index) => ({
+  return Array.from({ length: 26 }, (_, index) => ({
     ts: "2026-01-01T00:00:00Z",
-    agent: index === 27 ? "cio" : `agent_${index}`,
+    agent: index === 25 ? "cio" : `agent_${index}`,
     model: "fake",
     prompt_tokens: 1,
     completion_tokens: 1,
@@ -16,8 +16,8 @@ function acceptedCalls() {
     agent_run_audit: {
       schema_version: "agent_run_audit_v1" as const,
       run_id: "run-1",
-      agent: index === 27 ? "cio" : `agent_${index}`,
-      stage: index === 27 ? "cio_final" : `stage_${index}`,
+      agent: index === 25 ? "cio" : `agent_${index}`,
+      stage: index === 25 ? "cio_final" : `stage_${index}`,
       status: "accepted" as const,
       output_source: "structured_primary" as const,
       attempt_count: 1,

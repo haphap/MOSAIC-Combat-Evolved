@@ -17,8 +17,8 @@ from mosaic.scorecard.outcome_contracts import (
 
 
 def test_outcome_contracts_cover_exact_runtime_roster_and_modes() -> None:
-    assert len(OUTCOME_CONTRACTS) == 27
-    assert len(USAGE_WEIGHT_AGENT_IDS) == 23
+    assert len(OUTCOME_CONTRACTS) == 25
+    assert len(USAGE_WEIGHT_AGENT_IDS) == 21
     assert set(EVOLUTION_ONLY_AGENT_IDS) == {
         "alpha_discovery",
         "autonomous_execution",
@@ -34,14 +34,6 @@ def test_outcome_contracts_cover_exact_runtime_roster_and_modes() -> None:
 
 def test_outcome_contracts_freeze_schedule_and_label_ownership() -> None:
     assert OUTCOME_CONTRACTS["china"]["sample_schedule"]["kind"] == "EVENT_TRIGGERED"
-    assert (
-        OUTCOME_CONTRACTS["geopolitical"]["sample_schedule"]["kind"]
-        == "EVENT_TRIGGERED"
-    )
-    assert (
-        OUTCOME_CONTRACTS["market_breadth"]["sample_schedule"]["kind"]
-        == "FIXED_NON_OVERLAP"
-    )
     for row in OUTCOME_CONTRACTS.values():
         assert row["label_owner"] == "DETERMINISTIC_RUNTIME"
         assert row["fallback_allowed"] is False

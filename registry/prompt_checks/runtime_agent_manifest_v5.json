@@ -1,7 +1,7 @@
 {
   "schema_version": "runtime_agent_manifest_v5",
-  "runtime_agent_count": 27,
-  "runtime_stage_count": 28,
+  "runtime_agent_count": 25,
+  "runtime_stage_count": 26,
   "canonical_l4_sequence": [
     "alpha_discovery",
     "cio_proposal",
@@ -225,70 +225,6 @@
             "claims",
             "key_drivers",
             "components"
-          ],
-          "max_repair_attempts": 3,
-          "required_source_ids": [],
-          "produced_source_ids": [
-            "upstream_agent_outputs"
-          ]
-        }
-      ]
-    },
-    {
-      "agent": "geopolitical",
-      "layer": "macro",
-      "prompt_ir_agent_id": "macro.geopolitical",
-      "required_tools": [
-        "get_geopolitical_events_snapshot"
-      ],
-      "output_schema_fields": [
-        "mode",
-        "claims",
-        "key_drivers",
-        "signal"
-      ],
-      "stages": [
-        {
-          "stage": "agent_run",
-          "enablement": "enabled",
-          "output_schema_ref": "macro.geopolitical.output.v1",
-          "output_schema_fields": [
-            "mode",
-            "claims",
-            "key_drivers",
-            "signal"
-          ],
-          "max_repair_attempts": 3,
-          "required_source_ids": [],
-          "produced_source_ids": [
-            "upstream_agent_outputs"
-          ]
-        }
-      ]
-    },
-    {
-      "agent": "market_breadth",
-      "layer": "macro",
-      "prompt_ir_agent_id": "macro.market_breadth",
-      "required_tools": [
-        "get_market_breadth_snapshot"
-      ],
-      "output_schema_fields": [
-        "mode",
-        "claims",
-        "key_drivers",
-        "signal"
-      ],
-      "stages": [
-        {
-          "stage": "agent_run",
-          "enablement": "enabled",
-          "output_schema_ref": "macro.market_breadth.output.v1",
-          "output_schema_fields": [
-            "mode",
-            "claims",
-            "key_drivers",
-            "signal"
           ],
           "max_repair_attempts": 3,
           "required_source_ids": [],

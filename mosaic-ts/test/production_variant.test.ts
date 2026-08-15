@@ -238,7 +238,7 @@ function componentSnapshot(
 }
 
 describe("Darwinian production runtime binding", () => {
-  it("freezes exactly 27 behavior bindings with 23/4 dimension semantics", () => {
+  it("freezes exactly 25 behavior bindings with 21/4 dimension semantics", () => {
     const behaviorRelease = release();
     const binding = buildDarwinianRuntimeBinding({
       cohortId: "cohort_default",
@@ -250,7 +250,7 @@ describe("Darwinian production runtime binding", () => {
       effectiveAt: "2026-07-17T09:00:00.000Z",
     });
     expect(binding.language).toBe("zh");
-    expect(Object.keys(binding.agent_behavior_bindings)).toHaveLength(27);
+    expect(Object.keys(binding.agent_behavior_bindings)).toHaveLength(25);
     expect(binding.production_variant_roster_id).toMatch(
       /^production-variant-roster:[0-9a-f]{64}$/,
     );
@@ -261,9 +261,6 @@ describe("Darwinian production runtime binding", () => {
     expect(binding.agent_behavior_bindings.china?.component_weight_contract_version).toBe(
       "macro_component_weights_v2",
     );
-    expect(
-      binding.agent_behavior_bindings.geopolitical?.component_weight_contract_version,
-    ).toBeNull();
     expect(
       binding.agent_behavior_bindings.semiconductor?.reliability_adapter_contract_version,
     ).toMatch(/^reliability-adapter:/);

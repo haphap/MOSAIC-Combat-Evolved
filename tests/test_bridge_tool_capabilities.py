@@ -123,8 +123,6 @@ def test_source_admission_preparation_reuses_exact_families_without_signing_capa
         ("china", "china", "2026-07-09"),
         ("us_economy", "us_economy", "2026-07-09"),
         ("eu_economy", "eu_economy", "2026-07-09"),
-        ("geopolitical", "geopolitical", "2026-07-09"),
-        ("market_breadth", "market_breadth", "2026-07-09"),
         ("semiconductor", "semiconductor", "2026-07-09"),
     ]
     assert [(agent_id, stage) for agent_id, stage, _ in adaptive_calls] == [
@@ -142,7 +140,7 @@ def test_source_admission_preparation_reuses_exact_families_without_signing_capa
     assert result == {
         "as_of": "2026-07-09",
         "adaptive_stage_count": 9,
-        "family_stage_count": 6,
+        "family_stage_count": 4,
         "status": "SOURCE_PREPARED",
     }
     with store._connect() as conn:
@@ -672,13 +670,13 @@ def test_capability_hashing_uses_shared_cross_runtime_jcs_authority():
     assert capability_module._sha256(value) == canonical_hash(value)
 
 
-def test_v3_matrix_has_27_agents_and_28_closed_execution_stages():
-    assert len(ALL_AGENT_IDS) == 27
+def test_v3_matrix_has_25_agents_and_26_closed_execution_stages():
+    assert len(ALL_AGENT_IDS) == 25
     assert set(AGENT_TOOL_MATRIX) == set(ALL_AGENT_IDS)
     stages = [execution_stage_for_agent(agent) for agent in ALL_AGENT_IDS if agent != "cio"]
     stages += [execution_stage_for_agent("cio", "cio_proposal")]
     stages += [execution_stage_for_agent("cio", "cio_final")]
-    assert len(stages) == len(set(stages)) == 28
+    assert len(stages) == len(set(stages)) == 26
     with pytest.raises(ValueError, match="capability stage"):
         execution_stage_for_agent("central_bank", "agent_run")
     with pytest.raises(ValueError, match="cio capability stage"):

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
 
 import mosaic.bridge.tool_capabilities as tool_capabilities_module
-import mosaic.dataflows.geopolitical_events as geopolitical_events_module
 import scripts.build_structured_smoke_fixtures as structured_smoke_fixtures_module
 from mosaic.bridge.tool_capabilities import (
     ADAPTIVE_QUERY_TOOL_IDS,
@@ -19,7 +19,7 @@ from mosaic.dataflows.agent_materialization import AgentDataMaterializationLedge
 from mosaic.dataflows.cninfo_supply_chain import CninfoSupplyChainDisclosureCollector
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.forward_archive_queries import ForwardArchiveQueryReader
-from mosaic.dataflows.geopolitical_events import load_geopolitical_events_snapshot
+from mosaic.dataflows.macro_snapshots import validate_role_snapshot
 from mosaic.dataflows.china_agent_data_archive import (
     CURVE_ROUTE_GROUP,
     INSTITUTIONAL_ROUTE_GROUP,
@@ -61,10 +61,37 @@ def _bind_structured_smoke(
 def test_structured_smoke_artifact_root_allowlists_are_identical() -> None:
     assert set(structured_smoke_fixtures_module._FIXTURE_ARTIFACT_ROOTS) == set(
         tool_capabilities_module._SYNTHETIC_FIXTURE_ARTIFACT_ROOTS
-    ) == set(geopolitical_events_module._STRUCTURED_SMOKE_ARTIFACT_ROOTS)
+    )
 
 
-def test_structured_smoke_bundle_materializes_all_28_stage_initial_snapshots(
+def test_structured_smoke_macro_snapshot_uses_fixed_etf_share_changes(
+    tmp_path: Path,
+) -> None:
+    as_of = date(2026, 7, 17)
+    structured_smoke_fixtures_module._build_macro_snapshots(tmp_path, as_of)
+    payload = json.loads(
+        (tmp_path / "macro_snapshots" / as_of.isoformat() / "institutional_flow.json")
+        .read_text(encoding="utf-8")
+    )
+
+    assert [row["series_id"] for row in payload["observations"]] == [
+        f"etf_share_{ticker.replace('.', '_')}_change"
+        for ticker in structured_smoke_fixtures_module.INSTITUTIONAL_ETF_UNIVERSE
+    ]
+    assert {row["source"] for row in payload["observations"]} == {
+        "tushare.fund_share"
+    }
+    assert payload["component_coverage"] == {
+        "etf_share": {
+            "eligible_count": 5,
+            "observed_count": 5,
+            "coverage_ratio": 1.0,
+        }
+    }
+    validate_role_snapshot(payload, "institutional_flow", as_of.isoformat())
+
+
+def test_structured_smoke_bundle_materializes_all_26_stage_initial_snapshots(
     tmp_path: Path, monkeypatch
 ) -> None:
     as_of = "2026-07-17"
@@ -73,8 +100,6 @@ def test_structured_smoke_bundle_materializes_all_28_stage_initial_snapshots(
         if key == "MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS":
             continue
         monkeypatch.setenv(key, value)
-    with pytest.raises(DataVendorUnavailable, match="snapshot rejected"):
-        load_geopolitical_events_snapshot(as_of)
     monkeypatch.setenv(
         "MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS",
         bindings["MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS"],
@@ -87,7 +112,7 @@ def test_structured_smoke_bundle_materializes_all_28_stage_initial_snapshots(
             ("cio_proposal", "cio_final") if agent_id == "cio" else (agent_id,)
         )
     ]
-    assert len(stages) == 28
+    assert len(stages) == 26
     for agent_id, stage in stages:
         tool_ids = AGENT_TOOL_MATRIX[agent_id]
         initial_tools = tuple(
@@ -109,11 +134,6 @@ def test_structured_smoke_bundle_materializes_all_28_stage_initial_snapshots(
             )
             assert isinstance(payload, dict)
             assert payload
-            if agent_id == "geopolitical" and tool_id == "get_geopolitical_events_snapshot":
-                assert payload["schema_version"] == "geopolitical_role_snapshot_v2"
-                assert payload["direct_data_quality"] == 1.0
-                assert "route_source_coverage" not in payload
-                assert len(json.dumps(payload)) < 100_000
 
     marker = json.loads(
         (tmp_path / "cache" / "structured_smoke_fixture_bundle.json").read_text(
@@ -306,26 +326,6 @@ def test_structured_smoke_materializes_all_bound_runtime_queries_offline(
         assert {
             tool["name"] for tool in store.list_tools(prepared["capability"])
         } == set(tool_capabilities_module.allowed_tools_for_agent(agent_id))
-
-
-def test_structured_smoke_bundle_supports_a_non_trading_as_of_date(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    as_of = "2024-06-30"  # Sunday.
-    bindings = build_structured_smoke_fixtures(tmp_path / "cache", as_of)
-    _bind_structured_smoke(bindings, monkeypatch)
-
-    payload = json.loads(
-        materialize_tool_payload(
-            "get_market_breadth_snapshot",
-            agent_id="market_breadth",
-            stage="market_breadth",
-            as_of=as_of,
-        )
-    )
-    assert payload["as_of_date"] == as_of
-    assert payload["coverage_ratio"] == 1.0
 
 
 def test_structured_smoke_bundle_seals_sector_adaptive_archive(
@@ -588,32 +588,3 @@ def test_structured_smoke_shell_exports_quote_every_binding() -> None:
         "export MOSAIC_CACHE_DIR='/tmp/root with spaces'",
         "export MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS=structured_smoke",
     ]
-
-
-def test_geopolitical_structured_smoke_requires_expected_bundle_hash(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    bindings = build_structured_smoke_fixtures(tmp_path / "cache", "2026-07-17")
-    _bind_structured_smoke(bindings, monkeypatch)
-    monkeypatch.delenv("MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH")
-
-    with pytest.raises(DataVendorUnavailable, match="marker binding mismatch"):
-        load_geopolitical_events_snapshot("2026-07-17")
-
-
-def test_geopolitical_structured_smoke_rejects_symlinked_marker(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    cache_root = tmp_path / "cache"
-    bindings = build_structured_smoke_fixtures(cache_root, "2026-07-17")
-    _bind_structured_smoke(bindings, monkeypatch)
-    marker_path = cache_root / "structured_smoke_fixture_bundle.json"
-    marker_copy = cache_root / "marker-copy.json"
-    marker_copy.write_bytes(marker_path.read_bytes())
-    marker_path.unlink()
-    marker_path.symlink_to(marker_copy.name)
-
-    with pytest.raises(DataVendorUnavailable, match="marker is unavailable"):
-        load_geopolitical_events_snapshot("2026-07-17")

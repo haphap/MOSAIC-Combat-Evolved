@@ -45,7 +45,6 @@ from langchain_core.tools import tool
 
 from mosaic.dataflows.interface import route_to_vendor
 from mosaic.dataflows.macro_snapshots import render_role_snapshot
-from mosaic.dataflows.market_breadth import render_market_breadth_snapshot
 
 
 # ============================================================ Macro series (Tushare preferred, FRED fallback)
@@ -680,8 +679,7 @@ def get_us_china_relations(
 
     Monthly index (~[-9, +9]; **negative = tension**) from Tsinghua's Institute
     of International Relations. Returns the windowed series + a latest-value /
-    trend summary. Used by ``geopolitical`` to anchor US-China escalation reads
-    on a hard, point-in-time index instead of headline vibes.
+    trend summary.
 
     Args:
         curr_date: yyyy-mm-dd window end.
@@ -842,26 +840,10 @@ def get_commodity_conditions_snapshot(
 
 
 @tool
-def get_geopolitical_events_snapshot(
-    as_of_date: Annotated[str, "Point-in-time cutoff in yyyy-mm-dd format."],
-) -> str:
-    """Return deduplicated, timestamp-filtered geopolitical and official-policy events."""
-    return render_role_snapshot("geopolitical", as_of_date)
-
-
-@tool
-def get_market_breadth_snapshot(
-    as_of_date: Annotated[str, "Point-in-time cutoff in yyyy-mm-dd format."],
-) -> str:
-    """Compute the deterministic PIT A-share breadth snapshot; reject coverage below 90%."""
-    return render_market_breadth_snapshot(as_of_date)
-
-
-@tool
 def get_market_positioning_snapshot(
     as_of_date: Annotated[str, "Point-in-time cutoff in yyyy-mm-dd format."],
 ) -> str:
-    """Return market-wide flow, sector rotation, ETF-share, and crowding inputs."""
+    """Return fixed core A-share ETF share changes (creation/redemption)."""
     return render_role_snapshot("institutional_flow", as_of_date)
 
 
@@ -896,7 +878,5 @@ __all__ = [
     "get_us_financial_conditions_snapshot",
     "get_euro_area_financial_conditions_snapshot",
     "get_commodity_conditions_snapshot",
-    "get_geopolitical_events_snapshot",
-    "get_market_breadth_snapshot",
     "get_market_positioning_snapshot",
 ]

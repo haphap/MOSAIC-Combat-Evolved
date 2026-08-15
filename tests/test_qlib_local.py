@@ -192,6 +192,37 @@ def test_get_stock_returns_ohlcv_for_known_ticker(mini_qlib_dataset: Path):
     assert "No stock data found" not in out
 
 
+def test_get_indicator_uses_requested_lookback_plus_warmup(monkeypatch):
+    import mosaic.dataflows.qlib_local as qlib_local
+
+    dates = pd.date_range("2025-07-13", "2026-08-12", freq="D")
+    prices = pd.DataFrame(
+        {
+            "open": 100.0,
+            "high": 101.0,
+            "low": 99.0,
+            "close": 100.0,
+            "volume": 1_000.0,
+        },
+        index=dates,
+    )
+    calls: list[tuple[str, str, str]] = []
+
+    def load_ohlcv(instrument: str, start_date: str, end_date: str) -> pd.DataFrame:
+        calls.append((instrument, start_date, end_date))
+        return prices
+
+    monkeypatch.setattr(qlib_local, "_load_ohlcv", load_ohlcv)
+    monkeypatch.setattr(qlib_local, "_ensure_local_data_is_current", lambda *_args: None)
+
+    output = qlib_local.get_indicator(
+        "688469.SH", "close_200_sma", "2026-08-12", 30
+    )
+
+    assert calls == [("sh688469", "2025-07-13", "2026-08-12")]
+    assert "2026-08-12: 100.0" in output
+
+
 def test_unknown_ticker_raises_data_vendor_unavailable(mini_qlib_dataset: Path):
     """Tickers not in the synthetic dataset surface as DataVendorUnavailable
     (the contract that downstream agent code already handles)."""

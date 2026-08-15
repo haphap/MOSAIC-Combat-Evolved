@@ -150,6 +150,74 @@ def test_l3_plan_derives_exact_candidate_scope_and_finite_legacy_queries() -> No
     }
 
 
+def test_druckenmiller_policy_queries_use_candidate_sector_topic() -> None:
+    snapshot = _snapshot(
+        agent_id="druckenmiller",
+        stage="druckenmiller",
+        candidates=[
+            {
+                "candidate_ref": "candidate:energy",
+                "ts_code": "600028.SH",
+                "source_sector_agent_id": "energy",
+            },
+            {
+                "candidate_ref": "candidate:consumer",
+                "ts_code": "600519.SH",
+                "source_sector_agent_id": "consumer",
+            },
+        ],
+    )
+    plan = build_bound_runtime_query_plan(
+        agent_id="druckenmiller",
+        stage="druckenmiller",
+        as_of="2026-08-06",
+        initial_payloads={
+            "get_superinvestor_candidate_snapshot": _payload(snapshot)
+        },
+        allowed_tools=L3_TOOL_ROSTER["druckenmiller"],
+    )
+
+    policy_args = sorted(
+        (
+            row["args"]
+            for row in plan["query_requests"]
+            if row["tool_id"] == "get_industry_policy_digest"
+        ),
+        key=lambda args: args["lookback_days"],
+    )
+    assert policy_args == [
+        {
+            "as_of": "2026-08-06",
+            "lookback_days": lookback,
+            "source": "govcn",
+            "topic": "煤炭",
+        }
+        for lookback in (7, 30, 90)
+    ]
+
+    unknown = _snapshot(
+        agent_id="druckenmiller",
+        stage="druckenmiller",
+        candidates=[
+            {
+                "candidate_ref": "candidate:unknown",
+                "ts_code": "600028.SH",
+                "source_sector_agent_id": "unknown",
+            }
+        ],
+    )
+    with pytest.raises(ValueError, match="exact Sector policy topic"):
+        build_bound_runtime_query_plan(
+            agent_id="druckenmiller",
+            stage="druckenmiller",
+            as_of="2026-08-06",
+            initial_payloads={
+                "get_superinvestor_candidate_snapshot": _payload(unknown)
+            },
+            allowed_tools=L3_TOOL_ROSTER["druckenmiller"],
+        )
+
+
 def test_l4_plan_translates_active_stage_and_builds_only_proactive_prior() -> None:
     snapshot = _snapshot(
         agent_id="cro",

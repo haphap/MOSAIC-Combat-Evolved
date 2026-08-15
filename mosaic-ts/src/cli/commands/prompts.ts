@@ -257,7 +257,7 @@ export function registerPrompts(program: Command): void {
     .description("Validate public bundled prompt privacy and runtime coverage.")
     .option("--cohort <name>", "Cohort to check (default cohort_default)")
     .option("--prompts-root <path>", "Bundled/baseline prompts root override")
-    .option("--enabled-agents <list>", "Comma-separated agent ids; '*' checks all 27")
+    .option("--enabled-agents <list>", "Comma-separated agent ids; '*' checks all 25")
     .option(
       "--enabled-stages <list>",
       "Comma-separated agent:stage ids; '*' checks all declared runtime stages.",

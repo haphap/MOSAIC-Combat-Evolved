@@ -88,13 +88,6 @@ PRIMARY_LABEL_CONFIGS: dict[str, MacroPathLabelConfig] = {
         benchmark_relative=True,
         source_description="EU real-economy A-share transmission proxy",
     ),
-    "geopolitical_transmission_a_share_path_5d": MacroPathLabelConfig(
-        agent="geopolitical",
-        label_type="geopolitical_transmission_a_share_path_5d",
-        path_kind="benchmark",
-        primary_symbols=(),
-        source_description="benchmark drawdown path as risk-off realised path",
-    ),
     "us_financial_conditions_a_share_path_5d": MacroPathLabelConfig(
         agent="us_financial_conditions",
         label_type="us_financial_conditions_a_share_path_5d",
@@ -117,20 +110,6 @@ PRIMARY_LABEL_CONFIGS: dict[str, MacroPathLabelConfig] = {
         path_kind="basket",
         primary_symbols=("SC.INE", "CU.SHF", "AU.SHF", "RB.SHF", "I.DCE", "M.DCE"),
         source_description="equal-weight commodity futures basket",
-    ),
-    "market_breadth_confirmation_5d": MacroPathLabelConfig(
-        agent="market_breadth",
-        label_type="market_breadth_confirmation_5d",
-        path_kind="breadth_confirmation",
-        primary_symbols=(),
-        # The deterministic label is already the required 50/50 combination.
-        # A generic drawdown penalty would count a negative two-point synthetic
-        # path twice while leaving a positive path unchanged.
-        drawdown_penalty_lambda=0.0,
-        source_description=(
-            "50% subsequent breadth-composite change + 50% PIT equal-weight "
-            "A-share return relative to benchmark"
-        ),
     ),
     "institutional_flow_followthrough_5d": MacroPathLabelConfig(
         agent="institutional_flow",

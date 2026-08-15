@@ -6,7 +6,6 @@ import json
 import math
 import os
 import sqlite3
-import statistics
 import zlib
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
@@ -75,16 +74,11 @@ INSTITUTIONAL_ETF_UNIVERSE = (
     "510500.SH",
     "588000.SH",
 )
-INSTITUTIONAL_INDUSTRY_UNIVERSE = ("881121.TI", "881155.TI")
-INSTITUTIONAL_CROWDING_UNIVERSE = ("000001.SZ", "600000.SH")
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
 _DECISION_CUTOFF = time(15, 0)
 _TUSHARE_HARD_CAPS = {
-    "daily_basic": 6_000,
     "fut_basic": 10_000,
     "fut_wsr": 1_000,
-    "moneyflow_hsgt": 300,
-    "moneyflow_ind_ths": 5_000,
 }
 _REQUIRED_COMMODITY_FAMILIES = tuple(
     family
@@ -151,10 +145,9 @@ _SOURCE_SCHEMA_HASH = canonical_hash(
         "schema_version": CAPTURE_SCHEMA_VERSION,
         "route_groups": {key: list(value) for key, value in ROUTE_GROUPS.items()},
         "macro_endpoints": sorted(_TUSHARE_MACRO_FIELDS),
+        "macro_request_fields": _TUSHARE_MACRO_REQUEST_FIELDS,
         "commodity_families": list(_REQUIRED_COMMODITY_FAMILIES),
         "institutional_etf_universe": list(INSTITUTIONAL_ETF_UNIVERSE),
-        "institutional_industry_universe": list(INSTITUTIONAL_INDUSTRY_UNIVERSE),
-        "institutional_crowding_universe": list(INSTITUTIONAL_CROWDING_UNIVERSE),
         "tushare_hard_caps": _TUSHARE_HARD_CAPS,
         "commodity_inventory_pagination": "EXACT_SYMBOL_SINGLE_REQUEST",
     }
@@ -1072,147 +1065,58 @@ def _build_institutional_group(
 ) -> dict[str, Any]:
     session = _date(market_session_date, "market_session_date")
     session_param = session.strftime("%Y%m%d")
-    request_sets = {
-        "moneyflow": [
-            {"ts_code": ts_code, "trade_date": session_param}
-            for ts_code in INSTITUTIONAL_CROWDING_UNIVERSE
-        ],
-        "moneyflow_ind_ths": [
-            {"ts_code": ts_code, "trade_date": session_param}
-            for ts_code in INSTITUTIONAL_INDUSTRY_UNIVERSE
-        ],
-        "fund_share": [
-            {"ts_code": ts_code, "start_date": session_param, "end_date": session_param}
-            for ts_code in INSTITUTIONAL_ETF_UNIVERSE
-        ],
-        "daily_basic": [
-            {"ts_code": ts_code, "trade_date": session_param}
-            for ts_code in INSTITUTIONAL_CROWDING_UNIVERSE
-        ],
-    }
-    market_flow_rows: list[dict[str, Any]] = []
-    for request in request_sets["moneyflow"]:
-        rows = fetch_tushare(endpoint="moneyflow", **request)
-        if not isinstance(rows, list) or len(rows) != 1:
-            raise ChinaAgentDataSchemaError("moneyflow exact request is not unique")
-        row = rows[0]
-        if (
-            not isinstance(row, dict)
-            or str(row.get("ts_code") or "") != request["ts_code"]
-            or _date(row.get("trade_date"), "moneyflow.trade_date") != session
-        ):
-            raise ChinaAgentDataSchemaError("moneyflow identity/session drift")
-        market_flow_rows.append(
-            {
-                "ts_code": request["ts_code"],
-                "net_mf_amount": _finite(
-                    row.get("net_mf_amount"), "moneyflow.net_mf_amount"
-                ),
-            }
-        )
-    industries: list[dict[str, Any]] = []
-    for request in request_sets["moneyflow_ind_ths"]:
-        rows = fetch_tushare(endpoint="moneyflow_ind_ths", **request)
-        if not isinstance(rows, list) or len(rows) != 1:
-            raise ChinaAgentDataSchemaError(
-                "moneyflow_ind_ths exact request is not unique"
-            )
-        row = rows[0]
-        if (
-            not isinstance(row, dict)
-            or str(row.get("ts_code") or "") != request["ts_code"]
-            or _date(row.get("trade_date"), "moneyflow_ind_ths.trade_date")
-            != session
-        ):
-            raise ChinaAgentDataSchemaError("moneyflow_ind_ths identity/session drift")
-        industries.append(row)
-    fund_rows: list[dict[str, Any]] = []
-    for request in request_sets["fund_share"]:
-        rows = fetch_tushare(endpoint="fund_share", **request)
-        if not isinstance(rows, list) or len(rows) != 1:
-            raise ChinaAgentDataSchemaError("fund_share exact request is not unique")
-        row = rows[0]
-        if (
-            not isinstance(row, dict)
-            or str(row.get("ts_code") or "") != request["ts_code"]
-            or _date(row.get("trade_date"), "fund_share.trade_date") != session
-        ):
-            raise ChinaAgentDataSchemaError("fund_share identity/session drift")
-        fund_rows.append(row)
-    crowding: list[dict[str, Any]] = []
-    for request in request_sets["daily_basic"]:
-        rows = fetch_tushare(endpoint="daily_basic", **request)
-        if not isinstance(rows, list) or len(rows) != 1:
-            raise ChinaAgentDataSchemaError("daily_basic exact request is not unique")
-        row = rows[0]
-        if (
-            not isinstance(row, dict)
-            or str(row.get("ts_code") or "") != request["ts_code"]
-            or _date(row.get("trade_date"), "daily_basic.trade_date") != session
-        ):
-            raise ChinaAgentDataSchemaError("daily_basic identity/session drift")
-        crowding.append(row)
-    industry_rows = []
-    for row in industries:
-        trade_date = _date(row.get("trade_date"), "moneyflow_ind_ths.trade_date")
-        if str(row.get("ts_code") or "") not in INSTITUTIONAL_INDUSTRY_UNIVERSE:
-            raise ChinaAgentDataSchemaError("moneyflow_ind_ths identity drift")
-        industry = str(row.get("industry") or row.get("name") or "").strip()
-        if not industry:
-            raise ChinaAgentDataSchemaError("moneyflow_ind_ths lacks industry identity")
-        amount_field = "net_amount" if "net_amount" in row else "net_amount_rate"
-        if trade_date != session:
-            raise ChinaAgentDataSchemaError("moneyflow_ind_ths session/schema drift")
-        industry_rows.append(
-            {
-                "ts_code": str(row["ts_code"]),
-                "industry": industry,
-                "net_amount": _finite(row.get(amount_field), amount_field),
-            }
-        )
-    if len(industry_rows) != len(INSTITUTIONAL_INDUSTRY_UNIVERSE) or len(
-        {row["ts_code"] for row in industry_rows}
-    ) != len(INSTITUTIONAL_INDUSTRY_UNIVERSE):
-        raise ChinaAgentDataSchemaError(
-            "moneyflow_ind_ths fixed universe is incomplete"
-        )
+    window_start = session - timedelta(days=30)
+    window_start_param = window_start.strftime("%Y%m%d")
     fund_by_code: dict[str, dict[str, Any]] = {}
-    for row in fund_rows:
-        code = str(row.get("ts_code") or "")
-        if code not in INSTITUTIONAL_ETF_UNIVERSE or code in fund_by_code:
-            raise ChinaAgentDataSchemaError("fund_share ETF identity drift")
+    for code in INSTITUTIONAL_ETF_UNIVERSE:
+        rows = fetch_tushare(
+            endpoint="fund_share",
+            ts_code=code,
+            start_date=window_start_param,
+            end_date=session_param,
+        )
+        if not isinstance(rows, list) or len(rows) >= 2_000:
+            raise ChinaAgentDataSchemaError(
+                f"fund_share response invalid or reached its 2000-row cap for {code}"
+            )
+        parsed_rows: list[dict[str, Any]] = []
+        seen_dates: set[date] = set()
+        for raw in rows:
+            if not isinstance(raw, dict) or str(raw.get("ts_code") or "") != code:
+                raise ChinaAgentDataSchemaError("fund_share ETF identity drift")
+            trade_date = _date(raw.get("trade_date"), "fund_share.trade_date")
+            if trade_date < window_start or trade_date > session:
+                raise ChinaAgentDataSchemaError("fund_share date outside exact window")
+            if trade_date in seen_dates:
+                raise ChinaAgentDataSchemaError("fund_share date is not unique")
+            seen_dates.add(trade_date)
+            parsed_rows.append(
+                {
+                    "trade_date": trade_date.isoformat(),
+                    "fd_share": _finite(raw.get("fd_share"), "fund_share.fd_share"),
+                }
+            )
+        parsed_rows.sort(key=lambda row: row["trade_date"])
+        if len(parsed_rows) < 2 or parsed_rows[-1]["trade_date"] != session.isoformat():
+            raise ChinaAgentDataSchemaError(
+                f"fund_share requires latest and prior rows at {code}"
+            )
+        latest = parsed_rows[-1]
+        prior = parsed_rows[-2]
+        if prior["fd_share"] == 0:
+            raise ChinaAgentDataSchemaError(f"fund_share prior share is zero for {code}")
         fund_by_code[code] = {
             "ts_code": code,
-            "fd_share": _finite(row.get("fd_share"), "fund_share.fd_share"),
+            "latest": latest,
+            "prior": prior,
+            "share_change_pct": (latest["fd_share"] - prior["fd_share"])
+            / prior["fd_share"]
+            * 100,
         }
     missing_etfs = sorted(set(INSTITUTIONAL_ETF_UNIVERSE) - set(fund_by_code))
     if missing_etfs:
         raise ChinaAgentDataSchemaError(
             "fund_share lacks registered ETFs: " + ", ".join(missing_etfs)
-        )
-    crowding_rows = []
-    for row in crowding:
-        code = str(row.get("ts_code") or "")
-        if code not in INSTITUTIONAL_CROWDING_UNIVERSE:
-            raise ChinaAgentDataSchemaError("daily_basic identity drift")
-        if _date(row.get("trade_date"), "daily_basic.trade_date") != session:
-            raise ChinaAgentDataSchemaError("daily_basic session/schema drift")
-        if row.get("turnover_rate") is None or row.get("volume_ratio") is None:
-            raise ChinaAgentDataSchemaError("daily_basic fixed universe is incomplete")
-        crowding_rows.append(
-            {
-                "ts_code": code,
-                "turnover_rate": _finite(row.get("turnover_rate"), "turnover_rate"),
-                "volume_ratio": _finite(row.get("volume_ratio"), "volume_ratio"),
-            }
-        )
-    if (
-        len(crowding_rows) != len(INSTITUTIONAL_CROWDING_UNIVERSE)
-        or len({row["ts_code"] for row in crowding_rows})
-        != len(INSTITUTIONAL_CROWDING_UNIVERSE)
-    ):
-        raise ChinaAgentDataSchemaError(
-            "daily_basic fixed universe is incomplete"
         )
     completed = _capture_now()
     timing = _capture_time_fields(
@@ -1231,13 +1135,7 @@ def _build_institutional_group(
             "as_of_date": as_of_date,
             **timing,
             "market_session_date": session.isoformat(),
-            "market_flow_rows": sorted(
-                market_flow_rows, key=lambda row: row["ts_code"]
-            ),
-            "industry_rows": sorted(industry_rows, key=lambda row: row["ts_code"]),
             "fund_share_rows": [fund_by_code[code] for code in INSTITUTIONAL_ETF_UNIVERSE],
-            "crowding_rows": sorted(crowding_rows, key=lambda row: row["ts_code"]),
-            "institutional_requests": request_sets,
         }
     )
 
@@ -1253,7 +1151,7 @@ def _build_curve_group(
     fetch_tushare: Callable[..., Any],
 ) -> dict[str, Any]:
     session = _date(market_session_date, "market_session_date")
-    curve_start = session - timedelta(days=365)
+    curve_start = session - timedelta(days=30)
     curve_payload = fetch_official_curve(
         start_date=curve_start.isoformat(),
         end_date=session.isoformat(),
@@ -1441,23 +1339,6 @@ def _capture_key(
         "institutional_etf_universe": list(INSTITUTIONAL_ETF_UNIVERSE)
         if route_group == INSTITUTIONAL_ROUTE_GROUP
         else None,
-        "institutional_industry_universe": list(INSTITUTIONAL_INDUSTRY_UNIVERSE)
-        if route_group == INSTITUTIONAL_ROUTE_GROUP
-        else None,
-        "institutional_crowding_universe": list(INSTITUTIONAL_CROWDING_UNIVERSE)
-        if route_group == INSTITUTIONAL_ROUTE_GROUP
-        else None,
-        "institutional_request_contract": (
-            {
-                "moneyflow": ["ts_code", "trade_date"],
-                "moneyflow_ind_ths": ["ts_code", "trade_date"],
-                "fund_share": ["ts_code", "start_date", "end_date"],
-                "daily_basic": ["ts_code", "trade_date"],
-                "pagination": "NONE",
-            }
-            if route_group == INSTITUTIONAL_ROUTE_GROUP
-            else None
-        ),
         **(
             {
                 "historical_replay": True,
@@ -1564,48 +1445,20 @@ def _source_receipt(
         pagination_policy = "EXACT_REQUEST_SET_NO_PAGINATION"
         parser_version = COMPILER_VERSION
     elif route_id == INSTITUTIONAL_ROUTE_GROUP:
-        row_count = (
-            len(group["market_flow_rows"])
-            + len(group["industry_rows"])
-            + len(group["fund_share_rows"])
-            + len(group["crowding_rows"])
-        )
-        released_at = (
-            f"{group['market_session_date']}T15:00:00+08:00"
-            if group.get("historical_replay") is True
-            else captured_at
-        )
+        row_count = len(group["fund_share_rows"])
+        released_at = captured_at
         raw_hash = canonical_hash(
             {
-                "market_flow_rows": group["market_flow_rows"],
-                "industry_rows": group["industry_rows"],
                 "fund_share_rows": group["fund_share_rows"],
-                "crowding_rows": group["crowding_rows"],
-                "institutional_requests": group["institutional_requests"],
-            }
-        )
-        requests = group["institutional_requests"]
-        request_strings = sorted(
-            {
-                endpoint
-                + ":"
-                + "&".join(f"{key}={request[key]}" for key in sorted(request))
-                for endpoint, request_set in requests.items()
-                for request in request_set
             }
         )
         dimensions = {
-            "endpoint": sorted(requests),
-            "request": request_strings,
-            "industry": list(INSTITUTIONAL_INDUSTRY_UNIVERSE),
-            "crowding": list(INSTITUTIONAL_CROWDING_UNIVERSE),
+            "endpoint": ["fund_share"],
             "etf": list(INSTITUTIONAL_ETF_UNIVERSE),
         }
         provider = "tushare"
-        query_keys = ["end_date", "start_date", "trade_date", "ts_code"]
-        page_count = sum(len(request_set) for request_set in requests.values())
-        duplicate_count = 0
-        pagination_policy = "EXACT_REQUEST_SET_NO_PAGINATION"
+        query_keys = ["end_date", "start_date", "ts_code"]
+        page_count = len(INSTITUTIONAL_ETF_UNIVERSE)
         parser_version = COMPILER_VERSION
     elif route_id == CURVE_ROUTE_GROUP:
         row_count = 2 + len(group["government_curve_rows"])
@@ -1675,15 +1528,6 @@ def _source_receipt(
                         **(
                             {"commodity_requests": group["commodity_requests"]}
                             if route_id == COMMODITY_ROUTE_GROUP
-                            else {}
-                        ),
-                        **(
-                            {
-                                "institutional_requests": group[
-                                    "institutional_requests"
-                                ]
-                            }
-                            if route_id == INSTITUTIONAL_ROUTE_GROUP
                             else {}
                         ),
                     }
@@ -2279,95 +2123,29 @@ def _institutional_snapshot(
     group: Mapping[str, Any], receipt: SourceCaptureReceipt
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     session = group["market_session_date"]
-    availability = (
-        f"{session}T15:00:00+08:00"
-        if group.get("historical_replay") is True
-        else group["captured_at"]
-    )
-    industry_amounts = [float(row["net_amount"]) for row in group["industry_rows"]]
-    fund_shares = [float(row["fd_share"]) for row in group["fund_share_rows"]]
-    turnovers = [float(row["turnover_rate"]) for row in group["crowding_rows"]]
     observations = [
         {
-            "series_id": "market_flow_registered_universe_net_amount",
-            "period_start": session,
+            "series_id": f"etf_share_{row['ts_code'].replace('.', '_')}_change",
+            "period_start": row["prior"]["trade_date"],
             "period_end": session,
-            "released_at": availability,
-            "vintage_at": availability,
-            "actual": sum(
-                float(row["net_mf_amount"]) for row in group["market_flow_rows"]
-            ),
-            "previous": None,
-            "expected": None,
-            "unit": "10k_cny",
-            "source": "tushare.moneyflow",
-            "pit_status": "AVAILABLE_AS_OF",
-            "evidence_id": f"{receipt.receipt_hash}:market-flow:{session}",
-        },
-        {
-            "series_id": "sector_rotation_registered_universe_net_amount",
-            "period_start": session,
-            "period_end": session,
-            "released_at": availability,
-            "vintage_at": availability,
-            "actual": sum(industry_amounts),
-            "previous": None,
-            "expected": None,
-            "unit": "provider_unit",
-            "source": "tushare.moneyflow_ind_ths",
-            "pit_status": "AVAILABLE_AS_OF",
-            "evidence_id": f"{receipt.receipt_hash}:sector:{session}",
-        },
-        {
-            "series_id": "etf_share_registered_universe",
-            "period_start": session,
-            "period_end": session,
-            "released_at": availability,
-            "vintage_at": availability,
-            "actual": sum(fund_shares),
-            "previous": None,
-            "expected": None,
-            "unit": "10k_shares",
-            "source": "tushare.fund_share",
-            "pit_status": "AVAILABLE_AS_OF",
-            "evidence_id": f"{receipt.receipt_hash}:etf-share:{session}",
-        },
-        {
-            "series_id": "crowding_registered_universe_turnover_median",
-            "period_start": session,
-            "period_end": session,
-            "released_at": availability,
-            "vintage_at": availability,
-            "actual": statistics.median(turnovers),
+            "released_at": group["captured_at"],
+            "vintage_at": group["captured_at"],
+            "actual": float(row["share_change_pct"]),
             "previous": None,
             "expected": None,
             "unit": "percent",
-            "source": "tushare.daily_basic",
+            "source": "tushare.fund_share",
             "pit_status": "AVAILABLE_AS_OF",
-            "evidence_id": f"{receipt.receipt_hash}:crowding:{session}",
-        },
+            "evidence_id": f"{receipt.receipt_hash}:etf-share:{row['ts_code']}:{session}",
+        }
+        for row in group["fund_share_rows"]
     ]
     component_coverage = {
-        "market_wide_flow": {
-            "eligible_count": len(INSTITUTIONAL_CROWDING_UNIVERSE),
-            "observed_count": len(group["market_flow_rows"]),
-            "coverage_ratio": 1.0,
-        },
-        "sector_rotation": {
-            "eligible_count": len(group["industry_rows"]),
-            "observed_count": len(group["industry_rows"]),
-            "coverage_ratio": 1.0,
-        },
         "etf_share": {
             "eligible_count": len(INSTITUTIONAL_ETF_UNIVERSE),
             "observed_count": len(group["fund_share_rows"]),
             "coverage_ratio": len(group["fund_share_rows"])
             / len(INSTITUTIONAL_ETF_UNIVERSE),
-        },
-        "crowding": {
-            "eligible_count": len(group["crowding_rows"]),
-            "observed_count": len(group["crowding_rows"]),
-            "coverage_ratio": 1.0,
         },
     }
     raw = {
@@ -2441,12 +2219,25 @@ def _central_bank_snapshot(
             },
         ]
     )
+    replay_cutoff = None
+    if china_group.get("historical_replay") is True:
+        replay_cutoff = datetime.combine(
+            date.fromisoformat(str(china_group["as_of_date"])),
+            _DECISION_CUTOFF,
+            tzinfo=_SHANGHAI,
+        )
     for index, row in enumerate(selected):
         if "period_start" not in row:
             availability = (
                 curve_group["government_curve_source"]["session_released_at"]
                 if str(row["series_id"]).startswith("cn_curve_")
-                else curve_group["captured_at"]
+                else (
+                    replay_cutoff.isoformat()
+                    if replay_cutoff is not None
+                    and str(row["source"])
+                    in {"tushare.shibor_overnight", "tushare.shibor_3m"}
+                    else curve_group["captured_at"]
+                )
             )
             row.update(
                 {
@@ -2460,6 +2251,21 @@ def _central_bank_snapshot(
                     "evidence_id": f"{curve_receipt.receipt_hash}:curve:{index}:{session}",
                 }
             )
+    publication_by_source: dict[str, str] = {}
+    if replay_cutoff is not None:
+        publication_by_source = {
+            str(raw["source"]): str(document["published_at"])
+            for document in china_group["official_documents"]
+            for raw in document["observations"]
+        }
+        for row in selected:
+            published_text = publication_by_source.get(str(row["source"]))
+            if published_text is None:
+                continue
+            published = _timestamp(published_text, "official.published_at")
+            if published <= replay_cutoff:
+                row["released_at"] = published.isoformat()
+                row["vintage_at"] = published.isoformat()
     context_prefixes = tuple(
         prefix.casefold()
         for component in CONTEXT_REQUIRED_COMPONENTS["central_bank"]
@@ -2470,6 +2276,15 @@ def _central_bank_snapshot(
         for row in china_context
         if str(row["series_id"]).casefold().startswith(context_prefixes)
     ]
+    if replay_cutoff is not None:
+        for row in deterministic_context:
+            published_text = publication_by_source.get(str(row["source"]))
+            if published_text is None:
+                continue
+            published = _timestamp(published_text, "official.published_at")
+            if published <= replay_cutoff:
+                row["released_at"] = published.isoformat()
+                row["vintage_at"] = published.isoformat()
     raw = {
         "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
         "role": "central_bank",
@@ -2500,9 +2315,16 @@ def _required_routes(agent_id: str, tool_id: str) -> list[str]:
 
 
 def _calendar_hash(
-    ledger: AgentDataMaterializationLedger, *, as_of_date: str, route_id: str
+    ledger: AgentDataMaterializationLedger,
+    *,
+    as_of_date: str,
+    route_id: str,
+    lookup_as_of_date: str | None = None,
 ) -> str:
-    status = ledger.source_status(as_of=as_of_date, route_id=route_id)
+    status = ledger.source_status(
+        as_of=lookup_as_of_date or as_of_date,
+        route_id=route_id,
+    )
     if status["status"] != "READY" or not status["capture_receipt_hash"]:
         raise DataVendorUnavailable(f"required calendar route is blocked: {route_id}")
     return str(status["capture_receipt_hash"])
@@ -2828,6 +2650,69 @@ def compile_china_agent_snapshots(
         store=store,
         ledger=ledger,
     )
+    if selected_role_set == {"central_bank"}:
+        as_of_date = str(china_group["as_of_date"])
+        lookup_as_of_date = None
+        if china_group.get("historical_replay") is True:
+            lookup_as_of_date = _timestamp(
+                str(china_group["captured_at"]),
+                "china_group.captured_at",
+            ).date().isoformat()
+        calendar_cny = _calendar_hash(
+            ledger,
+            as_of_date=as_of_date,
+            lookup_as_of_date=lookup_as_of_date,
+            route_id="tushare.eco_cal.cny",
+        )
+        curve_result = archive.routes[CURVE_ROUTE_GROUP]
+        source_hashes = [
+            china_receipts["official.cn_macro"].receipt_hash,
+            calendar_cny,
+        ]
+        if curve_result.group is None:
+            coverage = curve_result.coverage_receipt.as_dict()
+            receipt = _build_receipt(
+                role="central_bank",
+                tool_id="get_central_bank_snapshot",
+                as_of_date=as_of_date,
+                cutoff_at=china_group["cutoff_at"],
+                source_hashes=source_hashes,
+                snapshot=None,
+                missing_routes=[CURVE_ROUTE_GROUP],
+                blockers=coverage["blocker_codes"] or ["MISSING_SOURCE_ROUTE"],
+            )
+            persisted = (ledger.append_or_reuse_snapshot_build(receipt),)
+            return ChinaAgentBuildResult({}, persisted)
+        curve_group, curve_receipts = _load_ready_group(
+            route_group=CURVE_ROUTE_GROUP,
+            archive=archive,
+            store=store,
+            ledger=ledger,
+        )
+        central_raw, central_snapshot = _central_bank_snapshot(
+            china_group=china_group,
+            china_receipts=china_receipts,
+            curve_group=curve_group,
+            curve_receipt=curve_receipts[CURVE_ROUTE_GROUP],
+            china_context=_china_observations(
+                china_group, china_receipts, include_tushare=False
+            ),
+        )
+        receipt = _build_receipt(
+            role="central_bank",
+            tool_id="get_central_bank_snapshot",
+            as_of_date=as_of_date,
+            cutoff_at=china_group["cutoff_at"],
+            source_hashes=[
+                *source_hashes,
+                curve_receipts[CURVE_ROUTE_GROUP].receipt_hash,
+            ],
+            snapshot=central_snapshot,
+        )
+        destination_root = output_root or china_agent_snapshot_root()
+        _write_snapshot(destination_root, "central_bank", as_of_date, central_raw)
+        persisted = (ledger.append_or_reuse_snapshot_build(receipt),)
+        return ChinaAgentBuildResult({"central_bank": central_snapshot}, persisted)
     commodity_group, commodity_receipts = _load_ready_group(
         route_group=COMMODITY_ROUTE_GROUP,
         archive=archive,

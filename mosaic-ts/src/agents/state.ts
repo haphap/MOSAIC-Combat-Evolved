@@ -1,7 +1,7 @@
 /**
  * MOSAIC daily-cycle state for LangGraph.js (Plan §5 + §11.2 Phase 2A design).
  *
- * Why per-layer maps instead of ETFAgents' flat-30-keys: 28 agents flat would
+ * Why per-layer maps instead of ETFAgents' flat-30-keys: 25 agents flat would
  * blow the state up to 40+ fields; grouping outputs per layer with a dict-merge
  * reducer lets multiple agents inside one layer write concurrently without
  * conflict (LangGraph.js merges parallel branch updates via the channel reducer).
@@ -81,8 +81,6 @@ export interface OutcomeLiveSourceAuthorityBinding {
     | "get_us_financial_conditions_snapshot"
     | "get_euro_area_financial_conditions_snapshot"
     | "get_commodity_conditions_snapshot"
-    | "get_geopolitical_events_snapshot"
-    | "get_market_breadth_snapshot"
     | "get_market_positioning_snapshot"
     | "get_sector_research_snapshot"
     | "get_relationship_graph_snapshot";
@@ -204,7 +202,7 @@ export const DailyCycleState = Annotation.Root({
     reducer: replaceReducer,
     default: () => "live",
   }),
-  /** Opaque correlation id for log/tracing across the 28-agent fan-out. */
+  /** Opaque correlation id for log/tracing across the 25-agent fan-out. */
   trace_id: Annotation<string>({
     reducer: replaceReducer,
     default: () => "",
@@ -267,7 +265,7 @@ export const DailyCycleState = Annotation.Root({
     default: () => ({}),
   }),
 
-  // ----- Layer 1 — 10 macro agents (Plan §5.1). -----
+  // ----- Layer 1 — 8 macro agents (Plan §5.1). -----
   layer1_outputs: Annotation<Record<string, MacroAgentOutput>>({
     reducer: dictMergeReducer,
     default: () => ({}),

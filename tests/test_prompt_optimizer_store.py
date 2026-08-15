@@ -1532,7 +1532,7 @@ def test_store_accepts_only_manifest_owned_agent_stages(tmp_path: Path) -> None:
             }
             assert prompt_store.put_candidate(record) == record
             accepted += 1
-    assert accepted == 27
+    assert accepted == 25
 
     for candidate_id, target in (
         (

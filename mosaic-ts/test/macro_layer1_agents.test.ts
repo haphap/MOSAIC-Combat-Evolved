@@ -25,9 +25,7 @@ import { chinaSpec } from "../src/agents/macro/china.js";
 import { commoditiesSpec } from "../src/agents/macro/commodities.js";
 import { euEconomySpec } from "../src/agents/macro/eu_economy.js";
 import { euroAreaFinancialConditionsSpec } from "../src/agents/macro/euro_area_financial_conditions.js";
-import { geopoliticalSpec } from "../src/agents/macro/geopolitical.js";
 import { institutionalFlowSpec } from "../src/agents/macro/institutional_flow.js";
-import { marketBreadthSpec } from "../src/agents/macro/market_breadth.js";
 import { usEconomySpec } from "../src/agents/macro/us_economy.js";
 import { usFinancialConditionsSpec } from "../src/agents/macro/us_financial_conditions.js";
 import { macroSubmission } from "./helpers/macro.js";
@@ -40,8 +38,6 @@ const specs = [
   usFinancialConditionsSpec,
   euroAreaFinancialConditionsSpec,
   commoditiesSpec,
-  geopoliticalSpec,
-  marketBreadthSpec,
   institutionalFlowSpec,
 ];
 
@@ -261,7 +257,7 @@ describe("macro responsibility and prompt contract", () => {
     expect(components).toContain("Never rewrite digits as Chinese or English number words");
     expect(components).toContain("standalone narrative");
     expect(components).toContain("without a dangling comma, conjunction, or truncated word");
-    const direct = renderDefaultMacroExtractorSystem(geopoliticalSpec, "en");
+    const direct = renderDefaultMacroExtractorSystem(institutionalFlowSpec, "en");
     expect(direct).toContain("MACRO_DIRECT_COMPACT_V1");
     expect(direct).toContain("fill the single judgment and its concise subject exactly once");
     expect(direct).not.toContain("no component may share a claim");
@@ -693,29 +689,5 @@ describe("macro snapshot semantic validation", () => {
         snapshot,
       ),
     ).toEqual([]);
-  });
-
-  it("rejects runtime-owned data quality even when its value is copied exactly", () => {
-    const snapshot = {
-      schema_version: "geopolitical_role_snapshot_v2",
-      role: "geopolitical",
-      as_of_date: "2026-07-15",
-      direct_data_quality: 1,
-    };
-    const output = macroSubmission("geopolitical");
-    const firstClaim = output.claims[0];
-    if (!firstClaim) throw new Error("fixture claim required");
-    output.claims[0] = {
-      ...firstClaim,
-      structured_conclusion: {
-        ...firstClaim.structured_conclusion,
-        snapshot_echo_id: "role-snapshot:geopolitical:2026-07-15",
-        snapshot_metric: "direct_data_quality",
-        snapshot_value: 1,
-      },
-    };
-    expect(validateMacroSnapshotEchoes(output, snapshot)).toEqual([
-      expect.objectContaining({ reason_code: "RUNTIME_OWNED_NUMERIC_FIELD" }),
-    ]);
   });
 });

@@ -485,7 +485,7 @@ describe("Agent display narratives", () => {
     }
   });
 
-  it("deterministically renders all 27 Agents from accepted structured outputs", () => {
+  it("deterministically renders all 25 Agents from accepted structured outputs", () => {
     const state = stateFixture();
     const store = bindAcceptedRecords(state);
     clearStateOutputs(state);
@@ -495,7 +495,7 @@ describe("Agent display narratives", () => {
     const second = buildAgentDisplayNarrativeBundle(state as never, store);
 
     expect(first).toEqual(second);
-    expect(first.narrative_count).toBe(27);
+    expect(first.narrative_count).toBe(25);
     expect(first.narratives.map((row) => row.agent_id)).toEqual(ALL_AGENTS);
     expect(first.narratives.every((row) => row.ui_only)).toBe(true);
     expect(first.narratives.every((row) => row.source === "ACCEPTED_OUTPUT")).toBe(true);

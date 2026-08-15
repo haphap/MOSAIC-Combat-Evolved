@@ -13,8 +13,6 @@ export const EuroAreaFinancialConditionsSchema = createMacroSubmissionSchema(
   "euro_area_financial_conditions",
 );
 export const CommoditiesSchema = createMacroSubmissionSchema("commodities");
-export const GeopoliticalSchema = createMacroSubmissionSchema("geopolitical");
-export const MarketBreadthSchema = createMacroSubmissionSchema("market_breadth");
 export const InstitutionalFlowSchema = createMacroSubmissionSchema("institutional_flow");
 
 export const CHINA_FIELD_NAMES = COMPONENT_MACRO_SUBMISSION_FIELD_NAMES;
@@ -24,6 +22,4 @@ export const CENTRAL_BANK_FIELD_NAMES = COMPONENT_MACRO_SUBMISSION_FIELD_NAMES;
 export const US_FINANCIAL_CONDITIONS_FIELD_NAMES = COMPONENT_MACRO_SUBMISSION_FIELD_NAMES;
 export const EURO_AREA_FINANCIAL_CONDITIONS_FIELD_NAMES = COMPONENT_MACRO_SUBMISSION_FIELD_NAMES;
 export const COMMODITIES_FIELD_NAMES = COMPONENT_MACRO_SUBMISSION_FIELD_NAMES;
-export const GEOPOLITICAL_FIELD_NAMES = DIRECT_MACRO_SUBMISSION_FIELD_NAMES;
-export const MARKET_BREADTH_FIELD_NAMES = DIRECT_MACRO_SUBMISSION_FIELD_NAMES;
 export const INSTITUTIONAL_FLOW_FIELD_NAMES = DIRECT_MACRO_SUBMISSION_FIELD_NAMES;

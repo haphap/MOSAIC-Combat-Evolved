@@ -9,7 +9,6 @@ import datetime as _dt
 import unittest
 from unittest.mock import patch
 
-from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.scorecard import expand_state_to_macro_signals, expand_state_to_recommendations
 from mosaic.scorecard.macro_aggregation import MACRO_AGENTS
 from mosaic.scorecard.macro_labels import (
@@ -312,7 +311,7 @@ class TestMacroSkill(unittest.TestCase):
 class TestMacroAgentSpecificLabels(unittest.TestCase):
     def test_inventory_exposes_sources_and_primary_gate(self):
         rows = list_macro_label_inventory()
-        self.assertEqual(len(rows), 10)
+        self.assertEqual(len(rows), 8)
         by_key = {(r["agent"], r["label_type"]): r for r in rows}
         expected_primary = {
             "central_bank": "pboc_rate_liquidity_a_share_path_5d",
@@ -323,9 +322,7 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
             "euro_area_financial_conditions": (
                 "euro_area_financial_conditions_a_share_path_5d"
             ),
-            "geopolitical": "geopolitical_transmission_a_share_path_5d",
             "commodities": "commodity_a_share_transmission_path_5d",
-            "market_breadth": "market_breadth_confirmation_5d",
             "institutional_flow": "institutional_flow_followthrough_5d",
         }
         for agent, label_type in expected_primary.items():
@@ -455,53 +452,6 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
         self.assertEqual(row["label_type"], "us_financial_conditions_a_share_path_5d")
         self.assertEqual(row["label_source_status"], "missing")
 
-    def test_missing_breadth_label_is_not_replaced_by_benchmark(self):
-        import os
-        import tempfile
-
-        d0 = "2024-01-02"
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        store = ScorecardStore(db_path=os.path.join(tmp.name, "t.db"))
-        store.append_macro_signals_from_state(
-            _state(
-                {"market_breadth": _macro("market_breadth", "SUPPORTIVE", 0.7)},
-                date=d0,
-            )
-        )
-        t5 = _ntd(d0, 5)
-
-        def fake_close(ts, date):
-            return {d0: 100.0, t5: 102.0}.get(date)
-
-        with _cal_patch(), \
-             patch("mosaic.scorecard.scorer._fetch_close", fake_close), \
-             patch("mosaic.scorecard.scorer._fetch_benchmark_series", lambda *a: [100, 101, 102]), \
-             patch(
-                 "mosaic.dataflows.market_breadth.load_market_breadth_inputs",
-                 side_effect=DataVendorUnavailable("private PIT table missing"),
-             ):
-            out = MacroScorer(
-                store,
-                benchmark="000300.SH",
-                full_label_sources_enabled=True,
-            ).score_pending("cohort_default", "2024-02-01")
-
-        self.assertEqual(out["macro_scored"], 0)
-        self.assertEqual(out["macro_skipped_missing"], 1)
-        with store._connect() as conn:
-            row = conn.execute(
-                "SELECT label_type, label_source_status, raw_macro_score_5d, "
-                "source_series_id FROM macro_signals"
-            ).fetchone()
-        self.assertEqual(row["label_type"], "market_breadth_confirmation_5d")
-        self.assertEqual(row["label_source_status"], "missing")
-        self.assertIsNone(row["raw_macro_score_5d"])
-        self.assertEqual(
-            row["source_series_id"],
-            "market_breadth:required_label_unavailable",
-        )
-
     def test_all_macro_agents_score_with_primary_path_label(self):
         import os
         import tempfile
@@ -520,9 +470,7 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
             "euro_area_financial_conditions": (
                 "euro_area_financial_conditions_a_share_path_5d"
             ),
-            "geopolitical": "geopolitical_transmission_a_share_path_5d",
             "commodities": "commodity_a_share_transmission_path_5d",
-            "market_breadth": "market_breadth_confirmation_5d",
             "institutional_flow": "institutional_flow_followthrough_5d",
         }
         tmp = tempfile.TemporaryDirectory()
@@ -540,19 +488,10 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
              patch("mosaic.scorecard.scorer._fetch_benchmark_series", lambda *a: [100, 101, 102]), \
              patch("mosaic.scorecard.scorer._fetch_instrument_series", lambda *a: [100, 101, 102]), \
              patch("mosaic.scorecard.scorer._fetch_benchmark_series_dated", lambda *a: dated), \
-             patch("mosaic.scorecard.scorer._fetch_instrument_series_dated", lambda *a: dated), \
-             patch("mosaic.dataflows.market_breadth.load_market_breadth_inputs", return_value=object()), \
-             patch(
-                 "mosaic.dataflows.market_breadth.compute_forward_breadth_confirmation",
-                 return_value={
-                     "breadth_composite_change_5d": 0.01,
-                     "equal_weight_relative_return_5d": 0.01,
-                     "combined_score_5d": 0.01,
-                 },
-             ):
+             patch("mosaic.scorecard.scorer._fetch_instrument_series_dated", lambda *a: dated):
             out = MacroScorer(store, benchmark="000300.SH", full_label_sources_enabled=True).score_pending("cohort_default", "2024-02-01")
 
-        self.assertEqual(out["macro_scored"], 10)
+        self.assertEqual(out["macro_scored"], 8)
         with store._connect() as conn:
             rows = conn.execute(
                 "SELECT agent, label_type, label_source_status, path_metric_5d, source_series_id "

@@ -27,9 +27,7 @@ _MACRO_AGENTS = frozenset(
         "commodities",
         "eu_economy",
         "euro_area_financial_conditions",
-        "geopolitical",
         "institutional_flow",
-        "market_breadth",
         "us_economy",
         "us_financial_conditions",
     }
@@ -442,19 +440,6 @@ def _cio_proposal_candidates(
         if not isinstance(weight, (int, float)):
             raise DataVendorUnavailable("current position weight is invalid")
         current_weights[ts_code] = float(weight)
-        candidates.append(
-            {
-                "candidate_ref": "current-position:" + ts_code,
-                "ts_code": ts_code,
-                "source_kind": "CURRENT_POSITION",
-                "current_weight": float(weight),
-                "reference_target_weight": None,
-                "source_output_id": None,
-                "source_output_hash": None,
-                "metrics": {"current_weight": float(weight)},
-                "evidence_ids": [position_evidence_id],
-            }
-        )
     source_specs = {
         "STANDARD_SECTOR_SELECTION": ("SECTOR_SELECTION", "long_picks"),
         "SUPERINVESTOR_SELECTION": ("SUPERINVESTOR_SELECTION", "picks"),
@@ -495,10 +480,38 @@ def _cio_proposal_candidates(
                     "evidence_ids": list(ref["evidence_ids"]),
                 }
             )
-    ts_codes = [candidate["ts_code"] for candidate in candidates]
-    if len(ts_codes) != len(set(ts_codes)):
-        raise DataVendorUnavailable("CIO proposal sources contain duplicate securities")
-    return sorted(candidates, key=lambda row: row["ts_code"])
+    selected: dict[str, dict[str, Any]] = {}
+    for candidate in sorted(
+        candidates,
+        key=lambda row: (
+            row["ts_code"],
+            -float(row["metrics"]["source_conviction"]),
+            row["candidate_ref"],
+        ),
+    ):
+        winner = selected.setdefault(candidate["ts_code"], candidate)
+        winner["evidence_ids"] = sorted(
+            {*winner["evidence_ids"], *candidate["evidence_ids"]}
+        )
+    for ts_code, current_weight in current_weights.items():
+        if ts_code in selected:
+            selected[ts_code]["current_weight"] = current_weight
+            selected[ts_code]["evidence_ids"] = sorted(
+                {*selected[ts_code]["evidence_ids"], position_evidence_id}
+            )
+            continue
+        selected[ts_code] = {
+            "candidate_ref": "current-position:" + ts_code,
+            "ts_code": ts_code,
+            "source_kind": "CURRENT_POSITION",
+            "current_weight": current_weight,
+            "reference_target_weight": None,
+            "source_output_id": None,
+            "source_output_hash": None,
+            "metrics": {"current_weight": current_weight},
+            "evidence_ids": [position_evidence_id],
+        }
+    return [selected[ts_code] for ts_code in sorted(selected)]
 
 
 def _validate_candidate_target(
@@ -1017,7 +1030,20 @@ def _superinvestor_candidates(
                         "evidence_ids": list(ref["evidence_ids"]),
                     }
                 )
-    return sorted(candidates, key=lambda row: (row["ts_code"], row["candidate_ref"]))
+    selected: dict[str, dict[str, Any]] = {}
+    for candidate in sorted(
+        candidates,
+        key=lambda row: (
+            row["ts_code"],
+            -float(row["metrics"]["conviction"]),
+            row["candidate_ref"],
+        ),
+    ):
+        winner = selected.setdefault(candidate["ts_code"], candidate)
+        winner["evidence_ids"] = sorted(
+            {*winner["evidence_ids"], *candidate["evidence_ids"]}
+        )
+    return [selected[ts_code] for ts_code in sorted(selected)]
 
 
 def _alpha_candidates(

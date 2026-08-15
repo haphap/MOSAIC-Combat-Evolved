@@ -1,8 +1,8 @@
 {
   "registry_version": "outcome_source_authority_registry_v1",
   "provisioning_status": "PROVISIONING_REQUIRED",
-  "registry_schema_hash": "sha256:44e62f3e6ea75159f12d0e9bf1fe222edb3c1ade670066a96c794f33f4a9e129",
-  "registry_hash": "sha256:c367876f91eb223219d83fc49ad8454b0befe547d3eae366a2474a003c6a88f3",
+  "registry_schema_hash": "sha256:0efba41ca72143d9f20d584c5a7dd3d6581da3cd9c1fcef06a38c8a636ba4144",
+  "registry_hash": "sha256:673903f5d24bc502e24fd203d9cd8fe06551138c207267a6b211886d4fef7293",
   "entries": [
     {
       "entry_version": "outcome_source_authority_entry_v1",
@@ -195,23 +195,6 @@
     },
     {
       "entry_version": "outcome_source_authority_entry_v1",
-      "required_source_id": "market_breadth_composite_path_v2",
-      "source_owner": "mosaic.breadth_data_authority",
-      "adapter_contract_id": "market_breadth_composite_path_adapter",
-      "adapter_contract_version": "1.0.0",
-      "verifier_id": "mosaic.breadth_data_authority.verifier.v1",
-      "signing_key_id": "market_breadth_composite_path_v2.ed25519.2026-01",
-      "signature_algorithm": "Ed25519",
-      "ed25519_public_key_base64url": "l3EU2yKP_itCphF1yE5m_bFQfnNhrIQsj876xoR6Ba8",
-      "effective_from": "2020-01-01T00:00:00+08:00",
-      "effective_until": null,
-      "owned_realized_fields_by_schema_id": {
-        "macro_transmission_realized_metrics_v1": []
-      },
-      "entry_hash": "sha256:64b1c8585182ed25547c77f996411a652d0f591ee271447c5494d71c3eb22ec2"
-    },
-    {
-      "entry_version": "outcome_source_authority_entry_v1",
       "required_source_id": "next_session_execution_outcome_v2",
       "source_owner": "mosaic.execution_venue_authority",
       "adapter_contract_id": "next_session_execution_outcome_adapter",
@@ -389,23 +372,6 @@
         "macro_transmission_realized_metrics_v1": []
       },
       "entry_hash": "sha256:db8d6e09d09198f54185443287958daeb913c407021f8581f5ad45055e0604c7"
-    },
-    {
-      "entry_version": "outcome_source_authority_entry_v1",
-      "required_source_id": "verified_geopolitical_event_lifecycle_v2",
-      "source_owner": "mosaic.geopolitical_event_registry",
-      "adapter_contract_id": "verified_geopolitical_event_lifecycle_adapter",
-      "adapter_contract_version": "1.0.0",
-      "verifier_id": "mosaic.geopolitical_event_registry.verifier.v1",
-      "signing_key_id": "verified_geopolitical_event_lifecycle_v2.ed25519.2026-01",
-      "signature_algorithm": "Ed25519",
-      "ed25519_public_key_base64url": "T-QwvdtUxVsC-EUJ1RIyz3hPrFgsjqHTghwxe4IAAYg",
-      "effective_from": "2020-01-01T00:00:00+08:00",
-      "effective_until": null,
-      "owned_realized_fields_by_schema_id": {
-        "macro_transmission_realized_metrics_v1": []
-      },
-      "entry_hash": "sha256:fe149fd983b113b58cc2d1695256ce8b83fb878d99f832407624f7b7a1d382e8"
     }
   ]
 }

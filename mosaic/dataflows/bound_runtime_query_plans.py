@@ -15,6 +15,7 @@ from mosaic.dataflows.sector_relationship_query_plans import (
     QUERY_WINDOW_PROFILES,
     REPORT_LIMIT_PROFILES,
     STATEMENT_FREQUENCIES,
+    THS_INDUSTRY_FILTERS,
 )
 from mosaic.scorecard.canonical_json import canonical_hash
 from mosaic.scorecard.l3_l4_activation import l3_l4_overlay_stage_for_active
@@ -118,7 +119,13 @@ def _candidate_rows(snapshot: Mapping[str, Any], *, require_non_empty: bool) -> 
         sector = raw.get("source_direction_id", source_sector_agent_id)
         if not isinstance(sector, str):
             raise ValueError("candidate source direction must be a string")
-        rows.append({"ticker": ticker, "sector": sector})
+        rows.append(
+            {
+                "ticker": ticker,
+                "sector": sector,
+                "source_sector_agent_id": source_sector_agent_id,
+            }
+        )
     rows.sort(key=lambda row: row["ticker"])
     if require_non_empty and not rows:
         raise ValueError("L3 bound query plan requires an accepted candidate")
@@ -240,13 +247,23 @@ def _l3_plan(
                 "max_items": 12,
             },
         )
-    for lookback in POLICY_LOOKBACK_PROFILES:
-        _append(
-            followups,
-            allowed,
-            "get_industry_policy_digest",
-            {"as_of": as_of, "lookback_days": lookback, "source": "govcn"},
-        )
+    if "get_industry_policy_digest" in allowed and candidates:
+        filters = THS_INDUSTRY_FILTERS.get(candidates[0]["source_sector_agent_id"])
+        if not filters or not filters[0].strip():
+            raise ValueError("Druckenmiller candidate has no exact Sector policy topic")
+        topic = filters[0]
+        for lookback in POLICY_LOOKBACK_PROFILES:
+            _append(
+                followups,
+                allowed,
+                "get_industry_policy_digest",
+                {
+                    "as_of": as_of,
+                    "lookback_days": lookback,
+                    "source": "govcn",
+                    "topic": topic,
+                },
+            )
     for lookback in CURVE_LOOKBACK_PROFILES:
         _append(
             followups,

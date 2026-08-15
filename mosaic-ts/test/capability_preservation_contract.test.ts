@@ -35,11 +35,11 @@ function load(name: string): unknown {
 }
 
 describe("capability preservation and KNOT contracts", () => {
-  it("loads the exact current 28-stage/192-binding Gate-D release authority", () => {
+  it("loads the exact current 26-stage/190-binding Gate-D release authority", () => {
     const authority = loadCurrentKnotGateDReleaseAuthority();
-    expect(authority.stage_keys).toHaveLength(28);
-    expect(new Set(authority.stage_keys).size).toBe(28);
-    expect(authority.binding_count).toBe(192);
+    expect(authority.stage_keys).toHaveLength(26);
+    expect(new Set(authority.stage_keys).size).toBe(26);
+    expect(authority.binding_count).toBe(190);
     expect(authority.knot_coverage_manifest_hash).toMatch(/^sha256:/);
     expect(authority.knot_audit_capability_track_hash).toMatch(/^sha256:/);
   });
@@ -87,7 +87,7 @@ describe("capability preservation and KNOT contracts", () => {
     );
     const current = loadCurrentKnotAuditCapabilityTrackV2();
 
-    expect(coverage.coverage).toHaveLength(192);
+    expect(coverage.coverage).toHaveLength(190);
     expect(track).toEqual(current);
     expect(track.knot_coverage_manifest_v2_hash).toBe(coverage.manifest_hash);
     expect(() =>

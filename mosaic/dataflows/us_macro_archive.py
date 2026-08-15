@@ -1381,6 +1381,10 @@ def _market_observations(
 ) -> list[dict[str, Any]]:
     observations: list[dict[str, Any]] = []
     as_of = date.fromisoformat(str(group["as_of_date"]))
+    replay_cutoff = group.get("requested_cutoff_at", group["cutoff_at"])
+    availability_at = str(
+        replay_cutoff if group.get("historical_replay") else group["captured_at"]
+    )
     for source in group["market_conditions"]["rates"]:
         candidates = [
             row
@@ -1399,8 +1403,8 @@ def _market_observations(
                 "series_id": series_id,
                 "period_start": effective_date,
                 "period_end": effective_date,
-                "released_at": group["captured_at"],
-                "vintage_at": group["captured_at"],
+                "released_at": availability_at,
+                "vintage_at": availability_at,
                 "actual": float(row["percent_rate"]),
                 "previous": None,
                 "expected": None,
@@ -1423,7 +1427,10 @@ def _tushare_observations(
     fx_receipt: SourceCaptureReceipt,
 ) -> list[dict[str, Any]]:
     as_of = date.fromisoformat(str(group["as_of_date"]))
-    released_at = str(group["captured_at"])
+    replay_cutoff = group.get("requested_cutoff_at", group["cutoff_at"])
+    released_at = str(
+        replay_cutoff if group.get("historical_replay") else group["captured_at"]
+    )
     observations: list[dict[str, Any]] = []
     treasury = group["tushare"]["us_tycr"]
     for series_id, field in sorted(_TUSHARE_TREASURY_FIELDS.items()):
@@ -1519,10 +1526,12 @@ def _calendar_hashes(
     *,
     as_of_date: str,
     route_ids: tuple[str, ...],
+    lookup_as_of_date: str | None = None,
 ) -> list[str]:
     result = []
+    lookup_date = lookup_as_of_date or as_of_date
     for route_id in route_ids:
-        status = ledger.source_status(as_of=as_of_date, route_id=route_id)
+        status = ledger.source_status(as_of=lookup_date, route_id=route_id)
         if status["status"] != "READY" or not status["capture_receipt_hash"]:
             raise DataVendorUnavailable(f"required calendar route is blocked: {route_id}")
         result.append(str(status["capture_receipt_hash"]))

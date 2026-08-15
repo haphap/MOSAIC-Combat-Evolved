@@ -579,11 +579,11 @@ describe("strict agent-run contract", () => {
       signal: { direction: "NEUTRAL", strength: 0 },
       persistence_horizon: "DAYS",
       confidence: 0.5,
-      channel: "Market participation remains mixed",
-      statement: "The frozen breadth evidence supports a mixed market assessment",
-      subject: "market breadth",
-      state: "Participation remains mixed",
-      a_share_transmission: "Broad participation has not established a durable market impulse",
+      channel: "ETF positioning remains mixed",
+      statement: "The frozen ETF-share evidence supports a mixed positioning assessment",
+      subject: "institutional flow",
+      state: "ETF positioning remains mixed",
+      a_share_transmission: "ETF positioning has not established a durable market impulse",
       evidence_id: evidenceId,
       research_rule_ref: null,
       snapshot_echo: null,
@@ -603,9 +603,9 @@ describe("strict agent-run contract", () => {
 
     const result = await invokeStrictStructured({
       llm: llm as never,
-      schema: createMacroSubmissionSchema("market_breadth"),
+      schema: createMacroSubmissionSchema("institutional_flow"),
       messages: messages(),
-      agent: "market_breadth",
+      agent: "institutional_flow",
       stage: "agent_run",
       runId: "provider-macro-direct-local-schema",
       evidenceSnapshot: {
@@ -625,9 +625,9 @@ describe("strict agent-run contract", () => {
     await expect(
       invokeStrictStructured({
         llm: llm as never,
-        schema: createMacroSubmissionSchema("geopolitical"),
+        schema: createMacroSubmissionSchema("institutional_flow"),
         messages: messages(),
-        agent: "geopolitical",
+        agent: "institutional_flow",
         stage: "agent_run",
         runId: "provider-macro-empty-evidence",
         evidenceSnapshot: { evidenceLedger: [], allowedResearchRuleIds: new Set<string>() },

@@ -1,5 +1,5 @@
 /**
- * Cohort + prompt-path conventions for the 28 agents.
+ * Cohort + prompt-path conventions for the 25 agents.
  *
  * Disk layout:
  *   prompts/mosaic/
@@ -35,8 +35,6 @@ export const AGENTS_BY_LAYER = {
     "us_financial_conditions",
     "euro_area_financial_conditions",
     "commodities",
-    "geopolitical",
-    "market_breadth",
     "institutional_flow",
   ],
   sector: [
@@ -65,7 +63,7 @@ export const LAYER_BY_AGENT: Record<string, Layer> = (() => {
   return out;
 })();
 
-/** All 28 agent IDs in a flat list (display order = layer order). */
+/** All 25 agent IDs in a flat list (display order = layer order). */
 export const ALL_AGENTS: ReadonlyArray<string> = [
   ...AGENTS_BY_LAYER.macro,
   ...AGENTS_BY_LAYER.sector,

@@ -213,7 +213,8 @@ def test_prompt_training_projection_v2_joins_maturity_and_knot_authority(
     assert projection["productionVariantRosterRevisionSetHash"] == canonical_hash(
         roster_refs
     )
-    assert len(projection["capabilityUseAggregates"]) == 192
+    coverage = load_capability_contract_bundle(_ROOT)["knot_coverage_manifest_v2"]["coverage"]
+    assert len(projection["capabilityUseAggregates"]) == len(coverage)
     assert projection["projectionHash"] == canonical_hash(
         {key: value for key, value in projection.items() if key != "projectionHash"}
     )

@@ -23,7 +23,7 @@ def test_bridge_does_not_register_arbitrary_query_tool_modules():
 
 
 def test_macro_matrix_has_one_role_snapshot_and_no_legacy_or_search_tools():
-    assert len(MACRO_AGENT_TO_TOOL) == 10
+    assert len(MACRO_AGENT_TO_TOOL) == 9
     for agent, tool_id in MACRO_AGENT_TO_TOOL.items():
         assert AGENT_TOOL_MATRIX[agent] == (tool_id,)
         assert tool_id in TOOL_DESCRIPTIONS
@@ -59,18 +59,9 @@ def test_macro_materializer_uses_bound_role_and_as_of(monkeypatch, tool_id, agen
         captured["as_of"] = as_of
         return "frozen-role-snapshot"
 
-    def fake_breadth(as_of: str) -> str:
-        captured["role"] = "market_breadth"
-        captured["as_of"] = as_of
-        return "frozen-breadth-snapshot"
-
     monkeypatch.setattr(
         "mosaic.bridge.tool_capabilities.render_role_snapshot",
         fake_render,
-    )
-    monkeypatch.setattr(
-        "mosaic.bridge.tool_capabilities.render_market_breadth_snapshot",
-        fake_breadth,
     )
     result = materialize_tool_payload(
         tool_id,

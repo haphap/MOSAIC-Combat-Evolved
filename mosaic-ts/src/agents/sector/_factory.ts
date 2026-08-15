@@ -3,7 +3,7 @@
  *
  * Extends the Layer-1 factory pattern with two key adaptations:
  *
- *   1. **Reads upstream state**: each Layer-2 node consumes all ten accepted
+ *   1. **Reads upstream state**: each Layer-2 node consumes all nine accepted
  *      Macro transmissions through the READY ``macro_input_gate`` and receives
  *      only authoritative usage shares, never a Macro consensus or stance.
  *
@@ -1904,7 +1904,7 @@ export function buildLayerTwoUserContext(
     `Use the single role snapshot to compare every direction pair, select one preferred direction, ` +
     `and select one distinct least-preferred direction. Only a runtime-proven empty frozen shortlist ` +
     `may use NO_QUALIFIED_SECURITY for that security leg; a non-empty shortlist requires picks. ` +
-    `Treat the ten Macro transmissions as distinct inputs; record all ten required submission summaries ` +
+    `Treat the eight Macro transmissions as distinct inputs; record all eight required submission summaries ` +
     `and only the applicable target-level attributions.`
   );
 }

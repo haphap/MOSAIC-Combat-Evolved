@@ -556,91 +556,42 @@ function buildFakeRoleSnapshotTool(
 ): StructuredToolInterface {
   return tool(
     async () =>
-      JSON.stringify(
-        agent === "market_breadth"
+      JSON.stringify({
+        schema_version: "macro_role_snapshot_v2",
+        role: agent,
+        as_of_date: asOfDate,
+        observations: [],
+        events: [],
+        source_policy: {
+          primary: "tushare",
+          us_revision_source: "ALFRED/official fixed map",
+          implicit_fallback: false,
+        },
+        ...(MACRO_ROLE_CONTRACTS[agent].mode === "DIRECT"
+          ? { direct_data_quality: 1 }
+          : {
+              component_data_quality: Object.fromEntries(
+                Object.keys(MACRO_ROLE_CONTRACTS[agent].components).map((component) => [
+                  component,
+                  1,
+                ]),
+              ),
+            }),
+        ...(agent in MACRO_CONTEXT_SOURCE_ROLES
           ? {
-              schema_version: "market_breadth_snapshot_v1",
-              as_of_date: asOfDate,
-              advance_decline_balance: 0,
-              above_ma20_pct: 0.5,
-              above_ma60_pct: 0.5,
-              new_high_low_20d_balance: 0,
-              turnover_expansion_pct: 0.5,
-              return_dispersion: 0,
-              top_decile_turnover_share: 0.1,
-              eligible_count: 1,
-              observed_count: 1,
-              coverage_ratio: 1,
-              breadth_composite: 0,
-              breadth_composite_change_20d: 0,
-              breadth_composite_q40_252d: 0,
-              breadth_composite_q60_252d: 0,
-              concentration_q20_252d: 0.1,
-              concentration_q80_252d: 0.1,
-              breadth_state: "MIXED",
-              concentration_state: "NORMAL",
-              direct_data_quality: 1,
-              methodology: { fixture: "fake_llm_structural_smoke" },
-              evidence_id: "fake-market-breadth-snapshot",
-              snapshot_hash: `sha256:${"0".repeat(64)}`,
-            }
-          : agent === "geopolitical"
-            ? {
-                schema_version: "geopolitical_role_snapshot_v2",
-                role: agent,
-                as_of_date: asOfDate,
-                event_registry_version: "geopolitical_verified_event_registry_v2",
-                source_registry_version: "geopolitical_source_registry_v2",
-                coverage_scope_version: "geopolitical_watchlist_scope_v2",
-                coverage_scope_hash: `sha256:${"0".repeat(64)}`,
-                registration_statuses: [],
-                coverage_by_event_type: [],
-                events: [],
-                empty_state: "COVERAGE_CONFIRMED_NO_MATERIAL_EVENT",
-                readiness: "READY",
-                direct_data_quality: 1,
-                evidence_id: "fake-geopolitical-role-snapshot",
-                snapshot_hash: `sha256:${"0".repeat(64)}`,
-              }
-            : {
-                schema_version: "macro_role_snapshot_v2",
-                role: agent,
-                as_of_date: asOfDate,
-                observations: [],
-                events: [],
-                source_policy: {
-                  primary: "tushare",
-                  us_revision_source: "ALFRED/official fixed map",
-                  implicit_fallback: false,
-                },
-                ...(MACRO_ROLE_CONTRACTS[agent].mode === "DIRECT"
-                  ? { direct_data_quality: 1 }
-                  : {
-                      component_data_quality: Object.fromEntries(
-                        Object.keys(MACRO_ROLE_CONTRACTS[agent].components).map((component) => [
-                          component,
-                          1,
-                        ]),
-                      ),
-                    }),
-                ...(agent in MACRO_CONTEXT_SOURCE_ROLES
-                  ? {
-                      context_only_projection: {
-                        schema_version: "macro_real_economy_context_projection_v1",
-                        usage_mode: "CONTEXT_ONLY",
-                        source_role:
-                          MACRO_CONTEXT_SOURCE_ROLES[
-                            agent as keyof typeof MACRO_CONTEXT_SOURCE_ROLES
-                          ],
-                        contributes_to_required_components: false,
-                        component_summaries: {},
-                        projection_hash: `sha256:${"1".repeat(64)}`,
-                      },
-                    }
-                  : {}),
-                snapshot_hash: `sha256:${"0".repeat(64)}`,
+              context_only_projection: {
+                schema_version: "macro_real_economy_context_projection_v1",
+                usage_mode: "CONTEXT_ONLY",
+                source_role:
+                  MACRO_CONTEXT_SOURCE_ROLES[agent as keyof typeof MACRO_CONTEXT_SOURCE_ROLES],
+                contributes_to_required_components: false,
+                component_summaries: {},
+                projection_hash: `sha256:${"1".repeat(64)}`,
               },
-      ),
+            }
+          : {}),
+        snapshot_hash: `sha256:${"0".repeat(64)}`,
+      }),
     {
       name,
       description: "Deterministic role snapshot for --fake-llm structural smoke runs.",

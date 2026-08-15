@@ -1,5 +1,5 @@
 /**
- * Output contracts for the 4-layer 28-agent daily cycle.
+ * Output contracts for the 4-layer 26-agent daily cycle.
  *
  * Each layer-X agent produces a typed payload that gets written into
  * ``state.layer<X>_outputs[<agent_id>]`` by the dict-merge reducer in
@@ -63,8 +63,6 @@ export type MacroAgentId =
   | "us_financial_conditions"
   | "euro_area_financial_conditions"
   | "commodities"
-  | "geopolitical"
-  | "market_breadth"
   | "institutional_flow";
 
 export type MacroDirection = "SUPPORTIVE" | "NEUTRAL" | "ADVERSE";
@@ -145,7 +143,7 @@ export interface MacroComponentCompositionAudit extends ComponentCalibrationRunt
 export interface MacroInputGateReceipt {
   schema_version: "macro_input_gate_receipt_v1";
   accepted_agent_ids: MacroAgentId[];
-  accepted_count: 10;
+  accepted_count: 8;
   input_hash: string;
   source_layer_snapshot_id: string;
   source_layer_snapshot_hash: string;
@@ -169,8 +167,6 @@ export type CentralBankOutput = MacroAgentSubmission;
 export type UsFinancialConditionsOutput = MacroAgentSubmission;
 export type EuroAreaFinancialConditionsOutput = MacroAgentSubmission;
 export type CommoditiesOutput = MacroAgentSubmission;
-export type GeopoliticalOutput = MacroAgentSubmission;
-export type MarketBreadthOutput = MacroAgentSubmission;
 export type InstitutionalFlowOutput = MacroAgentSubmission;
 export type MacroAgentOutput = AcceptedMacroTransmission;
 

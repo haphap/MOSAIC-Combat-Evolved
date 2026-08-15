@@ -396,8 +396,8 @@ function buildReceipt<TOutput>(input: {
     throw new Error(`${input.sourceLayer} roster is empty`);
   }
   const weights = new Map((input.weightSnapshot?.weights ?? []).map((row) => [row.agent_id, row]));
-  if (input.weightSnapshot && (input.weightSnapshot.weights.length !== 23 || weights.size !== 23)) {
-    throw new Error(`${input.sourceLayer} gate requires the exact 23-Agent Darwinian snapshot`);
+  if (input.weightSnapshot && (input.weightSnapshot.weights.length !== 21 || weights.size !== 21)) {
+    throw new Error(`${input.sourceLayer} gate requires the exact 21-Agent Darwinian snapshot`);
   }
   const entries: Record<string, SourceLayerUsageEntry> = {};
   let denominator = 0;

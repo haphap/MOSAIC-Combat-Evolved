@@ -18,7 +18,7 @@ import {
 import type { LlmHandle } from "../src/llm/factory.js";
 
 describe("Layer-1 v2 topology", () => {
-  it("contains ten target agents and a non-semantic gate", () => {
+  it("contains eight target agents and a non-semantic gate", () => {
     expect(LAYER1_AGENT_NODES).toEqual(MACRO_AGENT_IDS);
     expect(LAYER1_INPUT_GATE_NODE).toBe("macro_input_gate_node");
     expect(LAYER1_AGENT_NODES).not.toEqual(
@@ -101,7 +101,7 @@ describe("buildLayer1Graph", () => {
     clearPromptCache();
   });
 
-  it("runs all ten agents, composes accepted outputs, and closes the gate", async () => {
+  it("runs all eight agents, composes accepted outputs, and closes the gate", async () => {
     const llm = new ScriptedLlm();
     const handle: LlmHandle = {
       llm: llm as unknown as LlmHandle["llm"],
@@ -146,12 +146,12 @@ describe("buildLayer1Graph", () => {
     });
     const final = (await graph.invoke(initial)) as DailyCycleStateType;
     expect(Object.keys(final.layer1_outputs).sort()).toEqual([...MACRO_AGENT_IDS].sort());
-    expect(final.macro_input_gate).toMatchObject({ accepted_count: 10 });
+    expect(final.macro_input_gate).toMatchObject({ accepted_count: 8 });
     expect(final.macro_input_gate?.input_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(
       Object.values(final.layer1_outputs).every((output) => output.direction === "NEUTRAL"),
     ).toBe(true);
-    expect(llm.structuredCalls).toBe(10);
-    expect(final.llm_calls).toHaveLength(10);
+    expect(llm.structuredCalls).toBe(8);
+    expect(final.llm_calls).toHaveLength(8);
   });
 });

@@ -815,50 +815,6 @@
     },
     {
       "source": "bundled",
-      "agent": "geopolitical",
-      "stage": "agent_run",
-      "language": "en",
-      "source_path": "cohort_default/macro/geopolitical.en.md",
-      "source_sha256": "sha256:5156df1e36aaf1c130d31e48da86cb5438c20d4578abd4618ce61732611f275a",
-      "source_bytes": 1697,
-      "parsed_projection_bytes": 0,
-      "visible_contract_tokens": 0,
-      "final_system_prompt_tokens": 874,
-      "reserved_context_tokens": 130198,
-      "baseline_final_system_prompt_tokens": null,
-      "baseline_growth_ratio": null,
-      "checks": {
-        "visible_contract_within_cap": true,
-        "system_prompt_within_cap": true,
-        "reserved_context_within_floor": true,
-        "baseline_growth_within_limit": true
-      },
-      "passed": true
-    },
-    {
-      "source": "bundled",
-      "agent": "geopolitical",
-      "stage": "agent_run",
-      "language": "zh",
-      "source_path": "cohort_default/macro/geopolitical.zh.md",
-      "source_sha256": "sha256:d8e6357da44ccd4e2167d5549f414e6a5ea664884847e5d6e8c75a31a4d17d97",
-      "source_bytes": 1582,
-      "parsed_projection_bytes": 0,
-      "visible_contract_tokens": 0,
-      "final_system_prompt_tokens": 874,
-      "reserved_context_tokens": 130198,
-      "baseline_final_system_prompt_tokens": null,
-      "baseline_growth_ratio": null,
-      "checks": {
-        "visible_contract_within_cap": true,
-        "system_prompt_within_cap": true,
-        "reserved_context_within_floor": true,
-        "baseline_growth_within_limit": true
-      },
-      "passed": true
-    },
-    {
-      "source": "bundled",
       "agent": "industrials",
       "stage": "agent_run",
       "language": "en",
@@ -935,50 +891,6 @@
       "visible_contract_tokens": 0,
       "final_system_prompt_tokens": 884,
       "reserved_context_tokens": 130188,
-      "baseline_final_system_prompt_tokens": null,
-      "baseline_growth_ratio": null,
-      "checks": {
-        "visible_contract_within_cap": true,
-        "system_prompt_within_cap": true,
-        "reserved_context_within_floor": true,
-        "baseline_growth_within_limit": true
-      },
-      "passed": true
-    },
-    {
-      "source": "bundled",
-      "agent": "market_breadth",
-      "stage": "agent_run",
-      "language": "en",
-      "source_path": "cohort_default/macro/market_breadth.en.md",
-      "source_sha256": "sha256:ac586712a161ed85d517f1c5cb1728269ea86674ab4d73f7975d4660b85dd8ce",
-      "source_bytes": 1681,
-      "parsed_projection_bytes": 0,
-      "visible_contract_tokens": 0,
-      "final_system_prompt_tokens": 888,
-      "reserved_context_tokens": 130184,
-      "baseline_final_system_prompt_tokens": null,
-      "baseline_growth_ratio": null,
-      "checks": {
-        "visible_contract_within_cap": true,
-        "system_prompt_within_cap": true,
-        "reserved_context_within_floor": true,
-        "baseline_growth_within_limit": true
-      },
-      "passed": true
-    },
-    {
-      "source": "bundled",
-      "agent": "market_breadth",
-      "stage": "agent_run",
-      "language": "zh",
-      "source_path": "cohort_default/macro/market_breadth.zh.md",
-      "source_sha256": "sha256:09db77155b93b6659dddd9bb4396809fc5af13ec578dc03b68210b71808b76a3",
-      "source_bytes": 1574,
-      "parsed_projection_bytes": 0,
-      "visible_contract_tokens": 0,
-      "final_system_prompt_tokens": 888,
-      "reserved_context_tokens": 130184,
       "baseline_final_system_prompt_tokens": null,
       "baseline_growth_ratio": null,
       "checks": {
@@ -2047,50 +1959,6 @@
     },
     {
       "source": "private",
-      "agent": "geopolitical",
-      "stage": "agent_run",
-      "language": "en",
-      "source_path": "cohort_default/macro/geopolitical.en.md",
-      "source_sha256": "sha256:81a9db6ebc4a2db3a2fe609ee5e0bb9a131130f92f57d40441182b1d5642f838",
-      "source_bytes": 2200,
-      "parsed_projection_bytes": 0,
-      "visible_contract_tokens": 0,
-      "final_system_prompt_tokens": 1167,
-      "reserved_context_tokens": 129905,
-      "baseline_final_system_prompt_tokens": null,
-      "baseline_growth_ratio": null,
-      "checks": {
-        "visible_contract_within_cap": true,
-        "system_prompt_within_cap": true,
-        "reserved_context_within_floor": true,
-        "baseline_growth_within_limit": true
-      },
-      "passed": true
-    },
-    {
-      "source": "private",
-      "agent": "geopolitical",
-      "stage": "agent_run",
-      "language": "zh",
-      "source_path": "cohort_default/macro/geopolitical.zh.md",
-      "source_sha256": "sha256:f64b1659b684ab3fe5e42b397b496091fb366239997a1a506f18b4faf63ecad6",
-      "source_bytes": 1980,
-      "parsed_projection_bytes": 0,
-      "visible_contract_tokens": 0,
-      "final_system_prompt_tokens": 1167,
-      "reserved_context_tokens": 129905,
-      "baseline_final_system_prompt_tokens": null,
-      "baseline_growth_ratio": null,
-      "checks": {
-        "visible_contract_within_cap": true,
-        "system_prompt_within_cap": true,
-        "reserved_context_within_floor": true,
-        "baseline_growth_within_limit": true
-      },
-      "passed": true
-    },
-    {
-      "source": "private",
       "agent": "industrials",
       "stage": "agent_run",
       "language": "en",
@@ -2167,50 +2035,6 @@
       "visible_contract_tokens": 0,
       "final_system_prompt_tokens": 1172,
       "reserved_context_tokens": 129900,
-      "baseline_final_system_prompt_tokens": null,
-      "baseline_growth_ratio": null,
-      "checks": {
-        "visible_contract_within_cap": true,
-        "system_prompt_within_cap": true,
-        "reserved_context_within_floor": true,
-        "baseline_growth_within_limit": true
-      },
-      "passed": true
-    },
-    {
-      "source": "private",
-      "agent": "market_breadth",
-      "stage": "agent_run",
-      "language": "en",
-      "source_path": "cohort_default/macro/market_breadth.en.md",
-      "source_sha256": "sha256:47f1dc88440890b73b72a6056e2f7453088dea708fc73b5d6605c5d0af6b19a1",
-      "source_bytes": 2181,
-      "parsed_projection_bytes": 0,
-      "visible_contract_tokens": 0,
-      "final_system_prompt_tokens": 1153,
-      "reserved_context_tokens": 129919,
-      "baseline_final_system_prompt_tokens": null,
-      "baseline_growth_ratio": null,
-      "checks": {
-        "visible_contract_within_cap": true,
-        "system_prompt_within_cap": true,
-        "reserved_context_within_floor": true,
-        "baseline_growth_within_limit": true
-      },
-      "passed": true
-    },
-    {
-      "source": "private",
-      "agent": "market_breadth",
-      "stage": "agent_run",
-      "language": "zh",
-      "source_path": "cohort_default/macro/market_breadth.zh.md",
-      "source_sha256": "sha256:0b33e1d79c4adaeeff34ce3148d1d8769efc3b7f8601318c7b9930c1cb87faa0",
-      "source_bytes": 1947,
-      "parsed_projection_bytes": 0,
-      "visible_contract_tokens": 0,
-      "final_system_prompt_tokens": 1153,
-      "reserved_context_tokens": 129919,
       "baseline_final_system_prompt_tokens": null,
       "baseline_growth_ratio": null,
       "checks": {
@@ -2487,12 +2311,12 @@
     }
   ],
   "summary": {
-    "expected_row_count": 112,
-    "row_count": 112,
-    "passed_row_count": 112,
+    "expected_row_count": 104,
+    "row_count": 104,
+    "passed_row_count": 104,
     "failed_row_count": 0,
     "semantic_parity_passed": true,
     "ready": true
   },
-  "manifest_hash": "sha256:af361eb9acfe62bb26d8e4d3bb7cc1abc0ea631ce714ef1016c0366a5b560a62"
+  "manifest_hash": "sha256:aacd6024bc1dde7131421b92b6241b84d4d66a427149d90a3a1deb6fb6e7b7ce"
 }

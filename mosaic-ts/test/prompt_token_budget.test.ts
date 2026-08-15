@@ -65,13 +65,13 @@ async function build(
 }
 
 describe("prompt token budget manifest", () => {
-  it("measures both sources for all 28 runtime stages and both languages", async () => {
+  it("measures both sources for all 26 runtime stages and both languages", async () => {
     const artifact = await build(fixtureRoots());
 
     expect(artifact.summary).toEqual({
-      expected_row_count: 112,
-      row_count: 112,
-      passed_row_count: 112,
+      expected_row_count: 104,
+      row_count: 104,
+      passed_row_count: 104,
       failed_row_count: 0,
       semantic_parity_passed: true,
       ready: true,

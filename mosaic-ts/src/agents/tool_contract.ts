@@ -12,8 +12,6 @@ export const AGENT_TOOL_IDS = [
   "get_us_financial_conditions_snapshot",
   "get_euro_area_financial_conditions_snapshot",
   "get_commodity_conditions_snapshot",
-  "get_geopolitical_events_snapshot",
-  "get_market_breadth_snapshot",
   "get_market_positioning_snapshot",
   "get_sector_research_snapshot",
   "get_role_event_snapshot",
@@ -46,8 +44,6 @@ export const AGENT_IDS = [
   "us_financial_conditions",
   "euro_area_financial_conditions",
   "commodities",
-  "geopolitical",
-  "market_breadth",
   "institutional_flow",
   "semiconductor",
   "technology",
@@ -76,8 +72,6 @@ export const AGENT_EXECUTION_STAGE_IDS = [
   "us_financial_conditions",
   "euro_area_financial_conditions",
   "commodities",
-  "geopolitical",
-  "market_breadth",
   "institutional_flow",
   "semiconductor",
   "technology",
@@ -116,8 +110,6 @@ export const AGENT_LAYER_BY_ID = {
   us_financial_conditions: "macro",
   euro_area_financial_conditions: "macro",
   commodities: "macro",
-  geopolitical: "macro",
-  market_breadth: "macro",
   institutional_flow: "macro",
   semiconductor: "sector",
   technology: "sector",
@@ -146,8 +138,6 @@ export const AGENT_INITIAL_TOOL_MATRIX = {
   us_financial_conditions: ["get_us_financial_conditions_snapshot"],
   euro_area_financial_conditions: ["get_euro_area_financial_conditions_snapshot"],
   commodities: ["get_commodity_conditions_snapshot"],
-  geopolitical: ["get_geopolitical_events_snapshot"],
-  market_breadth: ["get_market_breadth_snapshot"],
   institutional_flow: ["get_market_positioning_snapshot"],
   semiconductor: ["get_sector_research_snapshot", "get_role_event_snapshot"],
   technology: ["get_sector_research_snapshot", "get_role_event_snapshot"],
@@ -359,9 +349,9 @@ export type SignedAgentToolCapability = z.infer<typeof SignedAgentToolCapability
 export const AgentToolContractManifestSchema = z
   .object({
     schema_version: z.literal(AGENT_TOOL_CONTRACT_VERSION),
-    agent_count: z.literal(27),
-    execution_stage_count: z.literal(28),
-    tool_count: z.literal(31),
+    agent_count: z.literal(25),
+    execution_stage_count: z.literal(26),
+    tool_count: z.literal(29),
     agents: z
       .array(
         z
@@ -373,7 +363,7 @@ export const AgentToolContractManifestSchema = z
           })
           .strict(),
       )
-      .length(27),
+      .length(25),
   })
   .strict();
 
@@ -382,9 +372,9 @@ export type AgentToolContractManifest = z.infer<typeof AgentToolContractManifest
 export function buildAgentToolContractManifest(): AgentToolContractManifest {
   return AgentToolContractManifestSchema.parse({
     schema_version: AGENT_TOOL_CONTRACT_VERSION,
-    agent_count: 27,
-    execution_stage_count: 28,
-    tool_count: 31,
+    agent_count: 25,
+    execution_stage_count: 26,
+    tool_count: 29,
     agents: AGENT_IDS.map((agentId) => ({
       agent_id: agentId,
       layer: AGENT_LAYER_BY_ID[agentId],

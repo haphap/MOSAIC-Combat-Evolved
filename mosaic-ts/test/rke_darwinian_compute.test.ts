@@ -57,7 +57,7 @@ describe("rke-darwinian-compute helpers", () => {
       },
     );
 
-    expect(weights).toHaveLength(27);
+    expect(weights).toHaveLength(25);
     expect(weights.find((row) => row.agent === "us_financial_conditions")?.weight).toBeGreaterThan(
       weights.find((row) => row.agent === "central_bank")?.weight ?? 0,
     );

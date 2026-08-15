@@ -19,6 +19,8 @@ from zoneinfo import ZoneInfo
 
 from .cross_runtime_json import canonical_hash as _canonical_hash
 from .exceptions import DataVendorUnavailable
+from .sector_relationship_queries import _compact_etf_holdings
+from .tushare import _query_pro, get_etf_holdings
 from .role_events import (
     ROLE_EVENT_COVERAGE_VERSION,
     ROLE_EVENT_CURRENCIES,
@@ -451,6 +453,175 @@ def _authoritative_etf_codes(role: str, direction_id: str, as_of: date) -> list[
         for row in authority["direction_families"]
         if row["sector_agent_id"] == role and row["direction_id"] == direction_id
     )
+
+
+def _read_semiconductor_etf_basket(
+    etf_ts_code: str, as_of: date
+) -> tuple[str, list[dict[str, Any]], str]:
+    if etf_ts_code != "512480.SH":
+        raise DataVendorUnavailable("semiconductor ETF basket authority mismatch")
+    start_date = as_of - timedelta(days=6)
+    request = {
+        "ts_code": etf_ts_code,
+        "start_date": start_date.strftime("%Y%m%d"),
+        "end_date": as_of.strftime("%Y%m%d"),
+    }
+    frame = _query_pro("etf_sh_cons", **request)
+    try:
+        row_count = len(frame)
+        columns = {str(column) for column in frame.columns}
+        records = frame.to_dict(orient="records")
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise DataVendorUnavailable("semiconductor ETF basket response is invalid") from exc
+    required_columns = {
+        "trade_date",
+        "ts_code",
+        "con_code",
+        "con_name",
+        "qty",
+        "exchange",
+    }
+    if (
+        row_count >= 3000
+        or not required_columns <= columns
+        or not isinstance(records, list)
+    ):
+        raise DataVendorUnavailable("semiconductor ETF basket response is invalid")
+    dated_rows: list[tuple[date, Mapping[str, Any]]] = []
+    for row in records:
+        if not isinstance(row, Mapping):
+            raise DataVendorUnavailable("semiconductor ETF basket row is invalid")
+        if str(row.get("ts_code", "")).strip().upper() != etf_ts_code:
+            raise DataVendorUnavailable("semiconductor ETF basket ETF identity mismatch")
+        raw_trade_date = str(row.get("trade_date", "")).strip()
+        try:
+            trade_date = datetime.strptime(raw_trade_date, "%Y%m%d").date()
+        except (TypeError, ValueError) as exc:
+            raise DataVendorUnavailable("semiconductor ETF basket trade date is invalid") from exc
+        if trade_date < start_date or trade_date > as_of:
+            raise DataVendorUnavailable("semiconductor ETF basket trade date is outside request window")
+        dated_rows.append((trade_date, row))
+    eligible_rows = [row for row in dated_rows if row[0] <= as_of]
+    if not eligible_rows:
+        raise DataVendorUnavailable("semiconductor ETF basket has no cutoff-valid trade date")
+    latest_trade_date = max(row[0] for row in eligible_rows)
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for trade_date, row in eligible_rows:
+        if trade_date != latest_trade_date:
+            continue
+        ticker = str(row.get("con_code", "")).strip().upper()
+        if not re.fullmatch(r"\d{6}\.(?:SH|SZ)", ticker):
+            continue
+        try:
+            quantity = float(row.get("qty"))
+        except (TypeError, ValueError) as exc:
+            raise DataVendorUnavailable("semiconductor ETF basket quantity is invalid") from exc
+        if (
+            isinstance(row.get("qty"), bool)
+            or not math.isfinite(quantity)
+            or quantity < 0
+            or ticker in seen
+        ):
+            raise DataVendorUnavailable("semiconductor ETF basket row is invalid")
+        seen.add(ticker)
+        candidates.append({"ticker": ticker, "basket_quantity": quantity})
+    if not candidates:
+        raise DataVendorUnavailable("semiconductor ETF basket has no A-share candidates")
+    candidates.sort(key=lambda row: (-row["basket_quantity"], row["ticker"]))
+    source_content_hash = _canonical_hash(
+        {
+            "endpoint": "etf_sh_cons",
+            "request": request,
+            "trade_date": latest_trade_date.strftime("%Y%m%d"),
+            "candidates": candidates,
+        }
+    )
+    return latest_trade_date.isoformat(), candidates[:12], source_content_hash
+
+
+def _build_etf_holdings_candidate_snapshot(role: str, as_of_date: str) -> dict[str, Any]:
+    if role not in SECTOR_DIRECTION_IDS:
+        raise DataVendorUnavailable("sector ETF candidate role is not registered")
+    as_of = date.fromisoformat(as_of_date)
+    mapped = [
+        (direction_id, _authoritative_etf_codes(role, direction_id, as_of))
+        for direction_id in SECTOR_DIRECTION_IDS[role]
+    ]
+    mapped = [(direction_id, codes[0]) for direction_id, codes in mapped if codes]
+    if len(mapped) != 1:
+        raise DataVendorUnavailable("sector ETF candidate authority is not singular")
+    direction_id, etf_ts_code = mapped[0]
+    if role == "semiconductor":
+        trade_date, candidates, source_content_hash = _read_semiconductor_etf_basket(
+            etf_ts_code, as_of
+        )
+        body = {
+            "kind": "etf_holdings_candidates",
+            "status": "READY",
+            "sector_agent_id": role,
+            "as_of_date": as_of_date,
+            "direction_id": direction_id,
+            "etf_ts_code": etf_ts_code,
+            "trade_date": trade_date,
+            "candidates": candidates,
+            "source_route_id": "tushare.etf_holdings",
+            "source_content_hash": source_content_hash,
+        }
+        return {**body, "snapshot_hash": _canonical_hash(body)}
+    raw = get_etf_holdings(etf_ts_code, as_of_date)
+    compact = json.loads(_compact_etf_holdings(raw, top_n=12))
+    if (
+        compact.get("kind") != "etf_holdings_candidates"
+        or compact.get("status") != "READY"
+        or compact.get("etf") != etf_ts_code
+        or not isinstance(compact.get("disclosure_date"), str)
+        or not isinstance(compact.get("report_date"), str)
+        or not isinstance(compact.get("candidates"), list)
+        or not 1 <= len(compact["candidates"]) <= 12
+    ):
+        raise DataVendorUnavailable("sector ETF candidate holdings are unavailable")
+    for field in ("disclosure_date", "report_date"):
+        try:
+            if date.fromisoformat(compact[field]) > as_of:
+                raise DataVendorUnavailable(
+                    "sector ETF candidate disclosure is after as_of"
+                )
+        except (TypeError, ValueError) as exc:
+            raise DataVendorUnavailable(
+                "sector ETF candidate disclosure date is invalid"
+            ) from exc
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in compact["candidates"]:
+        ticker = row.get("ticker") if isinstance(row, dict) else None
+        weight = row.get("weight_pct") if isinstance(row, dict) else None
+        if (
+            not isinstance(ticker, str)
+            or not _RELATIONSHIP_SECURITY_ID_PATTERN.fullmatch(ticker)
+            or ticker in seen
+            or isinstance(weight, bool)
+            or not isinstance(weight, (int, float))
+            or not math.isfinite(float(weight))
+            or not 0 <= float(weight) <= 100
+        ):
+            raise DataVendorUnavailable("sector ETF candidate row is invalid")
+        seen.add(ticker)
+        candidates.append({"ticker": ticker, "weight_pct": float(weight)})
+    body = {
+        "kind": "etf_holdings_candidates",
+        "status": "READY",
+        "sector_agent_id": role,
+        "as_of_date": as_of_date,
+        "direction_id": direction_id,
+        "etf_ts_code": etf_ts_code,
+        "disclosure_date": compact.get("disclosure_date"),
+        "report_date": compact.get("report_date"),
+        "candidates": candidates,
+        "source_route_id": "tushare.etf_holdings",
+        "source_content_hash": _canonical_hash({"text": raw}),
+    }
+    return {**body, "snapshot_hash": _canonical_hash(body)}
 
 
 def sector_snapshot_root() -> Path:
@@ -2074,8 +2245,25 @@ def _validate_membership_batches(
             )
             if in_date > as_of or (out_date is not None and out_date <= as_of):
                 continue
+            if row.get("ts_code") not in ts_codes:
+                raise DataVendorUnavailable("scoped sector membership row is outside ETF candidates")
+            if row.get("is_new") != "Y":
+                raise DataVendorUnavailable("scoped sector membership row is not current")
             if row.get("ts_code") not in active_stock_rows:
                 continue
+            try:
+                direction_id = _direction_for_security(row, direction_contracts)
+            except DataVendorUnavailable:
+                continue
+            previous_direction = mapped_directions.get(str(row["ts_code"]))
+            if (
+                previous_direction is not None
+                and previous_direction != direction_id
+            ):
+                raise DataVendorUnavailable(
+                    "scoped sector membership has conflicting directions"
+                )
+            mapped_directions[str(row["ts_code"])] = direction_id
             key = membership_key(row)
             reconstructed[key] = row
     if semiconductor_exact and observed_is_new != {"Y", "N"}:
@@ -3598,10 +3786,6 @@ def compile_registered_sector_snapshot(
     ):
         raise DataVendorUnavailable("sector compiler requires complete source batches")
     plan, direction_contracts = _manifest_bindings(role)
-    required_branches = {
-        (branch["parameter"], branch["classification_code"], branch["is_new"])
-        for branch in plan["branches"]
-    }
     membership_batches: dict[tuple[str, str, str], dict[str, Any]] = {}
     if role == "semiconductor":
         covered_l3_codes = sorted(
@@ -3675,9 +3859,16 @@ def compile_registered_sector_snapshot(
         stock_batch["source_batch_id"]: stock_evidence["evidence_id"]
     }
     member_state: dict[str, dict[str, Any]] = {}
+    scoped_directions: dict[str, str] = {}
     for batch in membership_batches.values():
         active_rows = []
         for row in batch["rows"]:
+            if scoped_batches and (
+                row.get("ts_code") not in ts_codes or row.get("is_new") != "Y"
+            ):
+                raise DataVendorUnavailable(
+                    "sector compiler scoped membership row is outside ETF candidates"
+                )
             in_date = _parse_temporal(row.get("in_date"), "sector compiler in_date").date()
             out_value = row.get("out_date")
             out_date = (
@@ -3690,6 +3881,23 @@ def compile_registered_sector_snapshot(
                 and (out_date is None or out_date > as_of)
                 and row.get("ts_code") in active_stock_rows
             ):
+                if scoped_batches:
+                    try:
+                        direction_id = _direction_for_security(
+                            row, direction_contracts
+                        )
+                    except DataVendorUnavailable:
+                        continue
+                    ts_code = str(row["ts_code"])
+                    previous_direction = scoped_directions.get(ts_code)
+                    if (
+                        previous_direction is not None
+                        and previous_direction != direction_id
+                    ):
+                        raise DataVendorUnavailable(
+                            "sector compiler found conflicting active directions"
+                        )
+                    scoped_directions[ts_code] = direction_id
                 active_rows.append(row)
         if not active_rows:
             continue
@@ -3703,7 +3911,11 @@ def compile_registered_sector_snapshot(
         evidence_by_batch[batch["source_batch_id"]] = batch_evidence["evidence_id"]
         for row in active_rows:
             ts_code = str(row.get("ts_code"))
-            direction_id = _direction_for_security(row, direction_contracts)
+            direction_id = (
+                scoped_directions[ts_code]
+                if scoped_batches
+                else _direction_for_security(row, direction_contracts)
+            )
             body = {
                 "ts_code": ts_code,
                 "direction_id": direction_id,
@@ -4316,8 +4528,14 @@ def load_sector_snapshot(
 
 
 def render_sector_snapshot(role: str, as_of_date: str) -> str:
+    try:
+        snapshot = load_sector_snapshot(role, as_of_date)
+    except DataVendorUnavailable as exc:
+        if exc.reason_code != "PRIVATE_PIT_SECTOR_SNAPSHOT_MISSING":
+            raise
+        snapshot = _build_etf_holdings_candidate_snapshot(role, as_of_date)
     return json.dumps(
-        load_sector_snapshot(role, as_of_date),
+        snapshot,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),

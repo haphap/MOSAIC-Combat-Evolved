@@ -71,12 +71,7 @@ export function roleSnapshotFromToolLoop(input: {
   } catch {
     return { issues: [issue("ROLE_SNAPSHOT_PAYLOAD_INVALID", "$.claims")], snapshot: null };
   }
-  const expectedSchema =
-    input.agent === "market_breadth"
-      ? "market_breadth_snapshot_v1"
-      : input.agent === "geopolitical"
-        ? "geopolitical_role_snapshot_v2"
-        : "macro_role_snapshot_v2";
+  const expectedSchema = "macro_role_snapshot_v2";
   const issues: AgentContractIssue[] = [];
   if (snapshot.schema_version !== expectedSchema) {
     issues.push(issue("ROLE_SNAPSHOT_SCHEMA_MISMATCH", "$.claims"));
@@ -84,7 +79,7 @@ export function roleSnapshotFromToolLoop(input: {
   if (snapshot.as_of_date !== input.asOfDate) {
     issues.push(issue("ROLE_SNAPSHOT_AS_OF_MISMATCH", "$.claims"));
   }
-  if (input.agent !== "market_breadth" && snapshot.role !== input.agent) {
+  if (snapshot.role !== input.agent) {
     issues.push(issue("ROLE_SNAPSHOT_AGENT_MISMATCH", "$.claims"));
   }
   if (issues.length === 0) issues.push(...snapshotEchoIndex(snapshot).issues);
@@ -262,13 +257,7 @@ function snapshotEchoId(value: SnapshotRecord): string | null {
   if (typeof value.event_revision_id === "string") {
     return typeof value.calendar_event_id === "string"
       ? `role-event:${value.event_revision_id}`
-      : `geopolitical-event:${value.event_revision_id}`;
-  }
-  if (typeof value.event_type === "string" && typeof value.required_query_count === "number") {
-    return `geopolitical-coverage:${value.event_type}`;
-  }
-  if (value.schema_version === "market_breadth_snapshot_v1") {
-    return `market-breadth:${String(value.as_of_date ?? "unknown")}`;
+      : null;
   }
   if (typeof value.role === "string" && typeof value.as_of_date === "string") {
     return `role-snapshot:${value.role}:${value.as_of_date}`;

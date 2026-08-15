@@ -67,7 +67,6 @@ TUSHARE_ENDPOINT_IDS: tuple[str, ...] = (
     "fx_obasic",
     "fx_daily",
     "moneyflow",
-    "moneyflow_hsgt",
     "moneyflow_ind_ths",
     "top_list",
     "top10_holders",
@@ -93,7 +92,6 @@ _DOC_IDS: dict[str, str] = {
     "index_classify": "181",
     "index_member_all": "335",
     "moneyflow": "170",
-    "moneyflow_hsgt": "47",
     "moneyflow_ind_ths": "343",
     "stock_st": "397",
     "eco_cal": "233",
@@ -141,6 +139,7 @@ def _load_preflight_checks(path: Path = _PREFLIGHT_PATH) -> dict[str, dict]:
     if not isinstance(rows, list) or not rows:
         raise RuntimeError("Tushare preflight registry has no checks")
     result: dict[str, dict] = {}
+    seen_endpoints: set[str] = set()
     for row in rows:
         if not isinstance(row, dict):
             raise RuntimeError("Tushare preflight rows must be objects")
@@ -149,8 +148,9 @@ def _load_preflight_checks(path: Path = _PREFLIGHT_PATH) -> dict[str, dict]:
         permission_result = row.get("permission_result")
         observed_row_count = row.get("observed_row_count")
         if (
-            endpoint not in TUSHARE_ENDPOINT_IDS
-            or endpoint in result
+            not isinstance(endpoint, str)
+            or not endpoint.strip()
+            or endpoint in seen_endpoints
             or status
             not in {
                 "ACTIVE_VERIFIED",
@@ -170,6 +170,7 @@ def _load_preflight_checks(path: Path = _PREFLIGHT_PATH) -> dict[str, dict]:
             or observed_row_count < 0
         ):
             raise RuntimeError(f"invalid Tushare preflight row: {endpoint!r}")
+        seen_endpoints.add(endpoint)
         for field in (
             "permission_checked_at",
             "permission_evidence_id",
@@ -214,7 +215,16 @@ def _load_preflight_checks(path: Path = _PREFLIGHT_PATH) -> dict[str, dict]:
             "TRUNCATION_RISK",
         }:
             raise RuntimeError(f"invalid precheck coverage status for {endpoint}")
-        result[endpoint] = row
+        if endpoint in TUSHARE_ENDPOINT_IDS:
+            result[endpoint] = row
+    missing_endpoints = [
+        endpoint for endpoint in TUSHARE_ENDPOINT_IDS if endpoint not in result
+    ]
+    if missing_endpoints:
+        raise RuntimeError(
+            "Tushare preflight registry missing current endpoints: "
+            f"{missing_endpoints}"
+        )
     return result
 
 

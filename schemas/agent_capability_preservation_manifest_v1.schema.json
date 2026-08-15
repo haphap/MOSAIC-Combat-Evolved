@@ -27,10 +27,10 @@
       "const": 23
     },
     "current_agent_count": {
-      "const": 28
+      "const": 26
     },
     "current_stage_count": {
-      "const": 29
+      "const": 27
     },
     "introduced_roles": {
       "type": "array",

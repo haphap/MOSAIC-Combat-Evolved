@@ -81,7 +81,6 @@ EXPECTED_DIRECT_ORDINALS = {
     "euro_area_financial_conditions": [0, 1, 2, 3, 4],
     "commodities": [0, 1, 2, 3, 4],
     "geopolitical": [5],
-    "market_breadth": [5],
     "institutional_flow": [5],
     "semiconductor": [2, 3, 4, 5],
     "technology": [2, 3, 4, 5],
@@ -103,9 +102,9 @@ EXPECTED_DIRECT_ORDINALS = {
 }
 
 
-def test_training_projection_declares_all_27_role_owned_targets(tmp_path: Path) -> None:
+def test_training_projection_declares_all_25_role_owned_targets(tmp_path: Path) -> None:
     store = ScorecardStore(tmp_path / "scorecard.sqlite3")
-    assert len(OUTCOME_CONTRACTS) == 27
+    assert len(OUTCOME_CONTRACTS) == 25
     for agent_id, contract in OUTCOME_CONTRACTS.items():
         projection = store.build_prompt_training_projection(
             agent_id=agent_id,

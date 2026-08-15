@@ -53,10 +53,8 @@ function writeStructuredSmokeBundle(root: string, asOfDate = "2026-07-17") {
     "china_archive",
     "economic_calendar",
     "forward_archive",
-    "geopolitical_events",
     "gov_policy",
     "macro_snapshots",
-    "market_breadth",
     "outcome_runtime",
     "runtime_snapshots",
     "sector_archive",
@@ -65,10 +63,6 @@ function writeStructuredSmokeBundle(root: string, asOfDate = "2026-07-17") {
   ]) {
     mkdirSync(join(root, directory), { recursive: true });
   }
-  const manifestPath = join(root, "geopolitical_events", "manifest.json");
-  const manifestHash = canonicalHash({ source: "synthetic" });
-  const manifestContent = JSON.stringify({ manifest_hash: manifestHash });
-  writeFileSync(manifestPath, manifestContent);
   const policyPath = join(root, "gov_policy", "parsed", "policy_documents.jsonl");
   mkdirSync(join(root, "gov_policy", "parsed"), { recursive: true });
   const policyContent = '{"fixture":"synthetic"}\n';
@@ -114,10 +108,6 @@ function writeStructuredSmokeBundle(root: string, asOfDate = "2026-07-17") {
       content_sha256: contentHash(forwardArchiveContent),
     },
     {
-      relative_path: "geopolitical_events/manifest.json",
-      content_sha256: contentHash(manifestContent),
-    },
-    {
       relative_path: "gov_policy/parsed/policy_documents.jsonl",
       content_sha256: contentHash(policyContent),
     },
@@ -144,15 +134,13 @@ function writeStructuredSmokeBundle(root: string, asOfDate = "2026-07-17") {
     fixture_class: "SYNTHETIC_NON_PRODUCTION",
     contains_vendor_prose: false,
     cache_root: root,
-    geopolitical_manifest: manifestPath,
-    geopolitical_manifest_hash: manifestHash,
     artifact_inventory: artifactInventory,
     artifact_inventory_hash: canonicalHash(artifactInventory),
   };
   const marker = { ...body, bundle_hash: canonicalHash(body) };
   const markerPath = join(root, "structured_smoke_fixture_bundle.json");
   writeFileSync(markerPath, JSON.stringify(marker));
-  return { macroContent, macroPath, manifestPath, marker, markerPath };
+  return { macroContent, macroPath, marker, markerPath };
 }
 
 function contentHash(value: string): string {
@@ -310,7 +298,6 @@ describe("daily-cycle current-position fixture options", () => {
       expect(
         validateStructuredSmokeFixtureBundle("2026-07-17", {
           MOSAIC_CACHE_DIR: root,
-          MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
           MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: fixture.marker.bundle_hash,
         }),
       ).toEqual({ bundleHash: fixture.marker.bundle_hash, markerPath: fixture.markerPath });
@@ -325,10 +312,9 @@ describe("daily-cycle current-position fixture options", () => {
       expect(() =>
         validateStructuredSmokeFixtureBundle("2026-07-17", {
           MOSAIC_CACHE_DIR: root,
-          MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: join(root, "missing.json"),
           MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: `sha256:${"0".repeat(64)}`,
         }),
-      ).toThrow(/marker or geopolitical manifest is unavailable/);
+      ).toThrow(/marker is unavailable/);
 
       const fixture = writeStructuredSmokeBundle(root);
       writeFileSync(
@@ -338,7 +324,6 @@ describe("daily-cycle current-position fixture options", () => {
       expect(() =>
         validateStructuredSmokeFixtureBundle("2026-07-17", {
           MOSAIC_CACHE_DIR: root,
-          MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
           MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: fixture.marker.bundle_hash,
         }),
       ).toThrow(/marker binding mismatch/);
@@ -354,7 +339,6 @@ describe("daily-cycle current-position fixture options", () => {
       expect(() =>
         validateStructuredSmokeFixtureBundle("2026-07-17", {
           MOSAIC_CACHE_DIR: root,
-          MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
           MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: fixture.marker.bundle_hash,
         }),
       ).toThrow(/marker binding mismatch/);
@@ -369,7 +353,6 @@ describe("daily-cycle current-position fixture options", () => {
       const fixture = writeStructuredSmokeBundle(root);
       const env = {
         MOSAIC_CACHE_DIR: root,
-        MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
         MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: fixture.marker.bundle_hash,
       };
 
@@ -398,17 +381,15 @@ describe("daily-cycle current-position fixture options", () => {
   it("requires the caller to bind the expected synthetic fixture hash", () => {
     const root = mkdtempSync(join(tmpdir(), "mosaic-structured-smoke-"));
     try {
-      const fixture = writeStructuredSmokeBundle(root);
+      writeStructuredSmokeBundle(root);
       expect(() =>
         validateStructuredSmokeFixtureBundle("2026-07-17", {
           MOSAIC_CACHE_DIR: root,
-          MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
         }),
       ).toThrow(/fixture bundle hash bindings/);
       expect(() =>
         validateStructuredSmokeFixtureBundle("2026-07-17", {
           MOSAIC_CACHE_DIR: root,
-          MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
           MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: `sha256:${"f".repeat(64)}`,
         }),
       ).toThrow(/marker binding mismatch/);
@@ -432,7 +413,7 @@ describe("daily-cycle current-position fixture options", () => {
           MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
           MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: fixture.marker.bundle_hash,
         }),
-      ).toThrow(/marker or geopolitical manifest is unavailable/);
+      ).toThrow(/marker is unavailable/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

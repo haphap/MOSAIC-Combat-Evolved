@@ -10,7 +10,9 @@ import pytest
 
 from mosaic.bridge.tool_capabilities import AgentToolCapabilityStore
 from mosaic.dataflows.frozen_adaptive_queries import FrozenAdaptiveQueryStore
+from mosaic.dataflows.macro_snapshots import validate_role_snapshot
 from mosaic.scorecard.canonical_json import canonical_hash
+from mosaic.scorecard.capability_preservation import load_capability_contract_bundle
 from mosaic.scorecard.l3_l4_preservation import build_l3_l4_preservation_overlay
 
 
@@ -74,10 +76,88 @@ def _materialize(tool_id: str, **_kwargs: object) -> str:
     return json.dumps({"tool": tool_id, "frozen": True}, sort_keys=True)
 
 
-def _materialize_directional(tool_id: str, **_kwargs: object) -> str:
+def _materialize_china_fact_only(tool_id: str, **_kwargs: object) -> str:
+    as_of_date = "2026-07-09"
+    payload = {
+        "schema_version": "macro_role_snapshot_v2",
+        "role": "china",
+        "as_of_date": as_of_date,
+        "observations": [
+            {
+                "series_id": "cn_gdp",
+                "period_start": "2026-04-01",
+                "period_end": "2026-06-30",
+                "released_at": "2026-07-09T01:30:00Z",
+                "vintage_at": "2026-07-09T01:30:00Z",
+                "actual": 5.0,
+                "previous": 5.4,
+                "expected": 5.1,
+                "unit": "percent_yoy",
+                "source": "tushare.cn_gdp",
+                "pit_status": "AVAILABLE_AS_OF",
+                "evidence_id": "macro:cn_gdp:20260709",
+            },
+            {
+                "series_id": "cn_cpi",
+                "period_start": "2026-06-01",
+                "period_end": "2026-06-30",
+                "released_at": "2026-07-09T01:30:00Z",
+                "vintage_at": "2026-07-09T01:30:00Z",
+                "actual": 0.3,
+                "previous": 0.2,
+                "expected": 0.4,
+                "unit": "percent_yoy",
+                "source": "tushare.cn_cpi",
+                "pit_status": "AVAILABLE_AS_OF",
+                "evidence_id": "macro:cn_cpi:20260709",
+            },
+            {
+                "series_id": "cn_credit",
+                "period_start": "2026-05-01",
+                "period_end": "2026-05-31",
+                "released_at": "2026-07-09T01:30:00Z",
+                "vintage_at": "2026-07-09T01:30:00Z",
+                "actual": 1.2,
+                "previous": 1.1,
+                "expected": 1.0,
+                "unit": "percent_yoy",
+                "source": "official.pboc_tsfin_flow_stock",
+                "pit_status": "AVAILABLE_AS_OF",
+                "evidence_id": "macro:cn_credit:20260709",
+            },
+            {
+                "series_id": "cn_export",
+                "period_start": "2026-06-01",
+                "period_end": "2026-06-30",
+                "released_at": "2026-07-09T01:30:00Z",
+                "vintage_at": "2026-07-09T01:30:00Z",
+                "actual": 3.0,
+                "previous": 2.5,
+                "expected": 2.8,
+                "unit": "percent_yoy",
+                "source": "official.customs_total_trade",
+                "pit_status": "AVAILABLE_AS_OF",
+                "evidence_id": "macro:cn_export:20260709",
+            },
+            {
+                "series_id": "cn_fiscal",
+                "period_start": "2026-01-01",
+                "period_end": "2026-06-30",
+                "released_at": "2026-07-09T01:30:00Z",
+                "vintage_at": "2026-07-09T01:30:00Z",
+                "actual": 4.0,
+                "previous": 3.8,
+                "expected": 3.9,
+                "unit": "percent_yoy",
+                "source": "official.mof_general_public_budget",
+                "pit_status": "AVAILABLE_AS_OF",
+                "evidence_id": "macro:cn_fiscal:20260709",
+            },
+        ],
+        "events": [],
+    }
     return json.dumps(
-        {"tool": tool_id, "trend": "up"},
-        sort_keys=True,
+        validate_role_snapshot(payload, "china", as_of_date), sort_keys=True
     )
 
 
@@ -90,7 +170,15 @@ def _accepted_knot_record(
     claim = {
         "claim_id": "claim:1",
         "evidence_ids": ["evidence:1"],
-        "structured_conclusion": {"trend": "down"},
+        "structured_conclusion": {
+            "conclusion_type": "MACRO_FACT",
+            "subject": "prices",
+            "state": "observed",
+            "a_share_transmission": "unknown",
+            "snapshot_echo_id": "macro:china:20260709",
+            "snapshot_metric": "cn_cpi.actual",
+            "snapshot_value": 0.3,
+        },
     }
     capture_body = {
         "schema_version": "accepted_knot_capture_v2",
@@ -359,7 +447,7 @@ def test_accepted_output_materializes_server_owned_knot_v2_history(
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path)
-    prepared = store.prepare(_request(), materializer=_materialize_directional)
+    prepared = store.prepare(_request(), materializer=_materialize_china_fact_only)
     result = store.call_tool_result(
         prepared["capability"], "get_china_macro_snapshot", {}
     )
@@ -387,22 +475,32 @@ def test_accepted_output_materializes_server_owned_knot_v2_history(
             "SELECT * FROM trusted_counterevidence_evaluations_v2 "
             "ORDER BY binding_id, claim_id"
         ).fetchall()
+        projections = conn.execute(
+            "SELECT * FROM binding_signal_projections ORDER BY binding_id"
+        ).fetchall()
 
     assert len(materializations) == 1
     assert len(observations) == first["observation_count"]
     assert len(evaluations) == first["evaluation_count"]
+    assert len(projections) == len(observations)
     observation = json.loads(observations[0]["observation_json"])
+    projection = json.loads(projections[0]["projection_json"])
+    claim_spec = json.loads(evaluations[0]["claim_spec_json"])
     evaluation = json.loads(evaluations[0]["evaluation_json"])
     assert observation["eligible"] is True
     assert observation["ready"] is True
     assert observation["called"] is True
     assert observation["succeeded"] is True
     assert observation["used_in_accepted_evidence"] is True
-    assert observation["counterevidence_available"] is True
-    assert observation["counterevidence_handled"] is True
-    assert evaluation["evaluation_status"] == "EVALUATED"
-    assert evaluation["resolution_code"] == "reversed"
-    assert "comparison_value" not in evaluation
+    assert observation["counterevidence_available"] is False
+    assert observation["counterevidence_handled"] is False
+    assert projection["projection_status"] == "UNKNOWN"
+    assert projection["unknown_reason"] == "NO_TRUSTED_SIGNAL"
+    assert claim_spec["spec_status"] == "UNKNOWN"
+    assert claim_spec["unknown_reason"] == "NO_TRUSTED_TARGET"
+    assert evaluation["evaluation_status"] == "UNKNOWN"
+    assert evaluation["unknown_reason"] == "NO_SAME_DIMENSION_SIGNAL"
+    assert evaluation["resolution_code"] == "abstained"
     assert "private prose" not in json.dumps(observation)
     assert "private prose" not in json.dumps(evaluation)
 
@@ -420,7 +518,7 @@ def test_knot_v2_history_rejects_forged_event_and_excludes_legacy(
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path)
-    prepared = store.prepare(_request(), materializer=_materialize_directional)
+    prepared = store.prepare(_request(), materializer=_materialize_china_fact_only)
     result = store.call_tool_result(
         prepared["capability"], "get_china_macro_snapshot", {}
     )
@@ -463,11 +561,11 @@ def test_knot_v2_history_rejects_forged_event_and_excludes_legacy(
         ).fetchone()[0] == 0
 
 
-def test_knot_v2_history_partition_has_exact_192_binding_closure(
+def test_knot_v2_history_partition_has_current_binding_closure(
     tmp_path: Path,
 ) -> None:
     store = _store(tmp_path)
-    prepared = store.prepare(_request(), materializer=_materialize_directional)
+    prepared = store.prepare(_request(), materializer=_materialize_china_fact_only)
     result = store.call_tool_result(
         prepared["capability"], "get_china_macro_snapshot", {}
     )
@@ -487,7 +585,11 @@ def test_knot_v2_history_partition_has_exact_192_binding_closure(
             "materialization_hash": materialization["materialization_hash"],
         }
     ]
-    assert len(projection["binding_aggregates"]) == 192
+    coverage = load_capability_contract_bundle(ROOT)["knot_coverage_manifest_v2"]["coverage"]
+    assert len(projection["binding_aggregates"]) == len(coverage)
+    assert [row["binding_id"] for row in projection["binding_aggregates"]] == [
+        row["binding_id"] for row in coverage
+    ]
     assert [row["binding_id"] for row in projection["binding_aggregates"]] == sorted(
         row["binding_id"] for row in projection["binding_aggregates"]
     )
@@ -497,7 +599,10 @@ def test_knot_v2_history_partition_has_exact_192_binding_closure(
         if row["used_in_accepted_evidence_count"]
     ]
     assert len(used) == len(result["audit"]["binding_result_refs"])
-    assert all(row["counterevidence_handled_count"] == 1 for row in used)
+    assert all(row["used_in_accepted_evidence_count"] == 1 for row in used)
+    assert all(row["counterevidence_available_count"] == 0 for row in used)
+    assert all(row["counterevidence_handled_count"] == 0 for row in used)
+    assert all(row["model_controllable_gap_count"] == 0 for row in used)
     assert projection["partition_hash"] == canonical_hash(
         {key: value for key, value in projection.items() if key != "partition_hash"}
     )

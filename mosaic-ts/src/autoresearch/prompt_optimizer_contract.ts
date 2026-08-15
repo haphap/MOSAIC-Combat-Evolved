@@ -185,8 +185,6 @@ export const PROMPT_ROLE_COMPONENT_ORDINALS = {
   us_financial_conditions: [0, 1, 2, 3, 4],
   euro_area_financial_conditions: [0, 1, 2, 3, 4],
   commodities: [0, 1, 2, 3, 4],
-  geopolitical: [5],
-  market_breadth: [5],
   institutional_flow: [5],
   semiconductor: [2, 3, 4, 5],
   technology: [2, 3, 4, 5],

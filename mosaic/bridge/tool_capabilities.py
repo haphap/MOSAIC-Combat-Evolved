@@ -60,7 +60,6 @@ from mosaic.dataflows.forward_archive_queries import (
 )
 from mosaic.dataflows.interface import route_to_vendor
 from mosaic.dataflows.macro_snapshots import render_role_snapshot
-from mosaic.dataflows.market_breadth import render_market_breadth_snapshot
 from mosaic.dataflows.role_events import render_role_event_snapshot
 from mosaic.dataflows.sector_relationship_production import (
     SectorRelationshipAdaptiveQueryPreparer,
@@ -90,9 +89,8 @@ from mosaic.scorecard.capability_preservation import (
     validate_trusted_counterevidence_evaluation_v2,
     validate_capability_contract_bundle,
 )
-from mosaic.scorecard.l3_l4_activation import l3_l4_overlay_stage_for_active
-from mosaic.scorecard.l3_l4_preservation import (
-    argument_schema_for_binding as l3_l4_argument_schema_for_binding,
+from mosaic.scorecard.l3_l4_activation import (
+    active_argument_schema_for_l3_l4_binding,
 )
 from mosaic.scorecard.sector_relationship_preservation import argument_schema_for_tool
 
@@ -104,8 +102,6 @@ AgentToolId = Literal[
     "get_us_financial_conditions_snapshot",
     "get_euro_area_financial_conditions_snapshot",
     "get_commodity_conditions_snapshot",
-    "get_geopolitical_events_snapshot",
-    "get_market_breadth_snapshot",
     "get_market_positioning_snapshot",
     "get_sector_research_snapshot",
     "get_role_event_snapshot",
@@ -138,8 +134,6 @@ INITIAL_SNAPSHOT_TOOL_IDS: Final[tuple[AgentToolId, ...]] = (
     "get_us_financial_conditions_snapshot",
     "get_euro_area_financial_conditions_snapshot",
     "get_commodity_conditions_snapshot",
-    "get_geopolitical_events_snapshot",
-    "get_market_breadth_snapshot",
     "get_market_positioning_snapshot",
     "get_sector_research_snapshot",
     "get_role_event_snapshot",
@@ -195,8 +189,8 @@ def _load_runtime_tool_contract() -> tuple[
     if payload.get("schema_version") != "agent_tool_contract_manifest_v1":
         raise RuntimeError("canonical Agent tool contract version mismatch")
     rows = payload.get("agents")
-    if not isinstance(rows, list) or len(rows) != 27:
-        raise RuntimeError("canonical Agent tool contract must contain 27 agents")
+    if not isinstance(rows, list) or len(rows) != 25:
+        raise RuntimeError("canonical Agent tool contract must contain 25 agents")
 
     agent_ids: list[str] = []
     by_layer: dict[str, list[str]] = {
@@ -228,7 +222,7 @@ def _load_runtime_tool_contract() -> tuple[
         by_layer[layer].append(agent)
         matrix[agent] = cast(tuple[AgentToolId, ...], tuple(tools))
 
-    if len(agent_ids) != len(set(agent_ids)) or payload.get("agent_count") != 27:
+    if len(agent_ids) != len(set(agent_ids)) or payload.get("agent_count") != 25:
         raise RuntimeError("Agent tool contract roster count mismatch")
     return (
         tuple(agent_ids),
@@ -255,9 +249,7 @@ TOOL_DESCRIPTIONS: Final[dict[AgentToolId, str]] = {
     "get_us_financial_conditions_snapshot": "Return the frozen US financial-conditions snapshot.",
     "get_euro_area_financial_conditions_snapshot": "Return the frozen euro-area financial-conditions snapshot.",
     "get_commodity_conditions_snapshot": "Return the frozen commodity-conditions snapshot.",
-    "get_geopolitical_events_snapshot": "Return the frozen verified geopolitical-event snapshot.",
-    "get_market_breadth_snapshot": "Return the frozen deterministic A-share breadth snapshot.",
-    "get_market_positioning_snapshot": "Return the frozen A-share positioning snapshot.",
+    "get_market_positioning_snapshot": "Return fixed core A-share ETF share changes.",
     "get_sector_research_snapshot": "Return the frozen role-scoped Sector research snapshot.",
     "get_role_event_snapshot": "Return the frozen event projection for the bound role.",
     "get_superinvestor_candidate_snapshot": "Return the frozen candidate view for this investment philosophy.",
@@ -400,7 +392,7 @@ def _aware_timestamp(value: Any, field: str) -> datetime:
 
 
 def execution_stage_for_agent(agent_id: str, requested_stage: str | None = None) -> str:
-    """Return one of the 28 closed execution-stage identifiers."""
+    """Return one of the 26 closed execution-stage identifiers."""
     if agent_id not in ALL_AGENT_IDS:
         raise ValueError(f"unknown v3 agent_id {agent_id!r}")
     if agent_id != "cio":
@@ -2001,8 +1993,6 @@ def _valid_synthetic_fixture_marker(*, root: Path, as_of: str) -> bool:
         "fixture_class",
         "contains_vendor_prose",
         "cache_root",
-        "geopolitical_manifest",
-        "geopolitical_manifest_hash",
         "artifact_inventory",
         "artifact_inventory_hash",
         "bundle_hash",
@@ -2031,41 +2021,6 @@ def _valid_synthetic_fixture_marker(*, root: Path, as_of: str) -> bool:
         raise DataVendorUnavailable(
             "synthetic runtime fixture artifact inventory mismatch"
         )
-    geopolitical_manifest = Path(str(marker["geopolitical_manifest"])).expanduser()
-    try:
-        resolved_geopolitical_manifest = geopolitical_manifest.resolve(strict=True)
-        manifest_relative = resolved_geopolitical_manifest.relative_to(
-            cache_root
-        ).as_posix()
-    except (OSError, ValueError) as exc:
-        raise DataVendorUnavailable(
-            "synthetic runtime fixture artifact inventory mismatch"
-        ) from exc
-    inventory_paths = {row["relative_path"] for row in inventory}
-    if (
-        geopolitical_manifest.is_symlink()
-        or manifest_relative not in inventory_paths
-        or not _is_sha256(marker.get("geopolitical_manifest_hash"))
-    ):
-        raise DataVendorUnavailable(
-            "synthetic runtime fixture artifact inventory mismatch"
-        )
-    try:
-        geopolitical_payload = json.loads(
-            resolved_geopolitical_manifest.read_text(encoding="utf-8")
-        )
-    except (OSError, json.JSONDecodeError) as exc:
-        raise DataVendorUnavailable(
-            "synthetic runtime fixture artifact inventory mismatch"
-        ) from exc
-    if (
-        not isinstance(geopolitical_payload, dict)
-        or geopolitical_payload.get("manifest_hash")
-        != marker["geopolitical_manifest_hash"]
-    ):
-        raise DataVendorUnavailable(
-            "synthetic runtime fixture artifact inventory mismatch"
-        )
     return True
 
 
@@ -2073,10 +2028,8 @@ _SYNTHETIC_FIXTURE_ARTIFACT_ROOTS: Final = (
     "china_archive",
     "economic_calendar",
     "forward_archive",
-    "geopolitical_events",
     "gov_policy",
     "macro_snapshots",
-    "market_breadth",
     "outcome_runtime",
     "runtime_snapshots",
     "sector_archive",
@@ -2164,8 +2117,6 @@ def materialize_tool_payload(
         role = role_by_tool[tool_id]
         if role != agent_id:
             raise ValueError(f"{tool_id} cannot be materialised for {agent_id}")
-        if tool_id == "get_market_breadth_snapshot":
-            return render_market_breadth_snapshot(as_of)
         return render_role_snapshot(role, as_of)
     if tool_id == "get_sector_research_snapshot":
         return render_sector_snapshot(agent_id, as_of)
@@ -3197,7 +3148,7 @@ class AgentToolCapabilityStore:
             for route_id in binding["required_route_ids"]
         }
         if (
-            len(external_route_ids) != 25
+            len(external_route_ids) != 23
             or family_route_ids != external_route_ids
             or family_stage_keys != set(source_stage_keys)
         ):
@@ -4803,10 +4754,8 @@ class AgentToolCapabilityStore:
         for tool_id in manifest["allowed_tools"]:
             if tool_id in ADAPTIVE_QUERY_TOOL_IDS:
                 args_schema = (
-                    l3_l4_argument_schema_for_binding(
-                        agent_id=agent_id,
-                        stage=l3_l4_overlay_stage_for_active(agent_id, stage),
-                        tool_id=tool_id,
+                    active_argument_schema_for_l3_l4_binding(
+                        agent_id, stage, tool_id
                     )
                     if agent_id in {*SUPERINVESTOR_AGENTS, *DECISION_AGENTS}
                     else argument_schema_for_tool(tool_id)
@@ -6058,7 +6007,7 @@ class AgentToolCapabilityStore:
                         "ready": True,
                         "called": bool(event_refs),
                         "succeeded": succeeded,
-                        "used_in_accepted_evidence": bool(evaluated),
+                        "used_in_accepted_evidence": bool(binding_evaluations),
                         "counterevidence_available": bool(counterevidence),
                         "counterevidence_handled": bool(counterevidence)
                         and all(row["counterevidence_handled"] for row in counterevidence),
@@ -6392,7 +6341,7 @@ class AgentToolCapabilityStore:
         audit_track = bundle["knot_audit_capability_track_v2"]
         accepted_track = bundle["accepted_output_capability_track"]
         binding_ids = [str(row["binding_id"]) for row in coverage["coverage"]]
-        if len(binding_ids) != 192 or binding_ids != sorted(set(binding_ids)):
+        if binding_ids != sorted(set(binding_ids)):
             raise ValueError("KNOT history active binding closure mismatch")
         fixed_point = {
             "tool_environment_hash": accepted_track["tool_environment_hash"],

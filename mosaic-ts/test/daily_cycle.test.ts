@@ -4,8 +4,8 @@
  * Three test groups:
  *   1. ``buildDailyCycleGraph`` compiles successfully (validates the
  *      LangGraph topology is well-formed).
- *   2. End-to-end smoke: 27 mocked agents run across 28 runtime stages,
- *      portfolio_actions populated, llm_calls = 28 (no duplication
+ *   2. End-to-end smoke: 25 mocked agents run across 26 runtime stages,
+ *      portfolio_actions populated without duplicate calls
  *      from subgraph composition — Plan §11.2 design decision #7).
  *   3. Heavy CRO rejection remains in the single canonical chain; there is
  *      no asymmetric replay that can bypass a second CRO review.
@@ -423,8 +423,6 @@ const FAKE_TOOLS: ToolMetadata[] = [
   "get_us_financial_conditions_snapshot",
   "get_euro_area_financial_conditions_snapshot",
   "get_commodity_conditions_snapshot",
-  "get_geopolitical_events_snapshot",
-  "get_market_breadth_snapshot",
   "get_market_positioning_snapshot",
   "get_sector_research_snapshot",
   "get_relationship_graph_snapshot",
@@ -476,9 +474,8 @@ const fakeApi: BridgeApi = {
     if (!role) return { text: `${name}_csv` };
     return {
       text: JSON.stringify({
-        schema_version:
-          role === "market_breadth" ? "market_breadth_snapshot_v1" : "macro_role_snapshot_v2",
-        ...(role !== "market_breadth" ? { role } : {}),
+        schema_version: "macro_role_snapshot_v2",
+        role,
         as_of_date: "2024-06-24",
       }),
     };
@@ -493,8 +490,6 @@ const MACRO_SNAPSHOT_ROLE_BY_TOOL: Record<string, string> = {
   get_us_financial_conditions_snapshot: "us_financial_conditions",
   get_euro_area_financial_conditions_snapshot: "euro_area_financial_conditions",
   get_commodity_conditions_snapshot: "commodities",
-  get_geopolitical_events_snapshot: "geopolitical",
-  get_market_breadth_snapshot: "market_breadth",
   get_market_positioning_snapshot: "institutional_flow",
 };
 
@@ -580,8 +575,6 @@ const ALL_AGENT_IDS = [
   "us_financial_conditions",
   "euro_area_financial_conditions",
   "commodities",
-  "geopolitical",
-  "market_breadth",
   "institutional_flow",
   // L2
   "semiconductor",
@@ -788,8 +781,6 @@ const AGENT_SUBDIR: Record<string, string> = {
   us_financial_conditions: "macro",
   euro_area_financial_conditions: "macro",
   commodities: "macro",
-  geopolitical: "macro",
-  market_breadth: "macro",
   institutional_flow: "macro",
   semiconductor: "sector",
   technology: "sector",
@@ -810,9 +801,9 @@ const AGENT_SUBDIR: Record<string, string> = {
   cio: "decision",
 };
 
-// ============================================================ scripted LLM (27 agents)
+// ============================================================ scripted LLM (25 agents)
 
-class ScriptedLlm27 {
+class ScriptedLlm26 {
   invokeCalls = 0;
   bindToolsCalls = 0;
   structuredCalls = 0;
@@ -826,7 +817,7 @@ class ScriptedLlm27 {
     this.sortedAgentIds = [...ALL_AGENT_IDS].sort((a, b) => b.length - a.length);
   }
 
-  bindTools(tools: unknown): ScriptedLlm27 {
+  bindTools(tools: unknown): ScriptedLlm26 {
     this.bindToolsCalls++;
     this.tools = Array.isArray(tools) ? tools : [];
     return this;
@@ -849,7 +840,7 @@ class ScriptedLlm27 {
           }
         }
         throw new Error(
-          `ScriptedLlm27: no fake response matched system: ${sysContent.slice(0, 120)}`,
+          `ScriptedLlm26: no fake response matched system: ${sysContent.slice(0, 120)}`,
         );
       },
     };
@@ -880,7 +871,7 @@ describe("buildDailyCycleGraph (compile-only)", () => {
   it("compiles without throwing and exposes the canonical layer node names", () => {
     expect([...DAILY_CYCLE_LAYER_NODES]).toEqual(["layer1", "layer2", "layer3", "layer4"]);
     const handle: LlmHandle = {
-      llm: new ScriptedLlm27() as unknown as LlmHandle["llm"],
+      llm: new ScriptedLlm26() as unknown as LlmHandle["llm"],
       provider: "fake",
       model: "fake-model",
       baseUrl: undefined,
@@ -916,8 +907,8 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     clearPromptCache();
   });
 
-  it("runs all 27 agents through 28 stages and publishes a validated final target", async () => {
-    const llm = new ScriptedLlm27();
+  it("runs all 25 agents through 26 stages and publishes a validated final target", async () => {
+    const llm = new ScriptedLlm26();
     const logs: string[] = [];
     const handle: LlmHandle = {
       llm: llm as unknown as LlmHandle["llm"],
@@ -936,9 +927,9 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
 
     const final = (await graph.invoke(emptyState())) as DailyCycleStateType;
 
-    // L1 — ten accepted transmissions plus the deterministic completeness gate.
-    expect(Object.keys(final.layer1_outputs)).toHaveLength(10);
-    expect(final.macro_input_gate?.accepted_agent_ids).toHaveLength(10);
+    // L1 — eight accepted transmissions plus the deterministic completeness gate.
+    expect(Object.keys(final.layer1_outputs)).toHaveLength(8);
+    expect(final.macro_input_gate?.accepted_agent_ids).toHaveLength(8);
 
     // L2 — nine independent standard sectors.
     expect(Object.keys(final.layer2_outputs)).toHaveLength(9);
@@ -958,8 +949,8 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
 
     // Empty frozen CRO/execution object sets are deterministic stage skips;
     // standard Sector agents still use research + final and CIO runs twice.
-    expect(llm.structuredCalls).toBe(35);
-    expect(Object.keys(llm.perAgentStructuredCount).length).toBe(25);
+    expect(llm.structuredCalls).toBe(33);
+    expect(Object.keys(llm.perAgentStructuredCount).length).toBe(23);
     for (const agent of ALL_AGENT_IDS) {
       if (agent === "cro" || agent === "autonomous_execution") {
         expect(llm.perAgentStructuredCount[agent]).toBeUndefined();
@@ -970,7 +961,7 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
       );
     }
 
-    expect(final.llm_calls).toHaveLength(26);
+    expect(final.llm_calls).toHaveLength(24);
     expect(
       final.llm_calls.every((call) =>
         ["accepted", "accepted_empty"].includes(call.agent_run_audit?.status ?? ""),
@@ -1046,7 +1037,7 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
   });
 
   it("transports formal cross-layer outputs only through accepted record refs", async () => {
-    const llm = new ScriptedLlm27();
+    const llm = new ScriptedLlm26();
     const acceptedOutputStore = new AcceptedAgentOutputStore();
     const graph = buildDailyCycleGraph({
       llmHandle: {
@@ -1067,8 +1058,8 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     expect(Object.keys(final.layer1_outputs)).toHaveLength(0);
     expect(Object.keys(final.layer2_outputs)).toHaveLength(0);
     expect(Object.keys(final.layer3_outputs)).toHaveLength(0);
-    expect(Object.keys(final.accepted_output_refs)).toHaveLength(26);
-    expect(records).toHaveLength(26);
+    expect(Object.keys(final.accepted_output_refs)).toHaveLength(24);
+    expect(records).toHaveLength(24);
     expect(Object.keys(final.outcome_stage_skips).sort()).toEqual(["autonomous_execution", "cro"]);
     expect(records.filter((record) => record.agent_id === "cio")).toHaveLength(2);
     expect(records.every((record) => record.graph_run_id === "formal-graph-run")).toBe(true);
@@ -1087,7 +1078,7 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
           !("verified_claim_audit" in (record.output.payload as Record<string, unknown>)),
       ),
     ).toBe(true);
-    expect(final.macro_input_gate?.accepted_count).toBe(10);
+    expect(final.macro_input_gate?.accepted_count).toBe(8);
     expect(final.layer4_outputs.runtime?.final_target_state?.frozen).toBe(true);
   });
 });
@@ -1115,7 +1106,7 @@ describe("buildDailyCycleGraph (heavy CRO rejection)", () => {
   });
 
   it("keeps one hash-bound canonical pass when CRO rejects most candidates", async () => {
-    const llm = new ScriptedLlm27();
+    const llm = new ScriptedLlm26();
     const handle: LlmHandle = {
       llm: llm as unknown as LlmHandle["llm"],
       provider: "fake",
@@ -1131,12 +1122,12 @@ describe("buildDailyCycleGraph (heavy CRO rejection)", () => {
 
     const final = (await graph.invoke(emptyState())) as DailyCycleStateType;
 
-    expect(llm.structuredCalls).toBe(35);
+    expect(llm.structuredCalls).toBe(33);
     expect(llm.perAgentStructuredCount.cro).toBeUndefined();
     expect(llm.perAgentStructuredCount.alpha_discovery).toBe(1);
     expect(llm.perAgentStructuredCount.autonomous_execution).toBeUndefined();
     expect(llm.perAgentStructuredCount.cio).toBe(2);
-    expect(final.llm_calls).toHaveLength(26);
+    expect(final.llm_calls).toHaveLength(24);
     expect(final.portfolio_actions).toEqual([]);
     expect(final.replay_triggered).toBe(false);
     expect(final.layer4_outputs.runtime?.cro_review_state?.output).toMatchObject({
@@ -1160,7 +1151,7 @@ describe("buildDailyCycleGraph (heavy CRO rejection)", () => {
   });
 
   it("end branch (no replay) when cro rejects 0 picks even with full L3 pool", async () => {
-    const llm = new ScriptedLlm27();
+    const llm = new ScriptedLlm26();
     const handle: LlmHandle = {
       llm: llm as unknown as LlmHandle["llm"],
       provider: "fake",
@@ -1174,6 +1165,6 @@ describe("buildDailyCycleGraph (heavy CRO rejection)", () => {
       config: BASE_CONFIG,
     });
     await graph.invoke(emptyState());
-    expect(llm.structuredCalls).toBe(35);
+    expect(llm.structuredCalls).toBe(33);
   });
 });

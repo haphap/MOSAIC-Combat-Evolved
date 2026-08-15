@@ -322,7 +322,7 @@ export function registerDailyCycle(program: Command): void {
         if (cycleAuthorityEnabled) {
           const leaseSeconds =
             agentTimeoutMs > 0
-              ? Math.max(3600, Math.ceil(agentTimeoutMs / 1000) * 28 + 600)
+              ? Math.max(3600, Math.ceil(agentTimeoutMs / 1000) * 27 + 600)
               : 86_400;
           const sourceAdmission = await api.dataSourcePreflight({
             as_of: asOfDate,
@@ -423,9 +423,9 @@ export function registerDailyCycle(program: Command): void {
                 .map((entry) => entry.stage),
             ).size
           : 0;
-        if (agentRunAudits.length + stageSkipCount + localSmokeStageSkipCount !== 28) {
+        if (agentRunAudits.length + stageSkipCount + localSmokeStageSkipCount !== 26) {
           throw new Error(
-            "accepted daily cycle must expose exactly 28 accepted-or-skipped Agent stages; " +
+            "accepted daily cycle must expose exactly 26 accepted-or-skipped Agent stages; " +
               `got accepted=${agentRunAudits.length} skipped=${stageSkipCount + localSmokeStageSkipCount}`,
           );
         }
@@ -715,18 +715,14 @@ const STRUCTURED_SMOKE_MARKER_FIELDS = [
   "cache_root",
   "contains_vendor_prose",
   "fixture_class",
-  "geopolitical_manifest",
-  "geopolitical_manifest_hash",
   "schema_version",
 ] as const;
 const STRUCTURED_SMOKE_ARTIFACT_ROOTS = [
   "china_archive",
   "economic_calendar",
   "forward_archive",
-  "geopolitical_events",
   "gov_policy",
   "macro_snapshots",
-  "market_breadth",
   "outcome_runtime",
   "runtime_snapshots",
   "sector_archive",
@@ -739,36 +735,26 @@ export function validateStructuredSmokeFixtureBundle(
   env: NodeJS.ProcessEnv = process.env,
 ): { bundleHash: string; markerPath: string } {
   const cacheRoot = env.MOSAIC_CACHE_DIR;
-  const geopoliticalManifest = env.MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST;
   const expectedBundleHash = env.MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH;
-  if (
-    !cacheRoot ||
-    !geopoliticalManifest ||
-    !expectedBundleHash ||
-    !/^sha256:[0-9a-f]{64}$/.test(expectedBundleHash)
-  ) {
-    throw new Error(
-      "non-production smoke requires cache, geopolitical manifest, and fixture bundle hash bindings",
-    );
+  if (!cacheRoot || !expectedBundleHash || !/^sha256:[0-9a-f]{64}$/.test(expectedBundleHash)) {
+    throw new Error("non-production smoke requires cache and fixture bundle hash bindings");
   }
   const resolvedRoot = resolve(cacheRoot);
   const markerPath = resolve(resolvedRoot, "structured_smoke_fixture_bundle.json");
   let marker: unknown;
-  let manifest: unknown;
   try {
     const markerMetadata = lstatSync(markerPath);
     if (markerMetadata.isSymbolicLink() || !markerMetadata.isFile()) {
       throw new Error("structured-smoke fixture marker must be a regular file");
     }
     marker = JSON.parse(readFileSync(markerPath, "utf-8"));
-    manifest = JSON.parse(readFileSync(resolve(geopoliticalManifest), "utf-8"));
   } catch (cause) {
-    throw new Error("structured-smoke fixture marker or geopolitical manifest is unavailable", {
+    throw new Error("structured-smoke fixture marker is unavailable", {
       cause,
     });
   }
-  if (!isPlainRecord(marker) || !isPlainRecord(manifest)) {
-    throw new Error("structured-smoke fixture marker and manifest must be JSON objects");
+  if (!isPlainRecord(marker)) {
+    throw new Error("structured-smoke fixture marker must be a JSON object");
   }
   if (
     JSON.stringify(Object.keys(marker).sort()) !==
@@ -792,8 +778,6 @@ export function validateStructuredSmokeFixtureBundle(
     marker.fixture_class !== "SYNTHETIC_NON_PRODUCTION" ||
     marker.contains_vendor_prose !== false ||
     resolve(String(marker.cache_root)) !== resolvedRoot ||
-    resolve(String(marker.geopolitical_manifest)) !== resolve(geopoliticalManifest) ||
-    marker.geopolitical_manifest_hash !== manifest.manifest_hash ||
     marker.bundle_hash !== bundleHash ||
     marker.bundle_hash !== expectedBundleHash
   ) {

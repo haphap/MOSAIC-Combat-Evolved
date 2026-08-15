@@ -861,6 +861,15 @@ def test_membership_batches_runs_vendor_fetches_on_caller_thread() -> None:
 def test_capture_group_executes_registered_incremental_routes(
     monkeypatch,
 ) -> None:
+    registered_plan = next(
+        row
+        for row in sector_archive.SECTOR_UNIVERSE_MANIFEST["membership_query_plans"]
+        if row["sector_agent_id"] == "semiconductor"
+    )
+    classification_parameter_by_code = {
+        branch["classification_code"]: branch["parameter"]
+        for branch in registered_plan["branches"]
+    }
     plan = {
         "sector_agent_id": "semiconductor",
         "query_plan_hash": f"sha256:{'b' * 64}",
@@ -878,6 +887,18 @@ def test_capture_group_executes_registered_incremental_routes(
         "membership_query_plans",
         [plan],
     )
+    direction_ids = tuple(sector_archive.SECTOR_DIRECTION_IDS["semiconductor"])
+    mapped_codes = tuple(f"6884{index:02d}.SH" for index in range(11))
+    unmapped_code = "300655.SZ"
+    direction_by_code = {
+        code: direction_ids[index % len(direction_ids)]
+        for index, code in enumerate(mapped_codes)
+    }
+    classification_by_direction = {
+        row["direction_id"]: row["included_classification_codes"][0]
+        for row in sector_archive.SECTOR_UNIVERSE_MANIFEST["direction_contracts"]
+        if row["sector_agent_id"] == "semiconductor"
+    }
     monkeypatch.setattr(
         sector_archive,
         "_authoritative_etf_codes",
@@ -885,6 +906,21 @@ def test_capture_group_executes_registered_incremental_routes(
             ["510001.SH"]
             if role == "semiconductor" and direction_id == "chip_design"
             else []
+        ),
+    )
+    monkeypatch.setattr(
+        sector_archive,
+        "_read_semiconductor_etf_basket",
+        lambda _etf, _as_of: (
+            "2026-08-06",
+            [
+                {
+                    "ticker": ticker,
+                    "basket_quantity": float(2000 - index),
+                }
+                for index, ticker in enumerate((*mapped_codes, unmapped_code))
+            ],
+            f"sha256:{'e' * 64}",
         ),
     )
     moments = iter(
@@ -955,6 +991,33 @@ def test_capture_group_executes_registered_incremental_routes(
         "fund_portfolio",
     }
     assert group["page_count"] == len(calls)
+    membership_calls = [
+        params for endpoint, params in calls if endpoint == "index_member_all"
+    ]
+    assert len(membership_calls) == 12
+    assert {params["ts_code"] for params in membership_calls} == {
+        *mapped_codes,
+        unmapped_code,
+    }
+    assert all(set(params) == {"ts_code", "is_new"} for params in membership_calls)
+    membership_batch = next(
+        batch for batch in group["batches"] if batch["endpoint"] == "index_member_all"
+    )
+    assert membership_batch["request"]["ts_codes"] == sorted(
+        (*mapped_codes, unmapped_code)
+    )
+    assert {
+        row["ts_code"] for row in membership_batch["rows"]
+    } == {*mapped_codes, unmapped_code}
+    assert membership_batch["rows_hash"] == sector_archive.canonical_hash(
+        membership_batch["rows"]
+    )
+    assert group["capture_scope"]["security_codes"] == sorted(mapped_codes)
+    assert all(
+        params.get("ts_code") != unmapped_code
+        for endpoint, params in calls
+        if endpoint != "index_member_all" and "ts_code" in params
+    )
     assert "compiled_snapshot_hashes" not in group
     stock_basic = next(
         batch for batch in group["batches"] if batch["endpoint"] == "stock_basic"
@@ -991,7 +1054,7 @@ def test_capture_group_executes_registered_incremental_routes(
         "fund_nav": "OFFSET_WITH_TERMINAL_CONFIRMATION",
         "fund_portfolio": "OFFSET_WITH_TERMINAL_CONFIRMATION",
         "income": "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP",
-        "index_member_all": "OFFSET_WITH_TERMINAL_CONFIRMATION",
+        "index_member_all": "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP",
         "moneyflow": "OFFSET_WITH_TERMINAL_CONFIRMATION",
     }
 
@@ -1084,5 +1147,21 @@ def test_sector_market_capture_queries_role_tickers_and_etfs_exactly(
     assert {params["ts_code"] for params in moneyflow_calls} == {"000001.SZ"}
     assert all("trade_date" not in params for params in moneyflow_calls)
     assert {params["ts_code"] for params in fund_calls} == {"510001.SH"}
+    portfolio_calls = [
+        params for endpoint, params in calls if endpoint == "fund_portfolio"
+    ]
+    assert {
+        (params["ts_code"], params["start_date"], params["end_date"])
+        for params in portfolio_calls
+    } == {("510001.SH", "20250702", "20260806")}
+    portfolio_batch = next(
+        batch for batch in group["batches"] if batch["endpoint"] == "fund_portfolio"
+    )
+    assert portfolio_batch["query_count"] == 1
+    assert portfolio_batch["request"] == {
+        "start_date": "20250702",
+        "end_date": "20260806",
+        "ts_codes": ["510001.SH"],
+    }
     assert "510999.SH" not in str(calls)
     assert group["capture_scope"]["etf_codes"] == ["510001.SH"]

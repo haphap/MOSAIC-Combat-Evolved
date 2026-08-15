@@ -242,10 +242,10 @@ export function buildDarwinianRuntimeBinding(input: {
   );
   const expectedAgents = Object.keys(OUTCOME_LABEL_REGISTRY).sort();
   if (
-    promptShaByAgent.size !== 27 ||
+    promptShaByAgent.size !== expectedAgents.length ||
     expectedAgents.some((agent) => !promptShaByAgent.has(agent))
   ) {
-    throw new Error("prompt preflight must provide the selected language for all 27 Agents");
+    throw new Error("prompt preflight must provide the selected language for all active Agents");
   }
 
   const runtimeSpecByAgent = new Map(RUNTIME_AGENT_SPECS.map((spec) => [spec.agent, spec]));

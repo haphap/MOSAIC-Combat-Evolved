@@ -61,7 +61,7 @@ def _sample_state(date: str = "2024-06-24") -> dict:
                 "stage": "primary",
                 "status": "accepted",
             }
-            for index in range(28)
+            for index in range(26)
         ],
         "layer1_outputs": {},
         "layer2_outputs": {},
@@ -411,11 +411,11 @@ class TestScorecardAppend:
         monkeypatch.setattr(
             tmp_store,
             "append_agent_display_narratives_from_state",
-            lambda payload, **_kwargs: narrative_states.append(payload) or 27,
+            lambda payload, **_kwargs: narrative_states.append(payload) or 25,
         )
 
         result = dispatch("scorecard.append", {"state": state})
-        assert result["agent_narratives_ingested"] == 27
+        assert result["agent_narratives_ingested"] == 25
         assert all(
             "agent_display_narratives" not in payload
             for payload in evaluation_states
@@ -442,7 +442,7 @@ class TestScorecardAppend:
         with pytest.raises(RpcError) as excinfo:
             dispatch("scorecard.append", {"state": state})
         assert excinfo.value.code == -32602
-        assert "28 unique accepted" in excinfo.value.message
+        assert "26 unique accepted" in excinfo.value.message
 
     def test_backtest_requires_matching_accepted_day(self, tmp_store):
         state = _sample_state()
@@ -493,8 +493,8 @@ class TestScorecardAppend:
             ).fetchone()[0] == 0
         result = dispatch("scorecard.append", {"state": accepted})
         assert result["ingested"] >= 1
-        assert result["macro_ingested"] == 10
-        assert result["agent_narratives_ingested"] == 27
+        assert result["macro_ingested"] == 8
+        assert result["agent_narratives_ingested"] == 25
         retry = dispatch("scorecard.append", {"state": accepted})
         assert retry["ingested"] == result["ingested"]
         assert retry["macro_ingested"] == result["macro_ingested"]
@@ -602,7 +602,7 @@ class TestScorecardAppend:
                 "SELECT COUNT(*) FROM accepted_agent_outputs_v2 "
                 "WHERE graph_run_id = ?",
                 (state["trace_id"],),
-            ).fetchone()[0] == 28
+            ).fetchone()[0] == 26
             raise ValueError("injected post-Darwin validation failure")
 
         monkeypatch.setattr(

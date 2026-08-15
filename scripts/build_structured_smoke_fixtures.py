@@ -9,7 +9,6 @@ production snapshot fallback or writing to the scorecard/release ledgers.
 from __future__ import annotations
 
 import argparse
-import copy
 import csv
 import hashlib
 import json
@@ -31,13 +30,6 @@ from mosaic.dataflows.economic_calendar import (
     EconomicCalendarStore,
     collect_eco_calendar,
 )
-from mosaic.dataflows.geopolitical_events import (
-    GEOPOLITICAL_INITIAL_SOURCE_MANIFEST,
-    GeopoliticalEventStore,
-    coverage_query_key,
-    scope_query_hash,
-    validate_geopolitical_manifest,
-)
 from mosaic.dataflows.macro_source_contracts import (
     COMMODITY_CONTRACT_MAP,
     COMMODITY_FAMILY_CONTRACTS,
@@ -46,7 +38,6 @@ from mosaic.dataflows.macro_snapshots import (
     MACRO_EVENT_ROLES,
     validate_role_snapshot,
 )
-from mosaic.dataflows.market_breadth import render_market_breadth_snapshot
 from mosaic.dataflows.outcome_runtime_inputs import (
     EVENT_COVERAGE_SCHEMA_VERSION,
     OPPORTUNITY_PROJECTION_SCHEMA_VERSION,
@@ -59,9 +50,7 @@ from mosaic.dataflows.sector_archive import (
 from mosaic.dataflows.china_agent_data_archive import (
     CAPTURE_SCHEMA_VERSION as CHINA_CAPTURE_SCHEMA_VERSION,
     CURVE_ROUTE_GROUP,
-    INSTITUTIONAL_CROWDING_UNIVERSE,
     INSTITUTIONAL_ETF_UNIVERSE,
-    INSTITUTIONAL_INDUSTRY_UNIVERSE,
     INSTITUTIONAL_ROUTE_GROUP,
     ROUTE_GROUPS as CHINA_ROUTE_GROUPS,
     ChinaAgentDataArchiveStore,
@@ -70,7 +59,6 @@ from mosaic.dataflows.supply_chain_disclosures import (
     OfficialSupplyChainDisclosureArchive,
     capture_official_supply_chain_disclosures,
 )
-from mosaic.dataflows.sector_relationship_query_plans import THS_INDUSTRY_FILTERS
 from mosaic.dataflows.sector_snapshots import (
     SECTOR_DIRECTION_CONTRACT_VERSION,
     SECTOR_DIRECTION_IDS,
@@ -88,10 +76,8 @@ _FIXTURE_ARTIFACT_ROOTS = (
     "china_archive",
     "economic_calendar",
     "forward_archive",
-    "geopolitical_events",
     "gov_policy",
     "macro_snapshots",
-    "market_breadth",
     "outcome_runtime",
     "runtime_snapshots",
     "sector_archive",
@@ -326,10 +312,13 @@ def _build_macro_snapshots(root: Path, as_of: date) -> None:
             ("agriculture_food_index", "tushare.fut_daily.C@DCE"),
         ),
         "institutional_flow": (
-            ("market_flow_all_share", "tushare.moneyflow_hsgt"),
-            ("sector_rotation_all_share", "tushare.moneyflow_ind_ths"),
-            ("etf_share_all_share", "tushare.fund_share"),
-            ("crowding_all_share", "tushare.daily_basic"),
+            tuple(
+                (
+                    f"etf_share_{ticker.replace('.', '_')}_change",
+                    "tushare.fund_share",
+                )
+                for ticker in INSTITUTIONAL_ETF_UNIVERSE
+            )
         ),
     }
     snapshot_dir = root / "macro_snapshots" / as_of.isoformat()
@@ -389,17 +378,11 @@ def _build_macro_snapshots(root: Path, as_of: date) -> None:
                 **(
                     {
                         "component_coverage": {
-                            component: {
-                                "eligible_count": 100,
-                                "observed_count": 100,
+                            "etf_share": {
+                                "eligible_count": len(INSTITUTIONAL_ETF_UNIVERSE),
+                                "observed_count": len(INSTITUTIONAL_ETF_UNIVERSE),
                                 "coverage_ratio": 1.0,
                             }
-                            for component in (
-                                "market_wide_flow",
-                                "sector_rotation",
-                                "etf_share",
-                                "crowding",
-                            )
                         }
                     }
                     if role == "institutional_flow"
@@ -439,57 +422,6 @@ def _build_economic_calendar(root: Path, as_of: date) -> None:
     )
 
 
-def _nonproduction_geopolitical_manifest(as_of: date) -> dict[str, Any]:
-    del as_of
-    payload = copy.deepcopy(GEOPOLITICAL_INITIAL_SOURCE_MANIFEST)
-    return validate_geopolitical_manifest(payload)
-
-
-def _build_geopolitical_cache(root: Path, as_of: date) -> Path:
-    target = root / "geopolitical_events"
-    manifest = _nonproduction_geopolitical_manifest(as_of)
-    manifest_path = target / "structured_smoke_ready_manifest.json"
-    _write_json(manifest_path, manifest)
-    store = GeopoliticalEventStore(target / "events.sqlite3")
-    adapters = {row["source_id"]: row for row in manifest["adapter_contracts"]}
-    ordinal = 0
-    for route in manifest["coverage_routes"]:
-        if route["applicability"] != "APPLICABLE":
-            continue
-        for source_id in route["required_source_ids"]:
-            ordinal += 1
-            adapter = adapters[source_id]
-            query_hash = scope_query_hash(route, adapter)
-            query_key = coverage_query_key(route, source_id, query_hash)
-            store.append_poll_observation(
-                {
-                    "observation_id": f"structured-smoke-poll-{ordinal:05d}",
-                    "coverage_route_id": route["coverage_route_id"],
-                    "coverage_route_hash": route["coverage_route_hash"],
-                    "source_id": source_id,
-                    "scope_query_hash": query_hash,
-                    "coverage_query_key": query_key,
-                    "poll_started_at": f"{as_of.isoformat()}T06:44:00Z",
-                    "poll_completed_at": f"{as_of.isoformat()}T06:45:00Z",
-                    "http_status": 200,
-                    "row_count": 0,
-                    "pagination_complete": True,
-                    "terminal_proof_kind": "PAGINATION_EXHAUSTED",
-                    "truncated": False,
-                    "schema_hash": adapter["expected_response_schema_hash"],
-                    "response_content_hash": _canonical_hash(
-                        {"query": query_key, "rows": []}
-                    ),
-                    "ingestion_mode": "NON_PRODUCTION_CALLBACK",
-                    "parse_result": "SUCCESS",
-                    "error_class": None,
-                    "coverage_evidence_id": f"structured-smoke:geo-coverage:{query_key}",
-                },
-                manifest=manifest,
-            )
-    return manifest_path
-
-
 def _business_days_ending(as_of: date, count: int) -> list[date]:
     days: list[date] = []
     current = as_of
@@ -508,66 +440,6 @@ def _write_csv(
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
-
-
-def _build_market_breadth(root: Path, as_of: date) -> None:
-    target = root / "market_breadth"
-    trading_days = _business_days_ending(as_of, 320)
-    # Structured smoke accepts any ISO date, including weekends used by the
-    # bridge protocol suite. Keep the bundle explicitly synthetic while giving
-    # its PIT snapshot an observation at the requested boundary.
-    if trading_days[-1] != as_of:
-        trading_days.append(as_of)
-    tickers = [f"{index:06d}.SZ" for index in range(1, 41)]
-    _write_csv(
-        target / "stock_basic.csv",
-        ("ts_code", "list_date", "delist_date"),
-        [
-            {
-                "ts_code": ticker,
-                "list_date": (trading_days[0] - timedelta(days=365)).strftime("%Y%m%d"),
-                "delist_date": "",
-            }
-            for ticker in tickers
-        ],
-    )
-    daily_rows: list[dict[str, Any]] = []
-    factor_rows: list[dict[str, Any]] = []
-    prices = {ticker: 8.0 + index * 0.15 for index, ticker in enumerate(tickers)}
-    for day_index, trading_day in enumerate(trading_days):
-        for ticker_index, ticker in enumerate(tickers):
-            pre_close = prices[ticker]
-            daily_return = ((ticker_index % 9) - 4) * 0.0008 + (
-                (day_index % 7) - 3
-            ) * 0.0004
-            close = max(1.0, pre_close * (1.0 + daily_return))
-            prices[ticker] = close
-            daily_rows.append(
-                {
-                    "ts_code": ticker,
-                    "trade_date": trading_day.strftime("%Y%m%d"),
-                    "close": f"{close:.6f}",
-                    "pre_close": f"{pre_close:.6f}",
-                    "amount": f"{1_000_000 + ticker_index * 17_000 + day_index * 1_300:.2f}",
-                }
-            )
-            factor_rows.append(
-                {
-                    "ts_code": ticker,
-                    "trade_date": trading_day.strftime("%Y%m%d"),
-                    "adj_factor": "1.0",
-                }
-            )
-    _write_csv(
-        target / "daily.csv",
-        ("ts_code", "trade_date", "close", "pre_close", "amount"),
-        daily_rows,
-    )
-    _write_csv(
-        target / "adj_factor.csv",
-        ("ts_code", "trade_date", "adj_factor"),
-        factor_rows,
-    )
 
 
 def _build_sector_snapshots(root: Path, as_of: date) -> None:
@@ -1282,24 +1154,6 @@ def _build_china_archive(root: Path, as_of: date) -> Path:
     start = as_of - timedelta(days=365)
     captured_at = f"{as_of.isoformat()}T14:45:00+08:00"
     cutoff_at = f"{as_of.isoformat()}T23:59:00+08:00"
-    industries = sorted(
-        {
-            industry
-            for filters in THS_INDUSTRY_FILTERS.values()
-            for industry in filters
-        }
-        | {"银行"}
-    )
-    industry_history_rows = [
-        {
-            "trade_date": (start + timedelta(days=day_ordinal)).isoformat(),
-            "industry": industry,
-            "net_amount": float(industry_ordinal * 10 + day_ordinal),
-            "lead_stock": f"synthetic-leader-{industry_ordinal}",
-        }
-        for day_ordinal in range(366)
-        for industry_ordinal, industry in enumerate(industries, start=1)
-    ]
     institutional_body = {
         "schema_version": CHINA_CAPTURE_SCHEMA_VERSION,
         "capture_key": _canonical_hash(
@@ -1311,55 +1165,21 @@ def _build_china_archive(root: Path, as_of: date) -> Path:
         "cutoff_at": cutoff_at,
         "captured_at": captured_at,
         "market_session_date": as_of.isoformat(),
-        "northbound": {"north_money": 100.0, "row_count": 1},
-        "market_flow_rows": [
-            {"ts_code": ticker, "net_mf_amount": float(index * 100)}
-            for index, ticker in enumerate(INSTITUTIONAL_CROWDING_UNIVERSE, start=1)
-        ],
-        "industry_rows": [
-            {
-                "industry": industry,
-                "net_amount": float(index * 10 + 365),
-            }
-            for index, industry in enumerate(industries, start=1)
-        ],
-        "industry_history_start": start.isoformat(),
-        "industry_history_rows": industry_history_rows,
-        "industry_transport_call_count": 1,
-        "industry_duplicate_count": 0,
         "fund_share_rows": [
-            {"ts_code": ticker, "fd_share": float(index * 1_000)}
+            {
+                "ts_code": ticker,
+                "latest": {
+                    "trade_date": as_of.isoformat(),
+                    "fd_share": float(index * 1_000),
+                },
+                "prior": {
+                    "trade_date": (as_of - timedelta(days=1)).isoformat(),
+                    "fd_share": float(index * 900),
+                },
+                "share_change_pct": round((1_000 - 900) / 900 * 100, 6),
+            }
             for index, ticker in enumerate(INSTITUTIONAL_ETF_UNIVERSE, start=1)
         ],
-        "crowding_rows": [
-            {
-                "ts_code": "600000.SH",
-                "turnover_rate": 1.5,
-                "volume_ratio": 0.9,
-            }
-        ],
-        "institutional_requests": {
-            "moneyflow": [
-                {"ts_code": ticker, "trade_date": as_of.strftime("%Y%m%d")}
-                for ticker in INSTITUTIONAL_CROWDING_UNIVERSE
-            ],
-            "moneyflow_ind_ths": [
-                {"ts_code": ticker, "trade_date": as_of.strftime("%Y%m%d")}
-                for ticker in INSTITUTIONAL_INDUSTRY_UNIVERSE
-            ],
-            "fund_share": [
-                {
-                    "ts_code": ticker,
-                    "start_date": as_of.strftime("%Y%m%d"),
-                    "end_date": as_of.strftime("%Y%m%d"),
-                }
-                for ticker in INSTITUTIONAL_ETF_UNIVERSE
-            ],
-            "daily_basic": [
-                {"ts_code": ticker, "trade_date": as_of.strftime("%Y%m%d")}
-                for ticker in INSTITUTIONAL_CROWDING_UNIVERSE
-            ],
-        },
     }
     institutional_group = {
         **institutional_body,
@@ -1523,22 +1343,6 @@ def _synthetic_macro_authority_snapshot(
     agent_id: str,
     as_of: date,
 ) -> dict[str, Any]:
-    if agent_id == "geopolitical":
-        return {
-            "snapshot_hash": _canonical_hash(
-                {
-                    "fixture_class": "SYNTHETIC_NON_PRODUCTION",
-                    "agent_id": agent_id,
-                    "as_of": as_of.isoformat(),
-                }
-            )
-        }
-    if agent_id == "market_breadth":
-        return json.loads(
-            render_market_breadth_snapshot(
-                as_of.isoformat(), root / "market_breadth"
-            )
-        )
     raw = json.loads(
         (root / "macro_snapshots" / as_of.isoformat() / f"{agent_id}.json")
         .read_text(encoding="utf-8")
@@ -2083,8 +1887,6 @@ def build_structured_smoke_fixtures(root: Path, as_of_date: str) -> dict[str, st
     root.mkdir(parents=True, exist_ok=True)
     _build_macro_snapshots(root, as_of)
     _build_economic_calendar(root, as_of)
-    manifest_path = _build_geopolitical_cache(root, as_of)
-    _build_market_breadth(root, as_of)
     _build_sector_snapshots(root, as_of)
     sector_archive_path = _build_sector_archive(root, as_of)
     forward_archive_root = _build_forward_archive(root, as_of)
@@ -2101,10 +1903,6 @@ def build_structured_smoke_fixtures(root: Path, as_of_date: str) -> dict[str, st
         "fixture_class": "SYNTHETIC_NON_PRODUCTION",
         "contains_vendor_prose": False,
         "cache_root": str(root),
-        "geopolitical_manifest": str(manifest_path),
-        "geopolitical_manifest_hash": json.loads(
-            manifest_path.read_text(encoding="utf-8")
-        )["manifest_hash"],
         "artifact_inventory": artifact_inventory,
         "artifact_inventory_hash": _canonical_hash(artifact_inventory),
     }
@@ -2113,7 +1911,6 @@ def build_structured_smoke_fixtures(root: Path, as_of_date: str) -> dict[str, st
     return {
         "MOSAIC_CACHE_DIR": str(root),
         "MOSAIC_CHINA_AGENT_ARCHIVE_DB": str(china_archive_path),
-        "MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST": str(manifest_path),
         "MOSAIC_FORWARD_ARCHIVE_ROOT": str(forward_archive_root),
         "MOSAIC_GOV_POLICY_CACHE_DIR": str(root / "gov_policy"),
         "MOSAIC_REGISTRY_DIR": str(

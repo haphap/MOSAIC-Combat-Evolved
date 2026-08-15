@@ -56,16 +56,13 @@ ROLE_SERIES = {
     ),
     "geopolitical": ("geopolitical_event_severity",),
     "institutional_flow": (
-        "market_flow_net_amount",
-        "sector_rotation_net_amount",
         "etf_share_change",
-        "crowding_concentration",
     ),
 }
 
 INSTITUTIONAL_FLOW_COVERAGE = {
     component: {"eligible_count": 100, "observed_count": 95, "coverage_ratio": 0.95}
-    for component in ("market_wide_flow", "sector_rotation", "etf_share", "crowding")
+    for component in ("etf_share",)
 }
 FINANCIAL_CONTEXT_ROLE = {
     "central_bank": "china",
@@ -184,7 +181,6 @@ def source_for(role: str, series_id: str) -> str:
             "market_flow_": "tushare.moneyflow",
             "sector_rotation_": "tushare.moneyflow_ind_ths",
             "etf_share_": "tushare.fund_share",
-            "crowding_": "tushare.daily_basic",
         },
     }
     for prefix, source in prefixes[role].items():
@@ -709,21 +705,16 @@ def test_registered_snapshot_builder_rejects_identity_only_sources(tmp_path, rol
     assert not (tmp_path / "2024-06-30" / f"{role}.json").exists()
 
 
-def test_institutional_flow_requires_all_four_market_components():
+def test_institutional_flow_requires_etf_component():
     accepted = validate_role_snapshot(
         payload(role="institutional_flow"), "institutional_flow", "2024-06-30"
     )
     assert accepted["direct_data_quality"] == pytest.approx(0.95)
     assert set(accepted["component_coverage"]) == set(INSTITUTIONAL_FLOW_COVERAGE)
 
-    for series in (
-        ["lhb_sampled_stock"],
-        ["market_flow_net_amount"],
-        [
-            "market_flow_net_amount",
-            "sector_rotation_net_amount",
-            "etf_share_change",
-        ],
+    with pytest.raises(
+        DataVendorUnavailable,
+        match="unregistered macro observation source identity",
     ):
         with pytest.raises(
             DataVendorUnavailable, match="missing required components|does not map"
@@ -750,7 +741,7 @@ def test_institutional_flow_requires_all_four_market_components():
 
 def test_institutional_flow_coverage_is_exact_and_fail_closed():
     missing = dict(INSTITUTIONAL_FLOW_COVERAGE)
-    missing.pop("crowding")
+    missing.pop("etf_share")
     with pytest.raises(DataVendorUnavailable, match="must match"):
         validate_role_snapshot(
             payload(role="institutional_flow", component_coverage=missing),
@@ -774,7 +765,7 @@ def test_institutional_flow_coverage_is_exact_and_fail_closed():
     inconsistent = {
         key: dict(value) for key, value in INSTITUTIONAL_FLOW_COVERAGE.items()
     }
-    inconsistent["market_wide_flow"]["coverage_ratio"] = 1.0
+    inconsistent["etf_share"]["coverage_ratio"] = 1.0
     with pytest.raises(DataVendorUnavailable, match="inconsistent"):
         validate_role_snapshot(
             payload(role="institutional_flow", component_coverage=inconsistent),

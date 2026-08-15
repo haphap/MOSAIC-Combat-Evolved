@@ -1,6 +1,6 @@
 {
   "registry_version": "outcome_normalization_registry_v1",
-  "registry_hash": "sha256:95fe1c6a828ef294c499272b3240bd87c4e0289cd23c3b0fe0965a8bce838b66",
+  "registry_hash": "sha256:ce43e925f9ad457c0f69fcb2293e5abba56333c3fe1498c41cd08645beef9758",
   "entries": [
     {
       "normalization_contract_version": "alpha_incremental_utility_normalization_v2",
@@ -67,23 +67,7 @@
       "calibration_window_end": null
     },
     {
-      "normalization_contract_version": "geopolitical_transmission_a_share_path_5d_normalization_v1",
-      "effective_at": "2020-01-01T00:00:00+08:00",
-      "scale": 1.0,
-      "scale_authority": "PRE_REGISTERED_COLD_START_UNIT_SCALE",
-      "calibration_sample_count": 0,
-      "calibration_window_end": null
-    },
-    {
       "normalization_contract_version": "institutional_flow_followthrough_5d_normalization_v1",
-      "effective_at": "2020-01-01T00:00:00+08:00",
-      "scale": 1.0,
-      "scale_authority": "PRE_REGISTERED_COLD_START_UNIT_SCALE",
-      "calibration_sample_count": 0,
-      "calibration_window_end": null
-    },
-    {
-      "normalization_contract_version": "market_breadth_confirmation_5d_normalization_v1",
       "effective_at": "2020-01-01T00:00:00+08:00",
       "scale": 1.0,
       "scale_authority": "PRE_REGISTERED_COLD_START_UNIT_SCALE",

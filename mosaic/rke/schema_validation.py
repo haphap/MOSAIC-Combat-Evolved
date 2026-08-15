@@ -214,16 +214,6 @@ JSON_SCHEMA_TARGETS = (
         "registry/data_sources/official_macro_source_preflight_v1.json",
         "json",
     ),
-    (
-        "schemas/geopolitical_initial_source_manifest_v2.schema.json",
-        "registry/data_sources/geopolitical_initial_source_manifest_v2.json",
-        "json",
-    ),
-    (
-        "schemas/geopolitical_source_transport_preflight_v1.schema.json",
-        "registry/data_sources/geopolitical_source_transport_preflight_v1.json",
-        "json",
-    ),
 )
 
 

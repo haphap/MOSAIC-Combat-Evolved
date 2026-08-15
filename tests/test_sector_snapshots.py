@@ -1951,6 +1951,117 @@ def test_registered_sector_compiler_is_source_derived_and_deterministic(
         for member in first["eligible_security_universe"]
     )
 
+    direction_ids = [card["direction_id"] for card in snapshot["direction_cards"]]
+    selected_by_direction = {
+        direction_id: next(
+            row
+            for row in snapshot["eligible_security_universe"]
+            if row["direction_id"] == direction_id
+        )
+        for direction_id in direction_ids
+    }
+    ts_codes = sorted(
+        row["ts_code"] for row in selected_by_direction.values()
+    )
+    unmapped_code = "300655.SZ"
+    candidate_ts_codes = sorted((*ts_codes, unmapped_code))
+    assert len(direction_ids) == 4
+    assert len(ts_codes) == len(direction_ids) <= 12
+    assert ts_codes == sorted(set(ts_codes))
+    membership_batches = [
+        batch for batch in batches if batch["endpoint"] == "index_member_all"
+    ]
+    assert len(membership_batches) > 1
+    rows_by_code = {
+        row["ts_code"]: row
+        for batch in membership_batches
+        for row in batch["rows"]
+        if row.get("ts_code") in ts_codes
+    }
+    assert set(rows_by_code) == set(ts_codes)
+    unmapped_row = copy.deepcopy(rows_by_code[ts_codes[0]])
+    unmapped_row.update(
+        {
+            "ts_code": unmapped_code,
+            "l1_code": "801080.SI",
+            "l2_code": "801086.SI",
+            "l3_code": "850861.SI",
+        }
+    )
+    scoped_membership = copy.deepcopy(membership_batches[0])
+    scoped_membership["request"] = {
+        "query_plan_hash": membership_batches[0]["request"]["query_plan_hash"],
+        "scope": "semiconductor_etf_candidates_v1",
+        "etf_ts_code": "512480.SH",
+        "etf_source_hash": _canonical_hash(
+            {
+                "endpoint": "etf_sh_cons",
+                "etf_ts_code": "512480.SH",
+                "trade_date": AS_OF,
+                "ts_codes": candidate_ts_codes,
+            }
+        ),
+        "ts_codes": candidate_ts_codes,
+    }
+    scoped_membership["rows"] = [
+        copy.deepcopy(rows_by_code[ts_code]) for ts_code in ts_codes
+    ] + [unmapped_row]
+    scoped_membership["query_count"] = len(candidate_ts_codes)
+    scoped_membership["completed_query_count"] = len(candidate_ts_codes)
+    scoped_membership["pagination_policy"] = (
+        "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP"
+    )
+    _rehash_source_batch(scoped_membership)
+    scoped_batches = [
+        batch for batch in batches if batch["endpoint"] != "index_member_all"
+    ] + [scoped_membership]
+    stock_basic = next(
+        batch for batch in scoped_batches if batch["endpoint"] == "stock_basic"
+    )
+    stock_basic["rows"].append(copy.deepcopy(stock_basic["rows"][0]) | {
+        "ts_code": unmapped_code,
+    })
+    _rebind_scoped_stock_request(stock_basic)
+    assert len(
+        [batch for batch in scoped_batches if batch["endpoint"] == "index_member_all"]
+    ) == 1
+    assert set(scoped_membership["request"]) == {
+        "query_plan_hash",
+        "scope",
+        "etf_ts_code",
+        "etf_source_hash",
+        "ts_codes",
+    }
+
+    scoped = compile_registered_sector_snapshot(
+        role=ROLE, as_of_date=AS_OF, source_batches=scoped_batches
+    )
+    assert set(scoped["direction_ids"]) == set(direction_ids)
+    assert all(
+        card["readiness_status"] == "READY" for card in scoped["direction_cards"]
+    )
+    assert {
+        row["ts_code"] for row in scoped["eligible_security_universe"]
+    } == set(ts_codes)
+    assert {
+        row["ts_code"] for row in scoped["security_scoring_rows"]
+    } == set(ts_codes)
+
+    missing_candidate = copy.deepcopy(scoped_batches)
+    missing_membership = next(
+        batch
+        for batch in missing_candidate
+        if batch["endpoint"] == "index_member_all"
+    )
+    missing_membership["request"]["ts_codes"] = candidate_ts_codes[:-1]
+    _rehash_source_batch(missing_membership)
+    with pytest.raises(
+        DataVendorUnavailable, match="scoped membership request is invalid"
+    ):
+        compile_registered_sector_snapshot(
+            role=ROLE, as_of_date=AS_OF, source_batches=missing_candidate
+        )
+
 
 def test_registered_sector_historical_replay_preserves_real_capture_time(
     snapshot: dict[str, Any],

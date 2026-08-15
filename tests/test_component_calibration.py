@@ -702,7 +702,7 @@ def test_component_calibration_shadow_release_and_rollback_are_append_only(
         assert prepared_after_retry["runtime_binding"][
             "execution_behavior_release_id"
         ] == prepared_after["runtime_binding"]["execution_behavior_release_id"]
-        assert len(prepared_after["weight_snapshot"]["weights"]) == 23
+        assert len(prepared_after["weight_snapshot"]["weights"]) == 22
         active_revision = prepared_after["roster_revision"]
         placeholders = ",".join(
             "?" for _ in active_revision["evaluation_track_key_hashes"]

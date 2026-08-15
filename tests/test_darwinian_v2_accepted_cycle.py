@@ -297,17 +297,16 @@ def _accepted_macro_attributions(summary_body: Mapping[str, Any]) -> list[dict[s
         "us_financial_conditions",
         "euro_area_financial_conditions",
         "commodities",
-        "geopolitical",
-        "market_breadth",
         "institutional_flow",
     )
     rows: list[dict[str, Any]] = []
     target_hash = canonical_hash(summary_body)
+    usage_share = 1.0 / len(macro_agents)
     for macro_agent in macro_agents:
         rows.append(
             {
                 "agent_id": macro_agent,
-                "usage_share": 0.1,
+                "usage_share": usage_share,
                 "target_type": "SUBMISSION_SUMMARY",
                 "target_ref": f"accepted-target:submission:{target_hash[7:]}",
                 "target_hash": target_hash,
@@ -1045,7 +1044,7 @@ def test_cycle_stage_outcome_refs_reuse_exact_accepted_output_authority(
 
     outcomes = accepted_cycle_stage_outcome_refs(state)
 
-    assert len(outcomes) == 28
+    assert len(outcomes) == 26
     assert outcomes == sorted(outcomes, key=lambda row: (row["agent_id"], row["stage"]))
     assert {row["outcome_kind"] for row in outcomes} == {"ACCEPTED_OUTPUT"}
     accepted_hashes = {
@@ -1545,6 +1544,126 @@ def test_compile_superinvestor_bound_snapshot_projects_real_sector_pick(
         graph_run_id=state["trace_id"],
         expected_candidate_scope_hash=None,
     )
+
+
+def test_bound_snapshots_merge_same_ticker_without_losing_authority(
+    tmp_path: Path,
+) -> None:
+    state, accepted_records, accepted_refs, _current_positions = (
+        _superinvestor_bound_inputs(tmp_path)
+    )
+    sector_records = [
+        record
+        for record in accepted_records
+        if record["accepted_output_kind"] == "STANDARD_SECTOR_SELECTION"
+    ][:3]
+    candidate_refs: list[tuple[float, str, dict]] = []
+    for index, (sector_record, conviction) in enumerate(
+        zip(sector_records, (0.9, 0.9, 0.7), strict=True)
+    ):
+        payload = sector_record["output"]["payload"]
+        selection = payload["selection"]
+        preferred = selection["preferred_direction"]
+        pick_local_id = f"shared-ticker-{index}"
+        selection["preferred_security_status"] = "PICKS_PRESENT"
+        selection["long_picks"] = [
+            {
+                "pick_local_id": pick_local_id,
+                "direction_local_id": preferred["direction_local_id"],
+                "ts_code": "600028.SH",
+                "position_action": "LONG",
+                "conviction": conviction,
+                "thesis": "Shared ticker fixture thesis.",
+                "claim_refs": [selection["claim_refs"][0]],
+            }
+        ]
+        payload["preferred_security_abstention_confidence"] = None
+        payload["accepted_macro_input_attributions"] = _accepted_macro_attributions(
+            selection
+        )
+        _reseal_record(state, sector_record)
+        candidate_refs.append(
+            (
+                conviction,
+                "runtime-candidate:"
+                + canonical_hash(
+                    {
+                        "accepted_output_id": sector_record["accepted_output_id"],
+                        "pick_local_id": pick_local_id,
+                    }
+                )[7:],
+                sector_record,
+            )
+        )
+
+    expected_ref, expected_record = min(
+        (candidate_ref, record)
+        for conviction, candidate_ref, record in candidate_refs
+        if conviction == 0.9
+    )
+    accepted_evidence = {
+        "accepted-evidence:" + record["accepted_output_hash"][7:]
+        for record in sector_records
+    }
+    current_positions = {
+        "snapshot_status": "loaded",
+        "position_source": "broker",
+        "source_error_code": None,
+        "position_snapshot_hash": canonical_hash({"600028.SH": 0.23}),
+        "positions": [{"ticker": "600028.SH", "current_weight": 0.23}],
+    }
+
+    superinvestor = compile_bound_runtime_snapshot(
+        agent_id="ackman",
+        stage="ackman",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        accepted_output_refs=accepted_refs,
+        accepted_output_records=accepted_records,
+        runtime_state={
+            "captured_at": "2026-08-06T14:00:00+08:00",
+            "current_positions": current_positions,
+        },
+        generated_at="2026-08-06T14:01:00+08:00",
+    )
+    assert len(superinvestor["candidate_universe"]) == 1
+    candidate = superinvestor["candidate_universe"][0]
+    assert candidate["candidate_ref"] == expected_ref
+    assert candidate["source_output_id"] == expected_record["accepted_output_id"]
+    assert set(candidate["evidence_ids"]) == accepted_evidence
+    assert len(superinvestor["upstream_accepted_output_refs"]) == len(accepted_refs)
+
+    cio = compile_bound_runtime_snapshot(
+        agent_id="cio",
+        stage="cio_proposal",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        accepted_output_refs=accepted_refs,
+        accepted_output_records=accepted_records,
+        runtime_state={
+            "captured_at": "2026-08-06T14:20:00+08:00",
+            "current_positions": current_positions,
+            "previous_target_state": {
+                "schema_version": "portfolio.previous_target_state.v1",
+                "snapshot_status": "empty_confirmed",
+                "final_target_hash": None,
+                "as_of_date": None,
+                "portfolio_actions": [],
+                "source_error_code": None,
+            },
+            "decision_policy_release": _decision_policy_release(),
+        },
+        generated_at="2026-08-06T14:21:00+08:00",
+    )
+    assert len(cio["candidate_universe"]) == 1
+    candidate = cio["candidate_universe"][0]
+    assert candidate["current_weight"] == 0.23
+    assert candidate["reference_target_weight"] == 0.9
+    assert set(candidate["evidence_ids"]) == {
+        *accepted_evidence,
+        "position-authority",
+    }
+    assert len(cio["upstream_accepted_output_refs"]) == len(accepted_refs)
 
 
 def test_compile_superinvestor_bound_snapshot_rejects_tampered_record(
@@ -2275,7 +2394,7 @@ def _attach_schedule(
     return len(scheduled), component_signal_count
 
 
-def test_accepted_cycle_writes_28_outputs_and_27_operational_audits(
+def test_accepted_cycle_writes_26_outputs_and_25_operational_audits(
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "scorecard.db"
@@ -2284,8 +2403,8 @@ def test_accepted_cycle_writes_28_outputs_and_27_operational_audits(
     scheduled_count, component_signal_count = _attach_schedule(store, state)
     _attach_accepted_records(state)
     result = store.append_darwinian_v2_accepted_cycle(state)
-    assert result["accepted_output_records"] == 28
-    assert result["operational_opportunity_audits"] == 27
+    assert result["accepted_output_records"] == 26
+    assert result["operational_opportunity_audits"] == 25
     assert result["evaluation_tracks_inserted"] == 0
     assert result["usage_tracks_inserted"] == 0
     assert result["cold_start_weights_inserted"] == 0
@@ -2301,8 +2420,8 @@ def test_accepted_cycle_writes_28_outputs_and_27_operational_audits(
             "SELECT agent_id, run_slot_kind, scheduled_sample_id "
             "FROM operational_opportunity_audits_v2"
         ).fetchall()
-    assert len(accepted) == 28
-    assert len(operational) == 27
+    assert len(accepted) == 26
+    assert len(operational) == 25
     cio = [row for row in accepted if row[0] == "cio"]
     assert {row[1] for row in cio} == {"CIO_PROPOSAL", "CIO_FINAL"}
     assert len({row[2] for row in cio}) == 1
@@ -2343,7 +2462,7 @@ def test_accepted_cycle_keeps_pre_capability_track_record_labelable(
 
     result = store.append_darwinian_v2_accepted_cycle(state)
 
-    assert result["accepted_output_records"] == 28
+    assert result["accepted_output_records"] == 26
     with sqlite3.connect(db_path) as conn:
         stored = json.loads(
             conn.execute(
@@ -2380,7 +2499,7 @@ def test_accepted_cycle_keeps_cross_generation_capability_track_labelable(
 
     result = store.append_darwinian_v2_accepted_cycle(state)
 
-    assert result["accepted_output_records"] == 28
+    assert result["accepted_output_records"] == 26
 
 
 def test_accepted_cycle_excludes_stage_skip_from_outputs_and_samples(
@@ -2402,8 +2521,8 @@ def test_accepted_cycle_excludes_stage_skip_from_outputs_and_samples(
     _attach_accepted_records(state)
 
     result = store.append_darwinian_v2_accepted_cycle(state)
-    assert result["accepted_output_records"] == 27
-    assert result["operational_opportunity_audits"] == 26
+    assert result["accepted_output_records"] == 25
+    assert result["operational_opportunity_audits"] == 24
     assert result["no_evaluation_object_stage_skips"] == 1
     assert result["outcome_eligibility_pending_revisions"] == scheduled_count - 1
     assert result["component_calibration_signals"] == component_signal_count
@@ -2699,15 +2818,20 @@ def test_macro_attribution_authority_has_exact_required_kind_allowlist() -> None
         "CIO_PROPOSAL",
         "CIO_FINAL",
     }
-    reliability = {
-        agent_id: {"usage_share": 0.1} for agent_id in OUTCOME_CONTRACTS
+    macro_agent_ids = [
+        agent_id
+        for agent_id in OUTCOME_CONTRACTS
         if OUTCOME_CONTRACTS[agent_id]["layer"] == "MACRO"
+    ]
+    reliability = {
+        agent_id: {"usage_share": 1.0 / len(macro_agent_ids)}
+        for agent_id in macro_agent_ids
     }
     claim_ids_by_agent = {agent_id: set() for agent_id in reliability}
     attributions = [
         {
             "agent_id": agent_id,
-            "usage_share": 0.1,
+            "usage_share": reliability[agent_id]["usage_share"],
             "claim_refs_used": [],
         }
         for agent_id in reliability

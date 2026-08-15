@@ -57,7 +57,7 @@ export function buildSectorFinalSelectionSystemMessage(input: {
     `copied into claims or top-level claim_refs. Every claim_refs field outside ` +
     `macro_input_attributions—including directions, picks, drivers, risks, and the submission—must ` +
     `reference only ids authored in the local claims array. macro_input_attributions must contain exactly one ` +
-    `SUBMISSION_SUMMARY row for each of the ten Macro agents with target_local_ref=$SUBMISSION; ` +
+    `SUBMISSION_SUMMARY row for each of the eight Macro agents with target_local_ref=$SUBMISSION; ` +
     `NOT_MATERIAL rows use an empty claim_refs_used array. Add target-specific rows only for material ` +
     `links to an exact directive target, with no more than six such rows. ` +
     `${SECTOR_SELECTED_PROVIDER_INSTRUCTION} ` +

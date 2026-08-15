@@ -27,28 +27,9 @@ from mosaic.dataflows.route_eligibility import (
     evaluate_runtime_stage_admission,
 )
 from mosaic.dataflows.source_archive import ECO_CAL_LOGICAL_ROUTES
-from mosaic.scorecard.canonical_json import canonical_hash
-
-
 HASH = "sha256:" + "1" * 64
 TARGET = "2026-07-01"
 EVALUATED_AT = "2026-07-01T08:00:00+00:00"
-
-
-def _write_mof_chinabond_license_receipt(path: Path) -> str:
-    payload = {
-        "schema_version": "source_license_decision_receipt_v1",
-        "receipt_id": "license:mof-chinabond:2026-08-11",
-        "route_id": "composite.cn_rates",
-        "source_id": "official.mof_chinabond_government_yield_curve",
-        "decision": "APPROVED_FOR_PRODUCTION_USE",
-        "authorization_scope": "production_analysis",
-        "reviewer": "named-compliance-reviewer",
-        "decided_at": "2026-06-30T09:00:00+08:00",
-    }
-    payload["receipt_hash"] = canonical_hash(payload)
-    path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
-    return payload["receipt_hash"]
 
 
 def _route(route_id: str) -> dict:
@@ -170,7 +151,7 @@ def _source_receipt(
 def test_checker_registry_is_exactly_bound_to_all_route_contract_versions():
     manifest = load_agent_data_route_manifest()
     expected = {route["contract_version"] for route in manifest["routes"]}
-    assert len(expected) == 29
+    assert len(expected) == 27
     assert set(ROUTE_ELIGIBILITY_CHECKERS) == expected
     assert {
         spec.route_id for spec in ROUTE_ELIGIBILITY_CHECKERS.values()
@@ -203,7 +184,7 @@ def test_all_contract_checkers_accept_their_exact_receipt_profile(tmp_path: Path
         for route in routes
     }
 
-    assert len(results) == 29
+    assert len(results) == 27
     assert {route_id for route_id, result in results.items() if result["status"] == "READY"} == set(results)
 
 
@@ -347,7 +328,7 @@ def test_earliest_ready_date_intersects_all_source_and_historical_runtime_routes
         "runtime.account_positions_policy",
         "runtime.market_liquidity",
     ]
-    assert len(required) == 27
+    assert len(required) == 25
     for route_id in required:
         ledger.append_source_capture(
             _source_receipt(
@@ -379,7 +360,7 @@ def test_earliest_ready_date_intersects_all_source_and_historical_runtime_routes
 
     assert result["status"] == "READY"
     assert result["earliest_ready_date"] == "2026-06-30"
-    assert result["source_route_count"] == 25
+    assert result["source_route_count"] == 23
     assert result["runtime_precheck_route_ids"] == [
         "runtime.account_positions_policy",
         "runtime.market_liquidity",
@@ -700,9 +681,8 @@ def test_checker_ignores_a_newer_revision_not_known_at_evaluation_time(
     assert receipt.as_dict()["selected_receipt_refs"] == [older.receipt_hash]
 
 
-def test_curve_license_receipt_is_required_only_for_production_enforce(
+def test_curve_production_enforce_does_not_require_private_license_receipt(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ledger = AgentDataMaterializationLedger(tmp_path / "curve-license.sqlite3")
     source = _source_receipt("composite.cn_rates")
@@ -716,22 +696,6 @@ def test_curve_license_receipt_is_required_only_for_production_enforce(
     ).as_dict()
     assert shadow["status"] == "READY"
 
-    blocked = evaluate_route_eligibility(
-        ledger=ledger,
-        route_id="composite.cn_rates",
-        target_date=TARGET,
-        evaluated_at=EVALUATED_AT,
-        require_production_license=True,
-    ).as_dict()
-    assert blocked["status"] == "BLOCKED"
-    assert blocked["blockers"] == ["LICENSE_REVIEW_REQUIRED"]
-    assert blocked["selected_receipt_refs"] == [source.receipt_hash]
-
-    receipt_path = tmp_path / "mof-chinabond-license.json"
-    receipt_hash = _write_mof_chinabond_license_receipt(receipt_path)
-    monkeypatch.setenv(
-        "MOSAIC_MOF_CHINABOND_LICENSE_RECEIPT_PATH", str(receipt_path)
-    )
     ready = evaluate_route_eligibility(
         ledger=ledger,
         route_id="composite.cn_rates",
@@ -740,10 +704,11 @@ def test_curve_license_receipt_is_required_only_for_production_enforce(
         require_production_license=True,
     ).as_dict()
     assert ready["status"] == "READY"
-    assert ready["license_receipt_ref"] == receipt_hash
+    assert ready["blockers"] == []
+    assert ready["selected_receipt_refs"] == [source.receipt_hash]
 
 
-def test_cycle_preflight_is_all_or_none_for_exact_28_stage_route_union(tmp_path: Path):
+def test_cycle_preflight_is_all_or_none_for_exact_26_stage_route_union(tmp_path: Path):
     ledger = AgentDataMaterializationLedger(tmp_path / "materialization.sqlite3")
     manifest = load_agent_data_route_manifest()
     missing_route = "composite.cn_rates"
@@ -757,8 +722,8 @@ def test_cycle_preflight_is_all_or_none_for_exact_28_stage_route_union(tmp_path:
         evaluated_at=EVALUATED_AT,
     )
     assert blocked["status"] == "BLOCKED"
-    assert blocked["route_count"] == 29
-    assert blocked["stage_count"] == 28
+    assert blocked["route_count"] == 27
+    assert blocked["stage_count"] == 26
     assert blocked["blocked_routes"] == [
         {"route_id": missing_route, "blockers": ["MISSING_ARCHIVE"]}
     ]
@@ -781,7 +746,7 @@ def test_cycle_preflight_is_all_or_none_for_exact_28_stage_route_union(tmp_path:
     assert all(stage["status"] == "READY" for stage in ready["stages"])
 
 
-def test_source_admission_allows_25_ready_routes_to_start_before_runtime_exists(
+def test_source_admission_allows_23_ready_routes_to_start_before_runtime_exists(
     tmp_path: Path,
 ):
     ledger = AgentDataMaterializationLedger(tmp_path / "materialization.sqlite3")
@@ -796,7 +761,7 @@ def test_source_admission_allows_25_ready_routes_to_start_before_runtime_exists(
         for route in manifest["routes"]
         if route["pit_strategy"] == "LOCAL_RUNTIME_AUTHORITY"
     )
-    assert len(source_routes) == 25
+    assert len(source_routes) == 23
     assert len(runtime_route_ids) == 4
     for route in source_routes:
         ledger.append_source_capture(_source_receipt(route["route_id"]))
@@ -811,7 +776,7 @@ def test_source_admission_allows_25_ready_routes_to_start_before_runtime_exists(
     assert admission["schema_version"] == "agent_source_admission_v1"
     assert admission["status"] == "SOURCE_READY_PENDING_RUNTIME"
     assert admission["would_materialize"] is True
-    assert admission["route_count"] == 25
+    assert admission["route_count"] == 23
     assert admission["runtime_route_count"] == 4
     assert admission["pending_runtime_route_ids"] == runtime_route_ids
     assert set(admission["eligibility_receipt_hashes"]) == {
@@ -822,7 +787,7 @@ def test_source_admission_allows_25_ready_routes_to_start_before_runtime_exists(
         .as_dict()["cycle_run_id"]
         for receipt_hash in admission["eligibility_receipt_hashes"].values()
     } == {"cycle-source-admission-1"}
-    assert admission["stage_count"] == 28
+    assert admission["stage_count"] == 26
     assert admission["blocked_routes"] == []
     assert any(
         stage["status"] == "SOURCE_READY_PENDING_RUNTIME"
@@ -835,11 +800,9 @@ def test_source_admission_allows_25_ready_routes_to_start_before_runtime_exists(
     )
 
 
-def test_production_source_admission_blocks_only_curve_without_license_receipt(
+def test_production_source_admission_does_not_require_private_curve_license(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("MOSAIC_MOF_CHINABOND_LICENSE_RECEIPT_PATH", raising=False)
     ledger = AgentDataMaterializationLedger(tmp_path / "production-license.sqlite3")
     manifest = load_agent_data_route_manifest()
     source_routes = [
@@ -857,16 +820,11 @@ def test_production_source_admission_blocks_only_curve_without_license_receipt(
         require_production_license=True,
     )
 
-    assert admission["status"] == "BLOCKED"
-    assert admission["blocked_routes"] == [
-        {
-            "route_id": "composite.cn_rates",
-            "blockers": ["LICENSE_REVIEW_REQUIRED"],
-        }
-    ]
+    assert admission["status"] == "SOURCE_READY_PENDING_RUNTIME"
+    assert admission["blocked_routes"] == []
 
 
-def test_source_admission_blocks_when_one_of_26_source_routes_is_missing(
+def test_source_admission_blocks_when_one_of_23_source_routes_is_missing(
     tmp_path: Path,
 ):
     ledger = AgentDataMaterializationLedger(tmp_path / "materialization.sqlite3")
@@ -1017,7 +975,7 @@ def _cycle_event_payload(
     stage_keys = sorted(
         {(binding["agent_id"], binding["stage"]) for binding in manifest["bindings"]}
     )
-    assert len(stage_keys) == 28
+    assert len(stage_keys) == 26
     terminal = state == "COMMITTED"
     return {
         "schema_version": "agent_cycle_event_v1",

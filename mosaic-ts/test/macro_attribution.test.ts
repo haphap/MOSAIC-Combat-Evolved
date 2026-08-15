@@ -49,7 +49,7 @@ function gate(): MacroInputGateReceipt {
   return {
     schema_version: "macro_input_gate_receipt_v1",
     accepted_agent_ids: [...MACRO_AGENT_IDS],
-    accepted_count: 10,
+    accepted_count: 8,
     input_hash: "sha256:gate",
     source_layer_snapshot_id: "macro-layer:test",
     source_layer_snapshot_hash: "sha256:macro-layer",
@@ -60,7 +60,7 @@ function gate(): MacroInputGateReceipt {
         agentId,
         {
           effective_reliability: 1,
-          usage_share: (index + 1) / 55,
+          usage_share: (index + 1) / 36,
           weight_record_id: null,
           reliability_record_id: null,
         },
@@ -82,7 +82,7 @@ function summaries(): MacroInputAttributionSubmission[] {
 describe("Macro input attribution v2", () => {
   it("requires one and only one submission summary for every Macro Agent", () => {
     const providerSchema = z.toJSONSchema(MacroInputAttributionSubmissionArraySchema);
-    expect(providerSchema).toMatchObject({ minItems: 10, maxItems: 16 });
+    expect(providerSchema).toMatchObject({ minItems: 8, maxItems: 16 });
     expect(MacroInputAttributionSubmissionArraySchema.safeParse(summaries()).success).toBe(true);
     expect(MacroInputAttributionSubmissionArraySchema.safeParse(summaries().slice(1)).success).toBe(
       false,
@@ -229,7 +229,7 @@ describe("Macro input attribution v2", () => {
       (row) => row.agent_id === "china" && row.target_type === "SUBMISSION_SUMMARY",
     );
     const chinaTarget = accepted.find((row) => row.target_type === "SECURITY_PICK");
-    expect(chinaSummary?.usage_share).toBeCloseTo(1 / 55);
+    expect(chinaSummary?.usage_share).toBeCloseTo(1 / 36);
     expect(chinaSummary?.target_ref).toMatch(/^accepted-target:submission:/);
     expect(chinaTarget?.target_ref).toMatch(/^accepted-target:security_pick:/);
     expect(chinaTarget?.target_hash).toMatch(/^sha256:[0-9a-f]{64}$/);

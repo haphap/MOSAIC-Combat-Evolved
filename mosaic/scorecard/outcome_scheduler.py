@@ -133,8 +133,8 @@ def _revision_and_tracks(
         raise ValueError("READY production roster revision is unavailable")
     revision = json.loads(row[0])
     track_hashes = revision.get("evaluation_track_key_hashes")
-    if not isinstance(track_hashes, list) or len(track_hashes) != 27:
-        raise ValueError("roster revision must contain exactly 27 evaluation tracks")
+    if not isinstance(track_hashes, list) or len(track_hashes) != 25:
+        raise ValueError("roster revision must contain exactly 25 evaluation tracks")
     placeholders = ",".join("?" for _ in track_hashes)
     rows = conn.execute(
         f"SELECT agent_id, track_key_hash, contract_json "
@@ -147,7 +147,7 @@ def _revision_and_tracks(
         for agent_id, track_hash, contract_json in rows
     }
     if set(by_agent) != set(OUTCOME_CONTRACTS):
-        raise ValueError("roster revision does not resolve the exact 27-Agent roster")
+        raise ValueError("roster revision does not resolve the exact 25-Agent roster")
     return revision, by_agent
 
 
@@ -276,7 +276,7 @@ def prepare_outcome_schedule_plan(
     trading_calendar_snapshot: Mapping[str, Any],
     verified_event_candidates: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
-    """Freeze all 27 run-slot decisions before the daily graph starts."""
+    """Freeze all 25 run-slot decisions before the daily graph starts."""
     revision_id = _required_text(
         production_variant_roster_revision_id,
         "production_variant_roster_revision_id",

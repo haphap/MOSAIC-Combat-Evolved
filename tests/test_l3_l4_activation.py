@@ -12,6 +12,7 @@ from mosaic.scorecard.l1_l2_activation import (
     build_l1_l2_active_tool_manifest,
 )
 from mosaic.scorecard.l3_l4_activation import (
+    _RETIRED_ACTIVE_AGENT_IDS,
     active_stage_for_l3_l4_overlay,
     build_l3_l4_active_route_manifest,
     build_l3_l4_active_tool_manifest,
@@ -42,9 +43,13 @@ def test_l3_l4_activation_adds_exact_overlay_bindings_without_roster_drift() -> 
     active_tools = build_l3_l4_active_tool_manifest(ROOT)
     overlay = _load("l3_l4_preservation_overlay_v1.json")
 
-    assert active_tools["agent_count"] == 27
-    assert active_tools["execution_stage_count"] == 28
-    assert _surface(base_tools) < _surface(active_tools)
+    assert active_tools["agent_count"] == 25
+    assert active_tools["execution_stage_count"] == 26
+    base_surface = _surface(base_tools) - {
+        ("market_breadth", "market_breadth", "get_market_breadth_snapshot"),
+        ("geopolitical", "geopolitical", "get_geopolitical_events_snapshot"),
+    }
+    assert base_surface < _surface(active_tools)
     expected_additions = {
         (
             row["agent_id"],
@@ -97,17 +102,21 @@ def test_l3_l4_active_route_manifest_closes_exact_tool_surface() -> None:
         active_tool_manifest=active_tools,
     )
 
-    assert {
+    base_surface = {
         (row["agent_id"], row["stage"], row["tool_id"])
         for row in base_routes["bindings"]
-    } < {
+    }
+    active_surface = {
         (row["agent_id"], row["stage"], row["tool_id"])
         for row in active_routes["bindings"]
     }
     assert {
-        (row["agent_id"], row["stage"], row["tool_id"])
-        for row in active_routes["bindings"]
-    } == _surface(active_tools)
+        row for row in base_surface if row[0] not in _RETIRED_ACTIVE_AGENT_IDS
+    } < active_surface
+    assert {
+        row for row in base_surface if row[0] in _RETIRED_ACTIVE_AGENT_IDS
+    }.isdisjoint(active_surface)
+    assert active_surface == _surface(active_tools)
     assert active_routes["agent_tool_contract_manifest_hash"] == canonical_hash(
         active_tools
     )

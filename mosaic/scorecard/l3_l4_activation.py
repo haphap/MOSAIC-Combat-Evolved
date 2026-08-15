@@ -20,6 +20,7 @@ from mosaic.scorecard.l1_l2_activation import (
 )
 from mosaic.scorecard.l3_l4_preservation import (
     L3_TOOL_ROSTER,
+    argument_schema_for_binding as frozen_argument_schema_for_binding,
     validate_l3_l4_preservation_overlay,
 )
 
@@ -43,6 +44,7 @@ _OVERLAY_STAGE_BY_ACTIVE_STAGE = {
     (agent_id, active_stage): overlay_stage
     for (agent_id, overlay_stage), active_stage in _ACTIVE_STAGE_BY_OVERLAY_STAGE.items()
 }
+_RETIRED_ACTIVE_AGENT_IDS = frozenset({"market_breadth", "geopolitical"})
 _APPROVED_ACTIVE_OVERLAY_BINDING_MIGRATIONS = {
     ("druckenmiller", "druckenmiller", "get_yield_curve_cn"): (
         ("tushare.shibor_yield_curve",),
@@ -86,6 +88,27 @@ def l3_l4_overlay_stage_for_active(agent_id: str, active_stage: str) -> str:
         ) from exc
 
 
+def active_argument_schema_for_l3_l4_binding(
+    agent_id: str, active_stage: str, tool_id: str
+) -> dict[str, Any]:
+    """Return the current argument schema without mutating the frozen overlay."""
+    schema = _copy(
+        frozen_argument_schema_for_binding(
+            agent_id=agent_id,
+            stage=l3_l4_overlay_stage_for_active(agent_id, active_stage),
+            tool_id=tool_id,
+        )
+    )
+    if (
+        agent_id == "druckenmiller"
+        and active_stage == "druckenmiller"
+        and tool_id == "get_industry_policy_digest"
+    ):
+        schema["properties"]["topic"] = {"type": "string", "minLength": 1}
+        schema["required"].append("topic")
+    return schema
+
+
 def build_l3_l4_active_tool_manifest(root: Path) -> dict[str, Any]:
     """Add the exact 33 frozen L3/L4 bindings to the active role whitelist."""
     root = root.resolve()
@@ -104,6 +127,8 @@ def build_l3_l4_active_tool_manifest(root: Path) -> dict[str, Any]:
     for source in base["agents"]:
         row = _copy(source)
         agent_id = str(row["agent_id"])
+        if agent_id in _RETIRED_ACTIVE_AGENT_IDS:
+            continue
         known_agents.add(agent_id)
         by_stage = additions.get(agent_id, {})
         if set(by_stage) - set(row["execution_stages"]):
@@ -130,9 +155,14 @@ def build_l3_l4_active_tool_manifest(root: Path) -> dict[str, Any]:
         "agents": agents,
     }
     _tool_surface(body)
-    if body["agent_count"] != base["agent_count"] or body[
+    retired_agents = [
+        row for row in base["agents"] if row["agent_id"] in _RETIRED_ACTIVE_AGENT_IDS
+    ]
+    if body["agent_count"] != base["agent_count"] - len(retired_agents) or body[
         "execution_stage_count"
-    ] != base["execution_stage_count"]:
+    ] != base["execution_stage_count"] - sum(
+        len(row["execution_stages"]) for row in retired_agents
+    ):
         raise ValueError("L3/L4 activation changed the Agent or stage roster")
     return body
 
@@ -168,8 +198,12 @@ def build_l3_l4_active_route_manifest(
     binding_by_key = {
         (row["agent_id"], row["stage"], row["tool_id"]): _copy(row)
         for row in base_routes["bindings"]
+        if row["agent_id"] not in _RETIRED_ACTIVE_AGENT_IDS
     }
-    if len(binding_by_key) != len(base_routes["bindings"]):
+    if len(binding_by_key) != sum(
+        row["agent_id"] not in _RETIRED_ACTIVE_AGENT_IDS
+        for row in base_routes["bindings"]
+    ):
         raise ValueError("active L1/L2 route manifest contains duplicate bindings")
     for source in overlay["bindings"]:
         agent_id = str(source["agent_id"])
@@ -202,8 +236,29 @@ def build_l3_l4_active_route_manifest(
         for route_id in binding["required_route_ids"]
     }
     retired_route_ids = set(_APPROVED_ACTIVE_ROUTE_REPLACEMENTS)
+    non_retired_route_ids = {
+        route_id
+        for row in base_routes["bindings"]
+        if row["agent_id"] not in _RETIRED_ACTIVE_AGENT_IDS
+        for route_id in row["required_route_ids"]
+    }
+    retired_route_ids.update(
+        {
+            route_id
+            for row in base_routes["bindings"]
+            if row["agent_id"] in _RETIRED_ACTIVE_AGENT_IDS
+            for route_id in row["required_route_ids"]
+        }
+        - non_retired_route_ids
+    )
     if retired_route_ids.intersection(referenced_route_ids):
         raise ValueError("retired route remains reachable after L3/L4 migration")
+    orphan_route_ids = set(route_by_id) - referenced_route_ids
+    if not orphan_route_ids.issubset(retired_route_ids):
+        raise ValueError("active route catalog contains non-retirement orphans")
+    route_by_id = {
+        route_id: row for route_id, row in route_by_id.items() if route_id in referenced_route_ids
+    }
     if set(route_by_id) != referenced_route_ids:
         raise ValueError("active L3/L4 route catalog does not exactly close bindings")
     body = {
@@ -268,6 +323,7 @@ def write_l3_l4_active_manifests(root: Path) -> dict[str, Path]:
 
 
 __all__ = [
+    "active_argument_schema_for_l3_l4_binding",
     "active_stage_for_l3_l4_overlay",
     "build_l3_l4_active_route_manifest",
     "build_l3_l4_active_tool_manifest",

@@ -90,7 +90,7 @@ describe("accepted Sector contract", () => {
     expect(accepted.selection).not.toHaveProperty("sector_runtime_binding");
     expect(accepted.directional_confidence).toBe(0.6);
     expect(accepted).not.toHaveProperty("abstention_confidence");
-    expect(accepted.accepted_macro_input_attributions).toHaveLength(10);
+    expect(accepted.accepted_macro_input_attributions).toHaveLength(8);
   });
 
   it("projects only the model-visible whitelist", () => {

@@ -115,7 +115,7 @@ export const MacroInputAttributionSubmissionArraySchema = z
   .min(MACRO_AGENT_IDS.length)
   .max(16)
   .describe(
-    "Begin with exactly one SUBMISSION_SUMMARY row for each of the ten Macro agents in roster order. " +
+    "Begin with exactly one SUBMISSION_SUMMARY row for each of the eight Macro agents in roster order. " +
       "Use target_local_ref=$SUBMISSION for those rows. Add at most six material target rows; " +
       "NOT_MATERIAL rows must have an empty claim_refs_used array.",
   )
@@ -131,7 +131,7 @@ export const MacroInputAttributionSubmissionArraySchema = z
       ctx.addIssue({
         code: "custom",
         path: [],
-        message: "Macro submission summaries must be the ten-row roster-ordered prefix",
+        message: "Macro submission summaries must be the eight-row roster-ordered prefix",
       });
     }
     for (const agentId of MACRO_AGENT_IDS) {
@@ -164,8 +164,6 @@ export const MacroInputAttributionProviderSchema = z
         us_financial_conditions: MacroProviderSummaryValueSchema,
         euro_area_financial_conditions: MacroProviderSummaryValueSchema,
         commodities: MacroProviderSummaryValueSchema,
-        geopolitical: MacroProviderSummaryValueSchema,
-        market_breadth: MacroProviderSummaryValueSchema,
         institutional_flow: MacroProviderSummaryValueSchema,
       })
       .strict(),
@@ -179,8 +177,8 @@ export const MacroInputAttributionProviderSchema = z
 export const MACRO_ATTRIBUTION_PROVIDER_INSTRUCTION =
   "For structured extraction, macro_input_attributions is an object with submission_summaries " +
   "keyed by china, us_economy, eu_economy, central_bank, us_financial_conditions, " +
-  "euro_area_financial_conditions, commodities, geopolitical, market_breadth, and " +
-  "institutional_flow, plus target_attributions. Fill every summary key with effect and the " +
+  "euro_area_financial_conditions, commodities, and institutional_flow, plus " +
+  "target_attributions. Fill every summary key with effect and the " +
   "single claim_ref_used (null only for NOT_MATERIAL). The runtime converts " +
   "this bounded extraction object into the canonical MacroInputAttributionSubmission rows.";
 
@@ -471,7 +469,8 @@ function validateMacroGate(
   outputs: Readonly<Record<string, MacroAgentOutput>>,
   gate: MacroInputGateReceipt,
 ): void {
-  if (gate.accepted_count !== 10) throw new Error("Macro input gate is not complete");
+  if (gate.accepted_count !== MACRO_AGENT_IDS.length)
+    throw new Error("Macro input gate is not complete");
   if ([...gate.accepted_agent_ids].sort().join("\0") !== [...MACRO_AGENT_IDS].sort().join("\0")) {
     throw new Error("Macro input gate roster mismatch");
   }

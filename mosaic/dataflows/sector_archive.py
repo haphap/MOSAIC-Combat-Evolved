@@ -46,6 +46,8 @@ from .sector_snapshots import (
     SECTOR_UNIVERSE_MANIFEST,
     SOURCE_BATCH_PAGINATION_POLICIES,
     _authoritative_etf_codes,
+    _direction_for_security,
+    _read_semiconductor_etf_basket,
     compile_registered_relationship_snapshot,
     compile_registered_sector_snapshot,
     sector_snapshot_root,
@@ -234,7 +236,16 @@ def _fetch_page(
     request: Mapping[str, Any],
     *,
     offset: int,
+    single_page: bool = False,
 ) -> tuple[list[dict[str, Any]], int]:
+    if single_page:
+        try:
+            return _response_rows(fetch(endpoint, **dict(request))), 1
+        except DataVendorUnavailable as exc:
+            raise DataVendorUnavailable(
+                f"Tushare endpoint '{endpoint}' unavailable",
+                reason_code=f"TUSHARE_{endpoint.upper()}_UNAVAILABLE",
+            ) from exc
     for attempt in range(len(_EMPTY_RESPONSE_BACKOFF_SECONDS) + 1):
         try:
             response = fetch(
@@ -258,6 +269,7 @@ def _paginate_incremental(
     request: Mapping[str, Any],
     *,
     confirm_terminal: bool,
+    single_page: bool = False,
 ) -> tuple[list[dict[str, Any]], int, int]:
     evidence = PREFLIGHT_ENDPOINT_CHECKS.get(endpoint)
     if evidence is None:
@@ -269,12 +281,13 @@ def _paginate_incremental(
     seen: set[str] = set()
     duplicate_count = 0
     call_count = 0
-    for page in range(_MAX_PAGES_PER_QUERY):
+    for page in range(1 if single_page else _MAX_PAGES_PER_QUERY):
         page_rows, page_calls = _fetch_page(
             fetch,
             endpoint,
             request,
             offset=page * _PAGE_SIZE,
+            single_page=single_page,
         )
         call_count += page_calls
         for row in page_rows:
@@ -289,6 +302,12 @@ def _paginate_incremental(
                 continue
             seen.add(row_hash)
             rows.append(row)
+        if single_page:
+            if len(page_rows) >= 2000:
+                raise ASharePaginationError(
+                    f"{endpoint} exact request reached its official row cap"
+                )
+            return rows, call_count, duplicate_count
         if len(page_rows) < _PAGE_SIZE:
             if page_rows and confirm_terminal:
                 probe_rows, probe_calls = _fetch_page(
@@ -559,10 +578,16 @@ def _seal_batch(
         )
     )
     expected_pagination_policy = SOURCE_BATCH_PAGINATION_POLICIES.get(endpoint)
+    scoped_membership = (
+        endpoint == "index_member_all"
+        and exact_single_page
+        and request_contract.get("scope") == "semiconductor_etf_candidates_v1"
+    )
     if (
         not exact_single_page
         and expected_pagination_policy is not None
         and expected_pagination_policy != pagination_policy
+        and not scoped_membership
     ):
         raise ValueError(f"{endpoint} pagination proof does not match its contract")
     rows: list[dict[str, Any]] = []
@@ -702,6 +727,8 @@ def _membership_batches(
     captured_at: str,
     *,
     requested_agent_ids: Sequence[str] | None = None,
+    scoped_tickers: Sequence[str] | None = None,
+    etf_source_hash: str | None = None,
 ) -> tuple[list[dict[str, Any]], int, int]:
     agent_ids = set(_requested_sector_agents(requested_agent_ids))
     specs: list[tuple[dict[str, Any], dict[str, Any], bool]] = []
@@ -822,12 +849,68 @@ def _build_capture_group(
     ):
         raise DataVendorUnavailable("sector capture is outside the post-close window")
     started_at = started.isoformat()
+    scoped_tickers: tuple[str, ...] | None = None
+    etf_source_hash: str | None = None
+    if agent_ids == ("semiconductor",) and set(route_ids) == set(LOGICAL_ROUTES):
+        _trade_date, basket_candidates, etf_source_hash = _read_semiconductor_etf_basket(
+            "512480.SH", as_of_date
+        )
+        scoped_tickers = tuple(
+            sorted(row["ticker"] for row in basket_candidates)
+        )
     membership, membership_duplicates, membership_pages = _membership_batches(
         fetch,
         started_at,
         requested_agent_ids=agent_ids,
+        scoped_tickers=scoped_tickers,
+        etf_source_hash=etf_source_hash,
     )
-    security_codes = _active_security_codes(membership, as_of_date)
+    if scoped_tickers is None:
+        security_codes = _active_security_codes(membership, as_of_date)
+    else:
+        direction_contracts = {
+            row["direction_id"]: row
+            for row in SECTOR_UNIVERSE_MANIFEST["direction_contracts"]
+            if row["sector_agent_id"] == "semiconductor"
+        }
+        mapped_directions: dict[str, str] = {}
+        for batch in membership:
+            for row in batch["rows"]:
+                in_date = datetime.strptime(
+                    str(row["in_date"]).replace("-", ""), "%Y%m%d"
+                ).date()
+                out_value = row.get("out_date")
+                out_date = (
+                    datetime.strptime(
+                        str(out_value).replace("-", ""), "%Y%m%d"
+                    ).date()
+                    if out_value not in (None, "")
+                    else None
+                )
+                if in_date > as_of_date or (
+                    out_date is not None and out_date <= as_of_date
+                ):
+                    continue
+                try:
+                    direction_id = _direction_for_security(
+                        row, direction_contracts
+                    )
+                except DataVendorUnavailable:
+                    continue
+                ts_code = str(row["ts_code"])
+                previous = mapped_directions.get(ts_code)
+                if previous is not None and previous != direction_id:
+                    raise DataVendorUnavailable(
+                        "scoped sector membership has conflicting directions"
+                    )
+                mapped_directions[ts_code] = direction_id
+        if set(mapped_directions.values()) != set(
+            SECTOR_DIRECTION_IDS["semiconductor"]
+        ):
+            raise DataVendorUnavailable(
+                "scoped sector membership does not cover every direction"
+            )
+        security_codes = sorted(mapped_directions)
     statement_start = (as_of_date - timedelta(days=1100)).strftime("%Y%m%d")
     api_as_of = as_of_date.strftime("%Y%m%d")
     batches: list[dict[str, Any]] = [*membership]
@@ -1113,11 +1196,20 @@ def _build_capture_group(
             duplicate_counts[endpoint] = duplicates
 
         if "fund_portfolio" in required_endpoints:
+            portfolio_start = _api_date(as_of_date - timedelta(days=400))
             portfolio, duplicates, pages = _seal_batch(
                 endpoint="fund_portfolio",
-                requests=tuple({"ts_code": code} for code in etf_codes),
+                requests=tuple(
+                    {
+                        "ts_code": code,
+                        "start_date": portfolio_start,
+                        "end_date": api_as_of,
+                    }
+                    for code in etf_codes
+                ),
                 request_contract={
-                    "end_date": as_of_date.isoformat(),
+                    "start_date": portfolio_start,
+                    "end_date": api_as_of,
                     "ts_codes": etf_codes,
                 },
                 fetch=fetch,
@@ -1472,6 +1564,12 @@ def archive_sector_relationship(
             "manifest_hash": SECTOR_UNIVERSE_MANIFEST["manifest_hash"],
             "scope_request": {
                 "sector_agent_ids": list(agent_ids),
+                **(
+                    {"membership_scope": "semiconductor_etf_candidates_v1"}
+                    if agent_ids == ("semiconductor",)
+                    and route_ids == LOGICAL_ROUTES
+                    else {}
+                ),
             },
         }
         capture_identity["scope_request_hash"] = canonical_hash(
