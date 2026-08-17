@@ -1407,7 +1407,15 @@ def compile_europe_macro_snapshots(
     calendar_hash = (
         str(exact_calendar_evidence_hash)
         if exact_calendar_evidence_hash is not None
-        else _calendar_hash(ledger, as_of_date=group["as_of_date"])
+        else _calendar_hash(
+            ledger,
+            as_of_date=group["as_of_date"],
+            lookup_as_of_date=(
+                _timestamp(group["captured_at"], "captured_at").date().isoformat()
+                if group.get("historical_replay") is True
+                else None
+            ),
+        )
     )
     build_specs: list[tuple[str, str, list[str]]] = []
     if "eu_economy" in selected_role_set:

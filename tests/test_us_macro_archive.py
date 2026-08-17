@@ -954,7 +954,7 @@ def test_financial_only_compiler_binds_both_calendar_receipts(
     )
 
 
-def test_historical_replay_financial_compiler_preserves_capture_timestamps(
+def test_historical_replay_financial_compiler_uses_requested_cutoff_timestamp(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     captured_at = datetime(2026, 8, 9, 6, 0, tzinfo=timezone.utc)
@@ -984,7 +984,7 @@ def test_historical_replay_financial_compiler_preserves_capture_timestamps(
 
     financial = built.snapshots["us_financial_conditions"]
     by_series = {row["series_id"]: row for row in financial["observations"]}
-    expected_timestamp = captured_at.isoformat()
+    expected_timestamp = CUTOFF
     assert by_series["fed_effr"]["released_at"] == expected_timestamp
     assert by_series["fed_effr"]["vintage_at"] == expected_timestamp
     assert by_series["USDCNH"]["released_at"] == expected_timestamp

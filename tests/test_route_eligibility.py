@@ -662,11 +662,11 @@ def test_checker_ignores_a_newer_revision_not_known_at_evaluation_time(
 ):
     ledger = AgentDataMaterializationLedger(tmp_path / "materialization.sqlite3")
     older = _source_receipt(
-        "tushare.a_share_breadth",
+        "tushare.fx_daily",
         observed_at=f"{TARGET}T06:00:00+00:00",
     )
     future = _source_receipt(
-        "tushare.a_share_breadth",
+        "tushare.fx_daily",
         observed_at=f"{TARGET}T09:00:00+00:00",
     )
     ledger.append_source_capture(older)
@@ -674,7 +674,7 @@ def test_checker_ignores_a_newer_revision_not_known_at_evaluation_time(
 
     receipt = evaluate_route_eligibility(
         ledger=ledger,
-        route_id="tushare.a_share_breadth",
+        route_id="tushare.fx_daily",
         target_date=TARGET,
         evaluated_at=EVALUATED_AT,
     )

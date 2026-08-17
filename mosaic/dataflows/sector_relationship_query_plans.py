@@ -412,7 +412,7 @@ def build_sector_relationship_query_plan(
             if agent_id == "semiconductor":
                 policy_args["topic"] = "半导体"
             elif agent_id == "biotech":
-                policy_args["topic"] = "生物制品"
+                policy_args["topic"] = "生物医药"
             elif agent_id == "technology":
                 policy_args["topic"] = "软件"
             elif agent_id == "energy":
@@ -420,11 +420,11 @@ def build_sector_relationship_query_plan(
             elif agent_id == "financials":
                 policy_args["topic"] = "银行"
             elif agent_id == "agriculture":
-                policy_args["topic"] = "养殖"
+                policy_args["topic"] = "农业"
             elif agent_id == "consumer":
                 policy_args["topic"] = "食品"
             elif agent_id == "industrials":
-                policy_args["topic"] = "钢铁"
+                policy_args["topic"] = "机械"
             elif agent_id == "real_estate_construction":
                 policy_args["topic"] = "房地产"
             _append(

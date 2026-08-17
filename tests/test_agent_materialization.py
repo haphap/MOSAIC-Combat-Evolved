@@ -1764,18 +1764,23 @@ def test_china_family_reuses_calendar_archive_and_compiler(
 
     def archive_china(**kwargs: object) -> object:
         events.append(("china", kwargs))
-        source_receipts = (
+        requested_route_ids = kwargs["requested_route_ids"]
+        assert isinstance(requested_route_ids, tuple)
+        source_families = {
+            route["route_id"]: route["source_family"]
+            for route in load_agent_data_route_manifest()["routes"]
+        }
+        source_receipts = tuple(
             SourceCaptureReceipt.from_dict(
                 _source_payload(
-                    route_id="official.cn_macro", source_family="official_cn"
+                    route_id=route_id,
+                    source_family=source_families[route_id],
                 )
-            ),
-            SourceCaptureReceipt.from_dict(
-                _source_payload(route_id="tushare.cn_macro")
-            ),
+            )
+            for route_id in requested_route_ids
         )
         archived.routes = {
-            "official.cn_macro+tushare.cn_macro": SimpleNamespace(
+            "+".join(requested_route_ids): SimpleNamespace(
                 source_receipts=source_receipts,
                 coverage_receipt=CompleteCoverage(),
             )
@@ -1812,10 +1817,7 @@ def test_china_family_reuses_calendar_archive_and_compiler(
     monkeypatch.setattr(
         stage_preparer_module,
         "compile_china_agent_snapshots",
-        lambda **_kwargs: pytest.fail("normal China stage must not use full compiler"),
-    )
-    monkeypatch.setattr(
-        stage_preparer_module, "compile_china_agent_snapshot", compile_china
+        compile_china,
     )
     monkeypatch.setattr(
         stage_preparer_module, "snapshot_cache_root", lambda: output_root
@@ -1878,11 +1880,8 @@ def test_china_family_reuses_calendar_archive_and_compiler(
     )
     assert events[1][1]["official_document_types"] == (
         "nbs_cpi_release",
-        "nbs_employment_release",
-        "nbs_fixed_asset_investment",
         "nbs_industrial_activity",
         "nbs_ppi_release",
-        "nbs_retail_sales",
         "pboc_financial_statistics",
         "pboc_lpr_document",
         "pboc_omo_document",

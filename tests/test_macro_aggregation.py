@@ -25,7 +25,16 @@ def transmissions():
 
 
 def test_exact_v2_roster_and_tombstones():
-    assert len(MACRO_AGENTS) == 10
+    assert MACRO_AGENTS == (
+        "china",
+        "us_economy",
+        "eu_economy",
+        "central_bank",
+        "us_financial_conditions",
+        "euro_area_financial_conditions",
+        "commodities",
+        "institutional_flow",
+    )
     assert set(TOMBSTONED_MACRO_AGENTS).isdisjoint(MACRO_AGENTS)
     assert {"eu_economy", "us_financial_conditions", "euro_area_financial_conditions"} <= set(
         MACRO_AGENTS
@@ -50,5 +59,5 @@ def test_missing_extra_identity_or_signal_semantics_reject():
 
 
 def test_retired_six_factor_api_fails_closed():
-    with pytest.raises(MacroAggregationRetiredError, match="consume ten"):
+    with pytest.raises(MacroAggregationRetiredError, match="consume eight"):
         aggregate_macro_transmissions(transmissions())

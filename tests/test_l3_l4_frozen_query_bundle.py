@@ -357,7 +357,8 @@ def test_l4_bundle_is_proactive_stage_bound_and_has_no_model_round(tmp_path: Pat
     store = _store(tmp_path)
     prepared = store.prepare(
         agent_id="cro",
-        stage="cro_review",
+        stage="cro",
+        preservation_stage="cro_review",
         as_of="2026-07-09",
         authorized_scope=_l4_scope(),
         initial_query_requests=[
@@ -378,17 +379,17 @@ def test_l4_bundle_is_proactive_stage_bound_and_has_no_model_round(tmp_path: Pat
     assert prepared["public_projection"]["initial_payload_count"] == 1
     assert prepared["public_projection"]["adaptive_max_rounds"] == 0
     initial = store.read_initial_payloads(
-        bundle_id=prepared["bundle_id"], agent_id="cro", stage="cro_review"
+        bundle_id=prepared["bundle_id"], agent_id="cro", stage="cro"
     )
     assert initial[0]["tool_id"] == "get_rke_research_context"
     with pytest.raises(ValueError, match="does not permit adaptive model calls"):
         store.start_session(
-            bundle_id=prepared["bundle_id"], agent_id="cro", stage="cro_review"
+            bundle_id=prepared["bundle_id"], agent_id="cro", stage="cro"
         )
 
     with pytest.raises(ValueError, match="stage"):
         store.read_initial_payloads(
-            bundle_id=prepared["bundle_id"], agent_id="cro", stage="cro"
+            bundle_id=prepared["bundle_id"], agent_id="cro", stage="cro_review"
         )
 
 

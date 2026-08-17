@@ -107,7 +107,7 @@ def _add_recommendation_score(
 
 def test_evolutionary_weights_update_quartiles_and_bounds(tmp_path: Path):
     store = _store(tmp_path)
-    scores = [0.09, 0.08, 0.07, 0.04, 0.02, -0.01, -0.02, -0.04, -0.06, -0.08]
+    scores = [0.09, 0.08, 0.07, 0.04, 0.02, -0.01, -0.02, -0.04]
     for agent, score in zip(MACRO_AGENTS, scores):
         _add_macro_score(store, agent, score)
     store.upsert_darwinian_weights(
@@ -133,7 +133,10 @@ def test_evolutionary_weights_update_quartiles_and_bounds(tmp_path: Path):
 
     out = compute_weights(store, COHORT, "2024-02-10", config=_cfg())
 
-    assert out == {"written": 10, "agents_uniform_fallback": 8}
+    assert out == {
+        "written": len(MACRO_AGENTS),
+        "agents_uniform_fallback": len(MACRO_AGENTS) - 2,
+    }
     weights = store.get_darwinian_weights(COHORT, date="2024-02-10")
     assert weights[MACRO_AGENTS[0]]["weight"] == pytest.approx(2.5)
     assert weights[MACRO_AGENTS[0]]["quartile"] == 1

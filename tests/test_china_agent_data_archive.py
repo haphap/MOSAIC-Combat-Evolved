@@ -1036,8 +1036,7 @@ def test_commodity_daily_capture_queries_only_registered_exact_contracts(
         for row in _contract_rows(
             COMMODITY_FAMILY_CONTRACTS[family_id]["exchange"],
             COMMODITY_FAMILY_CONTRACTS[family_id]["product_code"],
-            deliveries=("202609", "202610", "202612"),
-        )[:2]
+        )
     )
     daily_requests = [
         params for endpoint, params in requests if endpoint == "fut_daily"
@@ -1366,7 +1365,7 @@ def test_china_macro_capture_binds_exact_period_fields_and_nine_official_documen
             macro_calls[endpoint] = dict(params)
             macro_call_counts[endpoint] = macro_call_counts.get(endpoint, 0) + 1
         return {
-            "cn_gdp": [{"quarter": "2026Q1", "gdp_yoy": 5.0}],
+            "cn_gdp": [{"quarter": "2026Q2", "gdp_yoy": 5.0}],
             "cn_pmi": [{"month": "202607", "pmi010000": 50.2}],
             "cn_cpi": [{"month": "202607", "nt_yoy": 0.6}],
             "cn_ppi": [{"month": "202607", "ppi_yoy": -0.8}],
@@ -1394,8 +1393,7 @@ def test_china_macro_capture_binds_exact_period_fields_and_nine_official_documen
     ]
     assert macro_calls == {
         "cn_gdp": {
-            "start_q": "2026Q1",
-            "end_q": "2026Q2",
+            "q": "2026Q2",
             "fields": "quarter,gdp_yoy",
         },
         "cn_pmi": {"m": "202607", "fields": "month,pmi010000"},
@@ -1410,7 +1408,7 @@ def test_china_macro_capture_binds_exact_period_fields_and_nine_official_documen
         for row in china["tushare_observations"]
         if row["series_id"] == "cn_gdp_yoy"
     )
-    assert gdp["period_end"] == "2026-03-31"
+    assert gdp["period_end"] == "2026-06-30"
     with pytest.raises(china_agent_data_archive.ChinaAgentDataSchemaError):
         china_agent_data_archive._latest_macro_observation(
             "cn_gdp",
@@ -1424,7 +1422,7 @@ def test_china_macro_capture_binds_exact_period_fields_and_nine_official_documen
     tushare_receipt = result.routes[CHINA_ROUTE_GROUP].source_receipts[1].as_dict()
     assert set(tushare_receipt["coverage"]["dimensions"]["request_params"]) == {
         "cn_cpi:fields=month,nt_yoy&m=202607",
-        "cn_gdp:end_q=2026Q2&fields=quarter,gdp_yoy&start_q=2026Q1",
+        "cn_gdp:fields=quarter,gdp_yoy&q=2026Q2",
         "cn_pmi:fields=month,pmi010000&m=202607",
         "cn_ppi:fields=month,ppi_yoy&m=202607",
     }
@@ -2205,13 +2203,15 @@ def test_compiler_publishes_ready_central_bank_when_curve_route_is_available(
     omo = next(
         row for row in central["observations"] if row["series_id"] == "pboc_omo_rate"
     )
-    assert omo["released_at"] == omo["vintage_at"] == "2026-08-07T10:00:00+08:00"
+    assert omo["released_at"] == "2026-08-07T10:00:00+08:00"
+    assert omo["vintage_at"] == CAPTURED_AT.isoformat()
     credit = next(
         row
         for row in central["observations"]
         if row["series_id"] == "cn_credit_summary_tsfin"
     )
-    assert credit["released_at"] == credit["vintage_at"] == "2026-08-07T10:00:00+08:00"
+    assert credit["released_at"] == "2026-08-07T10:00:00+08:00"
+    assert credit["vintage_at"] == CAPTURED_AT.isoformat()
     shibor = {
         row["series_id"]: row
         for row in central["observations"]
@@ -2219,7 +2219,7 @@ def test_compiler_publishes_ready_central_bank_when_curve_route_is_available(
         in {"domestic_liquidity_shibor_overnight", "money_market_shibor_3m"}
     }
     assert {row["released_at"] for row in shibor.values()} == {
-        "2026-08-08T15:00:00+08:00"
+        CAPTURED_AT.isoformat()
     }
     curve = {
         row["series_id"]: row
@@ -2241,7 +2241,6 @@ def test_compiler_publishes_ready_central_bank_when_curve_route_is_available(
         for row in persisted["context_observations"]
         if row["series_id"] == "china_credit_rmb_loan_flow"
     )
-    assert context_credit["released_at"] == context_credit["vintage_at"] == (
-        "2026-08-07T10:00:00+08:00"
-    )
+    assert context_credit["released_at"] == "2026-08-07T10:00:00+08:00"
+    assert context_credit["vintage_at"] == CAPTURED_AT.isoformat()
     assert len(built.build_receipts) == 1

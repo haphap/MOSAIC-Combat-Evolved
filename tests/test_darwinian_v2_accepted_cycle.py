@@ -2797,8 +2797,8 @@ def test_accepted_cycle_rejects_redistributed_macro_usage_shares(
         if row["accepted_output_kind"] == "SUPERINVESTOR_SELECTION"
     )
     rows = record["output"]["payload"]["accepted_macro_input_attributions"]
-    rows[0]["usage_share"] = 0.2
-    rows[1]["usage_share"] = 0.0
+    rows[0]["usage_share"] += 0.05
+    rows[1]["usage_share"] -= 0.05
     _reseal_record(state, record)
 
     with pytest.raises(

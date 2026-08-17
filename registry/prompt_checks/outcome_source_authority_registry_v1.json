@@ -1,8 +1,8 @@
 {
   "registry_version": "outcome_source_authority_registry_v1",
   "provisioning_status": "PROVISIONING_REQUIRED",
-  "registry_schema_hash": "sha256:0efba41ca72143d9f20d584c5a7dd3d6581da3cd9c1fcef06a38c8a636ba4144",
-  "registry_hash": "sha256:673903f5d24bc502e24fd203d9cd8fe06551138c207267a6b211886d4fef7293",
+  "registry_schema_hash": "sha256:48d0010da6f98a35d406fb0f225aa77f008d787ad63e83065c5d26e9a1f14acb",
+  "registry_hash": "sha256:8d3bc34ee6e050ba93eb2a4638444c875692c9ac9c757a5a427933bb1af4b233",
   "entries": [
     {
       "entry_version": "outcome_source_authority_entry_v1",

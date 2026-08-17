@@ -1167,7 +1167,7 @@ def test_get_industry_moneyflow_rejects_unapproved_scope_before_transport(
 ):
     transport = mock_query_pro(_df_with_rows([]))
 
-    with pytest.raises(DataVendorUnavailable, match="authorized exact industry scope"):
+    with pytest.raises(DataVendorUnavailable, match="registered exact industry scope"):
         macro_data.get_industry_moneyflow("2024-06-30", industries=industries)
 
     transport.assert_not_called()

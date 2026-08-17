@@ -12,6 +12,7 @@ from mosaic.bridge.tool_capabilities import (
     TOOL_DESCRIPTIONS,
     materialize_tool_payload,
 )
+from mosaic.scorecard.macro_aggregation import MACRO_AGENTS
 
 
 def test_bridge_does_not_register_arbitrary_query_tool_modules():
@@ -23,7 +24,7 @@ def test_bridge_does_not_register_arbitrary_query_tool_modules():
 
 
 def test_macro_matrix_has_one_role_snapshot_and_no_legacy_or_search_tools():
-    assert len(MACRO_AGENT_TO_TOOL) == 9
+    assert set(MACRO_AGENT_TO_TOOL) == set(MACRO_AGENTS)
     for agent, tool_id in MACRO_AGENT_TO_TOOL.items():
         assert AGENT_TOOL_MATRIX[agent] == (tool_id,)
         assert tool_id in TOOL_DESCRIPTIONS

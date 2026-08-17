@@ -596,7 +596,7 @@ def earliest_agent_source_ready_date(
         "runtime.accepted_outputs",
         "runtime.candidate_scope",
     ]
-    if len(source_route_ids) != 24:
+    if len(source_route_ids) != 23:
         raise RuntimeError("Agent source route closure drift")
 
     route_blockers: dict[str, list[str]] = {}

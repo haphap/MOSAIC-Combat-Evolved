@@ -795,7 +795,6 @@ def test_sector_ascii_keyword_matching_uses_token_boundaries() -> None:
         agent_id="consumer",
         layer="sector",
         ticker="600025.SH",
-        sector="retail",
         forecasts=[
             {
                 "forecast_claim_id": "FC-RETAIL",
@@ -818,7 +817,6 @@ def test_sector_ascii_keyword_matching_uses_token_boundaries() -> None:
     technology = build_rke_agent_research_context_from_rows(
         agent_id="technology",
         layer="sector",
-        sector="AI infrastructure",
         forecasts=[
             {
                 "forecast_claim_id": "FC-AI",

@@ -92,8 +92,13 @@ def test_overlay_covers_exact_macro_us_binding_lineage_without_surface_change():
     }
 
     assert len(preactivation_tools) == 18
-    assert preactivation_tools - active_tools == {"get_relationship_graph_snapshot"}
-    assert preactivation_tools - {"get_relationship_graph_snapshot"} < active_tools
+    retired_tools = {
+        "get_geopolitical_events_snapshot",
+        "get_market_breadth_snapshot",
+        "get_relationship_graph_snapshot",
+    }
+    assert preactivation_tools - active_tools == retired_tools
+    assert preactivation_tools - retired_tools < active_tools
     assert actual_roster == set(MACRO_US_BINDING_ROSTER)
     assert len(actual_roster) == 8
     assert approved_binding_migrations.keys() == overlay_binding_ids - active_binding_ids

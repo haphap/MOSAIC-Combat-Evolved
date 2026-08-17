@@ -642,14 +642,13 @@ def test_generic_macro_snapshots_cannot_embed_event_prose():
         "title": "policy event",
         "evidence_id": "event:event-1",
     }
-    for role in ("geopolitical", "china"):
-        denied = payload(role=role, observations=[], events=[event])
-        with pytest.raises(DataVendorUnavailable, match="cannot embed event prose"):
-            validate_role_snapshot(denied, role, "2024-06-30")
+    denied = payload(role="china", observations=[], events=[event])
+    with pytest.raises(DataVendorUnavailable, match="cannot embed event prose"):
+        validate_role_snapshot(denied, "china", "2024-06-30")
 
 
-def test_geopolitical_uses_dedicated_registry_snapshot_contract():
-    with pytest.raises(DataVendorUnavailable, match="GeopoliticalEventsSnapshot"):
+def test_retired_geopolitical_role_has_no_snapshot_contract():
+    with pytest.raises(DataVendorUnavailable, match="unknown macro snapshot role"):
         validate_role_snapshot(
             payload(role="geopolitical", observations=[], events=[]),
             "geopolitical",
@@ -659,7 +658,9 @@ def test_geopolitical_uses_dedicated_registry_snapshot_contract():
 
 def test_observations_reject_news_and_unregistered_sources():
     news = payload(observations=[observation(source="gdelt_event_gkg")])
-    with pytest.raises(DataVendorUnavailable, match="event library|unapproved"):
+    with pytest.raises(
+        DataVendorUnavailable, match="unregistered macro observation source identity"
+    ):
         validate_role_snapshot(news, "china", "2024-06-30")
 
     unknown = payload(observations=[observation(source="unregistered_vendor")])
@@ -712,31 +713,12 @@ def test_institutional_flow_requires_etf_component():
     assert accepted["direct_data_quality"] == pytest.approx(0.95)
     assert set(accepted["component_coverage"]) == set(INSTITUTIONAL_FLOW_COVERAGE)
 
+    substituted = payload(role="institutional_flow")
+    substituted["observations"][0]["source"] = "tushare.moneyflow_hsgt"
     with pytest.raises(
-        DataVendorUnavailable,
-        match="unregistered macro observation source identity",
+        DataVendorUnavailable, match="unregistered macro observation source identity"
     ):
-        with pytest.raises(
-            DataVendorUnavailable, match="missing required components|does not map"
-        ):
-            validate_role_snapshot(
-                payload(
-                    role="institutional_flow",
-                    observations=[
-                        observation(
-                            series_id=item,
-                            source=(
-                                "tushare.moneyflow_hsgt"
-                                if item == "lhb_sampled_stock"
-                                else source_for("institutional_flow", item)
-                            ),
-                        )
-                        for item in ROLE_SERIES["institutional_flow"]
-                    ],
-                ),
-                "institutional_flow",
-                "2024-06-30",
-            )
+        validate_role_snapshot(substituted, "institutional_flow", "2024-06-30")
 
 
 def test_institutional_flow_coverage_is_exact_and_fail_closed():
@@ -818,8 +800,8 @@ def test_event_library_input_is_not_accepted_through_generic_macro_contract():
     duplicate = {**first, "event_id": "event-2", "evidence_id": "event:event-2"}
     with pytest.raises(DataVendorUnavailable, match="cannot embed event prose"):
         validate_role_snapshot(
-            payload(role="geopolitical", observations=[], events=[first, duplicate]),
-            "geopolitical",
+            payload(role="china", observations=[], events=[first, duplicate]),
+            "china",
             "2024-06-30",
         )
 

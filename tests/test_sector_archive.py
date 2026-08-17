@@ -861,16 +861,19 @@ def test_membership_batches_runs_vendor_fetches_on_caller_thread() -> None:
 def test_capture_group_executes_registered_incremental_routes(
     monkeypatch,
 ) -> None:
+    mapped_codes = tuple(f"6884{index:02d}.SH" for index in range(11))
+    unmapped_code = "300655.SZ"
     plan = {
         "sector_agent_id": "semiconductor",
         "query_plan_hash": f"sha256:{'b' * 64}",
         "branches": [
             {
                 "endpoint": "index_member_all",
-                "parameter": "l3_code",
-                "classification_code": "850111.SI",
+                "parameter": "ts_code",
+                "classification_code": ticker,
                 "is_new": "Y",
             }
+            for ticker in (*mapped_codes, unmapped_code)
         ],
     }
     monkeypatch.setitem(
@@ -878,8 +881,6 @@ def test_capture_group_executes_registered_incremental_routes(
         "membership_query_plans",
         [plan],
     )
-    mapped_codes = tuple(f"6884{index:02d}.SH" for index in range(11))
-    unmapped_code = "300655.SZ"
     monkeypatch.setattr(
         sector_archive,
         "_authoritative_etf_codes",
@@ -917,8 +918,6 @@ def test_capture_group_executes_registered_incremental_routes(
         calls.append((endpoint, dict(params)))
         if int(params.get("offset", 0)):
             return []
-        if endpoint == "stock_basic" and params["ts_code"] == "002257.SZ":
-            return []
         if endpoint == "trade_cal":
             start = sector_archive.date.fromisoformat(
                 f"{params['start_date'][:4]}-{params['start_date'][4:6]}-"
@@ -941,7 +940,12 @@ def test_capture_group_executes_registered_incremental_routes(
             ]
         row = _endpoint_row(endpoint, params)
         if endpoint == "index_member_all":
-            return [row, {**row, "ts_code": "002257.SZ"}]
+            direction_codes = ("850814.SI", "850816.SI", "850813.SI", "850812.SI")
+            if params["ts_code"] in mapped_codes:
+                row["l3_code"] = direction_codes[
+                    mapped_codes.index(params["ts_code"]) % 4
+                ]
+            return [row]
         return [row]
 
     group = _build_capture_group(
@@ -975,23 +979,27 @@ def test_capture_group_executes_registered_incremental_routes(
     membership_calls = [
         params for endpoint, params in calls if endpoint == "index_member_all"
     ]
-    assert len(membership_calls) == 12
-    assert {params["ts_code"] for params in membership_calls} == {
+    initial_membership_calls = [
+        params for params in membership_calls if params["offset"] == 0
+    ]
+    assert len(initial_membership_calls) == 12
+    assert {params["ts_code"] for params in initial_membership_calls} == {
         *mapped_codes,
         unmapped_code,
     }
-    assert all(set(params) == {"ts_code", "is_new"} for params in membership_calls)
-    membership_batch = next(
+    assert all(
+        set(params) == {"ts_code", "is_new", "limit", "offset"}
+        for params in membership_calls
+    )
+    membership_batches = [
         batch for batch in group["batches"] if batch["endpoint"] == "index_member_all"
-    )
-    assert membership_batch["request"]["ts_codes"] == sorted(
-        (*mapped_codes, unmapped_code)
-    )
+    ]
     assert {
-        row["ts_code"] for row in membership_batch["rows"]
+        row["ts_code"] for batch in membership_batches for row in batch["rows"]
     } == {*mapped_codes, unmapped_code}
-    assert membership_batch["rows_hash"] == sector_archive.canonical_hash(
-        membership_batch["rows"]
+    assert all(
+        batch["rows_hash"] == sector_archive.canonical_hash(batch["rows"])
+        for batch in membership_batches
     )
     assert group["capture_scope"]["security_codes"] == sorted(mapped_codes)
     assert all(
@@ -1003,18 +1011,14 @@ def test_capture_group_executes_registered_incremental_routes(
     stock_basic = next(
         batch for batch in group["batches"] if batch["endpoint"] == "stock_basic"
     )
-    assert stock_basic["request"]["ts_codes"] == ["000001.SZ", "002257.SZ"]
-    assert {row["ts_code"] for row in stock_basic["rows"]} == {"000001.SZ"}
-    assert stock_basic["query_count"] == stock_basic["completed_query_count"] == 2
+    assert stock_basic["request"]["ts_codes"] == sorted(mapped_codes)
+    assert {row["ts_code"] for row in stock_basic["rows"]} == set(mapped_codes)
+    assert stock_basic["query_count"] == stock_basic["completed_query_count"] == len(
+        mapped_codes
+    )
     assert [
         params for endpoint, params in calls if endpoint == "stock_basic"
-    ] == [{"ts_code": "000001.SZ"}, {"ts_code": "002257.SZ"}]
-    assert all(
-        params.get("ts_code") != "002257.SZ"
-        for endpoint, params in calls
-        if endpoint not in {"index_member_all", "stock_basic"}
-    )
-    assert group["capture_scope"]["security_codes"] == ["000001.SZ"]
+    ] == [{"ts_code": code} for code in sorted(mapped_codes)]
     assert all(
         batch.get("coverage_ratio") == 1.0
         for batch in group["batches"]
@@ -1035,7 +1039,7 @@ def test_capture_group_executes_registered_incremental_routes(
         "fund_nav": "OFFSET_WITH_TERMINAL_CONFIRMATION",
         "fund_portfolio": "OFFSET_WITH_TERMINAL_CONFIRMATION",
         "income": "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP",
-        "index_member_all": "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP",
+        "index_member_all": "OFFSET_WITH_TERMINAL_CONFIRMATION",
         "moneyflow": "OFFSET_WITH_TERMINAL_CONFIRMATION",
     }
 

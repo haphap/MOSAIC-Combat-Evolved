@@ -328,8 +328,19 @@ def test_live_manifests_preserve_the_l1_l2_fixed_point() -> None:
         ROOT / "registry/data_sources/agent_data_route_manifest_v1.json"
     )
 
-    assert _surface(expected_tools) <= _surface(live_tools)
-    assert {canonical_hash(row) for row in expected_routes["bindings"]} <= {
+    live_agent_ids = {row["agent_id"] for row in live_tools["agents"]}
+    expected_agent_ids = {row["agent_id"] for row in expected_tools["agents"]}
+    assert expected_agent_ids - live_agent_ids == {"geopolitical", "market_breadth"}
+    assert {
+        binding
+        for binding in _surface(expected_tools)
+        if binding[0] in live_agent_ids
+    } <= _surface(live_tools)
+    assert {
+        canonical_hash(row)
+        for row in expected_routes["bindings"]
+        if row["agent_id"] in live_agent_ids
+    } <= {
         canonical_hash(row) for row in live_routes["bindings"]
     }
 

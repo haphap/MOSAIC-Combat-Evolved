@@ -580,7 +580,7 @@ def test_every_sector_stage_exactly_materializes_its_adaptive_tool_roster(
             row["args"]["topic"]
             for row in plan["query_requests"]
             if row["tool_id"] == "get_industry_policy_digest"
-        } == {"生物制品"}
+        } == {"生物医药"}
     elif agent_id == "energy":
         assert {
             row["args"]["topic"]
@@ -598,7 +598,7 @@ def test_every_sector_stage_exactly_materializes_its_adaptive_tool_roster(
             row["args"]["topic"]
             for row in plan["query_requests"]
             if row["tool_id"] == "get_industry_policy_digest"
-        } == {"养殖"}
+        } == {"农业"}
     elif agent_id == "consumer":
         assert {
             row["args"]["topic"]
@@ -610,7 +610,7 @@ def test_every_sector_stage_exactly_materializes_its_adaptive_tool_roster(
             row["args"]["topic"]
             for row in plan["query_requests"]
             if row["tool_id"] == "get_industry_policy_digest"
-        } == {"钢铁"}
+        } == {"机械"}
     elif agent_id == "real_estate_construction":
         assert {
             row["args"]["topic"]

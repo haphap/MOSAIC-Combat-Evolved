@@ -171,8 +171,8 @@ def test_migration_golden_freezes_25_agents_26_stages_and_23_capabilities():
     assert len({row["semantic_capability_id"] for row in preservation["capabilities"]}) == 23
 
     dispositions = [row["disposition"] for row in preservation["capabilities"]]
-    assert dispositions.count("preserved") == 5
-    assert dispositions.count("partial") == 18
+    assert dispositions.count("preserved") == 4
+    assert dispositions.count("partial") == 19
     market_breadth = next(
         row
         for row in preservation["capabilities"]
@@ -248,8 +248,8 @@ def test_public_manifests_validate_against_their_json_schemas(
 def test_partial_and_unapproved_reductions_block_rollout():
     manifest = copy.deepcopy(_bundle()["preservation_manifest"])
     blockers = rollout_blockers(manifest)
-    assert len(blockers) == 43
-    assert len([code for code in blockers if code.startswith("capability_partial:")]) == 18
+    assert len(blockers) == 44
+    assert len([code for code in blockers if code.startswith("capability_partial:")]) == 19
     assert len([code for code in blockers if code.startswith("output_partial:")]) == 25
 
     row = next(item for item in manifest["capabilities"] if item["disposition"] == "partial")

@@ -151,17 +151,17 @@ def _mature_sample(
         effective_at="2026-05-01T15:00:00+08:00",
     )
     with store._connect() as conn:
-        track_hash = _track_by_agent(conn, revision)["geopolitical"]
+        track_hash = _track_by_agent(conn, revision)["institutional_flow"]
         slot, opportunity, pending = _seed_pending(
             conn,
             revision=revision,
-            tracks={"geopolitical": track_hash},
-            agent_id="geopolitical",
+            tracks={"institutional_flow": track_hash},
+            agent_id="institutional_flow",
         )
         _write_projection(
             runtime_root,
             conn,
-            agent_id="geopolitical",
+            agent_id="institutional_flow",
             track_hash=track_hash,
             slot=slot,
             opportunity=opportunity,
@@ -189,7 +189,7 @@ def test_prompt_training_projection_v2_joins_maturity_and_knot_authority(
     knot_store = _KnotHistoryStore()
 
     projection = store.build_prompt_training_projection_v2(
-        agent_id="geopolitical",
+        agent_id="institutional_flow",
         stage="agent_run",
         cohort="cohort_default",
         cutoff_at=CUTOFF_AT,
@@ -315,7 +315,7 @@ def test_prompt_training_projection_v2_excludes_knot_ineligible_sample(
     knot_store = _KnotHistoryStore(excluded=True)
 
     projection = store.build_prompt_training_projection_v2(
-        agent_id="geopolitical",
+        agent_id="institutional_flow",
         stage="agent_run",
         cohort="cohort_default",
         cutoff_at=CUTOFF_AT,
@@ -355,7 +355,7 @@ def test_prompt_training_projection_v2_rejects_forged_knot_partition(
 
     with pytest.raises(ValueError, match="KNOT history partition hash mismatch"):
         store.build_prompt_training_projection_v2(
-            agent_id="geopolitical",
+            agent_id="institutional_flow",
             stage="agent_run",
             cohort="cohort_default",
             cutoff_at=CUTOFF_AT,
@@ -383,7 +383,7 @@ def test_prompt_training_projection_v2_revalidates_historical_source_batch(
 
     with pytest.raises(ValueError, match="stored outcome source batch hash mismatch"):
         store.build_prompt_training_projection_v2(
-            agent_id="geopolitical",
+            agent_id="institutional_flow",
             stage="agent_run",
             cohort="cohort_default",
             cutoff_at=CUTOFF_AT,
