@@ -452,7 +452,7 @@ def test_forward_archive_queries_fail_closed_without_eligible_rows(tmp_path):
             "get_stock_research", "600000.SH", "2026-06-01", "2026-06-05", 30
         )
     with pytest.raises(DataVendorUnavailable, match="coverage"):
-        reader("get_industry_policy", "2026-06-05", 7, "govcn")
+        reader("get_industry_policy", "2026-06-05", 7, "govcn", "能源")
 
 
 def test_forward_archive_receipt_is_bound_into_staged_query_evidence(tmp_path):

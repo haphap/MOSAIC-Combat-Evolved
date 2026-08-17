@@ -16,6 +16,7 @@ import {
 import {
   buildLayerTwoUserContext,
   buildSectorCoverageDirective,
+  buildSectorProviderUsageEvidenceBody,
   renderSectorDirectionResearchPayloads,
 } from "../src/agents/sector/_factory.js";
 import {
@@ -353,6 +354,52 @@ describe("standard sector output contracts", () => {
         ],
       }).success,
     ).toBe(true);
+  });
+
+  it("accepts only the eligible ETF from a sole preferred security shortlist", () => {
+    const directive = {
+      selection_status: "SELECTED" as const,
+      preferred_direction_id: "coal",
+      least_preferred_direction_id: "battery_storage",
+      preferred_security_shortlist_id: "preferred-eligible-etf",
+      preferred_security_shortlist_hash: `sha256:${"a".repeat(64)}`,
+      least_preferred_security_shortlist_id: "least-empty",
+      least_preferred_security_shortlist_hash: `sha256:${"b".repeat(64)}`,
+      security_scoring_contract_version: SECURITY_SCORING_CONTRACT_VERSION,
+      security_scoring_contract_hash: SECURITY_SCORING_CONTRACT_HASH,
+      allowed_preferred_security_ids: ["512480.SH"],
+      allowed_least_preferred_security_ids: [],
+      required_preferred_evidence_ids: [],
+      required_least_preferred_evidence_ids: [],
+      required_final_evidence_ids: [],
+    };
+    const output = sectorOutput("energy");
+    output.preferred_direction.direction_id = "coal";
+    output.preferred_direction.direction_local_id = "coal";
+    output.least_preferred_direction.direction_id = "battery_storage";
+    output.least_preferred_direction.direction_local_id = "battery_storage";
+    output.long_picks = [
+      {
+        pick_local_id: "forged-long",
+        ts_code: "600001.SH",
+        direction_local_id: "coal",
+        position_action: "LONG",
+        conviction: 0.5,
+        thesis: "forged outside shortlist",
+        claim_refs: ["energy-claim"],
+      },
+    ];
+    output.preferred_security_status = "PICKS_PRESENT";
+    output.preferred_security_abstention_confidence = null;
+    const forgedIssues = validateFinalSelectionAgainstDirective(output, directive);
+    expect(forgedIssues).toContain("preferred pick is outside frozen shortlist");
+
+    const longPick = output.long_picks[0];
+    if (!longPick) throw new Error("expected a preferred pick");
+    longPick.ts_code = "512480.SH";
+    expect(validateFinalSelectionAgainstDirective(output, directive)).not.toContain(
+      "preferred pick is outside frozen shortlist",
+    );
   });
 
   it("requires complete decisive evidence coverage on both final legs", () => {
@@ -1297,7 +1344,56 @@ describe("standard Sector usage lifecycle", () => {
     expect(events.reports.at(-1)).toMatchObject({
       attempted_stage: "FINAL_SELECTION",
       attempt_status: "OPERATIONAL_FAILURE",
+      validation_issues: [
+        {
+          validator: "model_runtime",
+          reason_code: "MODEL_SERVICE_ERROR",
+          json_path: "$",
+          message: "503 service unavailable",
+        },
+      ],
     });
+    const evidenceBody = buildSectorProviderUsageEvidenceBody({
+      capabilityId: "cap-sector-instrumented",
+      sectorAgentId: "energy",
+      attemptedStage: "FINAL_SELECTION",
+      audit: {
+        attempt: 1,
+        kind: "primary",
+        accepted: false,
+        validation_issues: [
+          {
+            validator: "model_runtime",
+            reason_code: "MODEL_SERVICE_ERROR",
+            json_path: "$",
+            message: "503 service unavailable",
+          },
+        ],
+        error_fingerprints: ["model_runtime:MODEL_SERVICE_ERROR:$"],
+        output_hash: null,
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        elapsed_ms: 1,
+      },
+    });
+    expect(evidenceBody).toMatchObject({
+      validation_issues: [
+        {
+          validator: "model_runtime",
+          reason_code: "MODEL_SERVICE_ERROR",
+          json_path: "$",
+          message: "503 service unavailable",
+        },
+      ],
+    });
+    const validationIssue = (evidenceBody.validation_issues as Array<Record<string, string>>).at(0);
+    expect(Object.keys(validationIssue ?? {})).toEqual([
+      "validator",
+      "reason_code",
+      "json_path",
+      "message",
+    ]);
+    expect(evidenceBody).not.toHaveProperty("raw_output");
     expect(events.lifecycle.at(-2)).toBe("finalize");
     expect(events.lifecycle.at(-1)).toBe("terminate");
   });

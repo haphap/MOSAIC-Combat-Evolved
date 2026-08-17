@@ -22,6 +22,9 @@ import {
 } from "../../agents/prompts/prompt_release_contract.js";
 import {
   CapabilityFullBundleV1Schema,
+  loadCurrentCapabilityBindings,
+  loadCurrentKnotGateDReleaseAuthority,
+  type PromptTrainingProjectionV2,
   PromptTrainingProjectionV2Schema,
 } from "../../autoresearch/capability_preservation_contract.js";
 import { assertCurrentKnotTransitionAction } from "../../autoresearch/knot_gate_d_release_authority.js";
@@ -125,9 +128,58 @@ export const GateDReceiptBuildRequestSchema = z
   })
   .strict();
 
+type CapabilityUseAggregate = PromptTrainingProjectionV2["capabilityUseAggregates"][number];
+
+export interface CapabilityUseContext {
+  schemaVersion: "prompt_candidate_capability_use_context_v1";
+  sourceProjectionHash: string;
+  target: PromptCandidateGenerationRequest["target"];
+  capabilityUseAggregates: CapabilityUseAggregate[];
+  contextHash: string;
+}
+
+function buildCapabilityUseContext(
+  request: PromptCandidateGenerationRequest,
+  trainingProjectionV2: PromptTrainingProjectionV2,
+): CapabilityUseContext {
+  if (canonicalJsonHash(trainingProjectionV2.target) !== canonicalJsonHash(request.target)) {
+    throw new Error("private Prompt v2 target mismatch");
+  }
+  const targetBindingIds = loadCurrentCapabilityBindings()
+    .filter(
+      (binding) =>
+        binding.activation_state === "active" && binding.agent_id === request.target.agentId,
+    )
+    .map((binding) => binding.binding_id)
+    .sort();
+  if (targetBindingIds.length === 0) {
+    throw new Error("private Prompt target has no active capability bindings");
+  }
+  const rows = trainingProjectionV2.capabilityUseAggregates.filter((row) =>
+    targetBindingIds.includes(row.binding_id),
+  );
+  const actualIds = rows.map((row) => row.binding_id).sort();
+  if (
+    actualIds.length !== targetBindingIds.length ||
+    JSON.stringify(actualIds) !== JSON.stringify(targetBindingIds)
+  ) {
+    throw new Error("private Prompt capability aggregate closure mismatch");
+  }
+  const body = {
+    schemaVersion: "prompt_candidate_capability_use_context_v1" as const,
+    sourceProjectionHash: trainingProjectionV2.projectionHash,
+    target: request.target,
+    capabilityUseAggregates: rows.sort((left, right) =>
+      left.binding_id.localeCompare(right.binding_id),
+    ),
+  };
+  return { ...body, contextHash: canonicalJsonHash(body) };
+}
+
 export function buildPrivateCandidateRequest(
   request: PromptCandidateGenerationRequest,
   trainingProjection: unknown,
+  trainingProjectionV2: PromptTrainingProjectionV2,
 ) {
   return {
     parentId: request.parentId,
@@ -135,6 +187,7 @@ export function buildPrivateCandidateRequest(
     target: request.target,
     promptRefs: request.promptRefs,
     trainingProjection,
+    capabilityUseContext: buildCapabilityUseContext(request, trainingProjectionV2),
     createdAt: request.createdAt,
   };
 }
@@ -359,10 +412,17 @@ export function registerAutoresearch(program: Command): void {
             cutoff_at: request.cutoffAt,
             excluded_sample_ids: request.excludedSampleIds,
           });
+          const projectionV2 = await api.promptOptimizerTrainingProjectionV2({
+            agent_id: request.target.agentId,
+            stage: request.target.stage,
+            cohort: request.target.cohort,
+            cutoff_at: request.cutoffAt,
+            excluded_sample_ids: request.excludedSampleIds,
+          });
           const privateRequestPath = resolve(temporaryRoot, "candidate-request.json");
           await writeFile(
             privateRequestPath,
-            `${JSON.stringify(buildPrivateCandidateRequest(request, projection))}\n`,
+            `${JSON.stringify(buildPrivateCandidateRequest(request, projection, projectionV2))}\n`,
             { encoding: "utf8", mode: 0o600 },
           );
           const output = JSON.parse(
@@ -391,6 +451,7 @@ export function registerAutoresearch(program: Command): void {
             candidatePromptCommit: output.promptCommit,
           });
           await api.promptOptimizerPutTrainingProjection(projection);
+          await api.promptOptimizerPutTrainingProjectionV2(projectionV2);
           await api.promptOptimizerPutCandidate(candidate);
           await api.promptOptimizerPutCandidatePublication(publication);
           console.log(
@@ -447,6 +508,7 @@ export function registerAutoresearch(program: Command): void {
               .map((value) => value.trim())
               .filter(Boolean),
           ),
+          fixedPointAuthority: loadCurrentKnotGateDReleaseAuthority(),
         });
         console.log(
           `shadow decision=${result.decision.decision} candidate=${result.decision.candidateId} ` +

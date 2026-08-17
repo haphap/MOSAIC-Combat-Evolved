@@ -23,8 +23,6 @@ LIVE_L1_L2_AGENT_IDS = frozenset(
         "us_financial_conditions",
         "euro_area_financial_conditions",
         "commodities",
-        "geopolitical",
-        "market_breadth",
         "institutional_flow",
         "semiconductor",
         "technology",

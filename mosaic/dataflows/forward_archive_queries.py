@@ -612,6 +612,7 @@ class ForwardArchiveQueryReader:
         cutoff = _cutoff(as_of)
         if selection.route_id != _POLICY_ROUTE and selection.captured_at > cutoff:
             raise DataVendorUnavailable("forward archive capture is after query as_of")
+        receipt_cutoff = max(cutoff, selection.captured_at)
         request_hash = canonical_hash(selection.request)
         content_identity = {
             "request": selection.request,
@@ -654,7 +655,7 @@ class ForwardArchiveQueryReader:
                 },
                 "pit": {
                     "pit_mode": "OBSERVED_LIVE",
-                    "as_of_cutoff": cutoff.isoformat(),
+                    "as_of_cutoff": receipt_cutoff.isoformat(),
                     "eligible": True,
                     "blocker_codes": [],
                     "vintage_query": None,

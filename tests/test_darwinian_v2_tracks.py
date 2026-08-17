@@ -50,14 +50,14 @@ def _register(store: ScorecardStore, release: str, effective_at: str):
     )
 
 
-def test_new_variant_registers_27_evaluation_and_23_usage_tracks(tmp_path: Path) -> None:
+def test_new_variant_registers_25_evaluation_and_21_usage_tracks(tmp_path: Path) -> None:
     store = ScorecardStore(tmp_path / "scorecard.db")
     revision = _register(store, "release-1", "2026-07-17T09:00:00+08:00")
-    assert revision["inserted_evaluation_tracks"] == 27
-    assert revision["inserted_usage_tracks"] == 23
-    assert revision["inserted_cold_start_weights"] == 23
-    assert len(revision["evaluation_track_key_hashes"]) == 27
-    assert len(revision["usage_track_key_hashes"]) == 23
+    assert revision["inserted_evaluation_tracks"] == 25
+    assert revision["inserted_usage_tracks"] == 21
+    assert revision["inserted_cold_start_weights"] == 21
+    assert len(revision["evaluation_track_key_hashes"]) == 25
+    assert len(revision["usage_track_key_hashes"]) == 21
     assert len(revision["decision_evaluation_track_key_hashes"]) == 4
     assert revision["prepared_at"] == "2026-07-17T09:00:00+08:00"
     assert revision["recorded_at"] == "2026-07-17T09:00:00+08:00"
@@ -69,7 +69,7 @@ def test_new_variant_registers_27_evaluation_and_23_usage_tracks(tmp_path: Path)
         ],
         as_of="2026-07-17T23:59:59+08:00",
     )
-    assert len(snapshot["weights"]) == 23
+    assert len(snapshot["weights"]) == 21
     assert {row["darwin_weight"] for row in snapshot["weights"]} == {1.0}
     assert {row["record_kind"] for row in snapshot["weights"]} == {
         "COLD_START_INITIALIZATION"
@@ -210,8 +210,8 @@ def test_registration_binds_authoritative_revision_timing_and_sequence(
 def test_registration_rejects_nullable_track_dimension_drift(tmp_path: Path) -> None:
     store = ScorecardStore(tmp_path / "scorecard.db")
     bindings = _bindings()
-    bindings["geopolitical"]["component_weight_contract_version"] = "forbidden"
-    with pytest.raises(ValueError, match="geopolitical.*must be null"):
+    bindings["institutional_flow"]["component_weight_contract_version"] = "forbidden"
+    with pytest.raises(ValueError, match="institutional_flow.*must be null"):
         store.register_darwinian_production_variant(
             cohort_id="cohort_default",
             language="zh",

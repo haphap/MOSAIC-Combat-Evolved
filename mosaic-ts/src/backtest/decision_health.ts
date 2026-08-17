@@ -63,10 +63,10 @@ export function evaluateHistoricalDecisionHealth(
   const allStagesAccepted =
     rejectedAudits.length === 0 &&
     (state.darwinian_runtime_binding === null
-      ? (audits.length === 28 &&
-          new Set(audits.map((audit) => `${audit.agent}:${audit.stage}`)).size === 28) ||
-        (resolvedStages.size === 28 && sameSet(resolvedStages, requiredStageKeys()))
-      : resolvedStages.size === 28 && sameSet(resolvedStages, requiredStageKeys()));
+      ? (audits.length === 26 &&
+          new Set(audits.map((audit) => `${audit.agent}:${audit.stage}`)).size === 26) ||
+        (resolvedStages.size === 26 && sameSet(resolvedStages, requiredStageKeys()))
+      : resolvedStages.size === 26 && sameSet(resolvedStages, requiredStageKeys()));
   const explicitAcceptedAllCash =
     state.layer4_outputs.cio?.decision_disposition === "ALL_CASH" &&
     audits.some(
@@ -163,7 +163,7 @@ export function assertAcceptedDailyCycle(state: DailyCycleStateType): Historical
             const status = call.agent_run_audit?.status;
             return status === "accepted" || status === "accepted_empty";
           }).length
-        }/28`,
+        }/26`,
     );
   }
   return health;

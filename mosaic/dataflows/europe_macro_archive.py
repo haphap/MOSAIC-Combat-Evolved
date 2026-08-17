@@ -1198,12 +1198,17 @@ def _fx_observation(
     row = max(candidates, key=lambda item: str(item["trade_date"]))
     observed = _tushare_date(row["trade_date"])
     midpoint = (float(row["bid_close"]) + float(row["ask_close"])) / 2
+    availability = (
+        group["requested_cutoff_at"]
+        if group.get("historical_replay") is True
+        else group["captured_at"]
+    )
     return {
         "series_id": "eur_usd_market",
         "period_start": observed.isoformat(),
         "period_end": observed.isoformat(),
-        "released_at": group["captured_at"],
-        "vintage_at": group["captured_at"],
+        "released_at": availability,
+        "vintage_at": availability,
         "actual": midpoint,
         "previous": None,
         "expected": None,
@@ -1231,10 +1236,15 @@ def _required_routes(agent_id: str, tool_id: str) -> list[str]:
 
 
 def _calendar_hash(
-    ledger: AgentDataMaterializationLedger, *, as_of_date: str
+    ledger: AgentDataMaterializationLedger,
+    *,
+    as_of_date: str,
+    lookup_as_of_date: str | None = None,
 ) -> str:
     route_id = "tushare.eco_cal.eur"
-    status = ledger.source_status(as_of=as_of_date, route_id=route_id)
+    status = ledger.source_status(
+        as_of=lookup_as_of_date or as_of_date, route_id=route_id
+    )
     if status["status"] != "READY" or not status["capture_receipt_hash"]:
         raise DataVendorUnavailable(f"required calendar route is blocked: {route_id}")
     return str(status["capture_receipt_hash"])
@@ -1397,7 +1407,15 @@ def compile_europe_macro_snapshots(
     calendar_hash = (
         str(exact_calendar_evidence_hash)
         if exact_calendar_evidence_hash is not None
-        else _calendar_hash(ledger, as_of_date=group["as_of_date"])
+        else _calendar_hash(
+            ledger,
+            as_of_date=group["as_of_date"],
+            lookup_as_of_date=(
+                _timestamp(group["captured_at"], "captured_at").date().isoformat()
+                if group.get("historical_replay") is True
+                else None
+            ),
+        )
     )
     build_specs: list[tuple[str, str, list[str]]] = []
     if "eu_economy" in selected_role_set:

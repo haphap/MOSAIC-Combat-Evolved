@@ -713,6 +713,10 @@ export function loadCurrentAcceptedOutputCapabilityTrack(): CapabilityTrack {
   return structuredClone(loadCurrentCapabilityContractBundle().capabilityTrack);
 }
 
+export function loadCurrentCapabilityBindings(): CapabilityBinding[] {
+  return structuredClone(loadCurrentCapabilityContractBundle().bindingManifest.bindings);
+}
+
 export function loadCurrentKnotAuditCapabilityTrackV2(): KnotAuditCapabilityTrackV2 {
   return structuredClone(loadCurrentCapabilityContractBundle().auditTrackV2);
 }

@@ -1,5 +1,5 @@
 /**
- * Output contracts for the 4-layer 28-agent daily cycle.
+ * Output contracts for the 4-layer 26-agent daily cycle.
  *
  * Each layer-X agent produces a typed payload that gets written into
  * ``state.layer<X>_outputs[<agent_id>]`` by the dict-merge reducer in
@@ -63,8 +63,6 @@ export type MacroAgentId =
   | "us_financial_conditions"
   | "euro_area_financial_conditions"
   | "commodities"
-  | "geopolitical"
-  | "market_breadth"
   | "institutional_flow";
 
 export type MacroDirection = "SUPPORTIVE" | "NEUTRAL" | "ADVERSE";
@@ -145,7 +143,7 @@ export interface MacroComponentCompositionAudit extends ComponentCalibrationRunt
 export interface MacroInputGateReceipt {
   schema_version: "macro_input_gate_receipt_v1";
   accepted_agent_ids: MacroAgentId[];
-  accepted_count: 10;
+  accepted_count: 8;
   input_hash: string;
   source_layer_snapshot_id: string;
   source_layer_snapshot_hash: string;
@@ -169,8 +167,6 @@ export type CentralBankOutput = MacroAgentSubmission;
 export type UsFinancialConditionsOutput = MacroAgentSubmission;
 export type EuroAreaFinancialConditionsOutput = MacroAgentSubmission;
 export type CommoditiesOutput = MacroAgentSubmission;
-export type GeopoliticalOutput = MacroAgentSubmission;
-export type MarketBreadthOutput = MacroAgentSubmission;
 export type InstitutionalFlowOutput = MacroAgentSubmission;
 export type MacroAgentOutput = AcceptedMacroTransmission;
 
@@ -397,7 +393,12 @@ export type AckmanOutput = SuperinvestorOutput & { agent: "ackman" };
 
 export interface CroOutput extends RuntimeOutputAuditFields {
   agent: "cro";
-  review_disposition?: "REVIEW_ACTIONS" | "NO_OBJECTION" | "BLOCK_ALL" | undefined;
+  review_disposition?:
+    | "REVIEW_ACTIONS"
+    | "NO_OBJECTION"
+    | "BLOCK_ALL"
+    | "NO_RISK_ACTION"
+    | undefined;
   rejected_picks: Array<{ ticker: string; reason: string; claim_refs?: string[] | undefined }>;
   required_adjustments?:
     | Array<{
@@ -430,7 +431,7 @@ export interface AlphaDiscoveryOutput extends RuntimeOutputAuditFields {
 
 export interface AutoExecOutput extends RuntimeOutputAuditFields {
   agent: "autonomous_execution";
-  execution_disposition?: "TRADES" | "NO_DELTA" | "BLOCKED" | undefined;
+  execution_disposition?: "TRADES" | "NO_DELTA" | "NO_EXECUTION_ACTION" | "BLOCKED" | undefined;
   trades: Array<{
     assessment_local_id?: string | undefined;
     order_intent_ref?: string | undefined;
@@ -506,7 +507,7 @@ export interface CioOutput extends RuntimeOutputAuditFields {
   cro_control_resolutions?:
     | Array<{
         cro_action_local_ref: string;
-        resolution: "COMPLIED" | "MORE_CONSERVATIVE";
+        resolution: "COMPLIED" | "MORE_CONSERVATIVE" | "STAGED";
         reason: string;
         claim_refs?: string[] | undefined;
       }>

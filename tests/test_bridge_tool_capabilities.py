@@ -123,8 +123,6 @@ def test_source_admission_preparation_reuses_exact_families_without_signing_capa
         ("china", "china", "2026-07-09"),
         ("us_economy", "us_economy", "2026-07-09"),
         ("eu_economy", "eu_economy", "2026-07-09"),
-        ("geopolitical", "geopolitical", "2026-07-09"),
-        ("market_breadth", "market_breadth", "2026-07-09"),
         ("semiconductor", "semiconductor", "2026-07-09"),
     ]
     assert [(agent_id, stage) for agent_id, stage, _ in adaptive_calls] == [
@@ -142,7 +140,7 @@ def test_source_admission_preparation_reuses_exact_families_without_signing_capa
     assert result == {
         "as_of": "2026-07-09",
         "adaptive_stage_count": 9,
-        "family_stage_count": 6,
+        "family_stage_count": 4,
         "status": "SOURCE_PREPARED",
     }
     with store._connect() as conn:
@@ -672,13 +670,13 @@ def test_capability_hashing_uses_shared_cross_runtime_jcs_authority():
     assert capability_module._sha256(value) == canonical_hash(value)
 
 
-def test_v3_matrix_has_27_agents_and_28_closed_execution_stages():
-    assert len(ALL_AGENT_IDS) == 27
+def test_v3_matrix_has_25_agents_and_26_closed_execution_stages():
+    assert len(ALL_AGENT_IDS) == 25
     assert set(AGENT_TOOL_MATRIX) == set(ALL_AGENT_IDS)
     stages = [execution_stage_for_agent(agent) for agent in ALL_AGENT_IDS if agent != "cio"]
     stages += [execution_stage_for_agent("cio", "cio_proposal")]
     stages += [execution_stage_for_agent("cio", "cio_final")]
-    assert len(stages) == len(set(stages)) == 28
+    assert len(stages) == len(set(stages)) == 26
     with pytest.raises(ValueError, match="capability stage"):
         execution_stage_for_agent("central_bank", "agent_run")
     with pytest.raises(ValueError, match="cio capability stage"):
@@ -2115,6 +2113,7 @@ def test_standard_sector_usage_summary_counts_repairs_and_finalizes_before_termi
     base = {
         "input_tokens": 10,
         "output_tokens": 5,
+        "validation_issues": [],
         "provider_usage_evidence_hash": f"sha256:{'a' * 64}",
         "direction_comparison_audit_id": None,
         "direction_comparison_audit_hash": None,
@@ -2185,6 +2184,7 @@ def test_standard_sector_usage_summary_preserves_failed_attempt_path(tmp_path):
             "attempt_status": "OPERATIONAL_FAILURE",
             "input_tokens": 0,
             "output_tokens": 0,
+            "validation_issues": [],
             "provider_usage_evidence_id": "provider-failed-direction-1",
             "provider_usage_evidence_hash": f"sha256:{'c' * 64}",
             "direction_comparison_audit_id": None,
@@ -2202,3 +2202,95 @@ def test_standard_sector_usage_summary_preserves_failed_attempt_path(tmp_path):
     assert summary["direction_comparison_audit_id"] is None
     store.terminate(capability, "failed_path_finalized")
     assert store.verify_sector_model_usage_summary(summary) == summary
+
+
+def test_sector_usage_persists_sanitized_validation_issues_and_rejects_untrusted_fields(
+    tmp_path,
+):
+    now = [datetime(2026, 7, 9, 8, tzinfo=timezone.utc)]
+    store = _store(tmp_path, now)
+    prepared = store.prepare(
+        _request("technology"),
+        materializer=lambda *_args, **_kwargs: "frozen sector payload",
+    )
+    capability = prepared["capability"]
+    store.call_tool(capability, "get_sector_research_snapshot", {})
+    store.call_tool(capability, "get_role_event_snapshot", {})
+    issue_a = {
+        "validator": "zod_schema",
+        "reason_code": "ZOD_TOO_BIG",
+        "json_path": "$.claims[0].statement",
+        "message": "claim statement exceeds maximum",
+    }
+    issue_b = {
+        "validator": "semantic",
+        "reason_code": "CLAIM_UNSUPPORTED_EVIDENCE",
+        "json_path": "$.claims[1].claim_refs",
+        "message": "claim reference is not supported",
+    }
+    report = {
+        "model_subcall_id": "technology-direction-1",
+        "attempted_stage": "DIRECTION_RESEARCH",
+        "attempt_index": 1,
+        "attempt_status": "REJECTED",
+        "input_tokens": 10,
+        "output_tokens": 5,
+        "validation_issues": [issue_b, issue_a, issue_a],
+        "provider_usage_evidence_id": "provider-technology-direction-1",
+        "provider_usage_evidence_hash": f"sha256:{'d' * 64}",
+        "direction_comparison_audit_id": None,
+        "direction_comparison_audit_hash": None,
+        "conflict_review_id": None,
+        "conflict_review_hash": None,
+    }
+
+    event = store.record_sector_model_usage(
+        capability_envelope=capability,
+        usage_report=report,
+    )
+    assert event["usage_report"]["validation_issues"] == sorted(
+        [issue_a, issue_b],
+        key=lambda issue: tuple(issue[field] for field in (
+            "validator",
+            "reason_code",
+            "json_path",
+            "message",
+        )),
+    )
+    with store._connect() as conn:
+        persisted = conn.execute(
+            "SELECT event_json FROM sector_model_usage_events "
+            "WHERE model_subcall_id = ?",
+            ("technology-direction-1",),
+        ).fetchone()
+    persisted_event = json.loads(persisted["event_json"] if persisted else "{}")
+    assert persisted_event["usage_report"] == event["usage_report"]
+
+    for extra_field in ("raw_output", "prompt", "evidence_prose", "secret"):
+        with pytest.raises(ValueError, match="fields mismatch"):
+            store.record_sector_model_usage(
+                capability_envelope=capability,
+                usage_report={
+                    **report,
+                    "model_subcall_id": f"technology-extra-{extra_field}",
+                    extra_field: "must not persist",
+                },
+            )
+    with pytest.raises(ValueError, match="fields mismatch"):
+        store.record_sector_model_usage(
+            capability_envelope=capability,
+            usage_report={
+                **report,
+                "model_subcall_id": "technology-nested-extra",
+                "validation_issues": [{**issue_a, "raw_output": "secret"}],
+            },
+        )
+    with pytest.raises(ValueError, match="too long"):
+        store.record_sector_model_usage(
+            capability_envelope=capability,
+            usage_report={
+                **report,
+                "model_subcall_id": "technology-long-message",
+                "validation_issues": [{**issue_a, "message": "x" * 513}],
+            },
+        )

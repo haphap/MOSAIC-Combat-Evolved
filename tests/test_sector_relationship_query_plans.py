@@ -4,6 +4,7 @@ import json
 from datetime import date
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 import mosaic.dataflows.sector_snapshots as sector_snapshots_module
@@ -60,6 +61,188 @@ def _requests_for(plan: dict, tool_id: str) -> list[dict]:
     return [
         row["args"] for row in plan["query_requests"] if row["tool_id"] == tool_id
     ]
+
+
+@pytest.mark.parametrize(
+    ("agent_id", "direction_id", "etf_ts_code"),
+    (
+        ("agriculture", "livestock_aquaculture", "159865.SZ"),
+        ("biotech", "biological_products", "512290.SH"),
+        ("consumer", "food_beverage", "515170.SH"),
+        ("energy", "coal", "515220.SH"),
+        ("financials", "banking", "512800.SH"),
+        ("industrials", "machinery", "516960.SH"),
+        ("real_estate_construction", "real_estate", "512200.SH"),
+        (
+            "semiconductor",
+            "semiconductor_equipment_materials",
+            "512480.SH",
+        ),
+        ("technology", "computer", "515230.SH"),
+    ),
+)
+def test_etf_candidate_snapshot_is_bounded_for_each_sector_authority(
+    agent_id: str,
+    direction_id: str,
+    etf_ts_code: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[tuple[str, str]] = []
+    basket_calls: list[tuple[str, dict[str, str]]] = []
+
+    def fake_get_etf_holdings(ticker: str, curr_date: str) -> str:
+        calls.append((ticker, curr_date))
+        return (
+            f"Ticker: {ticker}\n"
+            "Disclosure Date: 2026-06-30\n"
+            "Report Date: 2026-06-30\n"
+            "ts_code,symbol,stk_name,stk_mkv_ratio\n"
+            "512000.SH,600001.SH,Example,10\n"
+        )
+
+    def fake_query(api_name: str, **params: str) -> pd.DataFrame:
+        basket_calls.append((api_name, params))
+        return pd.DataFrame(
+            [
+                {
+                    "trade_date": "20260716",
+                    "ts_code": "512480.SH",
+                    "con_code": "600001.SH",
+                    "con_name": "Example prior",
+                    "qty": 1000,
+                    "exchange": "SH",
+                },
+                {
+                    "trade_date": "20260717",
+                    "ts_code": "512480.SH",
+                    "con_code": "600001.SH",
+                    "con_name": "Example",
+                    "qty": 2000,
+                    "exchange": "SH",
+                },
+                {
+                    "trade_date": "20260717",
+                    "ts_code": "512480.SH",
+                    "con_code": "688001.SH",
+                    "con_name": "Example second",
+                    "qty": 1000,
+                    "exchange": "SH",
+                },
+                {
+                    "trade_date": "20260716",
+                    "ts_code": "512480.SH",
+                    "con_code": "601000.SH",
+                    "con_name": "Example earlier",
+                    "qty": 3000,
+                    "exchange": "SH",
+                },
+            ]
+        )
+
+    monkeypatch.setattr(
+        sector_snapshots_module,
+        "sector_snapshot_root",
+        lambda: tmp_path / "missing-sector-snapshots",
+    )
+    monkeypatch.setattr(
+        sector_snapshots_module, "get_etf_holdings", fake_get_etf_holdings
+    )
+    if agent_id == "semiconductor":
+        monkeypatch.setattr(sector_snapshots_module, "_query_pro", fake_query)
+    rendered = json.loads(
+        sector_snapshots_module.render_sector_snapshot(agent_id, AS_OF)
+    )
+    assert rendered["kind"] == "etf_holdings_candidates"
+    assert rendered["sector_agent_id"] == agent_id
+    assert rendered["direction_id"] == direction_id
+    assert rendered["etf_ts_code"] == etf_ts_code
+    if agent_id == "semiconductor":
+        assert rendered["trade_date"] == "2026-07-17"
+        assert rendered["candidates"] == [
+            {"ticker": "600001.SH", "basket_quantity": 2000},
+            {"ticker": "688001.SH", "basket_quantity": 1000},
+        ]
+        assert basket_calls == [
+            (
+                "etf_sh_cons",
+                {
+                    "ts_code": "512480.SH",
+                    "start_date": "20260711",
+                    "end_date": "20260717",
+                },
+            )
+        ]
+    else:
+        assert date.fromisoformat(rendered["disclosure_date"]) <= date.fromisoformat(AS_OF)
+        assert date.fromisoformat(rendered["report_date"]) <= date.fromisoformat(AS_OF)
+    assert rendered["snapshot_hash"] == canonical_hash(
+        {key: value for key, value in rendered.items() if key != "snapshot_hash"}
+    )
+    if agent_id == "semiconductor":
+        assert calls == []
+    else:
+        assert calls == [(etf_ts_code, AS_OF)]
+
+    if agent_id == "semiconductor":
+        future_response = pd.DataFrame(
+            [
+                {
+                    "trade_date": "20260717",
+                    "ts_code": "512480.SH",
+                    "con_code": "600001.SH",
+                    "con_name": "Example",
+                    "qty": 1000,
+                    "exchange": "SH",
+                },
+                {
+                    "trade_date": "20260718",
+                    "ts_code": "512480.SH",
+                    "con_code": "601000.SH",
+                    "con_name": "Future",
+                    "qty": 3000,
+                    "exchange": "SH",
+                }
+            ]
+        )
+        monkeypatch.setattr(
+            sector_snapshots_module, "_query_pro", lambda _api_name, **_params: future_response
+        )
+        with pytest.raises(DataVendorUnavailable, match="trade date"):
+            sector_snapshots_module.render_sector_snapshot(agent_id, AS_OF)
+
+    plan = build_sector_relationship_query_plan(
+        agent_id=agent_id,
+        stage=agent_id,
+        as_of=AS_OF,
+        initial_payloads={
+            "get_sector_research_snapshot": json.dumps(rendered, sort_keys=True)
+        },
+        allowed_tools=_allowed_tools(agent_id),
+    )
+    expected_tickers = ["600001.SH", "688001.SH"] if agent_id == "semiconductor" else ["600001.SH"]
+    assert plan["authorized_scope"]["tickers"] == expected_tickers
+    assert plan["authorized_scope"]["etfs"] == [etf_ts_code]
+    assert plan["authorized_scope"]["sectors"] == [direction_id]
+
+    if agent_id == "semiconductor":
+        future_raw = dict(rendered)
+        future_raw["trade_date"] = "2026-07-18"
+        future_raw["snapshot_hash"] = canonical_hash(
+            {key: value for key, value in future_raw.items() if key != "snapshot_hash"}
+        )
+        with pytest.raises(ValueError, match="trade_date"):
+            build_sector_relationship_query_plan(
+                agent_id=agent_id,
+                stage=agent_id,
+                as_of=AS_OF,
+                initial_payloads={
+                    "get_sector_research_snapshot": json.dumps(
+                        future_raw, sort_keys=True
+                    )
+                },
+                allowed_tools=_allowed_tools(agent_id),
+            )
 
 
 def test_sector_plan_uses_full_validated_scope_and_versioned_parameter_profiles(
@@ -175,6 +358,152 @@ def test_sector_plan_uses_full_validated_scope_and_versioned_parameter_profiles(
     assert {row["ticker"] for row in rke if row["ticker"]} == set(tickers)
 
 
+def test_technology_sector_plan_uses_only_software_policy_topic(
+    sector_payloads: dict[str, str],
+) -> None:
+    plan = build_sector_relationship_query_plan(
+        agent_id="technology",
+        stage="technology",
+        as_of=AS_OF,
+        initial_payloads={
+            "get_sector_research_snapshot": sector_payloads["technology"],
+            "get_role_event_snapshot": "opaque-event-payload",
+        },
+        allowed_tools=_allowed_tools("technology"),
+    )
+    policy = _requests_for(plan, "get_industry_policy_digest")
+    assert {row["lookback_days"] for row in policy} == {7, 30, 90}
+    assert {row["topic"] for row in policy} == {"软件"}
+
+
+def test_energy_sector_plan_uses_only_coal_policy_topic(
+    sector_payloads: dict[str, str],
+) -> None:
+    plan = build_sector_relationship_query_plan(
+        agent_id="energy",
+        stage="energy",
+        as_of=AS_OF,
+        initial_payloads={
+            "get_sector_research_snapshot": sector_payloads["energy"],
+            "get_role_event_snapshot": "opaque-event-payload",
+        },
+        allowed_tools=_allowed_tools("energy"),
+    )
+    policy = _requests_for(plan, "get_industry_policy_digest")
+    assert {row["lookback_days"] for row in policy} == {7, 30, 90}
+    assert {row["topic"] for row in policy} == {"煤炭"}
+
+
+def test_biotech_sector_plan_uses_only_biomedicine_policy_topic(
+    sector_payloads: dict[str, str],
+) -> None:
+    plan = build_sector_relationship_query_plan(
+        agent_id="biotech",
+        stage="biotech",
+        as_of=AS_OF,
+        initial_payloads={
+            "get_sector_research_snapshot": sector_payloads["biotech"],
+            "get_role_event_snapshot": "opaque-event-payload",
+        },
+        allowed_tools=_allowed_tools("biotech"),
+    )
+    policy = _requests_for(plan, "get_industry_policy_digest")
+    assert {row["lookback_days"] for row in policy} == {7, 30, 90}
+    assert {row["topic"] for row in policy} == {"生物医药"}
+
+
+def test_consumer_sector_plan_uses_only_food_policy_topic(
+    sector_payloads: dict[str, str],
+) -> None:
+    plan = build_sector_relationship_query_plan(
+        agent_id="consumer",
+        stage="consumer",
+        as_of=AS_OF,
+        initial_payloads={
+            "get_sector_research_snapshot": sector_payloads["consumer"],
+            "get_role_event_snapshot": "opaque-event-payload",
+        },
+        allowed_tools=_allowed_tools("consumer"),
+    )
+    policy = _requests_for(plan, "get_industry_policy_digest")
+    assert {row["lookback_days"] for row in policy} == {7, 30, 90}
+    assert {row["topic"] for row in policy} == {"食品"}
+
+
+def test_industrials_sector_plan_uses_only_machinery_policy_topic(
+    sector_payloads: dict[str, str],
+) -> None:
+    plan = build_sector_relationship_query_plan(
+        agent_id="industrials",
+        stage="industrials",
+        as_of=AS_OF,
+        initial_payloads={
+            "get_sector_research_snapshot": sector_payloads["industrials"],
+            "get_role_event_snapshot": "opaque-event-payload",
+        },
+        allowed_tools=_allowed_tools("industrials"),
+    )
+    policy = _requests_for(plan, "get_industry_policy_digest")
+    assert {row["lookback_days"] for row in policy} == {7, 30, 90}
+    assert {row["topic"] for row in policy} == {"机械"}
+
+
+def test_real_estate_sector_plan_uses_only_real_estate_policy_topic(
+    sector_payloads: dict[str, str],
+) -> None:
+    plan = build_sector_relationship_query_plan(
+        agent_id="real_estate_construction",
+        stage="real_estate_construction",
+        as_of=AS_OF,
+        initial_payloads={
+            "get_sector_research_snapshot": sector_payloads[
+                "real_estate_construction"
+            ],
+            "get_role_event_snapshot": "opaque-event-payload",
+        },
+        allowed_tools=_allowed_tools("real_estate_construction"),
+    )
+    policy = _requests_for(plan, "get_industry_policy_digest")
+    assert {row["lookback_days"] for row in policy} == {7, 30, 90}
+    assert {row["topic"] for row in policy} == {"房地产"}
+
+
+def test_financials_sector_plan_uses_only_banking_policy_topic(
+    sector_payloads: dict[str, str],
+) -> None:
+    plan = build_sector_relationship_query_plan(
+        agent_id="financials",
+        stage="financials",
+        as_of=AS_OF,
+        initial_payloads={
+            "get_sector_research_snapshot": sector_payloads["financials"],
+            "get_role_event_snapshot": "opaque-event-payload",
+        },
+        allowed_tools=_allowed_tools("financials"),
+    )
+    policy = _requests_for(plan, "get_industry_policy_digest")
+    assert {row["lookback_days"] for row in policy} == {7, 30, 90}
+    assert {row["topic"] for row in policy} == {"银行"}
+
+
+def test_agriculture_sector_plan_uses_only_agriculture_policy_topic(
+    sector_payloads: dict[str, str],
+) -> None:
+    plan = build_sector_relationship_query_plan(
+        agent_id="agriculture",
+        stage="agriculture",
+        as_of=AS_OF,
+        initial_payloads={
+            "get_sector_research_snapshot": sector_payloads["agriculture"],
+            "get_role_event_snapshot": "opaque-event-payload",
+        },
+        allowed_tools=_allowed_tools("agriculture"),
+    )
+    policy = _requests_for(plan, "get_industry_policy_digest")
+    assert {row["lookback_days"] for row in policy} == {7, 30, 90}
+    assert {row["topic"] for row in policy} == {"农业"}
+
+
 def test_sector_plan_accepts_only_complete_hash_bound_runtime_snapshot(
     sector_payloads: dict[str, str],
 ) -> None:
@@ -251,7 +580,7 @@ def test_every_sector_stage_exactly_materializes_its_adaptive_tool_roster(
             row["args"]["topic"]
             for row in plan["query_requests"]
             if row["tool_id"] == "get_industry_policy_digest"
-        } == {"生物制品"}
+        } == {"生物医药"}
     elif agent_id == "energy":
         assert {
             row["args"]["topic"]
@@ -269,7 +598,7 @@ def test_every_sector_stage_exactly_materializes_its_adaptive_tool_roster(
             row["args"]["topic"]
             for row in plan["query_requests"]
             if row["tool_id"] == "get_industry_policy_digest"
-        } == {"养殖"}
+        } == {"农业"}
     elif agent_id == "consumer":
         assert {
             row["args"]["topic"]
@@ -281,7 +610,7 @@ def test_every_sector_stage_exactly_materializes_its_adaptive_tool_roster(
             row["args"]["topic"]
             for row in plan["query_requests"]
             if row["tool_id"] == "get_industry_policy_digest"
-        } == {"钢铁"}
+        } == {"机械"}
     elif agent_id == "real_estate_construction":
         assert {
             row["args"]["topic"]

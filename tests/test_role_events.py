@@ -80,6 +80,32 @@ def test_role_projection_has_one_macro_owner_and_complete_route_denominator(
     assert energy["role_event_snapshot_hash"].startswith("sha256:")
 
 
+def test_biotech_role_event_snapshot_accepts_registered_currencies_and_keywords(
+    tmp_path: Path,
+) -> None:
+    store = EconomicCalendarStore(tmp_path / "eco-cal.sqlite3")
+    currency_by_country = {"中国": "CNY", "美国": "USD", "欧元区": "EUR"}
+    collect_eco_calendar(
+        lambda **request: [
+            _row(
+                currency_by_country[request["country"]],
+                "生物医药产业" if request["country"] == "中国" else "工业生产",
+            )
+        ],
+        start_date="2026-07-01",
+        end_date="2026-07-01",
+        retrieved_at="2026-07-01T10:00:00+08:00",
+        store=store,
+        currencies=["CNY", "USD", "EUR"],
+    )
+    snapshot = build_role_event_snapshot("biotech", "2026-07-01", store=store)
+    assert snapshot["coverage"]["coverage_completeness"] == "COMPLETE"
+    primary = [row for row in snapshot["projections"] if row["usage_mode"] == "PRIMARY"]
+    assert len(primary) == 1
+    assert primary[0]["signal_owner"] == "biotech"
+    assert primary[0]["normalized_event"] == "生物医药产业"
+
+
 def test_unverified_calendar_time_cannot_become_decision_timing(tmp_path: Path) -> None:
     store = EconomicCalendarStore(tmp_path / "eco-cal.sqlite3")
     _collect(store, ["CNY", "USD", "EUR"])
@@ -240,7 +266,7 @@ def test_denied_or_incomplete_role_event_access_fails_closed(tmp_path: Path) -> 
     store = EconomicCalendarStore(tmp_path / "eco-cal.sqlite3")
     _collect(store, ["CNY"])
     with pytest.raises(DataVendorUnavailable, match="denied"):
-        build_role_event_snapshot("biotech", "2026-07-01", store=store)
+        build_role_event_snapshot("unknown", "2026-07-01", store=store)
     incomplete = build_role_event_snapshot("energy", "2026-07-01", store=store)
     assert incomplete["coverage"]["coverage_state"] == "SOURCE_UNAVAILABLE"
     assert set(incomplete["coverage"]["unhealthy_route_ids"]) == {
@@ -265,4 +291,4 @@ def test_capability_materializer_builds_bound_role_event_snapshot(
     )
     assert materialized == direct
     with pytest.raises(DataVendorUnavailable, match="denied"):
-        render_role_event_snapshot("biotech", "2026-07-01")
+        render_role_event_snapshot("unknown", "2026-07-01")

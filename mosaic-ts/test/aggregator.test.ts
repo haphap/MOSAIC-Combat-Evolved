@@ -14,15 +14,16 @@ import type { ComponentWeightRuntimeResolution } from "../src/autoresearch/produ
 import { macroOutput, macroSubmission } from "./helpers/macro.js";
 
 describe("v2 macro composition and input gate", () => {
-  it("has ten production roles and five audit-only tombstones", () => {
-    expect(MACRO_AGENT_IDS).toHaveLength(10);
-    expect(new Set(MACRO_AGENT_IDS).size).toBe(10);
+  it("has eight production roles and six audit-only tombstones", () => {
+    expect(MACRO_AGENT_IDS).toHaveLength(8);
+    expect(new Set(MACRO_AGENT_IDS).size).toBe(8);
     expect(TOMBSTONED_MACRO_AGENT_IDS).toEqual([
       "dollar",
       "yield_curve",
       "volatility",
       "emerging_markets",
       "news_sentiment",
+      "geopolitical",
     ]);
   });
 
@@ -197,8 +198,8 @@ describe("v2 macro composition and input gate", () => {
 
   it("applies deterministic quality once for DIRECT roles", () => {
     const accepted = composeAcceptedMacroTransmission(
-      "market_breadth",
-      macroSubmission("market_breadth"),
+      "institutional_flow",
+      macroSubmission("institutional_flow"),
       { mode: "DIRECT", dataQuality: 0.8 },
     );
     expect(accepted.model_confidence).toBe(0.7);
@@ -212,7 +213,7 @@ describe("v2 macro composition and input gate", () => {
       MACRO_AGENT_IDS.map((agent) => [agent, macroOutput(agent)]),
     ) as Record<MacroAgentId, ReturnType<typeof macroOutput>>;
     const receipt = validateMacroInputs(outputs);
-    expect(receipt.accepted_count).toBe(10);
+    expect(receipt.accepted_count).toBe(8);
     expect(receipt.accepted_agent_ids).toEqual(MACRO_AGENT_IDS);
     expect(receipt.input_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(
@@ -241,13 +242,13 @@ describe("v2 macro composition and input gate", () => {
       ]),
     ) as Record<MacroAgentId, AcceptedOutputRecordRef<"MACRO_TRANSMISSION">>;
     const receipt = validateMacroInputs(outputs, undefined, undefined, refs);
-    expect(receipt.accepted_count).toBe(10);
+    expect(receipt.accepted_count).toBe(8);
     const incompleteRefs = Object.fromEntries(
       Object.entries(refs).filter(([agent]) => agent !== "china"),
     );
     expect(() =>
       validateMacroInputs(outputs, undefined, undefined, incompleteRefs as never),
-    ).toThrow(/exactly ten accepted Macro record references/);
+    ).toThrow(/exactly eight accepted Macro record references/);
     expect(() =>
       validateMacroInputs(outputs, undefined, undefined, {
         ...refs,

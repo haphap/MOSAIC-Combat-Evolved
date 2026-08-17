@@ -440,17 +440,18 @@ class CninfoSupplyChainDisclosureCollector:
         ]
 
     def materialize(self, *, ticker: str, as_of: str) -> dict[str, Any]:
-        capture_official_supply_chain_disclosures(
-            archive=self.archive,
-            ticker=ticker,
-            as_of=as_of,
-            resolve_identity=self._resolve_identity,
-            search_page=self._search_page,
-            download_document=self._download_document,
-            parse_document=self._parse_document,
-            parser_version=PARSER_VERSION,
-            build_query_contract=self._query_contract,
-        )
+        if self.archive.create:
+            capture_official_supply_chain_disclosures(
+                archive=self.archive,
+                ticker=ticker,
+                as_of=as_of,
+                resolve_identity=self._resolve_identity,
+                search_page=self._search_page,
+                download_document=self._download_document,
+                parse_document=self._parse_document,
+                parser_version=PARSER_VERSION,
+                build_query_contract=self._query_contract,
+            )
         return self.archive.materialize(
             ticker=ticker,
             as_of=as_of,

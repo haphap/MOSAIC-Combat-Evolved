@@ -861,16 +861,19 @@ def test_membership_batches_runs_vendor_fetches_on_caller_thread() -> None:
 def test_capture_group_executes_registered_incremental_routes(
     monkeypatch,
 ) -> None:
+    mapped_codes = tuple(f"6884{index:02d}.SH" for index in range(11))
+    unmapped_code = "300655.SZ"
     plan = {
         "sector_agent_id": "semiconductor",
         "query_plan_hash": f"sha256:{'b' * 64}",
         "branches": [
             {
                 "endpoint": "index_member_all",
-                "parameter": "l3_code",
-                "classification_code": "850111.SI",
+                "parameter": "ts_code",
+                "classification_code": ticker,
                 "is_new": "Y",
             }
+            for ticker in (*mapped_codes, unmapped_code)
         ],
     }
     monkeypatch.setitem(
@@ -887,6 +890,21 @@ def test_capture_group_executes_registered_incremental_routes(
             else []
         ),
     )
+    monkeypatch.setattr(
+        sector_archive,
+        "_read_semiconductor_etf_basket",
+        lambda _etf, _as_of: (
+            "2026-08-06",
+            [
+                {
+                    "ticker": ticker,
+                    "basket_quantity": float(2000 - index),
+                }
+                for index, ticker in enumerate((*mapped_codes, unmapped_code))
+            ],
+            f"sha256:{'e' * 64}",
+        ),
+    )
     moments = iter(
         (
             sector_archive._timestamp("2026-08-06T15:01:00+08:00", "test"),
@@ -899,8 +917,6 @@ def test_capture_group_executes_registered_incremental_routes(
     def fetch(endpoint: str, **params: Any):
         calls.append((endpoint, dict(params)))
         if int(params.get("offset", 0)):
-            return []
-        if endpoint == "stock_basic" and params["ts_code"] == "002257.SZ":
             return []
         if endpoint == "trade_cal":
             start = sector_archive.date.fromisoformat(
@@ -924,7 +940,12 @@ def test_capture_group_executes_registered_incremental_routes(
             ]
         row = _endpoint_row(endpoint, params)
         if endpoint == "index_member_all":
-            return [row, {**row, "ts_code": "002257.SZ"}]
+            direction_codes = ("850814.SI", "850816.SI", "850813.SI", "850812.SI")
+            if params["ts_code"] in mapped_codes:
+                row["l3_code"] = direction_codes[
+                    mapped_codes.index(params["ts_code"]) % 4
+                ]
+            return [row]
         return [row]
 
     group = _build_capture_group(
@@ -955,22 +976,49 @@ def test_capture_group_executes_registered_incremental_routes(
         "fund_portfolio",
     }
     assert group["page_count"] == len(calls)
+    membership_calls = [
+        params for endpoint, params in calls if endpoint == "index_member_all"
+    ]
+    initial_membership_calls = [
+        params for params in membership_calls if params["offset"] == 0
+    ]
+    assert len(initial_membership_calls) == 12
+    assert {params["ts_code"] for params in initial_membership_calls} == {
+        *mapped_codes,
+        unmapped_code,
+    }
+    assert all(
+        set(params) == {"ts_code", "is_new", "limit", "offset"}
+        for params in membership_calls
+    )
+    membership_batches = [
+        batch for batch in group["batches"] if batch["endpoint"] == "index_member_all"
+    ]
+    assert {
+        row["ts_code"] for batch in membership_batches for row in batch["rows"]
+    } == {*mapped_codes, unmapped_code}
+    assert all(
+        batch["rows_hash"] == sector_archive.canonical_hash(batch["rows"])
+        for batch in membership_batches
+    )
+    assert group["capture_scope"]["security_codes"] == sorted(mapped_codes)
+    assert all(
+        params.get("ts_code") != unmapped_code
+        for endpoint, params in calls
+        if endpoint != "index_member_all" and "ts_code" in params
+    )
     assert "compiled_snapshot_hashes" not in group
     stock_basic = next(
         batch for batch in group["batches"] if batch["endpoint"] == "stock_basic"
     )
-    assert stock_basic["request"]["ts_codes"] == ["000001.SZ", "002257.SZ"]
-    assert {row["ts_code"] for row in stock_basic["rows"]} == {"000001.SZ"}
-    assert stock_basic["query_count"] == stock_basic["completed_query_count"] == 2
+    assert stock_basic["request"]["ts_codes"] == sorted(mapped_codes)
+    assert {row["ts_code"] for row in stock_basic["rows"]} == set(mapped_codes)
+    assert stock_basic["query_count"] == stock_basic["completed_query_count"] == len(
+        mapped_codes
+    )
     assert [
         params for endpoint, params in calls if endpoint == "stock_basic"
-    ] == [{"ts_code": "000001.SZ"}, {"ts_code": "002257.SZ"}]
-    assert all(
-        params.get("ts_code") != "002257.SZ"
-        for endpoint, params in calls
-        if endpoint not in {"index_member_all", "stock_basic"}
-    )
-    assert group["capture_scope"]["security_codes"] == ["000001.SZ"]
+    ] == [{"ts_code": code} for code in sorted(mapped_codes)]
     assert all(
         batch.get("coverage_ratio") == 1.0
         for batch in group["batches"]
@@ -1084,5 +1132,21 @@ def test_sector_market_capture_queries_role_tickers_and_etfs_exactly(
     assert {params["ts_code"] for params in moneyflow_calls} == {"000001.SZ"}
     assert all("trade_date" not in params for params in moneyflow_calls)
     assert {params["ts_code"] for params in fund_calls} == {"510001.SH"}
+    portfolio_calls = [
+        params for endpoint, params in calls if endpoint == "fund_portfolio"
+    ]
+    assert {
+        (params["ts_code"], params["start_date"], params["end_date"])
+        for params in portfolio_calls
+    } == {("510001.SH", "20250702", "20260806")}
+    portfolio_batch = next(
+        batch for batch in group["batches"] if batch["endpoint"] == "fund_portfolio"
+    )
+    assert portfolio_batch["query_count"] == 1
+    assert portfolio_batch["request"] == {
+        "start_date": "20250702",
+        "end_date": "20260806",
+        "ts_codes": ["510001.SH"],
+    }
     assert "510999.SH" not in str(calls)
     assert group["capture_scope"]["etf_codes"] == ["510001.SH"]

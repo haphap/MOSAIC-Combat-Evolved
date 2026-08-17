@@ -528,7 +528,7 @@ def data_materialize_dry_run(params: dict[str, Any]) -> dict[str, Any]:
 
 @method("data.materialize_cycle_dry_run")
 def data_materialize_cycle_dry_run(params: dict[str, Any]) -> dict[str, Any]:
-    """Plan exact 28-stage materialization without writes or collectors."""
+    """Plan exact 26-stage materialization without writes or collectors."""
     if params.get("dry_run") is not True:
         raise RpcError(INVALID_PARAMS, "'dry_run' must be true")
     if params.get("all_agents") is not True:

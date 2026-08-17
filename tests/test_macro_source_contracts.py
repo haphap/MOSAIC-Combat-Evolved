@@ -283,7 +283,6 @@ def test_operational_gaps_match_committed_preflight_evidence():
         "fut_basic",
         "fut_daily",
         "fut_wsr",
-        "moneyflow_hsgt",
         "moneyflow_ind_ths",
         "fund_share",
         "daily_basic",
@@ -303,19 +302,6 @@ def test_operational_gaps_match_committed_preflight_evidence():
     assert checks["fut_wsr"]["observed_row_count"] > 0
     assert checks["fut_wsr"]["raw_payload_committed"] is False
     assert checks["yc_cb"]["status"] == "DISABLED_PERMISSION_DENIED"
-    assert set(checks["moneyflow_hsgt"]["expected_columns"]) == {
-        "ggt_ss",
-        "ggt_sz",
-        "hgt",
-        "north_money",
-        "sgt",
-        "south_money",
-        "trade_date",
-    }
-    assert checks["moneyflow_hsgt"]["observed_row_count"] == 1
-    assert checks["moneyflow_hsgt"]["raw_payload_committed"] is False
-
-
 def test_commodity_families_are_closed_and_world_bank_is_context_only():
     assert COMMODITY_CONTRACT_MAP["energy"]["required_families"] == ("SC@INE",)
     assert COMMODITY_CONTRACT_MAP["industrial_metals"]["required_families"] == (

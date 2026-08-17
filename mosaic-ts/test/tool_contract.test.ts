@@ -56,13 +56,13 @@ function capability() {
 }
 
 describe("canonical Agent tool contract", () => {
-  it("contains exactly 27 agents, 28 stages, and the 31-tool active surface", () => {
-    expect(AGENT_IDS).toHaveLength(27);
-    expect(new Set(AGENT_IDS).size).toBe(27);
-    expect(AGENT_EXECUTION_STAGE_IDS).toHaveLength(28);
-    expect(new Set(AGENT_EXECUTION_STAGE_IDS).size).toBe(28);
-    expect(AGENT_TOOL_IDS).toHaveLength(31);
-    expect(new Set(AGENT_TOOL_IDS).size).toBe(31);
+  it("contains exactly 25 agents, 26 stages, and the 29-tool active surface", () => {
+    expect(AGENT_IDS).toHaveLength(25);
+    expect(new Set(AGENT_IDS).size).toBe(25);
+    expect(AGENT_EXECUTION_STAGE_IDS).toHaveLength(26);
+    expect(new Set(AGENT_EXECUTION_STAGE_IDS).size).toBe(26);
+    expect(AGENT_TOOL_IDS).toHaveLength(29);
+    expect(new Set(AGENT_TOOL_IDS).size).toBe(29);
   });
 
   it("matches every runtime Agent spec and the committed generated artifact", () => {
@@ -157,7 +157,10 @@ describe("canonical Agent tool contract", () => {
       ...currentSectorSupplyBindings,
     ]);
     const retainedBaseSurface = [...baseSurface].filter(
-      (row) => !row.startsWith("relationship_mapper\0"),
+      (row) =>
+        !row.startsWith("relationship_mapper\0") &&
+        !row.startsWith("market_breadth\0") &&
+        !row.startsWith("geopolitical\0"),
     );
 
     expect(sectorOverlay.activation_state).toBe("staged");

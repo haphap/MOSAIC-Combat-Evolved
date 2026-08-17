@@ -329,9 +329,15 @@ export function validateOutputByClaimEvidence<T>(
 function isExplicitEmptyDisposition(output: unknown): boolean {
   if (output === null || typeof output !== "object" || Array.isArray(output)) return false;
   const record = output as Record<string, unknown>;
-  return ["NO_QUALIFIED_CANDIDATES", "NO_OBJECTION", "NONE_FOUND", "NO_DELTA", "BLOCKED"].some(
-    (value) => Object.values(record).includes(value),
-  );
+  return [
+    "NO_QUALIFIED_CANDIDATES",
+    "NO_OBJECTION",
+    "NO_RISK_ACTION",
+    "NONE_FOUND",
+    "NO_DELTA",
+    "NO_EXECUTION_ACTION",
+    "BLOCKED",
+  ].some((value) => Object.values(record).includes(value));
 }
 
 function emptyClaimGraph(runtime: RuntimeEvidenceSnapshot): ClaimEvidenceGraph {

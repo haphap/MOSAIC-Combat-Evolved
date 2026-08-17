@@ -902,11 +902,7 @@ const macro = (
           }
         : null,
     track_contract_dimensions: {
-      component_weight_contract: ["geopolitical", "market_breadth", "institutional_flow"].includes(
-        agent_id,
-      )
-        ? "NULL"
-        : "REQUIRED",
+      component_weight_contract: agent_id === "institutional_flow" ? "NULL" : "REQUIRED",
       reliability_adapter_contract: "NULL",
       confidence_semantics_contract: "NULL",
     },
@@ -1033,18 +1029,6 @@ export const OUTCOME_LABEL_REGISTRY: Readonly<Record<string, OutcomeContract>> =
     "commodity_a_share_transmission_path_5d",
     fixedSchedule(5),
     "commodity_market_transmission_path_v2",
-  ),
-  geopolitical: macro(
-    "geopolitical",
-    "geopolitical_transmission_a_share_path_5d",
-    eventSchedule("geopolitical"),
-    "verified_geopolitical_event_lifecycle_v2",
-  ),
-  market_breadth: macro(
-    "market_breadth",
-    "market_breadth_confirmation_5d",
-    fixedSchedule(5),
-    "market_breadth_composite_path_v2",
   ),
   institutional_flow: macro(
     "institutional_flow",

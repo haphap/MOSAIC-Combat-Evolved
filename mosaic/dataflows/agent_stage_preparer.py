@@ -12,9 +12,7 @@ from zoneinfo import ZoneInfo
 
 from mosaic.scorecard.canonical_json import canonical_hash
 
-from .a_share_archive import (
-    fetch_a_share_tushare_endpoint,
-)
+from .a_share_archive import fetch_a_share_tushare_endpoint
 from .agent_materialization import (
     AgentDataMaterializationLedger,
     MaterializationAttemptReceipt,
@@ -48,16 +46,6 @@ from .europe_macro_archive import (
     archive_europe_macro_sources,
     compile_europe_macro_snapshots,
 )
-from .geopolitical_archive import (
-    _as_of_cutoff as _geopolitical_as_of_cutoff,
-    materialize_geopolitical_snapshot,
-)
-from .geopolitical_events import (
-    REQUIRED_SOURCE_IDS,
-    GeopoliticalEventStore,
-    geopolitical_store_path,
-)
-from .geopolitical_source_adapters import capture_required_geopolitical_sources
 from .frozen_adaptive_queries import (
     CALL_TIME_ARGUMENT_CONTRACT,
     FrozenAdaptiveQueryStore,
@@ -66,7 +54,6 @@ from .macro_snapshots import snapshot_cache_root
 from .role_events import ROLE_EVENT_SNAPSHOT_VERSION, build_role_event_snapshot
 from .route_eligibility import (
     evaluate_runtime_stage_admission,
-    production_license_receipt_ref,
 )
 from .runtime_paths import agent_cache_root, agent_runtime_root_override
 from .sector_archive import (
@@ -155,8 +142,6 @@ _EUROPE_FAMILY_STAGES = (
     ("eu_economy", "eu_economy"),
     ("euro_area_financial_conditions", "euro_area_financial_conditions"),
 )
-_GEOPOLITICAL_FAMILY_STAGES = (("geopolitical", "geopolitical"),)
-_MARKET_BREADTH_FAMILY_STAGES = (("market_breadth", "market_breadth"),)
 _SECTOR_RELATIONSHIP_FAMILY_STAGES = tuple(
     (stage, stage)
     for stage in (
@@ -202,8 +187,6 @@ SOURCE_ADMISSION_FAMILY_STAGE_GROUPS = (
     (("china", "china"), _CHINA_FAMILY_STAGES),
     (("us_economy", "us_economy"), _US_FAMILY_STAGES),
     (("eu_economy", "eu_economy"), _EUROPE_FAMILY_STAGES),
-    (("geopolitical", "geopolitical"), _GEOPOLITICAL_FAMILY_STAGES),
-    (("market_breadth", "market_breadth"), _MARKET_BREADTH_FAMILY_STAGES),
     (("semiconductor", "semiconductor"), _SECTOR_RELATIONSHIP_FAMILY_STAGES),
 )
 US_MACRO_OBSERVATION_WINDOW_POLICY = "previous_calendar_year_start_v1"
@@ -2022,54 +2005,6 @@ def prepare_europe_macro_family(
     )
 
 
-def prepare_geopolitical_family(
-    request: Mapping[str, Any],
-    ledger: AgentDataMaterializationLedger,
-) -> None:
-    """Capture the exact geopolitical source set after license admission."""
-    as_of = _required_text(request, "as_of")
-    event_store = GeopoliticalEventStore(geopolitical_store_path())
-    license_decisions = event_store.latest_source_license_decisions(
-        _stage_capture_now().astimezone(timezone.utc)
-    )
-    if set(license_decisions) != set(REQUIRED_SOURCE_IDS) or any(
-        decision["decision_status"] != "APPROVED"
-        or decision["permitted_use"]
-        != "PUBLIC_METADATA_HASH_AND_DERIVED_EVENT"
-        or decision["raw_source_content_commit_allowed"] is not False
-        for decision in license_decisions.values()
-    ):
-        raise DataVendorUnavailable(
-            "geopolitical source licenses are not approved for one-shot capture"
-        )
-    capture_group = capture_required_geopolitical_sources(
-        store=event_store,
-        window_end=_geopolitical_as_of_cutoff(as_of).isoformat(),
-    )
-    result = materialize_geopolitical_snapshot(
-        as_of_date=as_of,
-        event_store=event_store,
-        ledger=ledger,
-        output_root=snapshot_cache_root(),
-        capture_group=capture_group,
-        license_decisions=license_decisions,
-    )
-    if result.build_receipt.as_dict()["terminal_state"] != "READY":
-        raise DataVendorUnavailable("geopolitical archive is blocked")
-
-
-def prepare_market_breadth_family(
-    request: Mapping[str, Any],
-    ledger: AgentDataMaterializationLedger,
-) -> None:
-    """Fail closed when a breadth cold miss has no bounded authority."""
-    _required_text(request, "as_of")
-    raise DataVendorUnavailable(
-        "A-share breadth snapshot cold miss has no bounded aggregate authority",
-        reason_code="A_SHARE_BREADTH_ARCHIVE_BLOCKED",
-    )
-
-
 def _ensure_agent_stage_materialization_core(
     request: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -2080,14 +2015,6 @@ def _ensure_agent_stage_materialization_core(
             **{key: prepare_us_macro_family for key in _US_FAMILY_STAGES},
             **{
                 key: prepare_europe_macro_family for key in _EUROPE_FAMILY_STAGES
-            },
-            **{
-                key: prepare_geopolitical_family
-                for key in _GEOPOLITICAL_FAMILY_STAGES
-            },
-            **{
-                key: prepare_market_breadth_family
-                for key in _MARKET_BREADTH_FAMILY_STAGES
             },
             **{
                 key: prepare_sector_relationship_family
@@ -2132,23 +2059,6 @@ def ensure_agent_stage_materialization(request: Mapping[str, Any]) -> dict[str, 
             }
             if not set(deferred_tool_ids) <= stage_tool_ids:
                 raise ValueError("deferred request-only tools are outside the stage")
-        required_route_ids = {
-            route_id
-            for binding in _stage_bindings(agent_id, stage)
-            for route_id in binding["required_route_ids"]
-        }
-        evaluated_at = datetime.now(timezone.utc).isoformat()
-        if "composite.cn_rates" in required_route_ids and (
-            production_license_receipt_ref(
-                route_id="composite.cn_rates",
-                evaluated_at=evaluated_at,
-            )
-            is None
-        ):
-            raise DataVendorUnavailable(
-                "MOF/ChinaBond production use requires a named license decision receipt",
-                reason_code="LICENSE_REVIEW_REQUIRED",
-            )
         return {
             **_ensure_agent_stage_materialization_core(core_request),
             "ensure_mode": "enforce",
@@ -2208,8 +2118,6 @@ __all__ = [
     "prepare_china_agent_family",
     "prepare_bound_runtime_family",
     "prepare_europe_macro_family",
-    "prepare_geopolitical_family",
-    "prepare_market_breadth_family",
     "prepare_agent_stage_materialization_current_namespace",
     "prepare_sector_relationship_family",
     "prepare_us_macro_family",

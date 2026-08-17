@@ -19,6 +19,7 @@ from mosaic.dataflows.china_agent_data_archive import (
     CURVE_ROUTE_GROUP,
     INSTITUTIONAL_ROUTE_GROUP,
     INSTITUTIONAL_ETF_UNIVERSE,
+    _REQUIRED_COMMODITY_FAMILIES,
     ChinaAgentDataArchiveStore,
     archive_china_agent_sources as _archive_china_agent_sources_impl,
     compile_china_agent_snapshot,
@@ -226,13 +227,23 @@ def _official_documents() -> list[dict]:
     ]
 
 
-def _contract_rows(exchange: str) -> list[dict]:
+def _contract_rows(
+    exchange: str,
+    fut_code: str | None = None,
+    *,
+    deliveries: tuple[str, ...] = ("202610", "202612"),
+) -> list[dict]:
     rows = []
     required = {"SC@INE", "CU@SHFE", "AU@SHFE", "C@DCE", "M@DCE"}
     for family_id, contract in COMMODITY_FAMILY_CONTRACTS.items():
-        if family_id not in required or contract["exchange"] != exchange:
+        if contract["exchange"] != exchange:
             continue
-        for delivery, suffix in (("202610", "2610"), ("202612", "2612")):
+        if fut_code is None and family_id not in required:
+            continue
+        if fut_code is not None and contract["product_code"] != fut_code:
+            continue
+        for delivery in deliveries:
+            suffix = delivery[2:]
             product = contract["product_code"]
             rows.append(
                 {
@@ -256,7 +267,11 @@ def _contract_rows(exchange: str) -> list[dict]:
     return rows
 
 
-def _fake_callbacks(*, deny_curve: bool = True):
+def _fake_callbacks(
+    *,
+    deny_curve: bool = True,
+    commodity_deliveries: tuple[str, ...] = ("202610", "202612"),
+):
     counts: dict[str, int] = {}
     lock = threading.Lock()
 
@@ -294,7 +309,7 @@ def _fake_callbacks(*, deny_curve: bool = True):
             )
             rows = []
             for exchange in exchanges:
-                contracts = _contract_rows(exchange)
+                contracts = _contract_rows(exchange, deliveries=commodity_deliveries)
                 if requested_code is not None:
                     contracts = [
                         contract
@@ -331,50 +346,6 @@ def _fake_callbacks(*, deny_curve: bool = True):
             if params.get("symbol"):
                 rows = [row for row in rows if row["symbol"] == params["symbol"]]
             return rows
-        if endpoint == "moneyflow_hsgt":
-            return [
-                {"trade_date": SESSION, "north_money": 12.5, "hgt": 6.0, "sgt": 6.5}
-            ]
-        if endpoint == "moneyflow":
-            return [
-                {
-                    "trade_date": SESSION,
-                    "ts_code": params["ts_code"],
-                    "net_mf_amount": 10.0,
-                }
-            ]
-        if endpoint == "moneyflow_ind_ths":
-            rows = [
-                {
-                    "trade_date": SESSION,
-                    "ts_code": "881155.TI",
-                    "industry": "银行",
-                    "lead_stock": "浦发银行",
-                    "close": 100.0,
-                    "pct_change": 1.0,
-                    "company_num": 42,
-                    "pct_change_stock": 2.0,
-                    "close_price": 12.0,
-                    "net_buy_amount": 20.0,
-                    "net_sell_amount": 10.0,
-                    "net_amount": 10.0,
-                },
-                {
-                    "trade_date": SESSION,
-                    "ts_code": "881121.TI",
-                    "industry": "电子",
-                    "lead_stock": "海康威视",
-                    "close": 90.0,
-                    "pct_change": -1.0,
-                    "company_num": 50,
-                    "pct_change_stock": -2.0,
-                    "close_price": 20.0,
-                    "net_buy_amount": 8.0,
-                    "net_sell_amount": 10.0,
-                    "net_amount": -2.0,
-                },
-            ]
-            return [row for row in rows if row["ts_code"] == params["ts_code"]]
         if endpoint == "fund_share":
             return [
                 {
@@ -383,24 +354,15 @@ def _fake_callbacks(*, deny_curve: bool = True):
                     "fd_share": 100.0,
                     "fund_type": "ETF",
                     "market": "E",
+                },
+                {
+                    "ts_code": params["ts_code"],
+                    "trade_date": "20260708",
+                    "fd_share": 90.0,
+                    "fund_type": "ETF",
+                    "market": "E",
                 }
             ]
-        if endpoint == "daily_basic":
-            rows = [
-                {
-                    "ts_code": "000001.SZ",
-                    "trade_date": SESSION,
-                    "turnover_rate": 2.0,
-                    "volume_ratio": 1.1,
-                },
-                {
-                    "ts_code": "600000.SH",
-                    "trade_date": SESSION,
-                    "turnover_rate": 1.5,
-                    "volume_ratio": 0.9,
-                },
-            ]
-            return [row for row in rows if row["ts_code"] == params["ts_code"]]
         if endpoint == "shibor":
             return [{"date": SESSION, "on": 1.4, "3m": 1.6}]
         raise AssertionError(f"unexpected endpoint: {endpoint}")
@@ -408,14 +370,21 @@ def _fake_callbacks(*, deny_curve: bool = True):
     return counts, fetch_official, fetch_tushare
 
 
-def _calendar_receipt(route_id: str) -> SourceCaptureReceipt:
+def _calendar_receipt(
+    route_id: str,
+    *,
+    captured_at: datetime = CAPTURED_AT,
+    as_of_cutoff: str = CUTOFF,
+) -> SourceCaptureReceipt:
     payload = {
         "schema_version": "source_capture_receipt_v1",
         "identity": {
             "source_family": "tushare",
             "route_id": route_id,
-            "request_hash": canonical_hash({"route_id": route_id, "as_of": AS_OF}),
-            "capture_id": f"test-{route_id}-{AS_OF}",
+            "request_hash": canonical_hash(
+                {"route_id": route_id, "as_of": as_of_cutoff[:10]}
+            ),
+            "capture_id": f"test-{route_id}-{as_of_cutoff[:10]}",
         },
         "transport": {
             "redacted_url": "https://api.tushare.pro/<redacted>",
@@ -431,14 +400,14 @@ def _calendar_receipt(route_id: str) -> SourceCaptureReceipt:
             "parser_version": "eco_cal_parser_v2",
         },
         "time": {
-            "released_at": "2026-08-08T05:30:00+00:00",
-            "vintage_at": "2026-08-08T05:30:00+00:00",
-            "captured_at": "2026-08-08T05:30:00+00:00",
-            "knowledge_available_at": "2026-08-08T05:30:00+00:00",
+            "released_at": captured_at.isoformat(),
+            "vintage_at": captured_at.isoformat(),
+            "captured_at": captured_at.isoformat(),
+            "knowledge_available_at": captured_at.isoformat(),
         },
         "pit": {
             "pit_mode": "OBSERVED_LIVE",
-            "as_of_cutoff": CUTOFF,
+            "as_of_cutoff": as_of_cutoff,
             "eligible": True,
             "blocker_codes": [],
             "vintage_query": None,
@@ -471,11 +440,18 @@ def _calendar_receipt(route_id: str) -> SourceCaptureReceipt:
 
 
 def _archive(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, deny_curve: bool = True
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    deny_curve: bool = True,
+    captured_at: datetime = CAPTURED_AT,
+    historical_replay: bool = False,
 ):
     from mosaic.dataflows import china_agent_data_archive
 
-    monkeypatch.setattr(china_agent_data_archive, "_capture_now", lambda: CAPTURED_AT)
+    monkeypatch.setattr(
+        china_agent_data_archive, "_capture_now", lambda: captured_at
+    )
     store = ChinaAgentDataArchiveStore(tmp_path / "china-agent-data.sqlite3")
     ledger = AgentDataMaterializationLedger(tmp_path / "ledger.sqlite3")
     counts, fetch_official, fetch_tushare = _fake_callbacks(deny_curve=deny_curve)
@@ -483,6 +459,7 @@ def _archive(
         as_of_date=AS_OF,
         cutoff_at=CUTOFF,
         market_session_date=SESSION,
+        historical_replay=historical_replay,
         store=store,
         ledger=ledger,
         fetch_official=fetch_official,
@@ -536,12 +513,20 @@ def test_empty_cache_archives_three_ready_routes_and_official_curve_blocker(
         for row in result.routes["tushare.institutional_flow"].group["fund_share_rows"]
     } == set(INSTITUTIONAL_ETF_UNIVERSE)
     institutional_group = result.routes["tushare.institutional_flow"].group
-    assert {row["ts_code"] for row in institutional_group["industry_rows"]} == {
-        "881121.TI",
-        "881155.TI",
-    }
-    assert counts["moneyflow_ind_ths"] == 2
-    assert counts["daily_basic"] == 2
+    assert counts.get("moneyflow_hsgt", 0) == 0
+    assert "moneyflow_ind_ths" not in counts
+    assert "daily_basic" not in counts
+    assert institutional_group["route_ids"] == [INSTITUTIONAL_ROUTE_GROUP]
+    assert "industry_rows" not in institutional_group
+    assert "industry_history_rows" not in institutional_group
+    assert "crowding_rows" not in institutional_group
+    institutional_receipt = result.routes[INSTITUTIONAL_ROUTE_GROUP].source_receipts[0]
+    assert institutional_receipt.as_dict()["coverage"]["dimensions"]["endpoint"] == [
+        "fund_share"
+    ]
+    assert institutional_receipt.as_dict()["transport"]["page_count"] == len(
+        INSTITUTIONAL_ETF_UNIVERSE
+    )
     official_dimensions = (
         result.routes[CHINA_ROUTE_GROUP]
         .source_receipts[0]
@@ -603,204 +588,103 @@ def test_institutional_historical_replay_preserves_real_capture_time(
     assert receipt["pit"]["eligible"] is True
     assert receipt["time"]["captured_at"] == captured_at.isoformat()
     assert receipt["pit"]["as_of_cutoff"] == captured_at.isoformat()
-    assert set(counts) == {
-        "moneyflow",
-        "moneyflow_ind_ths",
-        "fund_share",
-        "daily_basic",
-    }
+    assert set(counts) == {"fund_share"}
 
 
-def test_institutional_capture_uses_fixed_universe_without_pagination(
+def test_institutional_only_archive_and_compiler_close_one_route(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from mosaic.dataflows import china_agent_data_archive
 
-    as_of = "2026-06-17"
-    session = "20260617"
-    cutoff = "2026-06-17T15:00:00+08:00"
-    captured_at = datetime(2026, 8, 12, 6, 0, tzinfo=timezone.utc)
-    monkeypatch.setattr(china_agent_data_archive, "_capture_now", lambda: captured_at)
-    calls: list[tuple[str, dict[str, str]]] = []
+    captured_at = CAPTURED_AT + timedelta(days=1)
+    monkeypatch.setattr(
+        china_agent_data_archive,
+        "_capture_now",
+        lambda: captured_at,
+    )
+    counts, _, base_fetch_tushare = _fake_callbacks()
+    fund_share_requests: list[dict[str, str]] = []
 
     def fetch_tushare(*, endpoint: str, **params: str) -> list[dict]:
-        calls.append((endpoint, dict(params)))
-        if endpoint == "moneyflow":
-            return [
-                {
-                    "trade_date": session,
-                    "ts_code": params["ts_code"],
-                    "net_mf_amount": 10.0,
-                }
-            ]
-        if endpoint == "moneyflow_ind_ths":
-            return [
-                {
-                    "trade_date": session,
-                    "ts_code": params["ts_code"],
-                    "industry": "银行" if params["ts_code"] == "881121.TI" else "电子",
-                    "net_amount": 10.0,
-                }
-            ]
         if endpoint == "fund_share":
-            return [
-                {
-                    "trade_date": session,
-                    "ts_code": params["ts_code"],
-                    "fd_share": 100.0,
-                }
-            ]
-        if endpoint == "daily_basic":
-            return [
-                {
-                    "trade_date": session,
-                    "ts_code": params["ts_code"],
-                    "turnover_rate": 2.0,
-                    "volume_ratio": 1.0,
-                }
-            ]
-        raise AssertionError(endpoint)
+            fund_share_requests.append(dict(params))
+        return base_fetch_tushare(endpoint=endpoint, **params)
 
     store = ChinaAgentDataArchiveStore(tmp_path / "institutional-exact.sqlite3")
     ledger = AgentDataMaterializationLedger(
         tmp_path / "institutional-exact-ledger.sqlite3"
     )
-    result = archive_china_agent_sources(
-        as_of_date=as_of,
-        cutoff_at=cutoff,
-        market_session_date=session,
+    archived = archive_china_agent_sources(
+        as_of_date=AS_OF,
+        cutoff_at=CUTOFF,
+        market_session_date=SESSION,
         requested_route_ids=(INSTITUTIONAL_ROUTE_GROUP,),
         historical_replay=True,
         store=store,
         ledger=ledger,
         fetch_tushare=fetch_tushare,
     )
-    route = result.routes[INSTITUTIONAL_ROUTE_GROUP]
+    assert set(archived.routes) == {INSTITUTIONAL_ROUTE_GROUP}
+    route = archived.routes[INSTITUTIONAL_ROUTE_GROUP]
     assert route.group is not None
     assert route.coverage_receipt.as_dict()["coverage_complete"] is True
-    assert len(calls) == 11
-    assert [endpoint for endpoint, _ in calls].count("moneyflow") == 2
-    assert [endpoint for endpoint, _ in calls].count("moneyflow_ind_ths") == 2
-    assert [endpoint for endpoint, _ in calls].count("fund_share") == 5
-    assert [endpoint for endpoint, _ in calls].count("daily_basic") == 2
-    assert all("offset" not in params and "limit" not in params for _, params in calls)
-    assert all(
-        set(params) == {"ts_code", "trade_date"}
-        for endpoint, params in calls
-        if endpoint == "moneyflow"
-    )
-    assert all(
-        set(params) == {"ts_code", "trade_date"}
-        for endpoint, params in calls
-        if endpoint in {"moneyflow_ind_ths", "daily_basic"}
-    )
-    assert all(
-        set(params) == {"ts_code", "start_date", "end_date"}
-        and params["start_date"] == params["end_date"] == session
-        for endpoint, params in calls
-        if endpoint == "fund_share"
-    )
     receipt = route.source_receipts[0].as_dict()
-    assert receipt["transport"]["page_count"] == 11
-    assert receipt["transport"]["pagination_policy"] == (
-        "EXACT_REQUEST_SET_NO_PAGINATION"
+    knowledge_cutoff = datetime.fromisoformat(
+        receipt["time"]["knowledge_available_at"]
     )
-    assert receipt["transport"]["query_keys"] == [
-        "end_date",
-        "start_date",
-        "trade_date",
-        "ts_code",
-    ]
-    assert receipt["content"]["normalized_row_count"] == 11
-    assert receipt["coverage"]["dimensions"]["endpoint"] == [
-        "daily_basic",
-        "fund_share",
-        "moneyflow",
-        "moneyflow_ind_ths",
-    ]
-    assert receipt["coverage"]["dimensions"]["industry"] == [
-        "881121.TI",
-        "881155.TI",
-    ]
-    assert receipt["coverage"]["dimensions"]["crowding"] == [
-        "000001.SZ",
-        "600000.SH",
-    ]
-    assert receipt["coverage"]["dimensions"]["etf"] == list(INSTITUTIONAL_ETF_UNIVERSE)
-    assert route.group["industry_rows"]
-    assert "industry_history_rows" not in route.group
-    assert "industry_transport_call_count" not in route.group
-    raw, _ = china_agent_data_archive._institutional_snapshot(
-        route.group, route.source_receipts[0]
+    validate_role_snapshot = china_agent_data_archive.validate_role_snapshot
+    monkeypatch.setattr(
+        china_agent_data_archive,
+        "validate_role_snapshot",
+        lambda raw, role, as_of_date: validate_role_snapshot(
+            raw,
+            role,
+            as_of_date,
+            knowledge_cutoff=knowledge_cutoff,
+        ),
     )
-    assert raw["component_coverage"]["market_wide_flow"] == {
-        "eligible_count": 2,
-        "observed_count": 2,
-        "coverage_ratio": 1.0,
-    }
-    assert {row["series_id"] for row in raw["observations"]} == {
-        "market_flow_registered_universe_net_amount",
-        "sector_rotation_registered_universe_net_amount",
-        "etf_share_registered_universe",
-        "crowding_registered_universe_turnover_median",
-    }
-    assert (
-        next(
-            row
-            for row in raw["observations"]
-            if row["series_id"] == "market_flow_registered_universe_net_amount"
-        )["unit"]
-        == "10k_cny"
-    )
-    assert (
-        next(
-            row
-            for row in raw["observations"]
-            if row["series_id"] == "market_flow_registered_universe_net_amount"
-        )["actual"]
-        == 20.0
-    )
-    output_root = tmp_path / "institutional-snapshots"
     built = compile_china_agent_snapshots(
-        archive=result,
+        archive=archived,
         store=store,
         ledger=ledger,
-        output_root=output_root,
+        output_root=tmp_path / "snapshots",
         requested_roles=("institutional_flow",),
     )
     assert set(built.snapshots) == {"institutional_flow"}
     assert len(built.build_receipts) == 1
-    assert len(built.build_receipts[0].as_dict()["source_receipt_hashes"]) == 1
-    assert sorted(path.name for path in (output_root / as_of).iterdir()) == [
-        "institutional_flow.json"
-    ]
+    assert len(fund_share_requests) == len(INSTITUTIONAL_ETF_UNIVERSE) == 5
+    assert {
+        (request["ts_code"], request["start_date"], request["end_date"])
+        for request in fund_share_requests
+    } == {
+        (code, "20260708", "20260807") for code in INSTITUTIONAL_ETF_UNIVERSE
+    }
+    assert set(counts) == {"fund_share"}
+    assert counts.get("moneyflow_hsgt", 0) == 0
+    assert counts["fund_share"] == len(INSTITUTIONAL_ETF_UNIVERSE)
+    assert "moneyflow_ind_ths" not in counts
+    assert "daily_basic" not in counts
+    assert receipt["transport"]["page_count"] == 5
+    assert receipt["transport"]["query_keys"] == ["end_date", "start_date", "ts_code"]
+    assert receipt["content"]["normalized_row_count"] == 5
+    assert receipt["coverage"]["dimensions"]["endpoint"] == ["fund_share"]
+    assert receipt["coverage"]["dimensions"]["etf"] == list(INSTITUTIONAL_ETF_UNIVERSE)
+    raw_rows = archived.routes[INSTITUTIONAL_ROUTE_GROUP].group["fund_share_rows"]
     assert all(
-        observation["released_at"] <= cutoff and observation["vintage_at"] <= cutoff
-        for observation in built.snapshots["institutional_flow"]["observations"]
+        set(row) == {"ts_code", "latest", "prior", "share_change_pct"}
+        for row in raw_rows
     )
-
-    def unrelated_industry(*, endpoint: str, **params: str) -> list[dict]:
-        rows = fetch_tushare(endpoint=endpoint, **params)
-        if endpoint == "moneyflow_ind_ths" and params["ts_code"] == "881121.TI":
-            rows[0]["ts_code"] = "999999.TI"
-        return rows
-
-    blocked = archive_china_agent_sources(
-        as_of_date=as_of,
-        cutoff_at=cutoff,
-        market_session_date=session,
-        requested_route_ids=(INSTITUTIONAL_ROUTE_GROUP,),
-        historical_replay=True,
-        store=ChinaAgentDataArchiveStore(tmp_path / "institutional-bad.sqlite3"),
-        ledger=AgentDataMaterializationLedger(
-            tmp_path / "institutional-bad-ledger.sqlite3"
-        ),
-        fetch_tushare=unrelated_industry,
-    )
-    assert blocked.routes[INSTITUTIONAL_ROUTE_GROUP].group is None
-    assert blocked.routes[INSTITUTIONAL_ROUTE_GROUP].coverage_receipt.as_dict()[
-        "blocker_codes"
-    ] == ["SCHEMA_DRIFT"]
+    observations = built.snapshots["institutional_flow"]["observations"]
+    assert len(observations) == 5
+    assert {row["series_id"] for row in observations} == {
+        f"etf_share_{code.replace('.', '_')}_change"
+        for code in INSTITUTIONAL_ETF_UNIVERSE
+    }
+    assert all(row["period_start"] == "2026-07-08" for row in observations)
+    assert all(row["period_end"] == "2026-08-07" for row in observations)
+    assert all(row["unit"] == "percent" for row in observations)
+    assert all(row["actual"] == pytest.approx(100 / 9) for row in observations)
+    assert store.row_count() == 1
 
 
 @pytest.mark.parametrize(
@@ -933,7 +817,7 @@ def test_official_historical_replay_accepts_real_retrieval_after_historical_cuto
         (
             INSTITUTIONAL_ROUTE_GROUP,
             INSTITUTIONAL_ROUTE_GROUP,
-            {"moneyflow", "moneyflow_ind_ths", "fund_share", "daily_basic"},
+            {"fund_share"},
         ),
         (CURVE_ROUTE_GROUP, CURVE_ROUTE_GROUP, {"shibor"}),
     ),
@@ -982,10 +866,10 @@ def test_curve_route_uses_official_mof_curve_and_never_calls_yc_cb(
     from mosaic.dataflows import china_agent_data_archive
 
     monkeypatch.setattr(china_agent_data_archive, "_capture_now", lambda: CAPTURED_AT)
-    tushare_calls: list[str] = []
+    tushare_calls: list[tuple[str, dict[str, str]]] = []
 
-    def fetch_tushare(*, endpoint: str, **_params) -> list[dict]:
-        tushare_calls.append(endpoint)
+    def fetch_tushare(*, endpoint: str, **params: str) -> list[dict]:
+        tushare_calls.append((endpoint, params))
         if endpoint == "shibor":
             return [{"date": SESSION, "on": 1.4, "3m": 1.6}]
         pytest.fail(f"curve route must not call Tushare endpoint {endpoint}")
@@ -1031,8 +915,19 @@ def test_curve_route_uses_official_mof_curve_and_never_calls_yc_cb(
     assert route.group is not None
     assert route.group["government_curve_source"]["provider"] == "MOF_CHINABOND"
     assert route.group["government_curve_source"]["yield_type"] == "MATURITY"
-    assert official_calls == [("2025-08-07", "2026-08-07")]
-    assert tushare_calls == ["shibor"]
+    assert official_calls == [("2026-07-08", "2026-08-07")]
+    assert {row["curve_term"] for row in route.group["government_curve_rows"]} == {
+        1,
+        2,
+        3,
+        5,
+        7,
+        10,
+        30,
+    }
+    assert tushare_calls == [
+        ("shibor", {"start_date": "20260807", "end_date": "20260807"})
+    ]
     assert store.row_count() == 1
 
 
@@ -1134,10 +1029,14 @@ def test_commodity_daily_capture_queries_only_registered_exact_contracts(
         for endpoint, params in requests
         if endpoint == "fut_basic"
     )
+    expected_family_ids = tuple(_REQUIRED_COMMODITY_FAMILIES)
     expected_codes = sorted(
         row["ts_code"]
-        for exchange in ("INE", "SHFE", "DCE")
-        for row in _contract_rows(exchange)
+        for family_id in expected_family_ids
+        for row in _contract_rows(
+            COMMODITY_FAMILY_CONTRACTS[family_id]["exchange"],
+            COMMODITY_FAMILY_CONTRACTS[family_id]["product_code"],
+        )
     )
     daily_requests = [
         params for endpoint, params in requests if endpoint == "fut_daily"
@@ -1387,7 +1286,8 @@ def test_private_tushare_transport_normalizes_dataframe_to_row_dicts(
             return [
                 {
                     "trade_date": SESSION,
-                    "north_money": 1.0,
+                    "ts_code": "000001.SZ",
+                    "net_mf_amount": 1.0,
                     "optional": None if self.normalized else float("nan"),
                 }
             ]
@@ -1404,8 +1304,15 @@ def test_private_tushare_transport_normalizes_dataframe_to_row_dicts(
     )
 
     assert china_agent_data_archive._private_tushare_fetch(
-        endpoint="moneyflow_hsgt", trade_date=SESSION
-    ) == [{"trade_date": SESSION, "north_money": 1.0, "optional": None}]
+        endpoint="moneyflow", ts_code="000001.SZ", trade_date=SESSION
+    ) == [
+        {
+            "trade_date": SESSION,
+            "ts_code": "000001.SZ",
+            "net_mf_amount": 1.0,
+            "optional": None,
+        }
+    ]
 
 
 def test_china_macro_capture_binds_exact_period_fields_and_nine_official_documents(
@@ -1413,17 +1320,18 @@ def test_china_macro_capture_binds_exact_period_fields_and_nine_official_documen
 ) -> None:
     from mosaic.dataflows import china_agent_data_archive
 
-    as_of = "2026-07-17"
-    cutoff = "2026-07-17T15:00:00+08:00"
+    as_of = AS_OF
+    cutoff = CUTOFF
     monkeypatch.setattr(
         china_agent_data_archive,
         "_capture_now",
-        lambda: datetime(2026, 7, 17, 6, 0, tzinfo=timezone.utc),
+        lambda: datetime(2026, 8, 8, 6, 0, tzinfo=timezone.utc),
     )
     store = ChinaAgentDataArchiveStore(tmp_path / "china-exact.sqlite3")
     ledger = AgentDataMaterializationLedger(tmp_path / "china-exact-ledger.sqlite3")
     official_calls: list[dict[str, object]] = []
     macro_calls: dict[str, dict[str, str]] = {}
+    macro_call_counts: dict[str, int] = {}
     china_documents = {
         "nbs_industrial_activity",
         "nbs_fixed_asset_investment",
@@ -1446,16 +1354,21 @@ def test_china_macro_capture_binds_exact_period_fields_and_nine_official_documen
             for observation in document["observations"]:
                 observation["period_start"] = "2026-06-01"
                 observation["period_end"] = "2026-06-30"
-        return [row for row in documents if row["document_type"] in china_documents]
+        return [
+            row
+            for row in documents
+            if row["document_type"] in china_documents
+        ]
 
     def fetch_tushare(*, endpoint: str, **params: str) -> list[dict]:
         if endpoint in {"cn_gdp", "cn_pmi", "cn_cpi", "cn_ppi"}:
             macro_calls[endpoint] = dict(params)
+            macro_call_counts[endpoint] = macro_call_counts.get(endpoint, 0) + 1
         return {
             "cn_gdp": [{"quarter": "2026Q2", "gdp_yoy": 5.0}],
-            "cn_pmi": [{"month": "202606", "pmi010000": 50.2}],
-            "cn_cpi": [{"month": "202606", "nt_yoy": 0.6}],
-            "cn_ppi": [{"month": "202606", "ppi_yoy": -0.8}],
+            "cn_pmi": [{"month": "202607", "pmi010000": 50.2}],
+            "cn_cpi": [{"month": "202607", "nt_yoy": 0.6}],
+            "cn_ppi": [{"month": "202607", "ppi_yoy": -0.8}],
         }[endpoint]
 
     result = archive_china_agent_sources(
@@ -1479,17 +1392,39 @@ def test_china_macro_capture_binds_exact_period_fields_and_nine_official_documen
         }
     ]
     assert macro_calls == {
-        "cn_gdp": {"q": "2026Q2", "fields": "quarter,gdp_yoy"},
-        "cn_pmi": {"m": "202606", "fields": "month,pmi010000"},
-        "cn_cpi": {"m": "202606", "fields": "month,nt_yoy"},
-        "cn_ppi": {"m": "202606", "fields": "month,ppi_yoy"},
+        "cn_gdp": {
+            "q": "2026Q2",
+            "fields": "quarter,gdp_yoy",
+        },
+        "cn_pmi": {"m": "202607", "fields": "month,pmi010000"},
+        "cn_cpi": {"m": "202607", "fields": "month,nt_yoy"},
+        "cn_ppi": {"m": "202607", "fields": "month,ppi_yoy"},
     }
+    assert macro_call_counts["cn_gdp"] == 1
+    china = result.routes[CHINA_ROUTE_GROUP].group
+    assert china is not None
+    gdp = next(
+        row
+        for row in china["tushare_observations"]
+        if row["series_id"] == "cn_gdp_yoy"
+    )
+    assert gdp["period_end"] == "2026-06-30"
+    with pytest.raises(china_agent_data_archive.ChinaAgentDataSchemaError):
+        china_agent_data_archive._latest_macro_observation(
+            "cn_gdp",
+            [
+                {"quarter": "2026Q2", "gdp_yoy": 5.0},
+                {"quarter": "2026Q2", "gdp_yoy": 5.1},
+            ],
+            as_of=datetime(2026, 8, 8).date(),
+            captured_at=CAPTURED_AT.isoformat(),
+        )
     tushare_receipt = result.routes[CHINA_ROUTE_GROUP].source_receipts[1].as_dict()
     assert set(tushare_receipt["coverage"]["dimensions"]["request_params"]) == {
-        "cn_cpi:fields=month,nt_yoy&m=202606",
+        "cn_cpi:fields=month,nt_yoy&m=202607",
         "cn_gdp:fields=quarter,gdp_yoy&q=2026Q2",
-        "cn_pmi:fields=month,pmi010000&m=202606",
-        "cn_ppi:fields=month,ppi_yoy&m=202606",
+        "cn_pmi:fields=month,pmi010000&m=202607",
+        "cn_ppi:fields=month,ppi_yoy&m=202607",
     }
 
 
@@ -1501,7 +1436,7 @@ def test_china_compiler_uses_group_receipt_when_latest_scope_differs(
     monkeypatch.setattr(china_agent_data_archive, "_capture_now", lambda: CAPTURED_AT)
     store = ChinaAgentDataArchiveStore(tmp_path / "scope-drift.sqlite3")
     ledger = AgentDataMaterializationLedger(tmp_path / "scope-drift-ledger.sqlite3")
-    _, _, fetch_tushare = _fake_callbacks()
+    _, base_official, fetch_tushare = _fake_callbacks()
     all_documents = _official_documents()
     china_documents = tuple(
         sorted(
@@ -1569,13 +1504,12 @@ def test_china_compiler_uses_group_receipt_when_latest_scope_differs(
         output_root=tmp_path / "snapshots",
     )
     assert set(built.snapshots) == {"china"}
-    assert (
-        first_receipt_hash in built.build_receipts[0].as_dict()["source_receipt_hashes"]
-    )
-    assert (
-        second_receipt_hash
-        not in built.build_receipts[0].as_dict()["source_receipt_hashes"]
-    )
+    assert first_receipt_hash in built.build_receipts[0].as_dict()[
+        "source_receipt_hashes"
+    ]
+    assert second_receipt_hash not in built.build_receipts[0].as_dict()[
+        "source_receipt_hashes"
+    ]
 
 
 def test_historical_null_macro_value_does_not_hide_latest_valid_observation(
@@ -1809,37 +1743,6 @@ def test_commodity_inventory_blocks_family_without_direct_or_derivable_row(
     assert commodity.coverage_receipt.as_dict()["blocker_codes"] == ["SCHEMA_DRIFT"]
 
 
-def test_institutional_crowding_rejects_missing_registered_metric(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from mosaic.dataflows import china_agent_data_archive
-
-    monkeypatch.setattr(china_agent_data_archive, "_capture_now", lambda: CAPTURED_AT)
-    store = ChinaAgentDataArchiveStore(tmp_path / "crowding-empty.sqlite3")
-    ledger = AgentDataMaterializationLedger(tmp_path / "crowding-empty-ledger.sqlite3")
-    _, fetch_official, base_fetch = _fake_callbacks()
-
-    def fetch_tushare(*, endpoint: str, **params: str) -> list[dict]:
-        rows = base_fetch(endpoint=endpoint, **params)
-        if endpoint == "daily_basic" and params["ts_code"] == "000001.SZ":
-            rows[0]["volume_ratio"] = None
-        return rows
-
-    result = archive_china_agent_sources(
-        as_of_date=AS_OF,
-        cutoff_at=CUTOFF,
-        market_session_date=SESSION,
-        store=store,
-        ledger=ledger,
-        fetch_official=fetch_official,
-        fetch_tushare=fetch_tushare,
-    )
-
-    institutional = result.routes["tushare.institutional_flow"]
-    assert institutional.group is None
-    assert institutional.coverage_receipt.as_dict()["blocker_codes"] == ["SCHEMA_DRIFT"]
-
-
 def test_warm_retry_and_concurrent_same_key_are_zero_extra_transport(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2020,9 +1923,6 @@ def test_official_document_branch_drift_blocks_only_china_route(
     ("target_endpoint", "hard_cap", "blocked_route"),
     [
         ("fut_basic", 10_000, "tushare.commodities"),
-        ("moneyflow", 300, "tushare.institutional_flow"),
-        ("moneyflow_ind_ths", 5_000, "tushare.institutional_flow"),
-        ("daily_basic", 6_000, "tushare.institutional_flow"),
     ],
 )
 def test_exact_endpoint_hard_caps_fail_closed_without_terminal_proof(
@@ -2055,27 +1955,6 @@ def test_exact_endpoint_hard_caps_fail_closed_without_terminal_proof(
                     "fut_code": "IGNORED",
                 }
                 for index in range(hard_cap - len(rows))
-            ]
-        if target_endpoint == "moneyflow" and endpoint == "moneyflow":
-            return rows * hard_cap
-        if target_endpoint == "moneyflow_ind_ths" and endpoint == "moneyflow_ind_ths":
-            return [
-                {
-                    "trade_date": SESSION,
-                    "industry": f"industry-{index}",
-                    "net_amount": float(index),
-                }
-                for index in range(hard_cap)
-            ]
-        if target_endpoint == "daily_basic" and endpoint == "daily_basic":
-            return [
-                {
-                    "ts_code": f"{index:06d}.SZ",
-                    "trade_date": SESSION,
-                    "turnover_rate": 1.0,
-                    "volume_ratio": 1.0,
-                }
-                for index in range(hard_cap)
             ]
         return rows
 
@@ -2217,10 +2096,7 @@ def test_compiler_publishes_three_ready_snapshots_and_repeatable_blocked_central
         "M@DCE",
     }
     assert set(built.snapshots["institutional_flow"]["component_coverage"]) == {
-        "market_wide_flow",
-        "sector_rotation",
         "etf_share",
-        "crowding",
     }
     assert len(INSTITUTIONAL_ETF_UNIVERSE) >= 5
     by_role = {
@@ -2323,3 +2199,48 @@ def test_compiler_publishes_ready_central_bank_when_curve_route_is_available(
     assert receipt["terminal_state"] == "READY"
     assert receipt["missing_route_ids"] == []
     assert receipt["output_hash"] == central["snapshot_hash"]
+    assert calendar_receipt.receipt_hash in receipt["source_receipt_hashes"]
+    omo = next(
+        row for row in central["observations"] if row["series_id"] == "pboc_omo_rate"
+    )
+    assert omo["released_at"] == "2026-08-07T10:00:00+08:00"
+    assert omo["vintage_at"] == CAPTURED_AT.isoformat()
+    credit = next(
+        row
+        for row in central["observations"]
+        if row["series_id"] == "cn_credit_summary_tsfin"
+    )
+    assert credit["released_at"] == "2026-08-07T10:00:00+08:00"
+    assert credit["vintage_at"] == CAPTURED_AT.isoformat()
+    shibor = {
+        row["series_id"]: row
+        for row in central["observations"]
+        if row["series_id"]
+        in {"domestic_liquidity_shibor_overnight", "money_market_shibor_3m"}
+    }
+    assert {row["released_at"] for row in shibor.values()} == {
+        CAPTURED_AT.isoformat()
+    }
+    curve = {
+        row["series_id"]: row
+        for row in central["observations"]
+        if row["series_id"] in {"cn_curve_2y", "cn_curve_10y"}
+    }
+    assert {row["released_at"] for row in curve.values()} == {
+        "2026-08-07T17:30:00+08:00"
+    }
+    import json
+
+    persisted = json.loads(
+        (tmp_path / "snapshots" / AS_OF / "central_bank.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    context_credit = next(
+        row
+        for row in persisted["context_observations"]
+        if row["series_id"] == "china_credit_rmb_loan_flow"
+    )
+    assert context_credit["released_at"] == "2026-08-07T10:00:00+08:00"
+    assert context_credit["vintage_at"] == CAPTURED_AT.isoformat()
+    assert len(built.build_receipts) == 1

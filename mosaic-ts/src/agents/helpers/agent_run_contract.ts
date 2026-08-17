@@ -1,4 +1,14 @@
-import { appendFileSync, mkdirSync } from "node:fs";
+import {
+  appendFileSync,
+  chmodSync,
+  closeSync,
+  fsyncSync,
+  linkSync,
+  mkdirSync,
+  openSync,
+  unlinkSync,
+  writeSync,
+} from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
@@ -12,10 +22,10 @@ import {
   normalizeStrictProviderPayload,
 } from "./structured_provider_adapters.js";
 import { buildStructuredRepairDirectiveMessages } from "./structured_repair_directives.js";
-
 export const MAX_AGENT_REPAIRS = 3;
 
 const PROMPT_JSON_LLMS = new WeakSet<object>();
+let promptJsonCaptureSequence = 0;
 
 export type AgentRunStatus = "accepted" | "accepted_empty" | "rejected" | "timeout" | "error";
 export type AgentOutputSource = "structured_primary" | "structured_repair" | "none";
@@ -117,9 +127,6 @@ export async function assertStructuredOutputCapability(llm: BaseChatModel): Prom
       throw new Error("provider returned an invalid structured preflight object");
     PROMPT_JSON_LLMS.delete(llm);
   } catch (cause) {
-    if (!isStructuredOutputUnavailable(cause)) {
-      throw structuredPreflightError(cause);
-    }
     try {
       const preflightSchema = z.object({ preflight: z.literal("ok") });
       const bound = bindPromptJson(
@@ -227,18 +234,21 @@ export async function invokeStrictStructured<T>(
     let issues: AgentContractIssue[] = [];
     let candidate: T | null = null;
     try {
-      const response = await bound.invoke(input, opts.signal ? { signal: opts.signal } : undefined);
+      const response = await bound.invoke(input);
       const envelope = structuredEnvelope(response);
       providerRaw = envelope.parsed;
       const usage = extractLlmTokenUsage(envelope.raw);
       promptTokens = usage.promptTokens;
       completionTokens = usage.completionTokens;
       let providerAccepted = false;
-      if (hasCompactProviderContract(providerRaw)) {
+      if (
+        hasCompactProviderContract(providerRaw) ||
+        hasProviderShapedMacroInputAttributions(providerRaw)
+      ) {
         const providerParsed = providerValidationSchema.safeParse(providerRaw);
         if (!providerParsed.success) {
           raw = providerRaw;
-          issues = zodIssues(providerParsed.error);
+          issues = zodIssues(providerParsed.error, providerRaw);
         } else {
           raw = normalizeStrictProviderPayload(providerParsed.data);
           providerAccepted = true;
@@ -250,7 +260,7 @@ export async function invokeStrictStructured<T>(
       if (providerAccepted) {
         const parsed = opts.schema.safeParse(raw);
         if (!parsed.success) {
-          issues = zodIssues(parsed.error);
+          issues = zodIssues(parsed.error, raw);
         } else {
           const validated = opts.validate
             ? await opts.validate(parsed.data)
@@ -366,14 +376,6 @@ function structuredPreflightError(cause: unknown): Error {
   );
 }
 
-function isStructuredOutputUnavailable(cause: unknown): boolean {
-  const message = cause instanceof Error ? cause.message : String(cause);
-  return (
-    /(response[_ -]?format|json[_ -]?schema|structured[_ -]?output)/i.test(message) &&
-    /(unavailable|unsupported|not\s+supported|not\s+available)/i.test(message)
-  );
-}
-
 function bindPromptJson(
   llm: BaseChatModel,
   schema: unknown,
@@ -382,6 +384,7 @@ function bindPromptJson(
   return {
     invoke: async (input, options) => {
       const messages = promptJsonMessages(input, schema, name);
+      capturePromptJsonMessages(name, messages);
       // biome-ignore lint/suspicious/noExplicitAny: BaseChatModel input types vary by provider wrapper.
       const response = await (llm as any).invoke(messages, options);
       const content =
@@ -393,6 +396,43 @@ function bindPromptJson(
       return { raw: response, parsed };
     },
   };
+}
+
+function capturePromptJsonMessages(name: string, messages: unknown[]): void {
+  const directory = process.env.MOSAIC_PROMPT_JSON_CAPTURE_DIR?.trim();
+  if (!directory) return;
+
+  const captureId = `${process.pid}-${Date.now()}-${promptJsonCaptureSequence++}`;
+  const temporaryPath = resolve(directory, `.prompt-json-${captureId}.tmp`);
+  const finalPath = resolve(directory, `prompt-json-${captureId}.json`);
+  try {
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const payload = JSON.stringify({
+      schema_version: "prompt_json_messages_capture_v1",
+      binding_name: name,
+      messages,
+    });
+    const descriptor = openSync(temporaryPath, "wx", 0o600);
+    try {
+      writeSync(descriptor, payload);
+      fsyncSync(descriptor);
+    } finally {
+      closeSync(descriptor);
+    }
+    linkSync(temporaryPath, finalPath);
+    unlinkSync(temporaryPath);
+    chmodSync(finalPath, 0o600);
+  } catch (cause) {
+    try {
+      unlinkSync(temporaryPath);
+    } catch {
+      // Preserve the original capture failure.
+    }
+    throw new Error(
+      `prompt JSON message capture failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause },
+    );
+  }
 }
 
 function promptJsonMessages(input: unknown, schema: unknown, name: string): unknown[] {
@@ -469,21 +509,29 @@ function buildRepairMessages(input: {
 
 interface RepairEvidenceCatalog {
   allowed_evidence_ids: string[];
+  claim_supported_evidence_ids: string[];
   allowed_citation_ids: string[];
 }
 
 function extractRepairEvidenceCatalog(snapshot: unknown): RepairEvidenceCatalog {
   if (snapshot === null || typeof snapshot !== "object" || Array.isArray(snapshot)) {
-    return { allowed_evidence_ids: [], allowed_citation_ids: [] };
+    return {
+      allowed_evidence_ids: [],
+      claim_supported_evidence_ids: [],
+      allowed_citation_ids: [],
+    };
   }
   const record = snapshot as Record<string, unknown>;
   const evidenceLedger = Array.isArray(record.evidenceLedger) ? record.evidenceLedger : [];
-  const allowedEvidenceIds = evidenceLedger
-    .flatMap((entry) => {
-      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return [];
-      const evidenceId = (entry as Record<string, unknown>).evidence_id;
-      return typeof evidenceId === "string" ? [evidenceId] : [];
-    })
+  const evidenceEntries = evidenceLedger.flatMap((entry) => {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const evidenceId = (entry as Record<string, unknown>).evidence_id;
+    return typeof evidenceId === "string" ? [entry as Record<string, unknown>] : [];
+  });
+  const allowedEvidenceIds = evidenceEntries.map((entry) => entry.evidence_id as string).sort();
+  const claimSupportedEvidenceIds = evidenceEntries
+    .filter((entry) => entry.freshness === "current" && entry.fallback !== true)
+    .map((entry) => entry.evidence_id as string)
     .sort();
   const ruleSource = record.allowedResearchRuleIds;
   const allowedResearchRuleIds =
@@ -494,19 +542,69 @@ function extractRepairEvidenceCatalog(snapshot: unknown): RepairEvidenceCatalog 
         : [];
   return {
     allowed_evidence_ids: [...new Set(allowedEvidenceIds)],
+    claim_supported_evidence_ids: [...new Set(claimSupportedEvidenceIds)],
     allowed_citation_ids: [...new Set(allowedResearchRuleIds)],
   };
 }
 
-function zodIssues(error: z.ZodError): AgentContractIssue[] {
-  return normalizeIssues(
-    error.issues.map((issue) => ({
-      validator: "zod_schema",
-      reason_code: `ZOD_${issue.code.toUpperCase()}`,
-      json_path: jsonPath(issue.path),
-      message: issue.message,
-    })),
+function zodIssues(error: z.ZodError, rawOutput?: unknown): AgentContractIssue[] {
+  return normalizeIssues(expandZodIssues(error.issues, rawOutput));
+}
+
+function expandZodIssues(
+  issues: readonly z.ZodIssue[],
+  rawOutput: unknown,
+  prefix: PropertyKey[] = [],
+): AgentContractIssue[] {
+  return issues.flatMap((issue) => {
+    const path = [...prefix, ...issue.path];
+    if (issue.code === "invalid_union" && issue.errors.length > 0) {
+      const input = valueAtPath(rawOutput, path);
+      const branch = selectUnionBranch(issue.errors, input);
+      return expandZodIssues(branch, rawOutput, path);
+    }
+    return [
+      {
+        validator: "zod_schema",
+        reason_code: `ZOD_${issue.code.toUpperCase()}`,
+        json_path: jsonPath(path),
+        message: issue.message,
+      },
+    ];
+  });
+}
+
+function selectUnionBranch(
+  branches: readonly (readonly z.ZodIssue[])[],
+  input: unknown,
+): readonly z.ZodIssue[] {
+  const decisionDisposition = objectProperties(input)?.decision_disposition;
+  if (typeof decisionDisposition !== "string") return branches.flat();
+  return (
+    branches.find(
+      (branch) =>
+        !branch.some((issue) => isDecisionDispositionMismatch(issue, decisionDisposition)),
+    ) ??
+    branches[0] ??
+    []
   );
+}
+
+function isDecisionDispositionMismatch(issue: z.ZodIssue, decisionDisposition: string): boolean {
+  if (issue.path.length !== 1 || issue.path[0] !== "decision_disposition") return false;
+  if (issue.code === "invalid_value") {
+    const values = (issue as z.ZodIssue & { values?: unknown[] }).values;
+    return !Array.isArray(values) || !values.includes(decisionDisposition);
+  }
+  return true;
+}
+
+function valueAtPath(value: unknown, path: readonly PropertyKey[]): unknown {
+  return path.reduce<unknown>((current, key) => {
+    if (Array.isArray(current) && typeof key === "number") return current[key];
+    const record = objectProperties(current);
+    return record ? record[String(key)] : undefined;
+  }, value);
 }
 
 function exceptionIssues(cause: unknown): AgentContractIssue[] {
@@ -647,6 +745,17 @@ function hasCompactProviderContract(value: unknown): boolean {
   );
 }
 
+function hasProviderShapedMacroInputAttributions(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasProviderShapedMacroInputAttributions);
+  if (value === null || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  const attributions = record.macro_input_attributions;
+  return (
+    (attributions !== null && typeof attributions === "object" && !Array.isArray(attributions)) ||
+    Object.values(record).some(hasProviderShapedMacroInputAttributions)
+  );
+}
+
 function safeJsonSchema<T>(schema: z.ZodType<T>): unknown {
   try {
     return z.toJSONSchema(schema);
@@ -661,16 +770,19 @@ function providerJsonSchema<T>(schema: z.ZodType<T>, evidenceSnapshot?: unknown)
   );
   const catalog = extractRepairEvidenceCatalog(evidenceSnapshot);
   return bindCioFinalProviderRuntimeDirective(
-    bindSectorSelectedProviderRuntimeCatalog(
-      bindSingleEvidenceCitationProviderRuntimeCatalog(
-        bindDecisionClaimProviderRuntimeCatalog(
-          bindMacroProviderRuntimeCatalog(providerSchema, catalog),
+    bindAutonomousExecutionProviderRuntimeDirective(
+      bindSectorSelectedProviderRuntimeCatalog(
+        bindSingleEvidenceCitationProviderRuntimeCatalog(
+          bindDecisionClaimProviderRuntimeCatalog(
+            bindMacroProviderRuntimeCatalog(providerSchema, catalog),
+            catalog,
+          ),
           catalog,
         ),
+        evidenceSnapshot,
         catalog,
       ),
       evidenceSnapshot,
-      catalog,
     ),
     evidenceSnapshot,
   );
@@ -705,13 +817,25 @@ export const STRICT_PROVIDER_EXTRACTION_DESCRIPTOR = Object.freeze({
   single_evidence_runtime_catalog_binding:
     "RELATIONSHIP_AND_SUPERINVESTOR_EXACT_EVIDENCE_AND_CITATION_ENUM_V1",
   decision_claim_runtime_catalog_binding: "DECISION_EXACT_EVIDENCE_AND_PERMITTED_CITATION_ENUM_V1",
-  cio_final_control_binding: "EXACT_CRO_AND_EXECUTION_CONTROL_TUPLES_V1",
+  cio_final_control_binding: "EXACT_CRO_EXECUTION_AND_TARGET_BOUNDS_V2",
   cio_final_decision_reason_max_length: 160,
 });
 
 export const CIO_FINAL_PROVIDER_DECISION_REASON_MAX_LENGTH = 160;
 export const CIO_FINAL_PROVIDER_CONTROL_DIRECTIVE_VERSION =
-  "cio_final_provider_control_directive_v1";
+  "cio_final_provider_control_directive_v2";
+
+interface CioFinalProviderTargetBound {
+  ts_code: string;
+  current_weight: number;
+  proposal_target_weight: number;
+  requested_delta_weight: number;
+  execution_status: "FEASIBLE" | "PARTIAL" | "BLOCKED" | "NO_DELTA";
+  max_executable_delta_weight: number;
+  direction: "INCREASE" | "DECREASE" | "HOLD";
+  target_weight_min: number;
+  target_weight_max: number;
+}
 
 class ProviderRuntimeBindingError extends Error {
   constructor(
@@ -721,11 +845,164 @@ class ProviderRuntimeBindingError extends Error {
       | "SECTOR_RUNTIME_DIRECTIVE_EVIDENCE_OUTSIDE_CATALOG"
       | "CIO_FINAL_CONTROL_DIRECTIVE_MISSING"
       | "CIO_FINAL_CONTROL_DIRECTIVE_INVALID"
+      | "AUTONOMOUS_EXECUTION_CONTROL_DIRECTIVE_MISSING"
+      | "AUTONOMOUS_EXECUTION_CONTROL_DIRECTIVE_INVALID"
+      | "SINGLE_EVIDENCE_RUNTIME_EVIDENCE_CATALOG_EMPTY"
       | "CIO_FINAL_PROVIDER_SCHEMA_INVALID",
   ) {
     super(reasonCode);
     this.name = "ProviderRuntimeBindingError";
   }
+}
+
+interface AutonomousExecutionProviderIntent {
+  order_intent_ref: string;
+  ts_code: string;
+  requested_delta_weight: number;
+}
+
+function bindAutonomousExecutionProviderRuntimeDirective(
+  value: unknown,
+  snapshot: unknown,
+): unknown {
+  if (!containsAutonomousExecutionProviderSchema(value)) return value;
+  if (snapshot === null || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    throw new ProviderRuntimeBindingError("AUTONOMOUS_EXECUTION_CONTROL_DIRECTIVE_MISSING");
+  }
+  const directive = (snapshot as Record<string, unknown>).autonomous_execution_control_directive;
+  if (directive === null || typeof directive !== "object" || Array.isArray(directive)) {
+    throw new ProviderRuntimeBindingError("AUTONOMOUS_EXECUTION_CONTROL_DIRECTIVE_MISSING");
+  }
+  const record = directive as Record<string, unknown>;
+  const intents = canonicalAutonomousExecutionProviderIntents(record.intents);
+  if (intents === null) {
+    throw new ProviderRuntimeBindingError("AUTONOMOUS_EXECUTION_CONTROL_DIRECTIVE_INVALID");
+  }
+  if (
+    record.schema_version !== "execution_frozen_order_intent_set_v2" ||
+    typeof record.frozen_object_set_id !== "string" ||
+    record.frozen_object_set_id.length === 0 ||
+    typeof record.frozen_object_set_hash !== "string" ||
+    !/^sha256:[0-9a-f]{64}$/.test(record.frozen_object_set_hash)
+  ) {
+    throw new ProviderRuntimeBindingError("AUTONOMOUS_EXECUTION_CONTROL_DIRECTIVE_INVALID");
+  }
+  const frozenIntents: AutonomousExecutionProviderIntent[] = intents;
+  return bind(value);
+
+  function bind(nested: unknown): unknown {
+    if (Array.isArray(nested)) return nested.map(bind);
+    if (nested === null || typeof nested !== "object") return nested;
+    const nestedRecord = nested as Record<string, unknown>;
+    const properties = objectProperties(nestedRecord.properties);
+    if (schemaConstValue(properties?.agent_id) === "autonomous_execution") {
+      return {
+        ...nestedRecord,
+        properties: {
+          ...properties,
+          order_assessments: exactAutonomousExecutionIntentTupleSchema(
+            properties?.order_assessments,
+            frozenIntents,
+          ),
+        },
+      };
+    }
+    return Object.fromEntries(Object.entries(nestedRecord).map(([key, item]) => [key, bind(item)]));
+  }
+}
+
+function containsAutonomousExecutionProviderSchema(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsAutonomousExecutionProviderSchema);
+  if (value === null || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  const properties = objectProperties(record.properties);
+  return (
+    schemaConstValue(properties?.agent_id) === "autonomous_execution" ||
+    Object.values(record).some(containsAutonomousExecutionProviderSchema)
+  );
+}
+
+function canonicalAutonomousExecutionProviderIntents(
+  value: unknown,
+): AutonomousExecutionProviderIntent[] | null {
+  if (!Array.isArray(value)) return null;
+  const intents: AutonomousExecutionProviderIntent[] = [];
+  for (const item of value) {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) return null;
+    const record = item as Record<string, unknown>;
+    if (
+      typeof record.order_intent_ref !== "string" ||
+      record.order_intent_ref.length === 0 ||
+      typeof record.ts_code !== "string" ||
+      record.ts_code.length === 0 ||
+      typeof record.requested_delta_weight !== "number" ||
+      !Number.isFinite(record.requested_delta_weight) ||
+      record.requested_delta_weight === 0
+    ) {
+      return null;
+    }
+    intents.push({
+      order_intent_ref: record.order_intent_ref,
+      ts_code: record.ts_code,
+      requested_delta_weight: record.requested_delta_weight,
+    });
+  }
+  if (
+    new Set(intents.map((intent) => intent.order_intent_ref)).size !== intents.length ||
+    new Set(intents.map((intent) => intent.ts_code)).size !== intents.length
+  ) {
+    return null;
+  }
+  const sorted = [...intents].sort((left, right) =>
+    left.order_intent_ref.localeCompare(right.order_intent_ref),
+  );
+  return sorted.every(
+    (intent, index) => intent.order_intent_ref === intents[index]?.order_intent_ref,
+  )
+    ? sorted
+    : null;
+}
+
+function exactAutonomousExecutionIntentTupleSchema(
+  value: unknown,
+  intents: AutonomousExecutionProviderIntent[],
+): Record<string, unknown> {
+  const arraySchema = objectProperties(value);
+  if (!arraySchema) {
+    throw new ProviderRuntimeBindingError("AUTONOMOUS_EXECUTION_CONTROL_DIRECTIVE_INVALID");
+  }
+  if (arraySchema.items === false && arraySchema.maxItems === 0) {
+    return arraySchema;
+  }
+  const itemSchema = objectProperties(arraySchema.items);
+  const itemProperties = objectProperties(itemSchema?.properties);
+  if (!itemSchema || !itemProperties) {
+    throw new ProviderRuntimeBindingError("AUTONOMOUS_EXECUTION_CONTROL_DIRECTIVE_INVALID");
+  }
+  return {
+    ...arraySchema,
+    prefixItems: intents.map((intent) => ({
+      ...itemSchema,
+      properties: {
+        ...itemProperties,
+        order_intent_ref: {
+          ...objectProperties(itemProperties.order_intent_ref),
+          const: intent.order_intent_ref,
+        },
+        ts_code: {
+          ...objectProperties(itemProperties.ts_code),
+          const: intent.ts_code,
+        },
+        requested_delta_weight: {
+          ...objectProperties(itemProperties.requested_delta_weight),
+          const: intent.requested_delta_weight,
+        },
+      },
+    })),
+    items: false,
+    minItems: intents.length,
+    maxItems: intents.length,
+  };
 }
 
 function bindCioFinalProviderRuntimeDirective(value: unknown, snapshot: unknown): unknown {
@@ -740,16 +1017,19 @@ function bindCioFinalProviderRuntimeDirective(value: unknown, snapshot: unknown)
   const record = directive as Record<string, unknown>;
   const croRefs = canonicalRuntimeStringTuple(record.cro_action_local_refs);
   const executionRefs = canonicalRuntimeStringTuple(record.execution_assessment_local_refs);
+  const targetBounds = canonicalCioFinalTargetBounds(record.target_bounds);
   if (
     record.contract_version !== CIO_FINAL_PROVIDER_CONTROL_DIRECTIVE_VERSION ||
     record.decision_reason_max_length !== CIO_FINAL_PROVIDER_DECISION_REASON_MAX_LENGTH ||
     croRefs === null ||
-    executionRefs === null
+    executionRefs === null ||
+    targetBounds === null
   ) {
     throw new ProviderRuntimeBindingError("CIO_FINAL_CONTROL_DIRECTIVE_INVALID");
   }
   const exactCroRefs = croRefs;
   const exactExecutionRefs = executionRefs;
+  const exactTargetBounds = targetBounds;
   return bind(value);
 
   function bind(nested: unknown): unknown {
@@ -787,6 +1067,10 @@ function bindCioFinalProviderRuntimeDirective(value: unknown, snapshot: unknown)
             "execution_assessment_local_ref",
             exactExecutionRefs,
           ),
+          target_positions: bindCioFinalTargetPositionsSchema(
+            properties?.target_positions,
+            exactTargetBounds,
+          ),
         },
       };
     }
@@ -816,6 +1100,162 @@ function canonicalRuntimeStringTuple(value: unknown): string[] | null {
   if (new Set(value).size !== value.length) return null;
   const sorted = [...value].sort();
   return sorted.every((item, index) => item === value[index]) ? sorted : null;
+}
+
+function canonicalCioFinalTargetBounds(value: unknown): CioFinalProviderTargetBound[] | null {
+  if (!Array.isArray(value)) return null;
+  const bounds: CioFinalProviderTargetBound[] = [];
+  for (const item of value) {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) return null;
+    const record = item as Record<string, unknown>;
+    const tsCode = record.ts_code;
+    const proposalTargetWeight = record.proposal_target_weight;
+    const executionStatus = record.execution_status;
+    const direction = record.direction;
+    const currentWeight = record.current_weight;
+    const requestedDelta = record.requested_delta_weight;
+    const maxExecutableDelta = record.max_executable_delta_weight;
+    const targetWeightMin = record.target_weight_min;
+    const targetWeightMax = record.target_weight_max;
+    if (
+      typeof tsCode !== "string" ||
+      tsCode.length === 0 ||
+      (executionStatus !== "FEASIBLE" &&
+        executionStatus !== "PARTIAL" &&
+        executionStatus !== "BLOCKED" &&
+        executionStatus !== "NO_DELTA") ||
+      (direction !== "INCREASE" && direction !== "DECREASE" && direction !== "HOLD") ||
+      ![
+        currentWeight,
+        proposalTargetWeight,
+        requestedDelta,
+        maxExecutableDelta,
+        targetWeightMin,
+        targetWeightMax,
+      ].every((number) => typeof number === "number" && Number.isFinite(number)) ||
+      (currentWeight as number) < 0 ||
+      (currentWeight as number) > 1 ||
+      (proposalTargetWeight as number) < 0 ||
+      (proposalTargetWeight as number) > 1 ||
+      (targetWeightMin as number) < 0 ||
+      (targetWeightMin as number) > 1 ||
+      (targetWeightMax as number) < 0 ||
+      (targetWeightMax as number) > 1 ||
+      (targetWeightMin as number) > (targetWeightMax as number) ||
+      (maxExecutableDelta as number) < 0
+    ) {
+      return null;
+    }
+    const epsilon = 1e-9;
+    const requestedMagnitude = Math.abs(requestedDelta as number);
+    const expectedDirection =
+      (requestedDelta as number) > epsilon
+        ? "INCREASE"
+        : (requestedDelta as number) < -epsilon
+          ? "DECREASE"
+          : "HOLD";
+    if (
+      direction !== expectedDirection ||
+      (executionStatus === "FEASIBLE" &&
+        Math.abs((maxExecutableDelta as number) - requestedMagnitude) > epsilon) ||
+      (executionStatus === "PARTIAL" &&
+        (requestedMagnitude <= epsilon ||
+          (maxExecutableDelta as number) <= epsilon ||
+          (maxExecutableDelta as number) >= requestedMagnitude - epsilon)) ||
+      (executionStatus === "BLOCKED" && (maxExecutableDelta as number) > epsilon) ||
+      (executionStatus === "NO_DELTA" &&
+        (requestedMagnitude > epsilon || (maxExecutableDelta as number) > epsilon))
+    ) {
+      return null;
+    }
+    const bound = {
+      ts_code: tsCode,
+      current_weight: currentWeight as number,
+      proposal_target_weight: proposalTargetWeight as number,
+      requested_delta_weight: requestedDelta as number,
+      execution_status: executionStatus,
+      max_executable_delta_weight: maxExecutableDelta as number,
+      direction,
+      target_weight_min: targetWeightMin as number,
+      target_weight_max: targetWeightMax as number,
+    } satisfies CioFinalProviderTargetBound;
+    const executionTargetWeightMin =
+      direction === "DECREASE"
+        ? Math.max(0, (currentWeight as number) - (maxExecutableDelta as number))
+        : (currentWeight as number);
+    const executionTargetWeightMax =
+      direction === "INCREASE"
+        ? Math.min(1, (currentWeight as number) + (maxExecutableDelta as number))
+        : (currentWeight as number);
+    if (
+      (targetWeightMin as number) < executionTargetWeightMin - epsilon ||
+      (targetWeightMax as number) > executionTargetWeightMax + epsilon
+    ) {
+      return null;
+    }
+    bounds.push(bound);
+  }
+  if (new Set(bounds.map((bound) => bound.ts_code)).size !== bounds.length) return null;
+  const sorted = [...bounds].sort((left, right) => left.ts_code.localeCompare(right.ts_code));
+  return sorted.every((bound, index) => bound.ts_code === bounds[index]?.ts_code) ? bounds : null;
+}
+
+function bindCioFinalTargetPositionsSchema(
+  value: unknown,
+  bounds: CioFinalProviderTargetBound[],
+): unknown {
+  if (bounds.length === 0) return value;
+  const record = objectProperties(value);
+  if (!record) return value;
+  if (record.type === "array") {
+    const itemSchema = objectProperties(record.items);
+    const itemProperties = objectProperties(itemSchema?.properties);
+    const tickerSchema = objectProperties(itemProperties?.ts_code);
+    const targetWeightSchema = objectProperties(itemProperties?.target_weight);
+    if (itemSchema && itemProperties && tickerSchema && targetWeightSchema) {
+      return {
+        ...record,
+        items: {
+          anyOf: bounds.map((bound) => ({
+            ...itemSchema,
+            properties: {
+              ...itemProperties,
+              ts_code: { ...tickerSchema, const: bound.ts_code },
+              target_weight: {
+                ...targetWeightSchema,
+                minimum: Math.max(
+                  typeof targetWeightSchema.minimum === "number" ? targetWeightSchema.minimum : 0,
+                  bound.target_weight_min,
+                ),
+                maximum: Math.min(
+                  typeof targetWeightSchema.maximum === "number" ? targetWeightSchema.maximum : 1,
+                  bound.target_weight_max,
+                ),
+                description:
+                  `Runtime-owned bound for ${bound.ts_code}: current_weight=${bound.current_weight}, ` +
+                  `proposal_target_weight=${bound.proposal_target_weight}, ` +
+                  `requested_delta_weight=${bound.requested_delta_weight}, ` +
+                  `execution_status=${bound.execution_status}, ` +
+                  `max_executable_delta_weight=${bound.max_executable_delta_weight}, ` +
+                  `Preserve direction ${bound.direction}; require abs(target_weight-current_weight) <= ` +
+                  `max_executable_delta_weight; target_weight must be between ` +
+                  `${bound.target_weight_min} and ${bound.target_weight_max}, inclusive. ` +
+                  (bound.target_weight_min === bound.target_weight_max
+                    ? "This is the exact runtime-approved staged boundary; do not choose a weaker, reversed, or unchanged target."
+                    : "This is the runtime-approved target bound."),
+              },
+            },
+          })),
+        },
+      };
+    }
+  }
+  return Object.fromEntries(
+    Object.entries(record).map(([key, nested]) => [
+      key,
+      bindCioFinalTargetPositionsSchema(nested, bounds),
+    ]),
+  );
 }
 
 function exactRuntimeObjectTupleSchema(
@@ -993,8 +1433,11 @@ function bindSingleEvidenceCitationProviderRuntimeCatalog(
   return bind(value);
 
   function bind(nested: unknown, propertyName?: string): unknown {
-    if (propertyName === "evidence_id" && catalog.allowed_evidence_ids.length > 0) {
-      return { type: "string", enum: catalog.allowed_evidence_ids };
+    if (propertyName === "evidence_id") {
+      if (catalog.claim_supported_evidence_ids.length === 0) {
+        throw new ProviderRuntimeBindingError("SINGLE_EVIDENCE_RUNTIME_EVIDENCE_CATALOG_EMPTY");
+      }
+      return { type: "string", enum: catalog.claim_supported_evidence_ids };
     }
     if (propertyName === "research_rule_ref" && catalog.allowed_citation_ids.length > 0) {
       return { type: "string", enum: catalog.allowed_citation_ids };

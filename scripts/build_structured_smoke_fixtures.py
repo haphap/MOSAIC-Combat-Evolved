@@ -9,7 +9,6 @@ production snapshot fallback or writing to the scorecard/release ledgers.
 from __future__ import annotations
 
 import argparse
-import copy
 import csv
 import hashlib
 import json
@@ -31,13 +30,6 @@ from mosaic.dataflows.economic_calendar import (
     EconomicCalendarStore,
     collect_eco_calendar,
 )
-from mosaic.dataflows.geopolitical_events import (
-    GEOPOLITICAL_INITIAL_SOURCE_MANIFEST,
-    GeopoliticalEventStore,
-    coverage_query_key,
-    scope_query_hash,
-    validate_geopolitical_manifest,
-)
 from mosaic.dataflows.macro_source_contracts import (
     COMMODITY_CONTRACT_MAP,
     COMMODITY_FAMILY_CONTRACTS,
@@ -46,7 +38,6 @@ from mosaic.dataflows.macro_snapshots import (
     MACRO_EVENT_ROLES,
     validate_role_snapshot,
 )
-from mosaic.dataflows.market_breadth import render_market_breadth_snapshot
 from mosaic.dataflows.outcome_runtime_inputs import (
     EVENT_COVERAGE_SCHEMA_VERSION,
     OPPORTUNITY_PROJECTION_SCHEMA_VERSION,
@@ -59,9 +50,7 @@ from mosaic.dataflows.sector_archive import (
 from mosaic.dataflows.china_agent_data_archive import (
     CAPTURE_SCHEMA_VERSION as CHINA_CAPTURE_SCHEMA_VERSION,
     CURVE_ROUTE_GROUP,
-    INSTITUTIONAL_CROWDING_UNIVERSE,
     INSTITUTIONAL_ETF_UNIVERSE,
-    INSTITUTIONAL_INDUSTRY_UNIVERSE,
     INSTITUTIONAL_ROUTE_GROUP,
     ROUTE_GROUPS as CHINA_ROUTE_GROUPS,
     ChinaAgentDataArchiveStore,
@@ -70,7 +59,6 @@ from mosaic.dataflows.supply_chain_disclosures import (
     OfficialSupplyChainDisclosureArchive,
     capture_official_supply_chain_disclosures,
 )
-from mosaic.dataflows.sector_relationship_query_plans import THS_INDUSTRY_FILTERS
 from mosaic.dataflows.sector_snapshots import (
     SECTOR_DIRECTION_CONTRACT_VERSION,
     SECTOR_DIRECTION_IDS,
@@ -88,10 +76,8 @@ _FIXTURE_ARTIFACT_ROOTS = (
     "china_archive",
     "economic_calendar",
     "forward_archive",
-    "geopolitical_events",
     "gov_policy",
     "macro_snapshots",
-    "market_breadth",
     "outcome_runtime",
     "runtime_snapshots",
     "sector_archive",
@@ -99,9 +85,295 @@ _FIXTURE_ARTIFACT_ROOTS = (
     "supply_chain_archive",
 )
 
+ELIGIBILITY_ARTIFACT_SCHEMA_VERSION = "structured_smoke_etf_eligibility_v1"
+FUND_BASIC_FIELDS = "ts_code,name,fund_type,list_date,delist_date"
+FUND_DAILY_FIELDS = "ts_code,trade_date,vol,amount"
+TRADE_CAL_FIELDS = "exchange,cal_date,is_open"
+ELIGIBILITY_PROOF_SUSPENSION_STATUS = (
+    "NO_SUSPENSION_INDICATED_BY_POSITIVE_FUND_DAILY_ACTIVITY"
+)
+_ELIGIBILITY_ARTIFACT_RELATIVE_PATH = (
+    "sector_archive/eligibility/structured_smoke_etf_eligibility.json"
+)
+
 
 def _canonical_hash(payload: Any) -> str:
     return canonical_hash(payload)
+
+
+def _is_sha256(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 71
+        and value.startswith("sha256:")
+        and value[7:] == value[7:].lower()
+        and all(character in "0123456789abcdef" for character in value[7:])
+    )
+
+
+def _approved_etf_authority() -> dict[str, dict[str, str]]:
+    rows = [
+        (family["etf_ts_codes"][0], family["sector_agent_id"], family["direction_id"])
+        for family in SECTOR_ETF_DIRECTION_AUTHORITY["direction_families"]
+        if family["etf_ts_codes"]
+    ]
+    if len(rows) != 9 or len({row[0] for row in rows}) != 9:
+        raise RuntimeError("structured-smoke ETF authority must contain exactly nine unique codes")
+    return {
+        ts_code: {"sector_agent_id": sector_agent_id, "direction_id": direction_id}
+        for ts_code, sector_agent_id, direction_id in rows
+    }
+
+
+def _parse_artifact_date(value: Any, field: str) -> date:
+    if not isinstance(value, str):
+        raise RuntimeError(f"eligibility artifact {field} must be a date")
+    try:
+        if len(value) == 8 and value.isdigit():
+            return datetime.strptime(value, "%Y%m%d").date()
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise RuntimeError(f"eligibility artifact {field} is not a date") from exc
+
+
+def _validate_artifact_record(
+    record: Any,
+    *,
+    endpoint: str,
+    code: str | None,
+    as_of: date,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    if not isinstance(record, dict) or set(record) != {
+        "evidence_id",
+        "query",
+        "fetched_at",
+        "row",
+        "content_hash",
+        "record_hash",
+    }:
+        raise RuntimeError(f"eligibility artifact {endpoint} record fields mismatch")
+    evidence_id = record["evidence_id"]
+    if not isinstance(evidence_id, str) or not evidence_id:
+        raise RuntimeError(f"eligibility artifact {endpoint} evidence_id is invalid")
+    query = record["query"]
+    if not isinstance(query, dict) or query.get("endpoint") != endpoint:
+        raise RuntimeError(f"eligibility artifact {endpoint} query is invalid")
+    fetched_at = record["fetched_at"]
+    try:
+        parsed_fetched_at = datetime.fromisoformat(str(fetched_at).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise RuntimeError(f"eligibility artifact {endpoint} fetched_at is invalid") from exc
+    if parsed_fetched_at.tzinfo is None:
+        raise RuntimeError(f"eligibility artifact {endpoint} fetched_at lacks timezone")
+    row = record["row"]
+    if not isinstance(row, dict) or record["content_hash"] != _canonical_hash(row):
+        raise RuntimeError(f"eligibility artifact {endpoint} content hash mismatch")
+    if not _is_sha256(record["record_hash"]):
+        raise RuntimeError(f"eligibility artifact {endpoint} record hash is invalid")
+    if record["record_hash"] != _canonical_hash(
+        {key: value for key, value in record.items() if key != "record_hash"}
+    ):
+        raise RuntimeError(f"eligibility artifact {endpoint} record hash mismatch")
+    if code is not None and row.get("ts_code") != code:
+        raise RuntimeError(f"eligibility artifact {endpoint} code mismatch")
+    if endpoint == "fund_basic":
+        if set(row) != {
+            "ts_code",
+            "name",
+            "fund_type",
+            "list_date",
+            "delist_date",
+        } or query.get("params") != {
+            "ts_code": code,
+            "market": "E",
+            "fields": FUND_BASIC_FIELDS,
+        }:
+            raise RuntimeError("eligibility artifact fund_basic query/row mismatch")
+        if not isinstance(row["name"], str) or not row["name"].strip():
+            raise RuntimeError("eligibility artifact fund_basic name is missing")
+        if not isinstance(row["fund_type"], str) or not row["fund_type"].strip():
+            raise RuntimeError("eligibility artifact fund_basic fund_type is empty")
+        list_date = _parse_artifact_date(row["list_date"], "fund_basic.list_date")
+        delist_date = (
+            None
+            if row["delist_date"] in (None, "")
+            else _parse_artifact_date(row["delist_date"], "fund_basic.delist_date")
+        )
+        if list_date > as_of or (
+            delist_date is not None and delist_date <= as_of
+        ):
+            raise RuntimeError("eligibility artifact fund_basic listing window is invalid")
+    elif endpoint == "fund_daily":
+        if set(row) != {"ts_code", "trade_date", "vol", "amount"} or query.get(
+            "params"
+        ) != {
+            "ts_code": code,
+            "trade_date": as_of.strftime("%Y%m%d"),
+            "fields": FUND_DAILY_FIELDS,
+        }:
+            raise RuntimeError("eligibility artifact fund_daily query/row mismatch")
+        if row["trade_date"] != as_of.strftime("%Y%m%d"):
+            raise RuntimeError("eligibility artifact fund_daily date mismatch")
+        for field in ("vol", "amount"):
+            if isinstance(row[field], bool) or not isinstance(row[field], (int, float)):
+                raise RuntimeError(f"eligibility artifact fund_daily {field} is invalid")
+            if float(row[field]) <= 0:
+                raise RuntimeError(f"eligibility artifact fund_daily {field} is not positive")
+    elif endpoint == "trade_cal":
+        if set(row) != {"exchange", "cal_date", "is_open"} or query.get(
+            "params"
+        ) != {
+            "exchange": row.get("exchange"),
+            "start_date": as_of.strftime("%Y%m%d"),
+            "end_date": as_of.strftime("%Y%m%d"),
+            "fields": TRADE_CAL_FIELDS,
+        }:
+            raise RuntimeError("eligibility artifact trade_cal query/row mismatch")
+        if row["cal_date"] != as_of.strftime("%Y%m%d") or row["is_open"] != 1:
+            raise RuntimeError("structured-smoke eligibility artifact calendar is not open")
+    else:
+        raise RuntimeError(f"eligibility artifact endpoint is unsupported: {endpoint}")
+    return row, record
+
+
+def _load_eligibility_artifact(path: Path, as_of: date) -> dict[str, Any]:
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError("structured-smoke eligibility artifact path is invalid")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError("structured-smoke eligibility artifact is unreadable") from exc
+    expected_fields = {
+        "schema_version",
+        "as_of_date",
+        "codes",
+        "fund_basic",
+        "fund_daily",
+        "trade_cal",
+        "provenance",
+        "artifact_hash",
+    }
+    if not isinstance(payload, dict) or set(payload) != expected_fields:
+        raise RuntimeError("structured-smoke eligibility artifact fields mismatch")
+    if payload["schema_version"] != ELIGIBILITY_ARTIFACT_SCHEMA_VERSION or payload[
+        "as_of_date"
+    ] != as_of.isoformat():
+        raise RuntimeError("structured-smoke eligibility artifact identity mismatch")
+    authority = _approved_etf_authority()
+    codes = payload["codes"]
+    if codes != sorted(authority) or len(codes) != 9:
+        raise RuntimeError("structured-smoke eligibility artifact code set mismatch")
+    if not isinstance(payload["provenance"], dict) or not all(
+        isinstance(payload["provenance"].get(field), str)
+        and payload["provenance"][field].strip()
+        for field in ("collector", "preflight_registry_version", "rule")
+    ):
+        raise RuntimeError("structured-smoke eligibility artifact provenance is missing")
+    body = {key: value for key, value in payload.items() if key != "artifact_hash"}
+    if not _is_sha256(payload["artifact_hash"]) or payload["artifact_hash"] != _canonical_hash(body):
+        raise RuntimeError("structured-smoke eligibility artifact hash mismatch")
+
+    if not all(
+        isinstance(payload[field], list)
+        for field in ("fund_basic", "fund_daily", "trade_cal")
+    ):
+        raise RuntimeError("structured-smoke eligibility artifact rows must be lists")
+    basics: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+    for record in payload["fund_basic"]:
+        raw_row = record.get("row") if isinstance(record, dict) else None
+        record_code = raw_row.get("ts_code") if isinstance(raw_row, dict) else None
+        row, normalized = _validate_artifact_record(
+            record, endpoint="fund_basic", code=record_code, as_of=as_of
+        )
+        code = row["ts_code"]
+        if code in basics or code not in authority:
+            raise RuntimeError("structured-smoke eligibility artifact fund_basic set mismatch")
+        basics[code] = (row, normalized)
+    dailies: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+    for record in payload["fund_daily"]:
+        raw_row = record.get("row") if isinstance(record, dict) else None
+        record_code = raw_row.get("ts_code") if isinstance(raw_row, dict) else None
+        row, normalized = _validate_artifact_record(
+            record, endpoint="fund_daily", code=record_code, as_of=as_of
+        )
+        code = row["ts_code"]
+        if code in dailies or code not in authority:
+            raise RuntimeError("structured-smoke eligibility artifact fund_daily set mismatch")
+        dailies[code] = (row, normalized)
+    if set(basics) != set(authority) or set(dailies) != set(authority):
+        raise RuntimeError("structured-smoke eligibility artifact endpoint coverage mismatch")
+
+    exchanges = {code: ("SSE" if code.endswith(".SH") else "SZSE") for code in authority}
+    calendars: dict[str, dict[str, Any]] = {}
+    for record in payload["trade_cal"]:
+        row, normalized = _validate_artifact_record(
+            record, endpoint="trade_cal", code=None, as_of=as_of
+        )
+        exchange = row.get("exchange") if isinstance(row, dict) else None
+        if exchange in calendars:
+            raise RuntimeError("eligibility artifact trade_cal has duplicate exchanges")
+        if exchange not in {"SSE", "SZSE"}:
+            raise RuntimeError("eligibility artifact trade_cal row is invalid")
+        calendars[exchange] = normalized
+    if set(calendars) != {"SSE", "SZSE"}:
+        raise RuntimeError("structured-smoke eligibility artifact calendar coverage mismatch")
+    raw_records = (*payload["fund_basic"], *payload["fund_daily"], *payload["trade_cal"])
+    raw_evidence_ids = [record["evidence_id"] for record in raw_records]
+    if len(raw_evidence_ids) != len(set(raw_evidence_ids)):
+        raise RuntimeError(
+            "structured-smoke eligibility artifact evidence_id values must be globally unique"
+        )
+
+    evidence_rows = {
+        record["evidence_id"]: record
+        for record in (*payload["fund_basic"], *payload["fund_daily"], *payload["trade_cal"])
+    }
+    proof_by_code: dict[str, dict[str, Any]] = {}
+    for code in sorted(authority):
+        basic, basic_record = basics[code]
+        _daily, daily_record = dailies[code]
+        calendar_record = calendars[exchanges[code]]
+        proof_body = {
+            "ts_code": code,
+            "as_of_date": as_of.isoformat(),
+            "exchange": exchanges[code],
+            "listing_window": {
+                "list_date": basic["list_date"],
+                "delist_date": basic["delist_date"],
+            },
+            "suspension_status": ELIGIBILITY_PROOF_SUSPENSION_STATUS,
+            "security_type": "ETF",
+            "tradability": "TRADABLE",
+            "evidence_ids": [
+                basic_record["evidence_id"],
+                daily_record["evidence_id"],
+                calendar_record["evidence_id"],
+            ],
+            "evidence_hashes": [
+                basic_record["record_hash"],
+                daily_record["record_hash"],
+                calendar_record["record_hash"],
+            ],
+            "provenance": {
+                "collector": payload["provenance"]["collector"],
+                "preflight_registry_version": payload["provenance"][
+                    "preflight_registry_version"
+                ],
+                "authority_hash": SECTOR_ETF_DIRECTION_AUTHORITY["authority_hash"],
+                "rule": "listed ETF + open exchange + positive exact-date fund_daily activity",
+            },
+        }
+        proof_by_code[code] = {
+            **proof_body,
+            "content_hash": _canonical_hash(proof_body),
+        }
+    return {
+        "payload": payload,
+        "artifact_hash": payload["artifact_hash"],
+        "authority": authority,
+        "proof_by_code": proof_by_code,
+        "evidence_by_id": evidence_rows,
+    }
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -326,10 +598,13 @@ def _build_macro_snapshots(root: Path, as_of: date) -> None:
             ("agriculture_food_index", "tushare.fut_daily.C@DCE"),
         ),
         "institutional_flow": (
-            ("market_flow_all_share", "tushare.moneyflow_hsgt"),
-            ("sector_rotation_all_share", "tushare.moneyflow_ind_ths"),
-            ("etf_share_all_share", "tushare.fund_share"),
-            ("crowding_all_share", "tushare.daily_basic"),
+            tuple(
+                (
+                    f"etf_share_{ticker.replace('.', '_')}_change",
+                    "tushare.fund_share",
+                )
+                for ticker in INSTITUTIONAL_ETF_UNIVERSE
+            )
         ),
     }
     snapshot_dir = root / "macro_snapshots" / as_of.isoformat()
@@ -389,17 +664,11 @@ def _build_macro_snapshots(root: Path, as_of: date) -> None:
                 **(
                     {
                         "component_coverage": {
-                            component: {
-                                "eligible_count": 100,
-                                "observed_count": 100,
+                            "etf_share": {
+                                "eligible_count": len(INSTITUTIONAL_ETF_UNIVERSE),
+                                "observed_count": len(INSTITUTIONAL_ETF_UNIVERSE),
                                 "coverage_ratio": 1.0,
                             }
-                            for component in (
-                                "market_wide_flow",
-                                "sector_rotation",
-                                "etf_share",
-                                "crowding",
-                            )
                         }
                     }
                     if role == "institutional_flow"
@@ -439,57 +708,6 @@ def _build_economic_calendar(root: Path, as_of: date) -> None:
     )
 
 
-def _nonproduction_geopolitical_manifest(as_of: date) -> dict[str, Any]:
-    del as_of
-    payload = copy.deepcopy(GEOPOLITICAL_INITIAL_SOURCE_MANIFEST)
-    return validate_geopolitical_manifest(payload)
-
-
-def _build_geopolitical_cache(root: Path, as_of: date) -> Path:
-    target = root / "geopolitical_events"
-    manifest = _nonproduction_geopolitical_manifest(as_of)
-    manifest_path = target / "structured_smoke_ready_manifest.json"
-    _write_json(manifest_path, manifest)
-    store = GeopoliticalEventStore(target / "events.sqlite3")
-    adapters = {row["source_id"]: row for row in manifest["adapter_contracts"]}
-    ordinal = 0
-    for route in manifest["coverage_routes"]:
-        if route["applicability"] != "APPLICABLE":
-            continue
-        for source_id in route["required_source_ids"]:
-            ordinal += 1
-            adapter = adapters[source_id]
-            query_hash = scope_query_hash(route, adapter)
-            query_key = coverage_query_key(route, source_id, query_hash)
-            store.append_poll_observation(
-                {
-                    "observation_id": f"structured-smoke-poll-{ordinal:05d}",
-                    "coverage_route_id": route["coverage_route_id"],
-                    "coverage_route_hash": route["coverage_route_hash"],
-                    "source_id": source_id,
-                    "scope_query_hash": query_hash,
-                    "coverage_query_key": query_key,
-                    "poll_started_at": f"{as_of.isoformat()}T06:44:00Z",
-                    "poll_completed_at": f"{as_of.isoformat()}T06:45:00Z",
-                    "http_status": 200,
-                    "row_count": 0,
-                    "pagination_complete": True,
-                    "terminal_proof_kind": "PAGINATION_EXHAUSTED",
-                    "truncated": False,
-                    "schema_hash": adapter["expected_response_schema_hash"],
-                    "response_content_hash": _canonical_hash(
-                        {"query": query_key, "rows": []}
-                    ),
-                    "ingestion_mode": "NON_PRODUCTION_CALLBACK",
-                    "parse_result": "SUCCESS",
-                    "error_class": None,
-                    "coverage_evidence_id": f"structured-smoke:geo-coverage:{query_key}",
-                },
-                manifest=manifest,
-            )
-    return manifest_path
-
-
 def _business_days_ending(as_of: date, count: int) -> list[date]:
     days: list[date] = []
     current = as_of
@@ -510,67 +728,12 @@ def _write_csv(
         writer.writerows(rows)
 
 
-def _build_market_breadth(root: Path, as_of: date) -> None:
-    target = root / "market_breadth"
-    trading_days = _business_days_ending(as_of, 320)
-    # Structured smoke accepts any ISO date, including weekends used by the
-    # bridge protocol suite. Keep the bundle explicitly synthetic while giving
-    # its PIT snapshot an observation at the requested boundary.
-    if trading_days[-1] != as_of:
-        trading_days.append(as_of)
-    tickers = [f"{index:06d}.SZ" for index in range(1, 41)]
-    _write_csv(
-        target / "stock_basic.csv",
-        ("ts_code", "list_date", "delist_date"),
-        [
-            {
-                "ts_code": ticker,
-                "list_date": (trading_days[0] - timedelta(days=365)).strftime("%Y%m%d"),
-                "delist_date": "",
-            }
-            for ticker in tickers
-        ],
-    )
-    daily_rows: list[dict[str, Any]] = []
-    factor_rows: list[dict[str, Any]] = []
-    prices = {ticker: 8.0 + index * 0.15 for index, ticker in enumerate(tickers)}
-    for day_index, trading_day in enumerate(trading_days):
-        for ticker_index, ticker in enumerate(tickers):
-            pre_close = prices[ticker]
-            daily_return = ((ticker_index % 9) - 4) * 0.0008 + (
-                (day_index % 7) - 3
-            ) * 0.0004
-            close = max(1.0, pre_close * (1.0 + daily_return))
-            prices[ticker] = close
-            daily_rows.append(
-                {
-                    "ts_code": ticker,
-                    "trade_date": trading_day.strftime("%Y%m%d"),
-                    "close": f"{close:.6f}",
-                    "pre_close": f"{pre_close:.6f}",
-                    "amount": f"{1_000_000 + ticker_index * 17_000 + day_index * 1_300:.2f}",
-                }
-            )
-            factor_rows.append(
-                {
-                    "ts_code": ticker,
-                    "trade_date": trading_day.strftime("%Y%m%d"),
-                    "adj_factor": "1.0",
-                }
-            )
-    _write_csv(
-        target / "daily.csv",
-        ("ts_code", "trade_date", "close", "pre_close", "amount"),
-        daily_rows,
-    )
-    _write_csv(
-        target / "adj_factor.csv",
-        ("ts_code", "trade_date", "adj_factor"),
-        factor_rows,
-    )
-
-
-def _build_sector_snapshots(root: Path, as_of: date) -> None:
+def _build_sector_snapshots(
+    root: Path,
+    as_of: date,
+    *,
+    eligibility_authority_codes: set[str] | None = None,
+) -> None:
     target = root / "sector_snapshots" / as_of.isoformat()
     released_at = (as_of - timedelta(days=1)).isoformat()
     in_date = (as_of - timedelta(days=365)).isoformat()
@@ -602,6 +765,17 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
             classification_code = contract["included_classification_codes"][0]
             classification_field = code_levels[classification_code]
             evidence_id = f"structured-smoke:sector:{agent_id}:{direction_id}"
+            authority_codes_for_direction = authority_codes[(agent_id, direction_id)]
+            use_authority_code = (
+                bool(eligibility_authority_codes)
+                and len(authority_codes_for_direction) == 1
+                and authority_codes_for_direction[0] in eligibility_authority_codes
+            )
+            ts_code = (
+                authority_codes_for_direction[0]
+                if use_authority_code
+                else f"{600000 + ticker_ordinal:06d}.SH"
+            )
             evidence = {
                 "evidence_id": evidence_id,
                 "evidence_kind": "SYNTHETIC_PIT_DIRECTION",
@@ -622,7 +796,7 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
             evidence["evidence_record_hash"] = _sector_canonical_hash(evidence)
             evidence_catalog.append(evidence)
             security = {
-                "ts_code": f"{600000 + ticker_ordinal:06d}.SH",
+                "ts_code": ts_code,
                 "direction_id": direction_id,
                 "l1_code": None,
                 "l2_code": None,
@@ -641,26 +815,57 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
         security_scoring_rows = []
         for security_ordinal, security in enumerate(universe, start=1):
             direction_quality = len(universe) - security_ordinal + 1
+            authority_row = (
+                eligibility_authority_codes is not None
+                and security["ts_code"] in eligibility_authority_codes
+            )
+            unavailable = (
+                eligibility_authority_codes is not None and not authority_row
+            )
             scoring_row = {
                 "ts_code": security["ts_code"],
                 "direction_id": security["direction_id"],
-                "availability_status": "AVAILABLE",
-                "unavailability_reason": None,
+                "availability_status": (
+                    "UNAVAILABLE" if unavailable else "AVAILABLE"
+                ),
+                "unavailability_reason": (
+                    "INSUFFICIENT_PIT_OBSERVATIONS" if unavailable else None
+                ),
                 "observation_date": released_at,
                 "released_at": released_at,
                 "vintage_at": released_at,
                 "pit_status": "PIT_VERIFIED",
-                "adjusted_return_20d": round(0.04 * direction_quality, 6),
-                "realized_volatility_20d": round(
-                    0.08 + 0.06 * security_ordinal, 6
+                "adjusted_return_20d": (
+                    None
+                    if unavailable
+                    else 10.0
+                    if authority_row
+                    else round(0.04 * direction_quality, 6)
                 ),
-                "median_amount_20d_cny": float(100_000_000 - security_ordinal * 10_000),
-                "net_moneyflow_20d_cny": float(
-                    1_000_000 + direction_quality * 100_000
+                "realized_volatility_20d": (
+                    None
+                    if unavailable
+                    else 0.01
+                    if authority_row
+                    else round(0.08 + 0.06 * security_ordinal, 6)
                 ),
-                "observation_count": 20,
+                "median_amount_20d_cny": (
+                    None
+                    if unavailable
+                    else 1_000_000_000.0
+                    if authority_row
+                    else float(100_000_000 - security_ordinal * 10_000)
+                ),
+                "net_moneyflow_20d_cny": (
+                    None
+                    if unavailable
+                    else 1_000_000_000.0
+                    if authority_row
+                    else float(1_000_000 + direction_quality * 100_000)
+                ),
+                "observation_count": 0 if unavailable else 20,
                 "required_observation_count": 20,
-                "coverage_ratio": 1.0,
+                "coverage_ratio": 0.0 if unavailable else 1.0,
                 "evidence_ids": [
                     f"structured-smoke:sector:{agent_id}:{security['direction_id']}"
                 ],
@@ -669,8 +874,37 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
                 scoring_row
             )
             security_scoring_rows.append(scoring_row)
+        if eligibility_authority_codes is None:
+            direction_metric_rank = {
+                direction_id: ordinal
+                for ordinal, direction_id in enumerate(direction_ids, start=1)
+            }
+        else:
+            validated_authority_directions = [
+                direction_id
+                for direction_id in direction_ids
+                if len(authority_codes[(agent_id, direction_id)]) == 1
+                and authority_codes[(agent_id, direction_id)][0]
+                in eligibility_authority_codes
+            ]
+            if len(validated_authority_directions) != 1:
+                raise ValueError(
+                    f"{agent_id} must have exactly one validated eligibility authority direction"
+                )
+            metric_order = [
+                validated_authority_directions[0],
+                *(
+                    direction_id
+                    for direction_id in direction_ids
+                    if direction_id != validated_authority_directions[0]
+                ),
+            ]
+            direction_metric_rank = {
+                direction_id: ordinal
+                for ordinal, direction_id in enumerate(metric_order, start=1)
+            }
         cards = []
-        for ordinal, direction_id in enumerate(direction_ids, start=1):
+        for direction_id in direction_ids:
             contract = direction_contracts[(agent_id, direction_id)]
             evidence_id = f"structured-smoke:sector:{agent_id}:{direction_id}"
             members = [row for row in universe if row["direction_id"] == direction_id]
@@ -701,12 +935,13 @@ def _build_sector_snapshots(root: Path, as_of: date) -> None:
             for metric_contract in metric_contracts:
                 is_etf = metric_contract["metric_family"] == "ETF_CONFIRMATION"
                 metric_id = metric_contract["metric_id"]
+                metric_ordinal = direction_metric_rank[direction_id]
                 if metric_id == "REALIZED_VOLATILITY_60D":
-                    metric_value = round(0.08 + ordinal * 0.08, 4)
+                    metric_value = round(0.08 + metric_ordinal * 0.08, 4)
                 elif metric_id == "CURRENT_DRAWDOWN_252D":
-                    metric_value = round(-0.05 - (ordinal - 1) * 0.12, 4)
+                    metric_value = round(-0.05 - (metric_ordinal - 1) * 0.12, 4)
                 else:
-                    metric_value = round(0.8 - (ordinal - 1) * 0.18, 4)
+                    metric_value = round(0.8 - (metric_ordinal - 1) * 0.18, 4)
                 metric = {
                     **metric_contract,
                     "direction_id": direction_id,
@@ -1282,24 +1517,6 @@ def _build_china_archive(root: Path, as_of: date) -> Path:
     start = as_of - timedelta(days=365)
     captured_at = f"{as_of.isoformat()}T14:45:00+08:00"
     cutoff_at = f"{as_of.isoformat()}T23:59:00+08:00"
-    industries = sorted(
-        {
-            industry
-            for filters in THS_INDUSTRY_FILTERS.values()
-            for industry in filters
-        }
-        | {"银行"}
-    )
-    industry_history_rows = [
-        {
-            "trade_date": (start + timedelta(days=day_ordinal)).isoformat(),
-            "industry": industry,
-            "net_amount": float(industry_ordinal * 10 + day_ordinal),
-            "lead_stock": f"synthetic-leader-{industry_ordinal}",
-        }
-        for day_ordinal in range(366)
-        for industry_ordinal, industry in enumerate(industries, start=1)
-    ]
     institutional_body = {
         "schema_version": CHINA_CAPTURE_SCHEMA_VERSION,
         "capture_key": _canonical_hash(
@@ -1311,55 +1528,21 @@ def _build_china_archive(root: Path, as_of: date) -> Path:
         "cutoff_at": cutoff_at,
         "captured_at": captured_at,
         "market_session_date": as_of.isoformat(),
-        "northbound": {"north_money": 100.0, "row_count": 1},
-        "market_flow_rows": [
-            {"ts_code": ticker, "net_mf_amount": float(index * 100)}
-            for index, ticker in enumerate(INSTITUTIONAL_CROWDING_UNIVERSE, start=1)
-        ],
-        "industry_rows": [
-            {
-                "industry": industry,
-                "net_amount": float(index * 10 + 365),
-            }
-            for index, industry in enumerate(industries, start=1)
-        ],
-        "industry_history_start": start.isoformat(),
-        "industry_history_rows": industry_history_rows,
-        "industry_transport_call_count": 1,
-        "industry_duplicate_count": 0,
         "fund_share_rows": [
-            {"ts_code": ticker, "fd_share": float(index * 1_000)}
+            {
+                "ts_code": ticker,
+                "latest": {
+                    "trade_date": as_of.isoformat(),
+                    "fd_share": float(index * 1_000),
+                },
+                "prior": {
+                    "trade_date": (as_of - timedelta(days=1)).isoformat(),
+                    "fd_share": float(index * 900),
+                },
+                "share_change_pct": round((1_000 - 900) / 900 * 100, 6),
+            }
             for index, ticker in enumerate(INSTITUTIONAL_ETF_UNIVERSE, start=1)
         ],
-        "crowding_rows": [
-            {
-                "ts_code": "600000.SH",
-                "turnover_rate": 1.5,
-                "volume_ratio": 0.9,
-            }
-        ],
-        "institutional_requests": {
-            "moneyflow": [
-                {"ts_code": ticker, "trade_date": as_of.strftime("%Y%m%d")}
-                for ticker in INSTITUTIONAL_CROWDING_UNIVERSE
-            ],
-            "moneyflow_ind_ths": [
-                {"ts_code": ticker, "trade_date": as_of.strftime("%Y%m%d")}
-                for ticker in INSTITUTIONAL_INDUSTRY_UNIVERSE
-            ],
-            "fund_share": [
-                {
-                    "ts_code": ticker,
-                    "start_date": as_of.strftime("%Y%m%d"),
-                    "end_date": as_of.strftime("%Y%m%d"),
-                }
-                for ticker in INSTITUTIONAL_ETF_UNIVERSE
-            ],
-            "daily_basic": [
-                {"ts_code": ticker, "trade_date": as_of.strftime("%Y%m%d")}
-                for ticker in INSTITUTIONAL_CROWDING_UNIVERSE
-            ],
-        },
     }
     institutional_group = {
         **institutional_body,
@@ -1523,22 +1706,6 @@ def _synthetic_macro_authority_snapshot(
     agent_id: str,
     as_of: date,
 ) -> dict[str, Any]:
-    if agent_id == "geopolitical":
-        return {
-            "snapshot_hash": _canonical_hash(
-                {
-                    "fixture_class": "SYNTHETIC_NON_PRODUCTION",
-                    "agent_id": agent_id,
-                    "as_of": as_of.isoformat(),
-                }
-            )
-        }
-    if agent_id == "market_breadth":
-        return json.loads(
-            render_market_breadth_snapshot(
-                as_of.isoformat(), root / "market_breadth"
-            )
-        )
     raw = json.loads(
         (root / "macro_snapshots" / as_of.isoformat() / f"{agent_id}.json")
         .read_text(encoding="utf-8")
@@ -1704,23 +1871,6 @@ def _runtime_control_source(ref: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _runtime_skipped_control_source(
-    *, agent_id: str, accepted_output_kind: str, as_of: date
-) -> dict[str, Any]:
-    stage_skip_id = f"structured-smoke:stage-skip:{agent_id}:{as_of.isoformat()}"
-    return {
-        "source_status": "NO_EVALUATION_OBJECT",
-        "agent_id": agent_id,
-        "accepted_output_kind": accepted_output_kind,
-        "accepted_output_id": None,
-        "accepted_output_hash": None,
-        "stage_skip_id": stage_skip_id,
-        "stage_skip_hash": _canonical_hash(
-            {"stage_skip_id": stage_skip_id, "as_of": as_of.isoformat()}
-        ),
-    }
-
-
 def _runtime_snapshot(
     *,
     agent_id: str,
@@ -1731,10 +1881,11 @@ def _runtime_snapshot(
     constraints: dict[str, Any],
     role_context: dict[str, Any],
     candidate_universe: list[dict[str, Any]] | None = None,
+    candidate_evidence: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     contract = BOUND_RUNTIME_SNAPSHOT_CONTRACTS[tool_id]
     refs = [ref for ref, _evidence in upstream]
-    evidence = [row for _ref, row in upstream]
+    evidence = [row for _ref, row in upstream] + (candidate_evidence or [])
     evidence_ids = [row["evidence_id"] for row in evidence]
     constraints = {**constraints, "evidence_ids": evidence_ids}
     role_context = {**role_context, "evidence_ids": evidence_ids}
@@ -1786,7 +1937,9 @@ def _runtime_snapshot(
     return snapshot
 
 
-def _build_runtime_snapshots(root: Path, as_of: date) -> None:
+def _build_runtime_snapshots(
+    root: Path, as_of: date, eligibility: dict[str, Any] | None = None
+) -> None:
     target = root / "runtime_snapshots" / as_of.isoformat()
     macro = tuple(
         _runtime_accepted_ref(
@@ -1827,47 +1980,334 @@ def _build_runtime_snapshots(root: Path, as_of: date) -> None:
         accepted_output_kind="CRO_RISK_REVIEW",
         as_of=as_of,
     )
+    autonomous_execution = _runtime_accepted_ref(
+        agent_id="autonomous_execution",
+        stage="autonomous_execution",
+        accepted_output_kind="EXECUTION_ASSESSMENT",
+        as_of=as_of,
+    )
     alpha = _runtime_accepted_ref(
         agent_id="alpha_discovery",
         stage="alpha_discovery",
         accepted_output_kind="ALPHA_DISCOVERY",
         as_of=as_of,
     )
-    candidate_source_ref = sector[0][0]
-    candidate_source_snapshot = json.loads(
-        (
-            root
-            / "sector_snapshots"
-            / as_of.isoformat()
-            / f"{candidate_source_ref['agent_id']}.json"
-        ).read_text(encoding="utf-8")
-    )
-    candidate_security = candidate_source_snapshot["eligible_security_universe"][0]
-    superinvestor_candidates = [
-        {
+    eligibility_evidence_rows: list[dict[str, Any]] = []
+    superinvestor_candidates: list[dict[str, Any]] = []
+    proposal_candidates: list[dict[str, Any]] = []
+    cro_candidates: list[dict[str, Any]] = []
+    execution_candidates: list[dict[str, Any]] = []
+    final_candidates: list[dict[str, Any]] = []
+    order_intents: list[dict[str, Any]] = []
+    if eligibility is None:
+        candidate_source_ref = sector[0][0]
+        candidate_source_snapshot = json.loads(
+            (
+                root
+                / "sector_snapshots"
+                / as_of.isoformat()
+                / f"{candidate_source_ref['agent_id']}.json"
+            ).read_text(encoding="utf-8")
+        )
+        candidate_security = candidate_source_snapshot[
+            "eligible_security_universe"
+        ][0]
+        candidate_ref_seed = {
+            "accepted_output_id": candidate_source_ref["accepted_output_id"],
+            "pick_local_id": (
+                "structured-smoke:pick:"
+                f"{candidate_security['direction_id']}:"
+                f"{candidate_security['ts_code']}"
+            ),
+        }
+        superinvestor_candidate = {
             "candidate_ref": "runtime-candidate:"
-            + _canonical_hash(
-                {
-                    "accepted_output_id": candidate_source_ref["accepted_output_id"],
-                    "pick_local_id": (
-                        "structured-smoke:pick:"
-                        f"{candidate_security['direction_id']}:"
-                        f"{candidate_security['ts_code']}"
-                    ),
-                }
-            ).removeprefix("sha256:"),
+            + _canonical_hash(candidate_ref_seed).removeprefix("sha256:"),
             "ts_code": candidate_security["ts_code"],
             "source_output_id": candidate_source_ref["accepted_output_id"],
             "source_output_hash": candidate_source_ref["accepted_output_hash"],
             "source_sector_agent_id": candidate_source_ref["agent_id"],
             "source_direction_id": candidate_security["direction_id"],
             "source_direction": "PREFERRED",
-            "metrics": {"conviction": 0.8},
+            "metrics": {
+                "conviction": 0.8,
+                "signal_origin": "synthetic_structured_smoke",
+            },
             "evidence_ids": list(candidate_source_ref["evidence_ids"]),
         }
-    ]
+        superinvestor_candidates = [superinvestor_candidate]
+        candidate_ticker = superinvestor_candidate["ts_code"]
+        candidate_ref = superinvestor_candidate["candidate_ref"]
+        proposal_evidence_ids = list(cio_proposal[0]["evidence_ids"])
+        position_ref = f"structured-smoke:position:{candidate_ticker}"
+        order_intent_ref = f"structured-smoke:order-intent:{candidate_ticker}"
+        buy_metrics = {
+            "current_weight": 0.0,
+            "target_weight": 0.1,
+            "delta_weight": 0.1,
+            "signal_origin": "synthetic_structured_smoke",
+        }
+        proposal_candidates = [
+            {
+                "candidate_ref": candidate_ref,
+                "ts_code": candidate_ticker,
+                "source_kind": "SECTOR_SELECTION",
+                "current_weight": 0.0,
+                "reference_target_weight": 0.1,
+                "source_output_id": superinvestor_candidate["source_output_id"],
+                "source_output_hash": superinvestor_candidate["source_output_hash"],
+                "metrics": {
+                    **superinvestor_candidate["metrics"],
+                    "target_weight": 0.1,
+                    "delta_weight": 0.1,
+                },
+                "evidence_ids": list(superinvestor_candidate["evidence_ids"]),
+            }
+        ]
+        cro_candidates = [
+            {
+                "candidate_ref": candidate_ref,
+                "ts_code": candidate_ticker,
+                "proposal_position_ref": position_ref,
+                "current_weight": 0.0,
+                "proposed_target_weight": 0.1,
+                "proposed_delta_weight": 0.1,
+                "sector_id": superinvestor_candidate["source_sector_agent_id"],
+                "metrics": buy_metrics,
+                "evidence_ids": proposal_evidence_ids,
+            }
+        ]
+        execution_candidates = [
+            {
+                "candidate_ref": candidate_ref,
+                "ts_code": candidate_ticker,
+                "order_intent_ref": order_intent_ref,
+                "current_weight": 0.0,
+                "target_weight": 0.1,
+                "requested_delta_weight": 0.1,
+                "side": "BUY",
+                "metrics": buy_metrics,
+                "evidence_ids": sorted(
+                    {*proposal_evidence_ids, cro[0]["evidence_ids"][0]}
+                ),
+            }
+        ]
+        final_candidates = [
+            {
+                "candidate_ref": candidate_ref,
+                "ts_code": candidate_ticker,
+                "proposal_position_ref": position_ref,
+                "current_weight": 0.0,
+                "proposed_target_weight": 0.1,
+                "proposed_delta_weight": 0.1,
+                "metrics": buy_metrics,
+                "evidence_ids": proposal_evidence_ids,
+            }
+        ]
+        order_intents = [
+            {
+                "order_intent_ref": order_intent_ref,
+                "ts_code": candidate_ticker,
+                "action": "BUY",
+                "requested_delta_weight": 0.1,
+            }
+        ]
+    else:
+        eligibility_evidence_rows = [
+            {
+                "evidence_id": f"structured-smoke:eligibility-proof:{ts_code}",
+                "source_kind": "DERIVED_METRIC",
+                "source_id": _ELIGIBILITY_ARTIFACT_RELATIVE_PATH,
+                "metric": "pit_eligibility",
+                "value": proof["tradability"],
+                "unit": "status",
+                "as_of": proof["as_of_date"],
+                "available_at": f"{proof['as_of_date']}T07:00:00Z",
+                "source_fingerprint": proof["content_hash"],
+            }
+            for ts_code, proof in sorted(eligibility["proof_by_code"].items())
+        ]
+        semiconductor_refs = [
+            ref for ref, _evidence in sector if ref["agent_id"] == "semiconductor"
+        ]
+        if len(semiconductor_refs) != 1:
+            raise RuntimeError("structured-smoke Semiconductor accepted L2 ref is ambiguous")
+        candidate_source_ref = semiconductor_refs[0]
+        candidate_source_snapshot = json.loads(
+            (
+                root
+                / "sector_snapshots"
+                / as_of.isoformat()
+                / f"{candidate_source_ref['agent_id']}.json"
+            ).read_text(encoding="utf-8")
+        )
+        authority_candidates = [
+            (ts_code, binding)
+            for ts_code, binding in eligibility["authority"].items()
+            if binding["sector_agent_id"] == "semiconductor"
+        ]
+        if len(authority_candidates) != 1:
+            raise RuntimeError("structured-smoke Semiconductor eligibility authority is ambiguous")
+        authority_ticker, authority_binding = authority_candidates[0]
+        direction_id = authority_binding["direction_id"]
+        projection = json.loads(
+            (
+                root
+                / "outcome_runtime"
+                / as_of.isoformat()
+                / "opportunities"
+                / "semiconductor.json"
+            ).read_text(encoding="utf-8")
+        )
+        shortlist = next(
+            member
+            for member in projection["member_refs"]
+            if member["subindustry_id"] == direction_id
+        )
+        shortlist_codes = shortlist["security_ts_codes"]
+        if len(shortlist_codes) != 1:
+            raise RuntimeError(
+                "structured-smoke Semiconductor eligibility shortlist is not uniquely selectable"
+            )
+        candidate_ticker = shortlist_codes[0]
+        if candidate_ticker != authority_ticker:
+            raise RuntimeError(
+                "structured-smoke Semiconductor shortlist diverges from validated authority"
+            )
+        candidate_members = [
+            row
+            for row in candidate_source_snapshot["eligible_security_universe"]
+            if row["ts_code"] == candidate_ticker
+            and row["direction_id"] == direction_id
+        ]
+        if len(candidate_members) != 1:
+            raise RuntimeError("structured-smoke Semiconductor shortlist membership is missing")
+        candidate_scoring_rows = [
+            row
+            for row in candidate_source_snapshot["security_scoring_rows"]
+            if row["ts_code"] == candidate_ticker
+            and row["direction_id"] == direction_id
+            and row["availability_status"] == "AVAILABLE"
+        ]
+        if len(candidate_scoring_rows) != 1:
+            raise RuntimeError("structured-smoke Semiconductor shortlist row is unavailable")
+        candidate_ref_seed = {
+            "accepted_output_id": candidate_source_ref["accepted_output_id"],
+            "source_direction_id": direction_id,
+            "ts_code": candidate_ticker,
+        }
+        candidate_evidence_ids = sorted(
+            {
+                *candidate_source_ref["evidence_ids"],
+                f"structured-smoke:eligibility-proof:{candidate_ticker}",
+            }
+        )
+        superinvestor_candidate = {
+            "candidate_ref": "runtime-candidate:"
+            + _canonical_hash(candidate_ref_seed).removeprefix("sha256:"),
+            "ts_code": candidate_ticker,
+            "source_output_id": candidate_source_ref["accepted_output_id"],
+            "source_output_hash": candidate_source_ref["accepted_output_hash"],
+            "source_sector_agent_id": candidate_source_ref["agent_id"],
+            "source_direction_id": direction_id,
+            "source_direction": "PREFERRED",
+            "metrics": {
+                "conviction": 0.8,
+                "signal_origin": "synthetic_structured_smoke",
+            },
+            "evidence_ids": candidate_evidence_ids,
+        }
+        superinvestor_candidates = [superinvestor_candidate]
+        candidate_ref = superinvestor_candidate["candidate_ref"]
+        proposal_evidence_ids = candidate_evidence_ids
+        downstream_evidence_ids = sorted(
+            {
+                *cio_proposal[0]["evidence_ids"],
+                f"structured-smoke:eligibility-proof:{candidate_ticker}",
+            }
+        )
+        position_ref = f"structured-smoke:position:{candidate_ticker}"
+        order_intent_ref = f"structured-smoke:order-intent:{candidate_ticker}"
+        buy_metrics = {
+            "current_weight": 0.0,
+            "target_weight": 0.1,
+            "delta_weight": 0.1,
+            "signal_origin": "synthetic_structured_smoke",
+        }
+        proposal_candidates = [
+            {
+                "candidate_ref": candidate_ref,
+                "ts_code": candidate_ticker,
+                "source_kind": "SECTOR_SELECTION",
+                "current_weight": 0.0,
+                "reference_target_weight": 0.1,
+                "source_output_id": superinvestor_candidate["source_output_id"],
+                "source_output_hash": superinvestor_candidate["source_output_hash"],
+                "metrics": {
+                    **superinvestor_candidate["metrics"],
+                    "target_weight": 0.1,
+                    "delta_weight": 0.1,
+                },
+                "evidence_ids": proposal_evidence_ids,
+            }
+        ]
+        cro_candidates = [
+            {
+                "candidate_ref": candidate_ref,
+                "ts_code": candidate_ticker,
+                "proposal_position_ref": position_ref,
+                "current_weight": 0.0,
+                "proposed_target_weight": 0.1,
+                "proposed_delta_weight": 0.1,
+                "sector_id": superinvestor_candidate["source_sector_agent_id"],
+                "metrics": buy_metrics,
+                "evidence_ids": downstream_evidence_ids,
+            }
+        ]
+        execution_candidates = [
+            {
+                "candidate_ref": candidate_ref,
+                "ts_code": candidate_ticker,
+                "order_intent_ref": order_intent_ref,
+                "current_weight": 0.0,
+                "target_weight": 0.1,
+                "requested_delta_weight": 0.1,
+                "side": "BUY",
+                "metrics": buy_metrics,
+                "evidence_ids": sorted(
+                    {*downstream_evidence_ids, cro[0]["evidence_ids"][0]}
+                ),
+            }
+        ]
+        final_candidates = [
+            {
+                "candidate_ref": candidate_ref,
+                "ts_code": candidate_ticker,
+                "proposal_position_ref": position_ref,
+                "current_weight": 0.0,
+                "proposed_target_weight": 0.1,
+                "proposed_delta_weight": 0.1,
+                "metrics": buy_metrics,
+                "evidence_ids": downstream_evidence_ids,
+            }
+        ]
+        order_intents = [
+            {
+                "order_intent_ref": order_intent_ref,
+                "ts_code": candidate_ticker,
+                "action": "BUY",
+                "requested_delta_weight": 0.1,
+            }
+        ]
     candidate_origin_hash = _canonical_hash(superinvestor_candidates)
-
+    position_snapshot: list[dict[str, Any]] = []
+    position_snapshot_hash = _canonical_hash(position_snapshot)
+    portfolio_exposure_snapshot = {
+        "total_weight": 0.0,
+        "sector_weights": {},
+    }
+    portfolio_exposure_snapshot_hash = _canonical_hash(portfolio_exposure_snapshot)
+    cio_upstream = (*macro, *sector, *superinvestors, alpha)
     snapshots: list[tuple[str, str, str, dict[str, Any]]] = []
     for agent_id in SUPERINVESTOR_AGENTS:
         snapshots.append(
@@ -1895,6 +2335,7 @@ def _build_runtime_snapshots(root: Path, as_of: date) -> None:
                         "candidate_origin_set_hash": candidate_origin_hash,
                     },
                     candidate_universe=superinvestor_candidates,
+                    candidate_evidence=eligibility_evidence_rows,
                 ),
             )
         )
@@ -1957,12 +2398,14 @@ def _build_runtime_snapshots(root: Path, as_of: date) -> None:
                             "accepted_output_hash"
                         ],
                         "position_snapshot_id": "structured-smoke:positions",
-                        "position_snapshot_hash": _canonical_hash([]),
+                        "position_snapshot_hash": position_snapshot_hash,
                         "portfolio_exposure_snapshot_id": (
                             "structured-smoke:portfolio-exposure"
                         ),
-                        "portfolio_exposure_snapshot_hash": _canonical_hash({}),
+                        "portfolio_exposure_snapshot_hash": portfolio_exposure_snapshot_hash,
                     },
+                    candidate_universe=cro_candidates,
+                    candidate_evidence=eligibility_evidence_rows,
                 ),
             ),
             (
@@ -1993,11 +2436,13 @@ def _build_runtime_snapshots(root: Path, as_of: date) -> None:
                         ],
                         "cro_control_source": _runtime_control_source(cro[0]),
                         "order_intent_set_id": "structured-smoke:order-intents",
-                        "order_intent_set_hash": _canonical_hash([]),
+                        "order_intent_set_hash": _canonical_hash(order_intents),
                         "liquidity_vintage_hash": _canonical_hash(
                             {"as_of": as_of.isoformat()}
                         ),
                     },
+                    candidate_universe=execution_candidates,
+                    candidate_evidence=eligibility_evidence_rows,
                 ),
             ),
             (
@@ -2009,7 +2454,7 @@ def _build_runtime_snapshots(root: Path, as_of: date) -> None:
                     stage="cio_proposal",
                     tool_id="get_cio_decision_snapshot",
                     as_of=as_of,
-                    upstream=(*macro, *sector, *superinvestors, alpha),
+                    upstream=cio_upstream,
                     constraints={
                         "max_total_target_weight": 1.0,
                         "min_cash_weight": 0.0,
@@ -2020,10 +2465,12 @@ def _build_runtime_snapshots(root: Path, as_of: date) -> None:
                         "context_kind": "CIO_PORTFOLIO_DECISION",
                         "decision_stage": "PROPOSAL",
                         "position_snapshot_id": "structured-smoke:positions",
-                        "position_snapshot_hash": _canonical_hash([]),
+                        "position_snapshot_hash": position_snapshot_hash,
                         "previous_target_id": None,
                         "previous_target_hash": None,
                     },
+                    candidate_universe=proposal_candidates,
+                    candidate_evidence=eligibility_evidence_rows,
                 ),
             ),
             (
@@ -2035,7 +2482,7 @@ def _build_runtime_snapshots(root: Path, as_of: date) -> None:
                     stage="cio_final",
                     tool_id="get_cio_decision_snapshot",
                     as_of=as_of,
-                    upstream=(cio_proposal,),
+                    upstream=(cio_proposal, cro, autonomous_execution),
                     constraints={
                         "max_total_target_weight": 1.0,
                         "min_cash_weight": 0.0,
@@ -2051,17 +2498,13 @@ def _build_runtime_snapshots(root: Path, as_of: date) -> None:
                         "proposal_accepted_output_hash": cio_proposal[0][
                             "accepted_output_hash"
                         ],
-                        "cro_control_source": _runtime_skipped_control_source(
-                            agent_id="cro",
-                            accepted_output_kind="CRO_RISK_REVIEW",
-                            as_of=as_of,
-                        ),
-                        "execution_control_source": _runtime_skipped_control_source(
-                            agent_id="autonomous_execution",
-                            accepted_output_kind="EXECUTION_ASSESSMENT",
-                            as_of=as_of,
+                        "cro_control_source": _runtime_control_source(cro[0]),
+                        "execution_control_source": _runtime_control_source(
+                            autonomous_execution[0]
                         ),
                     },
+                    candidate_universe=final_candidates,
+                    candidate_evidence=eligibility_evidence_rows,
                 ),
             ),
         )
@@ -2070,8 +2513,23 @@ def _build_runtime_snapshots(root: Path, as_of: date) -> None:
         _write_json(target / f"{agent_id}.{stage}.{tool_id}.json", snapshot)
 
 
-def build_structured_smoke_fixtures(root: Path, as_of_date: str) -> dict[str, str]:
+def build_structured_smoke_fixtures(
+    root: Path,
+    as_of_date: str,
+    eligibility_artifact_path: Path | None = None,
+) -> dict[str, str]:
     as_of = date.fromisoformat(as_of_date)
+    eligibility = None
+    if eligibility_artifact_path is not None:
+        eligibility = _load_eligibility_artifact(
+            eligibility_artifact_path.expanduser().resolve(), as_of
+        )
+    elif as_of < date.fromisoformat(
+        SECTOR_ETF_DIRECTION_AUTHORITY["effective_from"]
+    ):
+        raise RuntimeError(
+            "structured-smoke eligibility artifact is required before ETF authority effective_from"
+        )
     requested_root = root.expanduser()
     if requested_root.is_symlink():
         raise RuntimeError("structured-smoke fixture root cannot be a symlink")
@@ -2083,9 +2541,13 @@ def build_structured_smoke_fixtures(root: Path, as_of_date: str) -> dict[str, st
     root.mkdir(parents=True, exist_ok=True)
     _build_macro_snapshots(root, as_of)
     _build_economic_calendar(root, as_of)
-    manifest_path = _build_geopolitical_cache(root, as_of)
-    _build_market_breadth(root, as_of)
-    _build_sector_snapshots(root, as_of)
+    _build_sector_snapshots(
+        root,
+        as_of,
+        eligibility_authority_codes=(
+            set(eligibility["authority"]) if eligibility is not None else None
+        ),
+    )
     sector_archive_path = _build_sector_archive(root, as_of)
     forward_archive_root = _build_forward_archive(root, as_of)
     supply_chain_archive_path = _build_supply_chain_archive(root, as_of)
@@ -2093,7 +2555,17 @@ def build_structured_smoke_fixtures(root: Path, as_of_date: str) -> dict[str, st
     _build_policy_archive(root, as_of)
     _build_outcome_event_coverage(root, as_of)
     _build_outcome_opportunity_projections(root, as_of)
-    _build_runtime_snapshots(root, as_of)
+    _build_runtime_snapshots(root, as_of, eligibility)
+    if eligibility_artifact_path is not None:
+        copied_artifact = root / _ELIGIBILITY_ARTIFACT_RELATIVE_PATH
+        copied_artifact.parent.mkdir(parents=True, exist_ok=True)
+        copied_artifact.write_text(
+            json.dumps(
+                eligibility["payload"], ensure_ascii=False, indent=2, sort_keys=True
+            )
+            + "\n",
+            encoding="utf-8",
+        )
     artifact_inventory = _fixture_artifact_inventory(root)
     marker = {
         "schema_version": "structured_smoke_fixture_bundle_v1",
@@ -2101,10 +2573,6 @@ def build_structured_smoke_fixtures(root: Path, as_of_date: str) -> dict[str, st
         "fixture_class": "SYNTHETIC_NON_PRODUCTION",
         "contains_vendor_prose": False,
         "cache_root": str(root),
-        "geopolitical_manifest": str(manifest_path),
-        "geopolitical_manifest_hash": json.loads(
-            manifest_path.read_text(encoding="utf-8")
-        )["manifest_hash"],
         "artifact_inventory": artifact_inventory,
         "artifact_inventory_hash": _canonical_hash(artifact_inventory),
     }
@@ -2113,7 +2581,6 @@ def build_structured_smoke_fixtures(root: Path, as_of_date: str) -> dict[str, st
     return {
         "MOSAIC_CACHE_DIR": str(root),
         "MOSAIC_CHINA_AGENT_ARCHIVE_DB": str(china_archive_path),
-        "MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST": str(manifest_path),
         "MOSAIC_FORWARD_ARCHIVE_ROOT": str(forward_archive_root),
         "MOSAIC_GOV_POLICY_CACHE_DIR": str(root / "gov_policy"),
         "MOSAIC_REGISTRY_DIR": str(
@@ -2137,12 +2604,19 @@ def main() -> int:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--date", required=True, help="YYYY-MM-DD")
     parser.add_argument(
+        "--eligibility-artifact",
+        type=Path,
+        help="validated point-in-time ETF eligibility artifact",
+    )
+    parser.add_argument(
         "--shell-exports",
         action="store_true",
         help="print shell-quoted export statements instead of JSON",
     )
     args = parser.parse_args()
-    bindings = build_structured_smoke_fixtures(args.root, args.date)
+    bindings = build_structured_smoke_fixtures(
+        args.root, args.date, args.eligibility_artifact
+    )
     if args.shell_exports:
         print(render_shell_exports(bindings))
     else:

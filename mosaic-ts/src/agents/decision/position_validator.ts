@@ -191,22 +191,24 @@ function assertSectorConcentration(
 ): void {
   if (maxSectorWeight >= 1) return;
   const totals = new Map<string, number>();
+  let unknownSectorWeight = 0;
   for (const action of actions) {
     if (action.target_weight <= 0) continue;
     const sector = nonEmptyText(action.sector);
     if (!sector) {
-      throw new PositionActionValidationError(
-        `${action.ticker}: max_sector_weight active but sector is missing`,
-      );
+      unknownSectorWeight += action.target_weight;
+      continue;
     }
     totals.set(sector, (totals.get(sector) ?? 0) + action.target_weight);
   }
-  for (const [sector, total] of totals.entries()) {
-    if (total > maxSectorWeight + 1e-9) {
-      throw new PositionActionValidationError(
-        `${sector}: target_weight ${total.toFixed(3)} exceeds max_sector_weight ${maxSectorWeight}`,
-      );
-    }
+  const knownSectorWeight = Math.max(0, ...totals.values());
+  if (knownSectorWeight + unknownSectorWeight > maxSectorWeight + 1e-9) {
+    const sector =
+      [...totals.entries()].find(([, total]) => total === knownSectorWeight)?.[0] ?? "unknown";
+    throw new PositionActionValidationError(
+      `${sector}: worst-case target_weight ${(knownSectorWeight + unknownSectorWeight).toFixed(3)} ` +
+        `exceeds max_sector_weight ${maxSectorWeight}`,
+    );
   }
 }
 

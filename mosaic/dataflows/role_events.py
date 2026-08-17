@@ -31,6 +31,7 @@ ROLE_EVENT_CURRENCIES: Final[dict[str, tuple[str, ...]]] = {
     "commodities": ("USD", "CNY", "EUR"),
     "semiconductor": ("CNY", "USD", "EUR"),
     "technology": ("CNY", "USD", "EUR"),
+    "biotech": ("CNY", "USD", "EUR"),
     "energy": ("CNY", "USD", "EUR"),
     "consumer": ("CNY", "USD", "EUR"),
     "industrials": ("CNY", "USD", "EUR"),
@@ -45,6 +46,7 @@ ROLE_EVENT_CURRENCIES: Final[dict[str, tuple[str, ...]]] = {
 _SECTOR_KEYWORDS: Final[dict[str, tuple[str, ...]]] = {
     "semiconductor": ("半导体", "芯片", "semiconductor", "chip"),
     "technology": ("软件", "通信", "电子", "计算机", "software", "telecom"),
+    "biotech": ("医药", "医疗", "生物", "中药", "pharma", "biotech"),
     "energy": ("原油", "天然气", "库存", "光伏", "风电", "电池", "oil", "gas", "energy"),
     "consumer": ("零售", "消费", "汽车", "收入", "retail", "consumer", "vehicle"),
     "industrials": ("工业", "制造", "pmi", "manufacturing", "production"),

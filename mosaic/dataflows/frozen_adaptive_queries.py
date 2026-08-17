@@ -32,7 +32,10 @@ from mosaic.scorecard.l3_l4_preservation import (
     QUERY_BUNDLE_CONTRACT_VERSION as BOUND_RUNTIME_QUERY_BUNDLE_CONTRACT_VERSION,
     validate_l3_l4_preservation_overlay,
 )
-from mosaic.scorecard.l3_l4_activation import active_stage_for_l3_l4_overlay
+from mosaic.scorecard.l3_l4_activation import (
+    active_argument_schema_for_l3_l4_binding,
+    active_stage_for_l3_l4_overlay,
+)
 from mosaic.scorecard.sector_relationship_preservation import (
     QUERY_BUNDLE_CONTRACT_VERSION as SECTOR_QUERY_BUNDLE_CONTRACT_VERSION,
     SECTOR_AGENT_IDS,
@@ -657,7 +660,12 @@ class FrozenAdaptiveQueryStore:
                 l3=agent_id in L3_TOOL_ROSTER,
             )
             bindings = {
-                row["tool_id"]: row
+                row["tool_id"]: {
+                    **row,
+                    "argument_schema": active_argument_schema_for_l3_l4_binding(
+                        agent_id, stage, row["tool_id"]
+                    ),
+                }
                 for row in preservation_overlay["bindings"]
                 if row["agent_id"] == agent_id and row["stage"] == overlay_stage
             }

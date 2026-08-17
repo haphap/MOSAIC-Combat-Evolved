@@ -39,7 +39,10 @@ import {
   promptMutationSummary,
   promptRoleComponentRefs,
 } from "../src/autoresearch/prompt_optimizer_contract.js";
-import { runPromptOptimizerShadowPlan } from "../src/autoresearch/prompt_optimizer_shadow_runner.js";
+import {
+  assertPromptOptimizerShadowFixedPoint,
+  runPromptOptimizerShadowPlan,
+} from "../src/autoresearch/prompt_optimizer_shadow_runner.js";
 import { createPromptPromotionDecision } from "../src/autoresearch/prompt_promotion_policy.js";
 
 const HASH_A = `sha256:${"a".repeat(64)}`;
@@ -50,6 +53,10 @@ const EXECUTION_BEHAVIOR_RELEASE = {
   release_id: `execution-behavior-release:${"e".repeat(64)}`,
   release_hash: HASH_A,
   archive_ref: `registry/prompt_checks/execution_behavior_releases/${"e".repeat(64)}--${"a".repeat(64)}.json`,
+} as const;
+const FIXED_POINT_AUTHORITY = {
+  tool_environment_hash: HASH_B,
+  execution_behavior_release_hash: HASH_A,
 } as const;
 const NOW = "2025-05-01T00:00:00Z";
 const target = { agentId: "china", stage: "agent_run", cohort: "cohort_default" } as const;
@@ -855,6 +862,7 @@ describe("frozen Prompt experiment runner", () => {
       executor: adapter.executor,
       evaluator: adapter.evaluator,
       authorizedPolicyHashes: values.authorizedPolicyHashes,
+      fixedPointAuthority: FIXED_POINT_AUTHORITY,
       now: () => NOW,
     });
     expect(result.family).toEqual(values.family);
@@ -867,11 +875,30 @@ describe("frozen Prompt experiment runner", () => {
       executor: adapter.executor,
       evaluator: adapter.evaluator,
       authorizedPolicyHashes: values.authorizedPolicyHashes,
+      fixedPointAuthority: FIXED_POINT_AUTHORITY,
       now: () => NOW,
     });
     expect(replay.family).toEqual(values.family);
     expect(replay.decision.evidenceHash).toBe(result.decision.evidenceHash);
     expect(adapter.executorInputs).toHaveLength(calls);
+  });
+
+  it("rejects a shadow plan that drifts from the current KNOT tool or execution fixed point", () => {
+    expect(() =>
+      assertPromptOptimizerShadowFixedPoint(environment(), FIXED_POINT_AUTHORITY),
+    ).not.toThrow();
+    expect(() =>
+      assertPromptOptimizerShadowFixedPoint(environment(), {
+        ...FIXED_POINT_AUTHORITY,
+        tool_environment_hash: HASH_C,
+      }),
+    ).toThrow("prompt_optimizer_shadow_tool_environment_drift");
+    expect(() =>
+      assertPromptOptimizerShadowFixedPoint(environment(), {
+        ...FIXED_POINT_AUTHORITY,
+        execution_behavior_release_hash: HASH_C,
+      }),
+    ).toThrow("prompt_optimizer_shadow_execution_behavior_drift");
   });
 
   it("rejects an unauthorized promotion policy before any shadow write or execution", async () => {
@@ -898,6 +925,7 @@ describe("frozen Prompt experiment runner", () => {
         executor: adapter.executor,
         evaluator: adapter.evaluator,
         authorizedPolicyHashes: new Set(),
+        fixedPointAuthority: FIXED_POINT_AUTHORITY,
         now: () => NOW,
       }),
     ).rejects.toThrow("prompt_optimizer_shadow_policy_not_authorized");
@@ -935,6 +963,7 @@ describe("frozen Prompt experiment runner", () => {
       executor: adapter.executor,
       evaluator: adapter.evaluator,
       authorizedPolicyHashes: values.authorizedPolicyHashes,
+      fixedPointAuthority: FIXED_POINT_AUTHORITY,
       now: () => NOW,
     });
 

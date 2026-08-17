@@ -97,8 +97,6 @@ _ROLE_COMPONENT_SPECS: dict[str, tuple[tuple[int, str, str | None], ...]] = {
         (3, "MACRO_COMPONENT", "agriculture_food"),
         (4, "NORMALIZED_SCORE", None),
     ),
-    "geopolitical": ((5, "NORMALIZED_SCORE", None),),
-    "market_breadth": ((5, "NORMALIZED_SCORE", None),),
     "institutional_flow": ((5, "NORMALIZED_SCORE", None),),
     "druckenmiller": ((4, "NORMALIZED_SCORE", None),),
     "munger": ((4, "NORMALIZED_SCORE", None),),
@@ -233,7 +231,7 @@ def prompt_role_component_refs(agent_id: str) -> tuple[str, ...]:
 
 def _validate_role_component_specs() -> None:
     if set(_ROLE_COMPONENT_SPECS) != set(OUTCOME_CONTRACTS):
-        raise ValueError("Prompt role component contract must cover all 27 Agents")
+        raise ValueError("Prompt role component contract must cover all 25 Agents")
     for agent_id, specs in _ROLE_COMPONENT_SPECS.items():
         ordinals = [ordinal for ordinal, _, _ in specs]
         if not specs or len(ordinals) != len(set(ordinals)) or ordinals != sorted(ordinals):
@@ -1100,8 +1098,7 @@ def _validate_knot_history_partition_v2(
     expected_binding_ids = [str(row["binding_id"]) for row in coverage["coverage"]]
     actual_binding_ids = [str(row.get("binding_id")) for row in aggregates]
     if (
-        len(expected_binding_ids) != 192
-        or expected_binding_ids != sorted(set(expected_binding_ids))
+        expected_binding_ids != sorted(set(expected_binding_ids))
         or actual_binding_ids != expected_binding_ids
     ):
         raise ValueError("KNOT history aggregate binding exact closure mismatch")

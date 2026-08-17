@@ -23,8 +23,6 @@ _MACRO_AGENT_IDS = (
     "us_financial_conditions",
     "euro_area_financial_conditions",
     "commodities",
-    "geopolitical",
-    "market_breadth",
     "institutional_flow",
 )
 _ATTRIBUTION_TARGET_TYPES = {
@@ -45,8 +43,6 @@ _LIVE_SOURCE_TOOL_BY_AGENT = {
     "us_financial_conditions": "get_us_financial_conditions_snapshot",
     "euro_area_financial_conditions": "get_euro_area_financial_conditions_snapshot",
     "commodities": "get_commodity_conditions_snapshot",
-    "geopolitical": "get_geopolitical_events_snapshot",
-    "market_breadth": "get_market_breadth_snapshot",
     "institutional_flow": "get_market_positioning_snapshot",
     "semiconductor": "get_sector_research_snapshot",
     "technology": "get_sector_research_snapshot",

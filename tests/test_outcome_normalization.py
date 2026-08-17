@@ -33,7 +33,7 @@ def test_registry_resolves_every_agent_from_a_pit_release() -> None:
         )
         for agent_id in OUTCOME_CONTRACTS
     }
-    assert len(references) == 27
+    assert len(references) == 25
     assert all(row["scale"] == 1.0 for row in references.values())
     assert all(
         row["normalization_authority"] == "PRE_REGISTERED_COLD_START_UNIT_SCALE"

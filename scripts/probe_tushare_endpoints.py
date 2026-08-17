@@ -106,7 +106,6 @@ PROBES: dict[str, dict[str, Any]] = {
     "fx_obasic": {},
     "fx_daily": {"start_date": "20260701", "end_date": "20260717"},
     "moneyflow": {"trade_date": "20260716"},
-    "moneyflow_hsgt": {"trade_date": "20260716"},
     "moneyflow_ind_ths": {"trade_date": "20260716"},
     "top_list": {"trade_date": "20260716"},
     "top10_holders": {"ts_code": "000001.SZ"},

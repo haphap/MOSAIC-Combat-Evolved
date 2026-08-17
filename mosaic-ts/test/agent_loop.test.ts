@@ -19,6 +19,7 @@ import { BRIDGE_INITIAL_TOOL_INVOKE } from "../src/bridge/tools.js";
 class ScriptedLlm {
   bindToolsCalled = 0;
   readonly seenMessages: BaseMessage[][] = [];
+  readonly invokeOptions: unknown[] = [];
 
   constructor(private readonly responses: AIMessage[]) {}
 
@@ -27,8 +28,9 @@ class ScriptedLlm {
     return this;
   }
 
-  async invoke(messages: BaseMessage[]): Promise<AIMessage> {
+  async invoke(messages: BaseMessage[], options?: unknown): Promise<AIMessage> {
     this.seenMessages.push(messages);
+    this.invokeOptions.push(options);
     const next = this.responses.shift();
     if (!next) throw new Error("script exhausted");
     return next;
@@ -36,6 +38,30 @@ class ScriptedLlm {
 }
 
 describe("agent tool loop helpers", () => {
+  it("does not forward the agent timeout signal to LLM analysis calls", async () => {
+    const signal = new AbortController().signal;
+    const initial = new ScriptedLlm([new AIMessage("done")]);
+    await runAgentToolLoop({
+      llm: initial as never,
+      tools: [],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("initial")],
+      signal,
+    });
+    expect(initial.invokeOptions).toEqual([undefined]);
+
+    const exhausted = new ScriptedLlm([new AIMessage("forced final")]);
+    await runAgentToolLoop({
+      llm: exhausted as never,
+      tools: [],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("initial")],
+      maxLoops: 0,
+      signal,
+    });
+    expect(exhausted.invokeOptions).toEqual([undefined]);
+  });
+
   it("does not truncate tool output by default", () => {
     expect(resolveToolOutputMaxChars(undefined, undefined)).toBe(0);
     expect(compactToolOutput("a".repeat(10_000), 0)).toEqual({
@@ -513,9 +539,105 @@ describe("agent tool loop helpers", () => {
     expect(result.toolCalls).toBe(1);
     expect(result.toolExecutions).toBe(1);
     expect(logs.some((line) => line.includes("names=get_fundamentals"))).toBe(true);
+    const firstTurn = llm.seenMessages[0] ?? [];
     expect(
-      llm.seenMessages[0]?.some(
+      firstTurn.some(
+        (message) =>
+          message.getType() === "human" &&
+          String(message.content).includes("runtime-provided initial tool evidence") &&
+          String(message.content).includes("tool_name=get_fundamentals") &&
+          String(message.content).includes("call_id=initial_tool_1") &&
+          String(message.content).includes("fundamentals:600519.SH"),
+      ),
+    ).toBe(true);
+    expect(
+      firstTurn.some(
+        (message) =>
+          message.getType() === "ai" && ((message as AIMessage).tool_calls ?? []).length > 0,
+      ),
+    ).toBe(false);
+    expect(firstTurn.some((message) => message.getType() === "tool")).toBe(false);
+    expect(
+      result.messages.some(
+        (message) =>
+          message.getType() === "ai" && ((message as AIMessage).tool_calls ?? []).length > 0,
+      ),
+    ).toBe(true);
+    expect(
+      result.messages.some(
         (message) => message.getType() === "tool" && String(message.content).includes("600519.SH"),
+      ),
+    ).toBe(true);
+  });
+
+  it("replays missing initial tools as marked human evidence while retaining audit messages", async () => {
+    const llm = new ScriptedLlm([new AIMessage("done")]);
+
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("initial")],
+      initialToolCalls: [{ name: "missing_tool", args: { ticker: "600519.SH" } }],
+    });
+
+    const firstTurn = llm.seenMessages[0] ?? [];
+    expect(
+      firstTurn.some(
+        (message) =>
+          message.getType() === "human" &&
+          String(message.content).includes("runtime-provided initial tool evidence") &&
+          String(message.content).includes("tool_name=missing_tool") &&
+          String(message.content).includes("call_id=initial_tool_1") &&
+          String(message.content).includes("Tool 'missing_tool' is not registered"),
+      ),
+    ).toBe(true);
+    expect(firstTurn.some((message) => message.getType() === "tool")).toBe(false);
+    expect(
+      result.messages.some(
+        (message) =>
+          message.getType() === "ai" && ((message as AIMessage).tool_calls ?? []).length > 0,
+      ),
+    ).toBe(true);
+    expect(result.messages.some((message) => message.getType() === "tool")).toBe(true);
+  });
+
+  it("replays failed initial tools as marked human evidence with the compacted output", async () => {
+    const llm = new ScriptedLlm([new AIMessage("done")]);
+    const failingTool = tool(
+      async () => {
+        throw new Error("no rows");
+      },
+      {
+        name: "get_fundamentals",
+        description: "test tool",
+        schema: z.object({}),
+      },
+    );
+
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [failingTool],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("initial")],
+      initialToolCalls: [{ name: "get_fundamentals", args: {} }],
+    });
+
+    const firstTurn = llm.seenMessages[0] ?? [];
+    expect(
+      firstTurn.some(
+        (message) =>
+          message.getType() === "human" &&
+          String(message.content).includes("runtime-provided initial tool evidence") &&
+          String(message.content).includes("tool_name=get_fundamentals") &&
+          String(message.content).includes("call_id=initial_tool_1") &&
+          String(message.content).includes("Tool 'get_fundamentals' raised: no rows"),
+      ),
+    ).toBe(true);
+    expect(firstTurn.some((message) => message.getType() === "tool")).toBe(false);
+    expect(
+      result.messages.some(
+        (message) => message.getType() === "tool" && String(message.content).includes("no rows"),
       ),
     ).toBe(true);
   });
@@ -613,11 +735,24 @@ describe("agent tool loop helpers", () => {
     expect(result.analysisText).toBe("done");
     expect(initialCalls).toBe(1);
     expect(normalCalls).toBe(0);
+    const firstTurn = llm.seenMessages[0] ?? [];
     expect(
-      llm.seenMessages[0]?.some(
+      firstTurn.some(
         (message) =>
-          message.getType() === "tool" && String(message.content).includes("frozen-initial"),
+          message.getType() === "human" &&
+          String(message.content).includes("runtime-provided initial tool evidence") &&
+          String(message.content).includes("tool_name=get_fundamentals") &&
+          String(message.content).includes("call_id=initial_tool_1") &&
+          String(message.content).includes("frozen-initial"),
       ),
     ).toBe(true);
+    expect(firstTurn.some((message) => message.getType() === "tool")).toBe(false);
+    expect(
+      result.messages.some(
+        (message) =>
+          message.getType() === "ai" && ((message as AIMessage).tool_calls ?? []).length > 0,
+      ),
+    ).toBe(true);
+    expect(result.messages.some((message) => message.getType() === "tool")).toBe(true);
   });
 });

@@ -113,17 +113,6 @@ def test_verified_eco_cal_and_precheck_endpoints_have_distinct_runtime_permissio
     assert promoted.runtime_client_enabled is True
 
 
-def test_institutional_northbound_endpoint_is_registered_for_archivist_preflight():
-    registration = endpoint_registration("moneyflow_hsgt")
-
-    assert registration.status == "PRECHECK_REQUIRED"
-    assert registration.runtime_client_enabled is False
-    assert registration.doc_url.endswith("doc_id=47")
-    assert_endpoint_capture_preflight_allowed("moneyflow_hsgt")
-    with pytest.raises(PermissionError, match="PRECHECK_REQUIRED"):
-        assert_endpoint_runtime_enabled("moneyflow_hsgt")
-
-
 def test_disabled_document_crawler_does_not_construct_client_or_call_fetch():
     called = False
 
@@ -183,9 +172,11 @@ def test_macro_series_store_enforces_point_in_time_cutoff(tmp_path: Path):
     assert rows[0]["metadata_json"]
 
 
-def test_all_ten_macro_agents_have_unique_v2_labels_and_no_implicit_fallback():
+def test_all_active_macro_agents_have_unique_v2_labels_and_no_implicit_fallback():
     assert tuple(spec.agent for spec in MACRO_LABEL_INVENTORY) == MACRO_AGENT_ORDER
-    assert len(MACRO_LABEL_INVENTORY) == len(PRIMARY_LABEL_CONFIGS) == 10
+    assert len(MACRO_LABEL_INVENTORY) == len(PRIMARY_LABEL_CONFIGS) == len(
+        MACRO_AGENT_ORDER
+    )
     assert {spec.label_type for spec in MACRO_LABEL_INVENTORY} == set(
         PRIMARY_LABEL_CONFIGS
     )

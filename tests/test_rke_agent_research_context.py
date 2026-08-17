@@ -6,6 +6,7 @@ from mosaic.rke.agent_research_context import (
     FORBIDDEN_FIELD_NAMES,
     FORBIDDEN_FIELD_POLICY,
     RESEARCH_PRIOR_USE_POLICY,
+    SECTOR_DIRECTION_KEYWORDS,
     SAFE_ACTIONABILITY,
     SCHEMA_VERSION,
     assert_public_safe_context,
@@ -86,6 +87,67 @@ def test_trusted_rke_materialization_returns_selected_source_ids_outside_public_
     assert "SRC-SELECTED" not in json.dumps(
         materialization["context"], ensure_ascii=False
     )
+
+
+@pytest.mark.parametrize(
+    ("agent_id", "direction_id", "sector_label", "expected_count"),
+    [
+        ("agriculture", "livestock_aquaculture", "农牧饲渔", 1),
+        ("biotech", "biological_products", "生物制品", 1),
+        ("consumer", "food_beverage", "食品饮料", 1),
+        ("energy", "coal", "煤炭行业", 1),
+        ("financials", "banking", "银行", 1),
+        ("industrials", "machinery", "通用设备", 1),
+        ("real_estate_construction", "real_estate", "房地产开发", 1),
+        ("semiconductor", "semiconductor_equipment_materials", "半导体", 1),
+        ("technology", "computer", "计算机设备", 1),
+        ("consumer", "food_beverage", "家电", 0),
+        ("energy", "coal", "光伏", 0),
+    ],
+)
+def test_sector_direction_id_matches_existing_chinese_keyword_authority(
+    agent_id, direction_id, sector_label, expected_count
+):
+    context = build_rke_agent_research_context_from_rows(
+        agent_id=agent_id,
+        layer="sector",
+        sector=direction_id,
+        as_of_date="2026-07-09",
+        max_items=12,
+        forecasts=[
+            {
+                "forecast_claim_id": f"FC-{agent_id}",
+                "report_id": f"RPT-{agent_id}",
+                "source_id": f"SRC-{agent_id}",
+                "target": {"target_type": "industry", "target_id": sector_label},
+                "metric_proxy_mapping": ["industry_etf_forward_return"],
+                "direction": "positive",
+            }
+        ],
+        metadata=[
+            {
+                "report_id": f"RPT-{agent_id}",
+                "source_id": f"SRC-{agent_id}",
+                "report_type": "行业研报",
+                "sector": sector_label,
+                "publish_datetime": "2026-07-01T09:00:00+08:00",
+            }
+        ],
+    )
+
+    assert context["agent_id"] == f"sector.{agent_id}"
+    assert context["summary"]["item_count"] == expected_count
+
+
+def test_sector_direction_keyword_authority_closes_frozen_directions():
+    from mosaic.dataflows.sector_snapshots import SECTOR_DIRECTION_IDS
+
+    expected_keys = {
+        (agent_id, direction_id)
+        for agent_id, direction_ids in SECTOR_DIRECTION_IDS.items()
+        for direction_id in direction_ids
+    }
+    assert set(SECTOR_DIRECTION_KEYWORDS) == expected_keys
 
 
 def test_relationship_mapper_selects_matching_stock_sector_claim() -> None:
@@ -733,7 +795,6 @@ def test_sector_ascii_keyword_matching_uses_token_boundaries() -> None:
         agent_id="consumer",
         layer="sector",
         ticker="600025.SH",
-        sector="retail",
         forecasts=[
             {
                 "forecast_claim_id": "FC-RETAIL",
@@ -756,7 +817,6 @@ def test_sector_ascii_keyword_matching_uses_token_boundaries() -> None:
     technology = build_rke_agent_research_context_from_rows(
         agent_id="technology",
         layer="sector",
-        sector="AI infrastructure",
         forecasts=[
             {
                 "forecast_claim_id": "FC-AI",

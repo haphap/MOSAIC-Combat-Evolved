@@ -8,19 +8,19 @@
     },
     "agent_count": {
       "type": "number",
-      "const": 27
+      "const": 25
     },
     "execution_stage_count": {
       "type": "number",
-      "const": 28
+      "const": 26
     },
     "tool_count": {
       "type": "number",
-      "enum": [18, 31, 32]
+      "const": 29
     },
     "agents": {
-      "minItems": 27,
-      "maxItems": 27,
+      "minItems": 25,
+      "maxItems": 25,
       "type": "array",
       "items": {
         "type": "object",
@@ -35,8 +35,6 @@
               "us_financial_conditions",
               "euro_area_financial_conditions",
               "commodities",
-              "geopolitical",
-              "market_breadth",
               "institutional_flow",
               "semiconductor",
               "technology",
@@ -79,8 +77,6 @@
                 "us_financial_conditions",
                 "euro_area_financial_conditions",
                 "commodities",
-                "geopolitical",
-                "market_breadth",
                 "institutional_flow",
                 "semiconductor",
                 "technology",
@@ -116,8 +112,6 @@
                 "get_us_financial_conditions_snapshot",
                 "get_euro_area_financial_conditions_snapshot",
                 "get_commodity_conditions_snapshot",
-                "get_geopolitical_events_snapshot",
-                "get_market_breadth_snapshot",
                 "get_market_positioning_snapshot",
                 "get_sector_research_snapshot",
                 "get_role_event_snapshot",

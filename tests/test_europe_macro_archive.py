@@ -139,6 +139,7 @@ def _archive(
     monkeypatch: pytest.MonkeyPatch,
     *,
     captured_at: datetime = CAPTURED_AT,
+    historical_replay: bool = False,
     requested_route_ids: tuple[str, ...] | None = None,
     callbacks: tuple[dict[str, int], object, object] | None = None,
 ):
@@ -155,13 +156,18 @@ def _archive(
         requested_route_ids=requested_route_ids,
         store=store,
         ledger=ledger,
+        historical_replay=historical_replay,
         fetch_official=fetch_official,
         fetch_tushare=fetch_tushare,
     )
     return store, ledger, result, counts
 
 
-def _calendar_receipt() -> SourceCaptureReceipt:
+def _calendar_receipt(
+    *,
+    captured_at: str = "2026-08-08T05:30:00+00:00",
+    as_of_cutoff: str = CUTOFF,
+) -> SourceCaptureReceipt:
     route_id = "tushare.eco_cal.eur"
     payload = {
         "schema_version": "source_capture_receipt_v1",
@@ -185,14 +191,14 @@ def _calendar_receipt() -> SourceCaptureReceipt:
             "parser_version": "eco_cal_parser_v2",
         },
         "time": {
-            "released_at": "2026-08-08T05:30:00+00:00",
-            "vintage_at": "2026-08-08T05:30:00+00:00",
-            "captured_at": "2026-08-08T05:30:00+00:00",
-            "knowledge_available_at": "2026-08-08T05:30:00+00:00",
+            "released_at": captured_at,
+            "vintage_at": captured_at,
+            "captured_at": captured_at,
+            "knowledge_available_at": captured_at,
         },
         "pit": {
             "pit_mode": "OBSERVED_LIVE",
-            "as_of_cutoff": CUTOFF,
+            "as_of_cutoff": as_of_cutoff,
             "eligible": True,
             "blocker_codes": [],
             "vintage_query": None,
@@ -471,6 +477,20 @@ def test_historical_replay_captures_one_europe_route_without_backdating(
     assert result.coverage_receipt.as_dict()["window"]["end"] == (
         captured_at.isoformat()
     )
+    if route_id == "market.euro_fx":
+        historical_fx = europe_macro_archive._fx_observation(
+            result.group, result.source_receipts[0]
+        )
+        assert historical_fx["released_at"] == CUTOFF
+        assert historical_fx["vintage_at"] == CUTOFF
+        live_group = dict(result.group)
+        live_group.pop("historical_replay", None)
+        live_group.pop("historical_replay_time_policy_version", None)
+        live_fx = europe_macro_archive._fx_observation(
+            live_group, result.source_receipts[0]
+        )
+        assert live_fx["released_at"] == captured_at.isoformat()
+        assert live_fx["vintage_at"] == captured_at.isoformat()
     assert store.row_count() == 1
     assert ledger.row_counts()["source_capture_receipts"] == 1
 
@@ -637,9 +657,28 @@ def test_ecb_vintage_selector_applies_delete_tombstones_and_cutoff() -> None:
 def test_receipt_bound_compiler_builds_both_roles_without_transport(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    store, ledger, result, counts = _archive(tmp_path, monkeypatch)
-    ledger.append_source_capture(_calendar_receipt())
+    replay_captured_at = CAPTURED_AT + timedelta(days=1)
+    store, ledger, result, counts = _archive(
+        tmp_path,
+        monkeypatch,
+        captured_at=replay_captured_at,
+        historical_replay=True,
+    )
+    ledger.append_source_capture(
+        _calendar_receipt(
+            captured_at=replay_captured_at.isoformat(),
+            as_of_cutoff=replay_captured_at.isoformat(),
+        )
+    )
     before = dict(counts)
+    status_calls: list[tuple[str, str]] = []
+    source_status = ledger.source_status
+
+    def spy_source_status(*, as_of: str, route_id: str) -> dict[str, object]:
+        status_calls.append((as_of, route_id))
+        return source_status(as_of=as_of, route_id=route_id)
+
+    monkeypatch.setattr(ledger, "source_status", spy_source_status)
 
     built = compile_europe_macro_snapshots(
         capture_key=result.group["capture_key"],
@@ -675,6 +714,10 @@ def test_receipt_bound_compiler_builds_both_roles_without_transport(
         ) == snapshot
 
     assert counts == before
+    assert status_calls == [
+        ("2026-08-09", "tushare.eco_cal.eur"),
+        ("2026-08-09", "tushare.eco_cal.eur"),
+    ]
     assert set(built.snapshots) == {
         "eu_economy",
         "euro_area_financial_conditions",

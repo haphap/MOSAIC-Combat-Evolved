@@ -20,7 +20,6 @@ from zoneinfo import ZoneInfo
 from .agent_materialization import AgentDataMaterializationLedger
 from .commodity_conditions import validate_commodity_conditions_input
 from .exceptions import DataVendorUnavailable
-from .geopolitical_events import ALL_SOURCE_IDS, build_geopolitical_role_snapshot
 from .macro_source_contracts import (
     MACRO_OBSERVATION_SOURCE_COMPONENTS,
     assert_macro_role_sources_ready,
@@ -39,7 +38,6 @@ ROLE_SNAPSHOT_NAMES: dict[str, str] = {
     "us_financial_conditions": "get_us_financial_conditions_snapshot",
     "euro_area_financial_conditions": "get_euro_area_financial_conditions_snapshot",
     "commodities": "get_commodity_conditions_snapshot",
-    "geopolitical": "get_geopolitical_events_snapshot",
     "institutional_flow": "get_market_positioning_snapshot",
 }
 
@@ -145,7 +143,6 @@ ALFRED_SERIES_ROLE_MAP: dict[str, str] = {
     for mapping in ALFRED_SERIES_MAP.values()
 }
 
-_EVENT_SOURCES = ALL_SOURCE_IDS
 _PIT_STATUS = "AVAILABLE_AS_OF"
 _A_SHARE_TIMEZONE = ZoneInfo("Asia/Shanghai")
 _A_SHARE_DECISION_CUTOFF = time(15, 0)
@@ -261,12 +258,7 @@ ROLE_SERIES_PREFIXES: dict[str, tuple[str, ...]] = {
         "food_",
     ),
     "institutional_flow": (
-        "market_flow_",
-        "sector_rotation_",
         "etf_share_",
-        "crowding_",
-        "institutional_flow_",
-        "lhb_",
     ),
 }
 
@@ -376,10 +368,7 @@ ROLE_COMPONENT_PREFIXES: dict[str, dict[str, tuple[str, ...]]] = {
         "agriculture_food": ("agriculture_", "food_", "commodity_agriculture"),
     },
     "institutional_flow": {
-        "market_wide_flow": ("market_flow_", "institutional_flow_market_"),
-        "sector_rotation": ("sector_rotation_",),
         "etf_share": ("etf_share_",),
-        "crowding": ("crowding_",),
     },
 }
 
@@ -559,10 +548,6 @@ def _validate_observation(
     ):
         raise DataVendorUnavailable("macro observation unit must be non-empty")
     source = str(row.get("source") or "").strip()
-    if source in _EVENT_SOURCES:
-        raise DataVendorUnavailable(
-            "news and policy documents must use the event library"
-        )
     if source == "ALFRED":
         series_id = str(row.get("series_id") or "")
         owner = ALFRED_SERIES_ROLE_MAP.get(series_id)
@@ -655,7 +640,7 @@ def _validate_institutional_flow_coverage(
     raw = payload.get("component_coverage")
     if not isinstance(raw, dict) or set(raw) != set(component_contract):
         raise DataVendorUnavailable(
-            "institutional_flow component_coverage must match the four required components"
+            "institutional_flow component_coverage must match the required component"
         )
     validated: dict[str, dict[str, float | int]] = {}
     for component in component_contract:
@@ -852,10 +837,6 @@ def validate_role_snapshot(
         raise DataVendorUnavailable(
             "macro role snapshots cannot embed event prose; use the bound event registry projection"
         )
-    if role == "geopolitical":
-        raise DataVendorUnavailable(
-            "geopolitical must use GeopoliticalEventsSnapshot, not a generic macro snapshot"
-        )
     if not observations:
         raise DataVendorUnavailable(f"{role} snapshot has no accepted evidence")
     evidence_ids = [row["evidence_id"] for row in observations + context_observations]
@@ -981,8 +962,6 @@ def load_role_snapshot(
     *,
     ledger: AgentDataMaterializationLedger | None = None,
 ) -> dict[str, Any]:
-    if role == "geopolitical":
-        return build_geopolitical_role_snapshot(as_of_date)
     cache_root = root or snapshot_cache_root()
     path = next(
         (
@@ -1065,10 +1044,6 @@ def write_registered_role_snapshot(
     root: Path | None = None,
 ) -> dict[str, Any]:
     """Reject unbound direct writes until an archive receipt is supplied."""
-    if role in {"geopolitical", "market_breadth"}:
-        raise DataVendorUnavailable(
-            f"{role} has a dedicated deterministic snapshot builder"
-        )
     raise DataVendorUnavailable(
         f"DIRECT_MACRO_SNAPSHOT_WRITE_REQUIRES_ARCHIVE_RECEIPT:{role}"
     )

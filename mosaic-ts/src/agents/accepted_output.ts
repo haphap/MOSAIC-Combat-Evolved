@@ -36,8 +36,6 @@ export type AcceptedOutputAgentByKind = {
     | "us_financial_conditions"
     | "euro_area_financial_conditions"
     | "commodities"
-    | "geopolitical"
-    | "market_breadth"
     | "institutional_flow";
   STANDARD_SECTOR_SELECTION:
     | "semiconductor"
@@ -485,6 +483,11 @@ export function acceptedOutputRecordRef<K extends AcceptedOutputKind>(
   };
 }
 
+export interface AcceptedAgentOutputStoreSnapshot {
+  records: AcceptedAgentOutputRecord[];
+  claim_graphs: Record<string, ClaimEvidenceGraph>;
+}
+
 export class AcceptedAgentOutputStore {
   readonly #records = new Map<string, AcceptedAgentOutputRecord>();
   readonly #claimGraphs = new Map<string, ClaimEvidenceGraph>();
@@ -543,6 +546,24 @@ export class AcceptedAgentOutputStore {
     return [...this.#records.values()].sort((left, right) =>
       left.accepted_output_id.localeCompare(right.accepted_output_id),
     );
+  }
+
+  snapshot(): AcceptedAgentOutputStoreSnapshot {
+    const records = this.records();
+    const claim_graphs: Record<string, ClaimEvidenceGraph> = {};
+    for (const record of records) {
+      const graph = this.#claimGraphs.get(record.accepted_output_id);
+      if (graph) claim_graphs[record.accepted_output_id] = structuredClone(graph);
+    }
+    return { records: structuredClone(records), claim_graphs };
+  }
+
+  restore(snapshot: AcceptedAgentOutputStoreSnapshot): void {
+    this.#records.clear();
+    this.#claimGraphs.clear();
+    for (const record of snapshot.records) {
+      this.putReadOnly(record, snapshot.claim_graphs[record.accepted_output_id]);
+    }
   }
 
   resolveClaimGraph<K extends AcceptedOutputKind>(
@@ -1153,8 +1174,6 @@ function validateLiveRuntimeOpportunityAuthority(
     us_financial_conditions: "get_us_financial_conditions_snapshot",
     euro_area_financial_conditions: "get_euro_area_financial_conditions_snapshot",
     commodities: "get_commodity_conditions_snapshot",
-    geopolitical: "get_geopolitical_events_snapshot",
-    market_breadth: "get_market_breadth_snapshot",
     institutional_flow: "get_market_positioning_snapshot",
     semiconductor: "get_sector_research_snapshot",
     technology: "get_sector_research_snapshot",
@@ -1268,8 +1287,6 @@ function validateOwner<K extends AcceptedOutputKind>(
           "us_financial_conditions",
           "euro_area_financial_conditions",
           "commodities",
-          "geopolitical",
-          "market_breadth",
           "institutional_flow",
         ].includes(agentId)
       : kind === "STANDARD_SECTOR_SELECTION"

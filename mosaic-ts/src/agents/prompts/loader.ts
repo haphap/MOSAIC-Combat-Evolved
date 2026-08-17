@@ -1,5 +1,5 @@
 /**
- * Loads prompt markdown files for the 28 logical agents (plan v2 §12).
+ * Loads prompt markdown files for the 25 logical agents (plan v2 §12).
  *
  * Convention:
  *   * Returns the raw markdown text as a UTF-8 string. The caller's prompt

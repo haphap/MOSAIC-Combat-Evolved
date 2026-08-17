@@ -6,7 +6,6 @@ import pytest
 
 import mosaic.dataflows.agent_stage_preparer as stage_preparer
 import mosaic.dataflows.fred as fred
-from mosaic.dataflows.a_share_archive import a_share_archive_path
 from mosaic.dataflows.agent_materialization import agent_data_materialization_db_path
 from mosaic.dataflows.bound_runtime_snapshots import runtime_snapshot_root
 from mosaic.dataflows.china_agent_data_archive import china_agent_archive_path
@@ -16,9 +15,7 @@ from mosaic.dataflows.europe_macro_archive import (
     europe_macro_snapshot_root,
 )
 from mosaic.dataflows.exceptions import DataVendorUnavailable
-from mosaic.dataflows.geopolitical_events import geopolitical_store_path
 from mosaic.dataflows.macro_snapshots import snapshot_cache_root
-from mosaic.dataflows.market_breadth import market_breadth_data_root
 from mosaic.dataflows.outcome_runtime_inputs import outcome_runtime_cache_root
 from mosaic.dataflows.runtime_paths import (
     agent_cache_root,
@@ -113,7 +110,7 @@ def test_enforce_runs_core_in_production_namespace(
     assert observed == [(production_root, request)]
 
 
-def test_curve_stage_enforce_requires_license_receipt_but_shadow_does_not(
+def test_curve_stage_enforce_and_shadow_do_not_require_private_license_receipt(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -132,32 +129,15 @@ def test_curve_stage_enforce_requires_license_receipt_but_shadow_does_not(
         "_ensure_agent_stage_materialization_core",
         lambda _request: calls.append("core") or {"status": "READY"},
     )
-    monkeypatch.setattr(
-        stage_preparer,
-        "production_license_receipt_ref",
-        lambda **_kwargs: None,
-    )
-
     monkeypatch.setenv("MOSAIC_ENSURE_SNAPSHOT_MODE", "enforce")
-    with pytest.raises(DataVendorUnavailable) as exc_info:
-        stage_preparer.ensure_agent_stage_materialization(request)
-    assert exc_info.value.reason_code == "LICENSE_REVIEW_REQUIRED"
-    assert calls == []
+    assert stage_preparer.ensure_agent_stage_materialization(request)["status"] == (
+        "READY"
+    )
+    assert calls == ["core"]
 
     monkeypatch.setenv("MOSAIC_ENSURE_SNAPSHOT_MODE", "shadow")
     assert stage_preparer.ensure_agent_stage_materialization(request)["status"] == (
         "SHADOW_READY"
-    )
-    assert calls == ["core"]
-
-    monkeypatch.setattr(
-        stage_preparer,
-        "production_license_receipt_ref",
-        lambda **_kwargs: "sha256:" + "a" * 64,
-    )
-    monkeypatch.setenv("MOSAIC_ENSURE_SNAPSHOT_MODE", "enforce")
-    assert stage_preparer.ensure_agent_stage_materialization(request)["status"] == (
-        "READY"
     )
     assert calls == ["core", "core"]
 
@@ -271,16 +251,13 @@ def test_shadow_override_covers_every_preparer_runtime_path(
 ) -> None:
     production_path = tmp_path / "production"
     for name in (
-        "MOSAIC_A_SHARE_ARCHIVE_DB",
         "MOSAIC_AGENT_MATERIALIZATION_DB",
         "MOSAIC_CHINA_AGENT_ARCHIVE_DB",
         "MOSAIC_CHINA_AGENT_SNAPSHOT_DIR",
         "MOSAIC_ECO_CAL_CACHE_PATH",
         "MOSAIC_EUROPE_MACRO_ARCHIVE_DB",
         "MOSAIC_EUROPE_MACRO_SNAPSHOT_DIR",
-        "MOSAIC_GEOPOLITICAL_EVENT_DB",
         "MOSAIC_MACRO_SNAPSHOT_DIR",
-        "MOSAIC_MARKET_BREADTH_DATA_DIR",
         "MOSAIC_OUTCOME_RUNTIME_DIR",
         "MOSAIC_RUNTIME_SNAPSHOT_DIR",
         "MOSAIC_SECTOR_ARCHIVE_PATH",
@@ -293,7 +270,6 @@ def test_shadow_override_covers_every_preparer_runtime_path(
     shadow_root = tmp_path / "shadow"
     with agent_runtime_root_override(shadow_root):
         assert {
-            "a_share": a_share_archive_path(production_path),
             "agent_materialization": agent_data_materialization_db_path(),
             "bound_runtime": runtime_snapshot_root(),
             "china_archive": china_agent_archive_path(),
@@ -301,18 +277,13 @@ def test_shadow_override_covers_every_preparer_runtime_path(
             "europe_archive": europe_macro_archive_path(),
             "europe_snapshots": europe_macro_snapshot_root(),
             "fred": fred._cache_dir(),
-            "geopolitical": geopolitical_store_path(),
             "macro_snapshots": snapshot_cache_root(),
-            "market_breadth": market_breadth_data_root(),
             "outcome_runtime": outcome_runtime_cache_root(),
             "sector_archive": sector_archive_path(production_path),
             "sector_snapshots": sector_snapshot_root(),
             "us_archive": us_macro_archive_path(),
             "us_snapshots": us_macro_snapshot_root(),
         } == {
-            "a_share": shadow_root
-            / "market_breadth"
-            / "a_share_archive.sqlite3",
             "agent_materialization": shadow_root
             / "agent_materialization"
             / "materialization.sqlite3",
@@ -328,11 +299,7 @@ def test_shadow_override_covers_every_preparer_runtime_path(
             / "agent_data"
             / "europe_macro_snapshots",
             "fred": shadow_root / "fred",
-            "geopolitical": shadow_root
-            / "geopolitical_events"
-            / "events.sqlite3",
             "macro_snapshots": shadow_root / "macro_snapshots",
-            "market_breadth": shadow_root / "market_breadth",
             "outcome_runtime": shadow_root / "outcome_runtime",
             "sector_archive": shadow_root
             / "agent_data"

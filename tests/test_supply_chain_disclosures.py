@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from mosaic.dataflows.agent_materialization import AgentDataMaterializationLedger
+from mosaic.dataflows.cninfo_supply_chain import CninfoSupplyChainDisclosureCollector
 from mosaic.dataflows.staged_query_receipt_store import StagedQueryReceiptStore
 from mosaic.dataflows.staged_query_receipts import seal_staged_query_source_receipt
 from mosaic.dataflows.supply_chain_disclosures import (
@@ -371,6 +372,19 @@ def test_read_only_archive_requires_existing_file_and_avoids_sqlite_sidecars(
     ]
     assert not wal_path.exists()
     assert not shm_path.exists()
+
+    def unexpected_transport(*_args, **_kwargs):
+        raise AssertionError("read-only supply-chain archive used transport")
+
+    collector = CninfoSupplyChainDisclosureCollector(
+        archive=read_only,
+        get_bytes=unexpected_transport,
+        post_form=unexpected_transport,
+        pdf_text_extractor=unexpected_transport,
+    )
+    payload = json.loads(collector.materialize(ticker="600000.SH", as_of=AS_OF)["payload"])
+    assert payload["edges"]
+    assert not (archive_path.parent / f".{archive_path.name}.locks").exists()
 
 
 def test_trusted_capture_resolves_identity_confirms_terminal_and_persists_pdf(

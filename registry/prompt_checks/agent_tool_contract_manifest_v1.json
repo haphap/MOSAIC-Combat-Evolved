@@ -1,8 +1,8 @@
 {
   "schema_version": "agent_tool_contract_manifest_v1",
-  "agent_count": 27,
-  "execution_stage_count": 28,
-  "tool_count": 31,
+  "agent_count": 25,
+  "execution_stage_count": 26,
+  "tool_count": 29,
   "agents": [
     {
       "agent_id": "china",
@@ -71,26 +71,6 @@
       ],
       "execution_stages": [
         "commodities"
-      ],
-      "layer": "macro"
-    },
-    {
-      "agent_id": "geopolitical",
-      "allowed_tools": [
-        "get_geopolitical_events_snapshot"
-      ],
-      "execution_stages": [
-        "geopolitical"
-      ],
-      "layer": "macro"
-    },
-    {
-      "agent_id": "market_breadth",
-      "allowed_tools": [
-        "get_market_breadth_snapshot"
-      ],
-      "execution_stages": [
-        "market_breadth"
       ],
       "layer": "macro"
     },

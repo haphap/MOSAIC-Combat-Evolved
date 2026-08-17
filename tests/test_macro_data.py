@@ -821,7 +821,9 @@ class TestLiveTushare:
         assert "Stock Money Flow" in out
 
     def test_live_industry_moneyflow(self):
-        out = macro_data.get_industry_moneyflow("2024-06-28", look_back_days=10)
+        out = macro_data.get_industry_moneyflow(
+            "2024-06-28", look_back_days=10, industries="半导体"
+        )
         assert "Industry Money Flow" in out
 
 
@@ -887,6 +889,7 @@ def test_get_industry_moneyflow_windowed(mock_query_pro):
     )
     assert "Industry Money Flow" in out
     assert captured["api"] == "moneyflow_ind_ths"
+    assert captured["params"]["ts_code"] == "881121.TI"
     assert captured["params"]["start_date"] == "20240625"
     assert captured["params"]["end_date"] == "20240630"
     assert captured["params"]["ts_code"] == "881121.TI"
@@ -1073,8 +1076,8 @@ def test_get_industry_moneyflow_consumer_binds_exact_ths_code(mock_query_pro):
         return _df_with_rows(
             [
                 {
-                    "ts_code": "881136.TI",
-                    "industry": "服装家纺",
+                    "ts_code": "881134.TI",
+                    "industry": "食品加工制造",
                     "net_amount": 4200.0,
                 }
             ]
@@ -1087,12 +1090,12 @@ def test_get_industry_moneyflow_consumer_binds_exact_ths_code(mock_query_pro):
         industries="家电,食品,饮料,纺织,服装,零售,旅游,美容,汽车",
     )
 
-    assert "服装家纺" in out
+    assert "食品加工制造" in out
     assert calls == [
         (
             "moneyflow_ind_ths",
             {
-                "ts_code": "881136.TI",
+                "ts_code": "881134.TI",
                 "start_date": "20260703",
                 "end_date": "20260708",
             },
@@ -1106,7 +1109,7 @@ def test_get_industry_moneyflow_industrials_binds_exact_ths_code(mock_query_pro)
     def _capture(api_name, **params):
         calls.append((api_name, params))
         return _df_with_rows(
-            [{"ts_code": "881112.TI", "industry": "钢铁", "net_amount": 4200.0}]
+            [{"ts_code": "881117.TI", "industry": "通用设备", "net_amount": 4200.0}]
         )
 
     mock_query_pro(None, side_effect=_capture)
@@ -1116,12 +1119,12 @@ def test_get_industry_moneyflow_industrials_binds_exact_ths_code(mock_query_pro)
         industries="化学,钢铁,有色,机械,军工,电气设备,交通运输,环保",
     )
 
-    assert "钢铁" in out
+    assert "通用设备" in out
     assert calls == [
         (
             "moneyflow_ind_ths",
             {
-                "ts_code": "881112.TI",
+                "ts_code": "881117.TI",
                 "start_date": "20260703",
                 "end_date": "20260708",
             },
@@ -1164,7 +1167,7 @@ def test_get_industry_moneyflow_rejects_unapproved_scope_before_transport(
 ):
     transport = mock_query_pro(_df_with_rows([]))
 
-    with pytest.raises(DataVendorUnavailable, match="authorized exact industry scope"):
+    with pytest.raises(DataVendorUnavailable, match="registered exact industry scope"):
         macro_data.get_industry_moneyflow("2024-06-30", industries=industries)
 
     transport.assert_not_called()

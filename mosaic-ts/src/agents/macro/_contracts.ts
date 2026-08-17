@@ -31,8 +31,6 @@ export const MACRO_AGENT_IDS = [
   "us_financial_conditions",
   "euro_area_financial_conditions",
   "commodities",
-  "geopolitical",
-  "market_breadth",
   "institutional_flow",
 ] as const satisfies ReadonlyArray<MacroAgentId>;
 
@@ -42,6 +40,7 @@ export const TOMBSTONED_MACRO_AGENT_IDS = [
   "volatility",
   "emerging_markets",
   "news_sentiment",
+  "geopolitical",
 ] as const;
 
 export const MACRO_CONTEXT_SOURCE_ROLES = {
@@ -217,53 +216,18 @@ export const MACRO_ROLE_CONTRACTS: Readonly<Record<MacroAgentId, MacroRoleContra
     requiredTools: ["get_commodity_conditions_snapshot"],
     components: equalWeights("energy", "industrial_metals", "gold", "agriculture_food"),
   },
-  geopolitical: {
-    agentId: "geopolitical",
-    mode: "DIRECT",
-    responsibility: {
-      zh: "判断已注册地缘事件的状态、传导渠道、严重度、期限和观察触发器。",
-      en: "Assess registered geopolitical event state, channels, severity, horizon, and monitoring triggers.",
-    },
-    prohibited: {
-      zh: ["不得虚构价格影响百分比", "财经日历不得替代事件状态证据"],
-      en: [
-        "Do not invent percentage price impacts",
-        "Do not use an economic calendar as event-state evidence",
-      ],
-    },
-    requiredTools: ["get_geopolitical_events_snapshot"],
-    components: {},
-  },
-  market_breadth: {
-    agentId: "market_breadth",
-    mode: "DIRECT",
-    responsibility: {
-      zh: "解释 A 股参与度、趋势广度、成交广度、新高新低和集中度。",
-      en: "Interpret A-share participation, trend breadth, turnover breadth, new highs/lows, and concentration.",
-    },
-    prohibited: {
-      zh: ["不得读取新闻、财经日历、资金流或波动率", "不得自行重算快照指标"],
-      en: [
-        "Do not read news, calendars, flows, or volatility",
-        "Do not recompute snapshot metrics",
-      ],
-    },
-    requiredTools: ["get_market_breadth_snapshot"],
-    components: {},
-  },
   institutional_flow: {
     agentId: "institutional_flow",
     mode: "DIRECT",
     responsibility: {
-      zh: "判断全市场资金、行业轮动、ETF 份额和拥挤度。",
-      en: "Assess market-wide flows, sector rotation, ETF shares, and crowding.",
+      zh: "判断固定核心 ETF 份额增减：正值为申购，负值为赎回，并比较五只 ETF 的一致性与分化。",
+      en: "Assess fixed core ETF share changes: positive means creation and negative means redemption; compare consistency and divergence across the five ETFs.",
     },
     prohibited: {
-      zh: ["不得读取财经日历", "龙虎榜只能作为辅助", "不得以抽样个股代表全市场"],
+      zh: ["不得读取财经日历", "只使用固定核心 ETF 份额集合，不得扩展对象范围"],
       en: [
         "Do not read the economic calendar",
-        "Use Dragon-Tiger data only as supporting evidence",
-        "Do not represent the market with sampled stocks",
+        "Use only the fixed core ETF share set; do not widen the object scope",
       ],
     },
     requiredTools: ["get_market_positioning_snapshot"],
@@ -827,6 +791,86 @@ export function renderMacroPromptBody(
   const lens = DEFAULT_MACRO_COHORT_LENS[language];
   const prohibited = role.prohibited[language].map((item) => `- ${item}`).join("\n");
   const components = Object.keys(role.components);
+  const chinaBoundary =
+    agent === "china"
+      ? language === "zh"
+        ? [
+            "get_china_macro_snapshot 是 PIT observations/releases，不是 A 股信号。只根据 actual、expected、previous 及 release/vintage/as-of 建立变化与 surprise；数值事实只能写入结构化 snapshot echo 字段，不得写入叙述。经济职责必须按精确组件执行：growth_production 将 production、investment、retail、employment 与 GDP demand 传导到 broad earnings/cyclical beta；prices 将 CPI/PPI 传导到 nominal revenue、pricing power 与 margins，不得推断 PBOC direction；credit 将 TSF、loans 与 money impulse 传导到 financing、domestic demand 与 risk appetite，不得判断 central-bank reaction；external_demand_trade 将 exports、imports 与 trade balance 传导到 exporters、supply chains 与 earnings；fiscal 将 revenue/spending impulse 传导到 infrastructure 与 domestic demand。Property 仅在实际已注册 evidence 存在且相关时可选，绝非必需。每个组件必须使用精确 subject id，并分别拥有不与其他组件共享的真实 evidence；冲突必须降低 confidence/strength。若证据不能支持全部五个精确组件，按现有 stage contract 拒绝，不得伪造 neutral。Accepted claims 必须引用实际 get_china_macro_snapshot result event 的真实 evidence_id。当前证据不是已实现的 5D 结果。Autoresearch 只能依据独立的 event-triggered、T+1 open 后 5 个交易日、按 PIT volatility 归一化的 A-share role-path outcome，演进 prompt/tool interpretation 与半年一次的 component weights。fallback=false 表示缺失证据必须拒绝。不得生成跨 Agent 结论，也不得判断 PBOC reaction function。",
+          ]
+        : [
+            "get_china_macro_snapshot contains PIT observations and releases, not an A-share signal. Establish change and surprise only from actual, expected, and previous values with release, vintage, and as-of context; numeric facts belong only in structured snapshot echo fields, never in narrative. Apply exact component duties: growth_production transmits production, investment, retail, employment, and GDP demand into broad earnings and cyclical beta; prices transmits CPI/PPI into nominal revenue, pricing power, and margins without inferring PBOC direction; credit transmits TSF, loans, and money impulse into financing, domestic demand, and risk appetite, not central-bank reaction; external_demand_trade transmits exports, imports, and the trade balance into exporters, supply chains, and earnings; fiscal transmits the revenue/spending impulse into infrastructure and domestic demand. Property is optional only when actual registered evidence exists and is relevant; it is never mandatory. Every component must use its exact subject id and independently own real evidence not shared with another component; conflicts must lower confidence/strength. If evidence cannot support all five exact components, reject under the existing stage contract instead of fabricating a neutral. Accepted claims must cite real evidence_id values from the actual get_china_macro_snapshot result event. Current evidence is not the realized 5D result. Autoresearch may evolve prompt/tool interpretation and semiannual component weights only against the independent event-triggered A-share role-path outcome over 5 trading days after T+1 open, normalized by PIT volatility. fallback=false means missing evidence must be rejected. Do not produce cross-Agent conclusions or judge the PBOC reaction function.",
+          ]
+      : [];
+  const usEconomyBoundary =
+    agent === "us_economy"
+      ? language === "zh"
+        ? [
+            "get_us_macro_snapshot 包含 PIT ALFRED real-economy observations，不是 A 股信号。仅在字段存在时使用 actual、previous、expected 与 release/vintage/as-of；不得虚构缺失的 consensus 或 surprise，数值事实只能写入结构化 snapshot echo 字段。经济职责必须按精确组件执行：growth_production 将 real GDP 与 industrial production 经 US activity/import demand 传导到 China exporters、industrial earnings 与 cyclical A-share beta；prices 将 CPI、core CPI、PCE 与 core PCE 经 US inflation 与 real purchasing power 传导到 external demand 与 Chinese exporter margins，但不得推断 Fed、USD、yield curve 或 credit conditions；employment 将 payrolls 与 unemployment 经 household income/consumption 传导到 China export orders 与 risk appetite；demand_trade 将 retail sales 与 trade balance 经 US final demand/import absorption 传导到 Chinese exporters 与 supply chains。每个组件必须使用精确 subject id，并分别拥有不与其他组件共享的真实 evidence；冲突必须降低 confidence/strength。若证据不能支持全部四个精确组件，按现有 stage contract 拒绝，不得伪造 neutral。Accepted claims 必须引用实际 get_us_macro_snapshot result event 的真实 evidence_id；当前证据不是已实现的 5D 结果。Autoresearch 只能依据独立的 event-triggered、T+1 open 后 5 个交易日、按 PIT volatility 归一化的 A-share role-path outcome，演进 prompt/tool interpretation 与半年一次的 component weights。fallback=false 表示缺失证据必须拒绝。不得判断 Fed、dollar、yield curve 或 credit conditions，也不得生成跨 Agent 结论。",
+          ]
+        : [
+            "get_us_macro_snapshot contains PIT ALFRED real-economy observations, not an A-share signal. Use actual, previous, expected, and release/vintage/as-of only when those fields are present; never invent missing consensus or surprise, and put numeric facts only in structured snapshot echo fields. Apply exact component duties: growth_production transmits real GDP and industrial production through US activity and import demand into China exporters, industrial earnings, and cyclical A-share beta; prices transmits CPI, core CPI, PCE, and core PCE through US inflation and real purchasing power into external demand and Chinese exporter margins, but never infers the Fed, USD, yield curve, or credit conditions; employment transmits payrolls and unemployment through household income and consumption into China export orders and risk appetite; demand_trade transmits retail sales and the trade balance through US final demand and import absorption into Chinese exporters and supply chains. Every component must use its exact subject id and independently own real evidence not shared with another component; conflicts must lower confidence/strength. If evidence cannot support all four exact components, reject under the existing stage contract instead of fabricating a neutral. Accepted claims must cite real evidence_id values from the actual get_us_macro_snapshot result event; current evidence is not the realized 5D result. Autoresearch may evolve prompt/tool interpretation and semiannual component weights only against the independent event-triggered A-share role-path outcome over 5 trading days after T+1 open, normalized by PIT volatility. fallback=false means missing evidence must be rejected. Do not judge the Fed, dollar, yield curve, or credit conditions or produce a cross-Agent conclusion.",
+          ]
+      : [];
+  const euEconomyBoundary =
+    agent === "eu_economy"
+      ? language === "zh"
+        ? [
+            "get_eu_macro_snapshot 包含 PIT registered EU-27 real-economy observations，不是 A 股信号。仅在字段存在时使用 actual、previous、expected 与 release/vintage/as-of；不得虚构缺失的 consensus 或 surprise，数值事实只能写入结构化 snapshot echo 字段。经济职责必须按精确组件执行：growth_production 将 EU GDP 与 industrial production 经 European activity/import demand 传导到 Chinese exporters、manufacturing earnings 与 cyclical A-share beta；prices 将 HICP 经 European inflation 与 real purchasing power 传导到 external demand 与 Chinese exporter margins，但不得推断 ECB、FX、curves、bank credit 或 financial stress；employment 将 unemployment 与 labour conditions 经 household income/consumption 传导到 Chinese export orders 与 risk appetite；demand_trade 将 imports、exports 与 household consumption 经 EU final demand/import absorption 传导到 Chinese exporters 与 supply chains。范围仅限 EU-27；排除 UK、Switzerland、Norway 与 non-EU aggregation。每个组件必须使用精确 subject id，并分别拥有不与其他组件共享的真实 evidence；冲突必须降低 confidence/strength。若证据不能支持全部四个精确组件，按现有 stage contract 拒绝，不得伪造 neutral。Accepted claims 必须引用实际 get_eu_macro_snapshot result event 的真实 evidence_id；当前证据不是已实现的 5D 结果。Autoresearch 只能依据独立的 event-triggered、T+1 open 后 5 个交易日、按 PIT volatility 归一化的 A-share role-path outcome，演进 prompt/tool interpretation 与半年一次的 component weights。fallback=false 表示缺失证据必须拒绝。不得判断 ECB、FX、curves 或 financial stress，也不得生成跨 Agent 结论。",
+          ]
+        : [
+            "get_eu_macro_snapshot contains PIT registered EU-27 real-economy observations, not an A-share signal. Use actual, previous, expected, and release/vintage/as-of only when those fields are present; never invent missing consensus or surprise, and put numeric facts only in structured snapshot echo fields. Apply exact component duties: growth_production transmits EU GDP and industrial production through European activity and import demand into Chinese exporters, manufacturing earnings, and cyclical A-share beta; prices transmits HICP through European inflation and real purchasing power into external demand and Chinese exporter margins, but never infers the ECB, FX, curves, bank credit, or financial stress; employment transmits unemployment and labour conditions through household income and consumption into Chinese export orders and risk appetite; demand_trade transmits imports, exports, and household consumption through EU final demand and import absorption into Chinese exporters and supply chains. Scope is EU-27 only; exclude the UK, Switzerland, Norway, and non-EU aggregation. Every component must use its exact subject id and independently own real evidence not shared with another component; conflicts must lower confidence/strength. If evidence cannot support all four exact components, reject under the existing stage contract instead of fabricating a neutral. Accepted claims must cite real evidence_id values from the actual get_eu_macro_snapshot result event; current evidence is not the realized 5D result. Autoresearch may evolve prompt/tool interpretation and semiannual component weights only against the independent event-triggered A-share role-path outcome over 5 trading days after T+1 open, normalized by PIT volatility. fallback=false means missing evidence must be rejected. Do not judge the ECB, FX, curves, or financial stress or produce a cross-Agent conclusion.",
+          ]
+      : [];
+  const centralBankBoundary =
+    agent === "central_bank"
+      ? language === "zh"
+        ? [
+            "get_central_bank_snapshot 是 PIT PBOC/domestic-liquidity evidence，不是 A 股信号。仅在字段存在时使用 actual、expected、previous 与 release/vintage/as-of，不得虚构缺失的 expected 或 surprise；数值事实只能写入结构化 snapshot echo 字段，不得写入叙述。经济职责必须按精确组件执行：pboc_policy_bias 只用 OMO、LPR 与官方政策 evidence 判断反应函数及其 financing/valuation transmission，不得重述中国周期；liquidity_money_market 只用 OMO liquidity 与 Shibor ON/3M 判断银行间流动性及短端资金成本；china_curve 只用 registered nominal CGB 2Y/10Y 及 slope 判断 duration/discount-rate transmission，绝不得声称 real curve；credit_conditions 只用已注册 TSF/credit context 判断融资可得性与信用脉冲，不得把 China macro LLM 当作 evidence。每个组件必须使用精确 subject id，并分别拥有不与其他组件共享的真实 evidence；冲突必须降低 confidence/strength。若证据不能支持全部四个精确组件，按现有 stage contract 拒绝，不得伪造 neutral。Accepted claims 必须引用实际 get_central_bank_snapshot result event 的真实 evidence_id；当前证据不是已实现的 5D 结果。Autoresearch 只能依据独立的 event-triggered、T+1 open 后 5 个交易日、按 PIT volatility 归一化的 A-share role-path outcome，演进 prompt/tool interpretation 与半年一次的 component weights。fallback=false 表示缺失证据必须拒绝。不得生成跨 Agent 结论，也不得判断海外央行。",
+          ]
+        : [
+            "get_central_bank_snapshot contains PIT PBOC and domestic-liquidity evidence, not an A-share signal. Use actual, expected, previous, and release/vintage/as-of only when those fields are present; never invent missing expected values or surprise, and put numeric facts only in structured snapshot echo fields, never in narrative. Apply exact component duties: pboc_policy_bias uses only OMO, LPR, and official policy evidence to judge the reaction function and its financing/valuation transmission, without restating the China cycle; liquidity_money_market uses only OMO liquidity and Shibor ON/3M to judge interbank liquidity and short-end funding costs; china_curve uses only registered nominal CGB 2Y/10Y and their slope to judge duration/discount-rate transmission and must never claim a real curve; credit_conditions uses only registered TSF/credit context to judge financing availability and credit impulse and must not treat the China macro LLM as evidence. Every component must use its exact subject id and independently own real evidence not shared with another component; conflicts must lower confidence/strength. If evidence cannot support all four exact components, reject under the existing stage contract instead of fabricating a neutral. Accepted claims must cite real evidence_id values from the actual get_central_bank_snapshot result event; current evidence is not the realized 5D result. Autoresearch may evolve prompt/tool interpretation and semiannual component weights only against the independent event-triggered A-share role-path outcome over 5 trading days after T+1 open, normalized by PIT volatility. fallback=false means missing evidence must be rejected. Do not produce cross-Agent conclusions or judge foreign central banks.",
+          ]
+      : [];
+  const usFinancialConditionsBoundary =
+    agent === "us_financial_conditions"
+      ? language === "zh"
+        ? [
+            "get_us_financial_conditions_snapshot 是 PIT US financial evidence，不是 A 股信号。仅在字段存在时使用 actual、expected、previous 与 release/vintage/as-of，不得虚构缺失的 expected 或 surprise；数值事实只能写入结构化 snapshot echo 字段，不得写入叙述。经济职责必须按精确组件执行：fed_liquidity 只用 FOMC statement 与 EFFR/SOFR 判断政策、隔夜资金及其 global funding/valuation transmission，不得重述 US growth；us_curve 区分 Tushare nominal 3M/2Y/10Y/30Y 的 level/slope 与 ALFRED real 5Y/10Y/30Y 的 real-yield discount-rate/duration transmission；credit_financial_stress 只用 BAA10Y、NFCI 与 VIX 判断 credit spread、financial stress 与 volatility 对融资和 A 股 risk appetite 的传导；usd_rmb 只用 DTWEXBGS broad dollar 与实际 USDCNH.FXCM offshore CNH proxy 判断美元及离岸人民币压力，绝不得称为 onshore CNY fixing 或 settlement。us_economy deterministic context 仅作背景，不得成为第五个组件、替代 claim evidence 或读取其 LLM。每个组件必须使用精确 subject id，并分别拥有不与其他组件共享的真实 evidence；冲突必须降低 confidence/strength。若证据不能支持全部四个精确组件，按现有 stage contract 拒绝，不得伪造 neutral。Accepted claims 必须引用实际 get_us_financial_conditions_snapshot result event 的真实 evidence_id；当前证据不是已实现的 5D 结果。Autoresearch 只能依据独立、fixed non-overlapping、T+1 open 后 5 个交易日且按 PIT volatility 归一化的 outcome，演进 prompt/tool interpretation 与半年一次的 component weights。fallback=false 表示缺失证据必须拒绝。不得生成跨 Agent 结论。",
+          ]
+        : [
+            "get_us_financial_conditions_snapshot contains PIT US financial evidence, not an A-share signal. Use actual, expected, previous, and release/vintage/as-of only when those fields are present; never invent missing expected values or surprise, and put numeric facts only in structured snapshot echo fields, never in narrative. Apply exact component duties: fed_liquidity uses only the FOMC statement and EFFR/SOFR to judge policy, overnight funding, and global funding/valuation transmission, without restating US growth; us_curve distinguishes the level/slope of Tushare nominal 3M/2Y/10Y/30Y from the real-yield discount-rate/duration transmission of ALFRED real 5Y/10Y/30Y; credit_financial_stress uses only BAA10Y, NFCI, and VIX to judge how credit spreads, financial stress, and volatility transmit into financing and A-share risk appetite; usd_rmb uses only the DTWEXBGS broad dollar and the actual USDCNH.FXCM offshore CNH proxy to judge dollar and offshore-renminbi pressure and must never call it an onshore CNY fixing or settlement rate. us_economy deterministic context is background only: it cannot become a fifth component, replace claim evidence, or permit reading its LLM output. Every component must use its exact subject id and independently own real evidence not shared with another component; conflicts must lower confidence/strength. If evidence cannot support all four exact components, reject under the existing stage contract instead of fabricating a neutral. Accepted claims must cite real evidence_id values from the actual get_us_financial_conditions_snapshot result event; current evidence is not the realized 5D result. Autoresearch may evolve prompt/tool interpretation and semiannual component weights only against the independent, fixed non-overlapping outcome over 5 trading days after T+1 open, normalized by PIT volatility. fallback=false means missing evidence must be rejected. Do not produce cross-Agent conclusions.",
+          ]
+      : [];
+  const euroAreaFinancialConditionsBoundary =
+    agent === "euro_area_financial_conditions"
+      ? language === "zh"
+        ? [
+            "get_euro_area_financial_conditions_snapshot 是 PIT ECB/euro financial evidence，不是 A 股信号。仅在字段存在时使用 actual、expected、previous 与 release/vintage/as-of，不得虚构缺失的 expected 或 surprise；数值事实只能写入结构化 snapshot echo 字段，不得写入叙述。经济职责必须按精确组件执行：ecb_liquidity 只用 DFR、MRR 与 €STR 判断政策利率、短端资金及其 global funding/valuation transmission，不得重述 EU growth；euro_area_curve 只用 registered AAA nominal 2Y/10Y 的 level/slope 判断 duration/discount-rate transmission；bank_credit 只用 euro-area NFC adjusted loan growth 与 corporation new-business loan rate 判断 credit supply 与 funding cost；eur_financial_stress 只用 ECB USD/EUR reference、实际 EURUSD.FXCM 与 registered joint bank/sovereign default-probability stress indicators，判断 EUR/financial stress 对外部融资和 A 股 risk appetite 的传导，不得虚构 RDF 的地域或机制。eu_economy deterministic context 仅作背景，不得成为第五个组件、替代 claim evidence 或读取其 LLM；不得纳入非欧元区央行或市场。每个组件必须使用精确 subject id，并分别拥有不与其他组件共享的真实 evidence；冲突必须降低 confidence/strength。若证据不能支持全部四个精确组件，按现有 stage contract 拒绝，不得伪造 neutral。Accepted claims 必须引用实际 get_euro_area_financial_conditions_snapshot result event 的真实 evidence_id；当前证据不是已实现的 5D 结果。Autoresearch 只能依据独立、fixed non-overlapping、T+1 open 后 5 个交易日且按 PIT volatility 归一化的 outcome，演进 prompt/tool interpretation 与半年一次的 component weights。fallback=false 表示缺失证据必须拒绝。不得生成跨 Agent 结论。",
+          ]
+        : [
+            "get_euro_area_financial_conditions_snapshot contains PIT ECB and euro financial evidence, not an A-share signal. Use actual, expected, previous, and release/vintage/as-of only when those fields are present; never invent missing expected values or surprise, and put numeric facts only in structured snapshot echo fields, never in narrative. Apply exact component duties: ecb_liquidity uses only DFR, MRR, and €STR to judge policy rates, short-end funding, and global funding/valuation transmission, without restating EU growth; euro_area_curve uses only the level/slope of registered AAA nominal 2Y/10Y to judge duration/discount-rate transmission; bank_credit uses only euro-area NFC adjusted loan growth and the corporation new-business loan rate to judge credit supply and funding cost; eur_financial_stress uses only the ECB USD/EUR reference rate, actual EURUSD.FXCM, and registered joint bank/sovereign default-probability stress indicators to judge how EUR and financial stress transmit into external financing and A-share risk appetite, without inventing RDF geography or mechanisms. eu_economy deterministic context is background only: it cannot become a fifth component, replace claim evidence, or permit reading its LLM output; exclude non-euro-area central banks and markets. Every component must use its exact subject id and independently own real evidence not shared with another component; conflicts must lower confidence/strength. If evidence cannot support all four exact components, reject under the existing stage contract instead of fabricating a neutral. Accepted claims must cite real evidence_id values from the actual get_euro_area_financial_conditions_snapshot result event; current evidence is not the realized 5D result. Autoresearch may evolve prompt/tool interpretation and semiannual component weights only against the independent, fixed non-overlapping outcome over 5 trading days after T+1 open, normalized by PIT volatility. fallback=false means missing evidence must be rejected. Do not produce cross-Agent conclusions.",
+          ]
+      : [];
+  const commoditiesBoundary =
+    agent === "commodities"
+      ? language === "zh"
+        ? [
+            "get_commodity_conditions_snapshot 是五个已登记 commodity families 的 PIT 合约、结算与库存 evidence，不是 A 股信号。仅在字段存在时使用 actual、previous 与 as-of，不得虚构 expected、surprise 或工具未提供的宏观因果；数值事实只能写入结构化 snapshot echo 字段，不得写入叙述。经济职责必须按精确组件执行：energy 只用 SC@INE 的原油期限结构与库存判断能源成本及其对 A 股利润率的传导；industrial_metals 只用 CU@SHFE 判断工业需求与制造成本；gold 只用 AU@SHFE 判断避险与实际利率敏感的风险偏好，不得超出工具实际字段声称宏观因果；agriculture_food 只用 C@DCE 与 M@DCE 判断粮食及饲料成本。仅当对应 family 存在实际两个合约的数据时，才可称 contango 或 backwardation。每个组件必须使用精确 subject id，并分别拥有不与其他组件共享的真实 evidence；冲突必须降低 confidence/strength。若证据不能支持全部四个精确组件，按现有 stage contract 拒绝，不得伪造 neutral。Accepted claims 必须引用实际 get_commodity_conditions_snapshot result event 的真实 evidence_id；当前证据不是已实现的 5D 结果。Autoresearch 只能依据独立、fixed non-overlapping、T+1 open 后 5 个交易日且按 PIT volatility 归一化的 outcome，演进 prompt/tool interpretation 与半年一次的 component weights。fallback=false 表示缺失证据必须拒绝。不得生成跨 Agent 结论。",
+          ]
+        : [
+            "get_commodity_conditions_snapshot contains PIT contract, settlement, and inventory evidence for the five registered commodity families, not an A-share signal. Use actual, previous, and as-of only when those fields are present; never invent expected values, surprise, or macro causality absent from the tool, and put numeric facts only in structured snapshot echo fields, never in narrative. Apply exact component duties: energy uses only the SC@INE crude-oil term structure and inventory to judge energy costs and their transmission into A-share margins; industrial_metals uses only CU@SHFE to judge industrial demand and manufacturing costs; gold uses only AU@SHFE to judge safe-haven and real-rate-sensitive risk appetite without claiming macro causality beyond actual tool fields; agriculture_food uses only C@DCE and M@DCE to judge grain and feed costs. Claim contango or backwardation only when the corresponding family has actual data for two contracts. Every component must use its exact subject id and independently own real evidence not shared with another component; conflicts must lower confidence/strength. If evidence cannot support all four exact components, reject under the existing stage contract instead of fabricating a neutral. Accepted claims must cite real evidence_id values from the actual get_commodity_conditions_snapshot result event; current evidence is not the realized 5D result. Autoresearch may evolve prompt/tool interpretation and semiannual component weights only against the independent, fixed non-overlapping outcome over 5 trading days after T+1 open, normalized by PIT volatility. fallback=false means missing evidence must be rejected. Do not produce cross-Agent conclusions.",
+          ]
+      : [];
+  const institutionalFlowBoundary =
+    agent === "institutional_flow"
+      ? language === "zh"
+        ? [
+            "get_market_positioning_snapshot 只包含固定五只 ETF（159915.SZ、510050.SH、510300.SH、510500.SH、588000.SH）的 PIT fd_share，单位为万份。份额增加或减少只表示申购或赎回事实，只能作为配置/positioning 代理；不得称为资金净流入、北向资金、机构持仓所有权或主动买卖金额。缺少 price、NAV 与 cash 时不得计算资金流，也不得声称份额变化导致未来价格。每只 ETF 的 accepted claim 必须分别引用实际 get_market_positioning_snapshot result event 的真实 evidence_id。当前证据不是已实现的未来 5D 结果。Autoresearch 只能依据独立的 510500.SH 相对 benchmark、T+1 open 后 5 个交易日且按 PIT volatility 归一化的 outcome 演进 prompt/tool interpretation。经济 signal 可诚实为 UNKNOWN。固定五只 ETF 任一缺失时按现有 stage contract 拒绝；fallback=false，不得伪造 neutral。",
+          ]
+        : [
+            "get_market_positioning_snapshot contains only PIT fd_share observations, measured in ten-thousand shares, for the five fixed ETFs (159915.SZ, 510050.SH, 510300.SH, 510500.SH, and 588000.SH). A share increase or decrease records creation or redemption only and may serve solely as an allocation/positioning proxy; never call it net fund inflow, northbound flow, institutional ownership, or active buy/sell amount. Without price, NAV, and cash, do not calculate fund flow or claim that share changes cause future prices. Each ETF's accepted claim must separately cite a real evidence_id from the actual get_market_positioning_snapshot result event. Current evidence is not the realized future 5D result. Autoresearch may evolve prompt/tool interpretation only against the independent 510500.SH-relative-to-benchmark outcome over 5 trading days after T+1 open, normalized by PIT volatility. It may honestly project an UNKNOWN economic signal. If any of the five fixed ETFs is missing, reject under the existing stage contract; fallback=false and do not fabricate a neutral.",
+          ]
+      : [];
   if (language === "zh") {
     return [
       `# ${agent} 宏观研究角色`,
@@ -843,6 +887,14 @@ export function renderMacroPromptBody(
       "## 分析要求",
       `必须调用且只能调用 ${role.requiredTools[0]}，严格使用 as-of 可见数据。`,
       "检查变化、预期差、证据冲突和对 A 股的传导。",
+      ...chinaBoundary,
+      ...usEconomyBoundary,
+      ...euEconomyBoundary,
+      ...centralBankBoundary,
+      ...usFinancialConditionsBoundary,
+      ...euroAreaFinancialConditionsBoundary,
+      ...commoditiesBoundary,
+      ...institutionalFlowBoundary,
       `按运行时 schema 提交 mode=${role.mode}。`,
       ...(components.length > 0 ? [`components 必须恰好为：${components.join("、")}。`] : []),
       "不得生成跨 Agent 综合结论；只提交本角色的模型输出。",
@@ -864,6 +916,14 @@ export function renderMacroPromptBody(
     "## Analysis requirements",
     `Call ${role.requiredTools[0]} and no other tool; use only as-of-visible data.`,
     "Check changes, surprises, evidence conflicts, and A-share transmission.",
+    ...chinaBoundary,
+    ...usEconomyBoundary,
+    ...euEconomyBoundary,
+    ...centralBankBoundary,
+    ...usFinancialConditionsBoundary,
+    ...euroAreaFinancialConditionsBoundary,
+    ...commoditiesBoundary,
+    ...institutionalFlowBoundary,
     `Submit mode=${role.mode} under the runtime schema.`,
     ...(components.length > 0 ? [`components must be exactly: ${components.join(", ")}.`] : []),
     "Do not produce a cross-agent conclusion; submit only this role's model output.",

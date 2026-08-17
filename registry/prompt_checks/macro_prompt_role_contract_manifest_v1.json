@@ -8,7 +8,7 @@
   "private_prompt_commit": "f961753badd6507cda329c21299b826bc00def7b",
   "prompt_tree_sha256": "38059e48504a17a9737c8557c1e2db75c27e317dd9a281d66f64b537717f5428",
   "cohort_count": 8,
-  "prompt_count": 160,
+  "prompt_count": 144,
   "languages": ["en", "zh"],
   "agents": [
     "china",
@@ -19,7 +19,6 @@
     "commodities",
     "geopolitical",
     "volatility",
-    "market_breadth",
     "institutional_flow"
   ],
   "legacy_agents": [

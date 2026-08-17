@@ -96,8 +96,6 @@ _LIVE_L1_L2_OPPORTUNITY_AGENTS = {
     "us_financial_conditions",
     "euro_area_financial_conditions",
     "commodities",
-    "geopolitical",
-    "market_breadth",
     "institutional_flow",
     "semiconductor",
     "technology",

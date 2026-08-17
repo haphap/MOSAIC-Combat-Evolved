@@ -1,9 +1,9 @@
-"""Deterministic document event classifier for China/geopolitical evidence.
+"""Deterministic document event classifier for China evidence.
 
 The crawler (``dataflows.tushare_documents`` / ``opencli_news``) persists raw
 documents into ``macro_documents`` with empty ``event_tags`` / ``sentiment_score``.
 This module fills them and builds a **point-in-time daily sentiment/event
-index** that only ``china`` and ``geopolitical`` may consume as event evidence.
+index** that only ``china`` may consume as event evidence.
 
 Design constraints:
     * Deterministic, lexicon-based — **never** an LLM subjective sentiment used
@@ -26,7 +26,7 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-EVENT_EVIDENCE_ROLES = frozenset({"china", "geopolitical"})
+EVENT_EVIDENCE_ROLES = frozenset({"china"})
 
 # Event family → (risk-on orientation, bilingual keyword lexicon). Orientation
 # is the common risk-on convention shared with macro_path_labels: +1 risk-on,

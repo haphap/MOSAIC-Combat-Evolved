@@ -34,7 +34,7 @@
       "pattern": "^[0-9a-f]{64}$"
     },
     "cohort_count": { "const": 8 },
-    "prompt_count": { "const": 160 },
+    "prompt_count": { "const": 144 },
     "languages": {
       "const": ["en", "zh"]
     },
@@ -47,9 +47,8 @@
         "yield_curve",
         "commodities",
         "geopolitical",
-        "volatility",
-        "market_breadth",
-        "institutional_flow"
+      "volatility",
+      "institutional_flow"
       ]
     },
     "legacy_agents": {

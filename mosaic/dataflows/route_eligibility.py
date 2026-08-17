@@ -2,14 +2,9 @@
 
 from __future__ import annotations
 
-import json
-import os
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from pathlib import Path
 from typing import Any, Mapping, Sequence
-
-from mosaic.scorecard.canonical_json import canonical_hash
 
 from .agent_materialization import (
     AgentDataMaterializationLedger,
@@ -19,68 +14,6 @@ from .agent_materialization import (
     route_eligibility_checker_version,
 )
 from .calendar import verified_trading_calendar_snapshot
-
-
-MOF_CHINABOND_LICENSE_RECEIPT_ENV = (
-    "MOSAIC_MOF_CHINABOND_LICENSE_RECEIPT_PATH"
-)
-_MOF_CHINABOND_ROUTE_ID = "composite.cn_rates"
-_MOF_CHINABOND_SOURCE_ID = "official.mof_chinabond_government_yield_curve"
-_MOF_CHINABOND_LICENSE_FIELDS = frozenset(
-    {
-        "schema_version",
-        "receipt_id",
-        "route_id",
-        "source_id",
-        "decision",
-        "authorization_scope",
-        "reviewer",
-        "decided_at",
-        "receipt_hash",
-    }
-)
-
-
-def production_license_receipt_ref(
-    *, route_id: str, evaluated_at: str
-) -> str | None:
-    """Return the validated private production-license receipt hash, if any."""
-    if route_id != _MOF_CHINABOND_ROUTE_ID:
-        return None
-    configured = os.getenv(MOF_CHINABOND_LICENSE_RECEIPT_ENV)
-    if not configured:
-        return None
-    try:
-        payload = json.loads(Path(configured).expanduser().read_text(encoding="utf-8"))
-        if not isinstance(payload, dict) or set(payload) != _MOF_CHINABOND_LICENSE_FIELDS:
-            return None
-        if (
-            payload["schema_version"] != "source_license_decision_receipt_v1"
-            or payload["route_id"] != _MOF_CHINABOND_ROUTE_ID
-            or payload["source_id"] != _MOF_CHINABOND_SOURCE_ID
-            or payload["decision"] != "APPROVED_FOR_PRODUCTION_USE"
-            or payload["authorization_scope"] != "production_analysis"
-            or not isinstance(payload["receipt_id"], str)
-            or not payload["receipt_id"].strip()
-            or not isinstance(payload["reviewer"], str)
-            or not payload["reviewer"].strip()
-        ):
-            return None
-        decided_at = datetime.fromisoformat(str(payload["decided_at"]))
-        evaluation_time = datetime.fromisoformat(evaluated_at)
-        if (
-            decided_at.tzinfo is None
-            or evaluation_time.tzinfo is None
-            or decided_at > evaluation_time
-        ):
-            return None
-        receipt_hash = payload["receipt_hash"]
-        body = {key: value for key, value in payload.items() if key != "receipt_hash"}
-        if receipt_hash != canonical_hash(body):
-            return None
-    except (OSError, TypeError, ValueError, json.JSONDecodeError):
-        return None
-    return str(receipt_hash)
 
 
 @dataclass(frozen=True)
@@ -135,9 +68,6 @@ _CHECKER_SPECS = (
         "ecb.eu_real_economy", "ecb_eu_real_economy_history_v1"
     ),
     RouteEligibilityCheckerSpec("ecb.euro_macro", "ecb_euro_macro_v2"),
-    RouteEligibilityCheckerSpec(
-        "geopolitical.required_coverage", "geopolitical_required_coverage_v1"
-    ),
     RouteEligibilityCheckerSpec("market.euro_fx", "euro_fx_market_v1"),
     RouteEligibilityCheckerSpec(
         "market.us_conditions", "us_market_conditions_v1"
@@ -171,9 +101,6 @@ _CHECKER_SPECS = (
     ),
     RouteEligibilityCheckerSpec(
         "runtime.market_liquidity", "runtime_market_liquidity_v1"
-    ),
-    RouteEligibilityCheckerSpec(
-        "tushare.a_share_breadth", "tushare_a_share_breadth_v1"
     ),
     RouteEligibilityCheckerSpec("tushare.cn_macro", "tushare_cn_macro_v1"),
     RouteEligibilityCheckerSpec(
@@ -232,13 +159,6 @@ _CONTRACT_RECEIPT_POLICIES = {
         "data-api-v1",
         "ONE_BOUNDED_QUERY_PER_REGISTERED_SERIES",
         required_dimensions={"series_id": ()},
-    ),
-    "geopolitical_required_coverage_v1": _policy(
-        "geopolitical",
-        "public-license-verified",
-        "source-manifest-v2",
-        "source-specific-terminal-v1",
-        required_dimensions={"source_capture_id": (), "source_id": ()},
     ),
     "euro_fx_market_v1": _policy(
         "tushare",
@@ -328,16 +248,6 @@ _CONTRACT_RECEIPT_POLICIES = {
         "runtime_market_liquidity_v1",
         "SINGLE_FROZEN_RUNTIME_OBJECT",
     ),
-    "tushare_a_share_breadth_v1": _policy(
-        "tushare",
-        "route_preflight_verified",
-        "pro-v1",
-        "OFFSET_UNTIL_SHORT_PAGE",
-        required_dimensions={
-            "endpoint": (),
-            "market": ("BSE", "SSE", "SZSE"),
-        },
-    ),
     "tushare_cn_macro_v1": _policy(
         "tushare",
         "configured-runtime",
@@ -349,7 +259,7 @@ _CONTRACT_RECEIPT_POLICIES = {
         "tushare",
         "configured-runtime",
         "pro-v1",
-        "REGISTERED_REQUEST_SET_WITH_OFFSET_TERMINAL_CONFIRMATION",
+        "REGISTERED_BOUNDED_REQUEST_SET",
         required_dimensions={"family_id": ()},
     ),
     "tushare_eco_cal_cny_v1": _policy(
@@ -401,7 +311,6 @@ _CONTRACT_RECEIPT_POLICIES = {
         "EXACT_REQUEST_SET_NO_PAGINATION",
         required_dimensions={
             "endpoint": (
-                "daily_basic",
                 "fund_share",
                 "moneyflow",
                 "moneyflow_ind_ths",
@@ -687,7 +596,7 @@ def earliest_agent_source_ready_date(
         "runtime.accepted_outputs",
         "runtime.candidate_scope",
     ]
-    if len(source_route_ids) != 25:
+    if len(source_route_ids) != 23:
         raise RuntimeError("Agent source route closure drift")
 
     route_blockers: dict[str, list[str]] = {}
@@ -838,28 +747,6 @@ def evaluate_route_eligibility(
     if eligible:
         receipt, interval = eligible[0]
         payload = receipt.as_dict()
-        license_receipt_ref = (
-            production_license_receipt_ref(
-                route_id=route_id,
-                evaluated_at=evaluated_at,
-            )
-            if require_production_license and route_id == _MOF_CHINABOND_ROUTE_ID
-            else None
-        )
-        if require_production_license and route_id == _MOF_CHINABOND_ROUTE_ID and (
-            license_receipt_ref is None
-        ):
-            return _new_receipt(
-                route=route,
-                target_date=target_date,
-                evaluated_at=evaluated_at,
-                status="BLOCKED",
-                intervals=[],
-                selected_refs=[receipt.receipt_hash],
-                blockers=["LICENSE_REVIEW_REQUIRED"],
-                knowledge_available_at=payload["time"]["knowledge_available_at"],
-                cycle_run_id=cycle_run_id,
-            )
         return _new_receipt(
             route=route,
             target_date=target_date,
@@ -872,7 +759,6 @@ def evaluate_route_eligibility(
             blockers=[],
             knowledge_available_at=payload["time"]["knowledge_available_at"],
             cycle_run_id=cycle_run_id,
-            license_receipt_ref=license_receipt_ref,
         )
     if blocked:
         receipt, blockers = blocked[0]
@@ -1022,7 +908,7 @@ def evaluate_agent_source_admission(
     cycle_run_id: str | None = None,
     require_production_license: bool = False,
 ) -> dict[str, Any]:
-    """Seal the 25 external-source checks required before the first stage."""
+    """Seal the 23 external-source checks required before the first stage."""
     manifest = load_agent_data_route_manifest()
     routes = [
         route
@@ -1034,7 +920,7 @@ def evaluate_agent_source_admission(
         for route in manifest["routes"]
         if route["pit_strategy"] == "LOCAL_RUNTIME_AUTHORITY"
     )
-    if len(routes) != 25 or len(pending_runtime_route_ids) != 4:
+    if len(routes) != 23 or len(pending_runtime_route_ids) != 4:
         raise RuntimeError("Agent source/runtime route partition drift")
     return _evaluate_agent_routes(
         ledger=ledger,

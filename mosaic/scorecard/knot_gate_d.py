@@ -23,8 +23,8 @@ from mosaic.scorecard.darwinian_v2 import (
 
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
-_EXPECTED_RUNTIME_STAGE_COUNT = 28
-_EXPECTED_BINDING_COUNT = 192
+_EXPECTED_RUNTIME_STAGE_COUNT = 26
+_EXPECTED_BINDING_COUNT = 190
 _EXPECTED_SIGNIFICANCE_FIXTURE_COUNT = 110
 _EXPECTED_RETIRED_SIGNIFICANCE_FIXTURE_COUNT = 3
 _RETIRED_ACTIVE_AGENT_IDS = frozenset({"relationship_mapper"})
@@ -48,6 +48,9 @@ _EU_ECONOMY_PRESERVATION_BINDING_ID = (
 )
 _EU_FINANCIAL_PRESERVATION_BINDING_ID = (
     "binding:5d22ffdac9730113fc227c0fb88f77dda8045bcef24a7df62cceb420154c88a2"
+)
+_DRUCKENMILLER_POLICY_PRESERVATION_BINDING_ID = (
+    "binding:4d4d3c33b2912d9c6eaee024b4e52d9edea7e43eb3fa64927795826457e411f9"
 )
 _BINDING_CONTRACT_KEY_FIELDS = (
     "agent_id",
@@ -599,7 +602,10 @@ def build_knot_gate_d_fixture_evidence(
                 if len(matches) == 1
                 else ""
             )
-        elif "base_binding_hash" in source_binding:
+        elif (
+            "base_binding_hash" in source_binding
+            or source_binding_id == _DRUCKENMILLER_POLICY_PRESERVATION_BINDING_ID
+        ):
             compact_fields = (
                 "agent_id",
                 "semantic_capability_id",
@@ -619,8 +625,10 @@ def build_knot_gate_d_fixture_evidence(
                 canonical_hash(
                     {
                         "base_binding_hash": _require_sha256(
-                            source_binding.get("base_binding_hash"),
-                            "base_binding_hash",
+                            source_binding["base_binding_hash"]
+                            if "base_binding_hash" in source_binding
+                            else _binding_contract_key(source_binding),
+                            "source_binding_hash",
                         ),
                         "active_binding_contract_key": _binding_contract_key(matches[0]),
                     }

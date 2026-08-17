@@ -11,9 +11,7 @@ import {
   COMMODITIES_FIELD_NAMES,
   EU_ECONOMY_FIELD_NAMES,
   EURO_AREA_FINANCIAL_CONDITIONS_FIELD_NAMES,
-  GEOPOLITICAL_FIELD_NAMES,
   INSTITUTIONAL_FLOW_FIELD_NAMES,
-  MARKET_BREADTH_FIELD_NAMES,
   US_ECONOMY_FIELD_NAMES,
   US_FINANCIAL_CONDITIONS_FIELD_NAMES,
 } from "../macro/_schemas.js";
@@ -260,8 +258,6 @@ export const RUNTIME_AGENT_SPECS: ReadonlyArray<RuntimeAgentSpec> = [
     EURO_AREA_FINANCIAL_CONDITIONS_FIELD_NAMES,
   ),
   runtimeSpec("macro", "commodities", COMMODITIES_FIELD_NAMES),
-  runtimeSpec("macro", "geopolitical", GEOPOLITICAL_FIELD_NAMES),
-  runtimeSpec("macro", "market_breadth", MARKET_BREADTH_FIELD_NAMES),
   runtimeSpec("macro", "institutional_flow", INSTITUTIONAL_FLOW_FIELD_NAMES),
   runtimeSpec("sector", "semiconductor", STANDARD_SECTOR_FIELD_NAMES),
   runtimeSpec("sector", "technology", STANDARD_SECTOR_FIELD_NAMES),

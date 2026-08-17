@@ -3,8 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { ALL_AGENTS, LAYER_BY_AGENT } from "../src/agents/prompts/cohorts.js";
 import {
   applyDailyCycleEnsureMode,
+  assertDailyCycleCheckpointResumeAllowed,
   assertDailyCyclePromptSourceMode,
   assertDailyCycleSourceAdmissionReady,
   buildProductionCycleTraceId,
@@ -13,6 +15,7 @@ import {
   resolveDailyCycleAuthority,
   resolveDailyCycleCohort,
   resolveDailyCycleEnsureMode,
+  resolveDailyCyclePromptIdentity,
   validateStructuredSmokeFixtureBundle,
 } from "../src/cli/commands/daily-cycle.js";
 
@@ -53,10 +56,8 @@ function writeStructuredSmokeBundle(root: string, asOfDate = "2026-07-17") {
     "china_archive",
     "economic_calendar",
     "forward_archive",
-    "geopolitical_events",
     "gov_policy",
     "macro_snapshots",
-    "market_breadth",
     "outcome_runtime",
     "runtime_snapshots",
     "sector_archive",
@@ -65,10 +66,6 @@ function writeStructuredSmokeBundle(root: string, asOfDate = "2026-07-17") {
   ]) {
     mkdirSync(join(root, directory), { recursive: true });
   }
-  const manifestPath = join(root, "geopolitical_events", "manifest.json");
-  const manifestHash = canonicalHash({ source: "synthetic" });
-  const manifestContent = JSON.stringify({ manifest_hash: manifestHash });
-  writeFileSync(manifestPath, manifestContent);
   const policyPath = join(root, "gov_policy", "parsed", "policy_documents.jsonl");
   mkdirSync(join(root, "gov_policy", "parsed"), { recursive: true });
   const policyContent = '{"fixture":"synthetic"}\n';
@@ -114,10 +111,6 @@ function writeStructuredSmokeBundle(root: string, asOfDate = "2026-07-17") {
       content_sha256: contentHash(forwardArchiveContent),
     },
     {
-      relative_path: "geopolitical_events/manifest.json",
-      content_sha256: contentHash(manifestContent),
-    },
-    {
       relative_path: "gov_policy/parsed/policy_documents.jsonl",
       content_sha256: contentHash(policyContent),
     },
@@ -144,15 +137,13 @@ function writeStructuredSmokeBundle(root: string, asOfDate = "2026-07-17") {
     fixture_class: "SYNTHETIC_NON_PRODUCTION",
     contains_vendor_prose: false,
     cache_root: root,
-    geopolitical_manifest: manifestPath,
-    geopolitical_manifest_hash: manifestHash,
     artifact_inventory: artifactInventory,
     artifact_inventory_hash: canonicalHash(artifactInventory),
   };
   const marker = { ...body, bundle_hash: canonicalHash(body) };
   const markerPath = join(root, "structured_smoke_fixture_bundle.json");
   writeFileSync(markerPath, JSON.stringify(marker));
-  return { macroContent, macroPath, manifestPath, marker, markerPath };
+  return { macroContent, macroPath, manifestPath: policyPath, marker, markerPath };
 }
 
 function contentHash(value: string): string {
@@ -168,6 +159,64 @@ describe("daily-cycle current-position fixture options", () => {
       assertDailyCyclePromptSourceMode({ promptsRoot: "/tmp/reviewed-prompts" }, true),
     ).not.toThrow();
     expect(() => assertDailyCyclePromptSourceMode({}, false)).not.toThrow();
+  });
+
+  it("allows checkpoint resume only for non-production smoke", () => {
+    expect(() =>
+      assertDailyCycleCheckpointResumeAllowed({ checkpoint: "/tmp/checkpoint.json" }, false),
+    ).toThrow(/non-production-only/);
+    expect(() =>
+      assertDailyCycleCheckpointResumeAllowed(
+        { checkpoint: "/tmp/checkpoint.json", resume: true },
+        false,
+      ),
+    ).toThrow(/non-production-only/);
+    expect(() =>
+      assertDailyCycleCheckpointResumeAllowed({ checkpoint: "/tmp/checkpoint.json" }, true),
+    ).not.toThrow();
+    expect(() =>
+      assertDailyCycleCheckpointResumeAllowed(
+        { checkpoint: "/tmp/checkpoint.json", resume: true },
+        true,
+      ),
+    ).not.toThrow();
+  });
+
+  it("hashes the current bilingual smoke prompt bodies without cache", async () => {
+    const root = mkdtempSync(join(tmpdir(), "mosaic-prompt-identity-"));
+    try {
+      for (const agent of ALL_AGENTS) {
+        const layer = LAYER_BY_AGENT[agent];
+        if (!layer) throw new Error(`missing layer for ${agent}`);
+        const directory = join(root, "cohort_default", layer);
+        mkdirSync(directory, { recursive: true });
+        writeFileSync(join(directory, `${agent}.zh.md`), `${agent}: zh-v1`, "utf-8");
+        writeFileSync(join(directory, `${agent}.en.md`), `${agent}: en-v1`, "utf-8");
+      }
+      const first = await resolveDailyCyclePromptIdentity({
+        cohort: "cohort_default",
+        nonProductionSmoke: true,
+        promptsRoot: root,
+      });
+      const firstAgent = ALL_AGENTS[0];
+      if (!firstAgent) throw new Error("expected a canonical agent");
+      const firstLayer = LAYER_BY_AGENT[firstAgent];
+      if (!firstLayer) throw new Error(`missing layer for ${firstAgent}`);
+      writeFileSync(
+        join(root, "cohort_default", firstLayer, `${firstAgent}.zh.md`),
+        "mutated prompt",
+        "utf-8",
+      );
+      const second = await resolveDailyCyclePromptIdentity({
+        cohort: "cohort_default",
+        nonProductionSmoke: true,
+        promptsRoot: root,
+      });
+      expect(first.promptContentHash).not.toBe(second.promptContentHash);
+      expect(first.promptRelease).toBe(`structured-smoke:${first.promptContentHash}`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("uses marked synthetic source fixtures for both smoke modes only", () => {
@@ -310,7 +359,6 @@ describe("daily-cycle current-position fixture options", () => {
       expect(
         validateStructuredSmokeFixtureBundle("2026-07-17", {
           MOSAIC_CACHE_DIR: root,
-          MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
           MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: fixture.marker.bundle_hash,
         }),
       ).toEqual({ bundleHash: fixture.marker.bundle_hash, markerPath: fixture.markerPath });
@@ -325,10 +373,9 @@ describe("daily-cycle current-position fixture options", () => {
       expect(() =>
         validateStructuredSmokeFixtureBundle("2026-07-17", {
           MOSAIC_CACHE_DIR: root,
-          MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: join(root, "missing.json"),
           MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: `sha256:${"0".repeat(64)}`,
         }),
-      ).toThrow(/marker or geopolitical manifest is unavailable/);
+      ).toThrow(/marker is unavailable/);
 
       const fixture = writeStructuredSmokeBundle(root);
       writeFileSync(
@@ -338,7 +385,6 @@ describe("daily-cycle current-position fixture options", () => {
       expect(() =>
         validateStructuredSmokeFixtureBundle("2026-07-17", {
           MOSAIC_CACHE_DIR: root,
-          MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
           MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: fixture.marker.bundle_hash,
         }),
       ).toThrow(/marker binding mismatch/);
@@ -354,7 +400,6 @@ describe("daily-cycle current-position fixture options", () => {
       expect(() =>
         validateStructuredSmokeFixtureBundle("2026-07-17", {
           MOSAIC_CACHE_DIR: root,
-          MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
           MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: fixture.marker.bundle_hash,
         }),
       ).toThrow(/marker binding mismatch/);
@@ -369,7 +414,6 @@ describe("daily-cycle current-position fixture options", () => {
       const fixture = writeStructuredSmokeBundle(root);
       const env = {
         MOSAIC_CACHE_DIR: root,
-        MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
         MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: fixture.marker.bundle_hash,
       };
 
@@ -398,17 +442,15 @@ describe("daily-cycle current-position fixture options", () => {
   it("requires the caller to bind the expected synthetic fixture hash", () => {
     const root = mkdtempSync(join(tmpdir(), "mosaic-structured-smoke-"));
     try {
-      const fixture = writeStructuredSmokeBundle(root);
+      writeStructuredSmokeBundle(root);
       expect(() =>
         validateStructuredSmokeFixtureBundle("2026-07-17", {
           MOSAIC_CACHE_DIR: root,
-          MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
         }),
       ).toThrow(/fixture bundle hash bindings/);
       expect(() =>
         validateStructuredSmokeFixtureBundle("2026-07-17", {
           MOSAIC_CACHE_DIR: root,
-          MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
           MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: `sha256:${"f".repeat(64)}`,
         }),
       ).toThrow(/marker binding mismatch/);
@@ -432,7 +474,7 @@ describe("daily-cycle current-position fixture options", () => {
           MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
           MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: fixture.marker.bundle_hash,
         }),
-      ).toThrow(/marker or geopolitical manifest is unavailable/);
+      ).toThrow(/marker is unavailable/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

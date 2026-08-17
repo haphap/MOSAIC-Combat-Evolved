@@ -29,8 +29,6 @@ from mosaic.dataflows.agent_stage_preparer import (
     compile_sector_role_event_builds,
     prepare_china_agent_family,
     prepare_europe_macro_family,
-    prepare_geopolitical_family,
-    prepare_market_breadth_family,
     prepare_sector_relationship_family,
     prepare_us_macro_family,
     publish_ready_stage_materialization,
@@ -38,7 +36,6 @@ from mosaic.dataflows.agent_stage_preparer import (
 )
 from mosaic.dataflows.economic_calendar import EconomicCalendarStore
 from mosaic.dataflows.exceptions import DataVendorUnavailable
-from mosaic.dataflows.geopolitical_events import REQUIRED_SOURCE_IDS
 from mosaic.dataflows.frozen_adaptive_queries import FrozenAdaptiveQueryStore
 from mosaic.dataflows.role_events import build_role_event_snapshot
 from mosaic.dataflows.source_archive import archive_eco_calendar
@@ -504,7 +501,7 @@ def test_receipts_reject_unknown_blocker_codes() -> None:
 def test_route_manifest_has_exact_agent_stage_tool_coverage() -> None:
     manifest = load_agent_data_route_manifest()
     validated = validate_agent_data_route_manifest(manifest)
-    assert len({binding["agent_id"] for binding in validated["bindings"]}) == 27
+    assert len({binding["agent_id"] for binding in validated["bindings"]}) == 25
     assert (
         len(
             {
@@ -512,9 +509,9 @@ def test_route_manifest_has_exact_agent_stage_tool_coverage() -> None:
                 for binding in validated["bindings"]
             }
         )
-        == 28
+        == 26
     )
-    assert len({binding["tool_id"] for binding in validated["bindings"]}) == 31
+    assert len({binding["tool_id"] for binding in validated["bindings"]}) == 29
     assert all(binding["required_route_ids"] for binding in validated["bindings"])
 
 
@@ -523,7 +520,7 @@ def test_route_manifest_replaces_yc_cb_curve_route_and_three_bindings_atomically
 ):
     manifest = load_agent_data_route_manifest()
     routes = {route["route_id"]: route for route in manifest["routes"]}
-    assert len(routes) == 29
+    assert len(routes) == 27
     assert "tushare.shibor_yield_curve" not in routes
     assert routes["composite.cn_rates"] == {
         "contract_version": "composite_cn_rates_mof_chinabond_v1",
@@ -553,7 +550,7 @@ def test_route_manifest_replaces_yc_cb_curve_route_and_three_bindings_atomically
 def test_route_manifest_replaces_non_replayable_europe_sources_atomically() -> None:
     manifest = load_agent_data_route_manifest()
     routes = {route["route_id"]: route for route in manifest["routes"]}
-    assert len(routes) == 29
+    assert len(routes) == 27
     assert "eurostat.euro_macro" not in routes
     assert routes["ecb.eu_real_economy"] == {
         "contract_version": "ecb_eu_real_economy_history_v1",
@@ -750,19 +747,7 @@ def test_ledger_is_append_only_idempotent_and_status_is_read_only(
     assert {path.name for path in ledger.path.parent.iterdir()} == directory_entries
 
 
-def test_dry_run_reports_missing_routes_without_mutating_ledger(tmp_path: Path) -> None:
-    ledger = AgentDataMaterializationLedger(tmp_path / "empty.sqlite3")
-    before = ledger.row_counts()
-    report = ledger.materialize_dry_run(
-        as_of="2026-07-01", agent_id="market_breadth", stage="market_breadth"
-    )
-    assert report["would_issue_capability"] is False
-    assert report["status"] == "BLOCKED"
-    assert report["missing_route_ids"]
-    assert ledger.row_counts() == before
-
-
-def test_cycle_dry_run_covers_exact_28_stages_without_mutating_ledger(
+def test_cycle_dry_run_covers_exact_26_stages_without_mutating_ledger(
     tmp_path: Path,
 ) -> None:
     ledger = AgentDataMaterializationLedger(tmp_path / "empty.sqlite3")
@@ -773,9 +758,9 @@ def test_cycle_dry_run_covers_exact_28_stages_without_mutating_ledger(
     assert report["schema_version"] == "agent_cycle_materialization_dry_run_v1"
     assert report["dry_run"] is True
     assert report["status"] == "BLOCKED"
-    assert report["stage_count"] == 28
-    assert len(report["stages"]) == 28
-    assert len({(row["agent_id"], row["stage"]) for row in report["stages"]}) == 28
+    assert report["stage_count"] == 26
+    assert len(report["stages"]) == 26
+    assert len({(row["agent_id"], row["stage"]) for row in report["stages"]}) == 26
     assert set(report["missing_route_ids"]) == {
         route["route_id"] for route in load_agent_data_route_manifest()["routes"]
     }
@@ -1779,18 +1764,23 @@ def test_china_family_reuses_calendar_archive_and_compiler(
 
     def archive_china(**kwargs: object) -> object:
         events.append(("china", kwargs))
-        source_receipts = (
+        requested_route_ids = kwargs["requested_route_ids"]
+        assert isinstance(requested_route_ids, tuple)
+        source_families = {
+            route["route_id"]: route["source_family"]
+            for route in load_agent_data_route_manifest()["routes"]
+        }
+        source_receipts = tuple(
             SourceCaptureReceipt.from_dict(
                 _source_payload(
-                    route_id="official.cn_macro", source_family="official_cn"
+                    route_id=route_id,
+                    source_family=source_families[route_id],
                 )
-            ),
-            SourceCaptureReceipt.from_dict(
-                _source_payload(route_id="tushare.cn_macro")
-            ),
+            )
+            for route_id in requested_route_ids
         )
         archived.routes = {
-            "official.cn_macro+tushare.cn_macro": SimpleNamespace(
+            "+".join(requested_route_ids): SimpleNamespace(
                 source_receipts=source_receipts,
                 coverage_receipt=CompleteCoverage(),
             )
@@ -1827,7 +1817,7 @@ def test_china_family_reuses_calendar_archive_and_compiler(
     monkeypatch.setattr(
         stage_preparer_module,
         "compile_china_agent_snapshots",
-        lambda **_kwargs: pytest.fail("normal China stage must not use full compiler"),
+        compile_china,
     )
     monkeypatch.setattr(
         stage_preparer_module, "snapshot_cache_root", lambda: output_root
@@ -1876,6 +1866,41 @@ def test_china_family_reuses_calendar_archive_and_compiler(
         "output_root": output_root,
         "exact_calendar_evidence_hash": HASH_A,
     }
+
+    events.clear()
+    calendar_requests.clear()
+    central_request = _ready_stage_request("central-bank-family")
+    central_request.update({"agent_id": "central_bank", "stage": "central_bank"})
+    prepare_china_agent_family(central_request, ledger)
+    assert [name for name, _ in events] == ["calendar", "china", "compile"]
+    assert events[0][1]["requested_route_ids"] == ("tushare.eco_cal.cny",)
+    assert events[1][1]["requested_route_ids"] == (
+        "composite.cn_rates",
+        "official.cn_macro",
+    )
+    assert events[1][1]["official_document_types"] == (
+        "nbs_cpi_release",
+        "nbs_industrial_activity",
+        "nbs_ppi_release",
+        "pboc_financial_statistics",
+        "pboc_lpr_document",
+        "pboc_omo_document",
+    )
+    assert events[2][1]["requested_roles"] == ("central_bank",)
+
+    events.clear()
+    calendar_requests.clear()
+    institutional_request = _ready_stage_request("institutional-flow-family")
+    institutional_request.update(
+        {"agent_id": "institutional_flow", "stage": "institutional_flow"}
+    )
+    prepare_china_agent_family(institutional_request, ledger)
+    assert [name for name, _ in events] == ["china", "compile"]
+    assert calendar_requests == []
+    assert events[0][1]["requested_route_ids"] == (
+        "tushare.institutional_flow",
+    )
+    assert events[1][1]["requested_roles"] == ("institutional_flow",)
 
 
 def test_non_china_family_stage_requests_only_its_role(
@@ -2297,7 +2322,7 @@ def test_sector_role_event_compiler_seals_blocked_builds_from_calendar_coverage(
         assert payload["blocker_codes"] == ["PERMISSION_DENIED"]
 
 
-def test_sector_relationship_family_reuses_all_existing_archives_once(
+def test_semiconductor_missing_snapshot_cold_builds_archive_and_compiler(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2351,7 +2376,6 @@ def test_sector_route_only_historical_replay_skips_parent_archives(
         coverage_receipt=SimpleNamespace(as_dict=lambda: {"coverage_complete": True})
     )
     events: list[tuple[str, dict]] = []
-
     monkeypatch.setattr(
         stage_preparer_module, "SectorArchiveStore", lambda: sector_store
     )
@@ -3062,140 +3086,7 @@ def test_calendar_route_only_capture_skips_unrelated_family_archive(
     assert captures[0]["requested_route_ids"] == (route_id,)
 
 
-def test_geopolitical_family_captures_then_materializes_existing_authority(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    ledger = AgentDataMaterializationLedger(tmp_path / "geopolitical-family.sqlite3")
-    license_decisions = {
-        source_id: {
-            "source_id": source_id,
-            "decision_id": f"decision:{source_id}",
-            "decision_hash": f"hash:{source_id}",
-            "decision_status": "APPROVED",
-            "permitted_use": "PUBLIC_METADATA_HASH_AND_DERIVED_EVENT",
-            "raw_source_content_commit_allowed": False,
-        }
-        for source_id in REQUIRED_SOURCE_IDS
-    }
-    event_store = SimpleNamespace(
-        latest_source_license_decisions=lambda _cutoff: license_decisions
-    )
-    event_store_path = tmp_path / "geopolitical-events.sqlite3"
-    output_root = tmp_path / "macro-snapshots"
-    events: list[tuple[str, dict]] = []
-
-    def capture_geo(**kwargs: object) -> dict:
-        events.append(("geo", kwargs))
-        return {"source_results": []}
-
-    def materialize_geo(**kwargs: object) -> SimpleNamespace:
-        events.append(("materialize", kwargs))
-        return SimpleNamespace(
-            build_receipt=SimpleNamespace(as_dict=lambda: {"terminal_state": "READY"})
-        )
-
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "geopolitical_store_path",
-        lambda: event_store_path,
-    )
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "GeopoliticalEventStore",
-        lambda path: event_store if path == event_store_path else None,
-    )
-    monkeypatch.setattr(
-        stage_preparer_module, "capture_required_geopolitical_sources", capture_geo
-    )
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "archive_eco_calendar",
-        lambda *_args, **_kwargs: pytest.fail(
-            "geopolitical route must not capture an unrelated economic calendar"
-        ),
-    )
-    monkeypatch.setattr(
-        stage_preparer_module, "materialize_geopolitical_snapshot", materialize_geo
-    )
-    monkeypatch.setattr(
-        stage_preparer_module, "snapshot_cache_root", lambda: output_root
-    )
-
-    prepare_geopolitical_family(_ready_stage_request("geopolitical-family"), ledger)
-
-    assert [name for name, _ in events] == ["geo", "materialize"]
-    assert events[0][1] == {
-        "store": event_store,
-        "window_end": "2026-07-01T07:00:00+00:00",
-    }
-    assert events[1][1] == {
-        "as_of_date": "2026-07-01",
-        "event_store": event_store,
-        "ledger": ledger,
-        "output_root": output_root,
-        "capture_group": {"source_results": []},
-        "license_decisions": license_decisions,
-    }
-
-
-def test_geopolitical_family_blocks_without_license_before_capture(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    ledger = AgentDataMaterializationLedger(tmp_path / "geopolitical-blocked.sqlite3")
-    event_store = SimpleNamespace(
-        latest_source_license_decisions=lambda _cutoff: {}
-    )
-    monkeypatch.setattr(
-        stage_preparer_module, "GeopoliticalEventStore", lambda _path: event_store
-    )
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "capture_required_geopolitical_sources",
-        lambda **_kwargs: pytest.fail("license failure must precede transport"),
-    )
-
-    with pytest.raises(DataVendorUnavailable, match="licenses"):
-        prepare_geopolitical_family(
-            _ready_stage_request("geopolitical-blocked"), ledger
-        )
-
-
-def test_market_breadth_family_reuses_archive_adapter_and_compiler(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    ledger = AgentDataMaterializationLedger(tmp_path / "market-breadth-family.sqlite3")
-    archive_breadth = Mock()
-    compile_breadth = Mock()
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "archive_a_share_breadth",
-        archive_breadth,
-        raising=False,
-    )
-    monkeypatch.setattr(
-        stage_preparer_module,
-        "compile_a_share_breadth_snapshot",
-        compile_breadth,
-        raising=False,
-    )
-
-    with pytest.raises(DataVendorUnavailable, match="no bounded aggregate authority"):
-        prepare_market_breadth_family(
-            {
-                **_ready_stage_request("market-breadth-family"),
-                "historical_replay": True,
-            },
-            ledger,
-        )
-
-    archive_breadth.assert_not_called()
-    compile_breadth.assert_not_called()
-
-
-def test_production_registry_includes_market_breadth_and_sector_families(
+def test_production_registry_includes_sector_families(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
@@ -3221,9 +3112,6 @@ def test_production_registry_includes_market_breadth_and_sector_families(
     }
     family_preparers = captured["family_preparers"]
     assert isinstance(family_preparers, dict)
-    assert family_preparers[("market_breadth", "market_breadth")] is (
-        prepare_market_breadth_family
-    )
     sector_stages = {
         "semiconductor",
         "technology",

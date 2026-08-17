@@ -1108,44 +1108,51 @@ def get_industry_moneyflow(
     scope binds one THS industry code before transport; unknown or empty scopes
     fail closed rather than fetching the full industry table.
     """
-    start_date, end_date = _date_range_from_lookback(curr_date, look_back_days)
-    tokens = [t.strip() for t in re.split(r"[,，、]", industries) if t.strip()]
-    scope = tuple(tokens)
-    scope_codes = {
-        ("半导体",): "881121.TI",
-        ("医药", "医疗", "生物制品", "中药"): "881142.TI",
-        ("电子", "计算机", "传媒", "通信"): "881272.TI",
-        ("煤炭", "石油", "天然气", "电力", "光伏", "风电", "电池"): "881105.TI",
-        ("银行", "证券", "保险", "多元金融"): "881155.TI",
-        ("农业", "种植", "养殖", "林业", "饲料", "动物保健"): "881102.TI",
-        (
-            "家电",
-            "食品",
-            "饮料",
-            "纺织",
-            "服装",
-            "零售",
-            "旅游",
-            "美容",
-            "汽车",
-        ): "881136.TI",
-        (
-            "化学",
-            "钢铁",
-            "有色",
-            "机械",
-            "军工",
-            "电气设备",
-            "交通运输",
-            "环保",
-        ): "881112.TI",
-        ("房地产", "建筑材料", "建筑装饰"): "881153.TI",
+    tokens = tuple(
+        token.strip() for token in re.split(r"[,，、]", industries) if token.strip()
+    )
+    scopes = {
+        ("半导体",): ("881121.TI", ("半导体",)),
+        ("电子", "计算机", "传媒", "通信"): (
+            "881272.TI",
+            ("电子", "计算机", "传媒", "通信", "软件开发"),
+        ),
+        ("煤炭", "石油", "天然气", "电力", "光伏", "风电", "电池"): (
+            "881105.TI",
+            ("煤炭", "石油", "天然气", "电力", "光伏", "风电", "电池"),
+        ),
+        ("医药", "医疗", "生物制品", "中药"): (
+            "881142.TI",
+            ("医药", "医疗", "生物制品", "中药"),
+        ),
+        ("家电", "食品", "饮料", "纺织", "服装", "零售", "旅游", "美容", "汽车"): (
+            "881134.TI",
+            ("家电", "食品", "饮料", "纺织", "服装", "零售", "旅游", "美容", "汽车"),
+        ),
+        ("化学", "钢铁", "有色", "机械", "军工", "电气设备", "交通运输", "环保"): (
+            "881117.TI",
+            ("化学", "钢铁", "有色", "机械", "军工", "电气设备", "交通运输", "环保", "通用设备"),
+        ),
+        ("房地产", "建筑材料", "建筑装饰"): (
+            "881153.TI",
+            ("房地产", "建筑材料", "建筑装饰"),
+        ),
+        ("银行", "证券", "保险", "多元金融"): (
+            "881155.TI",
+            ("银行", "证券", "保险", "多元金融"),
+        ),
+        ("农业", "种植", "养殖", "林业", "饲料", "动物保健"): (
+            "881102.TI",
+            ("农业", "种植", "养殖", "林业", "饲料", "动物保健"),
+        ),
     }
-    ts_code = scope_codes.get(scope)
-    if ts_code is None:
+    if tokens not in scopes:
         raise DataVendorUnavailable(
-            "industry moneyflow requires an authorized exact industry scope"
+            "moneyflow_ind_ths requires a registered exact industry scope"
         )
+    ts_code, local_filters = scopes[tokens]
+
+    start_date, end_date = _date_range_from_lookback(curr_date, look_back_days)
     request_params = {
         "ts_code": ts_code,
         "start_date": _to_tushare_date(start_date),
@@ -1157,14 +1164,9 @@ def get_industry_moneyflow(
         "positive = main funds rotating in."
     )
 
-    if tokens and df is not None and not df.empty:
+    if df is not None and not df.empty:
         if "industry" in df.columns:
-            match_tokens = (
-                [*tokens, "软件开发"]
-                if scope == ("电子", "计算机", "传媒", "通信")
-                else tokens
-            )
-            pattern = "|".join(re.escape(t) for t in match_tokens)
+            pattern = "|".join(re.escape(token) for token in local_filters)
             df = df[df["industry"].astype(str).str.contains(pattern, na=False)]
         else:
             df = df.iloc[0:0].copy()

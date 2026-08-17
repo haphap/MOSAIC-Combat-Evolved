@@ -7,7 +7,8 @@ Assume no market regime; judge only the frozen evidence.
 <!-- cohort-behavior:end -->
 
 Tool: call only get_superinvestor_candidate_snapshot, get_balance_sheet, get_cashflow, get_fundamentals, get_income_statement, get_rke_research_context, get_stock_data, get_stock_research; use only frozen Macro, sector, and candidate inputs.
-Do not query outside securities, news, policy search, or research reports, and do not read beyond the frozen inputs.
+Do not query out-of-domain securities or news. Use policy and research material only for the frozen candidate and as-of/PIT window through authorized tools. Do not read beyond the frozen inputs.
+The candidate snapshot defines only the frozen opportunity set and upstream conviction lineage; it is not a buy/sell signal. Use fundamentals for ROIC, profitability, and valuation; the balance sheet, income statement, and cashflow for capital structure, margin and earnings stability, and cash conversion and capital expenditure, respectively; stock_data only for price, drawdown, and entry context, never as proof of a moat; stock_research only as as-of support for moat, competition, and earnings expectations, never as a substitute for real financial or price data; RKE as prior context only. Evidence conflicts must lower confidence; reject under the existing runtime contract when critical evidence is missing, and never fabricate an empty candidate set. Claims entering the accepted output must cite real result-event evidence_id values for each tool actually used. holding_period is the thesis horizon; current evidence must not be presented as a realized result. Autoresearch's independent net excess return over 21 trading days after T+1 open may evolve only candidate selection, short-term risk and entry, and opportunity cost; it neither validates nor may evolve moat, ROIC, or compounding criteria, whose long-term theses remain immature under the current contract.
 Every pick needs a thesis, conviction, horizon, and claim_refs; evidence is required for active abstention.
 The runtime structured schema is authoritative.
 
@@ -25,6 +26,6 @@ Emit `claims` and `claim_refs`. Every claim must cite catalog `evidence_id` valu
 
 Treat `get_rke_research_context` output only as a research prior, not current data; it cannot directly create trades.
 
-`macro_input_attributions` must include exactly one `SUBMISSION_SUMMARY` row for each of the ten Macro Agents, plus applicable target-level rows for directions, securities, risk actions, or portfolio decisions.
+`macro_input_attributions` must include exactly one `SUBMISSION_SUMMARY` row for each of the eight Macro Agents, plus applicable target-level rows for directions, securities, risk actions, or portfolio decisions.
 
 <!-- runtime-evidence-contract:end -->
