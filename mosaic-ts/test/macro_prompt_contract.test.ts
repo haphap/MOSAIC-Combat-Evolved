@@ -51,7 +51,7 @@ describe("generated bundled macro prompts", () => {
 
   it("pins the rebuilt execution behavior contracts", () => {
     expect(executionRelease.schema_version).toBe("execution_behavior_release_manifest_v4");
-    expect(executionRelease.execution_contracts).toHaveLength(54);
+    expect(executionRelease.execution_contracts).toHaveLength(ALL_AGENTS.length * 2);
     const releaseAgents = new Set(executionRelease.execution_contracts.map((row) => row.agent_id));
     expect(ALL_AGENTS.every((agent) => releaseAgents.has(agent))).toBe(true);
     expect(
