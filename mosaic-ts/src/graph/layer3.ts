@@ -32,6 +32,8 @@ import { parseOutcomeStageSkips } from "../autoresearch/outcome_stage_skip.js";
 import type { BridgeApi, MosaicConfig } from "../bridge/index.js";
 import type { LlmHandle } from "../llm/factory.js";
 import { chainEdges, serialEdges } from "./_edges.js";
+import type { DailyCycleStageCheckpointController } from "./daily_cycle_checkpoint.js";
+import { checkpointedStageNode } from "./daily_cycle_checkpoint.js";
 
 export interface BuildLayer3GraphDeps {
   llmHandle: LlmHandle;
@@ -45,6 +47,7 @@ export interface BuildLayer3GraphDeps {
   promptsRoot?: string;
   promptReleaseContext?: PromptReleaseLoadContext | null;
   acceptedOutputStore?: AcceptedAgentOutputStore;
+  stageCheckpoint?: DailyCycleStageCheckpointController;
 }
 
 export const LAYER3_AGENT_NODES = AGENTS_BY_LAYER.superinvestor;
@@ -55,24 +58,68 @@ export function buildLayer3Graph(deps: BuildLayer3GraphDeps) {
   const graph = new StateGraph(DailyCycleState)
     .addNode(
       "druckenmiller_opportunity_freeze",
-      buildSuperinvestorOpportunityFreezeNode("druckenmiller", runDeps),
+      checkpointedStageNode(
+        "druckenmiller",
+        buildSuperinvestorOpportunityFreezeNode("druckenmiller", runDeps),
+        deps.stageCheckpoint,
+      ),
     )
     .addNode(
       "druckenmiller",
-      withOutcomeStageSkip("druckenmiller", buildDruckenmillerNode(runDeps)),
+      checkpointedStageNode(
+        "druckenmiller",
+        withOutcomeStageSkip("druckenmiller", buildDruckenmillerNode(runDeps)),
+        deps.stageCheckpoint,
+      ),
     )
     .addNode(
       "munger_opportunity_freeze",
-      buildSuperinvestorOpportunityFreezeNode("munger", runDeps),
+      checkpointedStageNode(
+        "munger",
+        buildSuperinvestorOpportunityFreezeNode("munger", runDeps),
+        deps.stageCheckpoint,
+      ),
     )
-    .addNode("munger", withOutcomeStageSkip("munger", buildMungerNode(runDeps)))
-    .addNode("burry_opportunity_freeze", buildSuperinvestorOpportunityFreezeNode("burry", runDeps))
-    .addNode("burry", withOutcomeStageSkip("burry", buildBurryNode(runDeps)))
+    .addNode(
+      "munger",
+      checkpointedStageNode(
+        "munger",
+        withOutcomeStageSkip("munger", buildMungerNode(runDeps)),
+        deps.stageCheckpoint,
+      ),
+    )
+    .addNode(
+      "burry_opportunity_freeze",
+      checkpointedStageNode(
+        "burry",
+        buildSuperinvestorOpportunityFreezeNode("burry", runDeps),
+        deps.stageCheckpoint,
+      ),
+    )
+    .addNode(
+      "burry",
+      checkpointedStageNode(
+        "burry",
+        withOutcomeStageSkip("burry", buildBurryNode(runDeps)),
+        deps.stageCheckpoint,
+      ),
+    )
     .addNode(
       "ackman_opportunity_freeze",
-      buildSuperinvestorOpportunityFreezeNode("ackman", runDeps),
+      checkpointedStageNode(
+        "ackman",
+        buildSuperinvestorOpportunityFreezeNode("ackman", runDeps),
+        deps.stageCheckpoint,
+      ),
     )
-    .addNode("ackman", withOutcomeStageSkip("ackman", buildAckmanNode(runDeps)));
+    .addNode(
+      "ackman",
+      checkpointedStageNode(
+        "ackman",
+        withOutcomeStageSkip("ackman", buildAckmanNode(runDeps)),
+        deps.stageCheckpoint,
+      ),
+    );
 
   chainEdges(
     graph,

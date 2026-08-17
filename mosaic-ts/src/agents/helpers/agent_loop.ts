@@ -572,7 +572,6 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
     }));
     const ai = new AIMessage({ content: "Collecting role-required evidence.", tool_calls: calls });
     messages.push(ai);
-    replayMessages.push(ai);
     opts.onLog?.(
       `tools=${calls.length} names=${calls.map((call) => call.name).join(",")} fingerprints=${calls
         .map((call) => toolCallFingerprint(call.name, call.args))
@@ -603,7 +602,16 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
           tool_call_id: call.id,
         });
         messages.push(toolMessage);
-        replayMessages.push(toolMessage);
+        replayMessages.push(
+          new HumanMessage(
+            [
+              "runtime-provided initial tool evidence",
+              `tool_name=${name}`,
+              `call_id=${call.id}`,
+              `replay_output:\n${cached.output}`,
+            ].join("\n"),
+          ),
+        );
         continue;
       }
       toolExecutions++;
@@ -666,7 +674,16 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       const compacted = compactToolOutput(output, toolOutputMaxChars);
       const toolMessage = new ToolMessage({ content: compacted.text, tool_call_id: call.id });
       messages.push(toolMessage);
-      replayMessages.push(toolMessage);
+      replayMessages.push(
+        new HumanMessage(
+          [
+            "runtime-provided initial tool evidence",
+            `tool_name=${name}`,
+            `call_id=${call.id}`,
+            `replay_output:\n${compacted.text}`,
+          ].join("\n"),
+        ),
+      );
     }
   }
 
@@ -685,10 +702,10 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
           `The remaining budget is ${remainingModelToolExecutions}. ` +
           `Request no more than ${remainingModelToolExecutions} tool calls now; ` +
           "when the remaining budget is 0, return the analysis without tool calls.";
-    const ai = (await (advertiseTools ? llmWithTools : opts.llm).invoke(
-      [new SystemMessage(`${opts.systemMessage}${budgetDirective}`), ...replayMessages],
-      opts.signal ? { signal: opts.signal } : undefined,
-    )) as AIMessage;
+    const ai = (await (advertiseTools ? llmWithTools : opts.llm).invoke([
+      new SystemMessage(`${opts.systemMessage}${budgetDirective}`),
+      ...replayMessages,
+    ])) as AIMessage;
     llmElapsedMs += Date.now() - llmStartedAt;
     const usage = extractLlmTokenUsage(ai);
     promptTokens += usage.promptTokens;
@@ -884,17 +901,14 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
   // maxLoops hit — force one final non-tool invocation so we get something
   // usable. This matches the CLI tool-loop's forced-final behaviour.
   const finalStartedAt = Date.now();
-  const final = (await opts.llm.invoke(
-    [
-      new SystemMessage(opts.systemMessage),
-      ...replayMessages,
-      new HumanMessage(
-        "Tool budget exhausted. Now write the final structured-friendly analysis " +
-          "based on the data you already have, and do not call further tools.",
-      ),
-    ],
-    opts.signal ? { signal: opts.signal } : undefined,
-  )) as AIMessage;
+  const final = (await opts.llm.invoke([
+    new SystemMessage(opts.systemMessage),
+    ...replayMessages,
+    new HumanMessage(
+      "Tool budget exhausted. Now write the final structured-friendly analysis " +
+        "based on the data you already have, and do not call further tools.",
+    ),
+  ])) as AIMessage;
   llmElapsedMs += Date.now() - finalStartedAt;
   const finalUsage = extractLlmTokenUsage(final);
   promptTokens += finalUsage.promptTokens;

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -8,8 +9,12 @@ import pytest
 from mosaic.dataflows.bound_runtime_query_plans import (
     build_bound_runtime_query_plan,
 )
+from mosaic.dataflows.frozen_adaptive_queries import FrozenAdaptiveQueryStore
 from mosaic.scorecard.canonical_json import canonical_hash
-from mosaic.scorecard.l3_l4_preservation import L3_TOOL_ROSTER
+from mosaic.scorecard.l3_l4_preservation import (
+    L3_TOOL_ROSTER,
+    build_l3_l4_preservation_overlay,
+)
 
 
 ROOT = Path(__file__).parents[1]
@@ -215,6 +220,101 @@ def test_druckenmiller_policy_queries_use_candidate_sector_topic() -> None:
                 "get_superinvestor_candidate_snapshot": _payload(unknown)
             },
             allowed_tools=L3_TOOL_ROSTER["druckenmiller"],
+        )
+
+
+def test_druckenmiller_bound_plan_policy_topics_validate_in_frozen_store(
+    tmp_path: Path,
+) -> None:
+    as_of = "2026-08-06"
+    snapshot = _snapshot(
+        agent_id="druckenmiller",
+        stage="druckenmiller",
+        candidates=[
+            {
+                "candidate_ref": "candidate:energy",
+                "ts_code": "600028.SH",
+                "source_sector_agent_id": "energy",
+            }
+        ],
+        as_of=as_of,
+    )
+    plan = build_bound_runtime_query_plan(
+        agent_id="druckenmiller",
+        stage="druckenmiller",
+        as_of=as_of,
+        initial_payloads={
+            "get_superinvestor_candidate_snapshot": _payload(snapshot)
+        },
+        allowed_tools=L3_TOOL_ROSTER["druckenmiller"],
+    )
+    policy_requests = [
+        row
+        for row in plan["query_requests"]
+        if row["tool_id"] == "get_industry_policy_digest"
+    ]
+    assert len(policy_requests) == 3
+    assert all(request["args"]["topic"] == "煤炭" for request in policy_requests)
+
+    overlay = build_l3_l4_preservation_overlay(ROOT)
+    derivation_contract_version = next(
+        row["materializer_contract"]["derivation_contract"]["contract_version"]
+        for row in overlay["bindings"]
+        if row["agent_id"] == "druckenmiller"
+        and row["stage"] == "druckenmiller"
+        and row["tool_id"] == "get_industry_policy_digest"
+    )
+
+    def materializer(tool_id: str, args: dict) -> dict:
+        payload = json.dumps({"tool": tool_id, "args": args})
+        return {
+            "payload": payload,
+            "source_receipt_hashes": [canonical_hash({"tool": tool_id, "args": args})],
+            "derivation": {
+                "derivation_contract_version": derivation_contract_version,
+                "model_hash": canonical_hash({"model": "focused-test"}),
+                "prompt_hash": canonical_hash({"prompt": "focused-test"}),
+                "source_payload_hash": canonical_hash({"text": payload}),
+            },
+        }
+
+    store = FrozenAdaptiveQueryStore(
+        tmp_path / "l3-l4-frozen.sqlite3",
+        clock=lambda: datetime(2026, 8, 6, 9, 0, tzinfo=timezone.utc),
+    )
+    prepared = store.prepare(
+        agent_id="druckenmiller",
+        stage="druckenmiller",
+        preservation_stage=plan["preservation_stage"],
+        as_of=as_of,
+        authorized_scope=plan["authorized_scope"],
+        initial_query_requests=plan["initial_query_requests"],
+        query_requests=policy_requests,
+        preservation_overlay=overlay,
+        materializer=materializer,
+    )
+    assert prepared["public_projection"]["private_payload_count"] == 3
+
+    missing_topic = [
+        {
+            **row,
+            "args": {
+                key: value for key, value in row["args"].items() if key != "topic"
+            },
+        }
+        for row in policy_requests
+    ]
+    with pytest.raises(ValueError, match="'topic' is a required property"):
+        store.prepare(
+            agent_id="druckenmiller",
+            stage="druckenmiller",
+            preservation_stage=plan["preservation_stage"],
+            as_of=as_of,
+            authorized_scope=plan["authorized_scope"],
+            initial_query_requests=plan["initial_query_requests"],
+            query_requests=missing_topic,
+            preservation_overlay=overlay,
+            materializer=materializer,
         )
 
 

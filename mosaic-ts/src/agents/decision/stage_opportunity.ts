@@ -15,6 +15,7 @@ export interface DecisionStageFrozenObject {
     | "ALPHA_NOVEL_CANDIDATE_UNIVERSE"
     | "CRO_CANDIDATE_UNIVERSE"
     | "EXECUTION_ORDER_INTENT_SET"
+    | "CIO_PROPOSAL_CANDIDATE_UNIVERSE"
     | "CIO_FROZEN_PORTFOLIO_CONTEXT";
   frozen_object_set_id: string;
   frozen_object_set_hash: string;
@@ -229,6 +230,79 @@ function buildAuthorityCioStageFrozenObject(
   snapshot: DecisionSnapshotAuthority,
 ): DecisionStageFrozenObject {
   const authority = authorityPayload(snapshot, "get_cio_decision_snapshot");
+  const decisionStage = snapshot.role_context.decision_stage;
+  if (decisionStage === "PROPOSAL") {
+    const candidates = candidateRows(snapshot)
+      .map((row, index) => {
+        const sourceKind = requiredText(
+          row.source_kind,
+          `cio proposal candidate ${index}.source_kind`,
+        );
+        if (
+          ![
+            "CURRENT_POSITION",
+            "SECTOR_SELECTION",
+            "SUPERINVESTOR_SELECTION",
+            "ALPHA_DISCOVERY",
+          ].includes(sourceKind)
+        ) {
+          throw new Error(`cio proposal candidate ${index}.source_kind is invalid`);
+        }
+        const referenceTargetWeight =
+          row.reference_target_weight === null
+            ? null
+            : requiredWeight(
+                row.reference_target_weight,
+                `cio proposal candidate ${index}.reference_target_weight`,
+              );
+        const sourceOutputId = row.source_output_id;
+        const sourceOutputHash = row.source_output_hash;
+        if (sourceKind === "CURRENT_POSITION") {
+          if (sourceOutputId !== null || sourceOutputHash !== null) {
+            throw new Error(
+              `cio proposal candidate ${index}.current-position source binding is invalid`,
+            );
+          }
+        } else {
+          requiredText(sourceOutputId, `cio proposal candidate ${index}.source_output_id`);
+          requiredSha256(sourceOutputHash, `cio proposal candidate ${index}.source_output_hash`);
+        }
+        const tsCode = requiredTsCode(row.ts_code, `cio proposal candidate ${index}.ts_code`);
+        return {
+          candidate_ref: requiredText(
+            row.candidate_ref,
+            `cio proposal candidate ${index}.candidate_ref`,
+          ),
+          ts_code: tsCode,
+          source_kind: sourceKind,
+          current_weight: requiredWeight(
+            row.current_weight,
+            `cio proposal candidate ${index}.current_weight`,
+          ),
+          reference_target_weight: referenceTargetWeight,
+          source_output_id: sourceOutputId,
+          source_output_hash: sourceOutputHash,
+        };
+      })
+      .sort((left, right) => left.candidate_ref.localeCompare(right.candidate_ref));
+    assertUnique(candidates, "candidate_ref", "CIO proposal candidate refs");
+    assertUnique(candidates, "ts_code", "CIO proposal candidate tickers");
+    const payload = {
+      schema_version: "cio_proposal_frozen_candidate_universe_v1",
+      ...authority,
+      candidates,
+    };
+    return envelope(
+      "cio",
+      "CIO_PROPOSAL_CANDIDATE_UNIVERSE",
+      "cio-proposal-candidate-universe",
+      payload,
+      candidates.map((row) => ({ ...row })),
+    );
+  }
+  if (decisionStage !== "FINAL") {
+    throw new Error("cio: decision stage is invalid");
+  }
   const positions = candidateRows(snapshot)
     .map((row, index) => ({
       position_ref: requiredText(
@@ -353,6 +427,7 @@ function envelope(
   objectKind:
     | "ALPHA_NOVEL_CANDIDATE_UNIVERSE"
     | "CRO_CANDIDATE_UNIVERSE"
+    | "CIO_PROPOSAL_CANDIDATE_UNIVERSE"
     | "CIO_FROZEN_PORTFOLIO_CONTEXT",
   namespace: string,
   payload: Record<string, unknown>,

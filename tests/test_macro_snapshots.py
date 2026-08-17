@@ -731,7 +731,7 @@ def test_institutional_flow_requires_etf_component():
                                 else source_for("institutional_flow", item)
                             ),
                         )
-                        for item in series
+                        for item in ROLE_SERIES["institutional_flow"]
                     ],
                 ),
                 "institutional_flow",

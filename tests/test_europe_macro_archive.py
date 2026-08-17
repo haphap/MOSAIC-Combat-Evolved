@@ -139,6 +139,7 @@ def _archive(
     monkeypatch: pytest.MonkeyPatch,
     *,
     captured_at: datetime = CAPTURED_AT,
+    historical_replay: bool = False,
     requested_route_ids: tuple[str, ...] | None = None,
     callbacks: tuple[dict[str, int], object, object] | None = None,
 ):

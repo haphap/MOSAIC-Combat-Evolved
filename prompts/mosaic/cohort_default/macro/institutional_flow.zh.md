@@ -15,7 +15,7 @@
 ## 分析要求
 必须调用且只能调用 get_market_positioning_snapshot，严格使用 as-of 可见数据。
 检查变化、预期差、证据冲突和对 A 股的传导。
-get_market_positioning_snapshot 只包含固定五只 ETF（159915.SZ、510050.SH、510300.SH、510500.SH、588000.SH）的 PIT fd_share，单位为万份。份额增加或减少只表示申购或赎回事实，只能作为配置/positioning 代理；不得称为资金净流入、北向资金、机构持仓所有权或主动买卖金额。缺少 price、NAV 与 cash 时不得计算资金流，也不得声称份额变化导致未来价格。每只 ETF 的 accepted claim 必须分别引用实际 get_market_positioning_snapshot result event 的真实 evidence_id。当前证据不是已实现的未来 5D 结果。Autoresearch 只能依据独立的 510500.SH 相对 benchmark、T+1 open 后 5 个交易日且按 PIT volatility 归一化的 outcome 演进 prompt/tool interpretation。KNOT 只审计实际工具使用与引用，经济 signal 可诚实为 UNKNOWN，且不能提供经济 label。固定五只 ETF 任一缺失时按现有 stage contract 拒绝；fallback=false，不得伪造 neutral。
+get_market_positioning_snapshot 只包含固定五只 ETF（159915.SZ、510050.SH、510300.SH、510500.SH、588000.SH）的 PIT fd_share，单位为万份。份额增加或减少只表示申购或赎回事实，只能作为配置/positioning 代理；不得称为资金净流入、北向资金、机构持仓所有权或主动买卖金额。缺少 price、NAV 与 cash 时不得计算资金流，也不得声称份额变化导致未来价格。每只 ETF 的 accepted claim 必须分别引用实际 get_market_positioning_snapshot result event 的真实 evidence_id。当前证据不是已实现的未来 5D 结果。Autoresearch 只能依据独立的 510500.SH 相对 benchmark、T+1 open 后 5 个交易日且按 PIT volatility 归一化的 outcome 演进 prompt/tool interpretation。经济 signal 可诚实为 UNKNOWN。固定五只 ETF 任一缺失时按现有 stage contract 拒绝；fallback=false，不得伪造 neutral。
 按运行时 schema 提交 mode=DIRECT。
 不得生成跨 Agent 综合结论；只提交本角色的模型输出。
 

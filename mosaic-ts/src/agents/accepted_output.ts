@@ -483,6 +483,11 @@ export function acceptedOutputRecordRef<K extends AcceptedOutputKind>(
   };
 }
 
+export interface AcceptedAgentOutputStoreSnapshot {
+  records: AcceptedAgentOutputRecord[];
+  claim_graphs: Record<string, ClaimEvidenceGraph>;
+}
+
 export class AcceptedAgentOutputStore {
   readonly #records = new Map<string, AcceptedAgentOutputRecord>();
   readonly #claimGraphs = new Map<string, ClaimEvidenceGraph>();
@@ -541,6 +546,24 @@ export class AcceptedAgentOutputStore {
     return [...this.#records.values()].sort((left, right) =>
       left.accepted_output_id.localeCompare(right.accepted_output_id),
     );
+  }
+
+  snapshot(): AcceptedAgentOutputStoreSnapshot {
+    const records = this.records();
+    const claim_graphs: Record<string, ClaimEvidenceGraph> = {};
+    for (const record of records) {
+      const graph = this.#claimGraphs.get(record.accepted_output_id);
+      if (graph) claim_graphs[record.accepted_output_id] = structuredClone(graph);
+    }
+    return { records: structuredClone(records), claim_graphs };
+  }
+
+  restore(snapshot: AcceptedAgentOutputStoreSnapshot): void {
+    this.#records.clear();
+    this.#claimGraphs.clear();
+    for (const record of snapshot.records) {
+      this.putReadOnly(record, snapshot.claim_graphs[record.accepted_output_id]);
+    }
   }
 
   resolveClaimGraph<K extends AcceptedOutputKind>(

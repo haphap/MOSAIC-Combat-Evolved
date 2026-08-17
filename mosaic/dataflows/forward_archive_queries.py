@@ -20,7 +20,6 @@ from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.gov_policy import (
     GOV_POLICY_CATEGORIES,
     _date_window,
-    _filter_keywords,
     _records_in_window,
     _records_to_markdown_csv,
     gov_policy_cache_dir,

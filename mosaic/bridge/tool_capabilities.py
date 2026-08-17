@@ -3984,6 +3984,7 @@ class AgentToolCapabilityStore:
             "attempt_status",
             "input_tokens",
             "output_tokens",
+            "validation_issues",
             "provider_usage_evidence_id",
             "provider_usage_evidence_hash",
             "direction_comparison_audit_id",
@@ -4000,6 +4001,7 @@ class AgentToolCapabilityStore:
             "attempt_status": _required_string(usage_report, "attempt_status"),
             "input_tokens": usage_report.get("input_tokens"),
             "output_tokens": usage_report.get("output_tokens"),
+            "validation_issues": usage_report.get("validation_issues"),
             "provider_usage_evidence_id": _required_string(
                 usage_report, "provider_usage_evidence_id"
             ),
@@ -4015,6 +4017,30 @@ class AgentToolCapabilityStore:
             "conflict_review_id": usage_report.get("conflict_review_id"),
             "conflict_review_hash": usage_report.get("conflict_review_hash"),
         }
+        validation_issues = normalized["validation_issues"]
+        if not isinstance(validation_issues, list):
+            raise ValueError("Sector validation_issues must be a list")
+        normalized_issues: dict[tuple[str, str, str, str], dict[str, str]] = {}
+        issue_keys = {"validator", "reason_code", "json_path", "message"}
+        for issue in validation_issues:
+            if not isinstance(issue, Mapping) or set(issue) != issue_keys:
+                raise ValueError("Sector validation issue fields mismatch")
+            normalized_issue = {
+                key: _required_string(issue, key)
+                for key in ("validator", "reason_code", "json_path", "message")
+            }
+            if len(normalized_issue["message"]) > 512:
+                raise ValueError("Sector validation issue message is too long")
+            issue_key = tuple(normalized_issue[key] for key in (
+                "validator",
+                "reason_code",
+                "json_path",
+                "message",
+            ))
+            normalized_issues[issue_key] = normalized_issue
+        normalized["validation_issues"] = [
+            normalized_issues[key] for key in sorted(normalized_issues)
+        ]
         if normalized["attempted_stage"] not in {
             "DIRECTION_RESEARCH",
             "CONFLICT_REVIEW",
@@ -6567,9 +6593,6 @@ def get_capability_store() -> AgentToolCapabilityStore:
                 sector_archive_store=None,
                 policy_cache_dir=os.getenv("MOSAIC_GOV_POLICY_CACHE_DIR"),
             )
-            forward_source_preparer = ForwardArchiveSourcePreparer(
-                reader=forward_query_reader
-            )
             source_evidence_authority = SectorRelationshipSourceEvidenceAuthority(
                 root=forward_archive_root,
                 receipt_store=receipt_store,
@@ -6645,7 +6668,12 @@ def get_capability_store() -> AgentToolCapabilityStore:
                     agent_data_ledger=agent_data_ledger,
                 ),
                 source_evidence_authority=source_evidence,
-                source_preparer=forward_source_preparer,
+                source_preparer=(
+                    None
+                    if os.getenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS")
+                    == "structured_smoke"
+                    else ForwardArchiveSourcePreparer(reader=forward_query_reader)
+                ),
             )
             sector_adaptive_preparer = SectorRelationshipAdaptiveQueryPreparer(
                 root=Path(__file__).resolve().parents[2],

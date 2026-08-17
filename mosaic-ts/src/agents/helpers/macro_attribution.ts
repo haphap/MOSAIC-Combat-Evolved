@@ -95,7 +95,13 @@ const MacroTargetAttributionSchema = z.union([
 ]);
 const MacroProviderTargetAttributionSchema = z
   .object({
-    agent_id: z.enum(MACRO_AGENT_IDS),
+    agent_id: z
+      .enum(MACRO_AGENT_IDS)
+      .describe(
+        "agent_id must be one of the eight Macro source Agents (china, us_economy, eu_economy, " +
+          "central_bank, us_financial_conditions, euro_area_financial_conditions, commodities, " +
+          "institutional_flow), never the affected Sector, Layer-3, or Layer-4 Agent.",
+      ),
     target_type: TargetMacroInputAttributionTypeSchema,
     target_local_ref: LocalRefSchema.regex(/^[^$].*$/),
     claim_ref_used: ClaimRefSchema,
@@ -180,7 +186,13 @@ export const MACRO_ATTRIBUTION_PROVIDER_INSTRUCTION =
   "euro_area_financial_conditions, commodities, and institutional_flow, plus " +
   "target_attributions. Fill every summary key with effect and the " +
   "single claim_ref_used (null only for NOT_MATERIAL). The runtime converts " +
-  "this bounded extraction object into the canonical MacroInputAttributionSubmission rows.";
+  "this bounded extraction object into the canonical MacroInputAttributionSubmission rows. " +
+  "For target_attributions, agent_id is always one of the eight Macro source Agents " +
+  "(china, us_economy, eu_economy, central_bank, us_financial_conditions, " +
+  "euro_area_financial_conditions, commodities, institutional_flow), never the affected " +
+  "Sector, Layer-3, or Layer-4 Agent. target_type/target_local_ref identify the affected " +
+  "object. Keep the Sector/L3/L4 agent's own evidence in its local claims/claim_refs; " +
+  "never put a downstream agent such as semiconductor in agent_id.";
 
 const MacroInputAttributionProviderJsonSchema = (() => {
   const { $schema: _schemaDialect, ...nestedSchema } = z.toJSONSchema(

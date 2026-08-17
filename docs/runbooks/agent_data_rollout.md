@@ -1,6 +1,6 @@
 # Agent Data Rollout Runbook
 
-This runbook operates the pre-capability data gate for the 29-stage Agent
+This runbook operates the pre-capability data gate for the 26-stage Agent
 cycle. It does not change trading promotion gates. Report-derived context
 remains shadow-only.
 
@@ -25,6 +25,61 @@ The live CLI and Bridge fail closed with stable alert tokens:
 
 Alert on any of these tokens as P1 after Gate F. Never put provider keys in a
 command, log, runbook, or Git. Load them through the deployment secret store.
+
+## One-day structured-smoke acceptance and checkpoint resume
+
+This is a non-production contract-acceptance route only. Set operator-owned
+environment values; do not put API keys in commands or files. The empty
+portfolio fixture must be exactly the two-byte JSON array `[]` (with no
+positions object or extra fields).
+
+```bash
+set -euo pipefail
+export MOSAIC_REPO_ROOT="${MOSAIC_REPO_ROOT:?set repository root}"
+export SMOKE_DATE="${SMOKE_DATE:?set YYYY-MM-DD trading date}"
+export MOSAIC_LLM_PROVIDER="${MOSAIC_LLM_PROVIDER:?set provider from operator configuration}"
+export MOSAIC_LLM_BASE_URL="${MOSAIC_LLM_BASE_URL:?set provider endpoint from operator configuration}"
+export MOSAIC_LLM_MODEL="${MOSAIC_LLM_MODEL:?set provider model from operator configuration}"
+export MOSAIC_LLM_API_KEY="${MOSAIC_LLM_API_KEY:?load API key from env/secret store}"
+export MAX_TOKENS="${MAX_TOKENS:?set an operator/provider-approved capability value}"
+export AGENT_TIMEOUT_SECONDS="${AGENT_TIMEOUT_SECONDS:?set an operator-approved timeout}"
+export CHECKPOINT_PATH="${CHECKPOINT_PATH:?set isolated checkpoint path}"
+export POSITIONS_PATH="${POSITIONS_PATH:?set isolated positions path}"
+export OUTPUT_PATH="${OUTPUT_PATH:?set isolated final-state output path}"
+export MOSAIC_LLM_THINKING_MODE="${MOSAIC_LLM_THINKING_MODE:-enabled}"
+
+cd "$MOSAIC_REPO_ROOT"
+mkdir -p .mosaic/tmp
+SMOKE_ROOT="$(mktemp -d '.mosaic/tmp/structured-smoke.XXXXXX')"
+eval "$(uv run python scripts/build_structured_smoke_fixtures.py \
+  --root \"$SMOKE_ROOT\" --date \"$SMOKE_DATE\" --shell-exports)"
+test -f "$POSITIONS_PATH"
+printf '[]' | cmp -s - "$POSITIONS_PATH"
+
+daily_cycle_args=(
+  --cohort cohort_default --date "$SMOKE_DATE" --structured-smoke
+  --llm-provider "$MOSAIC_LLM_PROVIDER" --model "$MOSAIC_LLM_MODEL"
+  --base-url "$MOSAIC_LLM_BASE_URL" --checkpoint "$CHECKPOINT_PATH"
+  --current-positions-file "$POSITIONS_PATH" --out "$OUTPUT_PATH"
+  --agent-timeout-seconds "$AGENT_TIMEOUT_SECONDS" --max-tokens "$MAX_TOKENS"
+)
+# Initial invocation: no --resume.
+pnpm --dir mosaic-ts dev daily-cycle \
+  "${daily_cycle_args[@]}"
+```
+
+After an interruption, invoke the same arguments with only `--resume` added:
+
+```bash
+pnpm --dir mosaic-ts dev daily-cycle "${daily_cycle_args[@]}" --resume
+```
+
+Resume must
+open the same checkpoint identity, stage order, and hashes; it continues after
+the accepted stage prefix and never replays that prefix. Any identity, order,
+or hash drift fails closed. Thinking must not be defaulted off, and the token
+limit remains an operator/provider capability setting rather than a machine-
+specific constant. Do not use this route for live, paper, or production writes.
 
 ## Historical replay procedure
 
@@ -110,7 +165,7 @@ shadow namespace:
 - 26/26 external route eligibility receipts are `READY`;
 - every runtime consumer seals the required runtime authority or a strict
   not-required receipt;
-- all 29 stages have exactly one accepted-output or sealed-skip outcome;
+- all 26 stages have exactly one accepted-output or sealed-skip outcome;
 - exactly one terminal `COMMITTED` event and one matching publication exist;
 - no `OPEN` or `ABORTED` event is consumed by scorecard or KNOT;
 - production database hashes, sizes, and mtimes are unchanged;
@@ -142,6 +197,11 @@ Gate F requires 20 distinct successful historical trading dates and zero unresol
 mode alerts, implicit fallbacks, future evidence, partial capability, or
 private-data leakage. Keep the real replay retrieval time; do not relabel a
 replay as an original production capture or generate synthetic days.
+
+The historical replay/source-route count is a separate metric from the Agent
+roster and tool count: the `26` route admission above counts source routes and
+their eligibility receipts. Do not mechanically translate it into Agent
+stages or `29` tools without a code-backed route definition.
 
 ## Enforce canary and rollback drill
 

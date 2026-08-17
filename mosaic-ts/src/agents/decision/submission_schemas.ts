@@ -71,7 +71,7 @@ const CroActionSchema = z
 export const CroSubmissionSchema = z
   .object({
     agent_id: z.literal("cro"),
-    review_disposition: z.enum(["REVIEW_ACTIONS", "NO_OBJECTION", "BLOCK_ALL"]),
+    review_disposition: z.enum(["REVIEW_ACTIONS", "NO_OBJECTION", "BLOCK_ALL", "NO_RISK_ACTION"]),
     candidate_actions: z.array(CroActionSchema).max(50),
     correlated_risks: z.array(RiskSchema).max(10),
     black_swan_scenarios: z.array(RiskSchema).max(10),
@@ -90,12 +90,13 @@ export const CroSubmissionSchema = z
     uniqueFields(submission.correlated_risks, ["risk_local_id"], "correlated_risks", ctx);
     uniqueFields(submission.black_swan_scenarios, ["risk_local_id"], "black_swan_scenarios", ctx);
     const derived =
-      submission.candidate_actions.length > 0 &&
-      submission.candidate_actions.every((action) => action.action === "VETO")
-        ? "BLOCK_ALL"
-        : submission.candidate_actions.every((action) => action.action === "NO_OBJECTION")
-          ? "NO_OBJECTION"
-          : "REVIEW_ACTIONS";
+      submission.candidate_actions.length === 0
+        ? "NO_RISK_ACTION"
+        : submission.candidate_actions.every((action) => action.action === "VETO")
+          ? "BLOCK_ALL"
+          : submission.candidate_actions.every((action) => action.action === "NO_OBJECTION")
+            ? "NO_OBJECTION"
+            : "REVIEW_ACTIONS";
     if (submission.review_disposition !== derived) {
       issue(
         ctx,
@@ -275,10 +276,20 @@ const ExecutionBase = z.object({
   ...ClaimsFields,
 });
 
+const EmptyExecutionBase = z.object({
+  agent_id: z.literal("autonomous_execution"),
+  confidence: ConfidenceSchema,
+  order_assessments: z.tuple([]),
+  ...ClaimsFields,
+});
+
 export const AutonomousExecutionSubmissionSchema = z
   .discriminatedUnion("execution_disposition", [
     ExecutionBase.extend({ execution_disposition: z.literal("ORDERS_ASSESSED") }).strict(),
     ExecutionBase.extend({ execution_disposition: z.literal("BLOCKED") }).strict(),
+    EmptyExecutionBase.extend({
+      execution_disposition: z.literal("NO_EXECUTION_ACTION"),
+    }).strict(),
   ])
   .superRefine((submission, ctx) => {
     uniqueFields(
@@ -287,14 +298,17 @@ export const AutonomousExecutionSubmissionSchema = z
       "order_assessments",
       ctx,
     );
-    const allBlocked = submission.order_assessments.every(
-      (assessment) => assessment.feasibility === "BLOCKED",
-    );
-    if ((submission.execution_disposition === "BLOCKED") !== allBlocked) {
+    const expectedDisposition =
+      submission.order_assessments.length === 0
+        ? "NO_EXECUTION_ACTION"
+        : submission.order_assessments.every((assessment) => assessment.feasibility === "BLOCKED")
+          ? "BLOCKED"
+          : "ORDERS_ASSESSED";
+    if (submission.execution_disposition !== expectedDisposition) {
       issue(
         ctx,
         ["execution_disposition"],
-        "BLOCKED is required exactly when every order assessment is blocked",
+        `execution_disposition must be deterministically derived as ${expectedDisposition}`,
       );
     }
     validateClaimOwnership(submission, ctx);
@@ -361,7 +375,7 @@ export const CioProposalAllCashSubmissionSchema =
 const CroResolutionSchema = z
   .object({
     cro_action_local_ref: LocalIdSchema,
-    resolution: z.enum(["COMPLIED", "MORE_CONSERVATIVE"]),
+    resolution: z.enum(["COMPLIED", "MORE_CONSERVATIVE", "STAGED"]),
     reason: ConciseTextSchema,
     claim_refs: ClaimRefsSchema,
   })

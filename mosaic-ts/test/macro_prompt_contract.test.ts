@@ -172,7 +172,7 @@ describe("generated bundled macro prompts", () => {
     expect(zh).toContain("event-triggered、T+1 open 后 5 个交易日");
     expect(zh).toContain("按 PIT volatility 归一化的 A-share role-path outcome");
     expect(zh).toContain("半年一次的 component weights");
-    expect(zh).toContain("KNOT 只审计实际工具使用与引用，不能提供经济 label");
+    expect(zh).not.toContain("KNOT");
     expect(zh).toContain("fallback=false 表示缺失证据必须拒绝");
     expect(zh).toContain("不得判断 PBOC reaction function");
     expect(en).toContain("PIT observations and releases, not an A-share signal");
@@ -186,7 +186,7 @@ describe("generated bundled macro prompts", () => {
     );
     expect(en).toContain("normalized by PIT volatility");
     expect(en).toContain("semiannual component weights");
-    expect(en).toContain("KNOT audits actual tool use and citations only");
+    expect(en).not.toContain("KNOT");
     expect(en).toContain("fallback=false means missing evidence must be rejected");
     expect(renderMacroPromptBody("institutional_flow", "en", "cohort_default")).not.toContain(
       "semiannual component weights",
@@ -229,7 +229,7 @@ describe("generated bundled macro prompts", () => {
     expect(zh).toContain("event-triggered、T+1 open 后 5 个交易日");
     expect(zh).toContain("按 PIT volatility 归一化的 A-share role-path outcome");
     expect(zh).toContain("半年一次的 component weights");
-    expect(zh).toContain("KNOT 只审计实际工具使用与引用，不能提供经济 label");
+    expect(zh).not.toContain("KNOT");
     expect(zh).toContain("fallback=false 表示缺失证据必须拒绝");
     expect(en).toContain("PIT PBOC and domestic-liquidity evidence, not an A-share signal");
     expect(en).toContain("OMO, LPR, and official policy evidence");
@@ -240,7 +240,7 @@ describe("generated bundled macro prompts", () => {
       "real evidence_id values from the actual get_central_bank_snapshot result event",
     );
     expect(en).toContain("semiannual component weights");
-    expect(en).toContain("KNOT audits actual tool use and citations only");
+    expect(en).not.toContain("KNOT");
     expect(renderMacroPromptBody("institutional_flow", "en", "cohort_default")).not.toContain(
       "registered nominal CGB 2Y/10Y and their slope",
     );
@@ -289,7 +289,7 @@ describe("generated bundled macro prompts", () => {
     expect(zh).toContain("独立、fixed non-overlapping、T+1 open 后 5 个交易日");
     expect(zh).toContain("按 PIT volatility 归一化的 outcome");
     expect(zh).toContain("半年一次的 component weights");
-    expect(zh).toContain("KNOT 只审计实际工具使用与引用，不能提供经济 label");
+    expect(zh).not.toContain("KNOT");
     expect(zh).toContain("fallback=false 表示缺失证据必须拒绝");
     expect(en).toContain("PIT US financial evidence, not an A-share signal");
     expect(en).toContain("FOMC statement and EFFR/SOFR");
@@ -303,7 +303,7 @@ describe("generated bundled macro prompts", () => {
     );
     expect(en).toContain("independent, fixed non-overlapping outcome");
     expect(en).toContain("semiannual component weights");
-    expect(en).toContain("KNOT audits actual tool use and citations only");
+    expect(en).not.toContain("KNOT");
     expect(renderMacroPromptBody("institutional_flow", "en", "cohort_default")).not.toContain(
       "actual USDCNH.FXCM offshore CNH proxy",
     );
@@ -353,7 +353,7 @@ describe("generated bundled macro prompts", () => {
     expect(zh).toContain("当前证据不是已实现的 5D 结果");
     expect(zh).toContain("独立、fixed non-overlapping、T+1 open 后 5 个交易日");
     expect(zh).toContain("半年一次的 component weights");
-    expect(zh).toContain("KNOT 只审计实际工具使用与引用，不能提供经济 label");
+    expect(zh).not.toContain("KNOT");
     expect(zh).toContain("fallback=false 表示缺失证据必须拒绝");
     expect(en).toContain("PIT ECB and euro financial evidence, not an A-share signal");
     expect(en).toContain("DFR, MRR, and €STR");
@@ -367,7 +367,7 @@ describe("generated bundled macro prompts", () => {
     );
     expect(en).toContain("independent, fixed non-overlapping outcome");
     expect(en).toContain("semiannual component weights");
-    expect(en).toContain("KNOT audits actual tool use and citations only");
+    expect(en).not.toContain("KNOT");
     expect(renderMacroPromptBody("institutional_flow", "en", "cohort_default")).not.toContain(
       "registered joint bank/sovereign default-probability stress indicators",
     );
@@ -409,7 +409,7 @@ describe("generated bundled macro prompts", () => {
     expect(zh).toContain("当前证据不是已实现的 5D 结果");
     expect(zh).toContain("独立、fixed non-overlapping、T+1 open 后 5 个交易日");
     expect(zh).toContain("半年一次的 component weights");
-    expect(zh).toContain("KNOT 只审计实际工具使用与引用，不能提供经济 label");
+    expect(zh).not.toContain("KNOT");
     expect(zh).toContain("fallback=false 表示缺失证据必须拒绝");
     expect(en).toContain("five registered commodity families, not an A-share signal");
     expect(en).toContain("SC@INE crude-oil term structure and inventory");
@@ -422,7 +422,7 @@ describe("generated bundled macro prompts", () => {
     );
     expect(en).toContain("independent, fixed non-overlapping outcome");
     expect(en).toContain("semiannual component weights");
-    expect(en).toContain("KNOT audits actual tool use and citations only");
+    expect(en).not.toContain("KNOT");
     expect(renderMacroPromptBody("institutional_flow", "en", "cohort_default")).not.toContain(
       "SC@INE crude-oil term structure and inventory",
     );
@@ -518,7 +518,7 @@ describe("generated bundled macro prompts", () => {
     expect(zh).toContain("event-triggered、T+1 open 后 5 个交易日");
     expect(zh).toContain("按 PIT volatility 归一化的 A-share role-path outcome");
     expect(zh).toContain("半年一次的 component weights");
-    expect(zh).toContain("KNOT 只审计实际工具使用与引用，不能提供经济 label");
+    expect(zh).not.toContain("KNOT");
     expect(zh).toContain("fallback=false 表示缺失证据必须拒绝");
     expect(zh).toContain("不得生成跨 Agent 结论");
     expect(en).toContain("PIT ALFRED real-economy observations, not an A-share signal");
@@ -533,7 +533,7 @@ describe("generated bundled macro prompts", () => {
     );
     expect(en).toContain("normalized by PIT volatility");
     expect(en).toContain("semiannual component weights");
-    expect(en).toContain("KNOT audits actual tool use and citations only");
+    expect(en).not.toContain("KNOT");
     expect(en).toContain("fallback=false means missing evidence must be rejected");
     expect(renderMacroPromptBody("eu_economy", "en", "cohort_default")).not.toContain(
       "PIT ALFRED real-economy observations",
@@ -582,7 +582,7 @@ describe("generated bundled macro prompts", () => {
     expect(zh).toContain("event-triggered、T+1 open 后 5 个交易日");
     expect(zh).toContain("按 PIT volatility 归一化的 A-share role-path outcome");
     expect(zh).toContain("半年一次的 component weights");
-    expect(zh).toContain("KNOT 只审计实际工具使用与引用，不能提供经济 label");
+    expect(zh).not.toContain("KNOT");
     expect(zh).toContain("fallback=false 表示缺失证据必须拒绝");
     expect(zh).toContain("不得生成跨 Agent 结论");
     expect(en).toContain("PIT registered EU-27 real-economy observations, not an A-share signal");
@@ -598,7 +598,7 @@ describe("generated bundled macro prompts", () => {
     );
     expect(en).toContain("normalized by PIT volatility");
     expect(en).toContain("semiannual component weights");
-    expect(en).toContain("KNOT audits actual tool use and citations only");
+    expect(en).not.toContain("KNOT");
     expect(en).toContain("fallback=false means missing evidence must be rejected");
     expect(renderMacroPromptBody("institutional_flow", "en", "cohort_default")).not.toContain(
       "Scope is EU-27 only",
@@ -755,13 +755,13 @@ describe("generated bundled macro prompts", () => {
     expect(zh).toContain("stock_research 仅作 as-of 研究证据");
     expect(zh).toContain("按实际使用工具引用对应 result-event evidence_id");
     expect(zh).toContain("T+1 open 后 21 个交易日");
-    expect(zh).toContain("KNOT 只审计工具使用，二者不得互相替代");
+    expect(zh).not.toContain("KNOT");
     expect(zh).toContain("对八个 Macro Agent");
     expect(en).toContain("snapshot defines only the frozen opportunity set");
     expect(en).toContain("stock_research only as as-of research evidence");
     expect(en).toContain("result-event evidence_id for each tool actually used");
     expect(en).toContain("21 trading days after T+1 open");
-    expect(en).toContain("KNOT audits tool usage only");
+    expect(en).not.toContain("KNOT");
     expect(en).toContain("eight Macro Agents");
   });
 
@@ -796,13 +796,13 @@ describe("generated bundled macro prompts", () => {
     expect(zh).toContain("holding_period 是 thesis horizon");
     expect(zh).toContain("T+1 open 后 21 个交易日 net excess return 只演进候选选择");
     expect(zh).toContain("不验证也不得演进 moat、ROIC 或 compounding 判据");
-    expect(zh).toContain("KNOT 只审计工具使用，不能替代经济结果");
+    expect(zh).not.toContain("KNOT");
     expect(en).toContain("fundamentals for ROIC, profitability, and valuation");
     expect(en).toContain("balance sheet, income statement, and cashflow");
     expect(en).toContain("result-event evidence_id values for each tool actually used");
     expect(en).toContain("21 trading days after T+1 open may evolve only candidate selection");
     expect(en).toContain("neither validates nor may evolve moat, ROIC, or compounding criteria");
-    expect(en).toContain("KNOT audits tool usage only and cannot substitute for economic outcomes");
+    expect(en).not.toContain("KNOT");
     expect(en).toContain("eight Macro Agents");
     expect(renderBundledPrompt("druckenmiller", "en")).not.toContain(
       "whose long-term theses remain immature under the current contract",
@@ -841,7 +841,7 @@ describe("generated bundled macro prompts", () => {
     expect(zh).toContain("holding_period 是 thesis horizon");
     expect(zh).toContain("T+1 open 后 21 个交易日 net excess return 只演进候选选择");
     expect(zh).toContain("不能证明 intrinsic value 或 balance-sheet quality");
-    expect(zh).toContain("KNOT 只审计工具使用，不能替代经济 outcome");
+    expect(zh).not.toContain("KNOT");
     expect(en).toContain(
       "fundamentals for valuation dislocation, profitability, and earnings quality",
     );
@@ -850,7 +850,7 @@ describe("generated bundled macro prompts", () => {
     expect(en).toContain("result-event evidence_id values for each tool actually used");
     expect(en).toContain("21 trading days after T+1 open may evolve only candidate selection");
     expect(en).toContain("cannot prove intrinsic value or balance-sheet quality");
-    expect(en).toContain("KNOT audits tool usage only and cannot substitute for economic outcomes");
+    expect(en).not.toContain("KNOT");
     expect(en).toContain("eight Macro Agents");
     for (const agent of ["munger", "druckenmiller"]) {
       expect(renderBundledPrompt(agent, "en")).not.toContain(
@@ -891,7 +891,7 @@ describe("generated bundled macro prompts", () => {
     expect(zh).toContain("按实际使用工具引用真实 result-event evidence_id");
     expect(zh).toContain("holding_period 是 thesis horizon");
     expect(zh).toContain("T+1 open 后 21 个交易日 net excess return 只演进候选选择");
-    expect(zh).toContain("KNOT 只审计工具使用，不能替代经济 outcome");
+    expect(zh).not.toContain("KNOT");
     expect(en).toContain("fundamentals for quality, profitability, and valuation");
     expect(en).toContain("balance sheet, income statement, and cashflow");
     expect(en).toContain(
@@ -900,7 +900,7 @@ describe("generated bundled macro prompts", () => {
     expect(en).toContain("result-event evidence_id values for each tool actually used");
     expect(en).toContain("21 trading days after T+1 open may evolve only candidate selection");
     expect(en).toContain("cannot prove governance improvement or durable quality");
-    expect(en).toContain("KNOT audits tool usage only and cannot substitute for economic outcomes");
+    expect(en).not.toContain("KNOT");
     expect(en).toContain("eight Macro Agents");
     for (const agent of ["munger", "burry", "druckenmiller"]) {
       expect(renderBundledPrompt(agent, "en")).not.toContain(
@@ -940,13 +940,13 @@ describe("generated bundled macro prompts", () => {
     expect(zh).toContain("按实际使用工具引用真实 result-event evidence_id");
     expect(zh).toContain("当前证据不得冒充已实现的 5D risk");
     expect(zh).toContain("action precision、recall、specificity 与 probability calibration");
-    expect(zh).toContain("KNOT 只审计工具使用，不能替代经济 outcome");
+    expect(zh).not.toContain("KNOT");
     expect(zh).toContain("fallback=false 表示证据不完整时必须拒绝");
     expect(en).toContain("risk snapshot defines only frozen proposal candidates");
     expect(en).toContain("result-event evidence_id values for each tool actually used");
     expect(en).toContain("Current evidence must not be presented as realized 5D risk");
     expect(en).toContain("action precision, recall, specificity, and probability calibration");
-    expect(en).toContain("KNOT audits tool usage only and cannot substitute for economic outcomes");
+    expect(en).not.toContain("KNOT");
     expect(en).toContain("fallback=false means incomplete evidence must be rejected");
     expect(en).toContain("eight Macro Agents");
     for (const agent of ["cio", "autonomous_execution"]) {
@@ -988,7 +988,7 @@ describe("generated bundled macro prompts", () => {
     expect(zh).toContain("按实际使用工具引用真实 result-event evidence_id");
     expect(zh).toContain("当前证据不得冒充已实现的 5D alpha");
     expect(zh).toContain("selected-pick utility、incremental utility、missed opportunity");
-    expect(zh).toContain("KNOT 只审计工具使用，不能替代经济 outcome");
+    expect(zh).not.toContain("KNOT");
     expect(zh).toContain("fallback=false 表示证据缺失即拒绝");
     expect(en).toContain("snapshot defines only frozen novel candidates");
     expect(en).toContain("exact candidate_ref and ts_code from the snapshot");
@@ -998,7 +998,7 @@ describe("generated bundled macro prompts", () => {
     expect(en).toContain(
       "selected-pick utility, incremental utility, missed opportunity, and confidence calibration",
     );
-    expect(en).toContain("KNOT audits tool usage only and cannot substitute for economic outcomes");
+    expect(en).not.toContain("KNOT");
     expect(en).toContain("fallback=false means missing evidence must be rejected");
     expect(en).toContain("eight Macro Agents");
     for (const agent of ["cro", "cio", "autonomous_execution"]) {
@@ -1057,7 +1057,7 @@ describe("generated bundled macro prompts", () => {
     expect(zh).toContain("feasibility classification 30%");
     expect(zh).toContain("target-delta attainment 20%");
     expect(zh).toContain("policy compliance 10%");
-    expect(zh).toContain("KNOT 只审计工具使用，不能替代经济结果");
+    expect(zh).not.toContain("KNOT");
     expect(zh).toContain("fallback=false 表示证据缺失即拒绝");
     expect(zh).toContain("不得直接读取、复述或归因 Macro gate 或八个 Macro 输出");
     expect(en).toContain("execution_snapshot defines only the frozen order intents");
@@ -1065,7 +1065,7 @@ describe("generated bundled macro prompts", () => {
     expect(en).toContain("result-event evidence_id values for each tool actually used");
     expect(en).toContain("Current evidence must not be presented as realized T+1 execution");
     expect(en).toContain("normalized cost error at 40%");
-    expect(en).toContain("KNOT audits tool usage only and cannot substitute for economic outcomes");
+    expect(en).not.toContain("KNOT");
     expect(en).toContain("fallback=false means missing evidence must be rejected");
     expect(en).toContain("Macro gate or eight Macro outputs");
     for (const agent of ["cro", "alpha_discovery", "cio"]) {
@@ -1113,7 +1113,7 @@ describe("generated bundled macro prompts", () => {
     expect(zh).toContain("relative return 50%、drawdown 25%、turnover cost 15%");
     expect(zh).toContain("constraint compliance 10%");
     expect(zh).toContain("PROPOSAL 没有单独 outcome");
-    expect(zh).toContain("KNOT 只审计工具使用，不能替代经济结果");
+    expect(zh).not.toContain("KNOT");
     expect(zh).toContain("fallback=false 表示证据缺失即拒绝");
     expect(en).toContain("PROPOSAL: get_cio_decision_snapshot freezes only eight Macro");
     expect(en).toContain("thesis_status, and risk_flags");
@@ -1132,7 +1132,7 @@ describe("generated bundled macro prompts", () => {
     expect(en).toContain("relative return 50%, drawdown 25%, turnover cost 15%");
     expect(en).toContain("constraint compliance 10%");
     expect(en).toContain("PROPOSAL has no separate outcome");
-    expect(en).toContain("KNOT audits tool usage only and cannot substitute for economic outcomes");
+    expect(en).not.toContain("KNOT");
     expect(en).toContain("eight Macro Agents");
     for (const agent of ["cro", "alpha_discovery", "autonomous_execution"]) {
       expect(renderBundledPrompt(agent, "en")).not.toContain("relative return 50%");

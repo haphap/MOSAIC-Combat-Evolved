@@ -861,15 +861,6 @@ def test_membership_batches_runs_vendor_fetches_on_caller_thread() -> None:
 def test_capture_group_executes_registered_incremental_routes(
     monkeypatch,
 ) -> None:
-    registered_plan = next(
-        row
-        for row in sector_archive.SECTOR_UNIVERSE_MANIFEST["membership_query_plans"]
-        if row["sector_agent_id"] == "semiconductor"
-    )
-    classification_parameter_by_code = {
-        branch["classification_code"]: branch["parameter"]
-        for branch in registered_plan["branches"]
-    }
     plan = {
         "sector_agent_id": "semiconductor",
         "query_plan_hash": f"sha256:{'b' * 64}",
@@ -887,18 +878,8 @@ def test_capture_group_executes_registered_incremental_routes(
         "membership_query_plans",
         [plan],
     )
-    direction_ids = tuple(sector_archive.SECTOR_DIRECTION_IDS["semiconductor"])
     mapped_codes = tuple(f"6884{index:02d}.SH" for index in range(11))
     unmapped_code = "300655.SZ"
-    direction_by_code = {
-        code: direction_ids[index % len(direction_ids)]
-        for index, code in enumerate(mapped_codes)
-    }
-    classification_by_direction = {
-        row["direction_id"]: row["included_classification_codes"][0]
-        for row in sector_archive.SECTOR_UNIVERSE_MANIFEST["direction_contracts"]
-        if row["sector_agent_id"] == "semiconductor"
-    }
     monkeypatch.setattr(
         sector_archive,
         "_authoritative_etf_codes",

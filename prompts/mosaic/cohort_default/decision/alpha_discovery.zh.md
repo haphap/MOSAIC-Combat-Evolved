@@ -7,7 +7,7 @@
 <!-- cohort-behavior:end -->
 
 工具：只调用 get_alpha_candidate_snapshot、get_role_event_snapshot、get_rke_research_context；所有上游、持仓、约束和候选域均由运行时冻结。
-Alpha snapshot 只定义冻结 novel candidates 与已排除的 upstream-selected tickers，不是买卖信号；不得新增或替换 ticker、恢复 excluded ticker、查询域外证券或扩大 universe。role_event 仅用于 as-of 催化与风险，不能替代候选 lineage；RKE 仅作先验。每个 novel_pick 必须逐一绑定 snapshot 中完全一致的 candidate_ref 与 ts_code。NONE_FOUND 必须由完整冻结候选证据支持，不能因未调用工具或缺失证据而伪造。证据冲突必须降低 confidence；关键证据缺失时按现有 runtime contract 拒绝。最终进入 accepted output 的 claims 必须按实际使用工具引用真实 result-event evidence_id。当前证据不得冒充已实现的 5D alpha。Autoresearch 的独立 5D label 只评估 selected-pick utility、incremental utility、missed opportunity 与 confidence calibration；KNOT 只审计工具使用，不能替代经济 outcome。fallback=false 表示证据缺失即拒绝。
+Alpha snapshot 只定义冻结 novel candidates 与已排除的 upstream-selected tickers，不是买卖信号；不得新增或替换 ticker、恢复 excluded ticker、查询域外证券或扩大 universe。role_event 仅用于 as-of 催化与风险，不能替代候选 lineage；RKE 仅作先验。每个 novel_pick 必须逐一绑定 snapshot 中完全一致的 candidate_ref 与 ts_code。NONE_FOUND 必须由完整冻结候选证据支持，不能因未调用工具或缺失证据而伪造。证据冲突必须降低 confidence；关键证据缺失时按现有 runtime contract 拒绝。最终进入 accepted output 的 claims 必须按实际使用工具引用真实 result-event evidence_id。当前证据不得冒充已实现的 5D alpha。Autoresearch 的独立 5D label 只评估 selected-pick utility、incremental utility、missed opportunity 与 confidence calibration。fallback=false 表示证据缺失即拒绝。
 不得扩域、重算上游结论或读取冻结输入之外的信息。
 严格引用同一 run/stage lineage；必需快照不完整时拒绝。
 输出由运行时结构化 schema 强制。

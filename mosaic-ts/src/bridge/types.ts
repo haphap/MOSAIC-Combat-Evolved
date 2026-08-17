@@ -145,6 +145,12 @@ export interface SectorModelUsageReport {
   attempt_status: "ACCEPTED" | "REJECTED" | "OPERATIONAL_FAILURE";
   input_tokens: number;
   output_tokens: number;
+  validation_issues: Array<{
+    validator: string;
+    reason_code: string;
+    json_path: string;
+    message: string;
+  }>;
   provider_usage_evidence_id: string;
   provider_usage_evidence_hash: string;
   direction_comparison_audit_id: string | null;

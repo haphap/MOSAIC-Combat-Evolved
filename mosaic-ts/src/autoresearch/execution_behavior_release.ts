@@ -68,6 +68,7 @@ import {
 export const EXECUTION_BEHAVIOR_RELEASE_SCHEMA_VERSION = "execution_behavior_release_manifest_v4";
 export const EXECUTION_BEHAVIOR_RELEASE_CONTRACT_VERSION = "execution_behavior_release_v2";
 export const STRUCTURED_PROVIDER_CONTRACT_VERSION = "structured_provider_contract_v2";
+const EXECUTION_BEHAVIOR_CONTRACT_COUNT = ALL_AGENTS.length * 2;
 
 export const STRUCTURED_OUTPUT_SCHEMA_PHASES = [
   "DEFAULT",
@@ -137,15 +138,12 @@ const ExecutionBehaviorReleaseManifestBaseSchema = z
 
 export const ExecutionBehaviorReleaseManifestSchema =
   ExecutionBehaviorReleaseManifestBaseSchema.extend({
-    execution_contracts: z.array(ExecutionBehaviorAgentContractSchema).length(54),
+    execution_contracts: z
+      .array(ExecutionBehaviorAgentContractSchema)
+      .length(EXECUTION_BEHAVIOR_CONTRACT_COUNT),
   }).strict();
 
-const ImmutableExecutionBehaviorReleaseManifestSchema = z.union([
-  ExecutionBehaviorReleaseManifestSchema,
-  ExecutionBehaviorReleaseManifestBaseSchema.extend({
-    execution_contracts: z.array(ExecutionBehaviorAgentContractSchema).length(56),
-  }).strict(),
-]);
+const ImmutableExecutionBehaviorReleaseManifestSchema = ExecutionBehaviorReleaseManifestBaseSchema;
 
 export type ExecutionBehaviorReleaseManifest = z.infer<
   typeof ExecutionBehaviorReleaseManifestSchema
@@ -325,7 +323,9 @@ export function validateExecutionBehaviorReleaseManifest(
     expectedAgents.flatMap((agent) => ["en", "zh"].map((language) => `${agent}:${language}`)),
   );
   if (!setEqual(contractKeys, expectedContractKeys)) {
-    throw new Error("execution contracts must cover exactly 27 Agents x 2 languages");
+    throw new Error(
+      `execution contracts must cover exactly ${ALL_AGENTS.length} Agents x 2 languages`,
+    );
   }
 
   return validateExecutionBehaviorReleaseArtifactIntegrity(manifest);

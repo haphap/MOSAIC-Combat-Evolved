@@ -1735,6 +1735,41 @@ function sumAuditTokens(audits: readonly AgentRunAudit[]): {
   );
 }
 
+export function buildSectorProviderUsageEvidenceBody(input: {
+  capabilityId: string;
+  sectorAgentId: StandardSectorAgentId;
+  attemptedStage: SectorModelUsageReport["attempted_stage"];
+  audit: AgentAttemptAudit;
+}): Record<string, unknown> {
+  const { audit } = input;
+  return {
+    schema_version: "sector_provider_usage_evidence_v1",
+    capability_id: input.capabilityId,
+    sector_agent_id: input.sectorAgentId,
+    attempted_stage: input.attemptedStage,
+    attempt_index: audit.attempt,
+    attempt_kind: audit.kind,
+    accepted: audit.accepted,
+    output_hash: audit.output_hash,
+    prompt_tokens: audit.prompt_tokens,
+    completion_tokens: audit.completion_tokens,
+    elapsed_ms: audit.elapsed_ms,
+    error_fingerprints: audit.error_fingerprints,
+    validation_issues: buildSectorValidationIssues(audit),
+  };
+}
+
+function buildSectorValidationIssues(
+  audit: AgentAttemptAudit,
+): Array<Pick<AgentContractIssue, "validator" | "reason_code" | "json_path" | "message">> {
+  return audit.validation_issues.map(({ validator, reason_code, json_path, message }) => ({
+    validator,
+    reason_code,
+    json_path,
+    message,
+  }));
+}
+
 function sectorUsageAttemptRecorder(input: {
   api: BridgeApi;
   capability: SignedAgentToolCapability;
@@ -1744,20 +1779,13 @@ function sectorUsageAttemptRecorder(input: {
   conflictReview: { id: string; hash: string } | null;
 }): (audit: AgentAttemptAudit, rawOutput: unknown) => Promise<void> {
   return async (audit) => {
-    const evidenceBody = {
-      schema_version: "sector_provider_usage_evidence_v1",
-      capability_id: input.capability.manifest.capability_id,
-      sector_agent_id: input.agentId,
-      attempted_stage: input.attemptedStage,
-      attempt_index: audit.attempt,
-      attempt_kind: audit.kind,
-      accepted: audit.accepted,
-      output_hash: audit.output_hash,
-      prompt_tokens: audit.prompt_tokens,
-      completion_tokens: audit.completion_tokens,
-      elapsed_ms: audit.elapsed_ms,
-      error_fingerprints: audit.error_fingerprints,
-    };
+    const evidenceBody = buildSectorProviderUsageEvidenceBody({
+      capabilityId: input.capability.manifest.capability_id,
+      sectorAgentId: input.agentId,
+      attemptedStage: input.attemptedStage,
+      audit,
+    });
+    const validationIssues = buildSectorValidationIssues(audit);
     const evidenceHash = canonicalHash(evidenceBody);
     const report: SectorModelUsageReport = {
       model_subcall_id: `sector-model-subcall:${canonicalHash({
@@ -1775,6 +1803,7 @@ function sectorUsageAttemptRecorder(input: {
           : "REJECTED",
       input_tokens: audit.prompt_tokens,
       output_tokens: audit.completion_tokens,
+      validation_issues: validationIssues,
       provider_usage_evidence_id: `sector-provider-usage:${evidenceHash.slice("sha256:".length)}`,
       provider_usage_evidence_hash: evidenceHash,
       direction_comparison_audit_id: input.directionComparisonAudit?.id ?? null,

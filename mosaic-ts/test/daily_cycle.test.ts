@@ -16,7 +16,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage, type SystemMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AcceptedAgentOutputStore } from "../src/agents/accepted_output.js";
+import type {
+  AcceptedAgentOutputRecord,
+  AcceptedOutputKind,
+  AcceptedOutputRecordRef,
+} from "../src/agents/accepted_output.js";
+import {
+  AcceptedAgentOutputStore,
+  canonicalAcceptedOutputHash,
+} from "../src/agents/accepted_output.js";
+import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
 import {
   MACRO_AGENT_CONTRACT_VERSION,
   MACRO_AGENT_IDS,
@@ -28,13 +37,21 @@ import {
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
 import { STANDARD_SECTOR_AGENT_IDS } from "../src/agents/sector/_contracts.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
+import { agentToolsFor } from "../src/agents/tool_contract.js";
 import type { CurrentPositionsSnapshot, PortfolioAction } from "../src/agents/types.js";
 import type { JsonSchemaObject, ToolMetadata } from "../src/bridge/index.js";
-import type { BridgeApi, MosaicConfig } from "../src/bridge/types.js";
+import type { BridgeApi, MosaicConfig, ToolCapabilityPrepareRequest } from "../src/bridge/types.js";
 import { applyBacktestPortfolioActionsToPositions } from "../src/cli/_backtest_helpers.js";
-import { submitPaperTargetDeltaOrders } from "../src/cli/commands/daily-cycle.js";
+import {
+  DAILY_CYCLE_STAGE_ROSTER,
+  submitPaperTargetDeltaOrders,
+} from "../src/cli/commands/daily-cycle.js";
 import { fakeAgentStructuredOutput, fakeSchemaValue } from "../src/cli/fake_agent_output.js";
 import { buildDailyCycleGraph, DAILY_CYCLE_LAYER_NODES } from "../src/graph/daily_cycle.js";
+import {
+  DailyCycleCheckpoint,
+  type DailyCycleStageCheckpointController,
+} from "../src/graph/daily_cycle_checkpoint.js";
 import type { LlmHandle } from "../src/llm/factory.js";
 
 // ============================================================ helpers / shared
@@ -482,6 +499,116 @@ const fakeApi: BridgeApi = {
   },
 } as unknown as BridgeApi;
 
+function buildFormalApi(): BridgeApi {
+  let snapshotAsOf = "2024-06-24";
+  return {
+    toolsPrepareCapability: async (request: ToolCapabilityPrepareRequest) => {
+      snapshotAsOf = request.as_of;
+      const tools = agentToolsFor(request.agent_id);
+      const bundle = {
+        snapshot_bundle_id: "formal-execution-bundle",
+        snapshot_bundle_hash: `sha256:${"a".repeat(64)}`,
+        snapshot_bundle_contract_version: "agent_snapshot_bundle_v1" as const,
+        materialization_request_id: request.materialization_request_id,
+        agent_id: request.agent_id,
+        stage: request.stage,
+        as_of: request.as_of,
+        candidate_scope_hash: null,
+        runtime_input_hash: canonicalJsonHash(request.runtime_inputs),
+        tool_payload_hashes: Object.fromEntries(
+          tools.map((tool) => [tool, `sha256:${"b".repeat(64)}`]),
+        ),
+        materialized_at: "2026-08-17T00:00:00Z",
+      };
+      return {
+        bundle,
+        capability: {
+          manifest: {
+            capability_contract_version: "agent_tool_capability_v1" as const,
+            capability_id: "formal-execution-capability",
+            graph_run_id: request.graph_run_id,
+            run_slot_id: request.run_slot_id,
+            run_id: request.run_id,
+            node_id: request.node_id,
+            agent_id: request.agent_id,
+            stage: request.stage,
+            allowed_tools: [...tools],
+            as_of: request.as_of,
+            candidate_scope_hash: bundle.candidate_scope_hash,
+            snapshot_bundle_id: bundle.snapshot_bundle_id,
+            snapshot_bundle_hash: bundle.snapshot_bundle_hash,
+            issued_at: "2026-08-17T00:00:00Z",
+            expires_at: "2026-08-17T01:00:00Z",
+            nonce: "formal-execution-nonce",
+          },
+          signing_key_id: "formal-test-key",
+          signature: `hmac-sha256:${"c".repeat(64)}`,
+        },
+      };
+    },
+    toolsCall: async (
+      name: Parameters<BridgeApi["toolsCall"]>[0],
+      args: Parameters<BridgeApi["toolsCall"]>[1],
+      context: Parameters<BridgeApi["toolsCall"]>[2],
+    ) => {
+      if (name !== "get_execution_snapshot") return fakeApi.toolsCall(name, args, context);
+      const candidateScope = { agent_id: "autonomous_execution", as_of: snapshotAsOf };
+      const candidateUniverse: Array<Record<string, unknown>> = [];
+      const candidateScopeHash = canonicalAcceptedOutputHash(candidateScope);
+      const candidateUniverseHash = canonicalAcceptedOutputHash(candidateUniverse);
+      const snapshotCore = {
+        schema_version: "fake_decision_snapshot_v2",
+        agent_id: "autonomous_execution",
+        as_of: snapshotAsOf,
+        candidate_scope: candidateScope,
+        candidate_scope_hash: candidateScopeHash,
+        candidate_universe: candidateUniverse,
+        candidate_universe_id: `fake-candidate-universe:${candidateUniverseHash.slice("sha256:".length)}`,
+        candidate_universe_hash: candidateUniverseHash,
+        upstream_accepted_output_refs: [],
+        constraints: {},
+        role_context: {},
+      };
+      return {
+        text: JSON.stringify({
+          ...snapshotCore,
+          snapshot_id: `fake-decision-snapshot:autonomous_execution:${snapshotAsOf}`,
+          snapshot_hash: canonicalAcceptedOutputHash(snapshotCore),
+          evidence_id: `fake-autonomous_execution-${name}`,
+        }),
+      };
+    },
+    toolsTerminateCapability: async () => ({ terminated: true as const }),
+    darwinianFreezeStageOutcomeOpportunity: async (params: {
+      scheduled_sample_id: string;
+      agent_id: "alpha_discovery" | "cro" | "autonomous_execution" | "cio";
+      frozen_object?: Record<string, unknown>;
+    }) => {
+      if (params.agent_id !== "autonomous_execution" || !params.frozen_object) {
+        throw new Error("formal fixture only supports autonomous_execution stage freeze");
+      }
+      const payload = params.frozen_object.object_payload as Record<string, unknown>;
+      const refs = payload.upstream_accepted_output_refs;
+      if (!Array.isArray(refs)) throw new Error("formal execution frozen refs are invalid");
+      return {
+        run_allowed: true,
+        scheduled_sample_id: params.scheduled_sample_id,
+        evaluation_opportunity_set_id: "formal-execution-opportunity",
+        evaluation_opportunity_set_hash: `sha256:${"1".repeat(64)}`,
+        frozen_object_set_id: params.frozen_object.frozen_object_set_id,
+        frozen_object_set_hash: params.frozen_object.frozen_object_set_hash,
+        runtime_authority_binding: {
+          source_tool_id: "get_execution_snapshot" as const,
+          source_snapshot_hash: String(payload.snapshot_hash),
+          candidate_scope_hash: String(payload.candidate_scope_hash),
+          candidate_universe_hash: String(payload.candidate_universe_hash),
+          upstream_accepted_output_refs_hash: canonicalAcceptedOutputHash(refs),
+        },
+      };
+    },
+  } as unknown as BridgeApi;
+}
+
 const MACRO_SNAPSHOT_ROLE_BY_TOOL: Record<string, string> = {
   get_china_macro_snapshot: "china",
   get_us_macro_snapshot: "us_economy",
@@ -655,9 +782,7 @@ function formalState(): DailyCycleStateType {
     accountable_count: 0,
     accepted_count: 0,
   }));
-  const stageSkippedAgents = new Set(["cro", "autonomous_execution"]);
   const slots = ALL_AGENT_IDS.map((agentId, index) => {
-    const scheduled = stageSkippedAgents.has(agentId);
     return {
       schema_version: "outcome_schedule_slot_v2",
       outcome_schedule_slot_id: `outcome-slot:${agentId}`,
@@ -667,41 +792,14 @@ function formalState(): DailyCycleStateType {
       agent_id: agentId,
       track_key_hash: hash(600 + index),
       run_slot_id: `run-slot:${agentId}`,
-      run_slot_kind: scheduled ? ("OUTCOME_SCHEDULED" as const) : ("DOWNSTREAM_ONLY" as const),
-      scheduled_sample_id: scheduled ? `scheduled-sample:${agentId}` : null,
+      run_slot_kind:
+        agentId === "autonomous_execution"
+          ? ("OUTCOME_SCHEDULED" as const)
+          : ("DOWNSTREAM_ONLY" as const),
+      scheduled_sample_id:
+        agentId === "autonomous_execution" ? "scheduled-sample:autonomous_execution" : null,
     };
   });
-  const outcomeStageSkips = Object.fromEntries(
-    [...stageSkippedAgents].map((agentId, index) => {
-      const slot = slots.find((row) => row.agent_id === agentId);
-      if (!slot?.scheduled_sample_id) throw new Error(`missing fixture slot: ${agentId}`);
-      return [
-        agentId,
-        {
-          stage_skip_id: `stage-skip:${agentId}`,
-          stage_skip_hash: hash(800 + index),
-          schema_version: "no_evaluation_object_stage_skip_v2" as const,
-          graph_run_id: "formal-graph-run",
-          outcome_schedule_plan_id: "outcome-plan:fixture",
-          outcome_schedule_slot_id: slot.outcome_schedule_slot_id,
-          scheduled_sample_id: slot.scheduled_sample_id,
-          track_key_hash: slot.track_key_hash,
-          agent_id: agentId as "cro" | "autonomous_execution",
-          skip_reason: "NO_EVALUATION_OBJECT" as const,
-          frozen_object_set_id: `frozen-empty-set:${agentId}`,
-          frozen_object_set_hash: hash(810 + index),
-          member_count: 0 as const,
-          model_invoked: false as const,
-          eligibility_audit_id: `eligibility-audit:${agentId}`,
-          eligibility_audit_revision_id: `eligibility-revision:${agentId}`,
-          eligibility_audit_revision_hash: hash(820 + index),
-          evidence_ids: [`evidence:empty-set:${agentId}`],
-          causal_dedupe_key: hash(830 + index),
-          recorded_at: asOf,
-        },
-      ];
-    }),
-  );
   const resolutions = Object.entries(MACRO_ROLE_CONTRACTS).flatMap(([agentId, contract]) => {
     if (contract.mode !== "COMPONENTS") return [];
     const componentIds = Object.keys(contract.components);
@@ -722,7 +820,7 @@ function formalState(): DailyCycleStateType {
   return {
     ...base,
     trace_id: "formal-graph-run",
-    outcome_stage_skips: outcomeStageSkips,
+    outcome_stage_skips: {},
     outcome_opportunity_bindings: {},
     darwinian_runtime_binding: {
       schema_version: "darwinian_runtime_binding_v2",
@@ -849,9 +947,11 @@ class ScriptedLlm26 {
   async invoke(messages: BaseMessage[]): Promise<AIMessage> {
     this.invokeCalls++;
     if (this.tools.length > 0 && !messages.some((message) => message._getType() === "tool")) {
+      const tools = this.tools;
+      this.tools = [];
       return new AIMessage({
         content: "",
-        tool_calls: this.tools.map((tool, index) => ({
+        tool_calls: tools.map((tool, index) => ({
           id: `fake-tool-${index}`,
           name: tool.name,
           args: fakeSchemaValue(tool.schema),
@@ -925,7 +1025,10 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
       onLog: (msg) => logs.push(msg),
     });
 
+    vi.stubEnv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", "structured_smoke");
+    vi.stubEnv("MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH", `sha256:${"a".repeat(64)}`);
     const final = (await graph.invoke(emptyState())) as DailyCycleStateType;
+    vi.unstubAllEnvs();
 
     // L1 — eight accepted transmissions plus the deterministic completeness gate.
     expect(Object.keys(final.layer1_outputs)).toHaveLength(8);
@@ -947,26 +1050,60 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     expect(final.portfolio_actions).toEqual([]);
     expect(final.layer4_outputs.cio?.decision_disposition).toBe("ALL_CASH");
 
-    // Empty frozen CRO/execution object sets are deterministic stage skips;
-    // standard Sector agents still use research + final and CIO runs twice.
-    expect(llm.structuredCalls).toBe(33);
-    expect(Object.keys(llm.perAgentStructuredCount).length).toBe(23);
+    // Empty frozen CRO/execution object sets still run both Agents and are
+    // accepted as explicit zero-action outputs; CIO still runs twice.
+    expect(llm.structuredCalls).toBe(35);
+    expect(Object.keys(llm.perAgentStructuredCount).length).toBe(25);
     for (const agent of ALL_AGENT_IDS) {
-      if (agent === "cro" || agent === "autonomous_execution") {
-        expect(llm.perAgentStructuredCount[agent]).toBeUndefined();
-        continue;
-      }
       expect(llm.perAgentStructuredCount[agent]).toBe(
         agent === "cio" || STANDARD_SECTOR_AGENT_IDS.includes(agent as never) ? 2 : 1,
       );
     }
 
-    expect(final.llm_calls).toHaveLength(24);
+    expect(final.llm_calls).toHaveLength(26);
     expect(
       final.llm_calls.every((call) =>
         ["accepted", "accepted_empty"].includes(call.agent_run_audit?.status ?? ""),
       ),
     ).toBe(true);
+    for (const agent of ["cro", "autonomous_execution"] as const) {
+      const audit = final.llm_calls.find(
+        (call) => call.agent_run_audit?.agent === agent,
+      )?.agent_run_audit;
+      expect(audit).toMatchObject({
+        status: "accepted_empty",
+        output_source: "structured_primary",
+      });
+      expect(audit?.attempts.at(-1)?.accepted).toBe(true);
+    }
+    expect(final.layer4_outputs.cro?.review_disposition).toBe("NO_RISK_ACTION");
+    expect(final.layer4_outputs.autonomous_execution?.execution_disposition).toBe(
+      "NO_EXECUTION_ACTION",
+    );
+    expect(final.accepted_output_refs["CRO_RISK_REVIEW:cro"]).toMatchObject({
+      accepted_output_kind: "CRO_RISK_REVIEW",
+      agent_id: "cro",
+    });
+    expect(final.accepted_output_refs["EXECUTION_ASSESSMENT:autonomous_execution"]).toMatchObject({
+      accepted_output_kind: "EXECUTION_ASSESSMENT",
+      agent_id: "autonomous_execution",
+    });
+    expect(final.layer4_outputs.runtime?.stage_trace).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stage: "cro_review",
+          operation: "agent_run",
+          status: "completed",
+        }),
+        expect.objectContaining({
+          stage: "execution_feasibility",
+          operation: "agent_run",
+          status: "completed",
+        }),
+      ]),
+    );
+    expect(final.outcome_stage_skips.cro).toBeUndefined();
+    expect(final.outcome_stage_skips.autonomous_execution).toBeUndefined();
     expect(final.replay_triggered).toBe(false);
     const runtime = final.layer4_outputs.runtime;
     expect(runtime?.l4_run_snapshot_bundle).toMatchObject({
@@ -1022,7 +1159,13 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
       runtime?.stage_trace
         .filter((entry) => entry.operation === "agent_run")
         .map((entry) => entry.stage),
-    ).toEqual(["alpha_discovery", "cio_proposal", "cio_final"]);
+    ).toEqual([
+      "alpha_discovery",
+      "cio_proposal",
+      "cro_review",
+      "execution_feasibility",
+      "cio_final",
+    ]);
     expect(runtime?.stage_trace.at(-1)?.stage).toBe("shared_validation");
     expect(runtime?.stage_trace[0]).toMatchObject({
       stage: "l4_snapshot_freeze",
@@ -1036,9 +1179,99 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     expect(logs).toContainEqual(expect.stringContaining("actions=0"));
   });
 
+  it("resumes a failed Agent stage without rerunning accepted stages", async () => {
+    const checkpointPath = join(promptDir, "daily-cycle-checkpoint.json");
+    const identity = {
+      cycle_kind: "TEST",
+      as_of_date: "2024-06-24",
+      cohort: "cohort_default",
+      stage_roster: [...DAILY_CYCLE_STAGE_ROSTER],
+      graph_contract: "daily-cycle-test-graph-v1",
+      prompt_release: "test-prompt-release",
+      prompt_content_hash: `sha256:${"c".repeat(64)}`,
+      prompt_contract: `sha256:${"a".repeat(64)}`,
+      fixture_bundle_hash: null,
+      current_positions_hash: `sha256:${"b".repeat(64)}`,
+    } as const;
+    const firstLlm = new ScriptedLlm26();
+    const firstCheckpoint = DailyCycleCheckpoint.open({ path: checkpointPath, identity });
+    if (!firstCheckpoint) throw new Error("expected a fresh checkpoint");
+    const failingCheckpoint: DailyCycleStageCheckpointController = {
+      shouldSkip: (stageId) => firstCheckpoint.shouldSkip(stageId),
+      commit: (stageId, state, store) => {
+        if (stageId === "cio_final") throw new Error("controlled interruption");
+        firstCheckpoint.commit(stageId, state, store);
+      },
+    };
+    await expect(
+      buildDailyCycleGraph({
+        llmHandle: {
+          llm: firstLlm as unknown as LlmHandle["llm"],
+          provider: "fake",
+          model: "fake-model",
+          baseUrl: undefined,
+        },
+        api: fakeApi,
+        config: BASE_CONFIG,
+        promptsRoot: promptDir,
+        agentTimeoutSeconds: 0,
+        stageCheckpoint: failingCheckpoint,
+      }).invoke(emptyState()),
+    ).rejects.toThrow("controlled interruption");
+    expect(firstCheckpoint.completedStages).toEqual(DAILY_CYCLE_STAGE_ROSTER.slice(0, -1));
+
+    const resumedCheckpoint = DailyCycleCheckpoint.open({
+      path: checkpointPath,
+      resume: true,
+      identity,
+    });
+    if (!resumedCheckpoint) throw new Error("expected a resumed checkpoint");
+    const resumedLlm = new ScriptedLlm26();
+    const resumedStore = new AcceptedAgentOutputStore();
+    resumedCheckpoint.restoreAcceptedOutputStore(resumedStore);
+    const resumed = (await buildDailyCycleGraph({
+      llmHandle: {
+        llm: resumedLlm as unknown as LlmHandle["llm"],
+        provider: "fake",
+        model: "fake-model",
+        baseUrl: undefined,
+      },
+      api: fakeApi,
+      config: BASE_CONFIG,
+      promptsRoot: promptDir,
+      acceptedOutputStore: resumedStore,
+      agentTimeoutSeconds: 0,
+      stageCheckpoint: resumedCheckpoint,
+    }).invoke(resumedCheckpoint.restoredState as DailyCycleStateType)) as DailyCycleStateType;
+
+    const uninterruptedLlm = new ScriptedLlm26();
+    const uninterrupted = (await buildDailyCycleGraph({
+      llmHandle: {
+        llm: uninterruptedLlm as unknown as LlmHandle["llm"],
+        provider: "fake",
+        model: "fake-model",
+        baseUrl: undefined,
+      },
+      api: fakeApi,
+      config: BASE_CONFIG,
+      promptsRoot: promptDir,
+      agentTimeoutSeconds: 0,
+    }).invoke(emptyState())) as DailyCycleStateType;
+
+    expect(Object.keys(resumedLlm.perAgentStructuredCount)).toEqual(["cio"]);
+    expect(resumedLlm.perAgentStructuredCount.cio).toBe(1);
+    expect(resumed.layer4_outputs.runtime?.stage_trace).toEqual(
+      uninterrupted.layer4_outputs.runtime?.stage_trace,
+    );
+    expect(resumed.accepted_output_refs).toEqual(uninterrupted.accepted_output_refs);
+    expect(resumed.layer4_outputs.cio).toEqual(uninterrupted.layer4_outputs.cio);
+    expect(resumedCheckpoint.completedStages).toEqual([...DAILY_CYCLE_STAGE_ROSTER]);
+  });
+
   it("transports formal cross-layer outputs only through accepted record refs", async () => {
     const llm = new ScriptedLlm26();
     const acceptedOutputStore = new AcceptedAgentOutputStore();
+    const formalApi = buildFormalApi();
     const graph = buildDailyCycleGraph({
       llmHandle: {
         llm: llm as unknown as LlmHandle["llm"],
@@ -1046,7 +1279,7 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
         model: "fake-model",
         baseUrl: undefined,
       },
-      api: fakeApi,
+      api: formalApi,
       config: BASE_CONFIG,
       acceptedOutputStore,
       agentTimeoutSeconds: 0,
@@ -1058,10 +1291,36 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     expect(Object.keys(final.layer1_outputs)).toHaveLength(0);
     expect(Object.keys(final.layer2_outputs)).toHaveLength(0);
     expect(Object.keys(final.layer3_outputs)).toHaveLength(0);
-    expect(Object.keys(final.accepted_output_refs)).toHaveLength(24);
-    expect(records).toHaveLength(24);
-    expect(Object.keys(final.outcome_stage_skips).sort()).toEqual(["autonomous_execution", "cro"]);
+    expect(Object.keys(final.accepted_output_refs)).toHaveLength(26);
+    expect(records).toHaveLength(26);
+    expect(final.outcome_stage_skips).toEqual({});
+    expect(final.layer4_outputs.runtime?.stage_trace).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ stage: "cro_review", operation: "agent_run" }),
+        expect.objectContaining({ stage: "execution_feasibility", operation: "agent_run" }),
+      ]),
+    );
     expect(records.filter((record) => record.agent_id === "cio")).toHaveLength(2);
+    const croRecord = records.find((record) => record.accepted_output_kind === "CRO_RISK_REVIEW");
+    const executionRecord = records.find(
+      (record) => record.accepted_output_kind === "EXECUTION_ASSESSMENT",
+    );
+    const finalRecord = records.find((record) => record.accepted_output_kind === "CIO_FINAL");
+    const croPayload = croRecord?.output.payload as Record<string, unknown> | undefined;
+    const executionPayload = executionRecord?.output.payload as Record<string, unknown> | undefined;
+    const finalPayload = finalRecord?.output.payload as Record<string, unknown> | undefined;
+    expect(finalPayload).toMatchObject({
+      cro_control_source: { source_status: "ACCEPTED_OUTPUT" },
+      execution_control_source: { source_status: "ACCEPTED_OUTPUT" },
+    });
+    expect(finalPayload?.cro_control_source).toMatchObject({
+      accepted_output_id: croPayload?.accepted_cro_review_id,
+      accepted_output_hash: croPayload?.accepted_cro_review_hash,
+    });
+    expect(finalPayload?.execution_control_source).toMatchObject({
+      accepted_output_id: executionPayload?.accepted_execution_assessment_id,
+      accepted_output_hash: executionPayload?.accepted_execution_assessment_hash,
+    });
     expect(records.every((record) => record.graph_run_id === "formal-graph-run")).toBe(true);
     expect(
       records.every(
@@ -1080,6 +1339,45 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     ).toBe(true);
     expect(final.macro_input_gate?.accepted_count).toBe(8);
     expect(final.layer4_outputs.runtime?.final_target_state?.frozen).toBe(true);
+  });
+
+  it("rejects malformed nested CRO control identity before CIO final lineage", async () => {
+    class MalformedControlIdentityStore extends AcceptedAgentOutputStore {
+      override resolve<K extends AcceptedOutputKind, TPayload = unknown>(
+        ref: AcceptedOutputRecordRef<K>,
+      ): AcceptedAgentOutputRecord<K, TPayload> {
+        const record = super.resolve<K, TPayload>(ref);
+        if (record.accepted_output_kind !== "CRO_RISK_REVIEW") return record;
+        const malformed = structuredClone(record);
+        const payload = malformed.output.payload;
+        if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+          throw new Error("expected a CRO payload fixture object");
+        }
+        Object.assign(payload, {
+          accepted_cro_review_hash: `sha256:${"A".repeat(64)}`,
+        });
+        return malformed;
+      }
+    }
+
+    const llm = new ScriptedLlm26();
+    const store = new MalformedControlIdentityStore();
+    const formalApi = buildFormalApi();
+    const graph = buildDailyCycleGraph({
+      llmHandle: {
+        llm: llm as unknown as LlmHandle["llm"],
+        provider: "fake",
+        model: "fake-model",
+        baseUrl: undefined,
+      },
+      api: formalApi,
+      config: BASE_CONFIG,
+      acceptedOutputStore: store,
+    });
+
+    await expect(graph.invoke(formalState())).rejects.toThrow(
+      "cro.accepted_cro_review_hash must be a lowercase sha256 hash",
+    );
   });
 });
 
@@ -1122,16 +1420,16 @@ describe("buildDailyCycleGraph (heavy CRO rejection)", () => {
 
     const final = (await graph.invoke(emptyState())) as DailyCycleStateType;
 
-    expect(llm.structuredCalls).toBe(33);
-    expect(llm.perAgentStructuredCount.cro).toBeUndefined();
+    expect(llm.structuredCalls).toBe(35);
+    expect(llm.perAgentStructuredCount.cro).toBe(1);
     expect(llm.perAgentStructuredCount.alpha_discovery).toBe(1);
-    expect(llm.perAgentStructuredCount.autonomous_execution).toBeUndefined();
+    expect(llm.perAgentStructuredCount.autonomous_execution).toBe(1);
     expect(llm.perAgentStructuredCount.cio).toBe(2);
-    expect(final.llm_calls).toHaveLength(24);
+    expect(final.llm_calls).toHaveLength(26);
     expect(final.portfolio_actions).toEqual([]);
     expect(final.replay_triggered).toBe(false);
     expect(final.layer4_outputs.runtime?.cro_review_state?.output).toMatchObject({
-      review_disposition: "NO_OBJECTION",
+      review_disposition: "NO_RISK_ACTION",
       rejected_picks: [],
     });
     expect(final.layer4_outputs.runtime?.stage_trace.at(-1)).toMatchObject({
@@ -1165,6 +1463,6 @@ describe("buildDailyCycleGraph (heavy CRO rejection)", () => {
       config: BASE_CONFIG,
     });
     await graph.invoke(emptyState());
-    expect(llm.structuredCalls).toBe(33);
+    expect(llm.structuredCalls).toBe(35);
   });
 });

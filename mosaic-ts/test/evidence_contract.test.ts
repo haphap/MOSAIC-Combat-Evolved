@@ -63,6 +63,18 @@ describe("claim-to-evidence graph", () => {
     expect(result).toEqual({ accepted: true, reasons: [] });
   });
 
+  it("accepts claim statements through 3200 characters and rejects 3201", () => {
+    const graph = validGraph();
+    const claim = graph.claims[0];
+    if (!claim) throw new Error("claim fixture missing");
+
+    claim.statement = "x".repeat(3200);
+    expect(ClaimSchemaV2.safeParse(claim).success).toBe(true);
+
+    claim.statement += "x";
+    expect(ClaimSchemaV2.safeParse(claim).success).toBe(false);
+  });
+
   it("rejects dangling evidence and action claim references", () => {
     const graph = validGraph();
     graph.claims[0]?.evidence_ids.push("ev-missing");

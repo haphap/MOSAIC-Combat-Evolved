@@ -23,7 +23,6 @@ from .sector_relationship_queries import _compact_etf_holdings
 from .tushare import _query_pro, get_etf_holdings
 from .role_events import (
     ROLE_EVENT_COVERAGE_VERSION,
-    ROLE_EVENT_CURRENCIES,
     ROLE_EVENT_SNAPSHOT_VERSION,
     build_role_event_snapshot,
 )
@@ -375,7 +374,9 @@ SECTOR_ETF_DIRECTION_AUTHORITY = _build_sector_etf_direction_authority(
 )
 
 
-def _validated_sector_etf_direction_authority(as_of: date) -> dict[str, Any]:
+def _validated_sector_etf_direction_authority(
+    as_of: date, *, allow_synthetic_pre_effective: bool = False
+) -> dict[str, Any]:
     authority = SECTOR_ETF_DIRECTION_AUTHORITY
     if not isinstance(authority, dict):
         raise DataVendorUnavailable("sector ETF direction authority is unavailable")
@@ -439,15 +440,26 @@ def _validated_sector_etf_direction_authority(as_of: date) -> dict[str, Any]:
         if effective_to_value is not None
         else None
     )
-    if as_of < effective_from or (effective_to is not None and as_of > effective_to):
+    if (
+        (as_of < effective_from and not allow_synthetic_pre_effective)
+        or (effective_to is not None and as_of > effective_to)
+    ):
         raise DataVendorUnavailable(
             "sector ETF direction authority is not effective for as_of"
         )
     return authority
 
 
-def _authoritative_etf_codes(role: str, direction_id: str, as_of: date) -> list[str]:
-    authority = _validated_sector_etf_direction_authority(as_of)
+def _authoritative_etf_codes(
+    role: str,
+    direction_id: str,
+    as_of: date,
+    *,
+    allow_synthetic_pre_effective: bool = False,
+) -> list[str]:
+    authority = _validated_sector_etf_direction_authority(
+        as_of, allow_synthetic_pre_effective=allow_synthetic_pre_effective
+    )
     return next(
         row["etf_ts_codes"]
         for row in authority["direction_families"]
@@ -694,6 +706,24 @@ _ROLE_EVENT_REF_FIELDS = {
     "role_event_snapshot_id",
     "role_event_snapshot_hash",
 }
+_SECTOR_ROLE_EVENT_RUNTIME_BINDINGS = frozenset(
+    {
+        "semiconductor",
+        "technology",
+        "energy",
+        "consumer",
+        "industrials",
+        "real_estate_construction",
+        "financials",
+        "agriculture",
+    }
+)
+if (
+    len(_SECTOR_ROLE_EVENT_RUNTIME_BINDINGS) != 8
+    or _SECTOR_ROLE_EVENT_RUNTIME_BINDINGS
+    != frozenset(SECTOR_DIRECTION_IDS) - {"biotech"}
+):
+    raise RuntimeError("sector role-event runtime binding roster mismatch")
 _SECURITY_FIELDS = {
     "ts_code",
     "direction_id",
@@ -1207,6 +1237,44 @@ def _is_semiconductor_exact_membership_request(request: Any) -> bool:
     )
 
 
+def _semiconductor_scoped_membership_codes(
+    request: Any, query_plan_hash: str
+) -> list[str]:
+    if (
+        not isinstance(request, Mapping)
+        or set(request)
+        != {
+            "query_plan_hash",
+            "scope",
+            "etf_ts_code",
+            "etf_source_hash",
+            "ts_codes",
+        }
+        or request.get("query_plan_hash") != query_plan_hash
+        or request.get("scope") != "semiconductor_etf_candidates_v1"
+        or request.get("etf_ts_code") != "512480.SH"
+    ):
+        raise DataVendorUnavailable("scoped membership request is invalid")
+    ts_codes = request.get("ts_codes")
+    if (
+        not isinstance(ts_codes, list)
+        or not ts_codes
+        or len(ts_codes) > 12
+        or ts_codes != sorted(set(ts_codes))
+        or any(
+            not isinstance(ts_code, str)
+            or _RELATIONSHIP_SECURITY_ID_PATTERN.fullmatch(ts_code) is None
+            for ts_code in ts_codes
+        )
+    ):
+        raise DataVendorUnavailable("scoped membership request is invalid")
+    try:
+        _require_sha256(request.get("etf_source_hash"), "scoped membership ETF source hash")
+    except DataVendorUnavailable as exc:
+        raise DataVendorUnavailable("scoped membership request is invalid") from exc
+    return ts_codes
+
+
 def _direction_for_security(
     security: dict[str, Any], direction_contracts: dict[str, dict[str, Any]]
 ) -> str:
@@ -1302,6 +1370,11 @@ def validate_sector_snapshot(
         != SECTOR_UNIVERSE_MANIFEST["direction_metric_registry_hash"]
     ):
         raise DataVendorUnavailable("sector metric registry binding mismatch")
+    allow_synthetic_pre_effective = (
+        payload.get("fixture_class") == "SYNTHETIC_NON_PRODUCTION"
+        and os.getenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS")
+        == "structured_smoke"
+    )
     plan, direction_contracts = _manifest_bindings(role)
     plan_bindings = {
         "membership_query_plan_id": "query_plan_id",
@@ -1608,9 +1681,17 @@ def validate_sector_snapshot(
             raise DataVendorUnavailable(
                 "sector ETF family contains an invalid ETF code"
             )
-        etf_authority = _validated_sector_etf_direction_authority(as_of)
+        etf_authority = _validated_sector_etf_direction_authority(
+            as_of, allow_synthetic_pre_effective=allow_synthetic_pre_effective
+        )
         if (
-            etf_codes != _authoritative_etf_codes(role, direction_id, as_of)
+            etf_codes
+            != _authoritative_etf_codes(
+                role,
+                direction_id,
+                as_of,
+                allow_synthetic_pre_effective=allow_synthetic_pre_effective,
+            )
             or etf_family.get("selection_date") != as_of_date
             or etf_family.get("direction_authority_version")
             != etf_authority["authority_version"]
@@ -1825,7 +1906,7 @@ def validate_sector_runtime_snapshot(
     runtime_fields = {"event_coverage", "role_event_snapshot_ref"}
     if not runtime_fields.intersection(payload):
         return validate_sector_snapshot(payload, role, as_of_date)
-    if role not in ROLE_EVENT_CURRENCIES:
+    if role not in _SECTOR_ROLE_EVENT_RUNTIME_BINDINGS:
         raise DataVendorUnavailable(
             "sector runtime event coverage is not registered for this role"
         )
@@ -1951,6 +2032,11 @@ def _validate_source_batch(
         or value.get("truncated") is not False
     ):
         raise DataVendorUnavailable("sector source batch pagination is incomplete")
+    scoped_membership = (
+        endpoint == "index_member_all"
+        and isinstance(value.get("request"), Mapping)
+        and value["request"].get("scope") == "semiconductor_etf_candidates_v1"
+    )
     expected_pagination_policy = (
         EXACT_SINGLE_PAGE_OFFICIAL_CAP
         if endpoint == "index_member_all"
@@ -1958,8 +2044,15 @@ def _validate_source_batch(
         else SOURCE_BATCH_PAGINATION_POLICIES.get(endpoint)
     )
     if (
-        expected_pagination_policy is not None
-        and value.get("pagination_policy") != expected_pagination_policy
+        (scoped_membership and value.get("pagination_policy") not in {
+            PAGINATION_POLICY_OFFICIAL_CAP,
+            EXACT_SINGLE_PAGE_OFFICIAL_CAP,
+        })
+        or (
+            not scoped_membership
+            and expected_pagination_policy is not None
+            and value.get("pagination_policy") != expected_pagination_policy
+        )
     ):
         raise DataVendorUnavailable(
             f"sector source batch {endpoint} pagination policy mismatch"
@@ -2164,6 +2257,13 @@ def _validate_membership_batches(
     membership_batches = [
         batch for batch in batches if batch["endpoint"] == "index_member_all"
     ]
+    scoped_batches = [
+        batch
+        for batch in membership_batches
+        if isinstance(batch.get("request"), Mapping)
+        and batch["request"].get("scope")
+        == "semiconductor_etf_candidates_v1"
+    ]
     required_branches = {
         (
             branch["parameter"],
@@ -2173,7 +2273,25 @@ def _validate_membership_batches(
         for branch in plan["branches"]
     }
     semiconductor_exact = role == "semiconductor"
-    if semiconductor_exact and len(membership_batches) != 2:
+    scoped_ts_codes: set[str] = set()
+    mapped_directions: dict[str, str] = {}
+    if scoped_batches:
+        if role != "semiconductor" or len(membership_batches) != 1:
+            raise DataVendorUnavailable("scoped membership request is invalid")
+        scoped_ts_codes = set(
+            _semiconductor_scoped_membership_codes(
+                scoped_batches[0]["request"], plan["query_plan_hash"]
+            )
+        )
+        row_codes = [row.get("ts_code") for row in scoped_batches[0]["rows"]]
+        if (
+            len(row_codes) != len(scoped_ts_codes)
+            or set(row_codes) != scoped_ts_codes
+            or scoped_batches[0]["query_count"] != len(scoped_ts_codes)
+            or scoped_batches[0]["completed_query_count"] != len(scoped_ts_codes)
+        ):
+            raise DataVendorUnavailable("scoped membership request is invalid")
+    elif semiconductor_exact and len(membership_batches) != 2:
         raise DataVendorUnavailable(
             "sector semiconductor membership requires exactly two source batches"
         )
@@ -2182,7 +2300,7 @@ def _validate_membership_batches(
     reconstructed: dict[tuple[Any, ...], dict[str, Any]] = {}
     for batch in membership_batches:
         request = batch["request"]
-        if semiconductor_exact:
+        if not scoped_batches and semiconductor_exact:
             if not _is_semiconductor_exact_membership_request(request):
                 raise DataVendorUnavailable(
                     "sector semiconductor membership request is not plan-bound"
@@ -2193,7 +2311,7 @@ def _validate_membership_batches(
                     "sector semiconductor membership request is duplicated"
                 )
             observed_is_new.add(is_new)
-        else:
+        elif not scoped_batches:
             if (
                 set(request)
                 != {
@@ -2218,7 +2336,12 @@ def _validate_membership_batches(
                 )
             observed_branches.add(branch)
         for row in batch["rows"]:
-            if semiconductor_exact:
+            if scoped_batches:
+                outside_request = (
+                    row.get("ts_code") not in scoped_ts_codes
+                    or row.get("is_new") != "Y"
+                )
+            elif semiconductor_exact:
                 outside_request = (
                     row.get("l2_code") != "801081.SI"
                     or row.get("is_new") != request["is_new"]
@@ -2245,10 +2368,6 @@ def _validate_membership_batches(
             )
             if in_date > as_of or (out_date is not None and out_date <= as_of):
                 continue
-            if row.get("ts_code") not in ts_codes:
-                raise DataVendorUnavailable("scoped sector membership row is outside ETF candidates")
-            if row.get("is_new") != "Y":
-                raise DataVendorUnavailable("scoped sector membership row is not current")
             if row.get("ts_code") not in active_stock_rows:
                 continue
             try:
@@ -2266,7 +2385,7 @@ def _validate_membership_batches(
             mapped_directions[str(row["ts_code"])] = direction_id
             key = membership_key(row)
             reconstructed[key] = row
-    if semiconductor_exact and observed_is_new != {"Y", "N"}:
+    if not scoped_batches and semiconductor_exact and observed_is_new != {"Y", "N"}:
         raise DataVendorUnavailable(
             "sector semiconductor membership Y/N closure is incomplete"
         )
@@ -3786,7 +3905,24 @@ def compile_registered_sector_snapshot(
     ):
         raise DataVendorUnavailable("sector compiler requires complete source batches")
     plan, direction_contracts = _manifest_bindings(role)
+    required_branches = {
+        (
+            branch["parameter"],
+            branch["classification_code"],
+            branch["is_new"],
+        )
+        for branch in plan["branches"]
+    }
     membership_batches: dict[tuple[str, str, str], dict[str, Any]] = {}
+    scoped_batches = [
+        batch
+        for batch in batches
+        if batch["endpoint"] == "index_member_all"
+        and isinstance(batch.get("request"), Mapping)
+        and batch["request"].get("scope")
+        == "semiconductor_etf_candidates_v1"
+    ]
+    scoped_ts_codes: set[str] = set()
     if role == "semiconductor":
         covered_l3_codes = sorted(
             {
@@ -3800,35 +3936,55 @@ def compile_registered_sector_snapshot(
             for batch in batches
             if batch["endpoint"] == "index_member_all"
         ]
-        if len(exact_batches) != 2:
+        if scoped_batches:
+            if len(exact_batches) != 1:
+                raise DataVendorUnavailable("scoped membership request is invalid")
+            scoped_ts_codes = set(
+                _semiconductor_scoped_membership_codes(
+                    scoped_batches[0]["request"], plan["query_plan_hash"]
+                )
+            )
+            row_codes = [row.get("ts_code") for row in scoped_batches[0]["rows"]]
+            if (
+                len(row_codes) != len(scoped_ts_codes)
+                or set(row_codes) != scoped_ts_codes
+                or scoped_batches[0]["query_count"] != len(scoped_ts_codes)
+                or scoped_batches[0]["completed_query_count"] != len(scoped_ts_codes)
+            ):
+                raise DataVendorUnavailable("scoped membership request is invalid")
+            membership_batches[("scope", "semiconductor_etf_candidates_v1", "Y")] = (
+                scoped_batches[0]
+            )
+        elif len(exact_batches) != 2:
             raise DataVendorUnavailable(
                 "sector compiler semiconductor membership closure mismatch"
             )
-        for batch in exact_batches:
-            request = batch["request"]
-            if not _is_semiconductor_exact_membership_request(request):
-                raise DataVendorUnavailable(
-                    "sector compiler semiconductor membership request mismatch"
+        else:
+            for batch in exact_batches:
+                request = batch["request"]
+                if not _is_semiconductor_exact_membership_request(request):
+                    raise DataVendorUnavailable(
+                        "sector compiler semiconductor membership request mismatch"
+                    )
+                if any(
+                    str(row.get("l2_code")) != "801081.SI"
+                    or str(row.get("is_new")) != str(request["is_new"])
+                    or str(row.get("l3_code")) not in covered_l3_codes
+                    for row in batch["rows"]
+                ):
+                    raise DataVendorUnavailable(
+                        "sector compiler semiconductor membership row mismatch"
+                    )
+                branch = (
+                    request["parameter"],
+                    request["classification_code"],
+                    request["is_new"],
                 )
-            if any(
-                str(row.get("l2_code")) != "801081.SI"
-                or str(row.get("is_new")) != str(request["is_new"])
-                or str(row.get("l3_code")) not in covered_l3_codes
-                for row in batch["rows"]
-            ):
+                membership_batches[branch] = batch
+            if {batch["request"]["is_new"] for batch in exact_batches} != {"Y", "N"}:
                 raise DataVendorUnavailable(
-                    "sector compiler semiconductor membership row mismatch"
+                    "sector compiler semiconductor membership is_new closure mismatch"
                 )
-            branch = (
-                request["parameter"],
-                request["classification_code"],
-                request["is_new"],
-            )
-            membership_batches[branch] = batch
-        if {batch["request"]["is_new"] for batch in exact_batches} != {"Y", "N"}:
-            raise DataVendorUnavailable(
-                "sector compiler semiconductor membership is_new closure mismatch"
-            )
     else:
         for batch in batches:
             if batch["endpoint"] != "index_member_all":
@@ -3864,7 +4020,8 @@ def compile_registered_sector_snapshot(
         active_rows = []
         for row in batch["rows"]:
             if scoped_batches and (
-                row.get("ts_code") not in ts_codes or row.get("is_new") != "Y"
+                row.get("ts_code") not in scoped_ts_codes
+                or row.get("is_new") != "Y"
             ):
                 raise DataVendorUnavailable(
                     "sector compiler scoped membership row is outside ETF candidates"
@@ -4318,6 +4475,12 @@ def _validate_sector_source_receipt(
             or batch.get("coverage_ratio", 0) < 0.9
         ):
             raise DataVendorUnavailable("sector source receipt is not ready")
+        scoped_membership = (
+            endpoint == "index_member_all"
+            and isinstance(batch.get("request"), Mapping)
+            and batch["request"].get("scope")
+            == "semiconductor_etf_candidates_v1"
+        )
         expected_pagination_policy = (
             EXACT_SINGLE_PAGE_OFFICIAL_CAP
             if endpoint == "index_member_all"
@@ -4326,8 +4489,21 @@ def _validate_sector_source_receipt(
         )
         if (
             require_pagination_policy
-            and expected_pagination_policy is not None
-            and batch.get("pagination_policy") != expected_pagination_policy
+            and (
+                (
+                    scoped_membership
+                    and batch.get("pagination_policy")
+                    not in {
+                        PAGINATION_POLICY_OFFICIAL_CAP,
+                        EXACT_SINGLE_PAGE_OFFICIAL_CAP,
+                    }
+                )
+                or (
+                    not scoped_membership
+                    and expected_pagination_policy is not None
+                    and batch.get("pagination_policy") != expected_pagination_policy
+                )
+            )
         ):
             raise DataVendorUnavailable(
                 f"sector source receipt {endpoint} pagination policy mismatch"
@@ -4463,7 +4639,7 @@ def load_sector_snapshot(
             root=source_root,
         )
     base_runtime_fields = set(snapshot)
-    if role in ROLE_EVENT_CURRENCIES:
+    if role in _SECTOR_ROLE_EVENT_RUNTIME_BINDINGS:
         role_events = build_role_event_snapshot(role, as_of_date)
         if not isinstance(role_events, dict):
             raise DataVendorUnavailable("sector role-event snapshot must be an object")

@@ -393,7 +393,12 @@ export type AckmanOutput = SuperinvestorOutput & { agent: "ackman" };
 
 export interface CroOutput extends RuntimeOutputAuditFields {
   agent: "cro";
-  review_disposition?: "REVIEW_ACTIONS" | "NO_OBJECTION" | "BLOCK_ALL" | undefined;
+  review_disposition?:
+    | "REVIEW_ACTIONS"
+    | "NO_OBJECTION"
+    | "BLOCK_ALL"
+    | "NO_RISK_ACTION"
+    | undefined;
   rejected_picks: Array<{ ticker: string; reason: string; claim_refs?: string[] | undefined }>;
   required_adjustments?:
     | Array<{
@@ -426,7 +431,7 @@ export interface AlphaDiscoveryOutput extends RuntimeOutputAuditFields {
 
 export interface AutoExecOutput extends RuntimeOutputAuditFields {
   agent: "autonomous_execution";
-  execution_disposition?: "TRADES" | "NO_DELTA" | "BLOCKED" | undefined;
+  execution_disposition?: "TRADES" | "NO_DELTA" | "NO_EXECUTION_ACTION" | "BLOCKED" | undefined;
   trades: Array<{
     assessment_local_id?: string | undefined;
     order_intent_ref?: string | undefined;
@@ -502,7 +507,7 @@ export interface CioOutput extends RuntimeOutputAuditFields {
   cro_control_resolutions?:
     | Array<{
         cro_action_local_ref: string;
-        resolution: "COMPLIED" | "MORE_CONSERVATIVE";
+        resolution: "COMPLIED" | "MORE_CONSERVATIVE" | "STAGED";
         reason: string;
         claim_refs?: string[] | undefined;
       }>

@@ -248,7 +248,7 @@ export function preModelOutcomeDisposition(input: {
   ) {
     throw new Error(`${agentId}: stage skip differs from frozen opportunity authority`);
   }
-  return "SKIP";
+  return agentId === "cro" || agentId === "autonomous_execution" ? "RUN" : "SKIP";
 }
 
 function assertCioProposalAlphaSourceClosure(state: DailyCycleStateType): void {

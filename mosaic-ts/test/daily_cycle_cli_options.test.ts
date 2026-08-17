@@ -3,8 +3,10 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { ALL_AGENTS, LAYER_BY_AGENT } from "../src/agents/prompts/cohorts.js";
 import {
   applyDailyCycleEnsureMode,
+  assertDailyCycleCheckpointResumeAllowed,
   assertDailyCyclePromptSourceMode,
   assertDailyCycleSourceAdmissionReady,
   buildProductionCycleTraceId,
@@ -13,6 +15,7 @@ import {
   resolveDailyCycleAuthority,
   resolveDailyCycleCohort,
   resolveDailyCycleEnsureMode,
+  resolveDailyCyclePromptIdentity,
   validateStructuredSmokeFixtureBundle,
 } from "../src/cli/commands/daily-cycle.js";
 
@@ -140,7 +143,7 @@ function writeStructuredSmokeBundle(root: string, asOfDate = "2026-07-17") {
   const marker = { ...body, bundle_hash: canonicalHash(body) };
   const markerPath = join(root, "structured_smoke_fixture_bundle.json");
   writeFileSync(markerPath, JSON.stringify(marker));
-  return { macroContent, macroPath, marker, markerPath };
+  return { macroContent, macroPath, manifestPath: policyPath, marker, markerPath };
 }
 
 function contentHash(value: string): string {
@@ -156,6 +159,64 @@ describe("daily-cycle current-position fixture options", () => {
       assertDailyCyclePromptSourceMode({ promptsRoot: "/tmp/reviewed-prompts" }, true),
     ).not.toThrow();
     expect(() => assertDailyCyclePromptSourceMode({}, false)).not.toThrow();
+  });
+
+  it("allows checkpoint resume only for non-production smoke", () => {
+    expect(() =>
+      assertDailyCycleCheckpointResumeAllowed({ checkpoint: "/tmp/checkpoint.json" }, false),
+    ).toThrow(/non-production-only/);
+    expect(() =>
+      assertDailyCycleCheckpointResumeAllowed(
+        { checkpoint: "/tmp/checkpoint.json", resume: true },
+        false,
+      ),
+    ).toThrow(/non-production-only/);
+    expect(() =>
+      assertDailyCycleCheckpointResumeAllowed({ checkpoint: "/tmp/checkpoint.json" }, true),
+    ).not.toThrow();
+    expect(() =>
+      assertDailyCycleCheckpointResumeAllowed(
+        { checkpoint: "/tmp/checkpoint.json", resume: true },
+        true,
+      ),
+    ).not.toThrow();
+  });
+
+  it("hashes the current bilingual smoke prompt bodies without cache", async () => {
+    const root = mkdtempSync(join(tmpdir(), "mosaic-prompt-identity-"));
+    try {
+      for (const agent of ALL_AGENTS) {
+        const layer = LAYER_BY_AGENT[agent];
+        if (!layer) throw new Error(`missing layer for ${agent}`);
+        const directory = join(root, "cohort_default", layer);
+        mkdirSync(directory, { recursive: true });
+        writeFileSync(join(directory, `${agent}.zh.md`), `${agent}: zh-v1`, "utf-8");
+        writeFileSync(join(directory, `${agent}.en.md`), `${agent}: en-v1`, "utf-8");
+      }
+      const first = await resolveDailyCyclePromptIdentity({
+        cohort: "cohort_default",
+        nonProductionSmoke: true,
+        promptsRoot: root,
+      });
+      const firstAgent = ALL_AGENTS[0];
+      if (!firstAgent) throw new Error("expected a canonical agent");
+      const firstLayer = LAYER_BY_AGENT[firstAgent];
+      if (!firstLayer) throw new Error(`missing layer for ${firstAgent}`);
+      writeFileSync(
+        join(root, "cohort_default", firstLayer, `${firstAgent}.zh.md`),
+        "mutated prompt",
+        "utf-8",
+      );
+      const second = await resolveDailyCyclePromptIdentity({
+        cohort: "cohort_default",
+        nonProductionSmoke: true,
+        promptsRoot: root,
+      });
+      expect(first.promptContentHash).not.toBe(second.promptContentHash);
+      expect(first.promptRelease).toBe(`structured-smoke:${first.promptContentHash}`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("uses marked synthetic source fixtures for both smoke modes only", () => {

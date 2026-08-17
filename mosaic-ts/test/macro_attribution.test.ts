@@ -108,7 +108,12 @@ describe("Macro input attribution v2", () => {
       properties: {
         macro_input_attributions: {
           type: string;
-          properties: { submission_summaries: { required: string[] } };
+          properties: {
+            submission_summaries: { required: string[] };
+            target_attributions: {
+              items: { properties: { agent_id: { description: string } } };
+            };
+          };
         };
       };
     };
@@ -117,6 +122,15 @@ describe("Macro input attribution v2", () => {
       adapted.properties.macro_input_attributions.properties.submission_summaries.required,
     ).toEqual([...MACRO_AGENT_IDS]);
     expect(adapted.properties.macro_input_attributions).not.toHaveProperty("$schema");
+    const targetAgentIdDescription = (
+      adapted.properties.macro_input_attributions.properties.target_attributions.items as {
+        properties: { agent_id: { description: string } };
+      }
+    ).properties.agent_id.description;
+    expect(targetAgentIdDescription).toContain("one of the eight Macro source Agents");
+    expect(targetAgentIdDescription).toContain(
+      "never the affected Sector, Layer-3, or Layer-4 Agent",
+    );
 
     const normalized = normalizeMacroAttributionProviderPayload({
       final_selection: {

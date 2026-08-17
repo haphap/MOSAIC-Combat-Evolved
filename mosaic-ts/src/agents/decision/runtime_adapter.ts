@@ -148,7 +148,12 @@ export function executionSubmissionToRuntime(
   return {
     ...runtimeEnvelope(submission),
     agent: "autonomous_execution",
-    execution_disposition: submission.execution_disposition === "BLOCKED" ? "BLOCKED" : "TRADES",
+    execution_disposition:
+      submission.execution_disposition === "BLOCKED"
+        ? "BLOCKED"
+        : submission.execution_disposition === "NO_EXECUTION_ACTION"
+          ? "NO_EXECUTION_ACTION"
+          : "TRADES",
     trades,
     execution_checks: submission.order_assessments.map((assessment) => ({
       assessment_local_id: assessment.assessment_local_id,
