@@ -159,7 +159,7 @@ class TestMacroScorer(unittest.TestCase):
 
     def test_bullish_vote_benchmark_up_hits_positive(self):
         out, row = self._run(
-            {"geopolitical": _macro("geopolitical", "SUPPORTIVE", 0.8)},
+            {"china": _macro("china", "SUPPORTIVE", 0.8)},
             bench_ret=0.03,
         )
         self.assertEqual(out["macro_scored"], 1)
@@ -180,20 +180,20 @@ class TestMacroScorer(unittest.TestCase):
 
     def test_neutral_small_move_positive_big_move_negative(self):
         _, small = self._run(
-            {"geopolitical": _macro("geopolitical", "NEUTRAL", 0.6)},
+            {"china": _macro("china", "NEUTRAL", 0.6)},
             bench_ret=0.001,  # within band
         )
         self.assertEqual(small["realized_label"], 0)
         self.assertGreater(small["raw_macro_score_5d"], 0)
         _, big = self._run(
-            {"geopolitical": _macro("geopolitical", "NEUTRAL", 0.6)},
+            {"china": _macro("china", "NEUTRAL", 0.6)},
             bench_ret=0.05,  # big move
         )
         self.assertLess(big["raw_macro_score_5d"], 0)
 
     def test_neutral_band_override_controls_realized_label(self):
         _, row = self._run(
-            {"geopolitical": _macro("geopolitical", "SUPPORTIVE", 0.8)},
+            {"china": _macro("china", "SUPPORTIVE", 0.8)},
             bench_ret=0.01,
             neutral_band=0.02,
         )
@@ -346,8 +346,8 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
         store.append_macro_signals_from_state(
             _state(
                 {
-                    "geopolitical": {
-                        **_macro("geopolitical", "ADVERSE", 0.8),
+                    "china": {
+                        **_macro("china", "ADVERSE", 0.8),
                     }
                 },
                 date=d0,
@@ -361,9 +361,25 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
         def fake_series(ts, start, end):
             return [100.0, 103.0, 97.0, 99.0, 98.0]
 
+        dates = [_ntd(d0, offset) for offset in range(5)]
+
+        def fake_benchmark_series_dated(ts, start, end):
+            return [(date, 100.0) for date in dates]
+
+        def fake_instrument_series_dated(symbol, start, end):
+            return list(zip(dates, fake_series(symbol, start, end)))
+
         with _cal_patch(), \
              patch("mosaic.scorecard.scorer._fetch_close", fake_close), \
-             patch("mosaic.scorecard.scorer._fetch_benchmark_series", fake_series):
+             patch("mosaic.scorecard.scorer._fetch_benchmark_series", fake_series), \
+             patch(
+                 "mosaic.scorecard.scorer._fetch_benchmark_series_dated",
+                 fake_benchmark_series_dated,
+             ), \
+             patch(
+                 "mosaic.scorecard.scorer._fetch_instrument_series_dated",
+                 fake_instrument_series_dated,
+             ):
             MacroScorer(store, benchmark="000300.SH", full_label_sources_enabled=True).score_pending("cohort_default", "2024-02-01")
 
         with store._connect() as conn:
@@ -372,7 +388,7 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
                 "max_drawdown_5d, path_metric_5d, source_series_id, realized_label, "
                 "hit_5d, raw_macro_score_5d FROM macro_signals"
             ).fetchone()
-        self.assertEqual(row["label_type"], "geopolitical_transmission_a_share_path_5d")
+        self.assertEqual(row["label_type"], "china_macro_transmission_a_share_path_5d")
         self.assertEqual(row["label_source_status"], "primary")
         self.assertIsNotNone(row["source_series_id"])
         self.assertLess(row["max_drawdown_5d"], -0.005)
@@ -394,7 +410,7 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
         store.append_macro_signals_from_state(
             _state(
                 {
-                    "geopolitical": _macro("geopolitical", "ADVERSE", 0.8)
+                    "china": _macro("china", "ADVERSE", 0.8)
                 },
                 date=d0,
             )
@@ -406,14 +422,16 @@ class TestMacroAgentSpecificLabels(unittest.TestCase):
 
         with _cal_patch(), \
              patch("mosaic.scorecard.scorer._fetch_close", fake_close), \
-             patch("mosaic.scorecard.scorer._fetch_benchmark_series", lambda *a: [100.0]):
+             patch("mosaic.scorecard.scorer._fetch_benchmark_series", lambda *a: [100.0]), \
+             patch("mosaic.scorecard.scorer._fetch_benchmark_series_dated", lambda *a: []), \
+             patch("mosaic.scorecard.scorer._fetch_instrument_series_dated", lambda *a: []):
             MacroScorer(store, benchmark="000300.SH", full_label_sources_enabled=True).score_pending("cohort_default", "2024-02-01")
 
         with store._connect() as conn:
             row = conn.execute(
                 "SELECT label_type, label_source_status FROM macro_signals"
             ).fetchone()
-        self.assertEqual(row["label_type"], "geopolitical_transmission_a_share_path_5d")
+        self.assertEqual(row["label_type"], "china_macro_transmission_a_share_path_5d")
         self.assertEqual(row["label_source_status"], "missing")
 
     def test_unavailable_agent_label_records_primary_label_with_missing_status(self):
