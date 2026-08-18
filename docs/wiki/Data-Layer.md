@@ -81,6 +81,9 @@ A thin orchestrator over the vendored collectors. Public API:
 
 `kind="stock"` drives cn_data, `kind="etf"` drives cn_etf. Exposed to the front-end via the `data.*` RPCs and the `pnpm dev data incremental|validate` CLI.
 
+For staging, validation, rollback, and incident recovery, see the
+[Qlib Data Operations Runbook](../runbooks/qlib_data_operations.md).
+
 ### Temp data stays out of the repo
 
 The collectors' working dirs default to `~/.cache/mosaic_tushare_{raw,norm}` — **never** the project tree. Because the collectors are now vendored *inside* the repo, `ingest_incremental` / `sync_calendar` pass explicit `--source_dir`/`--normalize_dir` (and `.gitignore` ignores any stray `source/`/`normalize/`/`tmp/` under `collectors/`) so raw/normalized CSVs and `__inc_tmp__` never pollute the repo.

@@ -502,14 +502,20 @@ class DumpDataUpdate(DumpDataBase):
                     continue
                 if _code in self._update_instruments:
                     # exists stock, will append data
-                    _update_calendars = (
-                        _df[_df[self.date_field_name] > self._update_instruments[_code][self.INSTRUMENTS_END_FIELD]][
-                            self.date_field_name
+                    _old_end = pd.Timestamp(self._update_instruments[_code][self.INSTRUMENTS_END_FIELD])
+                    if _end > _old_end:
+                        _update_calendars = [
+                            date
+                            for date in self._new_calendar_list
+                            if _old_end < date <= _end
                         ]
-                        .sort_values()
-                        .to_list()
-                    )
-                    if _update_calendars:
+                        _df = (
+                            _df.drop_duplicates(self.date_field_name)
+                            .set_index(self.date_field_name)
+                            .reindex(_update_calendars)
+                            .reset_index()
+                        )
+                        _df[self.symbol_field_name] = _code
                         self._update_instruments[_code][self.INSTRUMENTS_END_FIELD] = self._format_datetime(_end)
                         futures[executor.submit(self._dump_bin, _df, _update_calendars)] = _code
                 else:
