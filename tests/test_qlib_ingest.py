@@ -469,6 +469,54 @@ class TestPublicAPI:
 # ---------------------------------------------------------------------------
 
 
+class TestDumpDataUpdate:
+    def test_existing_symbol_aligns_sparse_rows_to_global_update_calendar(self, tmp_path: Path):
+        pytest.importorskip("qlib", reason="qlib not installed (.[backtest] extra)")
+        pytest.importorskip("loguru", reason="ingest extra not installed")
+        from mosaic.dataflows.collectors.dump_bin import DumpDataUpdate
+
+        qlib_dir = tmp_path / "qlib"
+        (qlib_dir / "calendars").mkdir(parents=True)
+        (qlib_dir / "calendars" / "day.txt").write_text("2024-01-02\n", encoding="utf-8")
+        (qlib_dir / "instruments").mkdir()
+        (qlib_dir / "instruments" / "all.txt").write_text(
+            "SH510300\t2024-01-02\t2024-01-02\n", encoding="utf-8"
+        )
+        feature_dir = qlib_dir / "features" / "sh510300"
+        feature_dir.mkdir(parents=True)
+        (feature_dir / "close.day.bin").write_bytes(struct.pack("<ff", 0.0, 10.0))
+
+        updates = tmp_path / "updates"
+        updates.mkdir()
+        pd.DataFrame(
+            [{"date": "2024-01-04", "symbol": "SH510300", "close": 14.0}]
+        ).to_csv(updates / "sh510300.csv", index=False)
+        pd.DataFrame(
+            [{"date": "2024-01-03", "symbol": "SH510500", "close": 23.0}]
+        ).to_csv(updates / "sh510500.csv", index=False)
+
+        DumpDataUpdate(
+            data_path=str(updates),
+            qlib_dir=str(qlib_dir),
+            max_workers=1,
+            exclude_fields="symbol,date",
+        ).dump()
+
+        header, old_close, missing_close, new_close = struct.unpack(
+            "<ffff", (feature_dir / "close.day.bin").read_bytes()
+        )
+        assert header == 0.0
+        assert old_close == 10.0
+        assert pd.isna(missing_close)
+        assert new_close == 14.0
+        instrument = next(
+            line
+            for line in (qlib_dir / "instruments" / "all.txt").read_text().splitlines()
+            if line.startswith("SH510300\t")
+        )
+        assert instrument.split("\t")[2] == "2024-01-04"
+
+
 def _build_minimal_qlib_dir(qlib_dir: Path, *, calendar_days: int = 250) -> None:
     """Layout a minimal qlib data dir with 3 instruments and varying gaps."""
     (qlib_dir / "calendars").mkdir(parents=True)
@@ -502,6 +550,21 @@ def _build_minimal_qlib_dir(qlib_dir: Path, *, calendar_days: int = 250) -> None
 
 
 class TestValidateAfterIngest:
+    def test_uppercase_instruments_resolve_lowercase_feature_dirs(self, tmp_path: Path):
+        qlib_dir = tmp_path / "qlib_data" / "cn_data"
+        _build_minimal_qlib_dir(qlib_dir, calendar_days=200)
+        instruments_file = qlib_dir / "instruments" / "all.txt"
+        instruments_file.write_text(instruments_file.read_text().upper())
+
+        report = qlib_ingest.validate_after_ingest(
+            qlib_dir=qlib_dir,
+            skip_manifest=tmp_path / "skipped.txt",
+            gap_threshold=0.01,
+        )
+
+        assert report["checked"] == 3
+        assert report["skipped"] == 1
+
     def test_full_universe_no_gaps(self, tmp_path: Path):
         qlib_dir = tmp_path / "qlib_data" / "cn_data"
         _build_minimal_qlib_dir(qlib_dir, calendar_days=200)

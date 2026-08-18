@@ -668,7 +668,7 @@ def validate_after_ingest(
     checked = 0
     format_errors = 0
     for ticker in instruments_lines:
-        close_bin = features_dir / ticker / "close.day.bin"
+        close_bin = features_dir / ticker.lower() / "close.day.bin"
         if not close_bin.exists():
             skipped.append((ticker, calendar_days, 0))
             continue
