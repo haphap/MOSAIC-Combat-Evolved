@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent materialization attempt receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "attempt_id", "materialization_request_id", "graph_run_id", "run_slot_id", "run_id", "node_id", "agent_id", "stage", "as_of", "requested_tool_ids", "candidate_scope_hash", "runtime_input_hash", "contract_version", "source_receipts", "build_receipts", "cache_status", "lock", "freshness", "terminal_state", "blocker_codes", "started_at", "finished_at", "receipt_hash"],
+  "properties": {
+    "schema_version": {"const": "materialization_attempt_receipt_v1"},
+    "attempt_id": {"$ref": "#/$defs/id"},
+    "materialization_request_id": {"$ref": "#/$defs/id"},
+    "graph_run_id": {"$ref": "#/$defs/id"},
+    "run_slot_id": {"$ref": "#/$defs/id"},
+    "run_id": {"$ref": "#/$defs/id"},
+    "node_id": {"$ref": "#/$defs/id"},
+    "agent_id": {"$ref": "#/$defs/id"},
+    "stage": {"$ref": "#/$defs/id"},
+    "as_of": {"type": "string", "format": "date"},
+    "requested_tool_ids": {"$ref": "#/$defs/idList"},
+    "candidate_scope_hash": {"$ref": "#/$defs/sha256"},
+    "runtime_input_hash": {"$ref": "#/$defs/sha256"},
+    "contract_version": {"$ref": "#/$defs/id"},
+    "source_receipts": {"type": "object", "propertyNames": {"$ref": "#/$defs/id"}, "additionalProperties": {"$ref": "#/$defs/hashList"}},
+    "build_receipts": {"type": "object", "propertyNames": {"$ref": "#/$defs/id"}, "additionalProperties": {"$ref": "#/$defs/sha256"}},
+    "cache_status": {"enum": ["HIT", "MISS", "MIXED"]},
+    "lock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "owner", "acquired_at", "lease_expires_at", "heartbeat_at", "retry_count", "recovered_from_owner"],
+      "properties": {
+        "key": {"$ref": "#/$defs/sha256"},
+        "owner": {"$ref": "#/$defs/id"},
+        "acquired_at": {"type": "string", "format": "date-time"},
+        "lease_expires_at": {"type": "string", "format": "date-time"},
+        "heartbeat_at": {"type": "string", "format": "date-time"},
+        "retry_count": {"type": "integer", "minimum": 0},
+        "recovered_from_owner": {"type": ["string", "null"], "maxLength": 256}
+      }
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_version", "max_age_seconds", "status", "checked_at"],
+      "properties": {
+        "policy_version": {"$ref": "#/$defs/id"},
+        "max_age_seconds": {"type": "integer", "minimum": 0},
+        "status": {"enum": ["FRESH", "STALE", "NOT_APPLICABLE"]},
+        "checked_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "terminal_state": {"enum": ["READY", "BLOCKED", "FAILED"]},
+    "blocker_codes": {"$ref": "#/$defs/idList"},
+    "started_at": {"type": "string", "format": "date-time"},
+    "finished_at": {"type": "string", "format": "date-time"},
+    "receipt_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"},
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "idList": {"type": "array", "items": {"$ref": "#/$defs/id"}, "uniqueItems": true},
+    "hashList": {"type": "array", "items": {"$ref": "#/$defs/sha256"}, "uniqueItems": true}
+  }
+}

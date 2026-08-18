@@ -266,13 +266,6 @@ def test_cio_final_opportunity_cannot_be_empty() -> None:
             },
         ),
         (
-            "relationship_mapper",
-            {
-                "edge_candidate_id": "relationship-edge:1",
-                "materiality_weight": 2.5,
-            },
-        ),
-        (
             "munger",
             {"candidate_ref": "layer2-candidate:1", "ts_code": "600519.SH"},
         ),
@@ -351,11 +344,6 @@ def test_opportunity_member_authority_uses_role_exact_shapes(
             "security_ts_codes must be unique",
         ),
         (
-            "relationship_mapper",
-            {"edge_candidate_id": "relationship-edge:1", "materiality_weight": 0},
-            "finite and positive",
-        ),
-        (
             "munger",
             {"candidate_ref": "layer2-candidate:1"},
             "must contain exactly",
@@ -414,13 +402,6 @@ def test_opportunity_member_authority_rejects_incomplete_or_invalid_members(
 @pytest.mark.parametrize(
     ("agent_id", "members"),
     [
-        (
-            "relationship_mapper",
-            [
-                {"edge_candidate_id": "edge:1", "materiality_weight": 1.0},
-                {"edge_candidate_id": "edge:1", "materiality_weight": 2.0},
-            ],
-        ),
         (
             "munger",
             [

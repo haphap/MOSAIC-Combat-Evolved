@@ -33,6 +33,7 @@ data = [
     "stockstats>=0.6.5",
     "yfinance>=0.2.63",
     "pytz>=2025.2",
+    "pypdf>=5.0.0",
 ]
 # Phase 8 paper / backtest
 trading = [

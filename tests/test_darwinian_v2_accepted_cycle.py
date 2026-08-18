@@ -3,23 +3,52 @@ from __future__ import annotations
 import copy
 import json
 import sqlite3
-from datetime import date, timedelta
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from threading import Barrier, local
+from types import SimpleNamespace
 from typing import Any, Mapping
 
 import pytest
 
+import mosaic.dataflows.agent_materialization as agent_materialization
+import mosaic.dataflows.agent_stage_preparer as agent_stage_preparer
 from mosaic.dataflows.outcome_runtime_inputs import (
     expected_qualification_predicate_version,
 )
+from mosaic.dataflows.agent_materialization import AgentDataMaterializationLedger
+from mosaic.dataflows.agent_stage_preparer import (
+    prepare_bound_runtime_family,
+    publish_ready_stage_materialization,
+)
+from mosaic.dataflows.bound_runtime_snapshots import compile_bound_runtime_snapshot
+from mosaic.bridge.tool_capabilities import (
+    _validate_bound_runtime_snapshot,
+    materialize_tool_payload,
+)
+from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.scorecard.darwinian_v2 import (
+    accepted_cycle_stage_outcome_refs,
     _authoritative_macro_input_gate,
     _validate_macro_attribution_authority,
     canonical_hash,
     deterministic_id,
 )
+from mosaic.scorecard.capability_preservation import load_capability_contract_bundle
 from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
 from mosaic.scorecard.store import ScorecardStore
+
+
+_ROOT = Path(__file__).parents[1]
+_CAPABILITY_BUNDLE = load_capability_contract_bundle(_ROOT)
+_CAPABILITY_TRACK = _CAPABILITY_BUNDLE["accepted_output_capability_track"]
+_EXECUTION_RELEASE_IDS = {
+    row["execution_behavior_release_id"]
+    for row in _CAPABILITY_BUNDLE["tool_environment_manifest"]["environments"]
+}
+assert len(_EXECUTION_RELEASE_IDS) == 1
+_EXECUTION_RELEASE_ID = next(iter(_EXECUTION_RELEASE_IDS))
 
 
 def _opportunity_member(agent_id: str) -> dict[str, Any]:
@@ -179,7 +208,7 @@ def _state() -> dict:
         "production_variant_roster_id": roster_id,
         "cohort_id": cohort,
         "language": language,
-        "execution_behavior_release_id": "release-1",
+        "execution_behavior_release_id": _EXECUTION_RELEASE_ID,
         "prompt_repo_id": "private-prompts",
         "prompt_repo_revision": "a" * 40,
         "effective_at": "2026-07-17T09:00:00+08:00",
@@ -268,17 +297,16 @@ def _accepted_macro_attributions(summary_body: Mapping[str, Any]) -> list[dict[s
         "us_financial_conditions",
         "euro_area_financial_conditions",
         "commodities",
-        "geopolitical",
-        "market_breadth",
         "institutional_flow",
     )
     rows: list[dict[str, Any]] = []
     target_hash = canonical_hash(summary_body)
+    usage_share = 1.0 / len(macro_agents)
     for macro_agent in macro_agents:
         rows.append(
             {
                 "agent_id": macro_agent,
-                "usage_share": 0.1,
+                "usage_share": usage_share,
                 "target_type": "SUBMISSION_SUMMARY",
                 "target_ref": f"accepted-target:submission:{target_hash[7:]}",
                 "target_hash": target_hash,
@@ -932,6 +960,7 @@ def _attach_accepted_records(state: dict) -> None:
                 **binding["agent_behavior_bindings"][agent_id],
                 "as_of": plan["as_of"],
                 "accepted_at": binding["effective_at"],
+                "capability_track": copy.deepcopy(_CAPABILITY_TRACK),
                 "evaluation_opportunity_set_id": (
                     opportunity["evaluation_opportunity_set_id"]
                     if opportunity
@@ -1006,6 +1035,30 @@ def _attach_accepted_records(state: dict) -> None:
     )[0]
 
 
+def test_cycle_stage_outcome_refs_reuse_exact_accepted_output_authority(
+    tmp_path: Path,
+) -> None:
+    state = _state()
+    _attach_schedule(ScorecardStore(tmp_path / "scorecard.db"), state)
+    _attach_accepted_records(state)
+
+    outcomes = accepted_cycle_stage_outcome_refs(state)
+
+    assert len(outcomes) == 26
+    assert outcomes == sorted(outcomes, key=lambda row: (row["agent_id"], row["stage"]))
+    assert {row["outcome_kind"] for row in outcomes} == {"ACCEPTED_OUTPUT"}
+    accepted_hashes = {
+        record["accepted_output_hash"] for record in state["accepted_output_records"]
+    }
+    assert {row["ref_hash"] for row in outcomes} == accepted_hashes
+
+    state["accepted_output_records"][0]["accepted_output_hash"] = canonical_hash(
+        "tampered"
+    )
+    with pytest.raises(ValueError, match="accepted output reference"):
+        accepted_cycle_stage_outcome_refs(state)
+
+
 def _reseal_record(state: dict, record: dict) -> None:
     payload = record["output"]["payload"]
     lineage = record["adapter_lineage"]
@@ -1019,6 +1072,1156 @@ def _reseal_record(state: dict, record: dict) -> None:
     state["accepted_output_refs"][
         f"{record['accepted_output_kind']}:{record['agent_id']}"
     ]["accepted_output_hash"] = record["accepted_output_hash"]
+
+
+def _superinvestor_bound_inputs(tmp_path: Path) -> tuple[dict, list[dict], list[dict], dict]:
+    state = _state()
+    state["as_of_date"] = "2026-08-06"
+    binding = state["darwinian_runtime_binding"]
+    binding["effective_at"] = "2026-08-06T09:00:00+08:00"
+    binding["binding_hash"] = canonical_hash(
+        {key: value for key, value in binding.items() if key != "binding_hash"}
+    )
+    _attach_schedule(ScorecardStore(tmp_path / "scorecard.db"), state)
+    _attach_accepted_records(state)
+    accepted_records = [
+        record
+        for record in state["accepted_output_records"]
+        if record["accepted_output_kind"]
+        in {"MACRO_TRANSMISSION", "STANDARD_SECTOR_SELECTION", "RELATIONSHIP_GRAPH"}
+    ]
+    accepted_refs = [
+        state["accepted_output_refs"][
+            f"{record['accepted_output_kind']}:{record['agent_id']}"
+        ]
+        for record in accepted_records
+    ]
+    current_positions = {
+        "snapshot_status": "empty_confirmed",
+        "position_source": "empty_confirmed",
+        "source_error_code": None,
+        "position_snapshot_hash": canonical_hash("empty-positions"),
+        "positions": [],
+    }
+    return state, accepted_records, accepted_refs, current_positions
+
+
+def test_compile_superinvestor_bound_snapshot_from_exact_accepted_records(
+    tmp_path: Path,
+) -> None:
+    state, accepted_records, accepted_refs, current_positions = (
+        _superinvestor_bound_inputs(tmp_path)
+    )
+
+    snapshot = compile_bound_runtime_snapshot(
+        agent_id="ackman",
+        stage="ackman",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        accepted_output_refs=accepted_refs,
+        accepted_output_records=accepted_records,
+        runtime_state={
+            "captured_at": "2026-08-06T14:00:00+08:00",
+            "current_positions": current_positions,
+        },
+        generated_at="2026-08-06T14:01:00+08:00",
+    )
+
+    assert snapshot["candidate_status"] == "EMPTY_CONFIRMED"
+    assert snapshot["candidate_universe"] == []
+    assert snapshot["constraints"] == {
+        "cash_only": False,
+        "allow_new_positions": True,
+        "max_pick_count": 10,
+        "max_total_conviction": 1.0,
+        "prohibited_ts_codes": [],
+        "evidence_ids": ["position-authority"],
+    }
+    _validate_bound_runtime_snapshot(
+        snapshot,
+        tool_id="get_superinvestor_candidate_snapshot",
+        agent_id="ackman",
+        stage="ackman",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        expected_candidate_scope_hash=None,
+    )
+
+
+def test_prepare_bound_runtime_family_atomically_publishes_receipts_and_reuses(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    route_manifest = copy.deepcopy(
+        agent_stage_preparer.load_agent_data_route_manifest()
+    )
+    route_manifest["bindings"] = [
+        row
+        for row in route_manifest["bindings"]
+        if row["agent_id"] != "ackman"
+        or row["stage"] != "ackman"
+        or row["tool_id"] == "get_superinvestor_candidate_snapshot"
+    ]
+    monkeypatch.setattr(
+        agent_stage_preparer,
+        "load_agent_data_route_manifest",
+        lambda: route_manifest,
+    )
+    monkeypatch.setattr(
+        agent_materialization,
+        "load_agent_data_route_manifest",
+        lambda: route_manifest,
+    )
+    state, accepted_records, accepted_refs, current_positions = (
+        _superinvestor_bound_inputs(tmp_path)
+    )
+    runtime_state = {
+        "current_positions": current_positions,
+    }
+    request = {
+        "agent_id": "ackman",
+        "stage": "ackman",
+        "as_of": "2026-08-06",
+        "graph_run_id": state["trace_id"],
+        "candidate_scope": {"accepted_output_refs": accepted_refs},
+        "runtime_inputs": {
+            "accepted_output_refs": accepted_refs,
+            "accepted_output_records": accepted_records,
+            "bound_runtime_state": runtime_state,
+        },
+    }
+    ledger = AgentDataMaterializationLedger(tmp_path / "materialization.sqlite3")
+    output_root = tmp_path / "runtime_snapshots"
+
+    def clock() -> datetime:
+        return datetime(2026, 8, 6, 6, 1, tzinfo=timezone.utc)
+
+    first = prepare_bound_runtime_family(
+        request,
+        ledger,
+        output_root=output_root,
+        clock=clock,
+    )
+    second = prepare_bound_runtime_family(
+        request,
+        ledger,
+        output_root=output_root,
+        clock=lambda: datetime(2026, 8, 6, 7, 1, tzinfo=timezone.utc),
+    )
+
+    assert first["cache_status"] == "MISS"
+    assert second["cache_status"] == "HIT"
+    assert first["output_path"] == second["output_path"]
+    snapshot_path = output_root / first["output_path"]
+    assert snapshot_path.is_file()
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    assert snapshot["graph_run_id"] == state["trace_id"]
+    monkeypatch.setenv("MOSAIC_RUNTIME_SNAPSHOT_DIR", str(output_root))
+    rendered = materialize_tool_payload(
+        "get_superinvestor_candidate_snapshot",
+        agent_id="ackman",
+        stage="ackman",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        accepted_output_refs=accepted_refs,
+    )
+    assert json.loads(rendered) == snapshot
+    assert first["output_hash"] == second["output_hash"]
+    assert len(first["source_receipt_hashes"]) == 2
+    ready = ledger.ready_snapshot_build_receipts(
+        agent_id="ackman",
+        stage="ackman",
+        tool_id="get_superinvestor_candidate_snapshot",
+        as_of="2026-08-06",
+    )
+    assert len(ready) == 1
+    build = ready[0].as_dict()
+    assert build["required_route_ids"] == [
+        "runtime.accepted_outputs",
+        "runtime.candidate_scope",
+    ]
+    assert build["source_receipt_hashes"] == first["source_receipt_hashes"]
+    assert build["output_hash"] == first["output_hash"]
+    finalization_request = {
+        **request,
+        "run_slot_id": "slot-bound-1",
+        "run_id": "run-bound-1",
+        "node_id": "ackman-node",
+        "materialization_request_id": "materialize-bound-1",
+        "tool_payload_hashes": {
+            "get_superinvestor_candidate_snapshot": canonical_hash("wrong-payload")
+        },
+    }
+    with pytest.raises(DataVendorUnavailable, match="no READY build"):
+        publish_ready_stage_materialization(
+            finalization_request,
+            ledger=ledger,
+            clock=clock,
+            cache_status="HIT",
+        )
+    finalization_request["tool_payload_hashes"] = {
+        "get_superinvestor_candidate_snapshot": first["output_hash"]
+    }
+    finalized = publish_ready_stage_materialization(
+        finalization_request,
+        ledger=ledger,
+        clock=clock,
+        cache_status="HIT",
+    )
+    assert finalized["status"] == "READY"
+    assert finalized["build_receipt_hashes"] == {
+        "get_superinvestor_candidate_snapshot": first["build_receipt_hash"]
+    }
+
+
+def test_prepare_bound_runtime_family_concurrent_retry_reuses_winning_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state, accepted_records, accepted_refs, current_positions = (
+        _superinvestor_bound_inputs(tmp_path)
+    )
+    request = {
+        "agent_id": "ackman",
+        "stage": "ackman",
+        "as_of": "2026-08-06",
+        "graph_run_id": state["trace_id"],
+        "candidate_scope": {"accepted_output_refs": accepted_refs},
+        "runtime_inputs": {
+            "accepted_output_refs": accepted_refs,
+            "accepted_output_records": accepted_records,
+            "bound_runtime_state": {"current_positions": current_positions},
+        },
+    }
+    output_root = tmp_path / "runtime_snapshots"
+    ledger_path = tmp_path / "materialization.sqlite3"
+    publish_barrier = Barrier(2)
+    publish_calls = local()
+    real_publish = agent_stage_preparer.publish_bound_runtime_snapshot
+
+    def racing_publish(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        call_count = getattr(publish_calls, "count", 0)
+        publish_calls.count = call_count + 1
+        if call_count == 0:
+            publish_barrier.wait(timeout=5)
+        return real_publish(*args, **kwargs)
+
+    monkeypatch.setattr(
+        agent_stage_preparer,
+        "publish_bound_runtime_snapshot",
+        racing_publish,
+    )
+
+    def prepare_at(hour: int) -> dict[str, Any]:
+        return prepare_bound_runtime_family(
+            request,
+            AgentDataMaterializationLedger(ledger_path),
+            output_root=output_root,
+            clock=lambda: datetime(2026, 8, 6, hour, 1, tzinfo=timezone.utc),
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(prepare_at, (6, 7)))
+
+    assert sorted(result["cache_status"] for result in results) == ["HIT", "MISS"]
+    assert len({result["output_path"] for result in results}) == 1
+    assert len({result["output_hash"] for result in results}) == 1
+    ready = AgentDataMaterializationLedger(ledger_path).ready_snapshot_build_receipts(
+        agent_id="ackman",
+        stage="ackman",
+        tool_id="get_superinvestor_candidate_snapshot",
+        as_of="2026-08-06",
+    )
+    assert len(ready) == 1
+
+
+def test_prepare_bound_runtime_family_runs_all_nine_stages_without_live_calendar(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state, _sector_records, _sector_refs, current_positions = (
+        _superinvestor_bound_inputs(tmp_path)
+    )
+    candidate_runtime = _empty_candidate_runtime(state, current_positions)
+    candidate = candidate_runtime["candidate_target_state"]
+    cro_state = _accepted_cro_runtime(state, candidate)
+    execution_state = _accepted_execution_runtime(state, candidate, cro_state)
+    stage_inputs = {
+        **{
+            (agent_id, agent_id): (
+                {"MACRO_TRANSMISSION", "STANDARD_SECTOR_SELECTION", "RELATIONSHIP_GRAPH"},
+                {"current_positions": current_positions},
+            )
+            for agent_id in ("ackman", "burry", "druckenmiller", "munger")
+        },
+        ("alpha_discovery", "alpha_discovery"): (
+            {
+                "STANDARD_SECTOR_SELECTION",
+                "RELATIONSHIP_GRAPH",
+                "SUPERINVESTOR_SELECTION",
+            },
+            {"current_positions": current_positions},
+        ),
+        ("cio", "cio_proposal"): (
+            {
+                "MACRO_TRANSMISSION",
+                "STANDARD_SECTOR_SELECTION",
+                "RELATIONSHIP_GRAPH",
+                "SUPERINVESTOR_SELECTION",
+                "ALPHA_DISCOVERY",
+            },
+            {
+                "current_positions": current_positions,
+                "previous_target_state": {
+                    "schema_version": "portfolio.previous_target_state.v1",
+                    "snapshot_status": "empty_confirmed",
+                    "final_target_hash": None,
+                    "as_of_date": None,
+                    "portfolio_actions": [],
+                    "source_error_code": None,
+                },
+                "decision_policy_release": _decision_policy_release(),
+            },
+        ),
+        ("cro", "cro"): (
+            {"CIO_PROPOSAL"},
+            {
+                "current_positions": current_positions,
+                "decision_policy_release": _decision_policy_release(),
+                **candidate_runtime,
+            },
+        ),
+        ("autonomous_execution", "autonomous_execution"): (
+            {"CIO_PROPOSAL", "CRO_RISK_REVIEW"},
+            {
+                "current_positions": current_positions,
+                "decision_policy_release": _decision_policy_release(),
+                "candidate_target_state": candidate,
+                "cro_review_state": cro_state,
+                "resolved_source_statuses": [],
+                "execution_mode": "PAPER",
+            },
+        ),
+        ("cio", "cio_final"): (
+            {"CIO_PROPOSAL", "CRO_RISK_REVIEW", "EXECUTION_ASSESSMENT"},
+            {
+                "current_positions": current_positions,
+                "decision_policy_release": _decision_policy_release(),
+                "candidate_target_state": candidate,
+                "cro_review_state": cro_state,
+                "execution_feasibility_state": execution_state,
+            },
+        ),
+    }
+    role_event_calls: list[tuple[str, ...]] = []
+
+    class CompleteCoverage:
+        @staticmethod
+        def as_dict() -> dict[str, Any]:
+            return {"coverage_complete": True}
+
+    calendar = SimpleNamespace(coverage_receipt=CompleteCoverage())
+    monkeypatch.setattr(agent_stage_preparer, "EconomicCalendarStore", lambda: object())
+    monkeypatch.setattr(
+        agent_stage_preparer,
+        "archive_eco_calendar",
+        lambda *_args, **_kwargs: calendar,
+    )
+    monkeypatch.setattr(
+        agent_stage_preparer,
+        "compile_role_event_builds",
+        lambda **kwargs: role_event_calls.append(tuple(kwargs["agent_ids"])),
+    )
+    ledger = AgentDataMaterializationLedger(tmp_path / "all-bound-stages.sqlite3")
+    output_root = tmp_path / "all-bound-snapshots"
+
+    for (agent_id, stage), (accepted_kinds, runtime_state) in stage_inputs.items():
+        records = [
+            record
+            for record in state["accepted_output_records"]
+            if record["accepted_output_kind"] in accepted_kinds
+        ]
+        refs = [
+            state["accepted_output_refs"][
+                f"{record['accepted_output_kind']}:{record['agent_id']}"
+            ]
+            for record in records
+        ]
+        request = {
+            "agent_id": agent_id,
+            "stage": stage,
+            "as_of": "2026-08-06",
+            "graph_run_id": state["trace_id"],
+            "candidate_scope": {"accepted_output_refs": refs},
+            "runtime_inputs": {
+                "accepted_output_refs": refs,
+                "accepted_output_records": records,
+                "bound_runtime_state": runtime_state,
+            },
+        }
+        prepared = prepare_bound_runtime_family(
+            request,
+            ledger,
+            output_root=output_root,
+            clock=lambda: datetime(2026, 8, 6, 6, 1, tzinfo=timezone.utc),
+        )
+        assert prepared["cache_status"] in {"MISS", "MIXED"}
+        assert (output_root / prepared["output_path"]).is_file()
+
+    assert role_event_calls == [
+        ("alpha_discovery",),
+        ("cro",),
+        ("autonomous_execution",),
+    ]
+
+
+def test_compile_superinvestor_bound_snapshot_projects_real_sector_pick(
+    tmp_path: Path,
+) -> None:
+    state, accepted_records, accepted_refs, current_positions = (
+        _superinvestor_bound_inputs(tmp_path)
+    )
+    sector_record = next(
+        record
+        for record in accepted_records
+        if record["accepted_output_kind"] == "STANDARD_SECTOR_SELECTION"
+        and record["agent_id"] == "energy"
+    )
+    payload = sector_record["output"]["payload"]
+    selection = payload["selection"]
+    preferred = selection["preferred_direction"]
+    claim_ref = selection["claim_refs"][0]
+    selection["preferred_security_status"] = "PICKS_PRESENT"
+    selection["long_picks"] = [
+        {
+            "pick_local_id": "energy-long-1",
+            "direction_local_id": preferred["direction_local_id"],
+            "ts_code": "600028.SH",
+            "position_action": "LONG",
+            "conviction": 0.7,
+            "thesis": "Fixture security thesis.",
+            "claim_refs": [claim_ref],
+        }
+    ]
+    payload["preferred_security_abstention_confidence"] = None
+    payload["accepted_macro_input_attributions"] = _accepted_macro_attributions(selection)
+    _reseal_record(state, sector_record)
+
+    snapshot = compile_bound_runtime_snapshot(
+        agent_id="ackman",
+        stage="ackman",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        accepted_output_refs=accepted_refs,
+        accepted_output_records=accepted_records,
+        runtime_state={
+            "captured_at": "2026-08-06T14:00:00+08:00",
+            "current_positions": current_positions,
+        },
+        generated_at="2026-08-06T14:01:00+08:00",
+    )
+
+    assert snapshot["candidate_status"] == "AVAILABLE"
+    assert snapshot["candidate_universe"] == [
+        {
+            "candidate_ref": snapshot["candidate_universe"][0]["candidate_ref"],
+            "ts_code": "600028.SH",
+            "source_output_id": sector_record["accepted_output_id"],
+            "source_output_hash": sector_record["accepted_output_hash"],
+            "source_sector_agent_id": "energy",
+            "source_direction_id": preferred["direction_id"],
+            "source_direction": "PREFERRED",
+            "metrics": {"conviction": 0.7},
+            "evidence_ids": snapshot["candidate_universe"][0]["evidence_ids"],
+        }
+    ]
+    _validate_bound_runtime_snapshot(
+        snapshot,
+        tool_id="get_superinvestor_candidate_snapshot",
+        agent_id="ackman",
+        stage="ackman",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        expected_candidate_scope_hash=None,
+    )
+
+
+def test_bound_snapshots_merge_same_ticker_without_losing_authority(
+    tmp_path: Path,
+) -> None:
+    state, accepted_records, accepted_refs, _current_positions = (
+        _superinvestor_bound_inputs(tmp_path)
+    )
+    sector_records = [
+        record
+        for record in accepted_records
+        if record["accepted_output_kind"] == "STANDARD_SECTOR_SELECTION"
+    ][:3]
+    candidate_refs: list[tuple[float, str, dict]] = []
+    for index, (sector_record, conviction) in enumerate(
+        zip(sector_records, (0.9, 0.9, 0.7), strict=True)
+    ):
+        payload = sector_record["output"]["payload"]
+        selection = payload["selection"]
+        preferred = selection["preferred_direction"]
+        pick_local_id = f"shared-ticker-{index}"
+        selection["preferred_security_status"] = "PICKS_PRESENT"
+        selection["long_picks"] = [
+            {
+                "pick_local_id": pick_local_id,
+                "direction_local_id": preferred["direction_local_id"],
+                "ts_code": "600028.SH",
+                "position_action": "LONG",
+                "conviction": conviction,
+                "thesis": "Shared ticker fixture thesis.",
+                "claim_refs": [selection["claim_refs"][0]],
+            }
+        ]
+        payload["preferred_security_abstention_confidence"] = None
+        payload["accepted_macro_input_attributions"] = _accepted_macro_attributions(
+            selection
+        )
+        _reseal_record(state, sector_record)
+        candidate_refs.append(
+            (
+                conviction,
+                "runtime-candidate:"
+                + canonical_hash(
+                    {
+                        "accepted_output_id": sector_record["accepted_output_id"],
+                        "pick_local_id": pick_local_id,
+                    }
+                )[7:],
+                sector_record,
+            )
+        )
+
+    expected_ref, expected_record = min(
+        (candidate_ref, record)
+        for conviction, candidate_ref, record in candidate_refs
+        if conviction == 0.9
+    )
+    accepted_evidence = {
+        "accepted-evidence:" + record["accepted_output_hash"][7:]
+        for record in sector_records
+    }
+    current_positions = {
+        "snapshot_status": "loaded",
+        "position_source": "broker",
+        "source_error_code": None,
+        "position_snapshot_hash": canonical_hash({"600028.SH": 0.23}),
+        "positions": [{"ticker": "600028.SH", "current_weight": 0.23}],
+    }
+
+    superinvestor = compile_bound_runtime_snapshot(
+        agent_id="ackman",
+        stage="ackman",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        accepted_output_refs=accepted_refs,
+        accepted_output_records=accepted_records,
+        runtime_state={
+            "captured_at": "2026-08-06T14:00:00+08:00",
+            "current_positions": current_positions,
+        },
+        generated_at="2026-08-06T14:01:00+08:00",
+    )
+    assert len(superinvestor["candidate_universe"]) == 1
+    candidate = superinvestor["candidate_universe"][0]
+    assert candidate["candidate_ref"] == expected_ref
+    assert candidate["source_output_id"] == expected_record["accepted_output_id"]
+    assert set(candidate["evidence_ids"]) == accepted_evidence
+    assert len(superinvestor["upstream_accepted_output_refs"]) == len(accepted_refs)
+
+    cio = compile_bound_runtime_snapshot(
+        agent_id="cio",
+        stage="cio_proposal",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        accepted_output_refs=accepted_refs,
+        accepted_output_records=accepted_records,
+        runtime_state={
+            "captured_at": "2026-08-06T14:20:00+08:00",
+            "current_positions": current_positions,
+            "previous_target_state": {
+                "schema_version": "portfolio.previous_target_state.v1",
+                "snapshot_status": "empty_confirmed",
+                "final_target_hash": None,
+                "as_of_date": None,
+                "portfolio_actions": [],
+                "source_error_code": None,
+            },
+            "decision_policy_release": _decision_policy_release(),
+        },
+        generated_at="2026-08-06T14:21:00+08:00",
+    )
+    assert len(cio["candidate_universe"]) == 1
+    candidate = cio["candidate_universe"][0]
+    assert candidate["current_weight"] == 0.23
+    assert candidate["reference_target_weight"] == 0.9
+    assert set(candidate["evidence_ids"]) == {
+        *accepted_evidence,
+        "position-authority",
+    }
+    assert len(cio["upstream_accepted_output_refs"]) == len(accepted_refs)
+
+
+def test_compile_superinvestor_bound_snapshot_rejects_tampered_record(
+    tmp_path: Path,
+) -> None:
+    state, accepted_records, accepted_refs, current_positions = (
+        _superinvestor_bound_inputs(tmp_path)
+    )
+    accepted_records[0]["output"]["payload"]["model_confidence"] = 0.1
+
+    with pytest.raises(DataVendorUnavailable, match="accepted output record"):
+        compile_bound_runtime_snapshot(
+            agent_id="ackman",
+            stage="ackman",
+            as_of="2026-08-06",
+            graph_run_id=state["trace_id"],
+            accepted_output_refs=accepted_refs,
+            accepted_output_records=accepted_records,
+            runtime_state={
+                "captured_at": "2026-08-06T14:00:00+08:00",
+                "current_positions": current_positions,
+            },
+            generated_at="2026-08-06T14:01:00+08:00",
+        )
+
+
+def test_compile_alpha_bound_snapshot_requires_all_superinvestor_outputs(
+    tmp_path: Path,
+) -> None:
+    state, _sector_records, _sector_refs, current_positions = (
+        _superinvestor_bound_inputs(tmp_path)
+    )
+    accepted_records = [
+        record
+        for record in state["accepted_output_records"]
+        if record["accepted_output_kind"]
+        in {
+            "STANDARD_SECTOR_SELECTION",
+            "RELATIONSHIP_GRAPH",
+            "SUPERINVESTOR_SELECTION",
+        }
+    ]
+    accepted_refs = [
+        state["accepted_output_refs"][
+            f"{record['accepted_output_kind']}:{record['agent_id']}"
+        ]
+        for record in accepted_records
+    ]
+
+    snapshot = compile_bound_runtime_snapshot(
+        agent_id="alpha_discovery",
+        stage="alpha_discovery",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        accepted_output_refs=accepted_refs,
+        accepted_output_records=accepted_records,
+        runtime_state={
+            "captured_at": "2026-08-06T14:10:00+08:00",
+            "current_positions": current_positions,
+        },
+        generated_at="2026-08-06T14:11:00+08:00",
+    )
+
+    assert snapshot["candidate_status"] == "EMPTY_CONFIRMED"
+    assert snapshot["candidate_universe"] == []
+    assert snapshot["constraints"]["max_novel_pick_count"] == 10
+    assert {
+        ref["agent_id"]
+        for ref in snapshot["upstream_accepted_output_refs"]
+        if ref["accepted_output_kind"] == "SUPERINVESTOR_SELECTION"
+    } == {"ackman", "burry", "druckenmiller", "munger"}
+    _validate_bound_runtime_snapshot(
+        snapshot,
+        tool_id="get_alpha_candidate_snapshot",
+        agent_id="alpha_discovery",
+        stage="alpha_discovery",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        expected_candidate_scope_hash=None,
+    )
+
+
+def _decision_policy_release() -> dict[str, Any]:
+    identity_body = {
+        "schema_version": "deterministic_decision_policy_release_v1",
+        "effective_at": "2026-08-05T00:00:00+08:00",
+        "owner_revisions": {
+            "cro": "cro_risk_policy_v1",
+            "cio": "cio_portfolio_governance_policy_v1",
+            "autonomous_execution": "autonomous_execution_policy_v1",
+        },
+        "policies": {
+            "cro": {
+                "stop_loss_pct": -0.08,
+                "max_single_name_weight": 0.12,
+                "max_sector_weight": 0.3,
+            },
+            "cio": {"stale_thesis_days": 20},
+            "autonomous_execution": {
+                "min_delta_trade_weight": 0.01,
+                "slippage_cap": 0.003,
+                "liquidity_floor": 0.6,
+            },
+        },
+    }
+    with_identity = {
+        **identity_body,
+        "policy_release_id": "decision-policy:"
+        + canonical_hash(identity_body).removeprefix("sha256:"),
+    }
+    return {**with_identity, "release_hash": canonical_hash(with_identity)}
+
+
+def test_compile_cio_proposal_bound_snapshot_from_preproposal_authority(
+    tmp_path: Path,
+) -> None:
+    state, _sector_records, _sector_refs, current_positions = (
+        _superinvestor_bound_inputs(tmp_path)
+    )
+    accepted_records = [
+        record
+        for record in state["accepted_output_records"]
+        if record["accepted_output_kind"]
+        in {
+            "MACRO_TRANSMISSION",
+            "STANDARD_SECTOR_SELECTION",
+            "RELATIONSHIP_GRAPH",
+            "SUPERINVESTOR_SELECTION",
+            "ALPHA_DISCOVERY",
+        }
+    ]
+    accepted_refs = [
+        state["accepted_output_refs"][
+            f"{record['accepted_output_kind']}:{record['agent_id']}"
+        ]
+        for record in accepted_records
+    ]
+
+    snapshot = compile_bound_runtime_snapshot(
+        agent_id="cio",
+        stage="cio_proposal",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        accepted_output_refs=accepted_refs,
+        accepted_output_records=accepted_records,
+        runtime_state={
+            "captured_at": "2026-08-06T14:20:00+08:00",
+            "current_positions": current_positions,
+            "previous_target_state": {
+                "schema_version": "portfolio.previous_target_state.v1",
+                "snapshot_status": "empty_confirmed",
+                "final_target_hash": None,
+                "as_of_date": None,
+                "portfolio_actions": [],
+                "source_error_code": None,
+            },
+            "decision_policy_release": _decision_policy_release(),
+        },
+        generated_at="2026-08-06T14:21:00+08:00",
+    )
+
+    assert snapshot["candidate_status"] == "EMPTY_CONFIRMED"
+    assert snapshot["constraints"]["max_single_name_weight"] == 0.12
+    assert snapshot["role_context"]["decision_stage"] == "PROPOSAL"
+    _validate_bound_runtime_snapshot(
+        snapshot,
+        tool_id="get_cio_decision_snapshot",
+        agent_id="cio",
+        stage="cio_proposal",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        expected_candidate_scope_hash=None,
+    )
+
+
+def _empty_candidate_runtime(state: Mapping[str, Any], current_positions: Mapping[str, Any]) -> dict:
+    proposal_record = next(
+        record
+        for record in state["accepted_output_records"]
+        if record["accepted_output_kind"] == "CIO_PROPOSAL"
+    )
+    proposal = proposal_record["output"]["payload"]
+    candidate_body = {
+        "run_id": state["trace_id"],
+        "cohort": state["active_cohort"],
+        "as_of_date": "2026-08-06",
+        "proposal_hash": proposal["proposal_hash"],
+        "l4_run_snapshot_hash": canonical_hash("l4-run-snapshot"),
+        "position_snapshot_hash": current_positions["position_snapshot_hash"],
+        "previous_target_hash": None,
+        "market_data_vintage_hash": canonical_hash("market-vintage"),
+        "portfolio_actions": [],
+        "confidence": 0.8,
+    }
+    candidate = {
+        "schema_version": "portfolio.candidate_target_state.v1",
+        **candidate_body,
+        "candidate_target_hash": canonical_hash(candidate_body),
+        "frozen": True,
+    }
+    exposure_body = {
+        "candidate_target_hash": candidate["candidate_target_hash"],
+        "l4_run_snapshot_hash": candidate["l4_run_snapshot_hash"],
+        "gross_exposure": 0.0,
+        "net_exposure": 0.0,
+        "cash_weight": 1.0,
+        "ticker_weights": {},
+        "sector_weights": {},
+    }
+    exposure = {
+        "schema_version": "portfolio.exposure_state.v1",
+        **exposure_body,
+        "exposure_hash": canonical_hash(exposure_body),
+        "frozen": True,
+    }
+    return {"candidate_target_state": candidate, "portfolio_exposure_state": exposure}
+
+
+def test_compile_cro_bound_snapshot_from_frozen_candidate_target(
+    tmp_path: Path,
+) -> None:
+    state, _sector_records, _sector_refs, current_positions = (
+        _superinvestor_bound_inputs(tmp_path)
+    )
+    proposal_record = next(
+        record
+        for record in state["accepted_output_records"]
+        if record["accepted_output_kind"] == "CIO_PROPOSAL"
+    )
+    proposal_ref = state["accepted_output_refs"]["CIO_PROPOSAL:cio"]
+    frozen_runtime = _empty_candidate_runtime(state, current_positions)
+
+    snapshot = compile_bound_runtime_snapshot(
+        agent_id="cro",
+        stage="cro",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        accepted_output_refs=[proposal_ref],
+        accepted_output_records=[proposal_record],
+        runtime_state={
+            "captured_at": "2026-08-06T14:30:00+08:00",
+            "current_positions": current_positions,
+            "decision_policy_release": _decision_policy_release(),
+            **frozen_runtime,
+        },
+        generated_at="2026-08-06T14:31:00+08:00",
+    )
+
+    assert snapshot["candidate_status"] == "EMPTY_CONFIRMED"
+    assert snapshot["role_context"]["proposal_accepted_output_id"] == proposal_ref[
+        "accepted_output_id"
+    ]
+    assert snapshot["constraints"]["max_sector_weight"] == 0.3
+    _validate_bound_runtime_snapshot(
+        snapshot,
+        tool_id="get_cro_risk_snapshot",
+        agent_id="cro",
+        stage="cro",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        expected_candidate_scope_hash=None,
+    )
+
+
+def test_compile_cro_bound_snapshot_preserves_nonempty_weight_delta(
+    tmp_path: Path,
+) -> None:
+    state, _sector_records, _sector_refs, current_positions = (
+        _superinvestor_bound_inputs(tmp_path)
+    )
+    proposal_record = next(
+        record
+        for record in state["accepted_output_records"]
+        if record["accepted_output_kind"] == "CIO_PROPOSAL"
+    )
+    proposal = proposal_record["output"]["payload"]
+    decision = proposal["decision"]
+    claim_ref = decision["claim_refs"][0]
+    decision["decision_disposition"] = "TARGET_PORTFOLIO"
+    decision["target_positions"] = [
+        {
+            "position_local_id": "position:600028.SH",
+            "ts_code": "600028.SH",
+            "target_weight": 0.1,
+            "position_decision": "ADD",
+            "holding_period": "WEEKS",
+            "thesis_status": "INTACT",
+            "risk_flags": [],
+            "claim_refs": [claim_ref],
+        }
+    ]
+    decision["cash_weight"] = 0.9
+    proposal["accepted_macro_input_attributions"] = _accepted_macro_attributions(decision)
+    proposal_without_identity = {
+        key: value for key, value in proposal.items() if key not in {"proposal_id", "proposal_hash"}
+    }
+    proposal["proposal_id"] = _persistent_id("cio-proposal", proposal_without_identity)
+    proposal["proposal_hash"] = canonical_hash(
+        {**proposal_without_identity, "proposal_id": proposal["proposal_id"]}
+    )
+    _reseal_record(state, proposal_record)
+    action = {
+        "ticker": "600028.SH",
+        "action": "BUY",
+        "sector": "energy",
+        "position_decision": "ADD",
+        "current_weight": 0.0,
+        "target_weight": 0.1,
+        "delta_weight": 0.1,
+        "holding_period": "1M",
+        "dissent_notes": "",
+    }
+    candidate_body = {
+        "run_id": state["trace_id"],
+        "cohort": state["active_cohort"],
+        "as_of_date": "2026-08-06",
+        "proposal_hash": proposal["proposal_hash"],
+        "l4_run_snapshot_hash": canonical_hash("l4-run-snapshot"),
+        "position_snapshot_hash": current_positions["position_snapshot_hash"],
+        "previous_target_hash": None,
+        "market_data_vintage_hash": canonical_hash("market-vintage"),
+        "portfolio_actions": [action],
+        "confidence": 0.8,
+    }
+    candidate = {
+        "schema_version": "portfolio.candidate_target_state.v1",
+        **candidate_body,
+        "candidate_target_hash": canonical_hash(candidate_body),
+        "frozen": True,
+    }
+    exposure_body = {
+        "candidate_target_hash": candidate["candidate_target_hash"],
+        "l4_run_snapshot_hash": candidate["l4_run_snapshot_hash"],
+        "gross_exposure": 0.1,
+        "net_exposure": 0.1,
+        "cash_weight": 0.9,
+        "ticker_weights": {"600028.SH": 0.1},
+        "sector_weights": {"energy": 0.1},
+    }
+    exposure = {
+        "schema_version": "portfolio.exposure_state.v1",
+        **exposure_body,
+        "exposure_hash": canonical_hash(exposure_body),
+        "frozen": True,
+    }
+
+    snapshot = compile_bound_runtime_snapshot(
+        agent_id="cro",
+        stage="cro",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        accepted_output_refs=[state["accepted_output_refs"]["CIO_PROPOSAL:cio"]],
+        accepted_output_records=[proposal_record],
+        runtime_state={
+            "captured_at": "2026-08-06T14:30:00+08:00",
+            "current_positions": current_positions,
+            "decision_policy_release": _decision_policy_release(),
+            "candidate_target_state": candidate,
+            "portfolio_exposure_state": exposure,
+        },
+        generated_at="2026-08-06T14:31:00+08:00",
+    )
+
+    assert snapshot["candidate_universe"][0]["proposed_delta_weight"] == 0.1
+    assert snapshot["candidate_universe"][0]["sector_id"] == "energy"
+    _validate_bound_runtime_snapshot(
+        snapshot,
+        tool_id="get_cro_risk_snapshot",
+        agent_id="cro",
+        stage="cro",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        expected_candidate_scope_hash=None,
+    )
+
+
+def _accepted_cro_runtime(
+    state: Mapping[str, Any], candidate: Mapping[str, Any]
+) -> dict[str, Any]:
+    payload = {
+        "run_id": state["trace_id"],
+        "candidate_target_hash": candidate["candidate_target_hash"],
+        "l4_run_snapshot_hash": candidate["l4_run_snapshot_hash"],
+        "source_status": "ACCEPTED_OUTPUT",
+        "stage_skip_id": None,
+        "stage_skip_hash": None,
+        "output": {
+            "agent": "cro",
+            "review_disposition": "NO_OBJECTION",
+            "rejected_picks": [],
+            "required_adjustments": [],
+            "correlated_risks": [],
+            "black_swan_scenarios": [],
+            "confidence": 0.8,
+        },
+    }
+    return {
+        "schema_version": "decision.cro_review_state.v1",
+        **payload,
+        "review_hash": canonical_hash(payload),
+        "frozen": True,
+    }
+
+
+def test_compile_execution_bound_snapshot_from_frozen_cro_control(
+    tmp_path: Path,
+) -> None:
+    state, _sector_records, _sector_refs, current_positions = (
+        _superinvestor_bound_inputs(tmp_path)
+    )
+    proposal_record = next(
+        record
+        for record in state["accepted_output_records"]
+        if record["accepted_output_kind"] == "CIO_PROPOSAL"
+    )
+    cro_record = next(
+        record
+        for record in state["accepted_output_records"]
+        if record["accepted_output_kind"] == "CRO_RISK_REVIEW"
+    )
+    refs = [
+        state["accepted_output_refs"]["CIO_PROPOSAL:cio"],
+        state["accepted_output_refs"]["CRO_RISK_REVIEW:cro"],
+    ]
+    frozen_runtime = _empty_candidate_runtime(state, current_positions)
+    candidate = frozen_runtime["candidate_target_state"]
+
+    snapshot = compile_bound_runtime_snapshot(
+        agent_id="autonomous_execution",
+        stage="autonomous_execution",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        accepted_output_refs=refs,
+        accepted_output_records=[proposal_record, cro_record],
+        runtime_state={
+            "captured_at": "2026-08-06T14:40:00+08:00",
+            "current_positions": current_positions,
+            "decision_policy_release": _decision_policy_release(),
+            "candidate_target_state": candidate,
+            "cro_review_state": _accepted_cro_runtime(state, candidate),
+            "resolved_source_statuses": [],
+            "execution_mode": "PAPER",
+        },
+        generated_at="2026-08-06T14:41:00+08:00",
+    )
+
+    assert snapshot["candidate_status"] == "EMPTY_CONFIRMED"
+    assert snapshot["constraints"]["max_slippage_bps"] == 30.0
+    assert snapshot["role_context"]["cro_control_source"]["source_status"] == (
+        "ACCEPTED_OUTPUT"
+    )
+    _validate_bound_runtime_snapshot(
+        snapshot,
+        tool_id="get_execution_snapshot",
+        agent_id="autonomous_execution",
+        stage="autonomous_execution",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        expected_candidate_scope_hash=None,
+    )
+
+
+def _accepted_execution_runtime(
+    state: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    cro_state: Mapping[str, Any],
+) -> dict[str, Any]:
+    payload = {
+        "run_id": state["trace_id"],
+        "candidate_target_hash": candidate["candidate_target_hash"],
+        "l4_run_snapshot_hash": candidate["l4_run_snapshot_hash"],
+        "cro_review_hash": cro_state["review_hash"],
+        "source_status": "ACCEPTED_OUTPUT",
+        "stage_skip_id": None,
+        "stage_skip_hash": None,
+        "liquidity_vintage_hash": canonical_hash(
+            {
+                "source_id": "execution_liquidity_state",
+                "as_of_date": "2026-08-06",
+                "scopes": [],
+            }
+        ),
+        "output": {
+            "agent": "autonomous_execution",
+            "execution_disposition": "NO_DELTA",
+            "trades": [],
+            "execution_checks": [],
+            "confidence": 0.8,
+        },
+    }
+    return {
+        "schema_version": "decision.execution_feasibility_state.v1",
+        **payload,
+        "feasibility_hash": canonical_hash(payload),
+        "frozen": True,
+    }
+
+
+def test_compile_cio_final_bound_snapshot_from_frozen_controls(
+    tmp_path: Path,
+) -> None:
+    state, _sector_records, _sector_refs, current_positions = (
+        _superinvestor_bound_inputs(tmp_path)
+    )
+    records = [
+        next(
+            record
+            for record in state["accepted_output_records"]
+            if record["accepted_output_kind"] == kind
+        )
+        for kind in ("CIO_PROPOSAL", "CRO_RISK_REVIEW", "EXECUTION_ASSESSMENT")
+    ]
+    refs = [
+        state["accepted_output_refs"][key]
+        for key in (
+            "CIO_PROPOSAL:cio",
+            "CRO_RISK_REVIEW:cro",
+            "EXECUTION_ASSESSMENT:autonomous_execution",
+        )
+    ]
+    candidate = _empty_candidate_runtime(state, current_positions)[
+        "candidate_target_state"
+    ]
+    cro_state = _accepted_cro_runtime(state, candidate)
+    execution_state = _accepted_execution_runtime(state, candidate, cro_state)
+
+    snapshot = compile_bound_runtime_snapshot(
+        agent_id="cio",
+        stage="cio_final",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        accepted_output_refs=refs,
+        accepted_output_records=records,
+        runtime_state={
+            "captured_at": "2026-08-06T14:50:00+08:00",
+            "current_positions": current_positions,
+            "decision_policy_release": _decision_policy_release(),
+            "candidate_target_state": candidate,
+            "cro_review_state": cro_state,
+            "execution_feasibility_state": execution_state,
+        },
+        generated_at="2026-08-06T14:51:00+08:00",
+    )
+
+    assert snapshot["candidate_status"] == "EMPTY_CONFIRMED"
+    assert snapshot["role_context"]["decision_stage"] == "FINAL"
+    assert snapshot["role_context"]["execution_control_source"][
+        "source_status"
+    ] == "ACCEPTED_OUTPUT"
+    _validate_bound_runtime_snapshot(
+        snapshot,
+        tool_id="get_cio_decision_snapshot",
+        agent_id="cio",
+        stage="cio_final",
+        as_of="2026-08-06",
+        graph_run_id=state["trace_id"],
+        expected_candidate_scope_hash=None,
+    )
 
 
 def _reseal_cio_final_record(state: dict, record: dict) -> None:
@@ -1191,7 +2394,7 @@ def _attach_schedule(
     return len(scheduled), component_signal_count
 
 
-def test_accepted_cycle_writes_29_outputs_and_28_operational_audits(
+def test_accepted_cycle_writes_26_outputs_and_25_operational_audits(
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "scorecard.db"
@@ -1200,8 +2403,8 @@ def test_accepted_cycle_writes_29_outputs_and_28_operational_audits(
     scheduled_count, component_signal_count = _attach_schedule(store, state)
     _attach_accepted_records(state)
     result = store.append_darwinian_v2_accepted_cycle(state)
-    assert result["accepted_output_records"] == 29
-    assert result["operational_opportunity_audits"] == 28
+    assert result["accepted_output_records"] == 26
+    assert result["operational_opportunity_audits"] == 25
     assert result["evaluation_tracks_inserted"] == 0
     assert result["usage_tracks_inserted"] == 0
     assert result["cold_start_weights_inserted"] == 0
@@ -1217,8 +2420,8 @@ def test_accepted_cycle_writes_29_outputs_and_28_operational_audits(
             "SELECT agent_id, run_slot_kind, scheduled_sample_id "
             "FROM operational_opportunity_audits_v2"
         ).fetchall()
-    assert len(accepted) == 29
-    assert len(operational) == 28
+    assert len(accepted) == 26
+    assert len(operational) == 25
     cio = [row for row in accepted if row[0] == "cio"]
     assert {row[1] for row in cio} == {"CIO_PROPOSAL", "CIO_FINAL"}
     assert len({row[2] for row in cio}) == 1
@@ -1235,6 +2438,68 @@ def test_accepted_cycle_writes_29_outputs_and_28_operational_audits(
         (row[1] == "OUTCOME_SCHEDULED") == (row[2] is not None)
         for row in operational
     )
+
+
+def test_accepted_cycle_keeps_pre_capability_track_record_labelable(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "scorecard.db"
+    store = ScorecardStore(db_path)
+    state = _state()
+    _attach_schedule(store, state)
+    _attach_accepted_records(state)
+    legacy_record = next(
+        record
+        for record in state["accepted_output_records"]
+        if record["agent_id"] == "china"
+    )
+    legacy_record.pop("capability_track")
+    _reseal_record(state, legacy_record)
+    state["macro_input_gate"] = _authoritative_macro_input_gate(
+        state["accepted_output_records"],
+        weight_snapshot=state["darwinian_weight_snapshot"],
+    )[0]
+
+    result = store.append_darwinian_v2_accepted_cycle(state)
+
+    assert result["accepted_output_records"] == 26
+    with sqlite3.connect(db_path) as conn:
+        stored = json.loads(
+            conn.execute(
+                "SELECT record_json FROM accepted_agent_outputs_v2 "
+                "WHERE agent_id = 'china'"
+            ).fetchone()[0]
+        )
+    assert "capability_track" not in stored
+
+
+def test_accepted_cycle_keeps_cross_generation_capability_track_labelable(
+    tmp_path: Path,
+) -> None:
+    store = ScorecardStore(tmp_path / "scorecard.db")
+    state = _state()
+    _attach_schedule(store, state)
+    _attach_accepted_records(state)
+    prior_generation_record = next(
+        record
+        for record in state["accepted_output_records"]
+        if record["agent_id"] == "china"
+    )
+    track = prior_generation_record["capability_track"]
+    track["knot_coverage_manifest_hash"] = "sha256:" + "d" * 64
+    track_body = {
+        key: value for key, value in track.items() if key != "capability_bundle_hash"
+    }
+    track["capability_bundle_hash"] = canonical_hash(track_body)
+    _reseal_record(state, prior_generation_record)
+    state["macro_input_gate"] = _authoritative_macro_input_gate(
+        state["accepted_output_records"],
+        weight_snapshot=state["darwinian_weight_snapshot"],
+    )[0]
+
+    result = store.append_darwinian_v2_accepted_cycle(state)
+
+    assert result["accepted_output_records"] == 26
 
 
 def test_accepted_cycle_excludes_stage_skip_from_outputs_and_samples(
@@ -1256,8 +2521,8 @@ def test_accepted_cycle_excludes_stage_skip_from_outputs_and_samples(
     _attach_accepted_records(state)
 
     result = store.append_darwinian_v2_accepted_cycle(state)
-    assert result["accepted_output_records"] == 28
-    assert result["operational_opportunity_audits"] == 27
+    assert result["accepted_output_records"] == 25
+    assert result["operational_opportunity_audits"] == 24
     assert result["no_evaluation_object_stage_skips"] == 1
     assert result["outcome_eligibility_pending_revisions"] == scheduled_count - 1
     assert result["component_calibration_signals"] == component_signal_count
@@ -1532,8 +2797,8 @@ def test_accepted_cycle_rejects_redistributed_macro_usage_shares(
         if row["accepted_output_kind"] == "SUPERINVESTOR_SELECTION"
     )
     rows = record["output"]["payload"]["accepted_macro_input_attributions"]
-    rows[0]["usage_share"] = 0.2
-    rows[1]["usage_share"] = 0.0
+    rows[0]["usage_share"] += 0.05
+    rows[1]["usage_share"] -= 0.05
     _reseal_record(state, record)
 
     with pytest.raises(
@@ -1553,15 +2818,20 @@ def test_macro_attribution_authority_has_exact_required_kind_allowlist() -> None
         "CIO_PROPOSAL",
         "CIO_FINAL",
     }
-    reliability = {
-        agent_id: {"usage_share": 0.1} for agent_id in OUTCOME_CONTRACTS
+    macro_agent_ids = [
+        agent_id
+        for agent_id in OUTCOME_CONTRACTS
         if OUTCOME_CONTRACTS[agent_id]["layer"] == "MACRO"
+    ]
+    reliability = {
+        agent_id: {"usage_share": 1.0 / len(macro_agent_ids)}
+        for agent_id in macro_agent_ids
     }
     claim_ids_by_agent = {agent_id: set() for agent_id in reliability}
     attributions = [
         {
             "agent_id": agent_id,
-            "usage_share": 0.1,
+            "usage_share": reliability[agent_id]["usage_share"],
             "claim_refs_used": [],
         }
         for agent_id in reliability
@@ -1661,87 +2931,6 @@ def test_accepted_cycle_rejects_well_formed_forged_decision_identity(
     _reseal_record(state, record)
 
     with pytest.raises(ValueError, match="accepted Alpha discovery ID mismatch"):
-        store.append_darwinian_v2_accepted_cycle(state)
-
-
-def test_accepted_cycle_rejects_forged_relationship_edge_identity(
-    tmp_path: Path,
-) -> None:
-    store = ScorecardStore(tmp_path / "scorecard.db")
-    state = _state()
-    _attach_schedule(store, state)
-    _attach_accepted_records(state)
-    record = next(
-        row
-        for row in state["accepted_output_records"]
-        if row["accepted_output_kind"] == "RELATIONSHIP_GRAPH"
-    )
-    payload = record["output"]["payload"]
-    claim = payload["claims"][0]
-    forged_hash = canonical_hash("forged-factual-edge")
-    payload["factual_edges"] = [
-        {
-            "edge_id": f"relationship-factual-edge:{forged_hash[7:]}",
-            "edge_hash": forged_hash,
-            "edge_candidate_id": "relationship:fixture",
-            "relationship_row_hash": canonical_hash("relationship-row"),
-            "source_entity": "holder:fixture",
-            "source_entity_type": "HOLDER",
-            "target_entity": "600001.SH",
-            "target_entity_type": "PIT_ELIGIBLE_SECURITY",
-            "target_sector_id": "sector:fixture",
-            "edge_type": "OWNS",
-            "activation_trigger": "Fixture activation trigger.",
-            "evidence_ids": claim["evidence_ids"],
-            "claim_refs": [claim["claim_id"]],
-        }
-    ]
-    _reseal_record(state, record)
-
-    with pytest.raises(ValueError, match="factual relationship edge identity mismatch"):
-        store.append_darwinian_v2_accepted_cycle(state)
-
-
-def test_accepted_cycle_rejects_duplicate_relationship_semantic_tuple(
-    tmp_path: Path,
-) -> None:
-    store = ScorecardStore(tmp_path / "scorecard.db")
-    state = _state()
-    _attach_schedule(store, state)
-    _attach_accepted_records(state)
-    record = next(
-        row
-        for row in state["accepted_output_records"]
-        if row["accepted_output_kind"] == "RELATIONSHIP_GRAPH"
-    )
-    payload = record["output"]["payload"]
-    claim = payload["claims"][0]
-
-    def edge(candidate_id: str) -> dict[str, Any]:
-        body = {
-            "edge_candidate_id": candidate_id,
-            "relationship_row_hash": canonical_hash(f"row:{candidate_id}"),
-            "source_entity": "holder:fixture",
-            "source_entity_type": "HOLDER",
-            "target_entity": "600001.SH",
-            "target_entity_type": "PIT_ELIGIBLE_SECURITY",
-            "target_sector_id": "sector:fixture",
-            "edge_type": "OWNS",
-            "activation_trigger": "Fixture activation trigger.",
-            "evidence_ids": claim["evidence_ids"],
-        }
-        edge_hash = canonical_hash(body)
-        return {
-            "edge_id": f"relationship-factual-edge:{edge_hash[7:]}",
-            "edge_hash": edge_hash,
-            **body,
-            "claim_refs": [claim["claim_id"]],
-        }
-
-    payload["factual_edges"] = [edge("relationship:one"), edge("relationship:two")]
-    _reseal_record(state, record)
-
-    with pytest.raises(ValueError, match=r"factual_edges\..* must be unique"):
         store.append_darwinian_v2_accepted_cycle(state)
 
 

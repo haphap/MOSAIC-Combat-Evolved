@@ -2,7 +2,7 @@
 
 State → row expansion convention (Plan §11.3 3A design decisions):
 
-    Layer 1 (10 macro agents)  → not persisted (no ticker; regime signals
+    Layer 1 (8 macro agents)  → not persisted (no ticker; regime signals
                                   are inputs, not predictions).
     Layer 2 (10 sector agents) → 1 row per accepted security pick
                                   (A-share short-selling not viable).
@@ -165,10 +165,10 @@ CREATE TRIGGER IF NOT EXISTS sealed_macro_signals_no_delete
 
 logger = logging.getLogger(__name__)
 
-# The v3 runtime has 28 logical agents and 29 accepted stages because CIO
+# The v3 runtime has 25 logical agents and 26 accepted stages because CIO
 # executes distinct proposal and final stages.  Keep the audit cardinality in
 # one Python-side contract so bridge handlers and persistence cannot drift.
-RUNTIME_AGENT_STAGE_COUNT = 29
+RUNTIME_AGENT_STAGE_COUNT = 26
 
 
 def _is_sha256(value: Any) -> bool:
@@ -3083,6 +3083,32 @@ class ScorecardStore:
                 excluded_sample_ids=excluded_sample_ids,
             )
 
+    def build_prompt_training_projection_v2(
+        self,
+        *,
+        agent_id: str,
+        stage: str,
+        cohort: str,
+        cutoff_at: str,
+        knot_history_store: Any,
+        excluded_sample_ids: Sequence[str] = (),
+    ) -> dict[str, Any]:
+        """Export the PIT outcome/KNOT history projection for paired evaluation."""
+        from mosaic.scorecard.prompt_training_history import (
+            build_prompt_training_projection_v2,
+        )
+
+        with self._connect() as conn:
+            return build_prompt_training_projection_v2(
+                conn,
+                agent_id=agent_id,
+                stage=stage,
+                cohort=cohort,
+                cutoff_at=cutoff_at,
+                knot_history_store=knot_history_store,
+                excluded_sample_ids=excluded_sample_ids,
+            )
+
     def append_from_state(
         self,
         state: dict[str, Any],
@@ -3157,7 +3183,7 @@ class ScorecardStore:
         *,
         _conn: sqlite3.Connection | None = None,
     ) -> int:
-        """Persist the exact 28-Agent UI narrative sidecar for one live run.
+        """Persist the exact 25-Agent UI narrative sidecar for one live run.
 
         The bundle is derived by TypeScript from accepted structured outputs.
         It is intentionally stored outside recommendation, outcome, and
@@ -3209,11 +3235,11 @@ class ScorecardStore:
         if not _is_sha256(bundle_hash):
             raise ValueError("agent display narrative bundle_hash must be sha256")
         if (
-            bundle.get("narrative_count") != 28
+            bundle.get("narrative_count") != 25
             or not isinstance(narratives, list)
-            or len(narratives) != 28
+            or len(narratives) != 25
         ):
-            raise ValueError("agent display narrative bundle must contain exactly 28 Agents")
+            raise ValueError("agent display narrative bundle must contain exactly 25 Agents")
 
         from mosaic.bridge.tool_capabilities import AGENTS_BY_LAYER, ALL_AGENT_IDS
 

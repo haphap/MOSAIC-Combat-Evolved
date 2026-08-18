@@ -8,6 +8,9 @@ has the Tushare / akshare / FRED data plumbing. The TypeScript front-end
 calls into this package via JSON-RPC handlers (Plan §11.3 sub-step 3D).
 """
 
+import os
+from pathlib import Path
+
 from mosaic.scorecard.scorer import (
     DEFAULT_BENCHMARK,
     HORIZON_5D,
@@ -54,12 +57,26 @@ from mosaic.scorecard.weights import (
 _STORE_CACHE: dict[str, ScorecardStore] = {}
 
 
+def _runtime_default_db_path() -> Path:
+    if os.getenv("MOSAIC_ENSURE_SNAPSHOT_MODE") != "shadow":
+        return DEFAULT_DB_PATH
+    configured = os.getenv("MOSAIC_ENSURE_SNAPSHOT_SHADOW_ROOT")
+    if configured:
+        root = Path(configured).expanduser()
+    else:
+        from mosaic.dataflows.runtime_paths import agent_cache_root
+
+        root = agent_cache_root() / "agent_materialization_shadow"
+    return root / "scorecard" / "scorecard.db"
+
+
 def get_store(db_path=None) -> ScorecardStore:
     """Return a cached ScorecardStore for ``db_path`` (default DB when None)."""
-    key = str(db_path) if db_path is not None else str(DEFAULT_DB_PATH)
+    resolved_path = Path(db_path) if db_path is not None else _runtime_default_db_path()
+    key = str(resolved_path)
     store = _STORE_CACHE.get(key)
     if store is None:
-        store = ScorecardStore(db_path=db_path)
+        store = ScorecardStore(db_path=resolved_path)
         _STORE_CACHE[key] = store
     return store
 

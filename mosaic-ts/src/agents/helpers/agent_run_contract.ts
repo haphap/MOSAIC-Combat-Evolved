@@ -1,17 +1,31 @@
-import { appendFileSync, mkdirSync } from "node:fs";
+import {
+  appendFileSync,
+  chmodSync,
+  closeSync,
+  fsyncSync,
+  linkSync,
+  mkdirSync,
+  openSync,
+  unlinkSync,
+  writeSync,
+} from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import { canonicalJsonHash } from "./canonical_json.js";
+import { extractTextContent } from "./content.js";
 import { extractLlmTokenUsage } from "./runtime.js";
+import { tryParseJsonObject } from "./structured_output.js";
 import {
   adaptStrictProviderJsonSchema,
   normalizeStrictProviderPayload,
 } from "./structured_provider_adapters.js";
 import { buildStructuredRepairDirectiveMessages } from "./structured_repair_directives.js";
-
 export const MAX_AGENT_REPAIRS = 3;
+
+const PROMPT_JSON_LLMS = new WeakSet<object>();
+let promptJsonCaptureSequence = 0;
 
 export type AgentRunStatus = "accepted" | "accepted_empty" | "rejected" | "timeout" | "error";
 export type AgentOutputSource = "structured_primary" | "structured_repair" | "none";
@@ -111,11 +125,28 @@ export async function assertStructuredOutputCapability(llm: BaseChatModel): Prom
     const parsed = preflightSchema.safeParse(structuredEnvelope(response).parsed);
     if (!parsed.success)
       throw new Error("provider returned an invalid structured preflight object");
+    PROMPT_JSON_LLMS.delete(llm);
   } catch (cause) {
-    throw new Error(
-      `structured-output capability preflight failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-      { cause },
-    );
+    try {
+      const preflightSchema = z.object({ preflight: z.literal("ok") });
+      const bound = bindPromptJson(
+        llm,
+        providerJsonSchema(preflightSchema),
+        "mosaic_structured_output_preflight",
+      );
+      const response = await bound.invoke([
+        new SystemMessage("Return the structured-output preflight object exactly as requested."),
+        new HumanMessage('Set preflight to "ok".'),
+      ]);
+      const parsed = preflightSchema.safeParse(structuredEnvelope(response).parsed);
+      if (!parsed.success) throw new Error("provider returned an invalid prompt-JSON object");
+      PROMPT_JSON_LLMS.add(llm);
+    } catch (fallbackCause) {
+      throw new Error(
+        `${structuredPreflightError(cause).message}; prompt-JSON fallback failed: ${fallbackCause instanceof Error ? fallbackCause.message : String(fallbackCause)}`,
+        { cause: fallbackCause },
+      );
+    }
   }
 }
 
@@ -145,14 +176,23 @@ export async function invokeStrictStructured<T>(
     throw cause;
   }
   let bound: { invoke: (input: unknown, options?: { signal?: AbortSignal }) => Promise<unknown> };
+  let providerValidationSchema: z.ZodType;
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: LangChain providers expose different generic signatures.
-    bound = (opts.llm as any).withStructuredOutput(strictProviderSchema, {
-      includeRaw: true,
-      method: "jsonSchema",
-      strict: true,
-      name: `${opts.agent}_${opts.stage}`.replace(/[^A-Za-z0-9_-]/g, "_"),
-    });
+    const bindingName = `${opts.agent}_${opts.stage}`.replace(/[^A-Za-z0-9_-]/g, "_");
+    providerValidationSchema = z.fromJSONSchema(
+      strictProviderSchema as Parameters<typeof z.fromJSONSchema>[0],
+    );
+    if (PROMPT_JSON_LLMS.has(opts.llm)) {
+      bound = bindPromptJson(opts.llm, strictProviderSchema, bindingName);
+    } else {
+      // biome-ignore lint/suspicious/noExplicitAny: LangChain providers expose different generic signatures.
+      bound = (opts.llm as any).withStructuredOutput(strictProviderSchema, {
+        includeRaw: true,
+        method: "jsonSchema",
+        strict: true,
+        name: bindingName,
+      });
+    }
   } catch (cause) {
     const audit = failedAudit(opts, hashes, [], "error", "structured_output_unsupported", [
       "STRUCTURED_OUTPUT_UNSUPPORTED",
@@ -180,7 +220,7 @@ export async function invokeStrictStructured<T>(
         ? opts.messages
         : buildRepairMessages({
             attempt,
-            schema: opts.schema,
+            completeJsonSchema: strictProviderSchema,
             originalMessages: opts.messages,
             originalOutput: previousProviderRaw,
             cumulativeIssues,
@@ -194,22 +234,40 @@ export async function invokeStrictStructured<T>(
     let issues: AgentContractIssue[] = [];
     let candidate: T | null = null;
     try {
-      const response = await bound.invoke(input, opts.signal ? { signal: opts.signal } : undefined);
+      const response = await bound.invoke(input);
       const envelope = structuredEnvelope(response);
       providerRaw = envelope.parsed;
-      raw = normalizeStrictProviderPayload(providerRaw);
       const usage = extractLlmTokenUsage(envelope.raw);
       promptTokens = usage.promptTokens;
       completionTokens = usage.completionTokens;
-      const parsed = opts.schema.safeParse(raw);
-      if (!parsed.success) {
-        issues = zodIssues(parsed.error);
+      let providerAccepted = false;
+      if (
+        hasCompactProviderContract(providerRaw) ||
+        hasProviderShapedMacroInputAttributions(providerRaw)
+      ) {
+        const providerParsed = providerValidationSchema.safeParse(providerRaw);
+        if (!providerParsed.success) {
+          raw = providerRaw;
+          issues = zodIssues(providerParsed.error, providerRaw);
+        } else {
+          raw = normalizeStrictProviderPayload(providerParsed.data);
+          providerAccepted = true;
+        }
       } else {
-        const validated = opts.validate
-          ? await opts.validate(parsed.data)
-          : { output: parsed.data, issues: [] };
-        candidate = validated.output;
-        issues = normalizeIssues(validated.issues);
+        raw = normalizeStrictProviderPayload(providerRaw);
+        providerAccepted = true;
+      }
+      if (providerAccepted) {
+        const parsed = opts.schema.safeParse(raw);
+        if (!parsed.success) {
+          issues = zodIssues(parsed.error, raw);
+        } else {
+          const validated = opts.validate
+            ? await opts.validate(parsed.data)
+            : { output: parsed.data, issues: [] };
+          candidate = validated.output;
+          issues = normalizeIssues(validated.issues);
+        }
       }
     } catch (cause) {
       const failure = classifyOperationalFailure(cause, opts.signal);
@@ -286,7 +344,12 @@ export async function invokeStrictStructured<T>(
     }
 
     cumulativeIssues.push(...issues);
-    if (attempt > 0 && outputHash !== null && outputHash === previousOutputHash) {
+    if (
+      attempt > 0 &&
+      outputHash !== null &&
+      outputHash === previousOutputHash &&
+      (attempt >= 2 || attempt === maxRepairs)
+    ) {
       throw rejectedError(opts, hashes, attempts, "duplicate_output");
     }
     if (attempt > 0) {
@@ -304,6 +367,89 @@ export async function invokeStrictStructured<T>(
   }
 
   throw rejectedError(opts, hashes, attempts, "repair_budget_exhausted");
+}
+
+function structuredPreflightError(cause: unknown): Error {
+  return new Error(
+    `structured-output capability preflight failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+    { cause },
+  );
+}
+
+function bindPromptJson(
+  llm: BaseChatModel,
+  schema: unknown,
+  name: string,
+): { invoke: (input: unknown, options?: { signal?: AbortSignal }) => Promise<unknown> } {
+  return {
+    invoke: async (input, options) => {
+      const messages = promptJsonMessages(input, schema, name);
+      capturePromptJsonMessages(name, messages);
+      // biome-ignore lint/suspicious/noExplicitAny: BaseChatModel input types vary by provider wrapper.
+      const response = await (llm as any).invoke(messages, options);
+      const content =
+        typeof response?.content === "string"
+          ? response.content
+          : extractTextContent(response?.content ?? "");
+      const parsed = tryParseJsonObject(content);
+      if (parsed === null) throw new Error("provider returned no valid JSON object");
+      return { raw: response, parsed };
+    },
+  };
+}
+
+function capturePromptJsonMessages(name: string, messages: unknown[]): void {
+  const directory = process.env.MOSAIC_PROMPT_JSON_CAPTURE_DIR?.trim();
+  if (!directory) return;
+
+  const captureId = `${process.pid}-${Date.now()}-${promptJsonCaptureSequence++}`;
+  const temporaryPath = resolve(directory, `.prompt-json-${captureId}.tmp`);
+  const finalPath = resolve(directory, `prompt-json-${captureId}.json`);
+  try {
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const payload = JSON.stringify({
+      schema_version: "prompt_json_messages_capture_v1",
+      binding_name: name,
+      messages,
+    });
+    const descriptor = openSync(temporaryPath, "wx", 0o600);
+    try {
+      writeSync(descriptor, payload);
+      fsyncSync(descriptor);
+    } finally {
+      closeSync(descriptor);
+    }
+    linkSync(temporaryPath, finalPath);
+    unlinkSync(temporaryPath);
+    chmodSync(finalPath, 0o600);
+  } catch (cause) {
+    try {
+      unlinkSync(temporaryPath);
+    } catch {
+      // Preserve the original capture failure.
+    }
+    throw new Error(
+      `prompt JSON message capture failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause },
+    );
+  }
+}
+
+function promptJsonMessages(input: unknown, schema: unknown, name: string): unknown[] {
+  const directive =
+    "Return ONLY one valid JSON object matching the complete JSON Schema below. " +
+    "Do not use Markdown, code fences, comments, or prose outside the JSON object.\n" +
+    `Schema name: ${name}\nJSON Schema: ${JSON.stringify(schema)}`;
+  if (!Array.isArray(input) || input.length === 0) {
+    return [new SystemMessage(directive), input];
+  }
+  const [first, ...rest] = input;
+  if (first instanceof SystemMessage) {
+    const content =
+      typeof first.content === "string" ? first.content : extractTextContent(first.content);
+    return [new SystemMessage(`${content}\n\n${directive}`), ...rest];
+  }
+  return [new SystemMessage(directive), ...input];
 }
 
 function persistAttemptDiagnosticTelemetry<T>(
@@ -337,9 +483,9 @@ function sanitize(value: string): string {
   return value.replace(/[^A-Za-z0-9_.-]/g, "_").slice(0, 160) || "unknown_run";
 }
 
-function buildRepairMessages<T>(input: {
+function buildRepairMessages(input: {
   attempt: number;
-  schema: z.ZodType<T>;
+  completeJsonSchema: unknown;
   originalMessages: [SystemMessage, HumanMessage];
   originalOutput: unknown;
   cumulativeIssues: AgentContractIssue[];
@@ -347,7 +493,6 @@ function buildRepairMessages<T>(input: {
   repairEvidenceCatalog: RepairEvidenceCatalog;
 }): [SystemMessage, HumanMessage] {
   const issuePayload = dedupeIssues(input.cumulativeIssues);
-  const contract = providerJsonSchema(input.schema);
   const originalUser = input.originalMessages[1].content;
   const messages = buildStructuredRepairDirectiveMessages({
     attempt: input.attempt,
@@ -357,28 +502,36 @@ function buildRepairMessages<T>(input: {
     originalEvidenceAndTask: originalUser,
     priorOutput: input.originalOutput,
     validationErrors: issuePayload,
-    completeJsonSchema: contract,
+    completeJsonSchema: input.completeJsonSchema,
   });
   return [new SystemMessage(messages.systemMessage), new HumanMessage(messages.userMessage)];
 }
 
 interface RepairEvidenceCatalog {
   allowed_evidence_ids: string[];
+  claim_supported_evidence_ids: string[];
   allowed_citation_ids: string[];
 }
 
 function extractRepairEvidenceCatalog(snapshot: unknown): RepairEvidenceCatalog {
   if (snapshot === null || typeof snapshot !== "object" || Array.isArray(snapshot)) {
-    return { allowed_evidence_ids: [], allowed_citation_ids: [] };
+    return {
+      allowed_evidence_ids: [],
+      claim_supported_evidence_ids: [],
+      allowed_citation_ids: [],
+    };
   }
   const record = snapshot as Record<string, unknown>;
   const evidenceLedger = Array.isArray(record.evidenceLedger) ? record.evidenceLedger : [];
-  const allowedEvidenceIds = evidenceLedger
-    .flatMap((entry) => {
-      if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return [];
-      const evidenceId = (entry as Record<string, unknown>).evidence_id;
-      return typeof evidenceId === "string" ? [evidenceId] : [];
-    })
+  const evidenceEntries = evidenceLedger.flatMap((entry) => {
+    if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return [];
+    const evidenceId = (entry as Record<string, unknown>).evidence_id;
+    return typeof evidenceId === "string" ? [entry as Record<string, unknown>] : [];
+  });
+  const allowedEvidenceIds = evidenceEntries.map((entry) => entry.evidence_id as string).sort();
+  const claimSupportedEvidenceIds = evidenceEntries
+    .filter((entry) => entry.freshness === "current" && entry.fallback !== true)
+    .map((entry) => entry.evidence_id as string)
     .sort();
   const ruleSource = record.allowedResearchRuleIds;
   const allowedResearchRuleIds =
@@ -389,19 +542,69 @@ function extractRepairEvidenceCatalog(snapshot: unknown): RepairEvidenceCatalog 
         : [];
   return {
     allowed_evidence_ids: [...new Set(allowedEvidenceIds)],
+    claim_supported_evidence_ids: [...new Set(claimSupportedEvidenceIds)],
     allowed_citation_ids: [...new Set(allowedResearchRuleIds)],
   };
 }
 
-function zodIssues(error: z.ZodError): AgentContractIssue[] {
-  return normalizeIssues(
-    error.issues.map((issue) => ({
-      validator: "zod_schema",
-      reason_code: `ZOD_${issue.code.toUpperCase()}`,
-      json_path: jsonPath(issue.path),
-      message: issue.message,
-    })),
+function zodIssues(error: z.ZodError, rawOutput?: unknown): AgentContractIssue[] {
+  return normalizeIssues(expandZodIssues(error.issues, rawOutput));
+}
+
+function expandZodIssues(
+  issues: readonly z.ZodIssue[],
+  rawOutput: unknown,
+  prefix: PropertyKey[] = [],
+): AgentContractIssue[] {
+  return issues.flatMap((issue) => {
+    const path = [...prefix, ...issue.path];
+    if (issue.code === "invalid_union" && issue.errors.length > 0) {
+      const input = valueAtPath(rawOutput, path);
+      const branch = selectUnionBranch(issue.errors, input);
+      return expandZodIssues(branch, rawOutput, path);
+    }
+    return [
+      {
+        validator: "zod_schema",
+        reason_code: `ZOD_${issue.code.toUpperCase()}`,
+        json_path: jsonPath(path),
+        message: issue.message,
+      },
+    ];
+  });
+}
+
+function selectUnionBranch(
+  branches: readonly (readonly z.ZodIssue[])[],
+  input: unknown,
+): readonly z.ZodIssue[] {
+  const decisionDisposition = objectProperties(input)?.decision_disposition;
+  if (typeof decisionDisposition !== "string") return branches.flat();
+  return (
+    branches.find(
+      (branch) =>
+        !branch.some((issue) => isDecisionDispositionMismatch(issue, decisionDisposition)),
+    ) ??
+    branches[0] ??
+    []
   );
+}
+
+function isDecisionDispositionMismatch(issue: z.ZodIssue, decisionDisposition: string): boolean {
+  if (issue.path.length !== 1 || issue.path[0] !== "decision_disposition") return false;
+  if (issue.code === "invalid_value") {
+    const values = (issue as z.ZodIssue & { values?: unknown[] }).values;
+    return !Array.isArray(values) || !values.includes(decisionDisposition);
+  }
+  return true;
+}
+
+function valueAtPath(value: unknown, path: readonly PropertyKey[]): unknown {
+  return path.reduce<unknown>((current, key) => {
+    if (Array.isArray(current) && typeof key === "number") return current[key];
+    const record = objectProperties(current);
+    return record ? record[String(key)] : undefined;
+  }, value);
 }
 
 function exceptionIssues(cause: unknown): AgentContractIssue[] {
@@ -459,8 +662,13 @@ function rejectedError<T>(
   ].sort();
   const audit = failedAudit(opts, hashes, attempts, "rejected", stopReason, reasonCodes);
   const reasonSummary = reasonCodes.length > 0 ? `: ${reasonCodes.join(",")}` : "";
+  const finalIssues = attempts.at(-1)?.validation_issues ?? [];
+  const finalSummary =
+    finalIssues.length > 0
+      ? `; final=${finalIssues.map((issue) => `${issue.reason_code}@${issue.json_path}`).join(",")}`
+      : "";
   return new AgentRunContractError(
-    `${opts.agent}/${opts.stage}: rejected after ${attempts.length} attempts (${stopReason})${reasonSummary}`,
+    `${opts.agent}/${opts.stage}: rejected after ${attempts.length} attempts (${stopReason})${reasonSummary}${finalSummary}`,
     audit,
   );
 }
@@ -527,6 +735,27 @@ function structuredEnvelope(value: unknown): { raw?: unknown; parsed: unknown } 
   return { parsed: value };
 }
 
+function hasCompactProviderContract(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasCompactProviderContract);
+  if (value === null || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.provider_contract === "string" ||
+    Object.values(record).some(hasCompactProviderContract)
+  );
+}
+
+function hasProviderShapedMacroInputAttributions(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(hasProviderShapedMacroInputAttributions);
+  if (value === null || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  const attributions = record.macro_input_attributions;
+  return (
+    (attributions !== null && typeof attributions === "object" && !Array.isArray(attributions)) ||
+    Object.values(record).some(hasProviderShapedMacroInputAttributions)
+  );
+}
+
 function safeJsonSchema<T>(schema: z.ZodType<T>): unknown {
   try {
     return z.toJSONSchema(schema);
@@ -539,9 +768,23 @@ function providerJsonSchema<T>(schema: z.ZodType<T>, evidenceSnapshot?: unknown)
   const providerSchema = applyProviderExtractionBounds(
     adaptStrictProviderJsonSchema(omitUnsupportedProviderKeywords(safeJsonSchema(schema))),
   );
-  return bindMacroProviderRuntimeCatalog(
-    providerSchema,
-    extractRepairEvidenceCatalog(evidenceSnapshot),
+  const catalog = extractRepairEvidenceCatalog(evidenceSnapshot);
+  return bindCioFinalProviderRuntimeDirective(
+    bindAutonomousExecutionProviderRuntimeDirective(
+      bindSectorSelectedProviderRuntimeCatalog(
+        bindSingleEvidenceCitationProviderRuntimeCatalog(
+          bindDecisionClaimProviderRuntimeCatalog(
+            bindMacroProviderRuntimeCatalog(providerSchema, catalog),
+            catalog,
+          ),
+          catalog,
+        ),
+        evidenceSnapshot,
+        catalog,
+      ),
+      evidenceSnapshot,
+    ),
+    evidenceSnapshot,
   );
 }
 
@@ -569,13 +812,710 @@ export const STRICT_PROVIDER_EXTRACTION_DESCRIPTOR = Object.freeze({
   macro_runtime_catalog_binding: "EXACT_EVIDENCE_AND_PERMITTED_CITATION_ENUM_V1",
   macro_claim_kind_binding: "NO_INTERPRETATION_WITHOUT_PERMITTED_CITATION_V1",
   macro_optional_numeric_echo: "COMPACT_EXTRACTION_OMITS_OPTIONAL_NUMERIC_ECHO_V1",
+  sector_runtime_directive_binding:
+    "EXACT_PREFERRED_AND_LEAST_EVIDENCE_CITATION_AND_SECURITY_ENUM_V1",
+  single_evidence_runtime_catalog_binding:
+    "RELATIONSHIP_AND_SUPERINVESTOR_EXACT_EVIDENCE_AND_CITATION_ENUM_V1",
+  decision_claim_runtime_catalog_binding: "DECISION_EXACT_EVIDENCE_AND_PERMITTED_CITATION_ENUM_V1",
+  cio_final_control_binding: "EXACT_CRO_EXECUTION_AND_TARGET_BOUNDS_V2",
+  cio_final_decision_reason_max_length: 160,
 });
 
+export const CIO_FINAL_PROVIDER_DECISION_REASON_MAX_LENGTH = 160;
+export const CIO_FINAL_PROVIDER_CONTROL_DIRECTIVE_VERSION =
+  "cio_final_provider_control_directive_v2";
+
+interface CioFinalProviderTargetBound {
+  ts_code: string;
+  current_weight: number;
+  proposal_target_weight: number;
+  requested_delta_weight: number;
+  execution_status: "FEASIBLE" | "PARTIAL" | "BLOCKED" | "NO_DELTA";
+  max_executable_delta_weight: number;
+  direction: "INCREASE" | "DECREASE" | "HOLD";
+  target_weight_min: number;
+  target_weight_max: number;
+}
+
 class ProviderRuntimeBindingError extends Error {
-  constructor(readonly reasonCode: "MACRO_RUNTIME_EVIDENCE_CATALOG_EMPTY") {
+  constructor(
+    readonly reasonCode:
+      | "MACRO_RUNTIME_EVIDENCE_CATALOG_EMPTY"
+      | "SECTOR_RUNTIME_DIRECTIVE_MISSING"
+      | "SECTOR_RUNTIME_DIRECTIVE_EVIDENCE_OUTSIDE_CATALOG"
+      | "CIO_FINAL_CONTROL_DIRECTIVE_MISSING"
+      | "CIO_FINAL_CONTROL_DIRECTIVE_INVALID"
+      | "AUTONOMOUS_EXECUTION_CONTROL_DIRECTIVE_MISSING"
+      | "AUTONOMOUS_EXECUTION_CONTROL_DIRECTIVE_INVALID"
+      | "SINGLE_EVIDENCE_RUNTIME_EVIDENCE_CATALOG_EMPTY"
+      | "CIO_FINAL_PROVIDER_SCHEMA_INVALID",
+  ) {
     super(reasonCode);
     this.name = "ProviderRuntimeBindingError";
   }
+}
+
+interface AutonomousExecutionProviderIntent {
+  order_intent_ref: string;
+  ts_code: string;
+  requested_delta_weight: number;
+}
+
+function bindAutonomousExecutionProviderRuntimeDirective(
+  value: unknown,
+  snapshot: unknown,
+): unknown {
+  if (!containsAutonomousExecutionProviderSchema(value)) return value;
+  if (snapshot === null || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    throw new ProviderRuntimeBindingError("AUTONOMOUS_EXECUTION_CONTROL_DIRECTIVE_MISSING");
+  }
+  const directive = (snapshot as Record<string, unknown>).autonomous_execution_control_directive;
+  if (directive === null || typeof directive !== "object" || Array.isArray(directive)) {
+    throw new ProviderRuntimeBindingError("AUTONOMOUS_EXECUTION_CONTROL_DIRECTIVE_MISSING");
+  }
+  const record = directive as Record<string, unknown>;
+  const intents = canonicalAutonomousExecutionProviderIntents(record.intents);
+  if (intents === null) {
+    throw new ProviderRuntimeBindingError("AUTONOMOUS_EXECUTION_CONTROL_DIRECTIVE_INVALID");
+  }
+  if (
+    record.schema_version !== "execution_frozen_order_intent_set_v2" ||
+    typeof record.frozen_object_set_id !== "string" ||
+    record.frozen_object_set_id.length === 0 ||
+    typeof record.frozen_object_set_hash !== "string" ||
+    !/^sha256:[0-9a-f]{64}$/.test(record.frozen_object_set_hash)
+  ) {
+    throw new ProviderRuntimeBindingError("AUTONOMOUS_EXECUTION_CONTROL_DIRECTIVE_INVALID");
+  }
+  const frozenIntents: AutonomousExecutionProviderIntent[] = intents;
+  return bind(value);
+
+  function bind(nested: unknown): unknown {
+    if (Array.isArray(nested)) return nested.map(bind);
+    if (nested === null || typeof nested !== "object") return nested;
+    const nestedRecord = nested as Record<string, unknown>;
+    const properties = objectProperties(nestedRecord.properties);
+    if (schemaConstValue(properties?.agent_id) === "autonomous_execution") {
+      return {
+        ...nestedRecord,
+        properties: {
+          ...properties,
+          order_assessments: exactAutonomousExecutionIntentTupleSchema(
+            properties?.order_assessments,
+            frozenIntents,
+          ),
+        },
+      };
+    }
+    return Object.fromEntries(Object.entries(nestedRecord).map(([key, item]) => [key, bind(item)]));
+  }
+}
+
+function containsAutonomousExecutionProviderSchema(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsAutonomousExecutionProviderSchema);
+  if (value === null || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  const properties = objectProperties(record.properties);
+  return (
+    schemaConstValue(properties?.agent_id) === "autonomous_execution" ||
+    Object.values(record).some(containsAutonomousExecutionProviderSchema)
+  );
+}
+
+function canonicalAutonomousExecutionProviderIntents(
+  value: unknown,
+): AutonomousExecutionProviderIntent[] | null {
+  if (!Array.isArray(value)) return null;
+  const intents: AutonomousExecutionProviderIntent[] = [];
+  for (const item of value) {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) return null;
+    const record = item as Record<string, unknown>;
+    if (
+      typeof record.order_intent_ref !== "string" ||
+      record.order_intent_ref.length === 0 ||
+      typeof record.ts_code !== "string" ||
+      record.ts_code.length === 0 ||
+      typeof record.requested_delta_weight !== "number" ||
+      !Number.isFinite(record.requested_delta_weight) ||
+      record.requested_delta_weight === 0
+    ) {
+      return null;
+    }
+    intents.push({
+      order_intent_ref: record.order_intent_ref,
+      ts_code: record.ts_code,
+      requested_delta_weight: record.requested_delta_weight,
+    });
+  }
+  if (
+    new Set(intents.map((intent) => intent.order_intent_ref)).size !== intents.length ||
+    new Set(intents.map((intent) => intent.ts_code)).size !== intents.length
+  ) {
+    return null;
+  }
+  const sorted = [...intents].sort((left, right) =>
+    left.order_intent_ref.localeCompare(right.order_intent_ref),
+  );
+  return sorted.every(
+    (intent, index) => intent.order_intent_ref === intents[index]?.order_intent_ref,
+  )
+    ? sorted
+    : null;
+}
+
+function exactAutonomousExecutionIntentTupleSchema(
+  value: unknown,
+  intents: AutonomousExecutionProviderIntent[],
+): Record<string, unknown> {
+  const arraySchema = objectProperties(value);
+  if (!arraySchema) {
+    throw new ProviderRuntimeBindingError("AUTONOMOUS_EXECUTION_CONTROL_DIRECTIVE_INVALID");
+  }
+  if (arraySchema.items === false && arraySchema.maxItems === 0) {
+    return arraySchema;
+  }
+  const itemSchema = objectProperties(arraySchema.items);
+  const itemProperties = objectProperties(itemSchema?.properties);
+  if (!itemSchema || !itemProperties) {
+    throw new ProviderRuntimeBindingError("AUTONOMOUS_EXECUTION_CONTROL_DIRECTIVE_INVALID");
+  }
+  return {
+    ...arraySchema,
+    prefixItems: intents.map((intent) => ({
+      ...itemSchema,
+      properties: {
+        ...itemProperties,
+        order_intent_ref: {
+          ...objectProperties(itemProperties.order_intent_ref),
+          const: intent.order_intent_ref,
+        },
+        ts_code: {
+          ...objectProperties(itemProperties.ts_code),
+          const: intent.ts_code,
+        },
+        requested_delta_weight: {
+          ...objectProperties(itemProperties.requested_delta_weight),
+          const: intent.requested_delta_weight,
+        },
+      },
+    })),
+    items: false,
+    minItems: intents.length,
+    maxItems: intents.length,
+  };
+}
+
+function bindCioFinalProviderRuntimeDirective(value: unknown, snapshot: unknown): unknown {
+  if (!containsCioFinalProviderSchema(value)) return value;
+  if (snapshot === null || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    throw new ProviderRuntimeBindingError("CIO_FINAL_CONTROL_DIRECTIVE_MISSING");
+  }
+  const directive = (snapshot as Record<string, unknown>).cio_final_control_directive;
+  if (directive === null || typeof directive !== "object" || Array.isArray(directive)) {
+    throw new ProviderRuntimeBindingError("CIO_FINAL_CONTROL_DIRECTIVE_MISSING");
+  }
+  const record = directive as Record<string, unknown>;
+  const croRefs = canonicalRuntimeStringTuple(record.cro_action_local_refs);
+  const executionRefs = canonicalRuntimeStringTuple(record.execution_assessment_local_refs);
+  const targetBounds = canonicalCioFinalTargetBounds(record.target_bounds);
+  if (
+    record.contract_version !== CIO_FINAL_PROVIDER_CONTROL_DIRECTIVE_VERSION ||
+    record.decision_reason_max_length !== CIO_FINAL_PROVIDER_DECISION_REASON_MAX_LENGTH ||
+    croRefs === null ||
+    executionRefs === null ||
+    targetBounds === null
+  ) {
+    throw new ProviderRuntimeBindingError("CIO_FINAL_CONTROL_DIRECTIVE_INVALID");
+  }
+  const exactCroRefs = croRefs;
+  const exactExecutionRefs = executionRefs;
+  const exactTargetBounds = targetBounds;
+  return bind(value);
+
+  function bind(nested: unknown): unknown {
+    if (Array.isArray(nested)) return nested.map(bind);
+    if (nested === null || typeof nested !== "object") return nested;
+    const nestedRecord = nested as Record<string, unknown>;
+    const properties = objectProperties(nestedRecord.properties);
+    if (
+      schemaConstValue(properties?.agent_id) === "cio" &&
+      schemaConstValue(properties?.decision_stage) === "FINAL"
+    ) {
+      const decisionReason = objectProperties(properties?.decision_reason);
+      if (!decisionReason) {
+        throw new ProviderRuntimeBindingError("CIO_FINAL_PROVIDER_SCHEMA_INVALID");
+      }
+      return {
+        ...nestedRecord,
+        properties: {
+          ...properties,
+          decision_reason: {
+            ...decisionReason,
+            maxLength: CIO_FINAL_PROVIDER_DECISION_REASON_MAX_LENGTH,
+            description:
+              `One complete decision sentence of no more than ` +
+              `${CIO_FINAL_PROVIDER_DECISION_REASON_MAX_LENGTH} Unicode characters. ` +
+              "Put detailed evidence in claims and control-resolution reasons.",
+          },
+          cro_control_resolutions: exactRuntimeObjectTupleSchema(
+            properties?.cro_control_resolutions,
+            "cro_action_local_ref",
+            exactCroRefs,
+          ),
+          execution_control_resolutions: exactRuntimeObjectTupleSchema(
+            properties?.execution_control_resolutions,
+            "execution_assessment_local_ref",
+            exactExecutionRefs,
+          ),
+          target_positions: bindCioFinalTargetPositionsSchema(
+            properties?.target_positions,
+            exactTargetBounds,
+          ),
+        },
+      };
+    }
+    return Object.fromEntries(Object.entries(nestedRecord).map(([key, item]) => [key, bind(item)]));
+  }
+}
+
+function containsCioFinalProviderSchema(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsCioFinalProviderSchema);
+  if (value === null || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  const properties = objectProperties(record.properties);
+  return (
+    (schemaConstValue(properties?.agent_id) === "cio" &&
+      schemaConstValue(properties?.decision_stage) === "FINAL") ||
+    Object.values(record).some(containsCioFinalProviderSchema)
+  );
+}
+
+function canonicalRuntimeStringTuple(value: unknown): string[] | null {
+  if (
+    !Array.isArray(value) ||
+    !value.every((item): item is string => typeof item === "string" && item.length > 0)
+  ) {
+    return null;
+  }
+  if (new Set(value).size !== value.length) return null;
+  const sorted = [...value].sort();
+  return sorted.every((item, index) => item === value[index]) ? sorted : null;
+}
+
+function canonicalCioFinalTargetBounds(value: unknown): CioFinalProviderTargetBound[] | null {
+  if (!Array.isArray(value)) return null;
+  const bounds: CioFinalProviderTargetBound[] = [];
+  for (const item of value) {
+    if (item === null || typeof item !== "object" || Array.isArray(item)) return null;
+    const record = item as Record<string, unknown>;
+    const tsCode = record.ts_code;
+    const proposalTargetWeight = record.proposal_target_weight;
+    const executionStatus = record.execution_status;
+    const direction = record.direction;
+    const currentWeight = record.current_weight;
+    const requestedDelta = record.requested_delta_weight;
+    const maxExecutableDelta = record.max_executable_delta_weight;
+    const targetWeightMin = record.target_weight_min;
+    const targetWeightMax = record.target_weight_max;
+    if (
+      typeof tsCode !== "string" ||
+      tsCode.length === 0 ||
+      (executionStatus !== "FEASIBLE" &&
+        executionStatus !== "PARTIAL" &&
+        executionStatus !== "BLOCKED" &&
+        executionStatus !== "NO_DELTA") ||
+      (direction !== "INCREASE" && direction !== "DECREASE" && direction !== "HOLD") ||
+      ![
+        currentWeight,
+        proposalTargetWeight,
+        requestedDelta,
+        maxExecutableDelta,
+        targetWeightMin,
+        targetWeightMax,
+      ].every((number) => typeof number === "number" && Number.isFinite(number)) ||
+      (currentWeight as number) < 0 ||
+      (currentWeight as number) > 1 ||
+      (proposalTargetWeight as number) < 0 ||
+      (proposalTargetWeight as number) > 1 ||
+      (targetWeightMin as number) < 0 ||
+      (targetWeightMin as number) > 1 ||
+      (targetWeightMax as number) < 0 ||
+      (targetWeightMax as number) > 1 ||
+      (targetWeightMin as number) > (targetWeightMax as number) ||
+      (maxExecutableDelta as number) < 0
+    ) {
+      return null;
+    }
+    const epsilon = 1e-9;
+    const requestedMagnitude = Math.abs(requestedDelta as number);
+    const expectedDirection =
+      (requestedDelta as number) > epsilon
+        ? "INCREASE"
+        : (requestedDelta as number) < -epsilon
+          ? "DECREASE"
+          : "HOLD";
+    if (
+      direction !== expectedDirection ||
+      (executionStatus === "FEASIBLE" &&
+        Math.abs((maxExecutableDelta as number) - requestedMagnitude) > epsilon) ||
+      (executionStatus === "PARTIAL" &&
+        (requestedMagnitude <= epsilon ||
+          (maxExecutableDelta as number) <= epsilon ||
+          (maxExecutableDelta as number) >= requestedMagnitude - epsilon)) ||
+      (executionStatus === "BLOCKED" && (maxExecutableDelta as number) > epsilon) ||
+      (executionStatus === "NO_DELTA" &&
+        (requestedMagnitude > epsilon || (maxExecutableDelta as number) > epsilon))
+    ) {
+      return null;
+    }
+    const bound = {
+      ts_code: tsCode,
+      current_weight: currentWeight as number,
+      proposal_target_weight: proposalTargetWeight as number,
+      requested_delta_weight: requestedDelta as number,
+      execution_status: executionStatus,
+      max_executable_delta_weight: maxExecutableDelta as number,
+      direction,
+      target_weight_min: targetWeightMin as number,
+      target_weight_max: targetWeightMax as number,
+    } satisfies CioFinalProviderTargetBound;
+    const executionTargetWeightMin =
+      direction === "DECREASE"
+        ? Math.max(0, (currentWeight as number) - (maxExecutableDelta as number))
+        : (currentWeight as number);
+    const executionTargetWeightMax =
+      direction === "INCREASE"
+        ? Math.min(1, (currentWeight as number) + (maxExecutableDelta as number))
+        : (currentWeight as number);
+    if (
+      (targetWeightMin as number) < executionTargetWeightMin - epsilon ||
+      (targetWeightMax as number) > executionTargetWeightMax + epsilon
+    ) {
+      return null;
+    }
+    bounds.push(bound);
+  }
+  if (new Set(bounds.map((bound) => bound.ts_code)).size !== bounds.length) return null;
+  const sorted = [...bounds].sort((left, right) => left.ts_code.localeCompare(right.ts_code));
+  return sorted.every((bound, index) => bound.ts_code === bounds[index]?.ts_code) ? bounds : null;
+}
+
+function bindCioFinalTargetPositionsSchema(
+  value: unknown,
+  bounds: CioFinalProviderTargetBound[],
+): unknown {
+  if (bounds.length === 0) return value;
+  const record = objectProperties(value);
+  if (!record) return value;
+  if (record.type === "array") {
+    const itemSchema = objectProperties(record.items);
+    const itemProperties = objectProperties(itemSchema?.properties);
+    const tickerSchema = objectProperties(itemProperties?.ts_code);
+    const targetWeightSchema = objectProperties(itemProperties?.target_weight);
+    if (itemSchema && itemProperties && tickerSchema && targetWeightSchema) {
+      return {
+        ...record,
+        items: {
+          anyOf: bounds.map((bound) => ({
+            ...itemSchema,
+            properties: {
+              ...itemProperties,
+              ts_code: { ...tickerSchema, const: bound.ts_code },
+              target_weight: {
+                ...targetWeightSchema,
+                minimum: Math.max(
+                  typeof targetWeightSchema.minimum === "number" ? targetWeightSchema.minimum : 0,
+                  bound.target_weight_min,
+                ),
+                maximum: Math.min(
+                  typeof targetWeightSchema.maximum === "number" ? targetWeightSchema.maximum : 1,
+                  bound.target_weight_max,
+                ),
+                description:
+                  `Runtime-owned bound for ${bound.ts_code}: current_weight=${bound.current_weight}, ` +
+                  `proposal_target_weight=${bound.proposal_target_weight}, ` +
+                  `requested_delta_weight=${bound.requested_delta_weight}, ` +
+                  `execution_status=${bound.execution_status}, ` +
+                  `max_executable_delta_weight=${bound.max_executable_delta_weight}, ` +
+                  `Preserve direction ${bound.direction}; require abs(target_weight-current_weight) <= ` +
+                  `max_executable_delta_weight; target_weight must be between ` +
+                  `${bound.target_weight_min} and ${bound.target_weight_max}, inclusive. ` +
+                  (bound.target_weight_min === bound.target_weight_max
+                    ? "This is the exact runtime-approved staged boundary; do not choose a weaker, reversed, or unchanged target."
+                    : "This is the runtime-approved target bound."),
+              },
+            },
+          })),
+        },
+      };
+    }
+  }
+  return Object.fromEntries(
+    Object.entries(record).map(([key, nested]) => [
+      key,
+      bindCioFinalTargetPositionsSchema(nested, bounds),
+    ]),
+  );
+}
+
+function exactRuntimeObjectTupleSchema(
+  value: unknown,
+  localRefField: string,
+  refs: string[],
+): Record<string, unknown> {
+  const arraySchema = objectProperties(value);
+  const itemSchema = objectProperties(arraySchema?.items);
+  const itemProperties = objectProperties(itemSchema?.properties);
+  const localRefSchema = objectProperties(itemProperties?.[localRefField]);
+  if (!arraySchema || !itemSchema || !itemProperties || !localRefSchema) {
+    throw new ProviderRuntimeBindingError("CIO_FINAL_PROVIDER_SCHEMA_INVALID");
+  }
+  return {
+    ...arraySchema,
+    prefixItems: refs.map((ref) => ({
+      ...itemSchema,
+      properties: {
+        ...itemProperties,
+        [localRefField]: { ...localRefSchema, const: ref },
+      },
+    })),
+    items: false,
+    minItems: refs.length,
+    maxItems: refs.length,
+  };
+}
+
+function bindSectorSelectedProviderRuntimeCatalog(
+  value: unknown,
+  snapshot: unknown,
+  catalog: RepairEvidenceCatalog,
+): unknown {
+  if (!containsProviderContract(value, "SECTOR_SELECTED_COMPACT_V2")) return value;
+  if (snapshot === null || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    throw new ProviderRuntimeBindingError("SECTOR_RUNTIME_DIRECTIVE_MISSING");
+  }
+  const directive = (snapshot as Record<string, unknown>).directive;
+  if (directive === null || typeof directive !== "object" || Array.isArray(directive)) {
+    throw new ProviderRuntimeBindingError("SECTOR_RUNTIME_DIRECTIVE_MISSING");
+  }
+  const record = directive as Record<string, unknown>;
+  const preferredEvidence = requiredRuntimeStringArray(record.required_preferred_evidence_ids);
+  const leastEvidence = requiredRuntimeStringArray(record.required_least_preferred_evidence_ids);
+  const preferredSecurities = runtimeStringArray(record.allowed_preferred_security_ids);
+  const leastSecurities = runtimeStringArray(record.allowed_least_preferred_security_ids);
+  if (!preferredEvidence || !leastEvidence) {
+    throw new ProviderRuntimeBindingError("SECTOR_RUNTIME_DIRECTIVE_MISSING");
+  }
+  const exactPreferredEvidence = preferredEvidence;
+  const exactLeastEvidence = leastEvidence;
+  const allowedEvidence = new Set(catalog.allowed_evidence_ids);
+  if (
+    allowedEvidence.size > 0 &&
+    [...exactPreferredEvidence, ...exactLeastEvidence].some((id) => !allowedEvidence.has(id))
+  ) {
+    throw new ProviderRuntimeBindingError("SECTOR_RUNTIME_DIRECTIVE_EVIDENCE_OUTSIDE_CATALOG");
+  }
+  return bind(value);
+
+  function bind(nested: unknown): unknown {
+    if (Array.isArray(nested)) return nested.map(bind);
+    if (nested === null || typeof nested !== "object") return nested;
+    const nestedRecord = nested as Record<string, unknown>;
+    const properties = objectProperties(nestedRecord.properties);
+    if (schemaConstValue(properties?.provider_contract) === "SECTOR_SELECTED_COMPACT_V2") {
+      return {
+        ...nestedRecord,
+        properties: {
+          ...properties,
+          preferred_evidence_ids: exactStringTupleSchema(exactPreferredEvidence),
+          least_preferred_evidence_ids: exactStringTupleSchema(exactLeastEvidence),
+          research_rule_ref:
+            catalog.allowed_citation_ids.length > 0
+              ? { type: "string", enum: catalog.allowed_citation_ids }
+              : properties?.research_rule_ref,
+          preferred_security: bindSecurityTickerEnum(
+            properties?.preferred_security,
+            preferredSecurities,
+          ),
+          least_preferred_security: bindSecurityTickerEnum(
+            properties?.least_preferred_security,
+            leastSecurities,
+          ),
+        },
+      };
+    }
+    return Object.fromEntries(Object.entries(nestedRecord).map(([key, item]) => [key, bind(item)]));
+  }
+}
+
+const SINGLE_EVIDENCE_CITATION_PROVIDER_CONTRACTS = [
+  "RELATIONSHIP_MAPPER_COMPACT_V1",
+  "SUPERINVESTOR_ABSTENTION_COMPACT_V1",
+] as const;
+
+const DECISION_PROVIDER_AGENT_IDS = new Set([
+  "alpha_discovery",
+  "cro",
+  "autonomous_execution",
+  "cio",
+]);
+
+function bindDecisionClaimProviderRuntimeCatalog(
+  value: unknown,
+  catalog: RepairEvidenceCatalog,
+): unknown {
+  if (!containsDecisionProviderAgent(value)) return value;
+  return bind(value);
+
+  function bind(nested: unknown, propertyName?: string): unknown {
+    if (propertyName === "evidence_ids" && catalog.allowed_evidence_ids.length > 0) {
+      return bindRuntimeIdArray(nested, catalog.allowed_evidence_ids);
+    }
+    if (propertyName === "research_rule_refs") {
+      return catalog.allowed_citation_ids.length > 0
+        ? bindRuntimeIdArray(nested, catalog.allowed_citation_ids)
+        : bindExactEmptyArray(nested);
+    }
+    if (Array.isArray(nested)) return nested.map((item) => bind(item));
+    if (nested === null || typeof nested !== "object") return nested;
+    return Object.fromEntries(
+      Object.entries(nested as Record<string, unknown>).map(([key, item]) => [
+        key,
+        bind(item, key),
+      ]),
+    );
+  }
+}
+
+function containsDecisionProviderAgent(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsDecisionProviderAgent);
+  if (value === null || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  const properties = objectProperties(record.properties);
+  const agentId = schemaConstValue(properties?.agent_id);
+  return (
+    (agentId !== null && DECISION_PROVIDER_AGENT_IDS.has(agentId)) ||
+    Object.values(record).some(containsDecisionProviderAgent)
+  );
+}
+
+function bindRuntimeIdArray(value: unknown, ids: string[]): unknown {
+  const record = objectProperties(value);
+  if (!record) return value;
+  return {
+    ...record,
+    items: { type: "string", enum: ids },
+  };
+}
+
+function bindExactEmptyArray(value: unknown): unknown {
+  const record = objectProperties(value);
+  if (!record) return value;
+  return {
+    ...record,
+    items: false,
+    minItems: 0,
+    maxItems: 0,
+  };
+}
+
+function bindSingleEvidenceCitationProviderRuntimeCatalog(
+  value: unknown,
+  catalog: RepairEvidenceCatalog,
+): unknown {
+  if (
+    !SINGLE_EVIDENCE_CITATION_PROVIDER_CONTRACTS.some((contract) =>
+      containsProviderContract(value, contract),
+    )
+  ) {
+    return value;
+  }
+  return bind(value);
+
+  function bind(nested: unknown, propertyName?: string): unknown {
+    if (propertyName === "evidence_id") {
+      if (catalog.claim_supported_evidence_ids.length === 0) {
+        throw new ProviderRuntimeBindingError("SINGLE_EVIDENCE_RUNTIME_EVIDENCE_CATALOG_EMPTY");
+      }
+      return { type: "string", enum: catalog.claim_supported_evidence_ids };
+    }
+    if (propertyName === "research_rule_ref" && catalog.allowed_citation_ids.length > 0) {
+      return { type: "string", enum: catalog.allowed_citation_ids };
+    }
+    if (Array.isArray(nested)) return nested.map((item) => bind(item));
+    if (nested === null || typeof nested !== "object") return nested;
+    return Object.fromEntries(
+      Object.entries(nested as Record<string, unknown>).map(([key, item]) => [
+        key,
+        bind(item, key),
+      ]),
+    );
+  }
+}
+
+function containsProviderContract(value: unknown, contract: string): boolean {
+  if (Array.isArray(value)) return value.some((item) => containsProviderContract(item, contract));
+  if (value === null || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  const properties = objectProperties(record.properties);
+  return (
+    schemaConstValue(properties?.provider_contract) === contract ||
+    Object.values(record).some((item) => containsProviderContract(item, contract))
+  );
+}
+
+function bindSecurityTickerEnum(value: unknown, tickers: string[]): unknown {
+  if (Array.isArray(value)) return value.map((item) => bindSecurityTickerEnum(item, tickers));
+  if (value === null || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  const properties = objectProperties(record.properties);
+  return Object.fromEntries(
+    Object.entries(record).map(([key, item]) => [
+      key,
+      key === "properties" && properties
+        ? Object.fromEntries(
+            Object.entries(properties).map(([property, schema]) => [
+              property,
+              property === "ts_code"
+                ? { type: "string", enum: tickers }
+                : bindSecurityTickerEnum(schema, tickers),
+            ]),
+          )
+        : bindSecurityTickerEnum(item, tickers),
+    ]),
+  );
+}
+
+function exactStringTupleSchema(values: string[]): Record<string, unknown> {
+  return {
+    type: "array",
+    prefixItems: values.map((value) => ({ type: "string", const: value })),
+    items: false,
+    minItems: values.length,
+    maxItems: values.length,
+  };
+}
+
+function requiredRuntimeStringArray(value: unknown): string[] | null {
+  const values = runtimeStringArray(value);
+  return values.length > 0 ? values : null;
+}
+
+function runtimeStringArray(value: unknown): string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string")
+    ? (value as string[])
+    : [];
+}
+
+function objectProperties(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function schemaConstValue(value: unknown): string | null {
+  const record = objectProperties(value);
+  return typeof record?.const === "string" ? record.const : null;
 }
 
 function bindMacroProviderRuntimeCatalog(value: unknown, catalog: RepairEvidenceCatalog): unknown {
@@ -614,7 +1554,13 @@ function bindMacroProviderRuntimeCatalog(value: unknown, catalog: RepairEvidence
           };
     }
     if (propertyName === "claim_kind" && catalog.allowed_citation_ids.length === 0) {
-      return { type: "string", enum: ["FACT", "EVENT", "RISK_FLAG"] };
+      return {
+        type: "string",
+        enum:
+          providerContractConst === "MACRO_DIRECT_COMPACT_V1"
+            ? ["FACT", "EVENT"]
+            : ["FACT", "EVENT", "RISK_FLAG"],
+      };
     }
     if (Array.isArray(nested)) return nested.map((item) => bind(item));
     if (nested === null || typeof nested !== "object") return nested;

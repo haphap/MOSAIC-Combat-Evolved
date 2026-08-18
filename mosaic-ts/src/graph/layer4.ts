@@ -32,10 +32,6 @@ import { ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE } from "../agents/decision
 import {
   buildPortfolioSummary,
   freezeCioProposal,
-  freezeCroReview,
-  freezeCroStageSkip,
-  freezeExecutionFeasibility,
-  freezeExecutionStageSkip,
   freezeFinalTarget,
   freezeL4RunSnapshotBundle,
   Layer4RuntimeContractError,
@@ -46,7 +42,6 @@ import {
   validateFinalTargetEnvelope,
 } from "../agents/decision/layer4_runtime.js";
 import { validateCioPositionActions } from "../agents/decision/position_validator.js";
-import { expectedFrozenOrderIntents } from "../agents/decision/runtime_adapter.js";
 import {
   authorityBindingFromFrozenObject,
   buildAuthorityStageFrozenObject,
@@ -71,11 +66,13 @@ import {
   type DailyCycleStateType,
   type DailyCycleStateUpdate,
 } from "../agents/state.js";
-import type { AutoExecOutput, CioOutput, CroOutput, L4RunPromptSnapshot } from "../agents/types.js";
+import type { CioOutput, L4RunPromptSnapshot } from "../agents/types.js";
 import { parseOutcomeStageSkips } from "../autoresearch/outcome_stage_skip.js";
 import type { BridgeApi, MosaicConfig } from "../bridge/index.js";
 import type { LlmHandle } from "../llm/factory.js";
 import { chainEdges, serialEdges } from "./_edges.js";
+import type { DailyCycleStageCheckpointController } from "./daily_cycle_checkpoint.js";
+import { checkpointedStageNode } from "./daily_cycle_checkpoint.js";
 
 export interface BuildLayer4GraphDeps {
   llmHandle: LlmHandle;
@@ -90,6 +87,7 @@ export interface BuildLayer4GraphDeps {
   promptsRoot?: string;
   promptReleaseContext?: PromptReleaseLoadContext | null;
   acceptedOutputStore?: AcceptedAgentOutputStore;
+  stageCheckpoint?: DailyCycleStageCheckpointController;
 }
 
 export const LAYER4_AGENT_NODES = [
@@ -122,36 +120,103 @@ export const LAYER4_RUNTIME_NODES = [
 export function buildLayer4Graph(deps: BuildLayer4GraphDeps) {
   const strictDeps = { ...deps, requireL4SnapshotBundle: true };
   const graph = new StateGraph(DailyCycleState)
-    .addNode("l4_snapshot_freeze", buildL4SnapshotFreezeNode(strictDeps))
+    .addNode(
+      "l4_snapshot_freeze",
+      checkpointedStageNode(
+        "alpha_discovery",
+        buildL4SnapshotFreezeNode(strictDeps),
+        deps.stageCheckpoint,
+      ),
+    )
     .addNode(
       "alpha_opportunity_freeze",
-      buildDecisionOpportunityFreezeNode("alpha_discovery", strictDeps),
+      checkpointedStageNode(
+        "alpha_discovery",
+        buildDecisionOpportunityFreezeNode("alpha_discovery", strictDeps),
+        deps.stageCheckpoint,
+      ),
     )
     .addNode(
       "alpha_discovery",
-      withDecisionOutcomeStageSkip("alpha_discovery", buildAlphaDiscoveryNode(strictDeps)),
+      checkpointedStageNode(
+        "alpha_discovery",
+        withDecisionOutcomeStageSkip("alpha_discovery", buildAlphaDiscoveryNode(strictDeps)),
+        deps.stageCheckpoint,
+      ),
     )
-    .addNode("cio_proposal_sources", buildSourceResolutionNode(deps, "pre_candidate"))
-    .addNode("cio_proposal", buildCioProposalNode(strictDeps))
-    .addNode("candidate_market_sources", buildSourceResolutionNode(deps, "candidate_market"))
-    .addNode("candidate_freeze", freezeCandidateTargetNode)
-    .addNode("cro_opportunity_freeze", buildDecisionOpportunityFreezeNode("cro", strictDeps))
-    .addNode("cro", withDecisionOutcomeStageSkip("cro", buildCroNode(strictDeps)))
-    .addNode("execution_liquidity_sources", buildSourceResolutionNode(deps, "execution_liquidity"))
+    .addNode(
+      "cio_proposal_sources",
+      checkpointedStageNode(
+        "cio_proposal",
+        buildSourceResolutionNode(deps, "pre_candidate"),
+        deps.stageCheckpoint,
+      ),
+    )
+    .addNode(
+      "cio_proposal",
+      checkpointedStageNode("cio_proposal", buildCioProposalNode(strictDeps), deps.stageCheckpoint),
+    )
+    .addNode(
+      "candidate_market_sources",
+      checkpointedStageNode(
+        "cro",
+        buildSourceResolutionNode(deps, "candidate_market"),
+        deps.stageCheckpoint,
+      ),
+    )
+    .addNode(
+      "candidate_freeze",
+      checkpointedStageNode("cro", freezeCandidateTargetNode, deps.stageCheckpoint),
+    )
+    .addNode(
+      "cro_opportunity_freeze",
+      checkpointedStageNode(
+        "cro",
+        buildDecisionOpportunityFreezeNode("cro", strictDeps),
+        deps.stageCheckpoint,
+      ),
+    )
+    .addNode("cro", checkpointedStageNode("cro", buildCroNode(strictDeps), deps.stageCheckpoint))
+    .addNode(
+      "execution_liquidity_sources",
+      checkpointedStageNode(
+        "autonomous_execution",
+        buildSourceResolutionNode(deps, "execution_liquidity"),
+        deps.stageCheckpoint,
+      ),
+    )
     .addNode(
       "execution_opportunity_freeze",
-      buildDecisionOpportunityFreezeNode("autonomous_execution", strictDeps),
+      checkpointedStageNode(
+        "autonomous_execution",
+        buildDecisionOpportunityFreezeNode("autonomous_execution", strictDeps),
+        deps.stageCheckpoint,
+      ),
     )
     .addNode(
       "autonomous_execution",
-      withDecisionOutcomeStageSkip(
+      checkpointedStageNode(
         "autonomous_execution",
         buildAutonomousExecutionNode(strictDeps),
+        deps.stageCheckpoint,
       ),
     )
-    .addNode("cio_opportunity_freeze", buildDecisionOpportunityFreezeNode("cio", strictDeps))
-    .addNode("cio_final", buildCioNode(strictDeps))
-    .addNode("shared_validation", validateFinalTargetNode);
+    .addNode(
+      "cio_opportunity_freeze",
+      checkpointedStageNode(
+        "cio_final",
+        buildDecisionOpportunityFreezeNode("cio", strictDeps),
+        deps.stageCheckpoint,
+      ),
+    )
+    .addNode(
+      "cio_final",
+      checkpointedStageNode("cio_final", buildCioNode(strictDeps), deps.stageCheckpoint),
+    )
+    .addNode(
+      "shared_validation",
+      checkpointedStageNode("cio_final", validateFinalTargetNode, deps.stageCheckpoint),
+    );
 
   // Serial L4: keep one LLM/tool stream active at a time.
   chainEdges(graph, serialEdges([START, ...LAYER4_RUNTIME_NODES, END] as const));
@@ -173,7 +238,7 @@ function buildDecisionOpportunityFreezeNode(
     const slot = slots[0];
     if (!slot) throw new Error(`${agentId}: outcome schedule slot is unavailable`);
     if (slot.run_slot_kind === "DOWNSTREAM_ONLY") return {};
-    if (agentId !== "cio" && state.outcome_stage_skips[agentId]) return {};
+    if (agentId === "alpha_discovery" && state.outcome_stage_skips[agentId]) return {};
     if (!slot.scheduled_sample_id) throw new Error(`${agentId}: scheduled sample ID is missing`);
     const frozenObject = await stageFrozenObject(agentId, state, deps);
     const result = await deps.api.darwinianFreezeStageOutcomeOpportunity({
@@ -301,7 +366,7 @@ function authorityStage(
 
 function authoritySourcePrefixes(agentId: DecisionOpportunityAgentId): readonly string[] {
   if (agentId === "alpha_discovery") {
-    return ["STANDARD_SECTOR_SELECTION:", "RELATIONSHIP_GRAPH:", "SUPERINVESTOR_SELECTION:"];
+    return ["STANDARD_SECTOR_SELECTION:", "SUPERINVESTOR_SELECTION:"];
   }
   if (agentId === "cro") return ["CIO_PROPOSAL:"];
   if (agentId === "autonomous_execution") {
@@ -385,168 +450,29 @@ function requiredSha256(value: unknown, label: string): string {
 }
 
 function withDecisionOutcomeStageSkip(
-  agentId: "alpha_discovery" | "cro" | "autonomous_execution",
+  agentId: "alpha_discovery",
   node: (state: DailyCycleStateType) => Promise<DailyCycleStateUpdate>,
 ): (state: DailyCycleStateType) => Promise<DailyCycleStateUpdate> {
   return async (state) => {
     const stageSkip = state.outcome_stage_skips[agentId];
     const currentRuntime = runtimeStateForLayer4(state);
-    const runId = state.trace_id || state.as_of_date || "current_run";
-    if (!stageSkip) {
-      if (!state.darwinian_runtime_binding && agentId === "cro") {
-        const candidate = currentRuntime.candidate_target_state;
-        if (candidate && candidate.portfolio_actions.length === 0) {
-          const output: CroOutput = {
-            agent: "cro",
-            review_disposition: "NO_OBJECTION",
-            rejected_picks: [],
-            required_adjustments: [],
-            correlated_risks: [],
-            black_swan_scenarios: [],
-            confidence: 0,
-          };
-          const review = freezeCroReview(runId, candidate, output);
-          return {
-            layer4_outputs: {
-              cro: output,
-              runtime: updateLayer4Runtime(
-                currentRuntime,
-                { cro_review_state: review },
-                {
-                  stage: "cro_review",
-                  operation: "stage_skip",
-                  status: "skipped",
-                  reason_codes: ["NO_EVALUATION_OBJECT"],
-                  input_hashes: layer4SkipInputHashes(currentRuntime),
-                  output_hashes: { cro_review_state: review.review_hash },
-                },
-              ),
-            },
-          };
-        }
-      }
-      if (!state.darwinian_runtime_binding && agentId === "autonomous_execution") {
-        const candidate = currentRuntime.candidate_target_state;
-        const croReview = currentRuntime.cro_review_state;
-        if (
-          candidate &&
-          croReview &&
-          expectedFrozenOrderIntents(candidate, croReview).order_intents.length === 0
-        ) {
-          const output: AutoExecOutput = {
-            agent: "autonomous_execution",
-            execution_disposition: "NO_DELTA",
-            trades: [],
-            execution_checks: [],
-            confidence: 0,
-          };
-          const feasibility = freezeExecutionFeasibility(
-            runId,
-            currentRuntime.candidate_target_state,
-            currentRuntime.cro_review_state,
-            output,
-            ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
-            currentRuntime.resolved_source_statuses,
-            state.as_of_date || "live",
-          );
-          return {
-            layer4_outputs: {
-              autonomous_execution: feasibility.output,
-              runtime: updateLayer4Runtime(
-                currentRuntime,
-                { execution_feasibility_state: feasibility },
-                {
-                  stage: "execution_feasibility",
-                  operation: "stage_skip",
-                  status: "skipped",
-                  reason_codes: ["NO_EVALUATION_OBJECT"],
-                  input_hashes: layer4SkipInputHashes(currentRuntime),
-                  output_hashes: {
-                    execution_feasibility_state: feasibility.feasibility_hash,
-                  },
-                },
-              ),
-            },
-          };
-        }
-      }
-      return node(state);
-    }
-    if (agentId === "alpha_discovery") {
-      return {
-        layer4_outputs: {
-          runtime: updateLayer4Runtime(
-            currentRuntime,
-            {},
-            {
-              stage: "alpha_discovery",
-              operation: "stage_skip",
-              status: "skipped",
-              reason_codes: ["NO_EVALUATION_OBJECT"],
-              input_hashes: {},
-              output_hashes: { stage_skip: stageSkip.stage_skip_hash },
-            },
-          ),
-        },
-      };
-    }
-    if (agentId === "cro") {
-      const review = freezeCroStageSkip(runId, currentRuntime.candidate_target_state, stageSkip);
-      return {
-        layer4_outputs: {
-          runtime: updateLayer4Runtime(
-            currentRuntime,
-            { cro_review_state: review },
-            {
-              stage: "cro_review",
-              operation: "stage_skip",
-              status: "skipped",
-              reason_codes: ["NO_EVALUATION_OBJECT"],
-              input_hashes: layer4SkipInputHashes(currentRuntime),
-              output_hashes: {
-                stage_skip: stageSkip.stage_skip_hash,
-                cro_review_state: review.review_hash,
-              },
-            },
-          ),
-        },
-      };
-    }
-    const feasibility = freezeExecutionStageSkip(
-      runId,
-      currentRuntime.candidate_target_state,
-      currentRuntime.cro_review_state,
-      stageSkip,
-      ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
-    );
+    if (!stageSkip) return node(state);
     return {
       layer4_outputs: {
         runtime: updateLayer4Runtime(
           currentRuntime,
-          { execution_feasibility_state: feasibility },
+          {},
           {
-            stage: "execution_feasibility",
+            stage: "alpha_discovery",
             operation: "stage_skip",
             status: "skipped",
             reason_codes: ["NO_EVALUATION_OBJECT"],
-            input_hashes: layer4SkipInputHashes(currentRuntime),
-            output_hashes: {
-              stage_skip: stageSkip.stage_skip_hash,
-              execution_feasibility_state: feasibility.feasibility_hash,
-            },
+            input_hashes: {},
+            output_hashes: { stage_skip: stageSkip.stage_skip_hash },
           },
         ),
       },
     };
-  };
-}
-
-function layer4SkipInputHashes(runtime: ReturnType<typeof runtimeStateForLayer4>) {
-  return {
-    ...(runtime.candidate_target_state
-      ? { candidate_target_state: runtime.candidate_target_state.candidate_target_hash }
-      : {}),
-    ...(runtime.cro_review_state ? { cro_review_state: runtime.cro_review_state.review_hash } : {}),
   };
 }
 

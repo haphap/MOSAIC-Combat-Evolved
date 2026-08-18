@@ -68,6 +68,7 @@ import {
 export const EXECUTION_BEHAVIOR_RELEASE_SCHEMA_VERSION = "execution_behavior_release_manifest_v4";
 export const EXECUTION_BEHAVIOR_RELEASE_CONTRACT_VERSION = "execution_behavior_release_v2";
 export const STRUCTURED_PROVIDER_CONTRACT_VERSION = "structured_provider_contract_v2";
+const EXECUTION_BEHAVIOR_CONTRACT_COUNT = ALL_AGENTS.length * 2;
 
 export const STRUCTURED_OUTPUT_SCHEMA_PHASES = [
   "DEFAULT",
@@ -124,16 +125,25 @@ export const ExecutionBehaviorProductionVariantSchema = z
   })
   .strict();
 
-export const ExecutionBehaviorReleaseManifestSchema = z
+const ExecutionBehaviorReleaseManifestBaseSchema = z
   .object({
     schema_version: z.literal(EXECUTION_BEHAVIOR_RELEASE_SCHEMA_VERSION),
     execution_behavior_release_id: z.string().regex(/^execution-behavior-release:[0-9a-f]{64}$/),
     execution_behavior_release_hash: Sha256Schema,
     provider_binding: ProviderBindingSchema,
     active_production_variants: z.array(ExecutionBehaviorProductionVariantSchema).length(16),
-    execution_contracts: z.array(ExecutionBehaviorAgentContractSchema).length(56),
+    execution_contracts: z.array(ExecutionBehaviorAgentContractSchema),
   })
   .strict();
+
+export const ExecutionBehaviorReleaseManifestSchema =
+  ExecutionBehaviorReleaseManifestBaseSchema.extend({
+    execution_contracts: z
+      .array(ExecutionBehaviorAgentContractSchema)
+      .length(EXECUTION_BEHAVIOR_CONTRACT_COUNT),
+  }).strict();
+
+const ImmutableExecutionBehaviorReleaseManifestSchema = ExecutionBehaviorReleaseManifestBaseSchema;
 
 export type ExecutionBehaviorReleaseManifest = z.infer<
   typeof ExecutionBehaviorReleaseManifestSchema
@@ -313,7 +323,9 @@ export function validateExecutionBehaviorReleaseManifest(
     expectedAgents.flatMap((agent) => ["en", "zh"].map((language) => `${agent}:${language}`)),
   );
   if (!setEqual(contractKeys, expectedContractKeys)) {
-    throw new Error("execution contracts must cover exactly 28 Agents x 2 languages");
+    throw new Error(
+      `execution contracts must cover exactly ${ALL_AGENTS.length} Agents x 2 languages`,
+    );
   }
 
   return validateExecutionBehaviorReleaseArtifactIntegrity(manifest);
@@ -323,7 +335,7 @@ export function validateExecutionBehaviorReleaseManifest(
 export function validateExecutionBehaviorReleaseArtifactIntegrity(
   value: unknown,
 ): ExecutionBehaviorReleaseManifest {
-  const manifest = ExecutionBehaviorReleaseManifestSchema.parse(value);
+  const manifest = ImmutableExecutionBehaviorReleaseManifestSchema.parse(value);
   const withoutHash = {
     schema_version: manifest.schema_version,
     execution_behavior_release_id: manifest.execution_behavior_release_id,
@@ -346,7 +358,7 @@ export function validateExecutionBehaviorReleaseArtifactIntegrity(
   ) {
     throw new Error("execution behavior release id mismatch");
   }
-  return manifest;
+  return manifest as ExecutionBehaviorReleaseManifest;
 }
 
 export function loadExecutionBehaviorReleaseManifest(
@@ -414,7 +426,7 @@ export async function loadExecutionBehaviorReleaseArchiveAtCommit(opts: {
   } catch (cause) {
     throw new Error("prompt_release_execution_behavior_archive_unavailable", { cause });
   }
-  const manifest = validateExecutionBehaviorReleaseManifest(payload);
+  const manifest = validateExecutionBehaviorReleaseArtifactIntegrity(payload);
   if (executionBehaviorReleaseArchiveRef(manifest) !== opts.archiveRef) {
     throw new Error("prompt_release_execution_behavior_archive_ref_mismatch");
   }

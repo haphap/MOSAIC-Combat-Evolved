@@ -10,7 +10,16 @@ import {
 } from "./_factory.js";
 import { AckmanSchema, SUPERINVESTOR_FIELD_NAMES } from "./_schemas.js";
 
-export const REQUIRED_TOOLS = ["get_superinvestor_candidate_snapshot"] as const;
+export const REQUIRED_TOOLS = [
+  "get_superinvestor_candidate_snapshot",
+  "get_balance_sheet",
+  "get_cashflow",
+  "get_fundamentals",
+  "get_income_statement",
+  "get_rke_research_context",
+  "get_stock_data",
+  "get_stock_research",
+] as const;
 
 export const ackmanSpec: LayerThreeAgentSpec<AckmanOutput> = {
   agentId: "ackman",

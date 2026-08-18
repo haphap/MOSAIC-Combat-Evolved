@@ -96,8 +96,6 @@ _LIVE_L1_L2_OPPORTUNITY_AGENTS = {
     "us_financial_conditions",
     "euro_area_financial_conditions",
     "commodities",
-    "geopolitical",
-    "market_breadth",
     "institutional_flow",
     "semiconductor",
     "technology",
@@ -108,7 +106,6 @@ _LIVE_L1_L2_OPPORTUNITY_AGENTS = {
     "real_estate_construction",
     "financials",
     "agriculture",
-    "relationship_mapper",
 }
 _DEFERRED_RUNTIME_OPPORTUNITY_AGENTS = (
     _DEFERRED_DECISION_OPPORTUNITY_AGENTS

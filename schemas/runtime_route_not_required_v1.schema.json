@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Runtime route not-required receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "receipt_id",
+    "route_id",
+    "contract_version",
+    "target_date",
+    "run_id",
+    "unexecuted_stages",
+    "upstream_authority_hashes",
+    "evaluated_at",
+    "receipt_hash"
+  ],
+  "properties": {
+    "schema_version": {"const": "runtime_route_not_required_v1"},
+    "receipt_id": {"$ref": "#/$defs/id"},
+    "route_id": {"$ref": "#/$defs/id"},
+    "contract_version": {"$ref": "#/$defs/id"},
+    "target_date": {"type": "string", "format": "date"},
+    "run_id": {"$ref": "#/$defs/id"},
+    "unexecuted_stages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["agent_id", "stage", "skip_receipt_hash"],
+        "properties": {
+          "agent_id": {"$ref": "#/$defs/id"},
+          "stage": {"$ref": "#/$defs/id"},
+          "skip_receipt_hash": {"$ref": "#/$defs/sha256"}
+        }
+      }
+    },
+    "upstream_authority_hashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "route_manifest_hash",
+        "agent_tool_contract_manifest_hash",
+        "execution_behavior_release_hash",
+        "knot_coverage_manifest_v2_hash"
+      ],
+      "properties": {
+        "route_manifest_hash": {"$ref": "#/$defs/sha256"},
+        "agent_tool_contract_manifest_hash": {"$ref": "#/$defs/sha256"},
+        "execution_behavior_release_hash": {"$ref": "#/$defs/sha256"},
+        "knot_coverage_manifest_v2_hash": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "evaluated_at": {"type": "string", "format": "date-time"},
+    "receipt_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+    },
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

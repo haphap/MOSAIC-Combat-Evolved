@@ -24,7 +24,9 @@ eval "$(uv run python scripts/build_structured_smoke_fixtures.py \
 pnpm --dir mosaic-ts dev daily-cycle \
   --cohort cohort_default --date "$SMOKE_DATE" --fake-llm
 ```
-选项:`--cohort <name>`、`--date <YYYY-MM-DD>`、`--fake-llm`、`--structured-smoke`、`--llm-provider <name>`、`--model <name>`、`--base-url <url>`、`--max-tokens <count>`、`--prompts-repo <path>`、`--prompts-root <path>`、`--current-positions-json <json>`、`--current-positions-file <path>`、`--paper-positions`、`--paper-execute-deltas`、`--out <path>`。跑全部 28 个逻辑 Agent、29 个执行阶段。两种 smoke 都使用 bundled prompt 和显式标记的 synthetic PIT bundle；`--fake-llm` 使用 canned model，`--structured-smoke` 使用真实 structured-output provider、固定 temperature 0，并默认每次 completion 最多 8192 tokens。两者都关闭 production release、scorecard、outcome、RKE 与纸单写入。
+选项:`--cohort <name>`、`--date <YYYY-MM-DD>`、`--fake-llm`、`--structured-smoke`、`--llm-provider <name>`、`--model <name>`、`--base-url <url>`、`--max-tokens <count>`、`--prompts-repo <path>`、`--prompts-root <path>`、`--current-positions-json <json>`、`--current-positions-file <path>`、`--paper-positions`、`--paper-execute-deltas`、`--out <path>`、`--checkpoint <path>`、`--resume`。当前 roster 为 25 个逻辑 Agent、26 个 LangGraph.js stage。两种 smoke 都使用 bundled prompt 和显式标记的 synthetic PIT bundle；`--fake-llm` 使用 canned model，`--structured-smoke` 使用真实 structured-output provider、固定 temperature 0，并默认每次 completion 最多 8192 tokens。两者都关闭 production release、scorecard、outcome、RKE 与纸单写入。
+
+`--checkpoint <path>` 与 `--resume` 仅用于非生产 structured-smoke。续跑必须打开同一 identity-bound checkpoint，要求 stage 顺序与 hash 不漂移，并从已 accepted 的 stage prefix 之后继续，绝不重跑该 prefix；任何 identity、order 或 hash drift 都 fail closed。不得用这些 flag 续跑 production、paper 或 live cycle。
 
 同一个 fresh bundle 也可用于不含许可数据正文的真实模型合同 smoke：把 `--fake-llm` 替换为 `--structured-smoke` 并添加所需 provider 选项。生成器拒绝非空 root，且绝不会删除既有数据。
 
@@ -189,7 +191,7 @@ pnpm dev data validate --kind stock|etf [--gap-threshold 0.01]
 ```bash
 pnpm dev dashboard --cohort cohort_default [--user <name>]
 ```
-见 [TUI](TUI.md)。键 8 展示每个 Agent 最新的 UI-only 人可读决策说明,用 `j/k` 在 28 个 Agent 间切换。
+见 [TUI](TUI.md)。键 8 展示每个 Agent 最新的 UI-only 人可读决策说明,用 `j/k` 在 25 个 Agent 间切换。
 
 ## 日常运维
 
@@ -197,7 +199,7 @@ pnpm dev dashboard --cohort cohort_default [--user <name>]
 
 ```bash
 cd mosaic-ts
-pnpm dev daily-cycle --cohort cohort_default     # 28 agents / 29 stages → CIO 组合
+pnpm dev daily-cycle --cohort cohort_default     # 25 agents / 26 stages → CIO 组合
 # forward_return 回填:调用 scorecard.score_pending RPC(T+5 后成熟)
 pnpm dev darwinian --cohort cohort_default
 pnpm dev janus run

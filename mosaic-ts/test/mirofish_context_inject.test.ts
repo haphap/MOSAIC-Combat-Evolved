@@ -11,9 +11,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildAutonomousExecutionNode } from "../src/agents/decision/autonomous_execution.js";
 import { buildCioNode } from "../src/agents/decision/cio.js";
 import { buildCroNode } from "../src/agents/decision/cro.js";
+import { ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE } from "../src/agents/decision/deterministic_policy.js";
 import {
   emptyLayer4RuntimeState,
   freezeCioProposal,
+  freezeCroReview,
+  freezeExecutionFeasibility,
 } from "../src/agents/decision/layer4_runtime.js";
 import { AgentRunContractError } from "../src/agents/helpers/agent_run_contract.js";
 import { clearPromptCache } from "../src/agents/prompts/loader.js";
@@ -139,8 +142,8 @@ describe("CIO MiroFish context injection", () => {
       tool_vendors: {},
     }) as unknown as MosaicConfig;
 
-  const state = (): DailyCycleStateType =>
-    ({
+  const state = (): DailyCycleStateType => {
+    const value = {
       messages: [],
       active_cohort: "cohort_default",
       as_of_date: "2024-06-30",
@@ -184,7 +187,49 @@ describe("CIO MiroFish context injection", () => {
       portfolio_actions: [],
       replay_triggered: false,
       llm_calls: [],
-    }) as unknown as DailyCycleStateType;
+    } as unknown as DailyCycleStateType;
+    attachFrozenNoDeltaRuntime(value);
+    return value;
+  };
+
+  function attachFrozenNoDeltaRuntime(value: DailyCycleStateType): void {
+    const proposal = freezeCioProposal(value, {
+      agent: "cio",
+      portfolio_actions: [],
+      confidence: 0.3,
+    });
+    const cro = freezeCroReview("mirofish-context-test", proposal.candidate, {
+      agent: "cro",
+      review_disposition: "NO_OBJECTION",
+      rejected_picks: [],
+      required_adjustments: [],
+      correlated_risks: [],
+      black_swan_scenarios: [],
+      confidence: 0.3,
+    });
+    const execution = freezeExecutionFeasibility(
+      "mirofish-context-test",
+      proposal.candidate,
+      cro,
+      {
+        agent: "autonomous_execution",
+        execution_disposition: "NO_DELTA",
+        trades: [],
+        execution_checks: [],
+        confidence: 0.3,
+      },
+      ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
+    );
+    value.layer4_outputs.runtime = {
+      ...(value.layer4_outputs.runtime ?? emptyLayer4RuntimeState()),
+      cio_proposal: proposal.proposal,
+      candidate_target_state: proposal.candidate,
+      position_review_state: proposal.reviews,
+      portfolio_exposure_state: proposal.exposure,
+      cro_review_state: cro,
+      execution_feasibility_state: execution,
+    };
+  }
 
   function fakeApi(ctx: MirofishContext | null) {
     return {
@@ -378,12 +423,36 @@ describe("CIO MiroFish context injection", () => {
       portfolio_actions: [],
       confidence: 0.3,
     });
+    const cro = freezeCroReview("mirofish-context-test", proposal.candidate, {
+      agent: "cro",
+      review_disposition: "NO_OBJECTION",
+      rejected_picks: [],
+      required_adjustments: [],
+      correlated_risks: [],
+      black_swan_scenarios: [],
+      confidence: 0.3,
+    });
+    const execution = freezeExecutionFeasibility(
+      "mirofish-context-test",
+      proposal.candidate,
+      cro,
+      {
+        agent: "autonomous_execution",
+        execution_disposition: "NO_DELTA",
+        trades: [],
+        execution_checks: [],
+        confidence: 0.3,
+      },
+      ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
+    );
     staged.layer4_outputs.runtime = {
-      ...emptyLayer4RuntimeState(),
+      ...(staged.layer4_outputs.runtime ?? emptyLayer4RuntimeState()),
       cio_proposal: proposal.proposal,
       candidate_target_state: proposal.candidate,
       position_review_state: proposal.reviews,
       portfolio_exposure_state: proposal.exposure,
+      cro_review_state: cro,
+      execution_feasibility_state: execution,
     };
     await expect(buildCroNode(deps)(staged)).rejects.toBeInstanceOf(AgentRunContractError);
     await expect(buildAutonomousExecutionNode(deps)(staged)).rejects.toBeInstanceOf(

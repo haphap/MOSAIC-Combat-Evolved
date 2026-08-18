@@ -10,6 +10,7 @@ import {
   type CioFinalSubmission,
   type CioProposalSubmission,
   type CroAgentSubmission,
+  frozenOrderIntentSetIdentity,
   modelVisibleAcceptedDecision,
 } from "../src/agents/decision/accepted.js";
 import { expectedFrozenOrderIntents } from "../src/agents/decision/runtime_adapter.js";
@@ -548,6 +549,20 @@ describe("Decision v2 submission and accepted contracts", () => {
 
   it("enforces CRO action semantics and deterministic disposition", () => {
     expect(CroSubmissionSchema.parse(croSubmission())).toMatchObject({ agent_id: "cro" });
+    expect(
+      CroSubmissionSchema.parse({
+        ...croSubmission(),
+        review_disposition: "NO_RISK_ACTION",
+        candidate_actions: [],
+      }),
+    ).toMatchObject({ review_disposition: "NO_RISK_ACTION", candidate_actions: [] });
+    expect(() =>
+      CroSubmissionSchema.parse({
+        ...croSubmission(),
+        review_disposition: "NO_OBJECTION",
+        candidate_actions: [],
+      }),
+    ).toThrow(/deterministically derived/);
     expect(() =>
       CroSubmissionSchema.parse({
         ...croSubmission(),
@@ -571,12 +586,19 @@ describe("Decision v2 submission and accepted contracts", () => {
         ...executionSubmission(),
         order_assessments: [
           {
-            ...executionSubmission().order_assessments[0],
+            ...requiredFirst(executionSubmission().order_assessments, "execution submission"),
             max_executable_delta_weight: 0.04,
           },
         ],
       }),
     ).toThrow(/strictly between/);
+    expect(
+      AutonomousExecutionSubmissionSchema.parse({
+        ...executionSubmission(),
+        execution_disposition: "NO_EXECUTION_ACTION",
+        order_assessments: [],
+      }),
+    ).toMatchObject({ execution_disposition: "NO_EXECUTION_ACTION", order_assessments: [] });
   });
 
   it("materializes persistent per-item refs and strips them from model views", () => {
@@ -596,11 +618,12 @@ describe("Decision v2 submission and accepted contracts", () => {
         ...executionSubmission(),
         order_assessments: [
           {
-            ...executionSubmission().order_assessments[0],
+            ...requiredFirst(executionSubmission().order_assessments, "execution submission"),
             order_intent_ref: requiredFirst(controlPlan.order_intents, "control plan")
               .order_intent_ref,
           },
         ],
+        execution_disposition: "ORDERS_ASSESSED",
       },
       behavior,
       executionMode: "PAPER",
@@ -616,6 +639,23 @@ describe("Decision v2 submission and accepted contracts", () => {
       },
       frozenControlledTargetSet: controlPlan,
     });
+    const canonicalFrozenIntentSet = frozenOrderIntentSetIdentity({
+      proposalId: proposal.proposal_id,
+      proposalHash: proposal.proposal_hash,
+      croControlSource: {
+        source_status: "ACCEPTED_OUTPUT" as const,
+        agent_id: "cro" as const,
+        accepted_output_id: cro.accepted_cro_review_id,
+        accepted_output_hash: cro.accepted_cro_review_hash,
+        stage_skip_id: null,
+        stage_skip_hash: null,
+      },
+      frozenControlledTargetSet: controlPlan,
+    });
+    expect({
+      id: execution.frozen_order_intent_set_id,
+      hash: execution.frozen_order_intent_set_hash,
+    }).toEqual({ id: canonicalFrozenIntentSet.id, hash: canonicalFrozenIntentSet.hash });
     const finalInput = {
       behavior,
       frozenProposal: proposal,
@@ -790,7 +830,7 @@ describe("Decision v2 submission and accepted contracts", () => {
           ...executionSubmission(),
           order_assessments: [
             {
-              ...executionSubmission().order_assessments[0],
+              ...requiredFirst(executionSubmission().order_assessments, "execution submission"),
               order_intent_ref: requiredFirst(controlPlan.order_intents, "control plan")
                 .order_intent_ref,
               requested_delta_weight: 0.04,
@@ -798,6 +838,7 @@ describe("Decision v2 submission and accepted contracts", () => {
               max_executable_delta_weight: maxExecutableDeltaWeight,
             },
           ],
+          execution_disposition: "ORDERS_ASSESSED",
         },
         behavior,
         executionMode: "PAPER",
@@ -874,6 +915,116 @@ describe("Decision v2 submission and accepted contracts", () => {
     expect(() => buildFinal(blocked, 0.01, "MORE_CONSERVATIVE")).toThrow(
       /exceeds the accepted BLOCKED execution cap/,
     );
+  });
+
+  it("accepts the staged CRO/execution boundary and rejects weaker or over-cap targets", () => {
+    const proposal = frozenProposal();
+    const croBase = croSubmission();
+    const cro = buildAcceptedCroRiskReview({
+      submission: {
+        ...croBase,
+        candidate_actions: [
+          {
+            ...requiredFirst(croBase.candidate_actions, "CRO submission"),
+            action: "REDUCE_WEIGHT",
+            max_target_weight: 0.05,
+          },
+        ],
+      },
+      behavior,
+      frozenProposalId: proposal.proposal_id,
+      frozenProposalHash: proposal.proposal_hash,
+      frozenCandidateUniverseId: "candidate-set-staged",
+      frozenCandidateUniverseHash: "sha256:candidate-set-staged",
+      acceptedMacroInputAttributions: [],
+    });
+    const controlPlan = frozenControlPlan(proposal, cro, new Map([["600000.SH", 0.2]]));
+    const intent = requiredFirst(controlPlan.order_intents, "staged order intent");
+    const execution = buildAcceptedExecutionAssessment({
+      submission: {
+        ...executionSubmission(),
+        order_assessments: [
+          {
+            ...requiredFirst(executionSubmission().order_assessments, "execution submission"),
+            order_intent_ref: intent.order_intent_ref,
+            requested_delta_weight: intent.requested_delta_weight,
+            feasibility: "PARTIAL",
+            max_executable_delta_weight: 0.1,
+          },
+        ],
+        execution_disposition: "ORDERS_ASSESSED",
+      },
+      behavior,
+      executionMode: "PAPER",
+      frozenProposalId: proposal.proposal_id,
+      frozenProposalHash: proposal.proposal_hash,
+      croControlSource: {
+        source_status: "ACCEPTED_OUTPUT",
+        agent_id: "cro",
+        accepted_output_id: cro.accepted_cro_review_id,
+        accepted_output_hash: cro.accepted_cro_review_hash,
+        stage_skip_id: null,
+        stage_skip_hash: null,
+      },
+      frozenControlledTargetSet: controlPlan,
+    });
+    const croAction = requiredFirst(cro.review.candidate_actions, "staged CRO action");
+    const buildFinal = (targetWeight: number) => {
+      const base = finalSubmission();
+      const target = requiredFirst(base.target_positions, "final submission");
+      return buildAcceptedCioFinal({
+        submission: {
+          ...base,
+          decision_disposition: "TARGET_PORTFOLIO",
+          target_positions: [{ ...target, target_weight: targetWeight }],
+          cash_weight: 1 - targetWeight,
+          cro_control_resolutions: [
+            {
+              cro_action_local_ref: croAction.action_local_id,
+              resolution: "STAGED",
+              reason: "The frozen execution cap is the closest executable risk boundary.",
+              claim_refs: ["claim-1"],
+            },
+          ],
+          execution_control_resolutions: [
+            {
+              execution_assessment_local_ref: "execution-local-1",
+              resolution: "COMPLIED",
+              reason: "The full single-round execution cap is used.",
+              claim_refs: ["claim-1"],
+            },
+          ],
+        },
+        behavior,
+        frozenProposal: proposal,
+        frozenProposalId: proposal.proposal_id,
+        frozenProposalHash: proposal.proposal_hash,
+        croControlSource: {
+          source_status: "ACCEPTED_OUTPUT",
+          agent_id: "cro",
+          accepted_output_id: cro.accepted_cro_review_id,
+          accepted_output_hash: cro.accepted_cro_review_hash,
+          stage_skip_id: null,
+          stage_skip_hash: null,
+        },
+        executionControlSource: {
+          source_status: "ACCEPTED_OUTPUT",
+          agent_id: "autonomous_execution",
+          accepted_output_id: execution.accepted_execution_assessment_id,
+          accepted_output_hash: execution.accepted_execution_assessment_hash,
+          stage_skip_id: null,
+          stage_skip_hash: null,
+        },
+        acceptedCroReview: cro,
+        acceptedExecutionAssessment: execution,
+        frozenControlledTargetSet: controlPlan,
+        acceptedMacroInputAttributions: [],
+      });
+    };
+
+    expect(buildFinal(0.1).decision.target_positions[0]?.target_weight).toBe(0.1);
+    expect(() => buildFinal(0.11)).toThrow(/staged execution boundary/);
+    expect(() => buildFinal(0.05)).toThrow(/accepted PARTIAL execution cap/);
   });
 
   it("fails closed on REQUIRE_REVIEW at the accepted-output boundary", () => {

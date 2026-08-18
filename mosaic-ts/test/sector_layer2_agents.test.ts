@@ -2,9 +2,8 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { AIMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { z } from "zod";
-import { adaptStrictProviderJsonSchema } from "../src/agents/helpers/structured_provider_adapters.js";
 import { MACRO_AGENT_IDS } from "../src/agents/macro/_contracts.js";
 import { renderBundledPrompt } from "../src/agents/prompts/bundled_prompt_renderer.js";
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
@@ -17,16 +16,11 @@ import {
 import {
   buildLayerTwoUserContext,
   buildSectorCoverageDirective,
-  compactRelationshipExtractorAnalysis,
+  buildSectorProviderUsageEvidenceBody,
   renderSectorDirectionResearchPayloads,
 } from "../src/agents/sector/_factory.js";
 import {
-  buildRelationshipMapperSchema,
   buildStandardSectorSchema,
-  RELATIONSHIP_MAPPER_MAX_CLAIMS,
-  RELATIONSHIP_MAPPER_MAX_FACTUAL_EDGES,
-  RELATIONSHIP_MAPPER_MAX_PREDICTIVE_EDGES,
-  RelationshipMapperSchema,
   STANDARD_SECTOR_MAX_CLAIMS,
 } from "../src/agents/sector/_schemas.js";
 import { standardSectorSpec } from "../src/agents/sector/_spec.js";
@@ -37,14 +31,15 @@ import {
   buildSectorFinalSelectionSystemMessage,
 } from "../src/agents/sector/phase_directives.js";
 import { SECTOR_DIRECTION_CONFLICT_RESOLVER_CONTRACT } from "../src/agents/sector/registry.js";
-import { relationshipMapperSpec } from "../src/agents/sector/relationship_mapper.js";
 import {
+  directionComparisonAuditHash,
   SECURITY_SCORING_CONTRACT_HASH,
   SECURITY_SCORING_CONTRACT_VERSION,
   validateFinalSelectionAgainstDirective,
 } from "../src/agents/sector/selection.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
 import { emptyCurrentPositions, emptyLayer4, emptyPositionAudit } from "../src/agents/state.js";
+import { agentToolsFor, initialAgentToolsFor } from "../src/agents/tool_contract.js";
 import type {
   BridgeApi,
   MosaicConfig,
@@ -59,9 +54,9 @@ import type { LlmHandle } from "../src/llm/factory.js";
 import { sectorOutput } from "./helpers/sector.js";
 
 describe("Layer-2 roster and role contracts", () => {
-  it("has nine disjoint standard roles plus relationship mapper", () => {
+  it("has nine disjoint standard roles", () => {
     expect(STANDARD_SECTOR_AGENT_IDS).toHaveLength(9);
-    expect(SECTOR_AGENT_IDS).toHaveLength(10);
+    expect(SECTOR_AGENT_IDS).toHaveLength(9);
     expect([...AGENTS_BY_LAYER.sector]).toEqual([...SECTOR_AGENT_IDS]);
     expect([...LAYER2_AGENT_NODES]).toEqual([...SECTOR_AGENT_IDS]);
   });
@@ -70,11 +65,8 @@ describe("Layer-2 roster and role contracts", () => {
     const role = STANDARD_SECTOR_ROLE_CONTRACTS[agent];
     expect(role.directionIds.length).toBeGreaterThanOrEqual(3);
     expect(new Set(role.directionIds).size).toBe(role.directionIds.length);
-    expect(role.requiredTools).toEqual(
-      agent === "biotech"
-        ? ["get_sector_research_snapshot"]
-        : ["get_sector_research_snapshot", "get_role_event_snapshot"],
-    );
+    expect(role.requiredTools).toEqual(agentToolsFor(agent));
+    expect(role.initialSnapshotTools).toEqual(initialAgentToolsFor(agent));
     expect(role.responsibility.zh).not.toBe(role.responsibility.en);
     expect(role.prohibited.zh.length).toBeGreaterThan(0);
   });
@@ -364,6 +356,52 @@ describe("standard sector output contracts", () => {
     ).toBe(true);
   });
 
+  it("accepts only the eligible ETF from a sole preferred security shortlist", () => {
+    const directive = {
+      selection_status: "SELECTED" as const,
+      preferred_direction_id: "coal",
+      least_preferred_direction_id: "battery_storage",
+      preferred_security_shortlist_id: "preferred-eligible-etf",
+      preferred_security_shortlist_hash: `sha256:${"a".repeat(64)}`,
+      least_preferred_security_shortlist_id: "least-empty",
+      least_preferred_security_shortlist_hash: `sha256:${"b".repeat(64)}`,
+      security_scoring_contract_version: SECURITY_SCORING_CONTRACT_VERSION,
+      security_scoring_contract_hash: SECURITY_SCORING_CONTRACT_HASH,
+      allowed_preferred_security_ids: ["512480.SH"],
+      allowed_least_preferred_security_ids: [],
+      required_preferred_evidence_ids: [],
+      required_least_preferred_evidence_ids: [],
+      required_final_evidence_ids: [],
+    };
+    const output = sectorOutput("energy");
+    output.preferred_direction.direction_id = "coal";
+    output.preferred_direction.direction_local_id = "coal";
+    output.least_preferred_direction.direction_id = "battery_storage";
+    output.least_preferred_direction.direction_local_id = "battery_storage";
+    output.long_picks = [
+      {
+        pick_local_id: "forged-long",
+        ts_code: "600001.SH",
+        direction_local_id: "coal",
+        position_action: "LONG",
+        conviction: 0.5,
+        thesis: "forged outside shortlist",
+        claim_refs: ["energy-claim"],
+      },
+    ];
+    output.preferred_security_status = "PICKS_PRESENT";
+    output.preferred_security_abstention_confidence = null;
+    const forgedIssues = validateFinalSelectionAgainstDirective(output, directive);
+    expect(forgedIssues).toContain("preferred pick is outside frozen shortlist");
+
+    const longPick = output.long_picks[0];
+    if (!longPick) throw new Error("expected a preferred pick");
+    longPick.ts_code = "512480.SH";
+    expect(validateFinalSelectionAgainstDirective(output, directive)).not.toContain(
+      "preferred pick is outside frozen shortlist",
+    );
+  });
+
   it("requires complete decisive evidence coverage on both final legs", () => {
     const output = sectorOutput("energy");
     output.preferred_direction.direction_id = "coal";
@@ -396,11 +434,8 @@ describe("standard sector output contracts", () => {
 
   it.each(STANDARD_SECTOR_AGENT_IDS)("%s spec exposes its closed snapshot tools", (agent) => {
     const spec = standardSectorSpec(agent, buildStandardSectorSchema(agent));
-    expect(spec.requiredTools).toEqual(
-      agent === "biotech"
-        ? ["get_sector_research_snapshot"]
-        : ["get_sector_research_snapshot", "get_role_event_snapshot"],
-    );
+    expect(spec.requiredTools).toEqual(agentToolsFor(agent));
+    expect(spec.initialSnapshotTools).toEqual(initialAgentToolsFor(agent));
     expect(spec.fieldNames).toEqual(
       expect.arrayContaining([
         "agent",
@@ -414,325 +449,11 @@ describe("standard sector output contracts", () => {
   });
 });
 
-describe("relationship mapper", () => {
-  it("bounds extractor context while preserving both analysis ends", () => {
-    const analysis = `${"head".repeat(2_000)}${"tail".repeat(2_000)}`;
-    const compact = compactRelationshipExtractorAnalysis(analysis);
-    expect(compact).toHaveLength(6_000);
-    expect(compact.startsWith("head")).toBe(true);
-    expect(compact.endsWith("tail")).toBe(true);
-  });
-
-  it("uses its dedicated frozen-domain snapshot", () => {
-    expect(relationshipMapperSpec.requiredTools).toEqual(["get_relationship_graph_snapshot"]);
-    expect(relationshipMapperSpec.fieldNames).toContain("agent");
-  });
-
-  it("requires structured relationships, risks, evidence, and claims", () => {
-    const valid = {
-      agent: "relationship_mapper",
-      factual_edges: [
-        {
-          edge_local_id: "edge-1",
-          source_entity: "300750.SZ",
-          target_entity: "battery_storage",
-          edge_type: "supply_chain",
-          claim_refs: ["relationship-claim"],
-        },
-      ],
-      predictive_graph_status: "NO_QUALIFIED_PREDICTIVE_EDGE",
-      predictive_edges: [],
-      predictive_graph_abstention_confidence: 0.5,
-      key_drivers: [
-        {
-          driver_local_id: "driver-1",
-          summary: "frozen accepted direction domain",
-          claim_refs: ["relationship-claim"],
-        },
-      ],
-      risks: [
-        {
-          risk_local_id: "risk-1",
-          summary: "shared supplier",
-          claim_refs: ["relationship-claim"],
-        },
-      ],
-      claims: [
-        {
-          claim_id: "relationship-claim",
-          claim_kind: "FACT",
-          statement: "A frozen-domain relationship is observed.",
-          structured_conclusion: { relationship: "supply_chain" },
-          evidence_ids: ["sector:relationship"],
-          research_rule_refs: [],
-        },
-      ],
-      claim_refs: ["relationship-claim"],
-      macro_input_attributions: MACRO_AGENT_IDS.map((macroAgentId) => ({
-        agent_id: macroAgentId,
-        target_type: "SUBMISSION_SUMMARY",
-        target_local_ref: "$SUBMISSION",
-        claim_refs_used: [],
-        effect: "NOT_MATERIAL",
-      })),
-    } as const;
-    expect(RelationshipMapperSchema.parse(valid).agent).toBe("relationship_mapper");
-    const frozenExactSchema = buildRelationshipMapperSchema({
-      maxFactualEdges: 1,
-      maxPredictiveEdges: 1,
-      factualRelationships: [
-        {
-          source_entity: "300750.SZ",
-          target_entity: "battery_storage",
-          edge_type: "supply_chain",
-        },
-      ],
-    });
-    expect(
-      frozenExactSchema.safeParse({
-        ...valid,
-        factual_edges: [],
-      }).success,
-    ).toBe(false);
-    expect(
-      RelationshipMapperSchema.safeParse({
-        ...valid,
-        factual_edges: [
-          valid.factual_edges[0],
-          {
-            ...valid.factual_edges[0],
-            target_entity: "battery_recycling",
-          },
-        ],
-      }).success,
-    ).toBe(false);
-    expect(
-      RelationshipMapperSchema.safeParse({
-        ...valid,
-        factual_edges: [
-          valid.factual_edges[0],
-          {
-            ...valid.factual_edges[0],
-            edge_local_id: "edge-2",
-          },
-        ],
-      }).success,
-    ).toBe(false);
-    const maximumClaimIds = Array.from(
-      { length: RELATIONSHIP_MAPPER_MAX_CLAIMS },
-      (_, index) => `relationship-claim-${index + 1}`,
-    );
-    expect(
-      RelationshipMapperSchema.safeParse({
-        ...valid,
-        factual_edges: [
-          {
-            ...valid.factual_edges[0],
-            claim_refs: maximumClaimIds,
-          },
-        ],
-        key_drivers: [{ ...valid.key_drivers[0], claim_refs: maximumClaimIds }],
-        risks: [{ ...valid.risks[0], claim_refs: maximumClaimIds }],
-        claims: maximumClaimIds.map((claimId, index) => ({
-          ...valid.claims[0],
-          claim_id: claimId,
-          statement: `Relationship conclusion ${index + 1}.`,
-        })),
-        claim_refs: maximumClaimIds,
-      }).success,
-    ).toBe(true);
-    expect(
-      RelationshipMapperSchema.safeParse({
-        ...valid,
-        factual_edges: [
-          {
-            ...valid.factual_edges[0],
-            source_entity: "x".repeat(129),
-          },
-        ],
-      }).success,
-    ).toBe(false);
-    expect(() =>
-      buildRelationshipMapperSchema({
-        maxFactualEdges: 1,
-        maxPredictiveEdges: 1,
-        factualRelationships: [
-          {
-            source_entity: "x".repeat(129),
-            target_entity: "battery_storage",
-            edge_type: "supply_chain",
-          },
-        ],
-      }),
-    ).toThrow();
-    expect(() =>
-      buildRelationshipMapperSchema({
-        maxFactualEdges: 1,
-        maxPredictiveEdges: 1,
-        factualRelationships: [
-          {
-            source_entity: " 300750.SZ",
-            target_entity: "battery_storage",
-            edge_type: "supply_chain",
-          },
-        ],
-      }),
-    ).toThrow("must already be trimmed");
-    expect(() =>
-      buildRelationshipMapperSchema({
-        maxFactualEdges: 2,
-        maxPredictiveEdges: 1,
-        factualRelationships: [
-          {
-            source_entity: "300750.SZ",
-            target_entity: "battery_storage",
-            edge_type: "supply_chain",
-          },
-          {
-            source_entity: "300750.SZ",
-            target_entity: "battery_storage",
-            edge_type: "supply_chain",
-          },
-        ],
-      }),
-    ).toThrow("frozen factual relationship tuples must be unique");
-    expect(() =>
-      buildRelationshipMapperSchema({
-        maxFactualEdges: RELATIONSHIP_MAPPER_MAX_FACTUAL_EDGES + 1,
-        maxPredictiveEdges: 1,
-      }),
-    ).toThrow("factual domain must contain at most 32 rows");
-    expect(() =>
-      buildRelationshipMapperSchema({
-        maxFactualEdges: 1,
-        maxPredictiveEdges: RELATIONSHIP_MAPPER_MAX_PREDICTIVE_EDGES + 1,
-      }),
-    ).toThrow("predictive domain must contain between 1 and 32 rows");
-    expect(() =>
-      buildRelationshipMapperSchema({
-        maxFactualEdges: RELATIONSHIP_MAPPER_MAX_FACTUAL_EDGES,
-        maxPredictiveEdges: 1,
-        factualRelationships: Array.from(
-          { length: RELATIONSHIP_MAPPER_MAX_FACTUAL_EDGES + 1 },
-          (_, index) => ({
-            source_entity: `source-${index + 1}`,
-            target_entity: `target-${index + 1}`,
-            edge_type: "supply_chain",
-          }),
-        ),
-      }),
-    ).toThrow("factual domain exceeds its frozen bound");
-    expect(
-      RelationshipMapperSchema.safeParse({
-        ...valid,
-        factual_edges: Array.from(
-          { length: RELATIONSHIP_MAPPER_MAX_FACTUAL_EDGES + 1 },
-          (_, index) => ({
-            ...valid.factual_edges[0],
-            edge_local_id: `edge-${index + 1}`,
-          }),
-        ),
-      }).success,
-    ).toBe(false);
-    expect(
-      RelationshipMapperSchema.safeParse({
-        ...valid,
-        claims: Array.from({ length: RELATIONSHIP_MAPPER_MAX_CLAIMS + 1 }, (_, index) => ({
-          ...valid.claims[0],
-          claim_id: `relationship-claim-${index + 1}`,
-        })),
-      }).success,
-    ).toBe(false);
-    expect(
-      RelationshipMapperSchema.safeParse({
-        ...valid,
-        predictive_graph_status: "EDGES_PRESENT",
-        predictive_graph_abstention_confidence: null,
-        predictive_edges: Array.from(
-          { length: RELATIONSHIP_MAPPER_MAX_PREDICTIVE_EDGES + 1 },
-          (_, index) => ({
-            edge_local_id: `predictive-edge-${index + 1}`,
-            edge_candidate_id: `candidate-${index + 1}`,
-            source_entity: "energy",
-            target_entity: "industrials",
-            edge_type: "input_cost",
-            transmission_direction: "NEGATIVE",
-            activation_trigger: "Input costs rise materially.",
-            evaluation_horizon_trading_days: 20,
-            model_confidence: 0.6,
-            claim_refs: ["relationship-claim"],
-          }),
-        ),
-      }).success,
-    ).toBe(false);
-    expect(
-      RelationshipMapperSchema.safeParse({
-        ...valid,
-        predictive_graph_status: "EDGES_PRESENT",
-        predictive_graph_abstention_confidence: null,
-        predictive_edges: [
-          {
-            edge_local_id: "predictive-edge-1",
-            edge_candidate_id: "candidate-1",
-            source_entity: "energy",
-            target_entity: "industrials",
-            edge_type: "input_cost",
-            transmission_direction: "NEGATIVE",
-            activation_trigger: "x".repeat(321),
-            evaluation_horizon_trading_days: 20,
-            model_confidence: 0.6,
-            claim_refs: ["relationship-claim"],
-          },
-        ],
-      }).success,
-    ).toBe(false);
-
-    const jsonSchema = z.toJSONSchema(RelationshipMapperSchema) as unknown as {
-      oneOf: Array<{
-        properties: {
-          factual_edges: { maxItems: number };
-          predictive_edges: { maxItems?: number; items?: false };
-          claims: { maxItems: number };
-        };
-      }>;
-    };
-    expect(jsonSchema.oneOf[0]?.properties.factual_edges.maxItems).toBe(
-      RELATIONSHIP_MAPPER_MAX_FACTUAL_EDGES,
-    );
-    expect(jsonSchema.oneOf[0]?.properties.predictive_edges.maxItems).toBe(
-      RELATIONSHIP_MAPPER_MAX_PREDICTIVE_EDGES,
-    );
-    expect(jsonSchema.oneOf[0]?.properties.claims.maxItems).toBe(RELATIONSHIP_MAPPER_MAX_CLAIMS);
-    const providerSchema = adaptStrictProviderJsonSchema(jsonSchema) as {
-      properties: {
-        factual_edges: {
-          maxItems: number;
-          items: { properties: { source_entity: { maxLength: number } } };
-        };
-        predictive_edges: {
-          maxItems: number;
-          items: { properties: { activation_trigger: { maxLength: number } } };
-        };
-      };
-    };
-    expect(providerSchema.properties.factual_edges.maxItems).toBe(
-      RELATIONSHIP_MAPPER_MAX_FACTUAL_EDGES,
-    );
-    expect(providerSchema.properties.predictive_edges.maxItems).toBe(
-      RELATIONSHIP_MAPPER_MAX_PREDICTIVE_EDGES,
-    );
-    expect(providerSchema.properties.factual_edges.items.properties.source_entity.maxLength).toBe(
-      128,
-    );
-    expect(
-      providerSchema.properties.predictive_edges.items.properties.activation_trigger.maxLength,
-    ).toBe(320);
-  });
-});
-
 class InstrumentedSectorLlm {
   readonly prompts: string[] = [];
   readonly systemMessages: string[] = [];
+  readonly boundToolNames: string[] = [];
+  readonly providerSchemas: unknown[] = [];
   private neutralResearch: Record<string, unknown> | null = null;
 
   constructor(
@@ -745,10 +466,20 @@ class InstrumentedSectorLlm {
       | "NO_NON_ETF_EDGE" = "NONE",
   ) {}
 
+  async invoke(): Promise<AIMessage> {
+    return new AIMessage("No additional adaptive query selected.");
+  }
+
+  bindTools(tools: ReadonlyArray<{ name: string }>): { invoke: () => Promise<AIMessage> } {
+    this.boundToolNames.push(...tools.map((tool) => tool.name));
+    return { invoke: () => this.invoke() };
+  }
+
   withStructuredOutput(
     schema: unknown,
     options?: { name?: string },
   ): { invoke: (input: unknown) => Promise<unknown> } {
+    this.providerSchemas.push(schema);
     return {
       invoke: async (input) => {
         this.prompts.push(JSON.stringify(input));
@@ -779,6 +510,33 @@ class InstrumentedSectorLlm {
         return output;
       },
     };
+  }
+}
+
+class AdaptiveQuerySectorLlm extends InstrumentedSectorLlm {
+  adaptiveInvocations = 0;
+
+  override async invoke(): Promise<AIMessage> {
+    this.adaptiveInvocations += 1;
+    if (this.adaptiveInvocations === 1) {
+      return new AIMessage({
+        content: "Requesting one authorized technical indicator.",
+        tool_calls: [
+          {
+            id: "adaptive_indicator_1",
+            name: "get_indicators",
+            args: {
+              ticker: "600000.SH",
+              indicator: "rsi",
+              as_of: "2026-07-19",
+              lookback: 20,
+            },
+            type: "tool_call",
+          },
+        ],
+      });
+    }
+    return new AIMessage("Adaptive evidence collected; continue with structured comparison.");
   }
 }
 
@@ -1053,6 +811,7 @@ function instrumentedSectorApi(
   events: {
     reports: SectorModelUsageReport[];
     lifecycle: string[];
+    toolCalls?: Array<{ name: string; args: Record<string, unknown> }>;
   },
   overrides: { sectorSnapshot?: string; roleEventSnapshot?: string } = {},
 ): BridgeApi {
@@ -1073,7 +832,12 @@ function instrumentedSectorApi(
         candidate_scope_hash: `sha256:${"b".repeat(64)}`,
         runtime_input_hash: `sha256:${"c".repeat(64)}`,
         tool_payload_hashes: Object.fromEntries(
-          tools.map((name, index) => [name, `sha256:${String(index + 1).repeat(64)}`]),
+          tools.map((name, index) => [
+            name,
+            name === "get_supply_chain_evidence"
+              ? `sha256:${"d".repeat(64)}`
+              : `sha256:${String(index + 1).repeat(64)}`,
+          ]),
         ),
         materialized_at: "2026-07-19T08:00:00Z",
       };
@@ -1107,14 +871,35 @@ function instrumentedSectorApi(
       STANDARD_SECTOR_ROLE_CONTRACTS.energy.requiredTools.map((name) => ({
         name,
         description: name,
-        args_schema: { type: "object", properties: {}, additionalProperties: false },
+        args_schema:
+          name === "get_indicators"
+            ? {
+                type: "object" as const,
+                properties: {
+                  ticker: { type: "string" as const },
+                  as_of: { type: "string" as const },
+                  lookback: { type: "integer" as const },
+                  indicator: { type: "string" as const },
+                },
+                required: ["ticker", "as_of", "lookback", "indicator"],
+                additionalProperties: false,
+              }
+            : { type: "object" as const, properties: {}, additionalProperties: false },
       })),
-    toolsCall: async (name: string) => ({
-      text:
-        name === "get_sector_research_snapshot"
-          ? (overrides.sectorSnapshot ?? sectorSnapshot())
-          : (overrides.roleEventSnapshot ?? roleEventSnapshot()),
-    }),
+    toolsCall: async (name: string, args: Record<string, unknown>) => {
+      events.toolCalls?.push({ name, args });
+      return {
+        text:
+          name === "get_sector_research_snapshot"
+            ? (overrides.sectorSnapshot ?? sectorSnapshot())
+            : name === "get_role_event_snapshot"
+              ? (overrides.roleEventSnapshot ?? roleEventSnapshot())
+              : JSON.stringify({
+                  query: args,
+                  values: [{ date: "2026-07-19", value: 51.2 }],
+                }),
+      };
+    },
     toolsRecordModelUsage: async (
       _capability: SignedAgentToolCapability,
       report: SectorModelUsageReport,
@@ -1359,6 +1144,60 @@ describe("standard Sector usage lifecycle", () => {
       reducer_contract_version:
         SECTOR_DIRECTION_CONFLICT_RESOLVER_CONTRACT.resolver_contract_version,
     });
+    if (!comparisonAudit) throw new Error("comparison audit is missing");
+    const comparisonCitationId = `sector-direction-comparison:${directionComparisonAuditHash(
+      comparisonAudit,
+    ).slice("sha256:".length)}`;
+    const finalProviderSchema = llm.providerSchemas.at(-1) as {
+      properties: {
+        final_selection: {
+          properties: { research_rule_ref: { enum?: string[] } };
+        };
+      };
+    };
+    expect(
+      finalProviderSchema.properties.final_selection.properties.research_rule_ref.enum,
+    ).toEqual([comparisonCitationId]);
+    expect(finalPrompt).toContain(comparisonCitationId);
+  });
+
+  it("lets a real provider select one parameterized adaptive query after initial snapshots", async () => {
+    const events = {
+      reports: [] as SectorModelUsageReport[],
+      lifecycle: [] as string[],
+      toolCalls: [] as Array<{ name: string; args: Record<string, unknown> }>,
+    };
+    const llm = new AdaptiveQuerySectorLlm();
+    const handle: LlmHandle = {
+      llm: llm as unknown as LlmHandle["llm"],
+      provider: "openai",
+      model: "fixture-model",
+      baseUrl: undefined,
+    };
+
+    const update = await buildEnergyNode({
+      llmHandle: handle,
+      api: instrumentedSectorApi(events),
+      config,
+      promptsRoot: promptDir,
+    })(sectorPipelineState());
+
+    expect(update.layer2_outputs).toMatchObject({ energy: expect.any(Object) });
+    expect(llm.boundToolNames).toEqual(agentToolsFor("energy"));
+    expect(llm.adaptiveInvocations).toBe(2);
+    expect(events.toolCalls).toEqual([
+      { name: "get_sector_research_snapshot", args: {} },
+      { name: "get_role_event_snapshot", args: {} },
+      {
+        name: "get_indicators",
+        args: {
+          ticker: "600000.SH",
+          indicator: "rsi",
+          as_of: "2026-07-19",
+          lookback: 20,
+        },
+      },
+    ]);
   });
 
   it("preserves the triggering conflict after a successful bounded review", async () => {
@@ -1505,7 +1344,56 @@ describe("standard Sector usage lifecycle", () => {
     expect(events.reports.at(-1)).toMatchObject({
       attempted_stage: "FINAL_SELECTION",
       attempt_status: "OPERATIONAL_FAILURE",
+      validation_issues: [
+        {
+          validator: "model_runtime",
+          reason_code: "MODEL_SERVICE_ERROR",
+          json_path: "$",
+          message: "503 service unavailable",
+        },
+      ],
     });
+    const evidenceBody = buildSectorProviderUsageEvidenceBody({
+      capabilityId: "cap-sector-instrumented",
+      sectorAgentId: "energy",
+      attemptedStage: "FINAL_SELECTION",
+      audit: {
+        attempt: 1,
+        kind: "primary",
+        accepted: false,
+        validation_issues: [
+          {
+            validator: "model_runtime",
+            reason_code: "MODEL_SERVICE_ERROR",
+            json_path: "$",
+            message: "503 service unavailable",
+          },
+        ],
+        error_fingerprints: ["model_runtime:MODEL_SERVICE_ERROR:$"],
+        output_hash: null,
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        elapsed_ms: 1,
+      },
+    });
+    expect(evidenceBody).toMatchObject({
+      validation_issues: [
+        {
+          validator: "model_runtime",
+          reason_code: "MODEL_SERVICE_ERROR",
+          json_path: "$",
+          message: "503 service unavailable",
+        },
+      ],
+    });
+    const validationIssue = (evidenceBody.validation_issues as Array<Record<string, string>>).at(0);
+    expect(Object.keys(validationIssue ?? {})).toEqual([
+      "validator",
+      "reason_code",
+      "json_path",
+      "message",
+    ]);
+    expect(evidenceBody).not.toHaveProperty("raw_output");
     expect(events.lifecycle.at(-2)).toBe("finalize");
     expect(events.lifecycle.at(-1)).toBe("terminate");
   });

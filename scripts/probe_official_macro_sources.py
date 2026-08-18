@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Probe closed EU/ECB/World Bank adapters without persisting provider rows."""
+"""Probe active ECB history adapters without persisting provider rows."""
 
 from __future__ import annotations
 
@@ -13,11 +13,10 @@ from typing import Any
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.macro_source_contracts import (
     EURO_AREA_FINANCIAL_SERIES_MAP,
-    EU_SERIES_MAP,
+    EU_REAL_ECONOMY_SERIES_MAP,
 )
 from mosaic.dataflows.official_macro_adapters import (
     OFFICIAL_MACRO_ADAPTER_VERSION,
-    WORLD_BANK_EU_CONTEXT_SERIES,
     fetch_official_series,
 )
 
@@ -39,7 +38,8 @@ def canonical_hash(value: Any) -> str:
 
 def _ecb_series() -> list[str]:
     return sorted(
-        {
+        set(EU_REAL_ECONOMY_SERIES_MAP)
+        | {
             item
             for values in EURO_AREA_FINANCIAL_SERIES_MAP.values()
             for item in values
@@ -48,24 +48,35 @@ def _ecb_series() -> list[str]:
     )
 
 
-def build_preflight(*, generated_at: str) -> dict[str, Any]:
+def build_preflight(*, generated_at: str, as_of_date: str) -> dict[str, Any]:
     generated = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
     if generated.tzinfo is None:
         raise ValueError("generated_at must include timezone")
-    cutoff = datetime.combine(generated.date(), time.max, tzinfo=timezone.utc).isoformat()
+    as_of = datetime.fromisoformat(as_of_date).date()
+    cutoff = datetime.combine(as_of, time.max, tzinfo=timezone.utc).isoformat()
+    observation_start = datetime(
+        as_of.year - 1, 1, 1, tzinfo=timezone.utc
+    ).date().isoformat()
+    observation_end = as_of.isoformat()
     targets = [
-        *(('EUROSTAT', series_key) for series_key in sorted(EU_SERIES_MAP)),
         *(('ECB', series_id) for series_id in _ecb_series()),
-        *(('WORLD_BANK', series_key) for series_key in sorted(WORLD_BANK_EU_CONTEXT_SERIES)),
     ]
     checks = []
     for provider, series_key in targets:
         try:
-            result = fetch_official_series(
-                provider=provider,
-                series_key=series_key,
-                as_of=cutoff,
+            kwargs: dict[str, Any] = {
+                "provider": provider,
+                "series_key": series_key,
+                "as_of": cutoff,
+            }
+            kwargs.update(
+                {
+                    "include_history": True,
+                    "observation_start": observation_start,
+                    "observation_end": observation_end,
+                }
             )
+            result = fetch_official_series(**kwargs)
         except DataVendorUnavailable as exc:
             checks.append(
                 {
@@ -97,12 +108,9 @@ def build_preflight(*, generated_at: str) -> dict[str, Any]:
             | {
                 "transport_status": "ACTIVE",
                 "snapshot_readiness": "PREFLIGHT_ONLY",
-                "reason": "release_timestamp_and_archived_vintage_join_required",
+                "reason": "authoritative_vintage_history_transport_verified",
             }
         )
-    required = [
-        row for row in checks if row["provider"] in {"EUROSTAT", "ECB"}
-    ]
     body = {
         "schema_version": "official_macro_source_preflight_v1",
         "adapter_version": OFFICIAL_MACRO_ADAPTER_VERSION,
@@ -115,11 +123,11 @@ def build_preflight(*, generated_at: str) -> dict[str, Any]:
                 row["transport_status"] == "ACTIVE" for row in checks
             ),
             "required_transport_ready": all(
-                row["transport_status"] == "ACTIVE" for row in required
+                row["transport_status"] == "ACTIVE" for row in checks
             ),
             "production_snapshot_ready": False,
             "production_blocker": (
-                "archived release/vintage coverage is not established by a live transport probe"
+                "archive receipts and route eligibility are not established by transport preflight"
             ),
         },
     }
@@ -130,9 +138,10 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--generated-at")
+    parser.add_argument("--as-of", required=True)
     args = parser.parse_args()
     generated_at = args.generated_at or datetime.now(timezone.utc).isoformat()
-    artifact = build_preflight(generated_at=generated_at)
+    artifact = build_preflight(generated_at=generated_at, as_of_date=args.as_of)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(
         json.dumps(artifact, ensure_ascii=False, indent=2) + "\n",

@@ -164,32 +164,69 @@ def test_get_lhb_ranking_empty_day(mock_query_pro):
 # --------------------------------------------------------------------- 4. CN curve
 
 
-def test_get_yield_curve_cn_emits_csv(mock_query_pro):
-    canned = _df_with_rows(
-        [
-            {"trade_date": "20240628", "curve_type": "0", "curve_term": "10", "curve_yield": 2.43},
-            {"trade_date": "20240628", "curve_type": "0", "curve_term": "1", "curve_yield": 1.55},
-        ]
+def _official_curve_payload(*dates: str) -> dict:
+    return {
+        "provider": "MOF_CHINABOND",
+        "yield_type": "MATURITY",
+        "rows": [
+            {
+                "trade_date": trade_date,
+                "released_at": f"{trade_date}T17:30:00+08:00",
+                "curve_type": "0",
+                "curve_term": term,
+                "yield": 1.55 if term == 1 else 2.43,
+            }
+            for trade_date in dates
+            for term in (1, 10)
+        ],
+    }
+
+
+def test_get_yield_curve_cn_uses_mof_chinabond_and_emits_csv(
+    monkeypatch, mock_query_pro
+):
+    calls: list[tuple[str, str]] = []
+
+    def fetch_curve(*, start_date: str, end_date: str) -> dict:
+        calls.append((start_date, end_date))
+        return _official_curve_payload(end_date)
+
+    monkeypatch.setattr(
+        macro_data,
+        "fetch_mof_chinabond_government_yield_curve",
+        fetch_curve,
+        raising=False,
     )
-    m = mock_query_pro(canned)
+    m = mock_query_pro(None, side_effect=AssertionError("yc_cb must not be called"))
 
     out = macro_data.get_yield_curve_cn("2024-06-28", look_back_days=5)
 
-    assert m.call_args.kwargs["curve_type"] == "0"
-    assert m.call_args.kwargs["start_date"] == "20240623"
-    assert m.call_args.kwargs["end_date"] == "20240628"
+    assert calls == [("2024-06-23", "2024-06-28")]
+    m.assert_not_called()
     assert "CN Treasury Yield Curve" in out
     assert "2.43" in out
+    assert "MOF/ChinaBond official maturity curve" in out
 
 
-def test_get_yield_curve_cn_handles_unavailable_yc_cb(mock_query_pro):
-    mock_query_pro(None, side_effect=DataVendorUnavailable("yc_cb unavailable"))
+def test_get_yield_curve_cn_handles_unavailable_official_curve(
+    monkeypatch, mock_query_pro
+):
+    monkeypatch.setattr(
+        macro_data,
+        "fetch_mof_chinabond_government_yield_curve",
+        lambda **_params: (_ for _ in ()).throw(
+            DataVendorUnavailable("official curve unavailable")
+        ),
+        raising=False,
+    )
+    m = mock_query_pro(None, side_effect=AssertionError("Tushare must not be called"))
 
     out = macro_data.get_yield_curve_cn("2024-06-28", look_back_days=5)
 
     assert "CN Treasury Yield Curve" in out
-    assert "yc_cb unavailable" in out
-    assert "No yc_cb rows returned" in out
+    assert "official curve unavailable" in out
+    assert "No official curve rows returned" in out
+    m.assert_not_called()
 
 
 # --------------------------------------------------------------------- 5. US-CN spread
@@ -218,16 +255,19 @@ def test_tushare_macro_series_unsupported_falls_back_by_raising(mock_query_pro):
         macro_data.get_tushare_macro_series("FEDFUNDS", "2024-06-24", "2024-06-25")
 
 
-def test_us_china_spread_merges_tushare_us_tycr_and_yc_cb(mock_query_pro):
-    # Tushare CN side: minimal yc_cb payload with 10y rows on three dates.
-    cn_df = _df_with_rows(
-        [
-            {"trade_date": "20240624", "curve_term": "10", "curve_yield": 2.4},
-            {"trade_date": "20240625", "curve_term": "10", "curve_yield": 2.42},
-            {"trade_date": "20240626", "curve_term": "10", "curve_yield": 2.45},
-            # noise rows that should be filtered
-            {"trade_date": "20240624", "curve_term": "1", "curve_yield": 1.5},
-        ]
+def test_us_china_spread_merges_tushare_us_tycr_and_official_cn_curve(
+    monkeypatch, mock_query_pro
+):
+    curve = _official_curve_payload("2024-06-24", "2024-06-25", "2024-06-26")
+    yields = {"2024-06-24": 2.4, "2024-06-25": 2.42, "2024-06-26": 2.45}
+    for row in curve["rows"]:
+        if row["curve_term"] == 10:
+            row["yield"] = yields[row["trade_date"]]
+    monkeypatch.setattr(
+        macro_data,
+        "fetch_mof_chinabond_government_yield_curve",
+        lambda **_params: curve,
+        raising=False,
     )
     us_df = _df_with_rows(
         [
@@ -238,8 +278,6 @@ def test_us_china_spread_merges_tushare_us_tycr_and_yc_cb(mock_query_pro):
     )
 
     def fake_query(api_name, **_kwargs):
-        if api_name == "yc_cb":
-            return cn_df
         if api_name == "us_tycr":
             return us_df
         raise AssertionError(api_name)
@@ -249,7 +287,7 @@ def test_us_china_spread_merges_tushare_us_tycr_and_yc_cb(mock_query_pro):
     out = macro_data.get_us_china_spread("2024-06-26", look_back_days=2)
 
     assert "US-CN 10Y Yield Spread" in out
-    assert "Tushare us_tycr.y10 + Tushare yc_cb" in out
+    assert "Tushare us_tycr.y10 + MOF/ChinaBond official maturity curve" in out
     # spread = (4.30 - 2.40) * 100 = 190.0
     assert "190.0" in out
     # spread = (4.40 - 2.45) * 100 = 195.0
@@ -257,13 +295,18 @@ def test_us_china_spread_merges_tushare_us_tycr_and_yc_cb(mock_query_pro):
 
 
 def test_us_china_spread_falls_back_to_fred_when_us_tycr_unavailable(monkeypatch, mock_query_pro):
-    cn_df = _df_with_rows(
-        [{"trade_date": "20240624", "curve_term": "10", "curve_yield": 2.4}]
+    curve = _official_curve_payload("2024-06-24")
+    for row in curve["rows"]:
+        if row["curve_term"] == 10:
+            row["yield"] = 2.4
+    monkeypatch.setattr(
+        macro_data,
+        "fetch_mof_chinabond_government_yield_curve",
+        lambda **_params: curve,
+        raising=False,
     )
 
     def fake_query(api_name, **_kwargs):
-        if api_name == "yc_cb":
-            return cn_df
         if api_name == "us_tycr":
             raise DataVendorUnavailable("us_tycr unavailable")
         raise AssertionError(api_name)
@@ -286,10 +329,19 @@ def test_us_china_spread_falls_back_to_fred_when_us_tycr_unavailable(monkeypatch
     assert "190.0" in out
 
 
-def test_us_china_spread_handles_missing_cn_leg_without_tool_error(mock_query_pro):
+def test_us_china_spread_handles_missing_cn_leg_without_tool_error(
+    monkeypatch, mock_query_pro
+):
+    monkeypatch.setattr(
+        macro_data,
+        "fetch_mof_chinabond_government_yield_curve",
+        lambda **_params: (_ for _ in ()).throw(
+            DataVendorUnavailable("official curve unavailable")
+        ),
+        raising=False,
+    )
+
     def fake_query(api_name, **_kwargs):
-        if api_name == "yc_cb":
-            raise DataVendorUnavailable("yc_cb unavailable")
         raise AssertionError(api_name)
 
     mock_query_pro(None, side_effect=fake_query)
@@ -302,13 +354,18 @@ def test_us_china_spread_handles_missing_cn_leg_without_tool_error(mock_query_pr
 
 
 def test_us_china_spread_handles_missing_us_leg_without_tool_error(monkeypatch, mock_query_pro):
-    cn_df = _df_with_rows(
-        [{"trade_date": "20240624", "curve_term": "10", "curve_yield": 2.4}]
+    curve = _official_curve_payload("2024-06-24")
+    for row in curve["rows"]:
+        if row["curve_term"] == 10:
+            row["yield"] = 2.4
+    monkeypatch.setattr(
+        macro_data,
+        "fetch_mof_chinabond_government_yield_curve",
+        lambda **_params: curve,
+        raising=False,
     )
 
     def fake_query(api_name, **_kwargs):
-        if api_name == "yc_cb":
-            return cn_df
         if api_name == "us_tycr":
             raise DataVendorUnavailable("us_tycr unavailable")
         raise AssertionError(api_name)
@@ -764,7 +821,9 @@ class TestLiveTushare:
         assert "Stock Money Flow" in out
 
     def test_live_industry_moneyflow(self):
-        out = macro_data.get_industry_moneyflow("2024-06-28", look_back_days=10)
+        out = macro_data.get_industry_moneyflow(
+            "2024-06-28", look_back_days=10, industries="半导体"
+        )
         assert "Industry Money Flow" in out
 
 
@@ -825,45 +884,290 @@ def test_get_industry_moneyflow_windowed(mock_query_pro):
         return _df_with_rows([{"industry": "半导体", "net_amount": 4200.0}])
 
     mock_query_pro(None, side_effect=_capture)
-    out = macro_data.get_industry_moneyflow("2024-06-30", look_back_days=5)
+    out = macro_data.get_industry_moneyflow(
+        "2024-06-30", look_back_days=5, industries="半导体"
+    )
     assert "Industry Money Flow" in out
     assert captured["api"] == "moneyflow_ind_ths"
+    assert captured["params"]["ts_code"] == "881121.TI"
     assert captured["params"]["start_date"] == "20240625"
     assert captured["params"]["end_date"] == "20240630"
+    assert captured["params"]["ts_code"] == "881121.TI"
 
 
-def test_get_industry_moneyflow_empty(mock_query_pro):
-    mock_query_pro(_df_with_rows([]))
-    out = macro_data.get_industry_moneyflow("2024-06-30")
-    assert "No industry moneyflow" in out
+def test_get_industry_moneyflow_semiconductor_binds_exact_ths_code(mock_query_pro):
+    captured = {}
+
+    def _capture(api_name, **params):
+        captured["api"] = api_name
+        captured["params"] = params
+        return _df_with_rows(
+            [{"ts_code": "881121.TI", "industry": "半导体", "net_amount": 4200.0}]
+        )
+
+    mock_query_pro(None, side_effect=_capture)
+    out = macro_data.get_industry_moneyflow(
+        "2026-06-17", look_back_days=5, industries=" 半导体 "
+    )
+
+    assert "Industry Money Flow" in out
+    assert captured == {
+        "api": "moneyflow_ind_ths",
+        "params": {
+            "ts_code": "881121.TI",
+            "start_date": "20260612",
+            "end_date": "20260617",
+        },
+    }
 
 
-def test_get_industry_moneyflow_filters_to_named(mock_query_pro):
-    mock_query_pro(
-        _df_with_rows(
+def test_get_industry_moneyflow_biotech_binds_exact_ths_code(mock_query_pro):
+    captured = {}
+    calls = []
+
+    def _capture(api_name, **params):
+        calls.append((api_name, params))
+        captured["api"] = api_name
+        captured["params"] = params
+        return _df_with_rows(
+            [{"ts_code": "881142.TI", "industry": "生物制品", "net_amount": 4200.0}]
+        )
+
+    mock_query_pro(None, side_effect=_capture)
+    out = macro_data.get_industry_moneyflow(
+        "2026-07-08", look_back_days=5, industries="医药,医疗,生物制品,中药"
+    )
+
+    assert "生物制品" in out
+    assert len(calls) == 1
+    assert captured == {
+        "api": "moneyflow_ind_ths",
+        "params": {
+            "ts_code": "881142.TI",
+            "start_date": "20260703",
+            "end_date": "20260708",
+        },
+    }
+
+
+def test_get_industry_moneyflow_technology_binds_exact_ths_code(mock_query_pro):
+    captured = {}
+
+    def _capture(api_name, **params):
+        captured["api"] = api_name
+        captured["params"] = params
+        return _df_with_rows(
+            [{"ts_code": "881272.TI", "industry": "软件开发", "net_amount": 4200.0}]
+        )
+
+    mock_query_pro(None, side_effect=_capture)
+    out = macro_data.get_industry_moneyflow(
+        "2026-07-08", look_back_days=5, industries="电子,计算机,传媒,通信"
+    )
+
+    assert "软件开发" in out
+    assert captured == {
+        "api": "moneyflow_ind_ths",
+        "params": {
+            "ts_code": "881272.TI",
+            "start_date": "20260703",
+            "end_date": "20260708",
+        },
+    }
+
+
+def test_get_industry_moneyflow_energy_binds_exact_ths_code(mock_query_pro):
+    captured = {}
+
+    def _capture(api_name, **params):
+        captured["api"] = api_name
+        captured["params"] = params
+        return _df_with_rows(
             [
-                {"industry": "半导体", "net_amount": 4200.0},
-                {"industry": "银行", "net_amount": -1500.0},
-                {"industry": "证券", "net_amount": 800.0},
+                {
+                    "ts_code": "881105.TI",
+                    "industry": "煤炭开采加工",
+                    "net_amount": 4200.0,
+                }
             ]
         )
+
+    mock_query_pro(None, side_effect=_capture)
+    out = macro_data.get_industry_moneyflow(
+        "2026-07-08",
+        look_back_days=5,
+        industries="煤炭,石油,天然气,电力,光伏,风电,电池",
     )
-    out = macro_data.get_industry_moneyflow("2024-06-30", industries="银行,证券")
-    assert "银行" in out and "证券" in out
-    assert "半导体" not in out
-    assert "Filtered to industries" in out
+
+    assert "煤炭开采加工" in out
+    assert captured == {
+        "api": "moneyflow_ind_ths",
+        "params": {
+            "ts_code": "881105.TI",
+            "start_date": "20260703",
+            "end_date": "20260708",
+        },
+    }
 
 
-def test_get_industry_moneyflow_filter_fallback_shows_all(mock_query_pro):
-    mock_query_pro(
-        _df_with_rows(
+def test_get_industry_moneyflow_financials_binds_exact_ths_code(mock_query_pro):
+    calls = []
+
+    def _capture(api_name, **params):
+        calls.append((api_name, params))
+        return _df_with_rows(
+            [{"ts_code": "881155.TI", "industry": "银行", "net_amount": 4200.0}]
+        )
+
+    mock_query_pro(None, side_effect=_capture)
+    out = macro_data.get_industry_moneyflow(
+        "2026-07-08",
+        look_back_days=5,
+        industries="银行,证券,保险,多元金融",
+    )
+
+    assert "银行" in out
+    assert calls == [
+        (
+            "moneyflow_ind_ths",
+            {
+                "ts_code": "881155.TI",
+                "start_date": "20260703",
+                "end_date": "20260708",
+            },
+        )
+    ]
+
+
+def test_get_industry_moneyflow_agriculture_binds_exact_ths_code(mock_query_pro):
+    calls = []
+
+    def _capture(api_name, **params):
+        calls.append((api_name, params))
+        return _df_with_rows(
+            [{"ts_code": "881102.TI", "industry": "养殖业", "net_amount": 4200.0}]
+        )
+
+    mock_query_pro(None, side_effect=_capture)
+    out = macro_data.get_industry_moneyflow(
+        "2026-07-08",
+        look_back_days=5,
+        industries="农业,种植,养殖,林业,饲料,动物保健",
+    )
+
+    assert "养殖业" in out
+    assert calls == [
+        (
+            "moneyflow_ind_ths",
+            {
+                "ts_code": "881102.TI",
+                "start_date": "20260703",
+                "end_date": "20260708",
+            },
+        )
+    ]
+
+
+def test_get_industry_moneyflow_consumer_binds_exact_ths_code(mock_query_pro):
+    calls = []
+
+    def _capture(api_name, **params):
+        calls.append((api_name, params))
+        return _df_with_rows(
             [
-                {"industry": "半导体", "net_amount": 4200.0},
-                {"industry": "银行", "net_amount": -1500.0},
+                {
+                    "ts_code": "881134.TI",
+                    "industry": "食品加工制造",
+                    "net_amount": 4200.0,
+                }
             ]
         )
+
+    mock_query_pro(None, side_effect=_capture)
+    out = macro_data.get_industry_moneyflow(
+        "2026-07-08",
+        look_back_days=5,
+        industries="家电,食品,饮料,纺织,服装,零售,旅游,美容,汽车",
     )
-    out = macro_data.get_industry_moneyflow("2024-06-30", industries="不存在的行业")
-    # No THS industry matches -> degrade to the full table, with a visible note.
-    assert "半导体" in out and "银行" in out
-    assert "showing all" in out
+
+    assert "食品加工制造" in out
+    assert calls == [
+        (
+            "moneyflow_ind_ths",
+            {
+                "ts_code": "881134.TI",
+                "start_date": "20260703",
+                "end_date": "20260708",
+            },
+        )
+    ]
+
+
+def test_get_industry_moneyflow_industrials_binds_exact_ths_code(mock_query_pro):
+    calls = []
+
+    def _capture(api_name, **params):
+        calls.append((api_name, params))
+        return _df_with_rows(
+            [{"ts_code": "881117.TI", "industry": "通用设备", "net_amount": 4200.0}]
+        )
+
+    mock_query_pro(None, side_effect=_capture)
+    out = macro_data.get_industry_moneyflow(
+        "2026-07-08",
+        look_back_days=5,
+        industries="化学,钢铁,有色,机械,军工,电气设备,交通运输,环保",
+    )
+
+    assert "通用设备" in out
+    assert calls == [
+        (
+            "moneyflow_ind_ths",
+            {
+                "ts_code": "881117.TI",
+                "start_date": "20260703",
+                "end_date": "20260708",
+            },
+        )
+    ]
+
+
+def test_get_industry_moneyflow_real_estate_binds_exact_ths_code(mock_query_pro):
+    calls = []
+
+    def _capture(api_name, **params):
+        calls.append((api_name, params))
+        return _df_with_rows(
+            [{"ts_code": "881153.TI", "industry": "房地产", "net_amount": 4200.0}]
+        )
+
+    mock_query_pro(None, side_effect=_capture)
+    out = macro_data.get_industry_moneyflow(
+        "2026-07-08",
+        look_back_days=5,
+        industries="房地产,建筑材料,建筑装饰",
+    )
+
+    assert "房地产" in out
+    assert calls == [
+        (
+            "moneyflow_ind_ths",
+            {
+                "ts_code": "881153.TI",
+                "start_date": "20260703",
+                "end_date": "20260708",
+            },
+        )
+    ]
+
+
+@pytest.mark.parametrize("industries", ["", "不存在的行业"])
+def test_get_industry_moneyflow_rejects_unapproved_scope_before_transport(
+    mock_query_pro, industries
+):
+    transport = mock_query_pro(_df_with_rows([]))
+
+    with pytest.raises(DataVendorUnavailable, match="registered exact industry scope"):
+        macro_data.get_industry_moneyflow("2024-06-30", industries=industries)
+
+    transport.assert_not_called()

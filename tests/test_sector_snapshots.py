@@ -13,16 +13,21 @@ from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.sector_snapshots import (
     _build_sector_etf_direction_authority,
     _canonical_hash,
+    _compiled_batch_evidence,
     _derive_relationship_source_truth,
     _load_sector_universe_manifest,
     _registered_sector_metric_observations,
+    compile_registered_relationship_snapshot,
+    compile_registered_sector_snapshot,
     load_sector_snapshot,
     render_relationship_snapshot,
     validate_relationship_snapshot,
     validate_sector_snapshot,
 )
 from mosaic.dataflows.sector_snapshots import (
+    RELATIONSHIP_MAX_FACTUAL_EDGES,
     RELATIONSHIP_REQUIRED_SOURCE_ENDPOINTS,
+    RELATIONSHIP_SNAPSHOT_SCHEMA_VERSION,
     RELATIONSHIP_SOURCE_EXTRACTOR_CONTRACT_VERSION,
     SECTOR_ETF_SOURCE_ENDPOINTS,
     SECTOR_REQUIRED_SOURCE_ENDPOINTS,
@@ -36,6 +41,27 @@ from scripts.build_structured_smoke_fixtures import _build_sector_snapshots
 
 AS_OF = "2026-07-17"
 ROLE = "semiconductor"
+
+
+def test_default_sector_etf_authority_restores_one_exact_mapping_per_agent() -> None:
+    authority = sector_snapshots_module.SECTOR_ETF_DIRECTION_AUTHORITY
+    observed = {
+        (row["sector_agent_id"], row["direction_id"]): tuple(row["etf_ts_codes"])
+        for row in authority["direction_families"]
+        if row["etf_ts_codes"]
+    }
+    assert observed == {
+        ("agriculture", "livestock_aquaculture"): ("159865.SZ",),
+        ("biotech", "biological_products"): ("512290.SH",),
+        ("consumer", "food_beverage"): ("515170.SH",),
+        ("energy", "coal"): ("515220.SH",),
+        ("financials", "banking"): ("512800.SH",),
+        ("industrials", "machinery"): ("516960.SH",),
+        ("real_estate_construction", "real_estate"): ("512200.SH",),
+        ("semiconductor", "semiconductor_equipment_materials"): ("512480.SH",),
+        ("technology", "computer"): ("515230.SH",),
+    }
+    assert authority["mapping_count"] == 9
 
 
 @pytest.fixture
@@ -85,6 +111,80 @@ def _rehash_relationship_snapshot(snapshot: dict[str, Any]) -> None:
 def _relationship_snapshot(tmp_path: Path) -> tuple[Path, dict[str, Any]]:
     _build_sector_snapshots(tmp_path, date.fromisoformat(AS_OF))
     source_path = tmp_path / "sector_snapshots" / AS_OF / "relationship_mapper.json"
+    released_at = (date.fromisoformat(AS_OF) - timedelta(days=1)).isoformat()
+    evidence = {
+        "evidence_id": "structured-smoke:relationship:1",
+        "evidence_kind": "SYNTHETIC_RELATIONSHIP_RECORD",
+        "source_id": "synthetic_structured_smoke",
+        "source_endpoint": "synthetic_relationship_fixture",
+        "observation_date": released_at,
+        "released_at": released_at,
+        "vintage_at": released_at,
+        "pit_status": "PIT_VERIFIED",
+        "content_hash": _canonical_hash({"fixture": "relationship-source-batch"}),
+    }
+    evidence["evidence_record_hash"] = _canonical_hash(evidence)
+    relationship = {
+        "edge_candidate_id": "structured-smoke-edge-1",
+        "source_entity": "synthetic-holder",
+        "source_entity_type": "HOLDER",
+        "target_entity": "000001.SZ",
+        "target_entity_type": "PIT_ELIGIBLE_SECURITY",
+        "target_sector_id": "sector-energy",
+        "edge_type": "SHAREHOLDING",
+        "activation_trigger": "synthetic smoke trigger",
+        "observation_date": released_at,
+        "released_at": released_at,
+        "vintage_at": released_at,
+        "pit_status": "PIT_VERIFIED",
+        "evidence_ids": [evidence["evidence_id"]],
+    }
+    relationship["relationship_row_hash"] = _canonical_hash(relationship)
+    matched_non_edges = [
+        {
+            "source_entity": "synthetic-holder",
+            "source_entity_type": "HOLDER",
+            "target_entity": "000002.SZ",
+            "target_entity_type": "PIT_ELIGIBLE_SECURITY",
+            "target_sector_id": "sector-energy",
+            "edge_type": "SHAREHOLDING",
+            "materiality_bucket": "MEDIUM",
+        }
+    ]
+    payload = {
+        "schema_version": RELATIONSHIP_SNAPSHOT_SCHEMA_VERSION,
+        "as_of_date": AS_OF,
+        "frozen_holder_domain_hash": _canonical_hash(["synthetic-holder"]),
+        "frozen_security_domain_hash": _canonical_hash(
+            ["000001.SZ", "000002.SZ"]
+        ),
+        "relationships": [relationship],
+        "prediction_opportunity_set": {
+            "candidate_generation_contract_version": "relationship_candidate_generation_v1",
+            "scoring_contract_version": "relationship_graph_validation_20d_v1",
+            "ordered_opportunities": [
+                {
+                    "edge_candidate_id": "structured-smoke-edge-1",
+                    "source_entity": "synthetic-holder",
+                    "source_entity_type": "HOLDER",
+                    "target_entity": "000001.SZ",
+                    "target_entity_type": "PIT_ELIGIBLE_SECURITY",
+                    "target_sector_id": "sector-energy",
+                    "edge_type": "SHAREHOLDING",
+                    "materiality_weight": 1.0,
+                    "materiality_bucket": "MEDIUM",
+                    "matched_non_edge_set_id": "structured-smoke-non-edge-1",
+                    "matched_non_edge_set_hash": _canonical_hash(matched_non_edges),
+                    "matched_non_edges": matched_non_edges,
+                }
+            ],
+        },
+        "evidence_catalog": [evidence],
+        "evidence_catalog_hash": _canonical_hash([evidence]),
+        "fixture_class": "SYNTHETIC_NON_PRODUCTION",
+    }
+    payload["snapshot_hash"] = _canonical_hash(payload)
+    source_path.write_text(json.dumps(payload), encoding="utf-8")
     return source_path, json.loads(source_path.read_text(encoding="utf-8"))
 
 
@@ -582,14 +682,14 @@ def test_relationship_snapshot_rejects_future_or_tampered_evidence(
         validate_relationship_snapshot(tampered_snapshot, AS_OF)
 
 
-def test_relationship_snapshot_rejects_same_day_post_close_vintages(
+def test_relationship_snapshot_accepts_post_close_and_rejects_next_day_vintages(
     tmp_path: Path,
 ) -> None:
     _source_path, payload = _relationship_snapshot(tmp_path)
     late_evidence = copy.deepcopy(payload)
     evidence = late_evidence["evidence_catalog"][0]
-    evidence["released_at"] = f"{AS_OF}T07:00:01Z"
-    evidence["vintage_at"] = f"{AS_OF}T07:00:01Z"
+    evidence["released_at"] = "2026-07-18T00:00:00Z"
+    evidence["vintage_at"] = "2026-07-18T00:00:00Z"
     evidence["evidence_record_hash"] = _canonical_hash(
         {key: value for key, value in evidence.items() if key != "evidence_record_hash"}
     )
@@ -597,13 +697,13 @@ def test_relationship_snapshot_rejects_same_day_post_close_vintages(
         late_evidence["evidence_catalog"]
     )
     _rehash_relationship_snapshot(late_evidence)
-    with pytest.raises(DataVendorUnavailable, match="15:00"):
+    with pytest.raises(DataVendorUnavailable, match="materialization cutoff"):
         validate_relationship_snapshot(late_evidence, AS_OF)
 
     late_fact = copy.deepcopy(payload)
     relationship = late_fact["relationships"][0]
-    relationship["released_at"] = f"{AS_OF}T07:00:01Z"
-    relationship["vintage_at"] = f"{AS_OF}T07:00:01Z"
+    relationship["released_at"] = "2026-07-18T00:00:00Z"
+    relationship["vintage_at"] = "2026-07-18T00:00:00Z"
     relationship["relationship_row_hash"] = _canonical_hash(
         {
             key: value
@@ -612,7 +712,7 @@ def test_relationship_snapshot_rejects_same_day_post_close_vintages(
         }
     )
     _rehash_relationship_snapshot(late_fact)
-    with pytest.raises(DataVendorUnavailable, match="15:00"):
+    with pytest.raises(DataVendorUnavailable, match="materialization cutoff"):
         validate_relationship_snapshot(late_fact, AS_OF)
 
 
@@ -634,7 +734,7 @@ def test_relationship_snapshot_requires_timezone_qualified_timestamps_and_includ
     with pytest.raises(DataVendorUnavailable, match="timezone-qualified"):
         validate_relationship_snapshot(timezone_less, AS_OF)
 
-    for boundary in (f"{AS_OF}T07:00:00Z", f"{AS_OF}T15:00:00+08:00"):
+    for boundary in (f"{AS_OF}T09:00:00Z", f"{AS_OF}T23:59:59.999999+08:00"):
         at_cutoff = copy.deepcopy(payload)
         evidence = at_cutoff["evidence_catalog"][0]
         evidence["released_at"] = boundary
@@ -740,6 +840,11 @@ def test_sector_snapshot_rejects_unvalidated_runtime_fields(
 
 
 def _rehash_source_batch(batch: dict[str, Any]) -> None:
+    pagination_policy = sector_snapshots_module.SOURCE_BATCH_PAGINATION_POLICIES.get(
+        batch.get("endpoint")
+    )
+    if pagination_policy is not None:
+        batch.setdefault("pagination_policy", pagination_policy)
     batch["rows_hash"] = _canonical_hash(batch["rows"])
     body = {
         key: value
@@ -750,6 +855,14 @@ def _rehash_source_batch(batch: dict[str, Any]) -> None:
     batch["source_batch_id"] = "sector-source-batch:" + batch[
         "source_batch_hash"
     ].removeprefix("sha256:")
+
+
+def _rebind_scoped_stock_request(batch: dict[str, Any]) -> None:
+    requested_codes = sorted({str(row["ts_code"]) for row in batch["rows"]})
+    batch["request"] = {"ts_codes": requested_codes}
+    batch["query_count"] = len(requested_codes)
+    batch["completed_query_count"] = len(requested_codes)
+    _rehash_source_batch(batch)
 
 
 def _collector_row(
@@ -806,6 +919,18 @@ def _registered_relationship_source_inputs(
                         "is_new": "Y",
                     }
                 )
+        elif endpoint == "stock_basic":
+            rows.append(
+                _collector_row(endpoint, contract["expected_columns"], "000002.SZ")
+            )
+            for row in rows:
+                row.update(
+                    {
+                        "list_date": "2020-01-01",
+                        "delist_date": None,
+                        "list_status": "L",
+                    }
+                )
         batch = {
             "source_batch_id": "pending",
             "source_id": f"tushare.{endpoint}",
@@ -825,28 +950,28 @@ def _registered_relationship_source_inputs(
             "rows_hash": "pending",
             "source_batch_hash": "pending",
         }
+        if endpoint == "stock_basic":
+            requested_codes = sorted({str(row["ts_code"]) for row in rows})
+            batch["request"] = {"ts_codes": requested_codes}
+            batch["query_count"] = len(requested_codes)
+            batch["completed_query_count"] = len(requested_codes)
         if endpoint == "top10_holders":
             batch["rows"][0]["holder_name"] = "institution-a"
             batch["rows"][0]["hold_ratio"] = 2.5
         _rehash_source_batch(batch)
         batches.append(batch)
-    evidence_batch = next(
-        batch for batch in batches if batch["endpoint"] == "top10_holders"
-    )
-    evidence = snapshot["evidence_catalog"][0]
-    evidence.update(
-        {
-            "evidence_kind": "REGISTERED_RELATIONSHIP_BATCH",
-            "source_id": evidence_batch["source_id"],
-            "source_endpoint": evidence_batch["endpoint"],
-            "observation_date": AS_OF,
-            "released_at": f"{AS_OF}T05:00:00Z",
-            "vintage_at": f"{AS_OF}T06:00:00Z",
-            "content_hash": evidence_batch["source_batch_hash"],
-        }
-    )
-    evidence["evidence_record_hash"] = _canonical_hash(
-        {key: value for key, value in evidence.items() if key != "evidence_record_hash"}
+    snapshot["evidence_catalog"] = sorted(
+        [
+            _compiled_batch_evidence(
+                role="relationship_mapper",
+                as_of_date=AS_OF,
+                batch=batch,
+                kind="REGISTERED_RELATIONSHIP_BATCH",
+            )
+            for batch in batches
+            if batch["endpoint"] in {"stock_basic", "top10_holders"}
+        ],
+        key=lambda evidence: evidence["evidence_id"],
     )
     relationships, opportunities, _derivations, _frozen = (
         _derive_relationship_source_truth(snapshot=snapshot, batches=batches)
@@ -882,6 +1007,93 @@ def _registered_relationship_source_inputs(
     return snapshot, batches
 
 
+def test_registered_relationship_compiler_is_source_derived_and_deterministic(
+    tmp_path: Path,
+) -> None:
+    _source_path, source_snapshot = _relationship_snapshot(tmp_path)
+    _expected, batches = _registered_relationship_source_inputs(source_snapshot)
+
+    first = compile_registered_relationship_snapshot(
+        as_of_date=AS_OF, source_batches=batches
+    )
+    second = compile_registered_relationship_snapshot(
+        as_of_date=AS_OF, source_batches=copy.deepcopy(batches)
+    )
+
+    assert first == second
+    assert first["relationships"]
+    assert first["prediction_opportunity_set"]["ordered_opportunities"]
+    assert {row["source_endpoint"] for row in first["evidence_catalog"]} == {
+        "stock_basic",
+        "top10_holders",
+    }
+    evidence_endpoints = {
+        row["evidence_id"]: row["source_endpoint"]
+        for row in first["evidence_catalog"]
+    }
+    assert all(
+        {evidence_endpoints[evidence_id] for evidence_id in row["evidence_ids"]}
+        == {"stock_basic", "top10_holders"}
+        for row in first["relationships"]
+    )
+
+
+def test_registered_relationship_historical_replay_preserves_real_capture_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _source_path, source_snapshot = _relationship_snapshot(tmp_path)
+    _production, batches = _registered_relationship_source_inputs(source_snapshot)
+    replay_captured_at = "2026-08-11T12:00:00+08:00"
+    for batch in batches:
+        batch["released_at"] = f"{AS_OF}T23:59:59+08:00"
+        batch["vintage_at"] = f"{AS_OF}T23:59:59+08:00"
+        batch["captured_at"] = replay_captured_at
+        _rehash_source_batch(batch)
+
+    with pytest.raises(DataVendorUnavailable, match="cutoff"):
+        compile_registered_relationship_snapshot(
+            as_of_date=AS_OF,
+            source_batches=batches,
+        )
+
+    compiled = compile_registered_relationship_snapshot(
+        as_of_date=AS_OF,
+        source_batches=batches,
+        historical_replay_captured_at=replay_captured_at,
+    )
+    root = tmp_path / "historical-relationship"
+    write_registered_relationship_snapshot(
+        as_of_date=AS_OF,
+        snapshot=compiled,
+        source_batches=batches,
+        historical_replay_captured_at=replay_captured_at,
+        root=root,
+    )
+    receipt_path = root / AS_OF / "relationship_mapper.sources.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["historical_replay_captured_at"] == replay_captured_at
+    assert {batch["captured_at"] for batch in receipt["source_batches"]} == {
+        replay_captured_at
+    }
+    monkeypatch.setenv("MOSAIC_SECTOR_SNAPSHOT_DIR", str(root))
+    monkeypatch.delenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", raising=False)
+    assert json.loads(render_relationship_snapshot(AS_OF, "historical"))[
+        "as_of_date"
+    ] == AS_OF
+
+    receipt["historical_replay_captured_at"] = f"{AS_OF}T23:59:59+08:00"
+    receipt["source_bundle_hash"] = _canonical_hash(
+        {
+            key: value
+            for key, value in receipt.items()
+            if key != "source_bundle_hash"
+        }
+    )
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    with pytest.raises(DataVendorUnavailable, match="lookahead|cutoff"):
+        render_relationship_snapshot(AS_OF, "tampered-replay")
+
+
 def test_registered_relationship_builder_binds_source_receipt_and_rejects_lookahead(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -905,6 +1117,7 @@ def test_registered_relationship_builder_binds_source_receipt_and_rejects_lookah
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     assert set(receipt["required_endpoints"]) == {
         "index_member_all",
+        "stock_basic",
         "top10_holders",
     }
     assert receipt["extractor_contract_version"] == (
@@ -913,6 +1126,14 @@ def test_registered_relationship_builder_binds_source_receipt_and_rejects_lookah
     assert receipt["normalizer_contract_version"] == (
         "relationship_source_normalizer_v1"
     )
+    assert {
+        row["endpoint"]: row.get("pagination_policy")
+        for row in receipt["source_batches"]
+    } == {
+        "index_member_all": "OFFSET_WITH_TERMINAL_CONFIRMATION",
+        "stock_basic": None,
+        "top10_holders": "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP",
+    }
     top10_frozen = next(
         row
         for row in receipt["frozen_source_batches"]
@@ -936,18 +1157,18 @@ def test_registered_relationship_builder_binds_source_receipt_and_rejects_lookah
 
 
 @pytest.mark.parametrize("late_field", ("vintage_at", "captured_at"))
-def test_registered_relationship_rejects_post_close_source_batch(
+def test_registered_relationship_rejects_next_day_source_batch(
     tmp_path: Path,
     late_field: str,
 ) -> None:
     _source_path, source_snapshot = _relationship_snapshot(tmp_path)
     production, batches = _registered_relationship_source_inputs(source_snapshot)
     batch = batches[0]
-    batch[late_field] = f"{AS_OF}T07:00:01Z"
+    batch[late_field] = "2026-07-18T00:00:00Z"
     if late_field == "vintage_at":
-        batch["captured_at"] = f"{AS_OF}T07:00:01Z"
+        batch["captured_at"] = "2026-07-18T00:00:00Z"
     _rehash_source_batch(batch)
-    with pytest.raises(DataVendorUnavailable, match="15:00"):
+    with pytest.raises(DataVendorUnavailable, match="materialization cutoff"):
         write_registered_relationship_snapshot(
             as_of_date=AS_OF,
             snapshot=production,
@@ -978,6 +1199,7 @@ def test_registered_relationship_requires_only_consumed_source_routes(
 ) -> None:
     assert RELATIONSHIP_REQUIRED_SOURCE_ENDPOINTS == {
         "index_member_all",
+        "stock_basic",
         "top10_holders",
     }
     _source_path, source_snapshot = _relationship_snapshot(tmp_path)
@@ -1004,9 +1226,17 @@ def test_registered_relationship_source_targets_must_be_canonical_securities(
     batch["rows"][0]["ts_code"] = "holder-b"
     _rehash_source_batch(batch)
     if endpoint == "top10_holders":
-        production["evidence_catalog"][0]["content_hash"] = batch["source_batch_hash"]
-    with pytest.raises(DataVendorUnavailable, match="canonical A-share security"):
-        _derive_relationship_source_truth(snapshot=production, batches=batches)
+        evidence = next(
+            row
+            for row in production["evidence_catalog"]
+            if row["source_endpoint"] == "top10_holders"
+        )
+        evidence["content_hash"] = batch["source_batch_hash"]
+        with pytest.raises(DataVendorUnavailable, match="source closure is incomplete"):
+            _derive_relationship_source_truth(snapshot=production, batches=batches)
+    else:
+        with pytest.raises(DataVendorUnavailable, match="outside the PIT eligible"):
+            _derive_relationship_source_truth(snapshot=production, batches=batches)
 
 
 def test_registered_relationship_source_holder_must_not_be_a_security(
@@ -1017,7 +1247,11 @@ def test_registered_relationship_source_holder_must_not_be_a_security(
     batch = next(row for row in batches if row["endpoint"] == "top10_holders")
     batch["rows"][0]["holder_name"] = "000005.SH"
     _rehash_source_batch(batch)
-    production["evidence_catalog"][0]["content_hash"] = batch["source_batch_hash"]
+    next(
+        row
+        for row in production["evidence_catalog"]
+        if row["source_endpoint"] == "top10_holders"
+    )["content_hash"] = batch["source_batch_hash"]
     with pytest.raises(DataVendorUnavailable, match="holder, not a security"):
         _derive_relationship_source_truth(snapshot=production, batches=batches)
 
@@ -1032,7 +1266,11 @@ def test_registered_relationship_uses_edge_announcement_timestamp(
     )
     holder_batch["rows"][0]["ann_date"] = f"{AS_OF}T05:30:00Z"
     _rehash_source_batch(holder_batch)
-    evidence = production["evidence_catalog"][0]
+    evidence = next(
+        row
+        for row in production["evidence_catalog"]
+        if row["source_endpoint"] == "top10_holders"
+    )
     evidence["content_hash"] = holder_batch["source_batch_hash"]
     evidence["evidence_record_hash"] = _canonical_hash(
         {key: value for key, value in evidence.items() if key != "evidence_record_hash"}
@@ -1041,12 +1279,69 @@ def test_registered_relationship_uses_edge_announcement_timestamp(
         production["evidence_catalog"]
     )
     _rehash_relationship_snapshot(production)
-    with pytest.raises(DataVendorUnavailable, match="end_date <= ann_date"):
+    with pytest.raises(DataVendorUnavailable, match="source closure is incomplete"):
         write_registered_relationship_snapshot(
             as_of_date=AS_OF,
             snapshot=production,
             source_batches=batches,
             root=tmp_path / "late-edge-publication",
+        )
+
+
+def test_registered_relationship_uses_later_of_record_and_announcement_date(
+    tmp_path: Path,
+) -> None:
+    _source_path, source_snapshot = _relationship_snapshot(tmp_path)
+    _production, batches = _registered_relationship_source_inputs(source_snapshot)
+    holder_batch = next(
+        batch for batch in batches if batch["endpoint"] == "top10_holders"
+    )
+    holder_batch["rows"][0]["ann_date"] = "20260716"
+    _rehash_source_batch(holder_batch)
+
+    compiled = compile_registered_relationship_snapshot(
+        as_of_date=AS_OF,
+        source_batches=batches,
+    )
+
+    assert compiled["relationships"][0]["observation_date"] == AS_OF
+    assert compiled["relationships"][0]["released_at"] == f"{AS_OF}T00:00:00Z"
+
+
+def test_registered_relationship_accepts_rounded_zero_holder_ratio(
+    tmp_path: Path,
+) -> None:
+    _source_path, source_snapshot = _relationship_snapshot(tmp_path)
+    _production, batches = _registered_relationship_source_inputs(source_snapshot)
+    holder_batch = next(
+        batch for batch in batches if batch["endpoint"] == "top10_holders"
+    )
+    holder_batch["rows"][0]["hold_ratio"] = 0.0
+    _rehash_source_batch(holder_batch)
+
+    compiled = compile_registered_relationship_snapshot(
+        as_of_date=AS_OF,
+        source_batches=batches,
+    )
+
+    opportunity = compiled["prediction_opportunity_set"]["ordered_opportunities"][0]
+    assert opportunity["materiality_weight"] == 0.0
+    assert opportunity["materiality_bucket"] == "LOW"
+
+
+def test_registered_relationship_rejects_negative_holder_ratio(tmp_path: Path) -> None:
+    _source_path, source_snapshot = _relationship_snapshot(tmp_path)
+    _production, batches = _registered_relationship_source_inputs(source_snapshot)
+    holder_batch = next(
+        batch for batch in batches if batch["endpoint"] == "top10_holders"
+    )
+    holder_batch["rows"][0]["hold_ratio"] = -0.01
+    _rehash_source_batch(holder_batch)
+
+    with pytest.raises(DataVendorUnavailable, match="finite and non-negative"):
+        compile_registered_relationship_snapshot(
+            as_of_date=AS_OF,
+            source_batches=batches,
         )
 
 
@@ -1070,6 +1365,96 @@ def test_registered_relationship_matched_target_must_be_pit_eligible_same_sector
             source_batches=batches,
             root=tmp_path / "ineligible-control",
         )
+
+
+def test_registered_relationship_keeps_facts_without_eligible_controls(
+    tmp_path: Path,
+) -> None:
+    _source_path, source_snapshot = _relationship_snapshot(tmp_path)
+    _production, batches = _registered_relationship_source_inputs(source_snapshot)
+    membership_batch = next(
+        batch for batch in batches if batch["endpoint"] == "index_member_all"
+    )
+    stock_batch = next(batch for batch in batches if batch["endpoint"] == "stock_basic")
+    holder_batch = next(
+        batch for batch in batches if batch["endpoint"] == "top10_holders"
+    )
+
+    membership_two = copy.deepcopy(membership_batch["rows"][0])
+    membership_two["ts_code"] = "000003.SZ"
+    membership_two["l1_code"] = "sector-technology"
+    membership_three = copy.deepcopy(membership_two)
+    membership_three["ts_code"] = "000004.SZ"
+    membership_batch["rows"].extend((membership_two, membership_three))
+    stock_two = copy.deepcopy(stock_batch["rows"][0])
+    stock_two["ts_code"] = "000003.SZ"
+    stock_three = copy.deepcopy(stock_two)
+    stock_three["ts_code"] = "000004.SZ"
+    stock_batch["rows"].extend((stock_two, stock_three))
+    held_without_control = copy.deepcopy(holder_batch["rows"][0])
+    held_without_control["ts_code"] = "000002.SZ"
+    held_with_control = copy.deepcopy(holder_batch["rows"][0])
+    held_with_control["ts_code"] = "000003.SZ"
+    held_with_control["holder_name"] = "institution-b"
+    holder_batch["rows"].extend((held_without_control, held_with_control))
+    _rebind_scoped_stock_request(stock_batch)
+    for batch in (membership_batch, holder_batch):
+        _rehash_source_batch(batch)
+
+    compiled = compile_registered_relationship_snapshot(
+        as_of_date=AS_OF,
+        source_batches=batches,
+    )
+
+    assert len(compiled["relationships"]) == 3
+    opportunities = compiled["prediction_opportunity_set"]["ordered_opportunities"]
+    assert len(opportunities) == 1
+    assert opportunities[0]["source_entity"] == "institution-b"
+
+
+def test_registered_relationship_bounds_large_factual_and_opportunity_domains(
+    tmp_path: Path,
+) -> None:
+    _source_path, source_snapshot = _relationship_snapshot(tmp_path)
+    _production, batches = _registered_relationship_source_inputs(source_snapshot)
+    membership_batch = next(
+        batch for batch in batches if batch["endpoint"] == "index_member_all"
+    )
+    stock_batch = next(batch for batch in batches if batch["endpoint"] == "stock_basic")
+    holder_batch = next(
+        batch for batch in batches if batch["endpoint"] == "top10_holders"
+    )
+    for index in range(3, RELATIONSHIP_MAX_FACTUAL_EDGES + 12):
+        ts_code = f"{index:06d}.SZ"
+        membership = copy.deepcopy(membership_batch["rows"][0])
+        membership["ts_code"] = ts_code
+        membership_batch["rows"].append(membership)
+        stock = copy.deepcopy(stock_batch["rows"][0])
+        stock["ts_code"] = ts_code
+        stock_batch["rows"].append(stock)
+        holder = copy.deepcopy(holder_batch["rows"][0])
+        holder["ts_code"] = ts_code
+        holder["holder_name"] = f"institution-{index:06d}"
+        holder_batch["rows"].append(holder)
+    _rebind_scoped_stock_request(stock_batch)
+    for batch in (membership_batch, holder_batch):
+        _rehash_source_batch(batch)
+
+    first = compile_registered_relationship_snapshot(
+        as_of_date=AS_OF,
+        source_batches=batches,
+    )
+    second = compile_registered_relationship_snapshot(
+        as_of_date=AS_OF,
+        source_batches=copy.deepcopy(batches),
+    )
+
+    assert first == second
+    assert len(first["relationships"]) == RELATIONSHIP_MAX_FACTUAL_EDGES
+    assert (
+        len(first["prediction_opportunity_set"]["ordered_opportunities"])
+        == RELATIONSHIP_MAX_FACTUAL_EDGES
+    )
 
 
 @pytest.mark.parametrize(
@@ -1162,10 +1547,22 @@ def test_registered_relationship_rejects_rehashed_derived_fact_mutation(
 def _registered_source_inputs(
     source_snapshot: dict[str, Any],
     *,
-    with_etf: bool = False,
+    with_etf: bool = True,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     snapshot = copy.deepcopy(source_snapshot)
     snapshot.pop("fixture_class")
+    for member in snapshot["eligible_security_universe"]:
+        member["l2_code"] = "801081.SI"
+        member["membership_row_hash"] = _canonical_hash(
+            {
+                key: value
+                for key, value in member.items()
+                if key != "membership_row_hash"
+            }
+        )
+    snapshot["membership_hash"] = _canonical_hash(
+        snapshot["eligible_security_universe"]
+    )
     authority = sector_snapshots_module.SECTOR_ETF_DIRECTION_AUTHORITY
     authority_codes = {
         (row["sector_agent_id"], row["direction_id"]): row["etf_ts_codes"]
@@ -1207,35 +1604,35 @@ def _registered_source_inputs(
         for row in SECTOR_UNIVERSE_MANIFEST["membership_query_plans"]
         if row["sector_agent_id"] == ROLE
     )
-    members_by_code: dict[str, list[dict[str, Any]]] = {}
-    for member in snapshot["eligible_security_universe"]:
-        code = next(
-            member[field]
-            for field in ("l1_code", "l2_code", "l3_code")
-            if member[field] is not None
-        )
-        members_by_code.setdefault(code, []).append(member)
-
     batches: list[dict[str, Any]] = []
-    for branch in plan["branches"]:
-        rows = []
-        if branch["is_new"] == "Y":
-            for member in members_by_code.get(branch["classification_code"], []):
-                rows.append(
-                    {
-                        "l1_code": member["l1_code"],
-                        "l1_name": "",
-                        "l2_code": member["l2_code"],
-                        "l2_name": "",
-                        "l3_code": member["l3_code"],
-                        "l3_name": "",
-                        "ts_code": member["ts_code"],
-                        "name": "synthetic registered row",
-                        "in_date": member["in_date"],
-                        "out_date": member["out_date"],
-                        "is_new": "Y",
-                    }
-                )
+    covered_l3_codes = sorted(
+        {
+            branch["classification_code"]
+            for branch in plan["branches"]
+            if branch["parameter"] == "l3_code"
+        }
+    )
+    for is_new in ("Y", "N"):
+        rows = (
+            [
+                {
+                    "l1_code": member["l1_code"],
+                    "l1_name": "",
+                    "l2_code": "801081.SI",
+                    "l2_name": "",
+                    "l3_code": member["l3_code"],
+                    "l3_name": "",
+                    "ts_code": member["ts_code"],
+                    "name": "synthetic registered row",
+                    "in_date": member["in_date"],
+                    "out_date": member["out_date"],
+                    "is_new": "Y",
+                }
+                for member in snapshot["eligible_security_universe"]
+            ]
+            if is_new == "Y"
+            else []
+        )
         batch = {
             "source_batch_id": "pending",
             "source_id": "tushare.index_member_all",
@@ -1245,9 +1642,10 @@ def _registered_source_inputs(
             ],
             "request": {
                 "query_plan_hash": plan["query_plan_hash"],
-                "parameter": branch["parameter"],
-                "classification_code": branch["classification_code"],
-                "is_new": branch["is_new"],
+                "parameter": "l2_code",
+                "classification_code": "801081.SI",
+                "is_new": is_new,
+                "covered_l3_codes": covered_l3_codes,
             },
             "captured_at": f"{AS_OF}T07:00:00Z",
             "released_at": f"{AS_OF}T05:00:00Z",
@@ -1255,6 +1653,9 @@ def _registered_source_inputs(
             "pit_status": "PIT_VERIFIED",
             "pagination_complete": True,
             "truncated": False,
+            "pagination_policy": (
+                sector_snapshots_module.EXACT_SINGLE_PAGE_OFFICIAL_CAP
+            ),
             "query_count": 1,
             "completed_query_count": 1,
             "coverage_ratio": 1.0,
@@ -1339,6 +1740,15 @@ def _registered_source_inputs(
                         "status": "L",
                     }
                 )
+        elif endpoint == "stock_basic":
+            for row in rows:
+                row.update(
+                    {
+                        "list_date": "2020-01-01",
+                        "delist_date": None,
+                        "list_status": "L",
+                    }
+                )
         batch = {
             "source_batch_id": "pending",
             "source_id": f"tushare.{endpoint}",
@@ -1368,6 +1778,11 @@ def _registered_source_inputs(
             "rows_hash": "pending",
             "source_batch_hash": "pending",
         }
+        if endpoint == "stock_basic":
+            requested_codes = sorted(set(ts_codes))
+            batch["request"] = {"ts_codes": requested_codes}
+            batch["query_count"] = len(requested_codes)
+            batch["completed_query_count"] = len(requested_codes)
         _rehash_source_batch(batch)
         batches.append(batch)
 
@@ -1417,7 +1832,28 @@ def _registered_source_inputs(
         snapshot["evidence_catalog"].append(evidence)
         endpoint_evidence_ids[endpoint] = evidence_id
     snapshot["evidence_catalog"].sort(key=lambda row: row["evidence_id"])
+    for member in snapshot["eligible_security_universe"]:
+        member["evidence_ids"] = sorted(
+            set(member["evidence_ids"]) | {endpoint_evidence_ids["stock_basic"]}
+        )
+        member["membership_row_hash"] = _canonical_hash(
+            {
+                key: value
+                for key, value in member.items()
+                if key != "membership_row_hash"
+            }
+        )
+    snapshot["membership_hash"] = _canonical_hash(
+        snapshot["eligible_security_universe"]
+    )
     for card in snapshot["direction_cards"]:
+        card["membership_hash"] = _canonical_hash(
+            [
+                member
+                for member in snapshot["eligible_security_universe"]
+                if member["direction_id"] == card["direction_id"]
+            ]
+        )
         family = card["etf_family"]
         family["evidence_ids"] = [endpoint_evidence_ids["fund_basic"]]
         family["etf_family_hash"] = _canonical_hash(
@@ -1460,6 +1896,9 @@ def _registered_source_inputs(
         for direction_id in snapshot["direction_ids"]
     }
     for card in snapshot["direction_cards"]:
+        card["membership_hash"] = _canonical_hash(
+            members_by_direction[card["direction_id"]]
+        )
         card_refs = set(card["etf_family"]["evidence_ids"])
         card_refs.update(
             evidence_id
@@ -1486,6 +1925,517 @@ def _registered_source_inputs(
     return snapshot, batches
 
 
+def test_registered_sector_compiler_is_source_derived_and_deterministic(
+    snapshot: dict[str, Any],
+) -> None:
+    _expected, batches = _registered_source_inputs(snapshot)
+
+    first = compile_registered_sector_snapshot(
+        role=ROLE, as_of_date=AS_OF, source_batches=batches
+    )
+    second = compile_registered_sector_snapshot(
+        role=ROLE, as_of_date=AS_OF, source_batches=copy.deepcopy(batches)
+    )
+
+    assert first == second
+    assert first["eligible_count"] > 0
+    assert all(row["pit_status"] == "PIT_VERIFIED" for row in first["evidence_catalog"])
+    assert all(card["readiness_status"] == "READY" for card in first["direction_cards"])
+    evidence_endpoints = {
+        row["evidence_id"]: row["source_endpoint"]
+        for row in first["evidence_catalog"]
+    }
+    assert all(
+        "stock_basic"
+        in {evidence_endpoints[evidence_id] for evidence_id in member["evidence_ids"]}
+        for member in first["eligible_security_universe"]
+    )
+
+    direction_ids = [card["direction_id"] for card in snapshot["direction_cards"]]
+    selected_by_direction = {
+        direction_id: next(
+            row
+            for row in snapshot["eligible_security_universe"]
+            if row["direction_id"] == direction_id
+        )
+        for direction_id in direction_ids
+    }
+    ts_codes = sorted(
+        row["ts_code"] for row in selected_by_direction.values()
+    )
+    unmapped_code = "300655.SZ"
+    candidate_ts_codes = sorted((*ts_codes, unmapped_code))
+    assert len(direction_ids) == 4
+    assert len(ts_codes) == len(direction_ids) <= 12
+    assert ts_codes == sorted(set(ts_codes))
+    membership_batches = [
+        batch for batch in batches if batch["endpoint"] == "index_member_all"
+    ]
+    assert len(membership_batches) > 1
+    rows_by_code = {
+        row["ts_code"]: row
+        for batch in membership_batches
+        for row in batch["rows"]
+        if row.get("ts_code") in ts_codes
+    }
+    assert set(rows_by_code) == set(ts_codes)
+    unmapped_row = copy.deepcopy(rows_by_code[ts_codes[0]])
+    unmapped_row.update(
+        {
+            "ts_code": unmapped_code,
+            "l1_code": "801080.SI",
+            "l2_code": "801086.SI",
+            "l3_code": "850861.SI",
+        }
+    )
+    scoped_membership = copy.deepcopy(membership_batches[0])
+    scoped_membership["request"] = {
+        "query_plan_hash": membership_batches[0]["request"]["query_plan_hash"],
+        "scope": "semiconductor_etf_candidates_v1",
+        "etf_ts_code": "512480.SH",
+        "etf_source_hash": _canonical_hash(
+            {
+                "endpoint": "etf_sh_cons",
+                "etf_ts_code": "512480.SH",
+                "trade_date": AS_OF,
+                "ts_codes": candidate_ts_codes,
+            }
+        ),
+        "ts_codes": candidate_ts_codes,
+    }
+    scoped_membership["rows"] = [
+        copy.deepcopy(rows_by_code[ts_code]) for ts_code in ts_codes
+    ] + [unmapped_row]
+    scoped_membership["query_count"] = len(candidate_ts_codes)
+    scoped_membership["completed_query_count"] = len(candidate_ts_codes)
+    scoped_membership["pagination_policy"] = (
+        "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP"
+    )
+    _rehash_source_batch(scoped_membership)
+    scoped_batches = [
+        batch for batch in batches if batch["endpoint"] != "index_member_all"
+    ] + [scoped_membership]
+    stock_basic = next(
+        batch for batch in scoped_batches if batch["endpoint"] == "stock_basic"
+    )
+    stock_basic["rows"].append(copy.deepcopy(stock_basic["rows"][0]) | {
+        "ts_code": unmapped_code,
+    })
+    _rebind_scoped_stock_request(stock_basic)
+    assert len(
+        [batch for batch in scoped_batches if batch["endpoint"] == "index_member_all"]
+    ) == 1
+    assert set(scoped_membership["request"]) == {
+        "query_plan_hash",
+        "scope",
+        "etf_ts_code",
+        "etf_source_hash",
+        "ts_codes",
+    }
+
+    scoped = compile_registered_sector_snapshot(
+        role=ROLE, as_of_date=AS_OF, source_batches=scoped_batches
+    )
+    assert set(scoped["direction_ids"]) == set(direction_ids)
+    assert all(
+        card["readiness_status"] == "READY" for card in scoped["direction_cards"]
+    )
+    assert {
+        row["ts_code"] for row in scoped["eligible_security_universe"]
+    } == set(ts_codes)
+    assert {
+        row["ts_code"] for row in scoped["security_scoring_rows"]
+    } == set(ts_codes)
+
+    missing_candidate = copy.deepcopy(scoped_batches)
+    missing_membership = next(
+        batch
+        for batch in missing_candidate
+        if batch["endpoint"] == "index_member_all"
+    )
+    missing_membership["request"]["ts_codes"] = candidate_ts_codes[:-1]
+    _rehash_source_batch(missing_membership)
+    with pytest.raises(
+        DataVendorUnavailable, match="scoped membership request is invalid"
+    ):
+        compile_registered_sector_snapshot(
+            role=ROLE, as_of_date=AS_OF, source_batches=missing_candidate
+        )
+
+
+def test_registered_sector_historical_replay_preserves_real_capture_time(
+    snapshot: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    _production, batches = _registered_source_inputs(snapshot)
+    replay_captured_at = "2026-08-11T12:00:00+08:00"
+    for batch in batches:
+        batch["released_at"] = f"{AS_OF}T23:59:59+08:00"
+        batch["vintage_at"] = f"{AS_OF}T23:59:59+08:00"
+        batch["captured_at"] = replay_captured_at
+        _rehash_source_batch(batch)
+
+    with pytest.raises(DataVendorUnavailable, match="cutoff"):
+        compile_registered_sector_snapshot(
+            role=ROLE,
+            as_of_date=AS_OF,
+            source_batches=batches,
+        )
+
+    compiled = compile_registered_sector_snapshot(
+        role=ROLE,
+        as_of_date=AS_OF,
+        source_batches=batches,
+        historical_replay_captured_at=replay_captured_at,
+    )
+    root = tmp_path / "historical-sector"
+    write_registered_sector_snapshot(
+        role=ROLE,
+        as_of_date=AS_OF,
+        snapshot=compiled,
+        source_batches=batches,
+        historical_replay_captured_at=replay_captured_at,
+        root=root,
+    )
+    receipt = json.loads(
+        (root / AS_OF / f"{ROLE}.sources.json").read_text(encoding="utf-8")
+    )
+    assert receipt["historical_replay_captured_at"] == replay_captured_at
+    loaded_receipt = sector_snapshots_module._load_and_validate_sector_source_receipt(
+        snapshot=compiled,
+        role=ROLE,
+        as_of_date=AS_OF,
+        root=root,
+    )
+    assert loaded_receipt["source_bundle_hash"] == receipt["source_bundle_hash"]
+
+
+def test_registered_sector_rejects_missing_or_false_pagination_provenance(
+    snapshot: dict[str, Any],
+) -> None:
+    _expected, batches = _registered_source_inputs(snapshot)
+    income = next(batch for batch in batches if batch["endpoint"] == "income")
+    income.pop("pagination_policy")
+    with pytest.raises(DataVendorUnavailable, match="fields mismatch"):
+        compile_registered_sector_snapshot(
+            role=ROLE, as_of_date=AS_OF, source_batches=batches
+        )
+
+    _expected, batches = _registered_source_inputs(snapshot)
+    moneyflow = next(batch for batch in batches if batch["endpoint"] == "moneyflow")
+    moneyflow["pagination_policy"] = "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP"
+    _rehash_source_batch(moneyflow)
+    with pytest.raises(DataVendorUnavailable, match="pagination policy mismatch"):
+        compile_registered_sector_snapshot(
+            role=ROLE, as_of_date=AS_OF, source_batches=batches
+        )
+
+
+def test_registered_sector_compiler_requires_exact_scoped_stock_statuses(
+    snapshot: dict[str, Any],
+) -> None:
+    _expected, batches = _registered_source_inputs(snapshot)
+    stock_basic = next(
+        batch for batch in batches if batch["endpoint"] == "stock_basic"
+    )
+    stock_basic["request"]["ts_codes"] = stock_basic["request"]["ts_codes"][:-1]
+    _rehash_source_batch(stock_basic)
+
+    with pytest.raises(DataVendorUnavailable, match="scoped ticker authority"):
+        compile_registered_sector_snapshot(
+            role=ROLE,
+            as_of_date=AS_OF,
+            source_batches=batches,
+        )
+
+
+def test_registered_sector_compiler_excludes_delisted_membership_rows(
+    snapshot: dict[str, Any],
+) -> None:
+    _expected, batches = _registered_source_inputs(snapshot)
+    baseline = compile_registered_sector_snapshot(
+        role=ROLE, as_of_date=AS_OF, source_batches=copy.deepcopy(batches)
+    )
+    membership = next(
+        batch
+        for batch in batches
+        if batch["endpoint"] == "index_member_all" and batch["rows"]
+    )
+    stale_member = copy.deepcopy(membership["rows"][0])
+    stale_member["ts_code"] = "000099.SZ"
+    membership["rows"].append(stale_member)
+    stock_basic = next(
+        batch for batch in batches if batch["endpoint"] == "stock_basic"
+    )
+    stale_stock = copy.deepcopy(stock_basic["rows"][0])
+    stale_stock.update(
+        {
+            "ts_code": "000099.SZ",
+            "symbol": "000099",
+            "list_date": "2000-01-01",
+            "delist_date": "2020-01-01",
+            "list_status": "D",
+        }
+    )
+    stock_basic["rows"].append(stale_stock)
+    _rehash_source_batch(membership)
+    _rebind_scoped_stock_request(stock_basic)
+
+    compiled = compile_registered_sector_snapshot(
+        role=ROLE, as_of_date=AS_OF, source_batches=batches
+    )
+    assert [
+        (row["direction_id"], row["ts_code"])
+        for row in compiled["eligible_security_universe"]
+    ] == [
+        (row["direction_id"], row["ts_code"])
+        for row in baseline["eligible_security_universe"]
+    ]
+
+
+def test_registered_sector_compiler_accepts_pr3_trade_calendar_summary(
+    snapshot: dict[str, Any],
+) -> None:
+    _expected, batches = _registered_source_inputs(snapshot)
+    calendar = next(batch for batch in batches if batch["endpoint"] == "trade_cal")
+    transport_request = dict(calendar["request"])
+    calendar["request"].update(
+        {
+            "request_count": 1,
+            "requests_hash": _canonical_hash([transport_request]),
+        }
+    )
+    _rehash_source_batch(calendar)
+
+    compiled = compile_registered_sector_snapshot(
+        role=ROLE, as_of_date=AS_OF, source_batches=batches
+    )
+    assert compiled["sector_agent_id"] == ROLE
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "consumed_field"),
+    (("income", "revenue"), ("cashflow", "n_cashflow_act")),
+)
+def test_statement_revision_selection_is_pit_and_projection_bound(
+    endpoint: str, consumed_field: str
+) -> None:
+    base = {
+        "ts_code": "000001.SZ",
+        "end_date": "2026-03-31",
+        "ann_date": "2026-04-30",
+        "f_ann_date": "2026-04-30",
+        "report_type": "1",
+        "comp_type": "1",
+    }
+    original = {**base, "update_flag": "0", consumed_field: 1.0}
+    updated = {**base, "update_flag": "1", consumed_field: 2.0}
+    batches = [{"endpoint": endpoint, "rows": [original, updated]}]
+
+    indexed = sector_snapshots_module._indexed_statement_rows(batches, endpoint)
+    assert indexed["000001.SZ"][0][1][consumed_field] == 2.0
+
+    equivalent = {
+        **updated,
+        "comp_type": "2",
+        "unconsumed_revision_field": "different",
+    }
+    batches[0]["rows"] = [updated, equivalent]
+    collapsed = sector_snapshots_module._indexed_statement_rows(batches, endpoint)
+    assert collapsed["000001.SZ"][0][1][consumed_field] == 2.0
+
+    conflicting = {**equivalent, consumed_field: 3.0}
+    batches[0]["rows"] = [updated, conflicting]
+    with pytest.raises(DataVendorUnavailable, match="ambiguous PIT revisions"):
+        sector_snapshots_module._indexed_statement_rows(batches, endpoint)
+
+    future_revision = {
+        **updated,
+        "f_ann_date": "2026-07-18",
+        consumed_field: 99.0,
+    }
+    future_period = {
+        **updated,
+        "end_date": "2026-09-30",
+        "ann_date": "2026-07-01",
+        "f_ann_date": "2026-07-01",
+        consumed_field: 88.0,
+    }
+    batches[0].update(
+        {
+            "released_at": f"{AS_OF}T05:00:00Z",
+            "rows": [updated, future_revision, future_period],
+        }
+    )
+    pit_indexed = sector_snapshots_module._indexed_statement_rows(
+        batches, endpoint, as_of=date.fromisoformat(AS_OF)
+    )
+    assert [
+        (period.isoformat(), row[consumed_field])
+        for period, row in pit_indexed["000001.SZ"]
+    ] == [("2026-03-31", 2.0)]
+
+
+def test_registered_sector_compiler_rejects_future_statement_revisions(
+    snapshot: dict[str, Any],
+) -> None:
+    _expected, batches = _registered_source_inputs(snapshot)
+    income = next(batch for batch in batches if batch["endpoint"] == "income")
+    future = copy.deepcopy(income["rows"][0])
+    future["ann_date"] = "2026-07-18"
+    future["f_ann_date"] = "2026-07-18"
+    future["revenue"] = float(future["revenue"]) * 100
+    income["rows"].append(future)
+    _rehash_source_batch(income)
+
+    with pytest.raises(DataVendorUnavailable, match="future ann_date"):
+        compile_registered_sector_snapshot(
+            role=ROLE,
+            as_of_date=AS_OF,
+            source_batches=batches,
+        )
+
+
+def test_registered_sector_compiler_rejects_non_finite_required_input(
+    snapshot: dict[str, Any],
+) -> None:
+    _expected, batches = _registered_source_inputs(snapshot)
+    daily = next(batch for batch in batches if batch["endpoint"] == "daily")
+    target_code = snapshot["eligible_security_universe"][0]["ts_code"]
+    target_row = max(
+        (row for row in daily["rows"] if row["ts_code"] == target_code),
+        key=lambda row: row["trade_date"],
+    )
+    target_row["amount"] = None
+    _rehash_source_batch(daily)
+
+    with pytest.raises(DataVendorUnavailable, match="required metric is unavailable"):
+        compile_registered_sector_snapshot(
+            role=ROLE, as_of_date=AS_OF, source_batches=batches
+        )
+
+
+def test_registered_sector_compiler_derives_missing_pe_from_income_and_market_cap(
+    snapshot: dict[str, Any],
+) -> None:
+    _expected, batches = _registered_source_inputs(snapshot)
+    target_code = snapshot["eligible_security_universe"][0]["ts_code"]
+    daily_basic = next(
+        batch for batch in batches if batch["endpoint"] == "daily_basic"
+    )
+    target = next(row for row in daily_basic["rows"] if row["ts_code"] == target_code)
+    target["pe_ttm"] = None
+    target["total_mv"] = 1_000_000.0
+    _rehash_source_batch(daily_basic)
+
+    compiled = compile_registered_sector_snapshot(
+        role=ROLE, as_of_date=AS_OF, source_batches=batches
+    )
+    direction = next(
+        row["direction_id"]
+        for row in compiled["eligible_security_universe"]
+        if row["ts_code"] == target_code
+    )
+    card = next(
+        row for row in compiled["direction_cards"] if row["direction_id"] == direction
+    )
+    metric = next(
+        row for row in card["metrics"] if row["metric_id"] == "EARNINGS_YIELD_TTM"
+    )
+    assert metric["availability_status"] == "AVAILABLE"
+    assert metric["coverage_ratio"] == 1.0
+    evidence_by_id = {
+        row["evidence_id"]: row for row in compiled["evidence_catalog"]
+    }
+    assert {
+        evidence_by_id[evidence_id]["source_endpoint"]
+        for evidence_id in metric["evidence_ids"]
+    } == {"daily_basic", "income", "trade_cal"}
+
+
+def test_registered_sector_drawdown_excludes_insufficient_listing_history(
+    snapshot: dict[str, Any],
+) -> None:
+    production, batches = _registered_source_inputs(snapshot)
+    target_code = snapshot["eligible_security_universe"][0]["ts_code"]
+    stock_basic = next(
+        batch for batch in batches if batch["endpoint"] == "stock_basic"
+    )
+    target = next(row for row in stock_basic["rows"] if row["ts_code"] == target_code)
+    target["list_date"] = AS_OF
+    _rehash_source_batch(stock_basic)
+    production["evidence_catalog"] = sorted(
+        [
+            evidence
+            for evidence in production["evidence_catalog"]
+            if evidence["source_endpoint"] != "stock_basic"
+        ]
+        + [
+            _compiled_batch_evidence(
+                role=ROLE,
+                as_of_date=AS_OF,
+                batch=stock_basic,
+                kind="REGISTERED_METRIC_SOURCE_BATCH",
+            )
+        ],
+        key=lambda evidence: evidence["evidence_id"],
+    )
+
+    observations = _registered_sector_metric_observations(
+        snapshot=production,
+        batches=batches,
+        as_of=date.fromisoformat(AS_OF),
+    )
+    direction = next(
+        row["direction_id"]
+        for row in production["eligible_security_universe"]
+        if row["ts_code"] == target_code
+    )
+    metric = observations[(direction, "CURRENT_DRAWDOWN_252D")]
+    assert metric["availability_status"] == "UNAVAILABLE"
+    assert metric["eligible_count"] == 0
+    assert metric["observed_count"] == 0
+    assert metric["coverage_ratio"] == 0.0
+
+
+def test_registered_sector_fundamental_history_denominator_is_listing_bound(
+    snapshot: dict[str, Any],
+) -> None:
+    production, batches = _registered_source_inputs(snapshot)
+    target_code = production["eligible_security_universe"][0]["ts_code"]
+    direction = production["eligible_security_universe"][0]["direction_id"]
+    stock_basic = next(
+        batch for batch in batches if batch["endpoint"] == "stock_basic"
+    )
+    stock_row = next(
+        row for row in stock_basic["rows"] if row["ts_code"] == target_code
+    )
+    stock_row["list_date"] = AS_OF
+    income = next(batch for batch in batches if batch["endpoint"] == "income")
+    income["rows"] = [
+        row for row in income["rows"] if row["ts_code"] != target_code
+    ]
+    _rebind_changed_source_batch(production, stock_basic)
+    _rebind_changed_source_batch(production, income)
+
+    recent = _registered_sector_metric_observations(
+        snapshot=production,
+        batches=batches,
+        as_of=date.fromisoformat(AS_OF),
+    )[(direction, "REVENUE_GROWTH_TTM_YOY")]
+    assert recent["eligible_count"] == 0
+
+    stock_row["list_date"] = "2020-01-01"
+    _rebind_changed_source_batch(production, stock_basic)
+    established = _registered_sector_metric_observations(
+        snapshot=production,
+        batches=batches,
+        as_of=date.fromisoformat(AS_OF),
+    )[(direction, "REVENUE_GROWTH_TTM_YOY")]
+    assert established["eligible_count"] == 1
+    assert established["availability_status"] == "UNAVAILABLE"
+
+
 def test_registered_sector_builder_is_route_complete_and_atomic(
     snapshot: dict[str, Any], tmp_path: Path
 ) -> None:
@@ -1503,6 +2453,18 @@ def test_registered_sector_builder_is_route_complete_and_atomic(
     receipt_path = root / AS_OF / f"{ROLE}.sources.json"
     before = snapshot_path.read_bytes()
     assert receipt_path.is_file()
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["schema_version"] == "sector_registered_source_receipt_v2"
+    assert {
+        row["endpoint"]: row.get("pagination_policy")
+        for row in receipt["source_batches"]
+        if row["endpoint"]
+        in {"income", "moneyflow", "top10_holders", "fund_basic"}
+    } == {
+        "fund_basic": "OFFSET_WITH_TERMINAL_CONFIRMATION",
+        "income": "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP",
+        "moneyflow": "OFFSET_WITH_TERMINAL_CONFIRMATION",
+    }
 
     changed = copy.deepcopy(production)
     changed["membership_observed_at"] = AS_OF
@@ -1516,6 +2478,61 @@ def test_registered_sector_builder_is_route_complete_and_atomic(
             root=root,
         )
     assert snapshot_path.read_bytes() == before
+
+
+def test_registered_sector_snapshot_rename_failure_is_not_loadable_and_retries(
+    snapshot: dict[str, Any],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    production, batches = _registered_source_inputs(snapshot)
+    root = tmp_path / "rename-failure"
+    snapshot_path = root / AS_OF / f"{ROLE}.json"
+    receipt_path = root / AS_OF / f"{ROLE}.sources.json"
+    real_replace = sector_snapshots_module.os.replace
+
+    def fail_snapshot_replace(source: Path, destination: Path) -> None:
+        if Path(destination) == snapshot_path:
+            raise OSError("injected snapshot rename failure")
+        real_replace(source, destination)
+
+    monkeypatch.setattr(
+        sector_snapshots_module.os,
+        "replace",
+        fail_snapshot_replace,
+    )
+    with pytest.raises(OSError, match="injected snapshot rename failure"):
+        write_registered_sector_snapshot(
+            role=ROLE,
+            as_of_date=AS_OF,
+            snapshot=production,
+            source_batches=batches,
+            root=root,
+        )
+    assert receipt_path.is_file()
+    assert not snapshot_path.exists()
+    with pytest.raises(DataVendorUnavailable, match="no private PIT sector snapshot"):
+        load_sector_snapshot(ROLE, AS_OF, root)
+
+    monkeypatch.setattr(sector_snapshots_module.os, "replace", real_replace)
+    assert (
+        write_registered_sector_snapshot(
+            role=ROLE,
+            as_of_date=AS_OF,
+            snapshot=production,
+            source_batches=batches,
+            root=root,
+        )
+        == production
+    )
+    recovered = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    assert recovered == production
+    sector_snapshots_module._load_and_validate_sector_source_receipt(
+        snapshot=recovered,
+        role=ROLE,
+        as_of_date=AS_OF,
+        root=root,
+    )
 
 
 def test_registered_sector_builder_rejects_omission_route_and_lookahead(
@@ -1709,17 +2726,17 @@ def _rebind_changed_source_batch(
 
 
 @pytest.mark.parametrize("late_field", ("vintage_at", "captured_at"))
-def test_registered_sector_builder_rejects_post_close_source_batch(
+def test_registered_sector_builder_rejects_next_day_source_batch(
     snapshot: dict[str, Any], tmp_path: Path, late_field: str
 ) -> None:
     production, batches = _registered_source_inputs(snapshot)
     batch = next(row for row in batches if row["endpoint"] == "daily")
-    batch[late_field] = f"{AS_OF}T07:00:01Z"
+    batch[late_field] = "2026-07-18T00:00:00Z"
     if late_field == "vintage_at":
-        batch["captured_at"] = f"{AS_OF}T07:00:01Z"
+        batch["captured_at"] = "2026-07-18T00:00:00Z"
     _rehash_source_batch(batch)
 
-    with pytest.raises(DataVendorUnavailable, match="15:00"):
+    with pytest.raises(DataVendorUnavailable, match="materialization cutoff"):
         write_registered_sector_snapshot(
             role=ROLE,
             as_of_date=AS_OF,
@@ -1729,15 +2746,15 @@ def test_registered_sector_builder_rejects_post_close_source_batch(
         )
 
 
-def test_sector_snapshot_rejects_post_close_metric_vintage(
+def test_sector_snapshot_rejects_next_day_metric_vintage(
     snapshot: dict[str, Any],
 ) -> None:
     metric = snapshot["direction_cards"][0]["metrics"][0]
-    metric["released_at"] = f"{AS_OF}T07:00:01Z"
-    metric["vintage_at"] = f"{AS_OF}T07:00:01Z"
+    metric["released_at"] = "2026-07-18T00:00:00Z"
+    metric["vintage_at"] = "2026-07-18T00:00:00Z"
     _rehash_metric(snapshot, 0, 0)
 
-    with pytest.raises(DataVendorUnavailable, match="15:00"):
+    with pytest.raises(DataVendorUnavailable, match="materialization cutoff"):
         validate_sector_snapshot(snapshot, ROLE, AS_OF)
 
 
@@ -1830,6 +2847,63 @@ def test_registered_sector_metrics_use_common_grid_across_suspension(
             source_batches=batches,
             root=tmp_path / "suspended-common-grid",
         )
+
+
+def test_registered_sector_drawdown_carries_only_proven_suspensions(
+    snapshot: dict[str, Any],
+) -> None:
+    production, batches = _registered_source_inputs(snapshot)
+    ts_code = production["eligible_security_universe"][0]["ts_code"]
+    direction_id = production["eligible_security_universe"][0]["direction_id"]
+    daily = next(batch for batch in batches if batch["endpoint"] == "daily")
+    suspend = next(batch for batch in batches if batch["endpoint"] == "suspend_d")
+    grid = sorted(
+        date.fromisoformat(row["trade_date"])
+        for row in daily["rows"]
+        if row["ts_code"] == ts_code
+    )
+    missing_session = grid[-61].isoformat()
+    daily["rows"] = [
+        row
+        for row in daily["rows"]
+        if not (row["ts_code"] == ts_code and row["trade_date"] == missing_session)
+    ]
+    suspension_row = copy.deepcopy(
+        next(row for row in suspend["rows"] if row["ts_code"] == ts_code)
+    )
+    suspension_row["trade_date"] = missing_session
+    suspend["rows"].append(suspension_row)
+    _rebind_changed_source_batch(production, daily)
+    _rebind_changed_source_batch(production, suspend)
+
+    proven = _registered_sector_metric_observations(
+        snapshot=production,
+        batches=batches,
+        as_of=date.fromisoformat(AS_OF),
+    )[(direction_id, "CURRENT_DRAWDOWN_252D")]
+    assert proven["availability_status"] == "AVAILABLE"
+    assert proven["coverage_ratio"] == 1.0
+    proven_return = _registered_sector_metric_observations(
+        snapshot=production,
+        batches=batches,
+        as_of=date.fromisoformat(AS_OF),
+    )[(direction_id, "RELATIVE_TOTAL_RETURN_60D")]
+    assert proven_return["availability_status"] == "AVAILABLE"
+
+    suspend["rows"].remove(suspension_row)
+    _rebind_changed_source_batch(production, suspend)
+    unproven = _registered_sector_metric_observations(
+        snapshot=production,
+        batches=batches,
+        as_of=date.fromisoformat(AS_OF),
+    )[(direction_id, "CURRENT_DRAWDOWN_252D")]
+    assert unproven["availability_status"] == "UNAVAILABLE"
+    unproven_return = _registered_sector_metric_observations(
+        snapshot=production,
+        batches=batches,
+        as_of=date.fromisoformat(AS_OF),
+    )[(direction_id, "RELATIVE_TOTAL_RETURN_60D")]
+    assert unproven_return["availability_status"] == "UNAVAILABLE"
 
 
 def test_registered_sector_fundamentals_require_consecutive_quarters(

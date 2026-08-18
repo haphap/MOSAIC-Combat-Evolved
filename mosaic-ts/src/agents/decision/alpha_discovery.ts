@@ -18,7 +18,11 @@ import { ALPHA_DISCOVERY_FIELD_NAMES, AlphaDiscoverySchema } from "./_schemas.js
 import { renderLayer1Context, renderLayer2Context, renderLayer3Context } from "./_user_context.js";
 import type { AlphaDiscoverySubmission } from "./accepted.js";
 
-const REQUIRED_TOOLS = ["get_alpha_candidate_snapshot", "get_role_event_snapshot"] as const;
+const REQUIRED_TOOLS = [
+  "get_alpha_candidate_snapshot",
+  "get_role_event_snapshot",
+  "get_rke_research_context",
+] as const;
 
 function buildUserContext(
   state: DailyCycleStateType,

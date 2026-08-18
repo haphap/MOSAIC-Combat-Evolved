@@ -1,0 +1,1332 @@
+{
+  "schema_version": "execution_behavior_release_manifest_v4",
+  "execution_behavior_release_id": "execution-behavior-release:d86ae70311013b11bfaad467a9370a2e7c34ecad957104d5004d4593fe114cbd",
+  "execution_behavior_release_hash": "sha256:cc78899bafd0df42a6f0672d5fadf69879bc1f5400d6a82ea091ba8470a2865e",
+  "provider_binding": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-4",
+    "base_url_mode": "PROVIDER_DEFAULT",
+    "structured_output_mode": "JSON_SCHEMA_STRICT",
+    "repair_policy": "BOUNDED_SCHEMA_REPAIR_V1"
+  },
+  "active_production_variants": [
+    {
+      "production_variant_roster_id": "production-variant-roster:c5486fae94a9ae1b2e1bd8db2239ed12b3cfc34678d7ce731b127e4290ce1c85",
+      "cohort_id": "cohort_bull_2007",
+      "language": "en"
+    },
+    {
+      "production_variant_roster_id": "production-variant-roster:7690bbc7031d8798bc07e544f6088755c64f33366d7610276eee8d9747105406",
+      "cohort_id": "cohort_bull_2007",
+      "language": "zh"
+    },
+    {
+      "production_variant_roster_id": "production-variant-roster:97bb9c980a4848cee1851fca759396566e96abe1691d49c8d9319098e754f254",
+      "cohort_id": "cohort_bull_2016",
+      "language": "en"
+    },
+    {
+      "production_variant_roster_id": "production-variant-roster:6741738f7b56f4eab068d72bf5803efa589c034d090e94eda4819e44479b361c",
+      "cohort_id": "cohort_bull_2016",
+      "language": "zh"
+    },
+    {
+      "production_variant_roster_id": "production-variant-roster:4e5061babe5355acfc29088e2bd9d679454ad909f13fd78b55016d1e9f6471c4",
+      "cohort_id": "cohort_crisis_2008",
+      "language": "en"
+    },
+    {
+      "production_variant_roster_id": "production-variant-roster:8e997cba52c5313000c5987cb960a3d70f9d543ac71fbbe1f2fefdc3cfbdc740",
+      "cohort_id": "cohort_crisis_2008",
+      "language": "zh"
+    },
+    {
+      "production_variant_roster_id": "production-variant-roster:80b73e57746f0274ebb401c94f35efa5a78ef216456315cd0761c010bce26b3d",
+      "cohort_id": "cohort_crisis_covid",
+      "language": "en"
+    },
+    {
+      "production_variant_roster_id": "production-variant-roster:d2f160d544a27746ae4e535a70cec838e28edd5ce2b6b063dd0fe655ab63fff0",
+      "cohort_id": "cohort_crisis_covid",
+      "language": "zh"
+    },
+    {
+      "production_variant_roster_id": "production-variant-roster:87e3d1da9cd27395ba29cf2d8bcbce35a881aaeb4ebf17dfee61cd28df269a73",
+      "cohort_id": "cohort_default",
+      "language": "en"
+    },
+    {
+      "production_variant_roster_id": "production-variant-roster:1c434cef74c66651f6ce80e5da469f45c4d0cf0bbba0c6c53950016aaa789363",
+      "cohort_id": "cohort_default",
+      "language": "zh"
+    },
+    {
+      "production_variant_roster_id": "production-variant-roster:def5bda99867a4f09549edb242e131b339d54c26ff2752cedfd33cbdc83e318e",
+      "cohort_id": "cohort_euphoria_2021",
+      "language": "en"
+    },
+    {
+      "production_variant_roster_id": "production-variant-roster:62b6426ad4336ebc094a2cf2283762dfaf52e0608c2504a77e04a226f1e11b38",
+      "cohort_id": "cohort_euphoria_2021",
+      "language": "zh"
+    },
+    {
+      "production_variant_roster_id": "production-variant-roster:42d2e8af548a2155c84a0fa546a9fd8421d15afece37c8e63f17d5f258beb752",
+      "cohort_id": "cohort_rate_tightening",
+      "language": "en"
+    },
+    {
+      "production_variant_roster_id": "production-variant-roster:2164523fac5c04b618aca3cf8c4aed30ebee51caa59180a296bf52a83bf85e6b",
+      "cohort_id": "cohort_rate_tightening",
+      "language": "zh"
+    },
+    {
+      "production_variant_roster_id": "production-variant-roster:3d5025c42fba22e4d884cf814b61120fc0c935f0b7823e5fa1f32fcc9c9ba145",
+      "cohort_id": "cohort_recovery_2020",
+      "language": "en"
+    },
+    {
+      "production_variant_roster_id": "production-variant-roster:9ad0d755ee02696bb653610e3309d8979bb71cb07a78d781bd5f9563972eb086",
+      "cohort_id": "cohort_recovery_2020",
+      "language": "zh"
+    }
+  ],
+  "execution_contracts": [
+    {
+      "execution_contract_id": "execution-contract:3cc1719c647dc88e198e45a233cc5e6ff813dafac2915c19ef03d8246d476eeb",
+      "agent_id": "ackman",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:c1e3c182a627c693f2fa9cf5b837aeec9e8b8ce43920b0ef37688e054e035040",
+      "execution_behavior_version": "execution-behavior:a3738106111a2139073bf42607127f5a4b13f9c52b3b4966f8aa4c0c3eb0b2ee",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "superinvestor.ackman.output.v1",
+          "schema_hash": "sha256:76c8babc344dbe8c90ac617e2de8a51fef93498657e03dc5a251905b25646d26",
+          "immutable_phase_instruction_hash": "sha256:4538b93a0a02e0c934257e2de520adcd17e3de0b6f0274defbeff2815d895fc2"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:8983e6c84ee8648021aa830065a44e02eabc323da1d7d7ce35484fd74a87fbba",
+      "structured_provider_contract_hash": "sha256:a2ae53e3f15fb04ec96bdd64b53ea821c58aedc8cd3f933aeaf3981005ca6c9f",
+      "runtime_tool_manifest_hash": "sha256:c0a2d380bbf11ced00cd803d4590945783c274fb27935cdc1f95728892271687"
+    },
+    {
+      "execution_contract_id": "execution-contract:13c9bae36c4b33adee2c2163f6ad0b230e76d5e68a632acf47df158b4de777c8",
+      "agent_id": "ackman",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:8a68f6ec7f03d0b8704910e9ca8fcc9cd644e37a85e7d2018556bee89f7921a0",
+      "execution_behavior_version": "execution-behavior:3c7fc25a15abcff91f7ba869145f57e4873f4b2d61c73808791b4104b1a856ec",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "superinvestor.ackman.output.v1",
+          "schema_hash": "sha256:76c8babc344dbe8c90ac617e2de8a51fef93498657e03dc5a251905b25646d26",
+          "immutable_phase_instruction_hash": "sha256:6cd3c805f75d404734462013840fd0400a086c656bddad3edbc1e7d02eb8b6e2"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:7314978e568a7bba3e21eb568bfe48ce862cbe6f6ad4fdfdbd9a13a7e194d965",
+      "structured_provider_contract_hash": "sha256:a2ae53e3f15fb04ec96bdd64b53ea821c58aedc8cd3f933aeaf3981005ca6c9f",
+      "runtime_tool_manifest_hash": "sha256:c0a2d380bbf11ced00cd803d4590945783c274fb27935cdc1f95728892271687"
+    },
+    {
+      "execution_contract_id": "execution-contract:7ebfbed831e9685c2f4fb98408f0aa0c600b624a8bb786488cf66345c5c5eb89",
+      "agent_id": "agriculture",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:a2fa08e4511770dcd37a09b88bc0626fa3f4cafdc11892fdbfe709b712096d35",
+      "execution_behavior_version": "execution-behavior:c4cf43beee09b334b4daf20655901252c818e0527320b09229c8ebd1fafd6683",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DIRECTION_RESEARCH",
+          "schema_id": "agriculture.direction_research.v2",
+          "schema_hash": "sha256:25ca6ff5f0779cf2906f7b149bb43227164c83e817ae8ebaa679b65edfc9d467",
+          "immutable_phase_instruction_hash": "sha256:755077c5c43b360924148e7ce2493b566a77fb4ba51b1b80a7f3e01067dcd138"
+        },
+        {
+          "phase": "CONFLICT_REVIEW",
+          "schema_id": "agriculture.conflict_review.v2",
+          "schema_hash": "sha256:47df0c703afe52f39eb1e681354df276477d1062e432b89b305dc0bf7c511d40",
+          "immutable_phase_instruction_hash": "sha256:bde2e462463a5dd11670277294631c68da7e047dd7772c1352115b5047380c68"
+        },
+        {
+          "phase": "FINAL_SELECTION",
+          "schema_id": "agriculture.final_selection.v2",
+          "schema_hash": "sha256:41719b53a28f39d01e8bdfcf101d6cedfe6d50010804dd57efb2a4f05e81129e",
+          "immutable_phase_instruction_hash": "sha256:97ba202eab4c0115c15cf4ce9113b2c224b02f7532f48c8d176efd7ddbdcbb12"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:12bc13f92d3c430b12f2530e28f05c71142f79f9d17e1bf7bebe5977ca2c6f6a",
+      "structured_provider_contract_hash": "sha256:1334579f1c8b73c44e908557581322f2a7d09cb9b7b3d11c9a8f3b7098faf917",
+      "runtime_tool_manifest_hash": "sha256:f4190ebaa0af3f40130c0d6879ba0222f981b7714f78194a113a22ad195d0fd2"
+    },
+    {
+      "execution_contract_id": "execution-contract:fb8849b46f13e4bf457553dca8cf91ffbc2210753c5db2f5cd3d264d596b69f1",
+      "agent_id": "agriculture",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:96aaf1b3e8e0ace53d0f4982b92ef8cbe0555a5e9aafbeec1d3d9485b930c74f",
+      "execution_behavior_version": "execution-behavior:eaf61300d3f75b8409dcfdc9468efceb2fc06d162c780eff8d6c45029f0eecbf",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DIRECTION_RESEARCH",
+          "schema_id": "agriculture.direction_research.v2",
+          "schema_hash": "sha256:25ca6ff5f0779cf2906f7b149bb43227164c83e817ae8ebaa679b65edfc9d467",
+          "immutable_phase_instruction_hash": "sha256:755077c5c43b360924148e7ce2493b566a77fb4ba51b1b80a7f3e01067dcd138"
+        },
+        {
+          "phase": "CONFLICT_REVIEW",
+          "schema_id": "agriculture.conflict_review.v2",
+          "schema_hash": "sha256:47df0c703afe52f39eb1e681354df276477d1062e432b89b305dc0bf7c511d40",
+          "immutable_phase_instruction_hash": "sha256:bde2e462463a5dd11670277294631c68da7e047dd7772c1352115b5047380c68"
+        },
+        {
+          "phase": "FINAL_SELECTION",
+          "schema_id": "agriculture.final_selection.v2",
+          "schema_hash": "sha256:41719b53a28f39d01e8bdfcf101d6cedfe6d50010804dd57efb2a4f05e81129e",
+          "immutable_phase_instruction_hash": "sha256:67bf6f4519dfcec138d80f6f7f4f48b55b28c2b67a92f9a24caa6d90176a61ea"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:ff0d1bcfb479d0f66bcc2490eaecc3364ef72cddf5c72a51bb57a1ddce41bbde",
+      "structured_provider_contract_hash": "sha256:1334579f1c8b73c44e908557581322f2a7d09cb9b7b3d11c9a8f3b7098faf917",
+      "runtime_tool_manifest_hash": "sha256:f4190ebaa0af3f40130c0d6879ba0222f981b7714f78194a113a22ad195d0fd2"
+    },
+    {
+      "execution_contract_id": "execution-contract:6accfd084395142b5eca404adf30681671c5525f3e34a3a602b529d6fa7a4865",
+      "agent_id": "alpha_discovery",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:d707a048a2efb5aeae71186d3aafe0f2051ea7247de41cfde41a70ebf50e577c",
+      "execution_behavior_version": "execution-behavior:1bf85f9654da01580f31a064b0db21b66e788aed95d03ffa8133e91b224674e0",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "decision.alpha_discovery.output.v1",
+          "schema_hash": "sha256:b62392bbbeb3a8aa142cb9e10728bb47f7ffdc70350a50c92d352d74652d10be",
+          "immutable_phase_instruction_hash": "sha256:158b88926b0280c916860dba93849722970520dabc35f2dc0ca768acba95aaa6"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:aeb7ffa653093eb2a8cf66f4f3ed64c9edf590d1dc686a7a6081393e03bfe5f0",
+      "structured_provider_contract_hash": "sha256:7b02f61f6cca90223e00db2b0c3ca1383fd6194c393f2b55266e0c2d4160da2e",
+      "runtime_tool_manifest_hash": "sha256:052d9a04bb8a8bcba79104ce75f1d8ee135815f597352017dffc130067b7237b"
+    },
+    {
+      "execution_contract_id": "execution-contract:d132f818fc399a8448f2223760286085b93998a14842fdfb285ed6814ffa8d0c",
+      "agent_id": "alpha_discovery",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:eef92384a00407ee42a718ee02797fde983929f75662c51cd5406e187a9e7dc7",
+      "execution_behavior_version": "execution-behavior:42bdf6bc795f21274c7b269d8eba8a41533f78530b6e368f3b737823e5d6074d",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "decision.alpha_discovery.output.v1",
+          "schema_hash": "sha256:b62392bbbeb3a8aa142cb9e10728bb47f7ffdc70350a50c92d352d74652d10be",
+          "immutable_phase_instruction_hash": "sha256:2179cdb50c23a9e330b999d9af1c81b2bb60346cf02907174991002f1d5cf53b"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:4ced51e5e704d12c5a5828cc6e13b66e782b02bffb429ee47c525e0c0668701f",
+      "structured_provider_contract_hash": "sha256:7b02f61f6cca90223e00db2b0c3ca1383fd6194c393f2b55266e0c2d4160da2e",
+      "runtime_tool_manifest_hash": "sha256:052d9a04bb8a8bcba79104ce75f1d8ee135815f597352017dffc130067b7237b"
+    },
+    {
+      "execution_contract_id": "execution-contract:0357376df698f6209903e4df97b318d604510956d9a47a82607dd59b55532694",
+      "agent_id": "autonomous_execution",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:2e52b05343f7754f4f869c662b253fceb8b8a29e323add6a253fa09f05a3e895",
+      "execution_behavior_version": "execution-behavior:4e3defc848a5ffec5b373486e74fddbd4f793efe7861cfa03b7cdda030f1bed7",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "decision.autonomous_execution.feasibility.v1",
+          "schema_hash": "sha256:6f538fbc05d015557c471b72e44e701c1ea41f58ba9ef855d44280cc0ec7dbe9",
+          "immutable_phase_instruction_hash": "sha256:af1f023016d3294f97d11b45eb2d51dd65905707a5de2a462b91848ce4cf4017"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:8907d81a922d02aa9efbe7488ecdb1ba6ad9ca6d1baffae4830ffa3bf9e4da48",
+      "structured_provider_contract_hash": "sha256:d3008c19db152c8ff42eee92bf7b35dc1539ac6aba291417e9432b64caaaa97d",
+      "runtime_tool_manifest_hash": "sha256:acc336b1ea9a83946ecfbdf6c4cfe08a26a324aa502c5ccc668c3a35663b1a52"
+    },
+    {
+      "execution_contract_id": "execution-contract:b07bc26e4d3da37bcfc2f1d892f2100ff7fb78dda238041610af003d7a0edcc5",
+      "agent_id": "autonomous_execution",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:75541aa2ea21e59e394eb8da4fb352686dc4a67cef1d020c5b6015b2468efc3e",
+      "execution_behavior_version": "execution-behavior:f55a7351e1e7211a2893a9bd2d3511db12f2ab09d15a806dca4a29a836dff841",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "decision.autonomous_execution.feasibility.v1",
+          "schema_hash": "sha256:6f538fbc05d015557c471b72e44e701c1ea41f58ba9ef855d44280cc0ec7dbe9",
+          "immutable_phase_instruction_hash": "sha256:a60db9f2d5492e3c844ab3f943e8be542a56d565c90e1bea042be690d4b7a33b"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:f1eefb71ae55f1057a7b50739ca8a9a9009e5ab99ec01e454c6505538ec18e4c",
+      "structured_provider_contract_hash": "sha256:d3008c19db152c8ff42eee92bf7b35dc1539ac6aba291417e9432b64caaaa97d",
+      "runtime_tool_manifest_hash": "sha256:acc336b1ea9a83946ecfbdf6c4cfe08a26a324aa502c5ccc668c3a35663b1a52"
+    },
+    {
+      "execution_contract_id": "execution-contract:42a790b561e9cd4f449a453abcabc43dda3bb3f8ec12e80e2da13223e702b34c",
+      "agent_id": "biotech",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:016b3bb19f4f62e76d25d74b8816507f6185a676fa2bb5d0491793d86281ee3b",
+      "execution_behavior_version": "execution-behavior:676e175662da1ffeec654ecb05437240fb5683b58de82c9210839182ab409170",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DIRECTION_RESEARCH",
+          "schema_id": "biotech.direction_research.v2",
+          "schema_hash": "sha256:611e4ffedc1fc4e416937933d19d1541ae6a37b96928504b3f46de393d4c9dec",
+          "immutable_phase_instruction_hash": "sha256:5392155694b42c941b83919c08e62f804e5c199a4412d7d36155aabb5edf218b"
+        },
+        {
+          "phase": "CONFLICT_REVIEW",
+          "schema_id": "biotech.conflict_review.v2",
+          "schema_hash": "sha256:332a62eeb56f363ab8858826ca958d51802c2314805c833b24c876e8a75e2d01",
+          "immutable_phase_instruction_hash": "sha256:3229135ac6341af08661f7ef37f217767635ad7f2d497d6d67c1adf32e12953b"
+        },
+        {
+          "phase": "FINAL_SELECTION",
+          "schema_id": "biotech.final_selection.v2",
+          "schema_hash": "sha256:51ea11fe481d18b903e0c470dd86e45685321d6cd36db8d758ec726bd03f42f2",
+          "immutable_phase_instruction_hash": "sha256:e264f93450942e0654ae40b628e1d2ab2cf109f9aff4abb4aae651133ea3f26d"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:719e0a889ce2f22fc489d8cac0c60bcaba3ff8bca28724fa184c9f290df07c32",
+      "structured_provider_contract_hash": "sha256:1334579f1c8b73c44e908557581322f2a7d09cb9b7b3d11c9a8f3b7098faf917",
+      "runtime_tool_manifest_hash": "sha256:edd23c6622df7b48cb516404f2f71398c10143bf00b2a6a6d0d7e81d2a44ce40"
+    },
+    {
+      "execution_contract_id": "execution-contract:84061f93edd4047735a6df79de754155f676c651e462ff178d3d65cf19b7adc6",
+      "agent_id": "biotech",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:55deaadf3729d42548d7a1b6ba74cf614437c8d7fe00bb1e3241a0c82483edee",
+      "execution_behavior_version": "execution-behavior:9b584170da7099a9dec5430733d857ae45ca271c60a9b4380d3e2f755c6650b8",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DIRECTION_RESEARCH",
+          "schema_id": "biotech.direction_research.v2",
+          "schema_hash": "sha256:611e4ffedc1fc4e416937933d19d1541ae6a37b96928504b3f46de393d4c9dec",
+          "immutable_phase_instruction_hash": "sha256:5392155694b42c941b83919c08e62f804e5c199a4412d7d36155aabb5edf218b"
+        },
+        {
+          "phase": "CONFLICT_REVIEW",
+          "schema_id": "biotech.conflict_review.v2",
+          "schema_hash": "sha256:332a62eeb56f363ab8858826ca958d51802c2314805c833b24c876e8a75e2d01",
+          "immutable_phase_instruction_hash": "sha256:3229135ac6341af08661f7ef37f217767635ad7f2d497d6d67c1adf32e12953b"
+        },
+        {
+          "phase": "FINAL_SELECTION",
+          "schema_id": "biotech.final_selection.v2",
+          "schema_hash": "sha256:51ea11fe481d18b903e0c470dd86e45685321d6cd36db8d758ec726bd03f42f2",
+          "immutable_phase_instruction_hash": "sha256:1a82b0ab74bfaea334efc5a1d712e6ab2528a86f075c0f9d2eda44df36bc86c1"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:b0f52e6df1325a61cc13187ee90fdbc4c36b0374fe35160e2ad40206625c0dff",
+      "structured_provider_contract_hash": "sha256:1334579f1c8b73c44e908557581322f2a7d09cb9b7b3d11c9a8f3b7098faf917",
+      "runtime_tool_manifest_hash": "sha256:edd23c6622df7b48cb516404f2f71398c10143bf00b2a6a6d0d7e81d2a44ce40"
+    },
+    {
+      "execution_contract_id": "execution-contract:b1d57c45950158cfec3e7c3f685a178e5bf9d8c4e33f211c7caf3b96ba450ffe",
+      "agent_id": "burry",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:5dbddf56216facd537805f1dc9e3e6a3c70594995cc36302c7dc837259df42e9",
+      "execution_behavior_version": "execution-behavior:5f2197a18cfc175169513690dc677a9a1393bdee4b3e16d99e9d8828105ff6c9",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "superinvestor.burry.output.v1",
+          "schema_hash": "sha256:4fbebc39af95d8644069a0d9c0b4f15546fedcda80a2c708882b4b83fb557de5",
+          "immutable_phase_instruction_hash": "sha256:de1d9895d40462abc8a9df88402b1974f3bb8c49b7cfdf67e865e6685d32b160"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:2687a9f11fd34c17d2b345abca7925dec4944c4f2039910a47cb316277c368fe",
+      "structured_provider_contract_hash": "sha256:a2ae53e3f15fb04ec96bdd64b53ea821c58aedc8cd3f933aeaf3981005ca6c9f",
+      "runtime_tool_manifest_hash": "sha256:2a860d2903ae881a88a35361b5288657645cdbd36b6cb4ba44a39d9479bdb7f9"
+    },
+    {
+      "execution_contract_id": "execution-contract:16ce6e13e266fa16a66b65e8336e9f9a563313abc04e4448cd1ae411f2f5db08",
+      "agent_id": "burry",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:d29fd4a3df1b9856019024706ed1664612879c3766054689a97955cdbee76bef",
+      "execution_behavior_version": "execution-behavior:80db2540a61dca89691561a8bad1bc31e49d6432e992620d8f024f25267512dd",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "superinvestor.burry.output.v1",
+          "schema_hash": "sha256:4fbebc39af95d8644069a0d9c0b4f15546fedcda80a2c708882b4b83fb557de5",
+          "immutable_phase_instruction_hash": "sha256:88c7ab4f6755d6a7e267376291567b05de724bb554889d1428dc517aa26bddfc"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:2f31d1cf156c0591b14c426c73f140929145b2d33a69b0b9d6c6ba686202f230",
+      "structured_provider_contract_hash": "sha256:a2ae53e3f15fb04ec96bdd64b53ea821c58aedc8cd3f933aeaf3981005ca6c9f",
+      "runtime_tool_manifest_hash": "sha256:2a860d2903ae881a88a35361b5288657645cdbd36b6cb4ba44a39d9479bdb7f9"
+    },
+    {
+      "execution_contract_id": "execution-contract:37cabd3e66822684111eb61c873d9c01270f8130707275c69bc798e944d3219e",
+      "agent_id": "central_bank",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:8fd5e6858fc0492311efe2972950d1c96d8465f9e0fe66ab67b1fd15a881eb25",
+      "execution_behavior_version": "execution-behavior:9c80811fa4f4aa866c6d74cf085eafa152e88d183bf0a8522d3a69b931ccb00c",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "macro.central_bank.output.v1",
+          "schema_hash": "sha256:08ba26df1a9cba489329ecb54d61fc3e06c43da96e9221f7bd2fd43ff528eed6",
+          "immutable_phase_instruction_hash": "sha256:68066af62e6d941f07078ea438cb688faf1441306d3ec332c29d2662aadb0d0b"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:6b8fbb6e3679be3155fbc9a177d9f3979835c8c87fb9e8b4ceb6cff4715f60f0",
+      "structured_provider_contract_hash": "sha256:f7f190c4fef0ebd580d41794748c4d2e3b05542f7afc60a34156f37f7ed9a8b0",
+      "runtime_tool_manifest_hash": "sha256:ca7c6df56e08f2c41a9b376741d69195cc4e7034e9e7da14855df1562e37cbd5"
+    },
+    {
+      "execution_contract_id": "execution-contract:02a72cfba189b54000fd4c6da965a438f96512103b121bdb1a9ca65c0edf2d44",
+      "agent_id": "central_bank",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:99c6314e42b5eb8c29943f1fa700e1338e287314dc837015a63278074a4f189c",
+      "execution_behavior_version": "execution-behavior:464b0239d888cb86aaf1871fe657719ce85b762509f7e8d9c376e8c42ca2c9d7",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "macro.central_bank.output.v1",
+          "schema_hash": "sha256:08ba26df1a9cba489329ecb54d61fc3e06c43da96e9221f7bd2fd43ff528eed6",
+          "immutable_phase_instruction_hash": "sha256:9dc9e8b71bafcbd1d75061ab1759f885a44cd82b51c491da2d02c1c33f6c3edb"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:b8282a0c153c20a4298c4c8032064d9d4ff95ef0814677b1b345f2e201db5388",
+      "structured_provider_contract_hash": "sha256:f7f190c4fef0ebd580d41794748c4d2e3b05542f7afc60a34156f37f7ed9a8b0",
+      "runtime_tool_manifest_hash": "sha256:ca7c6df56e08f2c41a9b376741d69195cc4e7034e9e7da14855df1562e37cbd5"
+    },
+    {
+      "execution_contract_id": "execution-contract:358a85b0f57cc6e40ea173d3a54842b149a87229fb266c1f182026a72f94ead4",
+      "agent_id": "china",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:e7971463741cdba8b38aa0c4f4d1b4fff7e9c8ca815a5e418c6962b046b3550a",
+      "execution_behavior_version": "execution-behavior:28580a9bb053b724a3f896b4c552a3b1a6547837a4e68b0954ec138280cdcf4b",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "macro.china.output.v1",
+          "schema_hash": "sha256:024043ba6eba56db743cc18f0a818f0a858373d02d2a56af20cf8054dab42d9d",
+          "immutable_phase_instruction_hash": "sha256:57171c18ce148f953b16098d2c1179cdb722231b7d4d0aad291bc70e73d951be"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:a4ff70cd475040a2afacc2da582c31ead6620d0e08c9488ce827be14486b4d0f",
+      "structured_provider_contract_hash": "sha256:6211b433f514c084a0b38bdce801d75e95f126966cb89598776c52a29cf4adf6",
+      "runtime_tool_manifest_hash": "sha256:6c96c981eff64cdba6d9477c22ce5303f33143424d890c13fec414787866bf1f"
+    },
+    {
+      "execution_contract_id": "execution-contract:5988b7739b70eeb79d3b25e9e2a0c482d080e5a22a095319a52ced8e5649d0fb",
+      "agent_id": "china",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:773301f96f357c2c3d6913790516f34f3407010114d66310f233000ac084c43a",
+      "execution_behavior_version": "execution-behavior:af60f72a95fb7fdd6f024e0c6b361052f4bfea3fc53cae87d5b0ed6099867214",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "macro.china.output.v1",
+          "schema_hash": "sha256:024043ba6eba56db743cc18f0a818f0a858373d02d2a56af20cf8054dab42d9d",
+          "immutable_phase_instruction_hash": "sha256:e333d9ef6f30740146c8b20e60842b4efaa46aa9acec62e838c2e8e080b710b9"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:e2f974ba7bc71996be26389954adec60a07c446c9dd15fa0d1540b0d8b158157",
+      "structured_provider_contract_hash": "sha256:6211b433f514c084a0b38bdce801d75e95f126966cb89598776c52a29cf4adf6",
+      "runtime_tool_manifest_hash": "sha256:6c96c981eff64cdba6d9477c22ce5303f33143424d890c13fec414787866bf1f"
+    },
+    {
+      "execution_contract_id": "execution-contract:9a036d6298a0cde0bb84d7843fdae8ed48f2cbbddd5a66dc1e77a463744f8a8a",
+      "agent_id": "cio",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:5e6116f8acf58dafda96a5b15bc87d66e9e3bb70c65512b5cad0d0e0318e3dd1",
+      "execution_behavior_version": "execution-behavior:14aabde3303773486286b7ebd2824bfb13371e40f6123a6b0adb5226012d6ab0",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "CIO_PROPOSAL",
+          "schema_id": "decision.cio.proposal.v1",
+          "schema_hash": "sha256:2c8f07806114772e3f08386ca94f86863a63c64c6097c3200682477d30ffc3c0",
+          "immutable_phase_instruction_hash": "sha256:603a7e2d151e276006cfeb922348497ee54b956c311342ff459930276f399d0a"
+        },
+        {
+          "phase": "CIO_FINAL",
+          "schema_id": "decision.cio.final.v1",
+          "schema_hash": "sha256:7aaeb4a06d45267b39fd07dcb6c8db412e5b904bac6cd52e0ccf4148add66c10",
+          "immutable_phase_instruction_hash": "sha256:c8c4775c553596f28aa82a75c0dbf391cddc24d1cb9ff23c2a28037e5e656a22"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:c8fb356c3dfc4f4f324404279727de5de309373e11dd35cdd818765253fbd4f1",
+      "structured_provider_contract_hash": "sha256:e9d63f41cb2d58b8f2f44a7bbfa043e7ee66dd86898e9a2e3db271f7b80d1880",
+      "runtime_tool_manifest_hash": "sha256:921a90bebb44ccc5e891ce8bb13ebec0e43c9523c1c6c156047ae52e23e90351"
+    },
+    {
+      "execution_contract_id": "execution-contract:abc35d0ad3f799d6de08dda26083072ae66d26c5110689f7ee9882faf3a6242a",
+      "agent_id": "cio",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:36dd8cd7f2e7dd483fc0749151d5d7799f001d94e14e9a00bd6916e9a473d21e",
+      "execution_behavior_version": "execution-behavior:20d09ec0a72d5708183c153e9f0a1cefce50ec23194f37ecd3b9cebaf75b619b",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "CIO_PROPOSAL",
+          "schema_id": "decision.cio.proposal.v1",
+          "schema_hash": "sha256:2c8f07806114772e3f08386ca94f86863a63c64c6097c3200682477d30ffc3c0",
+          "immutable_phase_instruction_hash": "sha256:9ecd21b6a21047a5a76ab9e42e634c94a78992c80d78436a57048701330ee2b6"
+        },
+        {
+          "phase": "CIO_FINAL",
+          "schema_id": "decision.cio.final.v1",
+          "schema_hash": "sha256:7aaeb4a06d45267b39fd07dcb6c8db412e5b904bac6cd52e0ccf4148add66c10",
+          "immutable_phase_instruction_hash": "sha256:0ddb25e2a9013e853b7906c7859311290dc22e649efc76d0d06fe9651722da04"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:25ea41a9f139620485e7d05596a9b3d3f7586710460956248ca83877fc015496",
+      "structured_provider_contract_hash": "sha256:e9d63f41cb2d58b8f2f44a7bbfa043e7ee66dd86898e9a2e3db271f7b80d1880",
+      "runtime_tool_manifest_hash": "sha256:921a90bebb44ccc5e891ce8bb13ebec0e43c9523c1c6c156047ae52e23e90351"
+    },
+    {
+      "execution_contract_id": "execution-contract:1058590045ec29ad183f4c0d5f3d8fcb1337c7c22a4ccae0cf67a1bd166d2a56",
+      "agent_id": "commodities",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:8a8616022e1ea4ed8127b3c4ad268d3a010f3cd8c86415df021869b2f38fb349",
+      "execution_behavior_version": "execution-behavior:210fbe1e98ff63ea98be80e7f977fbd8e5fc25325b3d12f4dc5ba4cfe8a730b8",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "macro.commodities.output.v1",
+          "schema_hash": "sha256:4100efae62b665c054b581acdf34879e9b1290fe10815676b845b5ddbf23c38f",
+          "immutable_phase_instruction_hash": "sha256:e9362eefb9222b20887fa4829b93c129a56d36653869e884ca499915aec1a54e"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:e7acb9069a57f3d65a3e7964b3b9fa7f19f00db2c69263b8c41fdc4576d4d1aa",
+      "structured_provider_contract_hash": "sha256:119da2891d9301c8eeceee369cf33ab7782b93ddf5b3af85dd4aa873f444d0f7",
+      "runtime_tool_manifest_hash": "sha256:2ad0c91d95b396cc663161cbf02127e064d939fa76cf7f078fc460a831eddc08"
+    },
+    {
+      "execution_contract_id": "execution-contract:c222e867610a2d01e3440e1cc231198fca4b40bb5f585248d1f89d72f2e7e133",
+      "agent_id": "commodities",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:91fa87112bc0e8d9315d76930e47df0404e446db170fc626b39206c2c6049dea",
+      "execution_behavior_version": "execution-behavior:46538465b819a7ab6bfe4ad99c7971dfc7dfeba6d18ce82a678c11c5df51e0e3",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "macro.commodities.output.v1",
+          "schema_hash": "sha256:4100efae62b665c054b581acdf34879e9b1290fe10815676b845b5ddbf23c38f",
+          "immutable_phase_instruction_hash": "sha256:99bd2947d6e633250fa1ab3b144079506d909cabe19e6d4a02dbe9098c628b43"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:7082bd3f8de067c8dde43786072d5df6f9abbd16866563beb3955961237f1a96",
+      "structured_provider_contract_hash": "sha256:119da2891d9301c8eeceee369cf33ab7782b93ddf5b3af85dd4aa873f444d0f7",
+      "runtime_tool_manifest_hash": "sha256:2ad0c91d95b396cc663161cbf02127e064d939fa76cf7f078fc460a831eddc08"
+    },
+    {
+      "execution_contract_id": "execution-contract:78e02a61148bdcdf290d4e34e19f82b3877a756c140b534e5b803b3101bd3825",
+      "agent_id": "consumer",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:da109726e1b526862e1c3f7e3da48ef28a71f7063479e357aed833b76d025fa7",
+      "execution_behavior_version": "execution-behavior:97bec20f4cb6b2770b9ba6491ec48bc98a089d21b462851a6a9f9ea7b9065b15",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DIRECTION_RESEARCH",
+          "schema_id": "consumer.direction_research.v2",
+          "schema_hash": "sha256:df3a214d298f6d0496f987faab47098d406c9e5764dc5d922e29344326e11458",
+          "immutable_phase_instruction_hash": "sha256:8a393f0a3a1ac8c354d64224b42ab98aa1ba3f0b0440f73b0e8ef95c00eaaa08"
+        },
+        {
+          "phase": "CONFLICT_REVIEW",
+          "schema_id": "consumer.conflict_review.v2",
+          "schema_hash": "sha256:2c6284fb8313ed443c5cd3f57c241053b9a6863637f0e4f155f1a4a5804e9200",
+          "immutable_phase_instruction_hash": "sha256:6d67dc92d08d3a7d8b674bf433f354bbde448ffc597f1f19321989d417349c80"
+        },
+        {
+          "phase": "FINAL_SELECTION",
+          "schema_id": "consumer.final_selection.v2",
+          "schema_hash": "sha256:3948cf4a47f6cc75f51bdfd5f918f479c4a6a3fd6a053190c108b1b621dfa88d",
+          "immutable_phase_instruction_hash": "sha256:e925a1890ce90efae4b8390bc8aceb8061422a2e01db1749c20881320e74006a"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:96ad654abb08b96a37d0bd614df17645aaa26e3273ab88ee59ca5e7b6e497f9a",
+      "structured_provider_contract_hash": "sha256:1334579f1c8b73c44e908557581322f2a7d09cb9b7b3d11c9a8f3b7098faf917",
+      "runtime_tool_manifest_hash": "sha256:63bec4a113093ad956c508c2342657aa296788fa2baf48d83b34aba7940ebcf7"
+    },
+    {
+      "execution_contract_id": "execution-contract:d5a98ab0a38b79ebfeae68234b41b6c8b181188185f93c6bc2b7639290c2b64b",
+      "agent_id": "consumer",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:04f15897ff7af09d054a796dd25546c1154a1da74db9badec8f20dc980c851c4",
+      "execution_behavior_version": "execution-behavior:290522d4a0424bf57b6c1233bf7b83ed1df743905de5b272b09a4e78a2d55686",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DIRECTION_RESEARCH",
+          "schema_id": "consumer.direction_research.v2",
+          "schema_hash": "sha256:df3a214d298f6d0496f987faab47098d406c9e5764dc5d922e29344326e11458",
+          "immutable_phase_instruction_hash": "sha256:8a393f0a3a1ac8c354d64224b42ab98aa1ba3f0b0440f73b0e8ef95c00eaaa08"
+        },
+        {
+          "phase": "CONFLICT_REVIEW",
+          "schema_id": "consumer.conflict_review.v2",
+          "schema_hash": "sha256:2c6284fb8313ed443c5cd3f57c241053b9a6863637f0e4f155f1a4a5804e9200",
+          "immutable_phase_instruction_hash": "sha256:6d67dc92d08d3a7d8b674bf433f354bbde448ffc597f1f19321989d417349c80"
+        },
+        {
+          "phase": "FINAL_SELECTION",
+          "schema_id": "consumer.final_selection.v2",
+          "schema_hash": "sha256:3948cf4a47f6cc75f51bdfd5f918f479c4a6a3fd6a053190c108b1b621dfa88d",
+          "immutable_phase_instruction_hash": "sha256:8df5308f89b130ba54afb2cdb9b7481411bd436c701779d6cb9be66783a1bf8c"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:03708fefafc08bc9469b71da3411196991f3830e840bb78b45b3f017d22918eb",
+      "structured_provider_contract_hash": "sha256:1334579f1c8b73c44e908557581322f2a7d09cb9b7b3d11c9a8f3b7098faf917",
+      "runtime_tool_manifest_hash": "sha256:63bec4a113093ad956c508c2342657aa296788fa2baf48d83b34aba7940ebcf7"
+    },
+    {
+      "execution_contract_id": "execution-contract:f38ae3001affe00ab9bfb6cab96e3d983c7c227eb1cd1fbaab14821b98f05b6e",
+      "agent_id": "cro",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:c175ac52be96f060debb44ae86848f309081f01d4acceca5893907f774681b71",
+      "execution_behavior_version": "execution-behavior:22111a6b388725d701c0b32c3d702c60d33b90d26d664fc4d51202855366591e",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "decision.cro.review.v1",
+          "schema_hash": "sha256:5a7201d41e40f9f9fa71198884268e943fd71cea201c5099de33f97d800064a4",
+          "immutable_phase_instruction_hash": "sha256:89d536d5678aa7ca66694aaabe404b96c3458e0ec76788f0fa06f48726be1027"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:3140028a5d0ea6883523e4111d9d71036418c2f07f2d972082f3173c732c3f71",
+      "structured_provider_contract_hash": "sha256:d3008c19db152c8ff42eee92bf7b35dc1539ac6aba291417e9432b64caaaa97d",
+      "runtime_tool_manifest_hash": "sha256:29ce3fc7d5c96ce410c7b011b75500536dd0e6a8f976aa96e73ba068ef1995d4"
+    },
+    {
+      "execution_contract_id": "execution-contract:efdabd72efe57183de95940f81ecd6f99b5cdaf60059501c7319485528adca51",
+      "agent_id": "cro",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:1c9613fdb5e087e8c00c19e6108f72cb5027d85240ebda89586a7edb0cfdfcd7",
+      "execution_behavior_version": "execution-behavior:0bf75014f55837d9b430f25a97c9d0d5b8040f2bd97d90d8bcf89c5e36c859fe",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "decision.cro.review.v1",
+          "schema_hash": "sha256:5a7201d41e40f9f9fa71198884268e943fd71cea201c5099de33f97d800064a4",
+          "immutable_phase_instruction_hash": "sha256:7bb3c578b590d065339dd80f89cfc03e8f0a6af3c956cacd7930183fbf6bbbe1"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:158a400c9139f36869954fdb6667a70e2e311c4b774d5645f1adf774038fc382",
+      "structured_provider_contract_hash": "sha256:d3008c19db152c8ff42eee92bf7b35dc1539ac6aba291417e9432b64caaaa97d",
+      "runtime_tool_manifest_hash": "sha256:29ce3fc7d5c96ce410c7b011b75500536dd0e6a8f976aa96e73ba068ef1995d4"
+    },
+    {
+      "execution_contract_id": "execution-contract:67a32b5f31257ecc460e224a988d0ed7c7d85ca9656edb3a4d595561a0ba50fe",
+      "agent_id": "druckenmiller",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:2789f579581c230c3bf6a7290a79c5d764121cfd7490e5258cef3e505dfad16e",
+      "execution_behavior_version": "execution-behavior:8ce243b3e2c9e427390fc0fcc61f0e2bfe75e8d8d59a607073168000e6d26b2b",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "superinvestor.druckenmiller.output.v1",
+          "schema_hash": "sha256:5ebb33d5b3a475d895adf6c8be6a2c09cc522ef697821217f30faa00501a757a",
+          "immutable_phase_instruction_hash": "sha256:9e0afe1ea98fdc4f260bd10cda04e04c3b1cacbd868618a73e5083c3a8758e96"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:ea94388d369b8dafeb62dda7ac84ae33eaf9c26c6229fc91995e2d03ff9f0d47",
+      "structured_provider_contract_hash": "sha256:a2ae53e3f15fb04ec96bdd64b53ea821c58aedc8cd3f933aeaf3981005ca6c9f",
+      "runtime_tool_manifest_hash": "sha256:1085a460a3ca429b9e2c4e7fb686f092c59808598a31f6ab574d86e9ae3ca8e5"
+    },
+    {
+      "execution_contract_id": "execution-contract:f66ee34c963cd9a7a518b6db206769afb32012e5530b0ab57f87c3397144637f",
+      "agent_id": "druckenmiller",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:161a0739e7e1dc99e8f3f5b87d34bfaca2dce41949830ddd9e16ebf9f053211e",
+      "execution_behavior_version": "execution-behavior:33ffc24885c0c95744414d5af7acc3adb40e58f755885de972909cc102b1936f",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "superinvestor.druckenmiller.output.v1",
+          "schema_hash": "sha256:5ebb33d5b3a475d895adf6c8be6a2c09cc522ef697821217f30faa00501a757a",
+          "immutable_phase_instruction_hash": "sha256:9043ac288c8e7dc315d5085d3f8395c79a0c53267feb3f534a04b76181487786"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:d7e5ad4fef48e09316d9ead51ca829f959040ea1972c5be35dbd6f9937878582",
+      "structured_provider_contract_hash": "sha256:a2ae53e3f15fb04ec96bdd64b53ea821c58aedc8cd3f933aeaf3981005ca6c9f",
+      "runtime_tool_manifest_hash": "sha256:1085a460a3ca429b9e2c4e7fb686f092c59808598a31f6ab574d86e9ae3ca8e5"
+    },
+    {
+      "execution_contract_id": "execution-contract:1d7c32691251479bed53233c83e31d46938ea5fe00df23778c81ca78fd25b43c",
+      "agent_id": "energy",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:6ffbfa2a09124885275a41e97444f200d33290cd7ecefcb1d5ea4edd627faac6",
+      "execution_behavior_version": "execution-behavior:195f8e749f97802ef5ef89e96879065d65a79e23d55c926869149ef76d18dd52",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DIRECTION_RESEARCH",
+          "schema_id": "energy.direction_research.v2",
+          "schema_hash": "sha256:6883dc27269d453bbfaf417f681e8710d7d382bbd5bd3b1a2178947c50051b0a",
+          "immutable_phase_instruction_hash": "sha256:7730e5481a6fad5e33acb0adebce566ccd4ee1dd28d2a579d0d3421f0a9ec11b"
+        },
+        {
+          "phase": "CONFLICT_REVIEW",
+          "schema_id": "energy.conflict_review.v2",
+          "schema_hash": "sha256:3c6cd671a69bd45621e00696a4029c19db7748f6450ce94a341d01d81cde8ee9",
+          "immutable_phase_instruction_hash": "sha256:5b69a17d36c93d7086c558028bf82f46d57f8c24e78e3878e6ec313472d68e5e"
+        },
+        {
+          "phase": "FINAL_SELECTION",
+          "schema_id": "energy.final_selection.v2",
+          "schema_hash": "sha256:628bbaad05c74249931f48ad202b017116896e90689b6d234abf3eee9c478222",
+          "immutable_phase_instruction_hash": "sha256:f9011be3a6f293f8fb416b7c0e458e89deb99cfdc6d7b4d0c6e183bae2ffb801"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:a4a7cc19593e2d3711be8030a8ef7721127ba3df46ce6540a4ed421f2239ff71",
+      "structured_provider_contract_hash": "sha256:1334579f1c8b73c44e908557581322f2a7d09cb9b7b3d11c9a8f3b7098faf917",
+      "runtime_tool_manifest_hash": "sha256:809778033f156113cad2f60309a6bd92c454c3fcb231e9ac4d66afb8524d38b2"
+    },
+    {
+      "execution_contract_id": "execution-contract:4d1df199631bbbe41fde19968ca81ad75b773cca964e2fa941b42cace5f30122",
+      "agent_id": "energy",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:6d5930dfcb90ca7834ed67d01aa23b672bcd5ed77bf6ca9501394e56f4a91658",
+      "execution_behavior_version": "execution-behavior:164c485c68061e535435237687b76d4f05e66b3a6d22970975274a60dc11c276",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DIRECTION_RESEARCH",
+          "schema_id": "energy.direction_research.v2",
+          "schema_hash": "sha256:6883dc27269d453bbfaf417f681e8710d7d382bbd5bd3b1a2178947c50051b0a",
+          "immutable_phase_instruction_hash": "sha256:7730e5481a6fad5e33acb0adebce566ccd4ee1dd28d2a579d0d3421f0a9ec11b"
+        },
+        {
+          "phase": "CONFLICT_REVIEW",
+          "schema_id": "energy.conflict_review.v2",
+          "schema_hash": "sha256:3c6cd671a69bd45621e00696a4029c19db7748f6450ce94a341d01d81cde8ee9",
+          "immutable_phase_instruction_hash": "sha256:5b69a17d36c93d7086c558028bf82f46d57f8c24e78e3878e6ec313472d68e5e"
+        },
+        {
+          "phase": "FINAL_SELECTION",
+          "schema_id": "energy.final_selection.v2",
+          "schema_hash": "sha256:628bbaad05c74249931f48ad202b017116896e90689b6d234abf3eee9c478222",
+          "immutable_phase_instruction_hash": "sha256:6653d60b64b07c014aa1b8cc155e0f9e42b16828fa12ef7ca7c948d4ee14af8a"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:f76c2f3ae8f6f1318047b328e27e106ff28cb90f5c3ee04e77a199ccf66e85ef",
+      "structured_provider_contract_hash": "sha256:1334579f1c8b73c44e908557581322f2a7d09cb9b7b3d11c9a8f3b7098faf917",
+      "runtime_tool_manifest_hash": "sha256:809778033f156113cad2f60309a6bd92c454c3fcb231e9ac4d66afb8524d38b2"
+    },
+    {
+      "execution_contract_id": "execution-contract:2233de921f515c9f9dcda6c373e7e1fad8be526945a3cfbddafbd1aa554eff39",
+      "agent_id": "eu_economy",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:a5795acb30a6a266185b3d9408a57c33b04f1e30b20ea5deac107db9a7878899",
+      "execution_behavior_version": "execution-behavior:7b7eafb9eae1a7ee675c88cd21a61e70efc1ff1438c47558d7b0bfabcca5cac5",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "macro.eu_economy.output.v1",
+          "schema_hash": "sha256:96b86190603a15dc9b6dfd79c8aad879238f6be94c8f907ba1750191e686b0c5",
+          "immutable_phase_instruction_hash": "sha256:33aa96ef0b968d7b19e1047ab626b0f1ed08ba05b7a94e28113dbebce93ab577"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:a32fa192da0cbb721a80775d0f767c092a1c218c1f37b79ad077ff22c7290dbb",
+      "structured_provider_contract_hash": "sha256:34ee962383513c5389798105cbbb9fecb652d28f908a3b67da7d9c11c809ca56",
+      "runtime_tool_manifest_hash": "sha256:b39dc82ac7c03380dab3905b5b9e9d25a17916570332ed89a42210aa4c06681f"
+    },
+    {
+      "execution_contract_id": "execution-contract:23e09f3c5d8aa9ec020dd6b4f3905bd2bff39ad52af73b762ac8f4ad7120cdeb",
+      "agent_id": "eu_economy",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:627ffb3743fee7b5b5ed3745cd7f1eb1228de19af6f53ecdb8996dafd1016959",
+      "execution_behavior_version": "execution-behavior:d5407e70d9558320821279146431840a5c248fa98cbda31ebacc26ad6603a8a5",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "macro.eu_economy.output.v1",
+          "schema_hash": "sha256:96b86190603a15dc9b6dfd79c8aad879238f6be94c8f907ba1750191e686b0c5",
+          "immutable_phase_instruction_hash": "sha256:067255010678a1700cb78d07751e1f6737e8621e430542c330e76aa0616ff84e"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:d760b62d3e8a96532664ca5461ad6633d00c32bf38d48fa7a6fb4d0a886a795b",
+      "structured_provider_contract_hash": "sha256:34ee962383513c5389798105cbbb9fecb652d28f908a3b67da7d9c11c809ca56",
+      "runtime_tool_manifest_hash": "sha256:b39dc82ac7c03380dab3905b5b9e9d25a17916570332ed89a42210aa4c06681f"
+    },
+    {
+      "execution_contract_id": "execution-contract:0e391dceee6e10432b24c156dc74234fdd5dd400047c86a65f544d521973f742",
+      "agent_id": "euro_area_financial_conditions",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:8da2c31835e4caca0a9f7857c322cfd382c612976b3a6b424d08fdbfe28e6ffa",
+      "execution_behavior_version": "execution-behavior:83eab2ff55873eec6eab2ee2750b2e14522bb438b3836f75edf62afc9407ae91",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "macro.euro_area_financial_conditions.output.v1",
+          "schema_hash": "sha256:813cc88066c1ed7fb9b95d1be6378c744ba87c6d5acdf9fb12a2a3ee4e43510b",
+          "immutable_phase_instruction_hash": "sha256:f4f64d704b4e19bf772719634cccd2096e34d3b7f604c819c536e9378a405aa6"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:5f7584b616c3536ab32f320c459e77e1912701b35b01ddeacd331024f706c0ff",
+      "structured_provider_contract_hash": "sha256:9cc064b7c842f189a5780b8b666adaf730898a8dcb5bd01913cc8c6280cc2aa5",
+      "runtime_tool_manifest_hash": "sha256:beb4504a78415c0d5b4c0e12abef302b5261f6a4a443b796f2fc84160ee016c2"
+    },
+    {
+      "execution_contract_id": "execution-contract:7ebf5e0bd5830d75a85aeeeb6817899db26ce33dae23fb30772a4025205eb17f",
+      "agent_id": "euro_area_financial_conditions",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:a7e956732cd6d579c143ac70a660707897d39e87a9da181140c285aa14c73f1f",
+      "execution_behavior_version": "execution-behavior:7c97bb147a1cb2605bc4af8f423047cdaa3cdf78ef782e89ab6bb09d7112a08d",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "macro.euro_area_financial_conditions.output.v1",
+          "schema_hash": "sha256:813cc88066c1ed7fb9b95d1be6378c744ba87c6d5acdf9fb12a2a3ee4e43510b",
+          "immutable_phase_instruction_hash": "sha256:8e20ab3adc3dea0a893c6a371c8dbdbf60e5ae1e1faba331868b5b6cf9751b0c"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:f0547e667a384986863b6a4ad2fba78fb06941ada34035d9ddafcd673c1b436f",
+      "structured_provider_contract_hash": "sha256:9cc064b7c842f189a5780b8b666adaf730898a8dcb5bd01913cc8c6280cc2aa5",
+      "runtime_tool_manifest_hash": "sha256:beb4504a78415c0d5b4c0e12abef302b5261f6a4a443b796f2fc84160ee016c2"
+    },
+    {
+      "execution_contract_id": "execution-contract:921f3a67f3ff943c9552847de2529b24272ee540bfce26ea864c412514f42e42",
+      "agent_id": "financials",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:18b2cc97aa80ca31fcbbd2da73ec7522961eb20b67cfdd8787461f5ddf666489",
+      "execution_behavior_version": "execution-behavior:9af798800531d08de24ebf4ea0ca4d08abd1e48d0542a4a5d6aad3653d6cf481",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DIRECTION_RESEARCH",
+          "schema_id": "financials.direction_research.v2",
+          "schema_hash": "sha256:2a7e2afe0084ec70b5d26b882f4585e30133753e4e4207b9f52c21bf89a0f8fd",
+          "immutable_phase_instruction_hash": "sha256:6b839183e83bff99de79a57ee88903b9738f8eae8747e53f7366e1ab1b32a890"
+        },
+        {
+          "phase": "CONFLICT_REVIEW",
+          "schema_id": "financials.conflict_review.v2",
+          "schema_hash": "sha256:1a12b0ae4d360497cc2df9fcb371a4426390a09e1836b3e4ec12fdd40b3eaf59",
+          "immutable_phase_instruction_hash": "sha256:aea2dab645784e7af4dcffa1b57abce3320591b99665c61a15e3f62ac5f301c1"
+        },
+        {
+          "phase": "FINAL_SELECTION",
+          "schema_id": "financials.final_selection.v2",
+          "schema_hash": "sha256:30ccfd4b89c81281eb38e78ae0e7885999746427911146788295ee041480062a",
+          "immutable_phase_instruction_hash": "sha256:f5d8858688ab5f4a2c72c759abcc19f2e01d7b0526ce4de54d3fd3f2808b3343"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:ce076728acf55cf53a1de0c2ab529aa0fac888db089a72826659ea5a3de9c18e",
+      "structured_provider_contract_hash": "sha256:1334579f1c8b73c44e908557581322f2a7d09cb9b7b3d11c9a8f3b7098faf917",
+      "runtime_tool_manifest_hash": "sha256:042137aac29bac22213fcbfb72f30ad192a25a03862a47d8c05cd1ae8c04f7c5"
+    },
+    {
+      "execution_contract_id": "execution-contract:1a7bbf7ba770d5f568c84b0978b49d8a02a759d4bf25cd1a1cc18970ff663a82",
+      "agent_id": "financials",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:a23243aab46a40e4170169d62cebf4ef356f8151a90627c9cc9c0120848232a4",
+      "execution_behavior_version": "execution-behavior:cf25cc79e6c946d34f6a3bcb755adfca73ed6a4d09cf7221a9ae1e71a80da3ee",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DIRECTION_RESEARCH",
+          "schema_id": "financials.direction_research.v2",
+          "schema_hash": "sha256:2a7e2afe0084ec70b5d26b882f4585e30133753e4e4207b9f52c21bf89a0f8fd",
+          "immutable_phase_instruction_hash": "sha256:6b839183e83bff99de79a57ee88903b9738f8eae8747e53f7366e1ab1b32a890"
+        },
+        {
+          "phase": "CONFLICT_REVIEW",
+          "schema_id": "financials.conflict_review.v2",
+          "schema_hash": "sha256:1a12b0ae4d360497cc2df9fcb371a4426390a09e1836b3e4ec12fdd40b3eaf59",
+          "immutable_phase_instruction_hash": "sha256:aea2dab645784e7af4dcffa1b57abce3320591b99665c61a15e3f62ac5f301c1"
+        },
+        {
+          "phase": "FINAL_SELECTION",
+          "schema_id": "financials.final_selection.v2",
+          "schema_hash": "sha256:30ccfd4b89c81281eb38e78ae0e7885999746427911146788295ee041480062a",
+          "immutable_phase_instruction_hash": "sha256:928921b3bff358fa997ee9ad1b382441f150ded306acd2c06112d5dd72158bad"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:eab812def4e2c97b2d7eb7c2c0f5c05fbb18f903d1ecc173029cfac508a398e7",
+      "structured_provider_contract_hash": "sha256:1334579f1c8b73c44e908557581322f2a7d09cb9b7b3d11c9a8f3b7098faf917",
+      "runtime_tool_manifest_hash": "sha256:042137aac29bac22213fcbfb72f30ad192a25a03862a47d8c05cd1ae8c04f7c5"
+    },
+    {
+      "execution_contract_id": "execution-contract:f9a8abc52e00fb2100fe8a61ba9c0dd2c5fd9b42063ae8f044907548271e1686",
+      "agent_id": "geopolitical",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:aac9b0a80db92a2e8a455ce7e8601c05e01790ee95c175b6ec86709a12308391",
+      "execution_behavior_version": "execution-behavior:68c1e077a40375e480cda139a17e3fe848ca2091f34af603bdf1183e39e326bd",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "macro.geopolitical.output.v1",
+          "schema_hash": "sha256:96f065cc04194f0d535ab8c8b6baadfc059a51d7c02e3931bd54372ecc72a66d",
+          "immutable_phase_instruction_hash": "sha256:7aa887758859cbbba389515443104724b9f5f1057000ebcfba7414bbd88cf1bb"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:4d147d01ab60d9cc3bc1b7f117bf873ca4fed188dc30705dfab69149dbca8035",
+      "structured_provider_contract_hash": "sha256:b79f39370e80ac424d68ba256bd6226eadce258f86e3b805b320a116c0fd73b2",
+      "runtime_tool_manifest_hash": "sha256:ca825c2ac27dcf8c4f00a97c946cb7e8b33fcd962849d1cf6b583ddfb4a14ace"
+    },
+    {
+      "execution_contract_id": "execution-contract:3dd669283dc0f320fdf97c659c0f02dbb4d620a8acd5f8f6a0afe47c8b7d360a",
+      "agent_id": "geopolitical",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:598c3b7061a4e6661b32d785a1de92a677365f55971cc22fce00c1366873f8a0",
+      "execution_behavior_version": "execution-behavior:b135179d920cce4aa3a6e6b22d4f12c1480c9e7e4ba310e2a930d0fbf5090afc",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "macro.geopolitical.output.v1",
+          "schema_hash": "sha256:96f065cc04194f0d535ab8c8b6baadfc059a51d7c02e3931bd54372ecc72a66d",
+          "immutable_phase_instruction_hash": "sha256:c1cbcc9a69aa4ceb2ee326c7dc01556108001477458baf47ba5e8e44de2469c8"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:c163c4f2ac68e399bd5869bd3bc714cecc1d3b1a32dbeed118774d4635fbe6d7",
+      "structured_provider_contract_hash": "sha256:b79f39370e80ac424d68ba256bd6226eadce258f86e3b805b320a116c0fd73b2",
+      "runtime_tool_manifest_hash": "sha256:ca825c2ac27dcf8c4f00a97c946cb7e8b33fcd962849d1cf6b583ddfb4a14ace"
+    },
+    {
+      "execution_contract_id": "execution-contract:df735c7d4a23b5f279ba1fc5c2bbea5e055015ee4b0aa6beea306ba640be3329",
+      "agent_id": "industrials",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:0e7a36e4456044aee24fc7cdecd632bb11717329531c0ae7baed59cc84a616ef",
+      "execution_behavior_version": "execution-behavior:c371fcb1deb13da3f699151213cce1ec584e9412489da4cd64356f1eec66a112",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DIRECTION_RESEARCH",
+          "schema_id": "industrials.direction_research.v2",
+          "schema_hash": "sha256:64eb289ad50ab8c1885414ddd775663323b95d5eb1475a78a016d7330af177de",
+          "immutable_phase_instruction_hash": "sha256:eae7d659597a99ccc7b7616adacdded635e5f65b64b526390e28b0ac4d988d5f"
+        },
+        {
+          "phase": "CONFLICT_REVIEW",
+          "schema_id": "industrials.conflict_review.v2",
+          "schema_hash": "sha256:5f18786c597604c1eeea3a3070ff925a13225f86e97935ce92288cd510a1920f",
+          "immutable_phase_instruction_hash": "sha256:c8f2bac5e7edcac32cb8e46e6a84c6e8592485f59e271a7866f59d6c52b11158"
+        },
+        {
+          "phase": "FINAL_SELECTION",
+          "schema_id": "industrials.final_selection.v2",
+          "schema_hash": "sha256:a4dfe83c84b1c3ce14f64f3870b606dd333d53a5d76642f885269c49a05ff54f",
+          "immutable_phase_instruction_hash": "sha256:238bbec7ccce32f0f627df64a462448f289131fbaf3f3e360349a0abe40527ff"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:fa7d7bd04e18e7f338ad74da2cd4d9cf962c063e534f0805618c61592c6a0c4c",
+      "structured_provider_contract_hash": "sha256:1334579f1c8b73c44e908557581322f2a7d09cb9b7b3d11c9a8f3b7098faf917",
+      "runtime_tool_manifest_hash": "sha256:db686dfecf050d5fc3125e67ff5a14bfdc5eacf023ba17c9cd2c9f85fa04fa06"
+    },
+    {
+      "execution_contract_id": "execution-contract:a8244cf38fd80543bbd9aef33eda5549a7fa1b435871839de1fe7728e4bd27b4",
+      "agent_id": "industrials",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:2d52fbd61cfe9a096f60542a5c48efaa997d0ae44d24155bb764497847f6f293",
+      "execution_behavior_version": "execution-behavior:473164f2b9cdbfed6c8399ced426f758553fc0160b7138b284f5b5a6f7cbdfd2",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DIRECTION_RESEARCH",
+          "schema_id": "industrials.direction_research.v2",
+          "schema_hash": "sha256:64eb289ad50ab8c1885414ddd775663323b95d5eb1475a78a016d7330af177de",
+          "immutable_phase_instruction_hash": "sha256:eae7d659597a99ccc7b7616adacdded635e5f65b64b526390e28b0ac4d988d5f"
+        },
+        {
+          "phase": "CONFLICT_REVIEW",
+          "schema_id": "industrials.conflict_review.v2",
+          "schema_hash": "sha256:5f18786c597604c1eeea3a3070ff925a13225f86e97935ce92288cd510a1920f",
+          "immutable_phase_instruction_hash": "sha256:c8f2bac5e7edcac32cb8e46e6a84c6e8592485f59e271a7866f59d6c52b11158"
+        },
+        {
+          "phase": "FINAL_SELECTION",
+          "schema_id": "industrials.final_selection.v2",
+          "schema_hash": "sha256:a4dfe83c84b1c3ce14f64f3870b606dd333d53a5d76642f885269c49a05ff54f",
+          "immutable_phase_instruction_hash": "sha256:8b1d332505d7abd5300c3bb85587bc24d8d1fabad89a5f52ffe50c9ad6234e51"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:a6294d203b972b33e58e023da5774fd58eff72847e84e82c2654a91899981431",
+      "structured_provider_contract_hash": "sha256:1334579f1c8b73c44e908557581322f2a7d09cb9b7b3d11c9a8f3b7098faf917",
+      "runtime_tool_manifest_hash": "sha256:db686dfecf050d5fc3125e67ff5a14bfdc5eacf023ba17c9cd2c9f85fa04fa06"
+    },
+    {
+      "execution_contract_id": "execution-contract:c777aef06399b522b4dbb35fc2f30cce112db2bafe43cc9c8553513d90847cf0",
+      "agent_id": "institutional_flow",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:932d025a94367e307f9b99d10f2f16cf2c2e7dd4b7b0fd2f8ef460af58511303",
+      "execution_behavior_version": "execution-behavior:dec172f4d38a89176c19b1f9087ad3612a117afdc7a48712750ce06d19f81d33",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "macro.institutional_flow.output.v1",
+          "schema_hash": "sha256:96f065cc04194f0d535ab8c8b6baadfc059a51d7c02e3931bd54372ecc72a66d",
+          "immutable_phase_instruction_hash": "sha256:5c9e15c55ed7cdc0d63e1ac11241f5175c7dd4004bbd0a1ac5f6c973996fbd4b"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:36d3accafd3deddd2bec6603b54547f5ce4083579b6edb9d8b72e0e2f18ef019",
+      "structured_provider_contract_hash": "sha256:b79f39370e80ac424d68ba256bd6226eadce258f86e3b805b320a116c0fd73b2",
+      "runtime_tool_manifest_hash": "sha256:d544d706d69bd13000f5c54248c9af51d068c4cd79bf93a068ed467b37eca602"
+    },
+    {
+      "execution_contract_id": "execution-contract:15da72111a7abd9a5a8a69168406e4af1abed933e8ce3376927098e43fc3a449",
+      "agent_id": "institutional_flow",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:f31a3fe6b1568da8364fa62e4387911a4ed8b4701271266934b7e76f0eb0e020",
+      "execution_behavior_version": "execution-behavior:2821df138af8804cf1a26c77b25abbcaaf6d23fe75382da2a1e3a1cb48b37015",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "macro.institutional_flow.output.v1",
+          "schema_hash": "sha256:96f065cc04194f0d535ab8c8b6baadfc059a51d7c02e3931bd54372ecc72a66d",
+          "immutable_phase_instruction_hash": "sha256:ef5ebeaf5cb9d152ea0db42250b073f2422ed238ec3731b2fdd9a84693ea45e1"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:9f49582a8a9e0c7bf80a310dd1871e033a6920956f917250cbc8761866da0b56",
+      "structured_provider_contract_hash": "sha256:b79f39370e80ac424d68ba256bd6226eadce258f86e3b805b320a116c0fd73b2",
+      "runtime_tool_manifest_hash": "sha256:d544d706d69bd13000f5c54248c9af51d068c4cd79bf93a068ed467b37eca602"
+    },
+    {
+      "execution_contract_id": "execution-contract:44064bbf8e75762df4a5b0fa2f85589256d365de05d6275d9cbf56c0b007269e",
+      "agent_id": "market_breadth",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:72e826274e8661d05705e8cb479472241aa4cbb4dfc171592b10833456946c81",
+      "execution_behavior_version": "execution-behavior:2294046413eaa45bcae650dd4f2d2c3891c9e18fce2ded614ed6ff1663e4a3bc",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "macro.market_breadth.output.v1",
+          "schema_hash": "sha256:96f065cc04194f0d535ab8c8b6baadfc059a51d7c02e3931bd54372ecc72a66d",
+          "immutable_phase_instruction_hash": "sha256:bcc72476f4a3228f91078daa3d24980f941450b47f87cff6a288f50cfea651fc"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:a9a63442d874c38966ee2dca3e4051703e36951253522b4ed97b37c716dd97b0",
+      "structured_provider_contract_hash": "sha256:b79f39370e80ac424d68ba256bd6226eadce258f86e3b805b320a116c0fd73b2",
+      "runtime_tool_manifest_hash": "sha256:7684ab7087af7796af5e7dc267af33c4ba90f002a174588d4256192f5221b402"
+    },
+    {
+      "execution_contract_id": "execution-contract:839663522e6b35e497b9948b8d8b7af1d0d2bd21bfe7f734add3c5664b18ef84",
+      "agent_id": "market_breadth",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:5aa33ce5d81607be44c4cf338ed7ad6b9baf16f2f84f8bd13c4746862cd026fb",
+      "execution_behavior_version": "execution-behavior:3deb001b3dba9ed67ea2bee194d93fdcd3d5de2b5eb7f23df0b47fde91808a2c",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "macro.market_breadth.output.v1",
+          "schema_hash": "sha256:96f065cc04194f0d535ab8c8b6baadfc059a51d7c02e3931bd54372ecc72a66d",
+          "immutable_phase_instruction_hash": "sha256:5cdef12ee30da3edf22261511a8b7a81d5e10514a0f2d9b75bc23dfa101e862a"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:22c31f6f7a9ff5857d7b7a7aee808d8d486a5a058e14b7c8c00e20ea3fb7d994",
+      "structured_provider_contract_hash": "sha256:b79f39370e80ac424d68ba256bd6226eadce258f86e3b805b320a116c0fd73b2",
+      "runtime_tool_manifest_hash": "sha256:7684ab7087af7796af5e7dc267af33c4ba90f002a174588d4256192f5221b402"
+    },
+    {
+      "execution_contract_id": "execution-contract:ddf116e3252422eb21bc8ada65d04aca6a8961c6cfe01d10f5e7d27ac10376f0",
+      "agent_id": "munger",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:7a8768a7c7bd41de4c88ff4098f779810fd4768a879ed0483ab07a67c8405e58",
+      "execution_behavior_version": "execution-behavior:128e84c00bcbd4074aba976e99ab65fdfccc5003c1a197d3a28b751f52bf9a99",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "superinvestor.munger.output.v1",
+          "schema_hash": "sha256:1afcc2db056533f9ddea7936a6bbf41cf9925b049d9e764f3b6f577d93498fc7",
+          "immutable_phase_instruction_hash": "sha256:32636c1fa80ce6838bb87c7475b8d9384fb2be49d1fb4bca34167bc0e83fc8c3"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:3a0bdf35f879027a060f5428ff8dc3fb36cd89057801b7e719456b0d347023a1",
+      "structured_provider_contract_hash": "sha256:a2ae53e3f15fb04ec96bdd64b53ea821c58aedc8cd3f933aeaf3981005ca6c9f",
+      "runtime_tool_manifest_hash": "sha256:b92dee64f93ed9adb11d5c92865ee772551da503270a2be57779e74b78ec7f94"
+    },
+    {
+      "execution_contract_id": "execution-contract:0fbdd88a45b148ac1eafe6e74d8e57973a0c81d9aa0931f51993cc4f1febf5d0",
+      "agent_id": "munger",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:129d55c84cc85a3a65ae62367be71c412ee9fde932347cd9f2c987366d0d8c48",
+      "execution_behavior_version": "execution-behavior:1d80e14124c151971e685812ebbe453ef251e76a2c9e63dc618d52c23f66845f",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "superinvestor.munger.output.v1",
+          "schema_hash": "sha256:1afcc2db056533f9ddea7936a6bbf41cf9925b049d9e764f3b6f577d93498fc7",
+          "immutable_phase_instruction_hash": "sha256:832cc4fc25aeaa681560ffc866d2fbf2683f73fe3dea261fc915f87d8a8e801e"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:7b838c62446566597d84cc30aa7bedf311503a9ab7cb8ecc2c62fba56261fdae",
+      "structured_provider_contract_hash": "sha256:a2ae53e3f15fb04ec96bdd64b53ea821c58aedc8cd3f933aeaf3981005ca6c9f",
+      "runtime_tool_manifest_hash": "sha256:b92dee64f93ed9adb11d5c92865ee772551da503270a2be57779e74b78ec7f94"
+    },
+    {
+      "execution_contract_id": "execution-contract:13582e9cf4a2c5c023c623d4965c3829faa31a308c757448191881eb727ed693",
+      "agent_id": "real_estate_construction",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:83b33ae949d57a6de8c98f6bebc4f491a2cbf14fbac8fe713e78a00275811e1f",
+      "execution_behavior_version": "execution-behavior:d326e9dd6713e9ec2ecd7f151125af554e8ad42d17d5cd4e2b73cb6ee7f7c2b6",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DIRECTION_RESEARCH",
+          "schema_id": "real_estate_construction.direction_research.v2",
+          "schema_hash": "sha256:5a29366c0c3daae4ccc278fb10e90b13bb1e13d5bc2d9f6f2c2f6645bd3e2ef5",
+          "immutable_phase_instruction_hash": "sha256:1079fd31c4ae097930b806d10a185d24d4c8b8669de0fc0a919b8b9cc0cc6eaf"
+        },
+        {
+          "phase": "CONFLICT_REVIEW",
+          "schema_id": "real_estate_construction.conflict_review.v2",
+          "schema_hash": "sha256:1bd8bffad1dbfc46cdee0cfcf00f40bd85be8fd896a2fadb84d83ae0d2188014",
+          "immutable_phase_instruction_hash": "sha256:93107eb84315c815fb7aaee5e95bd8930c280325609bb52036c1a297fafc7935"
+        },
+        {
+          "phase": "FINAL_SELECTION",
+          "schema_id": "real_estate_construction.final_selection.v2",
+          "schema_hash": "sha256:0143aaaf3c2c6fc2d2f9e06458c1b1eb5c8facdd19d5518771b9c9a372b3ab72",
+          "immutable_phase_instruction_hash": "sha256:3dda9a9efdba9199ea5c1c983a50863df54e1a2fd668c06059195e7ed76ffdb4"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:ae0295b52823ddb4439c39abbd1dd134b9907a0ed28faf41ca9ffdd73145a7da",
+      "structured_provider_contract_hash": "sha256:1334579f1c8b73c44e908557581322f2a7d09cb9b7b3d11c9a8f3b7098faf917",
+      "runtime_tool_manifest_hash": "sha256:31173a6838ec9a738e54e0f203a0fb8dad018abebf06f874e82cb2854a0928d1"
+    },
+    {
+      "execution_contract_id": "execution-contract:b9d8e8688cca43ed4b5e1def5c9bbb7820f971345f294fb032f7444c1fb74c73",
+      "agent_id": "real_estate_construction",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:15e0aaeb42408be90bdddd72f6773c665a3f5cc300b26a4e1f2d87bd7fa56dfa",
+      "execution_behavior_version": "execution-behavior:47813526c4bbe218e4496b5e20e1a447e775f16bd7b99e8f77b39423c3e01130",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DIRECTION_RESEARCH",
+          "schema_id": "real_estate_construction.direction_research.v2",
+          "schema_hash": "sha256:5a29366c0c3daae4ccc278fb10e90b13bb1e13d5bc2d9f6f2c2f6645bd3e2ef5",
+          "immutable_phase_instruction_hash": "sha256:1079fd31c4ae097930b806d10a185d24d4c8b8669de0fc0a919b8b9cc0cc6eaf"
+        },
+        {
+          "phase": "CONFLICT_REVIEW",
+          "schema_id": "real_estate_construction.conflict_review.v2",
+          "schema_hash": "sha256:1bd8bffad1dbfc46cdee0cfcf00f40bd85be8fd896a2fadb84d83ae0d2188014",
+          "immutable_phase_instruction_hash": "sha256:93107eb84315c815fb7aaee5e95bd8930c280325609bb52036c1a297fafc7935"
+        },
+        {
+          "phase": "FINAL_SELECTION",
+          "schema_id": "real_estate_construction.final_selection.v2",
+          "schema_hash": "sha256:0143aaaf3c2c6fc2d2f9e06458c1b1eb5c8facdd19d5518771b9c9a372b3ab72",
+          "immutable_phase_instruction_hash": "sha256:66c36114c7bd59a6102a6edecd127cd68685eb265a02d45544a2cf001bbd4a81"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:72d9138fea4eb3714276b46a0283d57dffbd83f497d5deb9ffd72cd9c1c4730f",
+      "structured_provider_contract_hash": "sha256:1334579f1c8b73c44e908557581322f2a7d09cb9b7b3d11c9a8f3b7098faf917",
+      "runtime_tool_manifest_hash": "sha256:31173a6838ec9a738e54e0f203a0fb8dad018abebf06f874e82cb2854a0928d1"
+    },
+    {
+      "execution_contract_id": "execution-contract:7e97817a543946231cbe1fab2a6dc055d3c603ddff3254d1ba8d876c2fbd9ae6",
+      "agent_id": "relationship_mapper",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:531e7e45e58a441e1146c9925cb378cadb041bfd4421115fbcf520128eaa05a2",
+      "execution_behavior_version": "execution-behavior:c3eeb80244e3ba3bcde43dc73558b3864736ea37316ab614872e3194f3462262",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "sector.relationship_mapper.output.v1",
+          "schema_hash": "sha256:acfe4311ed5575910558459c99b10cc6a118980353f8cdafb2d387569e3802d7",
+          "immutable_phase_instruction_hash": "sha256:3a33d142b06365d22d2bdbe6de16c2144b0387db030ff9c63958b4e59b851870"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:f61ad495ed047c362f40625c10f0ba492bd3ff5781c0e7ff55c981a1b31222cf",
+      "structured_provider_contract_hash": "sha256:38ede7c54767ab3150bf4a9035ee2c01c36f0e1f21b6dd17fa988d8cda3a214c",
+      "runtime_tool_manifest_hash": "sha256:ecff12c2f9dfe36fa9fcf9917e44fe7f6ec064f1545b6e45bb94b3d2a0b9ef0a"
+    },
+    {
+      "execution_contract_id": "execution-contract:8cee0dbf4c14acd1f9b0fe20fd13fb1df38cca83747e9b04400765e63f1d47ac",
+      "agent_id": "relationship_mapper",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:d662371c7dfdddfda8118ea2f8458dfe68ef9c193e811fed3e13f747ed7c5d26",
+      "execution_behavior_version": "execution-behavior:5596c76fb4479bde64baded5d02ddb9625e6dbe55bbdb44d79146b8792939960",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "sector.relationship_mapper.output.v1",
+          "schema_hash": "sha256:acfe4311ed5575910558459c99b10cc6a118980353f8cdafb2d387569e3802d7",
+          "immutable_phase_instruction_hash": "sha256:1f90c6fea40075dbece510fde2a426be533e9a837815151aa414f833cbb1aea4"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:7a2482db5b3e14d07d441048da84138eca9865e4986387e96e37be9ba6398932",
+      "structured_provider_contract_hash": "sha256:38ede7c54767ab3150bf4a9035ee2c01c36f0e1f21b6dd17fa988d8cda3a214c",
+      "runtime_tool_manifest_hash": "sha256:ecff12c2f9dfe36fa9fcf9917e44fe7f6ec064f1545b6e45bb94b3d2a0b9ef0a"
+    },
+    {
+      "execution_contract_id": "execution-contract:26435222baa0fbc77f0f165f738b77e3875a393527619f4ee0bec5a5c9da9d45",
+      "agent_id": "semiconductor",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:19f1c7b8e832f740a379ac9203c094ee96bb61ed55a8df37d5ab632c79ea5f1b",
+      "execution_behavior_version": "execution-behavior:de6128f9e59caafe0404ec0104e71a2398048fafc24aef954def34e10983576f",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DIRECTION_RESEARCH",
+          "schema_id": "semiconductor.direction_research.v2",
+          "schema_hash": "sha256:6e2ee9711e4be6059f013802fab6d463bba7adb584e151be7c092049f98fe84b",
+          "immutable_phase_instruction_hash": "sha256:b3ae2e182bc41ce88ab0df2b71a1cf15cd124a94ebf676bd2943ce87ac36b024"
+        },
+        {
+          "phase": "CONFLICT_REVIEW",
+          "schema_id": "semiconductor.conflict_review.v2",
+          "schema_hash": "sha256:99c68c9d13a9924afcdc923bf6a92f2baa91e2653ac433407c74525c9aba2188",
+          "immutable_phase_instruction_hash": "sha256:ca5859181ca521b82166550fe394234335d1d81bb9d91dc5ac1e421b2bce73b6"
+        },
+        {
+          "phase": "FINAL_SELECTION",
+          "schema_id": "semiconductor.final_selection.v2",
+          "schema_hash": "sha256:d94ee2e7a1a81af03b113d9e8476d86a13edd93eb7a39bcffb3ed135a5a88e40",
+          "immutable_phase_instruction_hash": "sha256:9e1d697b888d4cf039ef1a334d4232512c7a22c49fb0caa4785d11cde5a293ae"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:2fd92336ee25dafc078576952337e70c181509a0870b218a115c403bb3e00dd9",
+      "structured_provider_contract_hash": "sha256:1334579f1c8b73c44e908557581322f2a7d09cb9b7b3d11c9a8f3b7098faf917",
+      "runtime_tool_manifest_hash": "sha256:7b9f1cd28f219cffb1a53582976e27f5920c6ccb8bda49506cc1f4301d4f09b3"
+    },
+    {
+      "execution_contract_id": "execution-contract:772b9e4154444038ef8784151c938df8579d4edabf99223b900e0072b40a935b",
+      "agent_id": "semiconductor",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:99a207567cb17efdb75d92983195fc82467a110fe8ab545c3179b53c3fbf053b",
+      "execution_behavior_version": "execution-behavior:7b05072bfa206576ec6894811ec62b7d275d878e225b8cdc5c198266d27023ee",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DIRECTION_RESEARCH",
+          "schema_id": "semiconductor.direction_research.v2",
+          "schema_hash": "sha256:6e2ee9711e4be6059f013802fab6d463bba7adb584e151be7c092049f98fe84b",
+          "immutable_phase_instruction_hash": "sha256:b3ae2e182bc41ce88ab0df2b71a1cf15cd124a94ebf676bd2943ce87ac36b024"
+        },
+        {
+          "phase": "CONFLICT_REVIEW",
+          "schema_id": "semiconductor.conflict_review.v2",
+          "schema_hash": "sha256:99c68c9d13a9924afcdc923bf6a92f2baa91e2653ac433407c74525c9aba2188",
+          "immutable_phase_instruction_hash": "sha256:ca5859181ca521b82166550fe394234335d1d81bb9d91dc5ac1e421b2bce73b6"
+        },
+        {
+          "phase": "FINAL_SELECTION",
+          "schema_id": "semiconductor.final_selection.v2",
+          "schema_hash": "sha256:d94ee2e7a1a81af03b113d9e8476d86a13edd93eb7a39bcffb3ed135a5a88e40",
+          "immutable_phase_instruction_hash": "sha256:4bf7989cc5e3f79c484a331d78f0946baebf90431525c785694604b679de7221"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:d6c0e5a1018b34c0a6f40ca15ff0d422814854f20112ea9c0242093d99b669d6",
+      "structured_provider_contract_hash": "sha256:1334579f1c8b73c44e908557581322f2a7d09cb9b7b3d11c9a8f3b7098faf917",
+      "runtime_tool_manifest_hash": "sha256:7b9f1cd28f219cffb1a53582976e27f5920c6ccb8bda49506cc1f4301d4f09b3"
+    },
+    {
+      "execution_contract_id": "execution-contract:3ceffad4e4595a83c3eaf9484156d6c4ba342d7b2abe7925ba1acb99fdd48f73",
+      "agent_id": "technology",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:072c4c93dc633e2589be84b3470e315398e2edf3b5605002b3c6aa8a956b3c83",
+      "execution_behavior_version": "execution-behavior:72e6d9eb235b966c634ca7f397e190c94fa39efa38df450a28e65192595b5b12",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DIRECTION_RESEARCH",
+          "schema_id": "technology.direction_research.v2",
+          "schema_hash": "sha256:68628f023ed021fa23c33ea874a7653fde059438ed25d4d0d2da179cd2ddc1d7",
+          "immutable_phase_instruction_hash": "sha256:9d27e53620f025473e00f91660a52ccc47e45870a8a035507b9e0723b45d5531"
+        },
+        {
+          "phase": "CONFLICT_REVIEW",
+          "schema_id": "technology.conflict_review.v2",
+          "schema_hash": "sha256:729bb2e51f2ee20f2552f484658fb4dd8287017e0d3077ea7bcbf84b4075e73d",
+          "immutable_phase_instruction_hash": "sha256:9faa16c3a45b51590424d4e4ef8c3038bdfb1c81c079b94adf82145f0258ee00"
+        },
+        {
+          "phase": "FINAL_SELECTION",
+          "schema_id": "technology.final_selection.v2",
+          "schema_hash": "sha256:229c003b2694aeaf02174c60cf11b4a6a97d88c42de8745e33916a203b6a54f8",
+          "immutable_phase_instruction_hash": "sha256:c31a14100277df3b44b0344a68719a984ee34efe401899d91ec442c4fb424feb"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:7f06cfaed2d333ecd4b08bab5cff9f26dcf45937712ba79a14e22c7e2c20e2ec",
+      "structured_provider_contract_hash": "sha256:1334579f1c8b73c44e908557581322f2a7d09cb9b7b3d11c9a8f3b7098faf917",
+      "runtime_tool_manifest_hash": "sha256:cea14001d077bd6714bb21ec3a2cd9119539fdd1626d959c635b653d8b2eb7fc"
+    },
+    {
+      "execution_contract_id": "execution-contract:ea320ef383619b10774c8d991e3e97446802b529cb14a2295fc257c26dbef282",
+      "agent_id": "technology",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:573cf81cd7c10fd53e0bd5822b8f69227a18d2d24944a98e3c3f415c603992f1",
+      "execution_behavior_version": "execution-behavior:c118854e49b8bac179e131439ecac7dc2db66d555a7999be340271ae3c61e70e",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DIRECTION_RESEARCH",
+          "schema_id": "technology.direction_research.v2",
+          "schema_hash": "sha256:68628f023ed021fa23c33ea874a7653fde059438ed25d4d0d2da179cd2ddc1d7",
+          "immutable_phase_instruction_hash": "sha256:9d27e53620f025473e00f91660a52ccc47e45870a8a035507b9e0723b45d5531"
+        },
+        {
+          "phase": "CONFLICT_REVIEW",
+          "schema_id": "technology.conflict_review.v2",
+          "schema_hash": "sha256:729bb2e51f2ee20f2552f484658fb4dd8287017e0d3077ea7bcbf84b4075e73d",
+          "immutable_phase_instruction_hash": "sha256:9faa16c3a45b51590424d4e4ef8c3038bdfb1c81c079b94adf82145f0258ee00"
+        },
+        {
+          "phase": "FINAL_SELECTION",
+          "schema_id": "technology.final_selection.v2",
+          "schema_hash": "sha256:229c003b2694aeaf02174c60cf11b4a6a97d88c42de8745e33916a203b6a54f8",
+          "immutable_phase_instruction_hash": "sha256:cf8c0bca6db959d7b8eddc478436af1e5df440607f6d727ec571fa192ef41020"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:c11483c12aef661b65311aa7138329bae3d56a3e1d0f643b34b7de588b12bcd6",
+      "structured_provider_contract_hash": "sha256:1334579f1c8b73c44e908557581322f2a7d09cb9b7b3d11c9a8f3b7098faf917",
+      "runtime_tool_manifest_hash": "sha256:cea14001d077bd6714bb21ec3a2cd9119539fdd1626d959c635b653d8b2eb7fc"
+    },
+    {
+      "execution_contract_id": "execution-contract:28d641debd16077f3284e05cfbc6a1d9773a2fecbd44c50bfc50b8cec03f66c2",
+      "agent_id": "us_economy",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:191b032c4747bf050c47e8734b1aae211c01f4afe10ce161301357d9fc3dccd7",
+      "execution_behavior_version": "execution-behavior:5fbcab057e191b32bece07111471f4b5cdc6051c30c745aff1685506fd334ff7",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "macro.us_economy.output.v1",
+          "schema_hash": "sha256:96b86190603a15dc9b6dfd79c8aad879238f6be94c8f907ba1750191e686b0c5",
+          "immutable_phase_instruction_hash": "sha256:8f0bcc4bd8140b0e04c0826e8aefcf96e3a28b4515f1a583c83ed089ff99a2cb"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:f71e9d4d32fcbfbea47943753ee76287b36a3ea8c863e6f7a2e08e8cafe4aabf",
+      "structured_provider_contract_hash": "sha256:34ee962383513c5389798105cbbb9fecb652d28f908a3b67da7d9c11c809ca56",
+      "runtime_tool_manifest_hash": "sha256:df5312dd3a8b936502849a10cd736d07460ece060063838bc6b45173fd86cb57"
+    },
+    {
+      "execution_contract_id": "execution-contract:52721ae98764292c85e7fa6a39a8b4bd62b3bbbcae02346feec6b2886bef3a9e",
+      "agent_id": "us_economy",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:c6cb406996abc54237b76ba65c0b64591c9ecd121c17c369112d367e9e3cbe6d",
+      "execution_behavior_version": "execution-behavior:c590c9fe9b2d739fd84622ff7b33d611b46db0dc0227ed9af26a85259be89c72",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "macro.us_economy.output.v1",
+          "schema_hash": "sha256:96b86190603a15dc9b6dfd79c8aad879238f6be94c8f907ba1750191e686b0c5",
+          "immutable_phase_instruction_hash": "sha256:d3763303f83f5e0bd90420ebaad285d6a98424fe85480d7c52bf9bc21b7b4fcc"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:914357f7ee868891d4c4e4a7513337b6eef7734d263e979e1be01edfcdfb13bd",
+      "structured_provider_contract_hash": "sha256:34ee962383513c5389798105cbbb9fecb652d28f908a3b67da7d9c11c809ca56",
+      "runtime_tool_manifest_hash": "sha256:df5312dd3a8b936502849a10cd736d07460ece060063838bc6b45173fd86cb57"
+    },
+    {
+      "execution_contract_id": "execution-contract:e46ccb08e430bb25e1925dbf6e0708e3d8662aca93ec0f3572e0048fb2930dee",
+      "agent_id": "us_financial_conditions",
+      "language": "en",
+      "immutable_contract_block_hash": "sha256:3c75950e66033166797237573e61c7cc170533617a50f3e3f59957210a295664",
+      "execution_behavior_version": "execution-behavior:336207747e624f66ff9a2f0e6a0f087f864242c887b2efe663c321462be5589f",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "macro.us_financial_conditions.output.v1",
+          "schema_hash": "sha256:e840d43fa962e34c698991fbb6fcf8bbe9f661d5076dd9cd5b53013adfa37173",
+          "immutable_phase_instruction_hash": "sha256:93296e53ec6ce54fcd90edc371ea269d2a88856ab1143c66f21056d474e19754"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:17cf519717887e9a00339cbd1d2b19f8e901c29767c72e98077847525046d403",
+      "structured_provider_contract_hash": "sha256:2ae51543f80293ed75fd4326341f27856396f35e2ad54c6288a86cb65a21dac5",
+      "runtime_tool_manifest_hash": "sha256:6a9b526c2ca8b78fc42b3c6b3eece5c0336efca94a3db7f9552c456e856fb358"
+    },
+    {
+      "execution_contract_id": "execution-contract:4b1cf26e18735d4a9f70fba15022d0fbe345a9a39b23feaad806c0edf893a252",
+      "agent_id": "us_financial_conditions",
+      "language": "zh",
+      "immutable_contract_block_hash": "sha256:86013270bddd755fbf4b87d1729781d3cd10d41cd9c998700e0d8d7509d714b9",
+      "execution_behavior_version": "execution-behavior:7ba5be41a46302449cbe5556ee2e2b666bf0e15ddde48d17d9c5018ce7862815",
+      "structured_output_schema_bindings": [
+        {
+          "phase": "DEFAULT",
+          "schema_id": "macro.us_financial_conditions.output.v1",
+          "schema_hash": "sha256:e840d43fa962e34c698991fbb6fcf8bbe9f661d5076dd9cd5b53013adfa37173",
+          "immutable_phase_instruction_hash": "sha256:f896c41798d780c662563b5cb9d6dc9a9c77b349c57a945b023708f6a6e1d9c1"
+        }
+      ],
+      "structured_output_schema_set_hash": "sha256:bdbf4de9c643bea15abc188c37d35c6d05d1871699392ad2644144598ff35a8c",
+      "structured_provider_contract_hash": "sha256:2ae51543f80293ed75fd4326341f27856396f35e2ad54c6288a86cb65a21dac5",
+      "runtime_tool_manifest_hash": "sha256:6a9b526c2ca8b78fc42b3c6b3eece5c0336efca94a3db7f9552c456e856fb358"
+    }
+  ]
+}

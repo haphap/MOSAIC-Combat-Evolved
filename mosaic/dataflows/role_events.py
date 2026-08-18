@@ -29,9 +29,9 @@ ROLE_EVENT_CURRENCIES: Final[dict[str, tuple[str, ...]]] = {
     "us_financial_conditions": ("USD", "CNY"),
     "euro_area_financial_conditions": ("EUR",),
     "commodities": ("USD", "CNY", "EUR"),
-    "geopolitical": ("CNY", "USD", "EUR"),
     "semiconductor": ("CNY", "USD", "EUR"),
     "technology": ("CNY", "USD", "EUR"),
+    "biotech": ("CNY", "USD", "EUR"),
     "energy": ("CNY", "USD", "EUR"),
     "consumer": ("CNY", "USD", "EUR"),
     "industrials": ("CNY", "USD", "EUR"),
@@ -46,6 +46,7 @@ ROLE_EVENT_CURRENCIES: Final[dict[str, tuple[str, ...]]] = {
 _SECTOR_KEYWORDS: Final[dict[str, tuple[str, ...]]] = {
     "semiconductor": ("半导体", "芯片", "semiconductor", "chip"),
     "technology": ("软件", "通信", "电子", "计算机", "software", "telecom"),
+    "biotech": ("医药", "医疗", "生物", "中药", "pharma", "biotech"),
     "energy": ("原油", "天然气", "库存", "光伏", "风电", "电池", "oil", "gas", "energy"),
     "consumer": ("零售", "消费", "汽车", "收入", "retail", "consumer", "vehicle"),
     "industrials": ("工业", "制造", "pmi", "manufacturing", "production"),
@@ -132,8 +133,6 @@ def _projection_policy(
         if consumer == macro_owner:
             return consumer, "PRIMARY", "MACRO_FACTOR", "SIGNAL"
         return macro_owner, "CONTEXT_ONLY", "MACRO_FACTOR", "TRANSMISSION"
-    if consumer == "geopolitical":
-        return macro_owner, "CONTEXT_ONLY", "MACRO_FACTOR", "TRANSMISSION"
     if consumer in _SECTOR_KEYWORDS:
         text = str(event.get("normalized_event") or "")
         if any(keyword in text for keyword in _SECTOR_KEYWORDS[consumer]):
@@ -152,14 +151,30 @@ def build_role_event_snapshot(
     as_of_date: str,
     *,
     store: EconomicCalendarStore | None = None,
+    historical_replay_captured_at: str | None = None,
 ) -> dict[str, Any]:
     currencies = ROLE_EVENT_CURRENCIES.get(consumer_agent)
     if currencies is None:
         raise DataVendorUnavailable(f"role-event access is denied for {consumer_agent}")
     as_of = _as_of_timestamp(as_of_date)
+    coverage_as_of = as_of
+    if historical_replay_captured_at is not None:
+        try:
+            captured_at = datetime.fromisoformat(
+                historical_replay_captured_at.replace("Z", "+00:00")
+            )
+        except (AttributeError, ValueError) as exc:
+            raise DataVendorUnavailable(
+                "historical replay capture must be an ISO-8601 timestamp"
+            ) from exc
+        if captured_at.tzinfo is None or captured_at <= datetime.fromisoformat(as_of):
+            raise DataVendorUnavailable(
+                "historical replay capture must follow the historical decision cutoff"
+            )
+        coverage_as_of = captured_at.isoformat()
     source = store or EconomicCalendarStore()
     coverage = source.coverage_as_of(
-        as_of=as_of,
+        as_of=coverage_as_of,
         occurrence_date=as_of_date,
         currencies=currencies,
     )
@@ -228,7 +243,7 @@ def build_role_event_snapshot(
         "coverage_state": coverage_state,
         "event_presence_state": presence,
         "coverage_completeness": completeness,
-        "coverage_as_of": as_of,
+        "coverage_as_of": coverage_as_of,
         "query_complete": coverage["query_complete"],
         "required_route_ids": coverage["required_route_ids"],
         "healthy_route_ids": coverage["healthy_route_ids"],
@@ -250,8 +265,17 @@ def build_role_event_snapshot(
     return {**with_id, "role_event_snapshot_hash": _canonical_hash(with_id)}
 
 
-def render_role_event_snapshot(consumer_agent: str, as_of_date: str) -> str:
-    snapshot = build_role_event_snapshot(consumer_agent, as_of_date)
+def render_role_event_snapshot(
+    consumer_agent: str,
+    as_of_date: str,
+    *,
+    historical_replay_captured_at: str | None = None,
+) -> str:
+    snapshot = build_role_event_snapshot(
+        consumer_agent,
+        as_of_date,
+        historical_replay_captured_at=historical_replay_captured_at,
+    )
     if snapshot["coverage"]["coverage_completeness"] != "COMPLETE":
         raise DataVendorUnavailable(
             f"role-event required routes are incomplete for {consumer_agent}/{as_of_date}"

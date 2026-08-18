@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 from ..protocol import INTERNAL_ERROR, INVALID_PARAMS, RpcError
 from ..registry import method
+from mosaic.bridge.tool_capabilities import get_capability_store
 from mosaic.scorecard.prompt_optimizer_store import PromptOptimizerStore
 
 
@@ -41,6 +42,25 @@ def _id(params: dict[str, Any], key: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise RpcError(INVALID_PARAMS, f"'{key}' must be a non-empty string")
     return value.strip()
+
+
+def _string_map(params: dict[str, Any], key: str) -> dict[str, str]:
+    value = params.get(key)
+    if (
+        not isinstance(value, dict)
+        or any(
+            not isinstance(item_key, str)
+            or not item_key.strip()
+            or not isinstance(item_value, str)
+            or not item_value.strip()
+            for item_key, item_value in value.items()
+        )
+    ):
+        raise RpcError(INVALID_PARAMS, f"'{key}' must be a string map")
+    return {
+        item_key.strip(): item_value.strip()
+        for item_key, item_value in value.items()
+    }
 
 
 def _write(
@@ -90,6 +110,20 @@ def put_training_projection(params: dict[str, Any]) -> dict[str, Any]:
 def get_training_projection(params: dict[str, Any]) -> dict[str, Any]:
     return {
         "record": _store().get_training_projection(_id(params, "projection_hash"))
+    }
+
+
+@method("prompt_optimizer.put_training_projection_v2")
+def put_training_projection_v2(params: dict[str, Any]) -> dict[str, Any]:
+    return _write(params, _store().put_training_projection_v2)
+
+
+@method("prompt_optimizer.get_training_projection_v2")
+def get_training_projection_v2(params: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "record": _store().get_training_projection_v2(
+            _id(params, "projection_hash")
+        )
     }
 
 
@@ -196,8 +230,9 @@ def latest_summary(params: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
-@method("prompt_optimizer.training_projection")
-def training_projection(params: dict[str, Any]) -> dict[str, Any]:
+def _training_projection_params(
+    params: dict[str, Any],
+) -> tuple[dict[str, str], list[str]]:
     required = {"agent_id", "stage", "cohort", "cutoff_at"}
     optional = {"excluded_sample_ids"}
     if not required.issubset(params) or not set(params).issubset(required | optional):
@@ -216,16 +251,140 @@ def training_projection(params: dict[str, Any]) -> dict[str, Any]:
         not isinstance(value, str) or not value.strip() for value in excluded
     ):
         raise RpcError(INVALID_PARAMS, "'excluded_sample_ids' must be a string array")
+    return values, [value.strip() for value in excluded]
+
+
+@method("prompt_optimizer.training_projection")
+def training_projection(params: dict[str, Any]) -> dict[str, Any]:
+    values, excluded = _training_projection_params(params)
     try:
         from mosaic.scorecard import get_store
 
         return {
             "projection": get_store().build_prompt_training_projection(
                 **values,
-                excluded_sample_ids=[value.strip() for value in excluded],
+                excluded_sample_ids=excluded,
             )
         }
     except ValueError as exc:
         raise RpcError(INVALID_PARAMS, str(exc)) from exc
     except Exception as exc:
         raise RpcError(INTERNAL_ERROR, f"Prompt training projection failed: {exc}") from exc
+
+
+@method("prompt_optimizer.training_projection_v2")
+def training_projection_v2(params: dict[str, Any]) -> dict[str, Any]:
+    values, excluded = _training_projection_params(params)
+    try:
+        from mosaic.scorecard import get_store
+
+        return {
+            "projection": get_store().build_prompt_training_projection_v2(
+                **values,
+                knot_history_store=get_capability_store(),
+                excluded_sample_ids=excluded,
+            )
+        }
+    except ValueError as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(
+            INTERNAL_ERROR, f"Prompt training projection v2 failed: {exc}"
+        ) from exc
+
+
+@method("prompt_optimizer.build_knot_gate_d_candidate")
+def build_knot_gate_d_candidate_handler(
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    required = {
+        "capability_full_bundle",
+        "experiment_ids_by_stage",
+        "training_projection_hashes_by_stage",
+        "public_private_pin",
+    }
+    if set(params) != required:
+        raise RpcError(INVALID_PARAMS, f"expected exactly {', '.join(sorted(required))}")
+    full_bundle = params.get("capability_full_bundle")
+    pin = params.get("public_private_pin")
+    if not isinstance(full_bundle, dict) or not isinstance(pin, dict):
+        raise RpcError(
+            INVALID_PARAMS,
+            "capability_full_bundle and public_private_pin must be objects",
+        )
+    experiment_ids = _string_map(params, "experiment_ids_by_stage")
+    projection_hashes = _string_map(
+        params, "training_projection_hashes_by_stage"
+    )
+    prompt_store = _store()
+    projections: dict[str, dict[str, Any]] = {}
+    for stage_key, projection_hash in projection_hashes.items():
+        projection = prompt_store.get_training_projection_v2(projection_hash)
+        if projection is None:
+            raise RpcError(
+                INVALID_PARAMS,
+                f"Gate D training projection is unavailable:{stage_key}",
+            )
+        projections[stage_key] = projection
+    root = Path(__file__).resolve().parents[3]
+    try:
+        from mosaic.scorecard.capability_preservation import (
+            load_capability_contract_bundle,
+        )
+        from mosaic.scorecard.knot_gate_d import build_knot_gate_d_candidate
+
+        runtime_manifest = json.loads(
+            (
+                root
+                / "registry/prompt_checks/runtime_agent_manifest_v5.json"
+            ).read_text(encoding="utf-8")
+        )
+        tool_manifest = json.loads(
+            (
+                root
+                / "registry/prompt_checks/agent_tool_contract_manifest_v1.json"
+            ).read_text(encoding="utf-8")
+        )
+        return {
+            "candidate": build_knot_gate_d_candidate(
+                experiment_store=prompt_store,
+                runtime_agent_manifest=runtime_manifest,
+                current_agent_tool_manifest=tool_manifest,
+                capability_bundle=load_capability_contract_bundle(root),
+                capability_full_bundle=full_bundle,
+                experiment_ids_by_stage=experiment_ids,
+                training_projections_by_stage=projections,
+                repository_root=root,
+                public_private_pin=pin,
+            )
+        }
+    except ValueError as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(INTERNAL_ERROR, f"Gate D candidate build failed: {exc}") from exc
+
+
+@method("prompt_optimizer.build_knot_gate_d_receipt")
+def build_knot_gate_d_receipt_handler(params: dict[str, Any]) -> dict[str, Any]:
+    required = {"candidate", "public_pi_review", "private_pi_review"}
+    if set(params) != required or any(
+        not isinstance(params.get(key), dict) for key in required
+    ):
+        raise RpcError(
+            INVALID_PARAMS,
+            "expected candidate, public_pi_review and private_pi_review objects",
+        )
+    try:
+        from mosaic.scorecard.knot_gate_d import build_knot_gate_d_receipt
+
+        return {
+            "receipt": build_knot_gate_d_receipt(
+                candidate=params["candidate"],
+                public_pi_review=params["public_pi_review"],
+                private_pi_review=params["private_pi_review"],
+            )
+        }
+    except ValueError as exc:
+        raise RpcError(INVALID_PARAMS, str(exc)) from exc
+    except Exception as exc:
+        raise RpcError(INTERNAL_ERROR, f"Gate D receipt build failed: {exc}") from exc

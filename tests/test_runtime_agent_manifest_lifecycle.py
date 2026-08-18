@@ -37,8 +37,8 @@ def test_superseded_runtime_and_macro_manifests_are_audit_only() -> None:
 def test_active_runtime_manifest_is_v5_and_knot_free() -> None:
     payload = _read("runtime_agent_manifest_v5.json")
     assert payload["schema_version"] == "runtime_agent_manifest_v5"
-    assert payload["runtime_agent_count"] == 28
-    assert payload["runtime_stage_count"] == 29
+    assert payload["runtime_agent_count"] == 25
+    assert payload["runtime_stage_count"] == 26
     assert "knot" not in json.dumps(payload).lower()
 
 

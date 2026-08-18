@@ -24,7 +24,9 @@ of the same data; the field name reflects that.
 from __future__ import annotations
 
 import math
+import os
 from collections import defaultdict
+from pathlib import Path
 from typing import Any, Optional
 
 from ..protocol import INTERNAL_ERROR, INVALID_PARAMS, RpcError
@@ -46,6 +48,15 @@ def _store():
     from mosaic.scorecard import get_store
 
     return get_store()
+
+
+def _shadow_runtime_root() -> Path:
+    configured = os.getenv("MOSAIC_ENSURE_SNAPSHOT_SHADOW_ROOT")
+    if configured:
+        return Path(configured).expanduser()
+    from mosaic.dataflows.runtime_paths import agent_cache_root
+
+    return agent_cache_root() / "agent_materialization_shadow"
 
 
 def _config() -> dict[str, Any]:
@@ -126,6 +137,43 @@ def scorecard_append(params: dict[str, Any]) -> dict[str, Any]:
     if state.get("day_outcome_status") != "accepted":
         raise RpcError(INVALID_PARAMS, "scorecard append requires an accepted day outcome")
     try:
+        cycle_mode = os.getenv("MOSAIC_ENSURE_SNAPSHOT_MODE")
+        if state.get("mode") == "live" and cycle_mode not in {
+            "off",
+            "shadow",
+            "enforce",
+        }:
+            raise ValueError(
+                "live scorecard append requires explicit "
+                "MOSAIC_ENSURE_SNAPSHOT_MODE=off, shadow, or enforce"
+            )
+        if state.get("mode") == "live" and cycle_mode in {"shadow", "enforce"}:
+            from mosaic.dataflows.agent_cycle_authority import (
+                require_committed_agent_cycle,
+            )
+            from mosaic.dataflows.agent_materialization import (
+                open_agent_data_materialization_ledger,
+            )
+            from mosaic.dataflows.runtime_paths import agent_runtime_root_override
+
+            publication_hash = state.get("agent_cycle_publication_hash")
+            if not isinstance(publication_hash, str) or not publication_hash:
+                raise ValueError(
+                    f"{cycle_mode} scorecard append requires agent_cycle_publication_hash"
+                )
+            if cycle_mode == "shadow":
+                with agent_runtime_root_override(_shadow_runtime_root()):
+                    require_committed_agent_cycle(
+                        ledger=open_agent_data_materialization_ledger(create=False),
+                        state=state,
+                        publication_hash=publication_hash,
+                    )
+            else:
+                require_committed_agent_cycle(
+                    ledger=open_agent_data_materialization_ledger(create=False),
+                    state=state,
+                    publication_hash=publication_hash,
+                )
         store = _store()
         if state.get("mode") == "backtest":
             run_id = state.get("backtest_run_id")
@@ -383,7 +431,7 @@ def scorecard_latest_cio_actions(params: dict[str, Any]) -> dict[str, Any]:
 
 @method("scorecard.latest_agent_narratives")
 def scorecard_latest_agent_narratives(params: dict[str, Any]) -> dict[str, Any]:
-    """Latest 28-Agent human-readable explanations for TUI display only."""
+    """Latest 25-Agent human-readable explanations for TUI display only."""
     cohort = _require_str(params, "cohort")
     try:
         return _store().get_latest_agent_display_narratives(cohort)

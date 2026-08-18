@@ -13,6 +13,7 @@ from mosaic.dataflows.tushare_catalog import (
     TUSHARE_ENDPOINT_IDS,
     TUSHARE_ENDPOINT_REGISTRY_VERSION,
     VERIFIED_ENDPOINT_PREFLIGHTS,
+    assert_endpoint_capture_preflight_allowed,
     assert_endpoint_runtime_enabled,
     catalog_by_endpoint,
     endpoint_registration,
@@ -96,6 +97,9 @@ def test_verified_eco_cal_and_precheck_endpoints_have_distinct_runtime_permissio
     assert registration.runtime_client_enabled is False
     with pytest.raises(PermissionError, match="PRECHECK_REQUIRED"):
         assert_endpoint_runtime_enabled("cn_pmi")
+    assert_endpoint_capture_preflight_allowed("cn_pmi")
+    with pytest.raises(PermissionError, match="CAPTURE_PREFLIGHT_NOT_ALLOWED"):
+        assert_endpoint_capture_preflight_allowed("yc_cb")
     with pytest.raises(ValueError, match="DENY_UNKNOWN_ENDPOINT"):
         endpoint_registration("another_news_fallback")
 
@@ -168,9 +172,11 @@ def test_macro_series_store_enforces_point_in_time_cutoff(tmp_path: Path):
     assert rows[0]["metadata_json"]
 
 
-def test_all_ten_macro_agents_have_unique_v2_labels_and_no_implicit_fallback():
+def test_all_active_macro_agents_have_unique_v2_labels_and_no_implicit_fallback():
     assert tuple(spec.agent for spec in MACRO_LABEL_INVENTORY) == MACRO_AGENT_ORDER
-    assert len(MACRO_LABEL_INVENTORY) == len(PRIMARY_LABEL_CONFIGS) == 10
+    assert len(MACRO_LABEL_INVENTORY) == len(PRIMARY_LABEL_CONFIGS) == len(
+        MACRO_AGENT_ORDER
+    )
     assert {spec.label_type for spec in MACRO_LABEL_INVENTORY} == set(
         PRIMARY_LABEL_CONFIGS
     )

@@ -14,9 +14,9 @@ Function                            Vendor / endpoint                      Used 
 ==================================  =====================================  ============================================================
 :func:`get_pboc_ops`                PBOC website mirror                    ``central_bank``, ``china``
 :func:`get_lhb_ranking`             Tushare ``top_list``                   ``institutional_flow``
-:func:`get_yield_curve_cn`          Tushare ``yc_cb``                      ``central_bank``, ``yield_curve``
+:func:`get_yield_curve_cn`          MOF/ChinaBond maturity curve           ``central_bank``, ``yield_curve``
 :func:`get_tushare_macro_series`    Tushare ``us_tycr`` / ``fx_daily``     ``dollar``, ``yield_curve``
-:func:`get_us_china_spread`         Tushare ``yc_cb`` + ``us_tycr``        ``yield_curve``
+:func:`get_us_china_spread`         MOF/ChinaBond + Tushare ``us_tycr``    ``yield_curve``
 :func:`get_xueqiu_heat`             AkShare ``stock_hot_search_xq``        ``news_sentiment``
 :func:`get_industry_policy`         gov.cn policy document library         ``china``
 :func:`get_policy_uncertainty`      AkShare ``article_epu_index``          ``china``
@@ -28,8 +28,8 @@ All public functions return ``str`` for legacy vendor routing. Errors raise
 
 Endpoint disclaimer
 -------------------
-Several endpoint names follow the plan exactly (``yc_cb``,
-``anns_d``) but have not yet been live-verified against the current Tushare
+Several endpoint names follow the plan exactly (for example ``anns_d``) but
+have not yet been live-verified against the current Tushare
 API surface. If a name turns out to differ, the call site here is the only
 place to update — the rest of the system (interface routing, tests, bridge)
 will continue to work because the function signatures and CSV envelope are
@@ -47,6 +47,9 @@ from typing import Any
 
 from .exceptions import DataVendorUnavailable
 from .gov_policy import get_gov_policy_documents
+from .official_china_adapters import (
+    fetch_mof_chinabond_government_yield_curve,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -202,37 +205,46 @@ def get_lhb_ranking(curr_date: str) -> str:
 # ============================================================ 4. CN yield curve
 
 
-# Tushare ``yc_cb`` (中债国债收益率曲线) ts_codes for the headline curve.
-# Format: ``Y{tenor_years*100}.CB`` per Tushare convention; we restrict to the
-# benchmark tenors that drive the Layer-1 ``yield_curve`` agent's analysis.
-_YC_CB_TENORS = (
-    "1.0000.CB",   # 1y
-    "2.0000.CB",   # 2y
-    "3.0000.CB",   # 3y
-    "5.0000.CB",   # 5y
-    "7.0000.CB",   # 7y
-    "10.0000.CB",  # 10y
-    "30.0000.CB",  # 30y
-)
+_CN_CURVE_SOURCE_LABEL = "MOF/ChinaBond official maturity curve"
+
+
+def _fetch_official_cn_curve(start_date: str, end_date: str):
+    import pandas as pd  # noqa: PLC0415
+
+    payload = fetch_mof_chinabond_government_yield_curve(
+        start_date=start_date,
+        end_date=end_date,
+    )
+    if (
+        not isinstance(payload, dict)
+        or payload.get("provider") != "MOF_CHINABOND"
+        or payload.get("yield_type") != "MATURITY"
+        or not isinstance(payload.get("rows"), list)
+    ):
+        raise DataVendorUnavailable(
+            "MOF/ChinaBond government maturity curve lineage is invalid."
+        )
+    frame = pd.DataFrame(payload["rows"])
+    required = {"trade_date", "curve_type", "curve_term", "yield"}
+    if frame.empty or not required <= set(frame.columns):
+        raise DataVendorUnavailable(
+            "MOF/ChinaBond government maturity curve returned no usable rows."
+        )
+    return frame
 
 
 def get_yield_curve_cn(curr_date: str, look_back_days: int = 30) -> str:
     """Fetch the CN treasury yield curve over a window.
 
-    Window = ``[curr_date - look_back_days, curr_date]``. Tushare endpoint
-    ``yc_cb`` (中债国债收益率曲线) returns daily yields per benchmark tenor.
+    Window = ``[curr_date - look_back_days, curr_date]``. The official
+    MOF/ChinaBond history endpoint returns daily government maturity yields.
 
     Used by ``central_bank`` (curve shape signals stance shifts) and
     ``yield_curve`` (slope / inversion detection).
     """
     start_date, end_date = _date_range_from_lookback(curr_date, look_back_days)
     try:
-        df = _query_tushare(
-            "yc_cb",
-            start_date=_to_tushare_date(start_date),
-            end_date=_to_tushare_date(end_date),
-            curve_type="0",   # 0 = Treasury (国债); 1 = Corporate (信用债)
-        )
+        df = _fetch_official_cn_curve(start_date, end_date)
     except DataVendorUnavailable as exc:
         df = None
         unavailable = str(exc)
@@ -242,11 +254,11 @@ def get_yield_curve_cn(curr_date: str, look_back_days: int = 30) -> str:
         df,
         title=f"中国国债收益率曲线 / CN Treasury Yield Curve ({start_date} → {end_date})",
         subtitle=(
-            "Source: Tushare yc_cb. Yields in percent. Tenors: "
+            f"Source: {_CN_CURVE_SOURCE_LABEL}. Yields in percent. Tenors: "
             "1y/2y/3y/5y/7y/10y/30y benchmarks."
-            + (f" yc_cb unavailable: {unavailable}" if unavailable else "")
+            + (f" Official curve unavailable: {unavailable}" if unavailable else "")
         ),
-        empty_note=f"No yc_cb rows returned between {start_date} and {end_date}.",
+        empty_note=f"No official curve rows returned between {start_date} and {end_date}.",
     )
 
 
@@ -352,7 +364,7 @@ def _fetch_tushare_us_treasury_series(
 def get_us_china_spread(curr_date: str, look_back_days: int = 30) -> str:
     """Compute the US-CN 10-year sovereign yield spread over a window.
 
-    * CN 10Y from Tushare ``yc_cb`` (curve_type=0, 10y tenor).
+    * CN 10Y from the official MOF/ChinaBond government maturity curve.
     * US 10Y from Tushare ``us_tycr.y10`` first, FRED ``DGS10`` fallback.
 
     Spread (bps) = US 10Y - CN 10Y, both in percent.
@@ -369,12 +381,7 @@ def get_us_china_spread(curr_date: str, look_back_days: int = 30) -> str:
         ) from exc
 
     try:
-        cn_df = _query_tushare(
-            "yc_cb",
-            start_date=_to_tushare_date(start_date),
-            end_date=_to_tushare_date(end_date),
-            curve_type="0",
-        )
+        cn_df = _fetch_official_cn_curve(start_date, end_date)
     except DataVendorUnavailable as exc:
         empty = pd.DataFrame(columns=["date", "us_10y_pct", "cn_10y_pct", "spread_bps"])
         return _df_to_markdown_csv(
@@ -382,13 +389,12 @@ def get_us_china_spread(curr_date: str, look_back_days: int = 30) -> str:
             title=f"US-CN 10Y Yield Spread ({start_date} → {end_date})",
             subtitle=(
                 "spread_bps = (us_10y_pct - cn_10y_pct) * 100. "
-                f"CN leg unavailable: Tushare yc_cb ({exc})."
+                f"CN leg unavailable: {_CN_CURVE_SOURCE_LABEL} ({exc})."
             ),
             empty_note=f"No US-CN spread observations between {start_date} and {end_date}.",
         )
 
-    # Reduce CN frame to (date, cn_10y_pct). Tushare yc_cb columns expected:
-    # ts_code, trade_date, curve_type, curve_term, curve_yield (or `value`).
+    # Reduce the sealed maturity-curve frame to (date, cn_10y_pct).
     if cn_df is not None and not cn_df.empty:
         cn_view = _extract_cn_10y_yield(cn_df)
     else:
@@ -433,18 +439,16 @@ def get_us_china_spread(curr_date: str, look_back_days: int = 30) -> str:
     return _df_to_markdown_csv(
         merged[["date", "us_10y_pct", "cn_10y_pct", "spread_bps"]] if not merged.empty else merged,
         title=f"US-CN 10Y Yield Spread ({start_date} → {end_date})",
-        subtitle=f"spread_bps = (us_10y_pct - cn_10y_pct) * 100. Sources: {us_source} + Tushare yc_cb.",
+        subtitle=(
+            "spread_bps = (us_10y_pct - cn_10y_pct) * 100. "
+            f"Sources: {us_source} + {_CN_CURVE_SOURCE_LABEL}."
+        ),
         empty_note=f"No overlapping observations between {start_date} and {end_date}.",
     )
 
 
 def _extract_cn_10y_yield(df):
-    """Reduce a Tushare ``yc_cb`` payload to ``DataFrame[date, cn_10y_pct]``.
-
-    The ``yc_cb`` schema reports yields keyed by ``curve_term`` (years) for
-    each ``trade_date``. We pick term==10. If the schema differs (e.g. uses
-    ``ts_code`` like ``10.0000.CB``), we also accept that alternate.
-    """
+    """Reduce a normalized maturity curve to ``DataFrame[date, cn_10y_pct]``."""
     import pandas as pd  # noqa: PLC0415
 
     if df is None or df.empty:
@@ -1100,38 +1104,73 @@ def get_industry_moneyflow(
     funds are rotating into / out of. Columns are passed through defensively
     (THS schema: industry / net_amount / pct_change / lead_stock / …).
 
-    ``industries`` optionally narrows the ~90-industry table to just the THS
-    industries a caller cares about — a comma-separated list of 同花顺行业 name
-    substrings (ASCII ``,`` or CJK ``，`` / ``、``; e.g. ``"半导体"`` or
-    ``"银行,证券,保险"``). The match is a **substring** test on the ``industry``
-    column — deliberately broad, so a single token like ``"医疗"`` captures the
-    whole family (医疗器械 / 医疗服务 / …); pass a narrower exact name to tighten
-    it. If nothing matches it **degrades to the full table with a note** (so a
-    mistyped 同花顺行业 name never blanks the output).
+    ``industries`` must match one authorized sector-agent scope exactly. Each
+    scope binds one THS industry code before transport; unknown or empty scopes
+    fail closed rather than fetching the full industry table.
     """
-    start_date, end_date = _date_range_from_lookback(curr_date, look_back_days)
-    df = _query_tushare(
-        "moneyflow_ind_ths",
-        start_date=_to_tushare_date(start_date),
-        end_date=_to_tushare_date(end_date),
+    tokens = tuple(
+        token.strip() for token in re.split(r"[,，、]", industries) if token.strip()
     )
+    scopes = {
+        ("半导体",): ("881121.TI", ("半导体",)),
+        ("电子", "计算机", "传媒", "通信"): (
+            "881272.TI",
+            ("电子", "计算机", "传媒", "通信", "软件开发"),
+        ),
+        ("煤炭", "石油", "天然气", "电力", "光伏", "风电", "电池"): (
+            "881105.TI",
+            ("煤炭", "石油", "天然气", "电力", "光伏", "风电", "电池"),
+        ),
+        ("医药", "医疗", "生物制品", "中药"): (
+            "881142.TI",
+            ("医药", "医疗", "生物制品", "中药"),
+        ),
+        ("家电", "食品", "饮料", "纺织", "服装", "零售", "旅游", "美容", "汽车"): (
+            "881134.TI",
+            ("家电", "食品", "饮料", "纺织", "服装", "零售", "旅游", "美容", "汽车"),
+        ),
+        ("化学", "钢铁", "有色", "机械", "军工", "电气设备", "交通运输", "环保"): (
+            "881117.TI",
+            ("化学", "钢铁", "有色", "机械", "军工", "电气设备", "交通运输", "环保", "通用设备"),
+        ),
+        ("房地产", "建筑材料", "建筑装饰"): (
+            "881153.TI",
+            ("房地产", "建筑材料", "建筑装饰"),
+        ),
+        ("银行", "证券", "保险", "多元金融"): (
+            "881155.TI",
+            ("银行", "证券", "保险", "多元金融"),
+        ),
+        ("农业", "种植", "养殖", "林业", "饲料", "动物保健"): (
+            "881102.TI",
+            ("农业", "种植", "养殖", "林业", "饲料", "动物保健"),
+        ),
+    }
+    if tokens not in scopes:
+        raise DataVendorUnavailable(
+            "moneyflow_ind_ths requires a registered exact industry scope"
+        )
+    ts_code, local_filters = scopes[tokens]
+
+    start_date, end_date = _date_range_from_lookback(curr_date, look_back_days)
+    request_params = {
+        "ts_code": ts_code,
+        "start_date": _to_tushare_date(start_date),
+        "end_date": _to_tushare_date(end_date),
+    }
+    df = _query_tushare("moneyflow_ind_ths", **request_params)
     subtitle = (
         "Source: Tushare moneyflow_ind_ths (同花顺行业). net_amount = 行业净流入; "
         "positive = main funds rotating in."
     )
 
-    tokens = [t.strip() for t in re.split(r"[,，、]", industries) if t.strip()]
-    if tokens and df is not None and not df.empty and "industry" in df.columns:
-        pattern = "|".join(re.escape(t) for t in tokens)
-        matched = df[df["industry"].astype(str).str.contains(pattern, na=False)]
-        if not matched.empty:
-            df = matched
-            subtitle += f" Filtered to industries matching: {', '.join(tokens)}."
+    if df is not None and not df.empty:
+        if "industry" in df.columns:
+            pattern = "|".join(re.escape(token) for token in local_filters)
+            df = df[df["industry"].astype(str).str.contains(pattern, na=False)]
         else:
-            subtitle += (
-                f" (No THS industry matched {', '.join(tokens)} — showing all; "
-                "check the 同花顺行业 name.)"
-            )
+            df = df.iloc[0:0].copy()
+        subtitle += f" Filtered to industries matching: {', '.join(tokens)}."
 
     return _df_to_markdown_csv(
         df,

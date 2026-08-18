@@ -24,7 +24,9 @@ eval "$(uv run python scripts/build_structured_smoke_fixtures.py \
 pnpm --dir mosaic-ts dev daily-cycle \
   --cohort cohort_default --date "$SMOKE_DATE" --fake-llm
 ```
-Options: `--cohort <name>`, `--date <YYYY-MM-DD>`, `--fake-llm`, `--structured-smoke`, `--llm-provider <name>`, `--model <name>`, `--base-url <url>`, `--max-tokens <count>`, `--prompts-repo <path>`, `--prompts-root <path>`, `--current-positions-json <json>`, `--current-positions-file <path>`, `--paper-positions`, `--paper-execute-deltas`, `--out <path>`. Runs all 28 logical agents through 29 LangGraph.js stages. Both smoke modes use bundled prompts and the explicitly marked synthetic PIT bundle; `--fake-llm` adds a canned model, while `--structured-smoke` uses a real structured-output provider with temperature 0 and a default 8192-token completion cap. Neither mode performs production release, scorecard, outcome, RKE, or paper-order writes.
+Options: `--cohort <name>`, `--date <YYYY-MM-DD>`, `--fake-llm`, `--structured-smoke`, `--llm-provider <name>`, `--model <name>`, `--base-url <url>`, `--max-tokens <count>`, `--prompts-repo <path>`, `--prompts-root <path>`, `--current-positions-json <json>`, `--current-positions-file <path>`, `--paper-positions`, `--paper-execute-deltas`, `--out <path>`, `--checkpoint <path>`, `--resume`. The current roster has 25 logical Agents and 26 LangGraph.js stages. Both smoke modes use bundled prompts and the explicitly marked synthetic PIT bundle; `--fake-llm` adds a canned model, while `--structured-smoke` uses a real structured-output provider with temperature 0 and a default 8192-token completion cap. Neither mode performs production release, scorecard, outcome, RKE, or paper-order writes.
+
+`--checkpoint <path>` and `--resume` are for non-production structured-smoke runs only. A resume opens the same identity-bound checkpoint, requires the same stage order and hashes, and resumes after the accepted stage prefix without replaying it. Any identity, order, or hash drift fails closed. Do not use these flags to resume a production, paper, or live cycle.
 
 The same fresh bundle can drive a real-model contract smoke without licensed payloads; replace `--fake-llm` with `--structured-smoke` and the desired provider options. The builder refuses a nonempty root and never deletes existing data.
 
@@ -197,7 +199,7 @@ Long-running (minutes) — run as cron, not alongside latency-sensitive RPCs. Se
 ```bash
 pnpm dev dashboard --cohort cohort_default [--user <name>]
 ```
-See [TUI](TUI.md). Key 8 shows the latest UI-only human-readable explanation for each Agent; `j/k` moves through the 28-Agent roster.
+See [TUI](TUI.md). Key 8 shows the latest UI-only human-readable explanation for each Agent; `j/k` moves through the 25-Agent roster.
 
 ## Daily operation
 
@@ -205,7 +207,7 @@ The system is semi-automatic. A typical post-close cron pipeline:
 
 ```bash
 cd mosaic-ts
-pnpm dev daily-cycle --cohort cohort_default     # 28 agents / 29 stages → CIO portfolio
+pnpm dev daily-cycle --cohort cohort_default     # 25 agents / 26 stages → CIO portfolio
 # forward_return back-fill: call the scorecard.score_pending RPC (matures after T+5)
 pnpm dev darwinian --cohort cohort_default
 pnpm dev janus run

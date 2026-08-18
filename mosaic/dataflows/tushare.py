@@ -34,6 +34,10 @@ _TUSHARE_QUERY_MAX_ATTEMPTS = 3
 _TUSHARE_QUERY_BACKOFF_SECONDS = (0.5, 1.5)
 _ETF_UNIVERSE_FUND_BASIC_CACHE_TTL_SECONDS = 60 * 60
 _ETF_UNIVERSE_MAX_ENRICHED_ROWS = 6
+_INDICATOR_WARMUP_CALENDAR_DAYS = 365  # Covers the largest supported window: 200-SMA.
+_ETF_HOLDINGS_LOOKBACK_CALENDAR_DAYS = 400
+_QUARTERLY_STATEMENT_LOOKBACK_CALENDAR_DAYS = 3 * 366
+_ANNUAL_STATEMENT_LOOKBACK_CALENDAR_DAYS = 8 * 366
 
 
 def _parse_date(date_str: str) -> datetime:
@@ -103,7 +107,6 @@ def _resolve_broker_industry_keyword(
     ts_code: str,
     start_date: str,
     end_date: str,
-    widen_days: int = 120,
 ) -> tuple[str, str, str]:
     """Resolve the industry keyword used by tushare research_report.
 
@@ -125,10 +128,10 @@ def _resolve_broker_industry_keyword(
     start_api = start_date.replace("-", "")
     end_api = end_date.replace("-", "")
 
-    def _query_stock_report_industry(window_start_api: str) -> str:
+    def _query_stock_report_industry() -> str:
         stock_data = pro.research_report(
             ts_code=ts_code,
-            start_date=window_start_api,
+            start_date=start_api,
             end_date=end_api,
             report_type="个股研报",
             fields="trade_date,ind_name",
@@ -137,17 +140,9 @@ def _resolve_broker_industry_keyword(
 
     report_industry = ""
     try:
-        report_industry = _query_stock_report_industry(start_api)
+        report_industry = _query_stock_report_industry()
     except Exception:
         report_industry = ""
-
-    if not report_industry:
-        try:
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-            wide_start_api = (end_dt - timedelta(days=widen_days)).strftime("%Y%m%d")
-            report_industry = _query_stock_report_industry(wide_start_api)
-        except Exception:
-            report_industry = ""
 
     if report_industry:
         return report_industry, "stock-report ind_name", basic_industry
@@ -202,9 +197,6 @@ def _format_no_research_reports(
     start_date: str,
     end_date: str,
     context_lines: Iterable[str] = (),
-    wide_data: pd.DataFrame | None = None,
-    wide_days: int = 120,
-    max_reports: int = 30,
 ) -> str:
     lines = [
         f"# {title}",
@@ -215,23 +207,50 @@ def _format_no_research_reports(
     for line in context_lines:
         if line:
             lines.append(line)
+    return "\n".join(lines)
 
-    if wide_data is not None and not wide_data.empty:
-        wide_total = len(wide_data)
-        wide_rows = wide_data.sort_values("trade_date", ascending=False).head(max_reports)
-        lines.extend(
-            [
-                (
-                    f"Fallback: {wide_total} report(s) found within the past {wide_days} days. "
-                    "Rows below are outside the requested window and should be treated as context."
-                ),
-                "",
-            ]
-        )
-        _append_research_report_rows(lines, wide_rows)
-    else:
-        lines.append(f"Fallback: no reports found within the past {wide_days} days.")
 
+def _render_broker_research_frame(
+    data: pd.DataFrame,
+    *,
+    ts_code: str,
+    start_date: str,
+    end_date: str,
+    max_reports: int,
+    matched_industry: str,
+    industry_source: str,
+    basic_industry: str = "",
+) -> str:
+    rendered = data.sort_values("trade_date", ascending=False).head(max_reports)
+    lines = [
+        f"# Industry Research Reports for {matched_industry} (search keyword for {ts_code})",
+        "",
+        f"Period: {start_date} to {end_date} | Total: {len(rendered)} reports",
+        f"Industry keyword source: {industry_source}",
+        "",
+    ]
+    if basic_industry and basic_industry != matched_industry:
+        lines.insert(3, f"Stock basic industry: {basic_industry}")
+    _append_research_report_rows(lines, rendered)
+    return "\n".join(lines)
+
+
+def _render_stock_research_frame(
+    data: pd.DataFrame,
+    *,
+    ts_code: str,
+    start_date: str,
+    end_date: str,
+    max_reports: int,
+) -> str:
+    rendered = data.sort_values("trade_date", ascending=False).head(max_reports)
+    lines = [
+        f"# Individual Stock Research Reports for {ts_code}",
+        "",
+        f"Period: {start_date} to {end_date} | Total: {len(rendered)} reports",
+        "",
+    ]
+    _append_research_report_rows(lines, rendered)
     return "\n".join(lines)
 
 
@@ -328,7 +347,9 @@ def _query_pro(api_name: str, **params) -> pd.DataFrame:
             attempts_executed = attempt
             if attempt >= _TUSHARE_QUERY_MAX_ATTEMPTS or not _is_transient_tushare_error(exc):
                 break
-            delay = _TUSHARE_QUERY_BACKOFF_SECONDS[min(attempt - 1, len(_TUSHARE_QUERY_BACKOFF_SECONDS) - 1)]
+            delay = _TUSHARE_QUERY_BACKOFF_SECONDS[
+                min(attempt - 1, len(_TUSHARE_QUERY_BACKOFF_SECONDS) - 1)
+            ]
             logger.debug(
                 "Transient Tushare query '%s' failure for '%s'; retrying in %.1fs (%d/%d): %s",
                 api_name,
@@ -353,13 +374,16 @@ def _to_csv_with_header(
     df: pd.DataFrame,
     title: str,
     summary_lines: list[str] | None = None,
+    *,
+    retrieved_at: str | None = None,
 ) -> str:
     if df is None or df.empty:
         return f"No {title.lower()} data found."
 
     header = f"# {title}\n"
     header += f"# Total records: {len(df)}\n"
-    header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    observed_at = retrieved_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    header += f"# Data retrieved on: {observed_at}\n\n"
     if summary_lines:
         header += "# Key snapshot\n"
         header += "\n".join(summary_lines) + "\n\n"
@@ -424,100 +448,6 @@ def _append_if_present(
     if rendered == "":
         return
     lines.append(f"{label}: {rendered}")
-
-
-def _clean_scalar_text(value) -> str:
-    if value is None:
-        return ""
-    try:
-        if pd.isna(value):
-            return ""
-    except (TypeError, ValueError):
-        pass
-    return str(value).strip()
-
-
-def _portfolio_code_lookup_keys(value) -> set[str]:
-    code = _clean_scalar_text(value).upper()
-    if not code:
-        return set()
-
-    keys = {code}
-    if "." in code:
-        keys.add(code.split(".", 1)[0])
-    elif code.isdigit():
-        keys.add(code.zfill(6))
-
-    try:
-        normalized = _normalize_ts_code(code)
-    except DataVendorUnavailable:
-        return keys
-
-    keys.add(normalized)
-    if "." in normalized:
-        keys.add(normalized.split(".", 1)[0])
-    return keys
-
-
-_stock_basic_name_cache: dict[str, str] | None = None
-
-
-def _stock_basic_name_lookup() -> dict[str, str]:
-    global _stock_basic_name_cache
-    if _stock_basic_name_cache is not None:
-        return _stock_basic_name_cache
-
-    basics = _query_pro("stock_basic", fields="ts_code,symbol,name")
-    if basics.empty:
-        return {}
-
-    lookup: dict[str, str] = {}
-    for _, row in basics.iterrows():
-        name = _clean_scalar_text(row.get("name"))
-        if not name:
-            continue
-        for column in ("ts_code", "symbol"):
-            for key in _portfolio_code_lookup_keys(row.get(column)):
-                lookup.setdefault(key, name)
-    _stock_basic_name_cache = lookup
-    return lookup
-
-
-def _enrich_fund_portfolio_stock_names(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty:
-        return df
-
-    code_columns = [column for column in ("symbol", "stk_code") if column in df.columns]
-    if not code_columns:
-        return df
-
-    enriched = df.copy()
-    if "stk_name" not in enriched.columns:
-        enriched["stk_name"] = ""
-
-    missing_name = enriched["stk_name"].map(_clean_scalar_text).eq("")
-    if not missing_name.any():
-        return enriched
-
-    try:
-        name_lookup = _stock_basic_name_lookup()
-    except DataVendorUnavailable as exc:
-        logger.debug("Unable to enrich ETF holdings names from stock_basic: %s", exc)
-        return enriched
-
-    if not name_lookup:
-        return enriched
-
-    for index, row in enriched[missing_name].iterrows():
-        for column in code_columns:
-            for key in _portfolio_code_lookup_keys(row.get(column)):
-                name = name_lookup.get(key)
-                if name:
-                    enriched.at[index, "stk_name"] = name
-                    break
-            if _clean_scalar_text(enriched.at[index, "stk_name"]):
-                break
-    return enriched
 
 
 def _safe_ratio(numerator, denominator) -> float | None:
@@ -1009,16 +939,29 @@ def get_etf_nav(ticker: str, curr_date: str) -> str:
     return _to_csv_with_header(df.head(20).reset_index(drop=True), f"ETF NAV for {ts_code}", summary_lines)
 
 
-def get_etf_holdings(ticker: str, curr_date: str) -> str:
-    ts_code = _normalize_ts_code(ticker)
-    df = _query_pro("fund_portfolio", ts_code=ts_code)
+def _render_etf_holdings(
+    df: pd.DataFrame,
+    *,
+    ts_code: str,
+    curr_date: str,
+    retrieved_at: str | None = None,
+) -> str:
+    cutoff = _to_api_date(curr_date)
     if "end_date" in df.columns:
-        df = df[df["end_date"].astype(str) <= _to_api_date(curr_date)]
+        df = df[df["end_date"].astype(str) <= cutoff]
+    if "ann_date" in df.columns:
+        ann_dates = df["ann_date"].fillna("").astype(str).str.strip()
+        df = df[ann_dates.str.fullmatch(r"\d{8}") & (ann_dates <= cutoff)]
     df = _sort_descending(df, "end_date", "ann_date", "stk_mkv_ratio")
     if df.empty:
         raise MissingEtfHoldings(f"No ETF holdings data found for '{ts_code}' up to {curr_date}.")
 
-    df = _enrich_fund_portfolio_stock_names(df)
+    if "end_date" in df.columns:
+        latest_end_date = str(df.iloc[0]["end_date"])
+        df = df[df["end_date"].astype(str) == latest_end_date]
+    if "ann_date" in df.columns:
+        latest_ann_date = str(df.iloc[0]["ann_date"])
+        df = df[df["ann_date"].astype(str) == latest_ann_date]
 
     summary_lines: list[str] = []
     latest = df.iloc[0]
@@ -1028,7 +971,28 @@ def get_etf_holdings(ticker: str, curr_date: str) -> str:
     _append_if_present(summary_lines, "Top Holding", latest.get("symbol") or latest.get("stk_code"))
     _append_if_present(summary_lines, "Top Holding Weight", latest.get("stk_mkv_ratio"), _format_pct)
 
-    return _to_csv_with_header(df.head(20).reset_index(drop=True), f"ETF holdings for {ts_code}", summary_lines)
+    return _to_csv_with_header(
+        df.head(20).reset_index(drop=True),
+        f"ETF holdings for {ts_code}",
+        summary_lines,
+        retrieved_at=retrieved_at,
+    )
+
+
+def get_etf_holdings(ticker: str, curr_date: str) -> str:
+    ts_code = _normalize_ts_code(ticker)
+    end_dt = _parse_date(curr_date)
+    start_dt = end_dt - timedelta(days=_ETF_HOLDINGS_LOOKBACK_CALENDAR_DAYS)
+    return _render_etf_holdings(
+        _query_pro(
+            "fund_portfolio",
+            ts_code=ts_code,
+            start_date=start_dt.strftime("%Y%m%d"),
+            end_date=end_dt.strftime("%Y%m%d"),
+        ),
+        ts_code=ts_code,
+        curr_date=curr_date,
+    )
 
 
 def get_etf_share(ticker: str, curr_date: str) -> str:
@@ -1343,192 +1307,6 @@ def _build_earnings_guidance_snapshot(
     return lines
 
 
-def _extract_peer_keywords(company_df: pd.DataFrame | None) -> list[str]:
-    if company_df is None or company_df.empty:
-        return []
-    row = company_df.iloc[0]
-    text = " ".join(
-        filter(
-            None,
-            [
-                _trim_text(row.get("main_business"), 600),
-                _trim_text(row.get("business_scope"), 600),
-                _trim_text(row.get("introduction"), 600),
-            ],
-        )
-    )
-    if not text:
-        return []
-
-    strong_keywords = (
-        "动力电池",
-        "锂电池",
-        "电池系统",
-        "电池材料",
-        "电池回收",
-        "磷酸铁锂",
-        "三元材料",
-    )
-    broad_keywords = ("储能",)
-
-    matched_strong_keywords = [keyword for keyword in strong_keywords if keyword in text]
-    if matched_strong_keywords:
-        return matched_strong_keywords[:4]
-    return [keyword for keyword in broad_keywords if keyword in text][:2]
-
-
-def _load_keyword_peer_candidates(pro, keywords: list[str]) -> pd.DataFrame:
-    if not keywords:
-        return pd.DataFrame()
-
-    company_frames = [
-        pro.stock_company(exchange="SSE"),
-        pro.stock_company(exchange="SZSE"),
-        pro.stock_company(exchange="BSE"),
-    ]
-    companies = pd.concat(company_frames, ignore_index=True)
-    business_text = (
-        companies.get("main_business", pd.Series(dtype=object)).fillna("")
-        + " "
-        + companies.get("business_scope", pd.Series(dtype=object)).fillna("")
-    )
-    keyword_pattern = "|".join(re.escape(keyword) for keyword in keywords)
-    matches = companies[business_text.str.contains(keyword_pattern, regex=True)]
-    if matches.empty:
-        return matches
-    return matches[["ts_code"]].drop_duplicates()
-
-
-def _build_peer_comparison_snapshot(
-    pro,
-    ts_code: str,
-    industry: str | None,
-    latest_trade_date: str | None,
-    latest_price_row: pd.Series | None,
-    fina_indicator_row: pd.Series | None,
-    start_api_400d: str,
-    end_api: str,
-    company_df: pd.DataFrame | None = None,
-) -> list[str]:
-    if industry is None or pd.isna(industry) or latest_trade_date is None or pd.isna(latest_trade_date):
-        return []
-
-    peer_universe = pro.stock_basic(fields="ts_code,name,industry,market,list_status")
-    if peer_universe is None or peer_universe.empty:
-        return []
-
-    peers = peer_universe[
-        (peer_universe["industry"] == industry)
-        & (peer_universe["list_status"] == "L")
-        & (peer_universe["ts_code"] != ts_code)
-    ]
-    if peers.empty:
-        return []
-
-    peer_basis = f"same Tushare industry '{industry}'"
-    keyword_candidates = _load_keyword_peer_candidates(pro, _extract_peer_keywords(company_df))
-    if not keyword_candidates.empty:
-        keyword_peers = peers.merge(keyword_candidates, on="ts_code", how="inner")
-        if len(keyword_peers) >= 3:
-            peers = keyword_peers
-            keywords_display = ", ".join(_extract_peer_keywords(company_df))
-            peer_basis = (
-                f"same Tushare industry '{industry}' and business keywords [{keywords_display}]"
-            )
-
-    peer_valuation = pro.daily_basic(
-        trade_date=latest_trade_date,
-        fields="ts_code,close,pe,pb,ps,total_mv",
-    )
-    if peer_valuation is None or peer_valuation.empty:
-        return []
-
-    merged = peers.merge(peer_valuation, on="ts_code", how="inner")
-    merged = merged[merged["total_mv"].notna()].sort_values("total_mv", ascending=False)
-    sample = merged.head(3)
-    if sample.empty:
-        return []
-
-    lines = [
-        "Peer Sample Basis: "
-        f"{peer_basis}, ranked by market value on {latest_trade_date}."
-    ]
-    peer_metrics: list[dict[str, float]] = []
-
-    for _, peer in sample.iterrows():
-        peer_indicator = _prepare_latest_records(
-            pro.fina_indicator(ts_code=peer["ts_code"], start_date=start_api_400d, end_date=end_api),
-            cutoff_col="end_date",
-            cutoff=end_api,
-            sort_cols=("end_date", "ann_date"),
-            dedupe_cols=("end_date",),
-        )
-        peer_indicator_row = peer_indicator.iloc[0] if not peer_indicator.empty else None
-
-        pieces = [f"{peer.get('name')} ({peer.get('ts_code')})"]
-        _append_if_present(pieces, "Market Value", peer.get("total_mv"), _format_market_value_10k_cny)
-        _append_if_present(pieces, "PE", peer.get("pe"), _format_multiple)
-        _append_if_present(pieces, "PB", peer.get("pb"), _format_multiple)
-        _append_if_present(pieces, "PS", peer.get("ps"), _format_multiple)
-        if peer_indicator_row is not None:
-            _append_if_present(pieces, "ROE", peer_indicator_row.get("roe"), _format_pct)
-            _append_if_present(
-                pieces,
-                "Net Profit YoY",
-                peer_indicator_row.get("netprofit_yoy"),
-                _format_pct,
-            )
-        lines.append("Peer Sample: " + " | ".join(pieces))
-
-        peer_metrics.append(
-            {
-                "pe": _to_float(peer.get("pe")),
-                "pb": _to_float(peer.get("pb")),
-                "ps": _to_float(peer.get("ps")),
-                "roe": _to_float(peer_indicator_row.get("roe")) if peer_indicator_row is not None else None,
-                "netprofit_yoy": (
-                    _to_float(peer_indicator_row.get("netprofit_yoy"))
-                    if peer_indicator_row is not None
-                    else None
-                ),
-            }
-        )
-
-    comparisons: list[str] = []
-    target_metric_map = {
-        "PE": _to_float(latest_price_row.get("pe")) if latest_price_row is not None else None,
-        "PB": _to_float(latest_price_row.get("pb")) if latest_price_row is not None else None,
-        "PS": _to_float(latest_price_row.get("ps")) if latest_price_row is not None else None,
-        "ROE": _to_float(fina_indicator_row.get("roe")) if fina_indicator_row is not None else None,
-        "Net Profit YoY": (
-            _to_float(fina_indicator_row.get("netprofit_yoy"))
-            if fina_indicator_row is not None
-            else None
-        ),
-    }
-    peer_metric_map = {
-        "PE": "pe",
-        "PB": "pb",
-        "PS": "ps",
-        "ROE": "roe",
-        "Net Profit YoY": "netprofit_yoy",
-    }
-    for label, metric_key in peer_metric_map.items():
-        values = [item[metric_key] for item in peer_metrics if item.get(metric_key) is not None]
-        target_value = target_metric_map[label]
-        if not values or target_value is None:
-            continue
-        median_value = float(pd.Series(values).median())
-        suffix = "%" if "YoY" in label or label == "ROE" else "x"
-        comparisons.append(
-            f"{label}: target {target_value:.2f}{suffix} vs sample median {median_value:.2f}{suffix}"
-        )
-    if comparisons:
-        lines.append("Target vs Peer Median: " + " | ".join(comparisons))
-
-    return lines
-
-
 def _build_balance_sheet_summary(df: pd.DataFrame) -> list[str]:
     if df is None or df.empty:
         return []
@@ -1702,9 +1480,17 @@ def _filter_statement(df: pd.DataFrame, freq: str, curr_date: str | None) -> pd.
 
     output = df.copy()
 
-    if curr_date and "end_date" in output.columns:
+    if curr_date:
         cutoff = _to_api_date(curr_date)
-        output = output[output["end_date"].astype(str) <= cutoff]
+        if "end_date" in output.columns:
+            output = output[output["end_date"].astype(str) <= cutoff]
+        for col in ("ann_date", "f_ann_date", "notice_date"):
+            if col in output.columns:
+                release_dates = output[col].fillna("").astype(str).str.strip()
+                output = output[
+                    release_dates.str.fullmatch(r"\d{8}")
+                    & (release_dates <= cutoff)
+                ]
 
     if freq.lower() == "annual" and "end_date" in output.columns:
         output = output[output["end_date"].astype(str).str.endswith("1231")]
@@ -1720,7 +1506,7 @@ def _filter_statement(df: pd.DataFrame, freq: str, curr_date: str | None) -> pd.
         )
         sort_cols.append("_update_rank")
         ascending.append(False)
-    for col in ("ann_date", "f_ann_date"):
+    for col in ("ann_date", "f_ann_date", "notice_date"):
         if col in output.columns:
             sort_cols.append(col)
             ascending.append(False)
@@ -1744,14 +1530,14 @@ def _fetch_price_data(pro, ts_code: str, start_api: str, end_api: str) -> pd.Dat
     return pro.us_daily(ts_code=ts_code, start_date=start_api, end_date=end_api)
 
 
-def get_stock(symbol: str, start_date: str, end_date: str) -> str:
-    pro = _get_pro_client()
-    ts_code = _normalize_ts_code(symbol)
-
-    start_api = _to_api_date(start_date)
-    end_api = _to_api_date(end_date)
-
-    data = _fetch_price_data(pro, ts_code, start_api, end_api)
+def _render_stock_data(
+    data: pd.DataFrame,
+    *,
+    ts_code: str,
+    start_date: str,
+    end_date: str,
+    retrieved_at: str | None = None,
+) -> str:
     if data is None or data.empty:
         return f"No stock data found for '{ts_code}' between {start_date} and {end_date}."
 
@@ -1793,6 +1579,24 @@ def get_stock(symbol: str, start_date: str, end_date: str) -> str:
     return _to_csv_with_header(
         output,
         f"Tushare stock data for {ts_code} from {start_date} to {end_date}",
+        retrieved_at=retrieved_at,
+    )
+
+
+def get_stock(symbol: str, start_date: str, end_date: str) -> str:
+    pro = _get_pro_client()
+    ts_code = _normalize_ts_code(symbol)
+    data = _fetch_price_data(
+        pro,
+        ts_code,
+        _to_api_date(start_date),
+        _to_api_date(end_date),
+    )
+    return _render_stock_data(
+        data,
+        ts_code=ts_code,
+        start_date=start_date,
+        end_date=end_date,
     )
 
 
@@ -1800,7 +1604,7 @@ def _load_price_frame(symbol: str, curr_date: str, look_back_days: int = 260) ->
     pro = _get_pro_client()
     ts_code = _normalize_ts_code(symbol)
     end_dt = _parse_date(curr_date)
-    start_dt = end_dt - timedelta(days=look_back_days)
+    start_dt = end_dt - timedelta(days=look_back_days + _INDICATOR_WARMUP_CALENDAR_DAYS)
     data = _fetch_price_data(
         pro,
         ts_code,
@@ -1827,8 +1631,9 @@ def _load_price_frame(symbol: str, curr_date: str, look_back_days: int = 260) ->
     return df[["Date", "Open", "High", "Low", "Close", "Volume"]]
 
 
-def get_indicator(
-    symbol: str,
+def _render_indicator_frame(
+    price_frame: pd.DataFrame,
+    *,
     indicator: str,
     curr_date: str,
     look_back_days: int,
@@ -1841,7 +1646,7 @@ def get_indicator(
 
     current_dt = _parse_date(curr_date)
     start_dt = current_dt - timedelta(days=look_back_days)
-    stats_df = wrap(_load_price_frame(symbol, curr_date))
+    stats_df = wrap(price_frame.copy())
     stats_df["Date"] = stats_df["Date"].dt.strftime("%Y-%m-%d")
     stats_df[indicator]
 
@@ -1865,6 +1670,20 @@ def get_indicator(
         + "\n".join(lines)
         + "\n\n"
         + descriptions[indicator]
+    )
+
+
+def get_indicator(
+    symbol: str,
+    indicator: str,
+    curr_date: str,
+    look_back_days: int,
+) -> str:
+    return _render_indicator_frame(
+        _load_price_frame(symbol, curr_date, look_back_days),
+        indicator=indicator,
+        curr_date=curr_date,
+        look_back_days=look_back_days,
     )
 
 
@@ -1898,16 +1717,41 @@ def get_fundamentals(ticker: str, curr_date: str | None = None) -> str:
             start_date=start_api_40d,
             end_date=end_api,
         )
-        fina_indicator = pro.fina_indicator(
+        fina_indicator = _filter_statement(
+            pro.fina_indicator(
+                ts_code=ts_code,
+                start_date=start_api_400d,
+                end_date=end_api,
+            ),
+            "quarterly",
+            curr_date,
+        )
+        stock_company = pro.stock_company(ts_code=ts_code)
+        main_business = pro.fina_mainbz(
+            ts_code=ts_code,
+            type="P",
+            start_date=start_api_400d,
+            end_date=end_api,
+        )
+        earnings_forecast = pro.forecast(
             ts_code=ts_code,
             start_date=start_api_400d,
             end_date=end_api,
         )
-        stock_company = pro.stock_company(ts_code=ts_code)
-        main_business = pro.fina_mainbz(ts_code=ts_code, type="P")
-        earnings_forecast = pro.forecast(ts_code=ts_code)
-        earnings_express = pro.express(ts_code=ts_code)
-        income_statement = _filter_statement(pro.income(ts_code=ts_code), "quarterly", curr_date)
+        earnings_express = pro.express(
+            ts_code=ts_code,
+            start_date=start_api_400d,
+            end_date=end_api,
+        )
+        income_statement = _filter_statement(
+            pro.income(
+                ts_code=ts_code,
+                start_date=start_api_400d,
+                end_date=end_api,
+            ),
+            "quarterly",
+            curr_date,
+        )
     elif market == "hk":
         basic = pro.hk_basic(ts_code=ts_code)
         latest_price = pro.hk_daily(ts_code=ts_code, start_date=start_api_40d, end_date=end_api)
@@ -1928,7 +1772,6 @@ def get_fundamentals(ticker: str, curr_date: str | None = None) -> str:
     rd_lines: list[str] = []
     business_lines: list[str] = []
     guidance_lines: list[str] = []
-    peer_lines: list[str] = []
 
     basic_row = None
     if basic is not None and not basic.empty:
@@ -1997,32 +1840,54 @@ def get_fundamentals(ticker: str, curr_date: str | None = None) -> str:
             _append_if_present(valuation_lines, label, latest_price_row.get(field), formatter)
 
     fina_indicator_row = None
-    if fina_indicator is not None and not fina_indicator.empty:
-        prepared_fina_indicator = _prepare_latest_records(
-            fina_indicator,
-            cutoff_col="end_date",
-            cutoff=end_api,
-            sort_cols=("end_date", "ann_date"),
-            dedupe_cols=("end_date",),
-        )
-        fina_indicator_row = (
-            prepared_fina_indicator.iloc[0] if not prepared_fina_indicator.empty else None
-        )
-        if fina_indicator_row is not None:
-            field_specs = {
-                "end_date": ("Latest Financial Period", None),
-                "roe": ("ROE", _format_pct),
-                "roa": ("ROA", _format_pct),
-                "grossprofit_margin": ("Gross Margin", _format_pct),
-                "netprofit_margin": ("Net Margin", _format_pct),
-                "debt_to_assets": ("Debt to Assets", _format_pct),
-                "ocf_to_or": ("OCF to Revenue", _format_pct),
-            }
-            for field, (label, formatter) in field_specs.items():
-                _append_if_present(valuation_lines, label, fina_indicator_row.get(field), formatter)
-        growth_lines.extend(_build_growth_and_valuation_snapshot(latest_price_row, fina_indicator_row))
+    if market == "a_share":
+        if fina_indicator is not None and not fina_indicator.empty:
+            prepared_fina_indicator = _prepare_latest_records(
+                fina_indicator,
+                cutoff_col="end_date",
+                cutoff=end_api,
+                sort_cols=("end_date", "ann_date"),
+                dedupe_cols=("end_date",),
+            )
+            fina_indicator_row = (
+                prepared_fina_indicator.iloc[0]
+                if not prepared_fina_indicator.empty
+                else None
+            )
+            if fina_indicator_row is not None:
+                field_specs = {
+                    "end_date": ("Latest Financial Period", None),
+                    "roe": ("ROE", _format_pct),
+                    "roa": ("ROA", _format_pct),
+                    "grossprofit_margin": ("Gross Margin", _format_pct),
+                    "netprofit_margin": ("Net Margin", _format_pct),
+                    "debt_to_assets": ("Debt to Assets", _format_pct),
+                    "ocf_to_or": ("OCF to Revenue", _format_pct),
+                }
+                for field, (label, formatter) in field_specs.items():
+                    _append_if_present(
+                        valuation_lines,
+                        label,
+                        fina_indicator_row.get(field),
+                        formatter,
+                    )
+            growth_lines.extend(
+                _build_growth_and_valuation_snapshot(latest_price_row, fina_indicator_row)
+            )
     elif market == "hk":
-        income = pro.hk_income(ts_code=ts_code, end_date=end_api)
+        income = pro.hk_income(
+            ts_code=ts_code,
+            start_date=start_api_400d,
+            end_date=end_api,
+        )
+        if income is not None and not income.empty:
+            for col in ("notice_date", "ann_date", "f_ann_date"):
+                if col in income.columns:
+                    release_dates = income[col].fillna("").astype(str).str.strip()
+                    income = income[
+                        release_dates.str.fullmatch(r"\d{8}")
+                        & (release_dates <= end_api)
+                    ]
         if income is not None and not income.empty:
             latest_end = income["end_date"].astype(str).max()
             valuation_lines.append(f"Latest Financial Period: {latest_end}")
@@ -2030,7 +1895,19 @@ def get_fundamentals(ticker: str, curr_date: str | None = None) -> str:
             for _, rec in sample.iterrows():
                 valuation_lines.append(f"{rec.get('ind_name')}: {rec.get('ind_value')}")
     else:
-        income = pro.us_income(ts_code=ts_code, end_date=end_api)
+        income = pro.us_income(
+            ts_code=ts_code,
+            start_date=start_api_400d,
+            end_date=end_api,
+        )
+        if income is not None and not income.empty:
+            for col in ("notice_date", "ann_date", "f_ann_date"):
+                if col in income.columns:
+                    release_dates = income[col].fillna("").astype(str).str.strip()
+                    income = income[
+                        release_dates.str.fullmatch(r"\d{8}")
+                        & (release_dates <= end_api)
+                    ]
         if income is not None and not income.empty:
             latest_end = income["end_date"].astype(str).max()
             valuation_lines.append(f"Latest Financial Period: {latest_end}")
@@ -2069,20 +1946,6 @@ def get_fundamentals(ticker: str, curr_date: str | None = None) -> str:
                 total_market_value_10k,
             )
         )
-        peer_lines.extend(
-            _build_peer_comparison_snapshot(
-                pro,
-                ts_code,
-                basic_row.get("industry") if basic_row is not None else None,
-                str(latest_price_row.get("trade_date")) if latest_price_row is not None else None,
-                latest_price_row,
-                fina_indicator_row,
-                start_api_400d,
-                end_api,
-                stock_company,
-            )
-        )
-
     header = f"# Tushare fundamentals for {ts_code}\n"
     header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
     sections = []
@@ -2094,7 +1957,6 @@ def get_fundamentals(ticker: str, curr_date: str | None = None) -> str:
         ("R&D Snapshot", rd_lines),
         ("Main Business and Segment Mix", business_lines),
         ("Earnings Guidance and Forward Valuation", guidance_lines),
-        ("Peer Comparison Snapshot", peer_lines),
     ):
         if section_lines:
             sections.append(f"## {title}\n" + "\n".join(section_lines))
@@ -2113,12 +1975,35 @@ def _statement_common(
     pro = _get_pro_client()
     ts_code = _normalize_ts_code(ticker)
     market = _classify_market(ts_code)
-    data = fetcher(pro, ts_code, market)
-    filtered = _filter_statement(data, freq, curr_date)
+    end_dt = _parse_date(curr_date) if curr_date else datetime.now()
+    lookback_days = (
+        _ANNUAL_STATEMENT_LOOKBACK_CALENDAR_DAYS
+        if freq.lower() == "annual"
+        else _QUARTERLY_STATEMENT_LOOKBACK_CALENDAR_DAYS
+    )
+    start_api = (end_dt - timedelta(days=lookback_days)).strftime("%Y%m%d")
+    end_api = end_dt.strftime("%Y%m%d")
+    data = fetcher(pro, ts_code, market, start_api, end_api)
+    filtered = _filter_statement(data, freq, end_dt.strftime("%Y-%m-%d"))
+    return _render_statement_frame(
+        filtered,
+        title=f"Tushare {title} for {ts_code} ({freq})",
+        summary_builder=summary_builder,
+    )
+
+
+def _render_statement_frame(
+    filtered: pd.DataFrame,
+    *,
+    title: str,
+    summary_builder: Callable[[pd.DataFrame], list[str]] | None,
+    retrieved_at: str | None = None,
+) -> str:
     return _to_csv_with_header(
         filtered,
-        f"Tushare {title} for {ts_code} ({freq})",
+        title,
         summary_builder(filtered) if summary_builder else None,
+        retrieved_at=retrieved_at,
     )
 
 
@@ -2131,12 +2016,20 @@ def get_balance_sheet(
         ticker,
         freq,
         curr_date,
-        lambda pro, ts_code, market: (
-            pro.balancesheet(ts_code=ts_code)
+        lambda pro, ts_code, market, start_date, end_date: (
+            pro.balancesheet(ts_code=ts_code, start_date=start_date, end_date=end_date)
             if market == "a_share"
-            else pro.hk_balancesheet(ts_code=ts_code)
+            else pro.hk_balancesheet(
+                ts_code=ts_code,
+                start_date=start_date,
+                end_date=end_date,
+            )
             if market == "hk"
-            else pro.us_balancesheet(ts_code=ts_code)
+            else pro.us_balancesheet(
+                ts_code=ts_code,
+                start_date=start_date,
+                end_date=end_date,
+            )
         ),
         "balance sheet",
         _build_balance_sheet_summary,
@@ -2152,12 +2045,20 @@ def get_cashflow(
         ticker,
         freq,
         curr_date,
-        lambda pro, ts_code, market: (
-            pro.cashflow(ts_code=ts_code)
+        lambda pro, ts_code, market, start_date, end_date: (
+            pro.cashflow(ts_code=ts_code, start_date=start_date, end_date=end_date)
             if market == "a_share"
-            else pro.hk_cashflow(ts_code=ts_code)
+            else pro.hk_cashflow(
+                ts_code=ts_code,
+                start_date=start_date,
+                end_date=end_date,
+            )
             if market == "hk"
-            else pro.us_cashflow(ts_code=ts_code)
+            else pro.us_cashflow(
+                ts_code=ts_code,
+                start_date=start_date,
+                end_date=end_date,
+            )
         ),
         "cashflow",
         _build_cashflow_summary,
@@ -2173,12 +2074,20 @@ def get_income_statement(
         ticker,
         freq,
         curr_date,
-        lambda pro, ts_code, market: (
-            pro.income(ts_code=ts_code)
+        lambda pro, ts_code, market, start_date, end_date: (
+            pro.income(ts_code=ts_code, start_date=start_date, end_date=end_date)
             if market == "a_share"
-            else pro.hk_income(ts_code=ts_code)
+            else pro.hk_income(
+                ts_code=ts_code,
+                start_date=start_date,
+                end_date=end_date,
+            )
             if market == "hk"
-            else pro.us_income(ts_code=ts_code)
+            else pro.us_income(
+                ts_code=ts_code,
+                start_date=start_date,
+                end_date=end_date,
+            )
         ),
         "income statement",
         _build_income_statement_summary,
@@ -2346,7 +2255,6 @@ def get_broker_reports(
                     "Industry keyword source: unresolved",
                     f"Resolution failed: {message}",
                 ],
-                max_reports=max_reports,
             )
 
     start_api = start_date.replace("-", "")
@@ -2355,7 +2263,7 @@ def get_broker_reports(
     if _skip_industry_resolution:
         industry_candidates = normalized_extra_ind_names
     else:
-        industry_candidates = (industry, basic_industry, *normalized_extra_ind_names)
+        industry_candidates = (industry, *normalized_extra_ind_names)
     for candidate in industry_candidates:
         normalized = str(candidate or "").strip()
         if normalized and normalized not in candidate_industries:
@@ -2401,32 +2309,6 @@ def get_broker_reports(
                 f"Failed to retrieve tushare industry research reports for '{candidate_industries[0]}': {last_exc}"
             ) from last_exc
 
-        try:
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-            wide_start = (end_dt - timedelta(days=120)).strftime("%Y%m%d")
-            for candidate in candidate_industries:
-                wide_data = pro.research_report(
-                    ind_name=candidate,
-                    start_date=wide_start,
-                    end_date=end_api,
-                    report_type="行业研报",
-                    fields=_RESEARCH_REPORT_FIELDS,
-                )
-                if wide_data is not None and not wide_data.empty:
-                    return _format_no_research_reports(
-                        title=f"Industry Research Reports for {candidate} (search keyword for {ts_code})",
-                        start_date=start_date,
-                        end_date=end_date,
-                        context_lines=[
-                            f"Industry keyword source: {industry_source}",
-                            f"Stock basic industry: {basic_industry}" if basic_industry else "",
-                        ],
-                        wide_data=wide_data,
-                        max_reports=max_reports,
-                    )
-        except Exception as exc:
-            logger.debug("Wider-window industry report search failed: %s", exc)
-
         candidates_label = ", ".join(candidate_industries) or "N/A"
         return _format_no_research_reports(
             title=f"Industry Research Reports for {candidates_label} (search keyword for {ts_code})",
@@ -2436,23 +2318,18 @@ def get_broker_reports(
                 f"Industry keyword source: {industry_source}",
                 f"Stock basic industry: {basic_industry}" if basic_industry else "",
             ],
-            max_reports=max_reports,
         )
 
-    data = data.sort_values("trade_date", ascending=False).head(max_reports)
-
-    lines = [
-        f"# Industry Research Reports for {matched_industry} (search keyword for {ts_code})",
-        "",
-        f"Period: {start_date} to {end_date} | Total: {len(data)} reports",
-        f"Industry keyword source: {industry_source}",
-        "",
-    ]
-    if basic_industry and basic_industry != matched_industry:
-        lines.insert(3, f"Stock basic industry: {basic_industry}")
-    _append_research_report_rows(lines, data)
-
-    return "\n".join(lines)
+    return _render_broker_research_frame(
+        data,
+        ts_code=ts_code,
+        start_date=start_date,
+        end_date=end_date,
+        max_reports=max_reports,
+        matched_industry=matched_industry,
+        industry_source=industry_source,
+        basic_industry=basic_industry,
+    )
 
 
 def get_stock_reports(
@@ -2506,44 +2383,16 @@ def get_stock_reports(
         ) from exc
 
     if data is None or data.empty:
-        # Try a wider 120-day window to check if the stock has any recent coverage
-        from datetime import datetime, timedelta
-        try:
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-            wide_start = (end_dt - timedelta(days=120)).strftime("%Y%m%d")
-            wide_data = pro.research_report(
-                ts_code=ts_code,
-                start_date=wide_start,
-                end_date=end_api,
-                report_type="个股研报",
-                fields=_RESEARCH_REPORT_FIELDS,
-            )
-            if wide_data is not None and not wide_data.empty:
-                return _format_no_research_reports(
-                    title=f"Individual Stock Research Reports for {ts_code}",
-                    start_date=start_date,
-                    end_date=end_date,
-                    wide_data=wide_data,
-                    max_reports=max_reports,
-                )
-        except Exception as exc:
-            logger.debug("Wider-window stock report search failed: %s", exc)
-
         return _format_no_research_reports(
             title=f"Individual Stock Research Reports for {ts_code}",
             start_date=start_date,
             end_date=end_date,
-            max_reports=max_reports,
         )
 
-    data = data.sort_values("trade_date", ascending=False).head(max_reports)
-
-    lines = [
-        f"# Individual Stock Research Reports for {ts_code}",
-        "",
-        f"Period: {start_date} to {end_date} | Total: {len(data)} reports",
-        "",
-    ]
-    _append_research_report_rows(lines, data)
-
-    return "\n".join(lines)
+    return _render_stock_research_frame(
+        data,
+        ts_code=ts_code,
+        start_date=start_date,
+        end_date=end_date,
+        max_reports=max_reports,
+    )

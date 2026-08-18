@@ -3,7 +3,7 @@ import { canonicalJson } from "./helpers/canonical_json.js";
 
 const Sha256Schema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
 const ClaimIdSchema = z.string().trim().min(1).max(128);
-const ClaimTextSchema = z.string().trim().min(1).max(320);
+const ClaimTextSchema = z.string().trim().min(1).max(3200);
 const ConclusionValueSchema = z.union([
   z.string().trim().max(256),
   z.number(),

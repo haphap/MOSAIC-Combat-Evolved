@@ -138,7 +138,7 @@ function fakeDecisionSubmission(name: string, messages: unknown, schema: unknown
     const candidates = frozenCandidates(text);
     return {
       agent_id: "cro",
-      review_disposition: "NO_OBJECTION",
+      review_disposition: candidates.length === 0 ? "NO_RISK_ACTION" : "NO_OBJECTION",
       candidate_actions: candidates.map((candidate, index) => ({
         action_local_id: `fake-cro-action-${index}`,
         candidate_ref: candidate.candidate_ref,
@@ -159,16 +159,9 @@ function fakeDecisionSubmission(name: string, messages: unknown, schema: unknown
   }
   if (name === "autonomous_execution") {
     const intents = frozenOrderIntents(text);
-    if (intents.length === 0) {
-      intents.push({
-        order_intent_ref: "fake-order-intent",
-        ts_code: "600000.SH",
-        requested_delta_weight: 0.01,
-      });
-    }
     return {
       agent_id: "autonomous_execution",
-      execution_disposition: "ORDERS_ASSESSED",
+      execution_disposition: intents.length === 0 ? "NO_EXECUTION_ACTION" : "ORDERS_ASSESSED",
       order_assessments: intents.map((intent, index) => ({
         assessment_local_id: `fake-execution-assessment-${index}`,
         order_intent_ref: intent.order_intent_ref,
@@ -670,19 +663,21 @@ export function fakeContractOutput(
     output.review_disposition =
       nonEmpty("rejected_picks") || nonEmpty("required_adjustments")
         ? "REVIEW_ACTIONS"
-        : "NO_OBJECTION";
+        : "NO_RISK_ACTION";
   }
   if (name === "alpha_discovery") {
     output.discovery_disposition = nonEmpty("novel_picks") ? "CANDIDATES" : "NONE_FOUND";
   }
   if (name === "autonomous_execution") {
-    output.execution_disposition = nonEmpty("trades") ? "TRADES" : "NO_DELTA";
+    output.execution_disposition = nonEmpty("trades") ? "TRADES" : "NO_EXECUTION_ACTION";
   }
   const explicitEmpty = [
     "NO_QUALIFIED_CANDIDATES",
     "NO_OBJECTION",
+    "NO_RISK_ACTION",
     "NONE_FOUND",
     "NO_DELTA",
+    "NO_EXECUTION_ACTION",
     "BLOCKED",
   ].some((value) => Object.values(output).includes(value));
   output.claims = [
@@ -807,7 +802,7 @@ function configureDisposition(
     return true;
   }
   if ("review_disposition" in output) {
-    output.review_disposition = "NO_OBJECTION";
+    output.review_disposition = "NO_RISK_ACTION";
     output.rejected_picks = [];
     output.required_adjustments = [];
     return true;
@@ -818,7 +813,7 @@ function configureDisposition(
     return true;
   }
   if ("execution_disposition" in output) {
-    output.execution_disposition = "NO_DELTA";
+    output.execution_disposition = "NO_EXECUTION_ACTION";
     output.trades = [];
     output.execution_checks = [];
     return true;

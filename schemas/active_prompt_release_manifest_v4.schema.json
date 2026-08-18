@@ -1,0 +1,1131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "active_prompt_release_manifest_v4"
+    },
+    "release_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "base_release_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "lifecycle_state": {
+      "type": "string",
+      "enum": [
+        "staged",
+        "canary",
+        "active",
+        "rolled_back"
+      ]
+    },
+    "prompt_commit": {
+      "type": "string",
+      "minLength": 7
+    },
+    "code_commit": {
+      "type": "string",
+      "minLength": 7
+    },
+    "execution_behavior_release": {
+      "type": "object",
+      "properties": {
+        "release_id": {
+          "type": "string",
+          "pattern": "^execution-behavior-release:[0-9a-f]{64}$"
+        },
+        "release_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "archive_ref": {
+          "type": "string",
+          "pattern": "^registry\\/prompt_checks\\/execution_behavior_releases\\/[0-9a-f]{64}--[0-9a-f]{64}\\.json$"
+        }
+      },
+      "required": [
+        "release_id",
+        "release_hash",
+        "archive_ref"
+      ],
+      "additionalProperties": false
+    },
+    "prompt_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "prompt_pairs": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "agent": {
+            "type": "string",
+            "minLength": 1
+          },
+          "layer": {
+            "type": "string",
+            "enum": [
+              "macro",
+              "sector",
+              "superinvestor",
+              "decision"
+            ]
+          },
+          "cohort": {
+            "type": "string",
+            "minLength": 1
+          },
+          "stages": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "agent_run",
+                "alpha_discovery",
+                "cio_proposal",
+                "cro_review",
+                "execution_feasibility",
+                "cio_final"
+              ]
+            }
+          },
+          "zh": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            },
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "additionalProperties": false
+          },
+          "en": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              }
+            },
+            "required": [
+              "path",
+              "sha256"
+            ],
+            "additionalProperties": false
+          },
+          "pair_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "agent",
+          "layer",
+          "cohort",
+          "stages",
+          "zh",
+          "en",
+          "pair_hash"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "stage_snapshot_hashes": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "catalog_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "schema_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "evaluation_contract_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "release_evidence": {
+      "type": "object",
+      "properties": {
+        "candidate_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "candidate_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "candidate_publication_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "prompt_source_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$"
+        },
+        "promotion_decision_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "promotion_decision_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "experiment_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mutated_agent": {
+          "type": "string",
+          "minLength": 1
+        },
+        "policy_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "policy_config_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "candidate_prompt_hashes": {
+          "type": "object",
+          "properties": {
+            "zh": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "en": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "zh",
+            "en"
+          ],
+          "additionalProperties": false
+        },
+        "private_state_artifact_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "behavior_contract_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "mutator_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "mutator_config_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "candidate_hash",
+        "candidate_publication_hash",
+        "prompt_source_id",
+        "promotion_decision_id",
+        "promotion_decision_hash",
+        "experiment_id",
+        "mutated_agent",
+        "policy_version",
+        "policy_config_hash",
+        "candidate_prompt_hashes",
+        "private_state_artifact_hash",
+        "behavior_contract_hash",
+        "mutator_commit",
+        "mutator_config_hash"
+      ],
+      "additionalProperties": false
+    },
+    "activation_scope": {
+      "type": "object",
+      "properties": {
+        "cohort": {
+          "type": "string",
+          "minLength": 1
+        },
+        "account_mode": {
+          "type": "string",
+          "enum": [
+            "paper",
+            "backtest",
+            "live"
+          ]
+        },
+        "traffic_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "cohort",
+        "account_mode",
+        "traffic_percent"
+      ],
+      "additionalProperties": false
+    },
+    "approval_policy_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "approved_by": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "canary_started_at": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "canary_ended_at": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "runtime_slo_summary": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "passed": {
+              "type": "boolean"
+            },
+            "sample_count": {
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 9007199254740991
+            },
+            "schema_failure_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "fallback_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "source_failure_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "unsupported_influence_rejection_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "validator_rejection_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "latency_p95_ms": {
+              "type": "number",
+              "minimum": 0
+            },
+            "token_budget_breach_count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "duplicate_order_intent_count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "exposure_breach_count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "passed",
+            "sample_count",
+            "schema_failure_rate",
+            "fallback_rate",
+            "source_failure_rate",
+            "unsupported_influence_rejection_rate",
+            "validator_rejection_rate",
+            "latency_p95_ms",
+            "token_budget_breach_count",
+            "duplicate_order_intent_count",
+            "exposure_breach_count"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "runtime_slo_evidence": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "type": "string",
+              "enum": [
+                "prompt_release_canary_slo_evidence_v1",
+                "prompt_release_canary_slo_evidence_v2"
+              ]
+            },
+            "release_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "account_mode": {
+              "type": "string",
+              "enum": [
+                "paper",
+                "backtest",
+                "live"
+              ]
+            },
+            "traffic_percent": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "exclusiveMaximum": 100
+            },
+            "canary_started_at": {
+              "type": "string",
+              "minLength": 1
+            },
+            "observation_ended_at": {
+              "type": "string",
+              "minLength": 1
+            },
+            "eligible_event_count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "excluded_event_count": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "excluded_count_by_reason": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "event_set_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "journal_closure_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "journal_record_count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "stage_snapshot_hashes_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "aggregator_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "aggregator_version": {
+              "type": "string",
+              "minLength": 1
+            },
+            "artifact_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "schema_version",
+            "release_id",
+            "account_mode",
+            "traffic_percent",
+            "canary_started_at",
+            "observation_ended_at",
+            "eligible_event_count",
+            "excluded_event_count",
+            "excluded_count_by_reason",
+            "event_set_hash",
+            "stage_snapshot_hashes_hash",
+            "aggregator_id",
+            "aggregator_version",
+            "artifact_hash"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "rollback_triggers": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "previous_approved_release_id": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "bundled_fallback": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "prompt_commit": {
+              "type": "string",
+              "minLength": 7
+            },
+            "prompt_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "prompt_pairs": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "agent": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "layer": {
+                    "type": "string",
+                    "enum": [
+                      "macro",
+                      "sector",
+                      "superinvestor",
+                      "decision"
+                    ]
+                  },
+                  "cohort": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "stages": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "agent_run",
+                        "alpha_discovery",
+                        "cio_proposal",
+                        "cro_review",
+                        "execution_feasibility",
+                        "cio_final"
+                      ]
+                    }
+                  },
+                  "zh": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "sha256": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "sha256"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "en": {
+                    "type": "object",
+                    "properties": {
+                      "path": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "sha256": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$"
+                      }
+                    },
+                    "required": [
+                      "path",
+                      "sha256"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "pair_hash": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  }
+                },
+                "required": [
+                  "agent",
+                  "layer",
+                  "cohort",
+                  "stages",
+                  "zh",
+                  "en",
+                  "pair_hash"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "schema_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "catalog_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "prompt_commit",
+            "prompt_hash",
+            "prompt_pairs",
+            "schema_hash",
+            "catalog_hash"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "activated_at": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "rolled_back_at": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "capability_full_bundle": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "capability_full_bundle_v1"
+        },
+        "prompt_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "execution_behavior_release_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "production_variant_roster_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "runtime_agent_manifest_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "agent_tool_manifest_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "tool_environment_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "capability_binding_manifest_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "knot_coverage_manifest_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "knot_audit_capability_track_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "private_companion_pin_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "full_bundle_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "schema_version",
+        "prompt_hash",
+        "execution_behavior_release_hash",
+        "production_variant_roster_hash",
+        "runtime_agent_manifest_hash",
+        "agent_tool_manifest_hash",
+        "tool_environment_hash",
+        "capability_binding_manifest_hash",
+        "knot_coverage_manifest_hash",
+        "knot_audit_capability_track_hash",
+        "private_companion_pin_hash",
+        "full_bundle_hash"
+      ],
+      "additionalProperties": false
+    },
+    "gate_d_receipt": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "knot_gate_d_receipt_v1"
+        },
+        "candidate": {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": "knot_gate_d_candidate_v1"
+            },
+            "full_bundle_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "runtime_agent_manifest_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "runtime_stage_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "capability_binding_manifest_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "binding_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "paired_environment": {
+              "type": "object",
+              "properties": {
+                "model_config_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "tool_config_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "executor_adapter_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "evaluator_adapter_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "evaluator_config_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "code_commit": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                },
+                "execution_behavior_release_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "production_variant_roster_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "repeat_seeds_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "frozen_bundle_set_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "model_config_hash",
+                "tool_config_hash",
+                "executor_adapter_hash",
+                "evaluator_adapter_hash",
+                "evaluator_config_hash",
+                "code_commit",
+                "execution_behavior_release_hash",
+                "production_variant_roster_hash",
+                "repeat_seeds_hash",
+                "frozen_bundle_set_hash"
+              ],
+              "additionalProperties": false
+            },
+            "paired_environment_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "stage_evidence": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "agent_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "stage": {
+                    "enum": [
+                      "agent_run",
+                      "alpha_discovery",
+                      "cio_proposal",
+                      "cro_review",
+                      "execution_feasibility",
+                      "cio_final"
+                    ]
+                  },
+                  "experiment_target_stage": {
+                    "enum": [
+                      "agent_run",
+                      "alpha_discovery",
+                      "cio_proposal",
+                      "cro_review",
+                      "execution_feasibility",
+                      "cio_final"
+                    ]
+                  },
+                  "experiment_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "experiment_hash": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  },
+                  "run_set_hash": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  },
+                  "training_projection_hash": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  },
+                  "paired_environment_hash": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  }
+                },
+                "required": [
+                  "agent_id",
+                  "stage",
+                  "experiment_target_stage",
+                  "experiment_id",
+                  "experiment_hash",
+                  "run_set_hash",
+                  "training_projection_hash",
+                  "paired_environment_hash"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "significance_fixture_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "counterevidence_fixture_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "cross_track_isolation_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "public_safe_scan_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "public_private_pin": {
+              "type": "object",
+              "properties": {
+                "public_commit": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                },
+                "public_tree_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "private_commit": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                },
+                "private_tree_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "private_companion_pin_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                },
+                "pair_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "public_commit",
+                "public_tree_hash",
+                "private_commit",
+                "private_tree_hash",
+                "private_companion_pin_hash",
+                "pair_hash"
+              ],
+              "additionalProperties": false
+            },
+            "candidate_hash": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          },
+          "required": [
+            "schema_version",
+            "full_bundle_hash",
+            "runtime_agent_manifest_hash",
+            "runtime_stage_count",
+            "capability_binding_manifest_hash",
+            "binding_count",
+            "paired_environment",
+            "paired_environment_hash",
+            "stage_evidence",
+            "significance_fixture_hash",
+            "counterevidence_fixture_hash",
+            "cross_track_isolation_hash",
+            "public_safe_scan_hash",
+            "public_private_pin",
+            "candidate_hash"
+          ],
+          "additionalProperties": false
+        },
+        "pi_reviews": {
+          "type": "object",
+          "properties": {
+            "public": {
+              "type": "object",
+              "properties": {
+                "repository": {
+                  "enum": [
+                    "public",
+                    "private"
+                  ]
+                },
+                "reviewed_commit": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                },
+                "review_ref": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "disposition": {
+                  "const": "APPROVE"
+                },
+                "reviewed_candidate_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "repository",
+                "reviewed_commit",
+                "review_ref",
+                "disposition",
+                "reviewed_candidate_hash"
+              ],
+              "additionalProperties": false
+            },
+            "private": {
+              "type": "object",
+              "properties": {
+                "repository": {
+                  "enum": [
+                    "public",
+                    "private"
+                  ]
+                },
+                "reviewed_commit": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{40}$"
+                },
+                "review_ref": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "disposition": {
+                  "const": "APPROVE"
+                },
+                "reviewed_candidate_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "repository",
+                "reviewed_commit",
+                "review_ref",
+                "disposition",
+                "reviewed_candidate_hash"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "public",
+            "private"
+          ],
+          "additionalProperties": false
+        },
+        "receipt_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "schema_version",
+        "candidate",
+        "pi_reviews",
+        "receipt_hash"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "release_id",
+    "base_release_id",
+    "lifecycle_state",
+    "prompt_commit",
+    "code_commit",
+    "execution_behavior_release",
+    "prompt_hash",
+    "prompt_pairs",
+    "stage_snapshot_hashes",
+    "catalog_hash",
+    "schema_hash",
+    "evaluation_contract_hash",
+    "release_evidence",
+    "activation_scope",
+    "approval_policy_id",
+    "approved_by",
+    "canary_started_at",
+    "canary_ended_at",
+    "runtime_slo_summary",
+    "runtime_slo_evidence",
+    "rollback_triggers",
+    "previous_approved_release_id",
+    "bundled_fallback",
+    "created_at",
+    "activated_at",
+    "rolled_back_at",
+    "capability_full_bundle",
+    "gate_d_receipt"
+  ],
+  "additionalProperties": false
+}

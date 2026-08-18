@@ -1,11 +1,18 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Command } from "commander";
+import { z } from "zod";
 import { canonicalJsonHash } from "../../agents/helpers/canonical_json.js";
 import {
   type ActivePromptReleaseManifest,
   ActivePromptReleaseManifestSchema,
 } from "../../agents/prompts/prompt_release_contract.js";
+import {
+  assertCurrentKnotTransitionAction,
+  assertKnotGateDBootstrapReleaseTransition,
+  buildKnotGateDBootstrapManifest,
+  stageKnotGateDBootstrapRelease,
+} from "../../autoresearch/knot_gate_d_release_authority.js";
 import { authorizeStoredPromptPromotion } from "../../autoresearch/prompt_promotion_authority.js";
 import { PromptPromotionPolicySchema } from "../../autoresearch/prompt_promotion_policy.js";
 import {
@@ -43,6 +50,26 @@ function registryRoot(opts: CommonOptions): string {
     "MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT",
     "--registry-root",
   );
+}
+
+function optionalRegistryRoot(opts: CommonOptions): string {
+  return (
+    opts.registryRoot?.trim() ||
+    process.env.MOSAIC_ACTIVE_PROMPT_RELEASE_REGISTRY_ROOT?.trim() ||
+    ""
+  );
+}
+
+async function assertTransitionOrGateDBootstrap(
+  action: "START_PROMPT_CANARY" | "ACTIVATE_PROMPT_RELEASE",
+  root: string,
+  releaseId: string,
+): Promise<void> {
+  try {
+    await assertCurrentKnotTransitionAction(action, root);
+  } catch {
+    await assertKnotGateDBootstrapReleaseTransition(action, root, releaseId);
+  }
 }
 
 function parseMode(value: string): "paper" | "backtest" | "live" {
@@ -107,6 +134,7 @@ export function registerPromptRelease(program: Command): void {
         accountMode: string;
         approvalPolicy: string;
       }) => {
+        await assertCurrentKnotTransitionAction("STAGE_PROMPT_RELEASE", optionalRegistryRoot(opts));
         const client = new BridgeClient();
         const api = new BridgeApi(client);
         try {
@@ -296,6 +324,61 @@ export function registerPromptRelease(program: Command): void {
     );
 
   command
+    .command("build-gate-d-bootstrap-manifest")
+    .description("Build a staged v4 Gate-D anchor from the current active legacy release.")
+    .requiredOption("--release-id <id>", "New Gate-D release id")
+    .requiredOption("--created-at <iso>", "Deterministic manifest creation timestamp")
+    .requiredOption("--full-bundle <path>", "Capability full-bundle JSON")
+    .requiredOption("--receipt <path>", "Approved Gate-D receipt JSON")
+    .requiredOption("--out <path>", "Output staged v4 manifest JSON")
+    .option("--registry-root <path>", "Release registry root")
+    .action(
+      async (opts: {
+        releaseId: string;
+        createdAt: string;
+        fullBundle: string;
+        receipt: string;
+        out: string;
+        registryRoot?: string;
+      }) => {
+        try {
+          const manifest = await buildKnotGateDBootstrapManifest({
+            registryRoot: registryRoot(opts),
+            releaseId: opts.releaseId,
+            createdAt: z.iso.datetime({ offset: true }).parse(opts.createdAt),
+            capabilityFullBundle: JSON.parse(await readFile(opts.fullBundle, "utf-8")),
+            gateDReceipt: JSON.parse(await readFile(opts.receipt, "utf-8")),
+          });
+          await writeFile(opts.out, `${JSON.stringify(manifest, null, 2)}\n`, "utf-8");
+          console.log(`built Gate-D release=${manifest.release_id}`);
+        } catch (error) {
+          reportError(error);
+        }
+      },
+    );
+
+  command
+    .command("bootstrap-gate-d-stage")
+    .description("Stage a reviewed, current-fixed-point Gate-D v4 manifest.")
+    .requiredOption("--manifest <path>", "Reviewed staged Gate-D v4 manifest JSON")
+    .option("--registry-root <path>", "Release registry root")
+    .action(async (opts: { manifest: string; registryRoot?: string }) => {
+      try {
+        const manifest = JSON.parse(await readFile(opts.manifest, "utf-8")) as Record<
+          string,
+          unknown
+        >;
+        await stageKnotGateDBootstrapRelease({
+          registryRoot: registryRoot(opts),
+          manifest,
+        });
+        console.log(`staged Gate-D release=${String(manifest.release_id ?? "")}`);
+      } catch (error) {
+        reportError(error);
+      }
+    });
+
+  command
     .command("canary")
     .requiredOption("--release-id <id>", "Release id")
     .requiredOption("--approved-by <operator>", "Authorized operator id")
@@ -311,6 +394,8 @@ export function registerPromptRelease(program: Command): void {
         registryRoot?: string;
       }) => {
         try {
+          const root = optionalRegistryRoot(opts);
+          await assertTransitionOrGateDBootstrap("START_PROMPT_CANARY", root, opts.releaseId);
           const manifest = await startPromptReleaseCanary({
             registryRoot: registryRoot(opts),
             releaseId: opts.releaseId,
@@ -388,6 +473,8 @@ export function registerPromptRelease(program: Command): void {
         registryRoot?: string;
       }) => {
         try {
+          const root = optionalRegistryRoot(opts);
+          await assertTransitionOrGateDBootstrap("ACTIVATE_PROMPT_RELEASE", root, opts.releaseId);
           const manifest = await activatePromptRelease({
             registryRoot: registryRoot(opts),
             releaseId: opts.releaseId,

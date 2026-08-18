@@ -3,7 +3,18 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const knotAuthorityMocks = vi.hoisted(() => ({
+  assertCurrent: vi.fn(async () => undefined),
+  assertBootstrap: vi.fn(async () => undefined),
+}));
+
+vi.mock("../src/autoresearch/knot_gate_d_release_authority.js", () => ({
+  assertCurrentKnotTransitionAction: knotAuthorityMocks.assertCurrent,
+  assertKnotGateDBootstrapReleaseTransition: knotAuthorityMocks.assertBootstrap,
+}));
+
 import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
 import { releasePromptPairHash } from "../src/agents/prompts/prompt_release_contract.js";
 import type { RuntimeAgentSpec } from "../src/agents/prompts/runtime_agent_spec.js";
@@ -93,6 +104,7 @@ const roots: string[] = [];
 
 afterEach(() => {
   delete process.env.MOSAIC_PROMPT_RELEASE_AUTHORIZED_OPERATORS;
+  vi.clearAllMocks();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -1007,6 +1019,40 @@ describe("prompt release manager", () => {
       "active",
       "rolled_back",
     ]);
+    expect(knotAuthorityMocks.assertCurrent).toHaveBeenCalledWith(
+      "STAGE_PROMPT_RELEASE",
+      registryRoot,
+    );
+    expect(knotAuthorityMocks.assertCurrent).toHaveBeenCalledWith(
+      "START_PROMPT_CANARY",
+      registryRoot,
+    );
+    expect(knotAuthorityMocks.assertCurrent).toHaveBeenCalledWith(
+      "ACTIVATE_PROMPT_RELEASE",
+      registryRoot,
+    );
+  });
+
+  it("propagates the server Gate-D freeze before a release transition", async () => {
+    process.env.MOSAIC_PROMPT_RELEASE_AUTHORIZED_OPERATORS = "operator:test";
+    const frozen = new Error("KNOT evolution frozen until Gate D: START_PROMPT_CANARY");
+    knotAuthorityMocks.assertCurrent.mockRejectedValueOnce(frozen);
+    knotAuthorityMocks.assertBootstrap.mockRejectedValueOnce(frozen);
+
+    await expect(
+      startPromptReleaseCanary({
+        registryRoot: "/unused",
+        releaseId: "release-1",
+        approvedBy: "operator:test",
+        reason: "Gate D is intentionally absent",
+        trafficPercent: 10,
+      }),
+    ).rejects.toThrow("KNOT evolution frozen until Gate D: START_PROMPT_CANARY");
+    expect(knotAuthorityMocks.assertBootstrap).toHaveBeenCalledWith(
+      "START_PROMPT_CANARY",
+      "/unused",
+      "release-1",
+    );
   });
 
   it("fails closed for unlisted operators", async () => {

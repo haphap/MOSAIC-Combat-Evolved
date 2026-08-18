@@ -735,7 +735,6 @@ export function parseOutcomeRawMetrics(metricSchemaId: string, value: unknown): 
 export const AcceptedEvaluationOutputKindSchema = z.enum([
   "MACRO_TRANSMISSION",
   "STANDARD_SECTOR_SELECTION",
-  "RELATIONSHIP_GRAPH",
   "SUPERINVESTOR_SELECTION",
   "CRO_RISK_REVIEW",
   "ALPHA_DISCOVERY",
@@ -903,11 +902,7 @@ const macro = (
           }
         : null,
     track_contract_dimensions: {
-      component_weight_contract: ["geopolitical", "market_breadth", "institutional_flow"].includes(
-        agent_id,
-      )
-        ? "NULL"
-        : "REQUIRED",
+      component_weight_contract: agent_id === "institutional_flow" ? "NULL" : "REQUIRED",
       reliability_adapter_contract: "NULL",
       confidence_semantics_contract: "NULL",
     },
@@ -1035,18 +1030,6 @@ export const OUTCOME_LABEL_REGISTRY: Readonly<Record<string, OutcomeContract>> =
     fixedSchedule(5),
     "commodity_market_transmission_path_v2",
   ),
-  geopolitical: macro(
-    "geopolitical",
-    "geopolitical_transmission_a_share_path_5d",
-    eventSchedule("geopolitical"),
-    "verified_geopolitical_event_lifecycle_v2",
-  ),
-  market_breadth: macro(
-    "market_breadth",
-    "market_breadth_confirmation_5d",
-    fixedSchedule(5),
-    "market_breadth_composite_path_v2",
-  ),
   institutional_flow: macro(
     "institutional_flow",
     "institutional_flow_followthrough_5d",
@@ -1062,46 +1045,6 @@ export const OUTCOME_LABEL_REGISTRY: Readonly<Record<string, OutcomeContract>> =
   real_estate_construction: sector("real_estate_construction"),
   financials: sector("financials"),
   agriculture: sector("agriculture"),
-  relationship_mapper: {
-    agent_id: "relationship_mapper",
-    layer: "SECTOR",
-    evaluation_object: "AcceptedRelationshipGraph",
-    evaluation_object_type: "RELATIONSHIP_EDGES",
-    evaluation_object_schema_version: "accepted_relationship_graph_v2",
-    accepted_output_kind: "RELATIONSHIP_GRAPH",
-    primary_label_id: "relationship_graph_validation_20d",
-    metric_schema_id: "relationship_graph_validation_metrics_v2",
-    realized_metric_schema_id: "relationship_realized_metrics_v1",
-    maturity_horizon: "TRADING_DAYS_20",
-    maturity: {
-      entry_semantics: "T_PLUS_1_OPEN",
-      horizon_trading_days: 20,
-      trading_calendar_id: TRADING_CALENDAR_ID,
-    },
-    sample_schedule: fixedSchedule(20),
-    rank_scope: "sector_relationship",
-    darwin_application_mode: "DOWNSTREAM_USAGE_WEIGHT",
-    metric_family: "RELATIONSHIP",
-    outcome_contract_version: "relationship_graph_outcome_v2",
-    scoring_contract_version: "score_relationship_graph_validation_v2",
-    sample_schedule_contract_version: "relationship_fixed_non_overlapping_20d_v2",
-    rank_scope_contract_version: "self_sector_relationship_v2",
-    opportunity_set_contract_version: "relationship_edge_candidate_opportunity_set_v2",
-    normalization_contract_version: "relationship_edge_validation_normalization_v2",
-    required_source_ids: [
-      "relationship_graph_candidate_snapshot_v2",
-      "relationship_edge_realized_path_v2",
-      "relationship_matched_non_edge_sample_v2",
-    ],
-    fallback_allowed: false,
-    label_owner: "DETERMINISTIC_RUNTIME",
-    component_composition_contract: null,
-    track_contract_dimensions: {
-      component_weight_contract: "NULL",
-      reliability_adapter_contract: "REQUIRED",
-      confidence_semantics_contract: "REQUIRED",
-    },
-  },
   druckenmiller: superinvestor("druckenmiller"),
   munger: superinvestor("munger"),
   burry: superinvestor("burry"),

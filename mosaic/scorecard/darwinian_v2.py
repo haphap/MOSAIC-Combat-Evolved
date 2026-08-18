@@ -155,7 +155,7 @@ def register_production_variant(
     ):
         raise ValueError("effective_slot_sequence must be a positive integer")
     if set(behavior_bindings) != set(OUTCOME_CONTRACTS):
-        raise ValueError("behavior_bindings must cover the exact 28-Agent roster")
+        raise ValueError("behavior_bindings must cover the exact 25-Agent roster")
 
     roster_id = deterministic_id(
         "production-variant-roster",
@@ -213,8 +213,8 @@ def register_production_variant(
         for row in track_rows
         if row["outcome"]["darwin_application_mode"] == "EVOLUTION_ONLY"
     ]
-    if len(evaluation_hashes) != 28 or len(usage_hashes) != 24 or len(decision_hashes) != 4:
-        raise ValueError("Darwinian production roster must have 28/24/4 tracks")
+    if len(evaluation_hashes) != 25 or len(usage_hashes) != 21 or len(decision_hashes) != 4:
+        raise ValueError("Darwinian production roster must have 25/21/4 tracks")
 
     natural_revision = conn.execute(
         """
@@ -496,6 +496,104 @@ def register_production_variant(
     }
 
 
+def validate_production_variant_roster_revision(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    expected_fields = {
+        "production_variant_roster_revision_id",
+        "production_variant_roster_id",
+        "execution_behavior_release_id",
+        "cohort_id",
+        "language",
+        "evaluation_track_key_hashes",
+        "usage_track_key_hashes",
+        "decision_evaluation_track_key_hashes",
+        "prepared_at",
+        "recorded_at",
+        "effective_at",
+        "effective_slot_sequence",
+        "readiness",
+        "production_variant_roster_revision_hash",
+    }
+    if not isinstance(value, Mapping) or set(value) != expected_fields:
+        raise ValueError("production roster revision record is invalid")
+    revision = dict(value)
+    for field in (
+        "production_variant_roster_revision_id",
+        "production_variant_roster_id",
+        "execution_behavior_release_id",
+        "cohort_id",
+    ):
+        if _required_text(revision[field], field) != revision[field]:
+            raise ValueError("production roster revision identity is invalid")
+    if revision["language"] not in {"en", "zh"}:
+        raise ValueError("production roster revision language is invalid")
+    sequence = revision["effective_slot_sequence"]
+    if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
+        raise ValueError("production roster revision sequence is invalid")
+    prepared_at = _timestamp(revision["prepared_at"], "prepared_at")
+    recorded_at = _timestamp(revision["recorded_at"], "recorded_at")
+    effective_at = _timestamp(revision["effective_at"], "effective_at")
+    if not prepared_at <= recorded_at <= effective_at:
+        raise ValueError("production roster revision timestamps are invalid")
+    body = {
+        key: item
+        for key, item in revision.items()
+        if key != "production_variant_roster_revision_hash"
+    }
+    if (
+        revision["production_variant_roster_revision_hash"] != canonical_hash(body)
+        or revision["readiness"] not in {"READY", "REJECTED"}
+    ):
+        raise ValueError("production roster revision hash is invalid")
+    evaluation = revision["evaluation_track_key_hashes"]
+    usage = revision["usage_track_key_hashes"]
+    decision = revision["decision_evaluation_track_key_hashes"]
+    if (
+        not isinstance(evaluation, list)
+        or not isinstance(usage, list)
+        or not isinstance(decision, list)
+        or len(evaluation) != 25
+        or len(usage) != 21
+        or len(decision) != 4
+        or len(set(evaluation)) != len(evaluation)
+        or len(set(usage)) != len(usage)
+        or len(set(decision)) != len(decision)
+    ):
+        raise ValueError("production roster revision track closure is invalid")
+    for hashes in (evaluation, usage, decision):
+        if any(
+            not isinstance(item, str)
+            or len(item) != 71
+            or not item.startswith("sha256:")
+            or any(character not in "0123456789abcdef" for character in item[7:])
+            for item in hashes
+        ):
+            raise ValueError("production roster revision track hash is invalid")
+    return revision
+
+
+def get_production_variant_roster_revision(
+    conn: sqlite3.Connection,
+    production_variant_roster_revision_id: str,
+) -> dict[str, Any] | None:
+    revision_id = _required_text(
+        production_variant_roster_revision_id,
+        "production_variant_roster_revision_id",
+    )
+    row = conn.execute(
+        "SELECT record_json FROM darwinian_v2_production_variant_roster_revisions "
+        "WHERE production_variant_roster_revision_id = ?",
+        (revision_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    revision = validate_production_variant_roster_revision(json.loads(row[0]))
+    if revision["production_variant_roster_revision_id"] != revision_id:
+        raise ValueError("production roster revision id is invalid")
+    return revision
+
+
 def get_production_weight_snapshot(
     conn: sqlite3.Connection,
     *,
@@ -575,8 +673,8 @@ def get_production_weight_snapshot(
                 **record,
             }
         )
-    if len(weights) != 24 or len({row["agent_id"] for row in weights}) != 24:
-        raise ValueError("Darwinian weight snapshot must contain exactly 24 upstream Agents")
+    if len(weights) != 21 or len({row["agent_id"] for row in weights}) != 21:
+        raise ValueError("Darwinian weight snapshot must contain exactly 21 upstream Agents")
     weights.sort(key=lambda row: row["agent_id"])
     snapshot_without_hash = {
         "schema_version": "darwinian_usage_weight_snapshot_v2",
@@ -624,8 +722,8 @@ def _authoritative_macro_input_gate(
         for row in weights
         if isinstance(row, Mapping)
     }
-    if len(weights) != 24 or len(weight_by_agent) != 24:
-        raise ValueError("authoritative Darwinian snapshot must contain 24 Agents")
+    if len(weights) != 21 or len(weight_by_agent) != 21:
+        raise ValueError("authoritative Darwinian snapshot must contain exactly 21 Agents")
 
     reliability_by_agent: dict[str, dict[str, Any]] = {}
     for agent_id in _MACRO_AGENT_IDS:
@@ -1028,7 +1126,7 @@ def append_accepted_cycle(
     ).fetchall()
     schedule_by_agent = {row[0]: json.loads(row[1]) for row in slot_rows}
     if set(schedule_by_agent) != set(OUTCOME_CONTRACTS):
-        raise ValueError("outcome schedule plan must contain the exact 28-Agent roster")
+        raise ValueError("outcome schedule plan must contain the exact 25-Agent roster")
     stage_skips = _accepted_stage_skips(
         conn,
         state=state,
@@ -1057,7 +1155,7 @@ def append_accepted_cycle(
         audit_stage_keys.add(key)
         audit_by_agent.setdefault(agent_id, []).append(audit)
     if audit_stage_keys | skip_stage_keys != _required_runtime_stage_keys():
-        raise ValueError("accepted v2 cycle must resolve the exact 29 Agent stages")
+        raise ValueError("accepted v2 cycle must resolve the exact 26 Agent stages")
 
     revision_hashes = set(registration["evaluation_track_key_hashes"])
     placeholders = ",".join("?" for _ in revision_hashes)
@@ -1071,11 +1169,11 @@ def append_accepted_cycle(
     ).fetchall()
     track_by_agent = {row[0]: (row[1], json.loads(row[2])) for row in track_rows}
     if set(track_by_agent) != set(OUTCOME_CONTRACTS):
-        raise ValueError("roster revision does not resolve all 28 evaluation tracks")
+        raise ValueError("roster revision does not resolve all 25 evaluation tracks")
 
     output_entries = _accepted_cycle_outputs(state, skipped_agents=set(stage_skips))
-    if len(output_entries) + len(stage_skips) != 29:
-        raise ValueError("accepted v2 cycle must resolve 29 accepted-or-skipped stages")
+    if len(output_entries) + len(stage_skips) != 26:
+        raise ValueError("accepted v2 cycle must resolve 26 accepted-or-skipped stages")
     accepted_records: list[dict[str, Any]] = []
     operational_ids: dict[str, str] = {}
     for agent_id, accepted_kind, stage, supplied_record in output_entries:
@@ -1708,6 +1806,70 @@ def _accepted_cycle_outputs(
     return sorted(rows, key=lambda row: (row[0], row[2], row[1]))
 
 
+def accepted_cycle_stage_outcome_refs(
+    state: Mapping[str, Any],
+) -> list[dict[str, str]]:
+    """Project the existing 26-stage accepted/skip authority into hash refs."""
+    audits = state.get("agent_run_audits")
+    stage_skips = state.get("outcome_stage_skips")
+    validate_runtime_stage_completion(audits, stage_skips)
+    assert isinstance(audits, list)
+    assert isinstance(stage_skips, Mapping)
+    outputs = _accepted_cycle_outputs(
+        state,
+        skipped_agents=set(stage_skips),
+    )
+    audit_by_key = {
+        (str(audit["agent"]), str(audit["stage"])): audit
+        for audit in audits
+        if isinstance(audit, Mapping)
+    }
+    result: list[dict[str, str]] = []
+    for agent_id, _accepted_kind, stage, record in outputs:
+        record_hash = record.get("accepted_output_hash")
+        if record_hash != canonical_hash(
+            {key: value for key, value in record.items() if key != "accepted_output_hash"}
+        ):
+            raise ValueError(f"accepted output hash mismatch for {agent_id}:{stage}")
+        audit = audit_by_key.get((agent_id, stage))
+        adapter_lineage = record.get("adapter_lineage")
+        if (
+            audit is None
+            or not isinstance(adapter_lineage, Mapping)
+            or adapter_lineage.get("source_agent_output_hash")
+            != audit.get("output_hash")
+        ):
+            raise ValueError(f"accepted output/audit lineage mismatch for {agent_id}:{stage}")
+        result.append(
+            {
+                "agent_id": agent_id,
+                "stage": stage,
+                "outcome_kind": "ACCEPTED_OUTPUT",
+                "ref_hash": str(record_hash),
+            }
+        )
+    for agent_id, skip in stage_skips.items():
+        if not isinstance(agent_id, str) or not isinstance(skip, Mapping):
+            raise ValueError("cycle stage skip must be an Agent-owned object")
+        skip_hash = skip.get("stage_skip_hash")
+        if skip_hash != canonical_hash(
+            {key: value for key, value in skip.items() if key != "stage_skip_hash"}
+        ):
+            raise ValueError(f"cycle stage skip hash mismatch for {agent_id}")
+        result.append(
+            {
+                "agent_id": agent_id,
+                "stage": _audit_stage(agent_id),
+                "outcome_kind": "STAGE_SKIP",
+                "ref_hash": str(skip_hash),
+            }
+        )
+    result.sort(key=lambda row: (row["agent_id"], row["stage"]))
+    if len(result) != 26:
+        raise ValueError("cycle stage outcome projection must contain exactly 26 refs")
+    return result
+
+
 def _accepted_output_stage(agent_id: str, accepted_kind: str) -> str:
     if accepted_kind == "CIO_PROPOSAL":
         return "cio_proposal"
@@ -1981,7 +2143,7 @@ def validate_runtime_stage_completion(
     audits: object,
     stage_skips: object,
 ) -> None:
-    """Validate the disjoint accepted-output/stage-skip union for 29 stages."""
+    """Validate the disjoint accepted-output/stage-skip union for 26 stages."""
     if not isinstance(audits, list) or not isinstance(stage_skips, Mapping):
         raise ValueError("cycle completion requires audit array and stage-skip object")
     skip_keys: set[tuple[str, str]] = set()
@@ -2007,7 +2169,7 @@ def validate_runtime_stage_completion(
     if audit_keys & skip_keys:
         raise ValueError("cycle stage cannot be both accepted and skipped")
     if audit_keys | skip_keys != _required_runtime_stage_keys():
-        raise ValueError("cycle must resolve the exact 29 Agent stages")
+        raise ValueError("cycle must resolve the exact 26 Agent stages")
 
 
 def _audit_stage(agent_id: str) -> str:
@@ -2086,6 +2248,7 @@ def _is_sha256(value: object) -> bool:
 
 
 __all__ = [
+    "accepted_cycle_stage_outcome_refs",
     "canonical_hash",
     "canonical_json",
     "deterministic_id",

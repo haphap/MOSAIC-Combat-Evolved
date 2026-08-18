@@ -4,9 +4,9 @@
  *
  * Scope of the converter is intentionally narrow: it handles the shape
  * Pydantic v2 emits for our @tool functions (flat objects with primitive
- * properties + ``required`` + ``description``). Nested objects, unions,
- * and arrays are not used today and are explicitly rejected so we fail
- * loud if a future tool changes its schema.
+ * properties or constrained primitive arrays + ``required`` + ``description``).
+ * Nested objects and unions are explicitly rejected so we fail loud if a
+ * future tool changes its schema.
  */
 
 import type { StructuredToolInterface } from "@langchain/core/tools";
@@ -17,8 +17,24 @@ import type {
   JsonSchemaObject,
   JsonSchemaProperty,
   SignedAgentToolCapability,
+  ToolCallResult,
   ToolMetadata,
 } from "./types.js";
+
+/** Hidden runtime path for deterministic frozen calls whose args stay out of the prompt. */
+export const BRIDGE_INITIAL_TOOL_INVOKE: unique symbol = Symbol("mosaic.bridge.initialToolInvoke");
+/** Hidden runtime path that preserves the server-owned result audit envelope. */
+export const BRIDGE_AUDITED_TOOL_INVOKE: unique symbol = Symbol("mosaic.bridge.auditedToolInvoke");
+/** Audited equivalent of the deterministic frozen initial call. */
+export const BRIDGE_INITIAL_AUDITED_TOOL_INVOKE: unique symbol = Symbol(
+  "mosaic.bridge.initialAuditedToolInvoke",
+);
+
+export type BridgeStructuredTool = StructuredToolInterface & {
+  [BRIDGE_INITIAL_TOOL_INVOKE]: () => Promise<string>;
+  [BRIDGE_AUDITED_TOOL_INVOKE]: (input: Record<string, unknown>) => Promise<ToolCallResult>;
+  [BRIDGE_INITIAL_AUDITED_TOOL_INVOKE]: () => Promise<ToolCallResult>;
+};
 
 /** Convert one Pydantic-style JSON Schema property into a Zod type. */
 function propertyToZod(name: string, prop: JsonSchemaProperty): ZodTypeAny {
@@ -40,7 +56,8 @@ function propertyToZod(name: string, prop: JsonSchemaProperty): ZodTypeAny {
     throw new Error(`Tool property '${name}' uses anyOf — not supported by the current converter.`);
   }
 
-  let zodType = primitiveToZod(name, prop.type);
+  let zodType =
+    prop.type === "array" ? arrayToZod(name, prop) : primitiveToZod(name, prop.type, prop);
   if (prop.description) {
     zodType = zodType.describe(prop.description);
   }
@@ -48,10 +65,18 @@ function propertyToZod(name: string, prop: JsonSchemaProperty): ZodTypeAny {
 }
 
 /** Map a primitive JSON Schema type onto its Zod counterpart. */
-function primitiveToZod(name: string, type: JsonSchemaProperty["type"]): ZodTypeAny {
+function primitiveToZod(
+  name: string,
+  type: JsonSchemaProperty["type"],
+  prop: JsonSchemaProperty = {},
+): ZodTypeAny {
   switch (type) {
-    case "string":
-      return z.string();
+    case "string": {
+      let schema = z.string();
+      if (prop.minLength !== undefined) schema = schema.min(prop.minLength);
+      if (prop.maxLength !== undefined) schema = schema.max(prop.maxLength);
+      return schema;
+    }
     case "integer":
       return z.int();
     case "number":
@@ -61,6 +86,20 @@ function primitiveToZod(name: string, type: JsonSchemaProperty["type"]): ZodType
     default:
       throw new Error(`Tool property '${name}' has unsupported type ${JSON.stringify(type)}`);
   }
+}
+
+function arrayToZod(name: string, prop: JsonSchemaProperty): ZodTypeAny {
+  if (!prop.items || prop.items.type === "array") {
+    throw new Error(`Tool property '${name}' has unsupported array items`);
+  }
+  let schema = z.array(propertyToZod(`${name}[]`, prop.items));
+  if (prop.minItems !== undefined) schema = schema.min(prop.minItems);
+  if (prop.maxItems !== undefined) schema = schema.max(prop.maxItems);
+  if (!prop.uniqueItems) return schema;
+  return schema.refine(
+    (items) => new Set(items.map((item) => JSON.stringify(item))).size === items.length,
+    { message: `Tool property '${name}' requires unique array items` },
+  );
 }
 
 /** Convert the top-level JSON Schema (always type=object) to a ZodObject. */
@@ -106,16 +145,15 @@ export function bridgeToolFromMetadata(
   api: BridgeApi,
   metadata: ToolMetadata,
   options: BridgeToolFactoryOptions,
-): StructuredToolInterface {
-  const schema = jsonSchemaToZod(metadata.args_schema);
+): BridgeStructuredTool {
+  const schema = metadata.args_schema;
   const capability = options.capability;
-  return tool(
+  const auditedInvoke = (input: Record<string, unknown>) =>
+    api.toolsCall(metadata.name, input, capability);
+  const initialAuditedInvoke = () => auditedInvoke({});
+  const structured = tool(
     async (input) => {
-      const result = await api.toolsCall(
-        metadata.name,
-        input as Record<string, unknown>,
-        capability,
-      );
+      const result = await auditedInvoke(input as Record<string, unknown>);
       return result.text;
     },
     {
@@ -124,13 +162,26 @@ export function bridgeToolFromMetadata(
       schema,
     },
   );
+  Object.defineProperty(structured, BRIDGE_AUDITED_TOOL_INVOKE, {
+    value: auditedInvoke,
+  });
+  Object.defineProperty(structured, BRIDGE_INITIAL_AUDITED_TOOL_INVOKE, {
+    value: initialAuditedInvoke,
+  });
+  Object.defineProperty(structured, BRIDGE_INITIAL_TOOL_INVOKE, {
+    value: async () => {
+      const result = await initialAuditedInvoke();
+      return result.text;
+    },
+  });
+  return structured as unknown as BridgeStructuredTool;
 }
 
 /** Convenience: pull tools.list and wrap each one. */
 export async function listBridgeTools(
   api: BridgeApi,
   options: BridgeToolFactoryOptions,
-): Promise<StructuredToolInterface[]> {
+): Promise<BridgeStructuredTool[]> {
   const metadatas = await api.toolsList(options.capability);
   return metadatas.map((m) => bridgeToolFromMetadata(api, m, options));
 }
@@ -140,10 +191,10 @@ export async function pickBridgeTools(
   api: BridgeApi,
   names: ReadonlyArray<string>,
   options: BridgeToolFactoryOptions,
-): Promise<StructuredToolInterface[]> {
+): Promise<BridgeStructuredTool[]> {
   const metadatas = await api.toolsList(options.capability);
   const byName = new Map(metadatas.map((m) => [m.name, m] as const));
-  const picked: StructuredToolInterface[] = [];
+  const picked: BridgeStructuredTool[] = [];
   const missing: string[] = [];
   for (const name of names) {
     const meta = byName.get(name);

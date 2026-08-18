@@ -25,6 +25,7 @@ from mosaic.backtest import (
 )
 from mosaic.backtest.qlib_runner import _resolve_qlib_data_path, _summarise_portfolio
 from mosaic.backtest.qlib_strategy import load_weights_from_store
+from mosaic.bridge.tool_capabilities import ALL_AGENT_IDS
 from mosaic.scorecard import ScorecardStore
 
 # Instantiating MosaicCachedStrategy needs qlib (it subclasses a qlib base);
@@ -35,15 +36,16 @@ _HAS_QLIB = importlib.util.find_spec("qlib") is not None
 def _accepted_audits() -> list[dict]:
     return [
         {
-            "agent": f"agent_{index}",
-            "stage": f"stage_{index}",
+            "agent": agent,
+            "stage": stage,
             "status": "accepted",
             "output_source": "structured_primary",
             "attempt_count": 1,
             "repair_count": 0,
             "stop_reason": "accepted",
         }
-        for index in range(29)
+        for agent in ALL_AGENT_IDS
+        for stage in (("cio_proposal", "cio_final") if agent == "cio" else (agent,))
     ]
 
 

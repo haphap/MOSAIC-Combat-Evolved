@@ -19,8 +19,6 @@ export const LIVE_SOURCE_TOOL_BY_AGENT = {
   us_financial_conditions: "get_us_financial_conditions_snapshot",
   euro_area_financial_conditions: "get_euro_area_financial_conditions_snapshot",
   commodities: "get_commodity_conditions_snapshot",
-  geopolitical: "get_geopolitical_events_snapshot",
-  market_breadth: "get_market_breadth_snapshot",
   institutional_flow: "get_market_positioning_snapshot",
   semiconductor: "get_sector_research_snapshot",
   technology: "get_sector_research_snapshot",
@@ -31,7 +29,6 @@ export const LIVE_SOURCE_TOOL_BY_AGENT = {
   real_estate_construction: "get_sector_research_snapshot",
   financials: "get_sector_research_snapshot",
   agriculture: "get_sector_research_snapshot",
-  relationship_mapper: "get_relationship_graph_snapshot",
 } as const satisfies Readonly<Record<string, OutcomeLiveSourceAuthorityBinding["source_tool_id"]>>;
 
 export interface LiveOutcomeFreezeResult {
@@ -251,7 +248,7 @@ export function preModelOutcomeDisposition(input: {
   ) {
     throw new Error(`${agentId}: stage skip differs from frozen opportunity authority`);
   }
-  return "SKIP";
+  return agentId === "cro" || agentId === "autonomous_execution" ? "RUN" : "SKIP";
 }
 
 function assertCioProposalAlphaSourceClosure(state: DailyCycleStateType): void {

@@ -6,8 +6,10 @@ import {
   acceptedOutputRefKey,
   buildAcceptedAgentOutputRecord,
   validateAcceptedAgentOutputRecord,
+  validateCurrentAcceptedAgentOutputRecord,
 } from "../src/agents/accepted_output.js";
 import type { ClaimEvidenceGraph } from "../src/agents/evidence_contract.js";
+import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
 
 const SOURCE_OUTPUT_HASH = `sha256:${"a".repeat(64)}`;
 
@@ -24,7 +26,25 @@ function claimGraph(): ClaimEvidenceGraph {
         source_kind: "tool",
         tool_or_source: "fixture",
         metric: "fixture",
-        value: 1,
+        value: {
+          server_tool_result: {
+            result_event_id: "tool_evt_accepted",
+            result_event_hash: `sha256:${"d".repeat(64)}`,
+            result_authority_type: "SNAPSHOT_BUILD",
+            result_authority_hash: `sha256:${"e".repeat(64)}`,
+            tool_environment_hash: `sha256:${"f".repeat(64)}`,
+            execution_behavior_release_hash: `sha256:${"0".repeat(64)}`,
+            capability_bundle_hash: `sha256:${"1".repeat(64)}`,
+            knot_coverage_manifest_v2_hash: `sha256:${"2".repeat(64)}`,
+            knot_audit_capability_track_v2_hash: `sha256:${"3".repeat(64)}`,
+            binding_result_refs: [
+              {
+                binding_id: `binding:${"4".repeat(64)}`,
+                binding_result_fingerprint: `sha256:${"5".repeat(64)}`,
+              },
+            ],
+          },
+        },
         unit: "index",
         as_of: "2026-07-17",
         lookback: "current",
@@ -98,7 +118,18 @@ describe("AcceptedAgentOutputRecord", () => {
     validateAcceptedAgentOutputRecord(record);
     expect(record.accepted_output_id).toMatch(/^accepted-output:/);
     expect(record.accepted_output_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(record.capability_track.schema_version).toBe("accepted_output_capability_track_v1");
+    expect(record.capability_track.capability_bundle_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(record.output.evidence_bundle_ids).toEqual(["bundle:1", "bundle:2"]);
+    expect(record.knot_capture_v2.eligibility).toBe("ELIGIBLE");
+    expect(record.knot_capture_v2.result_event_refs).toHaveLength(1);
+    expect(record.knot_capture_v2.claim_specs).toEqual([
+      expect.objectContaining({
+        claim_id: "claim:1",
+        structured_conclusion: { value: 1 },
+      }),
+    ]);
+    expect(JSON.stringify(record.knot_capture_v2)).not.toContain("Fixture claim");
     expect(acceptedOutputRecordRef(record)).toEqual({
       accepted_output_kind: "MACRO_TRANSMISSION",
       agent_id: "china",
@@ -109,6 +140,33 @@ describe("AcceptedAgentOutputRecord", () => {
     expect(acceptedOutputRefKey("CIO_PROPOSAL", "cio")).not.toBe(
       acceptedOutputRefKey("CIO_FINAL", "cio"),
     );
+  });
+
+  it("seals an explicit KNOT-v2 ineligible capture when server authority is absent", () => {
+    const legacyGraph = claimGraph();
+    const firstEvidence = legacyGraph.evidence_ledger[0];
+    if (!firstEvidence) throw new Error("legacy evidence fixture missing");
+    legacyGraph.evidence_ledger[0] = {
+      ...firstEvidence,
+      value: 1,
+    };
+    const record = buildAcceptedAgentOutputRecord({
+      kind: "MACRO_TRANSMISSION",
+      agentId: "china",
+      payload: { agent_id: "china", direction: "SUPPORTIVE" },
+      evidenceBundleIds: ["bundle:1"],
+      causalDedupeKeys: ["cause:1"],
+      claimGraph: legacyGraph,
+      sourceAgentOutputHash: SOURCE_OUTPUT_HASH,
+      context: context(),
+    });
+
+    expect(record.knot_capture_v2.eligibility).toBe("INELIGIBLE");
+    expect(record.knot_capture_v2.ineligibility_reasons).toEqual([
+      "CLAIM_TOOL_EVIDENCE_SERVER_AUTHORITY_MISSING",
+      "NO_SERVER_TOOL_RESULT_AUTHORITY",
+    ]);
+    validateCurrentAcceptedAgentOutputRecord(record);
   });
 
   it("carries and strictly validates the scheduled L1/L2 live source authority", () => {
@@ -181,6 +239,14 @@ describe("AcceptedAgentOutputRecord", () => {
         accepted_output_hash: `sha256:${"0".repeat(64)}`,
       }),
     ).toThrow(/hash mismatch/);
+    const forgedTrack = structuredClone(record);
+    forgedTrack.capability_track.tool_environment_hash = `sha256:${"9".repeat(64)}`;
+    const { capability_bundle_hash: _, ...forgedTrackBody } = forgedTrack.capability_track;
+    forgedTrack.capability_track.capability_bundle_hash = canonicalJsonHash(forgedTrackBody);
+    const { accepted_output_hash: __, ...forgedBody } = forgedTrack;
+    forgedTrack.accepted_output_hash = canonicalJsonHash(forgedBody);
+    expect(() => validateAcceptedAgentOutputRecord(forgedTrack)).not.toThrow();
+    expect(() => validateCurrentAcceptedAgentOutputRecord(forgedTrack)).toThrow(/capability track/);
   });
 
   it("accepts only production scheduled/downstream-only bindings", () => {
@@ -211,5 +277,29 @@ describe("AcceptedAgentOutputRecord", () => {
     expect(() =>
       store.resolve({ ...ref, accepted_output_hash: `sha256:${"2".repeat(64)}` }),
     ).toThrow(/reference mismatch/);
+  });
+
+  it("loads legacy and cross-generation records read-only without admitting new writes", () => {
+    const current = macroRecord();
+    const { accepted_output_hash: _, capability_track: __, ...legacyBody } = current;
+    const legacy = {
+      ...legacyBody,
+      accepted_output_hash: canonicalJsonHash(legacyBody),
+    };
+    const legacyStore = new AcceptedAgentOutputStore();
+    const legacyRef = legacyStore.putReadOnly(legacy);
+    expect(legacyStore.resolve(legacyRef)).toEqual(legacy);
+    expect(() => legacyStore.put(legacy)).toThrow(/current capability track required/);
+
+    const priorGeneration = structuredClone(current);
+    priorGeneration.capability_track.knot_coverage_manifest_hash = `sha256:${"d".repeat(64)}`;
+    const { capability_bundle_hash: ___, ...priorTrackBody } = priorGeneration.capability_track;
+    priorGeneration.capability_track.capability_bundle_hash = canonicalJsonHash(priorTrackBody);
+    const { accepted_output_hash: ____, ...priorRecordBody } = priorGeneration;
+    priorGeneration.accepted_output_hash = canonicalJsonHash(priorRecordBody);
+    const priorStore = new AcceptedAgentOutputStore();
+    const priorRef = priorStore.putReadOnly(priorGeneration);
+    expect(priorStore.resolve(priorRef)).toEqual(priorGeneration);
+    expect(() => priorStore.put(priorGeneration)).toThrow(/capability track/);
   });
 });

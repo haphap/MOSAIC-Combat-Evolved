@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "identity": { "type": "string", "minLength": 1 },
+    "stringArray": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "signalSelector": {
+      "type": "object",
+      "properties": {
+        "selector_version": { "const": "trusted_structured_signal_selector_v1" },
+        "dimension_namespace": { "$ref": "#/$defs/identity" },
+        "direction_keys": { "$ref": "#/$defs/stringArray" },
+        "direction_enum_version": { "const": "trusted_direction_enum_v1" },
+        "numeric_signal_suffixes": { "$ref": "#/$defs/stringArray" },
+        "numeric_normalization": { "const": "bounded_abs_v1" },
+        "unknown_policy": { "const": "explicit_unknown" }
+      },
+      "required": [
+        "selector_version",
+        "dimension_namespace",
+        "direction_keys",
+        "direction_enum_version",
+        "numeric_signal_suffixes",
+        "numeric_normalization",
+        "unknown_policy"
+      ],
+      "additionalProperties": false
+    },
+    "claimSpec": {
+      "type": "object",
+      "properties": {
+        "spec_version": { "const": "structured_conclusion_claim_spec_v1" },
+        "dimension_namespace": { "$ref": "#/$defs/identity" },
+        "direction_keys": { "$ref": "#/$defs/stringArray" },
+        "direction_enum_version": { "const": "trusted_direction_enum_v1" },
+        "free_text_authority": { "const": false },
+        "unknown_policy": { "const": "explicit_unknown" }
+      },
+      "required": [
+        "spec_version",
+        "dimension_namespace",
+        "direction_keys",
+        "direction_enum_version",
+        "free_text_authority",
+        "unknown_policy"
+      ],
+      "additionalProperties": false
+    },
+    "comparator": {
+      "type": "object",
+      "properties": {
+        "comparator_version": { "const": "same_dimension_polarity_v1" },
+        "dimension_match": { "const": "exact" },
+        "aggregation": { "const": "max_strength_v1" },
+        "comparison": { "const": "support_minus_contradiction" },
+        "materiality_threshold": { "type": "number", "minimum": 0 },
+        "unknown_policy": { "const": "abstain" }
+      },
+      "required": [
+        "comparator_version",
+        "dimension_match",
+        "aggregation",
+        "comparison",
+        "materiality_threshold",
+        "unknown_policy"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "properties": {
+    "schema_version": { "const": "knot_tool_coverage_manifest_v2" },
+    "capability_binding_manifest_hash": { "$ref": "#/$defs/hash" },
+    "tool_environment_hash": { "$ref": "#/$defs/hash" },
+    "coverage": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "binding_id": { "type": "string", "pattern": "^binding:[0-9a-f]{64}$" },
+          "agent_id": { "$ref": "#/$defs/identity" },
+          "stage": { "$ref": "#/$defs/identity" },
+          "phase": { "$ref": "#/$defs/identity" },
+          "semantic_capability_id": { "$ref": "#/$defs/identity" },
+          "tool_id": { "$ref": "#/$defs/identity" },
+          "argument_schema_hash": { "$ref": "#/$defs/hash" },
+          "argument_domain_selector_hash": { "$ref": "#/$defs/hash" },
+          "materializer_contract_hash": { "$ref": "#/$defs/hash" },
+          "privacy_contract_hash": { "$ref": "#/$defs/hash" },
+          "route_contract_hash": { "$ref": "#/$defs/hash" },
+          "tool_environment_hash": { "$ref": "#/$defs/hash" },
+          "snapshot_audit_context_version": { "const": "snapshot_bundle_audit_context_v1" },
+          "capability_audit_context_version": { "const": "capability_audit_context_v1" },
+          "result_event_evaluator_version": { "const": "server_tool_result_event_v1" },
+          "binding_signal_projection_version": { "const": "binding_signal_projection_v1" },
+          "accepted_lineage_evaluator_version": { "const": "accepted_claim_lineage_v3" },
+          "runtime_blocker_policy_version": { "const": "runtime_blocker_exclusion_v1" },
+          "signal_selector_contract": { "$ref": "#/$defs/signalSelector" },
+          "signal_selector_contract_hash": { "$ref": "#/$defs/hash" },
+          "claim_comparison_spec_contract": { "$ref": "#/$defs/claimSpec" },
+          "claim_comparison_spec_contract_hash": { "$ref": "#/$defs/hash" },
+          "trusted_comparator_contract": { "$ref": "#/$defs/comparator" },
+          "trusted_comparator_contract_hash": { "$ref": "#/$defs/hash" },
+          "coverage_row_hash": { "$ref": "#/$defs/hash" }
+        },
+        "required": [
+          "binding_id",
+          "agent_id",
+          "stage",
+          "phase",
+          "semantic_capability_id",
+          "tool_id",
+          "argument_schema_hash",
+          "argument_domain_selector_hash",
+          "materializer_contract_hash",
+          "privacy_contract_hash",
+          "route_contract_hash",
+          "tool_environment_hash",
+          "snapshot_audit_context_version",
+          "capability_audit_context_version",
+          "result_event_evaluator_version",
+          "binding_signal_projection_version",
+          "accepted_lineage_evaluator_version",
+          "runtime_blocker_policy_version",
+          "signal_selector_contract",
+          "signal_selector_contract_hash",
+          "claim_comparison_spec_contract",
+          "claim_comparison_spec_contract_hash",
+          "trusted_comparator_contract",
+          "trusted_comparator_contract_hash",
+          "coverage_row_hash"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "manifest_hash": { "$ref": "#/$defs/hash" }
+  },
+  "required": [
+    "schema_version",
+    "capability_binding_manifest_hash",
+    "tool_environment_hash",
+    "coverage",
+    "manifest_hash"
+  ],
+  "additionalProperties": false
+}

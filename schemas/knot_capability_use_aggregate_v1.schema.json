@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "knot_capability_use_aggregate_v1"
+    },
+    "binding_id": {
+      "type": "string",
+      "pattern": "^binding:[0-9a-f]{64}$"
+    },
+    "eligible_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ready_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "called_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "succeeded_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "used_in_accepted_evidence_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "counterevidence_available_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "counterevidence_handled_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "runtime_blocker_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "excluded_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "gap_counts": {
+      "type": "object",
+      "properties": {
+        "not_called": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "call_failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "succeeded_not_used": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "counterevidence_ignored": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "not_called",
+        "call_failed",
+        "succeeded_not_used",
+        "counterevidence_ignored"
+      ],
+      "additionalProperties": false
+    },
+    "model_controllable_gap_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "opaque_failure_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "aggregate_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "binding_id",
+    "eligible_count",
+    "ready_count",
+    "called_count",
+    "succeeded_count",
+    "used_in_accepted_evidence_count",
+    "counterevidence_available_count",
+    "counterevidence_handled_count",
+    "runtime_blocker_count",
+    "excluded_count",
+    "gap_counts",
+    "model_controllable_gap_count",
+    "opaque_failure_refs",
+    "aggregate_hash"
+  ],
+  "additionalProperties": false
+}

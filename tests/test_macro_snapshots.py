@@ -24,7 +24,12 @@ from scripts.build_structured_smoke_fixtures import _synthetic_commodity_conditi
 ROLE_SERIES = {
     "china": ("cn_gdp", "cn_cpi", "cn_credit", "cn_export", "cn_fiscal"),
     "us_economy": ("GDPC1", "CPIAUCSL", "PAYEMS", "RSAFS"),
-    "eu_economy": ("eu_gdp", "eu_hicp", "eu_unemployment", "eu_retail"),
+    "eu_economy": (
+        "eu_gdp",
+        "eu_hicp",
+        "eu_unemployment",
+        "eu_household_consumption",
+    ),
     "central_bank": (
         "pboc_omo_net_injection",
         "domestic_liquidity_dr007",
@@ -32,8 +37,8 @@ ROLE_SERIES = {
         "credit_condition_spread",
     ),
     "us_financial_conditions": (
-        "fed_balance_sheet",
-        "us_curve_2s10s",
+        "fed_effr",
+        "DGS10",
         "BAA10Y",
         "DTWEXBGS",
     ),
@@ -51,16 +56,13 @@ ROLE_SERIES = {
     ),
     "geopolitical": ("geopolitical_event_severity",),
     "institutional_flow": (
-        "market_flow_net_amount",
-        "sector_rotation_net_amount",
         "etf_share_change",
-        "crowding_concentration",
     ),
 }
 
 INSTITUTIONAL_FLOW_COVERAGE = {
     component: {"eligible_count": 100, "observed_count": 95, "coverage_ratio": 0.95}
-    for component in ("market_wide_flow", "sector_rotation", "etf_share", "crowding")
+    for component in ("etf_share",)
 }
 FINANCIAL_CONTEXT_ROLE = {
     "central_bank": "china",
@@ -142,28 +144,32 @@ def source_for(role: str, series_id: str) -> str:
             "cn_fiscal": "official.mof_general_public_budget",
         },
         "eu_economy": {
-            "eu_gdp": "eurostat.namq_10_gdp",
-            "eu_hicp": "eurostat.prc_hicp_minr",
-            "eu_unemployment": "eurostat.une_rt_m",
-            "eu_retail": "eurostat.sts_trtu_m",
+            "eu_gdp": "ecb.MNA.Q.Y.B6.W2.S1.S1.B.B1GQ._Z._Z._Z.EUR.LR.N",
+            "eu_hicp": "ecb.HICP.M.B6.N.000000.4D0.ANR",
+            "eu_unemployment": "ecb.LFSI.M.B6.S.UNEHRT.TOTAL0.15_74.T",
+            "eu_household_consumption": (
+                "ecb.MNA.Q.Y.B6.W0.S1M.S1.D.P31._Z._Z._T.EUR.LR.N"
+            ),
         },
         "central_bank": {
             "pboc_": "official.pboc_omo_catalog",
             "domestic_liquidity_": "tushare.shibor_overnight",
-            "cn_curve_": "tushare.yc_cb_cn_government_10y",
+            "cn_curve_": "official.mof_chinabond_government_10y",
             "credit_condition_": "official.pboc_tsfin_flow_stock",
         },
         "us_financial_conditions": {
-            "fed_": "official.fomc_statement",
-            "us_curve_": "tushare.us_tycr_nominal_curve",
+            "fed_effr": "official.nyfed_effr",
+            "fed_sofr": "official.nyfed_sofr",
+            "dgs": "tushare.us_tycr_nominal_curve",
+            "usdcnh": "tushare.fx_daily.USD_CNY",
             "us_credit_": "ALFRED",
             "broad_dollar_": "ALFRED",
         },
         "euro_area_financial_conditions": {
-            "ecb_": "official.ecb_decision_statement",
+            "ecb_": "ecb.FM.B.U2.EUR.4F.KR.DFR.LEV",
             "euro_area_curve_": "ecb.YC.B.U2.EUR.4F.G_N_A.SV_C_YM.SR_10Y",
             "euro_area_bank_credit_": "ecb.BSI.M.U2.Y.U.A20T.A.I.U2.2240.Z01.A",
-            "eur_": "ecb.CISS.D.U2.Z0Z.4F.EC.SS_CIN.IDX",
+            "eur_": "ecb.RDF.D.D0.Z0Z.4F.EC.DFTSV.PR",
         },
         "commodities": {
             "energy_": "tushare.fut_daily.SC@INE",
@@ -172,10 +178,9 @@ def source_for(role: str, series_id: str) -> str:
             "agriculture_": "tushare.fut_daily.C@DCE",
         },
         "institutional_flow": {
-            "market_flow_": "tushare.moneyflow_hsgt",
+            "market_flow_": "tushare.moneyflow",
             "sector_rotation_": "tushare.moneyflow_ind_ths",
             "etf_share_": "tushare.fund_share",
-            "crowding_": "tushare.daily_basic",
         },
     }
     for prefix, source in prefixes[role].items():
@@ -240,9 +245,7 @@ def payload(role="china", **overrides):
                     else [
                         observation(
                             series_id=series_id,
-                            source=source_for(
-                                FINANCIAL_CONTEXT_ROLE[role], series_id
-                            ),
+                            source=source_for(FINANCIAL_CONTEXT_ROLE[role], series_id),
                         )
                         for series_id in (
                             ROLE_SERIES["china"][:3]
@@ -308,12 +311,34 @@ def test_active_snapshot_schema_accepts_loaded_event_bound_tool_payload(
     monkeypatch.setenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", "structured_smoke")
     monkeypatch.setattr(
         "mosaic.dataflows.macro_snapshots.build_role_event_snapshot",
-        lambda consumer_agent, _as_of_date: _role_event_snapshot(consumer_agent),
+        lambda consumer_agent,
+        _as_of_date,
+        *,
+        historical_replay_captured_at=None: _role_event_snapshot(consumer_agent),
     )
 
     snapshot = load_role_snapshot(role, "2024-06-30", root=tmp_path)
 
     _assert_active_snapshot_schema(snapshot)
+
+
+def test_production_snapshot_requires_ready_build_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    role = "institutional_flow"
+    as_of_date = "2024-06-30"
+    path = tmp_path / as_of_date / f"{role}.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(payload(role=role)), encoding="utf-8")
+    monkeypatch.setenv(
+        "MOSAIC_AGENT_MATERIALIZATION_DB", str(tmp_path / "missing-ledger.sqlite3")
+    )
+
+    with pytest.raises(
+        DataVendorUnavailable,
+        match=f"MACRO_SNAPSHOT_BUILD_RECEIPT_REQUIRED:{role}:{as_of_date}",
+    ):
+        load_role_snapshot(role, as_of_date, root=tmp_path)
 
 
 def test_commodities_snapshot_requires_deterministic_curve_and_inventory_inputs():
@@ -333,7 +358,8 @@ def test_commodities_snapshot_requires_deterministic_curve_and_inventory_inputs(
         "M@DCE",
     }
     assert all(
-        family["term_structure"]["state"] in {
+        family["term_structure"]["state"]
+        in {
             "CONTANGO",
             "BACKWARDATION",
             "FLAT",
@@ -397,9 +423,7 @@ def test_same_day_observation_after_a_share_decision_cutoff_is_rejected(field):
     rows = payload()["observations"]
     rows[0] = {**rows[0], field: "2024-06-30T15:00:01+08:00"}
     with pytest.raises(DataVendorUnavailable, match="future macro observation"):
-        validate_role_snapshot(
-            payload(observations=rows), "china", "2024-06-30"
-        )
+        validate_role_snapshot(payload(observations=rows), "china", "2024-06-30")
 
 
 @pytest.mark.parametrize("field", ["released_at", "vintage_at"])
@@ -428,9 +452,7 @@ def test_role_snapshot_rejects_cross_role_series():
     bad = payload(
         role="central_bank",
         observations=[
-            observation(
-                series_id="cn_cpi", source="official.pboc_omo_catalog"
-            )
+            observation(series_id="cn_cpi", source="official.pboc_omo_catalog")
         ],
     )
     with pytest.raises(
@@ -512,9 +534,7 @@ def test_alfred_series_use_exact_role_ownership_without_cross_role_fallback():
     financial = payload(
         role="us_financial_conditions",
         observations=[
-            observation(
-                series_id="fed_balance_sheet", source="official.fomc_statement"
-            ),
+            observation(series_id="fed_effr", source="official.nyfed_effr"),
             observation(series_id="DFII10", source="ALFRED"),
             observation(series_id="NFCI", source="ALFRED"),
             observation(series_id="DTWEXBGS", source="ALFRED"),
@@ -524,12 +544,23 @@ def test_alfred_series_use_exact_role_ownership_without_cross_role_fallback():
         financial, "us_financial_conditions", "2024-06-30"
     )
     assert {row["series_id"] for row in accepted["observations"]} == {
-        "fed_balance_sheet",
+        "fed_effr",
         "DFII10",
         "NFCI",
         "DTWEXBGS",
     }
     assert ALFRED_SERIES_ROLE_MAP["VIXCLS"] == "us_financial_conditions"
+    assert not {
+        "DGS2",
+        "DGS3MO",
+        "DGS10",
+        "DGS30",
+        "DEXCHUS",
+    } & {
+        series_id
+        for series_id, owner in ALFRED_SERIES_ROLE_MAP.items()
+        if owner == "us_financial_conditions"
+    }
 
 
 @pytest.mark.parametrize(
@@ -611,14 +642,13 @@ def test_generic_macro_snapshots_cannot_embed_event_prose():
         "title": "policy event",
         "evidence_id": "event:event-1",
     }
-    for role in ("geopolitical", "china"):
-        denied = payload(role=role, observations=[], events=[event])
-        with pytest.raises(DataVendorUnavailable, match="cannot embed event prose"):
-            validate_role_snapshot(denied, role, "2024-06-30")
+    denied = payload(role="china", observations=[], events=[event])
+    with pytest.raises(DataVendorUnavailable, match="cannot embed event prose"):
+        validate_role_snapshot(denied, "china", "2024-06-30")
 
 
-def test_geopolitical_uses_dedicated_registry_snapshot_contract():
-    with pytest.raises(DataVendorUnavailable, match="GeopoliticalEventsSnapshot"):
+def test_retired_geopolitical_role_has_no_snapshot_contract():
+    with pytest.raises(DataVendorUnavailable, match="unknown macro snapshot role"):
         validate_role_snapshot(
             payload(role="geopolitical", observations=[], events=[]),
             "geopolitical",
@@ -628,7 +658,9 @@ def test_geopolitical_uses_dedicated_registry_snapshot_contract():
 
 def test_observations_reject_news_and_unregistered_sources():
     news = payload(observations=[observation(source="gdelt_event_gkg")])
-    with pytest.raises(DataVendorUnavailable, match="event library|unapproved"):
+    with pytest.raises(
+        DataVendorUnavailable, match="unregistered macro observation source identity"
+    ):
         validate_role_snapshot(news, "china", "2024-06-30")
 
     unknown = payload(observations=[observation(source="unregistered_vendor")])
@@ -638,9 +670,7 @@ def test_observations_reject_news_and_unregistered_sources():
         validate_role_snapshot(unknown, "china", "2024-06-30")
 
     wrong_endpoint = payload(
-        observations=[
-            observation(series_id="cn_cpi", source="tushare.cn_gdp")
-        ]
+        observations=[observation(series_id="cn_cpi", source="tushare.cn_gdp")]
     )
     with pytest.raises(DataVendorUnavailable, match="not registered for china/prices"):
         validate_role_snapshot(wrong_endpoint, "china", "2024-06-30")
@@ -660,61 +690,40 @@ def test_observations_reject_news_and_unregistered_sources():
     ],
 )
 def test_registered_snapshot_builder_rejects_identity_only_sources(tmp_path, role):
-    with pytest.raises(DataVendorUnavailable, match=f"MACRO_ROLE_SOURCE_GAP:{role}"):
+    with pytest.raises(
+        DataVendorUnavailable,
+        match=f"DIRECT_MACRO_SNAPSHOT_WRITE_REQUIRES_ARCHIVE_RECEIPT:{role}",
+    ):
         write_registered_role_snapshot(
             role=role,
             as_of_date="2024-06-30",
             observations=payload(role=role)["observations"],
             component_coverage=(
-                INSTITUTIONAL_FLOW_COVERAGE
-                if role == "institutional_flow"
-                else None
+                INSTITUTIONAL_FLOW_COVERAGE if role == "institutional_flow" else None
             ),
             root=tmp_path,
         )
     assert not (tmp_path / "2024-06-30" / f"{role}.json").exists()
 
 
-def test_institutional_flow_requires_all_four_market_components():
+def test_institutional_flow_requires_etf_component():
     accepted = validate_role_snapshot(
         payload(role="institutional_flow"), "institutional_flow", "2024-06-30"
     )
     assert accepted["direct_data_quality"] == pytest.approx(0.95)
     assert set(accepted["component_coverage"]) == set(INSTITUTIONAL_FLOW_COVERAGE)
 
-    for series in (
-        ["lhb_sampled_stock"],
-        ["market_flow_net_amount"],
-        [
-            "market_flow_net_amount",
-            "sector_rotation_net_amount",
-            "etf_share_change",
-        ],
+    substituted = payload(role="institutional_flow")
+    substituted["observations"][0]["source"] = "tushare.moneyflow_hsgt"
+    with pytest.raises(
+        DataVendorUnavailable, match="unregistered macro observation source identity"
     ):
-        with pytest.raises(DataVendorUnavailable, match="missing required components|does not map"):
-            validate_role_snapshot(
-                payload(
-                    role="institutional_flow",
-                    observations=[
-                        observation(
-                            series_id=item,
-                            source=(
-                                "tushare.moneyflow_hsgt"
-                                if item == "lhb_sampled_stock"
-                                else source_for("institutional_flow", item)
-                            ),
-                        )
-                        for item in series
-                    ],
-                ),
-                "institutional_flow",
-                "2024-06-30",
-            )
+        validate_role_snapshot(substituted, "institutional_flow", "2024-06-30")
 
 
 def test_institutional_flow_coverage_is_exact_and_fail_closed():
     missing = dict(INSTITUTIONAL_FLOW_COVERAGE)
-    missing.pop("crowding")
+    missing.pop("etf_share")
     with pytest.raises(DataVendorUnavailable, match="must match"):
         validate_role_snapshot(
             payload(role="institutional_flow", component_coverage=missing),
@@ -738,7 +747,7 @@ def test_institutional_flow_coverage_is_exact_and_fail_closed():
     inconsistent = {
         key: dict(value) for key, value in INSTITUTIONAL_FLOW_COVERAGE.items()
     }
-    inconsistent["market_wide_flow"]["coverage_ratio"] = 1.0
+    inconsistent["etf_share"]["coverage_ratio"] = 1.0
     with pytest.raises(DataVendorUnavailable, match="inconsistent"):
         validate_role_snapshot(
             payload(role="institutional_flow", component_coverage=inconsistent),
@@ -747,12 +756,15 @@ def test_institutional_flow_coverage_is_exact_and_fail_closed():
         )
 
 
-def test_unverified_required_source_branch_blocks_production_load(tmp_path: Path):
+def test_released_required_source_branches_still_require_build_receipt(tmp_path: Path):
     role = "central_bank"
     path = tmp_path / "2024-06-30" / f"{role}.json"
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps(payload(role=role)), encoding="utf-8")
-    with pytest.raises(DataVendorUnavailable, match="MACRO_ROLE_SOURCE_GAP:central_bank"):
+    with pytest.raises(
+        DataVendorUnavailable,
+        match="MACRO_SNAPSHOT_BUILD_RECEIPT_REQUIRED:central_bank:2024-06-30",
+    ):
         load_role_snapshot(role, "2024-06-30", root=tmp_path)
 
 
@@ -768,7 +780,7 @@ def test_structured_smoke_gap_bypass_requires_explicit_fixture_marker(
     monkeypatch.setenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", "structured_smoke")
     monkeypatch.setattr(
         "mosaic.dataflows.macro_snapshots.build_role_event_snapshot",
-        lambda *_args: {
+        lambda *_args, historical_replay_captured_at=None: {
             "coverage": {"coverage_completeness": "COMPLETE"},
             "role_event_snapshot_hash": "sha256:fixture",
         },
@@ -788,8 +800,8 @@ def test_event_library_input_is_not_accepted_through_generic_macro_contract():
     duplicate = {**first, "event_id": "event-2", "evidence_id": "event:event-2"}
     with pytest.raises(DataVendorUnavailable, match="cannot embed event prose"):
         validate_role_snapshot(
-            payload(role="geopolitical", observations=[], events=[first, duplicate]),
-            "geopolitical",
+            payload(role="china", observations=[], events=[first, duplicate]),
+            "china",
             "2024-06-30",
         )
 

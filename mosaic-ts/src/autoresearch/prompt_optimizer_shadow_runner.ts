@@ -59,6 +59,25 @@ export const PromptOptimizerShadowPlanSchema = z
 
 export type PromptOptimizerShadowPlan = z.infer<typeof PromptOptimizerShadowPlanSchema>;
 
+export interface PromptOptimizerShadowFixedPointAuthority {
+  tool_environment_hash: string;
+  execution_behavior_release_hash: string;
+}
+
+export function assertPromptOptimizerShadowFixedPoint(
+  environment: PromptOptimizerShadowPlan["environment"],
+  authority: PromptOptimizerShadowFixedPointAuthority,
+): void {
+  if (environment.toolConfigHash !== authority.tool_environment_hash) {
+    throw new Error("prompt_optimizer_shadow_tool_environment_drift");
+  }
+  if (
+    environment.executionBehaviorRelease.release_hash !== authority.execution_behavior_release_hash
+  ) {
+    throw new Error("prompt_optimizer_shadow_execution_behavior_drift");
+  }
+}
+
 /** Execute the preregistered family in shadow mode; this function has no release activation path. */
 export async function runPromptOptimizerShadowPlan(input: {
   plan: PromptOptimizerShadowPlan;
@@ -66,9 +85,11 @@ export async function runPromptOptimizerShadowPlan(input: {
   executor: PromptExperimentAgentExecutor;
   evaluator: PromptExperimentEvaluator;
   authorizedPolicyHashes: ReadonlySet<string>;
+  fixedPointAuthority: PromptOptimizerShadowFixedPointAuthority;
   now?: () => string;
 }) {
   const plan = PromptOptimizerShadowPlanSchema.parse(input.plan);
+  assertPromptOptimizerShadowFixedPoint(plan.environment, input.fixedPointAuthority);
   const policyHash = canonicalJsonHash(plan.promotionPolicy);
   if (!input.authorizedPolicyHashes.has(policyHash)) {
     throw new Error("prompt_optimizer_shadow_policy_not_authorized");

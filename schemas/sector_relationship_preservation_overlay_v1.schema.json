@@ -1,0 +1,284 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sector/Relationship staged capability preservation overlay v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "sector_relationship_preservation_overlay_v1" },
+    "activation_state": { "const": "staged" },
+    "activation_gate": { "const": "PR12_L1_L2_ATOMIC_ACTIVATION" },
+    "base_active_agent_tool_manifest_hash": { "$ref": "#/$defs/sha256" },
+    "base_agent_data_route_manifest_hash": { "$ref": "#/$defs/sha256" },
+    "query_bundle_contract_version": { "const": "frozen_adaptive_query_bundle_v1" },
+    "sector_adaptive_max_rounds": { "const": 3 },
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/route" }
+    },
+    "bindings": {
+      "type": "array",
+      "minItems": 70,
+      "maxItems": 70,
+      "items": { "$ref": "#/$defs/binding" }
+    },
+    "knot_coverage": {
+      "type": "array",
+      "minItems": 70,
+      "maxItems": 70,
+      "items": { "$ref": "#/$defs/coverage" }
+    },
+    "significance_fixtures": {
+      "type": "array",
+      "minItems": 70,
+      "maxItems": 70,
+      "items": { "$ref": "#/$defs/fixture" }
+    },
+    "manifest_hash": { "$ref": "#/$defs/sha256" }
+  },
+  "required": [
+    "schema_version",
+    "activation_state",
+    "activation_gate",
+    "base_active_agent_tool_manifest_hash",
+    "base_agent_data_route_manifest_hash",
+    "query_bundle_contract_version",
+    "sector_adaptive_max_rounds",
+    "routes",
+    "bindings",
+    "knot_coverage",
+    "significance_fixtures",
+    "manifest_hash"
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "binding_id": {
+      "type": "string",
+      "pattern": "^binding:[0-9a-f]{64}$"
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "route_id": { "type": "string", "minLength": 1 },
+        "source_family": { "type": "string", "minLength": 1 },
+        "contract_version": { "type": "string", "minLength": 1 },
+        "pit_strategy": { "type": "string", "minLength": 1 },
+        "implementation_stage": { "type": "string", "minLength": 1 }
+      },
+      "required": [
+        "route_id",
+        "source_family",
+        "contract_version",
+        "pit_strategy",
+        "implementation_stage"
+      ]
+    },
+    "adaptive_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_rounds": { "const": 3 },
+        "model_selects_arguments": { "const": true },
+        "transport_allowed_during_prepare": { "const": true },
+        "transport_allowed_during_call": { "const": false }
+      },
+      "required": [
+        "max_rounds",
+        "model_selects_arguments",
+        "transport_allowed_during_prepare",
+        "transport_allowed_during_call"
+      ]
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "binding_id": { "$ref": "#/$defs/binding_id" },
+        "agent_id": { "type": "string", "minLength": 1 },
+        "stage": { "type": "string", "minLength": 1 },
+        "phase": { "const": "analysis" },
+        "semantic_capability_id": { "type": "string", "minLength": 1 },
+        "tool_id": { "type": "string", "minLength": 1 },
+        "disposition": { "enum": ["restored", "introduced"] },
+        "argument_schema": { "type": "object" },
+        "argument_schema_hash": { "$ref": "#/$defs/sha256" },
+        "argument_semantics": { "type": "object" },
+        "authorized_domain_contract": { "type": "object" },
+        "argument_domain_selector_hash": { "$ref": "#/$defs/sha256" },
+        "output_semantics_hash": { "$ref": "#/$defs/sha256" },
+        "source_route_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "route_contract_hash": { "$ref": "#/$defs/sha256" },
+        "materializer_contract": { "type": "object" },
+        "materializer_contract_hash": { "$ref": "#/$defs/sha256" },
+        "query_bundle_contract_version": { "const": "frozen_adaptive_query_bundle_v1" },
+        "privacy_class": {
+          "enum": [
+            "public_structured",
+            "private_redacted",
+            "public_source_private_digest",
+            "licensed_private"
+          ]
+        },
+        "privacy_contract": { "type": "object" },
+        "privacy_contract_hash": { "$ref": "#/$defs/sha256" },
+        "adaptive_query_contract": { "$ref": "#/$defs/adaptive_contract" },
+        "activation_state": { "const": "staged" },
+        "no_evidence_policy": {
+          "enum": ["RETURN_TRUE_EMPTY", "ABSTAIN_NO_FACTUAL_EDGE"]
+        }
+      },
+      "required": [
+        "binding_id",
+        "agent_id",
+        "stage",
+        "phase",
+        "semantic_capability_id",
+        "tool_id",
+        "disposition",
+        "argument_schema",
+        "argument_schema_hash",
+        "argument_semantics",
+        "authorized_domain_contract",
+        "argument_domain_selector_hash",
+        "output_semantics_hash",
+        "source_route_ids",
+        "route_contract_hash",
+        "materializer_contract",
+        "materializer_contract_hash",
+        "query_bundle_contract_version",
+        "privacy_class",
+        "privacy_contract",
+        "privacy_contract_hash",
+        "adaptive_query_contract",
+        "activation_state",
+        "no_evidence_policy"
+      ]
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "binding_id": { "$ref": "#/$defs/binding_id" },
+        "agent_id": { "type": "string", "minLength": 1 },
+        "stage": { "type": "string", "minLength": 1 },
+        "semantic_capability_id": { "type": "string", "minLength": 1 },
+        "tool_id": { "type": "string", "minLength": 1 },
+        "activation_state": { "const": "staged" },
+        "availability_evaluated": { "const": true },
+        "called_evaluated": { "const": true },
+        "succeeded_evaluated": { "const": true },
+        "used_in_accepted_evidence_evaluated": { "const": true },
+        "counterevidence_handled_evaluated": { "const": true },
+        "lineage_evaluator_contract_version": {
+          "const": "knot_binding_lineage_evaluator_v1"
+        },
+        "significance_fixture_id": {
+          "type": "string",
+          "pattern": "^fixture:[0-9a-f]{64}$"
+        },
+        "significance_fixture_hash": { "$ref": "#/$defs/sha256" },
+        "candidate_generation_allowed": { "const": false },
+        "coverage_hash": { "$ref": "#/$defs/sha256" }
+      },
+      "required": [
+        "binding_id",
+        "agent_id",
+        "stage",
+        "semantic_capability_id",
+        "tool_id",
+        "activation_state",
+        "availability_evaluated",
+        "called_evaluated",
+        "succeeded_evaluated",
+        "used_in_accepted_evidence_evaluated",
+        "counterevidence_handled_evaluated",
+        "lineage_evaluator_contract_version",
+        "significance_fixture_id",
+        "significance_fixture_hash",
+        "candidate_generation_allowed",
+        "coverage_hash"
+      ]
+    },
+    "utility": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accepted_utility": { "type": "number" }
+      },
+      "required": ["accepted_utility"]
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tool_result_fingerprint": { "$ref": "#/$defs/sha256" },
+        "typed_edge_hash": { "$ref": "#/$defs/sha256" },
+        "accepted_claim_graph_hash": { "$ref": "#/$defs/sha256" },
+        "counterevidence_rule_hash": { "$ref": "#/$defs/sha256" },
+        "resolution_code": {
+          "enum": ["qualified", "rebutted_with_evidence", "reversed", "abstained"]
+        }
+      },
+      "required": [
+        "tool_result_fingerprint",
+        "typed_edge_hash",
+        "accepted_claim_graph_hash",
+        "counterevidence_rule_hash",
+        "resolution_code"
+      ]
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "const": "paired_binding_significance_fixture_v1" },
+        "binding_id": { "$ref": "#/$defs/binding_id" },
+        "fixture_id": {
+          "type": "string",
+          "pattern": "^fixture:[0-9a-f]{64}$"
+        },
+        "evaluator_contract_version": { "const": "knot_binding_lineage_evaluator_v1" },
+        "paired_sample_count": { "type": "integer", "minimum": 1 },
+        "minimum_paired_sample_count": { "type": "integer", "minimum": 1 },
+        "minimum_effect": { "type": "number", "exclusiveMinimum": 0 },
+        "confidence_interval_lower_bound": { "type": "number", "exclusiveMinimum": 0 },
+        "ready_used_handled": { "$ref": "#/$defs/utility" },
+        "not_called": { "$ref": "#/$defs/utility" },
+        "call_failed": { "$ref": "#/$defs/utility" },
+        "succeeded_not_used": { "$ref": "#/$defs/utility" },
+        "counterevidence_handled": { "$ref": "#/$defs/utility" },
+        "counterevidence_ignored": { "$ref": "#/$defs/utility" },
+        "lineage_fixture": { "$ref": "#/$defs/lineage" },
+        "fixture_hash": { "$ref": "#/$defs/sha256" }
+      },
+      "required": [
+        "schema_version",
+        "binding_id",
+        "fixture_id",
+        "evaluator_contract_version",
+        "paired_sample_count",
+        "minimum_paired_sample_count",
+        "minimum_effect",
+        "confidence_interval_lower_bound",
+        "ready_used_handled",
+        "not_called",
+        "call_failed",
+        "succeeded_not_used",
+        "counterevidence_handled",
+        "counterevidence_ignored",
+        "lineage_fixture",
+        "fixture_hash"
+      ]
+    }
+  }
+}

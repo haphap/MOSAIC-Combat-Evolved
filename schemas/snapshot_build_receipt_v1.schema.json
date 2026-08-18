@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent snapshot build receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "build_id", "agent_id", "stage", "tool_id", "as_of", "as_of_cutoff", "source_receipt_hashes", "compiler_version", "output_contract_version", "output_path", "output_hash", "pit_mode", "earliest_trustworthy_date", "required_route_ids", "missing_route_ids", "terminal_state", "blocker_codes", "build_started_at", "build_finished_at", "receipt_hash"],
+  "properties": {
+    "schema_version": {"const": "snapshot_build_receipt_v1"},
+    "build_id": {"$ref": "#/$defs/id"},
+    "agent_id": {"$ref": "#/$defs/id"},
+    "stage": {"$ref": "#/$defs/id"},
+    "tool_id": {"$ref": "#/$defs/id"},
+    "as_of": {"type": "string", "format": "date"},
+    "as_of_cutoff": {"type": "string", "format": "date-time"},
+    "source_receipt_hashes": {"$ref": "#/$defs/hashList"},
+    "compiler_version": {"$ref": "#/$defs/id"},
+    "output_contract_version": {"$ref": "#/$defs/id"},
+    "output_path": {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^[^/]"},
+    "output_hash": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]},
+    "pit_mode": {"enum": ["OBSERVED_LIVE", "AUTHORITATIVE_VINTAGE_REPLAY", "MIXED_AUTHORITY"]},
+    "earliest_trustworthy_date": {"type": ["string", "null"], "format": "date"},
+    "required_route_ids": {"allOf": [{"$ref": "#/$defs/idList"}, {"minItems": 1}]},
+    "missing_route_ids": {"$ref": "#/$defs/idList"},
+    "terminal_state": {"enum": ["READY", "BLOCKED", "FAILED"]},
+    "blocker_codes": {"$ref": "#/$defs/idList"},
+    "build_started_at": {"type": "string", "format": "date-time"},
+    "build_finished_at": {"type": "string", "format": "date-time"},
+    "receipt_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"},
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "idList": {"type": "array", "items": {"$ref": "#/$defs/id"}, "uniqueItems": true},
+    "hashList": {"type": "array", "items": {"$ref": "#/$defs/sha256"}, "uniqueItems": true}
+  }
+}

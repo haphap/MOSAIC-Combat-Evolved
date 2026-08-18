@@ -19,12 +19,14 @@ from zoneinfo import ZoneInfo
 
 from .cross_runtime_json import canonical_hash as _canonical_hash
 from .exceptions import DataVendorUnavailable
+from .sector_relationship_queries import _compact_etf_holdings
+from .tushare import _query_pro, get_etf_holdings
 from .role_events import (
     ROLE_EVENT_COVERAGE_VERSION,
-    ROLE_EVENT_CURRENCIES,
     ROLE_EVENT_SNAPSHOT_VERSION,
     build_role_event_snapshot,
 )
+from .runtime_paths import agent_cache_root, isolated_agent_runtime_path
 
 SECTOR_SNAPSHOT_SCHEMA_VERSION = "sector_research_snapshot_v4"
 RELATIONSHIP_SNAPSHOT_SCHEMA_VERSION = "relationship_research_snapshot_v3"
@@ -33,13 +35,14 @@ SECTOR_MEMBERSHIP_MAX_STALENESS_DAYS = 10
 SECTOR_MARKET_METRIC_MAX_STALENESS_DAYS = 10
 SECTOR_FUNDAMENTAL_METRIC_MAX_STALENESS_DAYS = 150
 SECTOR_ETF_SELECTION_MAX_STALENESS_DAYS = 31
-SECTOR_SOURCE_RECEIPT_SCHEMA_VERSION = "sector_registered_source_receipt_v1"
+LEGACY_SECTOR_SOURCE_RECEIPT_SCHEMA_VERSION = "sector_registered_source_receipt_v1"
+SECTOR_SOURCE_RECEIPT_SCHEMA_VERSION = "sector_registered_source_receipt_v2"
 SECTOR_ETF_DIRECTION_AUTHORITY_VERSION = "sector_etf_direction_authority_v1"
 SECTOR_ETF_DIRECTION_AUTHORITY_EFFECTIVE_FROM = "2026-07-01"
 SECTOR_ETF_DIRECTION_AUTHORITY_EFFECTIVE_TO: str | None = None
-RELATIONSHIP_SOURCE_RECEIPT_SCHEMA_VERSION = "relationship_registered_source_receipt_v2"
+RELATIONSHIP_SOURCE_RECEIPT_SCHEMA_VERSION = "relationship_registered_source_receipt_v3"
 RELATIONSHIP_SOURCE_EXTRACTOR_CONTRACT_VERSION = (
-    "relationship_top10_holder_extractor_v2"
+    "relationship_top10_holder_extractor_v3"
 )
 RELATIONSHIP_SOURCE_NORMALIZER_CONTRACT_VERSION = "relationship_source_normalizer_v1"
 RELATIONSHIP_MAX_FACTUAL_EDGES = 32
@@ -48,6 +51,9 @@ RELATIONSHIP_MAX_MATCHED_NON_EDGES = 32
 RELATIONSHIP_MAX_EVIDENCE_ITEMS = 128
 RELATIONSHIP_MAX_EDGE_EVIDENCE_IDS = 32
 RELATIONSHIP_MAX_ID_LENGTH = 128
+PAGINATION_POLICY_TERMINAL_CONFIRMED = "OFFSET_WITH_TERMINAL_CONFIRMATION"
+PAGINATION_POLICY_OFFICIAL_CAP = "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP"
+EXACT_SINGLE_PAGE_OFFICIAL_CAP = "EXACT_SINGLE_PAGE_OFFICIAL_CAP"
 _RELATIONSHIP_SECURITY_ID_PATTERN = re.compile(r"^\d{6}\.(?:SH|SZ|BJ)$")
 _RELATIONSHIP_TIMESTAMP_PATTERN = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
@@ -58,6 +64,8 @@ SECTOR_REQUIRED_SOURCE_ENDPOINTS = frozenset(
         "daily",
         "adj_factor",
         "daily_basic",
+        "stock_basic",
+        "suspend_d",
         "income",
         "cashflow",
         "moneyflow",
@@ -68,14 +76,43 @@ SECTOR_REQUIRED_SOURCE_ENDPOINTS = frozenset(
 SECTOR_ETF_SOURCE_ENDPOINTS = frozenset(
     {"fund_basic", "fund_daily", "fund_adj", "fund_share", "fund_nav"}
 )
-# Formal v1 facts consume shareholder disclosures plus PIT membership only.
+# Formal v3 facts consume shareholder disclosures, PIT membership, and the
+# independent active-listing authority used to exclude stale vendor members.
 # Price/adjustment routes are standard-sector metrics; float-holder and fund
 # portfolio routes remain unpromoted until they have their own typed extractor.
 RELATIONSHIP_REQUIRED_SOURCE_ENDPOINTS = frozenset(
     {
         "index_member_all",
+        "stock_basic",
         "top10_holders",
     }
+)
+SOURCE_BATCH_PAGINATION_POLICIES = {
+    "index_member_all": PAGINATION_POLICY_TERMINAL_CONFIRMED,
+    "income": PAGINATION_POLICY_OFFICIAL_CAP,
+    "cashflow": PAGINATION_POLICY_OFFICIAL_CAP,
+    "balancesheet": PAGINATION_POLICY_OFFICIAL_CAP,
+    "fina_indicator": PAGINATION_POLICY_OFFICIAL_CAP,
+    "stock_company": PAGINATION_POLICY_OFFICIAL_CAP,
+    "fina_mainbz": PAGINATION_POLICY_OFFICIAL_CAP,
+    "forecast": PAGINATION_POLICY_OFFICIAL_CAP,
+    "express": PAGINATION_POLICY_OFFICIAL_CAP,
+    "moneyflow": PAGINATION_POLICY_TERMINAL_CONFIRMED,
+    "fund_basic": PAGINATION_POLICY_TERMINAL_CONFIRMED,
+    "fund_daily": PAGINATION_POLICY_TERMINAL_CONFIRMED,
+    "fund_adj": PAGINATION_POLICY_TERMINAL_CONFIRMED,
+    "fund_share": PAGINATION_POLICY_TERMINAL_CONFIRMED,
+    "fund_nav": PAGINATION_POLICY_TERMINAL_CONFIRMED,
+    "fund_portfolio": PAGINATION_POLICY_TERMINAL_CONFIRMED,
+    "top10_holders": PAGINATION_POLICY_OFFICIAL_CAP,
+}
+_STOCK_BASIC_FIELDS = (
+    "ts_code,symbol,name,area,industry,cnspell,market,list_date,act_name,"
+    "act_ent_type,delist_date,list_status,exchange,curr_type,fullname,enname"
+)
+_STOCK_BASIC_CAPTURE_REQUESTS = tuple(
+    {"exchange": "", "list_status": status, "fields": _STOCK_BASIC_FIELDS}
+    for status in ("D", "L", "P")
 )
 SECTOR_UNIVERSE_MANIFEST_PATH = (
     Path(__file__).resolve().parents[2]
@@ -322,10 +359,24 @@ def _build_sector_etf_direction_authority(
     return {**body, "authority_hash": _canonical_hash(body)}
 
 
-SECTOR_ETF_DIRECTION_AUTHORITY = _build_sector_etf_direction_authority()
+SECTOR_ETF_DIRECTION_AUTHORITY = _build_sector_etf_direction_authority(
+    {
+        ("agriculture", "livestock_aquaculture"): ("159865.SZ",),
+        ("biotech", "biological_products"): ("512290.SH",),
+        ("consumer", "food_beverage"): ("515170.SH",),
+        ("energy", "coal"): ("515220.SH",),
+        ("financials", "banking"): ("512800.SH",),
+        ("industrials", "machinery"): ("516960.SH",),
+        ("real_estate_construction", "real_estate"): ("512200.SH",),
+        ("semiconductor", "semiconductor_equipment_materials"): ("512480.SH",),
+        ("technology", "computer"): ("515230.SH",),
+    }
+)
 
 
-def _validated_sector_etf_direction_authority(as_of: date) -> dict[str, Any]:
+def _validated_sector_etf_direction_authority(
+    as_of: date, *, allow_synthetic_pre_effective: bool = False
+) -> dict[str, Any]:
     authority = SECTOR_ETF_DIRECTION_AUTHORITY
     if not isinstance(authority, dict):
         raise DataVendorUnavailable("sector ETF direction authority is unavailable")
@@ -389,15 +440,26 @@ def _validated_sector_etf_direction_authority(as_of: date) -> dict[str, Any]:
         if effective_to_value is not None
         else None
     )
-    if as_of < effective_from or (effective_to is not None and as_of > effective_to):
+    if (
+        (as_of < effective_from and not allow_synthetic_pre_effective)
+        or (effective_to is not None and as_of > effective_to)
+    ):
         raise DataVendorUnavailable(
             "sector ETF direction authority is not effective for as_of"
         )
     return authority
 
 
-def _authoritative_etf_codes(role: str, direction_id: str, as_of: date) -> list[str]:
-    authority = _validated_sector_etf_direction_authority(as_of)
+def _authoritative_etf_codes(
+    role: str,
+    direction_id: str,
+    as_of: date,
+    *,
+    allow_synthetic_pre_effective: bool = False,
+) -> list[str]:
+    authority = _validated_sector_etf_direction_authority(
+        as_of, allow_synthetic_pre_effective=allow_synthetic_pre_effective
+    )
     return next(
         row["etf_ts_codes"]
         for row in authority["direction_families"]
@@ -405,12 +467,183 @@ def _authoritative_etf_codes(role: str, direction_id: str, as_of: date) -> list[
     )
 
 
+def _read_semiconductor_etf_basket(
+    etf_ts_code: str, as_of: date
+) -> tuple[str, list[dict[str, Any]], str]:
+    if etf_ts_code != "512480.SH":
+        raise DataVendorUnavailable("semiconductor ETF basket authority mismatch")
+    start_date = as_of - timedelta(days=6)
+    request = {
+        "ts_code": etf_ts_code,
+        "start_date": start_date.strftime("%Y%m%d"),
+        "end_date": as_of.strftime("%Y%m%d"),
+    }
+    frame = _query_pro("etf_sh_cons", **request)
+    try:
+        row_count = len(frame)
+        columns = {str(column) for column in frame.columns}
+        records = frame.to_dict(orient="records")
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise DataVendorUnavailable("semiconductor ETF basket response is invalid") from exc
+    required_columns = {
+        "trade_date",
+        "ts_code",
+        "con_code",
+        "con_name",
+        "qty",
+        "exchange",
+    }
+    if (
+        row_count >= 3000
+        or not required_columns <= columns
+        or not isinstance(records, list)
+    ):
+        raise DataVendorUnavailable("semiconductor ETF basket response is invalid")
+    dated_rows: list[tuple[date, Mapping[str, Any]]] = []
+    for row in records:
+        if not isinstance(row, Mapping):
+            raise DataVendorUnavailable("semiconductor ETF basket row is invalid")
+        if str(row.get("ts_code", "")).strip().upper() != etf_ts_code:
+            raise DataVendorUnavailable("semiconductor ETF basket ETF identity mismatch")
+        raw_trade_date = str(row.get("trade_date", "")).strip()
+        try:
+            trade_date = datetime.strptime(raw_trade_date, "%Y%m%d").date()
+        except (TypeError, ValueError) as exc:
+            raise DataVendorUnavailable("semiconductor ETF basket trade date is invalid") from exc
+        if trade_date < start_date or trade_date > as_of:
+            raise DataVendorUnavailable("semiconductor ETF basket trade date is outside request window")
+        dated_rows.append((trade_date, row))
+    eligible_rows = [row for row in dated_rows if row[0] <= as_of]
+    if not eligible_rows:
+        raise DataVendorUnavailable("semiconductor ETF basket has no cutoff-valid trade date")
+    latest_trade_date = max(row[0] for row in eligible_rows)
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for trade_date, row in eligible_rows:
+        if trade_date != latest_trade_date:
+            continue
+        ticker = str(row.get("con_code", "")).strip().upper()
+        if not re.fullmatch(r"\d{6}\.(?:SH|SZ)", ticker):
+            continue
+        try:
+            quantity = float(row.get("qty"))
+        except (TypeError, ValueError) as exc:
+            raise DataVendorUnavailable("semiconductor ETF basket quantity is invalid") from exc
+        if (
+            isinstance(row.get("qty"), bool)
+            or not math.isfinite(quantity)
+            or quantity < 0
+            or ticker in seen
+        ):
+            raise DataVendorUnavailable("semiconductor ETF basket row is invalid")
+        seen.add(ticker)
+        candidates.append({"ticker": ticker, "basket_quantity": quantity})
+    if not candidates:
+        raise DataVendorUnavailable("semiconductor ETF basket has no A-share candidates")
+    candidates.sort(key=lambda row: (-row["basket_quantity"], row["ticker"]))
+    source_content_hash = _canonical_hash(
+        {
+            "endpoint": "etf_sh_cons",
+            "request": request,
+            "trade_date": latest_trade_date.strftime("%Y%m%d"),
+            "candidates": candidates,
+        }
+    )
+    return latest_trade_date.isoformat(), candidates[:12], source_content_hash
+
+
+def _build_etf_holdings_candidate_snapshot(role: str, as_of_date: str) -> dict[str, Any]:
+    if role not in SECTOR_DIRECTION_IDS:
+        raise DataVendorUnavailable("sector ETF candidate role is not registered")
+    as_of = date.fromisoformat(as_of_date)
+    mapped = [
+        (direction_id, _authoritative_etf_codes(role, direction_id, as_of))
+        for direction_id in SECTOR_DIRECTION_IDS[role]
+    ]
+    mapped = [(direction_id, codes[0]) for direction_id, codes in mapped if codes]
+    if len(mapped) != 1:
+        raise DataVendorUnavailable("sector ETF candidate authority is not singular")
+    direction_id, etf_ts_code = mapped[0]
+    if role == "semiconductor":
+        trade_date, candidates, source_content_hash = _read_semiconductor_etf_basket(
+            etf_ts_code, as_of
+        )
+        body = {
+            "kind": "etf_holdings_candidates",
+            "status": "READY",
+            "sector_agent_id": role,
+            "as_of_date": as_of_date,
+            "direction_id": direction_id,
+            "etf_ts_code": etf_ts_code,
+            "trade_date": trade_date,
+            "candidates": candidates,
+            "source_route_id": "tushare.etf_holdings",
+            "source_content_hash": source_content_hash,
+        }
+        return {**body, "snapshot_hash": _canonical_hash(body)}
+    raw = get_etf_holdings(etf_ts_code, as_of_date)
+    compact = json.loads(_compact_etf_holdings(raw, top_n=12))
+    if (
+        compact.get("kind") != "etf_holdings_candidates"
+        or compact.get("status") != "READY"
+        or compact.get("etf") != etf_ts_code
+        or not isinstance(compact.get("disclosure_date"), str)
+        or not isinstance(compact.get("report_date"), str)
+        or not isinstance(compact.get("candidates"), list)
+        or not 1 <= len(compact["candidates"]) <= 12
+    ):
+        raise DataVendorUnavailable("sector ETF candidate holdings are unavailable")
+    for field in ("disclosure_date", "report_date"):
+        try:
+            if date.fromisoformat(compact[field]) > as_of:
+                raise DataVendorUnavailable(
+                    "sector ETF candidate disclosure is after as_of"
+                )
+        except (TypeError, ValueError) as exc:
+            raise DataVendorUnavailable(
+                "sector ETF candidate disclosure date is invalid"
+            ) from exc
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in compact["candidates"]:
+        ticker = row.get("ticker") if isinstance(row, dict) else None
+        weight = row.get("weight_pct") if isinstance(row, dict) else None
+        if (
+            not isinstance(ticker, str)
+            or not _RELATIONSHIP_SECURITY_ID_PATTERN.fullmatch(ticker)
+            or ticker in seen
+            or isinstance(weight, bool)
+            or not isinstance(weight, (int, float))
+            or not math.isfinite(float(weight))
+            or not 0 <= float(weight) <= 100
+        ):
+            raise DataVendorUnavailable("sector ETF candidate row is invalid")
+        seen.add(ticker)
+        candidates.append({"ticker": ticker, "weight_pct": float(weight)})
+    body = {
+        "kind": "etf_holdings_candidates",
+        "status": "READY",
+        "sector_agent_id": role,
+        "as_of_date": as_of_date,
+        "direction_id": direction_id,
+        "etf_ts_code": etf_ts_code,
+        "disclosure_date": compact.get("disclosure_date"),
+        "report_date": compact.get("report_date"),
+        "candidates": candidates,
+        "source_route_id": "tushare.etf_holdings",
+        "source_content_hash": _canonical_hash({"text": raw}),
+    }
+    return {**body, "snapshot_hash": _canonical_hash(body)}
+
+
 def sector_snapshot_root() -> Path:
+    isolated = isolated_agent_runtime_path("sector_snapshots")
+    if isolated is not None:
+        return isolated
     explicit = os.getenv("MOSAIC_SECTOR_SNAPSHOT_DIR")
     if explicit:
         return Path(explicit).expanduser()
-    cache = Path(os.getenv("MOSAIC_CACHE_DIR", "~/.mosaic/cache")).expanduser()
-    return cache / "sector_snapshots"
+    return agent_cache_root() / "sector_snapshots"
 
 
 def _read(role: str, as_of_date: str, root: Path) -> Any:
@@ -421,13 +654,15 @@ def _read(role: str, as_of_date: str, root: Path) -> Any:
     path = next((candidate for candidate in candidates if candidate.is_file()), None)
     if path is None:
         raise DataVendorUnavailable(
-            f"no private PIT sector snapshot for {role} on {as_of_date} under {root}"
+            f"no private PIT sector snapshot for {role} on {as_of_date} under {root}",
+            reason_code="PRIVATE_PIT_SECTOR_SNAPSHOT_MISSING",
         )
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise DataVendorUnavailable(
-            f"cannot read sector snapshot {path}: {exc}"
+            f"cannot read sector snapshot {path}: {exc}",
+            reason_code="PRIVATE_PIT_SECTOR_SNAPSHOT_UNREADABLE",
         ) from exc
 
 
@@ -471,6 +706,24 @@ _ROLE_EVENT_REF_FIELDS = {
     "role_event_snapshot_id",
     "role_event_snapshot_hash",
 }
+_SECTOR_ROLE_EVENT_RUNTIME_BINDINGS = frozenset(
+    {
+        "semiconductor",
+        "technology",
+        "energy",
+        "consumer",
+        "industrials",
+        "real_estate_construction",
+        "financials",
+        "agriculture",
+    }
+)
+if (
+    len(_SECTOR_ROLE_EVENT_RUNTIME_BINDINGS) != 8
+    or _SECTOR_ROLE_EVENT_RUNTIME_BINDINGS
+    != frozenset(SECTOR_DIRECTION_IDS) - {"biotech"}
+):
+    raise RuntimeError("sector role-event runtime binding roster mismatch")
 _SECURITY_FIELDS = {
     "ts_code",
     "direction_id",
@@ -585,7 +838,21 @@ _SOURCE_BATCH_FIELDS = {
     "rows_hash",
     "source_batch_hash",
 }
-_SOURCE_BATCH_RECEIPT_FIELDS = _SOURCE_BATCH_FIELDS - {"rows"}
+_SOURCE_BATCH_PAGINATION_FIELDS = {"pagination_policy"}
+
+
+def _source_batch_fields(
+    endpoint: Any,
+    *,
+    include_rows: bool,
+    require_pagination_policy: bool = True,
+) -> set[str]:
+    fields = set(_SOURCE_BATCH_FIELDS)
+    if require_pagination_policy and endpoint in SOURCE_BATCH_PAGINATION_POLICIES:
+        fields.update(_SOURCE_BATCH_PAGINATION_FIELDS)
+    if not include_rows:
+        fields.discard("rows")
+    return fields
 _SOURCE_RECEIPT_FIELDS = {
     "schema_version",
     "sector_agent_id",
@@ -595,6 +862,7 @@ _SOURCE_RECEIPT_FIELDS = {
     "source_batches",
     "source_bundle_hash",
 }
+_HISTORICAL_REPLAY_RECEIPT_FIELD = "historical_replay_captured_at"
 _RELATIONSHIP_SNAPSHOT_FIELDS = {
     "schema_version",
     "as_of_date",
@@ -778,7 +1046,7 @@ def _parse_relationship_temporal(value: Any, label: str) -> datetime:
 
 
 def _relationship_as_of_cutoff(as_of: date) -> datetime:
-    return datetime.combine(as_of, time(15), ZoneInfo("Asia/Shanghai")).astimezone(
+    return datetime.combine(as_of, time.max, ZoneInfo("Asia/Shanghai")).astimezone(
         timezone.utc
     )
 
@@ -790,12 +1058,12 @@ def _require_relationship_cutoff(
     for field in ("released_at", "vintage_at"):
         if _parse_relationship_temporal(value.get(field), f"{label}.{field}") > cutoff:
             raise DataVendorUnavailable(
-                f"{label}.{field} is after the Asia/Shanghai 15:00 as_of cutoff"
+                f"{label}.{field} is after the Asia/Shanghai end-of-day materialization cutoff"
             )
 
 
 def _sector_as_of_cutoff(as_of: date) -> datetime:
-    return datetime.combine(as_of, time(15), ZoneInfo("Asia/Shanghai")).astimezone(
+    return datetime.combine(as_of, time.max, ZoneInfo("Asia/Shanghai")).astimezone(
         timezone.utc
     )
 
@@ -815,8 +1083,49 @@ def _require_sector_cutoff(
     for field in fields:
         if _parse_temporal(value.get(field), f"{label}.{field}") > cutoff:
             raise DataVendorUnavailable(
-                f"{label}.{field} is after the Asia/Shanghai 15:00 as_of cutoff"
+                f"{label}.{field} is after the Asia/Shanghai end-of-day materialization cutoff"
             )
+
+
+def _historical_replay_capture_cutoff(
+    value: str | None, *, as_of: date
+) -> datetime | None:
+    if value is None:
+        return None
+    capture_cutoff = _parse_relationship_temporal(
+        value, "historical_replay_captured_at"
+    )
+    if capture_cutoff <= _sector_as_of_cutoff(as_of):
+        raise DataVendorUnavailable(
+            "historical replay capture cutoff must be after the as-of cutoff"
+        )
+    return capture_cutoff
+
+
+def _require_source_temporal_contract(
+    value: Mapping[str, Any],
+    *,
+    as_of: date,
+    historical_replay_captured_at: str | None,
+    label: str,
+    error_message: str,
+) -> None:
+    released = _parse_temporal(value.get("released_at"), f"{label} released_at")
+    vintage = _parse_temporal(value.get("vintage_at"), f"{label} vintage_at")
+    captured = _parse_temporal(value.get("captured_at"), f"{label} captured_at")
+    knowledge_cutoff = _sector_as_of_cutoff(as_of)
+    replay_capture_cutoff = _historical_replay_capture_cutoff(
+        historical_replay_captured_at, as_of=as_of
+    )
+    if replay_capture_cutoff is None:
+        valid = released <= vintage <= captured <= knowledge_cutoff
+    else:
+        valid = (
+            released <= vintage <= knowledge_cutoff
+            and vintage <= captured <= replay_capture_cutoff
+        )
+    if not valid:
+        raise DataVendorUnavailable(error_message)
 
 
 def _relationship_materiality_bucket(value: float) -> str:
@@ -838,10 +1147,10 @@ def _require_pit_temporals(
     )
     released = _parse_temporal(value.get("released_at"), f"{label}.released_at")
     vintage = _parse_temporal(value.get("vintage_at"), f"{label}.vintage_at")
-    as_of_end = datetime.combine(as_of, datetime.max.time(), timezone.utc)
+    as_of_end = _sector_as_of_cutoff(as_of)
     if observation > released or released > vintage or vintage > as_of_end:
         raise DataVendorUnavailable(
-            f"{label} violates observation <= release <= vintage <= as_of"
+            f"{label} violates observation <= release <= vintage <= as_of materialization cutoff"
         )
     if value.get("pit_status") != "PIT_VERIFIED":
         raise DataVendorUnavailable(f"{label}.pit_status must be PIT_VERIFIED")
@@ -894,6 +1203,76 @@ def _manifest_bindings(role: str) -> tuple[dict[str, Any], dict[str, dict[str, A
         if row["sector_agent_id"] == role
     }
     return plan, directions
+
+
+def _is_semiconductor_exact_membership_request(request: Any) -> bool:
+    if not isinstance(request, Mapping):
+        return False
+    if set(request) != {
+        "query_plan_hash",
+        "parameter",
+        "classification_code",
+        "is_new",
+        "covered_l3_codes",
+    }:
+        return False
+    plan = next(
+        row
+        for row in SECTOR_UNIVERSE_MANIFEST["membership_query_plans"]
+        if row["sector_agent_id"] == "semiconductor"
+    )
+    covered_l3_codes = sorted(
+        {
+            branch["classification_code"]
+            for branch in plan["branches"]
+            if branch["parameter"] == "l3_code"
+        }
+    )
+    return (
+        request.get("query_plan_hash") == plan["query_plan_hash"]
+        and request.get("parameter") == "l2_code"
+        and request.get("classification_code") == "801081.SI"
+        and request.get("is_new") in {"Y", "N"}
+        and request.get("covered_l3_codes") == covered_l3_codes
+    )
+
+
+def _semiconductor_scoped_membership_codes(
+    request: Any, query_plan_hash: str
+) -> list[str]:
+    if (
+        not isinstance(request, Mapping)
+        or set(request)
+        != {
+            "query_plan_hash",
+            "scope",
+            "etf_ts_code",
+            "etf_source_hash",
+            "ts_codes",
+        }
+        or request.get("query_plan_hash") != query_plan_hash
+        or request.get("scope") != "semiconductor_etf_candidates_v1"
+        or request.get("etf_ts_code") != "512480.SH"
+    ):
+        raise DataVendorUnavailable("scoped membership request is invalid")
+    ts_codes = request.get("ts_codes")
+    if (
+        not isinstance(ts_codes, list)
+        or not ts_codes
+        or len(ts_codes) > 12
+        or ts_codes != sorted(set(ts_codes))
+        or any(
+            not isinstance(ts_code, str)
+            or _RELATIONSHIP_SECURITY_ID_PATTERN.fullmatch(ts_code) is None
+            for ts_code in ts_codes
+        )
+    ):
+        raise DataVendorUnavailable("scoped membership request is invalid")
+    try:
+        _require_sha256(request.get("etf_source_hash"), "scoped membership ETF source hash")
+    except DataVendorUnavailable as exc:
+        raise DataVendorUnavailable("scoped membership request is invalid") from exc
+    return ts_codes
 
 
 def _direction_for_security(
@@ -991,6 +1370,11 @@ def validate_sector_snapshot(
         != SECTOR_UNIVERSE_MANIFEST["direction_metric_registry_hash"]
     ):
         raise DataVendorUnavailable("sector metric registry binding mismatch")
+    allow_synthetic_pre_effective = (
+        payload.get("fixture_class") == "SYNTHETIC_NON_PRODUCTION"
+        and os.getenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS")
+        == "structured_smoke"
+    )
     plan, direction_contracts = _manifest_bindings(role)
     plan_bindings = {
         "membership_query_plan_id": "query_plan_id",
@@ -1012,7 +1396,7 @@ def validate_sector_snapshot(
         payload.get("membership_observed_at"), "membership_observed_at"
     ) > _sector_as_of_cutoff(as_of):
         raise DataVendorUnavailable(
-            "membership_observed_at is after the Asia/Shanghai 15:00 as_of cutoff"
+            "membership_observed_at is after the Asia/Shanghai end-of-day materialization cutoff"
         )
     expected_directions = SECTOR_DIRECTION_IDS[role]
     if (
@@ -1058,18 +1442,15 @@ def validate_sector_snapshot(
         if ts_code in seen_tickers:
             raise DataVendorUnavailable(f"duplicate sector security {ts_code}")
         seen_tickers.add(ts_code)
-        for level_field, prefix in (
-            ("l1_code", "801"),
-            ("l2_code", "801"),
-            ("l3_code", "850"),
+        for level_field, pattern in (
+            ("l1_code", r"801\d{3}\.SI"),
+            ("l2_code", r"801\d{3}\.SI"),
+            ("l3_code", r"85\d{4}\.SI"),
         ):
             value = security.get(level_field)
             if value is not None and (
                 not isinstance(value, str)
-                or len(value) != 9
-                or not value.startswith(prefix)
-                or not value[3:6].isdigit()
-                or not value.endswith(".SI")
+                or re.fullmatch(pattern, value) is None
             ):
                 raise DataVendorUnavailable(f"sector security {level_field} is invalid")
         expected_direction = _direction_for_security(security, direction_contracts)
@@ -1300,9 +1681,17 @@ def validate_sector_snapshot(
             raise DataVendorUnavailable(
                 "sector ETF family contains an invalid ETF code"
             )
-        etf_authority = _validated_sector_etf_direction_authority(as_of)
+        etf_authority = _validated_sector_etf_direction_authority(
+            as_of, allow_synthetic_pre_effective=allow_synthetic_pre_effective
+        )
         if (
-            etf_codes != _authoritative_etf_codes(role, direction_id, as_of)
+            etf_codes
+            != _authoritative_etf_codes(
+                role,
+                direction_id,
+                as_of,
+                allow_synthetic_pre_effective=allow_synthetic_pre_effective,
+            )
             or etf_family.get("selection_date") != as_of_date
             or etf_family.get("direction_authority_version")
             != etf_authority["authority_version"]
@@ -1398,6 +1787,7 @@ def validate_sector_snapshot(
                 raise DataVendorUnavailable(
                     "sector metric availability_status is invalid"
                 )
+            metric_id = metric_contract["metric_id"]
             is_etf = metric_contract["metric_family"] == "ETF_CONFIRMATION"
             if is_etf:
                 if (
@@ -1412,7 +1802,20 @@ def validate_sector_snapshot(
             elif (
                 metric_row.get("etf_family_id") is not None
                 or metric_row.get("etf_family_hash") is not None
-                or metric_row.get("eligible_count") != len(direction_members)
+                or (
+                    metric_id not in _SECTOR_HISTORY_ELIGIBLE_METRICS
+                    and metric_row.get("eligible_count") != len(direction_members)
+                )
+                or (
+                    metric_id in _SECTOR_HISTORY_ELIGIBLE_METRICS
+                    and (
+                        not isinstance(metric_row.get("eligible_count"), int)
+                        or isinstance(metric_row.get("eligible_count"), bool)
+                        or not 0
+                        <= metric_row["eligible_count"]
+                        <= len(direction_members)
+                    )
+                )
             ):
                 raise DataVendorUnavailable(
                     "sector constituent metric membership binding mismatch"
@@ -1495,6 +1898,64 @@ def validate_sector_snapshot(
     return {key: payload[key] for key in payload}
 
 
+def validate_sector_runtime_snapshot(
+    payload: Any, role: str, as_of_date: str
+) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise DataVendorUnavailable("sector runtime snapshot must be an object")
+    runtime_fields = {"event_coverage", "role_event_snapshot_ref"}
+    if not runtime_fields.intersection(payload):
+        return validate_sector_snapshot(payload, role, as_of_date)
+    if role not in _SECTOR_ROLE_EVENT_RUNTIME_BINDINGS:
+        raise DataVendorUnavailable(
+            "sector runtime event coverage is not registered for this role"
+        )
+    expected_fields = set(_SECTOR_SNAPSHOT_FIELDS) | runtime_fields
+    if "fixture_class" in payload:
+        expected_fields.update(_OPTIONAL_SECTOR_SNAPSHOT_FIELDS)
+    _require_exact_fields(payload, expected_fields, "sector runtime snapshot")
+    _require_hash_binding(payload, "snapshot_hash", "sector runtime snapshot")
+
+    coverage = payload["event_coverage"]
+    if (
+        not isinstance(coverage, dict)
+        or coverage.get("coverage_completeness") != "COMPLETE"
+    ):
+        raise DataVendorUnavailable("sector runtime event coverage must be complete")
+    role_event_ref = payload["role_event_snapshot_ref"]
+    if not isinstance(role_event_ref, dict):
+        raise DataVendorUnavailable("sector role-event reference must be an object")
+    _require_exact_fields(
+        role_event_ref, _ROLE_EVENT_REF_FIELDS, "sector role-event reference"
+    )
+    role_event_snapshot_id = role_event_ref["role_event_snapshot_id"]
+    if (
+        not isinstance(role_event_snapshot_id, str)
+        or not role_event_snapshot_id.strip()
+        or role_event_snapshot_id != role_event_snapshot_id.strip()
+    ):
+        raise DataVendorUnavailable(
+            "sector role-event reference ID must be a non-empty string"
+        )
+    _require_sha256(
+        role_event_ref["role_event_snapshot_hash"],
+        "sector role-event reference hash",
+    )
+
+    base_snapshot = {
+        key: value for key, value in payload.items() if key not in runtime_fields
+    }
+    base_snapshot["snapshot_hash"] = _canonical_hash(
+        {
+            key: value
+            for key, value in base_snapshot.items()
+            if key != "snapshot_hash"
+        }
+    )
+    validate_sector_snapshot(base_snapshot, role, as_of_date)
+    return {key: payload[key] for key in payload}
+
+
 def _registered_tushare_endpoint_contracts(
     required_endpoints: frozenset[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
@@ -1533,11 +1994,16 @@ def _validate_source_batch(
     *,
     as_of: date,
     endpoint_contracts: dict[str, dict[str, Any]],
+    historical_replay_captured_at: str | None = None,
 ) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise DataVendorUnavailable("sector source batches must be objects")
-    _require_exact_fields(value, _SOURCE_BATCH_FIELDS, "sector source batch")
     endpoint = value.get("endpoint")
+    _require_exact_fields(
+        value,
+        _source_batch_fields(endpoint, include_rows=True),
+        "sector source batch",
+    )
     contract = endpoint_contracts.get(endpoint)
     if contract is None or value.get("source_id") != f"tushare.{endpoint}":
         raise DataVendorUnavailable("sector source batch route is not registered")
@@ -1550,14 +2016,15 @@ def _validate_source_batch(
         for key in value["request"]
     ):
         raise DataVendorUnavailable("sector source batch request contains credentials")
-    released = _parse_temporal(value.get("released_at"), "source batch released_at")
-    vintage = _parse_temporal(value.get("vintage_at"), "source batch vintage_at")
-    captured = _parse_temporal(value.get("captured_at"), "source batch captured_at")
-    as_of_end = datetime.combine(as_of, datetime.max.time(), timezone.utc)
-    if not released <= vintage <= captured <= as_of_end:
-        raise DataVendorUnavailable(
-            "sector source batch violates release <= vintage <= capture <= as_of"
-        )
+    _require_source_temporal_contract(
+        value,
+        as_of=as_of,
+        historical_replay_captured_at=historical_replay_captured_at,
+        label="source batch",
+        error_message=(
+            "sector source batch violates release <= vintage <= capture <= as_of materialization cutoff"
+        ),
+    )
     if value.get("pit_status") != "PIT_VERIFIED":
         raise DataVendorUnavailable("sector source batch must be PIT_VERIFIED")
     if (
@@ -1565,6 +2032,31 @@ def _validate_source_batch(
         or value.get("truncated") is not False
     ):
         raise DataVendorUnavailable("sector source batch pagination is incomplete")
+    scoped_membership = (
+        endpoint == "index_member_all"
+        and isinstance(value.get("request"), Mapping)
+        and value["request"].get("scope") == "semiconductor_etf_candidates_v1"
+    )
+    expected_pagination_policy = (
+        EXACT_SINGLE_PAGE_OFFICIAL_CAP
+        if endpoint == "index_member_all"
+        and _is_semiconductor_exact_membership_request(value.get("request"))
+        else SOURCE_BATCH_PAGINATION_POLICIES.get(endpoint)
+    )
+    if (
+        (scoped_membership and value.get("pagination_policy") not in {
+            PAGINATION_POLICY_OFFICIAL_CAP,
+            EXACT_SINGLE_PAGE_OFFICIAL_CAP,
+        })
+        or (
+            not scoped_membership
+            and expected_pagination_policy is not None
+            and value.get("pagination_policy") != expected_pagination_policy
+        )
+    ):
+        raise DataVendorUnavailable(
+            f"sector source batch {endpoint} pagination policy mismatch"
+        )
     query_count = value.get("query_count")
     completed_count = value.get("completed_query_count")
     coverage_ratio = value.get("coverage_ratio")
@@ -1650,6 +2142,89 @@ def _required_sector_endpoints(snapshot: Mapping[str, Any]) -> frozenset[str]:
     )
 
 
+def _registered_active_stock_rows(
+    batches: list[dict[str, Any]], as_of: date
+) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    stock_batches = [batch for batch in batches if batch["endpoint"] == "stock_basic"]
+    if len(stock_batches) != 1:
+        raise DataVendorUnavailable(
+            "sector membership requires exactly one exhaustive stock_basic batch"
+        )
+    stock_batch = stock_batches[0]
+    expected_request = {
+        "request_count": len(_STOCK_BASIC_CAPTURE_REQUESTS),
+        "requests_hash": _canonical_hash(list(_STOCK_BASIC_CAPTURE_REQUESTS)),
+        "exchange": "",
+    }
+    scoped_codes = stock_batch["request"].get("ts_codes")
+    semiconductor_exact = False
+    if set(stock_batch["request"]) == {"ts_codes"}:
+        observed_codes = {row.get("ts_code") for row in stock_batch["rows"]}
+        semiconductor_exact = any(
+            batch["endpoint"] == "index_member_all"
+            and _is_semiconductor_exact_membership_request(batch.get("request"))
+            for batch in batches
+        )
+        if (
+            not isinstance(scoped_codes, list)
+            or not scoped_codes
+            or scoped_codes != sorted(set(scoped_codes))
+            or any(
+                not isinstance(code, str)
+                or _RELATIONSHIP_SECURITY_ID_PATTERN.fullmatch(code) is None
+                for code in scoped_codes
+            )
+            or stock_batch["query_count"] != len(scoped_codes)
+            or stock_batch["completed_query_count"] != len(scoped_codes)
+            or not observed_codes
+            or (
+                not observed_codes <= set(scoped_codes)
+                if semiconductor_exact
+                else observed_codes != set(scoped_codes)
+            )
+        ):
+            raise DataVendorUnavailable(
+                "sector stock_basic scoped ticker authority is incomplete"
+            )
+    elif (
+        stock_batch["request"] != expected_request
+        or stock_batch["query_count"] != len(_STOCK_BASIC_CAPTURE_REQUESTS)
+        or stock_batch["completed_query_count"] != len(_STOCK_BASIC_CAPTURE_REQUESTS)
+    ):
+        raise DataVendorUnavailable(
+            "sector stock_basic batch is neither scoped nor exhaustive"
+        )
+    active: dict[str, dict[str, Any]] = {}
+    seen: set[str] = set()
+    for row in stock_batch["rows"]:
+        ts_code = row.get("ts_code")
+        if not isinstance(ts_code, str) or not _RELATIONSHIP_SECURITY_ID_PATTERN.fullmatch(
+            ts_code
+        ):
+            continue
+        if ts_code in seen:
+            raise DataVendorUnavailable(
+                "sector stock_basic rows contain a duplicate eligible code"
+            )
+        seen.add(ts_code)
+        list_date = _parse_temporal(
+            row.get("list_date"), "sector stock_basic.list_date"
+        ).date()
+        delist_value = row.get("delist_date")
+        delist_date = (
+            _parse_temporal(
+                delist_value, "sector stock_basic.delist_date"
+            ).date()
+            if delist_value not in (None, "")
+            else None
+        )
+        if list_date <= as_of and (delist_date is None or delist_date > as_of):
+            active[ts_code] = row
+    if not active:
+        raise DataVendorUnavailable("sector stock_basic has no PIT-active securities")
+    return stock_batch, active
+
+
 def _validate_membership_batches(
     *,
     role: str,
@@ -1678,8 +2253,16 @@ def _validate_membership_batches(
         )
 
     plan, direction_contracts = _manifest_bindings(role)
+    _stock_batch, active_stock_rows = _registered_active_stock_rows(batches, as_of)
     membership_batches = [
         batch for batch in batches if batch["endpoint"] == "index_member_all"
+    ]
+    scoped_batches = [
+        batch
+        for batch in membership_batches
+        if isinstance(batch.get("request"), Mapping)
+        and batch["request"].get("scope")
+        == "semiconductor_etf_candidates_v1"
     ]
     required_branches = {
         (
@@ -1689,38 +2272,88 @@ def _validate_membership_batches(
         )
         for branch in plan["branches"]
     }
+    semiconductor_exact = role == "semiconductor"
+    scoped_ts_codes: set[str] = set()
+    mapped_directions: dict[str, str] = {}
+    if scoped_batches:
+        if role != "semiconductor" or len(membership_batches) != 1:
+            raise DataVendorUnavailable("scoped membership request is invalid")
+        scoped_ts_codes = set(
+            _semiconductor_scoped_membership_codes(
+                scoped_batches[0]["request"], plan["query_plan_hash"]
+            )
+        )
+        row_codes = [row.get("ts_code") for row in scoped_batches[0]["rows"]]
+        if (
+            len(row_codes) != len(scoped_ts_codes)
+            or set(row_codes) != scoped_ts_codes
+            or scoped_batches[0]["query_count"] != len(scoped_ts_codes)
+            or scoped_batches[0]["completed_query_count"] != len(scoped_ts_codes)
+        ):
+            raise DataVendorUnavailable("scoped membership request is invalid")
+    elif semiconductor_exact and len(membership_batches) != 2:
+        raise DataVendorUnavailable(
+            "sector semiconductor membership requires exactly two source batches"
+        )
     observed_branches: set[tuple[str, str, str]] = set()
+    observed_is_new: set[str] = set()
     reconstructed: dict[tuple[Any, ...], dict[str, Any]] = {}
     for batch in membership_batches:
         request = batch["request"]
-        if (
-            set(request)
-            != {
-                "query_plan_hash",
-                "parameter",
-                "classification_code",
-                "is_new",
-            }
-            or request.get("query_plan_hash") != plan["query_plan_hash"]
-        ):
-            raise DataVendorUnavailable(
-                "sector membership source batch request is not plan-bound"
-            )
-        branch = (
-            request["parameter"],
-            request["classification_code"],
-            request["is_new"],
-        )
-        if branch not in required_branches or branch in observed_branches:
-            raise DataVendorUnavailable(
-                "sector membership source batch has an unknown or duplicate branch"
-            )
-        observed_branches.add(branch)
-        for row in batch["rows"]:
+        if not scoped_batches and semiconductor_exact:
+            if not _is_semiconductor_exact_membership_request(request):
+                raise DataVendorUnavailable(
+                    "sector semiconductor membership request is not plan-bound"
+                )
+            is_new = request["is_new"]
+            if is_new in observed_is_new:
+                raise DataVendorUnavailable(
+                    "sector semiconductor membership request is duplicated"
+                )
+            observed_is_new.add(is_new)
+        elif not scoped_batches:
             if (
-                row.get(request["parameter"]) != request["classification_code"]
-                or row.get("is_new") != request["is_new"]
+                set(request)
+                != {
+                    "query_plan_hash",
+                    "parameter",
+                    "classification_code",
+                    "is_new",
+                }
+                or request.get("query_plan_hash") != plan["query_plan_hash"]
             ):
+                raise DataVendorUnavailable(
+                    "sector membership source batch request is not plan-bound"
+                )
+            branch = (
+                request["parameter"],
+                request["classification_code"],
+                request["is_new"],
+            )
+            if branch not in required_branches or branch in observed_branches:
+                raise DataVendorUnavailable(
+                    "sector membership source batch has an unknown or duplicate branch"
+                )
+            observed_branches.add(branch)
+        for row in batch["rows"]:
+            if scoped_batches:
+                outside_request = (
+                    row.get("ts_code") not in scoped_ts_codes
+                    or row.get("is_new") != "Y"
+                )
+            elif semiconductor_exact:
+                outside_request = (
+                    row.get("l2_code") != "801081.SI"
+                    or row.get("is_new") != request["is_new"]
+                    or row.get("l3_code") not in request["covered_l3_codes"]
+                )
+            else:
+                outside_request = (
+                    row.get(request["parameter"])
+                    != request["classification_code"]
+                    or row.get("is_new") != request["is_new"]
+                )
+            if outside_request:
                 raise DataVendorUnavailable(
                     "sector membership row is outside its registered branch"
                 )
@@ -1735,9 +2368,28 @@ def _validate_membership_batches(
             )
             if in_date > as_of or (out_date is not None and out_date <= as_of):
                 continue
+            if row.get("ts_code") not in active_stock_rows:
+                continue
+            try:
+                direction_id = _direction_for_security(row, direction_contracts)
+            except DataVendorUnavailable:
+                continue
+            previous_direction = mapped_directions.get(str(row["ts_code"]))
+            if (
+                previous_direction is not None
+                and previous_direction != direction_id
+            ):
+                raise DataVendorUnavailable(
+                    "scoped sector membership has conflicting directions"
+                )
+            mapped_directions[str(row["ts_code"])] = direction_id
             key = membership_key(row)
             reconstructed[key] = row
-    if observed_branches != required_branches:
+    if not scoped_batches and semiconductor_exact and observed_is_new != {"Y", "N"}:
+        raise DataVendorUnavailable(
+            "sector semiconductor membership Y/N closure is incomplete"
+        )
+    if not semiconductor_exact and observed_branches != required_branches:
         raise DataVendorUnavailable("sector membership source branches are incomplete")
 
     expected_keys = {
@@ -1749,6 +2401,19 @@ def _validate_membership_batches(
         )
     for row in reconstructed.values():
         _direction_for_security(row, direction_contracts)
+    evidence_endpoint_by_id = {
+        evidence["evidence_id"]: evidence["source_endpoint"]
+        for evidence in snapshot["evidence_catalog"]
+    }
+    for member in snapshot["eligible_security_universe"]:
+        endpoints = {
+            evidence_endpoint_by_id.get(evidence_id)
+            for evidence_id in member["evidence_ids"]
+        }
+        if not {"index_member_all", "stock_basic"}.issubset(endpoints):
+            raise DataVendorUnavailable(
+                "sector eligible membership lacks stock/index evidence closure"
+            )
 
 
 def _finite_source_number(value: Any) -> float | None:
@@ -1768,8 +2433,11 @@ def _registered_sector_trading_grid(
         )
     batch = calendar_batches[0]
     request = batch["request"]
+    request_fields = {"exchange", "start_date", "end_date"}
+    summary_fields = {"request_count", "requests_hash"}
     if (
-        set(request) != {"exchange", "start_date", "end_date"}
+        not request_fields.issubset(request)
+        or set(request) - request_fields not in (set(), summary_fields)
         or request.get("exchange") != "SSE"
         or _parse_temporal(
             request.get("end_date"), "sector trade_cal request.end_date"
@@ -1779,6 +2447,20 @@ def _registered_sector_trading_grid(
         raise DataVendorUnavailable(
             "sector trade_cal request must be SSE and end exactly at as_of"
         )
+    if summary_fields.issubset(request) and (
+        request["request_count"] != 1
+        or request["requests_hash"]
+        != _canonical_hash(
+            [
+                {
+                    "exchange": request["exchange"],
+                    "start_date": request["start_date"],
+                    "end_date": request["end_date"],
+                }
+            ]
+        )
+    ):
+        raise DataVendorUnavailable("sector trade_cal request summary mismatch")
     start_date = _parse_temporal(
         request.get("start_date"), "sector trade_cal request.start_date"
     ).date()
@@ -2024,19 +2706,33 @@ def _validate_security_scoring_batches(
 
 
 _SECTOR_METRIC_SOURCE_ENDPOINTS: dict[str, frozenset[str]] = {
-    "REVENUE_GROWTH_TTM_YOY": frozenset({"income"}),
-    "OPERATING_CASHFLOW_MARGIN_TTM": frozenset({"income", "cashflow"}),
-    "EARNINGS_YIELD_TTM": frozenset({"daily_basic"}),
+    "REVENUE_GROWTH_TTM_YOY": frozenset({"income", "stock_basic"}),
+    "OPERATING_CASHFLOW_MARGIN_TTM": frozenset(
+        {"income", "cashflow", "stock_basic"}
+    ),
+    "EARNINGS_YIELD_TTM": frozenset({"daily_basic", "income"}),
     "BOOK_TO_PRICE_LF": frozenset({"daily_basic"}),
-    "RELATIVE_TOTAL_RETURN_5D": frozenset({"daily", "adj_factor"}),
-    "RELATIVE_TOTAL_RETURN_20D": frozenset({"daily", "adj_factor"}),
-    "RELATIVE_TOTAL_RETURN_60D": frozenset({"daily", "adj_factor"}),
-    "ABOVE_MA20_PCT": frozenset({"daily", "adj_factor"}),
-    "ABOVE_MA60_PCT": frozenset({"daily", "adj_factor"}),
-    "NEW_HIGH_LOW_20D_BALANCE": frozenset({"daily", "adj_factor"}),
+    "RELATIVE_TOTAL_RETURN_5D": frozenset(
+        {"daily", "adj_factor", "suspend_d"}
+    ),
+    "RELATIVE_TOTAL_RETURN_20D": frozenset(
+        {"daily", "adj_factor", "suspend_d"}
+    ),
+    "RELATIVE_TOTAL_RETURN_60D": frozenset(
+        {"daily", "adj_factor", "suspend_d"}
+    ),
+    "ABOVE_MA20_PCT": frozenset({"daily", "adj_factor", "suspend_d"}),
+    "ABOVE_MA60_PCT": frozenset({"daily", "adj_factor", "suspend_d"}),
+    "NEW_HIGH_LOW_20D_BALANCE": frozenset(
+        {"daily", "adj_factor", "suspend_d"}
+    ),
     "TURNOVER_EXPANSION_20D_PCT": frozenset({"daily"}),
-    "REALIZED_VOLATILITY_60D": frozenset({"daily", "adj_factor"}),
-    "CURRENT_DRAWDOWN_252D": frozenset({"daily", "adj_factor"}),
+    "REALIZED_VOLATILITY_60D": frozenset(
+        {"daily", "adj_factor", "suspend_d"}
+    ),
+    "CURRENT_DRAWDOWN_252D": frozenset(
+        {"daily", "adj_factor", "stock_basic", "suspend_d"}
+    ),
     "ETF_RELATIVE_RETURN_5D": frozenset(
         {"fund_basic", "fund_daily", "fund_adj", "daily", "adj_factor"}
     ),
@@ -2063,6 +2759,13 @@ _SECTOR_METRIC_SOURCE_ENDPOINTS: dict[str, frozenset[str]] = {
     ),
     "ETF_PREMIUM_DISCOUNT": frozenset({"fund_basic", "fund_daily", "fund_nav"}),
 }
+_SECTOR_HISTORY_ELIGIBLE_METRICS = frozenset(
+    {
+        "REVENUE_GROWTH_TTM_YOY",
+        "OPERATING_CASHFLOW_MARGIN_TTM",
+        "CURRENT_DRAWDOWN_252D",
+    }
+)
 
 
 def _indexed_dated_source_rows(
@@ -2096,8 +2799,12 @@ def _indexed_dated_source_rows(
 
 
 def _indexed_statement_rows(
-    batches: list[dict[str, Any]], endpoint: str
+    batches: list[dict[str, Any]], endpoint: str, *, as_of: date | None = None
 ) -> dict[str, list[tuple[date, dict[str, Any]]]]:
+    consumed_field = {
+        "income": "revenue",
+        "cashflow": "n_cashflow_act",
+    }[endpoint]
     candidates: dict[tuple[str, date], list[tuple[datetime, dict[str, Any]]]] = {}
     for batch in batches:
         if batch["endpoint"] != endpoint:
@@ -2113,19 +2820,39 @@ def _indexed_statement_rows(
             end_date = _parse_temporal(
                 row.get("end_date"), f"sector {endpoint} metric row.end_date"
             ).date()
+            if as_of is not None and end_date > as_of:
+                continue
             release_value = row.get("f_ann_date") or row.get("ann_date")
             released = _parse_temporal(
                 release_value, f"sector {endpoint} metric row.release_date"
             )
+            if as_of is not None:
+                batch_release = _parse_temporal(
+                    batch.get("released_at"),
+                    f"sector {endpoint} metric batch.released_at",
+                )
+                if released > batch_release:
+                    continue
             candidates.setdefault((ts_code, end_date), []).append((released, row))
     indexed: dict[str, list[tuple[date, dict[str, Any]]]] = {}
     for (ts_code, end_date), rows in candidates.items():
         rows.sort(key=lambda item: item[0])
-        if len(rows) > 1 and rows[-1][0] == rows[-2][0]:
+        latest_release = rows[-1][0]
+        latest_rows = [row for released, row in rows if released == latest_release]
+        updated_rows = [
+            row for row in latest_rows if str(row.get("update_flag")) == "1"
+        ]
+        candidates_at_vintage = updated_rows or latest_rows
+        consumed_values = {
+            _finite_source_number(row.get(consumed_field))
+            for row in candidates_at_vintage
+        }
+        if len(consumed_values) != 1:
             raise DataVendorUnavailable(
                 f"sector {endpoint} metric rows have ambiguous PIT revisions"
             )
-        indexed.setdefault(ts_code, []).append((end_date, rows[-1][1]))
+        selected = min(candidates_at_vintage, key=_canonical_hash)
+        indexed.setdefault(ts_code, []).append((end_date, selected))
     for rows in indexed.values():
         rows.sort(key=lambda item: item[0])
     return indexed
@@ -2340,12 +3067,23 @@ def _registered_sector_metric_observations(
     daily = _indexed_dated_source_rows(batches, "daily", "trade_date")
     adj = _indexed_dated_source_rows(batches, "adj_factor", "trade_date")
     daily_basic = _indexed_dated_source_rows(batches, "daily_basic", "trade_date")
-    income = _indexed_statement_rows(batches, "income")
-    cashflow = _indexed_statement_rows(batches, "cashflow")
+    income = _indexed_statement_rows(batches, "income", as_of=as_of)
+    cashflow = _indexed_statement_rows(batches, "cashflow", as_of=as_of)
     fund_daily = _indexed_dated_source_rows(batches, "fund_daily", "trade_date")
     fund_adj = _indexed_dated_source_rows(batches, "fund_adj", "trade_date")
     fund_share = _indexed_dated_source_rows(batches, "fund_share", "trade_date")
     fund_nav = _indexed_dated_source_rows(batches, "fund_nav", "nav_date")
+    suspended_sessions = {
+        (
+            str(row.get("ts_code")),
+            _parse_temporal(
+                row.get("trade_date"), "sector suspend_d.trade_date"
+            ).date(),
+        )
+        for batch in batches
+        if batch["endpoint"] == "suspend_d"
+        for row in batch["rows"]
+    }
     prices = {ts_code: _adjusted_price_series(daily, adj, ts_code) for ts_code in daily}
     etf_prices = {
         ts_code: _adjusted_price_series(fund_daily, fund_adj, ts_code)
@@ -2360,6 +3098,74 @@ def _registered_sector_metric_observations(
         ]
         for direction_id in snapshot["direction_ids"]
     }
+    _stock_basic_batch, stock_basic = _registered_active_stock_rows(batches, as_of)
+
+    def has_revenue_history(ts_code: str) -> bool:
+        revenues = _quarterly_statement_flows(
+            income.get(ts_code, ()), "revenue"
+        )[-8:]
+        return len(revenues) == 8 and _is_consecutive_quarter_sequence(
+            [period for period, _value in revenues]
+        )
+
+    def has_cash_margin_history(ts_code: str) -> bool:
+        revenue_rows = dict(
+            _quarterly_statement_flows(income.get(ts_code, ()), "revenue")
+        )
+        cash_rows = dict(
+            _quarterly_statement_flows(
+                cashflow.get(ts_code, ()), "n_cashflow_act"
+            )
+        )
+        common_dates = sorted(set(revenue_rows) & set(cash_rows))[-4:]
+        return (
+            len(common_dates) == 4
+            and _is_consecutive_quarter_sequence(common_dates)
+            and sum(revenue_rows[item] for item in common_dates) != 0
+        )
+
+    def listed_by(ts_code: str, cutoff: date) -> bool:
+        stock_row = stock_basic.get(ts_code)
+        if stock_row is None:
+            return False
+        return (
+            _parse_temporal(
+                stock_row.get("list_date"), "sector stock_basic.list_date"
+            ).date()
+            <= cutoff
+        )
+
+    def years_before(years: int) -> date:
+        try:
+            return date(as_of.year - years, as_of.month, as_of.day)
+        except ValueError:
+            return date(as_of.year - years, as_of.month, 28)
+
+    def metric_members(metric_id: str, direction_id: str) -> list[str]:
+        members = members_by_direction[direction_id]
+        if metric_id == "CURRENT_DRAWDOWN_252D":
+            return [
+                ts_code
+                for ts_code in members
+                if listed_by(ts_code, trading_grid[-252])
+            ]
+        if metric_id == "REVENUE_GROWTH_TTM_YOY":
+            listing_cutoff = years_before(2)
+            return [
+                ts_code
+                for ts_code in members
+                if has_revenue_history(ts_code)
+                or listed_by(ts_code, listing_cutoff)
+            ]
+        if metric_id == "OPERATING_CASHFLOW_MARGIN_TTM":
+            listing_cutoff = years_before(1)
+            return [
+                ts_code
+                for ts_code in members
+                if has_cash_margin_history(ts_code)
+                or listed_by(ts_code, listing_cutoff)
+            ]
+        return members
 
     def exact_window(
         rows: list[tuple[Any, ...]], count: int
@@ -2370,8 +3176,32 @@ def _registered_sector_metric_observations(
             return None
         return [by_date[observed] for observed in required_dates]
 
+    def suspension_aligned_price_window(
+        ts_code: str, count: int
+    ) -> list[tuple[date, float, float]] | None:
+        required_dates = trading_grid[-count:]
+        by_date = {row[0]: row for row in prices.get(ts_code, [])}
+        raw_daily_dates = {observed for observed, _row in daily.get(ts_code, [])}
+        prior = [row for row in prices.get(ts_code, []) if row[0] < required_dates[0]]
+        current = prior[-1] if prior else None
+        aligned: list[tuple[date, float, float]] = []
+        for observed in required_dates:
+            row = by_date.get(observed)
+            if row is not None:
+                current = row
+            elif (
+                observed in raw_daily_dates
+                or (ts_code, observed) not in suspended_sessions
+                or current is None
+            ):
+                return None
+            else:
+                current = (observed, current[1], 0.0)
+            aligned.append(current)
+        return aligned
+
     def price_return(ts_code: str, lookback: int) -> tuple[float, int, date] | None:
-        window = exact_window(prices.get(ts_code, []), lookback + 1)
+        window = suspension_aligned_price_window(ts_code, lookback + 1)
         if window is None:
             return None
         return window[-1][1] / window[0][1] - 1, len(window), window[-1][0]
@@ -2396,7 +3226,7 @@ def _registered_sector_metric_observations(
     def constituent_result(
         metric_id: str, direction_id: str
     ) -> tuple[float | None, int, int, date]:
-        members = members_by_direction[direction_id]
+        members = metric_members(metric_id, direction_id)
         values: list[tuple[float, int, date]] = []
         if metric_id == "REVENUE_GROWTH_TTM_YOY":
             for ts_code in members:
@@ -2437,14 +3267,44 @@ def _registered_sector_metric_observations(
                         common_dates[-1],
                     )
                 )
-        elif metric_id in {"EARNINGS_YIELD_TTM", "BOOK_TO_PRICE_LF"}:
-            field = "pe_ttm" if metric_id == "EARNINGS_YIELD_TTM" else "pb"
+        elif metric_id == "EARNINGS_YIELD_TTM":
             for ts_code in members:
                 window = exact_window(daily_basic.get(ts_code, []), 1)
                 if window is None:
                     continue
                 observed, row = window[0]
-                denominator = _finite_source_number(row.get(field))
+                pe_ttm = _finite_source_number(row.get("pe_ttm"))
+                if pe_ttm is not None and pe_ttm != 0:
+                    values.append((1 / pe_ttm, 1, observed))
+                    continue
+                total_mv = _finite_source_number(row.get("total_mv"))
+                profits = _quarterly_statement_flows(
+                    income.get(ts_code, ()), "n_income_attr_p"
+                )[-4:]
+                if (
+                    total_mv is None
+                    or total_mv <= 0
+                    or len(profits) != 4
+                    or not _is_consecutive_quarter_sequence(
+                        [period for period, _value in profits]
+                    )
+                ):
+                    continue
+                values.append(
+                    (
+                        sum(value for _period, value in profits)
+                        / (total_mv * 10_000),
+                        1,
+                        observed,
+                    )
+                )
+        elif metric_id == "BOOK_TO_PRICE_LF":
+            for ts_code in members:
+                window = exact_window(daily_basic.get(ts_code, []), 1)
+                if window is None:
+                    continue
+                observed, row = window[0]
+                denominator = _finite_source_number(row.get("pb"))
                 if denominator is None or denominator == 0:
                     continue
                 values.append((1 / denominator, 1, observed))
@@ -2460,7 +3320,7 @@ def _registered_sector_metric_observations(
         elif metric_id in {"ABOVE_MA20_PCT", "ABOVE_MA60_PCT"}:
             lookback = 20 if metric_id == "ABOVE_MA20_PCT" else 60
             for ts_code in members:
-                window = exact_window(prices.get(ts_code, []), lookback)
+                window = suspension_aligned_price_window(ts_code, lookback)
                 if window is None:
                     continue
                 values.append(
@@ -2475,7 +3335,7 @@ def _registered_sector_metric_observations(
                 )
         elif metric_id == "NEW_HIGH_LOW_20D_BALANCE":
             for ts_code in members:
-                window = exact_window(prices.get(ts_code, []), 20)
+                window = suspension_aligned_price_window(ts_code, 20)
                 if window is None:
                     continue
                 latest = window[-1][1]
@@ -2516,7 +3376,7 @@ def _registered_sector_metric_observations(
                 )
         elif metric_id == "REALIZED_VOLATILITY_60D":
             for ts_code in members:
-                window = exact_window(prices.get(ts_code, []), 61)
+                window = suspension_aligned_price_window(ts_code, 61)
                 if window is None:
                     continue
                 returns = [
@@ -2532,7 +3392,7 @@ def _registered_sector_metric_observations(
                 )
         elif metric_id == "CURRENT_DRAWDOWN_252D":
             for ts_code in members:
-                window = exact_window(prices.get(ts_code, []), 252)
+                window = suspension_aligned_price_window(ts_code, 252)
                 if window is None:
                     continue
                 values.append(
@@ -2733,7 +3593,9 @@ def _registered_sector_metric_observations(
             if contract["metric_family"] != "FUNDAMENTALS":
                 endpoints = endpoints | frozenset({"trade_cal"})
             eligible_count = (
-                len(etf_codes) if is_etf else len(members_by_direction[direction_id])
+                len(etf_codes)
+                if is_etf
+                else len(metric_members(metric_id, direction_id))
             )
             if is_etf and not etf_codes:
                 value, observation_count, observed_count = None, 0, 0
@@ -2817,22 +3679,660 @@ def _validate_registered_sector_metrics(
                     )
 
 
+def _compiled_batch_evidence(
+    *, role: str, as_of_date: str, batch: Mapping[str, Any], kind: str
+) -> dict[str, Any]:
+    evidence_id = (
+        f"registered:{role}:{batch['endpoint']}:"
+        f"{str(batch['source_batch_hash']).removeprefix('sha256:')}"
+    )
+    body = {
+        "evidence_id": evidence_id,
+        "evidence_kind": kind,
+        "source_id": batch["source_id"],
+        "source_endpoint": batch["endpoint"],
+        "observation_date": as_of_date,
+        "released_at": batch["released_at"],
+        "vintage_at": batch["vintage_at"],
+        "pit_status": "PIT_VERIFIED",
+        "content_hash": batch["source_batch_hash"],
+    }
+    return {**body, "evidence_record_hash": _canonical_hash(body)}
+
+
+def _compile_security_scoring_rows(
+    *,
+    universe: list[dict[str, Any]],
+    batches: list[dict[str, Any]],
+    as_of: date,
+    evidence_ids: list[str],
+) -> list[dict[str, Any]]:
+    indexed: dict[str, dict[tuple[str, date], dict[str, Any]]] = {}
+    for endpoint in ("daily", "adj_factor", "moneyflow"):
+        rows_by_key: dict[tuple[str, date], dict[str, Any]] = {}
+        for batch in batches:
+            if batch["endpoint"] != endpoint:
+                continue
+            for row in batch["rows"]:
+                ts_code = row.get("ts_code")
+                trade_date = _parse_temporal(
+                    row.get("trade_date"), f"sector compiler {endpoint}.trade_date"
+                ).date()
+                key = (str(ts_code), trade_date)
+                if not isinstance(ts_code, str) or key in rows_by_key:
+                    raise DataVendorUnavailable(
+                        f"sector compiler {endpoint} contains a duplicate key"
+                    )
+                rows_by_key[key] = row
+        indexed[endpoint] = rows_by_key
+
+    relevant = [
+        batch
+        for batch in batches
+        if batch["endpoint"] in {"daily", "adj_factor", "moneyflow"}
+    ]
+    if {batch["endpoint"] for batch in relevant} != {
+        "daily",
+        "adj_factor",
+        "moneyflow",
+    }:
+        raise DataVendorUnavailable("sector scoring source closure is incomplete")
+    released_at = max(
+        relevant,
+        key=lambda row: _parse_temporal(
+            row["released_at"], "sector compiler scoring released_at"
+        ),
+    )["released_at"]
+    vintage_at = max(
+        relevant,
+        key=lambda row: _parse_temporal(
+            row["vintage_at"], "sector compiler scoring vintage_at"
+        ),
+    )["vintage_at"]
+    latest_dates = _registered_sector_trading_grid(batches, as_of)[-21:]
+    interval_dates = latest_dates[1:]
+    result: list[dict[str, Any]] = []
+    for member in universe:
+        ts_code = member["ts_code"]
+        daily_by_date = {
+            trade_date: indexed["daily"][(ts_code, trade_date)]
+            for trade_date in latest_dates
+            if (ts_code, trade_date) in indexed["daily"]
+        }
+        adj_by_date = {
+            trade_date: row
+            for (row_code, trade_date), row in indexed["adj_factor"].items()
+            if row_code == ts_code and trade_date <= as_of
+        }
+        flow_by_date = {
+            trade_date: row
+            for (row_code, trade_date), row in indexed["moneyflow"].items()
+            if row_code == ts_code and trade_date <= as_of
+        }
+        complete_intervals = sum(
+            int(
+                prior_date in daily_by_date
+                and current_date in daily_by_date
+                and prior_date in adj_by_date
+                and current_date in adj_by_date
+                and current_date in flow_by_date
+                and _finite_source_number(daily_by_date[prior_date].get("close"))
+                is not None
+                and _finite_source_number(daily_by_date[current_date].get("close"))
+                is not None
+                and _finite_source_number(daily_by_date[current_date].get("amount"))
+                is not None
+                and _finite_source_number(adj_by_date[prior_date].get("adj_factor"))
+                is not None
+                and _finite_source_number(adj_by_date[current_date].get("adj_factor"))
+                is not None
+                and _finite_source_number(flow_by_date[current_date].get("net_mf_amount"))
+                is not None
+            )
+            for prior_date, current_date in zip(
+                latest_dates[:-1], interval_dates, strict=True
+            )
+        )
+        observation_count = min(20, complete_intervals)
+        missing_daily = len(daily_by_date) != 21 or any(
+            _finite_source_number(daily_by_date[trade_date].get("close")) is None
+            or _finite_source_number(daily_by_date[trade_date].get("amount")) is None
+            for trade_date in latest_dates
+            if trade_date in daily_by_date
+        )
+        missing_adj = not missing_daily and any(
+            trade_date not in adj_by_date
+            or _finite_source_number(adj_by_date[trade_date].get("adj_factor")) is None
+            for trade_date in latest_dates
+        )
+        missing_flow = any(
+            trade_date not in flow_by_date
+            or _finite_source_number(flow_by_date[trade_date].get("net_mf_amount"))
+            is None
+            for trade_date in interval_dates
+        )
+        if missing_daily:
+            status = "UNAVAILABLE"
+            reason = "INSUFFICIENT_PIT_OBSERVATIONS"
+            metrics: tuple[float | None, ...] = (None, None, None, None)
+        elif missing_adj:
+            status = "UNAVAILABLE"
+            reason = "MISSING_ADJUSTMENT_FACTOR"
+            metrics = (None, None, None, None)
+        elif missing_flow:
+            status = "UNAVAILABLE"
+            reason = "MISSING_MONEYFLOW"
+            metrics = (None, None, None, None)
+        else:
+            adjusted = [
+                float(daily_by_date[trade_date]["close"])
+                * float(adj_by_date[trade_date]["adj_factor"])
+                for trade_date in latest_dates
+            ]
+            amounts = [
+                float(daily_by_date[trade_date]["amount"])
+                for trade_date in interval_dates
+            ]
+            if any(value <= 0 for value in adjusted) or any(
+                value < 0 for value in amounts
+            ):
+                raise DataVendorUnavailable(
+                    "sector compiler encountered invalid price or amount values"
+                )
+            returns = [
+                current / prior - 1
+                for prior, current in zip(adjusted[:-1], adjusted[1:], strict=True)
+            ]
+            status = "AVAILABLE"
+            reason = None
+            metrics = (
+                adjusted[-1] / adjusted[0] - 1,
+                statistics.stdev(returns) * math.sqrt(252),
+                statistics.median(amounts) * 1_000,
+                sum(
+                    float(flow_by_date[trade_date]["net_mf_amount"])
+                    for trade_date in interval_dates
+                )
+                * 10_000,
+            )
+        body = {
+            "ts_code": ts_code,
+            "direction_id": member["direction_id"],
+            "availability_status": status,
+            "unavailability_reason": reason,
+            "observation_date": latest_dates[-1].isoformat(),
+            "released_at": released_at,
+            "vintage_at": vintage_at,
+            "pit_status": "PIT_VERIFIED",
+            "adjusted_return_20d": metrics[0],
+            "realized_volatility_20d": metrics[1],
+            "median_amount_20d_cny": metrics[2],
+            "net_moneyflow_20d_cny": metrics[3],
+            "observation_count": observation_count,
+            "required_observation_count": 20,
+            "coverage_ratio": observation_count / 20,
+            "evidence_ids": evidence_ids,
+        }
+        result.append({**body, "security_scoring_row_hash": _canonical_hash(body)})
+    return sorted(result, key=lambda row: (row["direction_id"], row["ts_code"]))
+
+
+def compile_registered_sector_snapshot(
+    *,
+    role: str,
+    as_of_date: str,
+    source_batches: list[dict[str, Any]],
+    historical_replay_captured_at: str | None = None,
+) -> dict[str, Any]:
+    """Compile one standard-sector snapshot only from frozen registered batches."""
+    if role not in SECTOR_DIRECTION_IDS:
+        raise DataVendorUnavailable(f"unknown standard sector role {role!r}")
+    as_of = date.fromisoformat(as_of_date)
+    contracts = _registered_tushare_endpoint_contracts()
+    batches = [
+        _validate_source_batch(
+            batch,
+            as_of=as_of,
+            endpoint_contracts=contracts,
+            historical_replay_captured_at=historical_replay_captured_at,
+        )
+        for batch in source_batches
+    ]
+    if any(
+        batch["coverage_ratio"] != 1.0
+        or batch["completed_query_count"] != batch["query_count"]
+        for batch in batches
+    ):
+        raise DataVendorUnavailable("sector compiler requires complete source batches")
+    plan, direction_contracts = _manifest_bindings(role)
+    required_branches = {
+        (
+            branch["parameter"],
+            branch["classification_code"],
+            branch["is_new"],
+        )
+        for branch in plan["branches"]
+    }
+    membership_batches: dict[tuple[str, str, str], dict[str, Any]] = {}
+    scoped_batches = [
+        batch
+        for batch in batches
+        if batch["endpoint"] == "index_member_all"
+        and isinstance(batch.get("request"), Mapping)
+        and batch["request"].get("scope")
+        == "semiconductor_etf_candidates_v1"
+    ]
+    scoped_ts_codes: set[str] = set()
+    if role == "semiconductor":
+        covered_l3_codes = sorted(
+            {
+                branch["classification_code"]
+                for branch in plan["branches"]
+                if branch["parameter"] == "l3_code"
+            }
+        )
+        exact_batches = [
+            batch
+            for batch in batches
+            if batch["endpoint"] == "index_member_all"
+        ]
+        if scoped_batches:
+            if len(exact_batches) != 1:
+                raise DataVendorUnavailable("scoped membership request is invalid")
+            scoped_ts_codes = set(
+                _semiconductor_scoped_membership_codes(
+                    scoped_batches[0]["request"], plan["query_plan_hash"]
+                )
+            )
+            row_codes = [row.get("ts_code") for row in scoped_batches[0]["rows"]]
+            if (
+                len(row_codes) != len(scoped_ts_codes)
+                or set(row_codes) != scoped_ts_codes
+                or scoped_batches[0]["query_count"] != len(scoped_ts_codes)
+                or scoped_batches[0]["completed_query_count"] != len(scoped_ts_codes)
+            ):
+                raise DataVendorUnavailable("scoped membership request is invalid")
+            membership_batches[("scope", "semiconductor_etf_candidates_v1", "Y")] = (
+                scoped_batches[0]
+            )
+        elif len(exact_batches) != 2:
+            raise DataVendorUnavailable(
+                "sector compiler semiconductor membership closure mismatch"
+            )
+        else:
+            for batch in exact_batches:
+                request = batch["request"]
+                if not _is_semiconductor_exact_membership_request(request):
+                    raise DataVendorUnavailable(
+                        "sector compiler semiconductor membership request mismatch"
+                    )
+                if any(
+                    str(row.get("l2_code")) != "801081.SI"
+                    or str(row.get("is_new")) != str(request["is_new"])
+                    or str(row.get("l3_code")) not in covered_l3_codes
+                    for row in batch["rows"]
+                ):
+                    raise DataVendorUnavailable(
+                        "sector compiler semiconductor membership row mismatch"
+                    )
+                branch = (
+                    request["parameter"],
+                    request["classification_code"],
+                    request["is_new"],
+                )
+                membership_batches[branch] = batch
+            if {batch["request"]["is_new"] for batch in exact_batches} != {"Y", "N"}:
+                raise DataVendorUnavailable(
+                    "sector compiler semiconductor membership is_new closure mismatch"
+                )
+    else:
+        for batch in batches:
+            if batch["endpoint"] != "index_member_all":
+                continue
+            request = batch["request"]
+            branch = (
+                request.get("parameter"),
+                request.get("classification_code"),
+                request.get("is_new"),
+            )
+            if request.get("query_plan_hash") != plan["query_plan_hash"]:
+                raise DataVendorUnavailable("sector compiler membership plan mismatch")
+            if branch not in required_branches or branch in membership_batches:
+                raise DataVendorUnavailable("sector compiler membership branch mismatch")
+            membership_batches[branch] = batch
+        if set(membership_batches) != required_branches:
+            raise DataVendorUnavailable("sector compiler membership branches are incomplete")
+
+    stock_batch, active_stock_rows = _registered_active_stock_rows(batches, as_of)
+    stock_evidence = _compiled_batch_evidence(
+        role=role,
+        as_of_date=as_of_date,
+        batch=stock_batch,
+        kind="REGISTERED_METRIC_SOURCE_BATCH",
+    )
+    evidence: list[dict[str, Any]] = [stock_evidence]
+    evidence_by_batch: dict[str, str] = {
+        stock_batch["source_batch_id"]: stock_evidence["evidence_id"]
+    }
+    member_state: dict[str, dict[str, Any]] = {}
+    scoped_directions: dict[str, str] = {}
+    for batch in membership_batches.values():
+        active_rows = []
+        for row in batch["rows"]:
+            if scoped_batches and (
+                row.get("ts_code") not in scoped_ts_codes
+                or row.get("is_new") != "Y"
+            ):
+                raise DataVendorUnavailable(
+                    "sector compiler scoped membership row is outside ETF candidates"
+                )
+            in_date = _parse_temporal(row.get("in_date"), "sector compiler in_date").date()
+            out_value = row.get("out_date")
+            out_date = (
+                _parse_temporal(out_value, "sector compiler out_date").date()
+                if out_value not in (None, "")
+                else None
+            )
+            if (
+                in_date <= as_of
+                and (out_date is None or out_date > as_of)
+                and row.get("ts_code") in active_stock_rows
+            ):
+                if scoped_batches:
+                    try:
+                        direction_id = _direction_for_security(
+                            row, direction_contracts
+                        )
+                    except DataVendorUnavailable:
+                        continue
+                    ts_code = str(row["ts_code"])
+                    previous_direction = scoped_directions.get(ts_code)
+                    if (
+                        previous_direction is not None
+                        and previous_direction != direction_id
+                    ):
+                        raise DataVendorUnavailable(
+                            "sector compiler found conflicting active directions"
+                        )
+                    scoped_directions[ts_code] = direction_id
+                active_rows.append(row)
+        if not active_rows:
+            continue
+        batch_evidence = _compiled_batch_evidence(
+            role=role,
+            as_of_date=as_of_date,
+            batch=batch,
+            kind="REGISTERED_MEMBERSHIP_BATCH",
+        )
+        evidence.append(batch_evidence)
+        evidence_by_batch[batch["source_batch_id"]] = batch_evidence["evidence_id"]
+        for row in active_rows:
+            ts_code = str(row.get("ts_code"))
+            direction_id = (
+                scoped_directions[ts_code]
+                if scoped_batches
+                else _direction_for_security(row, direction_contracts)
+            )
+            body = {
+                "ts_code": ts_code,
+                "direction_id": direction_id,
+                "l1_code": row.get("l1_code") or None,
+                "l2_code": row.get("l2_code") or None,
+                "l3_code": row.get("l3_code") or None,
+                "in_date": row["in_date"],
+                "out_date": row.get("out_date") or None,
+                "released_at": batch["released_at"],
+                "vintage_at": batch["vintage_at"],
+                "pit_status": "PIT_VERIFIED",
+                "evidence_ids": sorted(
+                    [batch_evidence["evidence_id"], stock_evidence["evidence_id"]]
+                ),
+            }
+            previous = member_state.get(ts_code)
+            if previous is not None:
+                comparable = {
+                    key: value
+                    for key, value in body.items()
+                    if key not in {"released_at", "vintage_at", "evidence_ids"}
+                }
+                previous_comparable = {
+                    key: value
+                    for key, value in previous.items()
+                    if key
+                    not in {
+                        "released_at",
+                        "vintage_at",
+                        "evidence_ids",
+                        "membership_row_hash",
+                    }
+                }
+                if comparable != previous_comparable:
+                    raise DataVendorUnavailable(
+                        "sector compiler found conflicting active membership rows"
+                    )
+                previous["evidence_ids"] = sorted(
+                    set(previous["evidence_ids"]) | set(body["evidence_ids"])
+                )
+                previous["released_at"] = max(
+                    (previous["released_at"], body["released_at"]),
+                    key=lambda value: _parse_temporal(value, "membership released_at"),
+                )
+                previous["vintage_at"] = max(
+                    (previous["vintage_at"], body["vintage_at"]),
+                    key=lambda value: _parse_temporal(value, "membership vintage_at"),
+                )
+                previous["membership_row_hash"] = _canonical_hash(
+                    {
+                        key: value
+                        for key, value in previous.items()
+                        if key != "membership_row_hash"
+                    }
+                )
+            else:
+                member_state[ts_code] = {
+                    **body,
+                    "membership_row_hash": _canonical_hash(body),
+                }
+    universe = sorted(
+        member_state.values(), key=lambda row: (row["direction_id"], row["ts_code"])
+    )
+    if not universe:
+        raise DataVendorUnavailable("sector compiler has no eligible members")
+
+    for batch in batches:
+        if batch["endpoint"] in {"index_member_all", "stock_basic"}:
+            continue
+        batch_evidence = _compiled_batch_evidence(
+            role=role,
+            as_of_date=as_of_date,
+            batch=batch,
+            kind="REGISTERED_METRIC_SOURCE_BATCH",
+        )
+        evidence.append(batch_evidence)
+        evidence_by_batch[batch["source_batch_id"]] = batch_evidence["evidence_id"]
+    evidence.sort(key=lambda row: row["evidence_id"])
+
+    endpoint_evidence = {
+        endpoint: sorted(
+            evidence_by_batch[batch["source_batch_id"]]
+            for batch in batches
+            if batch["endpoint"] == endpoint
+        )
+        for endpoint in {batch["endpoint"] for batch in batches}
+        if endpoint != "index_member_all"
+    }
+    authority = _validated_sector_etf_direction_authority(as_of)
+    fund_basic_batches = [batch for batch in batches if batch["endpoint"] == "fund_basic"]
+    if len(fund_basic_batches) != 1:
+        raise DataVendorUnavailable("sector compiler requires one fund_basic batch")
+    fund_basic = fund_basic_batches[0]
+    cards: list[dict[str, Any]] = []
+    members_by_direction = {
+        direction_id: [row for row in universe if row["direction_id"] == direction_id]
+        for direction_id in SECTOR_DIRECTION_IDS[role]
+    }
+    if any(not rows for rows in members_by_direction.values()):
+        raise DataVendorUnavailable("sector compiler has an empty direction partition")
+    for direction_id in SECTOR_DIRECTION_IDS[role]:
+        family_body = {
+            "etf_family_id": f"sector-etf:{role}:{direction_id}",
+            "direction_id": direction_id,
+            "etf_ts_codes": _authoritative_etf_codes(role, direction_id, as_of),
+            "selection_date": as_of_date,
+            "released_at": fund_basic["released_at"],
+            "vintage_at": fund_basic["vintage_at"],
+            "pit_status": "PIT_VERIFIED",
+            "direction_authority_version": authority["authority_version"],
+            "direction_authority_hash": authority["authority_hash"],
+            "direction_authority_effective_from": authority["effective_from"],
+            "direction_authority_effective_to": authority["effective_to"],
+            "evidence_ids": endpoint_evidence["fund_basic"],
+        }
+        family = {**family_body, "etf_family_hash": _canonical_hash(family_body)}
+        cards.append(
+            {
+                "direction_id": direction_id,
+                "direction_contract_hash": direction_contracts[direction_id][
+                    "direction_contract_hash"
+                ],
+                "membership_query_plan_id": plan["query_plan_id"],
+                "membership_query_plan_hash": plan["query_plan_hash"],
+                "eligible_count": len(members_by_direction[direction_id]),
+                "membership_hash": _canonical_hash(members_by_direction[direction_id]),
+                "readiness_status": "READY",
+                "etf_family": family,
+                "metrics": [],
+                "evidence_ids": [],
+                "direction_card_hash": "",
+            }
+        )
+
+    scoring_ids = sorted(
+        evidence_id
+        for endpoint in ("daily", "adj_factor", "moneyflow")
+        for evidence_id in endpoint_evidence[endpoint]
+    )
+    scoring_rows = _compile_security_scoring_rows(
+        universe=universe,
+        batches=batches,
+        as_of=as_of,
+        evidence_ids=scoring_ids,
+    )
+    provisional = {
+        "eligible_security_universe": universe,
+        "direction_ids": list(SECTOR_DIRECTION_IDS[role]),
+        "direction_cards": cards,
+        "evidence_catalog": evidence,
+    }
+    observations = _registered_sector_metric_observations(
+        snapshot=provisional, batches=batches, as_of=as_of
+    )
+    metric_contracts = SECTOR_UNIVERSE_MANIFEST["direction_metric_registry"]
+    for card in cards:
+        refs = set(card["etf_family"]["evidence_ids"])
+        refs.update(
+            evidence_id
+            for member in members_by_direction[card["direction_id"]]
+            for evidence_id in member["evidence_ids"]
+        )
+        for contract in metric_contracts:
+            observed = observations[(card["direction_id"], contract["metric_id"])]
+            if contract["required_for_direction_readiness"] and observed[
+                "availability_status"
+            ] != "AVAILABLE":
+                raise DataVendorUnavailable(
+                    f"sector compiler required metric is unavailable: {card['direction_id']}/{contract['metric_id']}"
+                )
+            metric_body = {**contract, **observed}
+            metric = {
+                **metric_body,
+                "metric_observation_hash": _canonical_hash(metric_body),
+            }
+            card["metrics"].append(metric)
+            refs.update(metric["evidence_ids"])
+        card["evidence_ids"] = sorted(refs)
+        card["direction_card_hash"] = _canonical_hash(
+            {
+                key: value
+                for key, value in card.items()
+                if key != "direction_card_hash"
+            }
+        )
+
+    membership_observed_at = max(
+        membership_batches.values(),
+        key=lambda row: _parse_temporal(
+            row["vintage_at"], "sector compiler membership vintage_at"
+        ),
+    )["vintage_at"]
+    scoring_contract = SECTOR_UNIVERSE_MANIFEST["security_scoring_contract"]
+    body = {
+        "schema_version": SECTOR_SNAPSHOT_SCHEMA_VERSION,
+        "sector_universe_manifest_hash": SECTOR_UNIVERSE_MANIFEST["manifest_hash"],
+        "sector_agent_id": role,
+        "as_of_date": as_of_date,
+        "direction_contract_version": SECTOR_DIRECTION_CONTRACT_VERSION,
+        "direction_metric_registry_version": SECTOR_UNIVERSE_MANIFEST[
+            "direction_metric_registry_version"
+        ],
+        "direction_metric_registry_hash": SECTOR_UNIVERSE_MANIFEST[
+            "direction_metric_registry_hash"
+        ],
+        "membership_query_plan_id": plan["query_plan_id"],
+        "membership_query_plan_version": plan["query_plan_version"],
+        "membership_query_plan_hash": plan["query_plan_hash"],
+        "membership_pit_status": "PIT_VERIFIED",
+        "membership_observed_at": membership_observed_at,
+        "direction_ids": list(SECTOR_DIRECTION_IDS[role]),
+        "direction_cards": cards,
+        "eligible_security_universe": universe,
+        "eligible_count": len(universe),
+        "membership_hash": _canonical_hash(universe),
+        "security_scoring_contract_version": scoring_contract[
+            "scoring_contract_version"
+        ],
+        "security_scoring_contract_hash": scoring_contract["scoring_contract_hash"],
+        "security_scoring_rows": scoring_rows,
+        "security_scoring_rows_hash": _canonical_hash(scoring_rows),
+        "evidence_catalog": evidence,
+    }
+    snapshot = {**body, "snapshot_hash": _canonical_hash(body)}
+    canonical = validate_sector_snapshot(snapshot, role, as_of_date)
+    _build_sector_source_receipt(
+        role=role,
+        as_of_date=as_of_date,
+        snapshot=canonical,
+        source_batches=batches,
+        historical_replay_captured_at=historical_replay_captured_at,
+    )
+    return canonical
+
+
 def _build_sector_source_receipt(
     *,
     role: str,
     as_of_date: str,
     snapshot: Mapping[str, Any],
     source_batches: list[dict[str, Any]],
+    historical_replay_captured_at: str | None = None,
 ) -> dict[str, Any]:
     as_of = date.fromisoformat(as_of_date)
     contracts = _registered_tushare_endpoint_contracts()
     batches = [
-        _validate_source_batch(batch, as_of=as_of, endpoint_contracts=contracts)
+        _validate_source_batch(
+            batch,
+            as_of=as_of,
+            endpoint_contracts=contracts,
+            historical_replay_captured_at=historical_replay_captured_at,
+        )
         for batch in source_batches
     ]
     for batch in batches:
         _require_sector_cutoff(
-            batch, as_of, "sector source batch", include_captured=True
+            batch,
+            as_of,
+            "sector source batch",
+            include_captured=historical_replay_captured_at is None,
         )
     batch_ids = [batch["source_batch_id"] for batch in batches]
     if len(batch_ids) != len(set(batch_ids)):
@@ -2865,7 +4365,12 @@ def _build_sector_source_receipt(
                 f"sector evidence is not bound to a registered source batch: {evidence['evidence_id']}"
             )
     metadata = [
-        {key: batch[key] for key in sorted(_SOURCE_BATCH_RECEIPT_FIELDS)}
+        {
+            key: batch[key]
+            for key in sorted(
+                _source_batch_fields(batch.get("endpoint"), include_rows=False)
+            )
+        }
         for batch in sorted(batches, key=lambda row: row["source_batch_id"])
     ]
     body = {
@@ -2875,6 +4380,15 @@ def _build_sector_source_receipt(
         "sector_snapshot_hash": snapshot["snapshot_hash"],
         "required_endpoints": sorted(required_endpoints),
         "source_batches": metadata,
+        **(
+            {
+                _HISTORICAL_REPLAY_RECEIPT_FIELD: (
+                    historical_replay_captured_at
+                )
+            }
+            if historical_replay_captured_at is not None
+            else {}
+        ),
     }
     return {**body, "source_bundle_hash": _canonical_hash(body)}
 
@@ -2888,9 +4402,16 @@ def _validate_sector_source_receipt(
 ) -> dict[str, Any]:
     if not isinstance(receipt, dict):
         raise DataVendorUnavailable("sector source receipt must be an object")
-    _require_exact_fields(receipt, _SOURCE_RECEIPT_FIELDS, "sector source receipt")
+    receipt_fields = set(_SOURCE_RECEIPT_FIELDS)
+    if _HISTORICAL_REPLAY_RECEIPT_FIELD in receipt:
+        receipt_fields.add(_HISTORICAL_REPLAY_RECEIPT_FIELD)
+    _require_exact_fields(receipt, receipt_fields, "sector source receipt")
     if (
-        receipt.get("schema_version") != SECTOR_SOURCE_RECEIPT_SCHEMA_VERSION
+        receipt.get("schema_version")
+        not in {
+            LEGACY_SECTOR_SOURCE_RECEIPT_SCHEMA_VERSION,
+            SECTOR_SOURCE_RECEIPT_SCHEMA_VERSION,
+        }
         or receipt.get("sector_agent_id") != role
         or receipt.get("as_of_date") != as_of_date
         or receipt.get("sector_snapshot_hash") != snapshot.get("snapshot_hash")
@@ -2904,12 +4425,30 @@ def _validate_sector_source_receipt(
     ids: list[str] = []
     contracts = _registered_tushare_endpoint_contracts()
     as_of = date.fromisoformat(as_of_date)
+    require_pagination_policy = (
+        receipt["schema_version"] == SECTOR_SOURCE_RECEIPT_SCHEMA_VERSION
+    )
+    historical_replay_captured_at = receipt.get(
+        _HISTORICAL_REPLAY_RECEIPT_FIELD
+    )
+    if historical_replay_captured_at is not None and not isinstance(
+        historical_replay_captured_at, str
+    ):
+        raise DataVendorUnavailable(
+            "sector source receipt historical replay cutoff is invalid"
+        )
     observed_endpoints: set[str] = set()
     for batch in batches:
         if not isinstance(batch, dict):
             raise DataVendorUnavailable("sector source receipt batches must be objects")
         _require_exact_fields(
-            batch, _SOURCE_BATCH_RECEIPT_FIELDS, "sector source receipt batch"
+            batch,
+            _source_batch_fields(
+                batch.get("endpoint"),
+                include_rows=False,
+                require_pagination_policy=require_pagination_policy,
+            ),
+            "sector source receipt batch",
         )
         _require_sha256(batch.get("source_batch_hash"), "sector source batch hash")
         _require_sha256(batch.get("rows_hash"), "sector source rows hash")
@@ -2922,15 +4461,13 @@ def _validate_sector_source_receipt(
             != contract.get("schema_contract_version")
         ):
             raise DataVendorUnavailable("sector source receipt route mismatch")
-        _require_sector_cutoff(
-            batch, as_of, "sector source receipt batch", include_captured=True
+        _require_source_temporal_contract(
+            batch,
+            as_of=as_of,
+            historical_replay_captured_at=historical_replay_captured_at,
+            label="sector source receipt batch",
+            error_message="sector source receipt contains lookahead",
         )
-        for field in ("released_at", "vintage_at", "captured_at"):
-            if (
-                _parse_temporal(batch.get(field), f"source receipt {field}").date()
-                > as_of
-            ):
-                raise DataVendorUnavailable("sector source receipt contains lookahead")
         if (
             batch.get("pit_status") != "PIT_VERIFIED"
             or batch.get("pagination_complete") is not True
@@ -2938,6 +4475,39 @@ def _validate_sector_source_receipt(
             or batch.get("coverage_ratio", 0) < 0.9
         ):
             raise DataVendorUnavailable("sector source receipt is not ready")
+        scoped_membership = (
+            endpoint == "index_member_all"
+            and isinstance(batch.get("request"), Mapping)
+            and batch["request"].get("scope")
+            == "semiconductor_etf_candidates_v1"
+        )
+        expected_pagination_policy = (
+            EXACT_SINGLE_PAGE_OFFICIAL_CAP
+            if endpoint == "index_member_all"
+            and _is_semiconductor_exact_membership_request(batch.get("request"))
+            else SOURCE_BATCH_PAGINATION_POLICIES.get(endpoint)
+        )
+        if (
+            require_pagination_policy
+            and (
+                (
+                    scoped_membership
+                    and batch.get("pagination_policy")
+                    not in {
+                        PAGINATION_POLICY_OFFICIAL_CAP,
+                        EXACT_SINGLE_PAGE_OFFICIAL_CAP,
+                    }
+                )
+                or (
+                    not scoped_membership
+                    and expected_pagination_policy is not None
+                    and batch.get("pagination_policy") != expected_pagination_policy
+                )
+            )
+        ):
+            raise DataVendorUnavailable(
+                f"sector source receipt {endpoint} pagination policy mismatch"
+            )
         batch_body = {
             key: value
             for key, value in batch.items()
@@ -2995,6 +4565,7 @@ def write_registered_sector_snapshot(
     as_of_date: str,
     snapshot: Mapping[str, Any],
     source_batches: list[dict[str, Any]],
+    historical_replay_captured_at: str | None = None,
     root: Path | None = None,
 ) -> dict[str, Any]:
     """Publish a validated PIT snapshot from caller-supplied collector rows.
@@ -3013,6 +4584,7 @@ def write_registered_sector_snapshot(
         as_of_date=as_of_date,
         snapshot=canonical,
         source_batches=source_batches,
+        historical_replay_captured_at=historical_replay_captured_at,
     )
     destination_root = root or sector_snapshot_root()
     destination = destination_root / as_of_date / f"{role}.json"
@@ -3067,7 +4639,7 @@ def load_sector_snapshot(
             root=source_root,
         )
     base_runtime_fields = set(snapshot)
-    if role in ROLE_EVENT_CURRENCIES:
+    if role in _SECTOR_ROLE_EVENT_RUNTIME_BINDINGS:
         role_events = build_role_event_snapshot(role, as_of_date)
         if not isinstance(role_events, dict):
             raise DataVendorUnavailable("sector role-event snapshot must be an object")
@@ -3132,8 +4704,14 @@ def load_sector_snapshot(
 
 
 def render_sector_snapshot(role: str, as_of_date: str) -> str:
+    try:
+        snapshot = load_sector_snapshot(role, as_of_date)
+    except DataVendorUnavailable as exc:
+        if exc.reason_code != "PRIVATE_PIT_SECTOR_SNAPSHOT_MISSING":
+            raise
+        snapshot = _build_etf_holdings_candidate_snapshot(role, as_of_date)
     return json.dumps(
-        load_sector_snapshot(role, as_of_date),
+        snapshot,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -3319,9 +4897,9 @@ def validate_relationship_snapshot(payload: Any, as_of_date: str) -> dict[str, A
             raise DataVendorUnavailable(
                 "relationship materiality weight must be numeric"
             )
-        if not math.isfinite(float(weight)) or float(weight) <= 0:
+        if not math.isfinite(float(weight)) or float(weight) < 0:
             raise DataVendorUnavailable(
-                "relationship materiality weight must be finite and positive"
+                "relationship materiality weight must be finite and non-negative"
             )
         if row["materiality_bucket"] != _relationship_materiality_bucket(float(weight)):
             raise DataVendorUnavailable(
@@ -3462,6 +5040,75 @@ def validate_relationship_snapshot(payload: Any, as_of_date: str) -> dict[str, A
     return {key: payload[key] for key in payload}
 
 
+def validate_relationship_runtime_snapshot(
+    payload: Any, as_of_date: str
+) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise DataVendorUnavailable("relationship runtime snapshot must be an object")
+    opportunity = payload.get("prediction_opportunity_set")
+    if not isinstance(opportunity, dict):
+        raise DataVendorUnavailable(
+            "relationship prediction opportunity set must be an object"
+        )
+    runtime_fields = {
+        "run_id",
+        "as_of",
+        "opportunity_set_id",
+        "opportunity_set_hash",
+    }
+    if not runtime_fields.intersection(opportunity):
+        return validate_relationship_snapshot(payload, as_of_date)
+    _require_exact_fields(
+        opportunity,
+        _RELATIONSHIP_OPPORTUNITY_SET_FIELDS | runtime_fields,
+        "relationship runtime prediction opportunity set",
+    )
+    _require_relationship_id(
+        opportunity["run_id"], "relationship runtime opportunity run_id"
+    )
+    if opportunity["as_of"] != as_of_date:
+        raise DataVendorUnavailable("relationship runtime opportunity as_of mismatch")
+    opportunity_body = {
+        key: opportunity[key]
+        for key in (
+            "run_id",
+            "as_of",
+            "candidate_generation_contract_version",
+            "scoring_contract_version",
+            "ordered_opportunities",
+        )
+    }
+    opportunity_hash = _canonical_hash(opportunity_body)
+    _require_sha256(
+        opportunity["opportunity_set_hash"],
+        "relationship runtime opportunity set hash",
+    )
+    if opportunity["opportunity_set_hash"] != opportunity_hash:
+        raise DataVendorUnavailable(
+            "relationship runtime opportunity set hash mismatch"
+        )
+    opportunity_id = (
+        f"relationship-opportunity:{opportunity_hash.removeprefix('sha256:')}"
+    )
+    if opportunity["opportunity_set_id"] != opportunity_id:
+        raise DataVendorUnavailable("relationship runtime opportunity set ID mismatch")
+    _require_hash_binding(payload, "snapshot_hash", "relationship runtime snapshot")
+
+    base_snapshot = {key: value for key, value in payload.items()}
+    base_snapshot["prediction_opportunity_set"] = {
+        key: opportunity[key] for key in _RELATIONSHIP_OPPORTUNITY_SET_FIELDS
+    }
+    base_snapshot["snapshot_hash"] = _canonical_hash(
+        {
+            key: value
+            for key, value in base_snapshot.items()
+            if key != "snapshot_hash"
+        }
+    )
+    validate_relationship_snapshot(base_snapshot, as_of_date)
+    return {key: payload[key] for key in payload}
+
+
 def _normalize_relationship_source_text(value: Any, label: str) -> str:
     if not isinstance(value, str):
         raise DataVendorUnavailable(f"{label} must be a source string")
@@ -3485,8 +5132,8 @@ def _normalize_relationship_materiality(value: Any, label: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise DataVendorUnavailable(f"{label} must be numeric")
     normalized = float(value)
-    if not math.isfinite(normalized) or normalized <= 0:
-        raise DataVendorUnavailable(f"{label} must be finite and positive")
+    if not math.isfinite(normalized) or normalized < 0:
+        raise DataVendorUnavailable(f"{label} must be finite and non-negative")
     return normalized
 
 
@@ -3503,6 +5150,7 @@ def _derive_relationship_source_truth(
     """Rebuild typed shareholder facts and controls from frozen source rows."""
     as_of = date.fromisoformat(str(snapshot["as_of_date"]))
     cutoff = _relationship_as_of_cutoff(as_of)
+    stock_batch, active_stock_rows = _registered_active_stock_rows(batches, as_of)
     evidence_by_batch: dict[tuple[str, str, str], list[str]] = {}
     for evidence in snapshot["evidence_catalog"]:
         key = (
@@ -3511,6 +5159,20 @@ def _derive_relationship_source_truth(
             str(evidence["content_hash"]),
         )
         evidence_by_batch.setdefault(key, []).append(str(evidence["evidence_id"]))
+    stock_evidence_ids = sorted(
+        evidence_by_batch.get(
+            (
+                stock_batch["source_id"],
+                stock_batch["endpoint"],
+                stock_batch["source_batch_hash"],
+            ),
+            (),
+        )
+    )
+    if not stock_evidence_ids:
+        raise DataVendorUnavailable(
+            "relationship active-listing authority has no batch-bound evidence"
+        )
 
     frozen_batches: list[dict[str, Any]] = []
     for batch in sorted(batches, key=lambda row: row["source_batch_id"]):
@@ -3530,10 +5192,13 @@ def _derive_relationship_source_truth(
         if batch["endpoint"] != "index_member_all":
             continue
         for row in batch["rows"]:
+            raw_ts_code = _normalize_relationship_source_text(
+                row.get("ts_code"), "index_member_all.ts_code"
+            )
+            if raw_ts_code not in active_stock_rows:
+                continue
             ts_code = _require_relationship_security_id(
-                _normalize_relationship_source_text(
-                    row.get("ts_code"), "index_member_all.ts_code"
-                ),
+                raw_ts_code,
                 "index_member_all.ts_code",
             )
             in_date = date.fromisoformat(
@@ -3598,10 +5263,13 @@ def _derive_relationship_source_truth(
                 ),
                 "top10_holders.holder_name",
             )
+            raw_target_entity = _normalize_relationship_source_text(
+                row.get("ts_code"), "top10_holders.ts_code"
+            )
+            if raw_target_entity not in active_stock_rows:
+                continue
             target_entity = _require_relationship_security_id(
-                _normalize_relationship_source_text(
-                    row.get("ts_code"), "top10_holders.ts_code"
-                ),
+                raw_target_entity,
                 "top10_holders.ts_code",
             )
             target_sector_id = eligible_securities.get(target_entity)
@@ -3635,12 +5303,16 @@ def _derive_relationship_source_truth(
             announcement = _parse_relationship_temporal(
                 announcement_at, "top10_holders normalized ann_date"
             )
+            if announcement > batch_release:
+                continue
+            effective_release = max(observation, announcement)
             if not (
-                observation <= announcement <= batch_release <= batch_vintage <= cutoff
+                effective_release <= batch_release <= batch_vintage <= cutoff
             ):
                 raise DataVendorUnavailable(
-                    "relationship edge violates end_date <= ann_date <= batch release "
-                    "<= batch vintage <= Asia/Shanghai 15:00 as_of"
+                    "relationship edge violates effective release=max(end_date, ann_date) "
+                    "<= batch release <= batch vintage <= Asia/Shanghai end-of-day "
+                    "materialization cutoff"
                 )
             tuple_body = {
                 "extractor_contract_version": RELATIONSHIP_SOURCE_EXTRACTOR_CONTRACT_VERSION,
@@ -3686,10 +5358,10 @@ def _derive_relationship_source_truth(
                         f"end_date={observation_date}"
                     ),
                     "observation_date": observation_date,
-                    "released_at": announcement_at,
+                    "released_at": effective_release.isoformat().replace("+00:00", "Z"),
                     "vintage_at": batch["vintage_at"],
                     "pit_status": "PIT_VERIFIED",
-                    "evidence_ids": evidence_ids,
+                    "evidence_ids": sorted(evidence_ids + stock_evidence_ids),
                     "materiality_weight": materiality_weight,
                     "materiality_bucket": materiality_bucket,
                     "locator": locator,
@@ -3704,10 +5376,37 @@ def _derive_relationship_source_truth(
     selected_by_tuple: dict[tuple[str, str, str], dict[str, Any]] = {}
     for candidate in sorted(raw_candidates, key=lambda row: row["selection_key"]):
         selected_by_tuple.setdefault(candidate["tuple"], candidate)
-    selected = sorted(
+    factual_tuples = set(selected_by_tuple)
+    held_targets_by_holder: dict[tuple[str, str], set[str]] = {}
+    for source_entity, target_entity, edge_type in factual_tuples:
+        held_targets_by_holder.setdefault((source_entity, edge_type), set()).add(
+            target_entity
+        )
+    targets_by_sector: dict[str, list[str]] = {}
+    for target_entity, sector_id in sorted(eligible_securities.items()):
+        targets_by_sector.setdefault(sector_id, []).append(target_entity)
+    ranked_candidates = sorted(
         selected_by_tuple.values(), key=lambda row: row["edge_candidate_id"]
     )
-    factual_tuples = set(selected_by_tuple)
+    candidates_with_controls: list[dict[str, Any]] = []
+    candidates_without_controls: list[dict[str, Any]] = []
+    for candidate in ranked_candidates:
+        held_targets = held_targets_by_holder[
+            (candidate["source_entity"], candidate["edge_type"])
+        ]
+        sector_targets = targets_by_sector[candidate["target_sector_id"]]
+        destination = (
+            candidates_with_controls
+            if len(held_targets.intersection(sector_targets)) < len(sector_targets)
+            else candidates_without_controls
+        )
+        destination.append(candidate)
+    bounded_candidates = (
+        candidates_with_controls + candidates_without_controls
+    )[:RELATIONSHIP_MAX_FACTUAL_EDGES]
+    selected = sorted(
+        bounded_candidates, key=lambda row: row["edge_candidate_id"]
+    )
     relationships: list[dict[str, Any]] = []
     opportunities: list[dict[str, Any]] = []
     derivations: list[dict[str, Any]] = []
@@ -3732,13 +5431,17 @@ def _derive_relationship_source_truth(
         }
         relationship["relationship_row_hash"] = _canonical_hash(relationship)
         relationships.append(relationship)
+        derivations.append(
+            {
+                "edge_candidate_id": candidate["edge_candidate_id"],
+                "source_row_locator": candidate["locator"],
+                "source_row_content_hash": candidate["source_row_content_hash"],
+            }
+        )
 
-        held_targets = {
-            target_entity
-            for source_entity, target_entity, edge_type in factual_tuples
-            if source_entity == candidate["source_entity"]
-            and edge_type == candidate["edge_type"]
-        }
+        held_targets = held_targets_by_holder[
+            (candidate["source_entity"], candidate["edge_type"])
+        ]
         non_edge_candidates = [
             {
                 "source_entity": candidate["source_entity"],
@@ -3749,15 +5452,11 @@ def _derive_relationship_source_truth(
                 "edge_type": candidate["edge_type"],
                 "materiality_bucket": candidate["materiality_bucket"],
             }
-            for target_entity, sector_id in sorted(eligible_securities.items())
-            if sector_id == candidate["target_sector_id"]
-            and target_entity not in held_targets
+            for target_entity in targets_by_sector[candidate["target_sector_id"]]
+            if target_entity not in held_targets
         ]
         if not non_edge_candidates:
-            raise DataVendorUnavailable(
-                "relationship extractor cannot construct a matched non-edge from "
-                "the frozen source domain"
-            )
+            continue
         matched_non_edges = non_edge_candidates[:RELATIONSHIP_MAX_MATCHED_NON_EDGES]
         matched_hash = _canonical_hash(matched_non_edges)
         opportunities.append(
@@ -3777,12 +5476,10 @@ def _derive_relationship_source_truth(
                 "matched_non_edges": matched_non_edges,
             }
         )
-        derivations.append(
-            {
-                "edge_candidate_id": candidate["edge_candidate_id"],
-                "source_row_locator": candidate["locator"],
-                "source_row_content_hash": candidate["source_row_content_hash"],
-            }
+    if not opportunities:
+        raise DataVendorUnavailable(
+            "relationship extractor cannot construct any matched non-edge from "
+            "the frozen source domain"
         )
     return relationships, opportunities, derivations, frozen_batches
 
@@ -3819,31 +5516,132 @@ def _validate_relationship_source_truth(
     return expected_derivations, expected_frozen
 
 
+def compile_registered_relationship_snapshot(
+    *,
+    as_of_date: str,
+    source_batches: list[dict[str, Any]],
+    historical_replay_captured_at: str | None = None,
+) -> dict[str, Any]:
+    """Compile the formal relationship graph only from frozen source batches."""
+    as_of = date.fromisoformat(as_of_date)
+    contracts = _registered_tushare_endpoint_contracts(
+        RELATIONSHIP_REQUIRED_SOURCE_ENDPOINTS
+    )
+    batches = [
+        _validate_source_batch(
+            batch,
+            as_of=as_of,
+            endpoint_contracts=contracts,
+            historical_replay_captured_at=historical_replay_captured_at,
+        )
+        for batch in source_batches
+    ]
+    if (
+        {batch["endpoint"] for batch in batches}
+        != RELATIONSHIP_REQUIRED_SOURCE_ENDPOINTS
+        or any(
+            batch["coverage_ratio"] != 1.0
+            or batch["completed_query_count"] != batch["query_count"]
+            for batch in batches
+        )
+    ):
+        raise DataVendorUnavailable(
+            "relationship compiler requires complete registered source batches"
+        )
+    evidence = [
+        _compiled_batch_evidence(
+            role="relationship_mapper",
+            as_of_date=as_of_date,
+            batch=batch,
+            kind="REGISTERED_RELATIONSHIP_BATCH",
+        )
+        for batch in batches
+        if batch["endpoint"] in {"stock_basic", "top10_holders"}
+    ]
+    evidence.sort(key=lambda row: row["evidence_id"])
+    provisional = {"as_of_date": as_of_date, "evidence_catalog": evidence}
+    relationships, opportunities, _derivations, _frozen = (
+        _derive_relationship_source_truth(snapshot=provisional, batches=batches)
+    )
+    holder_domain = sorted(
+        {row["source_entity"] for row in relationships}
+        | {
+            row["source_entity"]
+            for opportunity in opportunities
+            for row in opportunity["matched_non_edges"]
+        }
+    )
+    security_domain = sorted(
+        {row["target_entity"] for row in relationships}
+        | {
+            row["target_entity"]
+            for opportunity in opportunities
+            for row in opportunity["matched_non_edges"]
+        }
+    )
+    body = {
+        "schema_version": RELATIONSHIP_SNAPSHOT_SCHEMA_VERSION,
+        "as_of_date": as_of_date,
+        "frozen_holder_domain_hash": _canonical_hash(holder_domain),
+        "frozen_security_domain_hash": _canonical_hash(security_domain),
+        "relationships": relationships,
+        "prediction_opportunity_set": {
+            "candidate_generation_contract_version": (
+                RELATIONSHIP_SOURCE_EXTRACTOR_CONTRACT_VERSION
+            ),
+            "scoring_contract_version": "relationship_graph_validation_20d_v1",
+            "ordered_opportunities": opportunities,
+        },
+        "evidence_catalog": evidence,
+        "evidence_catalog_hash": _canonical_hash(evidence),
+    }
+    snapshot = {**body, "snapshot_hash": _canonical_hash(body)}
+    canonical = validate_relationship_snapshot(snapshot, as_of_date)
+    _build_relationship_source_receipt(
+        snapshot=canonical,
+        as_of_date=as_of_date,
+        source_batches=batches,
+        historical_replay_captured_at=historical_replay_captured_at,
+    )
+    return canonical
+
+
 def _build_relationship_source_receipt(
     *,
     snapshot: Mapping[str, Any],
     as_of_date: str,
     source_batches: list[dict[str, Any]],
+    historical_replay_captured_at: str | None = None,
 ) -> dict[str, Any]:
     as_of = date.fromisoformat(as_of_date)
     contracts = _registered_tushare_endpoint_contracts(
         RELATIONSHIP_REQUIRED_SOURCE_ENDPOINTS
     )
     batches = [
-        _validate_source_batch(batch, as_of=as_of, endpoint_contracts=contracts)
+        _validate_source_batch(
+            batch,
+            as_of=as_of,
+            endpoint_contracts=contracts,
+            historical_replay_captured_at=historical_replay_captured_at,
+        )
         for batch in source_batches
     ]
     cutoff = _relationship_as_of_cutoff(as_of)
     for batch in batches:
+        cutoff_fields = (
+            ("released_at", "vintage_at", "captured_at")
+            if historical_replay_captured_at is None
+            else ("released_at", "vintage_at")
+        )
         if any(
             _parse_relationship_temporal(
                 batch[field], f"relationship source batch.{field}"
             )
             > cutoff
-            for field in ("released_at", "vintage_at", "captured_at")
+            for field in cutoff_fields
         ):
             raise DataVendorUnavailable(
-                "relationship source batch is after the Asia/Shanghai 15:00 as_of cutoff"
+                "relationship source batch is after the Asia/Shanghai end-of-day materialization cutoff"
             )
     batch_ids = [batch["source_batch_id"] for batch in batches]
     if len(batch_ids) != len(set(batch_ids)):
@@ -3880,7 +5678,12 @@ def _build_relationship_source_receipt(
         frozen_batches=frozen_batches,
     )
     metadata = [
-        {key: batch[key] for key in sorted(_SOURCE_BATCH_RECEIPT_FIELDS)}
+        {
+            key: batch[key]
+            for key in sorted(
+                _source_batch_fields(batch.get("endpoint"), include_rows=False)
+            )
+        }
         for batch in sorted(batches, key=lambda row: row["source_batch_id"])
     ]
     body = {
@@ -3894,6 +5697,15 @@ def _build_relationship_source_receipt(
         "source_batches": metadata,
         "frozen_source_batches": frozen_batches,
         "relationship_derivations": derivations,
+        **(
+            {
+                _HISTORICAL_REPLAY_RECEIPT_FIELD: (
+                    historical_replay_captured_at
+                )
+            }
+            if historical_replay_captured_at is not None
+            else {}
+        ),
     }
     return {**body, "source_bundle_hash": _canonical_hash(body)}
 
@@ -3903,6 +5715,7 @@ def write_registered_relationship_snapshot(
     as_of_date: str,
     snapshot: Mapping[str, Any],
     source_batches: list[dict[str, Any]],
+    historical_replay_captured_at: str | None = None,
     root: Path | None = None,
 ) -> dict[str, Any]:
     """Publish one immutable production Relationship snapshot and source receipt."""
@@ -3915,6 +5728,7 @@ def write_registered_relationship_snapshot(
         snapshot=canonical,
         as_of_date=as_of_date,
         source_batches=source_batches,
+        historical_replay_captured_at=historical_replay_captured_at,
     )
     destination_root = root or sector_snapshot_root()
     destination = destination_root / as_of_date / "relationship_mapper.json"
@@ -3960,9 +5774,10 @@ def _validate_relationship_source_receipt(
 ) -> dict[str, Any]:
     if not isinstance(receipt, dict):
         raise DataVendorUnavailable("relationship source receipt must be an object")
-    _require_exact_fields(
-        receipt, _RELATIONSHIP_SOURCE_RECEIPT_FIELDS, "relationship source receipt"
-    )
+    receipt_fields = set(_RELATIONSHIP_SOURCE_RECEIPT_FIELDS)
+    if _HISTORICAL_REPLAY_RECEIPT_FIELD in receipt:
+        receipt_fields.add(_HISTORICAL_REPLAY_RECEIPT_FIELD)
+    _require_exact_fields(receipt, receipt_fields, "relationship source receipt")
     if (
         receipt.get("schema_version") != RELATIONSHIP_SOURCE_RECEIPT_SCHEMA_VERSION
         or receipt.get("relationship_agent_id") != "relationship_mapper"
@@ -3980,10 +5795,18 @@ def _validate_relationship_source_receipt(
     if not isinstance(batches, list) or not batches:
         raise DataVendorUnavailable("relationship source receipt batches are required")
     as_of = date.fromisoformat(as_of_date)
-    as_of_cutoff = _relationship_as_of_cutoff(as_of)
     contracts = _registered_tushare_endpoint_contracts(
         RELATIONSHIP_REQUIRED_SOURCE_ENDPOINTS
     )
+    historical_replay_captured_at = receipt.get(
+        _HISTORICAL_REPLAY_RECEIPT_FIELD
+    )
+    if historical_replay_captured_at is not None and not isinstance(
+        historical_replay_captured_at, str
+    ):
+        raise DataVendorUnavailable(
+            "relationship source receipt historical replay cutoff is invalid"
+        )
     batch_ids: list[str] = []
     batch_keys: set[tuple[str, str, str]] = set()
     observed_endpoints: set[str] = set()
@@ -3993,8 +5816,12 @@ def _validate_relationship_source_receipt(
                 "relationship source receipt batches must be objects"
             )
         label = f"relationship source receipt source_batches[{index}]"
-        _require_exact_fields(batch, _SOURCE_BATCH_RECEIPT_FIELDS, label)
         endpoint = batch.get("endpoint")
+        _require_exact_fields(
+            batch,
+            _source_batch_fields(endpoint, include_rows=False),
+            label,
+        )
         contract = contracts.get(str(endpoint))
         if (
             endpoint not in RELATIONSHIP_REQUIRED_SOURCE_ENDPOINTS
@@ -4011,19 +5838,13 @@ def _validate_relationship_source_receipt(
             raise DataVendorUnavailable(
                 "relationship source receipt request is invalid"
             )
-        released = _parse_relationship_temporal(
-            batch.get("released_at"), f"{label}.released_at"
+        _require_source_temporal_contract(
+            batch,
+            as_of=as_of,
+            historical_replay_captured_at=historical_replay_captured_at,
+            label=label,
+            error_message="relationship source receipt contains lookahead",
         )
-        vintage = _parse_relationship_temporal(
-            batch.get("vintage_at"), f"{label}.vintage_at"
-        )
-        captured = _parse_relationship_temporal(
-            batch.get("captured_at"), f"{label}.captured_at"
-        )
-        if not released <= vintage <= captured <= as_of_cutoff:
-            raise DataVendorUnavailable(
-                "relationship source receipt contains lookahead"
-            )
         coverage_ratio = batch.get("coverage_ratio")
         query_count = batch.get("query_count")
         completed_count = batch.get("completed_query_count")
@@ -4047,6 +5868,14 @@ def _validate_relationship_source_receipt(
             or float(coverage_ratio) < 0.9
         ):
             raise DataVendorUnavailable("relationship source receipt is not ready")
+        expected_pagination_policy = SOURCE_BATCH_PAGINATION_POLICIES.get(endpoint)
+        if (
+            expected_pagination_policy is not None
+            and batch.get("pagination_policy") != expected_pagination_policy
+        ):
+            raise DataVendorUnavailable(
+                f"relationship source receipt {endpoint} pagination policy mismatch"
+            )
         request_end = request.get("end_date")
         if (
             request_end not in (None, "")
@@ -4131,6 +5960,9 @@ def _validate_relationship_source_receipt(
                 {**metadata, "rows": rows},
                 as_of=as_of,
                 endpoint_contracts=contracts,
+                historical_replay_captured_at=(
+                    historical_replay_captured_at
+                ),
             )
         )
         frozen_ids.append(source_batch_id)
@@ -4249,11 +6081,15 @@ __all__ = [
     "SECTOR_REQUIRED_SOURCE_ENDPOINTS",
     "SECTOR_SNAPSHOT_SCHEMA_VERSION",
     "SECTOR_SOURCE_RECEIPT_SCHEMA_VERSION",
+    "compile_registered_relationship_snapshot",
+    "compile_registered_sector_snapshot",
     "load_sector_snapshot",
     "render_relationship_snapshot",
     "render_sector_snapshot",
     "sector_snapshot_root",
+    "validate_relationship_runtime_snapshot",
     "validate_relationship_snapshot",
+    "validate_sector_runtime_snapshot",
     "validate_sector_snapshot",
     "write_registered_relationship_snapshot",
     "write_registered_sector_snapshot",

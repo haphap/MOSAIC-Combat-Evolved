@@ -27,14 +27,20 @@ import { type BridgeApi, type MosaicConfig, pickBridgeTools } from "../../bridge
 import type { LlmHandle } from "../../llm/factory.js";
 import {
   type AcceptedAgentOutputStore,
+  type AcceptedOutputRecordRef,
   acceptedOutputBuildContextFromState,
   acceptedOutputRefKey,
   buildAcceptedAgentOutputRecord,
   buildStructuredSmokeAcceptedOutputRef,
   canonicalAcceptedOutputHash,
+  structuredSmokeFixtureBundleHash,
 } from "../accepted_output.js";
 import { type AgentInitialToolCall, runAgentToolLoop } from "../helpers/agent_loop.js";
 import { invokeStrictStructured } from "../helpers/agent_run_contract.js";
+import {
+  boundCurrentPositions,
+  resolveBoundAcceptedOutputRecords,
+} from "../helpers/bound_runtime_inputs.js";
 import {
   evidenceLineageEnvelopeFromGraph,
   renderCausalEvidenceResolutionSet,
@@ -43,6 +49,7 @@ import { extractTextContent } from "../helpers/content.js";
 import {
   buildRuntimeEvidenceSnapshot,
   type RuntimeEvidenceSnapshot,
+  withRuntimeCitationIds,
 } from "../helpers/evidence_runtime.js";
 import {
   canonicalAcceptedSubmissionBody,
@@ -116,6 +123,23 @@ export interface LayerThreeAgentDeps {
 
 export type LayerThreeAgentNode = (state: DailyCycleStateType) => Promise<DailyCycleStateUpdate>;
 
+export function buildLayerThreeCapabilityRuntimeInputs(
+  state: DailyCycleStateType,
+  acceptedSnapshotRefs: ReadonlyArray<AcceptedOutputRecordRef>,
+  store: AcceptedAgentOutputStore | undefined,
+): Record<string, unknown> {
+  if (structuredSmokeFixtureBundleHash()) {
+    return { accepted_output_refs: acceptedSnapshotRefs };
+  }
+  return {
+    accepted_output_refs: acceptedSnapshotRefs,
+    accepted_output_records: resolveBoundAcceptedOutputRecords(acceptedSnapshotRefs, store),
+    bound_runtime_state: {
+      current_positions: boundCurrentPositions(state.current_positions),
+    },
+  };
+}
+
 export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
   spec: LayerThreeAgentSpec<TOutput>,
   deps: LayerThreeAgentDeps,
@@ -186,19 +210,26 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
           if (!capabilityApi && deps.llmHandle.provider !== "fake") {
             throw new Error(`${spec.agentId}: bridge tool capability API is unavailable`);
           }
+          const capabilityRuntimeInputs = capabilityApi
+            ? acceptedSnapshotRefs
+              ? buildLayerThreeCapabilityRuntimeInputs(
+                  state,
+                  acceptedSnapshotRefs,
+                  deps.acceptedOutputStore,
+                )
+              : {
+                  macro_input_gate: state.macro_input_gate,
+                  layer1_outputs: state.layer1_outputs,
+                  layer2_outputs: state.layer2_outputs,
+                }
+            : {};
           const preparedCapability = capabilityApi
             ? await prepareAgentToolCapability({
                 api: deps.api,
                 state,
                 agentId: spec.agentId,
                 stage: spec.agentId,
-                runtimeInputs: acceptedSnapshotRefs
-                  ? { accepted_output_refs: acceptedSnapshotRefs }
-                  : {
-                      macro_input_gate: state.macro_input_gate,
-                      layer1_outputs: state.layer1_outputs,
-                      layer2_outputs: state.layer2_outputs,
-                    },
+                runtimeInputs: capabilityRuntimeInputs,
                 candidateScope: acceptedSnapshotRefs
                   ? { accepted_output_refs: acceptedSnapshotRefs }
                   : { accepted_sector_outputs: state.layer2_outputs },
@@ -243,7 +274,11 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
               systemMessage: systemPrompt,
               initialMessages: [new HumanMessage(evidenceUserContext)],
               ...(runtimeEvidence ? { agentInvocationId: runtimeEvidence.agentInvocationId } : {}),
-              initialToolCalls: buildLayerThreeInitialToolCalls(state, spec.agentId),
+              initialToolCalls: buildLayerThreeInitialToolCalls(
+                state,
+                spec.agentId,
+                preparedCapability?.prepared_initial_tool_ids,
+              ),
               maxLoops: 3,
               replayFullToolMaxChars: 80_000,
               onLog: (msg) => onLog(formatAgentEvent("phase", "L3", spec.agentId, [msg])),
@@ -265,6 +300,14 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
             toolStatuses: loopResult.toolStatuses,
             runtimeSourceStatuses,
           });
+          const candidateScopeHash =
+            opportunityAuthority?.candidateScopeHash ??
+            preparedCapability?.bundle.candidate_scope_hash;
+          if (candidateScopeHash && /^sha256:[0-9a-f]{64}$/.test(candidateScopeHash)) {
+            runtimeEvidence = withRuntimeCitationIds(runtimeEvidence, [
+              `superinvestor-candidate-scope:${candidateScopeHash.slice("sha256:".length)}`,
+            ]);
+          }
           canaryToolStatuses = loopResult.toolStatuses;
 
           onLog(
@@ -478,9 +521,7 @@ export function superinvestorAcceptedSnapshotRefs(state: DailyCycleStateType) {
   return Object.entries(state.accepted_output_refs)
     .filter(
       ([key]) =>
-        key.startsWith("MACRO_TRANSMISSION:") ||
-        key.startsWith("STANDARD_SECTOR_SELECTION:") ||
-        key === "RELATIONSHIP_GRAPH:relationship_mapper",
+        key.startsWith("MACRO_TRANSMISSION:") || key.startsWith("STANDARD_SECTOR_SELECTION:"),
     )
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, ref]) => ({ key, ...ref }));
@@ -524,15 +565,16 @@ export function buildLayerThreeUserContext(
     `${macroBlock}\n` +
     `${sectorBlocks}\n` +
     `${causalResolutionBlock}\n` +
-    `Use only the frozen candidate snapshot supplied for this role. ` +
-    `Do not expand the candidate set or query report-derived research. ` +
-    `Apply the role philosophy to the accepted candidates and evidence already present in that snapshot.`
+    `Use only the frozen candidate scope and registered tools supplied for this role. ` +
+    `Do not expand the candidate set, date range, or indicator domain. ` +
+    `Report and RKE evidence are frozen candidate-bound research inputs; never seek an outside source or transport.`
   );
 }
 
 export function buildLayerThreeInitialToolCalls(
   _state: DailyCycleStateType,
   _agentId: string,
+  _preparedInitialToolIds?: ReadonlyArray<string>,
 ): AgentInitialToolCall[] {
   return [{ name: "get_superinvestor_candidate_snapshot", args: {} }];
 }

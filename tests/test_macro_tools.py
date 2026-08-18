@@ -12,6 +12,7 @@ from mosaic.bridge.tool_capabilities import (
     TOOL_DESCRIPTIONS,
     materialize_tool_payload,
 )
+from mosaic.scorecard.macro_aggregation import MACRO_AGENTS
 
 
 def test_bridge_does_not_register_arbitrary_query_tool_modules():
@@ -23,7 +24,7 @@ def test_bridge_does_not_register_arbitrary_query_tool_modules():
 
 
 def test_macro_matrix_has_one_role_snapshot_and_no_legacy_or_search_tools():
-    assert len(MACRO_AGENT_TO_TOOL) == 10
+    assert set(MACRO_AGENT_TO_TOOL) == set(MACRO_AGENTS)
     for agent, tool_id in MACRO_AGENT_TO_TOOL.items():
         assert AGENT_TOOL_MATRIX[agent] == (tool_id,)
         assert tool_id in TOOL_DESCRIPTIONS
@@ -37,7 +38,14 @@ def test_macro_matrix_has_one_role_snapshot_and_no_legacy_or_search_tools():
         "get_volatility_snapshot",
         "get_rke_research_context",
     }
-    assert forbidden.isdisjoint(TOOL_DESCRIPTIONS)
+    macro_tools = {
+        tool_id
+        for agent in MACRO_AGENT_TO_TOOL
+        for tool_id in AGENT_TOOL_MATRIX[agent]
+    }
+    assert forbidden.isdisjoint(macro_tools)
+    assert (forbidden - {"get_rke_research_context"}).isdisjoint(TOOL_DESCRIPTIONS)
+    assert "get_rke_research_context" in TOOL_DESCRIPTIONS
 
 
 @pytest.mark.parametrize(
@@ -52,18 +60,9 @@ def test_macro_materializer_uses_bound_role_and_as_of(monkeypatch, tool_id, agen
         captured["as_of"] = as_of
         return "frozen-role-snapshot"
 
-    def fake_breadth(as_of: str) -> str:
-        captured["role"] = "market_breadth"
-        captured["as_of"] = as_of
-        return "frozen-breadth-snapshot"
-
     monkeypatch.setattr(
         "mosaic.bridge.tool_capabilities.render_role_snapshot",
         fake_render,
-    )
-    monkeypatch.setattr(
-        "mosaic.bridge.tool_capabilities.render_market_breadth_snapshot",
-        fake_breadth,
     )
     result = materialize_tool_payload(
         tool_id,
@@ -108,13 +107,13 @@ class _FakeCapabilityStore:
             }
         ]
 
-    def call_tool(self, capability, name, args):
+    def call_tool_result(self, capability, name, args):
         self.calls.append(("call", capability, name, args))
         if name != "get_china_macro_snapshot":
             raise ValueError(f"tool {name!r} is not allowed by this capability")
         if args:
             raise ValueError("role-scoped model tools accept no arguments")
-        return "frozen payload"
+        return {"text": "frozen payload"}
 
     def terminate(self, capability, reason):
         self.calls.append(("terminate", capability, reason))

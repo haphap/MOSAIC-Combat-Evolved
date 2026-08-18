@@ -5,7 +5,7 @@
  *
  *   START → semiconductor → technology → energy → biotech → consumer
  *         → industrials → real_estate_construction → financials
- *         → agriculture → relationship_mapper → END
+ *         → agriculture → END
  *
  * The subgraph requires the ten accepted ``layer1_outputs`` and a READY
  * ``macro_input_gate``. Each consumer receives the ten independent Macro
@@ -14,8 +14,7 @@
  * No Layer-2 aggregator yet — Plan §5.2 doesn't define one (each sector
  * agent's output is consumed independently by Layer-3 superinvestors).
  * Each standard Sector runs direction research and final selection, with one
- * conflict-only review when required. Relationship mapping remains a separate
- * accepted output.
+ * conflict-only review when required.
  */
 
 import { END, START, StateGraph } from "@langchain/langgraph";
@@ -28,13 +27,14 @@ import { buildEnergyNode } from "../agents/sector/energy.js";
 import { buildFinancialsNode } from "../agents/sector/financials.js";
 import { buildIndustrialsNode } from "../agents/sector/industrials.js";
 import { buildRealEstateConstructionNode } from "../agents/sector/real_estate_construction.js";
-import { buildRelationshipMapperNode } from "../agents/sector/relationship_mapper.js";
 import { buildSemiconductorNode } from "../agents/sector/semiconductor.js";
 import { buildTechnologyNode } from "../agents/sector/technology.js";
 import { DailyCycleState } from "../agents/state.js";
 import type { BridgeApi, MosaicConfig } from "../bridge/index.js";
 import type { LlmHandle } from "../llm/factory.js";
 import { chainEdges, serialEdges } from "./_edges.js";
+import type { DailyCycleStageCheckpointController } from "./daily_cycle_checkpoint.js";
+import { checkpointedStageNode } from "./daily_cycle_checkpoint.js";
 
 export interface BuildLayer2GraphDeps {
   llmHandle: LlmHandle;
@@ -48,6 +48,7 @@ export interface BuildLayer2GraphDeps {
   promptsRoot?: string;
   promptReleaseContext?: PromptReleaseLoadContext | null;
   acceptedOutputStore?: AcceptedAgentOutputStore;
+  stageCheckpoint?: DailyCycleStageCheckpointController;
 }
 
 export const LAYER2_AGENT_NODES = [
@@ -60,7 +61,6 @@ export const LAYER2_AGENT_NODES = [
   "real_estate_construction",
   "financials",
   "agriculture",
-  "relationship_mapper",
 ] as const;
 
 /** Build (and compile) the Layer-2 sector subgraph. */
@@ -68,16 +68,46 @@ export function buildLayer2Graph(deps: BuildLayer2GraphDeps) {
   const acceptedOutputStore = deps.acceptedOutputStore ?? new AcceptedAgentOutputStore();
   const runDeps = { ...deps, acceptedOutputStore };
   const graph = new StateGraph(DailyCycleState)
-    .addNode("semiconductor", buildSemiconductorNode(runDeps))
-    .addNode("technology", buildTechnologyNode(runDeps))
-    .addNode("energy", buildEnergyNode(runDeps))
-    .addNode("biotech", buildBiotechNode(runDeps))
-    .addNode("consumer", buildConsumerNode(runDeps))
-    .addNode("industrials", buildIndustrialsNode(runDeps))
-    .addNode("real_estate_construction", buildRealEstateConstructionNode(runDeps))
-    .addNode("financials", buildFinancialsNode(runDeps))
-    .addNode("agriculture", buildAgricultureNode(runDeps))
-    .addNode("relationship_mapper", buildRelationshipMapperNode(runDeps));
+    .addNode(
+      "semiconductor",
+      checkpointedStageNode("semiconductor", buildSemiconductorNode(runDeps), deps.stageCheckpoint),
+    )
+    .addNode(
+      "technology",
+      checkpointedStageNode("technology", buildTechnologyNode(runDeps), deps.stageCheckpoint),
+    )
+    .addNode(
+      "energy",
+      checkpointedStageNode("energy", buildEnergyNode(runDeps), deps.stageCheckpoint),
+    )
+    .addNode(
+      "biotech",
+      checkpointedStageNode("biotech", buildBiotechNode(runDeps), deps.stageCheckpoint),
+    )
+    .addNode(
+      "consumer",
+      checkpointedStageNode("consumer", buildConsumerNode(runDeps), deps.stageCheckpoint),
+    )
+    .addNode(
+      "industrials",
+      checkpointedStageNode("industrials", buildIndustrialsNode(runDeps), deps.stageCheckpoint),
+    )
+    .addNode(
+      "real_estate_construction",
+      checkpointedStageNode(
+        "real_estate_construction",
+        buildRealEstateConstructionNode(runDeps),
+        deps.stageCheckpoint,
+      ),
+    )
+    .addNode(
+      "financials",
+      checkpointedStageNode("financials", buildFinancialsNode(runDeps), deps.stageCheckpoint),
+    )
+    .addNode(
+      "agriculture",
+      checkpointedStageNode("agriculture", buildAgricultureNode(runDeps), deps.stageCheckpoint),
+    );
 
   chainEdges(graph, serialEdges([START, ...LAYER2_AGENT_NODES, END] as const));
 

@@ -26,6 +26,13 @@ import {
   ToolMessage,
 } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
+import {
+  BRIDGE_AUDITED_TOOL_INVOKE,
+  BRIDGE_INITIAL_AUDITED_TOOL_INVOKE,
+  BRIDGE_INITIAL_TOOL_INVOKE,
+  type BridgeStructuredTool,
+} from "../../bridge/tools.js";
+import type { ToolCallAudit } from "../../bridge/types.js";
 import { canonicalJsonHash } from "./canonical_json.js";
 import { extractTextContent } from "./content.js";
 import { isProcessOnlyReportText, stripProcessOnlyReportPrefix } from "./process_narration.js";
@@ -92,6 +99,7 @@ export interface AgentToolLoopResult {
 }
 
 const DEFAULT_MAX_LOOPS = 6;
+const MAX_MODEL_TOOL_EXECUTIONS = 3;
 const DEFAULT_TOOL_OUTPUT_MAX_CHARS = 0;
 const DEFAULT_REPLAY_FULL_TOOL_MAX_CHARS = 0;
 const PRIOR_TOOL_REPLAY_CHARS = 800;
@@ -263,6 +271,7 @@ interface CachedToolResult {
   argsFingerprint: string;
   resultFingerprint: string;
   sourceFingerprint: string;
+  audit?: ToolCallAudit;
 }
 
 function buildToolStatus(input: {
@@ -290,6 +299,22 @@ function buildToolStatus(input: {
     result_fingerprint: input.cached.resultFingerprint,
     source_fingerprint: input.cached.sourceFingerprint,
     ...(input.cached.asOf ? { as_of: input.cached.asOf } : {}),
+    ...(input.cached.audit
+      ? {
+          server_result_event_id: input.cached.audit.result_event_id,
+          server_result_event_hash: input.cached.audit.result_event_hash,
+          server_result_authority_type: input.cached.audit.result_authority_type,
+          server_result_authority_hash: input.cached.audit.result_authority_hash,
+          server_tool_environment_hash: input.cached.audit.tool_environment_hash,
+          server_execution_behavior_release_hash:
+            input.cached.audit.execution_behavior_release_hash,
+          server_capability_bundle_hash: input.cached.audit.capability_bundle_hash,
+          server_knot_coverage_manifest_v2_hash: input.cached.audit.knot_coverage_manifest_v2_hash,
+          server_knot_audit_capability_track_v2_hash:
+            input.cached.audit.knot_audit_capability_track_v2_hash,
+          server_binding_result_refs: input.cached.audit.binding_result_refs,
+        }
+      : {}),
   };
 }
 
@@ -300,6 +325,7 @@ function cachedToolResult(input: {
   failed: boolean;
   fallback?: boolean;
   asOf?: string;
+  audit?: ToolCallAudit;
 }): CachedToolResult {
   const argsFingerprint = toolArgsFingerprint(input.args);
   const resultFingerprint = toolResultFingerprint(input.output);
@@ -309,6 +335,7 @@ function cachedToolResult(input: {
     failed: input.failed,
     fallback: input.fallback ?? false,
     ...(input.asOf ? { asOf: input.asOf } : {}),
+    ...(input.audit ? { audit: input.audit } : {}),
     argsFingerprint,
     resultFingerprint,
     sourceFingerprint: toolSourceFingerprint({
@@ -510,6 +537,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
   let toolCalls = 0;
   let toolCacheHits = 0;
   let toolExecutions = 0;
+  let modelToolExecutions = 0;
   let promptTokens = 0;
   let completionTokens = 0;
   let llmElapsedMs = 0;
@@ -544,7 +572,6 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
     }));
     const ai = new AIMessage({ content: "Collecting role-required evidence.", tool_calls: calls });
     messages.push(ai);
-    replayMessages.push(ai);
     opts.onLog?.(
       `tools=${calls.length} names=${calls.map((call) => call.name).join(",")} fingerprints=${calls
         .map((call) => toolCallFingerprint(call.name, call.args))
@@ -575,13 +602,35 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
           tool_call_id: call.id,
         });
         messages.push(toolMessage);
-        replayMessages.push(toolMessage);
+        replayMessages.push(
+          new HumanMessage(
+            [
+              "runtime-provided initial tool evidence",
+              `tool_name=${name}`,
+              `call_id=${call.id}`,
+              `replay_output:\n${cached.output}`,
+            ].join("\n"),
+          ),
+        );
         continue;
       }
       toolExecutions++;
       let output: string;
       try {
-        const raw = await tool.invoke(call.args, opts.signal ? { signal: opts.signal } : undefined);
+        const bridgeTool = tool as Partial<BridgeStructuredTool>;
+        const initialAuditedInvoke = bridgeTool[BRIDGE_INITIAL_AUDITED_TOOL_INVOKE];
+        const initialInvoke = bridgeTool[BRIDGE_INITIAL_TOOL_INVOKE];
+        let raw: unknown;
+        let audit: ToolCallAudit | undefined;
+        if (initialAuditedInvoke) {
+          const result = await initialAuditedInvoke();
+          raw = result.text;
+          audit = result.audit;
+        } else {
+          raw = initialInvoke
+            ? await initialInvoke()
+            : await tool.invoke(call.args, opts.signal ? { signal: opts.signal } : undefined);
+        }
         output = typeof raw === "string" ? raw : String(raw);
         const metadata = toolOutputStatusMetadata(output);
         const cached = cachedToolResult({
@@ -591,6 +640,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
           failed: false,
           fallback: metadata.fallback,
           ...(metadata.as_of ? { asOf: metadata.as_of } : {}),
+          ...(audit ? { audit } : {}),
         });
         toolOutputCache.set(fingerprint, cached);
         toolStatuses.push(
@@ -624,17 +674,38 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
       const compacted = compactToolOutput(output, toolOutputMaxChars);
       const toolMessage = new ToolMessage({ content: compacted.text, tool_call_id: call.id });
       messages.push(toolMessage);
-      replayMessages.push(toolMessage);
+      replayMessages.push(
+        new HumanMessage(
+          [
+            "runtime-provided initial tool evidence",
+            `tool_name=${name}`,
+            `call_id=${call.id}`,
+            `replay_output:\n${compacted.text}`,
+          ].join("\n"),
+        ),
+      );
     }
   }
 
   for (let step = 0; step < maxLoops; step++) {
     opts.onLog?.(`analysis_llm=${step + 1}/${maxLoops}`);
     const llmStartedAt = Date.now();
-    const ai = (await llmWithTools.invoke(
-      [new SystemMessage(opts.systemMessage), ...replayMessages],
-      opts.signal ? { signal: opts.signal } : undefined,
-    )) as AIMessage;
+    const remainingModelToolExecutions = Math.max(
+      0,
+      MAX_MODEL_TOOL_EXECUTIONS - modelToolExecutions,
+    );
+    const advertiseTools = opts.allowModelToolCalls !== false && remainingModelToolExecutions > 0;
+    const budgetDirective =
+      opts.allowModelToolCalls === false || opts.tools.length === 0
+        ? ""
+        : "\n\nHard tool-call budget: use at most 3 model-selected tool calls total. " +
+          `The remaining budget is ${remainingModelToolExecutions}. ` +
+          `Request no more than ${remainingModelToolExecutions} tool calls now; ` +
+          "when the remaining budget is 0, return the analysis without tool calls.";
+    const ai = (await (advertiseTools ? llmWithTools : opts.llm).invoke([
+      new SystemMessage(`${opts.systemMessage}${budgetDirective}`),
+      ...replayMessages,
+    ])) as AIMessage;
     llmElapsedMs += Date.now() - llmStartedAt;
     const usage = extractLlmTokenUsage(ai);
     promptTokens += usage.promptTokens;
@@ -726,13 +797,46 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
             cacheHit: true,
           }),
         );
+      } else if (modelToolExecutions >= MAX_MODEL_TOOL_EXECUTIONS) {
+        output =
+          `Tool '${name}' not executed: model-selected tool-call budget exhausted ` +
+          `(${MAX_MODEL_TOOL_EXECUTIONS} total). Use already returned evidence and do not call more tools.`;
+        opts.onLog?.(output);
+        const cached = cachedToolResult({
+          name,
+          args: call.args ?? {},
+          output,
+          failed: true,
+        });
+        toolOutputCache.set(fingerprint, cached);
+        toolStatuses.push(
+          buildToolStatus({
+            name,
+            callId: call.id ?? `tool_call_${toolCalls}`,
+            ...(opts.agentInvocationId ? { agentInvocationId: opts.agentInvocationId } : {}),
+            args: call.args,
+            shortFingerprint: fingerprint,
+            cached,
+            cacheHit: false,
+          }),
+        );
       } else {
+        modelToolExecutions++;
         toolExecutions++;
         try {
-          const raw = await tool.invoke(
-            call.args ?? {},
-            opts.signal ? { signal: opts.signal } : undefined,
-          );
+          const auditedInvoke = (tool as Partial<BridgeStructuredTool>)[BRIDGE_AUDITED_TOOL_INVOKE];
+          let raw: unknown;
+          let audit: ToolCallAudit | undefined;
+          if (auditedInvoke) {
+            const result = await auditedInvoke(call.args ?? {});
+            raw = result.text;
+            audit = result.audit;
+          } else {
+            raw = await tool.invoke(
+              call.args ?? {},
+              opts.signal ? { signal: opts.signal } : undefined,
+            );
+          }
           output = typeof raw === "string" ? raw : String(raw);
           const metadata = toolOutputStatusMetadata(output);
           const cached = cachedToolResult({
@@ -742,6 +846,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
             failed: false,
             fallback: metadata.fallback,
             ...(metadata.as_of ? { asOf: metadata.as_of } : {}),
+            ...(audit ? { audit } : {}),
           });
           toolOutputCache.set(fingerprint, cached);
           toolStatuses.push(
@@ -796,17 +901,14 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
   // maxLoops hit — force one final non-tool invocation so we get something
   // usable. This matches the CLI tool-loop's forced-final behaviour.
   const finalStartedAt = Date.now();
-  const final = (await opts.llm.invoke(
-    [
-      new SystemMessage(opts.systemMessage),
-      ...replayMessages,
-      new HumanMessage(
-        "Tool budget exhausted. Now write the final structured-friendly analysis " +
-          "based on the data you already have, and do not call further tools.",
-      ),
-    ],
-    opts.signal ? { signal: opts.signal } : undefined,
-  )) as AIMessage;
+  const final = (await opts.llm.invoke([
+    new SystemMessage(opts.systemMessage),
+    ...replayMessages,
+    new HumanMessage(
+      "Tool budget exhausted. Now write the final structured-friendly analysis " +
+        "based on the data you already have, and do not call further tools.",
+    ),
+  ])) as AIMessage;
   llmElapsedMs += Date.now() - finalStartedAt;
   const finalUsage = extractLlmTokenUsage(final);
   promptTokens += finalUsage.promptTokens;

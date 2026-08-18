@@ -1,300 +1,378 @@
 {
   "schema_version": "agent_tool_contract_manifest_v1",
-  "agent_count": 28,
-  "execution_stage_count": 29,
-  "tool_count": 18,
+  "agent_count": 25,
+  "execution_stage_count": 26,
+  "tool_count": 29,
   "agents": [
     {
       "agent_id": "china",
-      "layer": "macro",
+      "allowed_tools": [
+        "get_china_macro_snapshot"
+      ],
       "execution_stages": [
         "china"
       ],
-      "allowed_tools": [
-        "get_china_macro_snapshot"
-      ]
+      "layer": "macro"
     },
     {
       "agent_id": "us_economy",
-      "layer": "macro",
+      "allowed_tools": [
+        "get_us_macro_snapshot"
+      ],
       "execution_stages": [
         "us_economy"
       ],
-      "allowed_tools": [
-        "get_us_macro_snapshot"
-      ]
+      "layer": "macro"
     },
     {
       "agent_id": "eu_economy",
-      "layer": "macro",
+      "allowed_tools": [
+        "get_eu_macro_snapshot"
+      ],
       "execution_stages": [
         "eu_economy"
       ],
-      "allowed_tools": [
-        "get_eu_macro_snapshot"
-      ]
+      "layer": "macro"
     },
     {
       "agent_id": "central_bank",
-      "layer": "macro",
+      "allowed_tools": [
+        "get_central_bank_snapshot"
+      ],
       "execution_stages": [
         "central_bank"
       ],
-      "allowed_tools": [
-        "get_central_bank_snapshot"
-      ]
+      "layer": "macro"
     },
     {
       "agent_id": "us_financial_conditions",
-      "layer": "macro",
+      "allowed_tools": [
+        "get_us_financial_conditions_snapshot"
+      ],
       "execution_stages": [
         "us_financial_conditions"
       ],
-      "allowed_tools": [
-        "get_us_financial_conditions_snapshot"
-      ]
+      "layer": "macro"
     },
     {
       "agent_id": "euro_area_financial_conditions",
-      "layer": "macro",
+      "allowed_tools": [
+        "get_euro_area_financial_conditions_snapshot"
+      ],
       "execution_stages": [
         "euro_area_financial_conditions"
       ],
-      "allowed_tools": [
-        "get_euro_area_financial_conditions_snapshot"
-      ]
+      "layer": "macro"
     },
     {
       "agent_id": "commodities",
-      "layer": "macro",
+      "allowed_tools": [
+        "get_commodity_conditions_snapshot"
+      ],
       "execution_stages": [
         "commodities"
       ],
-      "allowed_tools": [
-        "get_commodity_conditions_snapshot"
-      ]
-    },
-    {
-      "agent_id": "geopolitical",
-      "layer": "macro",
-      "execution_stages": [
-        "geopolitical"
-      ],
-      "allowed_tools": [
-        "get_geopolitical_events_snapshot"
-      ]
-    },
-    {
-      "agent_id": "market_breadth",
-      "layer": "macro",
-      "execution_stages": [
-        "market_breadth"
-      ],
-      "allowed_tools": [
-        "get_market_breadth_snapshot"
-      ]
+      "layer": "macro"
     },
     {
       "agent_id": "institutional_flow",
-      "layer": "macro",
+      "allowed_tools": [
+        "get_market_positioning_snapshot"
+      ],
       "execution_stages": [
         "institutional_flow"
       ],
-      "allowed_tools": [
-        "get_market_positioning_snapshot"
-      ]
+      "layer": "macro"
     },
     {
       "agent_id": "semiconductor",
-      "layer": "sector",
+      "allowed_tools": [
+        "get_sector_research_snapshot",
+        "get_role_event_snapshot",
+        "get_balance_sheet",
+        "get_broker_research",
+        "get_cashflow",
+        "get_etf_holdings",
+        "get_income_statement",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_supply_chain_evidence"
+      ],
       "execution_stages": [
         "semiconductor"
       ],
-      "allowed_tools": [
-        "get_sector_research_snapshot",
-        "get_role_event_snapshot"
-      ]
+      "layer": "sector"
     },
     {
       "agent_id": "technology",
-      "layer": "sector",
+      "allowed_tools": [
+        "get_sector_research_snapshot",
+        "get_role_event_snapshot",
+        "get_broker_research",
+        "get_etf_holdings",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_supply_chain_evidence"
+      ],
       "execution_stages": [
         "technology"
       ],
-      "allowed_tools": [
-        "get_sector_research_snapshot",
-        "get_role_event_snapshot"
-      ]
+      "layer": "sector"
     },
     {
       "agent_id": "energy",
-      "layer": "sector",
+      "allowed_tools": [
+        "get_sector_research_snapshot",
+        "get_role_event_snapshot",
+        "get_broker_research",
+        "get_etf_holdings",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_supply_chain_evidence"
+      ],
       "execution_stages": [
         "energy"
       ],
-      "allowed_tools": [
-        "get_sector_research_snapshot",
-        "get_role_event_snapshot"
-      ]
+      "layer": "sector"
     },
     {
       "agent_id": "biotech",
-      "layer": "sector",
+      "allowed_tools": [
+        "get_sector_research_snapshot",
+        "get_broker_research",
+        "get_etf_holdings",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_supply_chain_evidence"
+      ],
       "execution_stages": [
         "biotech"
       ],
-      "allowed_tools": [
-        "get_sector_research_snapshot"
-      ]
+      "layer": "sector"
     },
     {
       "agent_id": "consumer",
-      "layer": "sector",
+      "allowed_tools": [
+        "get_sector_research_snapshot",
+        "get_role_event_snapshot",
+        "get_broker_research",
+        "get_etf_holdings",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_supply_chain_evidence"
+      ],
       "execution_stages": [
         "consumer"
       ],
-      "allowed_tools": [
-        "get_sector_research_snapshot",
-        "get_role_event_snapshot"
-      ]
+      "layer": "sector"
     },
     {
       "agent_id": "industrials",
-      "layer": "sector",
+      "allowed_tools": [
+        "get_sector_research_snapshot",
+        "get_role_event_snapshot",
+        "get_broker_research",
+        "get_etf_holdings",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_supply_chain_evidence"
+      ],
       "execution_stages": [
         "industrials"
       ],
-      "allowed_tools": [
-        "get_sector_research_snapshot",
-        "get_role_event_snapshot"
-      ]
+      "layer": "sector"
     },
     {
       "agent_id": "real_estate_construction",
-      "layer": "sector",
+      "allowed_tools": [
+        "get_sector_research_snapshot",
+        "get_role_event_snapshot",
+        "get_broker_research",
+        "get_etf_holdings",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_supply_chain_evidence"
+      ],
       "execution_stages": [
         "real_estate_construction"
       ],
-      "allowed_tools": [
-        "get_sector_research_snapshot",
-        "get_role_event_snapshot"
-      ]
+      "layer": "sector"
     },
     {
       "agent_id": "financials",
-      "layer": "sector",
+      "allowed_tools": [
+        "get_sector_research_snapshot",
+        "get_role_event_snapshot",
+        "get_broker_research",
+        "get_etf_holdings",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_supply_chain_evidence",
+        "get_yield_curve_cn"
+      ],
       "execution_stages": [
         "financials"
       ],
-      "allowed_tools": [
-        "get_sector_research_snapshot",
-        "get_role_event_snapshot"
-      ]
+      "layer": "sector"
     },
     {
       "agent_id": "agriculture",
-      "layer": "sector",
+      "allowed_tools": [
+        "get_sector_research_snapshot",
+        "get_role_event_snapshot",
+        "get_broker_research",
+        "get_etf_holdings",
+        "get_indicators",
+        "get_industry_moneyflow",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_supply_chain_evidence"
+      ],
       "execution_stages": [
         "agriculture"
       ],
-      "allowed_tools": [
-        "get_sector_research_snapshot",
-        "get_role_event_snapshot"
-      ]
-    },
-    {
-      "agent_id": "relationship_mapper",
-      "layer": "sector",
-      "execution_stages": [
-        "relationship_mapper"
-      ],
-      "allowed_tools": [
-        "get_relationship_graph_snapshot"
-      ]
+      "layer": "sector"
     },
     {
       "agent_id": "druckenmiller",
-      "layer": "superinvestor",
+      "allowed_tools": [
+        "get_superinvestor_candidate_snapshot",
+        "get_fundamentals",
+        "get_indicators",
+        "get_industry_policy_digest",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_stock_research",
+        "get_yield_curve_cn"
+      ],
       "execution_stages": [
         "druckenmiller"
       ],
-      "allowed_tools": [
-        "get_superinvestor_candidate_snapshot"
-      ]
+      "layer": "superinvestor"
     },
     {
       "agent_id": "munger",
-      "layer": "superinvestor",
+      "allowed_tools": [
+        "get_superinvestor_candidate_snapshot",
+        "get_balance_sheet",
+        "get_cashflow",
+        "get_fundamentals",
+        "get_income_statement",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_stock_research"
+      ],
       "execution_stages": [
         "munger"
       ],
-      "allowed_tools": [
-        "get_superinvestor_candidate_snapshot"
-      ]
+      "layer": "superinvestor"
     },
     {
       "agent_id": "burry",
-      "layer": "superinvestor",
+      "allowed_tools": [
+        "get_superinvestor_candidate_snapshot",
+        "get_balance_sheet",
+        "get_cashflow",
+        "get_fundamentals",
+        "get_income_statement",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_stock_research"
+      ],
       "execution_stages": [
         "burry"
       ],
-      "allowed_tools": [
-        "get_superinvestor_candidate_snapshot"
-      ]
+      "layer": "superinvestor"
     },
     {
       "agent_id": "ackman",
-      "layer": "superinvestor",
+      "allowed_tools": [
+        "get_superinvestor_candidate_snapshot",
+        "get_balance_sheet",
+        "get_cashflow",
+        "get_fundamentals",
+        "get_income_statement",
+        "get_rke_research_context",
+        "get_stock_data",
+        "get_stock_research"
+      ],
       "execution_stages": [
         "ackman"
       ],
-      "allowed_tools": [
-        "get_superinvestor_candidate_snapshot"
-      ]
+      "layer": "superinvestor"
     },
     {
       "agent_id": "cro",
-      "layer": "decision",
+      "allowed_tools": [
+        "get_cro_risk_snapshot",
+        "get_role_event_snapshot",
+        "get_rke_research_context"
+      ],
       "execution_stages": [
         "cro"
       ],
-      "allowed_tools": [
-        "get_cro_risk_snapshot",
-        "get_role_event_snapshot"
-      ]
+      "layer": "decision"
     },
     {
       "agent_id": "alpha_discovery",
-      "layer": "decision",
+      "allowed_tools": [
+        "get_alpha_candidate_snapshot",
+        "get_role_event_snapshot",
+        "get_rke_research_context"
+      ],
       "execution_stages": [
         "alpha_discovery"
       ],
-      "allowed_tools": [
-        "get_alpha_candidate_snapshot",
-        "get_role_event_snapshot"
-      ]
+      "layer": "decision"
     },
     {
       "agent_id": "autonomous_execution",
-      "layer": "decision",
+      "allowed_tools": [
+        "get_execution_snapshot",
+        "get_role_event_snapshot",
+        "get_rke_research_context"
+      ],
       "execution_stages": [
         "autonomous_execution"
       ],
-      "allowed_tools": [
-        "get_execution_snapshot",
-        "get_role_event_snapshot"
-      ]
+      "layer": "decision"
     },
     {
       "agent_id": "cio",
-      "layer": "decision",
+      "allowed_tools": [
+        "get_cio_decision_snapshot",
+        "get_rke_research_context"
+      ],
       "execution_stages": [
         "cio_proposal",
         "cio_final"
       ],
-      "allowed_tools": [
-        "get_cio_decision_snapshot"
-      ]
+      "layer": "decision"
     }
   ]
 }

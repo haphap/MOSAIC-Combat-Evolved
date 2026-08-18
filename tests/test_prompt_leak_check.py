@@ -126,3 +126,34 @@ def test_blocks_pr_autoresearch_runtime_branch(tmp_path: Path):
     findings = check_prompt_leaks.check_repo(repo, "main")
 
     assert "autoresearch-branch" in _codes(findings)
+
+
+def test_allows_public_knot_binding_observation_ledger(tmp_path: Path):
+    repo = _init_repo(tmp_path)
+    module = repo / "mosaic" / "bridge" / "tool_capabilities.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "CREATE TABLE IF NOT EXISTS knot_binding_observations_v2 (\n",
+        encoding="utf-8",
+    )
+    _commit(repo, "add public KNOT observation ledger")
+
+    findings = check_prompt_leaks.check_repo(repo, "main~1")
+
+    assert "private-knot-content" not in _codes(findings)
+
+
+def test_still_blocks_unknown_knot_storage_ddl(tmp_path: Path):
+    repo = _init_repo(tmp_path)
+    module = repo / "mosaic" / "bridge" / "tool_capabilities.py"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        "CREATE TABLE IF NOT EXISTS knot_private_optimizer_state (\n"
+        "CREATE TRIGGER IF NOT EXISTS no_update_knot_private_optimizer_state\n",
+        encoding="utf-8",
+    )
+    _commit(repo, "add private KNOT storage")
+
+    findings = check_prompt_leaks.check_repo(repo, "main~1")
+
+    assert "private-knot-content" in _codes(findings)

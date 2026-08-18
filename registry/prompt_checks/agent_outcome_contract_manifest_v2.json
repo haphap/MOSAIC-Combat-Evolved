@@ -1,9 +1,9 @@
 {
   "manifest_version": "agent_outcome_contract_manifest_v2",
-  "contract_count": 28,
-  "usage_track_count": 24,
+  "contract_count": 25,
+  "usage_track_count": 21,
   "evolution_only_track_count": 4,
-  "registry_hash": "sha256:998b4f36d48633e346ee7dd43a92339409ba2665d8fbb6e5df5e7387ae329fa5",
+  "registry_hash": "sha256:9d62752c88db0b26b6c7058cd6eb9bc5e9171e7c7d1853d462f326aa360a10b4",
   "metric_schema_count": 8,
   "metric_schemas_hash": "sha256:20c3b1a33c125e82da8e54d8252f55bfcd037629f2c827d5d1a13e7b73d74e68",
   "metric_schemas": {
@@ -3895,51 +3895,6 @@
       }
     },
     {
-      "agent_id": "geopolitical",
-      "layer": "MACRO",
-      "evaluation_object": "AcceptedMacroTransmission",
-      "evaluation_object_type": "MACRO_TRANSMISSION",
-      "evaluation_object_schema_version": "accepted_macro_transmission_v2",
-      "accepted_output_kind": "MACRO_TRANSMISSION",
-      "primary_label_id": "geopolitical_transmission_a_share_path_5d",
-      "metric_schema_id": "macro_transmission_metrics_v2",
-      "realized_metric_schema_id": "macro_transmission_realized_metrics_v1",
-      "maturity_horizon": "TRADING_DAYS_5",
-      "maturity": {
-        "entry_semantics": "T_PLUS_1_OPEN",
-        "horizon_trading_days": 5,
-        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
-      },
-      "sample_schedule": {
-        "kind": "EVENT_TRIGGERED",
-        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
-        "event_registry_version": "geopolitical_verified_event_registry_v2",
-        "event_priority_version": "geopolitical_event_priority_v2"
-      },
-      "rank_scope": "macro_geopolitical",
-      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
-      "metric_family": "MACRO_TRANSMISSION",
-      "outcome_contract_version": "macro_transmission_outcome_v2",
-      "scoring_contract_version": "score_geopolitical_transmission_a_share_path_5d_v1",
-      "sample_schedule_contract_version": "macro_non_overlapping_role_opportunity_v2",
-      "rank_scope_contract_version": "self_macro_geopolitical_v2",
-      "opportunity_set_contract_version": "geopolitical_macro_opportunity_set_v2",
-      "normalization_contract_version": "geopolitical_transmission_a_share_path_5d_normalization_v1",
-      "required_source_ids": [
-        "verified_geopolitical_event_lifecycle_v2",
-        "cn_a_share_t_plus_1_total_return_path_v1",
-        "cn_a_share_pit_volatility_scale_v1"
-      ],
-      "fallback_allowed": false,
-      "label_owner": "DETERMINISTIC_RUNTIME",
-      "component_composition_contract": null,
-      "track_contract_dimensions": {
-        "component_weight_contract": "NULL",
-        "reliability_adapter_contract": "NULL",
-        "confidence_semantics_contract": "NULL"
-      }
-    },
-    {
       "agent_id": "industrials",
       "layer": "SECTOR",
       "evaluation_object": "AcceptedSectorSelection",
@@ -4017,51 +3972,6 @@
       "normalization_contract_version": "institutional_flow_followthrough_5d_normalization_v1",
       "required_source_ids": [
         "institutional_flow_followthrough_path_v2",
-        "cn_a_share_t_plus_1_total_return_path_v1",
-        "cn_a_share_pit_volatility_scale_v1"
-      ],
-      "fallback_allowed": false,
-      "label_owner": "DETERMINISTIC_RUNTIME",
-      "component_composition_contract": null,
-      "track_contract_dimensions": {
-        "component_weight_contract": "NULL",
-        "reliability_adapter_contract": "NULL",
-        "confidence_semantics_contract": "NULL"
-      }
-    },
-    {
-      "agent_id": "market_breadth",
-      "layer": "MACRO",
-      "evaluation_object": "AcceptedMacroTransmission",
-      "evaluation_object_type": "MACRO_TRANSMISSION",
-      "evaluation_object_schema_version": "accepted_macro_transmission_v2",
-      "accepted_output_kind": "MACRO_TRANSMISSION",
-      "primary_label_id": "market_breadth_confirmation_5d",
-      "metric_schema_id": "macro_transmission_metrics_v2",
-      "realized_metric_schema_id": "macro_transmission_realized_metrics_v1",
-      "maturity_horizon": "TRADING_DAYS_5",
-      "maturity": {
-        "entry_semantics": "T_PLUS_1_OPEN",
-        "horizon_trading_days": 5,
-        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
-      },
-      "sample_schedule": {
-        "kind": "FIXED_NON_OVERLAP",
-        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
-        "epoch": "2010-01-04",
-        "step_trading_days": 5
-      },
-      "rank_scope": "macro_market_breadth",
-      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
-      "metric_family": "MACRO_TRANSMISSION",
-      "outcome_contract_version": "macro_transmission_outcome_v2",
-      "scoring_contract_version": "score_market_breadth_confirmation_5d_v1",
-      "sample_schedule_contract_version": "macro_non_overlapping_role_opportunity_v2",
-      "rank_scope_contract_version": "self_macro_market_breadth_v2",
-      "opportunity_set_contract_version": "market_breadth_macro_opportunity_set_v2",
-      "normalization_contract_version": "market_breadth_confirmation_5d_normalization_v1",
-      "required_source_ids": [
-        "market_breadth_composite_path_v2",
         "cn_a_share_t_plus_1_total_return_path_v1",
         "cn_a_share_pit_volatility_scale_v1"
       ],
@@ -4153,51 +4063,6 @@
         "sector_universe_manifest_v1",
         "sector_research_snapshot_v4",
         "cn_a_share_security_outcome_path_v2"
-      ],
-      "fallback_allowed": false,
-      "label_owner": "DETERMINISTIC_RUNTIME",
-      "component_composition_contract": null,
-      "track_contract_dimensions": {
-        "component_weight_contract": "NULL",
-        "reliability_adapter_contract": "REQUIRED",
-        "confidence_semantics_contract": "REQUIRED"
-      }
-    },
-    {
-      "agent_id": "relationship_mapper",
-      "layer": "SECTOR",
-      "evaluation_object": "AcceptedRelationshipGraph",
-      "evaluation_object_type": "RELATIONSHIP_EDGES",
-      "evaluation_object_schema_version": "accepted_relationship_graph_v2",
-      "accepted_output_kind": "RELATIONSHIP_GRAPH",
-      "primary_label_id": "relationship_graph_validation_20d",
-      "metric_schema_id": "relationship_graph_validation_metrics_v2",
-      "realized_metric_schema_id": "relationship_realized_metrics_v1",
-      "maturity_horizon": "TRADING_DAYS_20",
-      "maturity": {
-        "entry_semantics": "T_PLUS_1_OPEN",
-        "horizon_trading_days": 20,
-        "trading_calendar_id": "cn_a_share_trading_calendar_v1"
-      },
-      "sample_schedule": {
-        "kind": "FIXED_NON_OVERLAP",
-        "trading_calendar_id": "cn_a_share_trading_calendar_v1",
-        "epoch": "2010-01-04",
-        "step_trading_days": 20
-      },
-      "rank_scope": "sector_relationship",
-      "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
-      "metric_family": "RELATIONSHIP",
-      "outcome_contract_version": "relationship_graph_outcome_v2",
-      "scoring_contract_version": "score_relationship_graph_validation_v2",
-      "sample_schedule_contract_version": "relationship_fixed_non_overlapping_20d_v2",
-      "rank_scope_contract_version": "self_sector_relationship_v2",
-      "opportunity_set_contract_version": "relationship_edge_candidate_opportunity_set_v2",
-      "normalization_contract_version": "relationship_edge_validation_normalization_v2",
-      "required_source_ids": [
-        "relationship_graph_candidate_snapshot_v2",
-        "relationship_edge_realized_path_v2",
-        "relationship_matched_non_edge_sample_v2"
       ],
       "fallback_allowed": false,
       "label_owner": "DETERMINISTIC_RUNTIME",

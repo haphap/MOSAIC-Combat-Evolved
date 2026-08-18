@@ -8,6 +8,7 @@ import type { DailyCycleStateType } from "../state.js";
 import {
   type AgentExecutionStageId,
   AgentIdSchema,
+  AgentToolIdSchema,
   validatePreparedCapability,
 } from "../tool_contract.js";
 import { canonicalJsonHash } from "./canonical_json.js";
@@ -60,6 +61,9 @@ export async function prepareAgentToolCapability(
   };
   const rawPrepared = await args.api.toolsPrepareCapability(request);
   const prepared = validatePreparedCapability(rawPrepared.bundle, rawPrepared.capability);
+  const preparedInitialToolIds = validatePreparedInitialToolIds(
+    rawPrepared.prepared_initial_tool_ids,
+  );
   if (
     prepared.bundle.agent_id !== agentId ||
     prepared.bundle.stage !== args.stage ||
@@ -69,7 +73,12 @@ export async function prepareAgentToolCapability(
   ) {
     throw new Error(`${args.agentId}: bridge returned a mismatched tool capability`);
   }
-  return prepared;
+  return {
+    ...prepared,
+    ...(preparedInitialToolIds !== undefined
+      ? { prepared_initial_tool_ids: preparedInitialToolIds }
+      : {}),
+  };
 }
 
 export async function terminateAgentToolCapability(
@@ -102,6 +111,9 @@ export async function issueAgentToolCapabilityForBundle(args: {
     snapshot_bundle_hash: args.root.bundle.snapshot_bundle_hash,
   });
   const prepared = validatePreparedCapability(rawPrepared.bundle, rawPrepared.capability);
+  const preparedInitialToolIds = validatePreparedInitialToolIds(
+    rawPrepared.prepared_initial_tool_ids,
+  );
   if (
     prepared.bundle.snapshot_bundle_id !== args.root.bundle.snapshot_bundle_id ||
     prepared.bundle.snapshot_bundle_hash !== args.root.bundle.snapshot_bundle_hash ||
@@ -109,7 +121,24 @@ export async function issueAgentToolCapabilityForBundle(args: {
   ) {
     throw new Error(`${args.agentId}: issued capability did not reuse the root bundle`);
   }
-  return prepared;
+  return {
+    ...prepared,
+    ...(preparedInitialToolIds !== undefined
+      ? { prepared_initial_tool_ids: preparedInitialToolIds }
+      : {}),
+  };
+}
+
+function validatePreparedInitialToolIds(input: unknown): string[] | undefined {
+  if (input === undefined) return undefined;
+  if (!Array.isArray(input)) {
+    throw new Error("prepared_initial_tool_ids must be an array");
+  }
+  const parsed = input.map((toolId) => AgentToolIdSchema.parse(toolId));
+  if (new Set(parsed).size !== parsed.length) {
+    throw new Error("prepared_initial_tool_ids must be unique");
+  }
+  return parsed;
 }
 
 function stableRunId(state: DailyCycleStateType): string {

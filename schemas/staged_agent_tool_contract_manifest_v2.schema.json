@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "staged_agent_tool_contract_manifest_v2"
+    },
+    "base_active_agent_tool_manifest_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "base_agent_data_route_manifest_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "capability_binding_manifest_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "stage": {
+            "type": "string",
+            "minLength": 1
+          },
+          "phase": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tool_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "activation_state": {
+            "const": "staged"
+          },
+          "capability_binding_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^binding:[0-9a-f]{64}$"
+            }
+          },
+          "semantic_capability_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "argument_schema_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "authorized_query_domain_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "output_semantics_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "source_route_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "route_contract_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "query_bundle_contract_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "materializer_contract_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "privacy_contract_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "adaptive_query_contract": {
+            "type": "object",
+            "properties": {
+              "max_rounds": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "model_selects_arguments": {
+                "type": "boolean"
+              },
+              "transport_allowed_during_prepare": {
+                "const": true
+              },
+              "transport_allowed_during_call": {
+                "const": false
+              }
+            },
+            "required": [
+              "max_rounds",
+              "model_selects_arguments",
+              "transport_allowed_during_call"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "agent_id",
+          "stage",
+          "phase",
+          "tool_id",
+          "activation_state",
+          "capability_binding_ids",
+          "semantic_capability_ids",
+          "argument_schema_hash",
+          "authorized_query_domain_hash",
+          "output_semantics_hash",
+          "source_route_ids",
+          "route_contract_hash",
+          "query_bundle_contract_version",
+          "materializer_contract_hash",
+          "privacy_contract_hash",
+          "adaptive_query_contract"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "manifest_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "base_active_agent_tool_manifest_hash",
+    "base_agent_data_route_manifest_hash",
+    "capability_binding_manifest_hash",
+    "tools",
+    "manifest_hash"
+  ],
+  "additionalProperties": false
+}

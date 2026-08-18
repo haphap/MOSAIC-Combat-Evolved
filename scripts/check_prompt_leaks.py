@@ -58,11 +58,16 @@ PRIVATE_KNOT_CONTENT_MARKERS = (
     re.compile(r"CREATE TRIGGER IF NOT EXISTS no_(?:update|delete)_knot_"),
 )
 
+PUBLIC_KNOT_CONTENT_LINES = (
+    re.compile(r"^\s*CREATE TABLE IF NOT EXISTS knot_binding_observations_v2\s*\(\s*$"),
+)
+
 PRIVATE_KNOT_GUARD_PATHS = frozenset(
     {
         "scripts/check_private_knot_boundary.py",
         "scripts/check_prompt_leaks.py",
         "tests/test_knot_private_boundary.py",
+        "tests/test_prompt_leak_check.py",
         "mosaic-ts/test/knot_contract.test.ts",
     }
 )
@@ -177,6 +182,12 @@ def _is_autoresearch_branch(name: str) -> bool:
     return any(pattern.search(name) for pattern in AUTORESEARCH_BRANCH_PATTERNS)
 
 
+def _is_private_knot_content(line: str) -> bool:
+    if any(pattern.fullmatch(line) for pattern in PUBLIC_KNOT_CONTENT_LINES):
+        return False
+    return any(pattern.search(line) for pattern in PRIVATE_KNOT_CONTENT_MARKERS)
+
+
 def check_repo(repo: Path, base_ref: str | None = None) -> list[Finding]:
     findings: list[Finding] = []
     paths = _changed_paths(repo, base_ref)
@@ -199,7 +210,7 @@ def check_repo(repo: Path, base_ref: str | None = None) -> list[Finding]:
 
     scanned_paths = [path for path in paths if path not in PRIVATE_KNOT_GUARD_PATHS]
     for path, line in _added_lines(repo, base_ref, scanned_paths):
-        if any(marker.search(line) for marker in PRIVATE_KNOT_CONTENT_MARKERS):
+        if _is_private_knot_content(line):
             findings.append(
                 Finding(
                     "private-knot-content",

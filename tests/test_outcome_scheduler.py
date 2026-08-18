@@ -199,7 +199,7 @@ def _event_coverage(
     return result
 
 
-def test_schedule_plan_covers_28_and_event_exclusions_do_not_reenter(
+def test_schedule_plan_covers_25_and_event_exclusions_do_not_reenter(
     tmp_path: Path,
 ) -> None:
     store, _, revision_id = _registered(tmp_path)
@@ -218,7 +218,7 @@ def test_schedule_plan_covers_28_and_event_exclusions_do_not_reenter(
         trading_calendar_snapshot=_calendar_snapshot(as_of),
         verified_event_candidates=events,
     )
-    assert len(plan["slots"]) == 28
+    assert len(plan["slots"]) == 25
     assert {slot["agent_id"] for slot in plan["slots"]} == set(OUTCOME_CONTRACTS)
     china = next(slot for slot in plan["slots"] if slot["agent_id"] == "china")
     assert china["run_slot_kind"] == "OUTCOME_SCHEDULED"

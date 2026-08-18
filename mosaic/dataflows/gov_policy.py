@@ -245,6 +245,7 @@ def _record_from_row(row: dict[str, Any], category: GovPolicyCategory) -> dict[s
     title = _normalise_text(row.get("title"))
     summary = _normalise_text(row.get("summary"))
     pub_date = _normalise_date(row.get("pubtimeStr"))
+    parsed_at = _utc_now()
     return {
         "article_id": _article_id(row, category),
         "source": "gov.cn policy document library",
@@ -264,7 +265,8 @@ def _record_from_row(row: dict[str, Any], category: GovPolicyCategory) -> dict[s
         "raw_sha256": hashlib.sha256(
             json.dumps(row, ensure_ascii=False, sort_keys=True).encode("utf-8")
         ).hexdigest(),
-        "parsed_at": _utc_now(),
+        "discovered_at": parsed_at,
+        "parsed_at": parsed_at,
     }
 
 
@@ -425,7 +427,23 @@ def _merge_records(
     for record in new_records:
         key = str(record.get("url") or record.get("article_id") or "")
         if key:
-            by_key[key] = record
+            merged = dict(record)
+            existing = by_key.get(key)
+            if existing is not None:
+                first_seen = str(
+                    existing.get("discovered_at")
+                    or existing.get("parsed_at")
+                    or ""
+                ).strip()
+                if first_seen:
+                    merged["discovered_at"] = first_seen
+                matched_queries = sorted(
+                    set(existing.get("matched_queries", []))
+                    | set(merged.get("matched_queries", []))
+                )
+                if matched_queries:
+                    merged["matched_queries"] = matched_queries
+            by_key[key] = merged
     return list(by_key.values())
 
 
@@ -485,6 +503,10 @@ def crawl_gov_policy_documents(
             total_count = int(parsed.get("total_count") or 0)
             total_pages = max(int(parsed.get("total_pages") or 1), 1)
             records = list(parsed.get("records") or [])
+            normalized_query = str(q or "").strip()
+            if normalized_query:
+                for record in records:
+                    record["matched_queries"] = [normalized_query]
             new_records.extend(records)
             category_records += len(records)
             if page >= total_pages or not records:

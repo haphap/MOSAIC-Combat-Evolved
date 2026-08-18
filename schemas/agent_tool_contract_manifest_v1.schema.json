@@ -8,19 +8,19 @@
     },
     "agent_count": {
       "type": "number",
-      "const": 28
+      "const": 25
     },
     "execution_stage_count": {
       "type": "number",
-      "const": 29
+      "const": 26
     },
     "tool_count": {
       "type": "number",
-      "const": 18
+      "const": 29
     },
     "agents": {
-      "minItems": 28,
-      "maxItems": 28,
+      "minItems": 25,
+      "maxItems": 25,
       "type": "array",
       "items": {
         "type": "object",
@@ -35,8 +35,6 @@
               "us_financial_conditions",
               "euro_area_financial_conditions",
               "commodities",
-              "geopolitical",
-              "market_breadth",
               "institutional_flow",
               "semiconductor",
               "technology",
@@ -47,7 +45,6 @@
               "real_estate_construction",
               "financials",
               "agriculture",
-              "relationship_mapper",
               "druckenmiller",
               "munger",
               "burry",
@@ -80,8 +77,6 @@
                 "us_financial_conditions",
                 "euro_area_financial_conditions",
                 "commodities",
-                "geopolitical",
-                "market_breadth",
                 "institutional_flow",
                 "semiconductor",
                 "technology",
@@ -92,7 +87,6 @@
                 "real_estate_construction",
                 "financials",
                 "agriculture",
-                "relationship_mapper",
                 "druckenmiller",
                 "munger",
                 "burry",
@@ -118,17 +112,28 @@
                 "get_us_financial_conditions_snapshot",
                 "get_euro_area_financial_conditions_snapshot",
                 "get_commodity_conditions_snapshot",
-                "get_geopolitical_events_snapshot",
-                "get_market_breadth_snapshot",
                 "get_market_positioning_snapshot",
                 "get_sector_research_snapshot",
                 "get_role_event_snapshot",
-                "get_relationship_graph_snapshot",
                 "get_superinvestor_candidate_snapshot",
                 "get_cro_risk_snapshot",
                 "get_alpha_candidate_snapshot",
                 "get_execution_snapshot",
-                "get_cio_decision_snapshot"
+                "get_cio_decision_snapshot",
+                "get_balance_sheet",
+                "get_broker_research",
+                "get_cashflow",
+                "get_etf_holdings",
+                "get_fundamentals",
+                "get_income_statement",
+                "get_indicators",
+                "get_industry_moneyflow",
+                "get_industry_policy_digest",
+                "get_rke_research_context",
+                "get_stock_data",
+                "get_stock_research",
+                "get_supply_chain_evidence",
+                "get_yield_curve_cn"
               ]
             }
           }

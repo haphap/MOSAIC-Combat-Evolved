@@ -7,9 +7,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, type BaseMessage, ToolMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type {
+  AcceptedAgentOutputRecord,
+  AcceptedOutputRecordRef,
+} from "../src/agents/accepted_output.js";
 import {
+  AcceptedAgentOutputStore,
+  acceptedOutputRefKey,
+  canonicalAcceptedOutputHash,
+} from "../src/agents/accepted_output.js";
+import {
+  buildCioFinalProviderControlDirective,
+  buildDecisionBoundRuntimeInputs,
+  decisionRuntimeCitationIdsFromToolLoop,
   frozenAlphaCandidatesFromToolLoop,
   layerFourExtractorSystem,
+  validateStructuredSmokeCioProposalCandidateLineage,
 } from "../src/agents/decision/_factory.js";
 import {
   renderJanusRegimeStub,
@@ -40,6 +53,10 @@ import {
   renderCio,
 } from "../src/agents/decision/cio.js";
 import { buildCroNode, croSpec, fallbackCro, renderCro } from "../src/agents/decision/cro.js";
+import {
+  assertCioFinalTargetCompliance,
+  deriveCioFinalComplianceBounds,
+} from "../src/agents/decision/decision_semantics.js";
 import { ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE } from "../src/agents/decision/deterministic_policy.js";
 import {
   assertL4RunSnapshotStage,
@@ -81,11 +98,15 @@ import type { DailyCycleStateType, DailyCycleStateUpdate } from "../src/agents/s
 import { fallbackSuperinvestorOutput } from "../src/agents/superinvestor/_factory.js";
 import type {
   AutoExecOutput,
+  CandidateTargetState,
   CioOutput,
   CroOutput,
+  CroReviewState,
   CurrentPositionsSnapshot,
+  ExecutionFeasibilityState,
   Layer4Outputs,
   PortfolioAction,
+  PortfolioExposureState,
   SemiconductorOutput,
   SuperinvestorOutput,
 } from "../src/agents/types.js";
@@ -96,6 +117,33 @@ import { validateFinalTargetNode } from "../src/graph/layer4.js";
 import type { LlmHandle } from "../src/llm/factory.js";
 import { macroOutput } from "./helpers/macro.js";
 import { sectorOutput } from "./helpers/sector.js";
+
+function runtimeEnumForArrayProperty(value: unknown, propertyName: string): string[] | undefined {
+  if (Array.isArray(value)) {
+    return value.map((item) => runtimeEnumForArrayProperty(item, propertyName)).find(Boolean);
+  }
+  if (value === null || typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  const properties =
+    record.properties !== null &&
+    typeof record.properties === "object" &&
+    !Array.isArray(record.properties)
+      ? (record.properties as Record<string, unknown>)
+      : null;
+  const property = properties?.[propertyName];
+  if (property !== null && typeof property === "object" && !Array.isArray(property)) {
+    const items = (property as Record<string, unknown>).items;
+    if (items !== null && typeof items === "object" && !Array.isArray(items)) {
+      const values = (items as Record<string, unknown>).enum;
+      if (Array.isArray(values) && values.every((item) => typeof item === "string")) {
+        return values as string[];
+      }
+    }
+  }
+  return Object.values(record)
+    .map((item) => runtimeEnumForArrayProperty(item, propertyName))
+    .find(Boolean);
+}
 
 function freezeExecutionFeasibility(
   runId: string,
@@ -211,17 +259,19 @@ describe("server-authority Decision stage objects", () => {
   const snapshot = (
     agentId: "alpha_discovery" | "cro" | "autonomous_execution" | "cio",
     candidates: Array<Record<string, unknown>>,
+    decisionStage?: "PROPOSAL" | "FINAL",
+    upstreamRefs: Array<Record<string, unknown>> = [],
   ): DecisionSnapshotAuthority => ({
     snapshot_id: `${agentId}-snapshot:1`,
     snapshot_hash: `sha256:${"1".repeat(64)}`,
     candidate_scope_hash: `sha256:${"2".repeat(64)}`,
     candidate_universe_id: `${agentId}-universe:1`,
     candidate_universe_hash: `sha256:${"3".repeat(64)}`,
-    upstream_accepted_output_refs: [],
+    upstream_accepted_output_refs: upstreamRefs,
     candidate_universe: candidates,
     candidate_scope: {},
     constraints: {},
-    role_context: {},
+    role_context: decisionStage ? { decision_stage: decisionStage } : {},
   });
 
   it("derives exact CRO, Execution, and CIO member identities", () => {
@@ -273,14 +323,18 @@ describe("server-authority Decision stage objects", () => {
 
     const cio = buildAuthorityStageFrozenObject(
       "cio",
-      snapshot("cio", [
-        {
-          proposal_position_ref: "position:1",
-          ts_code: "600004.SH",
-          current_weight: 0.2,
-          proposed_target_weight: 0.3,
-        },
-      ]),
+      snapshot(
+        "cio",
+        [
+          {
+            proposal_position_ref: "position:1",
+            ts_code: "600004.SH",
+            current_weight: 0.2,
+            proposed_target_weight: 0.3,
+          },
+        ],
+        "FINAL",
+      ),
     );
     expect(cio.member_refs).toEqual([
       {
@@ -298,6 +352,161 @@ describe("server-authority Decision stage objects", () => {
     ]);
   });
 
+  it("derives an independent CIO proposal candidate universe from proposal fields", () => {
+    const candidate = {
+      candidate_ref: "accepted-candidate:1",
+      ts_code: "600004.SH",
+      source_kind: "SECTOR_SELECTION",
+      current_weight: 0,
+      reference_target_weight: 0.1,
+      source_output_id: "sector-output:1",
+      source_output_hash: `sha256:${"4".repeat(64)}`,
+    };
+    const frozen = buildAuthorityStageFrozenObject("cio", snapshot("cio", [candidate], "PROPOSAL"));
+
+    expect(frozen.schema_version).toBe("decision_stage_frozen_object_set_v1");
+    expect(frozen.object_kind).toBe("CIO_PROPOSAL_CANDIDATE_UNIVERSE");
+    expect(frozen.object_payload).toMatchObject({
+      schema_version: "cio_proposal_frozen_candidate_universe_v1",
+      candidates: [candidate],
+    });
+    expect(frozen.member_refs).toEqual([candidate]);
+    expect(frozen.frozen_object_set_hash).toBe(canonicalAcceptedOutputHash(frozen.object_payload));
+    expect(authorityBindingFromFrozenObject(frozen)).toEqual({
+      source_tool_id: "get_cio_decision_snapshot",
+      source_snapshot_hash: `sha256:${"1".repeat(64)}`,
+      candidate_scope_hash: `sha256:${"2".repeat(64)}`,
+      candidate_universe_hash: `sha256:${"3".repeat(64)}`,
+      upstream_accepted_output_refs_hash:
+        "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    });
+  });
+
+  const sectorRef = {
+    accepted_output_kind: "STANDARD_SECTOR_SELECTION",
+    agent_id: "semiconductor",
+    accepted_output_id: "sector-output:semiconductor",
+    accepted_output_hash: `sha256:${"4".repeat(64)}`,
+  } satisfies AcceptedOutputRecordRef<"STANDARD_SECTOR_SELECTION">;
+  const sectorCandidate = () => ({
+    candidate_ref: "accepted-sector-candidate:1",
+    ts_code: "512480.SH",
+    source_kind: "SECTOR_SELECTION",
+    current_weight: 0,
+    reference_target_weight: 0.1,
+    source_output_id: sectorRef.accepted_output_id,
+    source_output_hash: sectorRef.accepted_output_hash,
+  });
+  const stateWithSectorLong = (ticker: string, ref = sectorRef) => {
+    const state = baseState();
+    state.accepted_output_refs[acceptedOutputRefKey("STANDARD_SECTOR_SELECTION", "semiconductor")] =
+      ref;
+    state.layer2_outputs = {
+      semiconductor: sectorOutput("semiconductor", {
+        preferred_security_status: "PICKS_PRESENT",
+        preferred_security_abstention_confidence: null,
+        long_picks: [
+          {
+            pick_local_id: "sector-pick:1",
+            ts_code: ticker,
+            direction_local_id: "semiconductor-preferred",
+            position_action: "LONG",
+            conviction: 0.8,
+            thesis: "fixture sector long",
+            claim_refs: ["semiconductor-claim"],
+          },
+        ],
+      }),
+    };
+    return state;
+  };
+
+  it("accepts an exact accepted 512480.SH Sector LONG lineage", () => {
+    const frozen = buildAuthorityStageFrozenObject(
+      "cio",
+      snapshot("cio", [sectorCandidate()], "PROPOSAL", [sectorRef]),
+    );
+    expect(() =>
+      validateStructuredSmokeCioProposalCandidateLineage(stateWithSectorLong("512480.SH"), frozen),
+    ).not.toThrow();
+  });
+
+  it("accepts a fixture-local Sector ref joined to the runtime accepted L2 output by agent", () => {
+    const fixtureSectorRef = {
+      ...sectorRef,
+      accepted_output_id: "structured-smoke:accepted:semiconductor:semiconductor",
+      accepted_output_hash:
+        "sha256:c061272f3107274efe5766c1ac6c87b9716d92a05685e76509accf7641f20d8c",
+    } satisfies AcceptedOutputRecordRef<"STANDARD_SECTOR_SELECTION">;
+    const runtimeSectorRef = {
+      ...sectorRef,
+      accepted_output_id:
+        "structured-smoke-accepted-output:255edbc769c6789e7e81297fcc57c075a527e05863f2a1b2fd9709fe696eb838",
+      accepted_output_hash:
+        "sha256:2fe278dfc89cb4ed1362bc8e96a5af2c156d68b9c911492f48ed82476c05fdb0",
+    } satisfies AcceptedOutputRecordRef<"STANDARD_SECTOR_SELECTION">;
+    const authorityPayload = snapshot(
+      "cio",
+      [
+        {
+          ...sectorCandidate(),
+          source_output_id: fixtureSectorRef.accepted_output_id,
+          source_output_hash: fixtureSectorRef.accepted_output_hash,
+        },
+      ],
+      "PROPOSAL",
+      [fixtureSectorRef],
+    );
+    const state = stateWithSectorLong("512480.SH", runtimeSectorRef);
+    const messages = [
+      new ToolMessage({
+        content: JSON.stringify(authorityPayload),
+        tool_call_id: "cio-snapshot-call",
+      }),
+    ];
+    const statuses = [
+      {
+        name: "get_cio_decision_snapshot",
+        call_id: "cio-snapshot-call",
+        called: true,
+        failed: false,
+        missing: false,
+        fallback: false,
+        cache_hit: false,
+      },
+    ];
+
+    expect(
+      decisionRuntimeCitationIdsFromToolLoop("cio", messages, statuses, undefined, (frozen) =>
+        validateStructuredSmokeCioProposalCandidateLineage(state, frozen),
+      ),
+    ).toEqual(["cio-universe:1"]);
+  });
+
+  it("rejects a frozen 512480.SH candidate when accepted L2 LONG is 600001.SH", () => {
+    const frozen = buildAuthorityStageFrozenObject(
+      "cio",
+      snapshot("cio", [sectorCandidate()], "PROPOSAL", [sectorRef]),
+    );
+    expect(() =>
+      validateStructuredSmokeCioProposalCandidateLineage(stateWithSectorLong("600001.SH"), frozen),
+    ).toThrow(/no unique LONG pick for 512480\.SH/);
+  });
+
+  it("rejects a Sector source when its runtime accepted ref is missing", () => {
+    const frozen = buildAuthorityStageFrozenObject(
+      "cio",
+      snapshot("cio", [sectorCandidate()], "PROPOSAL", [sectorRef]),
+    );
+    const state = stateWithSectorLong("512480.SH");
+    delete state.accepted_output_refs[
+      acceptedOutputRefKey("STANDARD_SECTOR_SELECTION", "semiconductor")
+    ];
+    expect(() => validateStructuredSmokeCioProposalCandidateLineage(state, frozen)).toThrow(
+      /accepted Sector ref is missing or mismatched/,
+    );
+  });
+
   it("pins source, scope, universe, and upstream-ref hashes", () => {
     const frozen = buildAuthorityStageFrozenObject(
       "alpha_discovery",
@@ -311,6 +520,43 @@ describe("server-authority Decision stage objects", () => {
       upstream_accepted_output_refs_hash:
         "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     });
+  });
+
+  it("derives a runtime citation from a verified CIO snapshot without a production binding", () => {
+    const payload = snapshot("cio", [], "FINAL");
+    const messages = [
+      new ToolMessage({
+        content: JSON.stringify(payload),
+        tool_call_id: "cio-snapshot-call",
+      }),
+    ];
+    const statuses = [
+      {
+        name: "get_cio_decision_snapshot",
+        call_id: "cio-snapshot-call",
+        called: true,
+        failed: false,
+        missing: false,
+        fallback: false,
+        cache_hit: false,
+      },
+    ];
+
+    expect(decisionRuntimeCitationIdsFromToolLoop("cio", messages, statuses)).toEqual([
+      "cio-universe:1",
+    ]);
+    expect(() =>
+      decisionRuntimeCitationIdsFromToolLoop(
+        "cio",
+        [
+          new ToolMessage({
+            content: JSON.stringify({ ...payload, candidate_universe_hash: "not-a-hash" }),
+            tool_call_id: "cio-snapshot-call",
+          }),
+        ],
+        statuses,
+      ),
+    ).toThrow(/candidate_universe_hash/);
   });
 });
 
@@ -345,7 +591,11 @@ describe("each Layer-4 spec wires correct fields", () => {
       "claim_refs",
       "macro_input_attributions",
     ]);
-    expect(croSpec.requiredTools).toEqual(["get_cro_risk_snapshot", "get_role_event_snapshot"]);
+    expect(croSpec.requiredTools).toEqual([
+      "get_cro_risk_snapshot",
+      "get_role_event_snapshot",
+      "get_rke_research_context",
+    ]);
   });
   it("alpha_discovery", () => {
     expect(alphaDiscoverySpec.agentId).toBe("alpha_discovery");
@@ -365,6 +615,7 @@ describe("each Layer-4 spec wires correct fields", () => {
     expect(alphaDiscoverySpec.requiredTools).toEqual([
       "get_alpha_candidate_snapshot",
       "get_role_event_snapshot",
+      "get_rke_research_context",
     ]);
   });
   it("autonomous_execution", () => {
@@ -382,6 +633,7 @@ describe("each Layer-4 spec wires correct fields", () => {
     expect(autonomousExecutionSpec.requiredTools).toEqual([
       "get_execution_snapshot",
       "get_role_event_snapshot",
+      "get_rke_research_context",
     ]);
   });
   it("cio", () => {
@@ -415,7 +667,10 @@ describe("each Layer-4 spec wires correct fields", () => {
       "claim_refs",
       "macro_input_attributions",
     ]);
-    expect(cioSpec.requiredTools).toEqual(["get_cio_decision_snapshot"]);
+    expect(cioSpec.requiredTools).toEqual([
+      "get_cio_decision_snapshot",
+      "get_rke_research_context",
+    ]);
   });
 });
 
@@ -493,7 +748,7 @@ describe("schemas reject malformations", () => {
         schema: croSpec.schema,
         value: {
           agent_id: "cro",
-          review_disposition: "NO_OBJECTION",
+          review_disposition: "NO_RISK_ACTION",
           candidate_actions: [],
           correlated_risks: [],
           black_swan_scenarios: [],
@@ -940,6 +1195,130 @@ const baseState = (): DailyCycleStateType => ({
   llm_calls: [],
 });
 
+describe("Layer-4 bound runtime capability inputs", () => {
+  it("passes exact records and each stage's frozen runtime authority", () => {
+    const input = baseState();
+    input.current_positions.position_snapshot_hash = `sha256:${"1".repeat(64)}`;
+    const ref = {
+      accepted_output_kind: "CIO_PROPOSAL",
+      agent_id: "cio",
+      accepted_output_id: "accepted:cio-proposal",
+      accepted_output_hash: `sha256:${"2".repeat(64)}`,
+    } as AcceptedOutputRecordRef;
+    const record = {
+      accepted_output_id: ref.accepted_output_id,
+      accepted_output_hash: ref.accepted_output_hash,
+    } as AcceptedAgentOutputRecord;
+    const store = {
+      resolve: () => record,
+    } as unknown as AcceptedAgentOutputStore;
+    const candidateTarget = {
+      schema_version: "portfolio.candidate_target_state.v1",
+      run_id: "t",
+      cohort: "cohort_default",
+      as_of_date: "2024-06-24",
+      proposal_hash: `sha256:${"3".repeat(64)}`,
+      l4_run_snapshot_hash: `sha256:${"4".repeat(64)}`,
+      candidate_target_hash: `sha256:${"5".repeat(64)}`,
+      position_snapshot_hash: input.current_positions.position_snapshot_hash ?? null,
+      previous_target_hash: null,
+      market_data_vintage_hash: `sha256:${"6".repeat(64)}`,
+      portfolio_actions: [],
+      confidence: 1,
+      frozen: true,
+    } satisfies CandidateTargetState;
+    const exposure = {
+      schema_version: "portfolio.exposure_state.v1",
+      candidate_target_hash: candidateTarget.candidate_target_hash,
+      l4_run_snapshot_hash: candidateTarget.l4_run_snapshot_hash,
+      exposure_hash: `sha256:${"7".repeat(64)}`,
+      gross_exposure: 0,
+      net_exposure: 0,
+      cash_weight: 1,
+      ticker_weights: {},
+      sector_weights: {},
+      frozen: true,
+    } satisfies PortfolioExposureState;
+    const croReview = {
+      schema_version: "decision.cro_review_state.v1",
+      run_id: "t",
+      candidate_target_hash: candidateTarget.candidate_target_hash,
+      l4_run_snapshot_hash: candidateTarget.l4_run_snapshot_hash,
+      source_status: "ACCEPTED_OUTPUT",
+      stage_skip_id: null,
+      stage_skip_hash: null,
+      review_hash: `sha256:${"8".repeat(64)}`,
+      output: {} as CroOutput,
+      frozen: true,
+    } satisfies CroReviewState;
+    const execution = {
+      schema_version: "decision.execution_feasibility_state.v1",
+      run_id: "t",
+      candidate_target_hash: candidateTarget.candidate_target_hash,
+      l4_run_snapshot_hash: candidateTarget.l4_run_snapshot_hash,
+      cro_review_hash: croReview.review_hash,
+      source_status: "ACCEPTED_OUTPUT",
+      stage_skip_id: null,
+      stage_skip_hash: null,
+      liquidity_vintage_hash: `sha256:${"9".repeat(64)}`,
+      feasibility_hash: `sha256:${"a".repeat(64)}`,
+      output: {} as AutoExecOutput,
+      frozen: true,
+    } satisfies ExecutionFeasibilityState;
+    input.layer4_outputs.runtime = {
+      ...emptyLayer4RuntimeState(),
+      candidate_target_state: candidateTarget,
+      portfolio_exposure_state: exposure,
+      cro_review_state: croReview,
+      execution_feasibility_state: execution,
+    };
+    const candidateScope = { accepted_output_refs: [ref] };
+
+    const stages = [
+      [alphaDiscoverySpec, ["current_positions"]],
+      [cioProposalSpec, ["current_positions", "decision_policy_release", "previous_target_state"]],
+      [
+        croSpec,
+        [
+          "candidate_target_state",
+          "current_positions",
+          "decision_policy_release",
+          "portfolio_exposure_state",
+        ],
+      ],
+      [
+        autonomousExecutionSpec,
+        [
+          "candidate_target_state",
+          "cro_review_state",
+          "current_positions",
+          "decision_policy_release",
+          "execution_mode",
+          "resolved_source_statuses",
+        ],
+      ],
+      [
+        cioSpec,
+        [
+          "candidate_target_state",
+          "cro_review_state",
+          "current_positions",
+          "decision_policy_release",
+          "execution_feasibility_state",
+        ],
+      ],
+    ] as const;
+    for (const [spec, expectedRuntimeKeys] of stages) {
+      const built = buildDecisionBoundRuntimeInputs(input, spec, candidateScope, store);
+      expect(built.accepted_output_refs).toEqual([ref]);
+      expect(built.accepted_output_records).toEqual([record]);
+      expect(Object.keys(built.bound_runtime_state as object).sort()).toEqual(
+        [...expectedRuntimeKeys].sort(),
+      );
+    }
+  });
+});
+
 function loadedPositions(
   positions: CurrentPositionsSnapshot["positions"],
 ): CurrentPositionsSnapshot {
@@ -996,6 +1375,31 @@ function cioOutput(portfolio_actions: PortfolioAction[]): CioOutput {
     agent: "cio",
     portfolio_actions,
     confidence: 0.61,
+  };
+}
+
+function attachFrozenNoDeltaRuntime(state: DailyCycleStateType): void {
+  const frozen = freezeCioProposal(state, cioOutput([]));
+  const cro = freezeCroReview("t", frozen.candidate, {
+    agent: "cro",
+    rejected_picks: [],
+    required_adjustments: [],
+    correlated_risks: [],
+    black_swan_scenarios: [],
+    confidence: 0.5,
+  });
+  const execution = freezeExecutionFeasibility("t", frozen.candidate, cro, {
+    agent: "autonomous_execution",
+    execution_disposition: "NO_DELTA",
+    trades: [],
+    execution_checks: [],
+    confidence: 0.5,
+  });
+  state.layer4_outputs.runtime = {
+    ...emptyLayer4RuntimeState(),
+    candidate_target_state: frozen.candidate,
+    cro_review_state: cro,
+    execution_feasibility_state: execution,
   };
 }
 
@@ -1089,7 +1493,7 @@ function executionStageSkip(): NoEvaluationObjectStageSkipRecord {
 }
 
 describe("Layer-4 factory outcome boundary", () => {
-  it("honors an authoritative execution skip before any model or bridge work", async () => {
+  it("does not bypass autonomous_execution for an authoritative outcome skip", async () => {
     const input = baseState();
     const skip = executionStageSkip();
     input.darwinian_runtime_binding = {} as DailyCycleStateType["darwinian_runtime_binding"];
@@ -1161,11 +1565,12 @@ describe("Layer-4 factory outcome boundary", () => {
           },
         } as unknown as LlmHandle["llm"],
       },
+      acceptedOutputStore: new AcceptedAgentOutputStore(),
     });
 
-    expect(await node(input)).toEqual({});
+    await expect(node(input)).rejects.toThrow("bridge must not be touched");
     expect(modelInvocations).toBe(0);
-    expect(bridgeTouches).toBe(0);
+    expect(bridgeTouches).toBeGreaterThan(0);
   });
 
   it("rejects a forged Alpha skip before CIO proposal model or bridge work", async () => {
@@ -1258,16 +1663,18 @@ describe("Layer-4 factory outcome boundary", () => {
   });
 });
 
-function frozenCandidateWithCurrent(targetWeight = 0.4) {
+function frozenCandidateWithCurrent(targetWeight = 0.4, ticker = heldPosition.ticker) {
   const state = baseState();
-  state.current_positions = loadedPositions([heldPosition]);
+  const position = { ...heldPosition, ticker };
+  state.current_positions = loadedPositions([position]);
   const proposal = {
     ...cioOutput([
       {
-        ticker: heldPosition.ticker,
-        action: "BUY" as const,
-        position_decision: "ADD" as const,
-        current_weight: heldPosition.current_weight,
+        ticker: position.ticker,
+        action: targetWeight < position.current_weight ? ("REDUCE" as const) : ("BUY" as const),
+        position_decision:
+          targetWeight < position.current_weight ? ("REDUCE" as const) : ("ADD" as const),
+        current_weight: position.current_weight,
         target_weight: targetWeight,
         delta_weight: targetWeight - heldPosition.current_weight,
         holding_period: "3M" as const,
@@ -1279,8 +1686,8 @@ function frozenCandidateWithCurrent(targetWeight = 0.4) {
     ]),
     position_reviews: [
       {
-        ticker: heldPosition.ticker,
-        decision: "ADD" as const,
+        ticker: position.ticker,
+        decision: targetWeight < position.current_weight ? ("REDUCE" as const) : ("ADD" as const),
         target_weight: targetWeight,
         reason: "increase the reviewed position",
         thesis_status: "intact" as const,
@@ -1943,12 +2350,17 @@ describe("Layer-4 runtime source envelopes", () => {
     };
     const intent = requiredFrozenIntent(frozen.candidate, cro);
     const submission = executionSubmissionFor(intent);
+    if (submission.execution_disposition === "NO_EXECUTION_ACTION") {
+      throw new Error("expected actionable execution assessments");
+    }
+    const assessment = submission.order_assessments[0];
+    if (!assessment) throw new Error("expected an execution assessment");
     for (const orderAssessment of [
-      { ...submission.order_assessments[0], order_intent_ref: "order-intent:wrong" },
-      { ...submission.order_assessments[0], ts_code: "000001.SZ" },
+      { ...assessment, order_intent_ref: "order-intent:wrong" },
+      { ...assessment, ts_code: "000001.SZ" },
       {
-        ...submission.order_assessments[0],
-        requested_delta_weight: submission.order_assessments[0].requested_delta_weight / 2,
+        ...assessment,
+        requested_delta_weight: assessment.requested_delta_weight / 2,
       },
     ]) {
       expect(() =>
@@ -2675,8 +3087,8 @@ describe("CIO position validator", () => {
     ).toThrow(/max_sector_weight/);
   });
 
-  it("requires sector exposure when max_sector_weight is active", () => {
-    expect(() =>
+  it("uses worst-case concentration for positions without sector labels", () => {
+    expect(
       validateCioPositionActions({
         output: cioOutput([
           {
@@ -2688,8 +3100,23 @@ describe("CIO position validator", () => {
           },
         ]),
         currentPositions: loadedPositions([]),
+      }).output.portfolio_actions[0]?.target_weight,
+    ).toBe(0.1);
+
+    expect(() =>
+      validateCioPositionActions({
+        output: cioOutput(
+          ["688981.SH", "300750.SZ", "002371.SZ"].map((ticker) => ({
+            ticker,
+            action: "BUY" as const,
+            target_weight: 0.11,
+            holding_period: "3M",
+            dissent_notes: "",
+          })),
+        ),
+        currentPositions: loadedPositions([]),
       }),
-    ).toThrow(/sector is missing/);
+    ).toThrow(/worst-case target_weight.*max_sector_weight/);
   });
 
   it("rejects ADD decisions that do not map to a positive BUY delta", () => {
@@ -2990,52 +3417,11 @@ describe("Layer 1/2/3/4 context renderers", () => {
     expect(renderLayer1Context(s)).not.toContain("layer_1_consensus_score");
   });
 
-  it("L2 renders sector picks + relationship_mapper differently", () => {
+  it("L2 renders independent sector picks", () => {
     const s = baseState();
     expect(renderLayer2Context(s)).toContain("not available");
     s.layer2_outputs = { semiconductor: semi };
     expect(renderLayer2Context(s)).toContain("688981.SH");
-    s.layer2_outputs = {
-      relationship_mapper: {
-        agent: "relationship_mapper",
-        factual_edges: [
-          {
-            edge_local_id: "edge-1",
-            source_entity: "688981.SH",
-            target_entity: "semiconductor_equipment",
-            edge_type: "supply_chain",
-            claim_refs: ["mapper-claim"],
-          },
-        ],
-        predictive_edges: [],
-        predictive_graph_status: "NO_QUALIFIED_PREDICTIVE_EDGE",
-        predictive_graph_abstention_confidence: 0.4,
-        key_drivers: [
-          { driver_local_id: "driver-1", summary: "fixture driver", claim_refs: ["mapper-claim"] },
-        ],
-        risks: [{ risk_local_id: "risk-1", summary: "spillover", claim_refs: ["mapper-claim"] }],
-        claims: [
-          {
-            claim_id: "mapper-claim",
-            claim_kind: "FACT",
-            statement: "Relationship fixture.",
-            structured_conclusion: { relationship: "supply_chain" },
-            evidence_ids: ["fixture:mapper"],
-            research_rule_refs: [],
-          },
-        ],
-        claim_refs: ["mapper-claim"],
-        macro_input_attributions: MACRO_AGENT_IDS.map((macroAgentId) => ({
-          agent_id: macroAgentId,
-          target_type: "SUBMISSION_SUMMARY",
-          target_local_ref: "$SUBMISSION",
-          claim_refs_used: [],
-          effect: "NOT_MATERIAL",
-        })),
-      },
-    };
-    expect(renderLayer2Context(s)).toContain("factual_edges");
-    expect(renderLayer2Context(s)).toContain("predictive_graph_status");
   });
 
   it("L3 renders superinvestor picks", () => {
@@ -3077,9 +3463,216 @@ describe("autonomous execution reliability boundary", () => {
   it("does not request Macro attribution during structured extraction", () => {
     const executionExtractor = layerFourExtractorSystem(autonomousExecutionSpec, "en");
     expect(executionExtractor).toContain("do not emit or infer Macro input attributions");
+    expect(executionExtractor).toContain(
+      "execution_disposition=NO_EXECUTION_ACTION with order_assessments=[]",
+    );
     expect(executionExtractor).not.toContain("macro_input_attributions is an object");
-    expect(layerFourExtractorSystem(croSpec, "en")).toContain(
-      "macro_input_attributions is an object",
+    const croExtractor = layerFourExtractorSystem(croSpec, "en");
+    expect(croExtractor).toContain("review_disposition=NO_RISK_ACTION with candidate_actions=[]");
+    expect(croExtractor).toContain("macro_input_attributions is an object");
+    expect(croSpec.buildUserContext(baseState())).toContain(
+      "Use REQUIRE_REVIEW, VETO, CAP_WEIGHT, or REDUCE_WEIGHT only for evidence-backed hard controls: a data-integrity failure, concrete evidence-backed regulatory or black-swan exposure, or a bound cap/policy violation. Ordinary risk or uncertainty with complete evidence and an in-policy target must use NO_OBJECTION or no adjustment.",
+    );
+  });
+
+  it("publishes an explicit CIO final narrative budget", () => {
+    const cioExtractor = layerFourExtractorSystem(cioSpec, "en");
+    expect(cioExtractor).toContain(
+      "decision_reason must be one complete sentence of no more than 160 Unicode characters",
+    );
+    expect(cioExtractor).toContain("agent_id is always one of the eight Macro source Agents");
+    expect(cioExtractor).toContain("target_type/target_local_ref identify the affected object");
+    expect(cioExtractor).toContain(
+      "Keep the Sector/L3/L4 agent's own evidence in its local claims/claim_refs",
+    );
+    expect(layerFourExtractorSystem(cioProposalSpec, "en")).not.toContain(
+      "decision_reason must be one complete sentence of no more than 160 Unicode characters",
+    );
+  });
+
+  it("derives empty CIO final control tuples from frozen no-delta runtime", () => {
+    const state = baseState();
+    attachFrozenNoDeltaRuntime(state);
+
+    expect(buildCioFinalProviderControlDirective(state)).toEqual({
+      contract_version: "cio_final_provider_control_directive_v2",
+      decision_reason_max_length: 160,
+      cro_action_local_refs: [],
+      execution_assessment_local_refs: [],
+      target_bounds: [],
+    });
+  });
+
+  it("publishes the runtime-owned partial execution target bound", () => {
+    const { state, frozen } = frozenCandidateWithCurrent(0.1, "600001.SH");
+    const cro = freezeCroReview("t", frozen.candidate, {
+      agent: "cro",
+      rejected_picks: [],
+      required_adjustments: [],
+      correlated_risks: [],
+      black_swan_scenarios: [],
+      confidence: 0.5,
+    });
+    const intent = requiredFrozenIntent(frozen.candidate, cro);
+    const execution = freezeExecutionFeasibility("t", frozen.candidate, cro, {
+      agent: "autonomous_execution",
+      execution_disposition: "TRADES",
+      trades: [
+        {
+          order_intent_ref: intent.order_intent_ref,
+          ticker: intent.ts_code,
+          action: intent.action,
+          size_pct: 0.08,
+          delta_weight: -0.08,
+          estimated_slippage_pct: 0.001,
+          conviction: 0.5,
+        },
+      ],
+      execution_checks: [
+        {
+          assessment_local_id: "assessment-1",
+          order_intent_ref: intent.order_intent_ref,
+          ticker: intent.ts_code,
+          requested_delta_weight: intent.requested_delta_weight,
+          status: "partial",
+          estimated_cost_bps: 10,
+          max_executable_delta_weight: 0.08,
+          reason: "bounded capacity",
+        },
+      ],
+      confidence: 0.5,
+    });
+    state.layer4_outputs.runtime = {
+      ...emptyLayer4RuntimeState(),
+      candidate_target_state: frozen.candidate,
+      cro_review_state: cro,
+      execution_feasibility_state: execution,
+    };
+
+    expect(buildCioFinalProviderControlDirective(state).target_bounds).toEqual([
+      {
+        ts_code: "600001.SH",
+        current_weight: 0.2,
+        proposal_target_weight: 0.1,
+        requested_delta_weight: -0.1,
+        execution_status: "PARTIAL",
+        max_executable_delta_weight: 0.08,
+        direction: "DECREASE",
+        target_weight_min: 0.12,
+        target_weight_max: 0.2,
+      },
+    ]);
+  });
+
+  it("publishes the exact staged execution boundary in the v2 provider shape", () => {
+    const { state, frozen } = frozenCandidateWithCurrent(0.1, "600001.SH");
+    const cro = freezeCroReview("t", frozen.candidate, {
+      agent: "cro",
+      rejected_picks: [],
+      required_adjustments: [
+        {
+          action_local_id: "control-reduce",
+          ticker: "600001.SH",
+          adjustment: "REDUCE_WEIGHT",
+          max_target_weight: 0.05,
+          reason: "stage the reduction to the CRO risk target",
+        },
+      ],
+      correlated_risks: [],
+      black_swan_scenarios: [],
+      confidence: 0.5,
+    });
+    const intent = requiredFrozenIntent(frozen.candidate, cro);
+    const execution = freezeExecutionFeasibility("t", frozen.candidate, cro, {
+      agent: "autonomous_execution",
+      execution_disposition: "TRADES",
+      trades: [
+        {
+          order_intent_ref: intent.order_intent_ref,
+          ticker: intent.ts_code,
+          action: intent.action,
+          size_pct: 0.1,
+          delta_weight: -0.1,
+          estimated_slippage_pct: 0.001,
+          conviction: 0.5,
+        },
+      ],
+      execution_checks: [
+        {
+          assessment_local_id: "assessment-staged",
+          order_intent_ref: intent.order_intent_ref,
+          ticker: intent.ts_code,
+          requested_delta_weight: intent.requested_delta_weight,
+          status: "partial",
+          estimated_cost_bps: 10,
+          max_executable_delta_weight: 0.1,
+          reason: "single-cycle execution cap",
+        },
+      ],
+      confidence: 0.5,
+    });
+    state.layer4_outputs.runtime = {
+      ...emptyLayer4RuntimeState(),
+      candidate_target_state: frozen.candidate,
+      cro_review_state: cro,
+      execution_feasibility_state: execution,
+    };
+
+    expect(buildCioFinalProviderControlDirective(state).target_bounds).toEqual([
+      {
+        ts_code: "600001.SH",
+        current_weight: 0.2,
+        proposal_target_weight: 0.1,
+        requested_delta_weight: 0.05 - 0.2,
+        execution_status: "PARTIAL",
+        max_executable_delta_weight: 0.1,
+        direction: "DECREASE",
+        target_weight_min: 0.1,
+        target_weight_max: 0.1,
+      },
+    ]);
+  });
+
+  it("uses the shared intersection and staged compliance boundaries", () => {
+    const intersectionInput = {
+      currentWeight: 0.2,
+      requestedDeltaWeight: -0.1,
+      executionStatus: "PARTIAL" as const,
+      maxExecutableDeltaWeight: 0.08,
+      croAction: "REDUCE_WEIGHT" as const,
+      croMaxTargetWeight: 0.15,
+    };
+    expect(deriveCioFinalComplianceBounds(intersectionInput)).toMatchObject({
+      targetWeightMin: 0.12,
+      targetWeightMax: 0.15,
+      complianceMode: "INTERSECTION",
+      stagedTargetWeight: null,
+    });
+    expect(
+      assertCioFinalTargetCompliance({ ...intersectionInput, finalWeight: 0.12 }),
+    ).toMatchObject({ croResolution: "MORE_CONSERVATIVE", executionResolution: "COMPLIED" });
+
+    const stagedInput = {
+      ...intersectionInput,
+      requestedDeltaWeight: -0.15,
+      maxExecutableDeltaWeight: 0.1,
+      croMaxTargetWeight: 0.05,
+    };
+    expect(deriveCioFinalComplianceBounds(stagedInput)).toMatchObject({
+      targetWeightMin: 0.1,
+      targetWeightMax: 0.1,
+      complianceMode: "STAGED_EXECUTION",
+      stagedTargetWeight: 0.1,
+    });
+    expect(assertCioFinalTargetCompliance({ ...stagedInput, finalWeight: 0.1 })).toMatchObject({
+      croResolution: "STAGED",
+      executionResolution: "COMPLIED",
+    });
+    expect(() => assertCioFinalTargetCompliance({ ...stagedInput, finalWeight: 0.11 })).toThrow(
+      /staged execution boundary/,
+    );
+    expect(() => assertCioFinalTargetCompliance({ ...stagedInput, finalWeight: 0.05 })).toThrow(
+      /execution cap/,
     );
   });
 });
@@ -3247,6 +3840,7 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
       },
       cio: null,
     };
+    attachFrozenNoDeltaRuntime(sample);
 
     const node = buildCioNode({ llmHandle: handle, config, promptsRoot: promptDir });
     await expect(node(sample)).rejects.toBeInstanceOf(AgentRunContractError);
@@ -3288,7 +3882,7 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
     expect(llm.structuredCalls).toBeGreaterThan(0);
   });
 
-  it("passes runtime evidence ids to extraction and verifies action claim refs", async () => {
+  it("passes runtime evidence and verified snapshot citations through strict extraction", async () => {
     const prompt = "FAKE-CIO";
     const dir = join(promptDir, "cohort_default", "decision");
     writeFileSync(join(dir, "cio.zh.md"), prompt, "utf-8");
@@ -3299,11 +3893,15 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
       invokeCalls = 0;
       structuredCalls = 0;
       evidenceId: string | undefined;
+      citationId: string | undefined;
       async invoke(): Promise<AIMessage> {
         this.invokeCalls++;
         return new AIMessage("Hold the existing position on current account evidence.");
       }
-      withStructuredOutput(): { invoke: (messages: BaseMessage[]) => Promise<unknown> } {
+      withStructuredOutput(schema: unknown): {
+        invoke: (messages: BaseMessage[]) => Promise<unknown>;
+      } {
+        this.citationId = runtimeEnumForArrayProperty(schema, "research_rule_refs")?.[0];
         return {
           invoke: async (messages) => {
             this.structuredCalls++;
@@ -3320,6 +3918,8 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
             }
             const evidenceId = this.evidenceId;
             if (!evidenceId) throw new Error("current evidence missing from extraction catalog");
+            const citationId = this.citationId;
+            if (!citationId) throw new Error("verified snapshot citation missing from schema");
             return {
               agent_id: "cio",
               decision_stage: "PROPOSAL",
@@ -3342,11 +3942,11 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
               claims: [
                 {
                   claim_id: "claim-hold",
-                  claim_kind: "FACT",
+                  claim_kind: "INTERPRETATION",
                   statement: "Keep the existing target unchanged.",
                   structured_conclusion: { decision: "HOLD" },
                   evidence_ids: [evidenceId ?? "missing"],
-                  research_rule_refs: [],
+                  research_rule_refs: [citationId],
                 },
               ],
               claim_refs: ["claim-hold"],
@@ -3433,6 +4033,7 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
     ]);
     expect(llm.invokeCalls).toBe(1);
     expect(llm.structuredCalls).toBe(1);
+    expect(llm.citationId).toMatch(/^fake-candidate-universe:[0-9a-f]{64}$/);
     clearPromptCache();
   });
 });
@@ -3567,7 +4168,7 @@ describe("buildCroNode (frozen snapshots, no portfolio_actions mirror)", () => {
     expect(llm.invokeCalls).toBe(1);
   });
 
-  it("keeps RKE research context outside the production decision graph", async () => {
+  it("injects registered frozen RKE research context into the decision graph", async () => {
     const canned: CroOutput = {
       agent: "cro",
       review_disposition: "NO_OBJECTION",
@@ -3615,11 +4216,11 @@ describe("buildCroNode (frozen snapshots, no portfolio_actions mirror)", () => {
     const node = buildCroNode({ llmHandle: handle, api, config, promptsRoot: promptDir });
     await node(stateWithFrozenCandidate());
 
-    expect(toolCalls.map((call) => call.name)).not.toContain("get_rke_research_context");
+    expect(toolCalls).toEqual([]);
     expect(llm.bindToolsCalled).toBe(0);
     expect(llm.invokeCalls).toBe(1);
-    expect(llm.lastMessages.map((msg) => String(msg.content)).join("\n")).not.toContain(
-      "RKE research prior context",
+    expect(llm.lastMessages.map((msg) => String(msg.content)).join("\n")).toContain(
+      "fake-cro-get_rke_research_context",
     );
   });
 });

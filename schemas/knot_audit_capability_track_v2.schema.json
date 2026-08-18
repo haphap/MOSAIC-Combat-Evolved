@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  },
+  "type": "object",
+  "properties": {
+    "schema_version": { "const": "knot_audit_capability_track_v2" },
+    "tool_environment_hash": { "$ref": "#/$defs/hash" },
+    "execution_behavior_release_hash": { "$ref": "#/$defs/hash" },
+    "capability_binding_manifest_hash": { "$ref": "#/$defs/hash" },
+    "knot_coverage_manifest_v2_hash": { "$ref": "#/$defs/hash" },
+    "snapshot_audit_context_version": { "const": "snapshot_bundle_audit_context_v1" },
+    "capability_audit_context_version": { "const": "capability_audit_context_v1" },
+    "result_event_schema_version": { "const": "server_tool_result_event_v1" },
+    "binding_signal_projection_version": { "const": "binding_signal_projection_v1" },
+    "claim_comparison_spec_version": { "const": "claim_comparison_spec_v1" },
+    "trusted_comparator_version": { "const": "same_dimension_polarity_v1" },
+    "track_hash": { "$ref": "#/$defs/hash" }
+  },
+  "required": [
+    "schema_version",
+    "tool_environment_hash",
+    "execution_behavior_release_hash",
+    "capability_binding_manifest_hash",
+    "knot_coverage_manifest_v2_hash",
+    "snapshot_audit_context_version",
+    "capability_audit_context_version",
+    "result_event_schema_version",
+    "binding_signal_projection_version",
+    "claim_comparison_spec_version",
+    "trusted_comparator_version",
+    "track_hash"
+  ],
+  "additionalProperties": false
+}

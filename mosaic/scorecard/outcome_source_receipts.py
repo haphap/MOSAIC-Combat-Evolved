@@ -1515,6 +1515,52 @@ def load_server_selected_outcome_source_batch(
     return batch
 
 
+def load_historical_outcome_source_batch(
+    conn: sqlite3.Connection,
+    *,
+    scheduled_sample_id: str,
+    accepted_output_id: str,
+    accepted_output_hash: str,
+    agent_id: str,
+    source_batch_id: str,
+    source_batch_hash: str,
+    matured_at: str,
+    cutoff_at: str,
+) -> dict[str, Any]:
+    """Revalidate a persisted label's sole sealed source batch at a PIT cutoff."""
+    row = _fetchone_mapping(
+        conn,
+        "SELECT * FROM outcome_source_batches_v1 WHERE scheduled_sample_id = ?",
+        (_required_text(scheduled_sample_id, "scheduled_sample_id"),),
+    )
+    if row is None:
+        raise OutcomeSourceBatchUnavailable(
+            "required historical outcome source batch is unavailable"
+        )
+    batch = _read_batch(conn, row, cutoff_at=cutoff_at)
+    expected = {
+        "scheduled_sample_id": _required_text(
+            scheduled_sample_id, "scheduled_sample_id"
+        ),
+        "accepted_output_id": _required_text(
+            accepted_output_id, "accepted_output_id"
+        ),
+        "accepted_output_hash": _required_sha256(
+            accepted_output_hash, "accepted_output_hash"
+        ),
+        "agent_id": _required_text(agent_id, "agent_id"),
+        "source_batch_id": _required_text(source_batch_id, "source_batch_id"),
+        "source_batch_hash": _required_sha256(
+            source_batch_hash, "source_batch_hash"
+        ),
+        "matured_at": _required_text(matured_at, "matured_at"),
+        "projection_status": "SCORE",
+    }
+    if any(batch.get(field) != value for field, value in expected.items()):
+        raise ValueError("historical outcome source batch lineage mismatch")
+    return batch
+
+
 __all__ = [
     "AUTHORITY_REGISTRY_VERSION",
     "OUTCOME_SOURCE_AUTHORITY_REGISTRY_PATH",
@@ -1529,6 +1575,7 @@ __all__ = [
     "append_and_seal_outcome_source_batch",
     "build_outcome_source_attestation",
     "load_outcome_source_authority_registry",
+    "load_historical_outcome_source_batch",
     "load_server_selected_outcome_source_batch",
     "outcome_source_attestation_signing_bytes",
     "outcome_source_authority_pins",

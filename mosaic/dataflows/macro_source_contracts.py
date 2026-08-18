@@ -110,8 +110,8 @@ PBOC_SERIES_MAP: Final[dict[str, dict[str, Any]]] = {
         "required_branches": (
             "tushare.shibor_overnight",
             "tushare.shibor_3m",
-            "tushare.yc_cb_cn_government_2y",
-            "tushare.yc_cb_cn_government_10y",
+            "official.mof_chinabond_government_2y",
+            "official.mof_chinabond_government_10y",
         ),
         "optional_branches": ("tushare.shibor_quote",),
         "hard_cap": "4_calendar_days",
@@ -202,9 +202,39 @@ EU_SERIES_MAP: Final[dict[str, dict[str, str]]] = {
     },
 }
 
+EU_REAL_ECONOMY_SERIES_MAP: Final[dict[str, dict[str, str]]] = {
+    "HICP.M.B6.N.000000.4D0.ANR": {
+        "component": "prices",
+        "output_id": "eu_hicp",
+    },
+    "LFSI.M.B6.S.UNEHRT.TOTAL0.15_74.T": {
+        "component": "employment",
+        "output_id": "eu_unemployment",
+    },
+    "MNA.Q.N.B6.W1.S1.S1.C.P7._Z._Z._Z.EUR.LR.N": {
+        "component": "demand_trade",
+        "output_id": "eu_imports_goods_services",
+    },
+    "MNA.Q.N.B6.W1.S1.S1.D.P6._Z._Z._Z.EUR.LR.N": {
+        "component": "demand_trade",
+        "output_id": "eu_exports_goods_services",
+    },
+    "MNA.Q.Y.B6.W0.S1M.S1.D.P31._Z._Z._T.EUR.LR.N": {
+        "component": "demand_trade",
+        "output_id": "eu_household_consumption",
+    },
+    "MNA.Q.Y.B6.W2.S1.S1.B.B1GQ._Z._Z._Z.EUR.LR.N": {
+        "component": "growth_production",
+        "output_id": "eu_gdp",
+    },
+    "STBS.M.I10.Y.PROD.NS0020.4D0.N.IX": {
+        "component": "growth_production",
+        "output_id": "euro_area_industrial_production",
+    },
+}
+
 EURO_AREA_FINANCIAL_SERIES_MAP: Final[dict[str, tuple[str, ...]]] = {
     "ecb_liquidity": (
-        "official.ecb_decision_statement",
         "FM.B.U2.EUR.4F.KR.DFR.LEV",
         "FM.B.U2.EUR.4F.KR.MRR_FR.LEV",
         "EST.B.EU000A2X2A25.WT",
@@ -219,8 +249,9 @@ EURO_AREA_FINANCIAL_SERIES_MAP: Final[dict[str, tuple[str, ...]]] = {
     ),
     "eur_financial_stress": (
         "EXR.D.USD.EUR.SP00.A",
-        "CISS.D.U2.Z0Z.4F.EC.SS_CIN.IDX",
-        "tushare.fx_daily.EUR_CNY",
+        "RDF.D.D0.Z0Z.4F.EC.DFTLB.PR",
+        "RDF.D.D0.Z0Z.4F.EC.DFTSV.PR",
+        "tushare.fx_daily.EUR_USD",
     ),
 }
 
@@ -284,11 +315,11 @@ def _commodity_family_contract(
         "contract_metadata_source": f"tushare.fut_basic.{family_id}",
         "daily_settlement_endpoint": "fut_daily",
         "daily_settlement_source": f"tushare.fut_daily.{family_id}",
-        # ``fut_wsr`` has a permission/schema preflight receipt but is not an
-        # active production source until archived PIT coverage is available.
+        # ``fut_wsr`` may contribute only through the receipt-bound China
+        # commodity archive; a preflight response is never sufficient.
         "inventory_endpoint": "fut_wsr",
         "inventory_source": f"tushare.fut_wsr.{family_id}",
-        "inventory_source_status": "PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING",
+        "inventory_source_status": "ARCHIVED_PIT_RECEIPT_REQUIRED",
         "roll_rule": dict(_COMMODITY_ROLL_RULE),
         "freshness_contract": dict(_COMMODITY_FRESHNESS_CONTRACT),
     }
@@ -376,132 +407,19 @@ WORLD_BANK_CONTEXT_MAP: Final = {
     },
 }
 
-def _ordered_unique(values: tuple[str, ...]) -> tuple[str, ...]:
-    return tuple(dict.fromkeys(values))
-
-
-_CHINA_REQUIRED_BRANCHES = _ordered_unique(
-    tuple(
-        branch
-        for contract in CHINA_MACRO_SERIES_MAP.values()
-        for branch in contract["required_branches"]
-    )
-)
-_PBOC_REQUIRED_BRANCHES = _ordered_unique(
-    tuple(
-        branch
-        for contract in PBOC_SERIES_MAP.values()
-        for branch in contract["required_branches"]
-    )
-)
-_US_ECONOMY_REQUIRED_BRANCHES = tuple(
-    series_id
-    for series_ids in US_ECONOMY_SERIES_MAP.values()
-    for series_id in series_ids
-)
-_US_FINANCIAL_REQUIRED_BRANCHES = _ordered_unique(
-    tuple(
-        branch
-        for branches in US_FINANCIAL_CONDITIONS_SERIES_MAP.values()
-        for branch in branches
-    )
-)
-_EU_REQUIRED_BRANCHES = tuple(EU_SERIES_MAP)
-_EURO_FINANCIAL_REQUIRED_BRANCHES = _ordered_unique(
-    tuple(
-        branch
-        for branches in EURO_AREA_FINANCIAL_SERIES_MAP.values()
-        for branch in branches
-    )
-)
-_COMMODITY_REQUIRED_BRANCHES = tuple(
-    family
-    for contract in COMMODITY_CONTRACT_MAP.values()
-    for family in contract["required_families"]
-)
-
-# A registered provider/series name is only an identity contract.  Production
+# A registered provider/series name is only an identity contract. Production
 # readiness additionally requires a concrete ingestion adapter and a
-# release/vintage archive receipt.  No required role currently has that full
-# proof chain in this public checkout, so every unresolved required branch is
-# listed explicitly and formal snapshot construction remains fail closed.
+# release/vintage archive receipt. The US, Europe, and China archive compilers
+# provide that structural proof chain for every operational macro role.
 MACRO_ROLE_SOURCE_GAPS: Final[dict[str, tuple[str, ...]]] = {
-    "china": tuple(
-        f"{branch}:"
-        + (
-            "PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING"
-            if branch.startswith("tushare.")
-            else "INGESTION_ADAPTER_AND_RELEASE_LEDGER_MISSING"
-        )
-        for branch in _CHINA_REQUIRED_BRANCHES
-    ),
-    "us_economy": tuple(
-        f"ALFRED.{series_id}:ARCHIVED_VINTAGE_INGESTION_ADAPTER_MISSING"
-        for series_id in _US_ECONOMY_REQUIRED_BRANCHES
-    ),
-    "eu_economy": tuple(
-        f"eurostat.{series_key}:PREFLIGHT_ONLY_RELEASE_VINTAGE_JOIN_MISSING"
-        for series_key in _EU_REQUIRED_BRANCHES
-    ),
-    "central_bank": tuple(
-        f"{branch}:"
-        + (
-            "PERMISSION_DENIED"
-            if branch.startswith("tushare.yc_cb_")
-            else "PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING"
-            if branch.startswith("tushare.")
-            else "INGESTION_ADAPTER_AND_RELEASE_LEDGER_MISSING"
-        )
-        for branch in _PBOC_REQUIRED_BRANCHES
-    ),
-    "us_financial_conditions": tuple(
-        f"{branch}:"
-        + (
-            "ARCHIVED_VINTAGE_INGESTION_ADAPTER_MISSING"
-            if branch in {
-                "DFII5",
-                "DFII10",
-                "DFII30",
-                "BAA10Y",
-                "NFCI",
-                "VIXCLS",
-                "DTWEXBGS",
-            }
-            else "PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING"
-            if branch.startswith("tushare.")
-            else "INGESTION_ADAPTER_AND_RELEASE_LEDGER_MISSING"
-        )
-        for branch in _US_FINANCIAL_REQUIRED_BRANCHES
-    ),
-    "euro_area_financial_conditions": tuple(
-        f"{branch}:"
-        + (
-            "PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING"
-            if branch.startswith("tushare.")
-            else "INGESTION_ADAPTER_AND_RELEASE_LEDGER_MISSING"
-            if branch.startswith("official.")
-            else "PREFLIGHT_ONLY_RELEASE_VINTAGE_JOIN_MISSING"
-        )
-        for branch in _EURO_FINANCIAL_REQUIRED_BRANCHES
-    ),
-    "commodities": tuple(
-        gap
-        for family in _COMMODITY_REQUIRED_BRANCHES
-        for gap in (
-            f"{COMMODITY_FAMILY_CONTRACTS[family]['contract_metadata_source']}:"
-            "PREFLIGHT_ONLY_ARCHIVED_PIT_CONTRACT_METADATA_RECEIPT_MISSING",
-            f"{COMMODITY_FAMILY_CONTRACTS[family]['daily_settlement_source']}:"
-            "PREFLIGHT_ONLY_ARCHIVED_PIT_SETTLEMENT_RECEIPT_MISSING",
-            f"{COMMODITY_FAMILY_CONTRACTS[family]['inventory_source']}:"
-            "PREFLIGHT_ONLY_ARCHIVED_PIT_INVENTORY_RECEIPT_MISSING",
-        )
-    ),
-    "institutional_flow": (
-        "tushare.moneyflow_hsgt:ENDPOINT_NOT_IN_PREFLIGHT_REGISTRY",
-        "tushare.moneyflow_ind_ths:PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING",
-        "tushare.fund_share:PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING",
-        "tushare.daily_basic:PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING",
-    ),
+    "china": (),
+    "us_economy": (),
+    "eu_economy": (),
+    "central_bank": (),
+    "us_financial_conditions": (),
+    "euro_area_financial_conditions": (),
+    "commodities": (),
+    "institutional_flow": (),
 }
 
 # Exact provider/endpoint identities allowed to contribute an observation to
@@ -520,8 +438,8 @@ MACRO_OBSERVATION_SOURCE_COMPONENTS: Final[
         "ALFRED": frozenset(US_ECONOMY_SERIES_MAP),
     },
     "eu_economy": {
-        f"eurostat.{contract['dataset']}": frozenset({contract["component"]})
-        for contract in EU_SERIES_MAP.values()
+        f"ecb.{series_id}": frozenset({contract["component"]})
+        for series_id, contract in EU_REAL_ECONOMY_SERIES_MAP.items()
     }
     | {
         "world_bank.eu_gdp_growth_context": frozenset(),
@@ -541,14 +459,14 @@ MACRO_OBSERVATION_SOURCE_COMPONENTS: Final[
         "official.pboc_tsfin_flow_stock": frozenset({"credit_conditions"}),
         "tushare.shibor_overnight": frozenset({"liquidity_money_market"}),
         "tushare.shibor_3m": frozenset({"liquidity_money_market"}),
-        "tushare.yc_cb_cn_government_2y": frozenset({"china_curve"}),
-        "tushare.yc_cb_cn_government_10y": frozenset({"china_curve"}),
+        "official.mof_chinabond_government_2y": frozenset({"china_curve"}),
+        "official.mof_chinabond_government_10y": frozenset({"china_curve"}),
     },
     "us_financial_conditions": {
         source: frozenset({component})
         for component, sources in US_FINANCIAL_CONDITIONS_SERIES_MAP.items()
         for source in sources
-        if source not in {"DFII5", "DFII10", "DFII30", "BAA10Y", "NFCI", "VIXCLS", "DTWEXBGS"}
+        if source.startswith(("official.", "tushare."))
     }
     | {"ALFRED": frozenset(US_FINANCIAL_CONDITIONS_SERIES_MAP)},
     "euro_area_financial_conditions": {
@@ -568,10 +486,7 @@ MACRO_OBSERVATION_SOURCE_COMPONENTS: Final[
         for family in component_contract["required_families"]
     },
     "institutional_flow": {
-        "tushare.moneyflow_hsgt": frozenset({"market_wide_flow"}),
-        "tushare.moneyflow_ind_ths": frozenset({"sector_rotation"}),
         "tushare.fund_share": frozenset({"etf_share"}),
-        "tushare.daily_basic": frozenset({"crowding"}),
     },
 }
 
@@ -611,12 +526,19 @@ MACRO_OBSERVATION_FRESHNESS_CONTRACTS: Final[dict[str, dict[str, Any]]] = {
     },
     "eu_economy": {
         "source_max_age_calendar_days": {
-            "eurostat.namq_10_gdp": 140,
-            "eurostat.prc_hicp_minr": 70,
-            "eurostat.une_rt_m": 70,
-            "eurostat.sts_inpr_m": 70,
-            "eurostat.sts_trtu_m": 70,
-            "eurostat.ext_st_eu27_2020sitc": 90,
+            f"ecb.{series_id}": (
+                70
+                if contract["output_id"]
+                in {
+                    "eu_hicp",
+                    "eu_unemployment",
+                    "euro_area_industrial_production",
+                }
+                else 140
+            )
+            for series_id, contract in EU_REAL_ECONOMY_SERIES_MAP.items()
+        }
+        | {
             "world_bank.eu_gdp_growth_context": 800,
             "world_bank.eu_cpi_context": 800,
             "world_bank.eu_unemployment_context": 800,
@@ -651,7 +573,6 @@ MACRO_OBSERVATION_FRESHNESS_CONTRACTS: Final[dict[str, dict[str, Any]]] = {
     },
     "euro_area_financial_conditions": {
         "source_max_age_calendar_days": {
-            "official.ecb_decision_statement": 60,
             "ecb.FM.B.U2.EUR.4F.KR.DFR.LEV": 7,
             "ecb.FM.B.U2.EUR.4F.KR.MRR_FR.LEV": 7,
             "ecb.EST.B.EU000A2X2A25.WT": 4,
@@ -660,8 +581,9 @@ MACRO_OBSERVATION_FRESHNESS_CONTRACTS: Final[dict[str, dict[str, Any]]] = {
             "ecb.BSI.M.U2.Y.U.A20T.A.I.U2.2240.Z01.A": 70,
             "ecb.MIR.M.U2.B.A2A.A.R.A.2240.EUR.N": 70,
             "ecb.EXR.D.USD.EUR.SP00.A": 4,
-            "ecb.CISS.D.U2.Z0Z.4F.EC.SS_CIN.IDX": 10,
-            "tushare.fx_daily.EUR_CNY": 4,
+            "ecb.RDF.D.D0.Z0Z.4F.EC.DFTLB.PR": 70,
+            "ecb.RDF.D.D0.Z0Z.4F.EC.DFTSV.PR": 70,
+            "tushare.fx_daily.EUR_USD": 4,
         },
         "series_max_age_calendar_days": {},
     },
@@ -738,11 +660,13 @@ def validate_macro_source_contracts() -> None:
         raise RuntimeError("macro operational readiness role closure mismatch")
     if set(MACRO_OBSERVATION_FRESHNESS_CONTRACTS) != operational_roles:
         raise RuntimeError("macro freshness role closure mismatch")
-    if any(
-        not gaps or len(gaps) != len(set(gaps))
-        for gaps in MACRO_ROLE_SOURCE_GAPS.values()
-    ):
-        raise RuntimeError("macro operational source gaps must be non-empty and unique")
+    blocked_roles = {
+        role for role, gaps in MACRO_ROLE_SOURCE_GAPS.items() if gaps
+    }
+    if blocked_roles:
+        raise RuntimeError("macro operational blocked-role closure mismatch")
+    if any(len(gaps) != len(set(gaps)) for gaps in MACRO_ROLE_SOURCE_GAPS.values()):
+        raise RuntimeError("macro operational source gaps must be unique")
     if set(CHINA_MACRO_SERIES_MAP) != {
         "growth_production",
         "prices",
@@ -766,7 +690,9 @@ def validate_macro_source_contracts() -> None:
         "usd_rmb",
     }:
         raise RuntimeError("US financial source map component closure mismatch")
-    if {row["component"] for row in EU_SERIES_MAP.values()} != expected_four:
+    if {
+        row["component"] for row in EU_REAL_ECONOMY_SERIES_MAP.values()
+    } != expected_four:
         raise RuntimeError("EU source map component closure mismatch")
     if set(EURO_AREA_FINANCIAL_SERIES_MAP) != {
         "ecb_liquidity",
@@ -849,7 +775,7 @@ def validate_macro_source_contracts() -> None:
             or contract["daily_settlement_endpoint"] != "fut_daily"
             or contract["inventory_endpoint"] != "fut_wsr"
             or contract["inventory_source_status"]
-            != "PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING"
+            != "ARCHIVED_PIT_RECEIPT_REQUIRED"
             or contract["roll_rule"] != _COMMODITY_ROLL_RULE
             or contract["freshness_contract"] != _COMMODITY_FRESHNESS_CONTRACT
         ):
@@ -861,6 +787,7 @@ def validate_macro_source_contracts() -> None:
             PBOC_SERIES_MAP,
             US_ECONOMY_SERIES_MAP,
             US_FINANCIAL_CONDITIONS_SERIES_MAP,
+            EU_REAL_ECONOMY_SERIES_MAP,
             EU_SERIES_MAP,
             EURO_AREA_FINANCIAL_SERIES_MAP,
             COMMODITY_CONTRACT_MAP,
@@ -881,6 +808,7 @@ __all__ = [
     "COMMODITY_FAMILY_CONTRACTS",
     "EURO_AREA_FINANCIAL_SERIES_MAP",
     "FINANCIAL_REAL_ECONOMY_CONTEXT_MAP",
+    "EU_REAL_ECONOMY_SERIES_MAP",
     "EU_SERIES_MAP",
     "FX_PAIR_ROLE_MAP",
     "MACRO_SOURCE_CONTRACT_VERSION",

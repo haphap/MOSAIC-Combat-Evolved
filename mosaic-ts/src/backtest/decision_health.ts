@@ -26,7 +26,7 @@ export function evaluateHistoricalDecisionHealth(
 ): HistoricalDecisionHealth {
   const upstreamTickers = new Set<string>();
   for (const output of Object.values(state.layer2_outputs)) {
-    if (output.agent === "relationship_mapper") continue;
+    if (!("long_picks" in output)) continue;
     for (const pick of [...output.long_picks, ...output.short_or_avoid_picks]) {
       upstreamTickers.add(pick.ts_code);
     }
@@ -63,10 +63,10 @@ export function evaluateHistoricalDecisionHealth(
   const allStagesAccepted =
     rejectedAudits.length === 0 &&
     (state.darwinian_runtime_binding === null
-      ? (audits.length === 29 &&
-          new Set(audits.map((audit) => `${audit.agent}:${audit.stage}`)).size === 29) ||
-        (resolvedStages.size === 29 && sameSet(resolvedStages, requiredStageKeys()))
-      : resolvedStages.size === 29 && sameSet(resolvedStages, requiredStageKeys()));
+      ? (audits.length === 26 &&
+          new Set(audits.map((audit) => `${audit.agent}:${audit.stage}`)).size === 26) ||
+        (resolvedStages.size === 26 && sameSet(resolvedStages, requiredStageKeys()))
+      : resolvedStages.size === 26 && sameSet(resolvedStages, requiredStageKeys()));
   const explicitAcceptedAllCash =
     state.layer4_outputs.cio?.decision_disposition === "ALL_CASH" &&
     audits.some(
@@ -139,9 +139,7 @@ function resolvedStageKeys(
 function requiredStageKeys(): Set<string> {
   return new Set([
     ...AGENTS_BY_LAYER.macro.map((agentId) => `${agentId}:agent_run`),
-    ...AGENTS_BY_LAYER.sector.map((agentId) =>
-      agentId === "relationship_mapper" ? `${agentId}:agent_run` : `${agentId}:final_selection`,
-    ),
+    ...AGENTS_BY_LAYER.sector.map((agentId) => `${agentId}:final_selection`),
     ...AGENTS_BY_LAYER.superinvestor.map((agentId) => `${agentId}:agent_run`),
     "alpha_discovery:alpha_discovery",
     "cio:cio_proposal",
@@ -165,7 +163,7 @@ export function assertAcceptedDailyCycle(state: DailyCycleStateType): Historical
             const status = call.agent_run_audit?.status;
             return status === "accepted" || status === "accepted_empty";
           }).length
-        }/29`,
+        }/26`,
     );
   }
   return health;

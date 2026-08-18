@@ -30,6 +30,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import scripts.build_structured_smoke_fixtures as structured_smoke_fixtures
+from mosaic.scorecard.canonical_json import canonical_hash
 from scripts.build_structured_smoke_fixtures import build_structured_smoke_fixtures
 
 
@@ -78,11 +80,104 @@ _SHARED_FIXTURE_TMP: tempfile.TemporaryDirectory[str] | None = None
 _SHARED_FIXTURE_BINDINGS: dict[str, str] = {}
 
 
+def _write_eligibility_artifact(root: Path, as_of: str) -> Path:
+    api_date = as_of.replace("-", "")
+    fetched_at = f"{as_of}T12:00:00Z"
+    codes = sorted(structured_smoke_fixtures._approved_etf_authority())
+
+    def record(
+        endpoint: str,
+        params: dict[str, str],
+        row: dict[str, object],
+        identity: str,
+    ) -> dict[str, object]:
+        body = {
+            "evidence_id": f"bridge-test:{endpoint}:{identity}",
+            "query": {"endpoint": endpoint, "params": params},
+            "fetched_at": fetched_at,
+            "row": row,
+            "content_hash": canonical_hash(row),
+        }
+        return {**body, "record_hash": canonical_hash(body)}
+
+    body = {
+        "schema_version": structured_smoke_fixtures.ELIGIBILITY_ARTIFACT_SCHEMA_VERSION,
+        "as_of_date": as_of,
+        "codes": codes,
+        "fund_basic": [
+            record(
+                "fund_basic",
+                {
+                    "ts_code": code,
+                    "market": "E",
+                    "fields": structured_smoke_fixtures.FUND_BASIC_FIELDS,
+                },
+                {
+                    "ts_code": code,
+                    "name": f"ETF {code}",
+                    "fund_type": "股票型",
+                    "list_date": "2020-01-01",
+                    "delist_date": None,
+                },
+                code,
+            )
+            for code in codes
+        ],
+        "fund_daily": [
+            record(
+                "fund_daily",
+                {
+                    "ts_code": code,
+                    "trade_date": api_date,
+                    "fields": structured_smoke_fixtures.FUND_DAILY_FIELDS,
+                },
+                {
+                    "ts_code": code,
+                    "trade_date": api_date,
+                    "vol": 1000,
+                    "amount": 100000,
+                },
+                code,
+            )
+            for code in codes
+        ],
+        "trade_cal": [
+            record(
+                "trade_cal",
+                {
+                    "exchange": exchange,
+                    "start_date": api_date,
+                    "end_date": api_date,
+                    "fields": structured_smoke_fixtures.TRADE_CAL_FIELDS,
+                },
+                {"exchange": exchange, "cal_date": api_date, "is_open": 1},
+                exchange,
+            )
+            for exchange in ("SSE", "SZSE")
+        ],
+        "provenance": {
+            "collector": "bridge-focused-test",
+            "preflight_registry_version": "test-preflight-v1",
+            "rule": "independent structured-smoke eligibility authority",
+        },
+    }
+    artifact = {**body, "artifact_hash": canonical_hash(body)}
+    path = root / "structured-smoke-etf-eligibility.json"
+    path.write_text(
+        json.dumps(artifact, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def setUpModule() -> None:
     global _SHARED_FIXTURE_TMP, _SHARED_FIXTURE_BINDINGS
     _SHARED_FIXTURE_TMP = tempfile.TemporaryDirectory()
+    root = Path(_SHARED_FIXTURE_TMP.name)
     _SHARED_FIXTURE_BINDINGS = build_structured_smoke_fixtures(
-        Path(_SHARED_FIXTURE_TMP.name) / "cache", "2024-06-30"
+        root / "cache",
+        "2024-06-30",
+        eligibility_artifact_path=_write_eligibility_artifact(root, "2024-06-30"),
     )
 
 

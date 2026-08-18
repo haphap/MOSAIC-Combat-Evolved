@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent route eligibility receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "route_id",
+    "contract_version",
+    "route_manifest_hash",
+    "checker_version",
+    "cycle_run_id",
+    "target_date",
+    "eligible_intervals",
+    "selected_receipt_refs",
+    "freshness",
+    "status",
+    "blockers",
+    "evaluated_at",
+    "receipt_hash"
+  ],
+  "properties": {
+    "schema_version": {"const": "route_eligibility_receipt_v1"},
+    "route_id": {"$ref": "#/$defs/id"},
+    "contract_version": {"$ref": "#/$defs/id"},
+    "route_manifest_hash": {"$ref": "#/$defs/sha256"},
+    "checker_version": {"$ref": "#/$defs/id"},
+    "cycle_run_id": {
+      "oneOf": [
+        {"$ref": "#/$defs/id"},
+        {"type": "null"}
+      ]
+    },
+    "target_date": {"type": "string", "format": "date"},
+    "eligible_intervals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["start", "end"],
+        "properties": {
+          "start": {"type": "string", "format": "date"},
+          "end": {"type": "string", "format": "date"}
+        }
+      }
+    },
+    "selected_receipt_refs": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/sha256"},
+      "uniqueItems": true
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "knowledge_available_at"],
+      "properties": {
+        "status": {"enum": ["FRESH", "STALE", "UNKNOWN"]},
+        "knowledge_available_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        }
+      }
+    },
+    "status": {"enum": ["READY", "BLOCKED"]},
+    "blockers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "MISSING_ARCHIVE",
+          "OUTSIDE_COVERAGE",
+          "STALE",
+          "PERMISSION_DENIED",
+          "TIMEOUT",
+          "SCHEMA_DRIFT",
+          "REVISION_GAP",
+          "LOCAL_RUNTIME_MISSING",
+          "LICENSE_REVIEW_REQUIRED"
+        ]
+      }
+    },
+    "license_receipt_ref": {"$ref": "#/$defs/sha256"},
+    "evaluated_at": {"type": "string", "format": "date-time"},
+    "receipt_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+    },
+    "sha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

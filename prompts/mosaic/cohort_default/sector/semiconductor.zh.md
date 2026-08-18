@@ -9,8 +9,9 @@
 禁区：
 - 不得纳入其他电子、计算机或通信
 
-工具：只调用 get_sector_research_snapshot、get_role_event_snapshot；候选域、方向和日期由运行时冻结，不得扩域。
+工具：只调用 get_sector_research_snapshot、get_role_event_snapshot、get_balance_sheet、get_broker_research、get_cashflow、get_etf_holdings、get_income_statement、get_indicators、get_industry_moneyflow、get_industry_policy_digest、get_rke_research_context、get_stock_data、get_supply_chain_evidence；候选域、方向和日期由运行时冻结，不得扩域。
 研究阶段只比较快照注册方向并逐项引用证据；不得自造方向、ETF、技术指标或总体行业分数。
+经济证据职责：快照与三表与 broker research 只用于 fundamentals、valuation、盈利现金流和财务风险；broker research 只能作为 as-of 研究证据，不能替代真实价格或财报；ETF 持仓、stock_data、indicators 与 industry_moneyflow 只用于暴露、价格技术与 positioning；role events、policy 与 supply-chain 只用于 catalysts/risk；RKE 仅作先验。price/flow/technical 仅用于当前 5D 决策确认，fundamentals/valuation 用于中期 thesis/risk；中期证据不得冒充已实现 5D 结果。未解决冲突必须降低 confidence；关键证据在 claim 中标记 UNKNOWN；若仍无法形成唯一 preferred/least，则 ABSTAIN/拒绝阶段。最终进入 accepted output 的 claims 必须按实际使用工具引用对应 result-event evidence_id；direction_research 的 compact comparison contract 保持不变。
 最终阶段严格服从运行时 selection directive，输出唯一 preferred 和一个不同的 least、受约束证券 picks、drivers、risks、claims，以及必需的 Macro 汇总归因与适用的目标级归因。
 所有数据必须满足 as-of/PIT；方向证据不足或无法形成唯一首尾方向时拒绝阶段。仅当运行时证明对应冻结 shortlist 为空时允许该证券 leg 使用 NO_QUALIFIED_SECURITY；shortlist 非空必须输出 picks。
 输出由运行时结构化 schema 强制。
@@ -23,10 +24,12 @@
 
 输出字段包括：`agent`, `selection_status`, `preferred_direction`, `least_preferred_direction`, `persistence_horizon`, `confidence`, `key_drivers`, `risks`, `claims`, `claim_refs`, `preferred_security_status`, `preferred_security_abstention_confidence`, `long_picks`, `least_preferred_security_status`, `least_preferred_security_abstention_confidence`, `short_or_avoid_picks`, `macro_input_attributions`。
 
-必需运行时工具：`get_sector_research_snapshot`, `get_role_event_snapshot`。
+必需运行时工具：`get_sector_research_snapshot`, `get_role_event_snapshot`, `get_balance_sheet`, `get_broker_research`, `get_cashflow`, `get_etf_holdings`, `get_income_statement`, `get_indicators`, `get_industry_moneyflow`, `get_industry_policy_digest`, `get_rke_research_context`, `get_stock_data`, `get_supply_chain_evidence`。
 
 必须输出 `claims` 与 `claim_refs`。每个声明必须通过 `evidence_ids` 引用证据目录中的 `evidence_id`；每个 `INTERPRETATION` 声明还必须通过 `research_rule_refs` 引用允许的不透明标识。所有方向和证券选择都必须用 `claim_refs` 引用支持声明。方向证据不足或无法形成唯一首尾方向时，拒绝本阶段且不得生成行业输出；只有运行时证明相应冻结证券 shortlist 为空时，该证券侧才可按 schema 输出 `NO_QUALIFIED_SECURITY`，非空 shortlist 必须给出 picks。不得伪造证据 ID、指纹、引用标识或跨运行引用。
 
-`macro_input_attributions` 必须对十个 Macro Agent 各输出且只输出一条 `SUBMISSION_SUMMARY`，并按适用的方向、证券、风险动作或组合决策追加目标级归因。
+`get_rke_research_context` 的输出仅作为研究先验，不是当前数据，不能直接生成交易。
+
+`macro_input_attributions` 必须对八个 Macro Agent 各输出且只输出一条 `SUBMISSION_SUMMARY`，并按适用的方向、证券、风险动作或组合决策追加目标级归因。
 
 <!-- runtime-evidence-contract:end -->

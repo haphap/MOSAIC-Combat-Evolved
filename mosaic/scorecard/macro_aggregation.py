@@ -2,7 +2,7 @@
 
 The v2 runtime deliberately has no Macro factor bundle or stance.  This module
 keeps the historical import location for readers, but production callers may
-only validate and preserve the ten independent accepted transmissions.
+only validate and preserve the eight independent accepted transmissions.
 """
 
 from __future__ import annotations
@@ -19,8 +19,6 @@ MACRO_AGENTS = (
     "us_financial_conditions",
     "euro_area_financial_conditions",
     "commodities",
-    "geopolitical",
-    "market_breadth",
     "institutional_flow",
 )
 TOMBSTONED_MACRO_AGENTS = (
@@ -37,7 +35,7 @@ class MacroAggregationRetiredError(RuntimeError):
 
 
 class MacroTransmissionRejectedError(ValueError):
-    """Raised when the ten-slot accepted transmission set is invalid."""
+    """Raised when the eight-slot accepted transmission set is invalid."""
 
 
 def _validate_signal(agent: str, output: Mapping[str, Any]) -> None:
@@ -63,7 +61,7 @@ def _validate_signal(agent: str, output: Mapping[str, Any]) -> None:
 def validate_macro_transmissions(
     outputs: Mapping[str, Mapping[str, Any]],
 ) -> tuple[Mapping[str, Any], ...]:
-    """Return the exact ten accepted slots in canonical order without aggregation."""
+    """Return the exact eight accepted slots in canonical order without aggregation."""
     if set(outputs) != set(MACRO_AGENTS):
         missing = sorted(set(MACRO_AGENTS) - set(outputs))
         extra = sorted(set(outputs) - set(MACRO_AGENTS))
@@ -84,7 +82,7 @@ def validate_macro_transmissions(
 def aggregate_macro_transmissions(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
     """Hard-stop the retired six-factor/stance API."""
     raise MacroAggregationRetiredError(
-        "Macro aggregation is retired; consume ten accepted transmissions directly"
+        "Macro aggregation is retired; consume eight accepted transmissions directly"
     )
 
 

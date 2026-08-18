@@ -6,12 +6,20 @@ import { join } from "node:path";
 import { Command } from "commander";
 import { describe, expect, it } from "vitest";
 import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
+import {
+  loadCurrentCapabilityBindings,
+  type PromptTrainingProjectionV2,
+} from "../src/autoresearch/capability_preservation_contract.js";
 import { PromptCandidateSchema } from "../src/autoresearch/prompt_optimizer_contract.js";
 import {
   assertPrivateCandidateMatchesRequest,
   buildPrivateCandidateCliArgs,
   buildPrivateCandidateRequest,
+  GateDCandidateBuildRequestSchema,
+  GateDProjectionBuildRequestSchema,
+  GateDReceiptBuildRequestSchema,
   loadFrozenShadowAdapters,
+  type PromptCandidateGenerationRequest,
   PromptCandidateGenerationRequestSchema,
   registerAutoresearch,
   runPrivateCandidateCli,
@@ -70,12 +78,12 @@ async function createFrozenAdapterRepo() {
   };
 }
 
-function request() {
+function request(requestTarget: PromptCandidateGenerationRequest["target"] = target) {
   return {
     parentId: "champion-1",
     parentPromptCommit: COMMIT,
     promptSourceId: "private-prompts",
-    target,
+    target: requestTarget,
     promptRefs: { zh: "macro/china.zh.md", en: "macro/china.en.md" },
     cutoffAt: "2025-01-31T00:00:00Z",
     excludedSampleIds: ["holdout-1", "validation-1"],
@@ -108,6 +116,47 @@ function candidate(mutatorConfigHash = HASH_A, mutatorCommit = COMMIT) {
   });
 }
 
+function trainingProjectionV2(
+  overrides: Partial<Pick<PromptTrainingProjectionV2, "target" | "capabilityUseAggregates">> = {},
+): PromptTrainingProjectionV2 {
+  const bindings = loadCurrentCapabilityBindings().filter(
+    (binding) =>
+      binding.activation_state === "active" &&
+      binding.agent_id === (overrides.target ?? target).agentId,
+  );
+  const rows = bindings.map((binding) => {
+    const body = {
+      schema_version: "knot_capability_use_aggregate_v1" as const,
+      binding_id: binding.binding_id,
+      eligible_count: 0,
+      ready_count: 0,
+      called_count: 0,
+      succeeded_count: 0,
+      used_in_accepted_evidence_count: 0,
+      counterevidence_available_count: 0,
+      counterevidence_handled_count: 0,
+      runtime_blocker_count: 0,
+      excluded_count: 0,
+      gap_counts: {
+        not_called: 0,
+        call_failed: 0,
+        succeeded_not_used: 0,
+        counterevidence_ignored: 0,
+      },
+      model_controllable_gap_count: 0,
+      opaque_failure_refs: [],
+    };
+    return { ...body, aggregate_hash: canonicalJsonHash(body) };
+  });
+  return {
+    schemaVersion: "prompt_training_projection_v2",
+    target: overrides.target ?? target,
+    projectionId: "projection-1",
+    projectionHash: HASH_A,
+    capabilityUseAggregates: overrides.capabilityUseAggregates ?? rows,
+  } as unknown as PromptTrainingProjectionV2;
+}
+
 describe("public to private Candidate request", () => {
   it("does not let the public caller author private mutator identity", () => {
     const parsed = PromptCandidateGenerationRequestSchema.parse(request());
@@ -127,15 +176,72 @@ describe("public to private Candidate request", () => {
 
   it("builds the private request without caller-authored mutator identity", () => {
     const projection = { schemaVersion: "prompt_training_projection_v1" };
+    const projectionV2 = trainingProjectionV2();
 
-    expect(buildPrivateCandidateRequest(request(), projection)).toEqual({
+    const built = buildPrivateCandidateRequest(request(), projection, projectionV2);
+    expect(built).toEqual({
       parentId: "champion-1",
       parentPromptCommit: COMMIT,
       target,
       promptRefs: request().promptRefs,
       trainingProjection: projection,
+      capabilityUseContext: expect.objectContaining({
+        schemaVersion: "prompt_candidate_capability_use_context_v1",
+        sourceProjectionHash: HASH_A,
+        target,
+        contextHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+      }),
       createdAt: "2025-04-01T00:00:00Z",
     });
+    expect(built.capabilityUseContext.capabilityUseAggregates.map((row) => row.binding_id)).toEqual(
+      [...built.capabilityUseContext.capabilityUseAggregates].map((row) => row.binding_id).sort(),
+    );
+  });
+
+  it("keeps CIO proposal and final bindings in one agent context", () => {
+    const cioTarget = { agentId: "cio", stage: "cio_final", cohort: "cohort_default" } as const;
+    const context = buildPrivateCandidateRequest(
+      request(cioTarget),
+      { schemaVersion: "prompt_training_projection_v1" },
+      trainingProjectionV2({ target: cioTarget }),
+    ).capabilityUseContext;
+    const stagesByBindingId = new Map(
+      loadCurrentCapabilityBindings()
+        .filter((binding) => binding.activation_state === "active" && binding.agent_id === "cio")
+        .map((binding) => [binding.binding_id, binding.stage]),
+    );
+    expect(
+      new Set(
+        context.capabilityUseAggregates.map((aggregate) =>
+          stagesByBindingId.get(aggregate.binding_id),
+        ),
+      ),
+    ).toEqual(new Set(["cio_final", "cio_proposal"]));
+  });
+
+  it("rejects incomplete, duplicate, and mismatched capability context", () => {
+    const projection = { schemaVersion: "prompt_training_projection_v1" };
+    const valid = trainingProjectionV2();
+    const first = valid.capabilityUseAggregates[0];
+    if (!first) throw new Error("capability aggregate fixture is empty");
+    expect(() =>
+      buildPrivateCandidateRequest(request(), projection, {
+        ...valid,
+        capabilityUseAggregates: valid.capabilityUseAggregates.slice(1),
+      }),
+    ).toThrow(/aggregate closure mismatch/);
+    expect(() =>
+      buildPrivateCandidateRequest(request(), projection, {
+        ...valid,
+        capabilityUseAggregates: [...valid.capabilityUseAggregates, first],
+      }),
+    ).toThrow(/aggregate closure mismatch/);
+    expect(() =>
+      buildPrivateCandidateRequest(request(), projection, {
+        ...valid,
+        target: { ...target, agentId: "us_economy" },
+      }),
+    ).toThrow(/target mismatch/);
   });
 
   it("does not expose private CLI stderr through the public error", async () => {
@@ -300,5 +406,32 @@ describe("public to private Candidate request", () => {
       true,
     );
     expect(shadow?.options.some((option) => option.long === "--adapter")).toBe(false);
+  });
+
+  it("registers strict public-safe Gate-D evidence builders", () => {
+    const program = new Command().exitOverride();
+    registerAutoresearch(program);
+    const autoresearch = program.commands.find((command) => command.name() === "autoresearch");
+    for (const name of [
+      "build-gate-d-projection",
+      "build-gate-d-candidate",
+      "build-gate-d-receipt",
+    ]) {
+      const command = autoresearch?.commands.find((entry) => entry.name() === name);
+      expect(command).toBeDefined();
+      expect(command?.options.find((option) => option.long === "--request")?.mandatory).toBe(true);
+      expect(command?.options.find((option) => option.long === "--out")?.mandatory).toBe(true);
+    }
+    expect(
+      GateDProjectionBuildRequestSchema.safeParse({
+        agent_id: "china",
+        stage: "agent_run",
+        cohort: "cohort_default",
+        cutoff_at: "2026-08-01T00:00:00+08:00",
+        unexpected: true,
+      }).success,
+    ).toBe(false);
+    expect(GateDCandidateBuildRequestSchema.safeParse({}).success).toBe(false);
+    expect(GateDReceiptBuildRequestSchema.safeParse({}).success).toBe(false);
   });
 });

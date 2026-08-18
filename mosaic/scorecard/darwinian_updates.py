@@ -64,8 +64,6 @@ LIVE_SOURCE_TOOL_BY_AGENT = {
         "get_euro_area_financial_conditions_snapshot"
     ),
     "commodities": "get_commodity_conditions_snapshot",
-    "geopolitical": "get_geopolitical_events_snapshot",
-    "market_breadth": "get_market_breadth_snapshot",
     "institutional_flow": "get_market_positioning_snapshot",
     "semiconductor": "get_sector_research_snapshot",
     "technology": "get_sector_research_snapshot",
@@ -3010,7 +3008,7 @@ def refresh_evaluation_windows(
     cutoff_at: str,
     trading_dates: Sequence[str],
 ) -> list[dict[str, Any]]:
-    """Refresh all 28 evaluation windows without creating Decision weights."""
+    """Refresh all 25 evaluation windows without creating Decision weights."""
     revision_row = conn.execute(
         "SELECT record_json FROM darwinian_v2_production_variant_roster_revisions "
         "WHERE production_variant_roster_revision_id = ? AND readiness = 'READY'",

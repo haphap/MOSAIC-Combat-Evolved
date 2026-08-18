@@ -101,7 +101,7 @@ def tools_call(params: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(args, dict):
         raise RpcError(INVALID_PARAMS, "'args' must be an object")
     try:
-        return {"text": get_capability_store().call_tool(capability, name, args)}
+        return get_capability_store().call_tool_result(capability, name, args)
     except ValueError as exc:
         message = str(exc)
         code = METHOD_NOT_FOUND if "not allowed by this capability" in message else INVALID_PARAMS

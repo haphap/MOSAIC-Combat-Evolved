@@ -18,7 +18,6 @@ import { AGENTS_BY_LAYER, ALL_AGENTS, LAYER_BY_AGENT } from "../src/agents/promp
 
 function acceptedKind(agent: string): AcceptedOutputKind {
   if (AGENTS_BY_LAYER.macro.includes(agent as never)) return "MACRO_TRANSMISSION";
-  if (agent === "relationship_mapper") return "RELATIONSHIP_GRAPH";
   if (AGENTS_BY_LAYER.sector.includes(agent as never)) return "STANDARD_SECTOR_SELECTION";
   if (AGENTS_BY_LAYER.superinvestor.includes(agent as never)) return "SUPERINVESTOR_SELECTION";
   if (agent === "cro") return "CRO_RISK_REVIEW";
@@ -48,30 +47,20 @@ function stateFixture() {
   const layer2_outputs = Object.fromEntries(
     AGENTS_BY_LAYER.sector.map((agent) => [
       agent,
-      agent === "relationship_mapper"
-        ? {
-            agent,
-            predictive_graph_status: "EDGES_PRESENT",
-            factual_edges: [{}],
-            predictive_edges: [{}, {}],
-            key_drivers: [{ summary: "供应链关系" }],
-            risks: [{ summary: "映射失效" }],
-            claims: [{ statement: "关系证据" }],
-          }
-        : {
-            agent,
-            preferred_direction: { direction_id: `${agent}_preferred` },
-            least_preferred_direction: { direction_id: `${agent}_avoid` },
-            persistence_horizon: "MONTHS",
-            confidence: 0.75,
-            key_drivers: [{ summary: "盈利趋势" }],
-            risks: [{ summary: "估值风险" }],
-            long_picks: [
-              { ts_code: "600000.SH", position_action: "LONG", conviction: 0.7, thesis: "龙头" },
-            ],
-            short_or_avoid_picks: [],
-            claims: [{ statement: "行业证据" }],
-          },
+      {
+        agent,
+        preferred_direction: { direction_id: `${agent}_preferred` },
+        least_preferred_direction: { direction_id: `${agent}_avoid` },
+        persistence_horizon: "MONTHS",
+        confidence: 0.75,
+        key_drivers: [{ summary: "盈利趋势" }],
+        risks: [{ summary: "估值风险" }],
+        long_picks: [
+          { ts_code: "600000.SH", position_action: "LONG", conviction: 0.7, thesis: "龙头" },
+        ],
+        short_or_avoid_picks: [],
+        claims: [{ statement: "行业证据" }],
+      },
     ]),
   );
   const layer3_outputs = Object.fromEntries(
@@ -174,50 +163,6 @@ function acceptedPayloadForFixture(
       key_drivers: raw.key_drivers,
       claims: raw.claims,
       claim_refs: [],
-    };
-  }
-  if (kind === "RELATIONSHIP_GRAPH") {
-    return {
-      relationship_agent_id: "relationship_mapper",
-      ...behavior,
-      opportunity_set_id: "relationship-opportunities-1",
-      opportunity_set_hash: `sha256:${"1".repeat(64)}`,
-      factual_edges: [
-        {
-          edge_id: "factual-edge-1",
-          edge_hash: `sha256:${"2".repeat(64)}`,
-          source_entity: "原油",
-          target_entity: "化工",
-          edge_type: "SUPPLY_CHAIN",
-          claim_refs: [],
-        },
-      ],
-      predictive_edges: [
-        {
-          edge_id: "predictive-edge-1",
-          edge_hash: `sha256:${"3".repeat(64)}`,
-          edge_candidate_id: "candidate-1",
-          source_entity: "原油",
-          target_entity: "化工",
-          edge_type: "INPUT_COST",
-          transmission_direction: "NEGATIVE",
-          activation_trigger: "油价突破阈值",
-          evaluation_horizon_trading_days: 20,
-          model_confidence: 0.7,
-          calibrated_confidence: 0.65,
-          calibration_state_id: "calibration-1",
-          calibration_state_effective_at: state.outcome_schedule_plan.as_of,
-          claim_refs: [],
-        },
-      ],
-      predictive_graph_status: "EDGES_PRESENT",
-      predictive_graph_abstention_confidence: null,
-      key_drivers: raw.key_drivers,
-      risks: raw.risks,
-      claims: raw.claims,
-      claim_refs: [],
-      accepted_macro_input_attributions: [],
-      directional_confidence: 0.65,
     };
   }
   if (kind === "STANDARD_SECTOR_SELECTION") {
@@ -540,7 +485,7 @@ describe("Agent display narratives", () => {
     }
   });
 
-  it("deterministically renders all 28 Agents from accepted structured outputs", () => {
+  it("deterministically renders all 25 Agents from accepted structured outputs", () => {
     const state = stateFixture();
     const store = bindAcceptedRecords(state);
     clearStateOutputs(state);
@@ -550,16 +495,13 @@ describe("Agent display narratives", () => {
     const second = buildAgentDisplayNarrativeBundle(state as never, store);
 
     expect(first).toEqual(second);
-    expect(first.narrative_count).toBe(28);
+    expect(first.narrative_count).toBe(25);
     expect(first.narratives.map((row) => row.agent_id)).toEqual(ALL_AGENTS);
     expect(first.narratives.every((row) => row.ui_only)).toBe(true);
     expect(first.narratives.every((row) => row.source === "ACCEPTED_OUTPUT")).toBe(true);
     expect(first.narratives.find((row) => row.agent_id === "china")?.narrative_text).toContain(
       "数据改善",
     );
-    expect(
-      first.narratives.find((row) => row.agent_id === "relationship_mapper")?.narrative_text,
-    ).toContain("原油 → 化工");
     expect(first.narratives.find((row) => row.agent_id === "agriculture")?.narrative_text).toMatch(
       /agriculture_preferred.*600000\.SH/s,
     );

@@ -22,6 +22,10 @@ from mosaic.scorecard.outcome_contracts import (
     OUTCOME_REALIZED_METRIC_SCHEMAS,
     OUTCOME_REGISTRY_HASH,
 )
+from mosaic.dataflows.runtime_paths import (
+    agent_cache_root,
+    isolated_agent_runtime_path,
+)
 
 
 EVENT_COVERAGE_SCHEMA_VERSION = "verified_event_coverage_snapshot_v2"
@@ -143,11 +147,13 @@ _FORBIDDEN_REALIZED_KEY_FRAGMENTS = (
 
 
 def outcome_runtime_cache_root() -> Path:
+    isolated = isolated_agent_runtime_path("outcome_runtime")
+    if isolated is not None:
+        return isolated
     explicit = os.getenv("MOSAIC_OUTCOME_RUNTIME_DIR")
     if explicit:
         return Path(explicit).expanduser()
-    cache = Path(os.getenv("MOSAIC_CACHE_DIR", "~/.mosaic/cache")).expanduser()
-    return cache / "outcome_runtime"
+    return agent_cache_root() / "outcome_runtime"
 
 
 def _timestamp(value: Any, label: str) -> datetime:

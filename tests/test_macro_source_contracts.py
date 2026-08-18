@@ -10,6 +10,7 @@ from mosaic.dataflows.macro_source_contracts import (
     COMMODITY_CONTRACT_MAP,
     COMMODITY_FAMILY_CONTRACTS,
     EURO_AREA_FINANCIAL_SERIES_MAP,
+    EU_REAL_ECONOMY_SERIES_MAP,
     EU_SERIES_MAP,
     FINANCIAL_REAL_ECONOMY_CONTEXT_MAP,
     FX_PAIR_ROLE_MAP,
@@ -70,6 +71,51 @@ def test_source_maps_have_exact_role_component_closure():
         "employment",
         "demand_trade",
     }
+    assert PBOC_SERIES_MAP["china_money_market_curve"]["required_branches"] == (
+        "tushare.shibor_overnight",
+        "tushare.shibor_3m",
+        "official.mof_chinabond_government_2y",
+        "official.mof_chinabond_government_10y",
+    )
+
+
+def test_active_europe_contract_uses_only_pit_replayable_ecb_series():
+    assert EU_REAL_ECONOMY_SERIES_MAP == {
+        "HICP.M.B6.N.000000.4D0.ANR": {
+            "component": "prices",
+            "output_id": "eu_hicp",
+        },
+        "LFSI.M.B6.S.UNEHRT.TOTAL0.15_74.T": {
+            "component": "employment",
+            "output_id": "eu_unemployment",
+        },
+        "MNA.Q.N.B6.W1.S1.S1.C.P7._Z._Z._Z.EUR.LR.N": {
+            "component": "demand_trade",
+            "output_id": "eu_imports_goods_services",
+        },
+        "MNA.Q.N.B6.W1.S1.S1.D.P6._Z._Z._Z.EUR.LR.N": {
+            "component": "demand_trade",
+            "output_id": "eu_exports_goods_services",
+        },
+        "MNA.Q.Y.B6.W0.S1M.S1.D.P31._Z._Z._T.EUR.LR.N": {
+            "component": "demand_trade",
+            "output_id": "eu_household_consumption",
+        },
+        "MNA.Q.Y.B6.W2.S1.S1.B.B1GQ._Z._Z._Z.EUR.LR.N": {
+            "component": "growth_production",
+            "output_id": "eu_gdp",
+        },
+        "STBS.M.I10.Y.PROD.NS0020.4D0.N.IX": {
+            "component": "growth_production",
+            "output_id": "euro_area_industrial_production",
+        },
+    }
+    stress = set(EURO_AREA_FINANCIAL_SERIES_MAP["eur_financial_stress"])
+    assert "CISS.D.U2.Z0Z.4F.EC.SS_CIN.IDX" not in stress
+    assert {
+        "RDF.D.D0.Z0Z.4F.EC.DFTLB.PR",
+        "RDF.D.D0.Z0Z.4F.EC.DFTSV.PR",
+    } <= stress
 
 
 def test_us_entity_and_financial_series_are_non_overlapping():
@@ -81,10 +127,49 @@ def test_us_entity_and_financial_series_are_non_overlapping():
     }
     assert entity.isdisjoint(financial)
     assert {"GDPC1", "INDPRO", "PAYEMS", "UNRATE", "BOPGSTB"} <= entity
-    assert {"DFII5", "DFII10", "BAA10Y", "NFCI", "VIXCLS", "DTWEXBGS"} <= (financial)
+    assert {
+        "tushare.us_tycr_nominal_curve",
+        "DFII5",
+        "DFII10",
+        "BAA10Y",
+        "NFCI",
+        "VIXCLS",
+        "DTWEXBGS",
+        "tushare.fx_daily.USD_CNY",
+    } <= financial
 
 
-def test_all_macro_roles_fail_closed_without_operational_pit_proof():
+def test_us_curve_and_usd_cny_use_tushare_first_with_alfred_only_for_gaps():
+    assert US_FINANCIAL_CONDITIONS_SERIES_MAP["us_curve"] == (
+        "tushare.us_tycr_nominal_curve",
+        "DFII5",
+        "DFII10",
+        "DFII30",
+    )
+    assert US_FINANCIAL_CONDITIONS_SERIES_MAP["usd_rmb"] == (
+        "DTWEXBGS",
+        "tushare.fx_daily.USD_CNY",
+    )
+    financial = {
+        series
+        for rows in US_FINANCIAL_CONDITIONS_SERIES_MAP.values()
+        for series in rows
+    }
+    assert {
+        "tushare.us_tycr_nominal_curve",
+        "tushare.fx_daily.USD_CNY",
+    } <= financial
+    assert not {"DGS2", "DGS3MO", "DGS10", "DGS30", "DEXCHUS"} & financial
+    for source in (
+        "tushare.us_tycr_nominal_curve",
+        "tushare.fx_daily.USD_CNY",
+    ):
+        assert macro_observation_max_age_calendar_days(
+            "us_financial_conditions", source=source, series_id=""
+        ) == 4
+
+
+def test_all_implemented_macro_roles_are_released_without_curve_permission_gap():
     assert PBOC_SERIES_MAP["pboc_policy_stance"]["required_branches"] == (
         "official.pboc_mpc_meeting_catalog",
         "official.pboc_monetary_policy_report_catalog",
@@ -117,19 +202,25 @@ def test_all_macro_roles_fail_closed_without_operational_pit_proof():
         "commodities",
         "institutional_flow",
     }
-    for role in MACRO_ROLE_SOURCE_GAPS:
+    implemented_roles = {
+        "china",
+        "us_economy",
+        "eu_economy",
+        "central_bank",
+        "us_financial_conditions",
+        "euro_area_financial_conditions",
+        "commodities",
+        "institutional_flow",
+    }
+    for role in implemented_roles:
+        assert MACRO_ROLE_SOURCE_GAPS[role] == ()
         assert macro_role_source_readiness(role) == {
             "role": role,
-            "production_ready": False,
-            "source_gaps": list(MACRO_ROLE_SOURCE_GAPS[role]),
+            "production_ready": True,
+            "source_gaps": [],
             "implicit_fallback": False,
         }
-        try:
-            assert_macro_role_sources_ready(role)
-        except RuntimeError as exc:
-            assert str(exc).startswith(f"MACRO_ROLE_SOURCE_GAP:{role}:")
-        else:
-            raise AssertionError("required source gap must block production readiness")
+        assert_macro_role_sources_ready(role)
 
     with pytest.raises(ValueError, match="unknown operational macro role"):
         macro_role_source_readiness("not_a_role")
@@ -211,9 +302,6 @@ def test_operational_gaps_match_committed_preflight_evidence():
     assert checks["fut_wsr"]["observed_row_count"] > 0
     assert checks["fut_wsr"]["raw_payload_committed"] is False
     assert checks["yc_cb"]["status"] == "DISABLED_PERMISSION_DENIED"
-    assert "moneyflow_hsgt" not in checks
-
-
 def test_commodity_families_are_closed_and_world_bank_is_context_only():
     assert COMMODITY_CONTRACT_MAP["energy"]["required_families"] == ("SC@INE",)
     assert COMMODITY_CONTRACT_MAP["industrial_metals"]["required_families"] == (
@@ -245,7 +333,7 @@ def test_commodity_families_are_closed_and_world_bank_is_context_only():
         assert contract["inventory_endpoint"] == "fut_wsr"
         assert contract["inventory_source"] == f"tushare.fut_wsr.{family_id}"
         assert contract["inventory_source_status"] == (
-            "PREFLIGHT_ONLY_ARCHIVED_PIT_RECEIPT_MISSING"
+            "ARCHIVED_PIT_RECEIPT_REQUIRED"
         )
         assert contract["roll_rule"] == {
             "rule_id": "first_two_roll_eligible_by_delist_date_v1",

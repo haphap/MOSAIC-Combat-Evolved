@@ -151,11 +151,18 @@ export function upsertRuntimeEvidenceContract(
         "identifiers, or cross-run references.",
     ];
   }
+  if (spec.requiredTools.includes("get_rke_research_context")) {
+    body.push(
+      language === "zh"
+        ? "`get_rke_research_context` 的输出仅作为研究先验，不是当前数据，不能直接生成交易。"
+        : "Treat `get_rke_research_context` output only as a research prior, not current data; it cannot directly create trades.",
+    );
+  }
   if (spec.fieldNames.includes("macro_input_attributions")) {
     body.push(
       language === "zh"
-        ? "`macro_input_attributions` 必须对十个 Macro Agent 各输出且只输出一条 `SUBMISSION_SUMMARY`，并按适用的方向、证券、风险动作或组合决策追加目标级归因。"
-        : "`macro_input_attributions` must include exactly one `SUBMISSION_SUMMARY` row for each of the ten Macro Agents, plus applicable target-level rows for directions, securities, risk actions, or portfolio decisions.",
+        ? "`macro_input_attributions` 必须对八个 Macro Agent 各输出且只输出一条 `SUBMISSION_SUMMARY`，并按适用的方向、证券、风险动作或组合决策追加目标级归因。"
+        : "`macro_input_attributions` must include exactly one `SUBMISSION_SUMMARY` row for each of the eight Macro Agents, plus applicable target-level rows for directions, securities, risk actions, or portfolio decisions.",
     );
   }
   const block = [

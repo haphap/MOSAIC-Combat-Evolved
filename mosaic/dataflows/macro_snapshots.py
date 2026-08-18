@@ -17,15 +17,16 @@ from typing import Any
 from mosaic.dataflows.cross_runtime_json import canonical_hash
 from zoneinfo import ZoneInfo
 
+from .agent_materialization import AgentDataMaterializationLedger
 from .commodity_conditions import validate_commodity_conditions_input
 from .exceptions import DataVendorUnavailable
-from .geopolitical_events import ALL_SOURCE_IDS, build_geopolitical_role_snapshot
 from .macro_source_contracts import (
     MACRO_OBSERVATION_SOURCE_COMPONENTS,
     assert_macro_role_sources_ready,
     macro_observation_max_age_calendar_days,
 )
 from .role_events import build_role_event_snapshot
+from .runtime_paths import agent_cache_root, isolated_agent_runtime_path
 
 MACRO_SNAPSHOT_SCHEMA_VERSION = "macro_role_snapshot_v2"
 
@@ -37,57 +38,103 @@ ROLE_SNAPSHOT_NAMES: dict[str, str] = {
     "us_financial_conditions": "get_us_financial_conditions_snapshot",
     "euro_area_financial_conditions": "get_euro_area_financial_conditions_snapshot",
     "commodities": "get_commodity_conditions_snapshot",
-    "geopolitical": "get_geopolitical_events_snapshot",
     "institutional_flow": "get_market_positioning_snapshot",
 }
 
 # Pre-registered ALFRED/official mappings. A series missing from this table is
 # rejected; it is never silently replaced with a current FRED observation.
 ALFRED_SERIES_MAP: dict[str, dict[str, str]] = {
-    "us_real_gdp": {"series_id": "GDPC1", "source": "ALFRED"},
-    "us_industrial_production": {"series_id": "INDPRO", "source": "ALFRED"},
-    "us_nonfarm_payrolls": {"series_id": "PAYEMS", "source": "ALFRED"},
-    "us_unemployment_rate": {"series_id": "UNRATE", "source": "ALFRED"},
-    "us_cpi": {"series_id": "CPIAUCSL", "source": "ALFRED"},
-    "us_core_cpi": {"series_id": "CPILFESL", "source": "ALFRED"},
-    "us_pce": {"series_id": "PCEPI", "source": "ALFRED"},
-    "us_core_pce": {"series_id": "PCEPILFE", "source": "ALFRED"},
-    "us_retail_sales": {"series_id": "RSAFS", "source": "ALFRED"},
-    "us_trade_balance": {"series_id": "BOPGSTB", "source": "ALFRED"},
+    "us_real_gdp": {
+        "series_id": "GDPC1",
+        "source": "ALFRED",
+        "unit": "Billions of chained 2017 USD",
+    },
+    "us_industrial_production": {
+        "series_id": "INDPRO",
+        "source": "ALFRED",
+        "unit": "Index 2017=100",
+    },
+    "us_nonfarm_payrolls": {
+        "series_id": "PAYEMS",
+        "source": "ALFRED",
+        "unit": "Thousands of persons",
+    },
+    "us_unemployment_rate": {
+        "series_id": "UNRATE",
+        "source": "ALFRED",
+        "unit": "Percent",
+    },
+    "us_cpi": {
+        "series_id": "CPIAUCSL",
+        "source": "ALFRED",
+        "unit": "Index 2017=100",
+    },
+    "us_core_cpi": {
+        "series_id": "CPILFESL",
+        "source": "ALFRED",
+        "unit": "Index 2017=100",
+    },
+    "us_pce": {
+        "series_id": "PCEPI",
+        "source": "ALFRED",
+        "unit": "Index 2017=100",
+    },
+    "us_core_pce": {
+        "series_id": "PCEPILFE",
+        "source": "ALFRED",
+        "unit": "Index 2017=100",
+    },
+    "us_retail_sales": {
+        "series_id": "RSAFS",
+        "source": "ALFRED",
+        "unit": "Millions of USD",
+    },
+    "us_trade_balance": {
+        "series_id": "BOPGSTB",
+        "source": "ALFRED",
+        "unit": "Millions of USD",
+    },
     "us_real_yield_5y": {
         "series_id": "DFII5",
         "source": "ALFRED",
         "role": "us_financial_conditions",
+        "unit": "Percent",
     },
     "us_real_yield_10y": {
         "series_id": "DFII10",
         "source": "ALFRED",
         "role": "us_financial_conditions",
+        "unit": "Percent",
     },
     "us_real_yield_30y": {
         "series_id": "DFII30",
         "source": "ALFRED",
         "role": "us_financial_conditions",
+        "unit": "Percent",
     },
     "us_baa_treasury_spread": {
         "series_id": "BAA10Y",
         "source": "ALFRED",
         "role": "us_financial_conditions",
+        "unit": "Percent",
     },
     "us_financial_conditions_index": {
         "series_id": "NFCI",
         "source": "ALFRED",
         "role": "us_financial_conditions",
+        "unit": "Index",
     },
     "us_vix": {
         "series_id": "VIXCLS",
         "source": "ALFRED",
         "role": "us_financial_conditions",
+        "unit": "Index",
     },
     "us_broad_dollar": {
         "series_id": "DTWEXBGS",
         "source": "ALFRED",
         "role": "us_financial_conditions",
+        "unit": "Index 2006=100",
     },
 }
 
@@ -96,7 +143,6 @@ ALFRED_SERIES_ROLE_MAP: dict[str, str] = {
     for mapping in ALFRED_SERIES_MAP.values()
 }
 
-_EVENT_SOURCES = ALL_SOURCE_IDS
 _PIT_STATUS = "AVAILABLE_AS_OF"
 _A_SHARE_TIMEZONE = ZoneInfo("Asia/Shanghai")
 _A_SHARE_DECISION_CUTOFF = time(15, 0)
@@ -161,7 +207,12 @@ ROLE_SERIES_PREFIXES: dict[str, tuple[str, ...]] = {
         "rsafs",
         "bopgstb",
     ),
-    "eu_economy": ("eu_", "eurostat_", "world_bank_eu_"),
+    "eu_economy": (
+        "eu_",
+        "euro_area_industrial_",
+        "eurostat_",
+        "world_bank_eu_",
+    ),
     "central_bank": (
         "pboc_",
         "cn_policy_",
@@ -189,6 +240,8 @@ ROLE_SERIES_PREFIXES: dict[str, tuple[str, ...]] = {
         "ecb_",
         "euro_area_curve_",
         "euro_area_bank_credit_",
+        "eu_large_bank_simultaneous_default_",
+        "eu_sovereign_simultaneous_default_",
         "eur_",
         "euro_area_financial_stress_",
     ),
@@ -205,12 +258,7 @@ ROLE_SERIES_PREFIXES: dict[str, tuple[str, ...]] = {
         "food_",
     ),
     "institutional_flow": (
-        "market_flow_",
-        "sector_rotation_",
         "etf_share_",
-        "crowding_",
-        "institutional_flow_",
-        "lhb_",
     ),
 }
 
@@ -219,6 +267,7 @@ ROLE_EXACT_SERIES_IDS: dict[str, frozenset[str]] = {
         {
             "DGS1",
             "DGS2",
+            "DGS3MO",
             "DGS5",
             "DGS10",
             "DGS30",
@@ -259,12 +308,21 @@ ROLE_COMPONENT_PREFIXES: dict[str, dict[str, tuple[str, ...]]] = {
         "growth_production": (
             "eu_gdp",
             "eu_industrial",
+            "euro_area_industrial_",
             "eurostat_gdp",
             "eurostat_industrial",
         ),
         "prices": ("eu_hicp", "eurostat_hicp", "eu_price"),
         "employment": ("eu_employment", "eu_unemployment", "eurostat_employment"),
-        "demand_trade": ("eu_retail", "eu_trade", "eurostat_retail", "eurostat_trade"),
+        "demand_trade": (
+            "eu_exports_",
+            "eu_household_",
+            "eu_imports_",
+            "eu_retail",
+            "eu_trade",
+            "eurostat_retail",
+            "eurostat_trade",
+        ),
     },
     "central_bank": {
         "pboc_policy_bias": ("pboc_", "cn_policy_"),
@@ -296,7 +354,12 @@ ROLE_COMPONENT_PREFIXES: dict[str, dict[str, tuple[str, ...]]] = {
         "ecb_liquidity": ("ecb_",),
         "euro_area_curve": ("euro_area_curve_",),
         "bank_credit": ("euro_area_bank_credit_",),
-        "eur_financial_stress": ("eur_", "euro_area_financial_stress_"),
+        "eur_financial_stress": (
+            "eu_large_bank_simultaneous_default_",
+            "eu_sovereign_simultaneous_default_",
+            "eur_",
+            "euro_area_financial_stress_",
+        ),
     },
     "commodities": {
         "energy": ("energy_", "oil_", "commodity_energy"),
@@ -305,10 +368,7 @@ ROLE_COMPONENT_PREFIXES: dict[str, dict[str, tuple[str, ...]]] = {
         "agriculture_food": ("agriculture_", "food_", "commodity_agriculture"),
     },
     "institutional_flow": {
-        "market_wide_flow": ("market_flow_", "institutional_flow_market_"),
-        "sector_rotation": ("sector_rotation_",),
         "etf_share": ("etf_share_",),
-        "crowding": ("crowding_",),
     },
 }
 
@@ -346,7 +406,6 @@ MACRO_EVENT_ROLES = frozenset(
         "us_financial_conditions",
         "euro_area_financial_conditions",
         "commodities",
-        "geopolitical",
     }
 )
 
@@ -407,11 +466,13 @@ def _series_allowed_for_role(role: str, series_id: Any) -> bool:
 
 
 def snapshot_cache_root() -> Path:
+    isolated = isolated_agent_runtime_path("macro_snapshots")
+    if isolated is not None:
+        return isolated
     explicit = os.getenv("MOSAIC_MACRO_SNAPSHOT_DIR")
     if explicit:
         return Path(explicit).expanduser()
-    cache = Path(os.getenv("MOSAIC_CACHE_DIR", "~/.mosaic/cache")).expanduser()
-    return cache / "macro_snapshots"
+    return agent_cache_root() / "macro_snapshots"
 
 
 def _snapshot_candidates(role: str, as_of_date: str, root: Path) -> tuple[Path, ...]:
@@ -421,7 +482,17 @@ def _snapshot_candidates(role: str, as_of_date: str, root: Path) -> tuple[Path, 
     )
 
 
-def _validate_observation(role: str, row: Any, cutoff: datetime) -> dict[str, Any]:
+def _validate_observation(
+    role: str,
+    row: Any,
+    cutoff: datetime,
+    *,
+    knowledge_cutoff: datetime | None = None,
+) -> dict[str, Any]:
+    if knowledge_cutoff is None:
+        knowledge_cutoff = cutoff
+    elif knowledge_cutoff.tzinfo is None:
+        raise DataVendorUnavailable("macro knowledge cutoff must include a timezone")
     if not isinstance(row, dict):
         raise DataVendorUnavailable("macro snapshot observations must be objects")
     if set(row) != _OBSERVATION_FIELDS:
@@ -443,7 +514,7 @@ def _validate_observation(role: str, row: Any, cutoff: datetime) -> dict[str, An
         )
     released_at = _parse_datetime(row["released_at"], "released_at")
     vintage_at = _parse_datetime(row["vintage_at"], "vintage_at")
-    if released_at > cutoff or vintage_at > cutoff:
+    if released_at > knowledge_cutoff or vintage_at > knowledge_cutoff:
         raise DataVendorUnavailable(
             f"future macro observation rejected for {row.get('series_id')}: "
             f"released_at/vintage_at exceeds as_of"
@@ -477,10 +548,6 @@ def _validate_observation(role: str, row: Any, cutoff: datetime) -> dict[str, An
     ):
         raise DataVendorUnavailable("macro observation unit must be non-empty")
     source = str(row.get("source") or "").strip()
-    if source in _EVENT_SOURCES:
-        raise DataVendorUnavailable(
-            "news and policy documents must use the event library"
-        )
     if source == "ALFRED":
         series_id = str(row.get("series_id") or "")
         owner = ALFRED_SERIES_ROLE_MAP.get(series_id)
@@ -573,7 +640,7 @@ def _validate_institutional_flow_coverage(
     raw = payload.get("component_coverage")
     if not isinstance(raw, dict) or set(raw) != set(component_contract):
         raise DataVendorUnavailable(
-            "institutional_flow component_coverage must match the four required components"
+            "institutional_flow component_coverage must match the required component"
         )
     validated: dict[str, dict[str, float | int]] = {}
     for component in component_contract:
@@ -688,7 +755,13 @@ def _build_real_economy_context_projection(
     }
 
 
-def validate_role_snapshot(payload: Any, role: str, as_of_date: str) -> dict[str, Any]:
+def validate_role_snapshot(
+    payload: Any,
+    role: str,
+    as_of_date: str,
+    *,
+    knowledge_cutoff: datetime | None = None,
+) -> dict[str, Any]:
     if role not in ROLE_SNAPSHOT_NAMES:
         raise DataVendorUnavailable(f"unknown macro snapshot role {role!r}")
     if not isinstance(payload, dict):
@@ -722,7 +795,9 @@ def validate_role_snapshot(payload: Any, role: str, as_of_date: str) -> dict[str
         raise DataVendorUnavailable("macro role snapshot role/as_of mismatch")
     cutoff = _as_of_cutoff(as_of_date)
     observations = [
-        _validate_observation(role, row, cutoff)
+        _validate_observation(
+            role, row, cutoff, knowledge_cutoff=knowledge_cutoff
+        )
         for row in payload.get("observations", [])
     ]
     context_projection: dict[str, Any] | None = None
@@ -741,7 +816,10 @@ def validate_role_snapshot(payload: Any, role: str, as_of_date: str) -> dict[str
             )
         context_role = DETERMINISTIC_CONTEXT_SOURCE_ROLES[role]
         context_observations = [
-            _validate_observation(context_role, row, cutoff) for row in raw_context
+            _validate_observation(
+                context_role, row, cutoff, knowledge_cutoff=knowledge_cutoff
+            )
+            for row in raw_context
         ]
         _validate_component_freshness(
             role=context_role,
@@ -758,10 +836,6 @@ def validate_role_snapshot(payload: Any, role: str, as_of_date: str) -> dict[str
     if events:
         raise DataVendorUnavailable(
             "macro role snapshots cannot embed event prose; use the bound event registry projection"
-        )
-    if role == "geopolitical":
-        raise DataVendorUnavailable(
-            "geopolitical must use GeopoliticalEventsSnapshot, not a generic macro snapshot"
         )
     if not observations:
         raise DataVendorUnavailable(f"{role} snapshot has no accepted evidence")
@@ -841,22 +915,53 @@ def validate_role_snapshot(payload: Any, role: str, as_of_date: str) -> dict[str
     return canonical
 
 
-def load_role_snapshot(
-    role: str, as_of_date: str, root: Path | None = None
-) -> dict[str, Any]:
-    if role == "geopolitical":
-        snapshot = build_geopolitical_role_snapshot(as_of_date)
-        role_events = build_role_event_snapshot(role, as_of_date)
-        if role_events["coverage"]["coverage_completeness"] != "COMPLETE":
-            raise DataVendorUnavailable(
-                "geopolitical economic-calendar coverage is incomplete"
+def _assert_ready_build_receipt(
+    role: str,
+    as_of_date: str,
+    payload: dict[str, Any],
+    ledger: AgentDataMaterializationLedger | None,
+) -> tuple[dict[str, Any], dict[str, Any], datetime | None]:
+    receipt_ledger = ledger or AgentDataMaterializationLedger(create=False)
+    candidates = receipt_ledger.ready_snapshot_build_receipts(
+        agent_id=role,
+        stage=role,
+        tool_id=ROLE_SNAPSHOT_NAMES[role],
+        as_of=as_of_date,
+    )
+    if not candidates:
+        raise DataVendorUnavailable(
+            f"MACRO_SNAPSHOT_BUILD_RECEIPT_REQUIRED:{role}:{as_of_date}"
+        )
+    historical_cutoff = _as_of_cutoff(as_of_date)
+    for receipt in candidates:
+        candidate = receipt.as_dict()
+        receipt_cutoff = _parse_datetime(candidate["as_of_cutoff"], "as_of_cutoff")
+        knowledge_cutoff = (
+            receipt_cutoff if receipt_cutoff > historical_cutoff else None
+        )
+        try:
+            snapshot = validate_role_snapshot(
+                payload,
+                role,
+                as_of_date,
+                knowledge_cutoff=knowledge_cutoff,
             )
-        snapshot["role_event_snapshot"] = role_events
-        without_hash = {
-            key: value for key, value in snapshot.items() if key != "snapshot_hash"
-        }
-        snapshot["snapshot_hash"] = canonical_hash(without_hash)
-        return snapshot
+        except DataVendorUnavailable:
+            continue
+        if snapshot["snapshot_hash"] == candidate["output_hash"]:
+            return candidate, snapshot, knowledge_cutoff
+    raise DataVendorUnavailable(
+        f"MACRO_SNAPSHOT_BUILD_RECEIPT_MISMATCH:{role}:{as_of_date}"
+    )
+
+
+def load_role_snapshot(
+    role: str,
+    as_of_date: str,
+    root: Path | None = None,
+    *,
+    ledger: AgentDataMaterializationLedger | None = None,
+) -> dict[str, Any]:
     cache_root = root or snapshot_cache_root()
     path = next(
         (
@@ -890,9 +995,23 @@ def load_role_snapshot(
                 )
         except RuntimeError as exc:
             raise DataVendorUnavailable(str(exc)) from exc
-    snapshot = validate_role_snapshot(payload, role, as_of_date)
+    if synthetic_source_gap_bypass:
+        build_receipt = None
+        knowledge_cutoff = None
+        snapshot = validate_role_snapshot(payload, role, as_of_date)
+    else:
+        build_receipt, snapshot, knowledge_cutoff = _assert_ready_build_receipt(
+            role, as_of_date, payload, ledger
+        )
     if role in MACRO_EVENT_ROLES:
-        role_events = build_role_event_snapshot(role, as_of_date)
+        historical_replay_captured_at = None
+        if knowledge_cutoff is not None:
+            historical_replay_captured_at = str(build_receipt["as_of_cutoff"])
+        role_events = build_role_event_snapshot(
+            role,
+            as_of_date,
+            historical_replay_captured_at=historical_replay_captured_at,
+        )
         if role_events["coverage"]["coverage_completeness"] != "COMPLETE":
             raise DataVendorUnavailable(
                 f"{role} economic-calendar coverage is incomplete"
@@ -924,66 +1043,10 @@ def write_registered_role_snapshot(
     component_coverage: dict[str, Any] | None = None,
     root: Path | None = None,
 ) -> dict[str, Any]:
-    """Validate and atomically persist a production PIT role snapshot.
-
-    This builder accepts only already archived release/vintage observations
-    carrying exact registered source identities.  It never calls a live source,
-    substitutes an adjacent endpoint, or fabricates release metadata.
-    """
-    if role in {"geopolitical", "market_breadth"}:
-        raise DataVendorUnavailable(
-            f"{role} has a dedicated deterministic snapshot builder"
-        )
-    try:
-        assert_macro_role_sources_ready(role)
-        if role in DETERMINISTIC_CONTEXT_SOURCE_ROLES:
-            assert_macro_role_sources_ready(DETERMINISTIC_CONTEXT_SOURCE_ROLES[role])
-    except RuntimeError as exc:
-        raise DataVendorUnavailable(str(exc)) from exc
-    raw: dict[str, Any] = {
-        "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
-        "role": role,
-        "as_of_date": as_of_date,
-        "observations": observations,
-        "events": [],
-    }
-    if component_coverage is not None:
-        raw["component_coverage"] = component_coverage
-    if role == "commodities":
-        if commodity_conditions is None:
-            raise DataVendorUnavailable(
-                "commodities requires deterministic term-structure and inventory inputs"
-            )
-        raw["commodity_conditions"] = commodity_conditions
-    if role in DETERMINISTIC_CONTEXT_SOURCE_ROLES:
-        if context_observations is None:
-            raise DataVendorUnavailable(
-                f"{role} requires deterministic real-economy context observations"
-            )
-        raw["context_observations"] = context_observations
-    canonical = validate_role_snapshot(raw, role, as_of_date)
-    destination_root = root or snapshot_cache_root()
-    destination = destination_root / as_of_date / f"{role}.json"
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    encoded = json.dumps(
-        raw, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    """Reject unbound direct writes until an archive receipt is supplied."""
+    raise DataVendorUnavailable(
+        f"DIRECT_MACRO_SNAPSHOT_WRITE_REQUIRES_ARCHIVE_RECEIPT:{role}"
     )
-    if destination.exists():
-        try:
-            existing = json.loads(destination.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise DataVendorUnavailable(
-                f"existing macro snapshot is unreadable: {destination}"
-            ) from exc
-        if existing != raw:
-            raise DataVendorUnavailable(
-                f"refusing to replace a different frozen macro snapshot: {destination}"
-            )
-        return canonical
-    temporary = destination.with_suffix(".json.tmp")
-    temporary.write_text(encoded, encoding="utf-8")
-    os.replace(temporary, destination)
-    return canonical
 
 
 def mark_legacy_macro_output(payload: dict[str, Any]) -> dict[str, Any]:

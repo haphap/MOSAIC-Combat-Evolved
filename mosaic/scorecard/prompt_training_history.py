@@ -21,7 +21,9 @@ from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
 
 
 PROMPT_TRAINING_PROJECTION_VERSION = "prompt_training_projection_v1"
+PROMPT_TRAINING_PROJECTION_V2_VERSION = "prompt_training_projection_v2"
 PROMPT_ROLE_COMPONENT_EVALUATOR_VERSION = "prompt_role_component_evaluator_v1"
+MATURE_SAMPLE_ELIGIBILITY_VERSION = "mature_sample_eligibility_v1"
 
 _STAGE_BY_AGENT = {
     "cro": "cro_review",
@@ -95,14 +97,7 @@ _ROLE_COMPONENT_SPECS: dict[str, tuple[tuple[int, str, str | None], ...]] = {
         (3, "MACRO_COMPONENT", "agriculture_food"),
         (4, "NORMALIZED_SCORE", None),
     ),
-    "geopolitical": ((5, "NORMALIZED_SCORE", None),),
-    "market_breadth": ((5, "NORMALIZED_SCORE", None),),
     "institutional_flow": ((5, "NORMALIZED_SCORE", None),),
-    "relationship_mapper": (
-        (1, "EDGE_MEAN", "edge_utility_delta"),
-        (2, "EDGE_MEAN", "activation_direction_brier_skill"),
-        (4, "EDGE_MEAN", "path_lift_utility_delta"),
-    ),
     "druckenmiller": ((4, "NORMALIZED_SCORE", None),),
     "munger": ((4, "NORMALIZED_SCORE", None),),
     "burry": ((4, "NORMALIZED_SCORE", None),),
@@ -236,7 +231,7 @@ def prompt_role_component_refs(agent_id: str) -> tuple[str, ...]:
 
 def _validate_role_component_specs() -> None:
     if set(_ROLE_COMPONENT_SPECS) != set(OUTCOME_CONTRACTS):
-        raise ValueError("Prompt role component contract must cover all 28 Agents")
+        raise ValueError("Prompt role component contract must cover all 25 Agents")
     for agent_id, specs in _ROLE_COMPONENT_SPECS.items():
         ordinals = [ordinal for ordinal, _, _ in specs]
         if not specs or len(ordinals) != len(set(ordinals)) or ordinals != sorted(ordinals):
@@ -772,6 +767,9 @@ def _collect_prompt_training_inputs(
         prompt_behavior_version = accepted.get("prompt_behavior_version")
         if not isinstance(prompt_behavior_version, str) or not prompt_behavior_version:
             raise ValueError("Prompt training behavior version is unavailable")
+        roster_revision_id = accepted.get("production_variant_roster_revision_id")
+        if not isinstance(roster_revision_id, str) or not roster_revision_id:
+            raise ValueError("Prompt training production roster revision is unavailable")
         record = {
             "sampleId": sample_id,
             "agentOutputRef": str(accepted["accepted_output_id"]),
@@ -781,6 +779,7 @@ def _collect_prompt_training_inputs(
             "asOf": str(accepted["as_of"]),
             "maturedAt": str(label["matured_at"]),
             "promptBehaviorVersion": prompt_behavior_version,
+            "productionVariantRosterRevisionId": roster_revision_id,
             "normalizedScore": float(normalized_score),
             "rawMetrics": dict(raw_metrics),
             "componentSignals": _component_signals(conn, accepted, agent_id),
@@ -944,9 +943,477 @@ def build_prompt_training_projection(
     return {**without_hash, "projectionHash": canonical_hash(without_hash)}
 
 
+def _required_sha256(value: Any, label: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value.startswith("sha256:")
+        or len(value) != 71
+        or any(character not in "0123456789abcdef" for character in value[7:])
+    ):
+        raise ValueError(f"{label} must be a sha256 hash")
+    return value
+
+
+def _validate_knot_history_partition_v2(
+    partition: Mapping[str, Any],
+    *,
+    selected_accepted_output_hashes: Sequence[str],
+    cutoff_at: str,
+) -> tuple[dict[str, Any], set[str], set[str]]:
+    from mosaic.scorecard.capability_preservation import (
+        load_capability_contract_bundle,
+        validate_capability_contract_bundle,
+        validate_knot_capability_use_aggregate,
+        validate_public_safe_projection,
+    )
+
+    root = Path(__file__).resolve().parents[2]
+    current_tool_manifest = json.loads(
+        (
+            root / "registry/prompt_checks/agent_tool_contract_manifest_v1.json"
+        ).read_text(encoding="utf-8")
+    )
+    bundle = load_capability_contract_bundle(root)
+    validate_capability_contract_bundle(
+        bundle,
+        current_tool_manifest=current_tool_manifest,
+    )
+    expected_fields = {
+        "schema_version",
+        "cutoff_at",
+        "tool_environment_hash",
+        "execution_behavior_release_hash",
+        "capability_bundle_hash",
+        "knot_coverage_manifest_v2_hash",
+        "knot_audit_capability_track_v2_hash",
+        "history_partition_hash",
+        "sample_count",
+        "excluded_sample_count",
+        "materialization_refs",
+        "excluded_sample_refs",
+        "binding_aggregates",
+        "materialization_set_hash",
+        "excluded_sample_set_hash",
+        "binding_aggregate_set_hash",
+        "partition_hash",
+    }
+    if set(partition) != expected_fields:
+        raise ValueError("KNOT history partition fields mismatch")
+    body = {key: value for key, value in partition.items() if key != "partition_hash"}
+    if partition.get("partition_hash") != canonical_hash(body):
+        raise ValueError("KNOT history partition hash mismatch")
+    if (
+        partition.get("schema_version") != "knot_training_history_partition_v2"
+        or partition.get("cutoff_at") != cutoff_at
+    ):
+        raise ValueError("KNOT history partition contract mismatch")
+
+    accepted_track = bundle["accepted_output_capability_track"]
+    audit_track = bundle["knot_audit_capability_track_v2"]
+    coverage = bundle["knot_coverage_manifest_v2"]
+    fixed_point = {
+        "tool_environment_hash": accepted_track["tool_environment_hash"],
+        "execution_behavior_release_hash": audit_track[
+            "execution_behavior_release_hash"
+        ],
+        "capability_bundle_hash": accepted_track["capability_bundle_hash"],
+        "knot_coverage_manifest_v2_hash": coverage["manifest_hash"],
+        "knot_audit_capability_track_v2_hash": audit_track["track_hash"],
+    }
+    if any(partition.get(field) != value for field, value in fixed_point.items()):
+        raise ValueError("KNOT history partition fixed-point mismatch")
+    if partition.get("history_partition_hash") != canonical_hash(fixed_point):
+        raise ValueError("KNOT history fixed-point hash mismatch")
+
+    selected = list(selected_accepted_output_hashes)
+    if (
+        selected != sorted(set(selected))
+        or any(_required_sha256(value, "selected accepted-output hash") != value for value in selected)
+    ):
+        raise ValueError("KNOT history selected accepted-output hashes are invalid")
+    materialization_refs = _object_rows(
+        partition.get("materialization_refs"), "KNOT materialization refs"
+    )
+    excluded_refs = _object_rows(
+        partition.get("excluded_sample_refs"), "KNOT excluded sample refs"
+    )
+    if materialization_refs != sorted(
+        materialization_refs, key=lambda row: str(row.get("accepted_output_hash"))
+    ) or excluded_refs != sorted(
+        excluded_refs, key=lambda row: str(row.get("sample_ref_hash"))
+    ):
+        raise ValueError("KNOT history sample refs are not canonical")
+    materialized_hashes: set[str] = set()
+    for ref in materialization_refs:
+        if set(ref) != {"accepted_output_hash", "materialization_hash"}:
+            raise ValueError("KNOT materialization ref fields mismatch")
+        accepted_hash = _required_sha256(
+            ref.get("accepted_output_hash"), "KNOT materialized accepted-output hash"
+        )
+        _required_sha256(ref.get("materialization_hash"), "KNOT materialization hash")
+        if accepted_hash in materialized_hashes:
+            raise ValueError("KNOT materialization refs are duplicated")
+        materialized_hashes.add(accepted_hash)
+    excluded_hashes: set[str] = set()
+    for ref in excluded_refs:
+        if set(ref) != {"accepted_output_hash", "sample_ref_hash", "reasons"}:
+            raise ValueError("KNOT excluded sample ref fields mismatch")
+        accepted_hash = _required_sha256(
+            ref.get("accepted_output_hash"), "KNOT excluded accepted-output hash"
+        )
+        _required_sha256(ref.get("sample_ref_hash"), "KNOT excluded sample ref hash")
+        reasons = ref.get("reasons")
+        if (
+            not isinstance(reasons, list)
+            or not reasons
+            or reasons != sorted(set(reasons))
+            or any(not isinstance(reason, str) or not reason for reason in reasons)
+        ):
+            raise ValueError("KNOT excluded sample reasons are invalid")
+        if accepted_hash in excluded_hashes:
+            raise ValueError("KNOT excluded sample refs are duplicated")
+        excluded_hashes.add(accepted_hash)
+    if (
+        materialized_hashes & excluded_hashes
+        or materialized_hashes | excluded_hashes != set(selected)
+    ):
+        raise ValueError("KNOT history selected sample closure mismatch")
+    for field, value in (
+        ("sample_count", len(materialization_refs)),
+        ("excluded_sample_count", len(excluded_refs)),
+    ):
+        supplied = partition.get(field)
+        if isinstance(supplied, bool) or supplied != value:
+            raise ValueError(f"KNOT history {field} mismatch")
+    if partition.get("materialization_set_hash") != canonical_hash(
+        materialization_refs
+    ) or partition.get("excluded_sample_set_hash") != canonical_hash(excluded_refs):
+        raise ValueError("KNOT history sample set hash mismatch")
+
+    aggregates = _object_rows(
+        partition.get("binding_aggregates"), "KNOT binding aggregates"
+    )
+    for aggregate in aggregates:
+        validate_knot_capability_use_aggregate(aggregate)
+    expected_binding_ids = [str(row["binding_id"]) for row in coverage["coverage"]]
+    actual_binding_ids = [str(row.get("binding_id")) for row in aggregates]
+    if (
+        expected_binding_ids != sorted(set(expected_binding_ids))
+        or actual_binding_ids != expected_binding_ids
+    ):
+        raise ValueError("KNOT history aggregate binding exact closure mismatch")
+    if partition.get("binding_aggregate_set_hash") != canonical_hash(
+        [row["aggregate_hash"] for row in aggregates]
+    ):
+        raise ValueError("KNOT history aggregate set hash mismatch")
+    validate_public_safe_projection(partition)
+    return bundle, materialized_hashes, excluded_hashes
+
+
+def _collect_maturity_authority_v2(
+    conn: sqlite3.Connection,
+    *,
+    records: Sequence[Mapping[str, Any]],
+    agent_id: str,
+    cohort: str,
+    cutoff_at: str,
+) -> tuple[list[str], list[dict[str, str]], list[dict[str, Any]]]:
+    from mosaic.scorecard.outcome_source_receipts import (
+        load_historical_outcome_source_batch,
+    )
+
+    cutoff = _timestamp(cutoff_at, "cutoff_at")
+    sample_ids: list[str] = []
+    calendar_refs: list[dict[str, str]] = []
+    label_receipt_refs: list[dict[str, Any]] = []
+    for record in records:
+        sample_id = str(record["sampleId"])
+        label_row = conn.execute(
+            "SELECT record_json, outcome_label_hash, scheduled_sample_id, agent_id "
+            "FROM agent_outcome_labels_v2 WHERE outcome_label_id = ?",
+            (record["outcomeLabelRef"],),
+        ).fetchone()
+        if label_row is None:
+            raise ValueError("Prompt v2 outcome label authority is unavailable")
+        label = _hashed_record(label_row[0], "outcome_label_hash", "outcome label")
+        if (
+            label_row[1] != label["outcome_label_hash"]
+            or label_row[2] != sample_id
+            or label_row[3] != agent_id
+            or label.get("outcome_label_hash") != record["outcomeLabelHash"]
+            or label.get("scheduled_sample_id") != sample_id
+            or label.get("agent_id") != agent_id
+            or label.get("matured_at") != record["maturedAt"]
+        ):
+            raise ValueError("Prompt v2 outcome label authority mismatch")
+        observation_id = label.get("realized_outcome_observation_id")
+        observation_row = conn.execute(
+            "SELECT record_json, realized_outcome_observation_hash, "
+            "scheduled_sample_id, agent_id FROM realized_outcome_observations_v2 "
+            "WHERE realized_outcome_observation_id = ?",
+            (observation_id,),
+        ).fetchone()
+        if observation_row is None:
+            raise ValueError("Prompt v2 realized observation authority is unavailable")
+        observation = _hashed_record(
+            observation_row[0],
+            "realized_outcome_observation_hash",
+            "realized outcome observation",
+        )
+        if (
+            observation_row[1] != observation["realized_outcome_observation_hash"]
+            or observation_row[2] != sample_id
+            or observation_row[3] != agent_id
+            or observation.get("realized_outcome_observation_id") != observation_id
+            or observation.get("realized_outcome_observation_hash")
+            != label.get("realized_outcome_observation_hash")
+            or observation.get("scheduled_sample_id") != sample_id
+            or observation.get("agent_id") != agent_id
+            or observation.get("matured_at") != record["maturedAt"]
+            or observation.get("projection_status") != "SCORE"
+        ):
+            raise ValueError("Prompt v2 realized observation authority mismatch")
+        batch = load_historical_outcome_source_batch(
+            conn,
+            scheduled_sample_id=sample_id,
+            accepted_output_id=str(record["agentOutputRef"]),
+            accepted_output_hash=str(record["agentOutputHash"]),
+            agent_id=agent_id,
+            source_batch_id=str(observation.get("source_batch_id")),
+            source_batch_hash=str(observation.get("source_batch_hash")),
+            matured_at=str(record["maturedAt"]),
+            cutoff_at=cutoff_at,
+        )
+        if (
+            observation.get("realized_metrics") != batch.get("realized_metrics")
+            or observation.get("source_evidence_ids") != batch.get("source_evidence_ids")
+        ):
+            raise ValueError("Prompt v2 realized observation source batch mismatch")
+
+        schedule_row = conn.execute(
+            "SELECT s.record_json, p.record_json "
+            "FROM outcome_schedule_slots_v2 s "
+            "JOIN outcome_schedule_plans_v2 p "
+            "ON p.outcome_schedule_plan_id = s.outcome_schedule_plan_id "
+            "WHERE s.scheduled_sample_id = ?",
+            (sample_id,),
+        ).fetchone()
+        if schedule_row is None:
+            raise ValueError("Prompt v2 outcome schedule authority is unavailable")
+        slot = _hashed_record(
+            schedule_row[0], "outcome_schedule_slot_hash", "outcome schedule slot"
+        )
+        plan = _hashed_record(
+            schedule_row[1], "outcome_schedule_plan_hash", "outcome schedule plan"
+        )
+        calendar_hash = _required_sha256(
+            plan.get("trading_calendar_snapshot_hash"),
+            "trading calendar snapshot hash",
+        )
+        if (
+            slot.get("scheduled_sample_id") != sample_id
+            or slot.get("agent_id") != agent_id
+            or slot.get("outcome_schedule_plan_id")
+            != plan.get("outcome_schedule_plan_id")
+            or plan.get("cohort_id") != cohort
+            or _timestamp(plan.get("prepared_at"), "schedule prepared_at") > cutoff
+        ):
+            raise ValueError("Prompt v2 outcome schedule authority mismatch")
+        receipt_refs = batch.get("receipt_refs_by_required_source_id")
+        if not isinstance(receipt_refs, Mapping):
+            raise ValueError("Prompt v2 source receipt authority is unavailable")
+        receipt_hashes = sorted(
+            _required_sha256(ref.get("source_receipt_hash"), "source receipt hash")
+            for ref in receipt_refs.values()
+            if isinstance(ref, Mapping)
+        )
+        if len(receipt_hashes) != len(receipt_refs):
+            raise ValueError("Prompt v2 source receipt authority is invalid")
+        sample_ids.append(sample_id)
+        calendar_refs.append(
+            {
+                "sampleId": sample_id,
+                "tradingCalendarSnapshotHash": calendar_hash,
+            }
+        )
+        label_receipt_refs.append(
+            {
+                "sampleId": sample_id,
+                "acceptedOutputHash": str(record["agentOutputHash"]),
+                "outcomeLabelHash": str(record["outcomeLabelHash"]),
+                "realizedOutcomeObservationHash": str(
+                    observation["realized_outcome_observation_hash"]
+                ),
+                "sourceBatchHash": str(batch["source_batch_hash"]),
+                "sourceReceiptHashes": receipt_hashes,
+            }
+        )
+    if sample_ids != sorted(set(sample_ids)):
+        raise ValueError("Prompt v2 eligible sample IDs are not canonical")
+    return sample_ids, calendar_refs, label_receipt_refs
+
+
+def build_prompt_training_projection_v2(
+    conn: sqlite3.Connection,
+    *,
+    agent_id: str,
+    stage: str,
+    cohort: str,
+    cutoff_at: str,
+    knot_history_store: Any,
+    excluded_sample_ids: Sequence[str] = (),
+) -> dict[str, Any]:
+    """Join trusted outcome maturity with the current server KNOT history partition."""
+    initial = _collect_prompt_training_inputs(
+        conn,
+        agent_id=agent_id,
+        stage=stage,
+        cohort=cohort,
+        cutoff_at=cutoff_at,
+        excluded_sample_ids=excluded_sample_ids,
+    )
+    accepted_hash_to_sample = {
+        str(record["agentOutputHash"]): str(record["sampleId"])
+        for record in initial["records"]
+    }
+    if len(accepted_hash_to_sample) != len(initial["records"]):
+        raise ValueError("Prompt v2 accepted-output history is duplicated")
+    selected_hashes = sorted(accepted_hash_to_sample)
+    partition = knot_history_store.build_knot_history_partition_v2(
+        cutoff_at=cutoff_at,
+        accepted_output_hashes=selected_hashes,
+    )
+    if not isinstance(partition, Mapping):
+        raise ValueError("KNOT history partition must be an object")
+    bundle, materialized_hashes, excluded_hashes = _validate_knot_history_partition_v2(
+        partition,
+        selected_accepted_output_hashes=selected_hashes,
+        cutoff_at=cutoff_at,
+    )
+    final_exclusions = sorted(
+        set(excluded_sample_ids)
+        | {accepted_hash_to_sample[value] for value in excluded_hashes}
+    )
+    final_source = _collect_prompt_training_inputs(
+        conn,
+        agent_id=agent_id,
+        stage=stage,
+        cohort=cohort,
+        cutoff_at=cutoff_at,
+        excluded_sample_ids=final_exclusions,
+    )
+    final_hashes = {str(record["agentOutputHash"]) for record in final_source["records"]}
+    if final_hashes != materialized_hashes:
+        raise ValueError("Prompt v2 outcome and KNOT eligible sample closure mismatch")
+    v1 = build_prompt_training_projection(
+        conn,
+        agent_id=agent_id,
+        stage=stage,
+        cohort=cohort,
+        cutoff_at=cutoff_at,
+        excluded_sample_ids=final_exclusions,
+    )
+    sample_ids, calendar_refs, label_receipt_refs = _collect_maturity_authority_v2(
+        conn,
+        records=final_source["records"],
+        agent_id=agent_id,
+        cohort=cohort,
+        cutoff_at=cutoff_at,
+    )
+    if v1["matureSampleCount"] != len(sample_ids):
+        raise ValueError("Prompt v2 mature sample count mismatch")
+    from mosaic.scorecard.darwinian_v2 import (
+        get_production_variant_roster_revision,
+    )
+
+    roster_revisions = []
+    for revision_id in sorted(
+        {
+            str(record["productionVariantRosterRevisionId"])
+            for record in final_source["records"]
+        }
+    ):
+        revision = get_production_variant_roster_revision(conn, revision_id)
+        if revision is None:
+            raise ValueError("Prompt v2 production roster revision is unavailable")
+        roster_revisions.append(
+            {
+                "revisionId": revision_id,
+                "revisionHash": revision[
+                    "production_variant_roster_revision_hash"
+                ],
+            }
+        )
+    roster_revision_set_hash = canonical_hash(roster_revisions)
+    outcome_contract_hash = canonical_hash(v1["outcomeContract"])
+    horizon_id = str(v1["outcomeContract"]["maturityHorizon"])
+    maturity_contract = {
+        "horizonId": horizon_id,
+        "horizonContractHash": canonical_hash(
+            {
+                "horizonId": horizon_id,
+                "maturityTradingDays": v1["outcomeContract"][
+                    "maturityTradingDays"
+                ],
+                "outcomeContractHash": outcome_contract_hash,
+                "eligibilityEvaluatorVersion": MATURE_SAMPLE_ELIGIBILITY_VERSION,
+            }
+        ),
+        "outcomeContractHash": outcome_contract_hash,
+        "tradingCalendarHash": canonical_hash(calendar_refs),
+        "labelReceiptSetHash": canonical_hash(label_receipt_refs),
+        "eligibilityEvaluatorVersion": MATURE_SAMPLE_ELIGIBILITY_VERSION,
+    }
+    target = v1["target"]
+    projection_identity = {
+        "target": target,
+        "cutoffAt": cutoff_at,
+        "datasetSnapshotHash": v1["datasetSnapshotHash"],
+        "eligibleSampleIdsHash": canonical_hash(sample_ids),
+        "excludedSampleIdsHash": v1["excludedSampleIdsHash"],
+        "knotHistoryPartitionHash": partition["partition_hash"],
+        "productionVariantRosterRevisionSetHash": roster_revision_set_hash,
+        "maturityContract": maturity_contract,
+    }
+    without_hash = {
+        "schemaVersion": PROMPT_TRAINING_PROJECTION_V2_VERSION,
+        "target": target,
+        "projectionId": "projection-"
+        + canonical_hash(projection_identity)[len("sha256:") : len("sha256:") + 24],
+        "datasetSnapshotHash": v1["datasetSnapshotHash"],
+        "eligibleSampleIdsHash": canonical_hash(sample_ids),
+        "excludedSampleIdsHash": v1["excludedSampleIdsHash"],
+        "cutoffAt": cutoff_at,
+        "outcomeContract": v1["outcomeContract"],
+        "evaluator": v1["evaluator"],
+        "capabilityTrack": bundle["accepted_output_capability_track"],
+        "knotAuditCapabilityTrack": bundle["knot_audit_capability_track_v2"],
+        "knotHistoryPartitionHash": partition["partition_hash"],
+        "knotMaterializationSetHash": partition["materialization_set_hash"],
+        "knotExcludedSampleSetHash": partition["excluded_sample_set_hash"],
+        "capabilityUseAggregates": partition["binding_aggregates"],
+        "productionVariantRosterRevisions": roster_revisions,
+        "productionVariantRosterRevisionSetHash": roster_revision_set_hash,
+        "maturityContract": maturity_contract,
+        "matureSampleCount": v1["matureSampleCount"],
+        "scoreSummary": v1["scoreSummary"],
+        "tailFailureCaseRefs": v1["tailFailureCaseRefs"],
+        "failureCategoryCounts": v1["failureCategoryCounts"],
+        "directComponents": v1["directComponents"],
+        "controlledExperiments": v1["controlledExperiments"],
+    }
+    projection = {**without_hash, "projectionHash": canonical_hash(without_hash)}
+    from mosaic.scorecard.capability_preservation import validate_public_safe_projection
+
+    validate_public_safe_projection(projection)
+    return projection
+
+
 __all__ = [
     "PROMPT_TRAINING_PROJECTION_VERSION",
+    "PROMPT_TRAINING_PROJECTION_V2_VERSION",
     "PROMPT_ROLE_COMPONENT_EVALUATOR_VERSION",
     "build_prompt_training_projection",
+    "build_prompt_training_projection_v2",
     "prompt_role_component_refs",
 ]

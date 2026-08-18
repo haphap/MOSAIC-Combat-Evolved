@@ -11,21 +11,21 @@ import {
   validateOutcomeRegistry,
 } from "../src/autoresearch/outcome_registry.js";
 
-describe("28-Agent outcome registry", () => {
+describe("25-Agent outcome registry", () => {
   it("covers every Agent once with a unique label and valid maturity path", () => {
     expect(validateOutcomeRegistry).not.toThrow();
     expect(Object.keys(OUTCOME_LABEL_REGISTRY).sort()).toEqual([...ALL_AGENTS].sort());
     expect(
       new Set(Object.values(OUTCOME_LABEL_REGISTRY).map((row) => row.primary_label_id)).size,
-    ).toBe(28);
+    ).toBe(25);
     expect(outcomeRegistryHash()).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 
-  it("creates 24 usage tracks and four evolution-only Decision tracks", () => {
+  it("creates 21 usage tracks and four evolution-only Decision tracks", () => {
     const rows = Object.values(OUTCOME_LABEL_REGISTRY);
     expect(
       rows.filter((row) => row.darwin_application_mode === "DOWNSTREAM_USAGE_WEIGHT"),
-    ).toHaveLength(24);
+    ).toHaveLength(21);
     expect(
       rows
         .filter((row) => row.darwin_application_mode === "EVOLUTION_ONLY")
@@ -50,8 +50,7 @@ describe("28-Agent outcome registry", () => {
     const macroRows = Object.values(OUTCOME_LABEL_REGISTRY).filter(
       (row) => row.metric_family === "MACRO_TRANSMISSION",
     );
-    expect(new Set(macroRows.map((row) => row.rank_scope)).size).toBe(10);
-    expect(OUTCOME_LABEL_REGISTRY.relationship_mapper?.rank_scope).toBe("sector_relationship");
+    expect(new Set(macroRows.map((row) => row.rank_scope)).size).toBe(8);
     expect(OUTCOME_LABEL_REGISTRY.semiconductor?.rank_scope).toBe("sector_selection");
     expect(OUTCOME_LABEL_REGISTRY.munger?.rank_scope).toBe("superinvestor_selection");
   });
@@ -90,8 +89,6 @@ describe("28-Agent outcome registry", () => {
       }
     }
     expect(OUTCOME_LABEL_REGISTRY.china?.sample_schedule.kind).toBe("EVENT_TRIGGERED");
-    expect(OUTCOME_LABEL_REGISTRY.geopolitical?.sample_schedule.kind).toBe("EVENT_TRIGGERED");
-    expect(OUTCOME_LABEL_REGISTRY.market_breadth?.sample_schedule.kind).toBe("FIXED_NON_OVERLAP");
   });
 
   it("binds every Standard Sector outcome to the active v4 PIT scoring snapshot", () => {
@@ -106,12 +103,12 @@ describe("28-Agent outcome registry", () => {
     }
   });
 
-  it("renders an exact 28/24/4 manifest", () => {
+  it("renders an exact 25/21/4 manifest", () => {
     const manifest = JSON.parse(renderOutcomeContractManifestArtifact());
-    expect(manifest.contract_count).toBe(28);
-    expect(manifest.usage_track_count).toBe(24);
+    expect(manifest.contract_count).toBe(25);
+    expect(manifest.usage_track_count).toBe(21);
     expect(manifest.evolution_only_track_count).toBe(4);
-    expect(manifest.contracts).toHaveLength(28);
+    expect(manifest.contracts).toHaveLength(25);
     expect(manifest.registry_hash).toBe(outcomeRegistryHash());
     expect(manifest.metric_schema_count).toBe(8);
     expect(Object.keys(manifest.metric_schemas).sort()).toEqual(
@@ -200,39 +197,6 @@ describe("28-Agent outcome registry", () => {
     expect(() =>
       parseOutcomeRawMetrics("execution_feasibility_cost_metrics_v2", drifted),
     ).toThrow();
-  });
-
-  it("rejects a relationship empty-graph branch without the full abstention audit", () => {
-    expect(() =>
-      parseOutcomeRawMetrics("relationship_graph_validation_metrics_v2", {
-        predictive_graph_status: "NO_QUALIFIED_PREDICTIVE_EDGE",
-        edge_metrics: [
-          {
-            edge_candidate_id: "edge-1",
-            materiality_weight: 1,
-            realized_edge_state: "NO_ACTIVATION",
-            matched_non_edge_lift: 0,
-            candidate_counterfactual_best_utility: 0,
-            activation_direction_brier_skill: 0,
-            path_lift_utility_delta: 0,
-            missed_edge_regret: 0,
-            edge_utility_delta: 0,
-            submitted: false,
-            submitted_direction: null,
-            submitted_model_confidence: 0,
-          },
-        ],
-        weighted_edge_utility_delta: null,
-        graph_abstention_forecast_probability: null,
-        graph_abstention_warranted_label: null,
-        graph_abstention_forecast_loss: null,
-        graph_abstention_null_loss: null,
-        graph_abstention_best_raw_opportunity_utility: null,
-        graph_abstention_cardinality_adjusted_utility: null,
-        graph_abstention_missed_opportunity_regret: null,
-        combined_utility_delta: 0,
-      }),
-    ).toThrow(/complete abstention metrics/);
   });
 
   it("keeps Standard Sector directional and permits security abstention only for an empty leg", () => {

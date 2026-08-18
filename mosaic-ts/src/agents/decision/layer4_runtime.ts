@@ -25,8 +25,10 @@ import type {
   PreviousTargetState,
 } from "../types.js";
 import {
+  assertCioFinalTargetCompliance,
   assertCioHoldCurrentTargetSet,
   assertExactExecutionResolutionSet,
+  type CioFinalExecutionStatus,
 } from "./decision_semantics.js";
 import type { DeterministicDecisionPolicyRelease } from "./deterministic_policy.js";
 import { validateAutonomousExecutionActions } from "./execution_validator.js";
@@ -124,7 +126,6 @@ function layer4UpstreamOutputsHash(state: DailyCycleStateType): string {
             ([key]) =>
               key.startsWith("MACRO_TRANSMISSION:") ||
               key.startsWith("STANDARD_SECTOR_SELECTION:") ||
-              key.startsWith("RELATIONSHIP_GRAPH:") ||
               key.startsWith("SUPERINVESTOR_SELECTION:"),
           )
           .sort(([left], [right]) => left.localeCompare(right)),
@@ -722,31 +723,73 @@ export function validateFinalTargetEnvelope(state: DailyCycleStateType, output: 
   for (const controlledTarget of intentPlan.controlled_targets) {
     const finalAction = finalByTicker.get(controlledTarget.ts_code);
     const finalWeight = finalAction?.target_weight ?? 0;
-    const finalDelta = finalWeight - controlledTarget.current_weight;
     const adjustment = adjustmentByTicker.get(controlledTarget.ts_code);
-    if (adjustment) {
-      assertFinalTargetHonorsCroAdjustment(
-        finalWeight,
-        controlledTarget.current_weight,
-        adjustment,
+    const executionCheck = executionCheckByTicker.get(controlledTarget.ts_code);
+    if (!executionCheck && Math.abs(controlledTarget.requested_delta_weight) > 1e-9) {
+      throw new Layer4RuntimeContractError(
+        `${controlledTarget.ts_code}: actionable final target lacks frozen execution assessment`,
       );
     }
-    const executionCheck = executionCheckByTicker.get(controlledTarget.ts_code);
-    const executionConstrains = assertFinalTargetHonorsExecutionAssessment({
-      ticker: controlledTarget.ts_code,
-      requestedDelta: controlledTarget.requested_delta_weight,
-      finalDelta,
-      executionCheck,
-    });
-    if (adjustment?.adjustment === "REQUIRE_REVIEW") {
-      const localId = adjustment.action_local_id;
-      if (!localId || croResolutionByLocalId.get(localId)?.resolution !== "COMPLIED") {
+    const executionStatus: CioFinalExecutionStatus = executionCheck
+      ? (executionCheck.status.toUpperCase() as CioFinalExecutionStatus)
+      : "NO_DELTA";
+    const maxExecutableDeltaWeight = executionCheck
+      ? executionCheck.status === "blocked"
+        ? 0
+        : executionCheck.status === "partial"
+          ? (executionCheck.max_executable_delta_weight ?? Number.NaN)
+          : Math.abs(controlledTarget.requested_delta_weight)
+      : 0;
+    let compliance: ReturnType<typeof assertCioFinalTargetCompliance>;
+    try {
+      compliance = assertCioFinalTargetCompliance({
+        context: controlledTarget.ts_code,
+        currentWeight: controlledTarget.current_weight,
+        requestedDeltaWeight: controlledTarget.requested_delta_weight,
+        executionStatus,
+        maxExecutableDeltaWeight,
+        croAction: adjustment?.adjustment ?? "NO_OBJECTION",
+        croMaxTargetWeight:
+          adjustment?.adjustment === "VETO" ? 0 : (adjustment?.max_target_weight ?? null),
+        finalWeight,
+      });
+    } catch (error) {
+      throw new Layer4RuntimeContractError(error instanceof Error ? error.message : String(error));
+    }
+    const croResolution = adjustment?.action_local_id
+      ? croResolutionByLocalId.get(adjustment.action_local_id)
+      : undefined;
+    const executionResolution = executionCheck
+      ? (output.execution_control_resolutions ?? []).find(
+          (item) => item.execution_assessment_local_ref === executionCheck.assessment_local_id,
+        )
+      : undefined;
+    const croResolutionMismatch =
+      adjustment !== undefined &&
+      (compliance.bounds.complianceMode === "STAGED_EXECUTION" ||
+        adjustment.adjustment === "REQUIRE_REVIEW" ||
+        croResolution !== undefined) &&
+      (!adjustment.action_local_id ||
+        !croResolution ||
+        croResolution.resolution !== compliance.croResolution);
+    const executionResolutionMismatch =
+      executionCheck !== undefined &&
+      (!executionResolution || executionResolution.resolution !== compliance.executionResolution);
+    const executionConstrains =
+      maxExecutableDeltaWeight < Math.abs(controlledTarget.requested_delta_weight) - 1e-9;
+    if (Math.abs(finalWeight - controlledTarget.proposal_target_weight) <= 1e-9) {
+      if (croResolutionMismatch) {
         throw new Layer4RuntimeContractError(
-          `${controlledTarget.ts_code}: REQUIRE_REVIEW resolution must be COMPLIED`,
+          adjustment?.adjustment === "REQUIRE_REVIEW"
+            ? `${controlledTarget.ts_code}: REQUIRE_REVIEW resolution must be COMPLIED`
+            : `${controlledTarget.ts_code}: CRO resolution does not match the staged/intersection target`,
         );
       }
-    }
-    if (Math.abs(finalWeight - controlledTarget.proposal_target_weight) <= 1e-9) {
+      if (executionResolutionMismatch) {
+        throw new Layer4RuntimeContractError(
+          `${controlledTarget.ts_code}: execution resolution does not match the staged/intersection target`,
+        );
+      }
       continue;
     }
     const croConstrains = Boolean(adjustment);
@@ -766,6 +809,18 @@ export function validateFinalTargetEnvelope(state: DailyCycleStateType, output: 
     ) {
       throw new Layer4RuntimeContractError(
         `${controlledTarget.ts_code}: execution-adjusted final target lacks frozen execution dissent reference`,
+      );
+    }
+    if (croResolutionMismatch) {
+      throw new Layer4RuntimeContractError(
+        adjustment?.adjustment === "REQUIRE_REVIEW"
+          ? `${controlledTarget.ts_code}: REQUIRE_REVIEW resolution must be COMPLIED`
+          : `${controlledTarget.ts_code}: CRO resolution does not match the staged/intersection target`,
+      );
+    }
+    if (executionResolutionMismatch) {
+      throw new Layer4RuntimeContractError(
+        `${controlledTarget.ts_code}: execution resolution does not match the staged/intersection target`,
       );
     }
   }
@@ -793,54 +848,6 @@ function runtimeCroResolutions(
     byLocalId.set(resolution.cro_action_local_ref, resolution);
   }
   return byLocalId;
-}
-
-function assertFinalTargetHonorsExecutionAssessment(input: {
-  ticker: string;
-  requestedDelta: number;
-  finalDelta: number;
-  executionCheck: NonNullable<AutoExecOutput["execution_checks"]>[number] | undefined;
-}): boolean {
-  const epsilon = 1e-9;
-  if (Math.abs(input.requestedDelta) <= epsilon) {
-    if (Math.abs(input.finalDelta) > epsilon) {
-      throw new Layer4RuntimeContractError(
-        `${input.ticker}: final delta has no frozen execution assessment`,
-      );
-    }
-    return false;
-  }
-  if (!input.executionCheck) {
-    throw new Layer4RuntimeContractError(
-      `${input.ticker}: actionable final target lacks frozen execution assessment`,
-    );
-  }
-  if (
-    Math.abs(input.finalDelta) > epsilon &&
-    Math.sign(input.finalDelta) !== Math.sign(input.requestedDelta)
-  ) {
-    throw new Layer4RuntimeContractError(
-      `${input.ticker}: final target reverses the frozen candidate delta`,
-    );
-  }
-  let executableCap = Math.abs(input.requestedDelta);
-  if (input.executionCheck.status === "blocked") {
-    executableCap = 0;
-  } else if (input.executionCheck.status === "partial") {
-    const suppliedCap = input.executionCheck.max_executable_delta_weight;
-    if (suppliedCap === undefined) {
-      throw new Layer4RuntimeContractError(
-        `${input.ticker}: partial execution assessment lacks an executable cap`,
-      );
-    }
-    executableCap = suppliedCap;
-  }
-  if (Math.abs(input.finalDelta) > executableCap + epsilon) {
-    throw new Layer4RuntimeContractError(
-      `${input.ticker}: final delta exceeds frozen ${input.executionCheck.status} execution cap`,
-    );
-  }
-  return executableCap < Math.abs(input.requestedDelta) - epsilon;
 }
 
 function assertControlSourceBinding(
@@ -1184,30 +1191,6 @@ function validateExecutionOutput(plan: FrozenOrderIntentPlan, output: AutoExecOu
         );
       }
     }
-  }
-}
-
-function assertFinalTargetHonorsCroAdjustment(
-  finalWeight: number,
-  currentWeight: number,
-  adjustment: CroAdjustment,
-): void {
-  if (adjustment.adjustment === "VETO" && finalWeight > 1e-9) {
-    throw new Layer4RuntimeContractError(`${adjustment.ticker}: final target violates CRO VETO`);
-  }
-  if (
-    (adjustment.adjustment === "CAP_WEIGHT" || adjustment.adjustment === "REDUCE_WEIGHT") &&
-    adjustment.max_target_weight !== undefined &&
-    finalWeight > adjustment.max_target_weight + 1e-9
-  ) {
-    throw new Layer4RuntimeContractError(
-      `${adjustment.ticker}: final target exceeds CRO ${adjustment.adjustment} limit`,
-    );
-  }
-  if (adjustment.adjustment === "REQUIRE_REVIEW" && Math.abs(finalWeight - currentWeight) > 1e-9) {
-    throw new Layer4RuntimeContractError(
-      `${adjustment.ticker}: REQUIRE_REVIEW final target must remain at current weight`,
-    );
   }
 }
 

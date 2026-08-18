@@ -1,0 +1,527 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Macro US Preservation Overlay V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "activation_state",
+    "activation_gate",
+    "base_active_agent_tool_manifest_hash",
+    "base_capability_binding_manifest_hash",
+    "base_agent_data_route_manifest_hash",
+    "query_bundle_contract_version",
+    "routes",
+    "bindings",
+    "source_series",
+    "source_priority_contract",
+    "component_weights",
+    "redistribution_closure",
+    "volatility_ownership_contract",
+    "compatibility_decision",
+    "knot_coverage",
+    "significance_fixtures",
+    "manifest_hash"
+  ],
+  "properties": {
+    "schema_version": {"const": "macro_us_preservation_overlay_v1"},
+    "activation_state": {"const": "staged"},
+    "activation_gate": {"const": "PR12_L1_L2_ATOMIC_ACTIVATION"},
+    "base_active_agent_tool_manifest_hash": {"$ref": "#/$defs/hash"},
+    "base_capability_binding_manifest_hash": {"$ref": "#/$defs/hash"},
+    "base_agent_data_route_manifest_hash": {"$ref": "#/$defs/hash"},
+    "query_bundle_contract_version": {"const": "frozen_snapshot_query_v1"},
+    "routes": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {"$ref": "#/$defs/route"}
+    },
+    "bindings": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": {"$ref": "#/$defs/binding"}
+    },
+    "source_series": {
+      "type": "array",
+      "minItems": 25,
+      "maxItems": 25,
+      "items": {"$ref": "#/$defs/source_series"}
+    },
+    "source_priority_contract": {"$ref": "#/$defs/source_priority_contract"},
+    "component_weights": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": {"$ref": "#/$defs/component_weight"}
+    },
+    "redistribution_closure": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {"$ref": "#/$defs/redistribution"}
+    },
+    "volatility_ownership_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "production_macro_owner",
+        "us_implied_volatility_series",
+        "cross_market_stress_series",
+        "china_realized_volatility_consumer",
+        "china_realized_volatility_usage",
+        "china_realized_volatility_materialization_gate",
+        "sector_per_security_volatility_usage",
+        "sector_per_security_volatility_substitution_allowed"
+      ],
+      "properties": {
+        "production_macro_owner": {"const": "us_financial_conditions"},
+        "us_implied_volatility_series": {
+          "const": ["VIXCLS"]
+        },
+        "cross_market_stress_series": {
+          "const": ["BAA10Y", "NFCI", "VIXCLS"]
+        },
+        "china_realized_volatility_consumer": {"const": "cro"},
+        "china_realized_volatility_usage": {
+          "const": "RISK_INPUT_ONLY_NOT_MACRO_VOTE"
+        },
+        "china_realized_volatility_materialization_gate": {
+          "const": "PR12_TRUSTED_RISK_INPUT"
+        },
+        "sector_per_security_volatility_usage": {
+          "const": "SECURITY_LEVEL_CONTEXT_ONLY"
+        },
+        "sector_per_security_volatility_substitution_allowed": {"const": false}
+      }
+    },
+    "compatibility_decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "decision",
+        "retired_contract",
+        "legacy_status",
+        "current_contract",
+        "aggregate_output_allowed",
+        "stance_output_allowed",
+        "audit_read_allowed",
+        "approval_required_to_change"
+      ],
+      "properties": {
+        "decision": {"const": "NO_COMPATIBILITY_PROJECTION"},
+        "retired_contract": {"const": "six_factor_macro_aggregate_and_stance"},
+        "legacy_status": {"const": "legacy_unverified"},
+        "current_contract": {"const": "ten_independent_accepted_transmissions"},
+        "aggregate_output_allowed": {"const": false},
+        "stance_output_allowed": {"const": false},
+        "audit_read_allowed": {"const": true},
+        "approval_required_to_change": {"const": true}
+      }
+    },
+    "knot_coverage": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": {"$ref": "#/$defs/knot_coverage"}
+    },
+    "significance_fixtures": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": {"$ref": "#/$defs/significance_fixture"}
+    },
+    "manifest_hash": {"$ref": "#/$defs/hash"}
+  },
+  "$defs": {
+    "hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "binding_id": {
+      "type": "string",
+      "pattern": "^binding:[0-9a-f]{64}$"
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "route_id",
+        "source_family",
+        "contract_version",
+        "pit_strategy",
+        "implementation_stage"
+      ],
+      "properties": {
+        "route_id": {
+          "enum": [
+            "alfred.us_macro",
+            "market.us_conditions",
+            "official.us_policy",
+            "tushare.fx_daily",
+            "tushare.us_tycr"
+          ]
+        },
+        "source_family": {"type": "string", "minLength": 1},
+        "contract_version": {"type": "string", "minLength": 1},
+        "pit_strategy": {
+          "enum": ["AUTHORITATIVE_VINTAGE_REPLAY", "OBSERVED_LIVE", "FORWARD_ARCHIVE"]
+        },
+        "implementation_stage": {"type": "string", "minLength": 1}
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_id",
+        "agent_id",
+        "stage",
+        "semantic_capability_id",
+        "tool_id",
+        "source_route_ids",
+        "base_binding_hash",
+        "base_activation_state",
+        "source_activation_state",
+        "source_readiness_gate",
+        "query_bundle_contract_version",
+        "call_transport"
+      ],
+      "properties": {
+        "binding_id": {"$ref": "#/$defs/binding_id"},
+        "agent_id": {
+          "enum": ["central_bank", "us_economy", "us_financial_conditions"]
+        },
+        "stage": {
+          "enum": ["central_bank", "us_economy", "us_financial_conditions"]
+        },
+        "semantic_capability_id": {
+          "enum": [
+            "central_bank_policy",
+            "china_yield_curve",
+            "rates_credit",
+            "us_macro",
+            "fx_conditions",
+            "us_financial_conditions",
+            "volatility"
+          ]
+        },
+        "tool_id": {
+          "enum": [
+            "get_central_bank_snapshot",
+            "get_us_macro_snapshot",
+            "get_us_financial_conditions_snapshot"
+          ]
+        },
+        "source_route_ids": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "base_binding_hash": {"$ref": "#/$defs/hash"},
+        "base_activation_state": {"const": "active"},
+        "source_activation_state": {"const": "staged"},
+        "source_readiness_gate": {
+          "enum": ["PR10_CHINA_SOURCE_ACTIVATION", "PR12_L1_L2_ATOMIC_ACTIVATION"]
+        },
+        "query_bundle_contract_version": {"const": "frozen_snapshot_query_v1"},
+        "call_transport": {"const": false}
+      }
+    },
+    "source_series": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider_series_id",
+        "source_identity",
+        "source_route_id",
+        "owner_role",
+        "component_id",
+        "unit",
+        "observation_kind",
+        "numeric_component_contribution",
+        "scorecard_series_id"
+      ],
+      "properties": {
+        "provider_series_id": {"type": "string", "minLength": 1},
+        "source_identity": {"type": "string", "minLength": 1},
+        "source_route_id": {
+          "enum": [
+            "alfred.us_macro",
+            "market.us_conditions",
+            "official.us_policy",
+            "tushare.fx_daily",
+            "tushare.us_tycr"
+          ]
+        },
+        "owner_role": {"enum": ["us_economy", "us_financial_conditions"]},
+        "component_id": {
+          "enum": [
+            "growth_production",
+            "prices",
+            "employment",
+            "demand_trade",
+            "fed_liquidity",
+            "us_curve",
+            "credit_financial_stress",
+            "usd_rmb"
+          ]
+        },
+        "unit": {"type": ["string", "null"]},
+        "observation_kind": {"enum": ["NUMERIC", "EVENT_LINEAGE_ONLY"]},
+        "numeric_component_contribution": {"type": "boolean"},
+        "scorecard_series_id": {
+          "type": ["string", "null"],
+          "enum": ["USDCNY", "US10Y", "US2Y", "US3M", "VIX", null]
+        }
+      }
+    },
+    "source_priority_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy",
+        "primary_sources",
+        "supplemental_sources",
+        "historical_cache_miss_policy"
+      ],
+      "properties": {
+        "policy": {"const": "TUSHARE_FIRST_FIELD_LEVEL_NO_RUNTIME_SUBSTITUTION"},
+        "primary_sources": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["semantic_field", "source_route_id", "provider_series_ids"],
+            "properties": {
+              "semantic_field": {
+                "enum": ["us_nominal_treasury_curve", "usd_cnh"]
+              },
+              "source_route_id": {
+                "enum": ["tushare.fx_daily", "tushare.us_tycr"]
+              },
+              "provider_series_ids": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {"type": "string", "minLength": 1}
+              }
+            }
+          }
+        },
+        "supplemental_sources": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source_route_id", "reason", "provider_series_ids"],
+            "properties": {
+              "source_route_id": {
+                "enum": ["alfred.us_macro", "market.us_conditions", "official.us_policy"]
+              },
+              "reason": {"const": "TUSHARE_CATALOG_FIELD_ABSENT"},
+              "provider_series_ids": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {"type": "string", "minLength": 1}
+              }
+            }
+          }
+        },
+        "historical_cache_miss_policy": {
+          "const": "LIVE_ROUTES_FAIL_CLOSED_NO_BACKDATED_CAPTURE"
+        }
+      }
+    },
+    "component_weight": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owner_role",
+        "component_id",
+        "weight",
+        "weight_contract_version",
+        "activation_dependency"
+      ],
+      "properties": {
+        "owner_role": {"enum": ["central_bank", "us_financial_conditions"]},
+        "component_id": {"type": "string", "minLength": 1},
+        "weight": {"const": 1},
+        "weight_contract_version": {"const": "macro_component_weights_v2"},
+        "activation_dependency": {
+          "enum": ["PR10_CHINA_SOURCE_ACTIVATION", "PR12_L1_L2_ATOMIC_ACTIVATION"]
+        }
+      }
+    },
+    "redistribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "semantic_capability_id",
+        "baseline_tool_id",
+        "baseline_consumers",
+        "current_owners",
+        "replacement_tools",
+        "binding_ids",
+        "component_refs",
+        "legacy_vote_weight",
+        "disposition"
+      ],
+      "properties": {
+        "semantic_capability_id": {
+          "enum": ["central_bank_policy", "fx_conditions", "rates_credit", "volatility"]
+        },
+        "baseline_tool_id": {"type": "string", "minLength": 1},
+        "baseline_consumers": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "current_owners": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["central_bank", "us_financial_conditions"]}
+        },
+        "replacement_tools": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "binding_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/binding_id"}
+        },
+        "component_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "legacy_vote_weight": {"const": 0},
+        "disposition": {"const": "equivalent_staged"}
+      }
+    },
+    "knot_coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_id",
+        "agent_id",
+        "stage",
+        "semantic_capability_id",
+        "tool_id",
+        "source_activation_state",
+        "availability_evaluated",
+        "called_evaluated",
+        "succeeded_evaluated",
+        "used_in_accepted_evidence_evaluated",
+        "counterevidence_handled_evaluated",
+        "lineage_evaluator_contract_version",
+        "significance_fixture_id",
+        "significance_fixture_hash",
+        "candidate_generation_allowed",
+        "coverage_hash"
+      ],
+      "properties": {
+        "binding_id": {"$ref": "#/$defs/binding_id"},
+        "agent_id": {"type": "string", "minLength": 1},
+        "stage": {"type": "string", "minLength": 1},
+        "semantic_capability_id": {"type": "string", "minLength": 1},
+        "tool_id": {"type": "string", "minLength": 1},
+        "source_activation_state": {"const": "staged"},
+        "availability_evaluated": {"const": true},
+        "called_evaluated": {"const": true},
+        "succeeded_evaluated": {"const": true},
+        "used_in_accepted_evidence_evaluated": {"const": true},
+        "counterevidence_handled_evaluated": {"const": true},
+        "lineage_evaluator_contract_version": {
+          "const": "knot_binding_lineage_evaluator_v1"
+        },
+        "significance_fixture_id": {
+          "type": "string",
+          "pattern": "^fixture:[0-9a-f]{64}$"
+        },
+        "significance_fixture_hash": {"$ref": "#/$defs/hash"},
+        "candidate_generation_allowed": {"const": false},
+        "coverage_hash": {"$ref": "#/$defs/hash"}
+      }
+    },
+    "utility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accepted_utility"],
+      "properties": {
+        "accepted_utility": {"type": "number"}
+      }
+    },
+    "significance_fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "binding_id",
+        "fixture_id",
+        "evaluator_contract_version",
+        "paired_sample_count",
+        "minimum_paired_sample_count",
+        "minimum_effect",
+        "confidence_interval_lower_bound",
+        "ready_used_handled",
+        "not_called",
+        "call_failed",
+        "succeeded_not_used",
+        "counterevidence_handled",
+        "counterevidence_ignored",
+        "lineage_fixture",
+        "fixture_hash"
+      ],
+      "properties": {
+        "schema_version": {"const": "paired_binding_significance_fixture_v1"},
+        "binding_id": {"$ref": "#/$defs/binding_id"},
+        "fixture_id": {"type": "string", "pattern": "^fixture:[0-9a-f]{64}$"},
+        "evaluator_contract_version": {"const": "knot_binding_lineage_evaluator_v1"},
+        "paired_sample_count": {"type": "integer", "minimum": 30},
+        "minimum_paired_sample_count": {"const": 30},
+        "minimum_effect": {"type": "number", "exclusiveMinimum": 0},
+        "confidence_interval_lower_bound": {"type": "number", "exclusiveMinimum": 0},
+        "ready_used_handled": {"$ref": "#/$defs/utility"},
+        "not_called": {"$ref": "#/$defs/utility"},
+        "call_failed": {"$ref": "#/$defs/utility"},
+        "succeeded_not_used": {"$ref": "#/$defs/utility"},
+        "counterevidence_handled": {"$ref": "#/$defs/utility"},
+        "counterevidence_ignored": {"$ref": "#/$defs/utility"},
+        "lineage_fixture": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tool_result_fingerprint",
+            "typed_edge_hash",
+            "accepted_claim_graph_hash",
+            "counterevidence_rule_hash",
+            "resolution_code"
+          ],
+          "properties": {
+            "tool_result_fingerprint": {"$ref": "#/$defs/hash"},
+            "typed_edge_hash": {"$ref": "#/$defs/hash"},
+            "accepted_claim_graph_hash": {"$ref": "#/$defs/hash"},
+            "counterevidence_rule_hash": {"$ref": "#/$defs/hash"},
+            "resolution_code": {"const": "qualified"}
+          }
+        },
+        "fixture_hash": {"$ref": "#/$defs/hash"}
+      }
+    }
+  }
+}

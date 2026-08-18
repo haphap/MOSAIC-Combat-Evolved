@@ -1,0 +1,290 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "evidence_claim_graph_v2"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stage": {
+      "type": "string",
+      "minLength": 1
+    },
+    "capability_track": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "accepted_output_capability_track_v1"
+        },
+        "tool_environment_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "execution_behavior_release_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "capability_binding_manifest_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "knot_coverage_manifest_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "capability_bundle_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "schema_version",
+        "tool_environment_hash",
+        "execution_behavior_release_hash",
+        "capability_binding_manifest_hash",
+        "knot_coverage_manifest_hash",
+        "capability_bundle_hash"
+      ],
+      "additionalProperties": false
+    },
+    "counterevidence_rule": {
+      "type": "object",
+      "properties": {
+        "rule_version": {
+          "const": "counterevidence_rule_v1"
+        },
+        "dimension": {
+          "type": "string",
+          "minLength": 1
+        },
+        "polarity_extractor_version": {
+          "const": "signed_numeric_v1"
+        },
+        "aggregation": {
+          "const": "max_strength_v1"
+        },
+        "comparison": {
+          "const": "support_minus_contradiction"
+        },
+        "threshold": {
+          "type": "number",
+          "minimum": 0
+        },
+        "unknown_policy": {
+          "const": "abstain"
+        }
+      },
+      "required": [
+        "rule_version",
+        "dimension",
+        "polarity_extractor_version",
+        "aggregation",
+        "comparison",
+        "threshold",
+        "unknown_policy"
+      ],
+      "additionalProperties": false
+    },
+    "tool_results": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "fingerprint": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "semantic_capability_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "binding_id": {
+            "type": "string",
+            "pattern": "^binding:[0-9a-f]{64}$"
+          },
+          "tool_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "canonical_args_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "payload_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "build_receipt_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "tool_environment_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "status": {
+            "enum": [
+              "SUCCEEDED",
+              "FAILED"
+            ]
+          }
+        },
+        "required": [
+          "fingerprint",
+          "semantic_capability_id",
+          "binding_id",
+          "tool_id",
+          "canonical_args_hash",
+          "payload_hash",
+          "build_receipt_hash",
+          "tool_environment_hash",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "evidence_edges": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "edge_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "claim_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tool_result_fingerprint": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "relation": {
+            "enum": [
+              "supports",
+              "contradicts",
+              "bounds"
+            ]
+          },
+          "polarity": {
+            "enum": [
+              "supporting",
+              "contradicting"
+            ]
+          },
+          "comparison_value": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "required": [
+          "edge_id",
+          "claim_id",
+          "tool_result_fingerprint",
+          "relation",
+          "polarity",
+          "comparison_value"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "accepted_claims": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "claim_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "accepted": {
+            "const": true
+          },
+          "comparison_witness": {
+            "type": "object",
+            "properties": {
+              "supporting_edge_ids": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "contradicting_edge_ids": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "supporting_value": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              },
+              "contradicting_value": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 1
+              }
+            },
+            "required": [
+              "supporting_edge_ids",
+              "contradicting_edge_ids",
+              "supporting_value",
+              "contradicting_value"
+            ],
+            "additionalProperties": false
+          },
+          "resolution_code": {
+            "enum": [
+              "rebutted_with_evidence",
+              "qualified",
+              "abstained",
+              "reversed"
+            ]
+          }
+        },
+        "required": [
+          "claim_id",
+          "accepted",
+          "comparison_witness",
+          "resolution_code"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "run_id",
+    "agent_id",
+    "stage",
+    "capability_track",
+    "counterevidence_rule",
+    "tool_results",
+    "evidence_edges",
+    "accepted_claims"
+  ],
+  "additionalProperties": false
+}

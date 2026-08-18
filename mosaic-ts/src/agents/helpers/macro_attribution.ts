@@ -95,7 +95,13 @@ const MacroTargetAttributionSchema = z.union([
 ]);
 const MacroProviderTargetAttributionSchema = z
   .object({
-    agent_id: z.enum(MACRO_AGENT_IDS),
+    agent_id: z
+      .enum(MACRO_AGENT_IDS)
+      .describe(
+        "agent_id must be one of the eight Macro source Agents (china, us_economy, eu_economy, " +
+          "central_bank, us_financial_conditions, euro_area_financial_conditions, commodities, " +
+          "institutional_flow), never the affected Sector, Layer-3, or Layer-4 Agent.",
+      ),
     target_type: TargetMacroInputAttributionTypeSchema,
     target_local_ref: LocalRefSchema.regex(/^[^$].*$/),
     claim_ref_used: ClaimRefSchema,
@@ -115,7 +121,7 @@ export const MacroInputAttributionSubmissionArraySchema = z
   .min(MACRO_AGENT_IDS.length)
   .max(16)
   .describe(
-    "Begin with exactly one SUBMISSION_SUMMARY row for each of the ten Macro agents in roster order. " +
+    "Begin with exactly one SUBMISSION_SUMMARY row for each of the eight Macro agents in roster order. " +
       "Use target_local_ref=$SUBMISSION for those rows. Add at most six material target rows; " +
       "NOT_MATERIAL rows must have an empty claim_refs_used array.",
   )
@@ -131,7 +137,7 @@ export const MacroInputAttributionSubmissionArraySchema = z
       ctx.addIssue({
         code: "custom",
         path: [],
-        message: "Macro submission summaries must be the ten-row roster-ordered prefix",
+        message: "Macro submission summaries must be the eight-row roster-ordered prefix",
       });
     }
     for (const agentId of MACRO_AGENT_IDS) {
@@ -164,8 +170,6 @@ export const MacroInputAttributionProviderSchema = z
         us_financial_conditions: MacroProviderSummaryValueSchema,
         euro_area_financial_conditions: MacroProviderSummaryValueSchema,
         commodities: MacroProviderSummaryValueSchema,
-        geopolitical: MacroProviderSummaryValueSchema,
-        market_breadth: MacroProviderSummaryValueSchema,
         institutional_flow: MacroProviderSummaryValueSchema,
       })
       .strict(),
@@ -179,10 +183,16 @@ export const MacroInputAttributionProviderSchema = z
 export const MACRO_ATTRIBUTION_PROVIDER_INSTRUCTION =
   "For structured extraction, macro_input_attributions is an object with submission_summaries " +
   "keyed by china, us_economy, eu_economy, central_bank, us_financial_conditions, " +
-  "euro_area_financial_conditions, commodities, geopolitical, market_breadth, and " +
-  "institutional_flow, plus target_attributions. Fill every summary key with effect and the " +
+  "euro_area_financial_conditions, commodities, and institutional_flow, plus " +
+  "target_attributions. Fill every summary key with effect and the " +
   "single claim_ref_used (null only for NOT_MATERIAL). The runtime converts " +
-  "this bounded extraction object into the canonical MacroInputAttributionSubmission rows.";
+  "this bounded extraction object into the canonical MacroInputAttributionSubmission rows. " +
+  "For target_attributions, agent_id is always one of the eight Macro source Agents " +
+  "(china, us_economy, eu_economy, central_bank, us_financial_conditions, " +
+  "euro_area_financial_conditions, commodities, institutional_flow), never the affected " +
+  "Sector, Layer-3, or Layer-4 Agent. target_type/target_local_ref identify the affected " +
+  "object. Keep the Sector/L3/L4 agent's own evidence in its local claims/claim_refs; " +
+  "never put a downstream agent such as semiconductor in agent_id.";
 
 const MacroInputAttributionProviderJsonSchema = (() => {
   const { $schema: _schemaDialect, ...nestedSchema } = z.toJSONSchema(
@@ -202,6 +212,7 @@ const STANDARD_SECTOR_AGENT_IDS = new Set([
   "financials",
   "agriculture",
 ]);
+const SUPERINVESTOR_ABSTENTION_PROVIDER_CONTRACT = "SUPERINVESTOR_ABSTENTION_COMPACT_V1";
 
 function macroInputAttributionProviderJsonSchema(properties: Record<string, unknown>): unknown {
   const macroField =
@@ -213,6 +224,7 @@ function macroInputAttributionProviderJsonSchema(properties: Record<string, unkn
   const noTargetRows =
     macroField?.["x-mosaic-no-target-rows"] === true ||
     objectConst(properties.agent) === "relationship_mapper" ||
+    objectConst(properties.provider_contract) === SUPERINVESTOR_ABSTENTION_PROVIDER_CONTRACT ||
     [
       objectConst(properties.selection_status),
       objectConst(properties.predictive_graph_status),
@@ -223,17 +235,79 @@ function macroInputAttributionProviderJsonSchema(properties: Record<string, unkn
     properties: {
       target_attributions: {
         maxItems?: number;
-        items?: { properties?: { target_type?: Record<string, unknown> } };
+        items?: Record<string, unknown>;
       };
     };
   };
   if (noTargetRows) {
     schema.properties.target_attributions.maxItems = 0;
   } else if (standardSector) {
-    const targetType = schema.properties.target_attributions.items?.properties?.target_type;
-    if (targetType) targetType.enum = ["SECTOR_THESIS", "SECURITY_PICK"];
+    const agentId = objectConst(properties.agent);
+    const preferredDirectionId = objectConst(properties.preferred_direction_local_id);
+    const leastPreferredDirectionId = objectConst(properties.least_preferred_direction_local_id);
+    const targetItem = schema.properties.target_attributions.items;
+    if (agentId && preferredDirectionId && leastPreferredDirectionId && targetItem) {
+      const targets = [
+        { targetType: "SECTOR_THESIS", targetLocalRef: preferredDirectionId },
+        { targetType: "SECTOR_THESIS", targetLocalRef: leastPreferredDirectionId },
+      ];
+      if (securityLegAllowsPicks(properties.preferred_security)) {
+        targets.push({
+          targetType: "SECURITY_PICK",
+          targetLocalRef: `provider-${agentId}-preferred-security-1`.slice(0, 128),
+        });
+      }
+      if (securityLegAllowsPicks(properties.least_preferred_security)) {
+        targets.push({
+          targetType: "SECURITY_PICK",
+          targetLocalRef: `provider-${agentId}-least-security-1`.slice(0, 128),
+        });
+      }
+      schema.properties.target_attributions.items = exactTargetAttributionSchema(
+        targetItem,
+        targets,
+      );
+    }
   }
   return schema;
+}
+
+function exactTargetAttributionSchema(
+  itemSchema: Record<string, unknown>,
+  targets: ReadonlyArray<{ targetType: string; targetLocalRef: string }>,
+): Record<string, unknown> {
+  const baseProperties =
+    itemSchema.properties !== null &&
+    typeof itemSchema.properties === "object" &&
+    !Array.isArray(itemSchema.properties)
+      ? (itemSchema.properties as Record<string, unknown>)
+      : {};
+  return {
+    anyOf: targets.map((target) => ({
+      ...itemSchema,
+      properties: {
+        ...baseProperties,
+        target_type: { type: "string", const: target.targetType },
+        target_local_ref: { type: "string", const: target.targetLocalRef },
+      },
+    })),
+  };
+}
+
+function securityLegAllowsPicks(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(securityLegAllowsPicks);
+  if (value === null || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  const properties =
+    record.properties !== null &&
+    typeof record.properties === "object" &&
+    !Array.isArray(record.properties)
+      ? (record.properties as Record<string, unknown>)
+      : null;
+  return (
+    objectConst(properties?.status) === "PICKS_PRESENT" ||
+    Object.values(record).some(securityLegAllowsPicks)
+  );
 }
 
 function objectConst(value: unknown): string | null {
@@ -407,7 +481,8 @@ function validateMacroGate(
   outputs: Readonly<Record<string, MacroAgentOutput>>,
   gate: MacroInputGateReceipt,
 ): void {
-  if (gate.accepted_count !== 10) throw new Error("Macro input gate is not complete");
+  if (gate.accepted_count !== MACRO_AGENT_IDS.length)
+    throw new Error("Macro input gate is not complete");
   if ([...gate.accepted_agent_ids].sort().join("\0") !== [...MACRO_AGENT_IDS].sort().join("\0")) {
     throw new Error("Macro input gate roster mismatch");
   }

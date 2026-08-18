@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CapabilityFullBundleV1Schema } from "../../autoresearch/capability_preservation_contract.js";
 import { canonicalJsonHash, compareCanonicalStrings } from "../helpers/canonical_json.js";
 
 const Sha256Schema = z.string().regex(/^sha256:[0-9a-f]{64}$/);
@@ -274,7 +275,169 @@ function validatePromptPairs(
   }
 }
 
-export const ActivePromptReleaseManifestSchema = z
+export const KnotGateDPairedEnvironmentV1Schema = z
+  .object({
+    model_config_hash: Sha256Schema,
+    tool_config_hash: Sha256Schema,
+    executor_adapter_hash: Sha256Schema,
+    evaluator_adapter_hash: Sha256Schema,
+    evaluator_config_hash: Sha256Schema,
+    code_commit: z.string().regex(/^[0-9a-f]{40}$/),
+    execution_behavior_release_hash: Sha256Schema,
+    production_variant_roster_hash: Sha256Schema,
+    repeat_seeds_hash: Sha256Schema,
+    frozen_bundle_set_hash: Sha256Schema,
+  })
+  .strict();
+
+export const KnotGateDStageEvidenceV1Schema = z
+  .object({
+    agent_id: z.string().min(1),
+    stage: ReleasePromptStageSchema,
+    experiment_target_stage: ReleasePromptStageSchema,
+    experiment_id: z.string().min(1),
+    experiment_hash: Sha256Schema,
+    run_set_hash: Sha256Schema,
+    training_projection_hash: Sha256Schema,
+    paired_environment_hash: Sha256Schema,
+  })
+  .strict();
+
+export const KnotGateDPublicPrivatePinV1Schema = z
+  .object({
+    public_commit: z.string().regex(/^[0-9a-f]{40}$/),
+    public_tree_hash: Sha256Schema,
+    private_commit: z.string().regex(/^[0-9a-f]{40}$/),
+    private_tree_hash: Sha256Schema,
+    private_companion_pin_hash: Sha256Schema,
+    pair_hash: Sha256Schema,
+  })
+  .strict()
+  .superRefine((pin, ctx) => {
+    const { pair_hash: _, ...body } = pin;
+    if (pin.pair_hash !== canonicalHash(body)) {
+      ctx.addIssue({ code: "custom", path: ["pair_hash"], message: "paired pin hash mismatch" });
+    }
+  });
+
+export const KnotGateDCandidateV1Schema = z
+  .object({
+    schema_version: z.literal("knot_gate_d_candidate_v1"),
+    full_bundle_hash: Sha256Schema,
+    runtime_agent_manifest_hash: Sha256Schema,
+    runtime_stage_count: z.number().int().positive(),
+    capability_binding_manifest_hash: Sha256Schema,
+    binding_count: z.number().int().positive(),
+    paired_environment: KnotGateDPairedEnvironmentV1Schema,
+    paired_environment_hash: Sha256Schema,
+    stage_evidence: z.array(KnotGateDStageEvidenceV1Schema).min(1),
+    significance_fixture_hash: Sha256Schema,
+    counterevidence_fixture_hash: Sha256Schema,
+    cross_track_isolation_hash: Sha256Schema,
+    public_safe_scan_hash: Sha256Schema,
+    public_private_pin: KnotGateDPublicPrivatePinV1Schema,
+    candidate_hash: Sha256Schema,
+  })
+  .strict()
+  .superRefine((candidate, ctx) => {
+    const expectedEnvironmentHash = canonicalHash(candidate.paired_environment);
+    if (candidate.paired_environment_hash !== expectedEnvironmentHash) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["paired_environment_hash"],
+        message: "paired environment hash mismatch",
+      });
+    }
+    if (candidate.runtime_stage_count !== candidate.stage_evidence.length) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["runtime_stage_count"],
+        message: "Gate D stage count mismatch",
+      });
+    }
+    const stageKeys = candidate.stage_evidence.map((row) => `${row.agent_id}:${row.stage}`);
+    if (new Set(stageKeys).size !== stageKeys.length) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["stage_evidence"],
+        message: "duplicate Gate D stage evidence",
+      });
+    }
+    if (
+      candidate.stage_evidence.some(
+        (row) => row.paired_environment_hash !== expectedEnvironmentHash,
+      )
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["stage_evidence"],
+        message: "Gate D stage environment drift",
+      });
+    }
+    const { candidate_hash: _, ...body } = candidate;
+    if (candidate.candidate_hash !== canonicalHash(body)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["candidate_hash"],
+        message: "Gate D candidate hash mismatch",
+      });
+    }
+  });
+
+export type KnotGateDCandidateV1 = z.infer<typeof KnotGateDCandidateV1Schema>;
+
+const KnotGateDPiReviewV1Schema = z
+  .object({
+    repository: z.enum(["public", "private"]),
+    reviewed_commit: z.string().regex(/^[0-9a-f]{40}$/),
+    review_ref: z.string().min(1),
+    disposition: z.literal("APPROVE"),
+    reviewed_candidate_hash: Sha256Schema,
+  })
+  .strict();
+
+export const KnotGateDReceiptV1Schema = z
+  .object({
+    schema_version: z.literal("knot_gate_d_receipt_v1"),
+    candidate: KnotGateDCandidateV1Schema,
+    pi_reviews: z
+      .object({
+        public: KnotGateDPiReviewV1Schema,
+        private: KnotGateDPiReviewV1Schema,
+      })
+      .strict(),
+    receipt_hash: Sha256Schema,
+  })
+  .strict()
+  .superRefine((receipt, ctx) => {
+    const { candidate, pi_reviews: reviews } = receipt;
+    if (
+      reviews.public.repository !== "public" ||
+      reviews.private.repository !== "private" ||
+      reviews.public.reviewed_commit !== candidate.public_private_pin.public_commit ||
+      reviews.private.reviewed_commit !== candidate.public_private_pin.private_commit ||
+      reviews.public.reviewed_candidate_hash !== candidate.candidate_hash ||
+      reviews.private.reviewed_candidate_hash !== candidate.candidate_hash
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["pi_reviews"],
+        message: "Gate D Pi review binding mismatch",
+      });
+    }
+    const { receipt_hash: _, ...body } = receipt;
+    if (receipt.receipt_hash !== canonicalHash(body)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["receipt_hash"],
+        message: "Gate D receipt hash mismatch",
+      });
+    }
+  });
+
+export type KnotGateDReceiptV1 = z.infer<typeof KnotGateDReceiptV1Schema>;
+
+export const ActivePromptReleaseManifestV3Schema = z
   .object({
     schema_version: z.literal("active_prompt_release_manifest_v3"),
     release_id: z.string().min(1),
@@ -453,7 +616,96 @@ export const ActivePromptReleaseManifestSchema = z
     }
   });
 
+export const ActivePromptReleaseManifestV4Schema = z
+  .object({
+    ...ActivePromptReleaseManifestV3Schema.shape,
+    schema_version: z.literal("active_prompt_release_manifest_v4"),
+    capability_full_bundle: CapabilityFullBundleV1Schema,
+    gate_d_receipt: KnotGateDReceiptV1Schema,
+  })
+  .strict()
+  .superRefine((manifest, ctx) => {
+    const { capability_full_bundle: bundle, gate_d_receipt, ...common } = manifest;
+    const commonResult = ActivePromptReleaseManifestV3Schema.safeParse({
+      ...common,
+      schema_version: "active_prompt_release_manifest_v3",
+    });
+    if (!commonResult.success) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Gate D release common manifest contract mismatch",
+      });
+    }
+    const candidate = gate_d_receipt.candidate;
+    if (
+      bundle.prompt_hash !== manifest.prompt_hash ||
+      bundle.execution_behavior_release_hash !== manifest.execution_behavior_release.release_hash ||
+      candidate.full_bundle_hash !== bundle.full_bundle_hash ||
+      candidate.runtime_agent_manifest_hash !== bundle.runtime_agent_manifest_hash ||
+      candidate.capability_binding_manifest_hash !== bundle.capability_binding_manifest_hash ||
+      candidate.public_private_pin.private_companion_pin_hash !==
+        bundle.private_companion_pin_hash ||
+      candidate.paired_environment.production_variant_roster_hash !==
+        bundle.production_variant_roster_hash ||
+      candidate.paired_environment.execution_behavior_release_hash !==
+        bundle.execution_behavior_release_hash
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["capability_full_bundle"],
+        message: "Gate D full-bundle fixed point mismatch",
+      });
+    }
+  });
+
+export const ActivePromptReleaseManifestSchema = z.union([
+  ActivePromptReleaseManifestV3Schema,
+  ActivePromptReleaseManifestV4Schema,
+]);
+
 export type ActivePromptReleaseManifest = z.infer<typeof ActivePromptReleaseManifestSchema>;
+
+export interface KnotGateDReleaseFixedPointAuthority {
+  execution_behavior_release_hash: string;
+  runtime_agent_manifest_hash: string;
+  agent_tool_manifest_hash: string;
+  tool_environment_hash: string;
+  capability_binding_manifest_hash: string;
+  knot_coverage_manifest_hash: string;
+  knot_audit_capability_track_hash: string;
+  binding_count: number;
+  stage_keys: ReadonlyArray<string>;
+}
+
+export function assertKnotGateDReleaseFixedPoint(
+  rawManifest: unknown,
+  authority: KnotGateDReleaseFixedPointAuthority,
+): z.infer<typeof ActivePromptReleaseManifestV4Schema> {
+  const manifest = ActivePromptReleaseManifestV4Schema.parse(rawManifest);
+  const bundle = manifest.capability_full_bundle;
+  const candidate = manifest.gate_d_receipt.candidate;
+  const expectedStageKeys = [...authority.stage_keys].sort(compareCanonicalStrings);
+  const actualStageKeys = candidate.stage_evidence
+    .map((row) => `${row.agent_id}:${row.stage}`)
+    .sort(compareCanonicalStrings);
+  const fixedPointMatches =
+    bundle.execution_behavior_release_hash === authority.execution_behavior_release_hash &&
+    bundle.runtime_agent_manifest_hash === authority.runtime_agent_manifest_hash &&
+    bundle.agent_tool_manifest_hash === authority.agent_tool_manifest_hash &&
+    bundle.tool_environment_hash === authority.tool_environment_hash &&
+    bundle.capability_binding_manifest_hash === authority.capability_binding_manifest_hash &&
+    bundle.knot_coverage_manifest_hash === authority.knot_coverage_manifest_hash &&
+    bundle.knot_audit_capability_track_hash === authority.knot_audit_capability_track_hash &&
+    candidate.runtime_agent_manifest_hash === authority.runtime_agent_manifest_hash &&
+    candidate.capability_binding_manifest_hash === authority.capability_binding_manifest_hash &&
+    candidate.binding_count === authority.binding_count &&
+    candidate.runtime_stage_count === expectedStageKeys.length &&
+    canonicalHash(actualStageKeys) === canonicalHash(expectedStageKeys);
+  if (!fixedPointMatches) {
+    throw new Error("Gate D current fixed-point mismatch");
+  }
+  return manifest;
+}
 
 export function promptReleaseRuntimeSloPasses(
   summary: NonNullable<ActivePromptReleaseManifest["runtime_slo_summary"]>,

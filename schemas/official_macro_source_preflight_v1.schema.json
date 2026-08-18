@@ -42,10 +42,10 @@
               "reason"
             ],
             "properties": {
-              "provider": { "enum": ["EUROSTAT", "ECB", "WORLD_BANK"] },
+              "provider": { "const": "ECB" },
               "series_key": { "type": "string", "minLength": 1 },
               "source": { "type": "string", "minLength": 1 },
-              "usage_mode": { "enum": ["PRIMARY", "CONTEXT_ONLY"] },
+              "usage_mode": { "const": "PRIMARY" },
               "request_url": { "type": "string", "pattern": "^https://" },
               "content_type": { "type": "string", "minLength": 1 },
               "retrieved_at": { "type": "string", "format": "date-time" },
@@ -55,13 +55,11 @@
               },
               "row_count": { "type": "integer", "minimum": 1 },
               "elapsed_ms": { "type": "number", "minimum": 0 },
-              "pit_status": {
-                "const": "CURRENT_RESPONSE_REQUIRES_RELEASE_VINTAGE_JOIN"
-              },
+              "pit_status": { "const": "AUTHORITATIVE_VINTAGE_HISTORY" },
               "transport_status": { "const": "ACTIVE" },
               "snapshot_readiness": { "const": "PREFLIGHT_ONLY" },
               "reason": {
-                "const": "release_timestamp_and_archived_vintage_join_required"
+                "const": "authoritative_vintage_history_transport_verified"
               }
             }
           },
@@ -76,7 +74,7 @@
               "reason"
             ],
             "properties": {
-              "provider": { "enum": ["EUROSTAT", "ECB", "WORLD_BANK"] },
+              "provider": { "const": "ECB" },
               "series_key": { "type": "string", "minLength": 1 },
               "transport_status": { "const": "UNAVAILABLE" },
               "snapshot_readiness": { "const": "BLOCKED" },
@@ -102,7 +100,7 @@
         "required_transport_ready": { "type": "boolean" },
         "production_snapshot_ready": { "const": false },
         "production_blocker": {
-          "const": "archived release/vintage coverage is not established by a live transport probe"
+          "const": "archive receipts and route eligibility are not established by transport preflight"
         }
       }
     },

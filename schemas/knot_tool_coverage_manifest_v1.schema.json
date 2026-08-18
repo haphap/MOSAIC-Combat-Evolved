@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "knot_tool_coverage_manifest_v1"
+    },
+    "capability_binding_manifest_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "tool_environment_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "coverage": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "binding_id": {
+            "type": "string",
+            "pattern": "^binding:[0-9a-f]{64}$"
+          },
+          "agent_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "stage": {
+            "type": "string",
+            "minLength": 1
+          },
+          "phase": {
+            "type": "string",
+            "minLength": 1
+          },
+          "semantic_capability_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tool_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "argument_schema_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "argument_domain_selector_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "route_contract_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "materializer_contract_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "privacy_contract_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "tool_environment_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "availability_evaluator_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "call_evaluator_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "success_evaluator_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "accepted_lineage_evaluator_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "counterevidence_evaluator_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "coverage_row_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "binding_id",
+          "agent_id",
+          "stage",
+          "phase",
+          "semantic_capability_id",
+          "tool_id",
+          "argument_schema_hash",
+          "argument_domain_selector_hash",
+          "route_contract_hash",
+          "materializer_contract_hash",
+          "privacy_contract_hash",
+          "tool_environment_hash",
+          "availability_evaluator_version",
+          "call_evaluator_version",
+          "success_evaluator_version",
+          "accepted_lineage_evaluator_version",
+          "counterevidence_evaluator_version",
+          "coverage_row_hash"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "manifest_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "capability_binding_manifest_hash",
+    "tool_environment_hash",
+    "coverage",
+    "manifest_hash"
+  ],
+  "additionalProperties": false
+}

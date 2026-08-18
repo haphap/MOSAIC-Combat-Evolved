@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   adaptStrictProviderJsonSchema,
   normalizeStrictProviderPayload,
+  SECTOR_SELECTED_PROVIDER_INSTRUCTION,
 } from "../src/agents/helpers/structured_provider_adapters.js";
 import { createMacroSubmissionSchema, MACRO_AGENT_IDS } from "../src/agents/macro/_contracts.js";
 import {
@@ -50,13 +51,51 @@ describe("strict structured provider adapters", () => {
     };
     expect(providerSchema.properties.final_selection.properties.provider_contract).toEqual({
       type: "string",
-      const: "SECTOR_SELECTED_COMPACT_V1",
+      const: "SECTOR_SELECTED_COMPACT_V2",
     });
     expect(providerSchema.properties.final_selection.properties).not.toHaveProperty("claims");
+    for (const field of [
+      "preferred_thesis",
+      "least_preferred_thesis",
+      "driver_summary",
+      "risk_summary",
+    ]) {
+      expect(providerSchema.properties.final_selection.properties[field]).toMatchObject({
+        type: "string",
+        maxLength: 96,
+        description: expect.stringContaining("96 Unicode characters"),
+      });
+    }
+    expect(SECTOR_SELECTED_PROVIDER_INSTRUCTION).toContain("96 Unicode characters");
+    const targetItems = (
+      providerSchema.properties.final_selection.properties.macro_input_attributions as {
+        properties: {
+          target_attributions: {
+            items: {
+              anyOf: Array<{
+                properties: {
+                  target_type: { const: string };
+                  target_local_ref: { const: string };
+                };
+              }>;
+            };
+          };
+        };
+      }
+    ).properties.target_attributions.items;
+    expect(
+      targetItems.anyOf.map((branch) => [
+        branch.properties.target_type.const,
+        branch.properties.target_local_ref.const,
+      ]),
+    ).toEqual([
+      ["SECTOR_THESIS", "coal"],
+      ["SECTOR_THESIS", "oil_gas"],
+    ]);
 
     const normalized = normalizeStrictProviderPayload({
       final_selection: {
-        provider_contract: "SECTOR_SELECTED_COMPACT_V1",
+        provider_contract: "SECTOR_SELECTED_COMPACT_V2",
         agent: "energy",
         preferred_direction_id: "coal",
         preferred_direction_local_id: "coal",
@@ -70,7 +109,8 @@ describe("strict structured provider adapters", () => {
         confidence: 0.7,
         driver_summary: "Relative fundamentals and technicals favor coal.",
         risk_summary: "The relative ranking can reverse as inputs change.",
-        evidence_id: "evidence-1",
+        preferred_evidence_ids: ["evidence-preferred"],
+        least_preferred_evidence_ids: ["evidence-least"],
         research_rule_ref: "sector.energy.soft.001",
         preferred_security: {
           status: "NO_QUALIFIED_SECURITY",
@@ -123,6 +163,7 @@ describe("strict structured provider adapters", () => {
             least_preferred_security: {
               properties: { picks: { items: { properties: Record<string, unknown> } } };
             };
+            macro_input_attributions: Record<string, unknown>;
           };
         };
       };
@@ -134,10 +175,37 @@ describe("strict structured provider adapters", () => {
     expect(
       finalProperties.least_preferred_security.properties.picks.items.properties.position_action,
     ).toEqual({ type: "string", enum: ["SHORT", "AVOID"] });
+    const targetItems = (
+      finalProperties.macro_input_attributions as {
+        properties: {
+          target_attributions: {
+            items: {
+              anyOf: Array<{
+                properties: {
+                  target_type: { const: string };
+                  target_local_ref: { const: string };
+                };
+              }>;
+            };
+          };
+        };
+      }
+    ).properties.target_attributions.items;
+    expect(
+      targetItems.anyOf.map((branch) => [
+        branch.properties.target_type.const,
+        branch.properties.target_local_ref.const,
+      ]),
+    ).toEqual([
+      ["SECTOR_THESIS", "coal"],
+      ["SECTOR_THESIS", "oil_gas"],
+      ["SECURITY_PICK", "provider-energy-preferred-security-1"],
+      ["SECURITY_PICK", "provider-energy-least-security-1"],
+    ]);
 
     const payload = {
       final_selection: {
-        provider_contract: "SECTOR_SELECTED_COMPACT_V1",
+        provider_contract: "SECTOR_SELECTED_COMPACT_V2",
         agent: "energy",
         preferred_direction_id: "coal",
         preferred_direction_local_id: "coal",
@@ -151,7 +219,8 @@ describe("strict structured provider adapters", () => {
         confidence: 0.7,
         driver_summary: "Relative fundamentals and technicals favor coal.",
         risk_summary: "The relative ranking can reverse as inputs change.",
-        evidence_id: "evidence-1",
+        preferred_evidence_ids: ["evidence-preferred"],
+        least_preferred_evidence_ids: ["evidence-least"],
         research_rule_ref: "sector.energy.soft.001",
         preferred_security: {
           status: "PICKS_PRESENT",
@@ -501,12 +570,34 @@ describe("strict structured provider adapters", () => {
   });
 
   it("compacts DIRECT Macro extraction without losing its authored judgment", () => {
-    const domainSchema = createMacroSubmissionSchema("geopolitical");
+    const domainSchema = createMacroSubmissionSchema("institutional_flow");
     const providerSchema = adaptStrictProviderJsonSchema(z.toJSONSchema(domainSchema)) as {
-      properties: { provider_contract: { const: string }; judgment: unknown };
+      properties: {
+        provider_contract: { const: string };
+        judgment: {
+          properties: {
+            claim_kind: { enum: string[] };
+            channel: { maxLength: number; description: string };
+            statement: { maxLength: number; description: string };
+          };
+        };
+      };
     };
     expect(providerSchema.properties.provider_contract.const).toBe("MACRO_DIRECT_COMPACT_V1");
     expect(providerSchema.properties).not.toHaveProperty("claims");
+    expect(providerSchema.properties.judgment.properties.claim_kind.enum).toEqual([
+      "FACT",
+      "EVENT",
+      "INTERPRETATION",
+    ]);
+    expect(providerSchema.properties.judgment.properties.channel).toMatchObject({
+      maxLength: 96,
+      description: expect.stringContaining("no more than 96 Unicode characters"),
+    });
+    expect(providerSchema.properties.judgment.properties.statement).toMatchObject({
+      maxLength: 160,
+      description: expect.stringContaining("no more than 160 Unicode characters"),
+    });
     const normalized = normalizeStrictProviderPayload({
       provider_contract: "MACRO_DIRECT_COMPACT_V1",
       mode: "DIRECT",
@@ -517,7 +608,7 @@ describe("strict structured provider adapters", () => {
         channel: "A-share risk premium",
         claim_kind: "EVENT",
         statement: "The registered event remains active",
-        subject: "registered geopolitical event",
+        subject: "registered ETF share observation",
         state: "The event is escalating",
         a_share_transmission: "Risk appetite faces an adverse external shock",
         evidence_id: `evidence:${"a".repeat(64)}`,
@@ -539,7 +630,7 @@ describe("strict structured provider adapters", () => {
       statement: "The registered event remains active",
       structured_conclusion: {
         conclusion_type: "MACRO_EVENT",
-        subject: "registered geopolitical event",
+        subject: "registered ETF share observation",
         state: "The event is escalating",
         a_share_transmission: "Risk appetite faces an adverse external shock",
       },
@@ -551,7 +642,7 @@ describe("strict structured provider adapters", () => {
   });
 
   it("rejects numeric-word and placeholder prose materialized from compact Macro payloads", () => {
-    const domainSchema = createMacroSubmissionSchema("geopolitical");
+    const domainSchema = createMacroSubmissionSchema("institutional_flow");
     const judgment = {
       signal: { direction: "ADVERSE", strength: 2 },
       persistence_horizon: "WEEKS",
@@ -559,7 +650,7 @@ describe("strict structured provider adapters", () => {
       channel: "A-share risk appetite",
       claim_kind: "EVENT",
       statement: "The registered event remains active",
-      subject: "registered geopolitical event",
+      subject: "registered ETF share observation",
       state: "The event remains unresolved",
       a_share_transmission: "Risk appetite faces an adverse external shock",
       evidence_id: `evidence:${"b".repeat(64)}`,

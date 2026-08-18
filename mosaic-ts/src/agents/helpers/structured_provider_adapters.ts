@@ -19,7 +19,7 @@ const STANDARD_SECTOR_AGENTS = new Set([
   "agriculture",
 ]);
 
-const COMPACT_SELECTED_SECTOR = "SECTOR_SELECTED_COMPACT_V1";
+const COMPACT_SELECTED_SECTOR = "SECTOR_SELECTED_COMPACT_V2";
 const COMPACT_RELATIONSHIP_MAPPER = "RELATIONSHIP_MAPPER_COMPACT_V1";
 const COMPACT_SUPERINVESTOR_ABSTENTION = "SUPERINVESTOR_ABSTENTION_COMPACT_V1";
 const COMPACT_MACRO_COMPONENTS = "MACRO_COMPONENTS_COMPACT_V1";
@@ -27,11 +27,11 @@ const COMPACT_MACRO_DIRECT = "MACRO_DIRECT_COMPACT_V1";
 const SUPERINVESTOR_AGENTS = new Set(["druckenmiller", "munger", "burry", "ackman"]);
 
 export const STRUCTURED_PROVIDER_ADAPTER_DESCRIPTOR = Object.freeze({
-  contract_version: "structured_provider_adapter_pipeline_v3",
+  contract_version: "structured_provider_adapter_pipeline_v5",
   adapter_pipeline: [
     "SECTOR_DIRECTION_PROVIDER_ADAPTER_V2",
-    "SECTOR_FINAL_PROVIDER_ADAPTER_V2",
-    "MACRO_PROVIDER_ADAPTER_V2",
+    "SECTOR_FINAL_PROVIDER_ADAPTER_V3",
+    "MACRO_PROVIDER_ADAPTER_V3",
     "MACRO_ATTRIBUTION_PROVIDER_ADAPTER_V1",
     "STRICT_PROVIDER_PAYLOAD_NORMALIZATION_V2",
   ],
@@ -64,13 +64,17 @@ export const MACRO_PROVIDER_INSTRUCTION =
   "snapshot-echo judgments. Narrative fields must omit numeric facts completely; never evade this " +
   "by spelling numbers in Chinese or English. Do not return direction words or empty-value tokens " +
   "as narrative placeholders, and finish every sentence without a dangling fragment. In " +
+  "DIRECT mode claim_kind must be FACT, EVENT, or INTERPRETATION; the single compact claim cannot " +
+  "be RISK_FLAG because a risk-only submission is not an actionable conclusion. In " +
   "COMPONENTS mode every component becomes one independently owned " +
   "claim whose canonical structured_conclusion.subject is exactly that component id.";
 
 export const SECTOR_SELECTED_PROVIDER_INSTRUCTION =
-  "When the bounded provider extraction contract is SECTOR_SELECTED_COMPACT_V1, return the exact " +
-  "runtime-owned direction ids, concise preferred/least theses, one driver, one risk, one accepted " +
-  "evidence_id, security-leg decisions with LONG on the preferred leg and SHORT or AVOID on the " +
+  "When the bounded provider extraction contract is SECTOR_SELECTED_COMPACT_V2, return the exact " +
+  "runtime-owned direction ids, preferred/least theses, one driver, one risk, and security theses " +
+  "of no more than 96 Unicode characters each, plus one accepted " +
+  "preferred_evidence_ids list and least_preferred_evidence_ids list, security-leg decisions with " +
+  "at most one pick per leg, LONG on the preferred leg and SHORT or AVOID on the " +
   "least-preferred leg, and Macro attributions. Runtime deterministically assigns local ids and " +
   "maps each explicit direction, driver, risk, and security judgment to its own claim/reference " +
   "envelope without changing your direction, strength, confidence, security, or Macro-attribution " +
@@ -199,7 +203,9 @@ function compactMacroJudgmentSchema(input: {
     persistence_horizon: input.source.persistence_horizon,
     confidence: input.source.confidence,
     channel: boundedMacroNarrativeSchema(channel, 96),
-    claim_kind: input.claims.claim_kind,
+    claim_kind: input.includeSubject
+      ? directMacroClaimKindSchema(input.claims.claim_kind)
+      : input.claims.claim_kind,
     statement: boundedMacroNarrativeSchema(input.claims.statement, 160),
     ...(input.includeSubject
       ? { subject: boundedMacroNarrativeSchema(input.conclusion.subject, 96) }
@@ -310,9 +316,18 @@ function boundedMacroNarrativeSchema(value: unknown, maxLength: number): Record<
   return {
     ...boundedIdentifierSchema(value, maxLength, `^[^0-9０-９%％\\r\\n]{1,${maxLength}}$`),
     description:
-      "Complete qualitative prose only. Omit numeric facts entirely: do not spell numbers in " +
+      `One short, complete sentence of no more than ${maxLength} Unicode characters. ` +
+      "Omit numeric facts entirely: do not spell numbers in " +
       "Chinese or English, do not use tenor phrases such as written-out year counts, and do not " +
       "return direction/empty-value placeholders or truncated fragments.",
+  };
+}
+
+function directMacroClaimKindSchema(value: unknown): Record<string, unknown> {
+  return {
+    ...(objectRecord(value) ?? {}),
+    type: "string",
+    enum: ["FACT", "EVENT", "INTERPRETATION"],
   };
 }
 
@@ -827,16 +842,17 @@ function selectedSectorProviderSchema(
     preferred_direction_id: preferredProperties.direction_id,
     preferred_direction_local_id: preferredProperties.direction_local_id,
     preferred_strength: preferredProperties.strength,
-    preferred_thesis: conciseProviderText(),
+    preferred_thesis: conciseProviderText(96),
     least_preferred_direction_id: leastProperties?.direction_id,
     least_preferred_direction_local_id: leastProperties?.direction_local_id,
     least_preferred_strength: leastProperties?.strength,
-    least_preferred_thesis: conciseProviderText(),
+    least_preferred_thesis: conciseProviderText(96),
     persistence_horizon: properties.persistence_horizon,
     confidence: properties.confidence,
-    driver_summary: conciseProviderText(),
-    risk_summary: conciseProviderText(),
-    evidence_id: runtimeEvidenceIdProviderSchema(),
+    driver_summary: conciseProviderText(96),
+    risk_summary: conciseProviderText(96),
+    preferred_evidence_ids: providerEvidenceIdArraySchema(),
+    least_preferred_evidence_ids: providerEvidenceIdArraySchema(),
     research_rule_ref: { type: "string", minLength: 1, maxLength: 256 },
     preferred_security: compactSecurityLegSchema(preferredCapacity, preferredSecurityStatus, {
       type: "string",
@@ -879,7 +895,7 @@ function compactSecurityLegSchema(
         type: "array",
         items: compactSecurityPickSchema(positionAction),
         minItems: 1,
-        maxItems: capacity,
+        maxItems: 1,
       },
     },
     required: ["status", "picks"],
@@ -895,7 +911,7 @@ function compactSecurityPickSchema(
     ts_code: { type: "string", pattern: "^\\d{6}\\.(?:SH|SZ|BJ)$" },
     position_action: positionAction,
     conviction: { type: "number", exclusiveMinimum: 0, maximum: 1 },
-    thesis: conciseProviderText(),
+    thesis: conciseProviderText(96),
   };
   return {
     type: "object",
@@ -937,7 +953,15 @@ function materializeSelectedSector(input: Record<string, unknown>): unknown {
   const leastThesis = String(input.least_preferred_thesis);
   const driverSummary = String(input.driver_summary);
   const riskSummary = String(input.risk_summary);
-  const evidenceIds = [input.evidence_id];
+  const preferredEvidenceIds = requiredStringArray(
+    input.preferred_evidence_ids,
+    "preferred_evidence_ids",
+  );
+  const leastEvidenceIds = requiredStringArray(
+    input.least_preferred_evidence_ids,
+    "least_preferred_evidence_ids",
+  );
+  const finalEvidenceIds = [...new Set([...preferredEvidenceIds, ...leastEvidenceIds])].sort();
   const researchRuleRefs = [input.research_rule_ref];
   const securityClaims = [...preferredSecurity.picks, ...leastSecurity.picks].map((pick) => ({
     claim_id: String((pick.claim_refs as string[])[0]),
@@ -954,7 +978,10 @@ function materializeSelectedSector(input: Record<string, unknown>): unknown {
       position_action: pick.position_action,
       summary: pick.thesis,
     },
-    evidence_ids: evidenceIds,
+    evidence_ids:
+      pick.direction_local_id === preferredDirectionLocalId
+        ? preferredEvidenceIds
+        : leastEvidenceIds,
     research_rule_refs: researchRuleRefs,
   }));
   const claims = [
@@ -970,7 +997,7 @@ function materializeSelectedSector(input: Record<string, unknown>): unknown {
         position_action: null,
         summary: preferredThesis,
       },
-      evidence_ids: evidenceIds,
+      evidence_ids: preferredEvidenceIds,
       research_rule_refs: researchRuleRefs,
     },
     {
@@ -985,7 +1012,7 @@ function materializeSelectedSector(input: Record<string, unknown>): unknown {
         position_action: null,
         summary: leastThesis,
       },
-      evidence_ids: evidenceIds,
+      evidence_ids: leastEvidenceIds,
       research_rule_refs: researchRuleRefs,
     },
     {
@@ -1000,7 +1027,7 @@ function materializeSelectedSector(input: Record<string, unknown>): unknown {
         position_action: null,
         summary: driverSummary,
       },
-      evidence_ids: evidenceIds,
+      evidence_ids: finalEvidenceIds,
       research_rule_refs: researchRuleRefs,
     },
     {
@@ -1015,7 +1042,7 @@ function materializeSelectedSector(input: Record<string, unknown>): unknown {
         position_action: null,
         summary: riskSummary,
       },
-      evidence_ids: evidenceIds,
+      evidence_ids: finalEvidenceIds,
       research_rule_refs: researchRuleRefs,
     },
     ...securityClaims,
@@ -1110,12 +1137,27 @@ function materializeSecurityLeg(input: {
   return { status: "PICKS_PRESENT", abstentionConfidence: null, picks };
 }
 
-function conciseProviderText(): Record<string, unknown> {
-  return { type: "string", minLength: 1, maxLength: 160 };
+function conciseProviderText(maxLength = 160): Record<string, unknown> {
+  return {
+    type: "string",
+    minLength: 1,
+    maxLength,
+    description: `One concise, complete sentence of no more than ${maxLength} Unicode characters.`,
+  };
 }
 
 function runtimeEvidenceIdProviderSchema(): Record<string, unknown> {
   return { type: "string", pattern: "^evidence:[0-9a-f]{64}$", maxLength: 73 };
+}
+
+function providerEvidenceIdArraySchema(): Record<string, unknown> {
+  return {
+    type: "array",
+    items: { type: "string", minLength: 1, maxLength: 256 },
+    minItems: 1,
+    maxItems: 32,
+    uniqueItems: true,
+  };
 }
 
 function arrayCapacity(value: unknown): number {
@@ -1139,6 +1181,17 @@ function requiredString(value: unknown, field: string): string {
     throw new Error(`${field} must be a non-empty string`);
   }
   return value;
+}
+
+function requiredStringArray(value: unknown, field: string): string[] {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.some((item) => typeof item !== "string")
+  ) {
+    throw new Error(`${field} must be a non-empty string array`);
+  }
+  return value as string[];
 }
 
 function objectRecord(value: unknown): Record<string, unknown> | null {

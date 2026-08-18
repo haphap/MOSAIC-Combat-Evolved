@@ -10,6 +10,7 @@ import pytest
 from mosaic.bridge import handlers as _handlers_pkg  # noqa: F401 — registers @methods
 from mosaic.bridge.protocol import RpcError
 from mosaic.bridge.registry import get_handler
+from mosaic.bridge.tool_capabilities import ALL_AGENT_IDS
 from mosaic.scorecard import ScorecardStore
 
 # run_historical reaches qlib init before the no-actions check, so without the
@@ -64,15 +65,16 @@ SAMPLE_ACTIONS = [
 def accepted_audits() -> list[dict]:
     return [
         {
-            "agent": f"agent_{index}",
-            "stage": f"stage_{index}",
+            "agent": agent,
+            "stage": stage,
             "status": "accepted",
             "output_source": "structured_primary",
             "attempt_count": 1,
             "repair_count": 0,
             "stop_reason": "accepted",
         }
-        for index in range(29)
+        for agent in ALL_AGENT_IDS
+        for stage in (("cio_proposal", "cio_final") if agent == "cio" else (agent,))
     ]
 
 

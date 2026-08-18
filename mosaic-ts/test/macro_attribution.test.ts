@@ -49,7 +49,7 @@ function gate(): MacroInputGateReceipt {
   return {
     schema_version: "macro_input_gate_receipt_v1",
     accepted_agent_ids: [...MACRO_AGENT_IDS],
-    accepted_count: 10,
+    accepted_count: 8,
     input_hash: "sha256:gate",
     source_layer_snapshot_id: "macro-layer:test",
     source_layer_snapshot_hash: "sha256:macro-layer",
@@ -60,7 +60,7 @@ function gate(): MacroInputGateReceipt {
         agentId,
         {
           effective_reliability: 1,
-          usage_share: (index + 1) / 55,
+          usage_share: (index + 1) / 36,
           weight_record_id: null,
           reliability_record_id: null,
         },
@@ -82,7 +82,7 @@ function summaries(): MacroInputAttributionSubmission[] {
 describe("Macro input attribution v2", () => {
   it("requires one and only one submission summary for every Macro Agent", () => {
     const providerSchema = z.toJSONSchema(MacroInputAttributionSubmissionArraySchema);
-    expect(providerSchema).toMatchObject({ minItems: 10, maxItems: 16 });
+    expect(providerSchema).toMatchObject({ minItems: 8, maxItems: 16 });
     expect(MacroInputAttributionSubmissionArraySchema.safeParse(summaries()).success).toBe(true);
     expect(MacroInputAttributionSubmissionArraySchema.safeParse(summaries().slice(1)).success).toBe(
       false,
@@ -108,7 +108,12 @@ describe("Macro input attribution v2", () => {
       properties: {
         macro_input_attributions: {
           type: string;
-          properties: { submission_summaries: { required: string[] } };
+          properties: {
+            submission_summaries: { required: string[] };
+            target_attributions: {
+              items: { properties: { agent_id: { description: string } } };
+            };
+          };
         };
       };
     };
@@ -117,6 +122,15 @@ describe("Macro input attribution v2", () => {
       adapted.properties.macro_input_attributions.properties.submission_summaries.required,
     ).toEqual([...MACRO_AGENT_IDS]);
     expect(adapted.properties.macro_input_attributions).not.toHaveProperty("$schema");
+    const targetAgentIdDescription = (
+      adapted.properties.macro_input_attributions.properties.target_attributions.items as {
+        properties: { agent_id: { description: string } };
+      }
+    ).properties.agent_id.description;
+    expect(targetAgentIdDescription).toContain("one of the eight Macro source Agents");
+    expect(targetAgentIdDescription).toContain(
+      "never the affected Sector, Layer-3, or Layer-4 Agent",
+    );
 
     const normalized = normalizeMacroAttributionProviderPayload({
       final_selection: {
@@ -139,12 +153,35 @@ describe("Macro input attribution v2", () => {
     ).toBe(true);
   });
 
-  it("limits standard Sector target attribution to exact supported target types", () => {
+  it("forbids target rows in compact Superinvestor abstention output", () => {
+    const adapted = adaptMacroAttributionProviderJsonSchema(
+      z.toJSONSchema(
+        z.object({
+          provider_contract: z.literal("SUPERINVESTOR_ABSTENTION_COMPACT_V1"),
+          agent: z.literal("druckenmiller"),
+          macro_input_attributions: MacroInputAttributionSubmissionArraySchema,
+        }),
+      ),
+    ) as {
+      properties: {
+        macro_input_attributions: {
+          properties: { target_attributions: { maxItems: number } };
+        };
+      };
+    };
+    expect(
+      adapted.properties.macro_input_attributions.properties.target_attributions.maxItems,
+    ).toBe(0);
+  });
+
+  it("limits standard Sector target attribution to exact supported target pairs", () => {
     const adapted = adaptMacroAttributionProviderJsonSchema(
       z.toJSONSchema(
         z.object({
           agent: z.literal("energy"),
           selection_status: z.literal("SELECTED"),
+          preferred_direction_local_id: z.literal("energy-direction-up"),
+          least_preferred_direction_local_id: z.literal("energy-direction-down"),
           macro_input_attributions: MacroInputAttributionSubmissionArraySchema,
         }),
       ),
@@ -153,16 +190,27 @@ describe("Macro input attribution v2", () => {
         macro_input_attributions: {
           properties: {
             target_attributions: {
-              items: { properties: { target_type: { enum: string[] } } };
+              items: {
+                anyOf: Array<{
+                  properties: {
+                    target_type: { const: string };
+                    target_local_ref: { const: string };
+                  };
+                }>;
+              };
             };
           };
         };
       };
     };
     expect(
-      adapted.properties.macro_input_attributions.properties.target_attributions.items.properties
-        .target_type.enum,
-    ).toEqual(["SECTOR_THESIS", "SECURITY_PICK"]);
+      adapted.properties.macro_input_attributions.properties.target_attributions.items.anyOf.map(
+        (branch) => [branch.properties.target_type.const, branch.properties.target_local_ref.const],
+      ),
+    ).toEqual([
+      ["SECTOR_THESIS", "energy-direction-up"],
+      ["SECTOR_THESIS", "energy-direction-down"],
+    ]);
   });
 
   it("resolves local targets and copies authoritative usage shares", () => {
@@ -195,7 +243,7 @@ describe("Macro input attribution v2", () => {
       (row) => row.agent_id === "china" && row.target_type === "SUBMISSION_SUMMARY",
     );
     const chinaTarget = accepted.find((row) => row.target_type === "SECURITY_PICK");
-    expect(chinaSummary?.usage_share).toBeCloseTo(1 / 55);
+    expect(chinaSummary?.usage_share).toBeCloseTo(1 / 36);
     expect(chinaSummary?.target_ref).toMatch(/^accepted-target:submission:/);
     expect(chinaTarget?.target_ref).toMatch(/^accepted-target:security_pick:/);
     expect(chinaTarget?.target_hash).toMatch(/^sha256:[0-9a-f]{64}$/);

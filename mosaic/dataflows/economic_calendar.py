@@ -19,6 +19,10 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from mosaic.dataflows.cross_runtime_json import canonical_hash, canonical_json
+from mosaic.dataflows.runtime_paths import (
+    agent_cache_root,
+    isolated_agent_runtime_path,
+)
 from mosaic.dataflows.tushare_catalog import assert_endpoint_runtime_enabled
 
 ECO_CAL_SCHEMA_VERSION = "economic_calendar_event_v2"
@@ -266,11 +270,13 @@ def _rows(value: Any) -> list[dict[str, Any]]:
 
 
 def economic_calendar_cache_path() -> Path:
+    isolated = isolated_agent_runtime_path("economic_calendar/eco_cal.sqlite3")
+    if isolated is not None:
+        return isolated
     explicit = os.getenv("MOSAIC_ECO_CAL_CACHE_PATH")
     if explicit:
         return Path(explicit).expanduser()
-    cache = Path(os.getenv("MOSAIC_CACHE_DIR", "~/.mosaic/cache")).expanduser()
-    return cache / "economic_calendar" / "eco_cal.sqlite3"
+    return agent_cache_root() / "economic_calendar" / "eco_cal.sqlite3"
 
 
 class EconomicCalendarStore:

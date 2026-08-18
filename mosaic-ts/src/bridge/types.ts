@@ -13,12 +13,17 @@
  */
 
 import type {
+  KnotGateDCandidateV1,
+  KnotGateDReceiptV1,
+} from "../agents/prompts/prompt_release_contract.js";
+import type {
   AgentExecutionStageId,
   AgentId,
   AgentSnapshotBundle,
   SignedAgentToolCapability,
 } from "../agents/tool_contract.js";
 import type { LlmCallRecord } from "../agents/types.js";
+import type { PromptTrainingProjectionV2 } from "../autoresearch/capability_preservation_contract.js";
 import type {
   DatasetSplitManifest,
   PromptCandidate,
@@ -42,15 +47,25 @@ export interface JsonSchemaObject {
   type: "object";
   title?: string;
   description?: string;
-  properties: Record<string, JsonSchemaProperty>;
+  properties?: Record<string, JsonSchemaProperty>;
   required?: string[];
+  additionalProperties?: boolean;
+  oneOf?: JsonSchemaObject[];
 }
 
 export interface JsonSchemaProperty {
-  type?: "string" | "integer" | "number" | "boolean";
+  type?: "string" | "integer" | "number" | "boolean" | "array";
   description?: string;
   title?: string;
   default?: unknown;
+  const?: unknown;
+  enum?: unknown[];
+  items?: JsonSchemaProperty;
+  minLength?: number;
+  maxLength?: number;
+  minItems?: number;
+  maxItems?: number;
+  uniqueItems?: boolean;
   /** Allows nullable when present as an array of types in some schemas. */
   anyOf?: Array<{ type?: string }>;
 }
@@ -97,10 +112,30 @@ export interface ToolCapabilityIssueRequest {
 export interface PreparedAgentToolCapability {
   bundle: AgentSnapshotBundle;
   capability: SignedAgentToolCapability;
+  prepared_initial_tool_ids?: string[];
 }
 
 export interface ToolCallResult {
   text: string;
+  audit?: ToolCallAudit;
+}
+
+export interface ToolCallAudit {
+  schema_version: "tool_call_audit_v1";
+  result_event_id: string;
+  result_event_hash: string;
+  status: "SUCCEEDED";
+  result_authority_type: "SNAPSHOT_BUILD" | "FROZEN_QUERY";
+  result_authority_hash: string;
+  tool_environment_hash: string;
+  execution_behavior_release_hash: string;
+  capability_bundle_hash: string;
+  knot_coverage_manifest_v2_hash: string;
+  knot_audit_capability_track_v2_hash: string;
+  binding_result_refs: Array<{
+    binding_id: string;
+    binding_result_fingerprint: string;
+  }>;
 }
 
 export interface SectorModelUsageReport {
@@ -110,6 +145,12 @@ export interface SectorModelUsageReport {
   attempt_status: "ACCEPTED" | "REJECTED" | "OPERATIONAL_FAILURE";
   input_tokens: number;
   output_tokens: number;
+  validation_issues: Array<{
+    validator: string;
+    reason_code: string;
+    json_path: string;
+    message: string;
+  }>;
   provider_usage_evidence_id: string;
   provider_usage_evidence_hash: string;
   direction_comparison_audit_id: string | null;
@@ -246,6 +287,151 @@ export interface DataIncrementalResult {
   returncode: number;
   qlib_dir: string | null;
   ok: boolean;
+}
+
+export interface AgentDataSourceStatus {
+  route_id: string;
+  as_of: string;
+  status: "READY" | "BLOCKED";
+  blocker_codes: string[];
+  capture_receipt_hash: string | null;
+  knowledge_available_at?: string;
+  pit_mode?: "OBSERVED_LIVE" | "AUTHORITATIVE_VINTAGE_REPLAY";
+}
+
+export interface AgentSnapshotStatus {
+  agent_id: string;
+  stage: string;
+  as_of: string;
+  status: "READY" | "BLOCKED";
+  tool_ids: string[];
+  missing_tool_ids: string[];
+  build_receipt_hashes: Record<string, string>;
+  missing_route_ids: string[];
+}
+
+export interface AgentMaterializationDryRun {
+  dry_run: true;
+  agent_id: string;
+  stage: string;
+  as_of: string;
+  status: "READY" | "READY_TO_BUILD" | "BLOCKED";
+  would_collect: boolean;
+  would_build: boolean;
+  would_issue_capability: boolean;
+  required_route_ids: string[];
+  missing_route_ids: string[];
+  snapshot_status: AgentSnapshotStatus;
+  source_statuses: AgentDataSourceStatus[];
+}
+
+export interface AgentCycleMaterializationDryRun {
+  schema_version: "agent_cycle_materialization_dry_run_v1";
+  dry_run: true;
+  as_of: string;
+  status: "READY" | "READY_TO_BUILD" | "BLOCKED";
+  stage_count: 26;
+  ready_stage_count: number;
+  ready_to_build_stage_count: number;
+  blocked_stage_count: number;
+  would_collect: boolean;
+  would_build: boolean;
+  would_issue_capability: boolean;
+  missing_route_ids: string[];
+  stages: AgentMaterializationDryRun[];
+}
+
+export interface AgentSourcePreparation {
+  as_of: string;
+  adaptive_stage_count: number;
+  family_stage_count: number;
+  status: "SOURCE_PREPARED" | "SOURCE_PREPARATION_BLOCKED";
+  blocked_stage_ids?: string[];
+  blocked_stage_reasons?: Record<string, string[]>;
+}
+
+export interface AgentSourceAdmission {
+  schema_version: "agent_source_admission_v1";
+  route_manifest_hash: string;
+  target_date: string;
+  evaluated_at: string;
+  route_count: 26;
+  runtime_route_count: 4;
+  pending_runtime_route_ids: string[];
+  stage_count: 26;
+  status: "SOURCE_READY_PENDING_RUNTIME" | "BLOCKED";
+  would_materialize: boolean;
+  blocked_routes: Array<{ route_id: string; blockers: string[] }>;
+  eligibility_receipt_hashes: Record<string, string>;
+  stages: Array<{
+    agent_id: string;
+    stage: string;
+    required_route_ids: string[];
+    required_source_route_ids: string[];
+    pending_runtime_route_ids: string[];
+    eligibility_receipt_hashes: Record<string, string>;
+    status: "SOURCE_READY" | "SOURCE_READY_PENDING_RUNTIME" | "BLOCKED";
+    blocked_route_ids: string[];
+  }>;
+  source_preparation?: AgentSourcePreparation;
+}
+
+export interface AgentSourceBackfill {
+  schema_version: "agent_source_backfill_v1";
+  route_id: string;
+  from: string;
+  to: string;
+  status: "READY" | "BLOCKED";
+  dates: Array<{
+    target_date: string;
+    status: "READY" | "BLOCKED";
+    blockers: string[];
+    eligibility_receipt_hash: string;
+    source_preparation: AgentSourcePreparation & { route_id: string };
+  }>;
+}
+
+export interface AgentEarliestReadyDate {
+  schema_version: "agent_earliest_ready_date_v1";
+  status: "READY" | "BLOCKED";
+  earliest_ready_date: string | null;
+  evaluated_at: string;
+  source_route_count: 26;
+  source_route_ids: string[];
+  runtime_precheck_route_ids: string[];
+  pending_runtime_route_ids: string[];
+  eligible_intervals: Array<{ start: string; end: string }>;
+  route_blockers: Record<string, string[]>;
+  blockers: string[];
+  route_receipt_refs: Record<string, string[]>;
+  calendar_snapshot_hash: string | null;
+}
+
+export interface AgentCycleOpenRequest {
+  as_of: string;
+  run_id: string;
+  cohort: string;
+  mode: "enforce" | "shadow";
+  cycle_kind: "PRODUCTION" | "SHADOW" | "REPLAY";
+  lease_seconds?: number;
+}
+
+export interface AgentCycleOpenResult {
+  status: "OPEN";
+  event: Record<string, unknown> & { receipt_hash: string };
+  source_admission: AgentSourceAdmission;
+}
+
+export interface AgentCycleCommitResult {
+  status: "COMMITTED";
+  event_hash: string;
+  publication_hash: string;
+  final_decision_hash: string;
+}
+
+export interface AgentCycleAbortResult {
+  status: "ABORTED";
+  event_hash: string;
 }
 
 export interface PaperAccount {
@@ -1706,6 +1892,67 @@ export class BridgeApi {
     return this.client.call<Record<string, unknown>>("data.validate", params);
   }
 
+  dataSourceStatus(params: { as_of: string; route_id: string }): Promise<AgentDataSourceStatus> {
+    return this.client.call<AgentDataSourceStatus>("data.source_status", params);
+  }
+
+  dataSourcePreflight(params: { as_of: string; all_agents: true }): Promise<AgentSourceAdmission> {
+    return this.client.call<AgentSourceAdmission>("data.source_preflight", params);
+  }
+
+  dataSourceBackfill(params: {
+    route_id: string;
+    from: string;
+    to: string;
+    historical_replay?: true;
+  }): Promise<AgentSourceBackfill> {
+    return this.client.call<AgentSourceBackfill>("data.source_backfill", params);
+  }
+
+  dataEarliestReadyDate(params: { all_agents: true }): Promise<AgentEarliestReadyDate> {
+    return this.client.call<AgentEarliestReadyDate>("data.earliest_ready_date", params);
+  }
+
+  dataCycleOpen(params: AgentCycleOpenRequest): Promise<AgentCycleOpenResult> {
+    return this.client.call<AgentCycleOpenResult>("data.cycle_open", params);
+  }
+
+  dataCycleCommit(params: { state: Record<string, unknown> }): Promise<AgentCycleCommitResult> {
+    return this.client.call<AgentCycleCommitResult>("data.cycle_commit", params);
+  }
+
+  dataCycleAbort(params: { run_id: string; reason: string }): Promise<AgentCycleAbortResult> {
+    return this.client.call<AgentCycleAbortResult>("data.cycle_abort", params);
+  }
+
+  dataSnapshotStatus(params: {
+    as_of: string;
+    agent_id: string;
+    stage: string;
+  }): Promise<AgentSnapshotStatus> {
+    return this.client.call<AgentSnapshotStatus>("data.snapshot_status", params);
+  }
+
+  dataMaterializeDryRun(params: {
+    as_of: string;
+    agent_id: string;
+    stage: string;
+    dry_run: true;
+  }): Promise<AgentMaterializationDryRun> {
+    return this.client.call<AgentMaterializationDryRun>("data.materialize_dry_run", params);
+  }
+
+  dataMaterializeCycleDryRun(params: {
+    as_of: string;
+    all_agents: true;
+    dry_run: true;
+  }): Promise<AgentCycleMaterializationDryRun> {
+    return this.client.call<AgentCycleMaterializationDryRun>(
+      "data.materialize_cycle_dry_run",
+      params,
+    );
+  }
+
   // cache.*
   cacheStats(): Promise<CacheStats> {
     return this.client.call<CacheStats>("cache.stats", {});
@@ -2547,6 +2794,29 @@ export class BridgeApi {
       .then((result) => result.record);
   }
 
+  promptOptimizerPutTrainingProjectionV2(
+    record: PromptTrainingProjectionV2,
+  ): Promise<PromptTrainingProjectionV2> {
+    return this.client.call<PromptTrainingProjectionV2>(
+      "prompt_optimizer.put_training_projection_v2",
+      { record },
+    );
+  }
+
+  async promptOptimizerGetTrainingProjectionV2(
+    projectionHash: string,
+  ): Promise<PromptTrainingProjectionV2 | null> {
+    const result = await this.client.call<{ record: unknown }>(
+      "prompt_optimizer.get_training_projection_v2",
+      { projection_hash: projectionHash },
+    );
+    if (result.record === null) return null;
+    const { PromptTrainingProjectionV2Schema } = await import(
+      "../autoresearch/capability_preservation_contract.js"
+    );
+    return PromptTrainingProjectionV2Schema.parse(result.record);
+  }
+
   promptOptimizerPutCandidate(record: PromptCandidate): Promise<PromptCandidate> {
     return this.client.call<PromptCandidate>("prompt_optimizer.put_candidate", { record });
   }
@@ -2672,6 +2942,54 @@ export class BridgeApi {
       "../autoresearch/prompt_optimizer_contract.js"
     );
     return PromptTrainingProjectionSchema.parse(result.projection);
+  }
+
+  async promptOptimizerTrainingProjectionV2(params: {
+    agent_id: string;
+    stage: string;
+    cohort: string;
+    cutoff_at: string;
+    excluded_sample_ids?: string[];
+  }): Promise<PromptTrainingProjectionV2> {
+    const result = await this.client.call<{ projection: unknown }>(
+      "prompt_optimizer.training_projection_v2",
+      params,
+    );
+    const { PromptTrainingProjectionV2Schema } = await import(
+      "../autoresearch/capability_preservation_contract.js"
+    );
+    return PromptTrainingProjectionV2Schema.parse(result.projection);
+  }
+
+  async promptOptimizerBuildKnotGateDCandidate(params: {
+    capability_full_bundle: Record<string, unknown>;
+    experiment_ids_by_stage: Record<string, string>;
+    training_projection_hashes_by_stage: Record<string, string>;
+    public_private_pin: Record<string, string>;
+  }): Promise<KnotGateDCandidateV1> {
+    const result = await this.client.call<{ candidate: unknown }>(
+      "prompt_optimizer.build_knot_gate_d_candidate",
+      params,
+    );
+    const { KnotGateDCandidateV1Schema } = await import(
+      "../agents/prompts/prompt_release_contract.js"
+    );
+    return KnotGateDCandidateV1Schema.parse(result.candidate);
+  }
+
+  async promptOptimizerBuildKnotGateDReceipt(params: {
+    candidate: KnotGateDCandidateV1;
+    public_pi_review: Record<string, unknown>;
+    private_pi_review: Record<string, unknown>;
+  }): Promise<KnotGateDReceiptV1> {
+    const result = await this.client.call<{ receipt: unknown }>(
+      "prompt_optimizer.build_knot_gate_d_receipt",
+      params,
+    );
+    const { KnotGateDReceiptV1Schema } = await import(
+      "../agents/prompts/prompt_release_contract.js"
+    );
+    return KnotGateDReceiptV1Schema.parse(result.receipt);
   }
 
   autoresearchGetLog(params?: {

@@ -15,7 +15,11 @@ import { CRO_FIELD_NAMES, CroSchema } from "./_schemas.js";
 import { renderCurrentPositionsContext, renderLayer4RuntimeContext } from "./_user_context.js";
 import type { CroAgentSubmission } from "./accepted.js";
 
-const REQUIRED_TOOLS = ["get_cro_risk_snapshot", "get_role_event_snapshot"] as const;
+const REQUIRED_TOOLS = [
+  "get_cro_risk_snapshot",
+  "get_role_event_snapshot",
+  "get_rke_research_context",
+] as const;
 
 function buildUserContext(state: DailyCycleStateType): string {
   const date = state.as_of_date || new Date().toISOString().slice(0, 10);
@@ -27,7 +31,13 @@ function buildUserContext(state: DailyCycleStateType): string {
     `${renderLayer4RuntimeContext(state)}\n\n` +
     `Review every ticker and exposure in the frozen candidate target. Reject the ones with concentrated ` +
     `correlated risks, regulatory exposure, or black-swan vulnerability. ` +
-    `Empty rejected_picks is fine when upstream looks clean.`
+    `Use REQUIRE_REVIEW, VETO, CAP_WEIGHT, or REDUCE_WEIGHT only for evidence-backed hard controls: ` +
+    `a data-integrity failure, concrete evidence-backed regulatory or black-swan exposure, or a bound ` +
+    `cap/policy violation. Ordinary risk or uncertainty with complete evidence and an in-policy target ` +
+    `must use NO_OBJECTION or no adjustment. ` +
+    `Empty rejected_picks is fine when upstream looks clean. If the frozen candidate-action set is empty, ` +
+    `return review_disposition=NO_RISK_ACTION with candidate_actions=[]; this remains an evidence-backed ` +
+    `Agent run.`
   );
 }
 
@@ -71,6 +81,7 @@ export function fallbackCro(text: string): CroOutput {
   const trimmed = (text ?? "").trim();
   return {
     agent: "cro",
+    review_disposition: "NO_RISK_ACTION",
     rejected_picks: [],
     required_adjustments: [],
     correlated_risks: trimmed ? [trimmed.slice(0, 80)] : ["analysis missing"],

@@ -1,7 +1,9 @@
 """Closed, versioned Tushare endpoint registry for the v2 agent runtime.
 
-SDK method presence is not permission evidence.  An endpoint is usable only
-after a real permission/schema/PIT smoke promotes it to ``ACTIVE_VERIFIED``.
+SDK method presence is not permission evidence. Runtime consumers require
+``ACTIVE_VERIFIED``. The server-owned Source Archivist may query an evidenced
+``PRECHECK_REQUIRED`` endpoint only to perform the exhaustive capture that
+produces its route-level permission/schema/PIT proof.
 The four operator-confirmed unavailable document endpoints are permanently
 disabled in this revision and are never probed at startup.
 """
@@ -137,6 +139,7 @@ def _load_preflight_checks(path: Path = _PREFLIGHT_PATH) -> dict[str, dict]:
     if not isinstance(rows, list) or not rows:
         raise RuntimeError("Tushare preflight registry has no checks")
     result: dict[str, dict] = {}
+    seen_endpoints: set[str] = set()
     for row in rows:
         if not isinstance(row, dict):
             raise RuntimeError("Tushare preflight rows must be objects")
@@ -145,8 +148,9 @@ def _load_preflight_checks(path: Path = _PREFLIGHT_PATH) -> dict[str, dict]:
         permission_result = row.get("permission_result")
         observed_row_count = row.get("observed_row_count")
         if (
-            endpoint not in TUSHARE_ENDPOINT_IDS
-            or endpoint in result
+            not isinstance(endpoint, str)
+            or not endpoint.strip()
+            or endpoint in seen_endpoints
             or status
             not in {
                 "ACTIVE_VERIFIED",
@@ -166,6 +170,7 @@ def _load_preflight_checks(path: Path = _PREFLIGHT_PATH) -> dict[str, dict]:
             or observed_row_count < 0
         ):
             raise RuntimeError(f"invalid Tushare preflight row: {endpoint!r}")
+        seen_endpoints.add(endpoint)
         for field in (
             "permission_checked_at",
             "permission_evidence_id",
@@ -210,7 +215,16 @@ def _load_preflight_checks(path: Path = _PREFLIGHT_PATH) -> dict[str, dict]:
             "TRUNCATION_RISK",
         }:
             raise RuntimeError(f"invalid precheck coverage status for {endpoint}")
-        result[endpoint] = row
+        if endpoint in TUSHARE_ENDPOINT_IDS:
+            result[endpoint] = row
+    missing_endpoints = [
+        endpoint for endpoint in TUSHARE_ENDPOINT_IDS if endpoint not in result
+    ]
+    if missing_endpoints:
+        raise RuntimeError(
+            "Tushare preflight registry missing current endpoints: "
+            f"{missing_endpoints}"
+        )
     return result
 
 
@@ -329,6 +343,23 @@ def assert_endpoint_runtime_enabled(endpoint: str) -> TushareEndpointRegistratio
     ):
         raise PermissionError(
             f"TUSHARE_ENDPOINT_NOT_ACTIVE:{endpoint}:{registration.status}"
+        )
+    return registration
+
+
+def assert_endpoint_capture_preflight_allowed(
+    endpoint: str,
+) -> TushareEndpointRegistration:
+    """Allow an evidenced endpoint only inside an audited capture preflight."""
+    registration = endpoint_registration(endpoint)
+    if (
+        registration.status == "DISABLED_PERMISSION_DENIED"
+        or not registration.permission_checked_at
+        or not registration.permission_evidence_id
+        or not registration.schema_contract_version
+    ):
+        raise PermissionError(
+            f"TUSHARE_CAPTURE_PREFLIGHT_NOT_ALLOWED:{endpoint}:{registration.status}"
         )
     return registration
 
@@ -458,6 +489,7 @@ __all__ = [
     "TUSHARE_PREFLIGHT_SCHEMA_VERSION",
     "TushareEndpointRegistration",
     "VERIFIED_ENDPOINT_PREFLIGHTS",
+    "assert_endpoint_capture_preflight_allowed",
     "assert_endpoint_runtime_enabled",
     "catalog_by_endpoint",
     "endpoint_registration",

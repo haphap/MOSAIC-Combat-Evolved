@@ -1,0 +1,350 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "prompt_training_projection_v2"
+    },
+    "target": {
+      "type": "object"
+    },
+    "projectionId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "projectionHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "datasetSnapshotHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "eligibleSampleIdsHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "excludedSampleIdsHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "cutoffAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "outcomeContract": {
+      "type": "object"
+    },
+    "evaluator": {
+      "type": "object"
+    },
+    "capabilityTrack": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "accepted_output_capability_track_v1"
+        },
+        "tool_environment_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "execution_behavior_release_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "capability_binding_manifest_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "knot_coverage_manifest_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "capability_bundle_hash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "schema_version",
+        "tool_environment_hash",
+        "execution_behavior_release_hash",
+        "capability_binding_manifest_hash",
+        "knot_coverage_manifest_hash",
+        "capability_bundle_hash"
+      ],
+      "additionalProperties": false
+    },
+    "knotAuditCapabilityTrack": {
+      "type": "object",
+      "properties": {
+        "schema_version": { "const": "knot_audit_capability_track_v2" },
+        "tool_environment_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "execution_behavior_release_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "capability_binding_manifest_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "knot_coverage_manifest_v2_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "snapshot_audit_context_version": { "const": "snapshot_bundle_audit_context_v1" },
+        "capability_audit_context_version": { "const": "capability_audit_context_v1" },
+        "result_event_schema_version": { "const": "server_tool_result_event_v1" },
+        "binding_signal_projection_version": { "const": "binding_signal_projection_v1" },
+        "claim_comparison_spec_version": { "const": "claim_comparison_spec_v1" },
+        "trusted_comparator_version": { "const": "same_dimension_polarity_v1" },
+        "track_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      },
+      "required": [
+        "schema_version",
+        "tool_environment_hash",
+        "execution_behavior_release_hash",
+        "capability_binding_manifest_hash",
+        "knot_coverage_manifest_v2_hash",
+        "snapshot_audit_context_version",
+        "capability_audit_context_version",
+        "result_event_schema_version",
+        "binding_signal_projection_version",
+        "claim_comparison_spec_version",
+        "trusted_comparator_version",
+        "track_hash"
+      ],
+      "additionalProperties": false
+    },
+    "knotHistoryPartitionHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "knotMaterializationSetHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "knotExcludedSampleSetHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "capabilityUseAggregates": {
+      "type": "array",
+      "items": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "const": "knot_capability_use_aggregate_v1"
+          },
+          "binding_id": {
+            "type": "string",
+            "pattern": "^binding:[0-9a-f]{64}$"
+          },
+          "eligible_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "ready_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "called_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "succeeded_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "used_in_accepted_evidence_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "counterevidence_available_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "counterevidence_handled_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "runtime_blocker_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "excluded_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "gap_counts": {
+            "type": "object",
+            "properties": {
+              "not_called": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "call_failed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "succeeded_not_used": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "counterevidence_ignored": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "not_called",
+              "call_failed",
+              "succeeded_not_used",
+              "counterevidence_ignored"
+            ],
+            "additionalProperties": false
+          },
+          "model_controllable_gap_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "opaque_failure_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "aggregate_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "schema_version",
+          "binding_id",
+          "eligible_count",
+          "ready_count",
+          "called_count",
+          "succeeded_count",
+          "used_in_accepted_evidence_count",
+          "counterevidence_available_count",
+          "counterevidence_handled_count",
+          "runtime_blocker_count",
+          "excluded_count",
+          "gap_counts",
+          "model_controllable_gap_count",
+          "opaque_failure_refs",
+          "aggregate_hash"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "productionVariantRosterRevisions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "properties": {
+          "revisionId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "revisionHash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "revisionId",
+          "revisionHash"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "productionVariantRosterRevisionSetHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "maturityContract": {
+      "type": "object",
+      "properties": {
+        "horizonId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "horizonContractHash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "outcomeContractHash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "tradingCalendarHash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "labelReceiptSetHash": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "eligibilityEvaluatorVersion": {
+          "const": "mature_sample_eligibility_v1"
+        }
+      },
+      "required": [
+        "horizonId",
+        "horizonContractHash",
+        "outcomeContractHash",
+        "tradingCalendarHash",
+        "labelReceiptSetHash",
+        "eligibilityEvaluatorVersion"
+      ],
+      "additionalProperties": false
+    },
+    "matureSampleCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "scoreSummary": {
+      "type": "object"
+    },
+    "tailFailureCaseRefs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "failureCategoryCounts": {
+      "type": "object"
+    },
+    "directComponents": {
+      "type": "array"
+    },
+    "controlledExperiments": {
+      "type": "array"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "target",
+    "projectionId",
+    "projectionHash",
+    "datasetSnapshotHash",
+    "eligibleSampleIdsHash",
+    "excludedSampleIdsHash",
+    "cutoffAt",
+    "outcomeContract",
+    "evaluator",
+    "capabilityTrack",
+    "knotAuditCapabilityTrack",
+    "knotHistoryPartitionHash",
+    "knotMaterializationSetHash",
+    "knotExcludedSampleSetHash",
+    "capabilityUseAggregates",
+    "productionVariantRosterRevisions",
+    "productionVariantRosterRevisionSetHash",
+    "maturityContract",
+    "matureSampleCount",
+    "scoreSummary",
+    "tailFailureCaseRefs",
+    "failureCategoryCounts",
+    "directComponents",
+    "controlledExperiments"
+  ],
+  "additionalProperties": false
+}

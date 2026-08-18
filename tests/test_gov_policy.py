@@ -67,6 +67,7 @@ def test_parse_search_response_extracts_policy_fields():
             "raw_pubtime": None,
             "raw_ptime": None,
             "raw_sha256": parsed["records"][0]["raw_sha256"],
+            "discovered_at": parsed["records"][0]["discovered_at"],
             "parsed_at": parsed["records"][0]["parsed_at"],
         }
     ]
@@ -202,3 +203,32 @@ def test_get_gov_policy_refreshes_local_china_policy_db_before_read(tmp_path, mo
     assert "china-policy-db" in out
     assert "incremental refresh" in out
     assert "非化石能源" in out
+
+
+def test_crawl_preserves_first_discovery_time_across_refreshes(tmp_path, monkeypatch):
+    monkeypatch.setattr(gov_policy, "_utc_now", lambda: "2026-06-02T08:00:00+00:00")
+    gov_policy.crawl_gov_policy_documents(
+        cache_dir=tmp_path,
+        start_date="2026-06-01",
+        end_date="2026-06-02",
+        categories=["gongwen"],
+        q="农业",
+        fetcher=lambda params: _payload([ROW_POLICY], page=int(params["p"])),
+    )
+
+    refreshed = {**ROW_POLICY, "summary": "updated parser payload"}
+    monkeypatch.setattr(gov_policy, "_utc_now", lambda: "2026-06-03T08:00:00+00:00")
+    gov_policy.crawl_gov_policy_documents(
+        cache_dir=tmp_path,
+        start_date="2026-06-01",
+        end_date="2026-06-03",
+        categories=["gongwen"],
+        q="半导体",
+        fetcher=lambda params: _payload([refreshed], page=int(params["p"])),
+    )
+
+    [record] = gov_policy.load_gov_policy_records(tmp_path)
+    assert record["discovered_at"] == "2026-06-02T08:00:00+00:00"
+    assert record["parsed_at"] == "2026-06-03T08:00:00+00:00"
+    assert record["summary"] == "updated parser payload"
+    assert record["matched_queries"] == ["农业", "半导体"]

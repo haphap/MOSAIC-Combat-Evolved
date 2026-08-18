@@ -81,9 +81,7 @@ MACRO_AGENTS = frozenset(
         "commodities",
         "eu_economy",
         "euro_area_financial_conditions",
-        "geopolitical",
         "institutional_flow",
-        "market_breadth",
         "us_economy",
         "us_financial_conditions",
     }
@@ -308,6 +306,85 @@ SECTOR_AGENT_KEYWORDS: Mapping[str, tuple[str, ...]] = {
     ),
 }
 
+SECTOR_DIRECTION_KEYWORDS: Mapping[tuple[str, str], tuple[str, ...]] = {
+    ("semiconductor", "chip_design"): ("芯片", "集成电路", "芯片设计"),
+    ("semiconductor", "wafer_manufacturing_packaging"): (
+        "晶圆",
+        "封测",
+        "封装测试",
+    ),
+    ("semiconductor", "semiconductor_equipment_materials"): (
+        "半导体",
+        "半导体设备",
+        "半导体材料",
+    ),
+    ("semiconductor", "discrete_devices"): ("分立器件", "功率器件"),
+    ("technology", "electronics_non_semiconductor"): ("电子", "消费电子"),
+    ("technology", "computer"): ("计算机设备", "软件开发"),
+    ("technology", "media"): ("传媒",),
+    ("technology", "communications"): ("通信",),
+    ("energy", "coal"): ("煤炭行业",),
+    ("energy", "oil_gas"): ("石油", "天然气", "油气"),
+    ("energy", "electric_power"): ("电力", "公用事业"),
+    ("energy", "solar"): ("光伏",),
+    ("energy", "wind"): ("风电",),
+    ("energy", "battery_storage"): ("电池", "储能"),
+    ("biotech", "chemical_pharmaceuticals"): (
+        "医药",
+        "化学制药",
+        "化学药",
+    ),
+    ("biotech", "traditional_chinese_medicine"): ("中药",),
+    ("biotech", "biological_products"): ("生物制品",),
+    ("biotech", "pharmaceutical_commerce"): ("医药商业", "医药流通"),
+    ("biotech", "medical_devices"): ("医疗器械",),
+    ("biotech", "medical_services"): ("医疗服务",),
+    ("consumer", "home_appliances"): ("家电",),
+    ("consumer", "food_beverage"): ("食品饮料", "食品", "饮料"),
+    ("consumer", "textiles_apparel"): ("纺织", "服装"),
+    ("consumer", "light_manufacturing"): ("造纸", "包装印刷"),
+    ("consumer", "retail"): ("零售",),
+    ("consumer", "consumer_services"): ("旅游", "教育"),
+    ("consumer", "beauty_care"): ("美容",),
+    ("consumer", "automobiles"): ("汽车", "乘用车", "商用车"),
+    ("industrials", "basic_chemicals"): ("基础化工", "化工"),
+    ("industrials", "steel"): ("钢铁", "黑色金属"),
+    ("industrials", "nonferrous_metals"): ("有色", "稀土", "小金属"),
+    ("industrials", "machinery"): (
+        "通用设备",
+        "专用设备",
+        "工程机械",
+        "仪器仪表",
+    ),
+    ("industrials", "defense"): ("军工",),
+    ("industrials", "electrical_equipment_ex_renewables"): (
+        "电气设备",
+        "电气",
+    ),
+    ("industrials", "transportation"): ("交通运输", "交运"),
+    ("industrials", "environmental"): ("环保",),
+    ("real_estate_construction", "real_estate"): (
+        "房地产开发",
+        "房地产服务",
+    ),
+    ("real_estate_construction", "building_materials"): ("建筑材料", "建材"),
+    ("real_estate_construction", "construction_decoration"): ("建筑装饰", "装修"),
+    ("financials", "banking"): ("银行",),
+    ("financials", "securities"): ("证券",),
+    ("financials", "insurance"): ("保险",),
+    ("financials", "diversified_financials"): ("多元金融", "非银"),
+    ("agriculture", "crop_seed"): ("种植", "种业", "农作物"),
+    ("agriculture", "livestock_aquaculture"): (
+        "农牧饲渔",
+        "农业",
+        "养殖",
+        "畜牧",
+        "水产",
+    ),
+    ("agriculture", "feed_animal_health"): ("饲料", "动物保健"),
+    ("agriculture", "forestry_processing_services"): ("林业", "农产品加工", "渔业"),
+}
+
 SUPERINVESTOR_STYLE_KEYWORDS: Mapping[str, tuple[str, ...]] = {
     "superinvestor.ackman": (
         "cashflow",
@@ -421,8 +498,20 @@ def build_rke_agent_research_context(
     """Build a public-safe context from local private RKE artifacts."""
     root_path = Path(root).expanduser().resolve()
     registry_path = resolve_report_intelligence_registry_dir(root_path, registry_dir)
+    rows = _load_rke_agent_research_rows(registry_path)
+    return build_rke_agent_research_context_from_rows(
+        agent_id=agent_id,
+        as_of_date=as_of_date,
+        layer=layer,
+        ticker=ticker,
+        sector=sector,
+        max_items=max_items,
+        **rows,
+    )
 
-    rows = {
+
+def _load_rke_agent_research_rows(registry_path: Path) -> dict[str, list[dict[str, Any]]]:
+    return {
         "forecasts": _read_jsonl(registry_path / "forecast_claims.jsonl"),
         "metadata": _read_jsonl(registry_path / "report_metadata.jsonl"),
         "outcomes": _read_jsonl(registry_path / "report_outcome_labels.jsonl"),
@@ -444,7 +533,24 @@ def build_rke_agent_research_context(
             registry_path / "industry_context_snapshots.jsonl"
         ),
     }
-    return build_rke_agent_research_context_from_rows(
+
+
+def build_rke_agent_research_materialization(
+    *,
+    root: str | Path = ".",
+    registry_dir: str | Path | None = None,
+    agent_id: str,
+    as_of_date: str = "",
+    layer: str = "",
+    ticker: str = "",
+    sector: str = "",
+    max_items: int = 12,
+) -> dict[str, Any]:
+    """Build public context plus server-only source identities for PIT attestation."""
+    root_path = Path(root).expanduser().resolve()
+    registry_path = resolve_report_intelligence_registry_dir(root_path, registry_dir)
+    rows = _load_rke_agent_research_rows(registry_path)
+    context = build_rke_agent_research_context_from_rows(
         agent_id=agent_id,
         as_of_date=as_of_date,
         layer=layer,
@@ -453,6 +559,29 @@ def build_rke_agent_research_context(
         max_items=max_items,
         **rows,
     )
+    metadata_by_report = _index_metadata(rows["metadata"])
+    source_by_redacted_claim: dict[str, str] = {}
+    for claim in rows["forecasts"]:
+        claim_id = str(claim.get("forecast_claim_id") or claim.get("claim_id") or "")
+        if not claim_id:
+            continue
+        redacted_claim_id = _redacted_id("FCRED", claim_id)
+        metadata = metadata_by_report.get(_claim_report_key(claim), {})
+        source_id = str(claim.get("source_id") or metadata.get("source_id") or "").strip()
+        previous = source_by_redacted_claim.get(redacted_claim_id)
+        if previous is not None and previous != source_id:
+            raise ValueError("RKE selected claim identity collision")
+        source_by_redacted_claim[redacted_claim_id] = source_id
+
+    selected_source_ids: list[str] = []
+    for item in context["context_items"]:
+        redacted_claim_id = str(item.get("redacted_claim_id") or "")
+        source_id = source_by_redacted_claim.get(redacted_claim_id, "")
+        if not source_id:
+            raise ValueError("RKE selected context item has no private source identity")
+        if source_id not in selected_source_ids:
+            selected_source_ids.append(source_id)
+    return {"context": context, "source_ids": tuple(selected_source_ids)}
 
 
 def build_rke_agent_research_context_from_rows(
@@ -893,10 +1022,34 @@ def _claim_matches_request(
             return False
     if sector:
         sector_text = _combined_text(report_meta.get("sector"), claim.get("target"))
-        if sector.strip().lower() not in sector_text.lower():
+        requested_direction = sector.strip()
+        direction_agent = _sector_agent_for_direction(requested_direction)
+        if direction_agent:
+            if agent_id != direction_agent:
+                return False
+            direction_keywords = SECTOR_DIRECTION_KEYWORDS.get(
+                (direction_agent.removeprefix("sector."), requested_direction), ()
+            )
+            if not direction_keywords:
+                return False
+            if not any(
+                _sector_keyword_matches(keyword, sector_text)
+                for keyword in direction_keywords
+            ):
+                return False
+            return True
+        elif (
+            agent_id.startswith("sector.")
+            and agent_id != "sector.relationship_mapper"
+            and requested_direction.isascii()
+        ):
+            return False
+        elif requested_direction.lower() not in sector_text.lower():
             return False
     if agent_id.startswith("macro."):
         return _is_macro_claim(claim, report_meta) and agent_id in _macro_agent_candidates(claim)
+    if agent_id == "sector.relationship_mapper":
+        return _claim_domain(claim, report_meta) in {"stock", "industry"}
     if agent_id.startswith("sector."):
         return _sector_agent_for_claim(claim, report_meta) == agent_id
     if agent_id.startswith("superinvestor."):
@@ -1026,11 +1179,36 @@ def _sector_agent_for_claim(
     claim: Mapping[str, Any], report_meta: Mapping[str, Any]
 ) -> str:
     text = _combined_text(report_meta.get("sector"), report_meta.get("subsectors"), claim.get("target"))
-    lowered = text.lower()
     for agent_id, keywords in SECTOR_AGENT_KEYWORDS.items():
-        if any(keyword.lower() in lowered for keyword in keywords):
+        if any(_sector_keyword_matches(keyword, text) for keyword in keywords):
             return agent_id
     return ""
+
+
+def _sector_agent_for_direction(direction_id: str) -> str:
+    """Resolve a frozen direction ID to its existing Sector keyword authority."""
+    from mosaic.dataflows.sector_snapshots import SECTOR_DIRECTION_IDS
+
+    for agent_id, direction_ids in SECTOR_DIRECTION_IDS.items():
+        if direction_id in direction_ids:
+            return f"sector.{agent_id}"
+    return ""
+
+
+def _sector_keyword_matches(keyword: str, text: str) -> bool:
+    normalized_keyword = keyword.casefold()
+    normalized_text = text.casefold()
+    if normalized_keyword.isascii() and any(
+        character.isalnum() for character in normalized_keyword
+    ):
+        return (
+            re.search(
+                rf"(?<![a-z0-9]){re.escape(normalized_keyword)}(?![a-z0-9])",
+                normalized_text,
+            )
+            is not None
+        )
+    return normalized_keyword in normalized_text
 
 
 def _style_fit_score(

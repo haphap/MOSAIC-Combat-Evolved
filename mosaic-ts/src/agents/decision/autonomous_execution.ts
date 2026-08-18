@@ -21,7 +21,11 @@ import { AUTONOMOUS_EXECUTION_FIELD_NAMES, AutonomousExecutionSchema } from "./_
 import { renderLayer4PeerContext, renderLayer4RuntimeContext } from "./_user_context.js";
 import type { AutonomousExecutionSubmission } from "./accepted.js";
 
-const REQUIRED_TOOLS = ["get_execution_snapshot", "get_role_event_snapshot"] as const;
+const REQUIRED_TOOLS = [
+  "get_execution_snapshot",
+  "get_role_event_snapshot",
+  "get_rke_research_context",
+] as const;
 
 function buildUserContext(
   state: DailyCycleStateType,
@@ -37,7 +41,9 @@ function buildUserContext(
     `Translate the frozen candidate target after applying cro's review into executable deltas ` +
     `with size_pct in [0, 1]. Do not reweight candidates by raw upstream Agent scores. ` +
     `HOLD with size_pct = 0 is fine for picks that are valid but ` +
-    `already in the portfolio at target weight.`
+    `already in the portfolio at target weight. If the frozen order-intent set is empty, return ` +
+    `execution_disposition=NO_EXECUTION_ACTION with order_assessments=[]; this remains an ` +
+    `evidence-backed Agent run.`
   );
 }
 
@@ -84,6 +90,7 @@ export function fallbackAutonomousExecution(text: string): AutoExecOutput {
   void text;
   return {
     agent: "autonomous_execution",
+    execution_disposition: "NO_EXECUTION_ACTION",
     trades: [],
     execution_checks: [],
     confidence: 0,

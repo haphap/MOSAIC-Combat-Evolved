@@ -83,16 +83,6 @@ MACRO_LABEL_INVENTORY: tuple[MacroLabelSpec, ...] = (
         "energy, industrial metals, gold, and agriculture PIT subpaths",
     ),
     _spec(
-        "geopolitical",
-        "geopolitical_transmission_a_share_path_5d",
-        "verified affected-channel basket and equal-weight risk-appetite path",
-    ),
-    _spec(
-        "market_breadth",
-        "market_breadth_confirmation_5d",
-        "50% breadth composite change plus 50% PIT equal-weight relative return",
-    ),
-    _spec(
         "institutional_flow",
         "institutional_flow_followthrough_5d",
         "50% deterministic flow continuation plus 50% top-minus-bottom flow basket",

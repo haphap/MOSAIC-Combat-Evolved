@@ -88,6 +88,9 @@ def test_prompt_optimizer_bridge_registers_minimal_surface_and_round_trips(
 ) -> None:
     expected = {
         "prompt_optimizer.get_training_projection",
+        "prompt_optimizer.get_training_projection_v2",
+        "prompt_optimizer.build_knot_gate_d_candidate",
+        "prompt_optimizer.build_knot_gate_d_receipt",
         "prompt_optimizer.get_candidate",
         "prompt_optimizer.get_candidate_publication",
         "prompt_optimizer.get_family",
@@ -97,8 +100,10 @@ def test_prompt_optimizer_bridge_registers_minimal_surface_and_round_trips(
         "prompt_optimizer.list_runs",
         "prompt_optimizer.latest_summary",
         "prompt_optimizer.training_projection",
+        "prompt_optimizer.training_projection_v2",
         "prompt_optimizer.put_candidate",
         "prompt_optimizer.put_training_projection",
+        "prompt_optimizer.put_training_projection_v2",
         "prompt_optimizer.put_candidate_publication",
         "prompt_optimizer.put_family",
         "prompt_optimizer.put_split",

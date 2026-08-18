@@ -82,8 +82,8 @@
       }
     },
     "execution_contracts": {
-      "minItems": 56,
-      "maxItems": 56,
+      "minItems": 50,
+      "maxItems": 50,
       "type": "array",
       "items": {
         "type": "object",

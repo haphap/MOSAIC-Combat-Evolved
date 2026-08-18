@@ -1,0 +1,388 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "agent_capability_preservation_manifest_v1"
+    },
+    "baseline_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "baseline_runtime_manifest_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "current_runtime_manifest_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "baseline_agent_count": {
+      "const": 25
+    },
+    "baseline_stage_count": {
+      "const": 26
+    },
+    "baseline_capability_count": {
+      "const": 23
+    },
+    "current_agent_count": {
+      "const": 25
+    },
+    "current_stage_count": {
+      "const": 26
+    },
+    "introduced_roles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 23,
+      "maxItems": 23,
+      "items": {
+        "type": "object",
+        "properties": {
+          "semantic_capability_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "baseline_tool_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "baseline_consumers": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "baseline_argument_fields": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "baseline_argument_schema_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "current_owners": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "replacement_tools": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "disposition": {
+            "enum": [
+              "preserved",
+              "equivalent",
+              "partial",
+              "scope_reduction_approved",
+              "removed_approved"
+            ]
+          },
+          "equivalence_evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "privacy_class": {
+            "enum": [
+              "public_structured",
+              "private_redacted",
+              "licensed_private"
+            ]
+          },
+          "adaptive_query_requirement": {
+            "type": "boolean"
+          },
+          "consumer_closure": {
+            "enum": [
+              "open",
+              "closed"
+            ]
+          },
+          "approval_record": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "decision_id": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "actor": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "decided_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "lost_domain": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "consumer_closure": {
+                    "const": "closed"
+                  },
+                  "rollback_ref": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "pi_review_ref": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "decision_id",
+                  "actor",
+                  "decided_at",
+                  "lost_domain",
+                  "consumer_closure",
+                  "rollback_ref",
+                  "pi_review_ref"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "semantic_capability_id",
+          "baseline_tool_id",
+          "baseline_consumers",
+          "baseline_argument_fields",
+          "baseline_argument_schema_hash",
+          "current_owners",
+          "replacement_tools",
+          "disposition",
+          "equivalence_evidence_refs",
+          "privacy_class",
+          "adaptive_query_requirement",
+          "consumer_closure",
+          "approval_record"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "introduced_capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "semantic_capability_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "current_owners": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "replacement_tools": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "disposition": {
+            "const": "introduced"
+          },
+          "consumer_closure": {
+            "const": "closed"
+          }
+        },
+        "required": [
+          "semantic_capability_id",
+          "current_owners",
+          "replacement_tools",
+          "disposition",
+          "consumer_closure"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "output_compatibility_inventory": {
+      "type": "array",
+      "minItems": 25,
+      "maxItems": 25,
+      "items": {
+        "type": "object",
+        "properties": {
+          "baseline_agent_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "baseline_stage_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "baseline_required_tools": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "baseline_output_schema_fields": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "current_owners": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "current_required_tools_by_owner": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "current_output_schema_fields_by_owner": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "compatibility": {
+            "enum": [
+              "preserved",
+              "equivalent",
+              "partial"
+            ]
+          },
+          "consumer_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "consumer_closure": {
+            "enum": [
+              "open",
+              "closed"
+            ]
+          }
+        },
+        "required": [
+          "baseline_agent_id",
+          "baseline_stage_ids",
+          "baseline_required_tools",
+          "baseline_output_schema_fields",
+          "current_owners",
+          "current_required_tools_by_owner",
+          "current_output_schema_fields_by_owner",
+          "compatibility",
+          "consumer_refs",
+          "consumer_closure"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "transition_freeze": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "const": "FROZEN_UNTIL_GATE_D"
+        },
+        "allowed_actions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "blocked_actions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [
+        "state",
+        "allowed_actions",
+        "blocked_actions"
+      ],
+      "additionalProperties": false
+    },
+    "manifest_hash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "baseline_commit",
+    "baseline_runtime_manifest_hash",
+    "current_runtime_manifest_hash",
+    "baseline_agent_count",
+    "baseline_stage_count",
+    "baseline_capability_count",
+    "current_agent_count",
+    "current_stage_count",
+    "introduced_roles",
+    "capabilities",
+    "introduced_capabilities",
+    "output_compatibility_inventory",
+    "transition_freeze",
+    "manifest_hash"
+  ],
+  "additionalProperties": false
+}

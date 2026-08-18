@@ -80,7 +80,7 @@ export function validateMacroInputs(
     const refIds = Object.keys(acceptedRefs).sort();
     const expectedRefIds = [...MACRO_AGENT_IDS].sort();
     if (refIds.join("\0") !== expectedRefIds.join("\0")) {
-      throw new Error("macro_input_gate requires exactly ten accepted Macro record references");
+      throw new Error("macro_input_gate requires exactly eight accepted Macro record references");
     }
     for (const agent of MACRO_AGENT_IDS) {
       const ref = acceptedRefs[agent];
@@ -124,8 +124,8 @@ export function validateMacroInputs(
   });
   const weightByAgent = new Map((weightSnapshot?.weights ?? []).map((row) => [row.agent_id, row]));
   if (weightSnapshot) {
-    if (weightSnapshot.weights.length !== 24 || new Set(weightByAgent).size !== 24) {
-      throw new Error("macro_input_gate requires an exact 24-Agent Darwinian snapshot");
+    if (weightSnapshot.weights.length !== 21 || new Set(weightByAgent).size !== 21) {
+      throw new Error("macro_input_gate requires an exact 21-Agent Darwinian snapshot");
     }
     for (const agent of MACRO_AGENT_IDS) {
       if (!weightByAgent.has(agent)) throw new Error(`${agent}: Darwinian weight is missing`);
@@ -179,7 +179,7 @@ export function validateMacroInputs(
   return {
     schema_version: "macro_input_gate_receipt_v1",
     accepted_agent_ids: [...MACRO_AGENT_IDS],
-    accepted_count: 10,
+    accepted_count: MACRO_AGENT_IDS.length,
     input_hash: sourceLayerSnapshotHash,
     source_layer_snapshot_id: sourceLayerSnapshotId,
     source_layer_snapshot_hash: sourceLayerSnapshotHash,

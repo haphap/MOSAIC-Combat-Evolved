@@ -13,6 +13,7 @@ export function standardSectorSpec<TOutput extends SectorAgentOutputBase>(
     schema,
     fieldNames: STANDARD_SECTOR_FIELD_NAMES,
     requiredTools: STANDARD_SECTOR_ROLE_CONTRACTS[agentId].requiredTools,
+    initialSnapshotTools: STANDARD_SECTOR_ROLE_CONTRACTS[agentId].initialSnapshotTools,
     render: renderStandardSector,
   };
 }

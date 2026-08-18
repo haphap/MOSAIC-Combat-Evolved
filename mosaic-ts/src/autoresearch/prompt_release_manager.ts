@@ -32,6 +32,10 @@ import {
   loadExecutionBehaviorReleaseArchiveAtCommit,
 } from "./execution_behavior_release.js";
 import {
+  assertCurrentKnotTransitionAction,
+  assertKnotGateDBootstrapReleaseTransition,
+} from "./knot_gate_d_release_authority.js";
+import {
   assertCandidatePublicationMatches,
   type PromptCandidate,
   type PromptCandidatePublication,
@@ -550,6 +554,18 @@ function assertAuthorizedOperator(operator: string): void {
   if (!configured.has(operator)) throw new Error("prompt_release_operator_not_authorized");
 }
 
+async function assertKnotReleaseTransition(
+  action: "START_PROMPT_CANARY" | "ACTIVATE_PROMPT_RELEASE",
+  registryRoot: string,
+  releaseId: string,
+): Promise<void> {
+  try {
+    await assertCurrentKnotTransitionAction(action, registryRoot);
+  } catch {
+    await assertKnotGateDBootstrapReleaseTransition(action, registryRoot, releaseId);
+  }
+}
+
 export async function stagePromptRelease(
   opts: StagePromptReleaseOptions,
   deps: PromptReleaseManagerDependencies = {},
@@ -748,6 +764,7 @@ export async function stagePromptRelease(
       spec.stages.map((stage) => ({ agent: spec.agent, layer: spec.layer, stage: stage.stage })),
     ),
   );
+  await assertCurrentKnotTransitionAction("STAGE_PROMPT_RELEASE", opts.registryRoot);
   await registry.stage(manifest);
   return manifest;
 }
@@ -975,6 +992,7 @@ export async function startPromptReleaseCanary(opts: {
   if (!(opts.trafficPercent > 0 && opts.trafficPercent < 100)) {
     throw new Error("prompt_release_canary_traffic_invalid");
   }
+  await assertKnotReleaseTransition("START_PROMPT_CANARY", opts.registryRoot, opts.releaseId);
   const registry = new ActivePromptReleaseRegistry(opts.registryRoot);
   const previous = await registry.load(opts.releaseId);
   if (!previous) throw new Error("prompt_release_not_found");
@@ -1023,6 +1041,7 @@ export async function activatePromptRelease(opts: {
 }): Promise<ActivePromptReleaseManifest> {
   assertAuthorizedOperator(opts.approvedBy);
   if (!opts.reason.trim()) throw new Error("prompt_release_activation_reason_required");
+  await assertKnotReleaseTransition("ACTIVATE_PROMPT_RELEASE", opts.registryRoot, opts.releaseId);
   const registry = new ActivePromptReleaseRegistry(opts.registryRoot);
   const previous = await registry.load(opts.releaseId);
   if (!previous) throw new Error("prompt_release_not_found");

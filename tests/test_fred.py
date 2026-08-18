@@ -22,6 +22,7 @@ from unittest import mock
 
 import pandas as pd
 import pytest
+import requests
 
 from mosaic.dataflows import fred
 from mosaic.dataflows.config import set_config
@@ -192,6 +193,185 @@ class TestFetch:
         assert "fake-secret" not in out
         assert "api_key=<redacted>" in out
         assert out.rstrip().endswith("date,value")
+
+
+# --------------------------------------------------------------------- exact ALFRED vintage
+
+
+class TestExactAlfredVintage:
+    def test_unregistered_series_is_rejected_without_network(self, monkeypatch):
+        monkeypatch.setenv("FRED_API_KEY", "fake")
+        with mock.patch.object(fred.requests, "get") as mocked:
+            with pytest.raises(DataVendorUnavailable, match="unregistered ALFRED"):
+                fred.get_alfred_vintage(
+                    "INVENTED",
+                    observation_start="2024-01-01",
+                    observation_end="2024-06-30",
+                    vintage_date="2024-06-30",
+                )
+        mocked.assert_not_called()
+
+    def test_cutoff_selects_only_a_prior_complete_vintage_date(
+        self, monkeypatch, mock_response_factory
+    ):
+        monkeypatch.setenv("FRED_API_KEY", "fake")
+        with mock.patch.object(
+            fred.requests,
+            "get",
+            return_value=mock_response_factory({"vintage_dates": ["2024-06-30"]}),
+        ) as mocked:
+            selected = fred.select_alfred_vintage(
+                "GDPC1", as_of_cutoff="2024-07-01T15:00:00+08:00"
+            )
+
+        assert selected == "2024-06-30"
+        assert mocked.call_args.args[0].endswith("/series/vintagedates")
+        params = mocked.call_args.kwargs["params"]
+        assert params["series_id"] == "GDPC1"
+        assert params["realtime_end"] == "2024-06-30"
+        assert params["sort_order"] == "desc"
+        assert params["limit"] == 1
+
+    def test_exact_vintage_request_is_strict_and_metadata_preserving(
+        self, monkeypatch, mock_response_factory
+    ):
+        monkeypatch.setenv("FRED_API_KEY", "fake")
+        payload = {
+            "realtime_start": "2024-06-30",
+            "realtime_end": "2024-06-30",
+            "observations": [
+                {
+                    "realtime_start": "2024-06-30",
+                    "realtime_end": "2024-06-30",
+                    "date": "2024-01-01",
+                    "value": "22960.6",
+                }
+            ],
+        }
+        with mock.patch.object(
+            fred.requests, "get", return_value=mock_response_factory(payload)
+        ) as mocked:
+            result = fred.get_alfred_vintage(
+                "GDPC1",
+                observation_start="2024-01-01",
+                observation_end="2024-06-30",
+                vintage_date="2024-06-30",
+            )
+
+        assert result == payload
+        params = mocked.call_args.kwargs["params"]
+        assert "realtime_start" not in params
+        assert "realtime_end" not in params
+        assert params["vintage_dates"] == "2024-06-30"
+        assert params["observation_start"] == "2024-01-01"
+        assert params["observation_end"] == "2024-06-30"
+
+    def test_exact_vintage_retries_one_transient_timeout(
+        self, monkeypatch, mock_response_factory
+    ):
+        monkeypatch.setenv("FRED_API_KEY", "fake")
+        payload = {
+            "observations": [
+                {
+                    "realtime_start": "2024-06-30",
+                    "realtime_end": "2024-06-30",
+                    "date": "2024-01-01",
+                    "value": "22960.6",
+                }
+            ]
+        }
+        with mock.patch.object(
+            fred.requests,
+            "get",
+            side_effect=[
+                requests.ReadTimeout("private timeout detail"),
+                mock_response_factory(payload),
+            ],
+        ) as mocked, mock.patch.object(fred.time, "sleep") as slept:
+            result = fred.get_alfred_vintage(
+                "GDPC1",
+                observation_start="2024-01-01",
+                observation_end="2024-06-30",
+                vintage_date="2024-06-30",
+            )
+
+        assert result == payload
+        assert mocked.call_count == 2
+        slept.assert_called_once_with(fred.REQUEST_BACKOFF_SECONDS[0])
+
+    def test_strict_path_rejects_provider_error_and_empty_observations(
+        self, monkeypatch, mock_response_factory
+    ):
+        monkeypatch.setenv("FRED_API_KEY", "fake")
+        responses = [
+            mock_response_factory(
+                {"error_code": 400, "error_message": "series does not exist"}
+            ),
+            mock_response_factory({"observations": []}),
+        ]
+        with mock.patch.object(fred.requests, "get", side_effect=responses):
+            with pytest.raises(DataVendorUnavailable, match="returned error"):
+                fred.get_alfred_vintage(
+                    "GDPC1",
+                    observation_start="2024-01-01",
+                    observation_end="2024-06-30",
+                    vintage_date="2024-06-30",
+                )
+            with pytest.raises(DataVendorUnavailable, match="no observations"):
+                fred.get_alfred_vintage(
+                    "GDPC1",
+                    observation_start="2024-01-01",
+                    observation_end="2024-06-30",
+                    vintage_date="2024-06-29",
+                )
+
+    def test_exact_vintage_cache_identity_includes_vintage_date(
+        self, monkeypatch, mock_response_factory
+    ):
+        monkeypatch.setenv("FRED_API_KEY", "fake")
+
+        def payload(vintage_date: str, value: str):
+            return {
+                "observations": [
+                    {
+                        "realtime_start": vintage_date,
+                        "realtime_end": vintage_date,
+                        "date": "2024-01-01",
+                        "value": value,
+                    }
+                ]
+            }
+
+        with mock.patch.object(
+            fred.requests,
+            "get",
+            side_effect=[
+                mock_response_factory(payload("2024-06-29", "1.0")),
+                mock_response_factory(payload("2024-06-30", "2.0")),
+            ],
+        ) as mocked:
+            first = fred.get_alfred_vintage(
+                "GDPC1",
+                observation_start="2024-01-01",
+                observation_end="2024-06-30",
+                vintage_date="2024-06-29",
+            )
+            assert fred.get_alfred_vintage(
+                "GDPC1",
+                observation_start="2024-01-01",
+                observation_end="2024-06-30",
+                vintage_date="2024-06-29",
+            ) == first
+            second = fred.get_alfred_vintage(
+                "GDPC1",
+                observation_start="2024-01-01",
+                observation_end="2024-06-30",
+                vintage_date="2024-06-30",
+            )
+
+        assert first != second
+        assert mocked.call_count == 2
+        assert len(list(fred._cache_dir().glob("ALFRED_*.json"))) == 2
 
 
 # --------------------------------------------------------------------- caching

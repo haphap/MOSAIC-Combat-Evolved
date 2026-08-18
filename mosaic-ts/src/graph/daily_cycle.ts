@@ -39,6 +39,10 @@ import {
 } from "../autoresearch/prompt_release_canary_slo.js";
 import type { BridgeApi, MosaicConfig } from "../bridge/index.js";
 import type { LlmHandle } from "../llm/factory.js";
+import {
+  checkpointCommitStageForNode,
+  type DailyCycleStageCheckpointController,
+} from "./daily_cycle_checkpoint.js";
 import { buildLayer1Graph } from "./layer1.js";
 import { buildLayer2Graph } from "./layer2.js";
 import { buildLayer3Graph } from "./layer3.js";
@@ -64,6 +68,8 @@ export interface BuildDailyCycleGraphDeps {
   promptReleaseContext?: PromptReleaseLoadContext | null;
   /** Injectable for persistence adapters and contract tests; one store is shared by all layers. */
   acceptedOutputStore?: AcceptedAgentOutputStore;
+  /** Optional durable Agent-stage checkpoint/resume controller. */
+  stageCheckpoint?: DailyCycleStageCheckpointController;
 }
 
 export const DAILY_CYCLE_LAYER_NODES = ["layer1", "layer2", "layer3", "layer4"] as const;
@@ -72,6 +78,13 @@ export const DAILY_CYCLE_LAYER_NODES = ["layer1", "layer2", "layer3", "layer4"] 
  *  rather than importing the heavy generic from ``@langchain/langgraph``. */
 interface InvokeOnly {
   invoke: (state: DailyCycleStateType) => Promise<DailyCycleStateType>;
+}
+
+interface StreamableSubgraph extends InvokeOnly {
+  stream: (
+    state: DailyCycleStateType,
+    options: { streamMode: string[] },
+  ) => Promise<ReadableStream<unknown>>;
 }
 
 /**
@@ -108,9 +121,18 @@ const _APPEND_REDUCER_CHANNELS = ["messages", "llm_calls"] as const satisfies Re
  */
 function invokeSubgraph(
   subgraph: InvokeOnly,
+  acceptedOutputStore: AcceptedAgentOutputStore,
+  stageCheckpoint: DailyCycleStageCheckpointController | undefined,
 ): (state: DailyCycleStateType) => Promise<DailyCycleStateUpdate> {
   return async (state) => {
-    const result = await subgraph.invoke(state);
+    const result = stageCheckpoint
+      ? await invokeSubgraphWithCheckpoint(
+          subgraph as StreamableSubgraph,
+          state,
+          acceptedOutputStore,
+          stageCheckpoint,
+        )
+      : await subgraph.invoke(state);
     const prevLlmLen = state.llm_calls?.length ?? 0;
     const prevMsgLen = state.messages?.length ?? 0;
     return {
@@ -137,6 +159,48 @@ function invokeSubgraph(
   };
 }
 
+async function invokeSubgraphWithCheckpoint(
+  subgraph: StreamableSubgraph,
+  state: DailyCycleStateType,
+  acceptedOutputStore: AcceptedAgentOutputStore,
+  stageCheckpoint: DailyCycleStageCheckpointController,
+): Promise<DailyCycleStateType> {
+  const stream = await subgraph.stream(state, { streamMode: ["updates", "values"] });
+  const reader = stream.getReader();
+  let result = state;
+  let pendingStage: string | null = null;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      const chunk = next.value;
+      if (!Array.isArray(chunk) || chunk.length !== 2) continue;
+      const [mode, payload] = chunk as [string, unknown];
+      if (mode === "updates" && isRecord(payload)) {
+        const nodeIds = Object.keys(payload);
+        pendingStage = nodeIds.length === 1 ? (nodeIds[0] ?? null) : null;
+      } else if (mode === "values" && isRecord(payload)) {
+        result = payload as DailyCycleStateType;
+        if (pendingStage) {
+          const commitStage = checkpointCommitStageForNode(pendingStage);
+          if (commitStage) stageCheckpoint.commit(commitStage, result, acceptedOutputStore);
+          pendingStage = null;
+        }
+      }
+    }
+  } catch (cause) {
+    try {
+      await reader.cancel(cause);
+    } catch {
+      // Preserve the stage or checkpoint failure that stopped the stream.
+    }
+    throw cause;
+  } finally {
+    reader.releaseLock();
+  }
+  return result;
+}
+
 /** Build (and compile) the full 4-layer daily cycle graph. */
 export function buildDailyCycleGraph(deps: BuildDailyCycleGraphDeps) {
   const acceptedOutputStore = deps.acceptedOutputStore ?? new AcceptedAgentOutputStore();
@@ -147,10 +211,10 @@ export function buildDailyCycleGraph(deps: BuildDailyCycleGraphDeps) {
   const l4 = buildLayer4Graph(runDeps);
 
   const graph = new StateGraph(DailyCycleState)
-    .addNode("layer1", invokeSubgraph(l1 as InvokeOnly))
-    .addNode("layer2", invokeSubgraph(l2 as InvokeOnly))
-    .addNode("layer3", invokeSubgraph(l3 as InvokeOnly))
-    .addNode("layer4", invokeSubgraph(l4 as InvokeOnly))
+    .addNode("layer1", invokeSubgraph(l1 as InvokeOnly, acceptedOutputStore, deps.stageCheckpoint))
+    .addNode("layer2", invokeSubgraph(l2 as InvokeOnly, acceptedOutputStore, deps.stageCheckpoint))
+    .addNode("layer3", invokeSubgraph(l3 as InvokeOnly, acceptedOutputStore, deps.stageCheckpoint))
+    .addNode("layer4", invokeSubgraph(l4 as InvokeOnly, acceptedOutputStore, deps.stageCheckpoint))
     .addNode("prompt_canary_audit", async (state: DailyCycleStateType) => {
       const events = state.llm_calls.flatMap((call) =>
         call.prompt_canary_event ? [call.prompt_canary_event] : [],
@@ -166,6 +230,10 @@ export function buildDailyCycleGraph(deps: BuildDailyCycleGraphDeps) {
     .addEdge("prompt_canary_audit", END);
 
   return graph.compile();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function finalizeCanaryEvents(

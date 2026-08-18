@@ -6,6 +6,7 @@ import {
   ActivePromptReleaseManifestSchema,
   assertPromptReleaseTransition,
 } from "../agents/prompts/prompt_release_contract.js";
+import { validateKnotGateDReleaseManifest } from "./knot_gate_d_manifest_validation.js";
 
 export interface ActivePromptReleasePointer {
   schema_version: "active_prompt_release_pointer_v1";
@@ -101,6 +102,12 @@ function immutableReleaseClosure(manifest: ActivePromptReleaseManifest): unknown
     previous_approved_release_id: manifest.previous_approved_release_id,
     bundled_fallback: manifest.bundled_fallback,
     created_at: manifest.created_at,
+    ...(manifest.schema_version === "active_prompt_release_manifest_v4"
+      ? {
+          capability_full_bundle: manifest.capability_full_bundle,
+          gate_d_receipt: manifest.gate_d_receipt,
+        }
+      : {}),
   };
 }
 
@@ -168,6 +175,9 @@ export class ActivePromptReleaseRegistry {
 
   async stage(manifest: ActivePromptReleaseManifest): Promise<void> {
     ActivePromptReleaseManifestSchema.parse(manifest);
+    if (manifest.schema_version === "active_prompt_release_manifest_v4") {
+      validateKnotGateDReleaseManifest(manifest);
+    }
     if (manifest.lifecycle_state !== "staged") {
       throw new Error("prompt_release_must_start_staged");
     }

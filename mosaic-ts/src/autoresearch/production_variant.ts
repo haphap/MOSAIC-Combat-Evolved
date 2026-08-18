@@ -242,10 +242,10 @@ export function buildDarwinianRuntimeBinding(input: {
   );
   const expectedAgents = Object.keys(OUTCOME_LABEL_REGISTRY).sort();
   if (
-    promptShaByAgent.size !== 28 ||
+    promptShaByAgent.size !== expectedAgents.length ||
     expectedAgents.some((agent) => !promptShaByAgent.has(agent))
   ) {
-    throw new Error("prompt preflight must provide the selected language for all 28 Agents");
+    throw new Error("prompt preflight must provide the selected language for all active Agents");
   }
 
   const runtimeSpecByAgent = new Map(RUNTIME_AGENT_SPECS.map((spec) => [spec.agent, spec]));
@@ -306,11 +306,9 @@ export function buildDarwinianRuntimeBinding(input: {
             agent_id: agentId,
             accepted_output_kind: outcome.accepted_output_kind,
             confidence_source:
-              agentId === "relationship_mapper"
-                ? "MATERIALITY_WEIGHTED_PREDICTIVE_EDGES"
-                : spec.layer === "sector"
-                  ? "CALIBRATED_SECTOR_OUTPUT_UTILITY"
-                  : "CALIBRATED_OUTPUT_LEVEL",
+              spec.layer === "sector"
+                ? "CALIBRATED_SECTOR_OUTPUT_UTILITY"
+                : "CALIBRATED_OUTPUT_LEVEL",
           })
         : null;
     const confidenceVersion =

@@ -133,7 +133,7 @@ def _bundle(trace_id: str = "trace-1") -> dict:
         "cohort": "cohort_default",
         "as_of_date": "2026-07-18",
         "language": "zh",
-        "narrative_count": 28,
+        "narrative_count": 25,
         "narratives": narratives,
     }
     return {**body, "bundle_hash": canonical_hash(body)}
@@ -218,15 +218,15 @@ def _state(trace_id: str = "trace-1") -> dict:
 def test_unsealed_agent_display_narratives_are_not_latest(tmp_path):
     store = ScorecardStore(tmp_path / "scorecard.db")
 
-    assert store.append_agent_display_narratives_from_state(_state()) == 28
-    assert store.append_agent_display_narratives_from_state(_state()) == 28
+    assert store.append_agent_display_narratives_from_state(_state()) == 25
+    assert store.append_agent_display_narratives_from_state(_state()) == 25
 
     latest = store.get_latest_agent_display_narratives("cohort_default")
     assert latest["date"] is None
     assert latest["trace_id"] is None
     assert latest["narratives"] == []
     with store._connect() as conn:
-        assert conn.execute("SELECT COUNT(*) FROM agent_display_narratives").fetchone()[0] == 28
+        assert conn.execute("SELECT COUNT(*) FROM agent_display_narratives").fetchone()[0] == 25
 
 
 @pytest.mark.parametrize(
@@ -440,7 +440,7 @@ def test_append_verifies_nested_accepted_payload_projection(tmp_path):
         accepted_output_kind="STANDARD_SECTOR_SELECTION",
     )
     store = ScorecardStore(tmp_path / "scorecard.db")
-    assert store.append_agent_display_narratives_from_state(state) == 28
+    assert store.append_agent_display_narratives_from_state(state) == 25
     with store._connect() as conn:
         row = dict(
             conn.execute(

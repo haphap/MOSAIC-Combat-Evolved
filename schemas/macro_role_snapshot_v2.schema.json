@@ -70,16 +70,10 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "market_wide_flow",
-        "sector_rotation",
-        "etf_share",
-        "crowding"
+        "etf_share"
       ],
       "properties": {
-        "market_wide_flow": { "$ref": "#/$defs/coverage" },
-        "sector_rotation": { "$ref": "#/$defs/coverage" },
-        "etf_share": { "$ref": "#/$defs/coverage" },
-        "crowding": { "$ref": "#/$defs/coverage" }
+        "etf_share": { "$ref": "#/$defs/coverage" }
       }
     },
     "commodity_conditions": { "$ref": "commodity_conditions_v1.schema.json" },

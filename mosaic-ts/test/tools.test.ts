@@ -10,6 +10,11 @@ import {
   type SignedAgentToolCapability,
   type ToolMetadata,
 } from "../src/bridge/index.js";
+import {
+  BRIDGE_AUDITED_TOOL_INVOKE,
+  BRIDGE_INITIAL_AUDITED_TOOL_INVOKE,
+  BRIDGE_INITIAL_TOOL_INVOKE,
+} from "../src/bridge/tools.js";
 
 const CAPABILITY = {
   manifest: {
@@ -56,6 +61,30 @@ describe("jsonSchemaToZod", () => {
     expect(() => zod.parse({ series_id: 1, start_date: "2024-01-01" })).toThrow();
   });
 
+  it("converts constrained primitive arrays without widening the item contract", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        industry_filters: {
+          type: "array",
+          items: { type: "string", minLength: 1 },
+          minItems: 1,
+          maxItems: 3,
+          uniqueItems: true,
+        },
+      },
+      required: ["industry_filters"],
+    } as unknown as JsonSchemaObject;
+    const zod = jsonSchemaToZod(schema);
+
+    expect(() => zod.parse({ industry_filters: ["银行", "证券"] })).not.toThrow();
+    expect(() => zod.parse({ industry_filters: [] })).toThrow();
+    expect(() => zod.parse({ industry_filters: [""] })).toThrow();
+    expect(() => zod.parse({ industry_filters: ["银行", "银行"] })).toThrow();
+    expect(() => zod.parse({ industry_filters: ["一", "二", "三", "四"] })).toThrow();
+    expect(() => zod.parse({ industry_filters: "银行" })).toThrow();
+  });
+
   it("rejects unsupported features with an actionable error", () => {
     expect(() =>
       jsonSchemaToZod({
@@ -67,7 +96,7 @@ describe("jsonSchemaToZod", () => {
       jsonSchemaToZod({
         type: "object",
         // biome-ignore lint/suspicious/noExplicitAny: deliberately invalid input
-        properties: { weird: { type: "array" as any } },
+        properties: { weird: { type: "array", items: { type: "object" } } as any },
       }),
     ).toThrow(/unsupported type/);
   });
@@ -138,6 +167,147 @@ describe("bridgeToolFromMetadata (unit)", () => {
     expect(calls[0]?.name).toBe("echo");
     expect(calls[0]?.args).toEqual({ series_id: "FEDFUNDS" });
     expect(calls[0]?.capability).toBe(CAPABILITY);
+  });
+
+  it("preserves exact frozen argument unions and rejects cross-spliced tuples", async () => {
+    const calls: unknown[] = [];
+    const fakeApi = {
+      toolsCall: async (_name: string, args: unknown) => {
+        calls.push(args);
+        return { text: "exact" };
+      },
+    } as unknown as BridgeApi;
+    const exactSchema = {
+      type: "object",
+      oneOf: [
+        {
+          type: "object",
+          properties: {
+            ticker: { type: "string", const: "600000.SH" },
+            lookback: { type: "integer", const: 20 },
+            indicator: { type: "string", const: "rsi" },
+          },
+          required: ["ticker", "lookback", "indicator"],
+          additionalProperties: false,
+        },
+        {
+          type: "object",
+          properties: {
+            ticker: { type: "string", const: "601398.SH" },
+            lookback: { type: "integer", const: 30 },
+            indicator: { type: "string", const: "macd" },
+          },
+          required: ["ticker", "lookback", "indicator"],
+          additionalProperties: false,
+        },
+      ],
+    } as unknown as JsonSchemaObject;
+    const exactTool = bridgeToolFromMetadata(
+      fakeApi,
+      {
+        name: "get_indicators",
+        description: "Only frozen indicator requests are legal.",
+        args_schema: exactSchema,
+      },
+      { capability: CAPABILITY },
+    );
+
+    expect(exactTool.schema).toEqual(exactSchema);
+    await expect(
+      exactTool.invoke({ ticker: "600000.SH", lookback: 20, indicator: "rsi" }),
+    ).resolves.toBe("exact");
+    await expect(
+      exactTool.invoke({ ticker: "600000.SH", lookback: 30, indicator: "macd" }),
+    ).rejects.toThrow();
+    await expect(
+      exactTool.invoke({ ticker: "600000.SH", lookback: 20, indicator: "rsi", extra: true }),
+    ).rejects.toThrow();
+    expect(calls).toEqual([{ ticker: "600000.SH", lookback: 20, indicator: "rsi" }]);
+  });
+
+  it("exposes a runtime-only initial invocation that bypasses model argument validation", async () => {
+    const calls: Array<{ name: string; args: unknown }> = [];
+    const fakeApi = {
+      toolsCall: async (name: string, args: unknown) => {
+        calls.push({ name, args });
+        return { text: "frozen-initial" };
+      },
+    } as unknown as BridgeApi;
+    const tool = bridgeToolFromMetadata(
+      fakeApi,
+      {
+        name: "get_rke_research_context",
+        description: "frozen RKE prior",
+        args_schema: {
+          type: "object",
+          properties: { agent_id: { type: "string" } },
+          required: ["agent_id"],
+        },
+      },
+      { capability: CAPABILITY },
+    );
+
+    await expect(tool.invoke({})).rejects.toThrow();
+    const initial = tool[BRIDGE_INITIAL_TOOL_INVOKE];
+    expect(initial).toBeTypeOf("function");
+    await expect(initial?.()).resolves.toBe("frozen-initial");
+    expect(calls).toEqual([{ name: "get_rke_research_context", args: {} }]);
+  });
+
+  it("exposes server audit envelopes only through hidden runtime invocation paths", async () => {
+    const audit = {
+      schema_version: "tool_call_audit_v1" as const,
+      result_event_id: "tool_evt_test",
+      result_event_hash: `sha256:${"1".repeat(64)}`,
+      status: "SUCCEEDED" as const,
+      result_authority_type: "FROZEN_QUERY" as const,
+      result_authority_hash: `sha256:${"2".repeat(64)}`,
+      tool_environment_hash: `sha256:${"4".repeat(64)}`,
+      execution_behavior_release_hash: `sha256:${"5".repeat(64)}`,
+      capability_bundle_hash: `sha256:${"6".repeat(64)}`,
+      knot_coverage_manifest_v2_hash: `sha256:${"7".repeat(64)}`,
+      knot_audit_capability_track_v2_hash: `sha256:${"8".repeat(64)}`,
+      binding_result_refs: [
+        {
+          binding_id: "binding_test",
+          binding_result_fingerprint: `sha256:${"3".repeat(64)}`,
+        },
+      ],
+    };
+    const calls: Array<{ name: string; args: unknown }> = [];
+    const fakeApi = {
+      toolsCall: async (name: string, args: unknown) => {
+        calls.push({ name, args });
+        return { text: "audited-result", audit };
+      },
+    } as unknown as BridgeApi;
+    const runtimeTool = bridgeToolFromMetadata(
+      fakeApi,
+      {
+        name: "get_market_snapshot",
+        description: "audited snapshot",
+        args_schema: {
+          type: "object",
+          properties: { ticker: { type: "string" } },
+          required: ["ticker"],
+        },
+      },
+      { capability: CAPABILITY },
+    );
+
+    await expect(runtimeTool.invoke({ ticker: "000001.SZ" })).resolves.toBe("audited-result");
+    await expect(runtimeTool[BRIDGE_AUDITED_TOOL_INVOKE]({ ticker: "000001.SZ" })).resolves.toEqual(
+      { text: "audited-result", audit },
+    );
+    await expect(runtimeTool[BRIDGE_INITIAL_AUDITED_TOOL_INVOKE]()).resolves.toEqual({
+      text: "audited-result",
+      audit,
+    });
+    expect(calls).toEqual([
+      { name: "get_market_snapshot", args: { ticker: "000001.SZ" } },
+      { name: "get_market_snapshot", args: { ticker: "000001.SZ" } },
+      { name: "get_market_snapshot", args: {} },
+    ]);
   });
 });
 

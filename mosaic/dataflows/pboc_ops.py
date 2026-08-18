@@ -235,6 +235,11 @@ def _fetch_text(url: str) -> str:
     return response.text
 
 
+def fetch_pboc_text(url: str) -> str:
+    """Fetch one PBOC page through the established crawler transport."""
+    return _fetch_text(url)
+
+
 def _fetch_with_retry(url: str, fetcher: FetchText | None = None) -> str:
     fn = fetcher or _fetch_text
     last_error: Exception | None = None
@@ -1045,6 +1050,7 @@ __all__ = [
     "PbocCategory",
     "crawl_pboc_open_market",
     "ensure_pboc_open_market_updated",
+    "fetch_pboc_text",
     "get_pboc_ops",
     "load_pboc_open_market_records",
     "parse_article_page",

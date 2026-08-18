@@ -3,11 +3,19 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { ALL_AGENTS, LAYER_BY_AGENT } from "../src/agents/prompts/cohorts.js";
 import {
+  applyDailyCycleEnsureMode,
+  assertDailyCycleCheckpointResumeAllowed,
   assertDailyCyclePromptSourceMode,
+  assertDailyCycleSourceAdmissionReady,
+  buildProductionCycleTraceId,
   loadCurrentPositionsFixture,
   nonProductionSourceGapBypass,
+  resolveDailyCycleAuthority,
   resolveDailyCycleCohort,
+  resolveDailyCycleEnsureMode,
+  resolveDailyCyclePromptIdentity,
   validateStructuredSmokeFixtureBundle,
 } from "../src/cli/commands/daily-cycle.js";
 
@@ -45,20 +53,23 @@ function canonicalHash(value: unknown): string {
 
 function writeStructuredSmokeBundle(root: string, asOfDate = "2026-07-17") {
   for (const directory of [
+    "china_archive",
     "economic_calendar",
-    "geopolitical_events",
+    "forward_archive",
+    "gov_policy",
     "macro_snapshots",
-    "market_breadth",
     "outcome_runtime",
     "runtime_snapshots",
+    "sector_archive",
     "sector_snapshots",
+    "supply_chain_archive",
   ]) {
     mkdirSync(join(root, directory), { recursive: true });
   }
-  const manifestPath = join(root, "geopolitical_events", "manifest.json");
-  const manifestHash = canonicalHash({ source: "synthetic" });
-  const manifestContent = JSON.stringify({ manifest_hash: manifestHash });
-  writeFileSync(manifestPath, manifestContent);
+  const policyPath = join(root, "gov_policy", "parsed", "policy_documents.jsonl");
+  mkdirSync(join(root, "gov_policy", "parsed"), { recursive: true });
+  const policyContent = '{"fixture":"synthetic"}\n';
+  writeFileSync(policyPath, policyContent);
   const macroPath = join(root, "macro_snapshots", asOfDate, "china.json");
   mkdirSync(join(root, "macro_snapshots", asOfDate), { recursive: true });
   const macroContent = JSON.stringify({ fixture: "synthetic", as_of_date: asOfDate });
@@ -67,10 +78,41 @@ function writeStructuredSmokeBundle(root: string, asOfDate = "2026-07-17") {
   mkdirSync(join(root, "outcome_runtime", asOfDate), { recursive: true });
   const outcomeRuntimeContent = JSON.stringify({ fixture: "synthetic", as_of_date: asOfDate });
   writeFileSync(outcomeRuntimePath, outcomeRuntimeContent);
+  const chinaArchivePath = join(root, "china_archive", "china_agent_data.sqlite3");
+  const chinaArchiveContent = "synthetic-china-archive";
+  writeFileSync(chinaArchivePath, chinaArchiveContent);
+  const forwardArchivePath = join(
+    root,
+    "forward_archive",
+    "registry",
+    "sources",
+    "tushare_research_reports.jsonl",
+  );
+  mkdirSync(join(root, "forward_archive", "registry", "sources"), { recursive: true });
+  const forwardArchiveContent = '{"fixture":"synthetic"}\n';
+  writeFileSync(forwardArchivePath, forwardArchiveContent);
+  const sectorArchivePath = join(root, "sector_archive", "sector_relationship.sqlite3");
+  const sectorArchiveContent = "synthetic-sector-archive";
+  writeFileSync(sectorArchivePath, sectorArchiveContent);
+  const supplyChainArchivePath = join(
+    root,
+    "supply_chain_archive",
+    "official_supply_chain_disclosures.sqlite3",
+  );
+  const supplyChainArchiveContent = "synthetic-supply-chain-archive";
+  writeFileSync(supplyChainArchivePath, supplyChainArchiveContent);
   const artifactInventory = [
     {
-      relative_path: "geopolitical_events/manifest.json",
-      content_sha256: contentHash(manifestContent),
+      relative_path: "china_archive/china_agent_data.sqlite3",
+      content_sha256: contentHash(chinaArchiveContent),
+    },
+    {
+      relative_path: "forward_archive/registry/sources/tushare_research_reports.jsonl",
+      content_sha256: contentHash(forwardArchiveContent),
+    },
+    {
+      relative_path: "gov_policy/parsed/policy_documents.jsonl",
+      content_sha256: contentHash(policyContent),
     },
     {
       relative_path: `macro_snapshots/${asOfDate}/china.json`,
@@ -80,6 +122,14 @@ function writeStructuredSmokeBundle(root: string, asOfDate = "2026-07-17") {
       relative_path: `outcome_runtime/${asOfDate}/event_coverage.json`,
       content_sha256: contentHash(outcomeRuntimeContent),
     },
+    {
+      relative_path: "sector_archive/sector_relationship.sqlite3",
+      content_sha256: contentHash(sectorArchiveContent),
+    },
+    {
+      relative_path: "supply_chain_archive/official_supply_chain_disclosures.sqlite3",
+      content_sha256: contentHash(supplyChainArchiveContent),
+    },
   ];
   const body = {
     schema_version: "structured_smoke_fixture_bundle_v1",
@@ -87,15 +137,13 @@ function writeStructuredSmokeBundle(root: string, asOfDate = "2026-07-17") {
     fixture_class: "SYNTHETIC_NON_PRODUCTION",
     contains_vendor_prose: false,
     cache_root: root,
-    geopolitical_manifest: manifestPath,
-    geopolitical_manifest_hash: manifestHash,
     artifact_inventory: artifactInventory,
     artifact_inventory_hash: canonicalHash(artifactInventory),
   };
   const marker = { ...body, bundle_hash: canonicalHash(body) };
   const markerPath = join(root, "structured_smoke_fixture_bundle.json");
   writeFileSync(markerPath, JSON.stringify(marker));
-  return { macroContent, macroPath, manifestPath, marker, markerPath };
+  return { macroContent, macroPath, manifestPath: policyPath, marker, markerPath };
 }
 
 function contentHash(value: string): string {
@@ -113,10 +161,176 @@ describe("daily-cycle current-position fixture options", () => {
     expect(() => assertDailyCyclePromptSourceMode({}, false)).not.toThrow();
   });
 
+  it("allows checkpoint resume only for non-production smoke", () => {
+    expect(() =>
+      assertDailyCycleCheckpointResumeAllowed({ checkpoint: "/tmp/checkpoint.json" }, false),
+    ).toThrow(/non-production-only/);
+    expect(() =>
+      assertDailyCycleCheckpointResumeAllowed(
+        { checkpoint: "/tmp/checkpoint.json", resume: true },
+        false,
+      ),
+    ).toThrow(/non-production-only/);
+    expect(() =>
+      assertDailyCycleCheckpointResumeAllowed({ checkpoint: "/tmp/checkpoint.json" }, true),
+    ).not.toThrow();
+    expect(() =>
+      assertDailyCycleCheckpointResumeAllowed(
+        { checkpoint: "/tmp/checkpoint.json", resume: true },
+        true,
+      ),
+    ).not.toThrow();
+  });
+
+  it("hashes the current bilingual smoke prompt bodies without cache", async () => {
+    const root = mkdtempSync(join(tmpdir(), "mosaic-prompt-identity-"));
+    try {
+      for (const agent of ALL_AGENTS) {
+        const layer = LAYER_BY_AGENT[agent];
+        if (!layer) throw new Error(`missing layer for ${agent}`);
+        const directory = join(root, "cohort_default", layer);
+        mkdirSync(directory, { recursive: true });
+        writeFileSync(join(directory, `${agent}.zh.md`), `${agent}: zh-v1`, "utf-8");
+        writeFileSync(join(directory, `${agent}.en.md`), `${agent}: en-v1`, "utf-8");
+      }
+      const first = await resolveDailyCyclePromptIdentity({
+        cohort: "cohort_default",
+        nonProductionSmoke: true,
+        promptsRoot: root,
+      });
+      const firstAgent = ALL_AGENTS[0];
+      if (!firstAgent) throw new Error("expected a canonical agent");
+      const firstLayer = LAYER_BY_AGENT[firstAgent];
+      if (!firstLayer) throw new Error(`missing layer for ${firstAgent}`);
+      writeFileSync(
+        join(root, "cohort_default", firstLayer, `${firstAgent}.zh.md`),
+        "mutated prompt",
+        "utf-8",
+      );
+      const second = await resolveDailyCyclePromptIdentity({
+        cohort: "cohort_default",
+        nonProductionSmoke: true,
+        promptsRoot: root,
+      });
+      expect(first.promptContentHash).not.toBe(second.promptContentHash);
+      expect(first.promptRelease).toBe(`structured-smoke:${first.promptContentHash}`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("uses marked synthetic source fixtures for both smoke modes only", () => {
     expect(nonProductionSourceGapBypass({ fakeLlm: true })).toBe("structured_smoke");
     expect(nonProductionSourceGapBypass({ structuredSmoke: true })).toBe("structured_smoke");
     expect(nonProductionSourceGapBypass({})).toBeUndefined();
+  });
+
+  it("shares the strict off-shadow-enforce snapshot mode contract", () => {
+    expect(resolveDailyCycleEnsureMode({})).toBe("off");
+    expect(resolveDailyCycleEnsureMode({ MOSAIC_ENSURE_SNAPSHOT_MODE: "off" })).toBe("off");
+    expect(resolveDailyCycleEnsureMode({ MOSAIC_ENSURE_SNAPSHOT_MODE: "shadow" })).toBe("shadow");
+    expect(resolveDailyCycleEnsureMode({ MOSAIC_ENSURE_SNAPSHOT_MODE: "enforce" })).toBe("enforce");
+    expect(() => resolveDailyCycleEnsureMode({ MOSAIC_ENSURE_SNAPSHOT_MODE: "ENFORCE" })).toThrow(
+      /P1_ENSURE_MODE_INVALID.*must be one of off, shadow, enforce/,
+    );
+  });
+
+  it("writes the resolved mode into the bridge child environment", () => {
+    const env: NodeJS.ProcessEnv = {};
+    applyDailyCycleEnsureMode(env, "off");
+    expect(env.MOSAIC_ENSURE_SNAPSHOT_MODE).toBe("off");
+    applyDailyCycleEnsureMode(env, "enforce");
+    expect(env.MOSAIC_ENSURE_SNAPSHOT_MODE).toBe("enforce");
+  });
+
+  it("requires an explicit live mode and derives the only valid cycle authority", () => {
+    expect(() => resolveDailyCycleAuthority({}, {})).toThrow(
+      /P1_ENSURE_MODE_MISSING.*must be explicitly configured/,
+    );
+    expect(resolveDailyCycleAuthority({}, { MOSAIC_ENSURE_SNAPSHOT_MODE: "off" })).toEqual({
+      mode: "off",
+      cycleKind: null,
+    });
+    expect(resolveDailyCycleAuthority({}, { MOSAIC_ENSURE_SNAPSHOT_MODE: "shadow" })).toEqual({
+      mode: "shadow",
+      cycleKind: "SHADOW",
+    });
+    expect(
+      resolveDailyCycleAuthority(
+        { cycleKind: "replay" },
+        { MOSAIC_ENSURE_SNAPSHOT_MODE: "shadow" },
+      ),
+    ).toEqual({ mode: "shadow", cycleKind: "REPLAY" });
+    expect(resolveDailyCycleAuthority({}, { MOSAIC_ENSURE_SNAPSHOT_MODE: "enforce" })).toEqual({
+      mode: "enforce",
+      cycleKind: "PRODUCTION",
+    });
+  });
+
+  it("rejects cycle kinds that could escape their rollout namespace", () => {
+    expect(() =>
+      resolveDailyCycleAuthority(
+        { cycleKind: "production" },
+        { MOSAIC_ENSURE_SNAPSHOT_MODE: "shadow" },
+      ),
+    ).toThrow(/P1_ENSURE_MODE_DRIFT.*shadow mode requires SHADOW or REPLAY/);
+    expect(() =>
+      resolveDailyCycleAuthority(
+        { cycleKind: "replay" },
+        { MOSAIC_ENSURE_SNAPSHOT_MODE: "enforce" },
+      ),
+    ).toThrow(/P1_ENSURE_MODE_DRIFT.*enforce mode requires PRODUCTION/);
+    expect(() =>
+      resolveDailyCycleAuthority({ cycleKind: "shadow" }, { MOSAIC_ENSURE_SNAPSHOT_MODE: "off" }),
+    ).toThrow(/P1_ENSURE_MODE_DRIFT.*off mode cannot open a cycle/);
+    expect(() =>
+      resolveDailyCycleAuthority(
+        { structuredSmoke: true, cycleKind: "shadow" },
+        { MOSAIC_ENSURE_SNAPSHOT_MODE: "enforce" },
+      ),
+    ).toThrow(/non-production smoke cannot open a cycle/);
+    expect(() =>
+      resolveDailyCycleAuthority(
+        { cycleKind: "unknown" },
+        { MOSAIC_ENSURE_SNAPSHOT_MODE: "shadow" },
+      ),
+    ).toThrow(/cycle kind must be one of shadow, replay, production/);
+  });
+
+  it("uses a unique production run id for every retry", () => {
+    const first = buildProductionCycleTraceId(
+      "cohort_default",
+      "2026-07-01",
+      "roster-1",
+      "retry-a",
+    );
+    const second = buildProductionCycleTraceId(
+      "cohort_default",
+      "2026-07-01",
+      "roster-1",
+      "retry-b",
+    );
+
+    expect(first).toMatch(/^daily-[0-9a-f]{24}-retry-a$/);
+    expect(second).toMatch(/^daily-[0-9a-f]{24}-retry-b$/);
+    expect(first).not.toBe(second);
+  });
+
+  it("blocks production before OPEN when external source admission is incomplete", () => {
+    expect(() =>
+      assertDailyCycleSourceAdmissionReady({
+        status: "SOURCE_READY_PENDING_RUNTIME",
+        blocked_routes: [],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertDailyCycleSourceAdmissionReady({
+        status: "BLOCKED",
+        blocked_routes: [
+          { route_id: "private.tushare_research_reports", blockers: ["MISSING_ARCHIVE"] },
+        ],
+      }),
+    ).toThrow(/private\.tushare_research_reports:MISSING_ARCHIVE/);
   });
 
   it("uses the canonical default cohort instead of the bridge config alias", () => {
@@ -145,7 +359,6 @@ describe("daily-cycle current-position fixture options", () => {
       expect(
         validateStructuredSmokeFixtureBundle("2026-07-17", {
           MOSAIC_CACHE_DIR: root,
-          MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
           MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: fixture.marker.bundle_hash,
         }),
       ).toEqual({ bundleHash: fixture.marker.bundle_hash, markerPath: fixture.markerPath });
@@ -160,10 +373,9 @@ describe("daily-cycle current-position fixture options", () => {
       expect(() =>
         validateStructuredSmokeFixtureBundle("2026-07-17", {
           MOSAIC_CACHE_DIR: root,
-          MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: join(root, "missing.json"),
           MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: `sha256:${"0".repeat(64)}`,
         }),
-      ).toThrow(/marker or geopolitical manifest is unavailable/);
+      ).toThrow(/marker is unavailable/);
 
       const fixture = writeStructuredSmokeBundle(root);
       writeFileSync(
@@ -173,7 +385,6 @@ describe("daily-cycle current-position fixture options", () => {
       expect(() =>
         validateStructuredSmokeFixtureBundle("2026-07-17", {
           MOSAIC_CACHE_DIR: root,
-          MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
           MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: fixture.marker.bundle_hash,
         }),
       ).toThrow(/marker binding mismatch/);
@@ -189,7 +400,6 @@ describe("daily-cycle current-position fixture options", () => {
       expect(() =>
         validateStructuredSmokeFixtureBundle("2026-07-17", {
           MOSAIC_CACHE_DIR: root,
-          MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
           MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: fixture.marker.bundle_hash,
         }),
       ).toThrow(/marker binding mismatch/);
@@ -204,7 +414,6 @@ describe("daily-cycle current-position fixture options", () => {
       const fixture = writeStructuredSmokeBundle(root);
       const env = {
         MOSAIC_CACHE_DIR: root,
-        MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
         MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: fixture.marker.bundle_hash,
       };
 
@@ -233,17 +442,15 @@ describe("daily-cycle current-position fixture options", () => {
   it("requires the caller to bind the expected synthetic fixture hash", () => {
     const root = mkdtempSync(join(tmpdir(), "mosaic-structured-smoke-"));
     try {
-      const fixture = writeStructuredSmokeBundle(root);
+      writeStructuredSmokeBundle(root);
       expect(() =>
         validateStructuredSmokeFixtureBundle("2026-07-17", {
           MOSAIC_CACHE_DIR: root,
-          MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
         }),
       ).toThrow(/fixture bundle hash bindings/);
       expect(() =>
         validateStructuredSmokeFixtureBundle("2026-07-17", {
           MOSAIC_CACHE_DIR: root,
-          MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
           MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: `sha256:${"f".repeat(64)}`,
         }),
       ).toThrow(/marker binding mismatch/);
@@ -267,7 +474,7 @@ describe("daily-cycle current-position fixture options", () => {
           MOSAIC_GEOPOLITICAL_SOURCE_MANIFEST: fixture.manifestPath,
           MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH: fixture.marker.bundle_hash,
         }),
-      ).toThrow(/marker or geopolitical manifest is unavailable/);
+      ).toThrow(/marker is unavailable/);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
