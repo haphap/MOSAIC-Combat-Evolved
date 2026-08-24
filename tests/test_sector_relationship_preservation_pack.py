@@ -56,7 +56,7 @@ def test_generated_sector_relationship_overlay_is_current_and_schema_valid():
     assert result.accepted, result.failures
 
 
-def test_overlay_keeps_frozen_base_and_covers_all_70_activated_bindings():
+def test_overlay_keeps_frozen_base_and_covers_all_79_activated_bindings():
     overlay = build_sector_relationship_preservation_overlay(ROOT)
     frozen = json.loads(
         (
@@ -82,7 +82,7 @@ def test_overlay_keeps_frozen_base_and_covers_all_70_activated_bindings():
     }
     restored_tools = {row["tool_id"] for row in overlay["bindings"]}
 
-    assert len(overlay["bindings"]) == 70
+    assert len(overlay["bindings"]) == 79
     assert overlay["activation_state"] == "staged"
     assert overlay["activation_gate"] == "PR12_L1_L2_ATOMIC_ACTIVATION"
     assert restored_tools.isdisjoint(frozen_tools)

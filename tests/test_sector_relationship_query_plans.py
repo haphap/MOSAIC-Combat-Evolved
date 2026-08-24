@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
 import mosaic.dataflows.sector_snapshots as sector_snapshots_module
+import mosaic.dataflows.sector_relationship_queries as query_module
+from mosaic.dataflows.sector_archive import sector_source_batches
 import scripts.build_structured_smoke_fixtures as structured_smoke_fixtures
 from mosaic.bridge.tool_capabilities import (
     INITIAL_SNAPSHOT_TOOL_IDS,
@@ -16,6 +18,7 @@ from mosaic.bridge.tool_capabilities import (
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.frozen_adaptive_queries import FrozenAdaptiveQueryStore
 from mosaic.dataflows.sector_snapshots import _build_sector_etf_direction_authority
+from mosaic.dataflows.sector_snapshots import CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE
 from mosaic.dataflows.sector_relationship_production import (
     SectorRelationshipAdaptiveQueryPreparer,
 )
@@ -23,6 +26,7 @@ from mosaic.dataflows.sector_relationship_query_plans import (
     INDICATOR_LOOKBACK_PROFILES,
     QUERY_WINDOW_PROFILES,
     THS_INDUSTRY_FILTERS,
+    _EXPECTED_TOOLS,
     build_sector_relationship_query_plan,
 )
 from mosaic.scorecard.capability_preservation import load_capability_contract_bundle
@@ -36,6 +40,15 @@ from scripts.build_structured_smoke_fixtures import _build_sector_snapshots
 
 ROOT = Path(__file__).parents[1]
 AS_OF = "2026-07-17"
+
+
+def _sector_index_membership_csv(args: dict) -> str:
+    index_code = args["index_code"]
+    return (
+        "index_code,con_code,trade_date,weight\n"
+        f"{index_code},600000.SH,{AS_OF},1.0\n"
+        f"{index_code},000001.SZ,{AS_OF},0.5\n"
+    )
 
 
 @pytest.fixture(scope="module")
@@ -61,6 +74,138 @@ def _requests_for(plan: dict, tool_id: str) -> list[dict]:
     return [
         row["args"] for row in plan["query_requests"] if row["tool_id"] == tool_id
     ]
+
+
+def test_sector_membership_plan_is_pure_bounded_and_keeps_semiconductor_tool(
+    sector_payloads: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        query_module,
+        "route_to_vendor",
+        lambda *_args, **_kwargs: pytest.fail("plan construction fetched a route"),
+    )
+    for agent_id in THS_INDUSTRY_FILTERS:
+        plan = build_sector_relationship_query_plan(
+            agent_id=agent_id,
+            stage=agent_id,
+            as_of=AS_OF,
+            initial_payloads={
+                "get_sector_research_snapshot": sector_payloads[agent_id],
+                "get_role_event_snapshot": "opaque-event-payload",
+            },
+            allowed_tools=tuple(sorted(_EXPECTED_TOOLS[agent_id])),
+        )
+        requests = _requests_for(plan, "get_sector_index_membership")
+        as_of_date = date.fromisoformat(AS_OF)
+        previous_month_start = (as_of_date.replace(day=1) - timedelta(days=1)).replace(
+            day=1
+        )
+        assert sorted(requests, key=lambda row: row["index_code"]) == [
+            {
+                "index_code": index_code,
+                "as_of": AS_OF,
+                "start_date": previous_month_start.isoformat(),
+                "end_date": AS_OF,
+            }
+            for index_code in sorted(CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE[agent_id])
+        ]
+
+    assert "get_sector_index_membership" in _EXPECTED_TOOLS["semiconductor"]
+    assert "get_sector_index_membership" not in _EXPECTED_TOOLS["relationship_mapper"]
+
+
+@pytest.mark.parametrize("index_code", ("000300.SH", "123456.CSI"))
+def test_frozen_plan_rejects_cross_index_or_unregistered_membership(
+    tmp_path: Path, index_code: str
+) -> None:
+    store = FrozenAdaptiveQueryStore(tmp_path / "membership.sqlite3")
+    scope = {
+        "as_of": AS_OF,
+        "earliest_date": "2026-06-01",
+        "tickers": ["600001.SH"],
+        "etfs": ["512480.SH"],
+        "sectors": ["半导体"],
+        "indicator_families": ["macd"],
+    }
+    with pytest.raises(ValueError, match="index_code"):
+        store._validate_authorized_request(
+            "get_sector_index_membership",
+            {
+                "index_code": index_code,
+                "as_of": AS_OF,
+                "start_date": "2026-06-01",
+                "end_date": AS_OF,
+            },
+            scope=scope,
+            as_of=date.fromisoformat(AS_OF),
+            agent_id="semiconductor",
+        )
+
+
+def test_frozen_plan_requires_previous_month_through_as_of_window(tmp_path: Path) -> None:
+    store = FrozenAdaptiveQueryStore(tmp_path / "membership.sqlite3")
+    scope = {
+        "as_of": AS_OF,
+        "earliest_date": "2026-06-01",
+        "tickers": ["600001.SH"],
+        "etfs": ["512480.SH"],
+        "sectors": ["半导体"],
+        "indicator_families": ["macd"],
+    }
+    valid_request = {
+        "index_code": "932139.CSI",
+        "as_of": AS_OF,
+        "start_date": "2026-06-01",
+        "end_date": AS_OF,
+    }
+    store._validate_authorized_request(
+        "get_sector_index_membership",
+        valid_request,
+        scope=scope,
+        as_of=date.fromisoformat(AS_OF),
+        agent_id="semiconductor",
+    )
+    for start_date, end_date in (
+        ("2026-07-01", "2026-07-31"),
+        ("2026-05-01", AS_OF),
+        ("2026-06-01", "2026-07-18"),
+    ):
+        with pytest.raises(ValueError, match="frozen PIT window"):
+            store._validate_authorized_request(
+                "get_sector_index_membership",
+                {**valid_request, "start_date": start_date, "end_date": end_date},
+                scope=scope,
+                as_of=date.fromisoformat(AS_OF),
+                agent_id="semiconductor",
+            )
+
+
+def test_sector_archive_preserves_optional_csi_index_weight_batch() -> None:
+    energy_codes = CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE["energy"]
+    group = {
+        "as_of_date": AS_OF,
+        "batches": [
+            *(
+                {
+                    "endpoint": "index_weight",
+                    "request": {"index_code": index_code},
+                }
+                for index_code in (*energy_codes, "932139.CSI", "000993.SH")
+            ),
+        ],
+    }
+    batches = sector_source_batches(group, "energy")
+    assert [batch["request"]["index_code"] for batch in batches] == list(
+        energy_codes
+    )
+
+    incomplete = {
+        **group,
+        "batches": group["batches"][:2],
+    }
+    assert [batch["request"]["index_code"] for batch in sector_source_batches(
+        incomplete, "energy"
+    )] == list(energy_codes[:2])
 
 
 @pytest.mark.parametrize(
@@ -628,9 +773,13 @@ def test_every_sector_relationship_stage_compiles_a_frozen_adaptive_bundle(
     store = FrozenAdaptiveQueryStore(tmp_path / f"{agent_id}-frozen.sqlite3")
 
     def materialize(tool_id: str, args: dict) -> dict:
-        payload = json.dumps(
-            {"tool_id": tool_id, "args_hash": canonical_hash(args)},
-            sort_keys=True,
+        payload = (
+            _sector_index_membership_csv(args)
+            if tool_id == "get_sector_index_membership"
+            else json.dumps(
+                {"tool_id": tool_id, "args_hash": canonical_hash(args)},
+                sort_keys=True,
+            )
         )
         result = {
             "payload": payload,
@@ -748,15 +897,15 @@ def test_frozen_store_accepts_valid_plan_with_empty_etf_authority(
         tmp_path / ".mosaic" / "private" / "frozen-queries.sqlite3"
     )
     overlay = build_sector_relationship_preservation_overlay(ROOT)
-    prepared = store.prepare(
-        agent_id="semiconductor",
-        stage="semiconductor",
-        as_of=AS_OF,
-        authorized_scope=plan["authorized_scope"],
-        query_requests=plan["query_requests"],
-        preservation_overlay=overlay,
-        materializer=lambda tool_id, args: {
-            "payload": json.dumps({"tool_id": tool_id, "args": args}),
+
+    def materialize(tool_id: str, args: dict) -> dict:
+        payload = (
+            _sector_index_membership_csv(args)
+            if tool_id == "get_sector_index_membership"
+            else json.dumps({"tool_id": tool_id, "args": args})
+        )
+        return {
+            "payload": payload,
             "source_receipt_hashes": [canonical_hash({"tool_id": tool_id, "args": args})],
             **(
                 {
@@ -775,7 +924,16 @@ def test_frozen_store_accepts_valid_plan_with_empty_etf_authority(
                 }
                 else {}
             ),
-        },
+        }
+
+    prepared = store.prepare(
+        agent_id="semiconductor",
+        stage="semiconductor",
+        as_of=AS_OF,
+        authorized_scope=plan["authorized_scope"],
+        query_requests=plan["query_requests"],
+        preservation_overlay=overlay,
+        materializer=materialize,
     )
     assert prepared["public_projection"]["private_payload_count"] == len(
         plan["query_requests"]

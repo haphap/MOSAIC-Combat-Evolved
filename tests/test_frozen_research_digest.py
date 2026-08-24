@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from io import BytesIO
 from urllib.error import HTTPError
 from urllib.request import Request
 
@@ -188,6 +189,76 @@ def test_digest_builder_retries_transient_http_errors_only() -> None:
         )
     assert bad_request_calls == 1
     assert bad_request_delays == []
+
+
+@pytest.mark.parametrize("fallback_content", ["valid", "not-json"])
+def test_digest_builder_falls_back_once_for_explicit_response_format_rejection(
+    fallback_content: str,
+) -> None:
+    calls = 0
+    seen_bodies: list[dict] = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self) -> bytes:
+            content = (
+                json.dumps(
+                    {
+                        "summary": "text fallback succeeded",
+                        "evidence_points": [],
+                        "counterevidence": [],
+                        "uncertainties": [],
+                    }
+                )
+                if fallback_content == "valid"
+                else "not-json"
+            )
+            return json.dumps({"choices": [{"message": {"content": content}}]}).encode()
+
+    def response_format_rejected(request: Request, timeout: int):
+        nonlocal calls
+        del timeout
+        calls += 1
+        body = json.loads(bytes(request.data or b"").decode())
+        seen_bodies.append(body)
+        if calls == 1:
+            raise HTTPError(
+                request.full_url,
+                400,
+                "unsupported",
+                None,
+                BytesIO(
+                    json.dumps(
+                        {"error": {"code": "response_format_not_supported"}}
+                    ).encode()
+                ),
+            )
+        return Response()
+
+    builder = FrozenResearchDigestBuilder(
+        endpoint="https://gateway.example/v1",
+        model="remote-model",
+        api_key="test-key",
+        urlopen=response_format_rejected,
+        max_attempts=1,
+    )
+    if fallback_content == "valid":
+        assert json.loads(
+            builder("get_broker_research", "source", {"ticker": "600000.SH"})[
+                "digest"
+            ]
+        )["summary"] == "text fallback succeeded"
+    else:
+        with pytest.raises(ValueError, match="not valid JSON"):
+            builder("get_broker_research", "source", {"ticker": "600000.SH"})
+    assert calls == 2
+    assert "response_format" in seen_bodies[0]
+    assert "response_format" not in seen_bodies[1]
 
 
 @pytest.mark.parametrize("invalid_content", ["", "not-json"])

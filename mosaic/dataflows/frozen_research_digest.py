@@ -142,6 +142,20 @@ def _retryable_request_error(exc: BaseException) -> bool:
     )
 
 
+def _response_format_not_supported(exc: BaseException) -> bool:
+    if not isinstance(exc, urllib.error.HTTPError) or exc.code != 400:
+        return False
+    try:
+        payload = json.loads(exc.read().decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    error = payload.get("error") if isinstance(payload, Mapping) else None
+    return isinstance(error, Mapping) and (
+        error.get("code") == "response_format_not_supported"
+        or error.get("message") == "response_format_not_supported"
+    )
+
+
 class FrozenResearchDigestBuilder:
     """Call the configured Agent provider and return auditable digest lineage."""
 
@@ -236,20 +250,51 @@ class FrozenResearchDigestBuilder:
             "max_tokens": self.max_tokens,
             "response_format": {"type": "json_object"},
         }
-        request = urllib.request.Request(
-            self.endpoint,
-            data=json.dumps(request_payload, ensure_ascii=False).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-                "User-Agent": self.user_agent,
-            },
-            method="POST",
-        )
+        text_request_payload = {
+            key: value for key, value in request_payload.items() if key != "response_format"
+        }
+
+        def post(payload: Mapping[str, Any]) -> Any:
+            request = urllib.request.Request(
+                self.endpoint,
+                data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                    "User-Agent": self.user_agent,
+                },
+                method="POST",
+            )
+            with self.urlopen(request, timeout=self.timeout_seconds) as response:
+                return json.loads(response.read().decode("utf-8"))
+
+        response_format_fallback_used = False
         for attempt in range(self.max_attempts):
             try:
-                with self.urlopen(request, timeout=self.timeout_seconds) as response:
-                    response_payload = json.loads(response.read().decode("utf-8"))
+                response_payload = post(
+                    text_request_payload
+                    if response_format_fallback_used
+                    else request_payload
+                )
+            except urllib.error.HTTPError as exc:
+                if response_format_fallback_used or not _response_format_not_supported(exc):
+                    if not _retryable_request_error(exc) or attempt + 1 == self.max_attempts:
+                        raise ValueError("frozen research digest request failed") from exc
+                    self.sleep(self.retry_delay_seconds * (2**attempt))
+                    continue
+                response_format_fallback_used = True
+                try:
+                    response_payload = post(text_request_payload)
+                except (
+                    OSError,
+                    urllib.error.URLError,
+                    UnicodeDecodeError,
+                    json.JSONDecodeError,
+                ) as fallback_exc:
+                    if not _retryable_request_error(fallback_exc) or attempt + 1 == self.max_attempts:
+                        raise ValueError("frozen research digest request failed") from fallback_exc
+                    self.sleep(self.retry_delay_seconds * (2**attempt))
+                    continue
             except (
                 OSError,
                 urllib.error.URLError,

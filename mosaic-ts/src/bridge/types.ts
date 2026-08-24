@@ -115,9 +115,15 @@ export interface PreparedAgentToolCapability {
   prepared_initial_tool_ids?: string[];
 }
 
+export interface ToolCallResultAuthority {
+  authority_type: "FROZEN_QUERY";
+  authority_hash: string;
+}
+
 export interface ToolCallResult {
   text: string;
   audit?: ToolCallAudit;
+  result_authority?: ToolCallResultAuthority;
 }
 
 export interface ToolCallAudit {

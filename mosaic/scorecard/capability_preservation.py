@@ -361,6 +361,7 @@ _INTRODUCED_ROLES = (
 )
 
 _INTRODUCED_CAPABILITIES: tuple[tuple[str, list[str], list[str]], ...] = (
+    ("sector_index_membership", ["sector"], ["get_sector_index_membership"]),
     ("eu_macro", ["eu_economy"], ["get_eu_macro_snapshot"]),
     (
         "us_financial_conditions",

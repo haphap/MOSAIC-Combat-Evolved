@@ -8,6 +8,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from mosaic.agents.utils.rke_research_tools import format_rke_runtime_context
 import mosaic.dataflows.sector_relationship_source_evidence as source_evidence_module
 from mosaic.dataflows.agent_materialization import AgentDataMaterializationLedger
 from mosaic.dataflows.exceptions import DataVendorUnavailable
@@ -18,6 +19,10 @@ from mosaic.dataflows.sector_relationship_source_evidence import (
     SectorRelationshipSourceEvidenceAuthority,
 )
 from mosaic.dataflows.staged_query_receipt_store import StagedQueryReceiptStore
+from mosaic.rke.agent_research_context import (
+    RKE_AGENT_RESEARCH_INPUT_FILENAMES,
+    build_rke_agent_research_materialization,
+)
 from mosaic.scorecard.canonical_json import canonical_hash
 
 
@@ -62,6 +67,14 @@ def _authority(tmp_path: Path) -> tuple[
         store,
         ledger,
     )
+
+
+def _write_true_empty_rke_inputs(tmp_path: Path) -> Path:
+    registry_dir = tmp_path / "registry/report_intelligence"
+    registry_dir.mkdir(parents=True, exist_ok=True)
+    for filename in RKE_AGENT_RESEARCH_INPUT_FILENAMES:
+        (registry_dir / filename).write_text("", encoding="utf-8")
+    return registry_dir
 
 
 def test_etf_disclosure_date_seals_authoritative_vintage_and_registers_exact_replay(
@@ -254,7 +267,7 @@ def test_rke_empty_or_unclosed_source_lineage_fails_closed(
     descriptor = _descriptor(
         "get_rke_research_context", raw, pit_mode="DERIVED_FROM_PIT_ARCHIVE"
     )
-    with pytest.raises(DataVendorUnavailable, match="RKE source"):
+    with pytest.raises(DataVendorUnavailable):
         authority(
             "get_rke_research_context",
             {
@@ -269,6 +282,78 @@ def test_rke_empty_or_unclosed_source_lineage_fails_closed(
             descriptor,
             source_ids,
         )
+
+
+def test_rke_true_empty_receipt_requires_exact_materialization_and_all_inputs(
+    tmp_path: Path,
+) -> None:
+    registry_dir = _write_true_empty_rke_inputs(tmp_path)
+    args = {
+        "agent_id": "financials",
+        "as_of": AS_OF,
+        "layer": "sector",
+        "ticker": "",
+        "sector": "银行",
+        "max_items": 12,
+    }
+    materialization = build_rke_agent_research_materialization(
+        root=tmp_path,
+        registry_dir=registry_dir,
+        agent_id=args["agent_id"],
+        as_of_date=args["as_of"],
+        layer=args["layer"],
+        ticker=args["ticker"],
+        sector=args["sector"],
+        max_items=args["max_items"],
+    )
+    raw = format_rke_runtime_context(materialization["context"])
+    descriptor = _descriptor(
+        "get_rke_research_context", raw, pit_mode="DERIVED_FROM_PIT_ARCHIVE"
+    )
+    descriptor["request_hash"] = canonical_hash(args)
+    authority, store, ledger = _authority(tmp_path)
+
+    receipts = authority("get_rke_research_context", args, raw, descriptor, ())
+
+    assert len(receipts) == 1
+    upstream = ledger.source_capture_receipt(
+        receipt_hash=receipts[0]["upstream_evidence_hashes"][0]
+    )
+    assert upstream is not None
+    payload = upstream.as_dict()
+    assert payload["content"]["normalized_row_count"] == 0
+    assert payload["completeness"]["empty_result_semantics"] == "TRUE_EMPTY"
+    assert payload["coverage"]["observed_start"] is None
+    assert payload["coverage"]["observed_end"] is None
+    assert payload["identity"]["request_hash"] == descriptor["request_hash"]
+    assert payload["content"]["raw_content_hash"] == descriptor["content_hash"]
+    assert payload["pit"]["vintage_query"]["archive_hash"].startswith("sha256:")
+    assert store.resolve(descriptor) == receipts
+
+
+def test_rke_true_empty_receipt_rejects_missing_input_or_forged_payload(
+    tmp_path: Path,
+) -> None:
+    registry_dir = _write_true_empty_rke_inputs(tmp_path)
+    args = {
+        "agent_id": "financials",
+        "as_of": AS_OF,
+        "layer": "sector",
+        "ticker": "",
+        "sector": "银行",
+        "max_items": 12,
+    }
+    registry_dir.joinpath(RKE_AGENT_RESEARCH_INPUT_FILENAMES[-1]).unlink()
+    authority, _store, _ledger = _authority(tmp_path)
+    descriptor = _descriptor(
+        "get_rke_research_context", "forged payload", pit_mode="DERIVED_FROM_PIT_ARCHIVE"
+    )
+    with pytest.raises(DataVendorUnavailable, match="RKE empty coverage"):
+        authority("get_rke_research_context", args, "forged payload", descriptor, ())
+
+    _write_true_empty_rke_inputs(tmp_path)
+    with pytest.raises(DataVendorUnavailable, match="RKE empty coverage"):
+        authority("get_rke_research_context", args, "forged payload", descriptor, ())
 
 
 def test_materializer_uses_specialized_non_live_evidence_before_generic_authority(

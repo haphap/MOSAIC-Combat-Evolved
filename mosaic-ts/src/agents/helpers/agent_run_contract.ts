@@ -94,6 +94,7 @@ export interface StrictStructuredRunOptions<T> {
   isAcceptedEmpty?: (output: T) => boolean;
   signal?: AbortSignal;
   maxRepairs?: number;
+  repairContext?: string;
   onAttempt?: (audit: AgentAttemptAudit, rawOutput: unknown) => void | Promise<void>;
 }
 
@@ -226,6 +227,7 @@ export async function invokeStrictStructured<T>(
             cumulativeIssues,
             evidenceHash: hashes.evidence_hash,
             repairEvidenceCatalog,
+            ...(opts.repairContext ? { repairContext: opts.repairContext } : {}),
           });
     let raw: unknown = null;
     let providerRaw: unknown = null;
@@ -491,6 +493,7 @@ function buildRepairMessages(input: {
   cumulativeIssues: AgentContractIssue[];
   evidenceHash: string;
   repairEvidenceCatalog: RepairEvidenceCatalog;
+  repairContext?: string;
 }): [SystemMessage, HumanMessage] {
   const issuePayload = dedupeIssues(input.cumulativeIssues);
   const originalUser = input.originalMessages[1].content;
@@ -503,6 +506,7 @@ function buildRepairMessages(input: {
     priorOutput: input.originalOutput,
     validationErrors: issuePayload,
     completeJsonSchema: input.completeJsonSchema,
+    ...(input.repairContext ? { stageSpecificRepairContext: input.repairContext } : {}),
   });
   return [new SystemMessage(messages.systemMessage), new HumanMessage(messages.userMessage)];
 }

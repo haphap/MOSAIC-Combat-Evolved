@@ -68,6 +68,7 @@ describe("backtest position carry-over", () => {
       {
         ticker: "600519.SH",
         action: "BUY",
+        sector: "consumer",
         target_weight: 0.08,
         holding_period: "6M",
         dissent_notes: "",
@@ -89,9 +90,11 @@ describe("backtest position carry-over", () => {
     expect(day1.snapshot_status).toBe("loaded");
     expect(day1.position_source).toBe("backtest_replay");
     expect(day1.positions[0]?.current_weight).toBe(0.08);
+    expect(day1.positions[0]?.sector).toBe("consumer");
     expect(day1.positions[0]?.realized_pnl_pct).toBe(0);
     expect(day1.positions[0]?.residual_drift_pct).toBe(0);
     expect(day2.positions[0]?.holding_days).toBe(1);
+    expect(day2.positions[0]?.sector).toBe("consumer");
   });
 
   it("records replay exit metadata when a target exits a position", () => {
@@ -1046,12 +1049,18 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     expect(final.layer4_outputs.autonomous_execution).not.toBeNull();
     expect(final.layer4_outputs.cio).not.toBeNull();
 
-    // Top-level mirror
-    expect(final.portfolio_actions).toEqual([]);
-    expect(final.layer4_outputs.cio?.decision_disposition).toBe("ALL_CASH");
+    // Top-level mirror preserves the single accepted upstream opportunity.
+    expect(final.portfolio_actions).toEqual([
+      expect.objectContaining({
+        ticker: "600800.SH",
+        sector: "agriculture",
+        action: "BUY",
+        target_weight: 0.1,
+      }),
+    ]);
+    expect(final.layer4_outputs.cio?.decision_disposition).toBe("TARGET_PORTFOLIO");
 
-    // Empty frozen CRO/execution object sets still run both Agents and are
-    // accepted as explicit zero-action outputs; CIO still runs twice.
+    // The frozen one-candidate chain runs CRO and execution once; CIO still runs twice.
     expect(llm.structuredCalls).toBe(35);
     expect(Object.keys(llm.perAgentStructuredCount).length).toBe(25);
     for (const agent of ALL_AGENT_IDS) {
@@ -1071,15 +1080,13 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
         (call) => call.agent_run_audit?.agent === agent,
       )?.agent_run_audit;
       expect(audit).toMatchObject({
-        status: "accepted_empty",
+        status: agent === "cro" ? "accepted_empty" : "accepted",
         output_source: "structured_primary",
       });
       expect(audit?.attempts.at(-1)?.accepted).toBe(true);
     }
-    expect(final.layer4_outputs.cro?.review_disposition).toBe("NO_RISK_ACTION");
-    expect(final.layer4_outputs.autonomous_execution?.execution_disposition).toBe(
-      "NO_EXECUTION_ACTION",
-    );
+    expect(final.layer4_outputs.cro?.review_disposition).toBe("NO_OBJECTION");
+    expect(final.layer4_outputs.autonomous_execution?.execution_disposition).toBe("TRADES");
     expect(final.accepted_output_refs["CRO_RISK_REVIEW:cro"]).toMatchObject({
       accepted_output_kind: "CRO_RISK_REVIEW",
       agent_id: "cro",
@@ -1147,13 +1154,13 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     expect(runtime?.portfolio_summary).toMatchObject({
       schema_version: "portfolio.summary.v1",
       final_target_hash: runtime?.final_target_state?.final_target_hash,
-      target_weight_sum: 0,
-      gross_exposure: 0,
-      net_exposure: 0,
+      target_weight_sum: 0.1,
+      gross_exposure: 0.1,
+      net_exposure: 0.1,
       leverage_authorized: false,
       frozen: true,
     });
-    expect(runtime?.portfolio_summary?.cash_weight).toBe(1);
+    expect(runtime?.portfolio_summary?.cash_weight).toBe(0.9);
     expect(runtime?.portfolio_summary?.summary_hash).toMatch(/^sha256:/);
     expect(
       runtime?.stage_trace
@@ -1176,7 +1183,7 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
       expect.stringContaining("[agent:start] L1 central_bank timeout=off"),
     );
     expect(logs).toContainEqual(expect.stringContaining("[agent:done] L4 cio"));
-    expect(logs).toContainEqual(expect.stringContaining("actions=0"));
+    expect(logs).toContainEqual(expect.stringContaining("actions=1"));
   });
 
   it("resumes a failed Agent stage without rerunning accepted stages", async () => {
@@ -1426,10 +1433,12 @@ describe("buildDailyCycleGraph (heavy CRO rejection)", () => {
     expect(llm.perAgentStructuredCount.autonomous_execution).toBe(1);
     expect(llm.perAgentStructuredCount.cio).toBe(2);
     expect(final.llm_calls).toHaveLength(26);
-    expect(final.portfolio_actions).toEqual([]);
+    expect(final.portfolio_actions).toEqual([
+      expect.objectContaining({ ticker: "600800.SH", action: "BUY", target_weight: 0.1 }),
+    ]);
     expect(final.replay_triggered).toBe(false);
     expect(final.layer4_outputs.runtime?.cro_review_state?.output).toMatchObject({
-      review_disposition: "NO_RISK_ACTION",
+      review_disposition: "NO_OBJECTION",
       rejected_picks: [],
     });
     expect(final.layer4_outputs.runtime?.stage_trace.at(-1)).toMatchObject({
@@ -1437,8 +1446,8 @@ describe("buildDailyCycleGraph (heavy CRO rejection)", () => {
       status: "completed",
     });
     expect(final.layer4_outputs.runtime?.portfolio_summary).toMatchObject({
-      target_weight_sum: 0,
-      cash_weight: 1,
+      target_weight_sum: 0.1,
+      cash_weight: 0.9,
       validator_results: [
         expect.objectContaining({
           status: "accepted",

@@ -636,12 +636,18 @@ export function composeAcceptedMacroTransmission(
   });
   const bSum = sum(weighted.map((item) => item.b));
   const modelBSum = sum(weighted.map((item) => item.modelB));
-  if (bSum <= 0 || modelBSum <= 0) throw new Error(`${agent}: zero effective component weight`);
-  const f = sum(weighted.map((item) => item.b * item.x)) / bSum;
-  const modelF = sum(weighted.map((item) => item.modelB * item.x)) / modelBSum;
-  const dispersion = sum(weighted.map((item) => item.b * Math.abs(item.x - f))) / bSum;
+  const zeroConfidenceNeutral =
+    modelBSum === 0 &&
+    weighted.some((item) => item.dataQuality > 0) &&
+    weighted.every((item) => item.component.direction === "NEUTRAL");
+  if (!zeroConfidenceNeutral && (bSum <= 0 || modelBSum <= 0)) {
+    throw new Error(`${agent}: zero effective component weight`);
+  }
+  const f = sum(weighted.map((item) => item.b * item.x)) / (bSum || 1);
+  const modelF = sum(weighted.map((item) => item.modelB * item.x)) / (modelBSum || 1);
+  const dispersion = sum(weighted.map((item) => item.b * Math.abs(item.x - f))) / (bSum || 1);
   const modelDispersion =
-    sum(weighted.map((item) => item.modelB * Math.abs(item.x - modelF))) / modelBSum;
+    sum(weighted.map((item) => item.modelB * Math.abs(item.x - modelF))) / (modelBSum || 1);
   const baseConfidence = sum(
     weighted.map((item) => item.preregisteredWeight * item.component.confidence * item.dataQuality),
   );

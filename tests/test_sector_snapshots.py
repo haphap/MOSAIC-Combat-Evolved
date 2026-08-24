@@ -11,11 +11,17 @@ import pytest
 import mosaic.dataflows.sector_snapshots as sector_snapshots_module
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.sector_snapshots import (
+    CSI_INDEX_WEIGHT_ENDPOINT,
+    CSI_PIT_ENERGY_INDEX_WEIGHT_CODES,
+    CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE,
     _build_sector_etf_direction_authority,
     _canonical_hash,
     _compiled_batch_evidence,
     _derive_relationship_source_truth,
+    _index_weight_month_request,
     _load_sector_universe_manifest,
+    _validate_csi_index_weight_authority,
+    _validate_membership_batches,
     _registered_sector_metric_observations,
     compile_registered_relationship_snapshot,
     compile_registered_sector_snapshot,
@@ -62,6 +68,191 @@ def test_default_sector_etf_authority_restores_one_exact_mapping_per_agent() -> 
         ("technology", "computer"): ("515230.SH",),
     }
     assert authority["mapping_count"] == 9
+
+
+def test_csi_authority_is_role_bound_and_keeps_energy_pit_lineage() -> None:
+    all_codes = {
+        code
+        for role_codes in CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE.values()
+        for code in role_codes
+    }
+    assert len(all_codes) == 16
+    assert "000995.CSI" not in all_codes
+    assert CSI_PIT_ENERGY_INDEX_WEIGHT_CODES == {
+        "000986.SH",
+        "000941.CSI",
+        "932118.CSI",
+    }
+
+    energy_codes = CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE["energy"]
+    batches = []
+    for index_code in energy_codes:
+        rows = [
+            _csi_row(index_code, "000651.SZ", "2026-07-16", 0.5),
+            _csi_row(index_code, "000651.SZ", AS_OF, 1.5),
+        ]
+        if index_code == energy_codes[0]:
+            rows.append(_csi_row(index_code, "000333.SZ", "2026-07-16", 2.0))
+        rows.extend(
+            [
+                _csi_row(index_code, "000651.SZ", "2026-07-18", 9.0),
+                _csi_row(index_code, "000333.SZ", "2026-07-18", 9.0),
+            ]
+        )
+        batches.append(_csi_index_weight_batch(index_code, rows))
+
+    authority = _validate_csi_index_weight_authority(
+        batches=batches, as_of=date.fromisoformat(AS_OF), role="energy"
+    )
+    assert authority["000651.SZ"]["source_weights"] == dict.fromkeys(energy_codes, 1.5)
+    assert authority["000651.SZ"]["source_trade_dates"] == dict.fromkeys(
+        energy_codes, AS_OF
+    )
+    assert authority["000651.SZ"]["source_index_codes"] == sorted(energy_codes)
+    assert len(authority["000651.SZ"]["source_evidence_ids"]) == len(energy_codes)
+    assert "000333.SZ" not in authority
+    with pytest.raises(DataVendorUnavailable, match="complete semiconductor"):
+        _validate_csi_index_weight_authority(
+            batches=batches, as_of=date.fromisoformat(AS_OF), role="semiconductor"
+        )
+
+
+def test_csi_index_weight_uses_one_latest_monthly_pit_snapshot() -> None:
+    as_of = date(2026, 7, 17)
+    index_codes = CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE["energy"]
+    index_code = index_codes[0]
+    request = _index_weight_month_request(index_code, as_of)
+    assert request == {
+        "index_code": index_code,
+        "start_date": "20260701",
+        "end_date": "20260731",
+    }
+    batches = [
+        _csi_index_weight_batch(
+            code,
+            [
+                _csi_row(code, "000651.SZ", "2026-06-30", 1.0),
+                _csi_row(code, "000651.SZ", "2026-07-15", 2.0),
+                _csi_row(code, "000333.SZ", "2026-07-15", 3.0),
+                _csi_row(code, "000651.SZ", "2026-07-31", 9.0),
+                _csi_row(code, "000333.SZ", "2026-07-31", 9.0),
+            ],
+            start_date="20260701",
+            end_date="20260731",
+        )
+        for code in index_codes
+    ]
+    authority = _validate_csi_index_weight_authority(
+        batches=batches, as_of=as_of, role="energy"
+    )
+    assert set(authority) == {"000651.SZ", "000333.SZ"}
+    assert authority["000651.SZ"]["source_trade_dates"] == dict.fromkeys(
+        index_codes, "2026-07-15"
+    )
+    assert authority["000333.SZ"]["source_trade_dates"] == dict.fromkeys(
+        index_codes, "2026-07-15"
+    )
+
+
+@pytest.mark.parametrize("failure", ("missing", "future", "invalid", "duplicate"))
+def test_csi_authority_rejects_incomplete_or_invalid_pit_batches(
+    failure: str,
+) -> None:
+    energy_codes = CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE["energy"]
+    batches = [
+        _csi_index_weight_batch(
+            index_code,
+            [_csi_row(index_code, "000651.SZ", AS_OF, 1.0)],
+        )
+        for index_code in energy_codes
+    ]
+    mutated = copy.deepcopy(batches)
+    if failure == "missing":
+        mutated.pop()
+    elif failure == "future":
+        mutated[0]["rows"][0]["trade_date"] = "2026-07-18"
+    elif failure == "invalid":
+        mutated[0]["rows"][0]["weight"] = float("nan")
+    else:
+        mutated[0]["rows"].append(copy.deepcopy(mutated[0]["rows"][0]))
+    with pytest.raises(DataVendorUnavailable):
+        _validate_csi_index_weight_authority(
+            batches=mutated, as_of=date.fromisoformat(AS_OF), role="energy"
+        )
+
+
+def test_registered_sector_compiler_intersects_csi_with_sw_membership(
+    snapshot: dict[str, Any],
+) -> None:
+    _production, batches = _registered_source_inputs(snapshot)
+    csi_batches = _csi_batches_for_snapshot(snapshot)
+    all_batches = [*batches, *csi_batches]
+    compiled = compile_registered_sector_snapshot(
+        role=ROLE,
+        as_of_date=AS_OF,
+        source_batches=all_batches,
+    )
+    assert [
+        row["ts_code"] for row in compiled["eligible_security_universe"]
+    ] == [row["ts_code"] for row in snapshot["eligible_security_universe"]]
+    csi_evidence = {
+        evidence["evidence_id"]
+        for evidence in compiled["evidence_catalog"]
+        if evidence["source_endpoint"] == CSI_INDEX_WEIGHT_ENDPOINT
+    }
+    assert len(csi_evidence) == len(CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE[ROLE])
+    assert all(
+        csi_evidence.intersection(row["evidence_ids"])
+        for row in compiled["eligible_security_universe"]
+    )
+
+    tampered = copy.deepcopy(compiled)
+    fake_evidence_id = "tampered-csi-index-weight-evidence"
+    tampered["evidence_catalog"].append(
+        {
+            "evidence_id": fake_evidence_id,
+            "source_endpoint": CSI_INDEX_WEIGHT_ENDPOINT,
+        }
+    )
+    tampered["eligible_security_universe"][0]["evidence_ids"].append(
+        fake_evidence_id
+    )
+    with pytest.raises(
+        DataVendorUnavailable, match="CSI evidence lineage mismatch"
+    ):
+        _validate_membership_batches(
+            role=ROLE,
+            as_of=date.fromisoformat(AS_OF),
+            snapshot=tampered,
+            batches=all_batches,
+        )
+
+
+def test_csi_gate_reuses_fail_closed_unique_sw_direction_mapping() -> None:
+    direction_contracts = sector_snapshots_module._manifest_bindings(ROLE)[1]
+    direction_ids = tuple(direction_contracts)
+    zero_mapping = {"l1_code": "", "l2_code": "", "l3_code": ""}
+    with pytest.raises(DataVendorUnavailable, match="exactly one direction"):
+        sector_snapshots_module._direction_for_security(
+            zero_mapping, direction_contracts
+        )
+
+    first, second = direction_ids[:2]
+    first_code = next(
+        iter(direction_contracts[first]["included_classification_codes"])
+    )
+    second_code = next(
+        iter(direction_contracts[second]["included_classification_codes"])
+    )
+    multiple_mapping = {
+        "l1_code": first_code,
+        "l2_code": second_code,
+        "l3_code": "",
+    }
+    with pytest.raises(DataVendorUnavailable, match="exactly one direction"):
+        sector_snapshots_module._direction_for_security(
+            multiple_mapping, direction_contracts
+        )
 
 
 @pytest.fixture
@@ -855,6 +1046,75 @@ def _rehash_source_batch(batch: dict[str, Any]) -> None:
     batch["source_batch_id"] = "sector-source-batch:" + batch[
         "source_batch_hash"
     ].removeprefix("sha256:")
+
+
+def _csi_row(
+    index_code: str, con_code: str, trade_date: str, weight: float
+) -> dict[str, Any]:
+    return {
+        "index_code": index_code,
+        "con_code": con_code,
+        "trade_date": trade_date,
+        "weight": weight,
+    }
+
+
+def _csi_index_weight_batch(
+    index_code: str,
+    rows: list[dict[str, Any]],
+    *,
+    start_date: str = "2026-07-01",
+    end_date: str = AS_OF,
+) -> dict[str, Any]:
+    preflight = json.loads(TUSHARE_ENDPOINT_PREFLIGHT_PATH.read_text(encoding="utf-8"))
+    contract = next(
+        row
+        for row in preflight["checks"]
+        if row["endpoint"] == CSI_INDEX_WEIGHT_ENDPOINT
+    )
+    batch = {
+        "source_batch_id": "pending",
+        "source_id": f"tushare.{CSI_INDEX_WEIGHT_ENDPOINT}",
+        "endpoint": CSI_INDEX_WEIGHT_ENDPOINT,
+        "schema_contract_version": contract["schema_contract_version"],
+        "request": {
+            "index_code": index_code,
+            "start_date": start_date,
+            "end_date": end_date,
+        },
+        "captured_at": f"{AS_OF}T07:00:00Z",
+        "released_at": f"{AS_OF}T05:00:00Z",
+        "vintage_at": f"{AS_OF}T06:00:00Z",
+        "pit_status": "PIT_VERIFIED",
+        "pagination_complete": True,
+        "truncated": False,
+        "query_count": 1,
+        "completed_query_count": 1,
+        "coverage_ratio": 1.0,
+        "rows": rows,
+        "rows_hash": "pending",
+        "source_batch_hash": "pending",
+    }
+    _rehash_source_batch(batch)
+    return batch
+
+
+def _csi_batches_for_snapshot(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    member_codes = [
+        str(row["ts_code"]) for row in snapshot["eligible_security_universe"]
+    ]
+    return [
+        _csi_index_weight_batch(
+            index_code,
+            [
+                {
+                    **_csi_row(index_code, ts_code, AS_OF, 1.0),
+                }
+                for ts_code in member_codes
+            ],
+        )
+        for index_code in CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE[ROLE]
+    ]
 
 
 def _rebind_scoped_stock_request(batch: dict[str, Any]) -> None:
@@ -2022,6 +2282,7 @@ def test_registered_sector_compiler_is_source_derived_and_deterministic(
         "ts_code": unmapped_code,
     })
     _rebind_scoped_stock_request(stock_basic)
+    scoped_batches.extend(_csi_batches_for_snapshot(snapshot))
     assert len(
         [batch for batch in scoped_batches if batch["endpoint"] == "index_member_all"]
     ) == 1

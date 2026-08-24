@@ -1,5 +1,5 @@
 import { ToolMessage } from "@langchain/core/messages";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   type AcceptedAgentOutputRecord,
   type AcceptedAgentOutputStore,
@@ -149,6 +149,70 @@ describe("Layer-3 superinvestor contracts", () => {
     expect(empty.parse(fallback).selection_status).toBe("NO_QUALIFIED_CANDIDATES");
   });
 
+  it("reports actionable row-specific superinvestor attribution issues", () => {
+    const fallback = fallbackAckman("No qualified candidate.", null);
+    const selected = {
+      ...fallback,
+      selection_status: "SELECTED" as const,
+      picks: [
+        {
+          pick_local_id: "pick-1",
+          ts_code: "600519.SH",
+          position_action: "LONG" as const,
+          conviction: 0.8,
+          thesis: "The frozen candidate passes the philosophy filter.",
+          claim_refs: fallback.claim_refs,
+        },
+      ],
+    };
+    const schema = buildRuntimeSuperinvestorSchema("ackman", ["600519.SH"]);
+    const message =
+      "superinvestor target rows only permit SECURITY_PICK; target_local_ref must exactly " +
+      "match current picks[].pick_local_id; remove PORTFOLIO_DECISION/RISK_ACTION/nonmatching rows";
+    const badRows = [
+      ["PORTFOLIO_DECISION", "decision-1", "SUPPORTS"],
+      ["RISK_ACTION", "risk-1", "RISK_ONLY"],
+      ["SECURITY_PICK", "unknown-pick", "SUPPORTS"],
+    ] as const;
+    const invalid = schema.safeParse({
+      ...selected,
+      macro_input_attributions: [
+        ...fallback.macro_input_attributions,
+        ...badRows.map(([target_type, target_local_ref, effect]) => ({
+          agent_id: "china",
+          target_type,
+          target_local_ref,
+          claim_refs_used: fallback.claim_refs,
+          effect,
+        })),
+      ],
+    });
+    expect(invalid.success).toBe(false);
+    if (invalid.success) throw new Error("expected invalid attribution rows");
+    expect(invalid.error.issues).toHaveLength(3);
+    expect(invalid.error.issues.map(({ path }) => path)).toEqual([
+      ["macro_input_attributions", 8, "target_type"],
+      ["macro_input_attributions", 9, "target_type"],
+      ["macro_input_attributions", 10, "target_local_ref"],
+    ]);
+    expect(invalid.error.issues.every(({ message: issue }) => issue === message)).toBe(true);
+    expect(
+      schema.safeParse({
+        ...selected,
+        macro_input_attributions: [
+          ...fallback.macro_input_attributions,
+          {
+            agent_id: "china",
+            target_type: "SECURITY_PICK" as const,
+            target_local_ref: "pick-1",
+            claim_refs_used: fallback.claim_refs,
+            effect: "SUPPORTS" as const,
+          },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
   it("reads the runtime-owned candidate universe instead of model prose", () => {
     const message = new ToolMessage({
       tool_call_id: "initial_tool_1",
@@ -274,8 +338,9 @@ describe("Layer-3 upstream consumption", () => {
         return record;
       },
     } as unknown as AcceptedAgentOutputStore;
+    const acceptedSnapshotRef = { key: "STANDARD_SECTOR_SELECTION:energy", ...ref };
 
-    expect(buildLayerThreeCapabilityRuntimeInputs(input, [ref], store)).toEqual({
+    expect(buildLayerThreeCapabilityRuntimeInputs(input, [acceptedSnapshotRef], store)).toEqual({
       accepted_output_refs: [ref],
       accepted_output_records: [record],
       bound_runtime_state: {
@@ -288,6 +353,40 @@ describe("Layer-3 upstream consumption", () => {
         },
       },
     });
+  });
+
+  it("keeps fake structured smoke static while real smoke opts into bound inputs", () => {
+    const input = state();
+    input.current_positions.position_snapshot_hash = `sha256:${"b".repeat(64)}`;
+    const ref = {
+      accepted_output_kind: "STANDARD_SECTOR_SELECTION",
+      agent_id: "energy",
+      accepted_output_id: "accepted:energy",
+      accepted_output_hash: `sha256:${"a".repeat(64)}`,
+    } as AcceptedOutputRecordRef;
+    const record = {
+      accepted_output_id: ref.accepted_output_id,
+      accepted_output_hash: ref.accepted_output_hash,
+    } as AcceptedAgentOutputRecord;
+    const store = {
+      resolve: () => record,
+    } as unknown as AcceptedAgentOutputStore;
+    vi.stubEnv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", "structured_smoke");
+    vi.stubEnv("MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH", `sha256:${"c".repeat(64)}`);
+    try {
+      expect(buildLayerThreeCapabilityRuntimeInputs(input, [ref], store)).toEqual({
+        accepted_output_refs: [ref],
+      });
+      expect(buildLayerThreeCapabilityRuntimeInputs(input, [ref], store, true)).toEqual({
+        accepted_output_refs: [ref],
+        accepted_output_records: [record],
+        bound_runtime_state: {
+          current_positions: expect.any(Object),
+        },
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("binds standard Sector selections into the frozen accepted-output closure", () => {

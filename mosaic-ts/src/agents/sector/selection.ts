@@ -14,6 +14,11 @@ export const SECURITY_SCORING_CONTRACT_VERSION =
 export const SECURITY_SCORING_CONTRACT_HASH =
   SECTOR_SECURITY_SCORING_CONTRACT.scoring_contract_hash as string;
 
+export interface RuntimeSectorSecurityAuthority {
+  allowedIds: string[];
+  authorityHash: string;
+}
+
 export interface SectorSecurityScoringRow {
   ts_code: string;
   direction_id: string;
@@ -66,6 +71,48 @@ export type ModelVisibleSectorFinalSelectionDirective = Pick<
   | "required_least_preferred_evidence_ids"
   | "required_final_evidence_ids"
 >;
+
+export function applyRuntimeSectorSecurityAuthority(
+  directive: SectorFinalSelectionRuntimeDirective,
+  authority: RuntimeSectorSecurityAuthority,
+): SectorFinalSelectionRuntimeDirective {
+  if (!/^sha256:[0-9a-f]{64}$/.test(authority.authorityHash)) {
+    throw new Error("runtime Sector security authority hash is invalid");
+  }
+  if (!Array.isArray(authority.allowedIds)) {
+    throw new Error("runtime Sector security authority ids are invalid");
+  }
+  const allowedIds = [...authority.allowedIds];
+  if (
+    allowedIds.length < 2 ||
+    new Set(allowedIds).size !== allowedIds.length ||
+    allowedIds.some((ticker) => !/^\d{6}\.(SH|SZ|BJ)$/.test(ticker))
+  ) {
+    throw new Error("runtime Sector security authority requires unique compliant tickers");
+  }
+  allowedIds.sort();
+  const shortlist = (directionId: string) => {
+    const body = {
+      schema_version: "runtime_sector_security_shortlist_v1",
+      direction_id: directionId,
+      runtime_security_authority_hash: authority.authorityHash,
+      allowed_security_ids: allowedIds,
+    };
+    const hash = canonicalHash(body);
+    return { id: `sector-shortlist:${directionId}:${hash.slice(-16)}`, hash };
+  };
+  const preferred = shortlist(directive.preferred_direction_id);
+  const least = shortlist(directive.least_preferred_direction_id);
+  return {
+    ...directive,
+    preferred_security_shortlist_id: preferred.id,
+    preferred_security_shortlist_hash: preferred.hash,
+    least_preferred_security_shortlist_id: least.id,
+    least_preferred_security_shortlist_hash: least.hash,
+    allowed_preferred_security_ids: [...allowedIds],
+    allowed_least_preferred_security_ids: [...allowedIds],
+  };
+}
 
 export function buildPairwiseFinalDirective(input: {
   reduction: DirectionMatrixReduction;

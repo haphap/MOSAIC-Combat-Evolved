@@ -62,6 +62,39 @@ export interface AcceptedOutputRecordRef<K extends AcceptedOutputKind = Accepted
   accepted_output_hash: string;
 }
 
+interface StructuredSmokeAcceptedOutputIdentity<K extends AcceptedOutputKind = AcceptedOutputKind> {
+  schema_version: "structured_smoke_accepted_output_ref_v1";
+  fixture_bundle_hash: string;
+  graph_run_id: string;
+  as_of: string;
+  accepted_output_kind: K;
+  agent_id: AcceptedOutputAgentByKind[K];
+  payload_hash: string;
+}
+
+export const STRUCTURED_SMOKE_ACCEPTED_OUTPUT_RECORD_SCHEMA =
+  "structured_smoke_accepted_output_record_v1" as const;
+export const STRUCTURED_SMOKE_ACCEPTED_OUTPUT_SAMPLE_ORIGIN =
+  "NON_PRODUCTION_STRUCTURED_SMOKE" as const;
+
+/** Read-only smoke lineage. It is intentionally not an AcceptedAgentOutputRecord. */
+export interface StructuredSmokeAcceptedOutputRecord<
+  K extends AcceptedOutputKind = AcceptedOutputKind,
+  TPayload = unknown,
+> {
+  schema_version: typeof STRUCTURED_SMOKE_ACCEPTED_OUTPUT_RECORD_SCHEMA;
+  sample_origin: typeof STRUCTURED_SMOKE_ACCEPTED_OUTPUT_SAMPLE_ORIGIN;
+  fixture_bundle_hash: string;
+  accepted_output_kind: K;
+  agent_id: AcceptedOutputAgentByKind[K];
+  accepted_output_id: string;
+  accepted_output_hash: string;
+  graph_run_id: string;
+  as_of: string;
+  accepted_at: string;
+  output: { payload: TPayload };
+}
+
 /** Namespace-safe state key. CIO has two accepted phases, so agent id alone is insufficient. */
 export function acceptedOutputRefKey<K extends AcceptedOutputKind>(
   kind: K,
@@ -86,11 +119,48 @@ export function buildStructuredSmokeAcceptedOutputRef<K extends AcceptedOutputKi
   payload: unknown;
   state: DailyCycleStateType;
 }): AcceptedOutputRecordRef<K> | null {
+  const identity = structuredSmokeAcceptedOutputIdentity(input);
+  if (!identity) return null;
+  const acceptedOutputId = deterministicId("structured-smoke-accepted-output", identity);
+  return structuredSmokeAcceptedOutputRef(identity, acceptedOutputId);
+}
+
+export function buildStructuredSmokeAcceptedOutputRecord<K extends AcceptedOutputKind>(input: {
+  kind: K;
+  agentId: AcceptedOutputAgentByKind[K];
+  payload: unknown;
+  state: DailyCycleStateType;
+  acceptedAt?: string;
+}): StructuredSmokeAcceptedOutputRecord<K> | null {
+  const identity = structuredSmokeAcceptedOutputIdentity(input);
+  if (!identity) return null;
+  const acceptedOutputId = deterministicId("structured-smoke-accepted-output", identity);
+  return {
+    schema_version: STRUCTURED_SMOKE_ACCEPTED_OUTPUT_RECORD_SCHEMA,
+    sample_origin: STRUCTURED_SMOKE_ACCEPTED_OUTPUT_SAMPLE_ORIGIN,
+    fixture_bundle_hash: identity.fixture_bundle_hash,
+    accepted_output_kind: identity.accepted_output_kind,
+    agent_id: identity.agent_id,
+    accepted_output_id: acceptedOutputId,
+    accepted_output_hash: canonicalHash({ ...identity, accepted_output_id: acceptedOutputId }),
+    graph_run_id: identity.graph_run_id,
+    as_of: identity.as_of,
+    accepted_at: input.acceptedAt ?? `${identity.as_of}T00:00:00.000Z`,
+    output: { payload: structuredClone(input.payload) },
+  };
+}
+
+function structuredSmokeAcceptedOutputIdentity<K extends AcceptedOutputKind>(input: {
+  kind: K;
+  agentId: AcceptedOutputAgentByKind[K];
+  payload: unknown;
+  state: DailyCycleStateType;
+}): StructuredSmokeAcceptedOutputIdentity<K> | null {
   const fixtureBundleHash = structuredSmokeFixtureBundleHash();
   if (!fixtureBundleHash) return null;
   validateOwner(input.kind, input.agentId);
-  const identity = {
-    schema_version: "structured_smoke_accepted_output_ref_v1",
+  return {
+    schema_version: "structured_smoke_accepted_output_ref_v1" as const,
     fixture_bundle_hash: fixtureBundleHash,
     graph_run_id: requiredText(input.state.trace_id, "graph_run_id"),
     as_of: requiredText(input.state.as_of_date, "as_of"),
@@ -98,10 +168,15 @@ export function buildStructuredSmokeAcceptedOutputRef<K extends AcceptedOutputKi
     agent_id: input.agentId,
     payload_hash: canonicalHash(input.payload),
   };
-  const acceptedOutputId = deterministicId("structured-smoke-accepted-output", identity);
+}
+
+function structuredSmokeAcceptedOutputRef<K extends AcceptedOutputKind>(
+  identity: StructuredSmokeAcceptedOutputIdentity<K>,
+  acceptedOutputId: string,
+): AcceptedOutputRecordRef<K> {
   return {
-    accepted_output_kind: input.kind,
-    agent_id: input.agentId,
+    accepted_output_kind: identity.accepted_output_kind as K,
+    agent_id: identity.agent_id as AcceptedOutputAgentByKind[K],
     accepted_output_id: acceptedOutputId,
     accepted_output_hash: canonicalHash({ ...identity, accepted_output_id: acceptedOutputId }),
   };
@@ -486,11 +561,13 @@ export function acceptedOutputRecordRef<K extends AcceptedOutputKind>(
 export interface AcceptedAgentOutputStoreSnapshot {
   records: AcceptedAgentOutputRecord[];
   claim_graphs: Record<string, ClaimEvidenceGraph>;
+  structured_smoke_records?: StructuredSmokeAcceptedOutputRecord[];
 }
 
 export class AcceptedAgentOutputStore {
   readonly #records = new Map<string, AcceptedAgentOutputRecord>();
   readonly #claimGraphs = new Map<string, ClaimEvidenceGraph>();
+  readonly #structuredSmokeRecords = new Map<string, StructuredSmokeAcceptedOutputRecord>();
 
   put<K extends AcceptedOutputKind, TPayload>(
     record: AcceptedAgentOutputRecord<K, TPayload>,
@@ -506,6 +583,23 @@ export class AcceptedAgentOutputStore {
   ): AcceptedOutputRecordRef<K> {
     validateAcceptedAgentOutputRecord(record);
     return this.#putValidated(record, claimGraph);
+  }
+
+  putStructuredSmoke<K extends AcceptedOutputKind, TPayload>(
+    record: StructuredSmokeAcceptedOutputRecord<K, TPayload>,
+  ): AcceptedOutputRecordRef<K> {
+    validateStructuredSmokeAcceptedOutputRecord(record);
+    const existing = this.#structuredSmokeRecords.get(record.accepted_output_id);
+    if (existing && canonicalHash(existing) !== canonicalHash(record)) {
+      throw new Error(
+        `structured-smoke accepted output retry changed payload: ${record.accepted_output_id}`,
+      );
+    }
+    this.#structuredSmokeRecords.set(
+      record.accepted_output_id,
+      structuredClone(record) as StructuredSmokeAcceptedOutputRecord,
+    );
+    return structuredSmokeAcceptedOutputRefFromRecord(record);
   }
 
   #putValidated<K extends AcceptedOutputKind, TPayload>(
@@ -529,6 +623,18 @@ export class AcceptedAgentOutputStore {
   resolve<K extends AcceptedOutputKind, TPayload = unknown>(
     ref: AcceptedOutputRecordRef<K>,
   ): AcceptedAgentOutputRecord<K, TPayload> {
+    const structuredSmokeRecord = this.#structuredSmokeRecords.get(ref.accepted_output_id);
+    if (structuredSmokeRecord) {
+      if (
+        structuredSmokeRecord.accepted_output_hash !== ref.accepted_output_hash ||
+        structuredSmokeRecord.accepted_output_kind !== ref.accepted_output_kind ||
+        structuredSmokeRecord.agent_id !== ref.agent_id
+      ) {
+        throw new Error(`accepted output reference mismatch: ${ref.accepted_output_id}`);
+      }
+      validateStructuredSmokeAcceptedOutputRecord(structuredSmokeRecord);
+      return structuredSmokeRecord as unknown as AcceptedAgentOutputRecord<K, TPayload>;
+    }
     const record = this.#records.get(ref.accepted_output_id);
     if (!record) throw new Error(`accepted output is unavailable: ${ref.accepted_output_id}`);
     if (
@@ -555,14 +661,48 @@ export class AcceptedAgentOutputStore {
       const graph = this.#claimGraphs.get(record.accepted_output_id);
       if (graph) claim_graphs[record.accepted_output_id] = structuredClone(graph);
     }
-    return { records: structuredClone(records), claim_graphs };
+    const structuredSmokeRecords = [...this.#structuredSmokeRecords.values()].sort((left, right) =>
+      left.accepted_output_id.localeCompare(right.accepted_output_id),
+    );
+    return {
+      records: structuredClone(records),
+      claim_graphs,
+      ...(structuredSmokeRecords.length > 0
+        ? { structured_smoke_records: structuredClone(structuredSmokeRecords) }
+        : {}),
+    };
   }
 
   restore(snapshot: AcceptedAgentOutputStoreSnapshot): void {
     this.#records.clear();
     this.#claimGraphs.clear();
+    this.#structuredSmokeRecords.clear();
     for (const record of snapshot.records) {
       this.putReadOnly(record, snapshot.claim_graphs[record.accepted_output_id]);
+    }
+    for (const record of snapshot.structured_smoke_records ?? []) {
+      this.putStructuredSmoke(record);
+    }
+  }
+
+  hydrateStructuredSmokeFromState(state: DailyCycleStateType): void {
+    if (!structuredSmokeFixtureBundleHash()) return;
+    for (const ref of Object.values(state.accepted_output_refs)) {
+      if (this.#hasExactRef(ref)) continue;
+      const payload = structuredSmokeResumePayload(ref, state);
+      const record = buildStructuredSmokeAcceptedOutputRecord({
+        kind: ref.accepted_output_kind,
+        agentId: ref.agent_id,
+        payload,
+        state,
+      });
+      if (!record) throw new Error("structured-smoke accepted output binding is incomplete");
+      if (
+        canonicalHash(structuredSmokeAcceptedOutputRefFromRecord(record)) !== canonicalHash(ref)
+      ) {
+        throw new Error(`structured-smoke accepted output ref mismatch: ${ref.accepted_output_id}`);
+      }
+      this.putStructuredSmoke(record);
     }
   }
 
@@ -576,6 +716,157 @@ export class AcceptedAgentOutputStore {
     }
     return structuredClone(graph);
   }
+
+  #hasExactRef<K extends AcceptedOutputKind>(ref: AcceptedOutputRecordRef<K>): boolean {
+    const structured = this.#structuredSmokeRecords.get(ref.accepted_output_id);
+    if (structured) {
+      if (
+        structured.accepted_output_hash !== ref.accepted_output_hash ||
+        structured.accepted_output_kind !== ref.accepted_output_kind ||
+        structured.agent_id !== ref.agent_id
+      ) {
+        throw new Error(`accepted output reference mismatch: ${ref.accepted_output_id}`);
+      }
+      validateStructuredSmokeAcceptedOutputRecord(structured);
+      return true;
+    }
+    const production = this.#records.get(ref.accepted_output_id);
+    if (!production) return false;
+    if (
+      production.accepted_output_hash !== ref.accepted_output_hash ||
+      production.accepted_output_kind !== ref.accepted_output_kind ||
+      production.agent_id !== ref.agent_id
+    ) {
+      throw new Error(`accepted output reference mismatch: ${ref.accepted_output_id}`);
+    }
+    validateAcceptedAgentOutputRecord(production);
+    return true;
+  }
+}
+
+export function putStructuredSmokeAcceptedOutput<K extends AcceptedOutputKind>(
+  store: AcceptedAgentOutputStore | undefined,
+  input: {
+    kind: K;
+    agentId: AcceptedOutputAgentByKind[K];
+    payload: unknown;
+    state: DailyCycleStateType;
+    acceptedAt?: string;
+  },
+): AcceptedOutputRecordRef<K> | null {
+  const record = buildStructuredSmokeAcceptedOutputRecord(input);
+  if (!record) return null;
+  if (!store) throw new Error("structured-smoke accepted-output store is unavailable");
+  return store.putStructuredSmoke(record);
+}
+
+export function validateStructuredSmokeAcceptedOutputRecord(
+  record: StructuredSmokeAcceptedOutputRecord,
+): void {
+  const expectedFields = [
+    "accepted_at",
+    "accepted_output_hash",
+    "accepted_output_id",
+    "accepted_output_kind",
+    "agent_id",
+    "as_of",
+    "fixture_bundle_hash",
+    "graph_run_id",
+    "output",
+    "sample_origin",
+    "schema_version",
+  ];
+  if (Object.keys(record).sort().join("\0") !== expectedFields.join("\0")) {
+    throw new Error(
+      `structured-smoke accepted output fields mismatch: ${record.accepted_output_id}`,
+    );
+  }
+  if (
+    record.schema_version !== STRUCTURED_SMOKE_ACCEPTED_OUTPUT_RECORD_SCHEMA ||
+    record.sample_origin !== STRUCTURED_SMOKE_ACCEPTED_OUTPUT_SAMPLE_ORIGIN
+  ) {
+    throw new Error(
+      `structured-smoke accepted output schema mismatch: ${record.accepted_output_id}`,
+    );
+  }
+  const fixtureBundleHash = structuredSmokeFixtureBundleHash();
+  if (!fixtureBundleHash || record.fixture_bundle_hash !== fixtureBundleHash) {
+    throw new Error(
+      `structured-smoke accepted output fixture mismatch: ${record.accepted_output_id}`,
+    );
+  }
+  validateOwner(record.accepted_output_kind, record.agent_id);
+  requiredText(record.graph_run_id, "graph_run_id");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(record.as_of)) {
+    throw new Error(
+      `structured-smoke accepted output as_of mismatch: ${record.accepted_output_id}`,
+    );
+  }
+  requiredText(record.accepted_at, "accepted_at");
+  if (
+    record.output === null ||
+    typeof record.output !== "object" ||
+    Array.isArray(record.output) ||
+    Object.keys(record.output).sort().join("\0") !== "payload" ||
+    record.output.payload === undefined
+  ) {
+    throw new Error(
+      `structured-smoke accepted output payload mismatch: ${record.accepted_output_id}`,
+    );
+  }
+  const identity = {
+    schema_version: "structured_smoke_accepted_output_ref_v1" as const,
+    fixture_bundle_hash: record.fixture_bundle_hash,
+    graph_run_id: record.graph_run_id,
+    as_of: record.as_of,
+    accepted_output_kind: record.accepted_output_kind,
+    agent_id: record.agent_id,
+    payload_hash: canonicalHash(record.output.payload),
+  };
+  const expectedId = deterministicId("structured-smoke-accepted-output", identity);
+  const expectedHash = canonicalHash({ ...identity, accepted_output_id: expectedId });
+  if (record.accepted_output_id !== expectedId || record.accepted_output_hash !== expectedHash) {
+    throw new Error(`structured-smoke accepted output hash mismatch: ${record.accepted_output_id}`);
+  }
+}
+
+function structuredSmokeAcceptedOutputRefFromRecord<K extends AcceptedOutputKind>(
+  record: StructuredSmokeAcceptedOutputRecord<K>,
+): AcceptedOutputRecordRef<K> {
+  return {
+    accepted_output_kind: record.accepted_output_kind,
+    agent_id: record.agent_id,
+    accepted_output_id: record.accepted_output_id,
+    accepted_output_hash: record.accepted_output_hash,
+  };
+}
+
+function structuredSmokeResumePayload(
+  ref: AcceptedOutputRecordRef,
+  state: DailyCycleStateType,
+): unknown {
+  if (ref.accepted_output_kind === "MACRO_TRANSMISSION") {
+    const raw = (state.layer1_outputs as Record<string, unknown>)[ref.agent_id];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new Error(`structured-smoke Macro output is unavailable: ${ref.agent_id}`);
+    }
+    const {
+      verified_claim_graph: _,
+      verified_claim_audit: __,
+      ...payload
+    } = raw as Record<string, unknown>;
+    return payload;
+  }
+  if (ref.accepted_output_kind === "STANDARD_SECTOR_SELECTION") {
+    const raw = (state.layer2_outputs as Record<string, unknown>)[ref.agent_id];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new Error(`structured-smoke Sector output is unavailable: ${ref.agent_id}`);
+    }
+    return raw;
+  }
+  throw new Error(
+    `structured-smoke checkpoint cannot hydrate accepted output kind: ${ref.accepted_output_kind}`,
+  );
 }
 
 function validateAcceptedOutputClaimGraph(

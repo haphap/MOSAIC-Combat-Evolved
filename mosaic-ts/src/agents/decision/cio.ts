@@ -59,10 +59,14 @@ function buildProposalUserContext(
     `${renderCurrentPositionsContext(state)}\n\n` +
     `${renderPreviousTargetContext(state)}\n\n` +
     `${renderJanusRegimeStub()}\n\n` +
-    `Build the candidate target portfolio before CRO and execution review. Include every current ` +
-    `position with a HOLD, ADD, REDUCE, or EXIT decision and consider alpha_discovery's novel picks. ` +
-    `target_weight must not exceed 1.0; a lower sum is intentional cash ` +
-    `(BEARISH regime + low confidence is the legitimate cash-holding case).`
+    `Evaluate every candidate in the frozen CIO candidate universe, including each accepted Sector, ` +
+    `Superinvestor, and Alpha candidate. Alpha NONE_FOUND means no additional novel Alpha candidate; ` +
+    `it does not negate upstream accepted candidates. When current positions are empty and an accepted ` +
+    `upstream opportunity exists, choose exactly one positive target from the frozen candidate universe; ` +
+    `do not emit ALL_CASH or zero actions, and do not hard-code a ticker. If no accepted upstream ` +
+    `opportunity exists, ALL_CASH with zero targets remains valid. Include every current position with ` +
+    `a HOLD, ADD, REDUCE, or EXIT decision. target_weight must not exceed 1.0; a lower sum is ` +
+    `intentional cash after the required target (BEARISH regime + low confidence can justify it).`
   );
 }
 

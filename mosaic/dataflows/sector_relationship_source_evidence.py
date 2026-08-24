@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date, datetime, time, timezone
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from mosaic.agents.utils.rke_research_tools import format_rke_runtime_context
 from mosaic.dataflows.agent_materialization import (
     AgentDataMaterializationLedger,
     SourceCaptureReceipt,
@@ -22,6 +24,10 @@ from mosaic.dataflows.china_agent_data_archive import (
 from mosaic.dataflows.sector_archive import sector_archive_source_receipt
 from mosaic.dataflows.staged_query_receipt_store import StagedQueryReceiptStore
 from mosaic.dataflows.staged_query_receipts import seal_staged_query_source_receipt
+from mosaic.rke.agent_research_context import (
+    RKE_AGENT_RESEARCH_INPUT_FILENAMES,
+    build_rke_agent_research_materialization,
+)
 from mosaic.scorecard.canonical_json import canonical_hash
 
 
@@ -111,6 +117,24 @@ def _summary_field(raw_payload: str, field: str) -> str:
     return ""
 
 
+def _rke_empty_archive_hash(registry_path: Path) -> str:
+    file_hashes: list[dict[str, str]] = []
+    for filename in RKE_AGENT_RESEARCH_INPUT_FILENAMES:
+        path = registry_path / filename
+        if not path.is_file():
+            raise DataVendorUnavailable("RKE empty coverage input is unavailable")
+        try:
+            file_hashes.append(
+                {
+                    "name": filename,
+                    "content_hash": "sha256:" + sha256(path.read_bytes()).hexdigest(),
+                }
+            )
+        except OSError as exc:
+            raise DataVendorUnavailable("RKE empty coverage input is unavailable") from exc
+    return canonical_hash({"input_files": file_hashes})
+
+
 class SectorRelationshipSourceEvidenceAuthority:
     """Seal ETF vintage and RKE archive evidence without exposing private lineage."""
 
@@ -118,6 +142,7 @@ class SectorRelationshipSourceEvidenceAuthority:
         self,
         *,
         root: str | Path,
+        rke_root: str | Path | None = None,
         receipt_store: StagedQueryReceiptStore,
         sector_archive_store: Any | None = None,
         china_archive_store: Any | None = None,
@@ -126,6 +151,7 @@ class SectorRelationshipSourceEvidenceAuthority:
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.root = Path(root).expanduser().resolve()
+        self.rke_root = Path(rke_root or root).expanduser().resolve()
         self.receipt_store = receipt_store
         self.sector_archive_store = sector_archive_store
         self.china_archive_store = china_archive_store
@@ -168,7 +194,7 @@ class SectorRelationshipSourceEvidenceAuthority:
         elif tool_id == "get_etf_holdings":
             receipt = self._etf_receipt(raw_payload, descriptor)
         elif tool_id == "get_rke_research_context":
-            receipt = self._rke_receipt(source_ids, descriptor)
+            receipt = self._rke_receipt(args, raw_payload, source_ids, descriptor)
         else:
             return None
         self.receipt_store.register(receipt)
@@ -418,6 +444,8 @@ class SectorRelationshipSourceEvidenceAuthority:
 
     def _rke_receipt(
         self,
+        args: Mapping[str, Any],
+        raw_payload: str,
         source_ids: Sequence[str],
         descriptor: Mapping[str, Any],
     ) -> dict[str, Any]:
@@ -425,11 +453,11 @@ class SectorRelationshipSourceEvidenceAuthority:
             raise DataVendorUnavailable("RKE source receipt PIT mode is invalid")
         selected = tuple(sorted(set(str(value).strip() for value in source_ids if str(value).strip())))
         if not selected:
-            raise DataVendorUnavailable("RKE source lineage is empty and has no coverage receipt")
+            return self._rke_true_empty_receipt(args, raw_payload, descriptor)
 
         source_by_id: dict[str, Mapping[str, Any]] = {}
         for relative in _RKE_SOURCE_PATHS:
-            for row in _read_jsonl(self.root / relative):
+            for row in _read_jsonl(self.rke_root / relative):
                 source_id = str(row.get("source_id") or "").strip()
                 if source_id and source_id in source_by_id and source_by_id[source_id] != row:
                     raise DataVendorUnavailable("RKE source archive has conflicting source ids")
@@ -438,7 +466,7 @@ class SectorRelationshipSourceEvidenceAuthority:
         metadata_by_source = {
             str(row.get("source_id") or "").strip(): row
             for row in _read_jsonl(
-                self.root / "registry/report_intelligence/report_metadata.jsonl"
+                self.rke_root / "registry/report_intelligence/report_metadata.jsonl"
             )
             if str(row.get("source_id") or "").strip()
         }
@@ -560,6 +588,131 @@ class SectorRelationshipSourceEvidenceAuthority:
         return seal_staged_query_source_receipt(
             descriptor,
             knowledge_available_at=knowledge_at.isoformat(),
+            captured_at=captured_at.isoformat(),
+            upstream_evidence_hashes=(upstream_hash,),
+        )
+
+    def _rke_true_empty_receipt(
+        self,
+        args: Mapping[str, Any],
+        raw_payload: str,
+        descriptor: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        registry_path = self.rke_root / "registry/report_intelligence"
+        archive_hash = _rke_empty_archive_hash(registry_path)
+        try:
+            materialization = build_rke_agent_research_materialization(
+                root=self.rke_root,
+                registry_dir=registry_path,
+                agent_id=str(args["agent_id"]),
+                as_of_date=str(args["as_of"]),
+                layer=str(args["layer"]),
+                ticker=str(args.get("ticker") or ""),
+                sector=str(args.get("sector") or ""),
+                max_items=int(args["max_items"]),
+            )
+            context = materialization["context"]
+            expected_payload = format_rke_runtime_context(context)
+            no_prior_reason = str(
+                context.get("summary", {}).get("no_prior_reason") or ""
+            ).strip()
+        except (KeyError, OSError, TypeError, ValueError) as exc:
+            raise DataVendorUnavailable("RKE empty coverage materialization is unavailable") from exc
+        if (
+            materialization.get("source_ids") != ()
+            or raw_payload != expected_payload
+            or not no_prior_reason
+        ):
+            raise DataVendorUnavailable("RKE empty coverage is not proven")
+
+        as_of = str(descriptor["as_of"])
+        as_of_end = datetime.combine(
+            date.fromisoformat(as_of), time.max, tzinfo=_SHANGHAI
+        )
+        captured_at = _aware_now(self.clock)
+        source = SourceCaptureReceipt.seal(
+            {
+                "schema_version": "source_capture_receipt_v1",
+                "identity": {
+                    "source_family": "local_private_rke",
+                    "route_id": "private.rke_report_intelligence",
+                    "request_hash": descriptor["request_hash"],
+                    "capture_id": "private-rke-empty:"
+                    + canonical_hash(
+                        {
+                            "request_hash": descriptor["request_hash"],
+                            "content_hash": descriptor["content_hash"],
+                            "archive_hash": archive_hash,
+                        }
+                    ).removeprefix("sha256:"),
+                },
+                "transport": {
+                    "redacted_url": "private://rke/report-intelligence",
+                    "method": "FILE",
+                    "query_keys": sorted(str(key) for key in args),
+                    "pagination_policy": "EXACT_PRIVATE_SOURCE_SET_V1",
+                    "page_count": 1,
+                },
+                "authority": {
+                    "provider": "local_private_rke",
+                    "permission_tier": "trusted_private_archive",
+                    "api_version": "rke-v1",
+                    "parser_version": "rke_source_evidence_v1",
+                },
+                "time": {
+                    "released_at": as_of_end.isoformat(),
+                    "vintage_at": as_of_end.isoformat(),
+                    "captured_at": captured_at.isoformat(),
+                    "knowledge_available_at": as_of_end.isoformat(),
+                },
+                "pit": {
+                    "pit_mode": "AUTHORITATIVE_VINTAGE_REPLAY",
+                    "as_of_cutoff": as_of_end.isoformat(),
+                    "eligible": True,
+                    "blocker_codes": [],
+                    "vintage_query": {
+                        "archive_hash": archive_hash,
+                        "as_of": as_of,
+                        "empty_reason": no_prior_reason,
+                    },
+                },
+                "content": {
+                    "raw_content_hash": descriptor["content_hash"],
+                    "normalized_row_count": 0,
+                    "schema_hash": canonical_hash(
+                        {
+                            "parser_version": "rke_source_evidence_v1",
+                            "route_id": descriptor["route_id"],
+                        }
+                    ),
+                },
+                "coverage": {
+                    "requested_start": as_of,
+                    "requested_end": as_of,
+                    "observed_start": None,
+                    "observed_end": None,
+                    "dimensions": {
+                        "empty_reason": [no_prior_reason],
+                        "route_id": ["private.rke_report_intelligence"],
+                    },
+                },
+                "completeness": {
+                    "truncated": False,
+                    "next_page_token_present": False,
+                    "duplicate_count": 0,
+                    "empty_result_semantics": "TRUE_EMPTY",
+                },
+                "provenance": {
+                    "parent_capture_hash": archive_hash,
+                    "previous_revision_hash": None,
+                    "revision_reason": None,
+                },
+            }
+        )
+        upstream_hash = self._register_source(source)
+        return seal_staged_query_source_receipt(
+            descriptor,
+            knowledge_available_at=as_of_end.isoformat(),
             captured_at=captured_at.isoformat(),
             upstream_evidence_hashes=(upstream_hash,),
         )

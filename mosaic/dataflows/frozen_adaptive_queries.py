@@ -15,7 +15,7 @@ import threading
 import uuid
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +41,7 @@ from mosaic.scorecard.sector_relationship_preservation import (
     SECTOR_AGENT_IDS,
     validate_sector_relationship_preservation_overlay,
 )
+from mosaic.dataflows.sector_snapshots import CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -1404,6 +1405,21 @@ class FrozenAdaptiveQueryStore:
         indicator = request.get("indicator")
         if isinstance(indicator, str) and indicator not in scope["indicator_families"]:
             raise ValueError("indicator family is outside the authorized scope")
+        if tool_id == "get_sector_index_membership":
+            expected_index_codes = CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE.get(agent_id, ())
+            index_code = request.get("index_code")
+            if index_code not in expected_index_codes:
+                raise ValueError("index_code is outside the authorized CSI index scope")
+            if request.get("as_of") != as_of.isoformat():
+                raise ValueError("sector index membership as_of is outside the authorized scope")
+            previous_month_start = (as_of.replace(day=1) - timedelta(days=1)).replace(day=1)
+            if (request.get("start_date"), request.get("end_date")) != (
+                previous_month_start.isoformat(),
+                as_of.isoformat(),
+            ):
+                raise ValueError(
+                    "sector index membership range is outside the frozen PIT window"
+                )
         if tool_id == "get_rke_research_context":
             if request.get("agent_id") != agent_id:
                 raise ValueError("RKE agent_id is outside the authorized scope")

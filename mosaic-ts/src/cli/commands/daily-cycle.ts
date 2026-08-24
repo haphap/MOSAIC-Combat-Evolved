@@ -434,6 +434,9 @@ export function registerDailyCycle(program: Command): void {
 
         const acceptedOutputStore = new AcceptedAgentOutputStore();
         stageCheckpoint?.restoreAcceptedOutputStore(acceptedOutputStore);
+        if (opts.structuredSmoke && restoredState) {
+          acceptedOutputStore.hydrateStructuredSmokeFromState(restoredState);
+        }
         const graph = buildDailyCycleGraph({
           llmHandle,
           api,

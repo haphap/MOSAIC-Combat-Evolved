@@ -2,7 +2,7 @@
   "generated_at": "2026-08-06T00:00:00+00:00",
   "manifest_version": "agent_data_routes_20260812_v1",
   "schema_version": "agent_data_route_manifest_v1",
-  "agent_tool_contract_manifest_hash": "sha256:f55da961fceb36fe4119183a0e5a9702e19962700892896de3f3af3a87e78f3c",
+  "agent_tool_contract_manifest_hash": "sha256:cd74e754de85a804bd2f263c13940bab208b9b76f52718aeb20f936015ec3dfb",
   "routes": [
     {
       "contract_version": "alfred_us_macro_v1",
@@ -363,6 +363,14 @@
     {
       "agent_id": "semiconductor",
       "required_route_ids": [
+        "tushare.sector_market"
+      ],
+      "stage": "semiconductor",
+      "tool_id": "get_sector_index_membership"
+    },
+    {
+      "agent_id": "semiconductor",
+      "required_route_ids": [
         "tushare.sector_fundamentals",
         "tushare.sector_market"
       ],
@@ -446,6 +454,14 @@
     {
       "agent_id": "technology",
       "required_route_ids": [
+        "tushare.sector_market"
+      ],
+      "stage": "technology",
+      "tool_id": "get_sector_index_membership"
+    },
+    {
+      "agent_id": "technology",
+      "required_route_ids": [
         "tushare.sector_fundamentals",
         "tushare.sector_market"
       ],
@@ -529,6 +545,14 @@
     {
       "agent_id": "energy",
       "required_route_ids": [
+        "tushare.sector_market"
+      ],
+      "stage": "energy",
+      "tool_id": "get_sector_index_membership"
+    },
+    {
+      "agent_id": "energy",
+      "required_route_ids": [
         "tushare.sector_fundamentals",
         "tushare.sector_market"
       ],
@@ -598,6 +622,14 @@
       ],
       "stage": "biotech",
       "tool_id": "get_rke_research_context"
+    },
+    {
+      "agent_id": "biotech",
+      "required_route_ids": [
+        "tushare.sector_market"
+      ],
+      "stage": "biotech",
+      "tool_id": "get_sector_index_membership"
     },
     {
       "agent_id": "biotech",
@@ -685,6 +717,14 @@
     {
       "agent_id": "consumer",
       "required_route_ids": [
+        "tushare.sector_market"
+      ],
+      "stage": "consumer",
+      "tool_id": "get_sector_index_membership"
+    },
+    {
+      "agent_id": "consumer",
+      "required_route_ids": [
         "tushare.sector_fundamentals",
         "tushare.sector_market"
       ],
@@ -764,6 +804,14 @@
       ],
       "stage": "industrials",
       "tool_id": "get_role_event_snapshot"
+    },
+    {
+      "agent_id": "industrials",
+      "required_route_ids": [
+        "tushare.sector_market"
+      ],
+      "stage": "industrials",
+      "tool_id": "get_sector_index_membership"
     },
     {
       "agent_id": "industrials",
@@ -849,6 +897,14 @@
     {
       "agent_id": "real_estate_construction",
       "required_route_ids": [
+        "tushare.sector_market"
+      ],
+      "stage": "real_estate_construction",
+      "tool_id": "get_sector_index_membership"
+    },
+    {
+      "agent_id": "real_estate_construction",
+      "required_route_ids": [
         "tushare.sector_fundamentals",
         "tushare.sector_market"
       ],
@@ -928,6 +984,14 @@
       ],
       "stage": "financials",
       "tool_id": "get_role_event_snapshot"
+    },
+    {
+      "agent_id": "financials",
+      "required_route_ids": [
+        "tushare.sector_market"
+      ],
+      "stage": "financials",
+      "tool_id": "get_sector_index_membership"
     },
     {
       "agent_id": "financials",
@@ -1019,6 +1083,14 @@
       ],
       "stage": "agriculture",
       "tool_id": "get_role_event_snapshot"
+    },
+    {
+      "agent_id": "agriculture",
+      "required_route_ids": [
+        "tushare.sector_market"
+      ],
+      "stage": "agriculture",
+      "tool_id": "get_sector_index_membership"
     },
     {
       "agent_id": "agriculture",
@@ -1424,5 +1496,5 @@
       ]
     }
   ],
-  "manifest_hash": "sha256:2bdf0301b2abd59d40d4ec73a561f7e1dab5e1d57bc3f04e5b7263b78d10abd4"
+  "manifest_hash": "sha256:8a38e1e557990aed8d8cb60c765c1e85b9c36bbbf98592537c8a6264b059dea3"
 }

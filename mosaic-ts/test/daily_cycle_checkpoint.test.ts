@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { AcceptedAgentOutputStore } from "../src/agents/accepted_output.js";
 import { buildMacroInputGateNode } from "../src/agents/macro/_input_gate.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../src/agents/state.js";
+import { DAILY_CYCLE_STAGE_ROSTER } from "../src/cli/commands/daily-cycle.js";
 import {
   checkpointCommitStageForNode,
   checkpointedStageNode,
@@ -237,5 +238,23 @@ describe("daily-cycle Agent-stage checkpoint", () => {
         identity: { ...identity, prompt_content_hash: `sha256:${"e".repeat(64)}` },
       }),
     ).toThrow("identity drift");
+  });
+
+  it("restores a v2 21-stage prefix with the latest stage as a string id", () => {
+    const root = mkdtempSync(join(tmpdir(), "mosaic-daily-cycle-checkpoint-prefix-"));
+    checkpointRoots.push(root);
+    const identity = { ...makeIdentity(), stage_roster: DAILY_CYCLE_STAGE_ROSTER };
+    const path = join(root, "checkpoint.json");
+    const checkpoint = DailyCycleCheckpoint.open({ path, identity });
+    if (!checkpoint) throw new Error("expected a fresh checkpoint");
+    const acceptedPrefix = DAILY_CYCLE_STAGE_ROSTER.slice(0, 21);
+    for (const stageId of acceptedPrefix) {
+      checkpoint.commit(stageId, makeState(), new AcceptedAgentOutputStore());
+    }
+
+    const resumed = DailyCycleCheckpoint.open({ path, resume: true, identity });
+    if (!resumed) throw new Error("expected a resumed checkpoint");
+    expect(resumed.completedStages).toEqual(acceptedPrefix);
+    expect(resumed.completedStages.at(-1)).toBe("ackman");
   });
 });

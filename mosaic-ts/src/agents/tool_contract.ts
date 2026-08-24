@@ -30,6 +30,7 @@ export const AGENT_TOOL_IDS = [
   "get_industry_moneyflow",
   "get_industry_policy_digest",
   "get_rke_research_context",
+  "get_sector_index_membership",
   "get_stock_data",
   "get_stock_research",
   "get_supply_chain_evidence",
@@ -173,6 +174,7 @@ const STANDARD_SECTOR_ADAPTIVE_TOOLS = [
   "get_industry_moneyflow",
   "get_industry_policy_digest",
   "get_rke_research_context",
+  "get_sector_index_membership",
   "get_stock_data",
   "get_supply_chain_evidence",
 ] as const satisfies ReadonlyArray<AgentToolId>;
@@ -190,6 +192,7 @@ export const AGENT_TOOL_MATRIX = {
     "get_industry_moneyflow",
     "get_industry_policy_digest",
     "get_rke_research_context",
+    "get_sector_index_membership",
     "get_stock_data",
     "get_supply_chain_evidence",
   ],
@@ -351,7 +354,7 @@ export const AgentToolContractManifestSchema = z
     schema_version: z.literal(AGENT_TOOL_CONTRACT_VERSION),
     agent_count: z.literal(25),
     execution_stage_count: z.literal(26),
-    tool_count: z.literal(29),
+    tool_count: z.literal(30),
     agents: z
       .array(
         z
@@ -374,7 +377,7 @@ export function buildAgentToolContractManifest(): AgentToolContractManifest {
     schema_version: AGENT_TOOL_CONTRACT_VERSION,
     agent_count: 25,
     execution_stage_count: 26,
-    tool_count: 29,
+    tool_count: 30,
     agents: AGENT_IDS.map((agentId) => ({
       agent_id: agentId,
       layer: AGENT_LAYER_BY_ID[agentId],

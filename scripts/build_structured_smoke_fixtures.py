@@ -1630,6 +1630,17 @@ def _build_policy_archive(root: Path, as_of: date) -> Path:
     published_at = (as_of - timedelta(days=1)).isoformat()
     discovered_at = f"{as_of.isoformat()}T08:30:00+08:00"
     article_id = f"structured-smoke-policy-{as_of.isoformat()}"
+    policy_topics = {
+        "semiconductor": "半导体",
+        "technology": "软件",
+        "energy": "煤炭",
+        "biotech": "生物医药",
+        "consumer": "食品",
+        "industrials": "机械",
+        "real_estate_construction": "房地产",
+        "financials": "银行",
+        "agriculture": "农业",
+    }
     row = {
         "article_id": article_id,
         "source": "synthetic gov.cn policy fixture",
@@ -1649,6 +1660,7 @@ def _build_policy_archive(root: Path, as_of: date) -> Path:
         "raw_sha256": _canonical_hash({"article_id": article_id})[7:],
         "parsed_at": discovered_at,
         "discovered_at": discovered_at,
+        "matched_queries": sorted(policy_topics.values()),
     }
     _write_jsonl(policy_root / "parsed/policy_documents.jsonl", [row])
     return policy_root
@@ -2517,14 +2529,20 @@ def build_structured_smoke_fixtures(
     root: Path,
     as_of_date: str,
     eligibility_artifact_path: Path | None = None,
+    *,
+    runtime_membership: bool = False,
 ) -> dict[str, str]:
     as_of = date.fromisoformat(as_of_date)
+    if runtime_membership and eligibility_artifact_path is not None:
+        raise RuntimeError(
+            "runtime-membership cannot be combined with an eligibility artifact"
+        )
     eligibility = None
     if eligibility_artifact_path is not None:
         eligibility = _load_eligibility_artifact(
             eligibility_artifact_path.expanduser().resolve(), as_of
         )
-    elif as_of < date.fromisoformat(
+    elif not runtime_membership and as_of < date.fromisoformat(
         SECTOR_ETF_DIRECTION_AUTHORITY["effective_from"]
     ):
         raise RuntimeError(
@@ -2609,13 +2627,21 @@ def main() -> int:
         help="validated point-in-time ETF eligibility artifact",
     )
     parser.add_argument(
+        "--runtime-membership",
+        action="store_true",
+        help="build the local scaffold for runtime membership authority",
+    )
+    parser.add_argument(
         "--shell-exports",
         action="store_true",
         help="print shell-quoted export statements instead of JSON",
     )
     args = parser.parse_args()
     bindings = build_structured_smoke_fixtures(
-        args.root, args.date, args.eligibility_artifact
+        args.root,
+        args.date,
+        args.eligibility_artifact,
+        runtime_membership=args.runtime_membership,
     )
     if args.shell_exports:
         print(render_shell_exports(bindings))

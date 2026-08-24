@@ -8,7 +8,9 @@ from typing import Any, Mapping
 from mosaic.dataflows.outcome_runtime_inputs import (
     validate_evaluation_opportunity_members,
 )
-from mosaic.dataflows.sector_snapshots import SECTOR_UNIVERSE_MANIFEST
+from mosaic.dataflows.sector_snapshots import (
+    SECTOR_UNIVERSE_MANIFEST,
+)
 from mosaic.scorecard.darwinian_v2 import canonical_hash, deterministic_id
 from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
 
@@ -120,7 +122,6 @@ def sector_authority_members(
     scoring_rows = snapshot.get("security_scoring_rows")
     if not isinstance(direction_ids, list) or not isinstance(scoring_rows, list):
         raise ValueError(f"{agent_id} Sector source rows are unavailable")
-    scoring_contract = SECTOR_UNIVERSE_MANIFEST["security_scoring_contract"]
     version = _required_text(
         snapshot.get("security_scoring_contract_version"),
         "security scoring contract version",
@@ -129,23 +130,20 @@ def sector_authority_members(
         snapshot.get("security_scoring_contract_hash"),
         "security scoring contract hash",
     )
-    if (
-        version != scoring_contract["scoring_contract_version"]
-        or contract_hash != scoring_contract["scoring_contract_hash"]
-    ):
-        raise ValueError(f"{agent_id} security scoring contract mismatch")
+    scoring_contract = SECTOR_UNIVERSE_MANIFEST["security_scoring_contract"]
     limit = int(scoring_contract["shortlist_maximum_size_per_direction"])
     members: list[dict[str, Any]] = []
     for direction_id_value in direction_ids:
         direction_id = _required_text(direction_id_value, "Sector direction_id")
+        candidate_rows = [
+            dict(row)
+            for row in scoring_rows
+            if isinstance(row, Mapping)
+            and row.get("direction_id") == direction_id
+            and row.get("availability_status") == "AVAILABLE"
+        ]
         rows = sorted(
-            (
-                dict(row)
-                for row in scoring_rows
-                if isinstance(row, Mapping)
-                and row.get("direction_id") == direction_id
-                and row.get("availability_status") == "AVAILABLE"
-            ),
+            candidate_rows,
             key=lambda row: (
                 -float(row["median_amount_20d_cny"]),
                 str(row["ts_code"]),

@@ -107,6 +107,34 @@ describe("runtime evidence", () => {
     );
   });
 
+  it("ignores direct frozen result authority in the evidence graph", () => {
+    const snapshot = buildRuntimeEvidenceSnapshot({
+      state: state(),
+      agent: "china",
+      stage: "agent_run",
+      toolStatuses: [
+        {
+          name: "get_china_macro_snapshot",
+          call_id: "call-direct",
+          called: true,
+          failed: false,
+          missing: false,
+          fallback: false,
+          cache_hit: false,
+          args: {},
+          as_of: "2026-07-09",
+          source_fingerprint: HASH,
+          result_fingerprint: HASH,
+          server_result_authority_type: "FROZEN_QUERY",
+          server_result_authority_hash: HASH,
+        },
+      ],
+      allowedResearchRuleIds: ["citation:official-release"],
+    });
+
+    expect(snapshot.evidenceLedger[0]?.value).not.toHaveProperty("server_tool_result");
+  });
+
   it("rejects a partial server result authority instead of persisting ambiguous evidence", () => {
     expect(() =>
       buildRuntimeEvidenceSnapshot({

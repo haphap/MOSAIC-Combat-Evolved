@@ -5,7 +5,10 @@ from __future__ import annotations
 import csv
 import io
 import json
+import math
+import re
 from collections.abc import Callable, Mapping, Sequence
+from datetime import date, timedelta
 from typing import Any
 
 from mosaic.agents.utils.rke_research_tools import format_rke_runtime_context
@@ -30,6 +33,7 @@ _DIGEST_TOOLS = {
     "get_industry_policy_digest",
     "get_stock_research",
 }
+_INDEX_CODE_PATTERN = re.compile(r"^[0-9]{6}\.(?:SH|SZ|CSI)$")
 DIRECT_VENDOR_TOOL_IDS = frozenset(
     {
         "get_balance_sheet",
@@ -40,6 +44,7 @@ DIRECT_VENDOR_TOOL_IDS = frozenset(
         "get_income_statement",
         "get_indicators",
         "get_industry_moneyflow",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_stock_research",
         "get_yield_curve_cn",
@@ -60,6 +65,7 @@ _ROUTE_BY_TOOL = {
     "get_cashflow": "tushare.sector_fundamentals",
     "get_stock_research": "private.tushare_research_reports",
     "get_supply_chain_evidence": "official.company_supply_chain_disclosures",
+    "get_sector_index_membership": "tushare.sector_market",
 }
 _PIT_MODE_BY_ROUTE = {
     "official.company_supply_chain_disclosures": "AUTHORITATIVE_VINTAGE_REPLAY",
@@ -106,6 +112,12 @@ def _default_rke_renderer(args: dict[str, Any]) -> Mapping[str, Any]:
 
 
 def _legacy_call(tool_id: str, args: dict[str, Any]) -> tuple[str, tuple[Any, ...]]:
+    if tool_id == "get_sector_index_membership":
+        return "get_index_weight", (
+            args["index_code"],
+            args["start_date"],
+            args["end_date"],
+        )
     if tool_id == "get_industry_policy_digest":
         route_args: tuple[Any, ...] = (
             args["as_of"],
@@ -154,6 +166,97 @@ def _query_as_of(tool_id: str, args: Mapping[str, Any]) -> str:
     if tool_id in {"get_broker_research", "get_stock_research", "get_stock_data"}:
         return str(args["date_to"])
     raise ValueError(f"cannot resolve query as_of for {tool_id}")
+
+
+def _parse_sector_trade_date(value: Any) -> date:
+    text = str(value).strip()
+    if len(text) == 8 and text.isdigit():
+        try:
+            return date(int(text[:4]), int(text[4:6]), int(text[6:]))
+        except ValueError as exc:
+            raise ValueError("sector index membership trade_date is invalid") from exc
+    try:
+        return date.fromisoformat(text)
+    except ValueError as exc:
+        raise ValueError("sector index membership trade_date is invalid") from exc
+
+
+def _csv_rows_with_header(raw: str) -> list[dict[str, str]]:
+    required_columns = {"index_code", "trade_date", "con_code", "weight"}
+    lines = raw.splitlines()
+    header_index = None
+    for index, line in enumerate(lines):
+        fields = next(csv.reader([line]), [])
+        if required_columns <= set(fields):
+            header_index = index
+            break
+    if header_index is None:
+        return []
+    return list(csv.DictReader(io.StringIO("\n".join(lines[header_index:]))))
+
+
+def _compact_sector_index_membership(raw: str, args: Mapping[str, Any]) -> str:
+    index_code = args.get("index_code")
+    as_of = args.get("as_of")
+    start_date = args.get("start_date")
+    end_date = args.get("end_date")
+    if (
+        not isinstance(index_code, str)
+        or _INDEX_CODE_PATTERN.fullmatch(index_code) is None
+        or not isinstance(as_of, str)
+        or not isinstance(start_date, str)
+        or not isinstance(end_date, str)
+    ):
+        raise ValueError("sector index membership request identity is invalid")
+    as_of_date = date.fromisoformat(as_of)
+    previous_month_start = (as_of_date.replace(day=1) - timedelta(days=1)).replace(day=1)
+    if (start_date, end_date) != (
+        previous_month_start.isoformat(),
+        as_of_date.isoformat(),
+    ):
+        raise ValueError(
+            "sector index membership request must cover previous month through as_of"
+        )
+    rows = _csv_rows_with_header(raw)
+    if not rows:
+        raise ValueError("sector index membership returned no rows")
+    members_by_date: dict[date, list[dict[str, Any]]] = {}
+    tickers_by_date: dict[date, set[str]] = {}
+    for row in rows:
+        if row.get("index_code") != index_code:
+            raise ValueError("sector index membership index identity mismatch")
+        trade_date = _parse_sector_trade_date(row.get("trade_date"))
+        if trade_date > as_of_date:
+            continue
+        try:
+            weight = float(row.get("weight"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("sector index membership weight is invalid") from exc
+        con_code = row.get("con_code")
+        if not isinstance(con_code, str) or not re.fullmatch(
+            r"[0-9]{6}\.(SH|SZ|BJ)", con_code
+        ):
+            raise ValueError("sector index membership ticker is invalid")
+        if not math.isfinite(weight) or weight < 0:
+            raise ValueError("sector index membership weight is invalid")
+        seen_tickers = tickers_by_date.setdefault(trade_date, set())
+        if con_code in seen_tickers:
+            raise ValueError("sector index membership contains duplicate tickers")
+        seen_tickers.add(con_code)
+        members_by_date.setdefault(trade_date, []).append(
+            {"ticker": con_code, "weight": weight}
+        )
+    if not members_by_date:
+        raise ValueError("sector index membership has no PIT snapshot")
+    selected_trade_date = max(members_by_date)
+    selected = members_by_date[selected_trade_date]
+    return _canonical_json(
+        {
+            "index_code": index_code,
+            "selected_trade_date": selected_trade_date.isoformat(),
+            "members": sorted(selected, key=lambda row: row["ticker"]),
+        }
+    )
 
 
 def _compact_etf_holdings(raw: str, *, top_n: int) -> str:
@@ -285,6 +388,9 @@ class SectorRelationshipQueryMaterializer:
                 self.source_preparer(tool_id, dict(args))
             method, route_args = _legacy_call(tool_id, args)
             raw_payload = _required_payload(self.route_caller(method, *route_args))
+
+        if tool_id == "get_sector_index_membership":
+            raw_payload = _compact_sector_index_membership(raw_payload, args)
 
         as_of = _query_as_of(tool_id, args)
         route_id = _ROUTE_BY_TOOL[tool_id]

@@ -16,7 +16,7 @@
     },
     "tool_count": {
       "type": "number",
-      "const": 29
+      "const": 30
     },
     "agents": {
       "minItems": 25,
@@ -114,6 +114,7 @@
                 "get_commodity_conditions_snapshot",
                 "get_market_positioning_snapshot",
                 "get_sector_research_snapshot",
+                "get_sector_index_membership",
                 "get_role_event_snapshot",
                 "get_superinvestor_candidate_snapshot",
                 "get_cro_risk_snapshot",

@@ -26,18 +26,34 @@ import {
   ToolMessage,
 } from "@langchain/core/messages";
 import type { StructuredToolInterface } from "@langchain/core/tools";
+import { INVALID_PARAMS, RpcError } from "../../bridge/errors.js";
 import {
   BRIDGE_AUDITED_TOOL_INVOKE,
   BRIDGE_INITIAL_AUDITED_TOOL_INVOKE,
   BRIDGE_INITIAL_TOOL_INVOKE,
   type BridgeStructuredTool,
 } from "../../bridge/tools.js";
-import type { ToolCallAudit } from "../../bridge/types.js";
+import type { ToolCallAudit, ToolCallResultAuthority } from "../../bridge/types.js";
 import { canonicalJsonHash } from "./canonical_json.js";
 import { extractTextContent } from "./content.js";
 import { isProcessOnlyReportText, stripProcessOnlyReportPrefix } from "./process_narration.js";
 import { extractLlmTokenUsage } from "./runtime.js";
 import type { ToolStatus } from "./runtime_evidence_types.js";
+
+export interface AgentToolLoopCompletionState {
+  readonly step: number;
+  readonly maxLoops: number;
+  readonly remainingLoops: number;
+  readonly llmInvocations: number;
+  readonly toolCalls: number;
+  readonly toolExecutions: number;
+  readonly messages: ReadonlyArray<BaseMessage>;
+  readonly toolStatuses: ReadonlyArray<ToolStatus>;
+}
+
+export type AgentToolLoopCompletionGuard = (
+  state: AgentToolLoopCompletionState,
+) => string | undefined;
 
 export interface AgentToolLoopOptions {
   llm: BaseChatModel;
@@ -52,6 +68,8 @@ export interface AgentToolLoopOptions {
   replayFullToolMaxChars?: number;
   /** Deterministic role-required evidence to collect before the first LLM turn. */
   initialToolCalls?: ReadonlyArray<AgentInitialToolCall>;
+  /** Optional projection of deterministic output before it becomes model-visible. */
+  initialToolOutput?: (name: string, output: string) => string;
   /**
    * Whether tools remain advertised to the model after deterministic initial
    * collection. Default true. Set false when the runtime owns the only allowed
@@ -64,6 +82,8 @@ export interface AgentToolLoopOptions {
   signal?: AbortSignal;
   /** Runtime-owned identity for the current agent/stage invocation. */
   agentInvocationId?: string;
+  /** Optional opt-in repair hook for a model response with no tool calls. */
+  completionGuard?: AgentToolLoopCompletionGuard;
 }
 
 export interface AgentInitialToolCall {
@@ -103,6 +123,16 @@ const MAX_MODEL_TOOL_EXECUTIONS = 3;
 const DEFAULT_TOOL_OUTPUT_MAX_CHARS = 0;
 const DEFAULT_REPLAY_FULL_TOOL_MAX_CHARS = 0;
 const PRIOR_TOOL_REPLAY_CHARS = 800;
+
+function isRuntimeMembershipAdmissionRejection(error: unknown): boolean {
+  return (
+    error instanceof RpcError &&
+    error.method === "tools.call" &&
+    error.code === INVALID_PARAMS &&
+    (error.message.endsWith("runtime membership exact request is outside the allowlist") ||
+      error.message.endsWith("runtime membership exact request arguments are invalid"))
+  );
+}
 
 export interface ToolReplayEntry {
   fingerprint: string;
@@ -272,6 +302,7 @@ interface CachedToolResult {
   resultFingerprint: string;
   sourceFingerprint: string;
   audit?: ToolCallAudit;
+  resultAuthority?: ToolCallResultAuthority;
 }
 
 function buildToolStatus(input: {
@@ -314,7 +345,12 @@ function buildToolStatus(input: {
             input.cached.audit.knot_audit_capability_track_v2_hash,
           server_binding_result_refs: input.cached.audit.binding_result_refs,
         }
-      : {}),
+      : input.cached.resultAuthority
+        ? {
+            server_result_authority_type: input.cached.resultAuthority.authority_type,
+            server_result_authority_hash: input.cached.resultAuthority.authority_hash,
+          }
+        : {}),
   };
 }
 
@@ -326,6 +362,7 @@ function cachedToolResult(input: {
   fallback?: boolean;
   asOf?: string;
   audit?: ToolCallAudit;
+  resultAuthority?: ToolCallResultAuthority;
 }): CachedToolResult {
   const argsFingerprint = toolArgsFingerprint(input.args);
   const resultFingerprint = toolResultFingerprint(input.output);
@@ -335,7 +372,11 @@ function cachedToolResult(input: {
     failed: input.failed,
     fallback: input.fallback ?? false,
     ...(input.asOf ? { asOf: input.asOf } : {}),
-    ...(input.audit ? { audit: input.audit } : {}),
+    ...(input.audit
+      ? { audit: input.audit }
+      : input.resultAuthority
+        ? { resultAuthority: input.resultAuthority }
+        : {}),
     argsFingerprint,
     resultFingerprint,
     sourceFingerprint: toolSourceFingerprint({
@@ -527,7 +568,13 @@ export function pruneConsumedToolHistory(messages: ReadonlyArray<BaseMessage>): 
 }
 
 export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<AgentToolLoopResult> {
-  const maxLoops = opts.maxLoops ?? DEFAULT_MAX_LOOPS;
+  let maxLoops = opts.maxLoops ?? DEFAULT_MAX_LOOPS;
+  let admissionRecoveryGranted = false;
+  const grantAdmissionRecovery = () => {
+    if (admissionRecoveryGranted) return;
+    admissionRecoveryGranted = true;
+    maxLoops += 1;
+  };
   const toolOutputMaxChars = resolveToolOutputMaxChars();
   const replayFullToolMaxChars = opts.replayFullToolMaxChars ?? resolveReplayFullToolMaxChars();
   const toolByName = new Map(opts.tools.map((t) => [t.name, t] as const));
@@ -622,16 +669,19 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
         const initialInvoke = bridgeTool[BRIDGE_INITIAL_TOOL_INVOKE];
         let raw: unknown;
         let audit: ToolCallAudit | undefined;
+        let resultAuthority: ToolCallResultAuthority | undefined;
         if (initialAuditedInvoke) {
           const result = await initialAuditedInvoke();
           raw = result.text;
           audit = result.audit;
+          resultAuthority = result.result_authority;
         } else {
           raw = initialInvoke
             ? await initialInvoke()
             : await tool.invoke(call.args, opts.signal ? { signal: opts.signal } : undefined);
         }
         output = typeof raw === "string" ? raw : String(raw);
+        output = opts.initialToolOutput?.(name, output) ?? output;
         const metadata = toolOutputStatusMetadata(output);
         const cached = cachedToolResult({
           name,
@@ -640,7 +690,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
           failed: false,
           fallback: metadata.fallback,
           ...(metadata.as_of ? { asOf: metadata.as_of } : {}),
-          ...(audit ? { audit } : {}),
+          ...(audit ? { audit } : resultAuthority ? { resultAuthority } : {}),
         });
         toolOutputCache.set(fingerprint, cached);
         toolStatuses.push(
@@ -655,6 +705,10 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
           }),
         );
       } catch (err) {
+        if (isRuntimeMembershipAdmissionRejection(err)) {
+          toolExecutions--;
+          grantAdmissionRecovery();
+        }
         output = `Tool '${name}' raised: ${(err as Error).message}`;
         opts.onLog?.(output);
         const cached = cachedToolResult({ name, args: call.args, output, failed: true });
@@ -715,6 +769,25 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
 
     const calls = ai.tool_calls ?? [];
     if (calls.length === 0) {
+      const repairDirective = opts
+        .completionGuard?.({
+          step,
+          maxLoops,
+          remainingLoops: Math.max(0, maxLoops - step - 1),
+          llmInvocations,
+          toolCalls,
+          toolExecutions,
+          messages: [...messages],
+          toolStatuses: [...toolStatuses],
+        })
+        ?.trim();
+      if (repairDirective && step + 1 < maxLoops) {
+        const repair = new HumanMessage(repairDirective);
+        messages.push(repair);
+        replayMessages.push(ai, repair);
+        opts.onLog?.("completion_guard=repair");
+        continue;
+      }
       // No more tool calls — extract the analysis text and return.
       const raw = extractTextContent(ai.content as unknown);
       let analysis = stripProcessOnlyReportPrefix(raw);
@@ -827,10 +900,12 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
           const auditedInvoke = (tool as Partial<BridgeStructuredTool>)[BRIDGE_AUDITED_TOOL_INVOKE];
           let raw: unknown;
           let audit: ToolCallAudit | undefined;
+          let resultAuthority: ToolCallResultAuthority | undefined;
           if (auditedInvoke) {
             const result = await auditedInvoke(call.args ?? {});
             raw = result.text;
             audit = result.audit;
+            resultAuthority = result.result_authority;
           } else {
             raw = await tool.invoke(
               call.args ?? {},
@@ -846,7 +921,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
             failed: false,
             fallback: metadata.fallback,
             ...(metadata.as_of ? { asOf: metadata.as_of } : {}),
-            ...(audit ? { audit } : {}),
+            ...(audit ? { audit } : resultAuthority ? { resultAuthority } : {}),
           });
           toolOutputCache.set(fingerprint, cached);
           toolStatuses.push(
@@ -861,6 +936,11 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
             }),
           );
         } catch (err) {
+          if (isRuntimeMembershipAdmissionRejection(err)) {
+            modelToolExecutions--;
+            toolExecutions--;
+            grantAdmissionRecovery();
+          }
           output = `Tool '${name}' raised: ${(err as Error).message}`;
           opts.onLog?.(output);
           const cached = cachedToolResult({

@@ -282,6 +282,7 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence"
       ],
@@ -349,6 +350,7 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence"
       ],
@@ -416,6 +418,7 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence"
       ],
@@ -482,6 +485,7 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence"
       ],
@@ -549,6 +553,7 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence"
       ],
@@ -616,6 +621,7 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence"
       ],
@@ -683,6 +689,7 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence"
       ],
@@ -750,6 +757,7 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence",
         "get_yield_curve_cn"
@@ -818,6 +826,7 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence"
       ],

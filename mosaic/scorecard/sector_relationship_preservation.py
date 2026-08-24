@@ -50,6 +50,7 @@ SECTOR_COMMON_TOOL_IDS = (
     "get_stock_data",
     "get_indicators",
     "get_industry_moneyflow",
+    "get_sector_index_membership",
 )
 
 _TOOL_CAPABILITY = {
@@ -60,6 +61,7 @@ _TOOL_CAPABILITY = {
     "get_stock_data": "stock_data",
     "get_indicators": "technical_indicators",
     "get_industry_moneyflow": "industry_moneyflow",
+    "get_sector_index_membership": "sector_index_membership",
     "get_yield_curve_cn": "china_yield_curve",
     "get_income_statement": "income_statement",
     "get_balance_sheet": "balance_sheet",
@@ -76,6 +78,7 @@ _TOOL_ROUTES = {
     "get_stock_data": ("tushare.sector_market",),
     "get_indicators": ("tushare.sector_market",),
     "get_industry_moneyflow": ("tushare.institutional_flow",),
+    "get_sector_index_membership": ("tushare.sector_market",),
     "get_yield_curve_cn": ("tushare.shibor_yield_curve",),
     "get_income_statement": ("tushare.sector_fundamentals",),
     "get_balance_sheet": ("tushare.sector_fundamentals",),
@@ -192,6 +195,18 @@ def argument_schema_for_tool(tool_id: str) -> dict[str, Any]:
         )
         schema["properties"]["topic"] = {"type": "string", "minLength": 1}
         return schema
+    if tool_id == "get_sector_index_membership":
+        return _object_schema(
+            {
+                "index_code": {
+                    "type": "string",
+                    "pattern": r"^[0-9]{6}\.(SH|SZ|CSI)$",
+                },
+                "as_of": date_schema,
+                "start_date": date_schema,
+                "end_date": date_schema,
+            }
+        )
     if tool_id in {"get_broker_research", "get_stock_research"}:
         return _object_schema(
             {
@@ -690,8 +705,8 @@ def validate_sector_relationship_preservation_overlay(
     routes_by_id = {row["route_id"]: row for row in routes}
     if len(routes_by_id) != len(routes):
         raise ValueError("Sector/Relationship route ids must be unique")
-    if len(bindings) != 70:
-        raise ValueError("Sector/Relationship overlay must contain 70 bindings")
+    if len(bindings) != 79:
+        raise ValueError("Sector/Relationship overlay must contain 79 bindings")
     actual_roster = [(row.get("agent_id"), row.get("tool_id")) for row in bindings]
     expected_roster = _binding_tool_rows()
     if len(actual_roster) != len(set(actual_roster)) or set(actual_roster) != set(

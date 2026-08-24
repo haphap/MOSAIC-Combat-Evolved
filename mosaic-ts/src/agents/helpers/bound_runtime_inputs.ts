@@ -5,6 +5,17 @@ import type {
 } from "../accepted_output.js";
 import type { CurrentPositionsSnapshot } from "../types.js";
 
+export function projectAcceptedOutputRecordRefs(
+  refs: ReadonlyArray<AcceptedOutputRecordRef>,
+): AcceptedOutputRecordRef[] {
+  return refs.map((ref) => ({
+    accepted_output_kind: ref.accepted_output_kind,
+    agent_id: ref.agent_id,
+    accepted_output_id: ref.accepted_output_id,
+    accepted_output_hash: ref.accepted_output_hash,
+  }));
+}
+
 export function resolveBoundAcceptedOutputRecords(
   refs: ReadonlyArray<AcceptedOutputRecordRef>,
   store: AcceptedAgentOutputStore | undefined,

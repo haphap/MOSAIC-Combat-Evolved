@@ -34,6 +34,8 @@ from .agent_materialization import (
 from .exceptions import DataVendorUnavailable
 from .runtime_paths import isolated_agent_runtime_path
 from .sector_snapshots import (
+    CSI_INDEX_WEIGHT_ENDPOINT,
+    CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE,
     EXACT_SINGLE_PAGE_OFFICIAL_CAP,
     RELATIONSHIP_REQUIRED_SOURCE_ENDPOINTS,
     RELATIONSHIP_SNAPSHOT_SCHEMA_VERSION,
@@ -107,6 +109,7 @@ _ROUTE_SOURCE_ENDPOINTS = {
         }
     ),
 }
+CSI_AUTHORITY_SOURCE_ENDPOINTS = frozenset({CSI_INDEX_WEIGHT_ENDPOINT})
 _OPTIONAL_RESPONSE_COLUMNS = {
     # Tushare omits this column for some ETFs; registered sector metrics only
     # consume ts_code, nav_date, and unit_nav from fund_nav.
@@ -1288,10 +1291,21 @@ def sector_source_batches(
     required = SECTOR_REQUIRED_SOURCE_ENDPOINTS
     if any(_authoritative_etf_codes(role, direction, date.fromisoformat(group["as_of_date"])) for direction in SECTOR_DIRECTION_IDS[role]):
         required = required | SECTOR_ETF_SOURCE_ENDPOINTS
+    allowed_index_codes = frozenset(
+        CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE.get(role, ())
+    )
+    accepted_endpoints = required | CSI_AUTHORITY_SOURCE_ENDPOINTS
     return [
         dict(batch)
         for batch in group["batches"]
-        if batch["endpoint"] in required
+        if batch["endpoint"] in accepted_endpoints
+        and (
+            batch["endpoint"] != CSI_INDEX_WEIGHT_ENDPOINT
+            or (
+                isinstance(batch.get("request"), Mapping)
+                and batch["request"].get("index_code") in allowed_index_codes
+            )
+        )
         and (
             batch["endpoint"] != "index_member_all"
             or batch["request"].get("query_plan_hash") == plan["query_plan_hash"]
@@ -1307,7 +1321,9 @@ def relationship_source_batches(group: Mapping[str, Any]) -> list[dict[str, Any]
     ]
 
 
-def compile_sector_archive_group(group: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+def compile_sector_archive_group(
+    group: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
     as_of_date = str(group["as_of_date"])
     historical_replay_captured_at = _historical_replay_captured_at(group)
     route_ids = set(_group_routes(group))

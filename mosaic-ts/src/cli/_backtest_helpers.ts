@@ -198,8 +198,10 @@ export function applyBacktestPortfolioActionsToPositions(
     }
     const priorMarketPrice = prior?.market_price ?? 1;
     const marketPrice = priorMarketPrice * (1 + priceReturn);
+    const sector = action.sector ?? prior?.sector;
     positions.push({
       ticker: action.ticker,
+      ...(sector ? { sector } : {}),
       current_weight: actualWeight,
       cost_basis:
         prior?.cost_basis ?? priorMarketPrice * (1 + (execution?.slippage_bps ?? 0) / 10_000),

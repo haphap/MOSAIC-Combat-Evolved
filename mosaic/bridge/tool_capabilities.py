@@ -38,6 +38,7 @@ from mosaic.dataflows.agent_materialization import (
 )
 from mosaic.dataflows.bound_runtime_snapshots import (
     bound_runtime_snapshot_relative_path,
+    render_bound_runtime_snapshot,
     runtime_snapshot_root,
 )
 from mosaic.dataflows.bound_runtime_production import (
@@ -77,6 +78,7 @@ from mosaic.dataflows.supply_chain_disclosures import (
 )
 from mosaic.dataflows.sector_snapshots import render_sector_snapshot
 from mosaic.dataflows.runtime_paths import isolated_agent_runtime_path
+from mosaic.rke.private_registries import _repo_path_for_registry_dir
 from mosaic.scorecard.canonical_json import canonical_hash, canonical_json
 from mosaic.scorecard.accepted_output_contracts import _validate_knot_capture_v2
 from mosaic.scorecard.capability_preservation import (
@@ -120,6 +122,7 @@ AgentToolId = Literal[
     "get_industry_moneyflow",
     "get_industry_policy_digest",
     "get_rke_research_context",
+    "get_sector_index_membership",
     "get_stock_data",
     "get_stock_research",
     "get_supply_chain_evidence",
@@ -155,6 +158,7 @@ AGENT_TOOL_IDS: Final[tuple[AgentToolId, ...]] = (
     "get_industry_moneyflow",
     "get_industry_policy_digest",
     "get_rke_research_context",
+    "get_sector_index_membership",
     "get_stock_data",
     "get_stock_research",
     "get_supply_chain_evidence",
@@ -267,6 +271,7 @@ TOOL_DESCRIPTIONS: Final[dict[AgentToolId, str]] = {
     "get_industry_moneyflow": "Return one exact frozen industry-moneyflow query.",
     "get_industry_policy_digest": "Return one exact frozen industry-policy query.",
     "get_rke_research_context": "Return one exact frozen RKE research-context query.",
+    "get_sector_index_membership": "Return one exact frozen Sector index-membership query.",
     "get_stock_data": "Return one exact frozen stock-market-data query.",
     "get_stock_research": "Return one exact frozen stock-research query.",
     "get_supply_chain_evidence": "Return one exact frozen authoritative supply-chain query.",
@@ -345,6 +350,8 @@ BOUND_RUNTIME_SNAPSHOT_CONTRACTS: Final[dict[AgentToolId, str]] = {
     "get_cio_decision_snapshot": "cio_decision_snapshot_v1",
 }
 _A_SHARE_CODE = re.compile(r"^[0-9]{6}\.(?:SH|SZ|BJ)$")
+_RUNTIME_MEMBERSHIP_TOOL_ID: Final = "get_sector_index_membership"
+_RUNTIME_TICKER_FIELDS: Final = ("ticker", "ts_code")
 _FORBIDDEN_SOURCE_PROSE_FIELDS: Final[frozenset[str]] = frozenset(
     {
         "abstract",
@@ -370,6 +377,42 @@ def _is_sha256(value: Any) -> bool:
         return False
     digest = value.removeprefix("sha256:")
     return len(digest) == 64 and all(char in "0123456789abcdef" for char in digest)
+
+
+def _runtime_ticker_field(args_schema: Mapping[str, Any]) -> str | None:
+    properties = args_schema.get("properties")
+    if not isinstance(properties, Mapping):
+        return None
+    fields = [field for field in _RUNTIME_TICKER_FIELDS if field in properties]
+    return fields[0] if len(fields) == 1 else None
+
+
+def _runtime_non_ticker_template(
+    request: Mapping[str, Any], ticker_field: str
+) -> dict[str, Any]:
+    return {
+        name: value for name, value in request.items() if name != ticker_field
+    }
+
+
+def _runtime_membership_tickers(payload: str) -> frozenset[str]:
+    try:
+        parsed = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise ValueError("runtime membership result is not valid JSON") from exc
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("members"), list):
+        raise ValueError("runtime membership result has no member array")
+    tickers: list[str] = []
+    for member in parsed["members"]:
+        if not isinstance(member, dict):
+            raise ValueError("runtime membership member is invalid")
+        ticker = member.get("ticker")
+        if not isinstance(ticker, str) or _A_SHARE_CODE.fullmatch(ticker) is None:
+            raise ValueError("runtime membership member ticker is invalid")
+        tickers.append(ticker)
+    if not tickers or len(set(tickers)) != len(tickers):
+        raise ValueError("runtime membership member set is invalid")
+    return frozenset(tickers)
 
 
 def _required_string(payload: Mapping[str, Any], key: str) -> str:
@@ -1871,7 +1914,7 @@ def _load_bound_snapshot(
         graph_run_id=graph_run_id,
         expected_candidate_scope_hash=expected_candidate_scope_hash,
     )
-    return _canonical_json(payload)
+    return render_bound_runtime_snapshot(payload)
 
 
 def _rebind_synthetic_runtime_snapshot(
@@ -1902,6 +1945,18 @@ def _rebind_synthetic_runtime_snapshot(
     projected = _accepted_ref_projection(
         accepted_output_refs, field="synthetic accepted_output_refs"
     )
+    frozen_refs = payload.get("upstream_accepted_output_refs")
+    if not isinstance(frozen_refs, list):
+        raise DataVendorUnavailable("synthetic runtime snapshot has no frozen upstream refs")
+    if payload.get("graph_run_id") == graph_run_id:
+        frozen_projected = _accepted_ref_projection(
+            frozen_refs, field="synthetic frozen upstream refs"
+        )
+        if frozen_projected != projected:
+            raise DataVendorUnavailable(
+                "synthetic runtime accepted-output refs differ from the same graph snapshot"
+            )
+        return payload
     runtime_by_identity = {
         (row["accepted_output_kind"], row["agent_id"]): row for row in projected
     }
@@ -1909,9 +1964,6 @@ def _rebind_synthetic_runtime_snapshot(
         raise DataVendorUnavailable(
             "synthetic accepted-output refs contain duplicate kind/Agent identities"
         )
-    frozen_refs = payload.get("upstream_accepted_output_refs")
-    if not isinstance(frozen_refs, list):
-        raise DataVendorUnavailable("synthetic runtime snapshot has no frozen upstream refs")
     rebound_refs: list[dict[str, Any]] = []
     replacements: dict[str, str] = {}
     for frozen in frozen_refs:
@@ -1975,7 +2027,12 @@ def _valid_synthetic_fixture_marker(*, root: Path, as_of: str) -> bool:
         raise DataVendorUnavailable(
             "synthetic runtime rebinding requires a valid fixture bundle hash"
         )
-    cache_root = root.expanduser().resolve().parent
+    configured_cache_root = os.getenv("MOSAIC_CACHE_DIR")
+    cache_root = (
+        Path(configured_cache_root).expanduser().resolve()
+        if configured_cache_root and configured_cache_root.strip()
+        else root.expanduser().resolve().parent
+    )
     marker_path = cache_root / "structured_smoke_fixture_bundle.json"
     if marker_path.is_symlink():
         raise DataVendorUnavailable(
@@ -2191,7 +2248,32 @@ class AgentToolCapabilityStore:
         self.stage_materialization_preparer = stage_materialization_preparer
         self.stage_materialization_finalizer = stage_materialization_finalizer
         self.require_knot_v2_audit_authority = require_knot_v2_audit_authority
+        self._runtime_membership_admissions: dict[
+            str, tuple[frozenset[str], str]
+        ] = {}
+        self._runtime_membership_admissions_lock = threading.Lock()
         self._initialise()
+
+    def _runtime_membership_admission(
+        self, capability_id: str
+    ) -> tuple[frozenset[str], str] | None:
+        with self._runtime_membership_admissions_lock:
+            return self._runtime_membership_admissions.get(capability_id)
+
+    def _remember_runtime_membership_admission(
+        self,
+        *,
+        capability_id: str,
+        members: frozenset[str],
+        authority_hash: str,
+    ) -> None:
+        with self._runtime_membership_admissions_lock:
+            if capability_id in self._runtime_membership_admissions:
+                raise ValueError("runtime membership admission already established")
+            self._runtime_membership_admissions[capability_id] = (
+                members,
+                authority_hash,
+            )
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=30, isolation_level=None)
@@ -4725,6 +4807,9 @@ class AgentToolCapabilityStore:
             ).fetchone()
         agent_id = manifest["agent_id"]
         stage = manifest["stage"]
+        runtime_membership_capability = (
+            _RUNTIME_MEMBERSHIP_TOOL_ID in manifest["allowed_tools"]
+        )
         adaptive_projection = (
             json.loads(adaptive_row["public_projection_json"])
             if adaptive_row is not None
@@ -4819,26 +4904,104 @@ class AgentToolCapabilityStore:
                             )
                             variants: list[dict[str, Any]] = []
                             base_properties = args_schema.get("properties", {})
-                            for args in exact_args:
-                                validator.validate(args)
-                                variants.append(
-                                    {
-                                        "type": "object",
-                                        "properties": {
-                                            name: {
-                                                **base_properties[name],
-                                                "const": args[name],
-                                            }
-                                            for name in base_properties
-                                            if name in args
+                            ticker_field = (
+                                _runtime_ticker_field(args_schema)
+                                if deferred and runtime_membership_capability
+                                else None
+                            )
+                            if ticker_field is not None:
+                                variants_by_template: dict[
+                                    str, dict[str, Any]
+                                ] = {}
+                                for args in exact_args:
+                                    validator.validate(args)
+                                    if ticker_field not in args:
+                                        raise ValueError(
+                                            "frozen ticker request lacks its ticker field"
+                                        )
+                                    template = _runtime_non_ticker_template(
+                                        args, ticker_field
+                                    )
+                                    template_hash = _sha256(template)
+                                    variants_by_template.setdefault(
+                                        template_hash,
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                name: (
+                                                    dict(base_properties[name])
+                                                    if name == ticker_field
+                                                    else {
+                                                        **base_properties[name],
+                                                        "const": args[name],
+                                                    }
+                                                )
+                                                for name in base_properties
+                                                if name in args
+                                            },
+                                            "required": [
+                                                name
+                                                for name in base_properties
+                                                if name in args
+                                            ],
+                                            "additionalProperties": False,
                                         },
-                                        "required": [
-                                            name for name in base_properties if name in args
-                                        ],
-                                        "additionalProperties": False,
-                                    }
-                                )
-                            args_schema = {"type": "object", "oneOf": variants}
+                                    )
+                                variants = list(variants_by_template.values())
+                                args_schema = {"type": "object", "oneOf": variants}
+                            elif not deferred:
+                                for args in exact_args:
+                                    validator.validate(args)
+                                    variants.append(
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                name: {
+                                                    **base_properties[name],
+                                                    "const": args[name],
+                                                }
+                                                for name in base_properties
+                                                if name in args
+                                            },
+                                            "required": [
+                                                name
+                                                for name in base_properties
+                                                if name in args
+                                            ],
+                                            "additionalProperties": False,
+                                        }
+                                    )
+                                args_schema = {"type": "object", "oneOf": variants}
+                            else:
+                                values_by_property: dict[
+                                    str, dict[str, Any]
+                                ] = {name: {} for name in base_properties}
+                                for args in exact_args:
+                                    validator.validate(args)
+                                    for name in base_properties:
+                                        if name in args:
+                                            value = args[name]
+                                            values_by_property[name].setdefault(
+                                                _canonical_json(value), value
+                                            )
+                                compact_properties = dict(base_properties)
+                                for name, values_by_key in values_by_property.items():
+                                    if not values_by_key:
+                                        continue
+                                    ordered_values = [
+                                        values_by_key[key]
+                                        for key in sorted(values_by_key)
+                                    ]
+                                    property_schema = dict(base_properties[name])
+                                    if len(ordered_values) == 1:
+                                        property_schema["const"] = ordered_values[0]
+                                    else:
+                                        property_schema["enum"] = ordered_values
+                                    compact_properties[name] = property_schema
+                                args_schema = {
+                                    **args_schema,
+                                    "properties": compact_properties,
+                                }
                             Draft202012Validator.check_schema(args_schema)
                         except (SchemaError, ValidationError) as exc:
                             raise ValueError(
@@ -5389,17 +5552,65 @@ class AgentToolCapabilityStore:
             ):
                 raise ValueError("deferred query projection binding is not active")
 
-            if client_args:
-                request_hash = _sha256(client_args)
-                matches = [
-                    entry
-                    for entry in tool_entries
-                    if entry["call_mode"] == "FOLLOW_UP"
-                    and entry["request_hash"] == request_hash
-                    and entry["request"] == client_args
-                ]
-                if len(matches) != 1 or max_rounds != 3:
-                    raise ValueError("frozen follow-up request is not uniquely authorized")
+            if (
+                tool_id == _RUNTIME_MEMBERSHIP_TOOL_ID
+                and self._runtime_membership_admission(manifest["capability_id"])
+                is not None
+            ):
+                raise ValueError("runtime membership admission already established")
+
+            runtime_ticker_field = (
+                _runtime_ticker_field(argument_schema_for_tool(cast(AgentToolId, tool_id)))
+                if _RUNTIME_MEMBERSHIP_TOOL_ID in manifest["allowed_tools"]
+                and tool_id != _RUNTIME_MEMBERSHIP_TOOL_ID
+                else None
+            )
+            if runtime_ticker_field is not None:
+                if not client_args:
+                    raise ValueError(
+                        "runtime membership exact request requires arguments"
+                    )
+                admission = self._runtime_membership_admission(
+                    manifest["capability_id"]
+                )
+                if admission is None:
+                    raise ValueError("runtime membership allowlist is unavailable")
+                try:
+                    base_schema = argument_schema_for_tool(
+                        cast(AgentToolId, tool_id)
+                    )
+                    Draft202012Validator.check_schema(base_schema)
+                    Draft202012Validator(
+                        base_schema, format_checker=FormatChecker()
+                    ).validate(client_args)
+                except (SchemaError, ValidationError, ValueError) as exc:
+                    raise ValueError(
+                        "runtime membership exact request arguments are invalid"
+                    ) from exc
+                ticker = client_args.get(runtime_ticker_field)
+                if not isinstance(ticker, str) or ticker not in admission[0]:
+                    raise ValueError(
+                        "runtime membership exact request is outside the allowlist"
+                    )
+                client_template = _runtime_non_ticker_template(
+                    client_args, runtime_ticker_field
+                )
+                matching_templates: dict[str, dict[str, Any]] = {}
+                for entry in tool_entries:
+                    if entry["call_mode"] != "FOLLOW_UP":
+                        continue
+                    request = entry["request"]
+                    if runtime_ticker_field not in request:
+                        continue
+                    template = _runtime_non_ticker_template(
+                        request, runtime_ticker_field
+                    )
+                    if template == client_template:
+                        matching_templates[_sha256(template)] = template
+                if len(matching_templates) != 1 or max_rounds != 3:
+                    raise ValueError(
+                        "runtime membership exact request is not an allowed template"
+                    )
                 successful_follow_ups = conn.execute(
                     "SELECT COUNT(*) FROM tool_result_events "
                     "WHERE capability_id = ? AND status = 'SUCCEEDED' "
@@ -5408,7 +5619,50 @@ class AgentToolCapabilityStore:
                 ).fetchone()[0]
                 if successful_follow_ups >= 3:
                     raise ValueError("frozen follow-up round limit is exhausted")
-                call_mode: Literal["INITIAL", "FOLLOW_UP"] = "FOLLOW_UP"
+                template_hash = next(iter(matching_templates))
+                return {
+                    "bundle_hash": adaptive_row["frozen_bundle_hash"],
+                    "call_mode": "FOLLOW_UP",
+                    "request_hash": _sha256(client_args),
+                    "resolved_args": client_args,
+                    "runtime_membership_authority_hash": admission[1],
+                    "non_ticker_template_hash": template_hash,
+                    "synthetic_non_production_bypass": synthetic_non_production_bypass,
+                }
+
+            if client_args:
+                request_hash = _sha256(client_args)
+                initial_matches = [
+                    entry
+                    for entry in tool_entries
+                    if entry["call_mode"] == "INITIAL"
+                    and entry["request_hash"] == request_hash
+                    and entry["request"] == client_args
+                ]
+                if len(initial_matches) == 1:
+                    matches = initial_matches
+                    call_mode: Literal["INITIAL", "FOLLOW_UP"] = "INITIAL"
+                else:
+                    matches = [
+                        entry
+                        for entry in tool_entries
+                        if entry["call_mode"] == "FOLLOW_UP"
+                        and entry["request_hash"] == request_hash
+                        and entry["request"] == client_args
+                    ]
+                    if len(matches) != 1 or max_rounds != 3:
+                        raise ValueError(
+                            "frozen follow-up request is not uniquely authorized"
+                        )
+                    successful_follow_ups = conn.execute(
+                        "SELECT COUNT(*) FROM tool_result_events "
+                        "WHERE capability_id = ? AND status = 'SUCCEEDED' "
+                        "AND call_mode = 'FOLLOW_UP'",
+                        (manifest["capability_id"],),
+                    ).fetchone()[0]
+                    if successful_follow_ups >= 3:
+                        raise ValueError("frozen follow-up round limit is exhausted")
+                    call_mode = "FOLLOW_UP"
             else:
                 matches = [
                     entry
@@ -5509,6 +5763,25 @@ class AgentToolCapabilityStore:
                 derivation_hash = _sha256(dict(derivation))
             payload_hash = _sha256({"text": payload})
             receipt_hashes = list(receipt_hashes)
+            runtime_membership_authority_hash = call.get(
+                "runtime_membership_authority_hash"
+            )
+            non_ticker_template_hash = call.get("non_ticker_template_hash")
+            dynamic_membership_call = (
+                runtime_membership_authority_hash is not None
+                or non_ticker_template_hash is not None
+            )
+            if dynamic_membership_call and (
+                not _is_sha256(runtime_membership_authority_hash)
+                or not _is_sha256(non_ticker_template_hash)
+            ):
+                raise ValueError("runtime membership authority binding is invalid")
+            runtime_members = (
+                _runtime_membership_tickers(payload)
+                if tool_id == _RUNTIME_MEMBERSHIP_TOOL_ID
+                and _RUNTIME_MEMBERSHIP_TOOL_ID in manifest["allowed_tools"]
+                else None
+            )
             authority = {
                 "schema_version": "frozen_query_result_authority_v1",
                 "authority_type": "FROZEN_QUERY",
@@ -5521,6 +5794,16 @@ class AgentToolCapabilityStore:
                 "source_receipt_set_hash": _sha256(receipt_hashes),
                 "derivation_hash": derivation_hash,
             }
+            if dynamic_membership_call:
+                authority.update(
+                    {
+                        "runtime_membership_authority_hash": runtime_membership_authority_hash,
+                        "non_ticker_template_hash": non_ticker_template_hash,
+                        "runtime_admission_schema_version": (
+                            "runtime_membership_exact_authority_v1"
+                        ),
+                    }
+                )
             authority_hash = _sha256(authority)
         except ValueError:
             self._best_effort_failed_result_event(
@@ -5554,9 +5837,20 @@ class AgentToolCapabilityStore:
             except Exception:
                 conn.execute("ROLLBACK")
                 raise
+        if runtime_members is not None:
+            self._remember_runtime_membership_admission(
+                capability_id=manifest["capability_id"],
+                members=runtime_members,
+                authority_hash=authority_hash,
+            )
         result: dict[str, Any] = {"text": payload}
         if audit is not None:
             result["audit"] = audit
+        else:
+            result["result_authority"] = {
+                "authority_type": "FROZEN_QUERY",
+                "authority_hash": authority_hash,
+            }
         return result
 
     def _record_security_rejection(
@@ -5742,6 +6036,11 @@ class AgentToolCapabilityStore:
             result: dict[str, Any] = {"text": payload}
             if audit is not None:
                 result["audit"] = audit
+            else:
+                result["result_authority"] = {
+                    "authority_type": result_authority["authority_type"],
+                    "authority_hash": result_authority["authority_hash"],
+                }
             return result
         if args:
             self._record_failed_result_event(
@@ -6588,6 +6887,9 @@ def get_capability_store() -> AgentToolCapabilityStore:
                     str(Path(__file__).resolve().parents[2]),
                 )
             ).expanduser()
+            rke_archive_root = _repo_path_for_registry_dir(
+                Path(__file__).resolve().parents[2]
+            )
             forward_query_reader = ForwardArchiveQueryReader(
                 root=forward_archive_root,
                 sector_archive_store=None,
@@ -6595,6 +6897,7 @@ def get_capability_store() -> AgentToolCapabilityStore:
             )
             source_evidence_authority = SectorRelationshipSourceEvidenceAuthority(
                 root=forward_archive_root,
+                rke_root=rke_archive_root,
                 receipt_store=receipt_store,
                 forward_archive_reader=forward_query_reader,
                 agent_data_ledger=agent_data_ledger,

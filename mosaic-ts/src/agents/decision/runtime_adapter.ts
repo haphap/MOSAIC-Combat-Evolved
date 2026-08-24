@@ -1,4 +1,5 @@
-import { canonicalAcceptedOutputHash } from "../accepted_output.js";
+import { acceptedOutputRefKey, canonicalAcceptedOutputHash } from "../accepted_output.js";
+import { STANDARD_SECTOR_AGENT_IDS } from "../sector/_contracts.js";
 import type { DailyCycleStateType } from "../state.js";
 import type {
   AlphaDiscoveryOutput,
@@ -201,6 +202,7 @@ export function cioSubmissionToRuntime(
   );
   const portfolioActions = submission.target_positions.map((position): PortfolioAction => {
     const currentWeight = currentByTicker.get(position.ts_code)?.current_weight ?? 0;
+    const sector = authoritativeCioActionSector(state, position.ts_code, submission.decision_stage);
     const dissentNotes =
       submission.decision_stage === "FINAL"
         ? finalResolutionReasons(submission, position.ts_code, state).join(" | ")
@@ -218,6 +220,7 @@ export function cioSubmissionToRuntime(
       risk_flags: position.risk_flags,
       dissent_notes: dissentNotes,
       claim_refs: position.claim_refs,
+      ...(sector ? { sector } : {}),
     };
   });
   const base: CioOutput = {
@@ -258,6 +261,58 @@ export function cioSubmissionToRuntime(
       ...resolution,
     })),
   };
+}
+
+function authoritativeCioActionSector(
+  state: DailyCycleStateType,
+  ticker: string,
+  decisionStage: "PROPOSAL" | "FINAL",
+): string | undefined {
+  const authorities = new Set<string>();
+  const normalizedTicker = ticker.trim().toUpperCase();
+  for (const position of state.current_positions.positions) {
+    if (position.ticker.trim().toUpperCase() !== normalizedTicker) continue;
+    const sector = position.sector?.trim();
+    if (sector) authorities.add(sector);
+  }
+  if (decisionStage === "FINAL") {
+    const candidateAction =
+      state.layer4_outputs.runtime?.candidate_target_state?.portfolio_actions.find(
+        (action) => action.ticker.trim().toUpperCase() === normalizedTicker,
+      );
+    const sector = candidateAction?.sector?.trim();
+    if (sector) authorities.add(sector);
+  }
+  for (const agentId of STANDARD_SECTOR_AGENT_IDS) {
+    const acceptedRef =
+      state.accepted_output_refs[acceptedOutputRefKey("STANDARD_SECTOR_SELECTION", agentId)];
+    if (
+      acceptedRef?.accepted_output_kind !== "STANDARD_SECTOR_SELECTION" ||
+      acceptedRef.agent_id !== agentId
+    ) {
+      continue;
+    }
+    const sectorOutput = state.layer2_outputs[agentId];
+    const longPicks =
+      sectorOutput && "long_picks" in sectorOutput && Array.isArray(sectorOutput.long_picks)
+        ? sectorOutput.long_picks
+        : [];
+    const matchingLongPicks = longPicks.filter(
+      (pick) =>
+        pick.ts_code.trim().toUpperCase() === normalizedTicker && pick.position_action === "LONG",
+    );
+    if (matchingLongPicks.length === 1) authorities.add(agentId);
+  }
+  if (authorities.size > 1) {
+    throw new Error(
+      `CIO ${decisionStage.toLowerCase()} ${ticker}: authoritative sectors conflict: ${[
+        ...authorities,
+      ]
+        .sort()
+        .join(", ")}`,
+    );
+  }
+  return [...authorities][0];
 }
 
 export function frozenCandidateRef(candidateTargetHash: string, tsCode: string): string {

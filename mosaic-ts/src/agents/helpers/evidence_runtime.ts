@@ -464,6 +464,17 @@ function serverToolResultAudit(status: ToolStatus): {
     binding_result_fingerprint: string;
   }>;
 } | null {
+  const fullAuditSpecificFields = [
+    status.server_result_event_id,
+    status.server_result_event_hash,
+    status.server_tool_environment_hash,
+    status.server_execution_behavior_release_hash,
+    status.server_capability_bundle_hash,
+    status.server_knot_coverage_manifest_v2_hash,
+    status.server_knot_audit_capability_track_v2_hash,
+    status.server_binding_result_refs,
+  ];
+  if (fullAuditSpecificFields.every((field) => field === undefined)) return null;
   const fields = [
     status.server_result_event_id,
     status.server_result_event_hash,

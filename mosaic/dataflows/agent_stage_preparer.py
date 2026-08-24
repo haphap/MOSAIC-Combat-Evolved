@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
+import re
 from datetime import date, datetime, time, timedelta, timezone
 from functools import partial
 from pathlib import Path
@@ -55,14 +57,21 @@ from .role_events import ROLE_EVENT_SNAPSHOT_VERSION, build_role_event_snapshot
 from .route_eligibility import (
     evaluate_runtime_stage_admission,
 )
-from .runtime_paths import agent_cache_root, agent_runtime_root_override
+from .runtime_paths import (
+    agent_cache_root,
+    agent_runtime_root_override,
+    isolated_agent_runtime_path,
+)
 from .sector_archive import (
     LOGICAL_ROUTES as SECTOR_ARCHIVE_ROUTE_IDS,
     STANDARD_SECTOR_AGENT_IDS,
     SectorArchiveStore,
     archive_sector_relationship,
 )
-from .source_archive import archive_eco_calendar
+from .source_archive import (
+    archive_eco_calendar,
+    bootstrap_structured_smoke_eco_calendar,
+)
 from .staged_query_receipt_store import StagedQueryReceiptStore
 from .us_macro_archive import (
     LOGICAL_ROUTES as US_MACRO_ROUTE_IDS,
@@ -197,6 +206,33 @@ def _required_text(request: Mapping[str, Any], field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field} must be a non-empty string")
     return value.strip()
+
+
+_BOUND_ACCEPTED_OUTPUT_REF_FIELDS = (
+    "accepted_output_kind",
+    "agent_id",
+    "accepted_output_id",
+    "accepted_output_hash",
+)
+
+
+def _project_bound_accepted_output_refs(
+    value: Any, *, field: str
+) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise DataVendorUnavailable(f"{field} accepted-output refs must be a list")
+    projected: list[dict[str, Any]] = []
+    for index, row in enumerate(value):
+        if not isinstance(row, Mapping) or any(
+            key not in row for key in _BOUND_ACCEPTED_OUTPUT_REF_FIELDS
+        ):
+            raise DataVendorUnavailable(
+                f"{field}[{index}] accepted-output ref fields mismatch"
+            )
+        projected.append(
+            {key: row[key] for key in _BOUND_ACCEPTED_OUTPUT_REF_FIELDS}
+        )
+    return projected
 
 
 def _historical_replay(request: Mapping[str, Any]) -> bool:
@@ -448,7 +484,12 @@ def prepare_bound_runtime_family(
         or not all(isinstance(row, Mapping) for row in accepted_output_records)
         or not isinstance(runtime_state, Mapping)
         or "captured_at" in runtime_state
-        or candidate_scope["accepted_output_refs"] != accepted_output_refs
+        or _project_bound_accepted_output_refs(
+            candidate_scope["accepted_output_refs"], field="candidate_scope"
+        )
+        != _project_bound_accepted_output_refs(
+            accepted_output_refs, field="runtime_inputs"
+        )
     ):
         raise DataVendorUnavailable("bound runtime producer closure is invalid")
 
@@ -484,8 +525,17 @@ def prepare_bound_runtime_family(
             raise ValueError("bound runtime producer clock must be timezone-aware")
         generated_at = generated.astimezone(timezone.utc).isoformat()
 
+    smoke_captured_at = (
+        f"{as_of}T15:00:00+08:00"
+        if os.getenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS") == "structured_smoke"
+        else None
+    )
+
     def compile_at(timestamp: str) -> tuple[dict[str, Any], dict[str, Any]]:
-        captured = {**runtime_state, "captured_at": timestamp}
+        captured = {
+            **runtime_state,
+            "captured_at": smoke_captured_at or timestamp,
+        }
         return (
             compile_bound_runtime_snapshot(
                 agent_id=agent_id,
@@ -590,14 +640,34 @@ def prepare_bound_runtime_family(
             tool_id="get_role_event_snapshot",
             as_of=as_of,
         )
-        calendar_store = EconomicCalendarStore()
-        calendar = archive_eco_calendar(
-            partial(_china_tushare_fetch, endpoint="eco_cal"),
-            as_of_date=as_of,
-            captured_at=_stage_capture_now().astimezone(timezone.utc).isoformat(),
-            store=calendar_store,
-            ledger=ledger,
-        )
+        if os.getenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS") == "structured_smoke":
+            runtime_store_path = isolated_agent_runtime_path(
+                "economic_calendar/eco_cal.sqlite3"
+            )
+            if runtime_store_path is None:
+                materialization_db = os.getenv("MOSAIC_AGENT_MATERIALIZATION_DB")
+                if not materialization_db:
+                    raise DataVendorUnavailable("economic calendar archive is blocked")
+                runtime_store_path = (
+                    Path(materialization_db).expanduser().resolve().parent.parent
+                    / "economic_calendar/eco_cal.sqlite3"
+                )
+            calendar_store = EconomicCalendarStore(runtime_store_path)
+            calendar = bootstrap_structured_smoke_eco_calendar(
+                _structured_smoke_eco_fixture_db(as_of=as_of),
+                as_of_date=as_of,
+                store=calendar_store,
+                ledger=ledger,
+            )
+        else:
+            calendar_store = EconomicCalendarStore()
+            calendar = archive_eco_calendar(
+                partial(_china_tushare_fetch, endpoint="eco_cal"),
+                as_of_date=as_of,
+                captured_at=_stage_capture_now().astimezone(timezone.utc).isoformat(),
+                store=calendar_store,
+                ledger=ledger,
+            )
         compile_role_event_builds(
             archive=calendar,
             store=calendar_store,
@@ -1195,6 +1265,49 @@ class TrustedAgentStageFinalizer:
 
 def _stage_capture_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _structured_smoke_eco_fixture_db(*, as_of: str) -> Path:
+    if os.getenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS") != "structured_smoke":
+        raise DataVendorUnavailable("economic calendar archive is blocked")
+    bundle_hash = os.getenv("MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH")
+    cache_dir = os.getenv("MOSAIC_CACHE_DIR")
+    if not isinstance(bundle_hash, str) or not re.fullmatch(
+        r"sha256:[0-9a-f]{64}", bundle_hash
+    ) or not cache_dir:
+        raise DataVendorUnavailable("economic calendar archive is blocked")
+    try:
+        fixture_root = Path(cache_dir).expanduser().resolve(strict=True)
+        marker = json.loads(
+            (fixture_root / "structured_smoke_fixture_bundle.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        inventory = marker["artifact_inventory"]
+        marker_body = {key: value for key, value in marker.items() if key != "bundle_hash"}
+        entry = next(
+            item
+            for item in inventory
+            if item.get("relative_path") == "economic_calendar/eco_cal.sqlite3"
+        )
+        eco_path = fixture_root / "economic_calendar/eco_cal.sqlite3"
+        if (
+            marker["bundle_hash"] != bundle_hash
+            or marker["as_of_date"] != as_of
+            or marker["fixture_class"] != "SYNTHETIC_NON_PRODUCTION"
+            or marker["contains_vendor_prose"] is not False
+            or Path(marker["cache_root"]).expanduser().resolve() != fixture_root
+            or canonical_hash(marker_body) != bundle_hash
+            or marker["artifact_inventory_hash"] != canonical_hash(inventory)
+            or eco_path.is_symlink()
+            or not eco_path.is_file()
+            or entry["content_sha256"]
+            != "sha256:" + hashlib.sha256(eco_path.read_bytes()).hexdigest()
+        ):
+            raise ValueError("fixture marker mismatch")
+        return eco_path
+    except (KeyError, OSError, StopIteration, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise DataVendorUnavailable("economic calendar archive is blocked") from exc
 
 
 def compile_role_event_builds(
@@ -2033,18 +2146,52 @@ def prepare_agent_stage_materialization_current_namespace(
     return _ensure_agent_stage_materialization_core(request)
 
 
+def _is_structured_smoke_bound_runtime_request(
+    request: Mapping[str, Any],
+) -> bool:
+    runtime_inputs = request.get("runtime_inputs")
+    candidate_scope = request.get("candidate_scope")
+    if not (
+        isinstance(request.get("agent_id"), str)
+        and isinstance(request.get("stage"), str)
+        and (request["agent_id"], request["stage"]) in _BOUND_RUNTIME_FAMILY_STAGES
+        and isinstance(runtime_inputs, Mapping)
+        and set(runtime_inputs)
+        == {"accepted_output_refs", "accepted_output_records", "bound_runtime_state"}
+        and isinstance(candidate_scope, Mapping)
+        and set(candidate_scope) == {"accepted_output_refs"}
+    ):
+        return False
+    runtime_refs = _project_bound_accepted_output_refs(
+        runtime_inputs["accepted_output_refs"], field="runtime_inputs"
+    )
+    candidate_refs = _project_bound_accepted_output_refs(
+        candidate_scope["accepted_output_refs"], field="candidate_scope"
+    )
+    if runtime_refs != candidate_refs:
+        raise DataVendorUnavailable(
+            "structured-smoke bound runtime accepted-output closure mismatch"
+        )
+    return True
+
+
 def ensure_agent_stage_materialization(request: Mapping[str, Any]) -> dict[str, Any]:
     """Run trusted materialization under the configured rollout authority."""
+    core_request = dict(request)
+    core_request.pop(_DEFERRED_REQUEST_ONLY_MARKER, None)
+    core_request.pop(_DEFERRED_TOOL_IDS, None)
     if os.getenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS") == "structured_smoke":
+        if _is_structured_smoke_bound_runtime_request(request):
+            return {
+                **_ensure_agent_stage_materialization_core(core_request),
+                "ensure_mode": "enforce",
+            }
         return {"status": "SYNTHETIC_NON_PRODUCTION_BYPASS"}
     mode = os.getenv("MOSAIC_ENSURE_SNAPSHOT_MODE")
     if mode not in {"off", "shadow", "enforce"}:
         raise DataVendorUnavailable(
             "MOSAIC_ENSURE_SNAPSHOT_MODE must be one of off, shadow, enforce"
         )
-    core_request = dict(request)
-    core_request.pop(_DEFERRED_REQUEST_ONLY_MARKER, None)
-    core_request.pop(_DEFERRED_TOOL_IDS, None)
     if mode == "off":
         return {"ensure_mode": "off", "status": "OFF"}
     if mode == "enforce":
@@ -2093,7 +2240,10 @@ def finalize_agent_stage_materialization(
     staged_receipt_store: StagedQueryReceiptStore | None = None,
 ) -> dict[str, Any]:
     """Close the trusted stage receipt after capability payload materialization."""
-    if os.getenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS") == "structured_smoke":
+    if (
+        os.getenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS") == "structured_smoke"
+        and not _is_structured_smoke_bound_runtime_request(context)
+    ):
         return {"status": "SYNTHETIC_NON_PRODUCTION_BYPASS"}
     return TrustedAgentStageFinalizer(
         ledger_factory=lambda: open_agent_data_materialization_ledger(create=True),
