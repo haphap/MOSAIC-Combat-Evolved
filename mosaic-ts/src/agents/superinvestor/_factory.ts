@@ -33,12 +33,14 @@ import {
   buildAcceptedAgentOutputRecord,
   buildStructuredSmokeAcceptedOutputRef,
   canonicalAcceptedOutputHash,
+  putStructuredSmokeAcceptedOutput,
   structuredSmokeFixtureBundleHash,
 } from "../accepted_output.js";
 import { type AgentInitialToolCall, runAgentToolLoop } from "../helpers/agent_loop.js";
 import { invokeStrictStructured } from "../helpers/agent_run_contract.js";
 import {
   boundCurrentPositions,
+  projectAcceptedOutputRecordRefs,
   resolveBoundAcceptedOutputRecords,
 } from "../helpers/bound_runtime_inputs.js";
 import {
@@ -127,13 +129,15 @@ export function buildLayerThreeCapabilityRuntimeInputs(
   state: DailyCycleStateType,
   acceptedSnapshotRefs: ReadonlyArray<AcceptedOutputRecordRef>,
   store: AcceptedAgentOutputStore | undefined,
+  useDynamicStructuredSmokeInputs = false,
 ): Record<string, unknown> {
-  if (structuredSmokeFixtureBundleHash()) {
-    return { accepted_output_refs: acceptedSnapshotRefs };
+  const runtimeRefs = projectAcceptedOutputRecordRefs(acceptedSnapshotRefs);
+  if (structuredSmokeFixtureBundleHash() && !useDynamicStructuredSmokeInputs) {
+    return { accepted_output_refs: runtimeRefs };
   }
   return {
-    accepted_output_refs: acceptedSnapshotRefs,
-    accepted_output_records: resolveBoundAcceptedOutputRecords(acceptedSnapshotRefs, store),
+    accepted_output_refs: runtimeRefs,
+    accepted_output_records: resolveBoundAcceptedOutputRecords(runtimeRefs, store),
     bound_runtime_state: {
       current_positions: boundCurrentPositions(state.current_positions),
     },
@@ -216,6 +220,7 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
                   state,
                   acceptedSnapshotRefs,
                   deps.acceptedOutputStore,
+                  deps.llmHandle.provider !== "fake",
                 )
               : {
                   macro_input_gate: state.macro_input_gate,
@@ -229,6 +234,7 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
                 state,
                 agentId: spec.agentId,
                 stage: spec.agentId,
+                agentTimeoutMs: timeoutMs,
                 runtimeInputs: capabilityRuntimeInputs,
                 candidateScope: acceptedSnapshotRefs
                   ? { accepted_output_refs: acceptedSnapshotRefs }
@@ -407,12 +413,20 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
               [acceptedOutputRefKey("SUPERINVESTOR_SELECTION", spec.agentId)]: ref,
             };
           } else {
-            const ref = buildStructuredSmokeAcceptedOutputRef({
-              kind: "SUPERINVESTOR_SELECTION",
-              agentId: spec.agentId,
-              payload: output,
-              state,
-            });
+            const ref =
+              structuredHandle.provider === "fake"
+                ? buildStructuredSmokeAcceptedOutputRef({
+                    kind: "SUPERINVESTOR_SELECTION",
+                    agentId: spec.agentId,
+                    payload: output,
+                    state,
+                  })
+                : putStructuredSmokeAcceptedOutput(deps.acceptedOutputStore, {
+                    kind: "SUPERINVESTOR_SELECTION",
+                    agentId: spec.agentId,
+                    payload: output,
+                    state,
+                  });
             if (ref) {
               acceptedOutputRefs = {
                 [acceptedOutputRefKey("SUPERINVESTOR_SELECTION", spec.agentId)]: ref,

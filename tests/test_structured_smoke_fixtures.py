@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import sys
 from datetime import date
 from pathlib import Path
 
@@ -16,6 +18,7 @@ from mosaic.bridge.tool_capabilities import (
     materialize_tool_payload,
 )
 from mosaic.dataflows.cninfo_supply_chain import CninfoSupplyChainDisclosureCollector
+from mosaic.dataflows.bound_runtime_snapshots import runtime_snapshot_root
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.forward_archive_queries import ForwardArchiveQueryReader
 from mosaic.dataflows.macro_snapshots import validate_role_snapshot
@@ -234,6 +237,69 @@ def test_structured_smoke_eligibility_artifact_binds_real_candidates_and_hash(
         for row in marker["artifact_inventory"]
     )
     assert bindings["MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH"] == marker["bundle_hash"]
+
+
+def test_structured_smoke_runtime_membership_cli_allows_pre_effective_date_without_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cache_root = tmp_path / "cache"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "build_structured_smoke_fixtures.py",
+            "--root",
+            str(cache_root),
+            "--date",
+            "2025-06-18",
+            "--runtime-membership",
+        ],
+    )
+
+    assert structured_smoke_fixtures_module.main() == 0
+    bindings = json.loads(capsys.readouterr().out)
+    marker = json.loads(
+        (cache_root / "structured_smoke_fixture_bundle.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    artifact_path = (
+        cache_root / structured_smoke_fixtures_module._ELIGIBILITY_ARTIFACT_RELATIVE_PATH
+    )
+
+    assert bindings["MOSAIC_CACHE_DIR"] == str(cache_root)
+    assert marker["as_of_date"] == "2025-06-18"
+    assert not artifact_path.exists()
+    copied_relative_path = artifact_path.relative_to(cache_root).as_posix()
+    assert all(
+        row["relative_path"] != copied_relative_path
+        for row in marker["artifact_inventory"]
+    )
+
+
+def test_structured_smoke_default_still_requires_eligibility_before_effective_date(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(RuntimeError, match="eligibility artifact is required"):
+        build_structured_smoke_fixtures(tmp_path / "cache", "2025-06-18")
+
+
+def test_structured_smoke_runtime_membership_rejects_eligibility_artifact(
+    tmp_path: Path,
+) -> None:
+    artifact_path = _write_eligibility_artifact(tmp_path)
+    with pytest.raises(
+        RuntimeError,
+        match="runtime-membership cannot be combined with an eligibility artifact",
+    ):
+        build_structured_smoke_fixtures(
+            tmp_path / "cache",
+            "2025-06-18",
+            eligibility_artifact_path=artifact_path,
+            runtime_membership=True,
+        )
 
 
 def test_structured_smoke_eligibility_authority_rows_lead_scoring_and_shortlists(
@@ -468,6 +534,56 @@ def test_structured_smoke_bundle_materializes_all_26_stage_initial_snapshots(
     assert marker["contains_vendor_prose"] is False
     body = {key: value for key, value in marker.items() if key != "bundle_hash"}
     assert marker["bundle_hash"] == canonical_hash(body)
+
+
+def test_structured_smoke_macro_materialization_uses_cache_marker_with_isolated_runtime_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    as_of = "2026-07-17"
+    cache_root = tmp_path / "fixture"
+    bindings = build_structured_smoke_fixtures(cache_root, as_of)
+    _bind_structured_smoke(bindings, monkeypatch)
+    isolated_snapshot_root = tmp_path / "isolated" / "runtime_snapshots"
+    monkeypatch.setenv("MOSAIC_RUNTIME_SNAPSHOT_DIR", str(isolated_snapshot_root))
+
+    def tree_hash(root: Path) -> str:
+        return hashlib.sha256(
+            b"".join(
+                relative.as_posix().encode() + b"\0" + (root / relative).read_bytes()
+                for relative in sorted(
+                    path.relative_to(root)
+                    for path in root.rglob("*")
+                    if path.is_file()
+                )
+            )
+        ).hexdigest()
+
+    fixture_hash_before = tree_hash(cache_root)
+    expected = json.loads(
+        (
+            cache_root
+            / "macro_snapshots"
+            / as_of
+            / "china.json"
+        ).read_text(encoding="utf-8")
+    )
+    materialized = json.loads(
+        materialize_tool_payload(
+            "get_china_macro_snapshot",
+            agent_id="china",
+            stage="china",
+            as_of=as_of,
+        )
+    )
+
+    assert {
+        key: materialized[key] for key in expected if key in materialized
+    } == {
+        key: value for key, value in expected.items() if key in materialized
+    }
+    assert runtime_snapshot_root() == isolated_snapshot_root
+    assert not (isolated_snapshot_root.parent / "structured_smoke_fixture_bundle.json").exists()
+    assert tree_hash(cache_root) == fixture_hash_before
 
 
 def test_structured_smoke_early_semiconductor_materialization_requires_opt_in(
@@ -962,6 +1078,33 @@ def test_structured_smoke_disables_forward_source_prepare_without_archive_mutati
         Path(bindings["MOSAIC_FORWARD_ARCHIVE_ROOT"])
         / ".mosaic/agent_data/forward_archive_sources.lock"
     ).exists()
+
+
+def test_structured_smoke_policy_fixture_covers_current_sector_topics_only(
+    tmp_path: Path,
+) -> None:
+    as_of = "2026-07-17"
+    bindings = build_structured_smoke_fixtures(tmp_path / "cache", as_of)
+    reader = ForwardArchiveQueryReader(
+        root=Path(bindings["MOSAIC_FORWARD_ARCHIVE_ROOT"]),
+        policy_cache_dir=Path(bindings["MOSAIC_GOV_POLICY_CACHE_DIR"]),
+    )
+
+    topics = {
+        "半导体",
+        "软件",
+        "煤炭",
+        "生物医药",
+        "食品",
+        "机械",
+        "房地产",
+        "银行",
+        "农业",
+    }
+    for topic in topics:
+        assert reader("get_industry_policy", as_of, 365, "govcn", topic)
+    with pytest.raises(DataVendorUnavailable, match="no proven coverage"):
+        reader("get_industry_policy", as_of, 365, "govcn", "__unknown_topic__")
 
 
 def test_structured_smoke_sector_role_event_binding_matches_runtime_contract(

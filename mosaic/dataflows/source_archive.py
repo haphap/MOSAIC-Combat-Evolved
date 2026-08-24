@@ -7,9 +7,12 @@ rows in the existing private append-only SQLite store.
 
 from __future__ import annotations
 
+import json
+import sqlite3
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -376,6 +379,182 @@ def _source_receipt(
     )
 
 
+def bootstrap_structured_smoke_eco_calendar(
+    fixture_db: Path,
+    *,
+    as_of_date: str,
+    store: EconomicCalendarStore,
+    ledger: AgentDataMaterializationLedger,
+) -> SourceArchiveResult:
+    """Bootstrap the three eco_cal routes from an immutable smoke fixture."""
+    route_ids = tuple(sorted(ECO_CAL_LOGICAL_ROUTES))
+    blocked = lambda code: _uniform_failure(  # noqa: E731
+        as_of_date=as_of_date,
+        requested_route_ids=route_ids,
+        ledger=ledger,
+        route_status="CAPTURE_REJECTED",
+        blocker=code,
+    )
+    db_path = Path(fixture_db).expanduser()
+    if db_path.is_symlink() or not db_path.is_file():
+        return blocked("CAPTURE_REJECTED")
+    try:
+        db_path = db_path.resolve(strict=True)
+        if Path(store.path).expanduser().resolve() == db_path:
+            return blocked("CAPTURE_REJECTED")
+        cutoff = _cutoff(as_of_date)
+        compact_date = date.fromisoformat(as_of_date).strftime("%Y%m%d")
+        required_currencies = ("CNY", "USD", "EUR")
+        registered_pairs = set(ECO_CAL_REGISTERED_ROUTES)
+        required_pairs = {
+            pair
+            for pair in ECO_CAL_REGISTERED_ROUTES
+            if pair[0] in required_currencies
+        }
+        uri = f"file:{db_path.as_posix()}?mode=ro&immutable=1"
+        with sqlite3.connect(uri, uri=True) as conn:
+            conn.row_factory = sqlite3.Row
+            batch_rows = conn.execute(
+                "SELECT retrieval_batch_id, retrieved_at, record_json "
+                "FROM retrieval_batches WHERE status = 'COMPLETE' ORDER BY rowid DESC"
+            ).fetchall()
+            candidates: list[tuple[datetime, sqlite3.Row, dict[str, Any]]] = []
+            for batch_row in batch_rows:
+                batch = json.loads(batch_row["record_json"])
+                retrieved = _timestamp(str(batch_row["retrieved_at"]), "retrieved_at")
+                if (
+                    batch.get("retrieval_batch_id") != batch_row["retrieval_batch_id"]
+                    or batch.get("retrieved_at") != batch_row["retrieved_at"]
+                    or batch.get("status") != "COMPLETE"
+                ):
+                    return blocked("SCHEMA_DRIFT")
+                if retrieved <= cutoff:
+                    candidates.append((retrieved, batch_row, batch))
+            if not candidates:
+                return blocked("CAPTURE_AFTER_AS_OF_CUTOFF")
+            latest_at = max(item[0] for item in candidates)
+            latest = [item for item in candidates if item[0] == latest_at]
+            if len(latest) != 1:
+                return blocked("SCHEMA_DRIFT")
+            retrieved, batch_row, batch = latest[0]
+            requests = batch.get("requests")
+            if not isinstance(requests, list):
+                return blocked("SCHEMA_DRIFT")
+            request_by_pair: dict[tuple[str, str], Mapping[str, Any]] = {}
+            for request in requests:
+                if not isinstance(request, dict) or set(request) != {
+                    "country", "date", "expected_currency", "leaf_status", "row_count"
+                }:
+                    return blocked("SCHEMA_DRIFT")
+                pair = (str(request["expected_currency"]), str(request["country"]))
+                if pair not in registered_pairs:
+                    return blocked("SCHEMA_DRIFT")
+                if pair not in required_pairs:
+                    continue
+                if (
+                    pair in request_by_pair
+                    or request["date"] != compact_date
+                    or request["leaf_status"] != "COMPLETE"
+                    or not isinstance(request["row_count"], str)
+                    or not request["row_count"].isdigit()
+                ):
+                    return blocked("SCHEMA_DRIFT")
+                request_by_pair[pair] = request
+            if not required_pairs <= set(request_by_pair):
+                return blocked("REQUIRED_ROUTE_MISSING")
+            raw_rows = conn.execute(
+                "SELECT raw_row_hash, row_json FROM raw_rows "
+                "WHERE first_retrieval_batch_id = ?",
+                (str(batch_row["retrieval_batch_id"]),),
+            ).fetchall()
+            raw_row_hashes = [raw_row["raw_row_hash"] for raw_row in raw_rows]
+            if (
+                type(batch.get("raw_row_count")) is not int
+                or batch["raw_row_count"] != len(raw_rows)
+                or batch.get("raw_row_hashes") != sorted(set(raw_row_hashes))
+            ):
+                return blocked("SCHEMA_DRIFT")
+            rows: list[dict[str, Any]] = []
+            hashes_by_pair: dict[tuple[str, str], list[str]] = {}
+            for raw_row in raw_rows:
+                row = json.loads(raw_row["row_json"])
+                if not isinstance(row, dict) or set(row) != set(ECO_CAL_EXPECTED_COLUMNS):
+                    return blocked("SCHEMA_DRIFT")
+                row_hash = canonical_hash(row)
+                if row_hash != raw_row["raw_row_hash"]:
+                    return blocked("SCHEMA_DRIFT")
+                pair = (str(row["currency"]), str(row["country"]))
+                if pair not in registered_pairs:
+                    return blocked("SCHEMA_DRIFT")
+                if pair not in required_pairs:
+                    continue
+                rows.append(row)
+                hashes_by_pair.setdefault(pair, []).append(row_hash)
+            if not required_pairs <= set(hashes_by_pair):
+                return blocked("SCHEMA_DRIFT")
+            if any(
+                len(hashes_by_pair[pair]) != int(request_by_pair[pair]["row_count"])
+                for pair in required_pairs
+            ):
+                return blocked("SCHEMA_DRIFT")
+            scoped_requests = [request_by_pair[pair] for pair in sorted(required_pairs)]
+        runtime_batch = store.append_batch(
+            retrieved_at=retrieved.isoformat(),
+            requests=scoped_requests,
+            rows=rows,
+            status="COMPLETE",
+        )
+    except (OSError, sqlite3.Error, TypeError, ValueError, json.JSONDecodeError):
+        return blocked("SCHEMA_DRIFT")
+
+    audits = tuple(
+        _LeafAudit(
+            query_date=compact_date,
+            country=country,
+            currency=currency,
+            row_hashes=tuple(sorted(hashes_by_pair[(currency, country)])),
+        )
+        for currency, country in ECO_CAL_REGISTERED_ROUTES
+        if (currency, country) in required_pairs
+    )
+    receipts = tuple(
+        _source_receipt(
+            route_id=route_id,
+            currencies=tuple(
+                currency
+                for currency in ECO_CAL_LOGICAL_ROUTES[route_id]
+                if currency in required_currencies
+            ),
+            audits=audits,
+            as_of_date=as_of_date,
+            captured_at=retrieved.isoformat(),
+            as_of_cutoff=cutoff.isoformat(),
+            batch_id=str(runtime_batch["retrieval_batch_id"]),
+        )
+        for route_id in route_ids
+    )
+    coverage = _coverage_receipt(
+        as_of_date=as_of_date,
+        requested_route_ids=route_ids,
+        route_results=[
+            {
+                "route_id": receipt.as_dict()["identity"]["route_id"],
+                "capture_receipt_hash": receipt.receipt_hash,
+                "status": "SUCCESS",
+            }
+            for receipt in receipts
+        ],
+        blocker_codes=(),
+    )
+    ledger.append_capture_group(receipts, coverage)
+    return SourceArchiveResult(
+        batch=runtime_batch,
+        source_receipts=receipts,
+        coverage_receipt=coverage,
+        role_event_snapshot=None,
+    )
+
+
 def _reuse_existing_archive(
     *,
     as_of_date: str,
@@ -672,4 +851,5 @@ __all__ = [
     "ECO_CAL_LOGICAL_ROUTES",
     "SourceArchiveResult",
     "archive_eco_calendar",
+    "bootstrap_structured_smoke_eco_calendar",
 ]

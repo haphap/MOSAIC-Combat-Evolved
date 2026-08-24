@@ -22,6 +22,7 @@ export interface StructuredRepairDirectiveInput {
   priorOutput: unknown;
   validationErrors: ReadonlyArray<StructuredRepairIssue>;
   completeJsonSchema: unknown;
+  stageSpecificRepairContext?: string;
 }
 
 export interface StructuredRepairDirectiveMessages {
@@ -39,11 +40,18 @@ export function buildStructuredRepairDirectiveMessages(
     allowed_citation_ids: [...input.allowedCitationIds],
     original_evidence_and_task: input.originalEvidenceAndTask,
   };
+  const stageSpecificRepairContext = input.stageSpecificRepairContext
+    ? { stage_specific_repair_context: input.stageSpecificRepairContext }
+    : {};
+  const stageRepairInstruction = input.stageSpecificRepairContext
+    ? `\n\nAuthoritative stage-specific repair context; follow it exactly:\n${input.stageSpecificRepairContext}`
+    : "";
   if (input.attempt === 1) {
     return {
-      systemMessage: STRUCTURED_REPAIR_SYSTEM_MESSAGES[0],
+      systemMessage: `${STRUCTURED_REPAIR_SYSTEM_MESSAGES[0]}${stageRepairInstruction}`,
       userMessage: JSON.stringify({
         ...common,
+        ...stageSpecificRepairContext,
         prior_output: input.priorOutput,
         validation_errors: input.validationErrors,
       }),
@@ -51,18 +59,20 @@ export function buildStructuredRepairDirectiveMessages(
   }
   if (input.attempt === 2) {
     return {
-      systemMessage: STRUCTURED_REPAIR_SYSTEM_MESSAGES[1],
+      systemMessage: `${STRUCTURED_REPAIR_SYSTEM_MESSAGES[1]}${stageRepairInstruction}`,
       userMessage: JSON.stringify({
         ...common,
+        ...stageSpecificRepairContext,
         cumulative_validation_errors: input.validationErrors,
         complete_json_schema: input.completeJsonSchema,
       }),
     };
   }
   return {
-    systemMessage: STRUCTURED_REPAIR_SYSTEM_MESSAGES[2],
+    systemMessage: `${STRUCTURED_REPAIR_SYSTEM_MESSAGES[2]}${stageRepairInstruction}`,
     userMessage: JSON.stringify({
       ...common,
+      ...stageSpecificRepairContext,
       normalized_errors: input.validationErrors.map(({ validator, reason_code, json_path }) => ({
         validator,
         reason_code,

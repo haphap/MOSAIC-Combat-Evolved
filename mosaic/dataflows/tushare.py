@@ -820,6 +820,41 @@ def _get_etf_fund_basic_snapshot() -> pd.DataFrame:
     return df
 
 
+def get_index_weight(index_code: str, start_date: str, end_date: str) -> str:
+    """Return one bounded Tushare index-weight range as CSV text."""
+    if not isinstance(index_code, str) or not index_code.strip():
+        raise DataVendorUnavailable("index_code must be a non-empty string")
+    try:
+        start_dt = _parse_date(start_date)
+        end_dt = _parse_date(end_date)
+    except (TypeError, ValueError) as exc:
+        raise DataVendorUnavailable(
+            "index_weight start_date and end_date must be ISO dates"
+        ) from exc
+    if start_dt > end_dt:
+        raise DataVendorUnavailable(
+            f"start_date {start_date!r} is after end_date {end_date!r}."
+        )
+    data = _query_pro(
+        "index_weight",
+        index_code=index_code.strip(),
+        start_date=start_dt.strftime("%Y%m%d"),
+        end_date=end_dt.strftime("%Y%m%d"),
+    )
+    required_columns = ("index_code", "trade_date", "con_code", "weight")
+    if data is None or data.empty:
+        return f"No index weight data found for '{index_code.strip()}'."
+    missing = [column for column in required_columns if column not in data.columns]
+    if missing:
+        raise DataVendorUnavailable(
+            f"Tushare index_weight response is missing columns: {', '.join(missing)}"
+        )
+    return _to_csv_with_header(
+        data.loc[:, list(required_columns)].reset_index(drop=True),
+        f"Tushare index weights for {index_code.strip()} ({start_date} to {end_date})",
+    )
+
+
 def get_etf_daily(symbol: str, start_date: str, end_date: str) -> str:
     ts_code = _normalize_ts_code(symbol)
     df = _query_pro(

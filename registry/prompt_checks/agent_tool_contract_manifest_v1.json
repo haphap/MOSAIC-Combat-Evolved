@@ -2,7 +2,7 @@
   "schema_version": "agent_tool_contract_manifest_v1",
   "agent_count": 25,
   "execution_stage_count": 26,
-  "tool_count": 29,
+  "tool_count": 30,
   "agents": [
     {
       "agent_id": "china",
@@ -98,6 +98,7 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence"
       ],
@@ -117,6 +118,7 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence"
       ],
@@ -136,6 +138,7 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence"
       ],
@@ -154,6 +157,7 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence"
       ],
@@ -173,6 +177,7 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence"
       ],
@@ -192,6 +197,7 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence"
       ],
@@ -211,6 +217,7 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence"
       ],
@@ -230,6 +237,7 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence",
         "get_yield_curve_cn"
@@ -250,6 +258,7 @@
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence"
       ],

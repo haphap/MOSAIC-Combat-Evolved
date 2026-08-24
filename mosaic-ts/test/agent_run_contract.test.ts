@@ -348,6 +348,26 @@ describe("strict agent-run contract", () => {
     expect(repairPayload.allowed_citation_ids).toEqual(["rule.allowed"]);
   });
 
+  it("carries authoritative frozen candidate refs into structured repair", async () => {
+    const llm = new SequenceLlm([
+      { disposition: "ITEMS", items: [], claim_refs: ["claim-1"] },
+      { disposition: "ITEMS", items: ["fixed"], claim_refs: ["claim-1"] },
+    ]);
+    await run(llm, {
+      repairContext: [
+        "CRO frozen candidate universe:",
+        "candidate_count=1",
+        "- candidate_ref=ref:frozen-one, ts_code=000001.SZ",
+        "Emit exactly one valid candidate_actions row for the listed pair; do not omit it.",
+      ].join("\n"),
+    });
+    const messages = llm.calls[1] as [SystemMessage, HumanMessage];
+    const repairPayload = JSON.parse(String(messages[1].content));
+    expect(repairPayload.stage_specific_repair_context).toContain("ref:frozen-one");
+    expect(repairPayload.stage_specific_repair_context).toContain("000001.SZ");
+    expect(messages[0].content).toContain("Authoritative stage-specific repair context");
+  });
+
   it("uses at most three repairs and revalidates new errors", async () => {
     const llm = new SequenceLlm([
       { disposition: "ITEMS", items: ["bad-1"], claim_refs: ["claim-1"] },

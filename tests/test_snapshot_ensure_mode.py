@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -63,6 +64,71 @@ def test_structured_smoke_bypass_does_not_require_production_mode(
         "MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", "structured_smoke"
     )
 
+    assert stage_preparer.ensure_agent_stage_materialization(_request()) == {
+        "status": "SYNTHETIC_NON_PRODUCTION_BYPASS"
+    }
+
+
+def test_structured_smoke_bound_suffix_uses_core_only_with_complete_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delenv("MOSAIC_ENSURE_SNAPSHOT_MODE", raising=False)
+    monkeypatch.setenv(
+        "MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", "structured_smoke"
+    )
+    fixture_root = tmp_path / "fixture-cache"
+    fixture_root.mkdir()
+    (fixture_root / "frozen.marker").write_text("fixture", encoding="utf-8")
+    monkeypatch.setenv("MOSAIC_CACHE_DIR", str(fixture_root))
+    snapshot_root = tmp_path / "runtime-snapshots"
+    monkeypatch.setenv("MOSAIC_RUNTIME_SNAPSHOT_DIR", str(snapshot_root))
+    def tree_hash(root: Path) -> str:
+        return hashlib.sha256(
+            b"".join(
+                relative.as_posix().encode() + b"\0" + (root / relative).read_bytes()
+                for relative in sorted(
+                    path.relative_to(root)
+                    for path in root.rglob("*")
+                    if path.is_file()
+                )
+            )
+        ).hexdigest()
+
+    fixture_hash_before = tree_hash(fixture_root)
+    observed: list[dict[str, object]] = []
+
+    def core(request: dict[str, object]) -> dict[str, str]:
+        observed.append(request)
+        assert runtime_snapshot_root() == snapshot_root
+        snapshot_root.mkdir(parents=True, exist_ok=True)
+        (snapshot_root / "compiled.json").write_text("compiled", encoding="utf-8")
+        return {"status": "READY"}
+
+    monkeypatch.setattr(
+        stage_preparer, "_ensure_agent_stage_materialization_core", core
+    )
+    refs: list[dict[str, str]] = []
+    complete = {
+        "agent_id": "alpha_discovery",
+        "stage": "alpha_discovery",
+        "as_of": "2025-06-17",
+        "graph_run_id": "structured-smoke-test",
+        "runtime_inputs": {
+            "accepted_output_refs": refs,
+            "accepted_output_records": [],
+            "bound_runtime_state": {},
+        },
+        "candidate_scope": {"accepted_output_refs": refs},
+    }
+
+    assert stage_preparer.ensure_agent_stage_materialization(complete) == {
+        "status": "READY",
+        "ensure_mode": "enforce",
+    }
+    assert observed == [complete]
+    assert tree_hash(fixture_root) == fixture_hash_before
+    assert (snapshot_root / "compiled.json").read_text(encoding="utf-8") == "compiled"
     assert stage_preparer.ensure_agent_stage_materialization(_request()) == {
         "status": "SYNTHETIC_NON_PRODUCTION_BYPASS"
     }

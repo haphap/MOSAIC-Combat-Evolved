@@ -9,6 +9,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from mosaic.dataflows.sector_snapshots import (
+    CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE,
     SECTOR_DIRECTION_IDS,
     _authoritative_etf_codes,
     validate_relationship_runtime_snapshot,
@@ -54,15 +55,19 @@ _STANDARD_SECTOR_TOOLS = frozenset(
     }
 )
 _EXPECTED_TOOLS = {
-    agent_id: _STANDARD_SECTOR_TOOLS
+    agent_id: _STANDARD_SECTOR_TOOLS | {"get_sector_index_membership"}
     for agent_id in THS_INDUSTRY_FILTERS
 }
 _EXPECTED_TOOLS["semiconductor"] = _STANDARD_SECTOR_TOOLS | {
+    "get_sector_index_membership",
     "get_balance_sheet",
     "get_cashflow",
     "get_income_statement",
 }
-_EXPECTED_TOOLS["financials"] = _STANDARD_SECTOR_TOOLS | {"get_yield_curve_cn"}
+_EXPECTED_TOOLS["financials"] = _STANDARD_SECTOR_TOOLS | {
+    "get_sector_index_membership",
+    "get_yield_curve_cn",
+}
 _EXPECTED_TOOLS["relationship_mapper"] = frozenset(
     {
         "get_rke_research_context",
@@ -471,6 +476,23 @@ def build_sector_relationship_query_plan(
                 "max_items": RKE_MAX_ITEMS,
             },
         )
+
+    if agent_id != "relationship_mapper":
+        for index_code in CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE[agent_id]:
+            previous_month_start = (
+                as_of_date.replace(day=1) - timedelta(days=1)
+            ).replace(day=1).isoformat()
+            _append(
+                requests,
+                allowed,
+                "get_sector_index_membership",
+                {
+                    "index_code": index_code,
+                    "as_of": as_of,
+                    "start_date": previous_month_start,
+                    "end_date": as_of,
+                },
+            )
 
     requests.sort(
         key=lambda row: (row["tool_id"], canonical_hash(row["args"]))

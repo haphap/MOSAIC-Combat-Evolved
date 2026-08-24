@@ -2,16 +2,33 @@ import { describe, expect, it } from "vitest";
 import {
   AcceptedAgentOutputStore,
   type AcceptedOutputBuildContext,
+  type AcceptedOutputRecordRef,
   acceptedOutputRecordRef,
   acceptedOutputRefKey,
   buildAcceptedAgentOutputRecord,
+  buildStructuredSmokeAcceptedOutputRecord,
+  buildStructuredSmokeAcceptedOutputRef,
   validateAcceptedAgentOutputRecord,
   validateCurrentAcceptedAgentOutputRecord,
+  validateStructuredSmokeAcceptedOutputRecord,
 } from "../src/agents/accepted_output.js";
 import type { ClaimEvidenceGraph } from "../src/agents/evidence_contract.js";
 import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
+import type { DailyCycleStateType } from "../src/agents/state.js";
 
 const SOURCE_OUTPUT_HASH = `sha256:${"a".repeat(64)}`;
+const STRUCTURED_SMOKE_BUNDLE_HASH = `sha256:${"b".repeat(64)}`;
+
+function structuredSmokeState(traceId = "structured-smoke-run"): DailyCycleStateType {
+  return {
+    trace_id: traceId,
+    as_of_date: "2025-06-17",
+    layer1_outputs: {},
+    layer2_outputs: {},
+    layer3_outputs: {},
+    accepted_output_refs: {},
+  } as unknown as DailyCycleStateType;
+}
 
 function claimGraph(): ClaimEvidenceGraph {
   return {
@@ -301,5 +318,162 @@ describe("AcceptedAgentOutputRecord", () => {
     const priorRef = priorStore.putReadOnly(priorGeneration);
     expect(priorStore.resolve(priorRef)).toEqual(priorGeneration);
     expect(() => priorStore.put(priorGeneration)).toThrow(/capability track/);
+  });
+
+  it("keeps structured-smoke records read-only and preserves the legacy ref identity", () => {
+    const previousBypass = process.env.MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS;
+    const previousBundle = process.env.MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH;
+    process.env.MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS = "structured_smoke";
+    process.env.MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH = STRUCTURED_SMOKE_BUNDLE_HASH;
+    try {
+      const state = structuredSmokeState();
+      const payload = { agent_id: "china", direction: "positive", signal: "stable" };
+      const ref = buildStructuredSmokeAcceptedOutputRef({
+        kind: "MACRO_TRANSMISSION",
+        agentId: "china",
+        payload,
+        state,
+      });
+      const record = buildStructuredSmokeAcceptedOutputRecord({
+        kind: "MACRO_TRANSMISSION",
+        agentId: "china",
+        payload,
+        state,
+      });
+      if (!ref || !record) throw new Error("structured-smoke fixture setup failed");
+      expect(record.accepted_output_hash).toBe(ref.accepted_output_hash);
+      validateStructuredSmokeAcceptedOutputRecord(record);
+
+      const store = new AcceptedAgentOutputStore();
+      expect(store.putStructuredSmoke(record)).toEqual(ref);
+      expect(store.records()).toEqual([]);
+      expect(store.resolve(ref).output).toEqual({ payload });
+      expect(() => store.resolveProduction(ref)).toThrow(/not production-active/);
+      expect(() => store.put(record as never)).toThrow();
+
+      const tampered = structuredClone(record);
+      (tampered.output.payload as { signal: string }).signal = "tampered";
+      expect(() => store.putStructuredSmoke(tampered)).toThrow(/hash mismatch/);
+
+      const restored = new AcceptedAgentOutputStore();
+      restored.restore(store.snapshot());
+      expect(restored.resolve(ref).output).toEqual({ payload });
+    } finally {
+      if (previousBypass === undefined) delete process.env.MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS;
+      else process.env.MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS = previousBypass;
+      if (previousBundle === undefined)
+        delete process.env.MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH;
+      else process.env.MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH = previousBundle;
+    }
+  });
+
+  it("hydrates a legacy Macro/Sector/Superinvestor ref-only prefix", () => {
+    const previousBypass = process.env.MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS;
+    const previousBundle = process.env.MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH;
+    process.env.MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS = "structured_smoke";
+    process.env.MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH = STRUCTURED_SMOKE_BUNDLE_HASH;
+    try {
+      const state = structuredSmokeState("legacy-prefix");
+      const refs: Record<string, AcceptedOutputRecordRef> = {};
+      const macroAgents = [
+        "central_bank",
+        "china",
+        "commodities",
+        "eu_economy",
+        "euro_area_financial_conditions",
+        "institutional_flow",
+        "us_economy",
+        "us_financial_conditions",
+      ] as const;
+      for (const agentId of macroAgents) {
+        const payload = { agent_id: agentId, direction: "positive", signal: agentId };
+        (state.layer1_outputs as Record<string, unknown>)[agentId] = {
+          ...payload,
+          verified_claim_graph: { state_only: true },
+          verified_claim_audit: { state_only: true },
+        };
+        const ref = buildStructuredSmokeAcceptedOutputRef({
+          kind: "MACRO_TRANSMISSION",
+          agentId,
+          payload,
+          state,
+        });
+        if (!ref) throw new Error("Macro smoke ref setup failed");
+        refs[acceptedOutputRefKey("MACRO_TRANSMISSION", agentId)] = ref;
+      }
+      const sectorAgents = [
+        "agriculture",
+        "biotech",
+        "consumer",
+        "energy",
+        "financials",
+        "industrials",
+        "real_estate_construction",
+        "semiconductor",
+        "technology",
+      ] as const;
+      for (const agentId of sectorAgents) {
+        const payload = { agent_id: agentId, selection_status: "NONE_FOUND" };
+        (state.layer2_outputs as Record<string, unknown>)[agentId] = payload;
+        const ref = buildStructuredSmokeAcceptedOutputRef({
+          kind: "STANDARD_SECTOR_SELECTION",
+          agentId,
+          payload,
+          state,
+        });
+        if (!ref) throw new Error("Sector smoke ref setup failed");
+        refs[acceptedOutputRefKey("STANDARD_SECTOR_SELECTION", agentId)] = ref;
+      }
+      const superinvestorAgents = ["druckenmiller", "munger", "burry", "ackman"] as const;
+      for (const agentId of superinvestorAgents) {
+        const payload = { agent: agentId, selection_status: "NO_QUALIFIED_CANDIDATES", picks: [] };
+        (state.layer3_outputs as Record<string, unknown>)[agentId] = payload;
+        const ref = buildStructuredSmokeAcceptedOutputRef({
+          kind: "SUPERINVESTOR_SELECTION",
+          agentId,
+          payload,
+          state,
+        });
+        if (!ref) throw new Error("Superinvestor smoke ref setup failed");
+        refs[acceptedOutputRefKey("SUPERINVESTOR_SELECTION", agentId)] = ref;
+      }
+      state.accepted_output_refs = refs;
+      const restored = new AcceptedAgentOutputStore();
+      restored.restore({ records: [], claim_graphs: {} });
+      const completedPrefix = ["macro", "sector", "superinvestor"];
+      restored.hydrateStructuredSmokeFromState(state);
+      expect(completedPrefix).toEqual(["macro", "sector", "superinvestor"]);
+      expect(restored.records()).toEqual([]);
+      expect(Object.values(refs)).toHaveLength(21);
+      for (const ref of Object.values(refs)) {
+        expect(restored.resolve(ref).accepted_output_hash).toBe(ref.accepted_output_hash);
+      }
+      const chinaRef = refs["MACRO_TRANSMISSION:china"];
+      if (!chinaRef) throw new Error("China smoke ref setup failed");
+      expect((restored.resolve(chinaRef).output as { payload: unknown }).payload).toEqual({
+        agent_id: "china",
+        direction: "positive",
+        signal: "china",
+      });
+
+      const unsupportedState = structuredSmokeState("missing-persisted-record");
+      const unsupportedRef = buildStructuredSmokeAcceptedOutputRef({
+        kind: "CIO_PROPOSAL",
+        agentId: "cio",
+        payload: {},
+        state: unsupportedState,
+      });
+      if (!unsupportedRef) throw new Error("unsupported smoke ref setup failed");
+      unsupportedState.accepted_output_refs = { "CIO_PROPOSAL:cio": unsupportedRef };
+      expect(() => restored.hydrateStructuredSmokeFromState(unsupportedState)).toThrow(
+        /cannot reconstruct missing persisted accepted output kind/,
+      );
+    } finally {
+      if (previousBypass === undefined) delete process.env.MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS;
+      else process.env.MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS = previousBypass;
+      if (previousBundle === undefined)
+        delete process.env.MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH;
+      else process.env.MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH = previousBundle;
+    }
   });
 });

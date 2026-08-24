@@ -303,7 +303,7 @@ function contributionsForLayer(
     const refs = acceptedRefsForLayer(state, layer);
     assertProductionLayerRoster(state, layer, refs);
     const outputContributions = refs.flatMap((ref) => {
-      const record = acceptedOutputStore.resolve(ref);
+      const record = acceptedOutputStore.resolveProduction(ref);
       validateAcceptedSourceBinding(state, record);
       return contributionsForGraph(record.agent_id, acceptedOutputStore.resolveClaimGraph(ref));
     });

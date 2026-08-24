@@ -154,6 +154,11 @@ def test_default_capability_store_wires_distinct_private_production_components(
     monkeypatch.setenv(
         "MOSAIC_CHINA_AGENT_ARCHIVE_DB", str(tmp_path / "china-archive.sqlite3")
     )
+    forward_root = tmp_path / "sealed-forward-archive"
+    private_rke_root = tmp_path / "private-rke-repo"
+    monkeypatch.setenv("MOSAIC_FORWARD_ARCHIVE_ROOT", str(forward_root))
+    monkeypatch.setenv("MOSAIC_REGISTRIES_REPO", str(private_rke_root))
+    monkeypatch.delenv("MOSAIC_REGISTRY_DIR", raising=False)
     monkeypatch.delenv("MOSAIC_LLM_BASE_URL", raising=False)
     monkeypatch.delenv("MOSAIC_LLM_MODEL", raising=False)
     monkeypatch.delenv("MOSAIC_LLM_API_KEY", raising=False)
@@ -163,6 +168,21 @@ def test_default_capability_store_wires_distinct_private_production_components(
         SectorRelationshipSourceEvidenceAuthority,
         "__call__",
         evidence_owner,
+    )
+    source_roots: list[Path] = []
+    rke_roots: list[Path] = []
+    source_init = SectorRelationshipSourceEvidenceAuthority.__init__
+
+    def capture_source_root(self, *, root, rke_root=None, **kwargs):
+        source_roots.append(Path(root).resolve())
+        if rke_root is not None:
+            rke_roots.append(Path(rke_root).resolve())
+        source_init(self, root=root, rke_root=rke_root, **kwargs)
+
+    monkeypatch.setattr(
+        SectorRelationshipSourceEvidenceAuthority,
+        "__init__",
+        capture_source_root,
     )
 
     store = capability_module.get_capability_store()
@@ -194,6 +214,9 @@ def test_default_capability_store_wires_distinct_private_production_components(
     assert isinstance(materializer.source_preparer, ForwardArchiveSourcePreparer)
     forward_reader = materializer.source_preparer.reader
     assert isinstance(forward_reader, ForwardArchiveQueryReader)
+    assert forward_reader.root == forward_root.resolve()
+    assert source_roots == [forward_root.resolve()]
+    assert rke_roots == [private_rke_root.resolve()]
     assert forward_reader.sector_archive_store is None
     assert not hasattr(materializer.route_caller, "owners")
     assert materializer.rke_renderer.__name__ == "_default_rke_renderer"

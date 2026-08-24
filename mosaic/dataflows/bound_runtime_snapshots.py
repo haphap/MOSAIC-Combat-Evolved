@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import tempfile
 from datetime import date, datetime
 from pathlib import Path
@@ -54,6 +55,18 @@ _STAGE_BY_KIND = {
     "CRO_RISK_REVIEW": "cro",
     "EXECUTION_ASSESSMENT": "autonomous_execution",
     "CIO_FINAL": "cio_final",
+}
+_STRUCTURED_SMOKE_RECORD_SCHEMA = "structured_smoke_accepted_output_record_v1"
+_STRUCTURED_SMOKE_SAMPLE_ORIGIN = "NON_PRODUCTION_STRUCTURED_SMOKE"
+_STRUCTURED_SMOKE_AGENTS = {
+    "MACRO_TRANSMISSION": _MACRO_AGENTS,
+    "STANDARD_SECTOR_SELECTION": _SECTOR_AGENTS,
+    "SUPERINVESTOR_SELECTION": _SUPERINVESTORS,
+    "CRO_RISK_REVIEW": frozenset({"cro"}),
+    "ALPHA_DISCOVERY": frozenset({"alpha_discovery"}),
+    "EXECUTION_ASSESSMENT": frozenset({"autonomous_execution"}),
+    "CIO_PROPOSAL": frozenset({"cio"}),
+    "CIO_FINAL": frozenset({"cio"}),
 }
 
 
@@ -198,6 +211,76 @@ def _accepted_stage(*, agent_id: str, accepted_kind: str) -> str:
     )
 
 
+def _validate_structured_smoke_record(
+    record: Mapping[str, Any],
+    *,
+    graph_run_id: str,
+    as_of: str,
+) -> None:
+    expected_fields = {
+        "schema_version",
+        "sample_origin",
+        "fixture_bundle_hash",
+        "accepted_output_kind",
+        "agent_id",
+        "accepted_output_id",
+        "accepted_output_hash",
+        "graph_run_id",
+        "as_of",
+        "accepted_at",
+        "output",
+    }
+    if set(record) != expected_fields:
+        raise DataVendorUnavailable("structured-smoke accepted output fields mismatch")
+    if (
+        os.getenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS") != "structured_smoke"
+        or record.get("schema_version") != _STRUCTURED_SMOKE_RECORD_SCHEMA
+        or record.get("sample_origin") != _STRUCTURED_SMOKE_SAMPLE_ORIGIN
+    ):
+        raise DataVendorUnavailable("structured-smoke accepted output binding is unavailable")
+    fixture_hash = _required_text(record.get("fixture_bundle_hash"), "fixture_bundle_hash")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", fixture_hash):
+        raise DataVendorUnavailable("structured-smoke fixture hash is invalid")
+    expected_fixture_hash = os.getenv("MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH")
+    if expected_fixture_hash != fixture_hash:
+        raise DataVendorUnavailable("structured-smoke fixture hash mismatch")
+    accepted_kind = _required_text(record.get("accepted_output_kind"), "accepted_output_kind")
+    agent_id = _required_text(record.get("agent_id"), "agent_id")
+    if agent_id not in _STRUCTURED_SMOKE_AGENTS.get(accepted_kind, frozenset()):
+        raise DataVendorUnavailable("structured-smoke owner binding is invalid")
+    record_id = _required_text(record.get("accepted_output_id"), "accepted_output_id")
+    record_hash = _required_text(record.get("accepted_output_hash"), "accepted_output_hash")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", record_hash):
+        raise DataVendorUnavailable("structured-smoke accepted output hash is invalid")
+    if record.get("graph_run_id") != graph_run_id:
+        raise DataVendorUnavailable("structured-smoke graph run mismatch")
+    if record.get("as_of") != as_of:
+        raise DataVendorUnavailable("structured-smoke as_of mismatch")
+    try:
+        date.fromisoformat(as_of)
+    except ValueError as exc:
+        raise DataVendorUnavailable("structured-smoke as_of is invalid") from exc
+    _parse_timestamp(record.get("accepted_at"), "accepted_at")
+    output = _required_mapping(record.get("output"), "output")
+    if set(output) != {"payload"}:
+        raise DataVendorUnavailable("structured-smoke output fields mismatch")
+    identity = {
+        "schema_version": "structured_smoke_accepted_output_ref_v1",
+        "fixture_bundle_hash": fixture_hash,
+        "graph_run_id": graph_run_id,
+        "as_of": as_of,
+        "accepted_output_kind": accepted_kind,
+        "agent_id": agent_id,
+        "payload_hash": canonical_hash(output["payload"]),
+    }
+    expected_id = "structured-smoke-accepted-output:" + canonical_hash(identity).removeprefix(
+        "sha256:"
+    )
+    expected_hash = canonical_hash({**identity, "accepted_output_id": expected_id})
+    if record_id != expected_id or record_hash != expected_hash:
+        raise DataVendorUnavailable("structured-smoke accepted output identity mismatch")
+
+
 def _validate_accepted_records(
     *,
     accepted_output_refs: Sequence[Mapping[str, Any]],
@@ -235,21 +318,32 @@ def _validate_accepted_records(
         accepted_kind = _required_text(
             record.get("accepted_output_kind"), "record.accepted_output_kind"
         )
-        try:
-            validate_accepted_output_record_schema(
+        if (
+            record.get("schema_version") == _STRUCTURED_SMOKE_RECORD_SCHEMA
+            or record.get("sample_origin") == _STRUCTURED_SMOKE_SAMPLE_ORIGIN
+        ):
+            _validate_structured_smoke_record(
                 record,
-                agent_id=agent_id,
-                accepted_kind=accepted_kind,
-                allow_runtime_authority="runtime_opportunity_authority" in record,
-                require_runtime_audit="runtime_audit" in record,
+                graph_run_id=graph_run_id,
+                as_of=as_of,
             )
-        except (KeyError, TypeError, ValueError) as exc:
-            raise DataVendorUnavailable(
-                f"accepted output record contract is invalid: {accepted_id}"
-            ) from exc
-        expected_hash = canonical_hash(
-            {key: value for key, value in record.items() if key != "accepted_output_hash"}
-        )
+            expected_hash = _required_text(record.get("accepted_output_hash"), "accepted_output_hash")
+        else:
+            try:
+                validate_accepted_output_record_schema(
+                    record,
+                    agent_id=agent_id,
+                    accepted_kind=accepted_kind,
+                    allow_runtime_authority="runtime_opportunity_authority" in record,
+                    require_runtime_audit="runtime_audit" in record,
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise DataVendorUnavailable(
+                    f"accepted output record contract is invalid: {accepted_id}"
+                ) from exc
+            expected_hash = canonical_hash(
+                {key: value for key, value in record.items() if key != "accepted_output_hash"}
+            )
         expected_ref = {
             "accepted_output_kind": accepted_kind,
             "agent_id": agent_id,
@@ -315,6 +409,32 @@ def _validate_current_positions(
     )
     if not snapshot_hash.startswith("sha256:") or len(snapshot_hash) != 71:
         raise DataVendorUnavailable("position snapshot hash is invalid")
+    structured_smoke = (
+        os.getenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS") == "structured_smoke"
+    )
+    if structured_smoke and status == "empty_confirmed":
+        if positions.get("position_source") != "empty_confirmed" or position_rows:
+            raise DataVendorUnavailable("structured-smoke empty position binding is invalid")
+    elif structured_smoke and status == "loaded":
+        if positions.get("position_source") != "cli_fixture" or not position_rows:
+            raise DataVendorUnavailable("structured-smoke loaded position binding is invalid")
+    available_at = captured_at
+    if (
+        structured_smoke
+        and (
+            (
+                status == "empty_confirmed"
+                and positions.get("position_source") == "empty_confirmed"
+                and not position_rows
+            )
+            or (
+                status == "loaded"
+                and positions.get("position_source") == "cli_fixture"
+                and bool(position_rows)
+            )
+        )
+    ):
+        available_at = f"{as_of}T00:00:00+08:00"
     evidence = {
         "evidence_id": "position-authority",
         "source_kind": "POSITION_SNAPSHOT",
@@ -323,7 +443,7 @@ def _validate_current_positions(
         "value": status,
         "unit": "state",
         "as_of": as_of,
-        "available_at": captured_at,
+        "available_at": available_at,
         "source_fingerprint": snapshot_hash,
     }
     return positions, evidence
@@ -425,6 +545,14 @@ def _previous_target_binding(
     return None, None
 
 
+def _accepted_selection_payload(record: Mapping[str, Any]) -> Mapping[str, Any]:
+    output = _required_mapping(record["output"], "record.output")
+    payload = _required_mapping(output.get("payload"), "record.output.payload")
+    if record.get("sample_origin") == _STRUCTURED_SMOKE_SAMPLE_ORIGIN:
+        return payload
+    return _required_mapping(payload.get("selection"), "record.output.payload.selection")
+
+
 def _cio_proposal_candidates(
     rows: Sequence[tuple[Mapping[str, Any], dict[str, Any], dict[str, Any]]],
     *,
@@ -449,9 +577,7 @@ def _cio_proposal_candidates(
         source_spec = source_specs.get(ref["accepted_output_kind"])
         if source_spec is None:
             continue
-        payload = _required_mapping(record["output"], "record.output")["payload"]
-        payload = _required_mapping(payload, "record.output.payload")
-        selection = _required_mapping(payload["selection"], "accepted selection")
+        selection = _accepted_selection_payload(record)
         picks = selection[source_spec[1]]
         if not isinstance(picks, list):
             raise DataVendorUnavailable("accepted selection picks must be an array")
@@ -998,16 +1124,14 @@ def _superinvestor_candidates(
     for record, ref, _evidence in rows:
         if ref["accepted_output_kind"] != "STANDARD_SECTOR_SELECTION":
             continue
-        payload = _required_mapping(record["output"], "record.output")["payload"]
-        selection = _required_mapping(payload, "record.output.payload")["selection"]
-        selection = _required_mapping(selection, "record.output.payload.selection")
+        selection = _accepted_selection_payload(record)
         directions = (
             ("PREFERRED", "preferred_direction", "long_picks"),
             ("LEAST_PREFERRED", "least_preferred_direction", "short_or_avoid_picks"),
         )
         for direction, direction_field, picks_field in directions:
-            direction_row = _required_mapping(selection[direction_field], direction_field)
-            picks = selection[picks_field]
+            direction_row = _required_mapping(selection.get(direction_field), direction_field)
+            picks = selection.get(picks_field)
             if not isinstance(picks, list):
                 raise DataVendorUnavailable(f"{picks_field} must be an array")
             for pick in picks:
@@ -1055,10 +1179,8 @@ def _alpha_candidates(
         if ref["accepted_output_kind"] != "SUPERINVESTOR_SELECTION":
             continue
         observed_superinvestors.add(ref["agent_id"])
-        payload = _required_mapping(record["output"], "record.output")["payload"]
-        selection = _required_mapping(payload, "record.output.payload")["selection"]
-        selection = _required_mapping(selection, "record.output.payload.selection")
-        picks = selection["picks"]
+        selection = _accepted_selection_payload(record)
+        picks = selection.get("picks")
         if not isinstance(picks, list):
             raise DataVendorUnavailable("Superinvestor picks must be an array")
         for pick in picks:

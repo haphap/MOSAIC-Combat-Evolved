@@ -29,7 +29,7 @@ export function acceptedMacroOutputs(
       if (ref?.accepted_output_kind !== "MACRO_TRANSMISSION" || ref.agent_id !== agent) {
         throw new Error(`${agent}: accepted Macro record reference is unavailable`);
       }
-      const record = store.resolve<"MACRO_TRANSMISSION", AcceptedMacroTransmission>(
+      const record = store.resolveProduction<"MACRO_TRANSMISSION", AcceptedMacroTransmission>(
         ref as AcceptedOutputRecordRef<"MACRO_TRANSMISSION">,
       );
       if (

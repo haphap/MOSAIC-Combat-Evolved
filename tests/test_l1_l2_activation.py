@@ -54,7 +54,7 @@ def test_l1_l2_tool_activation_is_exact_base_union_pr6_overlay() -> None:
     assert base["execution_stage_count"] == 29
     assert active["agent_count"] == 27
     assert active["execution_stage_count"] == 28
-    assert active["tool_count"] == 29
+    assert active["tool_count"] == 30
     assert overlay["activation_state"] == "staged"
     assert overlay["base_agent_data_route_manifest_hash"] == canonical_hash(base_routes)
 

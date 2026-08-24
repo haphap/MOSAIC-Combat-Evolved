@@ -25,6 +25,18 @@ RESEARCH_PRIOR_USE_POLICY = "shadow_research_prior_only_not_current_signal"
 RANKING_POLICY_ID = "rke_agent_research_context_rank_v1"
 FORBIDDEN_FIELD_POLICY = "source_prose_and_private_references_omitted"
 DEFAULT_REGISTRY_DIR = "registry/report_intelligence"
+RKE_AGENT_RESEARCH_INPUT_FILENAMES = (
+    "forecast_claims.jsonl",
+    "report_metadata.jsonl",
+    "report_outcome_labels.jsonl",
+    "source_performance_profiles.jsonl",
+    "viewpoint_performance_profiles.jsonl",
+    "analysis_recipes.jsonl",
+    "tool_gaps.jsonl",
+    "weighted_research_contexts.jsonl",
+    "stock_context_snapshots.jsonl",
+    "industry_context_snapshots.jsonl",
+)
 RATING_BUCKETS = frozenset(
     {
         "supportive_evidence",
@@ -511,28 +523,29 @@ def build_rke_agent_research_context(
 
 
 def _load_rke_agent_research_rows(registry_path: Path) -> dict[str, list[dict[str, Any]]]:
-    return {
-        "forecasts": _read_jsonl(registry_path / "forecast_claims.jsonl"),
-        "metadata": _read_jsonl(registry_path / "report_metadata.jsonl"),
-        "outcomes": _read_jsonl(registry_path / "report_outcome_labels.jsonl"),
+    rows = {
+        "forecasts": _read_jsonl(registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[0]),
+        "metadata": _read_jsonl(registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[1]),
+        "outcomes": _read_jsonl(registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[2]),
         "source_profiles": _read_jsonl(
-            registry_path / "source_performance_profiles.jsonl"
+            registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[3]
         ),
         "viewpoint_profiles": _read_jsonl(
-            registry_path / "viewpoint_performance_profiles.jsonl"
+            registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[4]
         ),
-        "recipes": _read_jsonl(registry_path / "analysis_recipes.jsonl"),
-        "tool_gaps": _read_jsonl(registry_path / "tool_gaps.jsonl"),
+        "recipes": _read_jsonl(registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[5]),
+        "tool_gaps": _read_jsonl(registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[6]),
         "weighted_research_contexts": _read_jsonl(
-            registry_path / "weighted_research_contexts.jsonl"
+            registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[7]
         ),
         "stock_context_snapshots": _read_jsonl(
-            registry_path / "stock_context_snapshots.jsonl"
+            registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[8]
         ),
         "industry_context_snapshots": _read_jsonl(
-            registry_path / "industry_context_snapshots.jsonl"
+            registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[9]
         ),
     }
+    return rows
 
 
 def build_rke_agent_research_materialization(

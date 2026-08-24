@@ -98,6 +98,51 @@ describe("v2 macro composition and input gate", () => {
     expect(audit.component_composition_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 
+  it("accepts a fully evidenced zero-confidence neutral composition but rejects an active one", () => {
+    const submission = macroSubmission("commodities") as Extract<
+      MacroAgentSubmission,
+      { mode: "COMPONENTS" }
+    >;
+    submission.components = submission.components.map((component) => ({
+      ...component,
+      confidence: 0,
+    }));
+    const quality = {
+      mode: "COMPONENTS" as const,
+      dataQualityByComponent: Object.fromEntries(
+        submission.components.map((component) => [component.component, 1]),
+      ),
+    };
+
+    expect(composeAcceptedMacroTransmission("commodities", submission, quality)).toMatchObject({
+      direction: "NEUTRAL",
+      strength: 0,
+      model_confidence: 0,
+      deterministic_data_quality: 1,
+      confidence: 0,
+    });
+    expect(() =>
+      composeAcceptedMacroTransmission(
+        "commodities",
+        {
+          ...submission,
+          components: submission.components.map((component, index) =>
+            index === 0 ? { ...component, direction: "ADVERSE", strength: 1 } : component,
+          ),
+        },
+        quality,
+      ),
+    ).toThrow(/zero effective component weight/);
+    expect(() =>
+      composeAcceptedMacroTransmission("commodities", submission, {
+        mode: "COMPONENTS",
+        dataQualityByComponent: Object.fromEntries(
+          submission.components.map((component) => [component.component, 0]),
+        ),
+      }),
+    ).toThrow(/zero effective component weight/);
+  });
+
   it("uses the active calibrated component version and weights at the accepted boundary", () => {
     const submission = macroSubmission("us_economy") as Extract<
       MacroAgentSubmission,

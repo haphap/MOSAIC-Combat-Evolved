@@ -19,20 +19,20 @@
     },
     "bindings": {
       "type": "array",
-      "minItems": 70,
-      "maxItems": 70,
+      "minItems": 79,
+      "maxItems": 79,
       "items": { "$ref": "#/$defs/binding" }
     },
     "knot_coverage": {
       "type": "array",
-      "minItems": 70,
-      "maxItems": 70,
+      "minItems": 79,
+      "maxItems": 79,
       "items": { "$ref": "#/$defs/coverage" }
     },
     "significance_fixtures": {
       "type": "array",
-      "minItems": 70,
-      "maxItems": 70,
+      "minItems": 79,
+      "maxItems": 79,
       "items": { "$ref": "#/$defs/fixture" }
     },
     "manifest_hash": { "$ref": "#/$defs/sha256" }

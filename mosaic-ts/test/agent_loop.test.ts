@@ -13,7 +13,12 @@ import {
   toolCallFingerprint,
   toolResultFingerprint,
 } from "../src/agents/helpers/agent_loop.js";
-import { type BridgeApi, bridgeToolFromMetadata } from "../src/bridge/index.js";
+import {
+  type BridgeApi,
+  bridgeToolFromMetadata,
+  INVALID_PARAMS,
+  RpcError,
+} from "../src/bridge/index.js";
 import { BRIDGE_INITIAL_TOOL_INVOKE } from "../src/bridge/tools.js";
 
 class ScriptedLlm {
@@ -60,6 +65,20 @@ describe("agent tool loop helpers", () => {
       signal,
     });
     expect(exhausted.invokeOptions).toEqual([undefined]);
+  });
+
+  it("returns immediately on a final without an opt-in completion guard", async () => {
+    const llm = new ScriptedLlm([new AIMessage("done"), new AIMessage("unexpected")]);
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("initial")],
+      maxLoops: 3,
+    });
+
+    expect(result.analysisText).toBe("done");
+    expect(result.llmInvocations).toBe(1);
   });
 
   it("does not truncate tool output by default", () => {
@@ -297,6 +316,357 @@ describe("agent tool loop helpers", () => {
     ).toEqual(["result-1", "result-1"]);
   });
 
+  it("uses an opt-in completion guard to reach exact calls after membership", async () => {
+    const llm = new ScriptedLlm([
+      new AIMessage({
+        content: "",
+        tool_calls: [
+          {
+            id: "membership-1",
+            name: "get_sector_index_membership",
+            args: { request: "membership" },
+            type: "tool_call",
+          },
+        ],
+      }),
+      new AIMessage("premature final"),
+      new AIMessage({
+        content: "",
+        tool_calls: [
+          {
+            id: "exact-1",
+            name: "get_stock_data",
+            args: { ticker: "member-a" },
+            type: "tool_call",
+          },
+          {
+            id: "exact-2",
+            name: "get_stock_data",
+            args: { ticker: "member-b" },
+            type: "tool_call",
+          },
+        ],
+      }),
+      new AIMessage("final selection"),
+    ]);
+    const membership = tool(async () => "membership result", {
+      name: "get_sector_index_membership",
+      description: "membership",
+      schema: z.object({ request: z.string() }),
+    });
+    const stockData = tool(async ({ ticker }) => `data for ${ticker}`, {
+      name: "get_stock_data",
+      description: "exact stock data",
+      schema: z.object({ ticker: z.string() }),
+    });
+
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [membership, stockData],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("initial")],
+      maxLoops: 3,
+      completionGuard: ({ toolStatuses }) =>
+        toolStatuses.length === 1
+          ? "Call two different returned members with the exact tool before finalizing."
+          : undefined,
+    });
+
+    expect(result.analysisText).toBe("final selection");
+    expect(result.toolCalls).toBe(3);
+    expect(result.toolExecutions).toBe(3);
+    expect(result.toolStatuses.map((status) => status.name)).toEqual([
+      "get_sector_index_membership",
+      "get_stock_data",
+      "get_stock_data",
+    ]);
+  });
+
+  it.each([
+    "runtime membership exact request is outside the allowlist",
+    "runtime membership exact request arguments are invalid",
+  ])("does not spend model tool budget on an admission rejection: %s", async (rejectionMessage) => {
+    const llm = new ScriptedLlm([
+      new AIMessage({
+        content: "",
+        tool_calls: [
+          {
+            id: "membership-1",
+            name: "get_sector_index_membership",
+            args: { request: "membership" },
+            type: "tool_call",
+          },
+        ],
+      }),
+      new AIMessage({
+        content: "",
+        tool_calls: [
+          {
+            id: "exact-1",
+            name: "get_stock_data",
+            args: { ticker: "member-a" },
+            type: "tool_call",
+          },
+          {
+            id: "exact-rejected",
+            name: "get_stock_data",
+            args: { ticker: "member-b" },
+            type: "tool_call",
+          },
+        ],
+      }),
+      new AIMessage("premature final"),
+      new AIMessage({
+        content: "",
+        tool_calls: [
+          {
+            id: "exact-2",
+            name: "get_stock_data",
+            args: { ticker: "member-c" },
+            type: "tool_call",
+          },
+        ],
+      }),
+      new AIMessage("final selection"),
+    ]);
+    const dataTransportTickers: string[] = [];
+    const membership = tool(async () => "membership result", {
+      name: "get_sector_index_membership",
+      description: "membership",
+      schema: z.object({ request: z.string() }),
+    });
+    const stockData = tool(
+      async ({ ticker }) => {
+        if (ticker === "member-b") {
+          throw new RpcError("tools.call", INVALID_PARAMS, rejectionMessage);
+        }
+        dataTransportTickers.push(ticker);
+        return `data for ${ticker}`;
+      },
+      {
+        name: "get_stock_data",
+        description: "exact stock data",
+        schema: z.object({ ticker: z.string() }),
+      },
+    );
+
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [membership, stockData],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("initial")],
+      maxLoops: 4,
+      completionGuard: ({ step, toolStatuses }) =>
+        step === 2 &&
+        toolStatuses.some((status) => status.call_id === "exact-1" && !status.failed) &&
+        toolStatuses.some((status) => status.call_id === "exact-rejected" && status.failed)
+          ? "Call one different returned member before finalizing."
+          : undefined,
+    });
+
+    expect(result.toolCalls).toBe(4);
+    expect(result.toolExecutions).toBe(3);
+    expect(result.llmInvocations).toBe(5);
+    expect(result.analysisText).toBe("final selection");
+    expect(dataTransportTickers).toEqual(["member-a", "member-c"]);
+    expect(result.toolStatuses).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ call_id: "exact-rejected", failed: true }),
+        expect.objectContaining({ call_id: "exact-2", failed: false }),
+      ]),
+    );
+    expect(result.messages.some((message) => String(message.content).includes("-32602"))).toBe(
+      true,
+    );
+  });
+
+  it("grants one bounded repair turn after a final-round admission rejection", async () => {
+    const llm = new ScriptedLlm([
+      new AIMessage({
+        content: "",
+        tool_calls: [
+          {
+            id: "membership-1",
+            name: "get_sector_index_membership",
+            args: { request: "membership" },
+            type: "tool_call",
+          },
+        ],
+      }),
+      new AIMessage("premature final"),
+      new AIMessage({
+        content: "",
+        tool_calls: [
+          {
+            id: "exact-1",
+            name: "get_stock_data",
+            args: { ticker: "member-a" },
+            type: "tool_call",
+          },
+          {
+            id: "exact-rejected",
+            name: "get_stock_data",
+            args: { ticker: "member-b" },
+            type: "tool_call",
+          },
+        ],
+      }),
+      new AIMessage("premature final after rejection"),
+      new AIMessage({
+        content: "",
+        tool_calls: [
+          {
+            id: "exact-2",
+            name: "get_stock_data",
+            args: { ticker: "member-c" },
+            type: "tool_call",
+          },
+        ],
+      }),
+      new AIMessage("final selection"),
+    ]);
+    const dataTransportTickers: string[] = [];
+    const membership = tool(async () => "membership result", {
+      name: "get_sector_index_membership",
+      description: "membership",
+      schema: z.object({ request: z.string() }),
+    });
+    const stockData = tool(
+      async ({ ticker }) => {
+        if (ticker === "member-b") {
+          throw new RpcError(
+            "tools.call",
+            INVALID_PARAMS,
+            "runtime membership exact request is outside the allowlist",
+          );
+        }
+        dataTransportTickers.push(ticker);
+        return `data for ${ticker}`;
+      },
+      {
+        name: "get_stock_data",
+        description: "exact stock data",
+        schema: z.object({ ticker: z.string() }),
+      },
+    );
+
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [membership, stockData],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("initial")],
+      maxLoops: 4,
+      completionGuard: ({ step, toolStatuses }) => {
+        if (step === 1 && toolStatuses.length === 1) {
+          return "Call two different returned members with the exact tool before finalizing.";
+        }
+        return step === 3 &&
+          toolStatuses.some((status) => status.call_id === "exact-1" && !status.failed) &&
+          toolStatuses.some((status) => status.call_id === "exact-rejected" && status.failed)
+          ? "Call one different returned member before finalizing."
+          : undefined;
+      },
+    });
+
+    expect(result.analysisText).toBe("final selection");
+    expect(result.llmInvocations).toBe(6);
+    expect(result.toolCalls).toBe(4);
+    expect(result.toolExecutions).toBe(3);
+    expect(dataTransportTickers).toEqual(["member-a", "member-c"]);
+    expect(result.toolStatuses).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ call_id: "exact-rejected", failed: true }),
+        expect.objectContaining({ call_id: "exact-2", failed: false }),
+      ]),
+    );
+  });
+
+  it("never grants more than one repair turn across repeated admission rejections", async () => {
+    const exactCall = (id: string, ticker: string) =>
+      new AIMessage({
+        content: "",
+        tool_calls: [{ id, name: "get_stock_data", args: { ticker }, type: "tool_call" as const }],
+      });
+    const llm = new ScriptedLlm([
+      exactCall("exact-rejected-1", "member-a"),
+      exactCall("exact-rejected-2", "member-b"),
+      new AIMessage("forced final"),
+    ]);
+    const stockData = tool(
+      async () => {
+        throw new RpcError(
+          "tools.call",
+          INVALID_PARAMS,
+          "runtime membership exact request is outside the allowlist",
+        );
+      },
+      {
+        name: "get_stock_data",
+        description: "exact stock data",
+        schema: z.object({ ticker: z.string() }),
+      },
+    );
+
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [stockData],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("initial")],
+      maxLoops: 1,
+    });
+
+    expect(result.llmInvocations).toBe(3);
+    expect(result.toolCalls).toBe(2);
+    expect(result.toolExecutions).toBe(0);
+  });
+
+  it("still spends tool budget on non-admission failures", async () => {
+    const llm = new ScriptedLlm([
+      new AIMessage({
+        content: "",
+        tool_calls: [{ id: "call-1", name: "get_x", args: { value: 1 }, type: "tool_call" }],
+      }),
+      new AIMessage({
+        content: "",
+        tool_calls: [{ id: "call-2", name: "get_x", args: { value: 2 }, type: "tool_call" }],
+      }),
+      new AIMessage({
+        content: "",
+        tool_calls: [{ id: "call-3", name: "get_x", args: { value: 3 }, type: "tool_call" }],
+      }),
+      new AIMessage("final selection"),
+    ]);
+    const toolCalls: number[] = [];
+    const getX = tool(
+      async ({ value }) => {
+        toolCalls.push(value);
+        if (value === 1) {
+          throw new RpcError("tools.call", INVALID_PARAMS, "some other invalid params");
+        }
+        return `result:${value}`;
+      },
+      {
+        name: "get_x",
+        description: "test tool",
+        schema: z.object({ value: z.number() }),
+      },
+    );
+
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [getX],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("initial")],
+      maxLoops: 3,
+    });
+
+    expect(toolCalls).toEqual([1, 2, 3]);
+    expect(result.toolCalls).toBe(3);
+    expect(result.toolExecutions).toBe(3);
+    expect(result.toolStatuses[0]).toEqual(expect.objectContaining({ failed: true }));
+    expect(String(llm.seenMessages[1]?.[0]?.content)).toContain("remaining budget is 2");
+  });
+
   it("reuses one server result event when an audited Bridge call hits the cache", async () => {
     const llm = new ScriptedLlm([
       new AIMessage({
@@ -412,6 +782,71 @@ describe("agent tool loop helpers", () => {
         server_binding_result_refs: audit.binding_result_refs,
       }),
     ]);
+  });
+
+  it("reuses direct frozen result authority from the cache without an audit", async () => {
+    const llm = new ScriptedLlm([
+      new AIMessage({
+        content: "",
+        tool_calls: [{ id: "c1", name: "get_x", args: { a: 1 }, type: "tool_call" }],
+      }),
+      new AIMessage({
+        content: "",
+        tool_calls: [{ id: "c2", name: "get_x", args: { a: 1 }, type: "tool_call" }],
+      }),
+      new AIMessage("done"),
+    ]);
+    const resultAuthority = {
+      authority_type: "FROZEN_QUERY" as const,
+      authority_hash: `sha256:${"c".repeat(64)}`,
+    };
+    let rpcCalls = 0;
+    const fakeApi = {
+      toolsCall: async () => {
+        rpcCalls++;
+        return { text: "server-result", result_authority: resultAuthority };
+      },
+    } as unknown as BridgeApi;
+    const bridgeTool = bridgeToolFromMetadata(
+      fakeApi,
+      {
+        name: "get_x",
+        description: "direct frozen bridge tool",
+        args_schema: {
+          type: "object",
+          properties: { a: { type: "number" } },
+          required: ["a"],
+        },
+      },
+      { capability: {} as never },
+    );
+
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [bridgeTool],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("initial")],
+    });
+
+    expect(rpcCalls).toBe(1);
+    expect(result.toolExecutions).toBe(1);
+    expect(result.toolCacheHits).toBe(1);
+    expect(result.toolStatuses).toEqual([
+      expect.objectContaining({
+        call_id: "c1",
+        cache_hit: false,
+        server_result_authority_type: "FROZEN_QUERY",
+        server_result_authority_hash: resultAuthority.authority_hash,
+      }),
+      expect.objectContaining({
+        call_id: "c2",
+        cache_hit: true,
+        server_result_authority_type: "FROZEN_QUERY",
+        server_result_authority_hash: resultAuthority.authority_hash,
+      }),
+    ]);
+    expect(result.toolStatuses[0]).not.toHaveProperty("server_result_event_id");
+    expect(result.toolStatuses[0]).not.toHaveProperty("server_tool_environment_hash");
   });
 
   it("records fallback and as_of metadata from successful and cached tool outputs", async () => {

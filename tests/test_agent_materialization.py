@@ -511,7 +511,7 @@ def test_route_manifest_has_exact_agent_stage_tool_coverage() -> None:
         )
         == 26
     )
-    assert len({binding["tool_id"] for binding in validated["bindings"]}) == 29
+    assert len({binding["tool_id"] for binding in validated["bindings"]}) == 30
     assert all(binding["required_route_ids"] for binding in validated["bindings"])
 
 

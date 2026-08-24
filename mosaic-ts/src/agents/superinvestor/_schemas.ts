@@ -143,13 +143,20 @@ function refineSuperinvestorSchema<T extends z.ZodType<SuperinvestorOutput>>(sch
       });
     }
     const targetRefs = new Set(output.picks.map((pick) => pick.pick_local_id));
-    for (const row of output.macro_input_attributions) {
+    for (const [index, row] of output.macro_input_attributions.entries()) {
       if (row.target_type === "SUBMISSION_SUMMARY") continue;
-      if (row.target_type !== "SECURITY_PICK" || !targetRefs.has(row.target_local_ref)) {
+      const invalidTargetType = row.target_type !== "SECURITY_PICK";
+      if (invalidTargetType || !targetRefs.has(row.target_local_ref)) {
         ctx.addIssue({
           code: "custom",
-          path: ["macro_input_attributions"],
-          message: `unresolved attribution target ${row.target_type}:${row.target_local_ref}`,
+          path: [
+            "macro_input_attributions",
+            index,
+            invalidTargetType ? "target_type" : "target_local_ref",
+          ],
+          message:
+            "superinvestor target rows only permit SECURITY_PICK; target_local_ref must exactly " +
+            "match current picks[].pick_local_id; remove PORTFOLIO_DECISION/RISK_ACTION/nonmatching rows",
         });
       }
     }

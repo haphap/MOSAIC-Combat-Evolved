@@ -35,6 +35,7 @@ import {
   acceptedOutputRefKey,
   buildAcceptedAgentOutputRecord,
   buildStructuredSmokeAcceptedOutputRef,
+  putStructuredSmokeAcceptedOutput,
 } from "../accepted_output.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
 import { invokeStrictStructured } from "../helpers/agent_run_contract.js";
@@ -219,6 +220,7 @@ export function buildLayerOneAgentNode(
                 state,
                 agentId: spec.agentId,
                 stage: spec.agentId,
+                agentTimeoutMs: timeoutMs,
                 runtimeInputs: liveOutcomeCapabilityRuntimeInput(state, spec.agentId),
               })
             : null;
@@ -418,12 +420,20 @@ export function buildLayerOneAgentNode(
               [acceptedOutputRefKey("MACRO_TRANSMISSION", spec.agentId)]: ref,
             };
           } else {
-            const ref = buildStructuredSmokeAcceptedOutputRef({
-              kind: "MACRO_TRANSMISSION",
-              agentId: spec.agentId,
-              payload: acceptedTransmission,
-              state,
-            });
+            const ref =
+              structuredHandle.provider === "fake"
+                ? buildStructuredSmokeAcceptedOutputRef({
+                    kind: "MACRO_TRANSMISSION",
+                    agentId: spec.agentId,
+                    payload: acceptedTransmission,
+                    state,
+                  })
+                : putStructuredSmokeAcceptedOutput(deps.acceptedOutputStore, {
+                    kind: "MACRO_TRANSMISSION",
+                    agentId: spec.agentId,
+                    payload: acceptedTransmission,
+                    state,
+                  });
             if (ref) {
               acceptedOutputRefs = {
                 [acceptedOutputRefKey("MACRO_TRANSMISSION", spec.agentId)]: ref,

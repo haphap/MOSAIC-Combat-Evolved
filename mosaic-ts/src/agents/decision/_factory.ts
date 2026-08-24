@@ -42,8 +42,11 @@ import {
   acceptedOutputBuildContextFromState,
   acceptedOutputRefKey,
   buildAcceptedAgentOutputRecord,
+  buildStructuredSmokeAcceptedOutputRecord,
   buildStructuredSmokeAcceptedOutputRef,
   canonicalAcceptedOutputHash,
+  putStructuredSmokeAcceptedOutput,
+  type ResolvedAcceptedOutputRecord,
   structuredSmokeFixtureBundleHash,
 } from "../accepted_output.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
@@ -55,6 +58,7 @@ import {
 } from "../helpers/agent_run_contract.js";
 import {
   boundCurrentPositions,
+  projectAcceptedOutputRecordRefs,
   resolveBoundAcceptedOutputRecords,
 } from "../helpers/bound_runtime_inputs.js";
 import { evidenceLineageEnvelopeFromGraph } from "../helpers/causal_evidence_resolution.js";
@@ -135,7 +139,10 @@ import {
   decisionMacroAttributionTargets,
 } from "./accepted.js";
 import { type CioFinalCroAction, deriveCioFinalComplianceBounds } from "./decision_semantics.js";
-import { ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE } from "./deterministic_policy.js";
+import {
+  ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
+  buildDeterministicDecisionPolicyRelease,
+} from "./deterministic_policy.js";
 import {
   assertL4RunSnapshotStage,
   freezeCioProposal,
@@ -342,6 +349,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
                     spec,
                     capabilityCandidateScope,
                     deps.acceptedOutputStore,
+                    deps.llmHandle.provider !== "fake",
                   )
                 : {
                     macro_input_gate: state.macro_input_gate,
@@ -358,8 +366,13 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
                   state,
                   agentId: spec.agentId,
                   stage: decisionCapabilityStage(spec),
+                  agentTimeoutMs: timeoutMs,
                   runtimeInputs: capabilityRuntimeInputs,
-                  candidateScope: capabilityCandidateScope,
+                  candidateScope:
+                    hasAcceptedOutputScope &&
+                    Array.isArray(capabilityRuntimeInputs.accepted_output_refs)
+                      ? { accepted_output_refs: capabilityRuntimeInputs.accepted_output_refs }
+                      : capabilityCandidateScope,
                 })
               : null;
             const tools = preparedCapability
@@ -372,6 +385,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
                     spec.agentId,
                     spec.runtimeStage,
                     state.as_of_date,
+                    state,
                   ),
                 );
             let loopResult!: Awaited<ReturnType<typeof runAgentToolLoop>>;
@@ -440,12 +454,15 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
           if (runtimeAuthority && !("candidate_scope_hash" in runtimeAuthority)) {
             throw new Error(`${spec.agentId}: frozen Decision authority shape mismatch`);
           }
+          let structuredSmokeCioProposalFrozen: DecisionStageFrozenObject | undefined;
           const structuredSmokeCioProposalLineageValidator =
             spec.agentId === "cio" &&
             spec.runtimeStage === "cio_proposal" &&
             structuredSmokeFixtureBundleHash() !== null
-              ? (frozen: DecisionStageFrozenObject) =>
-                  validateStructuredSmokeCioProposalCandidateLineage(state, frozen)
+              ? (frozen: DecisionStageFrozenObject) => {
+                  structuredSmokeCioProposalFrozen = frozen;
+                  validateStructuredSmokeCioProposalCandidateLineage(state, frozen);
+                }
               : undefined;
           const runtimeCitationIds = decisionRuntimeCitationIdsFromToolLoop(
             spec.agentId,
@@ -499,6 +516,8 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             spec.runtimeStage === "execution_feasibility"
               ? buildAutonomousExecutionProviderControlDirective(state)
               : null;
+          const repairContext =
+            spec.runtimeStage === "cro_review" ? frozenCroRepairContext(state) : undefined;
           const extractor = await invokeStrictStructured<TOutput>({
             llm: structuredHandle.llm,
             schema: extractionSchema,
@@ -549,7 +568,12 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
                 currentPositions: state.current_positions,
                 validateRoleContract: (output) => {
                   try {
-                    validateLayer4StageSemantics(spec, state, output);
+                    validateLayer4StageSemantics(
+                      spec,
+                      state,
+                      output,
+                      structuredSmokeCioProposalFrozen,
+                    );
                     return [];
                   } catch (error) {
                     return [
@@ -567,6 +591,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             },
             isAcceptedEmpty: (candidate) => isAcceptedEmptyDecision(candidate),
             signal,
+            ...(repairContext ? { repairContext } : {}),
           });
           promptTokens += extractor.audit.attempts.reduce(
             (sum, attempt) => sum + attempt.prompt_tokens,
@@ -626,6 +651,7 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               canaryEvent,
               audit: extractor.audit,
               acceptedOutputStore: deps.acceptedOutputStore,
+              structuredSmokeAcceptedOutput: structuredHandle.provider !== "fake",
             },
           );
         },
@@ -849,11 +875,17 @@ function validateLayer4StageSemantics<TOutput extends Layer4AgentOutput>(
   spec: LayerFourAgentSpec<TOutput>,
   state: DailyCycleStateType,
   output: TOutput,
+  structuredSmokeCioProposalFrozen?: DecisionStageFrozenObject,
 ): void {
   const runtime = runtimeStateForLayer4(state);
   const runId = state.trace_id || state.as_of_date || "current_run";
   const runtimeOutput = decisionSubmissionToRuntimeOutput(output, state);
   if (spec.runtimeStage === "cio_proposal") {
+    assertCioProposalHasExactlyOneAcceptedOpportunityAction(
+      state,
+      runtimeOutput as CioOutput,
+      structuredSmokeCioProposalFrozen,
+    );
     freezeCioProposal(state, runtimeOutput as CioOutput);
     return;
   }
@@ -909,6 +941,21 @@ function validateCroFrozenUniverse(
   }
 }
 
+function frozenCroRepairContext(state: DailyCycleStateType): string | undefined {
+  const candidate = state.layer4_outputs.runtime?.candidate_target_state;
+  if (!candidate) return undefined;
+  return [
+    "CRO frozen candidate universe (authoritative; copy candidate_ref and ts_code verbatim):",
+    `candidate_count=${candidate.portfolio_actions.length}`,
+    ...candidate.portfolio_actions.map(
+      (action) =>
+        `- candidate_ref=${frozenCandidateRef(candidate.candidate_target_hash, action.ticker)}, ` +
+        `ts_code=${action.ticker}, proposal_action=${action.action}, target=${action.target_weight.toFixed(4)}`,
+    ),
+    "Emit exactly one valid candidate_actions row for every listed candidate_ref/ts_code pair; do not invent, omit, or duplicate rows. Preserve the existing one-to-one semantic gate and derive disposition from those rows.",
+  ].join("\n");
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -937,6 +984,56 @@ function cioAllCashRequired(state: DailyCycleStateType, stage: RuntimeAgentStage
       : false;
   }
   return false;
+}
+
+export function assertCioProposalHasExactlyOneAcceptedOpportunityAction(
+  state: DailyCycleStateType,
+  output: Pick<CioOutput, "portfolio_actions">,
+  structuredSmokeCioProposalFrozen?: DecisionStageFrozenObject,
+): void {
+  const actionable = output.portfolio_actions.filter(
+    (action) =>
+      (action.action === "BUY" || action.position_decision === "ADD") && action.target_weight > 0,
+  );
+  if (
+    state.current_positions.snapshot_status === "empty_confirmed" &&
+    state.current_positions.positions.length === 0 &&
+    !cioAllCashRequired(state, "cio_proposal") &&
+    (output.portfolio_actions.length !== 1 || actionable.length !== 1)
+  ) {
+    throw new Error(
+      "CIO proposal must contain exactly one positive BUY/ADD action while an accepted upstream opportunity exists",
+    );
+  }
+  if (!structuredSmokeCioProposalFrozen || actionable.length === 0) return;
+  validateStructuredSmokeCioProposalCandidateLineage(state, structuredSmokeCioProposalFrozen);
+  const rawCandidates = structuredSmokeCioProposalFrozen.object_payload.candidates;
+  if (
+    !Array.isArray(rawCandidates) ||
+    rawCandidates.some(
+      (candidate) =>
+        candidate === null || typeof candidate !== "object" || Array.isArray(candidate),
+    )
+  ) {
+    throw new Error("structured-smoke CIO proposal candidate universe is invalid");
+  }
+  const candidateTickers = new Set(
+    rawCandidates.map((candidate) => {
+      const ticker = (candidate as Record<string, unknown>).ts_code;
+      if (typeof ticker !== "string" || !ticker.trim()) {
+        throw new Error("structured-smoke CIO proposal candidate ticker is invalid");
+      }
+      return ticker.trim().toUpperCase();
+    }),
+  );
+  for (const action of actionable) {
+    const ticker = action.ticker.trim().toUpperCase();
+    if (!candidateTickers.has(ticker)) {
+      throw new Error(
+        `structured-smoke CIO proposal ticker ${action.ticker} is outside the frozen candidate universe`,
+      );
+    }
+  }
 }
 
 function decisionCapabilityStage<TOutput extends Layer4AgentOutput>(
@@ -988,18 +1085,136 @@ function decisionCandidateScope<TOutput extends Layer4AgentOutput>(
   };
 }
 
+function projectDynamicStructuredSmokeDecisionRecords(
+  state: DailyCycleStateType,
+  refs: AcceptedOutputRecordRef[],
+  records: ResolvedAcceptedOutputRecord[],
+  proposalHash: string,
+): { refs: AcceptedOutputRecordRef[]; records: ResolvedAcceptedOutputRecord[] } {
+  const recordsById = new Map(records.map((record) => [record.accepted_output_id, record]));
+  const projectedRefs: AcceptedOutputRecordRef[] = [];
+  const projectedRecords: ResolvedAcceptedOutputRecord[] = [];
+
+  for (const ref of refs) {
+    const record = recordsById.get(ref.accepted_output_id);
+    if (
+      !record ||
+      record.accepted_output_kind !== ref.accepted_output_kind ||
+      record.agent_id !== ref.agent_id ||
+      record.accepted_output_id !== ref.accepted_output_id ||
+      record.accepted_output_hash !== ref.accepted_output_hash ||
+      record.graph_run_id !== state.trace_id ||
+      record.as_of !== state.as_of_date
+    ) {
+      throw new Error(
+        `structured-smoke decision accepted-output identity mismatch: ${ref.accepted_output_id}`,
+      );
+    }
+
+    if (
+      ref.accepted_output_kind !== "CIO_PROPOSAL" &&
+      ref.accepted_output_kind !== "CRO_RISK_REVIEW" &&
+      ref.accepted_output_kind !== "EXECUTION_ASSESSMENT"
+    ) {
+      projectedRefs.push(ref);
+      projectedRecords.push(record);
+      continue;
+    }
+    if (record.sample_origin !== "NON_PRODUCTION_STRUCTURED_SMOKE") {
+      throw new Error(
+        `structured-smoke decision record origin is invalid: ${ref.accepted_output_id}`,
+      );
+    }
+    const rawPayload = record.output.payload;
+    if (!rawPayload || typeof rawPayload !== "object" || Array.isArray(rawPayload)) {
+      throw new Error(
+        `structured-smoke decision record payload is invalid: ${ref.accepted_output_id}`,
+      );
+    }
+
+    let payload: unknown;
+    if (ref.accepted_output_kind === "CIO_PROPOSAL") {
+      if (ref.agent_id !== "cio") {
+        throw new Error(
+          `structured-smoke CIO proposal owner is invalid: ${ref.accepted_output_id}`,
+        );
+      }
+      payload = {
+        agent_id: "cio",
+        decision_stage: "PROPOSAL",
+        decision: cioDecisionPayload(rawPayload as CioProposalSubmission),
+        proposal_hash: proposalHash,
+      };
+    } else if (ref.accepted_output_kind === "CRO_RISK_REVIEW") {
+      if (ref.agent_id !== "cro") {
+        throw new Error(`structured-smoke CRO review owner is invalid: ${ref.accepted_output_id}`);
+      }
+      payload = {
+        ...(rawPayload as Record<string, unknown>),
+        frozen_proposal_hash: proposalHash,
+      };
+    } else {
+      if (ref.agent_id !== "autonomous_execution") {
+        throw new Error(`structured-smoke execution owner is invalid: ${ref.accepted_output_id}`);
+      }
+      payload = {
+        ...(rawPayload as Record<string, unknown>),
+        frozen_proposal_hash: proposalHash,
+      };
+    }
+
+    const projectedRecord = buildStructuredSmokeAcceptedOutputRecord({
+      kind: ref.accepted_output_kind as never,
+      agentId: ref.agent_id as never,
+      payload,
+      state,
+      acceptedAt: record.accepted_at,
+    });
+    const projectedRef = buildStructuredSmokeAcceptedOutputRef({
+      kind: ref.accepted_output_kind as never,
+      agentId: ref.agent_id as never,
+      payload,
+      state,
+    });
+    if (
+      !projectedRecord ||
+      !projectedRef ||
+      projectedRecord.accepted_output_id !== projectedRef.accepted_output_id ||
+      projectedRecord.accepted_output_hash !== projectedRef.accepted_output_hash
+    ) {
+      throw new Error(
+        `structured-smoke decision transient record identity mismatch: ${ref.accepted_output_id}`,
+      );
+    }
+    projectedRefs.push(projectedRef);
+    projectedRecords.push(projectedRecord);
+  }
+  return { refs: projectedRefs, records: projectedRecords };
+}
+
 export function buildDecisionBoundRuntimeInputs(
   state: DailyCycleStateType,
   spec: { agentId: string; runtimeStage: RuntimeAgentStageId },
   candidateScope: Record<string, unknown>,
   store: AcceptedAgentOutputStore | undefined,
+  useDynamicStructuredSmokeInputs = false,
 ): Record<string, unknown> {
   const rawRefs = candidateScope.accepted_output_refs;
   if (!Array.isArray(rawRefs)) {
     throw new Error(`${spec.agentId}: bound runtime accepted-output refs are invalid`);
   }
-  const refs = rawRefs as AcceptedOutputRecordRef[];
-  if (structuredSmokeFixtureBundleHash()) return { accepted_output_refs: refs };
+  const refs = projectAcceptedOutputRecordRefs(rawRefs as AcceptedOutputRecordRef[]);
+  const fixtureBundleHash = structuredSmokeFixtureBundleHash();
+  if (fixtureBundleHash && !useDynamicStructuredSmokeInputs) {
+    return { accepted_output_refs: refs };
+  }
+  const decisionPolicyRelease =
+    fixtureBundleHash && useDynamicStructuredSmokeInputs
+      ? buildDeterministicDecisionPolicyRelease({
+          effectiveAt: `${state.as_of_date}T00:00:00+08:00`,
+          policies: ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE.policies,
+        })
+      : ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE;
   const currentPositions = boundCurrentPositions(state.current_positions);
   const runtime = runtimeStateForLayer4(state);
   let boundRuntimeState: Record<string, unknown>;
@@ -1010,7 +1225,7 @@ export function buildDecisionBoundRuntimeInputs(
       current_positions: currentPositions,
       previous_target_state:
         state.layer4_outputs.previous_target_state ?? missingPreviousTargetState(),
-      decision_policy_release: ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
+      decision_policy_release: decisionPolicyRelease,
     };
   } else if (spec.agentId === "cro") {
     if (!runtime.candidate_target_state || !runtime.portfolio_exposure_state) {
@@ -1018,7 +1233,7 @@ export function buildDecisionBoundRuntimeInputs(
     }
     boundRuntimeState = {
       current_positions: currentPositions,
-      decision_policy_release: ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
+      decision_policy_release: decisionPolicyRelease,
       candidate_target_state: runtime.candidate_target_state,
       portfolio_exposure_state: runtime.portfolio_exposure_state,
     };
@@ -1028,7 +1243,7 @@ export function buildDecisionBoundRuntimeInputs(
     }
     boundRuntimeState = {
       current_positions: currentPositions,
-      decision_policy_release: ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
+      decision_policy_release: decisionPolicyRelease,
       candidate_target_state: runtime.candidate_target_state,
       cro_review_state: runtime.cro_review_state,
       resolved_source_statuses: runtime.resolved_source_statuses,
@@ -1047,15 +1262,39 @@ export function buildDecisionBoundRuntimeInputs(
     }
     boundRuntimeState = {
       current_positions: currentPositions,
-      decision_policy_release: ACTIVE_DETERMINISTIC_DECISION_POLICY_RELEASE,
+      decision_policy_release: decisionPolicyRelease,
       candidate_target_state: runtime.candidate_target_state,
       cro_review_state: runtime.cro_review_state,
       execution_feasibility_state: runtime.execution_feasibility_state,
     };
   }
+  const acceptedOutputRecords = resolveBoundAcceptedOutputRecords(refs, store);
+  const hasDynamicDecisionRecords = refs.some(
+    (ref) =>
+      ref.accepted_output_kind === "CIO_PROPOSAL" ||
+      ref.accepted_output_kind === "CRO_RISK_REVIEW" ||
+      ref.accepted_output_kind === "EXECUTION_ASSESSMENT",
+  );
+  const projectedAcceptedOutputs =
+    fixtureBundleHash && useDynamicStructuredSmokeInputs && !state.darwinian_runtime_binding
+      ? hasDynamicDecisionRecords
+        ? (() => {
+            const proposalHash = runtime.candidate_target_state?.proposal_hash;
+            if (typeof proposalHash !== "string" || !/^sha256:[0-9a-f]{64}$/.test(proposalHash)) {
+              throw new Error("structured-smoke decision candidate target is unavailable");
+            }
+            return projectDynamicStructuredSmokeDecisionRecords(
+              state,
+              refs,
+              acceptedOutputRecords,
+              proposalHash,
+            );
+          })()
+        : { refs, records: acceptedOutputRecords }
+      : { refs, records: acceptedOutputRecords };
   return {
-    accepted_output_refs: refs,
-    accepted_output_records: resolveBoundAcceptedOutputRecords(refs, store),
+    accepted_output_refs: projectedAcceptedOutputs.refs,
+    accepted_output_records: projectedAcceptedOutputs.records,
     bound_runtime_state: boundRuntimeState,
   };
 }
@@ -1085,9 +1324,77 @@ function buildFakeDecisionSnapshotTool(
   agentId: string,
   runtimeStage: RuntimeAgentStageId,
   asOf: string,
+  state: DailyCycleStateType,
 ): StructuredToolInterface {
+  const fakeStatefulSnapshot = state.darwinian_runtime_binding === null;
+  const upstreamAcceptedOutputRefs = fakeStatefulSnapshot
+    ? Object.values(state.accepted_output_refs ?? {}).sort((left, right) =>
+        left.accepted_output_id.localeCompare(right.accepted_output_id),
+      )
+    : [];
+  const candidateTarget = state.layer4_outputs.runtime?.candidate_target_state;
+  const croReview = state.layer4_outputs.runtime?.cro_review_state;
+  const candidateUniverse: Array<Record<string, unknown>> = !fakeStatefulSnapshot
+    ? []
+    : agentId === "cio" && runtimeStage === "cio_proposal"
+      ? [
+          ...state.current_positions.positions.map((position) => ({
+            candidate_ref: `fake-current:${position.ticker}`,
+            ts_code: position.ticker,
+            source_kind: "CURRENT_POSITION",
+            current_weight: position.current_weight,
+            reference_target_weight: position.current_weight,
+            source_output_id: null,
+            source_output_hash: null,
+          })),
+          ...STANDARD_SECTOR_AGENT_IDS.flatMap((sectorAgent) => {
+            const ref =
+              state.accepted_output_refs?.[
+                acceptedOutputRefKey("STANDARD_SECTOR_SELECTION", sectorAgent)
+              ];
+            const output = state.layer2_outputs[sectorAgent];
+            if (!ref || !output || !("long_picks" in output)) return [];
+            return output.long_picks.map((pick) => ({
+              candidate_ref: `fake-sector:${sectorAgent}:${pick.ts_code}`,
+              ts_code: pick.ts_code,
+              source_kind: "SECTOR_SELECTION",
+              current_weight:
+                state.current_positions.positions.find(
+                  (position) => position.ticker === pick.ts_code,
+                )?.current_weight ?? 0,
+              reference_target_weight: null,
+              source_output_id: ref.accepted_output_id,
+              source_output_hash: ref.accepted_output_hash,
+            }));
+          }),
+        ]
+      : candidateTarget && agentId === "cro"
+        ? candidateTarget.portfolio_actions.map((action) => ({
+            candidate_ref: frozenCandidateRef(candidateTarget.candidate_target_hash, action.ticker),
+            ts_code: action.ticker,
+            proposed_target_weight: action.target_weight,
+          }))
+        : candidateTarget && croReview && agentId === "autonomous_execution"
+          ? expectedFrozenOrderIntents(candidateTarget, croReview).order_intents.map((intent) => ({
+              order_intent_ref: intent.order_intent_ref,
+              ts_code: intent.ts_code,
+              requested_delta_weight: intent.requested_delta_weight,
+              target_weight: intent.controlled_target_weight,
+            }))
+          : candidateTarget && croReview && agentId === "cio" && runtimeStage === "cio_final"
+            ? expectedFrozenOrderIntents(candidateTarget, croReview).controlled_targets.map(
+                (target) => ({
+                  proposal_position_ref: frozenCandidateRef(
+                    candidateTarget.candidate_target_hash,
+                    target.ts_code,
+                  ),
+                  ts_code: target.ts_code,
+                  current_weight: target.current_weight,
+                  proposed_target_weight: target.controlled_target_weight,
+                }),
+              )
+            : [];
   const candidateScope = { agent_id: agentId, as_of: asOf };
-  const candidateUniverse: Array<Record<string, unknown>> = [];
   const candidateScopeHash = canonicalAcceptedOutputHash(candidateScope);
   const candidateUniverseHash = canonicalAcceptedOutputHash(candidateUniverse);
   const snapshotCore = {
@@ -1099,7 +1406,7 @@ function buildFakeDecisionSnapshotTool(
     candidate_universe: candidateUniverse,
     candidate_universe_id: `fake-candidate-universe:${candidateUniverseHash.slice("sha256:".length)}`,
     candidate_universe_hash: candidateUniverseHash,
-    upstream_accepted_output_refs: [],
+    upstream_accepted_output_refs: upstreamAcceptedOutputRefs,
     constraints: {},
     role_context:
       agentId === "cio"
@@ -1629,6 +1936,7 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
     canaryEvent: PromptReleaseCanaryEvent | null;
     audit: AgentRunAudit;
     acceptedOutputStore: AcceptedAgentOutputStore | undefined;
+    structuredSmokeAcceptedOutput: boolean;
   },
 ): DailyCycleStateUpdate {
   if (opts.canaryEvent) llmCall.prompt_canary_event = opts.canaryEvent;
@@ -1642,6 +1950,7 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
     submission: output,
     state: opts.state,
     store: opts.acceptedOutputStore,
+    structuredSmokeAcceptedOutput: opts.structuredSmokeAcceptedOutput,
     sourceAgentRunId: opts.audit.run_id,
     sourceAgentOutputHash: requiredAcceptedAuditOutputHash(opts.audit.output_hash, spec.agentId),
   });
@@ -1754,17 +2063,25 @@ function materializeAcceptedDecisionOutput<TOutput extends Layer4AgentOutput>(in
   submission: TOutput;
   state: DailyCycleStateType;
   store: AcceptedAgentOutputStore | undefined;
+  structuredSmokeAcceptedOutput: boolean;
   sourceAgentRunId: string;
   sourceAgentOutputHash: string;
 }): DailyCycleStateUpdate["accepted_output_refs"] | undefined {
   if (!input.state.darwinian_runtime_binding) {
     const kind = decisionAcceptedOutputKind(input.submission);
-    const ref = buildStructuredSmokeAcceptedOutputRef({
-      kind,
-      agentId: input.spec.agentId as never,
-      payload: input.submission,
-      state: input.state,
-    });
+    const ref = input.structuredSmokeAcceptedOutput
+      ? putStructuredSmokeAcceptedOutput(input.store, {
+          kind,
+          agentId: input.spec.agentId as never,
+          payload: input.submission,
+          state: input.state,
+        })
+      : buildStructuredSmokeAcceptedOutputRef({
+          kind,
+          agentId: input.spec.agentId as never,
+          payload: input.submission,
+          state: input.state,
+        });
     return ref ? { [acceptedOutputRefKey(kind, input.spec.agentId as never)]: ref } : undefined;
   }
   const store = input.store;

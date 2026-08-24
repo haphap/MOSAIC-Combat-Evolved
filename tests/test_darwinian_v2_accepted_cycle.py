@@ -1274,6 +1274,146 @@ def test_prepare_bound_runtime_family_atomically_publishes_receipts_and_reuses(
     }
 
 
+def test_prepare_bound_runtime_family_structured_smoke_binds_capture_to_as_of(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state, _sector_records, _sector_refs, current_positions = (
+        _superinvestor_bound_inputs(tmp_path)
+    )
+    candidate_runtime = _empty_candidate_runtime(state, current_positions)
+    proposal_record = next(
+        row for row in state["accepted_output_records"]
+        if row["accepted_output_kind"] == "CIO_PROPOSAL"
+    )
+    proposal_ref = state["accepted_output_refs"]["CIO_PROPOSAL:cio"]
+    fixture_hash, as_of, graph_run_id = "sha256:" + "a" * 64, state["as_of_date"], state["trace_id"]
+    smoke_payload = copy.deepcopy(proposal_record["output"]["payload"])
+    smoke_identity = {
+        "schema_version": "structured_smoke_accepted_output_ref_v1",
+        "fixture_bundle_hash": fixture_hash,
+        "graph_run_id": graph_run_id,
+        "as_of": as_of,
+        "accepted_output_kind": "CIO_PROPOSAL",
+        "agent_id": "cio",
+        "payload_hash": canonical_hash(smoke_payload),
+    }
+    smoke_id = "structured-smoke-accepted-output:" + canonical_hash(smoke_identity).removeprefix("sha256:")
+    smoke_record = {
+        "schema_version": "structured_smoke_accepted_output_record_v1",
+        "sample_origin": "NON_PRODUCTION_STRUCTURED_SMOKE",
+        "fixture_bundle_hash": fixture_hash,
+        "accepted_output_kind": "CIO_PROPOSAL",
+        "agent_id": "cio",
+        "accepted_output_id": smoke_id,
+        "accepted_output_hash": canonical_hash({**smoke_identity, "accepted_output_id": smoke_id}),
+        "graph_run_id": graph_run_id,
+        "as_of": as_of,
+        "accepted_at": f"{as_of}T00:00:00.000Z",
+        "output": {"payload": smoke_payload},
+    }
+    smoke_ref = {key: smoke_record[key] for key in (
+        "accepted_output_kind", "agent_id", "accepted_output_id", "accepted_output_hash"
+    )}
+    runtime_state = {
+        "current_positions": current_positions,
+        "decision_policy_release": _decision_policy_release(),
+        **candidate_runtime,
+    }
+    late_clock = datetime(2026, 8, 7, 12, 1, tzinfo=timezone.utc)
+    late_timestamp = late_clock.isoformat()
+    cutoff = datetime.fromisoformat(f"{as_of}T15:00:00+08:00")
+    smoke_root = tmp_path / "smoke-runtime-snapshots"
+
+    monkeypatch.setenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", "structured_smoke")
+    monkeypatch.setenv("MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH", fixture_hash)
+    monkeypatch.setenv(
+        "MOSAIC_AGENT_MATERIALIZATION_DB",
+        str(tmp_path / "smoke-materialization.sqlite3"),
+    )
+    monkeypatch.setattr(
+        agent_stage_preparer,
+        "EconomicCalendarStore",
+        lambda *_args, **_kwargs: object(),
+    )
+    archive_result = SimpleNamespace(
+        coverage_receipt=SimpleNamespace(as_dict=lambda: {"coverage_complete": True})
+    )
+    monkeypatch.setattr(agent_stage_preparer, "bootstrap_structured_smoke_eco_calendar", lambda *_a, **_k: archive_result)
+    monkeypatch.setattr(
+        agent_stage_preparer,
+        "_structured_smoke_eco_fixture_db",
+        lambda **_kwargs: tmp_path / "unused-eco-fixture.sqlite3",
+    )
+    monkeypatch.setattr(
+        agent_stage_preparer,
+        "compile_role_event_builds",
+        lambda **_kwargs: None,
+    )
+    base_request = {"agent_id": "cro", "stage": "cro", "as_of": as_of, "graph_run_id": graph_run_id}
+    smoke_request = {
+        **base_request,
+        "candidate_scope": {"accepted_output_refs": [smoke_ref]},
+        "runtime_inputs": {"accepted_output_refs": [smoke_ref], "accepted_output_records": [smoke_record], "bound_runtime_state": runtime_state},
+    }
+    smoke = prepare_bound_runtime_family(
+        smoke_request,
+        AgentDataMaterializationLedger(tmp_path / "smoke.sqlite3"),
+        output_root=smoke_root,
+        clock=lambda: late_clock,
+    )
+    smoke_snapshot = json.loads(
+        (smoke_root / smoke["output_path"]).read_text(encoding="utf-8")
+    )
+    assert smoke_snapshot["generated_at"] == late_timestamp
+    assert all(
+        datetime.fromisoformat(row["available_at"]) <= cutoff
+        for row in smoke_snapshot["evidence_ledger"]
+        if row["source_kind"] != "ACCEPTED_OUTPUT"
+    )
+    _validate_bound_runtime_snapshot(
+        smoke_snapshot,
+        tool_id="get_cro_risk_snapshot",
+        agent_id="cro",
+        stage="cro",
+        as_of=as_of,
+        graph_run_id=graph_run_id,
+        expected_candidate_scope_hash=None,
+    )
+
+    monkeypatch.delenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS")
+    monkeypatch.delenv("MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH")
+    captured: dict[str, str] = {}
+    monkeypatch.setattr(
+        agent_stage_preparer,
+        "archive_eco_calendar",
+        lambda *_a, **_k: archive_result,
+    )
+    monkeypatch.setattr(
+        agent_stage_preparer,
+        "compile_bound_runtime_snapshot",
+        lambda **kwargs: (
+            captured.update(
+                captured_at=kwargs["runtime_state"]["captured_at"]
+            )
+            or smoke_snapshot
+        ),
+    )
+    live_root = tmp_path / "live-snapshots"
+    live_request = {
+        **base_request,
+        "candidate_scope": {"accepted_output_refs": [proposal_ref]},
+        "runtime_inputs": {"accepted_output_refs": [proposal_ref], "accepted_output_records": [proposal_record], "bound_runtime_state": runtime_state},
+    }
+    prepare_bound_runtime_family(
+        live_request,
+        AgentDataMaterializationLedger(tmp_path / "live.sqlite3"),
+        output_root=live_root,
+        clock=lambda: late_clock,
+    )
+    assert captured["captured_at"] == late_timestamp
+
+
 def test_prepare_bound_runtime_family_concurrent_retry_reuses_winning_snapshot(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

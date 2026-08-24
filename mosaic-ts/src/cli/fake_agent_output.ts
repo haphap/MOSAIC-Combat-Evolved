@@ -182,6 +182,7 @@ function fakeDecisionSubmission(name: string, messages: unknown, schema: unknown
   }
   const finalStage = schemaMentionsProperty(schema, "cro_control_resolutions");
   const positions = currentPositions(text);
+  const candidateTicker = firstSectorLongTicker(text) ?? frozenCandidates(text)[0]?.ts_code;
   const targetPositions = positions.map(({ ticker, weight }, index) => ({
     position_local_id: `fake-position-${index}`,
     ts_code: ticker,
@@ -192,6 +193,18 @@ function fakeDecisionSubmission(name: string, messages: unknown, schema: unknown
     risk_flags: [],
     claim_refs: [claimId],
   }));
+  if (targetPositions.length === 0 && candidateTicker) {
+    targetPositions.push({
+      position_local_id: "fake-position-0",
+      ts_code: candidateTicker,
+      target_weight: 0.1,
+      position_decision: "ADD",
+      holding_period: "WEEKS",
+      thesis_status: "INTACT",
+      risk_flags: [],
+      claim_refs: [claimId],
+    });
+  }
   const cashWeight = normalizedCashWeight(
     targetPositions.map((position) => position.target_weight),
   );
@@ -203,7 +216,9 @@ function fakeDecisionSubmission(name: string, messages: unknown, schema: unknown
           cash_weight: 1,
         }
       : {
-          decision_disposition: "HOLD_CURRENT" as const,
+          decision_disposition: (positions.length === 0 ? "TARGET_PORTFOLIO" : "HOLD_CURRENT") as
+            | "TARGET_PORTFOLIO"
+            | "HOLD_CURRENT",
           target_positions: targetPositions,
           cash_weight: cashWeight,
         };
@@ -214,22 +229,26 @@ function fakeDecisionSubmission(name: string, messages: unknown, schema: unknown
     decision_reason: "Fake smoke preserves the complete frozen current portfolio.",
     ...(finalStage
       ? {
-          cro_control_resolutions: frozenControlLocalRefs(text, "action_local_id").map(
-            (localRef) => ({
-              cro_action_local_ref: localRef,
-              resolution: "COMPLIED",
-              reason: "The final fake target complies with the accepted CRO action.",
-              claim_refs: [claimId],
-            }),
-          ),
-          execution_control_resolutions: frozenControlLocalRefs(text, "assessment_local_id").map(
-            (localRef) => ({
-              execution_assessment_local_ref: localRef,
-              resolution: "COMPLIED",
-              reason: "The final fake target complies with the accepted execution assessment.",
-              claim_refs: [claimId],
-            }),
-          ),
+          cro_control_resolutions: frozenControlRefs(
+            text,
+            "cro_action_local_refs",
+            "action_local_id",
+          ).map((localRef) => ({
+            cro_action_local_ref: localRef,
+            resolution: "COMPLIED",
+            reason: "The final fake target complies with the accepted CRO action.",
+            claim_refs: [claimId],
+          })),
+          execution_control_resolutions: frozenControlRefs(
+            text,
+            "execution_assessment_local_refs",
+            "assessment_local_id",
+          ).map((localRef) => ({
+            execution_assessment_local_ref: localRef,
+            resolution: "COMPLIED",
+            reason: "The final fake target complies with the accepted execution assessment.",
+            claim_refs: [claimId],
+          })),
         }
       : {}),
     confidence: 0.5,
@@ -237,6 +256,31 @@ function fakeDecisionSubmission(name: string, messages: unknown, schema: unknown
     claim_refs: [claimId],
     macro_input_attributions,
   };
+}
+
+function firstSectorLongTicker(text: string): string | undefined {
+  let sector: StandardSectorAgentId | undefined;
+  for (const line of text.split("\n")) {
+    if (line.startsWith("### ")) {
+      const heading = line.slice(4).trim() as StandardSectorAgentId;
+      sector = STANDARD_SECTOR_AGENT_IDS.includes(heading) ? heading : undefined;
+      continue;
+    }
+    if (!sector) continue;
+    const marker = "* output: ";
+    const offset = line.indexOf(marker);
+    if (offset < 0) continue;
+    try {
+      const output = JSON.parse(line.slice(offset + marker.length)) as Record<string, unknown>;
+      const first = Array.isArray(output.long_picks) ? output.long_picks[0] : undefined;
+      if (first && typeof first === "object" && typeof first.ts_code === "string") {
+        return first.ts_code;
+      }
+    } catch {
+      // Not every accepted-output line is a single JSON object.
+    }
+  }
+  return undefined;
 }
 
 function frozenCandidates(text: string): Array<{ candidate_ref: string; ts_code: string }> {
@@ -273,8 +317,11 @@ function frozenOrderIntents(text: string): Array<{
   ];
 }
 
-function frozenControlLocalRefs(text: string, field: string): string[] {
-  const expression = new RegExp(`"${field}":"([^"]+)"`, "g");
+function frozenControlRefs(text: string, directiveField: string, objectField: string): string[] {
+  const directive = jsonObjectAfterMarker(text, "Runtime-owned CIO final control directive:");
+  const refs = stringValues(directive?.[directiveField]);
+  if (refs.length > 0) return refs;
+  const expression = new RegExp(`"${objectField}":"([^"]+)"`, "g");
   return [...new Set([...text.matchAll(expression)].map((match) => match[1] as string))];
 }
 

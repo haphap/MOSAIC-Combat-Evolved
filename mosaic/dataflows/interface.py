@@ -43,6 +43,7 @@ from .tushare import (
     get_etf_nav as get_tushare_etf_nav,
     get_etf_share as get_tushare_etf_share,
     get_etf_universe as get_tushare_etf_universe,
+    get_index_weight as get_tushare_index_weight,
     get_stock as get_tushare_stock,
     get_indicator as get_tushare_indicator,
     get_fundamentals as get_tushare_fundamentals,
@@ -72,8 +73,9 @@ TOOLS_CATEGORIES = {
     "core_stock_apis": {
         "description": "OHLCV stock price data",
         "tools": [
-            "get_stock_data"
-        ]
+            "get_stock_data",
+            "get_index_weight",
+        ],
     },
     "technical_indicators": {
         "description": "Technical analysis indicators",
@@ -173,6 +175,9 @@ VENDOR_METHODS = {
         "qlib": get_qlib_stock,
         "tushare": get_tushare_stock,
         "yfinance": get_YFin_data_online,
+    },
+    "get_index_weight": {
+        "tushare": get_tushare_index_weight,
     },
     # technical_indicators
     "get_indicators": {
@@ -319,6 +324,7 @@ _RANGE_DATE_METHODS = {
     "get_etf_price_data": (1, 2),
     "get_fred_series": (1, 2),
     "get_stock_moneyflow": (1, 2),
+    "get_index_weight": (1, 2),
 }
 
 _CURRENT_DATE_METHODS = {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -18,11 +19,17 @@ from mosaic.bridge.tool_capabilities import (
 )
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.bound_runtime_production import ActiveAdaptiveQueryPreparer
+from mosaic.dataflows.bound_runtime_snapshots import (
+    bound_runtime_snapshot_output_hash,
+    publish_bound_runtime_snapshot,
+    render_bound_runtime_snapshot,
+)
 from mosaic.dataflows.frozen_adaptive_queries import (
     CALL_TIME_ARGUMENT_CONTRACT,
     FrozenAdaptiveQueryStore,
 )
 from mosaic.scorecard.canonical_json import canonical_hash
+from mosaic.scorecard.l3_l4_preservation import build_l3_l4_preservation_overlay
 from mosaic.scorecard.sector_relationship_preservation import (
     build_sector_relationship_preservation_overlay,
 )
@@ -56,6 +63,111 @@ def _store(tmp_path: Path, now: list[datetime]) -> AgentToolCapabilityStore:
 
 def _canonical_hash(value: object) -> str:
     return canonical_hash(value)
+
+
+def test_same_graph_structured_smoke_snapshot_preserves_exact_refs_and_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", "structured_smoke")
+    accepted_refs = [
+        {
+            "accepted_output_kind": "MACRO_TRANSMISSION",
+            "agent_id": "china",
+            "accepted_output_id": "accepted:china",
+            "accepted_output_hash": "sha256:" + "a" * 64,
+        }
+    ]
+    payload = {
+        "graph_run_id": "graph-1",
+        "snapshot_id": "snapshot-1",
+        "upstream_accepted_output_refs": list(accepted_refs),
+    }
+    original_hash = canonical_hash(payload)
+
+    rebound = capability_module._rebind_synthetic_runtime_snapshot(
+        payload,
+        root=tmp_path,
+        as_of="2025-06-17",
+        graph_run_id="graph-1",
+        accepted_output_refs=accepted_refs,
+        synthetic_fixture_validated=True,
+    )
+
+    assert rebound is payload
+    assert canonical_hash(rebound) == original_hash
+
+
+def test_same_graph_structured_smoke_snapshot_rejects_ref_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", "structured_smoke")
+    payload = {
+        "graph_run_id": "graph-1",
+        "upstream_accepted_output_refs": [
+            {
+                "accepted_output_kind": "MACRO_TRANSMISSION",
+                "agent_id": "china",
+                "accepted_output_id": "accepted:old",
+                "accepted_output_hash": "sha256:" + "a" * 64,
+            }
+        ],
+    }
+    accepted_refs = [
+        {
+            "accepted_output_kind": "MACRO_TRANSMISSION",
+            "agent_id": "china",
+            "accepted_output_id": "accepted:new",
+            "accepted_output_hash": "sha256:" + "b" * 64,
+        }
+    ]
+
+    with pytest.raises(DataVendorUnavailable, match="same graph snapshot"):
+        capability_module._rebind_synthetic_runtime_snapshot(
+            payload,
+            root=tmp_path,
+            as_of="2025-06-17",
+            graph_run_id="graph-1",
+            accepted_output_refs=accepted_refs,
+            synthetic_fixture_validated=True,
+        )
+
+
+def test_bound_snapshot_materialization_preserves_producer_float_rendering(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", raising=False)
+    monkeypatch.setenv("MOSAIC_RUNTIME_SNAPSHOT_DIR", str(tmp_path))
+    payload = _bound_snapshot(
+        tool_id="get_superinvestor_candidate_snapshot",
+        agent_id="ackman",
+        stage="ackman",
+        upstream_agent="china",
+        upstream_stage="china",
+        upstream_kind="MACRO_TRANSMISSION",
+    )
+    payload["candidate_universe"][0]["metrics"]["relative_strength_20d"] = 1.0
+    payload = _rehash_bound_snapshot(payload)
+    published = publish_bound_runtime_snapshot(
+        payload,
+        tool_id="get_superinvestor_candidate_snapshot",
+        output_root=tmp_path,
+    )
+
+    rendered = materialize_tool_payload(
+        "get_superinvestor_candidate_snapshot",
+        agent_id="ackman",
+        stage="ackman",
+        as_of="2026-07-09",
+        graph_run_id="graph-1",
+        expected_candidate_scope_hash=payload["candidate_scope_hash"],
+    )
+    output_path = tmp_path / published["output_path"]
+    expected_hash = bound_runtime_snapshot_output_hash(payload)
+
+    assert rendered == render_bound_runtime_snapshot(payload)
+    assert "1.0" in rendered
+    assert "sha256:" + hashlib.sha256(rendered.encode()).hexdigest() == expected_hash
+    assert "sha256:" + hashlib.sha256(output_path.read_bytes()).hexdigest() == expected_hash
 
 
 def test_source_admission_preparation_reuses_exact_families_without_signing_capability(
@@ -694,6 +806,7 @@ def test_matrix_restricts_roles_to_the_frozen_plan_tools():
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence",
     )
@@ -709,6 +822,7 @@ def test_matrix_restricts_roles_to_the_frozen_plan_tools():
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence",
     )
@@ -721,6 +835,7 @@ def test_matrix_restricts_roles_to_the_frozen_plan_tools():
         "get_industry_moneyflow",
         "get_industry_policy_digest",
         "get_rke_research_context",
+        "get_sector_index_membership",
         "get_stock_data",
         "get_supply_chain_evidence",
     )
@@ -1604,11 +1719,10 @@ def test_sector_capability_defers_transport_and_limits_successful_followups(
         tmp_path / "private" / "frozen-queries.sqlite3",
         clock=lambda: now[0],
     )
-    indicator_args = {
-        "ticker": "600000.SH",
+    policy_args = {
         "as_of": "2026-07-09",
-        "lookback": 20,
-        "indicator": "rsi",
+        "lookback_days": 30,
+        "source": "govcn",
     }
     adaptive_transports: list[tuple[str, dict]] = []
 
@@ -1635,7 +1749,9 @@ def test_sector_capability_defers_transport_and_limits_successful_followups(
                 "sectors": ["coal"],
                 "indicator_families": ["rsi"],
             },
-            query_requests=[{"tool_id": "get_indicators", "args": indicator_args}],
+            query_requests=[
+                {"tool_id": "get_industry_policy_digest", "args": policy_args}
+            ],
             preservation_overlay=build_sector_relationship_preservation_overlay(
                 Path(__file__).parents[1]
             ),
@@ -1731,32 +1847,45 @@ def test_sector_capability_defers_transport_and_limits_successful_followups(
         else ["SYNTHETIC_NON_PRODUCTION_BYPASS"]
     )
     assert signed_capability_context["knot_v2_eligibility"] == expected_eligibility
-    active_indicator_context = next(
+    active_policy_context = next(
         context
         for context in signed_context["tool_contexts"]
-        if context["tool_id"] == "get_indicators"
+        if context["tool_id"] == "get_industry_policy_digest"
     )
-    assert len(active_indicator_context["binding_refs"]) == 1
+    assert len(active_policy_context["binding_refs"]) == 1
     assert stored_projection["entries"][0]["binding_id"] == (
-        active_indicator_context["binding_refs"][0]["binding_id"]
+        active_policy_context["binding_refs"][0]["binding_id"]
     )
-    expected = {"tool": "get_indicators", "args": indicator_args, "frozen": True}
+    expected = {
+        "tool": "get_industry_policy_digest",
+        "args": policy_args,
+        "frozen": True,
+    }
     if finalizer_status == "SYNTHETIC_NON_PRODUCTION_BYPASS":
-        result = store.call_tool_result(envelope, "get_indicators", indicator_args)
+        result = store.call_tool_result(
+            envelope, "get_industry_policy_digest", policy_args
+        )
         assert json.loads(result["text"]) == expected
         assert "audit" not in result
-        assert adaptive_transports == [("get_indicators", indicator_args)]
+        assert result["result_authority"]["authority_type"] == "FROZEN_QUERY"
+        assert result["result_authority"]["authority_hash"].startswith("sha256:")
+        assert len(result["result_authority"]["authority_hash"]) == len("sha256:") + 64
+        assert adaptive_transports == [("get_industry_policy_digest", policy_args)]
     else:
         for _round in range(3):
-            result = store.call_tool_result(envelope, "get_indicators", indicator_args)
+            result = store.call_tool_result(
+                envelope, "get_industry_policy_digest", policy_args
+            )
             assert json.loads(result["text"]) == expected
             assert result["audit"]["result_authority_type"] == "FROZEN_QUERY"
         with pytest.raises(ValueError, match="follow-up round limit is exhausted"):
-            store.call_tool_result(envelope, "get_indicators", indicator_args)
+            store.call_tool_result(
+                envelope, "get_industry_policy_digest", policy_args
+            )
         assert adaptive_transports == [
-            ("get_indicators", indicator_args),
-            ("get_indicators", indicator_args),
-            ("get_indicators", indicator_args),
+            ("get_industry_policy_digest", policy_args),
+            ("get_industry_policy_digest", policy_args),
+            ("get_industry_policy_digest", policy_args),
         ]
     assert snapshot_calls == [
         "get_sector_research_snapshot",
@@ -1777,6 +1906,338 @@ def test_sector_capability_defers_transport_and_limits_successful_followups(
             )
     with sqlite3.connect(adaptive_store.db_path) as conn:
         assert conn.execute("SELECT count(*) FROM frozen_query_payloads").fetchone()[0] == 0
+
+
+def test_sector_membership_scoped_exact_admission_is_ephemeral_and_fail_closed(
+    tmp_path: Path,
+) -> None:
+    now = [datetime(2026, 7, 9, tzinfo=timezone.utc)]
+    frozen = FrozenAdaptiveQueryStore(
+        tmp_path / "private" / "frozen-queries.sqlite3", clock=lambda: now[0]
+    )
+    membership_args = {
+        "index_code": "000986.SH",
+        "as_of": "2026-07-09",
+        "start_date": "2026-06-01",
+        "end_date": "2026-07-09",
+    }
+    static_stock_args = [
+        {
+            "ticker": "600001.SH",
+            "date_from": "2026-06-01",
+            "date_to": "2026-07-09",
+        },
+        {
+            "ticker": "600002.SH",
+            "date_from": "2026-06-01",
+            "date_to": "2026-07-09",
+        },
+    ]
+    transports: list[tuple[str, dict]] = []
+    prepared_query: dict[str, object] = {}
+
+    def adaptive_materializer(tool_id: str, args: dict) -> dict:
+        transports.append((tool_id, dict(args)))
+        if tool_id == "get_sector_index_membership":
+            payload = {
+                "index_code": "000986.SH",
+                "selected_trade_date": "2026-06-30",
+                "members": [
+                    {"ticker": "000001.SZ", "weight": 1.0},
+                    {"ticker": "600000.SH", "weight": 2.0},
+                ],
+            }
+        else:
+            payload = {"tool": tool_id, "args": args}
+        return {
+            "payload": json.dumps(payload, sort_keys=True),
+            "source_receipt_hashes": [],
+        }
+
+    def deferred_sector_preparer(**_kwargs: object) -> dict:
+        prepared = frozen.prepare(
+            agent_id="energy",
+            stage="energy",
+            as_of="2026-07-09",
+            authorized_scope={
+                "as_of": "2026-07-09",
+                "earliest_date": "2026-06-01",
+                "tickers": ["600001.SH", "600002.SH"],
+                "etfs": ["512800.SH"],
+                "sectors": ["coal"],
+                "indicator_families": ["rsi"],
+            },
+            query_requests=[
+                {"tool_id": "get_sector_index_membership", "args": membership_args},
+                *[
+                    {"tool_id": "get_stock_data", "args": args}
+                    for args in static_stock_args
+                ],
+            ],
+            preservation_overlay=build_sector_relationship_preservation_overlay(
+                Path(__file__).parents[1]
+            ),
+            materializer=adaptive_materializer,
+            defer_materialization=True,
+        )
+        prepared_query.update(prepared)
+        return prepared
+
+    adaptive_preparer = ActiveAdaptiveQueryPreparer(
+        sector_relationship_preparer=deferred_sector_preparer,
+        bound_runtime_preparer=lambda **_kwargs: pytest.fail(
+            "sector test dispatched to the bound-runtime preparer"
+        ),
+    )
+    store = AgentToolCapabilityStore(
+        tmp_path / "capabilities.sqlite3",
+        signing_key=b"test-signing-key-32-bytes-long!!!",
+        signing_key_id="test-key-v1",
+        clock=lambda: now[0],
+        adaptive_query_store=frozen,
+        adaptive_query_preparer=adaptive_preparer,
+        adaptive_query_materializer=adaptive_materializer,
+        stage_materialization_finalizer=lambda _context: {
+            "status": "SYNTHETIC_NON_PRODUCTION_BYPASS"
+        },
+        require_knot_v2_audit_authority=True,
+    )
+    prepared = store.prepare(
+        _request("energy"),
+        materializer=lambda tool_id, **_kwargs: json.dumps(
+            {"tool": tool_id, "snapshot": True}, sort_keys=True
+        ),
+    )
+    envelope = prepared["capability"]
+    stock_schema = next(
+        row["args_schema"]
+        for row in store.list_tools(envelope)
+        if row["name"] == "get_stock_data"
+    )
+    schema_text = json.dumps(stock_schema, sort_keys=True)
+    assert "600001.SH" not in schema_text
+    assert "600002.SH" not in schema_text
+    assert all(
+        branch["properties"]["ticker"].get("const") is None
+        for branch in stock_schema["oneOf"]
+    )
+
+    def frozen_state() -> tuple[list[tuple], list[tuple]]:
+        with sqlite3.connect(frozen.db_path) as conn:
+            return (
+                conn.execute(
+                    "SELECT bundle_id, tool_id, request_hash, call_mode "
+                    "FROM frozen_query_payloads ORDER BY bundle_id, tool_id, request_hash"
+                ).fetchall(),
+                conn.execute(
+                    "SELECT session_id, round_number, tool_id, request_hash "
+                    "FROM frozen_query_calls ORDER BY session_id, round_number"
+                ).fetchall(),
+            )
+
+    before_frozen = frozen_state()
+    with pytest.raises(ValueError, match="allowlist is unavailable"):
+        store.call_tool_result(
+            envelope,
+            "get_stock_data",
+            {
+                "ticker": "600000.SH",
+                "date_from": "2026-06-01",
+                "date_to": "2026-07-09",
+            },
+        )
+    assert transports == []
+
+    membership_result = store.call_tool_result(
+        envelope, "get_sector_index_membership", membership_args
+    )
+    assert membership_result["result_authority"]["authority_type"] == "FROZEN_QUERY"
+    assert len(transports) == 1
+    with pytest.raises(ValueError, match="already established"):
+        store.call_tool_result(envelope, "get_sector_index_membership", membership_args)
+    assert len(transports) == 1
+
+    allowed_args = {
+        "ticker": "600000.SH",
+        "date_from": "2026-06-01",
+        "date_to": "2026-07-09",
+    }
+    allowed_result = store.call_tool_result(envelope, "get_stock_data", allowed_args)
+    assert len(transports) == 2
+    assert allowed_result["result_authority"]["authority_type"] == "FROZEN_QUERY"
+    expected_dynamic_authority = {
+        "schema_version": "frozen_query_result_authority_v1",
+        "authority_type": "FROZEN_QUERY",
+        "frozen_bundle_hash": prepared_query["public_projection"]["bundle_hash"],
+        "tool_id": "get_stock_data",
+        "resolved_args": allowed_args,
+        "request_hash": canonical_hash(allowed_args),
+        "payload_hash": canonical_hash(
+            {"text": json.dumps({"tool": "get_stock_data", "args": allowed_args}, sort_keys=True)}
+        ),
+        "source_receipt_hashes": [],
+        "source_receipt_set_hash": canonical_hash([]),
+        "derivation_hash": None,
+        "runtime_membership_authority_hash": membership_result["result_authority"][
+            "authority_hash"
+        ],
+        "non_ticker_template_hash": canonical_hash(
+            {"date_from": "2026-06-01", "date_to": "2026-07-09"}
+        ),
+        "runtime_admission_schema_version": "runtime_membership_exact_authority_v1",
+    }
+    assert allowed_result["result_authority"]["authority_hash"] == canonical_hash(
+        expected_dynamic_authority
+    )
+
+    for rejected_args in [
+        {
+            "ticker": "600001.SH",
+            "date_from": "2026-06-01",
+            "date_to": "2026-07-09",
+        },
+        {
+            "ticker": "000001.SZ",
+            "date_from": "2026-07-01",
+            "date_to": "2026-07-09",
+        },
+    ]:
+        with pytest.raises(ValueError):
+            store.call_tool_result(envelope, "get_stock_data", rejected_args)
+    assert transports == [
+        ("get_sector_index_membership", membership_args),
+        ("get_stock_data", allowed_args),
+    ]
+    assert frozen_state() == before_frozen
+
+
+def test_deferred_non_membership_schema_uses_field_domains_and_exact_binding(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 7, 9, tzinfo=timezone.utc)
+    frozen = FrozenAdaptiveQueryStore(
+        tmp_path / "private-domains" / "frozen-queries.sqlite3",
+        clock=lambda: now,
+    )
+    exact_args = [
+        {
+            "ticker": "600000.SH",
+            "as_of": "2026-07-09",
+            "lookback": 20,
+            "indicator": "rsi",
+        },
+        {
+            "ticker": "000001.SZ",
+            "as_of": "2026-07-09",
+            "lookback": 30,
+            "indicator": "macd",
+        },
+    ]
+    transports: list[tuple[str, dict]] = []
+
+    def adaptive_materializer(tool_id: str, args: dict) -> dict:
+        transports.append((tool_id, dict(args)))
+        return {
+            "payload": json.dumps(
+                {"tool": tool_id, "args": args}, sort_keys=True
+            ),
+            "source_receipt_hashes": [],
+        }
+
+    def deferred_preparer(**_kwargs: object) -> dict:
+        return frozen.prepare(
+            agent_id="druckenmiller",
+            stage="druckenmiller",
+            as_of="2026-07-09",
+            authorized_scope={
+                "as_of": "2026-07-09",
+                "earliest_date": "2026-06-01",
+                "accepted_candidate_tickers": ["600000.SH", "000001.SZ"],
+                "candidate_scope_hash": "sha256:" + "a" * 64,
+                "candidate_universe_hash": "sha256:" + "b" * 64,
+                "source_snapshot_hash": "sha256:" + "c" * 64,
+                "indicator_families": ["rsi", "macd"],
+            },
+            query_requests=[
+                {"tool_id": "get_indicators", "args": args}
+                for args in exact_args
+            ],
+            preservation_overlay=build_l3_l4_preservation_overlay(
+                Path(__file__).parents[1]
+            ),
+            materializer=adaptive_materializer,
+            defer_materialization=True,
+        )
+
+    adaptive_preparer = ActiveAdaptiveQueryPreparer(
+        sector_relationship_preparer=lambda **_kwargs: pytest.fail(
+            "deferred domain test dispatched to the Sector preparer"
+        ),
+        bound_runtime_preparer=deferred_preparer,
+    )
+    store = AgentToolCapabilityStore(
+        tmp_path / "domains-capabilities.sqlite3",
+        signing_key=b"test-signing-key-32-bytes-long!!!",
+        signing_key_id="test-key-v1",
+        clock=lambda: now,
+        adaptive_query_store=frozen,
+        adaptive_query_preparer=adaptive_preparer,
+        adaptive_query_materializer=adaptive_materializer,
+        stage_materialization_finalizer=lambda _context: {
+            "status": "SYNTHETIC_NON_PRODUCTION_BYPASS"
+        },
+    )
+    prepared = store.prepare(
+        _request("druckenmiller"),
+        materializer=lambda tool_id, **_kwargs: json.dumps(
+            {"tool": tool_id, "snapshot": True}, sort_keys=True
+        ),
+    )
+    envelope = prepared["capability"]
+    schema = next(
+        row["args_schema"]
+        for row in store.list_tools(envelope)
+        if row["name"] == "get_indicators"
+    )
+    schema_bytes = len(
+        json.dumps(schema, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
+    )
+    assert "oneOf" not in json.dumps(schema, sort_keys=True)
+    assert schema_bytes <= 4096
+    assert schema["type"] == "object"
+    assert schema["additionalProperties"] is False
+    assert set(schema["required"]) == {"ticker", "as_of", "lookback", "indicator"}
+    assert schema["properties"]["ticker"]["enum"] == [
+        "000001.SZ",
+        "600000.SH",
+    ]
+    assert schema["properties"]["as_of"]["const"] == "2026-07-09"
+    assert schema["properties"]["lookback"]["enum"] == [20, 30]
+    assert schema["properties"]["indicator"]["enum"] == ["macd", "rsi"]
+    assert transports == []
+
+    result = store.call_tool_result(envelope, "get_indicators", exact_args[0])
+    assert result["result_authority"]["authority_type"] == "FROZEN_QUERY"
+    assert transports == [("get_indicators", exact_args[0])]
+
+    with pytest.raises(ValueError):
+        store.call_tool_result(
+            envelope,
+            "get_indicators",
+            {
+                "ticker": "000001.SZ",
+                "as_of": "2026-07-09",
+                "lookback": 20,
+                "indicator": "rsi",
+            },
+        )
+    with pytest.raises(ValueError):
+        store.call_tool_result(
+            envelope,
+            "get_indicators",
+            {**exact_args[0], "extra": "rejected"},
+        )
+    assert transports == [("get_indicators", exact_args[0])]
 
 
 def test_legacy_eager_followup_uses_frozen_store_and_generic_result_event(

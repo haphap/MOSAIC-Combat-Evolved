@@ -27,6 +27,15 @@ ROOT = Path(__file__).parents[1]
 AS_OF = "2026-07-09"
 
 
+def _sector_index_membership_csv(args: dict) -> str:
+    index_code = args["index_code"]
+    return (
+        "index_code,con_code,trade_date,weight\n"
+        f"{index_code},600000.SH,{AS_OF},1.0\n"
+        f"{index_code},000001.SZ,{AS_OF},0.5\n"
+    )
+
+
 def _receipt_authority(seen: list[dict]):
     def attest(descriptor: dict) -> list[dict]:
         seen.append(descriptor)
@@ -55,6 +64,103 @@ def _digest_builder(tool_id: str, raw: str, args: dict) -> dict:
         "model_hash": canonical_hash({"model": "digest-model-v1"}),
         "prompt_hash": canonical_hash({"prompt": tool_id, "args": args}),
     }
+
+
+def test_index_weight_materialization_calls_one_exact_adapter_and_compacts_pit_rows():
+    calls: list[tuple[str, tuple[object, ...]]] = []
+    raw = (
+        "# Tushare index weights\n"
+        "index_code,trade_date,con_code,weight\n"
+        "932139.CSI,20260630,600000.SH,1.0\n"
+        "932139.CSI,2026-07-09,600001.SH,2.5\n"
+        "932139.CSI,20260710,600002.SH,99.0\n"
+    )
+
+    def route_caller(method: str, *args: object) -> str:
+        calls.append((method, args))
+        return raw
+
+    materializer = SectorRelationshipQueryMaterializer(
+        route_caller=route_caller,
+        receipt_authority=_receipt_authority([]),
+        digest_builder=_digest_builder,
+    )
+    args = {
+        "index_code": "932139.CSI",
+        "as_of": AS_OF,
+        "start_date": "2026-06-01",
+        "end_date": AS_OF,
+    }
+
+    result = materializer("get_sector_index_membership", args)
+
+    assert calls == [
+        ("get_index_weight", ("932139.CSI", "2026-06-01", AS_OF))
+    ]
+    assert json.loads(result["payload"]) == {
+        "index_code": "932139.CSI",
+        "selected_trade_date": AS_OF,
+        "members": [{"ticker": "600001.SH", "weight": 2.5}],
+    }
+
+
+def test_index_weight_materialization_accepts_previous_month_and_rejects_bad_window():
+    raw = (
+        "index_code,trade_date,con_code,weight\n"
+        "932139.CSI,20260630,600000.SH,1.0\n"
+        "932139.CSI,20260710,600001.SH,2.5\n"
+    )
+    materializer = SectorRelationshipQueryMaterializer(
+        route_caller=lambda _method, *_args: raw,
+        receipt_authority=_receipt_authority([]),
+        digest_builder=_digest_builder,
+    )
+    valid_args = {
+        "index_code": "932139.CSI",
+        "as_of": AS_OF,
+        "start_date": "2026-06-01",
+        "end_date": AS_OF,
+    }
+
+    result = materializer("get_sector_index_membership", valid_args)
+    assert json.loads(result["payload"])["selected_trade_date"] == "2026-06-30"
+
+    with pytest.raises(ValueError, match="previous month through as_of"):
+        materializer(
+            "get_sector_index_membership",
+            {**valid_args, "start_date": "2026-07-01", "end_date": "2026-07-31"},
+        )
+
+
+def test_index_weight_materialization_rejects_cross_index_and_invalid_rows():
+    args = {
+        "index_code": "932139.CSI",
+        "as_of": AS_OF,
+        "start_date": "2026-06-01",
+        "end_date": AS_OF,
+    }
+    materializer = SectorRelationshipQueryMaterializer(
+        route_caller=lambda _method, *_args: (
+            "index_code,trade_date,con_code,weight\n"
+            "000300.SH,20260709,600001.SH,2.5\n"
+        ),
+        receipt_authority=_receipt_authority([]),
+        digest_builder=_digest_builder,
+    )
+
+    with pytest.raises(ValueError, match="index identity"):
+        materializer("get_sector_index_membership", args)
+
+    invalid_materializer = SectorRelationshipQueryMaterializer(
+        route_caller=lambda _method, *_args: (
+            "index_code,trade_date,con_code,weight\n"
+            "932139.CSI,20260709,600001.SH,nan\n"
+        ),
+        receipt_authority=_receipt_authority([]),
+        digest_builder=_digest_builder,
+    )
+    with pytest.raises(ValueError, match="weight"):
+        invalid_materializer("get_sector_index_membership", args)
 
 
 def test_staged_receipt_records_real_capture_time_and_preserves_replay_semantics():
@@ -360,6 +466,12 @@ def test_materializer_limits_empty_receipts_to_direct_tools_and_validates_receip
         )
 
     direct_args = {
+        "get_sector_index_membership": {
+            "index_code": "932075.CSI",
+            "as_of": AS_OF,
+            "start_date": "2026-06-01",
+            "end_date": AS_OF,
+        },
         "get_balance_sheet": {
             "ticker": "600000.SH",
             "frequency": "annual",
@@ -408,8 +520,14 @@ def test_materializer_limits_empty_receipts_to_direct_tools_and_validates_receip
         "get_yield_curve_cn": {"as_of": AS_OF, "lookback": 30},
     }
     assert set(direct_args) == DIRECT_VENDOR_TOOL_IDS
+
+    def route_caller(method: str, *route_args: object) -> str:
+        if method == "get_index_weight":
+            return _sector_index_membership_csv({"index_code": route_args[0]})
+        return "payload"
+
     receiptless = SectorRelationshipQueryMaterializer(
-        route_caller=lambda method, *args: "payload",
+        route_caller=route_caller,
         receipt_authority=lambda descriptor: pytest.fail(
             f"unexpected receipt fallback: {descriptor}"
         ),

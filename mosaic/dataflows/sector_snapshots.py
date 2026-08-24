@@ -40,6 +40,34 @@ SECTOR_SOURCE_RECEIPT_SCHEMA_VERSION = "sector_registered_source_receipt_v2"
 SECTOR_ETF_DIRECTION_AUTHORITY_VERSION = "sector_etf_direction_authority_v1"
 SECTOR_ETF_DIRECTION_AUTHORITY_EFFECTIVE_FROM = "2026-07-01"
 SECTOR_ETF_DIRECTION_AUTHORITY_EFFECTIVE_TO: str | None = None
+CSI_INDEX_WEIGHT_ENDPOINT = "index_weight"
+CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE = {
+    "semiconductor": ("932139.CSI",),
+    "technology": ("000993.SH", "000994.CSI"),
+    "energy": ("000986.SH", "000941.CSI", "932118.CSI"),
+    "biotech": ("000991.SH",),
+    "consumer": ("000989.SH", "000990.CSI"),
+    "industrials": ("000987.SH", "000988.CSI"),
+    "real_estate_construction": ("932076.CSI", "932114.CSI", "932117.CSI"),
+    "financials": ("932075.CSI",),
+    "agriculture": ("000949.CSI",),
+}
+CSI_PIT_ENERGY_INDEX_WEIGHT_CODES = frozenset(
+    CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE["energy"]
+)
+
+
+def _index_weight_month_request(index_code: str, as_of: date) -> dict[str, str]:
+    """Build doc96's bounded monthly request for one exact index identity."""
+    if not isinstance(index_code, str) or not index_code:
+        raise DataVendorUnavailable("CSI index_weight index identity is invalid")
+    next_month = (as_of.replace(day=28) + timedelta(days=4)).replace(day=1)
+    month_end = next_month - timedelta(days=1)
+    return {
+        "index_code": index_code,
+        "start_date": as_of.replace(day=1).strftime("%Y%m%d"),
+        "end_date": month_end.strftime("%Y%m%d"),
+    }
 RELATIONSHIP_SOURCE_RECEIPT_SCHEMA_VERSION = "relationship_registered_source_receipt_v3"
 RELATIONSHIP_SOURCE_EXTRACTOR_CONTRACT_VERSION = (
     "relationship_top10_holder_extractor_v3"
@@ -89,6 +117,7 @@ RELATIONSHIP_REQUIRED_SOURCE_ENDPOINTS = frozenset(
 )
 SOURCE_BATCH_PAGINATION_POLICIES = {
     "index_member_all": PAGINATION_POLICY_TERMINAL_CONFIRMED,
+    CSI_INDEX_WEIGHT_ENDPOINT: PAGINATION_POLICY_TERMINAL_CONFIRMED,
     "income": PAGINATION_POLICY_OFFICIAL_CAP,
     "cashflow": PAGINATION_POLICY_OFFICIAL_CAP,
     "balancesheet": PAGINATION_POLICY_OFFICIAL_CAP,
@@ -324,6 +353,9 @@ def _load_sector_universe_manifest(
 
 
 SECTOR_UNIVERSE_MANIFEST = _load_sector_universe_manifest()
+
+
+
 SECTOR_DIRECTION_IDS: dict[str, tuple[str, ...]] = {
     agent_id: tuple(
         direction["direction_id"]
@@ -1419,6 +1451,11 @@ def validate_sector_snapshot(
             "sector eligible_count does not match membership rows"
         )
     seen_tickers: set[str] = set()
+    csi_evidence_ids = {
+        evidence["evidence_id"]
+        for evidence in evidence_catalog
+        if evidence["source_endpoint"] == CSI_INDEX_WEIGHT_ENDPOINT
+    }
     members_by_direction: dict[str, list[dict[str, Any]]] = {
         direction_id: [] for direction_id in expected_directions
     }
@@ -1479,6 +1516,10 @@ def validate_sector_snapshot(
         refs = _require_id_list(
             security.get("evidence_ids"), f"security[{ts_code}].evidence_ids"
         )
+        if csi_evidence_ids and not csi_evidence_ids.intersection(refs):
+            raise DataVendorUnavailable(
+                "CSI eligible membership lacks index_weight evidence closure"
+            )
         referenced_evidence.update(refs)
         members_by_direction[expected_direction].append(security)
     if universe != sorted(
@@ -1501,7 +1542,7 @@ def validate_sector_snapshot(
         or payload.get("security_scoring_contract_hash")
         != scoring_contract["scoring_contract_hash"]
     ):
-        raise DataVendorUnavailable("sector security scoring contract binding mismatch")
+        raise DataVendorUnavailable("sector security contract binding mismatch")
     scoring_rows = payload.get("security_scoring_rows")
     if not isinstance(scoring_rows, list) or not scoring_rows:
         raise DataVendorUnavailable("security_scoring_rows must be a non-empty array")
@@ -1557,14 +1598,14 @@ def validate_sector_snapshot(
             raise DataVendorUnavailable(
                 "sector security scoring observation coverage is invalid"
             )
-        refs = _require_id_list(row.get("evidence_ids"), f"{label}.evidence_ids")
-        referenced_evidence.update(refs)
         metrics = (
             row.get("adjusted_return_20d"),
             row.get("realized_volatility_20d"),
             row.get("median_amount_20d_cny"),
             row.get("net_moneyflow_20d_cny"),
         )
+        refs = _require_id_list(row.get("evidence_ids"), f"{label}.evidence_ids")
+        referenced_evidence.update(refs)
         availability = row.get("availability_status")
         reason = row.get("unavailability_reason")
         if availability == "AVAILABLE":
@@ -1989,6 +2030,15 @@ def _registered_tushare_endpoint_contracts(
     return contracts
 
 
+def _sector_endpoint_contracts(
+    source_batches: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    required = SECTOR_REQUIRED_SOURCE_ENDPOINTS | SECTOR_ETF_SOURCE_ENDPOINTS
+    if any(batch.get("endpoint") == CSI_INDEX_WEIGHT_ENDPOINT for batch in source_batches):
+        required = required | {CSI_INDEX_WEIGHT_ENDPOINT}
+    return _registered_tushare_endpoint_contracts(frozenset(required))
+
+
 def _validate_source_batch(
     value: Any,
     *,
@@ -2099,6 +2149,7 @@ def _validate_source_batch(
                 temporal not in (None, "")
                 and _parse_temporal(temporal, f"source batch {endpoint}.{field}").date()
                 > as_of
+                and not (endpoint == CSI_INDEX_WEIGHT_ENDPOINT and field == "trade_date")
             ):
                 raise DataVendorUnavailable(
                     f"sector source batch {endpoint} contains future {field}"
@@ -2107,6 +2158,7 @@ def _validate_source_batch(
     if (
         request_end not in (None, "")
         and _parse_temporal(request_end, "source batch request.end_date").date() > as_of
+        and endpoint != CSI_INDEX_WEIGHT_ENDPOINT
     ):
         raise DataVendorUnavailable("sector source batch request crosses as_of")
     if value.get("rows_hash") != _canonical_hash(rows):
@@ -2125,6 +2177,135 @@ def _validate_source_batch(
     if value.get("source_batch_id") != expected_batch_id:
         raise DataVendorUnavailable("sector source batch ID mismatch")
     return {key: value[key] for key in value}
+
+
+def _validate_csi_index_weight_authority(
+    *,
+    batches: list[dict[str, Any]],
+    as_of: date,
+    role: str,
+) -> dict[str, dict[str, Any]]:
+    csi_batches = [
+        batch for batch in batches if batch["endpoint"] == CSI_INDEX_WEIGHT_ENDPOINT
+    ]
+    if not csi_batches:
+        return {}
+    expected_codes = _csi_index_weight_codes(role)
+    expected_code_set = frozenset(expected_codes)
+    if len(csi_batches) != len(expected_codes):
+        raise DataVendorUnavailable(
+            f"CSI index_weight authority requires the complete {role} index set"
+        )
+    by_index: dict[str, dict[str, Any]] = {}
+    for batch in csi_batches:
+        request = batch.get("request")
+        index_code = request.get("index_code") if isinstance(request, Mapping) else None
+        if index_code not in expected_code_set or index_code in by_index:
+            raise DataVendorUnavailable("CSI index_weight index identity is invalid")
+        rows = batch.get("rows")
+        if not isinstance(rows, list) or not rows:
+            raise DataVendorUnavailable(
+                f"CSI index_weight has no rows for {index_code}"
+            )
+        by_index[index_code] = batch
+        for row in rows:
+            if row.get("index_code") != index_code:
+                raise DataVendorUnavailable(
+                    "CSI index_weight row index identity is invalid"
+                )
+    if set(by_index) != expected_code_set:
+        raise DataVendorUnavailable(f"CSI index_weight authority is incomplete for {role}")
+
+    authority: dict[str, dict[str, Any]] = {}
+    for index_code in expected_codes:
+        batch = by_index[index_code]
+        rows_by_date: dict[date, list[dict[str, Any]]] = {}
+        for row in batch["rows"]:
+            trade_date = _parse_temporal(
+                row.get("trade_date"),
+                f"CSI index_weight[{index_code}].trade_date",
+            ).date()
+            if trade_date > as_of:
+                continue
+            weight = _finite_source_number(row.get("weight"))
+            if weight is None or weight < 0:
+                raise DataVendorUnavailable(
+                    f"CSI index_weight has invalid weight for {index_code}"
+                )
+            con_code = row.get("con_code")
+            if (
+                not isinstance(con_code, str)
+                or _RELATIONSHIP_SECURITY_ID_PATTERN.fullmatch(con_code) is None
+            ):
+                raise DataVendorUnavailable("CSI index_weight con_code is invalid")
+            rows_by_date.setdefault(trade_date, []).append(row)
+        selected_dates = [trade_date for trade_date in rows_by_date if trade_date <= as_of]
+        if not selected_dates:
+            raise DataVendorUnavailable(f"CSI index_weight has no PIT snapshot for {index_code}")
+        selected_date = max(selected_dates)
+        selected_rows = rows_by_date[selected_date]
+        seen_con_codes: set[str] = set()
+        evidence_id = _compiled_batch_evidence(
+            role=role,
+            as_of_date=as_of.isoformat(),
+            batch=batch,
+            kind="REGISTERED_CSI_INDEX_WEIGHT_BATCH",
+        )["evidence_id"]
+        for row in selected_rows:
+            con_code = str(row["con_code"])
+            if con_code in seen_con_codes:
+                raise DataVendorUnavailable(
+                    f"CSI index_weight has duplicate con_code on {selected_date}"
+                )
+            seen_con_codes.add(con_code)
+            entry = authority.setdefault(
+                con_code,
+                {
+                    "source_index_codes": [],
+                    "source_weights": {},
+                    "source_trade_dates": {},
+                    "source_evidence_ids": [],
+                },
+            )
+            entry["source_index_codes"].append(index_code)
+            entry["source_weights"][index_code] = float(row["weight"])
+            entry["source_trade_dates"][index_code] = selected_date.isoformat()
+            entry["source_evidence_ids"].append(evidence_id)
+    for entry in authority.values():
+        for field in ("source_index_codes", "source_evidence_ids"):
+            entry[field] = sorted(set(entry[field]))
+    return authority
+
+
+def _validate_csi_index_weight_receipt_metadata(
+    batches: list[dict[str, Any]],
+    *,
+    role: str,
+) -> None:
+    csi_batches = [
+        batch for batch in batches if batch.get("endpoint") == CSI_INDEX_WEIGHT_ENDPOINT
+    ]
+    if not csi_batches:
+        return
+    expected_codes = _csi_index_weight_codes(role)
+    expected_code_set = frozenset(expected_codes)
+    index_codes = [
+        batch.get("request", {}).get("index_code")
+        if isinstance(batch.get("request"), Mapping)
+        else None
+        for batch in csi_batches
+    ]
+    if len(index_codes) != len(expected_codes) or set(index_codes) != expected_code_set:
+        raise DataVendorUnavailable(
+            f"CSI index_weight receipt index identity is invalid for {role}"
+        )
+
+
+def _csi_index_weight_codes(role: str) -> tuple[str, ...]:
+    try:
+        return CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE[role]
+    except KeyError as exc:
+        raise DataVendorUnavailable("CSI index_weight role is not registered") from exc
 
 
 def _required_sector_endpoints(snapshot: Mapping[str, Any]) -> frozenset[str]:
@@ -2254,6 +2435,9 @@ def _validate_membership_batches(
 
     plan, direction_contracts = _manifest_bindings(role)
     _stock_batch, active_stock_rows = _registered_active_stock_rows(batches, as_of)
+    csi_authority = _validate_csi_index_weight_authority(
+        batches=batches, as_of=as_of, role=role
+    )
     membership_batches = [
         batch for batch in batches if batch["endpoint"] == "index_member_all"
     ]
@@ -2357,6 +2541,8 @@ def _validate_membership_batches(
                 raise DataVendorUnavailable(
                     "sector membership row is outside its registered branch"
                 )
+            if csi_authority and str(row.get("ts_code")) not in csi_authority:
+                continue
             in_date = _parse_temporal(
                 row.get("in_date"), "sector membership row.in_date"
             ).date()
@@ -2370,10 +2556,13 @@ def _validate_membership_batches(
                 continue
             if row.get("ts_code") not in active_stock_rows:
                 continue
-            try:
+            if csi_authority:
                 direction_id = _direction_for_security(row, direction_contracts)
-            except DataVendorUnavailable:
-                continue
+            else:
+                try:
+                    direction_id = _direction_for_security(row, direction_contracts)
+                except DataVendorUnavailable:
+                    continue
             previous_direction = mapped_directions.get(str(row["ts_code"]))
             if (
                 previous_direction is not None
@@ -2410,10 +2599,29 @@ def _validate_membership_batches(
             evidence_endpoint_by_id.get(evidence_id)
             for evidence_id in member["evidence_ids"]
         }
-        if not {"index_member_all", "stock_basic"}.issubset(endpoints):
+        required_evidence = {"index_member_all", "stock_basic"}
+        if csi_authority:
+            required_evidence.add(CSI_INDEX_WEIGHT_ENDPOINT)
+        if not required_evidence.issubset(endpoints):
             raise DataVendorUnavailable(
                 "sector eligible membership lacks stock/index evidence closure"
             )
+        if csi_authority:
+            expected_csi_evidence = set(
+                csi_authority.get(str(member["ts_code"]), {}).get(
+                    "source_evidence_ids", ()
+                )
+            )
+            actual_csi_evidence = {
+                evidence_id
+                for evidence_id in member["evidence_ids"]
+                if evidence_endpoint_by_id.get(evidence_id)
+                == CSI_INDEX_WEIGHT_ENDPOINT
+            }
+            if not expected_csi_evidence or actual_csi_evidence != expected_csi_evidence:
+                raise DataVendorUnavailable(
+                    "sector eligible membership CSI evidence lineage mismatch"
+                )
 
 
 def _finite_source_number(value: Any) -> float | None:
@@ -3888,7 +4096,7 @@ def compile_registered_sector_snapshot(
     if role not in SECTOR_DIRECTION_IDS:
         raise DataVendorUnavailable(f"unknown standard sector role {role!r}")
     as_of = date.fromisoformat(as_of_date)
-    contracts = _registered_tushare_endpoint_contracts()
+    contracts = _sector_endpoint_contracts(source_batches)
     batches = [
         _validate_source_batch(
             batch,
@@ -4004,6 +4212,9 @@ def compile_registered_sector_snapshot(
             raise DataVendorUnavailable("sector compiler membership branches are incomplete")
 
     stock_batch, active_stock_rows = _registered_active_stock_rows(batches, as_of)
+    csi_authority = _validate_csi_index_weight_authority(
+        batches=batches, as_of=as_of, role=role
+    )
     stock_evidence = _compiled_batch_evidence(
         role=role,
         as_of_date=as_of_date,
@@ -4019,6 +4230,8 @@ def compile_registered_sector_snapshot(
     for batch in membership_batches.values():
         active_rows = []
         for row in batch["rows"]:
+            if csi_authority and str(row.get("ts_code")) not in csi_authority:
+                continue
             if scoped_batches and (
                 row.get("ts_code") not in scoped_ts_codes
                 or row.get("is_new") != "Y"
@@ -4044,6 +4257,8 @@ def compile_registered_sector_snapshot(
                             row, direction_contracts
                         )
                     except DataVendorUnavailable:
+                        if csi_authority:
+                            raise
                         continue
                     ts_code = str(row["ts_code"])
                     previous_direction = scoped_directions.get(ts_code)
@@ -4085,7 +4300,13 @@ def compile_registered_sector_snapshot(
                 "vintage_at": batch["vintage_at"],
                 "pit_status": "PIT_VERIFIED",
                 "evidence_ids": sorted(
-                    [batch_evidence["evidence_id"], stock_evidence["evidence_id"]]
+                    [
+                        batch_evidence["evidence_id"],
+                        stock_evidence["evidence_id"],
+                        *csi_authority.get(ts_code, {}).get(
+                            "source_evidence_ids", []
+                        ),
+                    ]
                 ),
             }
             previous = member_state.get(ts_code)
@@ -4207,6 +4428,7 @@ def compile_registered_sector_snapshot(
             }
         )
 
+    scoring_contract = SECTOR_UNIVERSE_MANIFEST["security_scoring_contract"]
     scoring_ids = sorted(
         evidence_id
         for endpoint in ("daily", "adj_factor", "moneyflow")
@@ -4218,6 +4440,8 @@ def compile_registered_sector_snapshot(
         as_of=as_of,
         evidence_ids=scoring_ids,
     )
+    scoring_contract_version = scoring_contract["scoring_contract_version"]
+    scoring_contract_hash = scoring_contract["scoring_contract_hash"]
     provisional = {
         "eligible_security_universe": universe,
         "direction_ids": list(SECTOR_DIRECTION_IDS[role]),
@@ -4265,7 +4489,6 @@ def compile_registered_sector_snapshot(
             row["vintage_at"], "sector compiler membership vintage_at"
         ),
     )["vintage_at"]
-    scoring_contract = SECTOR_UNIVERSE_MANIFEST["security_scoring_contract"]
     body = {
         "schema_version": SECTOR_SNAPSHOT_SCHEMA_VERSION,
         "sector_universe_manifest_hash": SECTOR_UNIVERSE_MANIFEST["manifest_hash"],
@@ -4288,10 +4511,8 @@ def compile_registered_sector_snapshot(
         "eligible_security_universe": universe,
         "eligible_count": len(universe),
         "membership_hash": _canonical_hash(universe),
-        "security_scoring_contract_version": scoring_contract[
-            "scoring_contract_version"
-        ],
-        "security_scoring_contract_hash": scoring_contract["scoring_contract_hash"],
+        "security_scoring_contract_version": scoring_contract_version,
+        "security_scoring_contract_hash": scoring_contract_hash,
         "security_scoring_rows": scoring_rows,
         "security_scoring_rows_hash": _canonical_hash(scoring_rows),
         "evidence_catalog": evidence,
@@ -4317,7 +4538,8 @@ def _build_sector_source_receipt(
     historical_replay_captured_at: str | None = None,
 ) -> dict[str, Any]:
     as_of = date.fromisoformat(as_of_date)
-    contracts = _registered_tushare_endpoint_contracts()
+    contracts = _sector_endpoint_contracts(source_batches)
+    _validate_csi_index_weight_receipt_metadata(source_batches, role=role)
     batches = [
         _validate_source_batch(
             batch,
@@ -4423,7 +4645,9 @@ def _validate_sector_source_receipt(
     if not isinstance(batches, list) or not batches:
         raise DataVendorUnavailable("sector source receipt batches are required")
     ids: list[str] = []
-    contracts = _registered_tushare_endpoint_contracts()
+    contracts = _sector_endpoint_contracts(
+        [batch for batch in batches if isinstance(batch, dict)]
+    )
     as_of = date.fromisoformat(as_of_date)
     require_pagination_policy = (
         receipt["schema_version"] == SECTOR_SOURCE_RECEIPT_SCHEMA_VERSION
@@ -4522,6 +4746,7 @@ def _validate_sector_source_receipt(
             raise DataVendorUnavailable("sector source receipt batch hash mismatch")
         ids.append(expected_id)
         observed_endpoints.add(endpoint)
+    _validate_csi_index_weight_receipt_metadata(batches, role=role)
     if ids != sorted(set(ids)):
         raise DataVendorUnavailable("sector source receipt batches are not canonical")
     if not set(receipt["required_endpoints"]).issubset(observed_endpoints):

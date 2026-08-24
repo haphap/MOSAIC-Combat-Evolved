@@ -13,7 +13,7 @@
  * and a separate final-selection call.
  */
 
-import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { HumanMessage, SystemMessage, type ToolMessage } from "@langchain/core/messages";
 import { type StructuredToolInterface, tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { persistPromptReleaseCanaryEvents } from "../../autoresearch/prompt_release_canary_slo.js";
@@ -32,8 +32,14 @@ import {
   acceptedOutputRefKey,
   buildAcceptedAgentOutputRecord,
   buildStructuredSmokeAcceptedOutputRef,
+  putStructuredSmokeAcceptedOutput,
+  structuredSmokeFixtureBundleHash,
 } from "../accepted_output.js";
-import { runAgentToolLoop } from "../helpers/agent_loop.js";
+import {
+  type AgentToolLoopCompletionState,
+  type AgentToolLoopResult,
+  runAgentToolLoop,
+} from "../helpers/agent_loop.js";
 import {
   type AgentAttemptAudit,
   type AgentContractIssue,
@@ -45,6 +51,7 @@ import {
   evidenceLineageEnvelopeFromGraph,
   renderCausalEvidenceResolutionSet,
 } from "../helpers/causal_evidence_resolution.js";
+import { extractTextContent } from "../helpers/content.js";
 import {
   buildRuntimeEvidenceSnapshot,
   type RuntimeEvidenceSnapshot,
@@ -87,7 +94,7 @@ import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
 import type { PromptReleaseLoadContext } from "../prompts/release_prompt_loader.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
 import type { SectorAgentOutput, SectorAgentOutputBase, StandardSectorAgentId } from "../types.js";
-import { STANDARD_SECTOR_ROLE_CONTRACTS } from "./_contracts.js";
+import { STANDARD_SECTOR_AGENT_IDS, STANDARD_SECTOR_ROLE_CONTRACTS } from "./_contracts.js";
 import { buildStandardSectorSchema } from "./_schemas.js";
 import {
   acceptedSectorSelectionPayload,
@@ -112,10 +119,12 @@ import {
 } from "./phase_directives.js";
 import { SECTOR_DIRECTION_CONFLICT_RESOLVER_CONTRACT } from "./registry.js";
 import {
+  applyRuntimeSectorSecurityAuthority,
   attachSectorRuntimeBinding,
   buildPairwiseFinalDirective,
   directionComparisonAuditHash,
   modelVisibleDirective,
+  type RuntimeSectorSecurityAuthority,
   SECURITY_SCORING_CONTRACT_HASH,
   SECURITY_SCORING_CONTRACT_VERSION,
   type SectorFinalSelectionRuntimeDirective,
@@ -218,6 +227,7 @@ export function buildLayerTwoAgentNode<TOutput extends SectorAgentOutput>(
                 state,
                 agentId: spec.agentId,
                 stage: spec.agentId,
+                agentTimeoutMs: timeoutMs,
                 runtimeInputs: {
                   macro_input_gate: state.macro_input_gate,
                   ...(state.darwinian_runtime_binding
@@ -333,36 +343,62 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
     stage: "agent_run",
     runtimeSourceStatuses: input.runtimeSourceStatuses,
   });
+  let rawInitialSectorSnapshot: string | null = null;
+  const structuredSmoke = structuredSmokeFixtureBundleHash() !== null;
   const loopResult = await runAgentToolLoop({
     llm: input.deps.llmHandle.llm,
     tools: input.tools,
     systemMessage:
       `${input.systemPrompt}\n\n` +
-      "Use the deterministic initial snapshots first. Then, only when useful, choose among " +
-      "the registered frozen adaptive queries. Do not request data outside the authorized domain.",
+      (structuredSmoke
+        ? "Use the deterministic initial snapshots first. In the first adaptive round, call " +
+          "get_sector_index_membership exactly once using the tool schema's exact constant arguments; " +
+          "do not call any exact-ticker tool before that membership result. After the membership result " +
+          "is returned, in the next adaptive round call the existing exact-ticker tools for two different " +
+          "returned members. Do not request data outside the authorized domain."
+        : "Use the deterministic initial snapshots first. Then, only when useful, choose among " +
+          "the registered frozen adaptive queries. Do not request data outside the authorized domain."),
     initialMessages: [new HumanMessage(input.userContext)],
     initialToolCalls: input.spec.initialSnapshotTools.map((name) => ({ name, args: {} })),
+    initialToolOutput: (name, output) => {
+      if (name !== "get_sector_research_snapshot") return output;
+      rawInitialSectorSnapshot = output;
+      return projectSectorResearchSnapshotForModel(output);
+    },
     allowModelToolCalls: input.deps.llmHandle.provider !== "fake",
-    maxLoops: 3,
+    ...(input.deps.llmHandle.provider === "fake" || !structuredSmoke
+      ? {}
+      : { completionGuard: sectorRuntimeCompletionGuard }),
+    maxLoops: structuredSmoke && input.deps.llmHandle.provider !== "fake" ? 5 : 3,
     replayFullToolMaxChars: 80_000,
     agentInvocationId: preLoopEvidence.agentInvocationId,
     onLog: (message) => input.onLog(formatAgentEvent("phase", "L2", input.spec.agentId, [message])),
     signal: input.signal,
   });
+  const runtimeSecurityAuthority = resolveRuntimeSectorSecurityAuthority(
+    input.deps.llmHandle.provider,
+    loopResult,
+    input.state.as_of_date,
+    structuredSmoke,
+  );
   const toolMaterialization = requiredInitialSectorSnapshots({
     loopResult,
     initialSnapshotTools: input.spec.initialSnapshotTools,
     agentId: input.spec.agentId,
   });
+  const snapshotPayloads = new Map(toolMaterialization.payloads);
+  if (rawInitialSectorSnapshot !== null) {
+    snapshotPayloads.set("get_sector_research_snapshot", rawInitialSectorSnapshot);
+  }
   const baseRuntimeEvidence = buildRuntimeEvidenceSnapshot({
     state: input.state,
     agent: input.spec.agentId,
     stage: "agent_run",
-    toolStatuses: toolMaterialization.statuses,
+    toolStatuses: loopResult.toolStatuses,
     runtimeSourceStatuses: input.runtimeSourceStatuses,
   });
   const snapshot = parseSectorRuntimeSnapshot(
-    toolMaterialization.payloads,
+    snapshotPayloads,
     input.spec.agentId,
     input.state.as_of_date,
     input.structuredHandle.provider === "fake",
@@ -503,10 +539,38 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
         snapshot_hash: runtimeEvidence.snapshotHash,
         conflict_review_id: conflictReviewId,
       },
-      validate: (output) => ({
-        output,
-        issues: validateResearchEvidence(output.comparison_claims, runtimeEvidence),
-      }),
+      validate: (output) => {
+        const reviewedComparisons = applyConflictReview(
+          finalizedComparisons,
+          output,
+          orderedConflictDirections,
+          coverageDirective,
+        );
+        const reviewedReduction = reduceDirectionMatrix(
+          eligibleDirections as [string, string, string, ...string[]],
+          reviewedComparisons.map(resolveDirectionPair),
+        );
+        const issues = validateResearchEvidence(output.comparison_claims, runtimeEvidence);
+        if (!reviewedReduction.condorcet_winner_direction_id) {
+          issues.push({
+            validator: "sector_conflict_review_reducer_v1",
+            reason_code: "CONFLICT_REVIEW_NO_UNIQUE_CONDORCET_WINNER",
+            json_path: "$.revised_comparisons",
+            message:
+              "conflict review must resolve a unique Condorcet winner across the full eligible direction matrix",
+          });
+        }
+        if (!reviewedReduction.condorcet_loser_direction_id) {
+          issues.push({
+            validator: "sector_conflict_review_reducer_v1",
+            reason_code: "CONFLICT_REVIEW_NO_UNIQUE_CONDORCET_LOSER",
+            json_path: "$.revised_comparisons",
+            message:
+              "conflict review must resolve a unique Condorcet loser across the full eligible direction matrix",
+          });
+        }
+        return { output, issues };
+      },
       ...(input.preparedCapability
         ? {
             onAttempt: sectorUsageAttemptRecorder({
@@ -535,13 +599,16 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
       resolutions,
     );
   }
-  const directive: SectorFinalSelectionRuntimeDirective = buildPairwiseFinalDirective({
+  const staticDirective: SectorFinalSelectionRuntimeDirective = buildPairwiseFinalDirective({
     reduction,
     finalizedComparisons,
     resolutions,
     comparisonClaims,
     securityScoringRows: snapshot.securityScoringRows,
   });
+  const directive = runtimeSecurityAuthority
+    ? applyRuntimeSectorSecurityAuthority(staticDirective, runtimeSecurityAuthority)
+    : staticDirective;
   const finalizedMatrixHash = reduction.finalized_pair_matrix_hash;
   const comparisonAudit = {
     schema_version: "sector_direction_comparison_audit_v1",
@@ -789,12 +856,20 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
       [acceptedOutputRefKey("STANDARD_SECTOR_SELECTION", input.spec.agentId)]: ref,
     };
   } else {
-    const ref = buildStructuredSmokeAcceptedOutputRef({
-      kind: "STANDARD_SECTOR_SELECTION",
-      agentId: input.spec.agentId,
-      payload: output,
-      state: input.state,
-    });
+    const ref =
+      input.structuredHandle.provider === "fake"
+        ? buildStructuredSmokeAcceptedOutputRef({
+            kind: "STANDARD_SECTOR_SELECTION",
+            agentId: input.spec.agentId,
+            payload: output,
+            state: input.state,
+          })
+        : putStructuredSmokeAcceptedOutput(input.deps.acceptedOutputStore, {
+            kind: "STANDARD_SECTOR_SELECTION",
+            agentId: input.spec.agentId,
+            payload: output,
+            state: input.state,
+          });
     if (ref) {
       acceptedOutputRefs = {
         [acceptedOutputRefKey("STANDARD_SECTOR_SELECTION", input.spec.agentId)]: ref,
@@ -901,6 +976,329 @@ function requiredInitialSectorSnapshots(input: {
     payloads.set(name, text);
   }
   return { payloads, statuses: input.loopResult.toolStatuses };
+}
+
+function projectSectorResearchSnapshotForModel(payload: string): string {
+  const unavailable = JSON.stringify({
+    runtime_security_scope: "PENDING_MEMBERSHIP",
+    payload_status: "UNAVAILABLE",
+  });
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payload);
+  } catch {
+    return unavailable;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return unavailable;
+  }
+  const omit = new Set([
+    "eligible_security_universe",
+    "etf_ts_codes",
+    "security_scoring_contract_hash",
+    "security_scoring_contract_version",
+    "security_scoring_rows",
+    "security_scoring_rows_hash",
+    "snapshot_hash",
+    "ticker",
+    "ts_code",
+  ]);
+  const project = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(project);
+    if (value === null || typeof value !== "object") return value;
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !omit.has(key) && !key.startsWith("security_scoring"))
+        .map(([key, child]) => [key, project(child)]),
+    );
+  };
+  const projected = project(parsed) as Record<string, unknown>;
+  delete projected.eligible_count;
+  const projectedPayload = JSON.stringify({
+    ...projected,
+    runtime_security_scope: "PENDING_MEMBERSHIP",
+  });
+  return /\d{6}\.(?:SH|SZ|BJ)\b/.test(projectedPayload) ? unavailable : projectedPayload;
+}
+
+export function sectorRuntimeCompletionGuard(
+  state: AgentToolLoopCompletionState,
+): string | undefined {
+  const successful = (status: ToolStatus): boolean =>
+    status.called &&
+    !status.failed &&
+    !status.missing &&
+    !status.fallback &&
+    status.server_result_authority_type === "FROZEN_QUERY" &&
+    /^sha256:[0-9a-f]{64}$/.test(status.server_result_authority_hash ?? "");
+  const membershipIndex = state.toolStatuses.findIndex(
+    (status) =>
+      status.name === "get_sector_index_membership" &&
+      successful(status) &&
+      typeof status.call_id === "string",
+  );
+  if (membershipIndex < 0) {
+    return (
+      "Call get_sector_index_membership exactly once using the tool schema's exact constant arguments; " +
+      "do not call any exact-ticker tool before that membership result. After the membership result " +
+      "is returned, in the next adaptive round call the existing exact-ticker tools for two different " +
+      "returned members, then provide the final selection."
+    );
+  }
+  const membershipStatus = state.toolStatuses[membershipIndex];
+  if (!membershipStatus?.call_id) return undefined;
+  const membershipMessages = state.messages.filter(
+    (message) =>
+      message.getType() === "tool" &&
+      (message as ToolMessage).tool_call_id === membershipStatus.call_id,
+  );
+  if (membershipMessages.length !== 1) return undefined;
+  let payload: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(extractTextContent(membershipMessages[0]?.content as unknown));
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return undefined;
+    }
+    payload = parsed as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(payload.members) || payload.members.length === 0) return undefined;
+  const memberIds = new Set<string>();
+  for (const member of payload.members) {
+    if (
+      member === null ||
+      typeof member !== "object" ||
+      Array.isArray(member) ||
+      typeof (member as Record<string, unknown>).ticker !== "string" ||
+      !/^\d{6}\.(SH|SZ|BJ)$/.test((member as Record<string, unknown>).ticker as string)
+    ) {
+      return undefined;
+    }
+    memberIds.add((member as Record<string, unknown>).ticker as string);
+  }
+  if (memberIds.size === 0) return undefined;
+  const exactIds = new Set<string>();
+  for (const status of state.toolStatuses.slice(membershipIndex + 1)) {
+    if (!successful(status) || !status.call_id || status.name === "get_sector_index_membership") {
+      continue;
+    }
+    const args = status.args;
+    if (args === null || typeof args !== "object" || Array.isArray(args)) continue;
+    const record = args as Record<string, unknown>;
+    const ticker =
+      typeof record.ticker === "string"
+        ? record.ticker
+        : typeof record.ts_code === "string"
+          ? record.ts_code
+          : undefined;
+    if (!ticker || !memberIds.has(ticker)) continue;
+    const messages = state.messages.filter(
+      (message) =>
+        message.getType() === "tool" && (message as ToolMessage).tool_call_id === status.call_id,
+    );
+    if (messages.length === 1) exactIds.add(ticker);
+  }
+  if (exactIds.size >= 2) return undefined;
+  const returnedCodes = [...memberIds].sort();
+  const successfulExactCodes = [...exactIds].sort();
+  const remainingExactCalls = 2 - successfulExactCodes.length;
+  return (
+    `Use the returned membership result. Returned member codes (sorted): ${returnedCodes.join(", ")}. ` +
+    `Successful exact-member codes (sorted): ${successfulExactCodes.length > 0 ? successfulExactCodes.join(", ") : "none"}. ` +
+    `Call existing exact-ticker tools for ${remainingExactCalls} more different returned member${remainingExactCalls === 1 ? "" : "s"} only; ` +
+    "Prefer get_stock_data. Its argument object must contain only ticker, date_from, and date_to; " +
+    "ticker must be one of the returned codes above, and date_from/date_to must be copied character-for-character " +
+    "from the currently advertised get_stock_data schema const values. Do not add any other fields; " +
+    "do not choose codes automatically, then provide the final selection."
+  );
+}
+
+export function deriveRuntimeSectorSecurityAuthority(
+  loopResult: AgentToolLoopResult,
+  asOf: string,
+): RuntimeSectorSecurityAuthority {
+  const isRecord = (value: unknown): Record<string, unknown> | null =>
+    value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  const isSha256 = (value: unknown): value is string =>
+    typeof value === "string" && /^sha256:[0-9a-f]{64}$/.test(value);
+  const successful = (status: (typeof loopResult.toolStatuses)[number]): boolean =>
+    status.called && !status.failed && !status.missing && !status.fallback;
+  const messagesForCall = (callId: string) =>
+    loopResult.messages.filter(
+      (message) =>
+        message.getType() === "tool" &&
+        (message as unknown as { tool_call_id?: unknown }).tool_call_id === callId,
+    );
+  const malformed = (kind: string): never => {
+    throw new Error(`runtime Sector security authority ${kind} is malformed`);
+  };
+
+  let membershipIndex = -1;
+  let membership:
+    | {
+        index_code: string;
+        selected_trade_date: string;
+        members: Array<{ ticker: string; weight: number }>;
+        call_id: string;
+        request: { index_code: string; as_of: string };
+        result_authority_hash: string;
+      }
+    | undefined;
+
+  for (const [index, status] of loopResult.toolStatuses.entries()) {
+    if (status.name !== "get_sector_index_membership" || !successful(status)) continue;
+    if (
+      status.server_result_authority_type !== "FROZEN_QUERY" ||
+      typeof status.call_id !== "string" ||
+      status.call_id.length === 0 ||
+      !isSha256(status.server_result_authority_hash)
+    ) {
+      malformed("membership evidence");
+    }
+    if (membership) malformed("duplicate membership evidence");
+    const membershipCallId = status.call_id as string;
+    const membershipAuthorityHash = status.server_result_authority_hash as string;
+    const args = isRecord(status.args);
+    if (!args || typeof args.index_code !== "string" || args.as_of !== asOf) {
+      malformed("membership request");
+    }
+    const validatedArgs = args as Record<string, unknown>;
+    const membershipIndexCode = validatedArgs.index_code as string;
+    const matchedMessages = messagesForCall(membershipCallId);
+    if (matchedMessages.length !== 1) malformed("membership ToolMessage");
+    const message = matchedMessages[0];
+    if (!message) malformed("membership ToolMessage");
+
+    let payload: unknown;
+    try {
+      payload = JSON.parse(
+        extractTextContent((message as unknown as { content: unknown }).content),
+      );
+    } catch {
+      malformed("membership payload JSON");
+    }
+    const output = isRecord(payload);
+    const selectedTradeDate = output?.selected_trade_date;
+    const outputRecord = output as Record<string, unknown>;
+    if (!outputRecord || outputRecord.index_code !== membershipIndexCode) {
+      malformed("membership payload");
+    }
+    if (
+      typeof selectedTradeDate !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(selectedTradeDate) ||
+      selectedTradeDate > asOf
+    ) {
+      malformed("membership trade date");
+    }
+    const rawMembers = outputRecord.members;
+    if (!Array.isArray(rawMembers) || rawMembers.length === 0) {
+      malformed("membership members");
+    }
+    const memberItems = rawMembers as unknown[];
+    const members: Array<{ ticker: string; weight: number }> = memberItems.map((item: unknown) => {
+      const member = isRecord(item);
+      if (
+        !member ||
+        typeof member.ticker !== "string" ||
+        member.ticker.length === 0 ||
+        !/^\d{6}\.(SH|SZ|BJ)$/.test(member.ticker) ||
+        typeof member.weight !== "number" ||
+        !Number.isFinite(member.weight)
+      ) {
+        malformed("membership member");
+      }
+      const memberRecord = member as Record<string, unknown>;
+      return {
+        ticker: memberRecord.ticker as string,
+        weight: memberRecord.weight as number,
+      };
+    });
+    if (new Set(members.map((member) => member.ticker)).size !== members.length) {
+      malformed("membership duplicate ticker");
+    }
+    members.sort((left, right) =>
+      left.ticker < right.ticker ? -1 : left.ticker > right.ticker ? 1 : 0,
+    );
+    membershipIndex = index;
+    membership = {
+      index_code: membershipIndexCode,
+      selected_trade_date: selectedTradeDate as string,
+      members,
+      call_id: membershipCallId,
+      request: { index_code: membershipIndexCode, as_of: asOf },
+      result_authority_hash: membershipAuthorityHash,
+    };
+  }
+
+  if (membershipIndex < 0 || !membership) {
+    throw new Error("runtime Sector security authority has no valid membership evidence");
+  }
+
+  const membershipTickers = new Set(membership.members.map((member) => member.ticker));
+  const exactQueries: Array<{
+    tool: string;
+    call_id: string;
+    ticker: string;
+    result_authority_hash: string;
+  }> = [];
+  for (let index = membershipIndex + 1; index < loopResult.toolStatuses.length; index += 1) {
+    const status = loopResult.toolStatuses[index];
+    if (!status || status.name === "get_sector_index_membership" || !successful(status)) continue;
+    if (status.server_result_authority_type !== "FROZEN_QUERY") continue;
+    const args = isRecord(status.args);
+    const ticker =
+      typeof args?.ticker === "string"
+        ? args.ticker
+        : typeof args?.ts_code === "string"
+          ? args.ts_code
+          : null;
+    if (!ticker) continue;
+    if (
+      typeof status.call_id !== "string" ||
+      status.call_id.length === 0 ||
+      !isSha256(status.server_result_authority_hash)
+    ) {
+      malformed("exact-ticker evidence");
+    }
+    const exactCallId = status.call_id as string;
+    const exactAuthorityHash = status.server_result_authority_hash as string;
+    if (messagesForCall(exactCallId).length !== 1) malformed("exact-ticker ToolMessage");
+    if (membershipTickers.has(ticker)) {
+      exactQueries.push({
+        tool: status.name,
+        call_id: exactCallId,
+        ticker,
+        result_authority_hash: exactAuthorityHash,
+      });
+    }
+  }
+
+  const allowedIds = [...new Set(exactQueries.map((query) => query.ticker))].sort();
+  if (allowedIds.length < 2) {
+    throw new Error("runtime Sector security authority requires at least two distinct codes");
+  }
+  return {
+    allowedIds,
+    authorityHash: canonicalHash({
+      schema_version: "runtime_sector_security_authority_v1",
+      as_of: asOf,
+      membership,
+      exact_queries: exactQueries,
+    }),
+  };
+}
+
+export function resolveRuntimeSectorSecurityAuthority(
+  provider: LlmHandle["provider"],
+  loopResult: AgentToolLoopResult,
+  asOf: string,
+  structuredSmoke: boolean,
+): RuntimeSectorSecurityAuthority | null {
+  if (provider === "fake" || !structuredSmoke) return null;
+  return deriveRuntimeSectorSecurityAuthority(loopResult, asOf);
 }
 
 export function buildSectorCoverageDirective(
@@ -1450,12 +1848,8 @@ export function renderSectorDirectionResearchPayloads(
   return [...payloads.entries()]
     .map(([name, payload]) => {
       if (name !== "get_sector_research_snapshot") return `## Frozen ${name}\n${payload}`;
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(payload);
-      } catch {
-        return `## Frozen ${name}\n${payload}`;
-      }
+      const projected = projectSectorResearchSnapshotForModel(payload);
+      const parsed = JSON.parse(projected);
       return (
         `## Frozen ${name}\n` +
         `Source evidence ids are intentionally hidden here; claims must cite the runtime-owned catalog.\n` +
@@ -1991,7 +2385,9 @@ function buildFakeRoleEventSnapshot(agentId: StandardSectorAgentId, asOf: string
 function buildFakeStandardSectorSnapshot(agentId: StandardSectorAgentId, asOf: string) {
   const directionIds = STANDARD_SECTOR_ROLE_CONTRACTS[agentId].directionIds;
   const eligibleSecurityUniverse = directionIds.map((directionId, index) => ({
-    ts_code: `${String(600000 + index).padStart(6, "0")}.SH`,
+    ts_code: `${String(
+      600000 + STANDARD_SECTOR_AGENT_IDS.indexOf(agentId) * 100 + index * 2,
+    ).padStart(6, "0")}.SH`,
     direction_id: directionId,
   }));
   const securityScoringRows = eligibleSecurityUniverse

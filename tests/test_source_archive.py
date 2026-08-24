@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import sqlite3
 import socket
 from pathlib import Path
@@ -12,14 +14,18 @@ from mosaic.dataflows.agent_materialization import (
 )
 from mosaic.dataflows.economic_calendar import (
     ECO_CAL_EXPECTED_COLUMNS,
+    ECO_CAL_REGISTERED_CURRENCIES,
     ECO_CAL_REGISTERED_ROUTES,
     EconomicCalendarStore,
+    collect_eco_calendar,
 )
 from mosaic.dataflows.macro_snapshots import MACRO_EVENT_ROLES
 from mosaic.dataflows.role_events import ROLE_EVENT_CURRENCIES
+from mosaic.dataflows.agent_stage_preparer import compile_role_event_builds
 from mosaic.dataflows.source_archive import (
     ECO_CAL_LOGICAL_ROUTES,
     archive_eco_calendar,
+    bootstrap_structured_smoke_eco_calendar,
 )
 
 
@@ -71,6 +77,223 @@ def _archive(
         consumer_agent=consumer_agent,
     )
     return result, store, ledger
+
+
+def _build_smoke_fixture(
+    path: Path,
+    *,
+    retrieved_at: str,
+    currencies: tuple[str, ...] = ECO_CAL_REGISTERED_CURRENCIES,
+) -> Path:
+    store = EconomicCalendarStore(path)
+    collect_eco_calendar(
+        lambda **request: [
+            _row(currency, date="20250617")
+            for currency, country in ECO_CAL_REGISTERED_ROUTES
+            if currency in currencies and country == request["country"]
+        ],
+        start_date="2025-06-17",
+        end_date="2025-06-17",
+        retrieved_at=retrieved_at,
+        store=store,
+        currencies=currencies,
+    )
+    return path
+
+
+def test_structured_smoke_fixture_bootstrap_is_read_only_and_seals_three_routes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture_db = _build_smoke_fixture(
+        tmp_path / "fixture" / "eco-cal.sqlite3",
+        retrieved_at="2025-06-17T10:00:00+08:00",
+    )
+    before = hashlib.sha256(fixture_db.read_bytes()).hexdigest()
+    runtime_store = EconomicCalendarStore(tmp_path / "runtime" / "eco-cal.sqlite3")
+    ledger = AgentDataMaterializationLedger(tmp_path / "runtime" / "ledger.sqlite3")
+    transport_calls: list[object] = []
+
+    def forbidden_transport(*_args: object, **_kwargs: object) -> None:
+        transport_calls.append(None)
+        raise AssertionError("fixture bootstrap must not use transport")
+
+    monkeypatch.setattr("mosaic.dataflows.source_archive.collect_eco_calendar", forbidden_transport)
+    result = bootstrap_structured_smoke_eco_calendar(
+        fixture_db,
+        as_of_date="2025-06-17",
+        store=runtime_store,
+        ledger=ledger,
+    )
+
+    assert hashlib.sha256(fixture_db.read_bytes()).hexdigest() == before
+    assert len(result.source_receipts) == 3
+    assert result.coverage_receipt.as_dict()["coverage_complete"] is True
+    assert ledger.row_counts()["source_capture_receipts"] == 3
+    assert ledger.row_counts()["route_coverage_receipts"] == 1
+    assert transport_calls == []
+    assert not Path(f"{fixture_db}-wal").exists()
+    assert not Path(f"{fixture_db}-shm").exists()
+    with sqlite3.connect(fixture_db) as conn:
+        assert conn.execute(
+            "SELECT raw_row_count FROM retrieval_batches"
+        ).fetchone()[0] == 10
+    assert result.batch["query_count"] == 3
+    assert {
+        request["expected_currency"] for request in result.batch["requests"]
+    } == {"CNY", "USD", "EUR"}
+    assert result.batch["raw_row_count"] == 3
+    assert {
+        receipt.as_dict()["coverage"]["dimensions"]["currency"][0]
+        for receipt in result.source_receipts
+    } == {"CNY", "USD", "EUR"}
+
+
+def test_structured_smoke_fixture_bootstrap_recovers_blocked_role_build(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    blocked_fixture = _build_smoke_fixture(
+        tmp_path / "blocked" / "eco-cal.sqlite3",
+        retrieved_at="2025-06-17T15:00:01+08:00",
+    )
+    valid_fixture = _build_smoke_fixture(
+        tmp_path / "fixture" / "eco-cal.sqlite3",
+        retrieved_at="2025-06-17T10:00:00+08:00",
+    )
+    before = hashlib.sha256(valid_fixture.read_bytes()).hexdigest()
+    runtime_store = EconomicCalendarStore(tmp_path / "runtime" / "eco-cal.sqlite3")
+    ledger = AgentDataMaterializationLedger(tmp_path / "runtime" / "ledger.sqlite3")
+    blocked = bootstrap_structured_smoke_eco_calendar(
+        blocked_fixture,
+        as_of_date="2025-06-17",
+        store=runtime_store,
+        ledger=ledger,
+    )
+    blocked_build = compile_role_event_builds(
+        archive=blocked,
+        store=runtime_store,
+        ledger=ledger,
+        agent_ids=("alpha_discovery",),
+    )[0]
+    assert blocked_build.as_dict()["terminal_state"] == "BLOCKED"
+    transport_calls: list[object] = []
+
+    def forbidden_transport(*_args: object, **_kwargs: object) -> None:
+        transport_calls.append(None)
+        raise AssertionError("fixture recovery must not use transport")
+
+    monkeypatch.setattr("mosaic.dataflows.source_archive.collect_eco_calendar", forbidden_transport)
+    recovered = bootstrap_structured_smoke_eco_calendar(
+        valid_fixture,
+        as_of_date="2025-06-17",
+        store=runtime_store,
+        ledger=ledger,
+    )
+    compile_role_event_builds(
+        archive=recovered,
+        store=runtime_store,
+        ledger=ledger,
+        agent_ids=("alpha_discovery",),
+    )
+
+    ready = ledger.ready_snapshot_build_receipts(
+        agent_id="alpha_discovery",
+        stage="alpha_discovery",
+        tool_id="get_role_event_snapshot",
+        as_of="2025-06-17",
+    )
+    with sqlite3.connect(ledger.path) as conn:
+        states = [
+            row[0]
+            for row in conn.execute(
+                "SELECT terminal_state FROM snapshot_build_receipts "
+                "WHERE agent_id = 'alpha_discovery'"
+            )
+        ]
+    assert len(ready) == 1
+    assert states.count("BLOCKED") == 1
+    assert states.count("READY") == 1
+    assert recovered.batch["raw_row_count"] == 3
+    assert hashlib.sha256(valid_fixture.read_bytes()).hexdigest() == before
+    assert not Path(f"{valid_fixture}-wal").exists()
+    assert not Path(f"{valid_fixture}-shm").exists()
+    assert transport_calls == []
+
+
+def test_structured_smoke_fixture_bootstrap_rejects_missing_registered_route(
+    tmp_path: Path,
+) -> None:
+    fixture_db = _build_smoke_fixture(
+        tmp_path / "fixture" / "eco-cal.sqlite3",
+        retrieved_at="2025-06-17T10:00:00+08:00",
+        currencies=("CNY", "USD"),
+    )
+    result = bootstrap_structured_smoke_eco_calendar(
+        fixture_db,
+        as_of_date="2025-06-17",
+        store=EconomicCalendarStore(tmp_path / "runtime" / "eco-cal.sqlite3"),
+        ledger=AgentDataMaterializationLedger(tmp_path / "runtime" / "ledger.sqlite3"),
+    )
+
+    assert result.source_receipts == ()
+    assert result.coverage_receipt.as_dict()["coverage_complete"] is False
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (("raw_row_count", 9), ("raw_row_hashes", [])),
+)
+def test_structured_smoke_fixture_bootstrap_rejects_batch_raw_metadata_drift(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    fixture_db = _build_smoke_fixture(
+        tmp_path / "fixture" / "eco-cal.sqlite3",
+        retrieved_at="2025-06-17T10:00:00+08:00",
+    )
+    with sqlite3.connect(fixture_db) as conn:
+        conn.execute("DROP TRIGGER retrieval_batches_no_update")
+        batch_id, raw_record = conn.execute(
+            "SELECT retrieval_batch_id, record_json FROM retrieval_batches"
+        ).fetchone()
+        record = json.loads(raw_record)
+        record[field] = value
+        conn.execute(
+            "UPDATE retrieval_batches SET record_json = ? "
+            "WHERE retrieval_batch_id = ?",
+            (json.dumps(record, sort_keys=True, separators=(",", ":")), batch_id),
+        )
+    result = bootstrap_structured_smoke_eco_calendar(
+        fixture_db,
+        as_of_date="2025-06-17",
+        store=EconomicCalendarStore(tmp_path / "runtime" / "eco-cal.sqlite3"),
+        ledger=AgentDataMaterializationLedger(tmp_path / "runtime" / "ledger.sqlite3"),
+    )
+
+    assert result.source_receipts == ()
+    assert result.coverage_receipt.as_dict()["coverage_complete"] is False
+
+
+def test_structured_smoke_fixture_bootstrap_rejects_after_cutoff_batch(
+    tmp_path: Path,
+) -> None:
+    fixture_db = _build_smoke_fixture(
+        tmp_path / "fixture" / "eco-cal.sqlite3",
+        retrieved_at="2025-06-17T15:00:01+08:00",
+    )
+    result = bootstrap_structured_smoke_eco_calendar(
+        fixture_db,
+        as_of_date="2025-06-17",
+        store=EconomicCalendarStore(tmp_path / "runtime" / "eco-cal.sqlite3"),
+        ledger=AgentDataMaterializationLedger(tmp_path / "runtime" / "ledger.sqlite3"),
+    )
+
+    assert result.source_receipts == ()
+    assert result.coverage_receipt.as_dict()["blocker_codes"] == [
+        "CAPTURE_AFTER_AS_OF_CUTOFF"
+    ]
 
 
 def test_fresh_empty_cache_captures_three_semiconductor_leaves_and_builds_no_event_snapshot(

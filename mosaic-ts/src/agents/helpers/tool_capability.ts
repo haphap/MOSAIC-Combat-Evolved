@@ -20,6 +20,7 @@ export interface PrepareAgentToolCapabilityArgs {
   state: DailyCycleStateType;
   agentId: string;
   stage: AgentExecutionStageId;
+  agentTimeoutMs?: number;
   runtimeInputs?: Record<string, unknown>;
   candidateScope?: Record<string, unknown> | null;
 }
@@ -47,6 +48,7 @@ export async function prepareAgentToolCapability(
   const nodeId = `${args.agentId}:${args.stage}`;
   const invocationNonce = randomUUID();
   const runtimeInputs = args.runtimeInputs ?? {};
+  const ttlSeconds = capabilityTtlSecondsForAgentTimeout(args.agentTimeoutMs);
   const request: ToolCapabilityPrepareRequest = {
     graph_run_id: graphRunId,
     run_slot_id: `${graphRunId}:${nodeId}`,
@@ -58,6 +60,7 @@ export async function prepareAgentToolCapability(
     materialization_request_id: `materialize:${graphRunId}:${nodeId}:${invocationNonce}`,
     runtime_inputs: runtimeInputs,
     candidate_scope: args.candidateScope ?? null,
+    ...(ttlSeconds !== undefined ? { ttl_seconds: ttlSeconds } : {}),
   };
   const rawPrepared = await args.api.toolsPrepareCapability(request);
   const prepared = validatePreparedCapability(rawPrepared.bundle, rawPrepared.capability);
@@ -79,6 +82,15 @@ export async function prepareAgentToolCapability(
       ? { prepared_initial_tool_ids: preparedInitialToolIds }
       : {}),
   };
+}
+
+function capabilityTtlSecondsForAgentTimeout(timeoutMs: number | undefined): number | undefined {
+  if (timeoutMs === undefined || timeoutMs <= 0) return undefined;
+  const ttlSeconds = Math.ceil(timeoutMs / 1000);
+  if (ttlSeconds > 3600) {
+    throw new Error("agent timeout exceeds the maximum tool capability lifetime of 3600 seconds");
+  }
+  return ttlSeconds;
 }
 
 export async function terminateAgentToolCapability(

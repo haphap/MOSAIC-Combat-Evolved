@@ -5,9 +5,12 @@ import { RUNTIME_AGENT_SPECS } from "../src/agents/prompts/runtime_agent_spec.js
 import {
   AGENT_EXECUTION_STAGE_IDS,
   AGENT_IDS,
+  AGENT_INITIAL_TOOL_MATRIX,
+  AGENT_LAYER_BY_ID,
   AGENT_TOOL_IDS,
   AgentSnapshotBundleSchema,
   AgentToolCapabilityManifestSchema,
+  agentToolsFor,
   buildAgentToolContractManifest,
   validatePreparedCapability,
 } from "../src/agents/tool_contract.js";
@@ -56,13 +59,28 @@ function capability() {
 }
 
 describe("canonical Agent tool contract", () => {
-  it("contains exactly 25 agents, 26 stages, and the 29-tool active surface", () => {
+  it("contains exactly 25 agents, 26 stages, and the 30-tool active surface", () => {
     expect(AGENT_IDS).toHaveLength(25);
     expect(new Set(AGENT_IDS).size).toBe(25);
     expect(AGENT_EXECUTION_STAGE_IDS).toHaveLength(26);
     expect(new Set(AGENT_EXECUTION_STAGE_IDS).size).toBe(26);
-    expect(AGENT_TOOL_IDS).toHaveLength(29);
-    expect(new Set(AGENT_TOOL_IDS).size).toBe(29);
+    expect(AGENT_TOOL_IDS).toHaveLength(30);
+    expect(new Set(AGENT_TOOL_IDS).size).toBe(30);
+    expect({
+      sectorMembership: AGENT_IDS.filter((id) => AGENT_LAYER_BY_ID[id] === "sector").every((id) =>
+        agentToolsFor(id).includes("get_sector_index_membership"),
+      ),
+      nonSectorMembership: AGENT_IDS.filter((id) => AGENT_LAYER_BY_ID[id] !== "sector").every(
+        (id) => !agentToolsFor(id).includes("get_sector_index_membership"),
+      ),
+      initialMembership: Object.values(AGENT_INITIAL_TOOL_MATRIX).some((tools) =>
+        (tools as readonly string[]).includes("get_sector_index_membership"),
+      ),
+    }).toEqual({
+      sectorMembership: true,
+      nonSectorMembership: true,
+      initialMembership: false,
+    });
   });
 
   it("matches every runtime Agent spec and the committed generated artifact", () => {

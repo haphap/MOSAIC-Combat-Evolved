@@ -9,9 +9,14 @@ import pytest
 
 import mosaic.bridge.tool_capabilities as capability_module
 from mosaic.bridge.tool_capabilities import AgentToolCapabilityStore
-from mosaic.dataflows.frozen_adaptive_queries import FrozenAdaptiveQueryStore
+from mosaic.dataflows.bound_runtime_production import ActiveAdaptiveQueryPreparer
+from mosaic.dataflows.frozen_adaptive_queries import (
+    CALL_TIME_ARGUMENT_CONTRACT,
+    FrozenAdaptiveQueryStore,
+)
 from mosaic.scorecard.canonical_json import canonical_hash
 from mosaic.scorecard.l3_l4_preservation import build_l3_l4_preservation_overlay
+from mosaic.scorecard.l3_l4_preservation import L3_TOOL_ROSTER
 
 
 ROOT = Path(__file__).parents[1]
@@ -138,6 +143,138 @@ def test_l4_capability_serves_frozen_initial_prior_without_adaptive_session(
         )
         == prior_payload
     )
+
+
+def test_deferred_call_prefers_exact_replayed_initial_before_follow_up(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 7, 9, 9, 0, tzinfo=timezone.utc)
+    frozen = FrozenAdaptiveQueryStore(tmp_path / "frozen.sqlite3", clock=lambda: now)
+    overlay = build_l3_l4_preservation_overlay(ROOT)
+    initial_requests = [
+        {
+            "tool_id": "get_fundamentals",
+            "args": {"ticker": "600519.SH", "as_of": "2026-07-09"},
+        },
+        {
+            "tool_id": "get_cashflow",
+            "args": {
+                "ticker": "600519.SH",
+                "frequency": "annual",
+                "as_of": "2026-07-09",
+            },
+        },
+    ]
+    follow_up_requests = [
+        {
+            "tool_id": "get_income_statement",
+            "args": {
+                "ticker": "600519.SH",
+                "frequency": "quarterly",
+                "as_of": "2026-07-09",
+            },
+        }
+    ]
+    scope = {
+        "as_of": "2026-07-09",
+        "earliest_date": "2026-06-01",
+        "accepted_candidate_tickers": ["600519.SH"],
+        "indicator_families": ["macd", "rsi"],
+        "candidate_scope_hash": canonical_hash({"scope": "ackman"}),
+        "candidate_universe_hash": canonical_hash({"universe": "accepted"}),
+        "source_snapshot_hash": canonical_hash({"snapshot": "layer2"}),
+    }
+
+    def materializer(tool_id: str, args: dict) -> dict:
+        return {
+            "payload": json.dumps({"tool_id": tool_id, "args": args}, sort_keys=True),
+            "source_receipt_hashes": [],
+        }
+
+    prepared_query = frozen.prepare(
+        agent_id="ackman",
+        stage="ackman",
+        as_of="2026-07-09",
+        authorized_scope=scope,
+        initial_query_requests=initial_requests,
+        query_requests=follow_up_requests,
+        preservation_overlay=overlay,
+        materializer=materializer,
+        defer_materialization=True,
+    )
+    adaptive_tools = tuple(
+        tool_id
+        for tool_id in L3_TOOL_ROSTER["ackman"]
+        if tool_id != "get_superinvestor_candidate_snapshot"
+    )
+    store = AgentToolCapabilityStore(
+        tmp_path / "capabilities.sqlite3",
+        signing_key=b"test-signing-key-32-bytes-long!!!",
+        signing_key_id="test-key-v1",
+        clock=lambda: now,
+        adaptive_query_store=frozen,
+        adaptive_query_preparer=ActiveAdaptiveQueryPreparer(
+            sector_relationship_preparer=lambda **_kwargs: pytest.fail(
+                "bound L3 stage must not use the Sector preparer"
+            ),
+            bound_runtime_preparer=lambda **_kwargs: prepared_query,
+        ),
+        adaptive_query_materializer=materializer,
+        stage_materialization_finalizer=lambda context: {
+            "agent_id": context["agent_id"],
+            "stage": context["stage"],
+            "as_of": context["as_of"],
+            "status": "READY",
+            "tool_ids": sorted(context["initial_snapshot_tool_ids"]),
+            "build_receipt_hashes": {
+                tool_id: canonical_hash(
+                    {"tool_id": tool_id, "payload_hash": context["tool_payload_hashes"][tool_id]}
+                )
+                for tool_id in context["initial_snapshot_tool_ids"]
+            },
+            "materialization_attempt_receipt_hash": None,
+            "deferred_tool_ids": sorted(adaptive_tools),
+            "deferred_query_bundle_hash": context["adaptive_query"]["bundle_hash"],
+            "deferred_query_call_contract": CALL_TIME_ARGUMENT_CONTRACT,
+        },
+        require_knot_v2_audit_authority=True,
+    )
+    result = store.prepare(
+        {
+            "graph_run_id": "graph-ackman",
+            "run_slot_id": "slot-ackman",
+            "run_id": "run-ackman",
+            "node_id": "node-ackman",
+            "agent_id": "ackman",
+            "stage": "ackman",
+            "as_of": "2026-07-09",
+            "materialization_request_id": "materialize-ackman",
+            "runtime_inputs": {},
+            "candidate_scope": None,
+            "ttl_seconds": 60,
+        },
+        materializer=lambda tool_id, **_kwargs: json.dumps(
+            {"tool_id": tool_id, "snapshot": True}, sort_keys=True
+        ),
+    )
+
+    replayed = store.call_tool_result(
+        result["capability"], "get_fundamentals", initial_requests[0]["args"]
+    )
+    assert json.loads(replayed["text"]) == {
+        "tool_id": "get_fundamentals",
+        "args": initial_requests[0]["args"],
+    }
+    with sqlite3.connect(store.db_path) as connection:
+        assert connection.execute(
+            "SELECT call_mode FROM tool_result_events ORDER BY sequence DESC LIMIT 1"
+        ).fetchone()[0] == "INITIAL"
+    with pytest.raises(ValueError, match="frozen follow-up request"):
+        store.call_tool_result(
+            result["capability"],
+            "get_fundamentals",
+            {"ticker": "000001.SZ", "as_of": "2026-07-09"},
+        )
 
 
 def test_l3_empty_scope_issues_zero_count_descriptors_and_no_session(

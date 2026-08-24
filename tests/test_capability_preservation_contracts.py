@@ -197,6 +197,19 @@ def test_migration_golden_freezes_25_agents_26_stages_and_23_capabilities():
         row["disposition"] == "introduced"
         for row in preservation["introduced_capabilities"]
     )
+    introduced_membership = next(
+        row
+        for row in preservation["introduced_capabilities"]
+        if row["semantic_capability_id"] == "sector_index_membership"
+    )
+    assert {
+        key: introduced_membership[key]
+        for key in ("current_owners", "replacement_tools", "disposition")
+    } == {
+        "current_owners": ["sector"],
+        "replacement_tools": ["get_sector_index_membership"],
+        "disposition": "introduced",
+    }
     assert len(preservation["output_compatibility_inventory"]) == 25
     assert all(
         row["compatibility"] == "partial"
