@@ -295,6 +295,11 @@ export type AcceptedAgentOutputRecord<
     output: AcceptedEvidenceLineageEnvelope<TPayload>;
   };
 
+export type ResolvedAcceptedOutputRecord<
+  K extends AcceptedOutputKind = AcceptedOutputKind,
+  TPayload = unknown,
+> = AcceptedAgentOutputRecord<K, TPayload> | StructuredSmokeAcceptedOutputRecord<K, TPayload>;
+
 export interface AcceptedOutputBuildContext {
   graph_run_id: string;
   run_id: string;
@@ -622,7 +627,7 @@ export class AcceptedAgentOutputStore {
 
   resolve<K extends AcceptedOutputKind, TPayload = unknown>(
     ref: AcceptedOutputRecordRef<K>,
-  ): AcceptedAgentOutputRecord<K, TPayload> {
+  ): ResolvedAcceptedOutputRecord<K, TPayload> {
     const structuredSmokeRecord = this.#structuredSmokeRecords.get(ref.accepted_output_id);
     if (structuredSmokeRecord) {
       if (
@@ -633,7 +638,7 @@ export class AcceptedAgentOutputStore {
         throw new Error(`accepted output reference mismatch: ${ref.accepted_output_id}`);
       }
       validateStructuredSmokeAcceptedOutputRecord(structuredSmokeRecord);
-      return structuredSmokeRecord as unknown as AcceptedAgentOutputRecord<K, TPayload>;
+      return structuredSmokeRecord as StructuredSmokeAcceptedOutputRecord<K, TPayload>;
     }
     const record = this.#records.get(ref.accepted_output_id);
     if (!record) throw new Error(`accepted output is unavailable: ${ref.accepted_output_id}`);
@@ -646,6 +651,16 @@ export class AcceptedAgentOutputStore {
     }
     validateAcceptedAgentOutputRecord(record);
     return record as AcceptedAgentOutputRecord<K, TPayload>;
+  }
+
+  resolveProduction<K extends AcceptedOutputKind, TPayload = unknown>(
+    ref: AcceptedOutputRecordRef<K>,
+  ): AcceptedAgentOutputRecord<K, TPayload> {
+    const record = this.resolve<K, TPayload>(ref);
+    if (record.sample_origin !== "PRODUCTION_ACTIVE") {
+      throw new Error(`accepted output is not production-active: ${ref.accepted_output_id}`);
+    }
+    return record;
   }
 
   records(): AcceptedAgentOutputRecord[] {
@@ -864,8 +879,15 @@ function structuredSmokeResumePayload(
     }
     return raw;
   }
+  if (ref.accepted_output_kind === "SUPERINVESTOR_SELECTION") {
+    const raw = (state.layer3_outputs as Record<string, unknown>)[ref.agent_id];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new Error(`structured-smoke Superinvestor output is unavailable: ${ref.agent_id}`);
+    }
+    return raw;
+  }
   throw new Error(
-    `structured-smoke checkpoint cannot hydrate accepted output kind: ${ref.accepted_output_kind}`,
+    `structured-smoke checkpoint cannot reconstruct missing persisted accepted output kind: ${ref.accepted_output_kind}`,
   );
 }
 

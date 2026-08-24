@@ -46,7 +46,7 @@ import {
   buildStructuredSmokeAcceptedOutputRef,
   canonicalAcceptedOutputHash,
   putStructuredSmokeAcceptedOutput,
-  type StructuredSmokeAcceptedOutputRecord,
+  type ResolvedAcceptedOutputRecord,
   structuredSmokeFixtureBundleHash,
 } from "../accepted_output.js";
 import { runAgentToolLoop } from "../helpers/agent_loop.js";
@@ -991,19 +991,20 @@ export function assertCioProposalHasExactlyOneAcceptedOpportunityAction(
   output: Pick<CioOutput, "portfolio_actions">,
   structuredSmokeCioProposalFrozen?: DecisionStageFrozenObject,
 ): void {
+  const actionable = output.portfolio_actions.filter(
+    (action) =>
+      (action.action === "BUY" || action.position_decision === "ADD") && action.target_weight > 0,
+  );
   if (
     state.current_positions.snapshot_status === "empty_confirmed" &&
     state.current_positions.positions.length === 0 &&
-    output.portfolio_actions.length !== 1 &&
-    !cioAllCashRequired(state, "cio_proposal")
+    !cioAllCashRequired(state, "cio_proposal") &&
+    (output.portfolio_actions.length !== 1 || actionable.length !== 1)
   ) {
     throw new Error(
-      "CIO proposal must contain exactly one action while an accepted upstream opportunity exists",
+      "CIO proposal must contain exactly one positive BUY/ADD action while an accepted upstream opportunity exists",
     );
   }
-  const actionable = output.portfolio_actions.filter(
-    (action) => action.action === "BUY" || action.position_decision === "ADD",
-  );
   if (!structuredSmokeCioProposalFrozen || actionable.length === 0) return;
   validateStructuredSmokeCioProposalCandidateLineage(state, structuredSmokeCioProposalFrozen);
   const rawCandidates = structuredSmokeCioProposalFrozen.object_payload.candidates;
@@ -1087,12 +1088,12 @@ function decisionCandidateScope<TOutput extends Layer4AgentOutput>(
 function projectDynamicStructuredSmokeDecisionRecords(
   state: DailyCycleStateType,
   refs: AcceptedOutputRecordRef[],
-  records: AcceptedAgentOutputRecord[],
+  records: ResolvedAcceptedOutputRecord[],
   proposalHash: string,
-): { refs: AcceptedOutputRecordRef[]; records: AcceptedAgentOutputRecord[] } {
+): { refs: AcceptedOutputRecordRef[]; records: ResolvedAcceptedOutputRecord[] } {
   const recordsById = new Map(records.map((record) => [record.accepted_output_id, record]));
   const projectedRefs: AcceptedOutputRecordRef[] = [];
-  const projectedRecords: AcceptedAgentOutputRecord[] = [];
+  const projectedRecords: ResolvedAcceptedOutputRecord[] = [];
 
   for (const ref of refs) {
     const record = recordsById.get(ref.accepted_output_id);
@@ -1119,13 +1120,12 @@ function projectDynamicStructuredSmokeDecisionRecords(
       projectedRecords.push(record);
       continue;
     }
-    const smokeRecord = record as unknown as StructuredSmokeAcceptedOutputRecord;
-    if (smokeRecord.sample_origin !== "NON_PRODUCTION_STRUCTURED_SMOKE") {
+    if (record.sample_origin !== "NON_PRODUCTION_STRUCTURED_SMOKE") {
       throw new Error(
         `structured-smoke decision record origin is invalid: ${ref.accepted_output_id}`,
       );
     }
-    const rawPayload = smokeRecord.output.payload;
+    const rawPayload = record.output.payload;
     if (!rawPayload || typeof rawPayload !== "object" || Array.isArray(rawPayload)) {
       throw new Error(
         `structured-smoke decision record payload is invalid: ${ref.accepted_output_id}`,
@@ -1187,7 +1187,7 @@ function projectDynamicStructuredSmokeDecisionRecords(
       );
     }
     projectedRefs.push(projectedRef);
-    projectedRecords.push(projectedRecord as unknown as AcceptedAgentOutputRecord);
+    projectedRecords.push(projectedRecord);
   }
   return { refs: projectedRefs, records: projectedRecords };
 }

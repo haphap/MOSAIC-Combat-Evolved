@@ -581,6 +581,45 @@ describe("agent tool loop helpers", () => {
     );
   });
 
+  it("never grants more than one repair turn across repeated admission rejections", async () => {
+    const exactCall = (id: string, ticker: string) =>
+      new AIMessage({
+        content: "",
+        tool_calls: [{ id, name: "get_stock_data", args: { ticker }, type: "tool_call" as const }],
+      });
+    const llm = new ScriptedLlm([
+      exactCall("exact-rejected-1", "member-a"),
+      exactCall("exact-rejected-2", "member-b"),
+      new AIMessage("forced final"),
+    ]);
+    const stockData = tool(
+      async () => {
+        throw new RpcError(
+          "tools.call",
+          INVALID_PARAMS,
+          "runtime membership exact request is outside the allowlist",
+        );
+      },
+      {
+        name: "get_stock_data",
+        description: "exact stock data",
+        schema: z.object({ ticker: z.string() }),
+      },
+    );
+
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [stockData],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("initial")],
+      maxLoops: 1,
+    });
+
+    expect(result.llmInvocations).toBe(3);
+    expect(result.toolCalls).toBe(2);
+    expect(result.toolExecutions).toBe(0);
+  });
+
   it("still spends tool budget on non-admission failures", async () => {
     const llm = new ScriptedLlm([
       new AIMessage({

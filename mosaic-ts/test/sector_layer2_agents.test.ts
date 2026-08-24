@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AIMessage, ToolMessage } from "@langchain/core/messages";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AcceptedAgentOutputStore } from "../src/agents/accepted_output.js";
 import type { AgentToolLoopCompletionState } from "../src/agents/helpers/agent_loop.js";
 import { canonicalJsonHash } from "../src/agents/helpers/canonical_json.js";
 import { MACRO_AGENT_IDS } from "../src/agents/macro/_contracts.js";
@@ -1227,6 +1228,7 @@ describe("standard Sector usage lifecycle", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     rmSync(promptDir, { recursive: true, force: true });
     clearPromptCache();
   });
@@ -1431,6 +1433,8 @@ describe("standard Sector usage lifecycle", () => {
   });
 
   it("preserves the bounded membership-to-exact chain after three structured repairs", async () => {
+    vi.stubEnv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", "structured_smoke");
+    vi.stubEnv("MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH", `sha256:${"a".repeat(64)}`);
     const events = {
       reports: [] as SectorModelUsageReport[],
       lifecycle: [] as string[],
@@ -1449,6 +1453,7 @@ describe("standard Sector usage lifecycle", () => {
       api: instrumentedSectorApi(events),
       config,
       promptsRoot: promptDir,
+      acceptedOutputStore: new AcceptedAgentOutputStore(),
     })(sectorPipelineState());
 
     expect(update.layer2_outputs).toMatchObject({ energy: expect.any(Object) });
@@ -1851,8 +1856,8 @@ function runtimeSecurityDirective(): SectorFinalSelectionRuntimeDirective {
     least_preferred_security_shortlist_hash: runtimeSecurityHash("2"),
     security_scoring_contract_version: SECURITY_SCORING_CONTRACT_VERSION,
     security_scoring_contract_hash: SECURITY_SCORING_CONTRACT_HASH,
-    allowed_preferred_security_ids: ["600002.SH"],
-    allowed_least_preferred_security_ids: ["600003.SH"],
+    allowed_preferred_security_ids: ["600000.SH", "600002.SH"],
+    allowed_least_preferred_security_ids: ["000001.SZ", "600003.SH"],
     required_preferred_evidence_ids: [],
     required_least_preferred_evidence_ids: [],
     required_final_evidence_ids: [],
@@ -2068,21 +2073,20 @@ describe("runtime Sector security authority", () => {
     ).toBeUndefined();
   });
 
-  it("rebinds both directive legs to the runtime authority and hashes the binding", () => {
+  it("intersects each directive leg with the runtime authority and hashes each binding", () => {
     const authority = {
       allowedIds: ["600000.SH", "000001.SZ"],
       authorityHash: runtimeSecurityHash("d"),
     };
     const applied = applyRuntimeSectorSecurityAuthority(runtimeSecurityDirective(), authority);
-    const allowedIds = ["000001.SZ", "600000.SH"];
-    expect(applied.allowed_preferred_security_ids).toEqual(allowedIds);
-    expect(applied.allowed_least_preferred_security_ids).toEqual(allowedIds);
+    expect(applied.allowed_preferred_security_ids).toEqual(["600000.SH"]);
+    expect(applied.allowed_least_preferred_security_ids).toEqual(["000001.SZ"]);
     expect(applied.preferred_security_shortlist_hash).toBe(
       canonicalJsonHash({
         schema_version: "runtime_sector_security_shortlist_v1",
         direction_id: "preferred",
         runtime_security_authority_hash: authority.authorityHash,
-        allowed_security_ids: allowedIds,
+        allowed_security_ids: ["600000.SH"],
       }),
     );
     expect(applied.least_preferred_security_shortlist_hash).toBe(
@@ -2090,9 +2094,19 @@ describe("runtime Sector security authority", () => {
         schema_version: "runtime_sector_security_shortlist_v1",
         direction_id: "least",
         runtime_security_authority_hash: authority.authorityHash,
-        allowed_security_ids: allowedIds,
+        allowed_security_ids: ["000001.SZ"],
       }),
     );
+  });
+
+  it("leaves a direction empty when no runtime member belongs to that scored leg", () => {
+    const applied = applyRuntimeSectorSecurityAuthority(runtimeSecurityDirective(), {
+      allowedIds: ["600000.SH", "600002.SH"],
+      authorityHash: runtimeSecurityHash("d"),
+    });
+
+    expect(applied.allowed_preferred_security_ids).toEqual(["600000.SH", "600002.SH"]);
+    expect(applied.allowed_least_preferred_security_ids).toEqual([]);
   });
 
   it("changes both runtime shortlist hashes when authority hash changes", () => {
@@ -2113,13 +2127,16 @@ describe("runtime Sector security authority", () => {
     );
   });
 
-  it("requires runtime authority for non-fake providers before final selection", () => {
+  it("requires runtime authority only for explicit structured-smoke non-fake runs", () => {
     const emptyLoop = runtimeSecurityLoop([], []);
+    expect(
+      resolveRuntimeSectorSecurityAuthority("openai", emptyLoop, RUNTIME_SECURITY_AS_OF, false),
+    ).toBeNull();
     expect(() =>
-      resolveRuntimeSectorSecurityAuthority("openai", emptyLoop, RUNTIME_SECURITY_AS_OF),
+      resolveRuntimeSectorSecurityAuthority("openai", emptyLoop, RUNTIME_SECURITY_AS_OF, true),
     ).toThrow(/no valid membership/);
     expect(
-      resolveRuntimeSectorSecurityAuthority("fake", emptyLoop, RUNTIME_SECURITY_AS_OF),
+      resolveRuntimeSectorSecurityAuthority("fake", emptyLoop, RUNTIME_SECURITY_AS_OF, true),
     ).toBeNull();
   });
 });

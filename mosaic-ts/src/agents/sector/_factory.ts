@@ -33,6 +33,7 @@ import {
   buildAcceptedAgentOutputRecord,
   buildStructuredSmokeAcceptedOutputRef,
   putStructuredSmokeAcceptedOutput,
+  structuredSmokeFixtureBundleHash,
 } from "../accepted_output.js";
 import {
   type AgentToolLoopCompletionState,
@@ -343,16 +344,20 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
     runtimeSourceStatuses: input.runtimeSourceStatuses,
   });
   let rawInitialSectorSnapshot: string | null = null;
+  const structuredSmoke = structuredSmokeFixtureBundleHash() !== null;
   const loopResult = await runAgentToolLoop({
     llm: input.deps.llmHandle.llm,
     tools: input.tools,
     systemMessage:
       `${input.systemPrompt}\n\n` +
-      "Use the deterministic initial snapshots first. In the first adaptive round, call " +
-      "get_sector_index_membership exactly once using the tool schema's exact constant arguments; " +
-      "do not call any exact-ticker tool before that membership result. After the membership result " +
-      "is returned, in the next adaptive round call the existing exact-ticker tools for two different " +
-      "returned members. Do not request data outside the authorized domain.",
+      (structuredSmoke
+        ? "Use the deterministic initial snapshots first. In the first adaptive round, call " +
+          "get_sector_index_membership exactly once using the tool schema's exact constant arguments; " +
+          "do not call any exact-ticker tool before that membership result. After the membership result " +
+          "is returned, in the next adaptive round call the existing exact-ticker tools for two different " +
+          "returned members. Do not request data outside the authorized domain."
+        : "Use the deterministic initial snapshots first. Then, only when useful, choose among " +
+          "the registered frozen adaptive queries. Do not request data outside the authorized domain."),
     initialMessages: [new HumanMessage(input.userContext)],
     initialToolCalls: input.spec.initialSnapshotTools.map((name) => ({ name, args: {} })),
     initialToolOutput: (name, output) => {
@@ -361,10 +366,10 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
       return projectSectorResearchSnapshotForModel(output);
     },
     allowModelToolCalls: input.deps.llmHandle.provider !== "fake",
-    ...(input.deps.llmHandle.provider === "fake"
+    ...(input.deps.llmHandle.provider === "fake" || !structuredSmoke
       ? {}
       : { completionGuard: sectorRuntimeCompletionGuard }),
-    maxLoops: input.deps.llmHandle.provider === "fake" ? 3 : 5,
+    maxLoops: structuredSmoke && input.deps.llmHandle.provider !== "fake" ? 5 : 3,
     replayFullToolMaxChars: 80_000,
     agentInvocationId: preLoopEvidence.agentInvocationId,
     onLog: (message) => input.onLog(formatAgentEvent("phase", "L2", input.spec.agentId, [message])),
@@ -374,6 +379,7 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
     input.deps.llmHandle.provider,
     loopResult,
     input.state.as_of_date,
+    structuredSmoke,
   );
   const toolMaterialization = requiredInitialSectorSnapshots({
     loopResult,
@@ -1289,8 +1295,9 @@ export function resolveRuntimeSectorSecurityAuthority(
   provider: LlmHandle["provider"],
   loopResult: AgentToolLoopResult,
   asOf: string,
+  structuredSmoke: boolean,
 ): RuntimeSectorSecurityAuthority | null {
-  if (provider === "fake") return null;
+  if (provider === "fake" || !structuredSmoke) return null;
   return deriveRuntimeSectorSecurityAuthority(loopResult, asOf);
 }
 

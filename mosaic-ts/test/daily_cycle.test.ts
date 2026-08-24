@@ -17,9 +17,9 @@ import { join } from "node:path";
 import { AIMessage, type BaseMessage, type SystemMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
-  AcceptedAgentOutputRecord,
   AcceptedOutputKind,
   AcceptedOutputRecordRef,
+  ResolvedAcceptedOutputRecord,
 } from "../src/agents/accepted_output.js";
 import {
   AcceptedAgentOutputStore,
@@ -1352,7 +1352,7 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     class MalformedControlIdentityStore extends AcceptedAgentOutputStore {
       override resolve<K extends AcceptedOutputKind, TPayload = unknown>(
         ref: AcceptedOutputRecordRef<K>,
-      ): AcceptedAgentOutputRecord<K, TPayload> {
+      ): ResolvedAcceptedOutputRecord<K, TPayload> {
         const record = super.resolve<K, TPayload>(ref);
         if (record.accepted_output_kind !== "CRO_RISK_REVIEW") return record;
         const malformed = structuredClone(record);

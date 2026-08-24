@@ -1,8 +1,4 @@
-import type {
-  AcceptedAgentOutputRecord,
-  AcceptedAgentOutputStore,
-  AcceptedOutputRecordRef,
-} from "./accepted_output.js";
+import type { AcceptedAgentOutputStore, AcceptedOutputRecordRef } from "./accepted_output.js";
 import { canonicalHash } from "./helpers/agent_run_contract.js";
 import { ALL_AGENTS, LAYER_BY_AGENT, type Language, type Layer } from "./prompts/cohorts.js";
 import type { DailyCycleStateType } from "./state.js";
@@ -202,7 +198,7 @@ function acceptedPayloadFor(
       `${agentId}: production display narrative accepted-output store is unavailable`,
     );
   }
-  const record = store.resolve(ref) as AcceptedAgentOutputRecord;
+  const record = store.resolveProduction(ref);
   const scheduleAsOf = state.outcome_schedule_plan?.as_of;
   if (
     record.graph_run_id !== state.trace_id ||

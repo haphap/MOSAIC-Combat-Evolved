@@ -55,7 +55,9 @@ function resolveProductionMacroOutputs(
       throw new Error(`${agent}: named accepted Macro record reference is missing`);
     }
     const typedRef = ref as AcceptedOutputRecordRef<"MACRO_TRANSMISSION">;
-    const record = store.resolve<"MACRO_TRANSMISSION", AcceptedMacroTransmission>(typedRef);
+    const record = store.resolveProduction<"MACRO_TRANSMISSION", AcceptedMacroTransmission>(
+      typedRef,
+    );
     if (
       record.graph_run_id !== state.trace_id ||
       record.cohort_id !== state.darwinian_runtime_binding?.cohort_id ||

@@ -91,26 +91,34 @@ export function applyRuntimeSectorSecurityAuthority(
     throw new Error("runtime Sector security authority requires unique compliant tickers");
   }
   allowedIds.sort();
-  const shortlist = (directionId: string) => {
+  const allowedSet = new Set(allowedIds);
+  const shortlist = (directionId: string, scoredIds: readonly string[]) => {
+    const directionIds = scoredIds.filter((ticker) => allowedSet.has(ticker)).sort();
     const body = {
       schema_version: "runtime_sector_security_shortlist_v1",
       direction_id: directionId,
       runtime_security_authority_hash: authority.authorityHash,
-      allowed_security_ids: allowedIds,
+      allowed_security_ids: directionIds,
     };
     const hash = canonicalHash(body);
-    return { id: `sector-shortlist:${directionId}:${hash.slice(-16)}`, hash };
+    return { id: `sector-shortlist:${directionId}:${hash.slice(-16)}`, hash, directionIds };
   };
-  const preferred = shortlist(directive.preferred_direction_id);
-  const least = shortlist(directive.least_preferred_direction_id);
+  const preferred = shortlist(
+    directive.preferred_direction_id,
+    directive.allowed_preferred_security_ids,
+  );
+  const least = shortlist(
+    directive.least_preferred_direction_id,
+    directive.allowed_least_preferred_security_ids,
+  );
   return {
     ...directive,
     preferred_security_shortlist_id: preferred.id,
     preferred_security_shortlist_hash: preferred.hash,
     least_preferred_security_shortlist_id: least.id,
     least_preferred_security_shortlist_hash: least.hash,
-    allowed_preferred_security_ids: [...allowedIds],
-    allowed_least_preferred_security_ids: [...allowedIds],
+    allowed_preferred_security_ids: preferred.directionIds,
+    allowed_least_preferred_security_ids: least.directionIds,
   };
 }
 

@@ -576,7 +576,12 @@ describe("server-authority Decision stage objects", () => {
         state,
         {
           portfolio_actions: [
-            { ticker: "600519.SH", action: "BUY", position_decision: "ADD" } as PortfolioAction,
+            {
+              ticker: "600519.SH",
+              action: "BUY",
+              position_decision: "ADD",
+              target_weight: 0.1,
+            } as PortfolioAction,
           ],
         },
         frozen,
@@ -591,7 +596,12 @@ describe("server-authority Decision stage objects", () => {
         state,
         {
           portfolio_actions: [
-            { ticker: "512480.SH", action: "BUY", position_decision: "ADD" } as PortfolioAction,
+            {
+              ticker: "512480.SH",
+              action: "BUY",
+              position_decision: "ADD",
+              target_weight: 0.1,
+            } as PortfolioAction,
           ],
         },
         frozen,
@@ -628,7 +638,7 @@ describe("server-authority Decision stage objects", () => {
     expect(() =>
       assertCioProposalHasExactlyOneAcceptedOpportunityAction(state, { portfolio_actions: [] }),
     ).toThrow(
-      "CIO proposal must contain exactly one action while an accepted upstream opportunity exists",
+      "CIO proposal must contain exactly one positive BUY/ADD action while an accepted upstream opportunity exists",
     );
   });
 
@@ -639,7 +649,27 @@ describe("server-authority Decision stage objects", () => {
         portfolio_actions: [{}, {}] as CioOutput["portfolio_actions"],
       }),
     ).toThrow(
-      "CIO proposal must contain exactly one action while an accepted upstream opportunity exists",
+      "CIO proposal must contain exactly one positive BUY/ADD action while an accepted upstream opportunity exists",
+    );
+  });
+
+  it.each([
+    { action: "HOLD", position_decision: "HOLD", target_weight: 0.1 },
+    { action: "SELL", position_decision: "EXIT", target_weight: 0 },
+    { action: "BUY", position_decision: "ADD", target_weight: 0 },
+  ] as const)("rejects a lone $action/$position_decision action at target_weight=$target_weight", (candidate) => {
+    const state = stateWithSectorLong("512480.SH");
+    expect(() =>
+      assertCioProposalHasExactlyOneAcceptedOpportunityAction(state, {
+        portfolio_actions: [
+          {
+            ticker: "512480.SH",
+            ...candidate,
+          } as PortfolioAction,
+        ],
+      }),
+    ).toThrow(
+      "CIO proposal must contain exactly one positive BUY/ADD action while an accepted upstream opportunity exists",
     );
   });
 
@@ -715,7 +745,7 @@ describe("server-authority Decision stage objects", () => {
       expect.objectContaining({
         reason_code: "L4_SEMANTIC_REJECTED",
         message:
-          "CIO proposal must contain exactly one action while an accepted upstream opportunity exists",
+          "CIO proposal must contain exactly one positive BUY/ADD action while an accepted upstream opportunity exists",
       }),
     ]);
     expect(result.output.portfolio_actions).toHaveLength(1);

@@ -25,6 +25,7 @@ function structuredSmokeState(traceId = "structured-smoke-run"): DailyCycleState
     as_of_date: "2025-06-17",
     layer1_outputs: {},
     layer2_outputs: {},
+    layer3_outputs: {},
     accepted_output_refs: {},
   } as unknown as DailyCycleStateType;
 }
@@ -347,6 +348,7 @@ describe("AcceptedAgentOutputRecord", () => {
       expect(store.putStructuredSmoke(record)).toEqual(ref);
       expect(store.records()).toEqual([]);
       expect(store.resolve(ref).output).toEqual({ payload });
+      expect(() => store.resolveProduction(ref)).toThrow(/not production-active/);
       expect(() => store.put(record as never)).toThrow();
 
       const tampered = structuredClone(record);
@@ -365,7 +367,7 @@ describe("AcceptedAgentOutputRecord", () => {
     }
   });
 
-  it("hydrates the legacy 17-ref/0-record prefix without changing its stage roster", () => {
+  it("hydrates a legacy Macro/Sector/Superinvestor ref-only prefix", () => {
     const previousBypass = process.env.MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS;
     const previousBundle = process.env.MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH;
     process.env.MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS = "structured_smoke";
@@ -422,14 +424,27 @@ describe("AcceptedAgentOutputRecord", () => {
         if (!ref) throw new Error("Sector smoke ref setup failed");
         refs[acceptedOutputRefKey("STANDARD_SECTOR_SELECTION", agentId)] = ref;
       }
+      const superinvestorAgents = ["druckenmiller", "munger", "burry", "ackman"] as const;
+      for (const agentId of superinvestorAgents) {
+        const payload = { agent: agentId, selection_status: "NO_QUALIFIED_CANDIDATES", picks: [] };
+        (state.layer3_outputs as Record<string, unknown>)[agentId] = payload;
+        const ref = buildStructuredSmokeAcceptedOutputRef({
+          kind: "SUPERINVESTOR_SELECTION",
+          agentId,
+          payload,
+          state,
+        });
+        if (!ref) throw new Error("Superinvestor smoke ref setup failed");
+        refs[acceptedOutputRefKey("SUPERINVESTOR_SELECTION", agentId)] = ref;
+      }
       state.accepted_output_refs = refs;
       const restored = new AcceptedAgentOutputStore();
       restored.restore({ records: [], claim_graphs: {} });
-      const completedPrefix = ["macro", "sector"];
+      const completedPrefix = ["macro", "sector", "superinvestor"];
       restored.hydrateStructuredSmokeFromState(state);
-      expect(completedPrefix).toEqual(["macro", "sector"]);
+      expect(completedPrefix).toEqual(["macro", "sector", "superinvestor"]);
       expect(restored.records()).toEqual([]);
-      expect(Object.values(refs)).toHaveLength(17);
+      expect(Object.values(refs)).toHaveLength(21);
       for (const ref of Object.values(refs)) {
         expect(restored.resolve(ref).accepted_output_hash).toBe(ref.accepted_output_hash);
       }
@@ -441,7 +456,7 @@ describe("AcceptedAgentOutputRecord", () => {
         signal: "china",
       });
 
-      const unsupportedState = structuredSmokeState("unsupported-kind");
+      const unsupportedState = structuredSmokeState("missing-persisted-record");
       const unsupportedRef = buildStructuredSmokeAcceptedOutputRef({
         kind: "CIO_PROPOSAL",
         agentId: "cio",
@@ -451,7 +466,7 @@ describe("AcceptedAgentOutputRecord", () => {
       if (!unsupportedRef) throw new Error("unsupported smoke ref setup failed");
       unsupportedState.accepted_output_refs = { "CIO_PROPOSAL:cio": unsupportedRef };
       expect(() => restored.hydrateStructuredSmokeFromState(unsupportedState)).toThrow(
-        /cannot hydrate accepted output kind/,
+        /cannot reconstruct missing persisted accepted output kind/,
       );
     } finally {
       if (previousBypass === undefined) delete process.env.MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS;

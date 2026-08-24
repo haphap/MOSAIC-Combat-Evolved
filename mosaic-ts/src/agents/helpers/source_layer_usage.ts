@@ -1,7 +1,6 @@
 import type { NoEvaluationObjectStageSkipRecord } from "../../autoresearch/outcome_stage_skip.js";
 import type { DarwinianUsageWeightSnapshot } from "../../autoresearch/production_variant.js";
 import {
-  type AcceptedAgentOutputRecord,
   type AcceptedAgentOutputStore,
   type AcceptedOutputRecordRef,
   acceptedOutputRefKey,
@@ -338,9 +337,9 @@ function resolveAcceptedPayload<T>(
   const key = acceptedOutputRefKey(kind, agentId as never);
   const ref = state.accepted_output_refs[key];
   if (!ref) throw new Error(`${agentId}: ${kind} accepted record ref is unavailable`);
-  const record = store.resolve(
+  const record = store.resolveProduction<typeof kind, T>(
     ref as AcceptedOutputRecordRef<typeof kind>,
-  ) as AcceptedAgentOutputRecord<typeof kind, T>;
+  );
   if (
     record.graph_run_id !== state.trace_id ||
     record.as_of !== (state.outcome_schedule_plan?.as_of ?? state.as_of_date) ||

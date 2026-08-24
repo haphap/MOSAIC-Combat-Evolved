@@ -1,7 +1,7 @@
 import type {
-  AcceptedAgentOutputRecord,
   AcceptedAgentOutputStore,
   AcceptedOutputRecordRef,
+  ResolvedAcceptedOutputRecord,
 } from "../accepted_output.js";
 import type { CurrentPositionsSnapshot } from "../types.js";
 
@@ -19,7 +19,7 @@ export function projectAcceptedOutputRecordRefs(
 export function resolveBoundAcceptedOutputRecords(
   refs: ReadonlyArray<AcceptedOutputRecordRef>,
   store: AcceptedAgentOutputStore | undefined,
-): AcceptedAgentOutputRecord[] {
+): ResolvedAcceptedOutputRecord[] {
   if (!store) throw new Error("bound runtime inputs require the accepted-output store");
   return refs
     .map((ref) => store.resolve(ref))
