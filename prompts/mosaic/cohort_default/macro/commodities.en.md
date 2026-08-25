@@ -25,7 +25,7 @@ Do not produce a cross-agent conclusion; submit only this role's model output.
 
 Runtime supplies the only valid evidence catalog and opaque permitted citation identifiers for this invocation.
 
-Output fields include: `mode`, `claims`, `key_drivers`, `components`.
+Output fields include: `mode`, `claims`, `key_drivers`, `trend`, `components`.
 
 Required runtime tools: `get_commodity_conditions_snapshot`.
 

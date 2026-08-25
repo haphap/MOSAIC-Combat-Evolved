@@ -27,7 +27,7 @@ components 必须恰好为：ecb_liquidity、euro_area_curve、bank_credit、eur
 
 运行时提供本次调用唯一有效的证据目录与不透明引用标识。
 
-输出字段包括：`mode`, `claims`, `key_drivers`, `components`。
+输出字段包括：`mode`, `claims`, `key_drivers`, `trend`, `components`。
 
 必需运行时工具：`get_euro_area_financial_conditions_snapshot`。
 

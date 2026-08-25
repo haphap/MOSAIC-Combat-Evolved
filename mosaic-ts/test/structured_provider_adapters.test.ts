@@ -523,6 +523,7 @@ describe("strict structured provider adapters", () => {
     const normalized = normalizeStrictProviderPayload({
       provider_contract: "MACRO_COMPONENTS_COMPACT_V1",
       mode: "COMPONENTS",
+      trend: "STABLE",
       components: components.map((component, index) => ({
         component,
         signal: { direction: "NEUTRAL", strength: 0 },
@@ -601,6 +602,7 @@ describe("strict structured provider adapters", () => {
     const normalized = normalizeStrictProviderPayload({
       provider_contract: "MACRO_DIRECT_COMPACT_V1",
       mode: "DIRECT",
+      trend: "STABLE",
       judgment: {
         signal: { direction: "ADVERSE", strength: 3 },
         persistence_horizon: "WEEKS",
@@ -665,6 +667,7 @@ describe("strict structured provider adapters", () => {
       const normalized = normalizeStrictProviderPayload({
         provider_contract: "MACRO_DIRECT_COMPACT_V1",
         mode: "DIRECT",
+        trend: "STABLE",
         judgment: invalidJudgment,
       });
       expect(domainSchema.safeParse(normalized).success).toBe(false);

@@ -3,12 +3,12 @@
   "sources": {
     "runtime_agent_manifest": {
       "path": "registry/prompt_checks/runtime_agent_manifest_v5.json",
-      "hash": "sha256:42ed6cbcaefa2b97d7e4d07c6f370d1baf4cfbdbedfe71135630400da5c1d3b2"
+      "hash": "sha256:8320f607773015c47db36a8d4d8a7c5ed5d1974061b353239ad0b8c35e4fb2db"
     },
     "execution_behavior_release_archive": {
-      "path": "registry/prompt_checks/execution_behavior_releases/7f97724bdef4faa27f06fb2e87a363f06c8ad8cfc5d91f3128f8bde1c2e3cb2d--7030a7a59752f9cce029338a7106b6a4cf14d87d1cf2f1e27855ac94ef725961.json",
-      "release_id": "execution-behavior-release:7f97724bdef4faa27f06fb2e87a363f06c8ad8cfc5d91f3128f8bde1c2e3cb2d",
-      "release_hash": "sha256:7030a7a59752f9cce029338a7106b6a4cf14d87d1cf2f1e27855ac94ef725961"
+      "path": "registry/prompt_checks/execution_behavior_releases/0a6196021273ab959cec3a1146daa9ba108ba74ed4e83d248fbb58e58b0ee7db--1200a5eb9437ee62f65082a8c85cdede1061b3c2f0f7d0ca70cc0c318d9da0d4.json",
+      "release_id": "execution-behavior-release:0a6196021273ab959cec3a1146daa9ba108ba74ed4e83d248fbb58e58b0ee7db",
+      "release_hash": "sha256:1200a5eb9437ee62f65082a8c85cdede1061b3c2f0f7d0ca70cc0c318d9da0d4"
     },
     "agent_outcome_contract_manifest": {
       "path": "registry/prompt_checks/agent_outcome_contract_manifest_v2.json",
@@ -16,8 +16,8 @@
     }
   },
   "evaluation_contract": {
-    "catalog_hash": "sha256:42ed6cbcaefa2b97d7e4d07c6f370d1baf4cfbdbedfe71135630400da5c1d3b2",
-    "schema_hash": "sha256:012d40a20d6c844245f1ef720928915b21f1768a9e3fec5f5ef3f8d84ffcd7af",
+    "catalog_hash": "sha256:8320f607773015c47db36a8d4d8a7c5ed5d1974061b353239ad0b8c35e4fb2db",
+    "schema_hash": "sha256:878af44e581ad206ea4de79829d6097d767e25d1771cf7a7da90f5e6792bbbf0",
     "contract_hash": "sha256:be3817c71a0973996bdeaf8a4ca65a3250ee337c7c269c05e3cb39cf44340853"
   }
 }

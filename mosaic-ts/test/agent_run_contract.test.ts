@@ -710,6 +710,7 @@ describe("strict agent-run contract", () => {
     const providerOutput = {
       provider_contract: "MACRO_COMPONENTS_COMPACT_V1",
       mode: "COMPONENTS",
+      trend: "STABLE",
       components: base.components.map((component) => ({
         component: component.component,
         signal: { direction: "NEUTRAL", strength: 0 },
@@ -815,11 +816,13 @@ describe("strict agent-run contract", () => {
       {
         provider_contract: "MACRO_DIRECT_COMPACT_V1",
         mode: "DIRECT",
+        trend: "STABLE",
         judgment: { ...judgment, claim_kind: "RISK_FLAG" },
       },
       {
         provider_contract: "MACRO_DIRECT_COMPACT_V1",
         mode: "DIRECT",
+        trend: "STABLE",
         judgment: { ...judgment, claim_kind: "FACT" },
       },
     ]);
