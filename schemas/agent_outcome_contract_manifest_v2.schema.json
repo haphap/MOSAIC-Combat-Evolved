@@ -23,11 +23,11 @@
     "usage_track_count": { "const": 21 },
     "evolution_only_track_count": { "const": 4 },
     "registry_hash": { "$ref": "#/$defs/hash" },
-    "metric_schema_count": { "const": 8 },
+    "metric_schema_count": { "const": 9 },
     "metric_schemas_hash": { "$ref": "#/$defs/hash" },
     "metric_schemas": {
       "type": "object",
-      "minProperties": 8,
+      "minProperties": 9,
       "additionalProperties": { "type": "object" }
     },
     "realized_metric_schema_count": { "const": 8 },
