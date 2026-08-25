@@ -74,6 +74,7 @@ export function modelVisibleAcceptedMacroTransmission(output: AcceptedMacroTrans
     strength: output.strength,
     persistence_horizon: output.persistence_horizon,
     evaluation_horizon_trading_days: output.evaluation_horizon_trading_days,
+    trend: output.trend,
     confidence: output.confidence,
     channels: output.channels,
     claims: output.claims,

@@ -85,6 +85,7 @@ export interface MacroComponentSignal extends DirectMacroSignal {
 export interface MacroAgentSubmissionBase extends RuntimeOutputAuditFields {
   claims: LlmResearchClaim[];
   key_drivers: string[];
+  trend: "IMPROVING" | "STABLE" | "DETERIORATING" | "UNKNOWN";
 }
 
 export type MacroAgentSubmission =
@@ -114,6 +115,7 @@ export interface AcceptedMacroTransmission extends RuntimeOutputAuditFields {
   claims: LlmResearchClaim[];
   claim_refs: string[];
   key_drivers: string[];
+  trend: "IMPROVING" | "STABLE" | "DETERIORATING" | "UNKNOWN";
 }
 
 export interface ComponentCalibrationRuntimeInput {

@@ -62,7 +62,11 @@ export function macroSubmission(
             claim_refs: [`${agent}-${component}-claim`],
           })),
         };
-  return { ...base, ...overrides } as MacroAgentSubmission;
+  return {
+    ...base,
+    trend: "STABLE" as const,
+    ...overrides,
+  } as MacroAgentSubmission;
 }
 
 export function macroOutput(
@@ -71,7 +75,7 @@ export function macroOutput(
 ): AcceptedMacroTransmission {
   return {
     agent_id: agent,
-    agent_contract_version: "macro_agent_contract_v2",
+    agent_contract_version: "macro_agent_contract_v3",
     prompt_behavior_version: "macro_prompt_behavior_v2",
     execution_behavior_version: "macro_execution_behavior_v2",
     component_weight_contract_version:
@@ -83,6 +87,7 @@ export function macroOutput(
     model_confidence: 0.7,
     deterministic_data_quality: 1,
     confidence: 0.7,
+    trend: "STABLE",
     channels: ["A-share risk premium"],
     key_drivers: ["fixture evidence"],
     claims: [claim(agent)],

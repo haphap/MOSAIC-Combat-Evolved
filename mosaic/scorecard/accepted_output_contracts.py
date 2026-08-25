@@ -550,9 +550,7 @@ def _validate_payload(
 
 
 def _validate_macro(payload: Mapping[str, Any], agent_id: str) -> dict[str, list[str]]:
-    _exact_object(
-        payload,
-        {
+    fields = {
             "agent_id",
             "agent_contract_version",
             "prompt_behavior_version",
@@ -569,7 +567,12 @@ def _validate_macro(payload: Mapping[str, Any], agent_id: str) -> dict[str, list
             "claims",
             "claim_refs",
             "key_drivers",
-        },
+        }
+    if "trend" in payload:
+        fields.add("trend")
+    _exact_object(
+        payload,
+        fields,
         f"{agent_id} Macro payload",
     )
     if payload.get("agent_id") != agent_id:
@@ -582,6 +585,12 @@ def _validate_macro(payload: Mapping[str, Any], agent_id: str) -> dict[str, list
         {"SUPPORTIVE", "NEUTRAL", "ADVERSE"},
         "accepted Macro direction",
     )
+    if "trend" in payload:
+        _enum(
+            payload.get("trend"),
+            {"IMPROVING", "STABLE", "DETERIORATING", "UNKNOWN"},
+            "accepted Macro trend",
+        )
     strength = payload.get("strength")
     if isinstance(strength, bool) or not isinstance(strength, int) or strength not in range(6):
         raise ValueError("accepted Macro strength is invalid")

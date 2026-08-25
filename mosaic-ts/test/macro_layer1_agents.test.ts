@@ -2,6 +2,7 @@ import { ToolMessage } from "@langchain/core/messages";
 import { describe, expect, it } from "vitest";
 import {
   COMPONENT_MACRO_SUBMISSION_FIELD_NAMES,
+  composeAcceptedMacroTransmission,
   createMacroSubmissionSchema,
   DEFAULT_MACRO_COHORT_LENS,
   DIRECT_MACRO_SUBMISSION_FIELD_NAMES,
@@ -13,6 +14,7 @@ import {
   renderMacroPromptBody,
   renderMacroRuntimeContract,
 } from "../src/agents/macro/_contracts.js";
+import { modelVisibleAcceptedMacroTransmission } from "../src/agents/helpers/macro_context.js";
 import { renderDefaultMacroExtractorSystem } from "../src/agents/macro/_factory.js";
 import {
   MACRO_SNAPSHOT_SEMANTIC_VALIDATOR_ID,
@@ -198,6 +200,37 @@ it("accepts four component conclusions with independent local claim ownership", 
       ),
     }).success,
   ).toBe(false);
+});
+
+it("preserves adverse direction and improving trend", () => {
+  const base = macroSubmission("us_financial_conditions", {
+    trend: "IMPROVING",
+  });
+  if (base.mode !== "COMPONENTS") throw new Error("component fixture required");
+  const submission = {
+    ...base,
+    components: base.components.map((component) => ({
+      ...component,
+      direction: "ADVERSE" as const,
+      strength: 2 as const,
+    })),
+  };
+  const schema = createMacroSubmissionSchema("us_financial_conditions");
+  const parsed = schema.parse(submission);
+  const qualityByComponent = Object.fromEntries(
+    parsed.components.map((component) => [component.component, 1]),
+  );
+  const accepted = composeAcceptedMacroTransmission(
+    "us_financial_conditions",
+    parsed,
+    { mode: "COMPONENTS", dataQualityByComponent: qualityByComponent },
+  );
+  expect(accepted.direction).toBe("ADVERSE");
+  expect(accepted.trend).toBe("IMPROVING");
+  expect(modelVisibleAcceptedMacroTransmission(accepted).trend).toBe("IMPROVING");
+  const missing = { ...submission } as Record<string, unknown>;
+  delete missing.trend;
+  expect(schema.safeParse(missing).success).toBe(false);
 });
 
 describe("macro responsibility and prompt contract", () => {

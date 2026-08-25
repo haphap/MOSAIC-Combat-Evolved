@@ -409,6 +409,7 @@ export const DIRECT_MACRO_SUBMISSION_FIELD_NAMES = [
   "mode",
   "claims",
   "key_drivers",
+  "trend",
   "signal",
 ] as const;
 
@@ -416,6 +417,7 @@ export const COMPONENT_MACRO_SUBMISSION_FIELD_NAMES = [
   "mode",
   "claims",
   "key_drivers",
+  "trend",
   "components",
 ] as const;
 
@@ -447,6 +449,7 @@ export function createMacroSubmissionSchema(agent: MacroAgentId): z.ZodType<Macr
   const common = {
     claims: z.array(MacroClaimSchema).min(Math.max(1, expectedComponents.length)).max(8),
     key_drivers: z.array(MacroNarrativeTextSchema(160)).min(1).max(8),
+    trend: z.enum(["IMPROVING", "STABLE", "DETERIORATING", "UNKNOWN"]),
   };
   const schema =
     contract.mode === "DIRECT"
@@ -534,7 +537,7 @@ export function createMacroSubmissionSchema(agent: MacroAgentId): z.ZodType<Macr
   }) as z.ZodType<MacroAgentSubmission>;
 }
 
-export const MACRO_AGENT_CONTRACT_VERSION = "macro_agent_contract_v2";
+export const MACRO_AGENT_CONTRACT_VERSION = "macro_agent_contract_v3";
 export const MACRO_PROMPT_BEHAVIOR_VERSION = "macro_prompt_behavior_v2";
 export const MACRO_EXECUTION_BEHAVIOR_VERSION = "macro_execution_behavior_v2";
 export const MACRO_COMPONENT_WEIGHT_CONTRACT_VERSION = "macro_component_weights_v2";
@@ -595,6 +598,7 @@ export function composeAcceptedMacroTransmission(
       model_confidence: submission.signal.confidence,
       deterministic_data_quality: dataQuality,
       confidence: clamp(submission.signal.confidence * dataQuality),
+      trend: submission.trend,
       channels: [...new Set(submission.signal.channels)],
       claims: submission.claims,
       claim_refs: [...new Set(submission.signal.claim_refs)],
@@ -666,6 +670,7 @@ export function composeAcceptedMacroTransmission(
       sum(weighted.map((item) => item.preregisteredWeight * item.dataQuality)),
     ),
     confidence: clamp(baseConfidence * (1 - dispersion)),
+    trend: submission.trend,
     channels: [...new Set(components.flatMap((component) => component.channels))],
     claims: submission.claims,
     claim_refs: [...new Set(components.flatMap((component) => component.claim_refs))],
