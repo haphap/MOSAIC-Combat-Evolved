@@ -217,6 +217,7 @@ it("preserves adverse direction and improving trend", () => {
   };
   const schema = createMacroSubmissionSchema("us_financial_conditions");
   const parsed = schema.parse(submission);
+  if (parsed.mode !== "COMPONENTS") throw new Error("component output required");
   const qualityByComponent = Object.fromEntries(
     parsed.components.map((component) => [component.component, 1]),
   );
