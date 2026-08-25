@@ -87,6 +87,12 @@ describe("25-Agent outcome registry", () => {
       for (const value of Object.values(row.track_contract_dimensions)) {
         expect(["REQUIRED", "NULL"]).toContain(value);
       }
+      if (row.metric_family === "MACRO_TRANSMISSION") {
+        expect(row.evaluation_object_schema_version).toBe("accepted_macro_transmission_v3");
+        expect(row.metric_schema_id).toBe("macro_transmission_metrics_v3");
+        expect(row.outcome_contract_version).toBe("macro_transmission_outcome_v3");
+        expect(row.scoring_contract_version).toMatch(/_v2$/);
+      }
     }
     expect(OUTCOME_LABEL_REGISTRY.china?.sample_schedule.kind).toBe("EVENT_TRIGGERED");
   });
@@ -110,7 +116,7 @@ describe("25-Agent outcome registry", () => {
     expect(manifest.evolution_only_track_count).toBe(4);
     expect(manifest.contracts).toHaveLength(25);
     expect(manifest.registry_hash).toBe(outcomeRegistryHash());
-    expect(manifest.metric_schema_count).toBe(8);
+    expect(manifest.metric_schema_count).toBe(9);
     expect(Object.keys(manifest.metric_schemas).sort()).toEqual(
       Object.keys(OUTCOME_METRIC_SCHEMA_REGISTRY).sort(),
     );

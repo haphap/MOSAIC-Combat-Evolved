@@ -136,6 +136,15 @@ export const MacroTransmissionOutcomeRawMetricsSchema = z
     }
   });
 
+const MacroTrendSchema = z.enum(["IMPROVING", "STABLE", "DETERIORATING", "UNKNOWN"]);
+
+export const MacroTransmissionOutcomeRawMetricsV3Schema =
+  MacroTransmissionOutcomeRawMetricsSchema.safeExtend({
+    trend: MacroTrendSchema,
+    base_point_forecast: FiniteNumber.optional(),
+    trend_utility_delta: FiniteNumber.optional(),
+  });
+
 const StandardSectorDirectionOutcomeMetricSchema = z
   .object({
     direction_id: NonEmptyId,
@@ -715,6 +724,7 @@ export function parseOutcomeRealizedMetrics(
 
 export const OUTCOME_METRIC_SCHEMA_REGISTRY = Object.freeze({
   macro_transmission_metrics_v2: MacroTransmissionOutcomeRawMetricsSchema,
+  macro_transmission_metrics_v3: MacroTransmissionOutcomeRawMetricsV3Schema,
   standard_sector_direction_pick_metrics_v3: StandardSectorOutcomeRawMetricsSchema,
   relationship_graph_validation_metrics_v2: RelationshipOutcomeRawMetricsSchema,
   superinvestor_pick_utility_metrics_v2: SuperinvestorOutcomeRawMetricsSchema,
@@ -864,10 +874,10 @@ const macro = (
     layer: "MACRO",
     evaluation_object: "AcceptedMacroTransmission",
     evaluation_object_type: "MACRO_TRANSMISSION",
-    evaluation_object_schema_version: "accepted_macro_transmission_v2",
+    evaluation_object_schema_version: "accepted_macro_transmission_v3",
     accepted_output_kind: "MACRO_TRANSMISSION",
     primary_label_id,
-    metric_schema_id: "macro_transmission_metrics_v2",
+    metric_schema_id: "macro_transmission_metrics_v3",
     realized_metric_schema_id: "macro_transmission_realized_metrics_v1",
     maturity_horizon: "TRADING_DAYS_5",
     maturity: {
@@ -879,8 +889,8 @@ const macro = (
     rank_scope: `macro_${agent_id}`,
     darwin_application_mode: "DOWNSTREAM_USAGE_WEIGHT",
     metric_family: "MACRO_TRANSMISSION",
-    outcome_contract_version: "macro_transmission_outcome_v2",
-    scoring_contract_version: `score_${primary_label_id}_v1`,
+    outcome_contract_version: "macro_transmission_outcome_v3",
+    scoring_contract_version: `score_${primary_label_id}_v2`,
     sample_schedule_contract_version: "macro_non_overlapping_role_opportunity_v2",
     rank_scope_contract_version: `self_macro_${agent_id}_v2`,
     opportunity_set_contract_version: `${agent_id}_macro_opportunity_set_v2`,

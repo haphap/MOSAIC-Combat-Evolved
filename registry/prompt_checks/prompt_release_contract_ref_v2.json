@@ -12,12 +12,12 @@
     },
     "agent_outcome_contract_manifest": {
       "path": "registry/prompt_checks/agent_outcome_contract_manifest_v2.json",
-      "registry_hash": "sha256:9d62752c88db0b26b6c7058cd6eb9bc5e9171e7c7d1853d462f326aa360a10b4"
+      "registry_hash": "sha256:3366aa3cbe9066540a37638621089349e000321a5721dda1bf46d6add5d27d55"
     }
   },
   "evaluation_contract": {
     "catalog_hash": "sha256:42ed6cbcaefa2b97d7e4d07c6f370d1baf4cfbdbedfe71135630400da5c1d3b2",
     "schema_hash": "sha256:012d40a20d6c844245f1ef720928915b21f1768a9e3fec5f5ef3f8d84ffcd7af",
-    "contract_hash": "sha256:85545294da4bb0554b59c4ecbf2b10146a2ed746ecee936ba4b5922674899c49"
+    "contract_hash": "sha256:be3817c71a0973996bdeaf8a4ca65a3250ee337c7c269c05e3cb39cf44340853"
   }
 }

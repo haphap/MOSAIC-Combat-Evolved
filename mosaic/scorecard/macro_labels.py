@@ -1,4 +1,4 @@
-"""Role-matched primary outcome inventory for the ten v2 Macro agents."""
+"""Role-matched primary outcome inventory for the eight v3 Macro agents."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ class MacroLabelSpec:
     primary_order: int = 0
     maturity_horizon_trading_days: int = 5
     rank_scope: str = ""
-    outcome_contract_version: str = "macro_transmission_outcome_v2"
+    outcome_contract_version: str = "macro_transmission_outcome_v3"
 
     @property
     def primary_ready(self) -> bool:
@@ -90,7 +90,7 @@ MACRO_LABEL_INVENTORY: tuple[MacroLabelSpec, ...] = (
 )
 
 if tuple(spec.agent for spec in MACRO_LABEL_INVENTORY) != MACRO_AGENTS:
-    raise RuntimeError("Macro label inventory must match the canonical v2 roster")
+    raise RuntimeError("Macro label inventory must match the canonical v3 roster")
 if len({spec.label_type for spec in MACRO_LABEL_INVENTORY}) != len(MACRO_LABEL_INVENTORY):
     raise RuntimeError("Macro primary labels must be unique")
 

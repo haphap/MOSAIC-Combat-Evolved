@@ -1,6 +1,10 @@
 import { ToolMessage } from "@langchain/core/messages";
 import { describe, expect, it } from "vitest";
 import {
+  modelVisibleAcceptedMacroTransmission,
+  renderAcceptedMacroInputs,
+} from "../src/agents/helpers/macro_context.js";
+import {
   COMPONENT_MACRO_SUBMISSION_FIELD_NAMES,
   composeAcceptedMacroTransmission,
   createMacroSubmissionSchema,
@@ -14,7 +18,6 @@ import {
   renderMacroPromptBody,
   renderMacroRuntimeContract,
 } from "../src/agents/macro/_contracts.js";
-import { modelVisibleAcceptedMacroTransmission } from "../src/agents/helpers/macro_context.js";
 import { renderDefaultMacroExtractorSystem } from "../src/agents/macro/_factory.js";
 import {
   MACRO_SNAPSHOT_SEMANTIC_VALIDATOR_ID,
@@ -30,7 +33,7 @@ import { euroAreaFinancialConditionsSpec } from "../src/agents/macro/euro_area_f
 import { institutionalFlowSpec } from "../src/agents/macro/institutional_flow.js";
 import { usEconomySpec } from "../src/agents/macro/us_economy.js";
 import { usFinancialConditionsSpec } from "../src/agents/macro/us_financial_conditions.js";
-import { macroSubmission } from "./helpers/macro.js";
+import { macroOutput, macroSubmission } from "./helpers/macro.js";
 
 const specs = [
   chinaSpec,
@@ -221,14 +224,44 @@ it("preserves adverse direction and improving trend", () => {
   const qualityByComponent = Object.fromEntries(
     parsed.components.map((component) => [component.component, 1]),
   );
-  const accepted = composeAcceptedMacroTransmission(
-    "us_financial_conditions",
-    parsed,
-    { mode: "COMPONENTS", dataQualityByComponent: qualityByComponent },
-  );
+  const accepted = composeAcceptedMacroTransmission("us_financial_conditions", parsed, {
+    mode: "COMPONENTS",
+    dataQualityByComponent: qualityByComponent,
+  });
   expect(accepted.direction).toBe("ADVERSE");
   expect(accepted.trend).toBe("IMPROVING");
   expect(modelVisibleAcceptedMacroTransmission(accepted).trend).toBe("IMPROVING");
+  const rendered = renderAcceptedMacroInputs({
+    darwinian_runtime_binding: null,
+    layer1_outputs: Object.fromEntries(
+      MACRO_AGENT_IDS.map((agent) => [
+        agent,
+        macroOutput(
+          agent,
+          agent === "us_financial_conditions"
+            ? { direction: "ADVERSE", strength: 2, trend: "IMPROVING" }
+            : {},
+        ),
+      ]),
+    ),
+    macro_input_gate: {
+      input_hash: "sha256:macro-input",
+      source_layer_snapshot_id: "snapshot:macro",
+      reliability_by_agent: Object.fromEntries(
+        MACRO_AGENT_IDS.map((agent) => [
+          agent,
+          {
+            effective_reliability: 1,
+            usage_share: 0.125,
+            weight_record_id: null,
+            reliability_record_id: null,
+          },
+        ]),
+      ),
+    },
+  } as never);
+  expect(rendered).toContain("direction=current state; trend=one strength-notch marginal change");
+  expect(rendered).toContain('"trend":"IMPROVING"');
   const missing = { ...submission } as Record<string, unknown>;
   delete missing.trend;
   expect(schema.safeParse(missing).success).toBe(false);

@@ -172,7 +172,7 @@ def test_macro_series_store_enforces_point_in_time_cutoff(tmp_path: Path):
     assert rows[0]["metadata_json"]
 
 
-def test_all_active_macro_agents_have_unique_v2_labels_and_no_implicit_fallback():
+def test_all_active_macro_agents_have_unique_v3_labels_and_no_implicit_fallback():
     assert tuple(spec.agent for spec in MACRO_LABEL_INVENTORY) == MACRO_AGENT_ORDER
     assert len(MACRO_LABEL_INVENTORY) == len(PRIMARY_LABEL_CONFIGS) == len(
         MACRO_AGENT_ORDER
@@ -182,7 +182,7 @@ def test_all_active_macro_agents_have_unique_v2_labels_and_no_implicit_fallback(
     )
     assert all(spec.fallback_label is None for spec in MACRO_LABEL_INVENTORY)
     assert all(
-        spec.outcome_contract_version == "macro_transmission_outcome_v2"
+        spec.outcome_contract_version == "macro_transmission_outcome_v3"
         for spec in MACRO_LABEL_INVENTORY
     )
     for agent in MACRO_AGENTS:

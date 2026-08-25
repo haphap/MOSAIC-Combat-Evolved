@@ -570,6 +570,41 @@ def test_macro_outcome_label_uses_sealed_forecast_and_registry_owned_scale(
         )["outcome_label_id"] == label["outcome_label_id"]
 
 
+def test_macro_trend_utility_orders_improvement_and_deterioration() -> None:
+    def utility(*, role_path_metric: float, trend: str) -> float:
+        value, _ = compute_outcome_utility(
+            "MACRO_TRANSMISSION",
+            {
+                "direction_sign": -1,
+                "strength": 2,
+                "confidence": 1.0,
+                "role_path_metric": role_path_metric,
+                "pit_volatility_scale": 1.0,
+                "trend": trend,
+            },
+        )
+        return value
+
+    mild_improving = utility(role_path_metric=-0.2, trend="IMPROVING")
+    mild_stable = utility(role_path_metric=-0.2, trend="STABLE")
+    mild_deteriorating = utility(
+        role_path_metric=-0.2, trend="DETERIORATING"
+    )
+    assert mild_improving > mild_stable > mild_deteriorating
+
+    severe_improving = utility(role_path_metric=-0.6, trend="IMPROVING")
+    severe_stable = utility(role_path_metric=-0.6, trend="STABLE")
+    severe_deteriorating = utility(
+        role_path_metric=-0.6, trend="DETERIORATING"
+    )
+    assert severe_deteriorating > severe_stable > severe_improving
+    assert utility(role_path_metric=-0.2, trend="UNKNOWN") == pytest.approx(
+        mild_stable
+    )
+    with pytest.raises(ValueError, match="trend"):
+        utility(role_path_metric=-0.2, trend="INVALID")
+
+
 def test_decision_components_are_closed_and_weighted() -> None:
     components = []
     for component_id, weight in (
