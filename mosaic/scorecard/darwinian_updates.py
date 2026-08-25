@@ -1267,17 +1267,38 @@ def _macro_utility(raw_metrics: Mapping[str, Any]) -> tuple[float, dict[str, Any
     volatility = _finite_number(raw_metrics.get("pit_volatility_scale"), "pit_volatility_scale")
     if volatility <= 0:
         raise ValueError("pit_volatility_scale must be positive")
-    forecast = confidence * direction_sign * strength / 5
+    trend = raw_metrics.get("trend", "UNKNOWN")
+    if not isinstance(trend, str) or trend not in {
+        "IMPROVING",
+        "STABLE",
+        "DETERIORATING",
+        "UNKNOWN",
+    }:
+        raise ValueError("trend must be IMPROVING, STABLE, DETERIORATING, or UNKNOWN")
+    base_level = direction_sign * strength / 5
+    trend_step = {
+        "IMPROVING": 1 / 5,
+        "STABLE": 0,
+        "DETERIORATING": -1 / 5,
+        "UNKNOWN": 0,
+    }[trend]
+    adjusted_level = _clip(base_level + trend_step, -1, 1)
+    base_forecast = confidence * base_level
+    forecast = confidence * adjusted_level
     realized = _clip(role_path / volatility, -1, 1)
+    base_loss = (base_forecast - realized) ** 2
     forecast_loss = (forecast - realized) ** 2
     null_loss = realized**2
+    trend_utility_delta = base_loss - forecast_loss
     utility_delta = null_loss - forecast_loss
     return utility_delta, {
         **dict(raw_metrics),
+        "base_point_forecast": base_forecast,
         "point_forecast": forecast,
         "realized_scaled_path": realized,
         "forecast_loss": forecast_loss,
         "null_loss": null_loss,
+        "trend_utility_delta": trend_utility_delta,
         "combined_utility_delta": utility_delta,
     }
 

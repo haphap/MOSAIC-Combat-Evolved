@@ -669,6 +669,7 @@ function fakeMacroSubmission(name: MacroAgentId, messages: unknown): unknown {
     const directClaim = claim(name);
     return {
       mode: "DIRECT",
+      trend: "STABLE",
       claims: [directClaim],
       key_drivers: ["fake structural smoke"],
       signal: signal(directClaim.claim_id),
@@ -679,6 +680,7 @@ function fakeMacroSubmission(name: MacroAgentId, messages: unknown): unknown {
     .map((component) => claim(component));
   return {
     mode: "COMPONENTS",
+    trend: "STABLE",
     claims: componentClaims,
     key_drivers: ["fake structural smoke"],
     components: componentClaims.map((componentClaim) => ({

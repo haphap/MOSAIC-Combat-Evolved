@@ -57,6 +57,9 @@ export function renderAcceptedMacroInputs(
   const outputs = acceptedMacroOutputs(state, store);
   lines.push(`* macro_input_gate: READY (${state.macro_input_gate.input_hash})`);
   lines.push(`* source_layer_snapshot_id: ${state.macro_input_gate.source_layer_snapshot_id}`);
+  lines.push(
+    "* semantics: direction=current state; trend=one strength-notch marginal change; for non-NEUTRAL direction, trend may only reinforce or decay to NEUTRAL, never reverse; UNKNOWN does not adjust.",
+  );
   for (const agent of MACRO_AGENT_IDS) {
     const output = outputs[agent];
     const reliability = state.macro_input_gate.reliability_by_agent[agent];
@@ -74,6 +77,7 @@ export function modelVisibleAcceptedMacroTransmission(output: AcceptedMacroTrans
     strength: output.strength,
     persistence_horizon: output.persistence_horizon,
     evaluation_horizon_trading_days: output.evaluation_horizon_trading_days,
+    trend: output.trend,
     confidence: output.confidence,
     channels: output.channels,
     claims: output.claims,

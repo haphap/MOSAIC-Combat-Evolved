@@ -25,7 +25,7 @@ get_market_positioning_snapshot 只包含固定五只 ETF（159915.SZ、510050.S
 
 运行时提供本次调用唯一有效的证据目录与不透明引用标识。
 
-输出字段包括：`mode`, `claims`, `key_drivers`, `signal`。
+输出字段包括：`mode`, `claims`, `key_drivers`, `trend`, `signal`。
 
 必需运行时工具：`get_market_positioning_snapshot`。
 

@@ -423,6 +423,7 @@ def _accepted_payload_fixture(
             ],
             "direction": "SUPPORTIVE",
             "strength": 3,
+            "trend": "STABLE",
             "persistence_horizon": "WEEKS",
             "evaluation_horizon_trading_days": 5,
             "model_confidence": 0.8,

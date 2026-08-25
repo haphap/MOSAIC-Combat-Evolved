@@ -697,12 +697,14 @@ function authoredMacroSubmission(submission: MacroAgentSubmission): MacroAgentSu
         mode: "DIRECT",
         claims: submission.claims,
         key_drivers: submission.key_drivers,
+        trend: submission.trend,
         signal: submission.signal,
       }
     : {
         mode: "COMPONENTS",
         claims: submission.claims,
         key_drivers: submission.key_drivers,
+        trend: submission.trend,
         components: submission.components,
       };
 }

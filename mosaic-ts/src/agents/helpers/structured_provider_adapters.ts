@@ -124,7 +124,7 @@ function adaptMacroProviderJsonSchema(value: unknown): unknown {
 function macroProviderSchema(
   properties: Record<string, unknown> | null,
 ): Record<string, unknown> | null {
-  if (!properties?.claims || !properties.key_drivers) return null;
+  if (!properties?.claims || !properties.key_drivers || !properties.trend) return null;
   const mode = schemaConst(properties.mode);
   if (mode !== "COMPONENTS" && mode !== "DIRECT") return null;
   const claimProperties = objectRecord(objectRecord(properties.claims)?.items)?.properties;
@@ -141,6 +141,7 @@ function macroProviderSchema(
     const compactProperties = {
       provider_contract: { type: "string", const: COMPACT_MACRO_COMPONENTS },
       mode: properties.mode,
+      trend: properties.trend,
       components: {
         type: "array",
         prefixItems: compactComponents,
@@ -168,6 +169,7 @@ function macroProviderSchema(
   const compactProperties = {
     provider_contract: { type: "string", const: COMPACT_MACRO_DIRECT },
     mode: properties.mode,
+    trend: properties.trend,
     judgment,
   };
   return {
@@ -371,6 +373,7 @@ function materializeMacroComponents(input: Record<string, unknown>): unknown {
   });
   return {
     mode: "COMPONENTS",
+    trend: requiredString(input.trend, "trend"),
     claims: materialized.map((entry) => entry.claim),
     key_drivers: materialized.map((entry) => entry.claim.statement),
     components: materialized.map((entry) => ({ component: entry.subject, ...entry.signal })),
@@ -383,6 +386,7 @@ function materializeMacroDirect(input: Record<string, unknown>): unknown {
   const materialized = materializeMacroJudgment(row, subject, "provider-macro-direct-claim");
   return {
     mode: "DIRECT",
+    trend: requiredString(input.trend, "trend"),
     claims: [materialized.claim],
     key_drivers: [materialized.claim.statement],
     signal: materialized.signal,

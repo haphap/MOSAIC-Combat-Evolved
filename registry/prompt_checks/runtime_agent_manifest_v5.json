@@ -21,6 +21,7 @@
         "mode",
         "claims",
         "key_drivers",
+        "trend",
         "components"
       ],
       "stages": [
@@ -32,6 +33,7 @@
             "mode",
             "claims",
             "key_drivers",
+            "trend",
             "components"
           ],
           "max_repair_attempts": 3,
@@ -53,6 +55,7 @@
         "mode",
         "claims",
         "key_drivers",
+        "trend",
         "components"
       ],
       "stages": [
@@ -64,6 +67,7 @@
             "mode",
             "claims",
             "key_drivers",
+            "trend",
             "components"
           ],
           "max_repair_attempts": 3,
@@ -85,6 +89,7 @@
         "mode",
         "claims",
         "key_drivers",
+        "trend",
         "components"
       ],
       "stages": [
@@ -96,6 +101,7 @@
             "mode",
             "claims",
             "key_drivers",
+            "trend",
             "components"
           ],
           "max_repair_attempts": 3,
@@ -117,6 +123,7 @@
         "mode",
         "claims",
         "key_drivers",
+        "trend",
         "components"
       ],
       "stages": [
@@ -128,6 +135,7 @@
             "mode",
             "claims",
             "key_drivers",
+            "trend",
             "components"
           ],
           "max_repair_attempts": 3,
@@ -149,6 +157,7 @@
         "mode",
         "claims",
         "key_drivers",
+        "trend",
         "components"
       ],
       "stages": [
@@ -160,6 +169,7 @@
             "mode",
             "claims",
             "key_drivers",
+            "trend",
             "components"
           ],
           "max_repair_attempts": 3,
@@ -181,6 +191,7 @@
         "mode",
         "claims",
         "key_drivers",
+        "trend",
         "components"
       ],
       "stages": [
@@ -192,6 +203,7 @@
             "mode",
             "claims",
             "key_drivers",
+            "trend",
             "components"
           ],
           "max_repair_attempts": 3,
@@ -213,6 +225,7 @@
         "mode",
         "claims",
         "key_drivers",
+        "trend",
         "components"
       ],
       "stages": [
@@ -224,6 +237,7 @@
             "mode",
             "claims",
             "key_drivers",
+            "trend",
             "components"
           ],
           "max_repair_attempts": 3,
@@ -245,6 +259,7 @@
         "mode",
         "claims",
         "key_drivers",
+        "trend",
         "signal"
       ],
       "stages": [
@@ -256,6 +271,7 @@
             "mode",
             "claims",
             "key_drivers",
+            "trend",
             "signal"
           ],
           "max_repair_attempts": 3,

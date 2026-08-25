@@ -25,7 +25,7 @@ components 必须恰好为：energy、industrial_metals、gold、agriculture_foo
 
 运行时提供本次调用唯一有效的证据目录与不透明引用标识。
 
-输出字段包括：`mode`, `claims`, `key_drivers`, `components`。
+输出字段包括：`mode`, `claims`, `key_drivers`, `trend`, `components`。
 
 必需运行时工具：`get_commodity_conditions_snapshot`。
 

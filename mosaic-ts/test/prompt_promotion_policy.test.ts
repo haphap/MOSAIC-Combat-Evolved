@@ -258,10 +258,10 @@ function buildFixture(
     evaluatorAdapterHash: HASH_B,
     evaluationBinding: {
       evaluationObject: "AcceptedMacroTransmission",
-      evaluationObjectSchemaVersion: "accepted_macro_transmission_v2",
+      evaluationObjectSchemaVersion: "accepted_macro_transmission_v3",
       primaryLabelId: "china_macro_transmission_a_share_path_5d",
       scoringContractVersion: evaluatorVersion,
-      outcomeContractVersion: "macro_transmission_outcome_v2",
+      outcomeContractVersion: "macro_transmission_outcome_v3",
     },
     evaluatorVersion,
     evaluatorConfigHash: HASH_B,

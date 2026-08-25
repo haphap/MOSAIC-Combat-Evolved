@@ -3,9 +3,9 @@
   "contract_count": 25,
   "usage_track_count": 21,
   "evolution_only_track_count": 4,
-  "registry_hash": "sha256:9d62752c88db0b26b6c7058cd6eb9bc5e9171e7c7d1853d462f326aa360a10b4",
-  "metric_schema_count": 8,
-  "metric_schemas_hash": "sha256:20c3b1a33c125e82da8e54d8252f55bfcd037629f2c827d5d1a13e7b73d74e68",
+  "registry_hash": "sha256:3366aa3cbe9066540a37638621089349e000321a5721dda1bf46d6add5d27d55",
+  "metric_schema_count": 9,
+  "metric_schemas_hash": "sha256:17c9659b7a49cacc6e67766c58063dff43b9340b01acc8eee02d3d6534f3e13e",
   "metric_schemas": {
     "macro_transmission_metrics_v2": {
       "$schema": "http://json-schema.org/draft-07/schema#",
@@ -93,6 +93,111 @@
         "confidence",
         "role_path_metric",
         "pit_volatility_scale"
+      ],
+      "additionalProperties": false
+    },
+    "macro_transmission_metrics_v3": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "type": "object",
+      "properties": {
+        "direction_sign": {
+          "anyOf": [
+            {
+              "type": "number",
+              "const": -1
+            },
+            {
+              "type": "number",
+              "const": 0
+            },
+            {
+              "type": "number",
+              "const": 1
+            }
+          ]
+        },
+        "strength": {
+          "anyOf": [
+            {
+              "type": "number",
+              "const": 0
+            },
+            {
+              "type": "number",
+              "const": 1
+            },
+            {
+              "type": "number",
+              "const": 2
+            },
+            {
+              "type": "number",
+              "const": 3
+            },
+            {
+              "type": "number",
+              "const": 4
+            },
+            {
+              "type": "number",
+              "const": 5
+            }
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "role_path_metric": {
+          "type": "number"
+        },
+        "pit_volatility_scale": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "trend": {
+          "type": "string",
+          "enum": [
+            "IMPROVING",
+            "STABLE",
+            "DETERIORATING",
+            "UNKNOWN"
+          ]
+        },
+        "base_point_forecast": {
+          "type": "number"
+        },
+        "point_forecast": {
+          "type": "number"
+        },
+        "realized_scaled_path": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1
+        },
+        "forecast_loss": {
+          "type": "number",
+          "minimum": 0
+        },
+        "null_loss": {
+          "type": "number",
+          "minimum": 0
+        },
+        "trend_utility_delta": {
+          "type": "number"
+        },
+        "combined_utility_delta": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "direction_sign",
+        "strength",
+        "confidence",
+        "role_path_metric",
+        "pit_volatility_scale",
+        "trend"
       ],
       "additionalProperties": false
     },
@@ -3211,10 +3316,10 @@
       "layer": "MACRO",
       "evaluation_object": "AcceptedMacroTransmission",
       "evaluation_object_type": "MACRO_TRANSMISSION",
-      "evaluation_object_schema_version": "accepted_macro_transmission_v2",
+      "evaluation_object_schema_version": "accepted_macro_transmission_v3",
       "accepted_output_kind": "MACRO_TRANSMISSION",
       "primary_label_id": "pboc_rate_liquidity_a_share_path_5d",
-      "metric_schema_id": "macro_transmission_metrics_v2",
+      "metric_schema_id": "macro_transmission_metrics_v3",
       "realized_metric_schema_id": "macro_transmission_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
@@ -3231,8 +3336,8 @@
       "rank_scope": "macro_central_bank",
       "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
       "metric_family": "MACRO_TRANSMISSION",
-      "outcome_contract_version": "macro_transmission_outcome_v2",
-      "scoring_contract_version": "score_pboc_rate_liquidity_a_share_path_5d_v1",
+      "outcome_contract_version": "macro_transmission_outcome_v3",
+      "scoring_contract_version": "score_pboc_rate_liquidity_a_share_path_5d_v2",
       "sample_schedule_contract_version": "macro_non_overlapping_role_opportunity_v2",
       "rank_scope_contract_version": "self_macro_central_bank_v2",
       "opportunity_set_contract_version": "central_bank_macro_opportunity_set_v2",
@@ -3295,10 +3400,10 @@
       "layer": "MACRO",
       "evaluation_object": "AcceptedMacroTransmission",
       "evaluation_object_type": "MACRO_TRANSMISSION",
-      "evaluation_object_schema_version": "accepted_macro_transmission_v2",
+      "evaluation_object_schema_version": "accepted_macro_transmission_v3",
       "accepted_output_kind": "MACRO_TRANSMISSION",
       "primary_label_id": "china_macro_transmission_a_share_path_5d",
-      "metric_schema_id": "macro_transmission_metrics_v2",
+      "metric_schema_id": "macro_transmission_metrics_v3",
       "realized_metric_schema_id": "macro_transmission_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
@@ -3315,8 +3420,8 @@
       "rank_scope": "macro_china",
       "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
       "metric_family": "MACRO_TRANSMISSION",
-      "outcome_contract_version": "macro_transmission_outcome_v2",
-      "scoring_contract_version": "score_china_macro_transmission_a_share_path_5d_v1",
+      "outcome_contract_version": "macro_transmission_outcome_v3",
+      "scoring_contract_version": "score_china_macro_transmission_a_share_path_5d_v2",
       "sample_schedule_contract_version": "macro_non_overlapping_role_opportunity_v2",
       "rank_scope_contract_version": "self_macro_china_v2",
       "opportunity_set_contract_version": "china_macro_opportunity_set_v2",
@@ -3424,10 +3529,10 @@
       "layer": "MACRO",
       "evaluation_object": "AcceptedMacroTransmission",
       "evaluation_object_type": "MACRO_TRANSMISSION",
-      "evaluation_object_schema_version": "accepted_macro_transmission_v2",
+      "evaluation_object_schema_version": "accepted_macro_transmission_v3",
       "accepted_output_kind": "MACRO_TRANSMISSION",
       "primary_label_id": "commodity_a_share_transmission_path_5d",
-      "metric_schema_id": "macro_transmission_metrics_v2",
+      "metric_schema_id": "macro_transmission_metrics_v3",
       "realized_metric_schema_id": "macro_transmission_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
@@ -3444,8 +3549,8 @@
       "rank_scope": "macro_commodities",
       "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
       "metric_family": "MACRO_TRANSMISSION",
-      "outcome_contract_version": "macro_transmission_outcome_v2",
-      "scoring_contract_version": "score_commodity_a_share_transmission_path_5d_v1",
+      "outcome_contract_version": "macro_transmission_outcome_v3",
+      "scoring_contract_version": "score_commodity_a_share_transmission_path_5d_v2",
       "sample_schedule_contract_version": "macro_non_overlapping_role_opportunity_v2",
       "rank_scope_contract_version": "self_macro_commodities_v2",
       "opportunity_set_contract_version": "commodities_macro_opportunity_set_v2",
@@ -3686,10 +3791,10 @@
       "layer": "MACRO",
       "evaluation_object": "AcceptedMacroTransmission",
       "evaluation_object_type": "MACRO_TRANSMISSION",
-      "evaluation_object_schema_version": "accepted_macro_transmission_v2",
+      "evaluation_object_schema_version": "accepted_macro_transmission_v3",
       "accepted_output_kind": "MACRO_TRANSMISSION",
       "primary_label_id": "eu_economic_cycle_a_share_path_5d",
-      "metric_schema_id": "macro_transmission_metrics_v2",
+      "metric_schema_id": "macro_transmission_metrics_v3",
       "realized_metric_schema_id": "macro_transmission_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
@@ -3706,8 +3811,8 @@
       "rank_scope": "macro_eu_economy",
       "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
       "metric_family": "MACRO_TRANSMISSION",
-      "outcome_contract_version": "macro_transmission_outcome_v2",
-      "scoring_contract_version": "score_eu_economic_cycle_a_share_path_5d_v1",
+      "outcome_contract_version": "macro_transmission_outcome_v3",
+      "scoring_contract_version": "score_eu_economic_cycle_a_share_path_5d_v2",
       "sample_schedule_contract_version": "macro_non_overlapping_role_opportunity_v2",
       "rank_scope_contract_version": "self_macro_eu_economy_v2",
       "opportunity_set_contract_version": "eu_economy_macro_opportunity_set_v2",
@@ -3770,10 +3875,10 @@
       "layer": "MACRO",
       "evaluation_object": "AcceptedMacroTransmission",
       "evaluation_object_type": "MACRO_TRANSMISSION",
-      "evaluation_object_schema_version": "accepted_macro_transmission_v2",
+      "evaluation_object_schema_version": "accepted_macro_transmission_v3",
       "accepted_output_kind": "MACRO_TRANSMISSION",
       "primary_label_id": "euro_area_financial_conditions_a_share_path_5d",
-      "metric_schema_id": "macro_transmission_metrics_v2",
+      "metric_schema_id": "macro_transmission_metrics_v3",
       "realized_metric_schema_id": "macro_transmission_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
@@ -3790,8 +3895,8 @@
       "rank_scope": "macro_euro_area_financial_conditions",
       "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
       "metric_family": "MACRO_TRANSMISSION",
-      "outcome_contract_version": "macro_transmission_outcome_v2",
-      "scoring_contract_version": "score_euro_area_financial_conditions_a_share_path_5d_v1",
+      "outcome_contract_version": "macro_transmission_outcome_v3",
+      "scoring_contract_version": "score_euro_area_financial_conditions_a_share_path_5d_v2",
       "sample_schedule_contract_version": "macro_non_overlapping_role_opportunity_v2",
       "rank_scope_contract_version": "self_macro_euro_area_financial_conditions_v2",
       "opportunity_set_contract_version": "euro_area_financial_conditions_macro_opportunity_set_v2",
@@ -3944,10 +4049,10 @@
       "layer": "MACRO",
       "evaluation_object": "AcceptedMacroTransmission",
       "evaluation_object_type": "MACRO_TRANSMISSION",
-      "evaluation_object_schema_version": "accepted_macro_transmission_v2",
+      "evaluation_object_schema_version": "accepted_macro_transmission_v3",
       "accepted_output_kind": "MACRO_TRANSMISSION",
       "primary_label_id": "institutional_flow_followthrough_5d",
-      "metric_schema_id": "macro_transmission_metrics_v2",
+      "metric_schema_id": "macro_transmission_metrics_v3",
       "realized_metric_schema_id": "macro_transmission_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
@@ -3964,8 +4069,8 @@
       "rank_scope": "macro_institutional_flow",
       "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
       "metric_family": "MACRO_TRANSMISSION",
-      "outcome_contract_version": "macro_transmission_outcome_v2",
-      "scoring_contract_version": "score_institutional_flow_followthrough_5d_v1",
+      "outcome_contract_version": "macro_transmission_outcome_v3",
+      "scoring_contract_version": "score_institutional_flow_followthrough_5d_v2",
       "sample_schedule_contract_version": "macro_non_overlapping_role_opportunity_v2",
       "rank_scope_contract_version": "self_macro_institutional_flow_v2",
       "opportunity_set_contract_version": "institutional_flow_macro_opportunity_set_v2",
@@ -4168,10 +4273,10 @@
       "layer": "MACRO",
       "evaluation_object": "AcceptedMacroTransmission",
       "evaluation_object_type": "MACRO_TRANSMISSION",
-      "evaluation_object_schema_version": "accepted_macro_transmission_v2",
+      "evaluation_object_schema_version": "accepted_macro_transmission_v3",
       "accepted_output_kind": "MACRO_TRANSMISSION",
       "primary_label_id": "us_economic_cycle_a_share_path_5d",
-      "metric_schema_id": "macro_transmission_metrics_v2",
+      "metric_schema_id": "macro_transmission_metrics_v3",
       "realized_metric_schema_id": "macro_transmission_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
@@ -4188,8 +4293,8 @@
       "rank_scope": "macro_us_economy",
       "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
       "metric_family": "MACRO_TRANSMISSION",
-      "outcome_contract_version": "macro_transmission_outcome_v2",
-      "scoring_contract_version": "score_us_economic_cycle_a_share_path_5d_v1",
+      "outcome_contract_version": "macro_transmission_outcome_v3",
+      "scoring_contract_version": "score_us_economic_cycle_a_share_path_5d_v2",
       "sample_schedule_contract_version": "macro_non_overlapping_role_opportunity_v2",
       "rank_scope_contract_version": "self_macro_us_economy_v2",
       "opportunity_set_contract_version": "us_economy_macro_opportunity_set_v2",
@@ -4252,10 +4357,10 @@
       "layer": "MACRO",
       "evaluation_object": "AcceptedMacroTransmission",
       "evaluation_object_type": "MACRO_TRANSMISSION",
-      "evaluation_object_schema_version": "accepted_macro_transmission_v2",
+      "evaluation_object_schema_version": "accepted_macro_transmission_v3",
       "accepted_output_kind": "MACRO_TRANSMISSION",
       "primary_label_id": "us_financial_conditions_a_share_path_5d",
-      "metric_schema_id": "macro_transmission_metrics_v2",
+      "metric_schema_id": "macro_transmission_metrics_v3",
       "realized_metric_schema_id": "macro_transmission_realized_metrics_v1",
       "maturity_horizon": "TRADING_DAYS_5",
       "maturity": {
@@ -4272,8 +4377,8 @@
       "rank_scope": "macro_us_financial_conditions",
       "darwin_application_mode": "DOWNSTREAM_USAGE_WEIGHT",
       "metric_family": "MACRO_TRANSMISSION",
-      "outcome_contract_version": "macro_transmission_outcome_v2",
-      "scoring_contract_version": "score_us_financial_conditions_a_share_path_5d_v1",
+      "outcome_contract_version": "macro_transmission_outcome_v3",
+      "scoring_contract_version": "score_us_financial_conditions_a_share_path_5d_v2",
       "sample_schedule_contract_version": "macro_non_overlapping_role_opportunity_v2",
       "rank_scope_contract_version": "self_macro_us_financial_conditions_v2",
       "opportunity_set_contract_version": "us_financial_conditions_macro_opportunity_set_v2",

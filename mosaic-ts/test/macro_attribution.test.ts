@@ -21,6 +21,7 @@ function outputs(): Record<string, MacroAgentOutput> {
         execution_behavior_version: "execution-v2",
         component_weight_contract_version: null,
         direction: "NEUTRAL",
+        trend: "STABLE",
         strength: 0,
         persistence_horizon: "DAYS",
         evaluation_horizon_trading_days: 5,

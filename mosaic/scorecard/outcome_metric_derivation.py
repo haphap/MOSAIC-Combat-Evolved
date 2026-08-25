@@ -262,9 +262,18 @@ def _macro_metrics(
         raise ValueError("accepted Macro strength is invalid")
     if (direction == "NEUTRAL") != (strength == 0):
         raise ValueError("accepted Macro neutral/strength semantics drift")
+    trend = payload.get("trend", "UNKNOWN")
+    if not isinstance(trend, str) or trend not in {
+        "IMPROVING",
+        "STABLE",
+        "DETERIORATING",
+        "UNKNOWN",
+    }:
+        raise ValueError("accepted Macro trend is invalid")
     return {
         "direction_sign": _DIRECTION_SIGN[str(direction)],
         "strength": strength,
+        "trend": trend,
         "confidence": _probability(payload.get("confidence"), "accepted Macro confidence"),
         "role_path_metric": _number(realized.get("role_path_metric"), "role_path_metric"),
         "pit_volatility_scale": _number(

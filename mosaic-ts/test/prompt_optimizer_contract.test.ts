@@ -265,10 +265,10 @@ describe("prompt optimizer public contracts", () => {
       evaluatorAdapterHash: OTHER_HASH,
       evaluationBinding: {
         evaluationObject: "AcceptedMacroTransmission",
-        evaluationObjectSchemaVersion: "accepted_macro_transmission_v2",
+        evaluationObjectSchemaVersion: "accepted_macro_transmission_v3",
         primaryLabelId: "china_macro_transmission_a_share_path_5d",
-        scoringContractVersion: "score_china_macro_transmission_a_share_path_5d_v1",
-        outcomeContractVersion: "macro_transmission_outcome_v2",
+        scoringContractVersion: "score_china_macro_transmission_a_share_path_5d_v2",
+        outcomeContractVersion: "macro_transmission_outcome_v3",
       },
       evaluatorVersion: "agent-outcome-v2",
       evaluatorConfigHash: HASH,
@@ -325,7 +325,7 @@ describe("prompt optimizer public contracts", () => {
       cutoffAt: "2025-01-31T00:00:00Z",
       outcomeContract: {
         evaluationObject: "AcceptedMacroTransmission",
-        outcomeContractVersion: "macro_transmission_outcome_v2",
+        outcomeContractVersion: "macro_transmission_outcome_v3",
         primaryLabelId: "china_macro_transmission_a_share_path_5d",
         maturityHorizon: "TRADING_DAYS_5",
         maturityTradingDays: 5,

@@ -56,9 +56,9 @@ def load_outcome_contracts(
         raise RuntimeError("Agent outcome contract manifest must contain 25 rows")
     metric_schemas = payload.get("metric_schemas")
     if (
-        payload.get("metric_schema_count") != 8
+        payload.get("metric_schema_count") != 9
         or not isinstance(metric_schemas, dict)
-        or len(metric_schemas) != 8
+        or len(metric_schemas) != 9
         or payload.get("metric_schemas_hash")
         != canonical_hash(metric_schemas)
     ):
@@ -252,9 +252,9 @@ def load_outcome_metric_schemas(
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     schemas = payload.get("metric_schemas")
     if (
-        payload.get("metric_schema_count") != 8
+        payload.get("metric_schema_count") != 9
         or not isinstance(schemas, dict)
-        or len(schemas) != 8
+        or len(schemas) != 9
         or payload.get("metric_schemas_hash") != canonical_hash(schemas)
     ):
         raise RuntimeError("Agent outcome metric schema registry is invalid")
