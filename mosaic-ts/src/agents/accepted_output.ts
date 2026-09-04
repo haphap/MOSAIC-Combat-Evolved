@@ -1408,10 +1408,16 @@ function validateEvaluationBinding(record: AcceptedAgentOutputRecord): void {
     "EXECUTION_ASSESSMENT",
     "CIO_FINAL",
   ].includes(record.accepted_output_kind);
+  const superinvestor = record.accepted_output_kind === "SUPERINVESTOR_SELECTION";
   if (fields.every((value) => value === null)) {
     if (decision) {
       throw new Error(
         `Decision accepted output lacks an opportunity binding: ${record.accepted_output_id}`,
+      );
+    }
+    if (superinvestor) {
+      throw new Error(
+        `Superinvestor accepted output lacks an opportunity binding: ${record.accepted_output_id}`,
       );
     }
     return;
@@ -1422,6 +1428,14 @@ function validateEvaluationBinding(record: AcceptedAgentOutputRecord): void {
     requiredText(record.frozen_object_set_id ?? "", "frozen_object_set_id");
     requiredSha256(record.frozen_object_set_hash, "frozen_object_set_hash");
     validateRuntimeOpportunityAuthority(record.runtime_opportunity_authority);
+  } else if (superinvestor) {
+    requiredText(record.frozen_object_set_id ?? "", "frozen_object_set_id");
+    requiredSha256(record.frozen_object_set_hash, "frozen_object_set_hash");
+    if (record.runtime_opportunity_authority !== undefined) {
+      throw new Error(
+        `Superinvestor accepted output has an unexpected runtime authority: ${record.accepted_output_id}`,
+      );
+    }
   } else {
     if (record.frozen_object_set_id !== null || record.frozen_object_set_hash !== null) {
       throw new Error(

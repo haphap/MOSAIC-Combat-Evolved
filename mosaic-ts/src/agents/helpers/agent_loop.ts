@@ -591,6 +591,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
   const toolStatuses: ToolStatus[] = [];
   // ponytail: per-agent cache; make it shared only if duplicate tool IO remains costly.
   const toolOutputCache = new Map<string, CachedToolResult>();
+  const initialToolFingerprints = new Set<string>();
   let toolReplayEntries: ToolReplayEntry[] = [];
 
   // Some BaseChatModel subclasses lack bindTools; the caller is responsible
@@ -627,6 +628,7 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
     for (const call of calls) {
       const name = call.name;
       const fingerprint = toolCallFingerprint(call.name, call.args);
+      initialToolFingerprints.add(fingerprint);
       toolCalls++;
       const tool = toolByName.get(name);
       if (!tool) {
@@ -756,10 +758,10 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
           `The remaining budget is ${remainingModelToolExecutions}. ` +
           `Request no more than ${remainingModelToolExecutions} tool calls now; ` +
           "when the remaining budget is 0, return the analysis without tool calls.";
-    const ai = (await (advertiseTools ? llmWithTools : opts.llm).invoke([
-      new SystemMessage(`${opts.systemMessage}${budgetDirective}`),
-      ...replayMessages,
-    ])) as AIMessage;
+    const ai = (await (advertiseTools ? llmWithTools : opts.llm).invoke(
+      [new SystemMessage(`${opts.systemMessage}${budgetDirective}`), ...replayMessages],
+      opts.signal ? { signal: opts.signal } : undefined,
+    )) as AIMessage;
     llmElapsedMs += Date.now() - llmStartedAt;
     const usage = extractLlmTokenUsage(ai);
     promptTokens += usage.promptTokens;
@@ -974,21 +976,31 @@ export async function runAgentToolLoop(opts: AgentToolLoopOptions): Promise<Agen
         tool_call_id: call.id ?? "",
       });
       messages.push(toolMessage);
-      replayMessages.push(toolMessage);
+      replayMessages.push(
+        cachedOutput !== undefined && initialToolFingerprints.has(fingerprint)
+          ? new ToolMessage({
+              content: `Tool result ${fingerprint} was already supplied as runtime-provided initial evidence; use that existing result.`,
+              tool_call_id: call.id ?? "",
+            })
+          : toolMessage,
+      );
     }
   }
 
   // maxLoops hit — force one final non-tool invocation so we get something
   // usable. This matches the CLI tool-loop's forced-final behaviour.
   const finalStartedAt = Date.now();
-  const final = (await opts.llm.invoke([
-    new SystemMessage(opts.systemMessage),
-    ...replayMessages,
-    new HumanMessage(
-      "Tool budget exhausted. Now write the final structured-friendly analysis " +
-        "based on the data you already have, and do not call further tools.",
-    ),
-  ])) as AIMessage;
+  const final = (await opts.llm.invoke(
+    [
+      new SystemMessage(opts.systemMessage),
+      ...replayMessages,
+      new HumanMessage(
+        "Tool budget exhausted. Now write the final structured-friendly analysis " +
+          "based on the data you already have, and do not call further tools.",
+      ),
+    ],
+    opts.signal ? { signal: opts.signal } : undefined,
+  )) as AIMessage;
   llmElapsedMs += Date.now() - finalStartedAt;
   const finalUsage = extractLlmTokenUsage(final);
   promptTokens += finalUsage.promptTokens;

@@ -252,6 +252,11 @@ def test_structured_smoke_l3_prepare_compiles_with_projected_candidate_scope(
         "as_of": AS_OF,
         "cache_status": "MISS",
         "ensure_mode": "enforce",
+        "prepared_build_receipt_hashes": {
+            "get_superinvestor_candidate_snapshot": prepared[
+                "prepared_build_receipt_hashes"
+            ]["get_superinvestor_candidate_snapshot"]
+        },
     }
     assert list(output_root.rglob("*.json"))
 

@@ -1689,7 +1689,14 @@ def _validate_bound_runtime_snapshot(
             date.fromisoformat(evidence["as_of"]) > date.fromisoformat(as_of)
             or available_at > generated_at
             or (
-                evidence["source_kind"] != "ACCEPTED_OUTPUT"
+                evidence["source_kind"]
+                not in {"ACCEPTED_OUTPUT", "POLICY_CONSTRAINT", "POSITION_SNAPSHOT"}
+                and evidence["evidence_id"]
+                not in {
+                    "candidate-market-authority",
+                    "execution-liquidity-authority",
+                    "portfolio-exposure-authority",
+                }
                 and available_at > as_of_close
             )
         ):
@@ -1869,22 +1876,40 @@ def _load_bound_snapshot(
     as_of: str,
     graph_run_id: str,
     expected_candidate_scope_hash: str | None = None,
+    expected_runtime_input_hash: str | None = None,
     accepted_output_refs: Any | None = None,
     synthetic_fixture_validated: bool = False,
 ) -> str:
     """Load a collector-produced, role-bound payload for non-Macro tools."""
     root = _runtime_snapshot_root()
-    candidates = (
-        root
-        / bound_runtime_snapshot_relative_path(
-            agent_id=agent_id,
-            stage=stage,
-            tool_id=tool_id,
-            as_of=as_of,
-            graph_run_id=graph_run_id,
-        ),
-        root / as_of / f"{agent_id}.{stage}.{tool_id}.json",
-        root / as_of / f"{agent_id}.{tool_id}.json",
+    candidates = tuple(
+        candidate
+        for candidate in (
+            (
+                root
+                / bound_runtime_snapshot_relative_path(
+                    agent_id=agent_id,
+                    stage=stage,
+                    tool_id=tool_id,
+                    as_of=as_of,
+                    graph_run_id=graph_run_id,
+                    runtime_input_hash=expected_runtime_input_hash,
+                )
+                if expected_runtime_input_hash is not None
+                else None
+            ),
+            root
+            / bound_runtime_snapshot_relative_path(
+                agent_id=agent_id,
+                stage=stage,
+                tool_id=tool_id,
+                as_of=as_of,
+                graph_run_id=graph_run_id,
+            ),
+            root / as_of / f"{agent_id}.{stage}.{tool_id}.json",
+            root / as_of / f"{agent_id}.{tool_id}.json",
+        )
+        if candidate is not None
     )
     path = next((candidate for candidate in candidates if candidate.is_file()), None)
     if path is None:
@@ -2158,6 +2183,7 @@ def materialize_tool_payload(
     as_of: str,
     graph_run_id: str = "standalone_tool_materialization",
     expected_candidate_scope_hash: str | None = None,
+    expected_runtime_input_hash: str | None = None,
     accepted_output_refs: Any | None = None,
     historical_replay_captured_at: str | None = None,
 ) -> str:
@@ -2176,7 +2202,11 @@ def materialize_tool_payload(
             raise ValueError(f"{tool_id} cannot be materialised for {agent_id}")
         return render_role_snapshot(role, as_of)
     if tool_id == "get_sector_research_snapshot":
-        return render_sector_snapshot(agent_id, as_of)
+        return render_sector_snapshot(
+            agent_id,
+            as_of,
+            historical_replay_captured_at=historical_replay_captured_at,
+        )
     if tool_id == "get_role_event_snapshot":
         return render_role_event_snapshot(
             agent_id,
@@ -2190,6 +2220,7 @@ def materialize_tool_payload(
         as_of=as_of,
         graph_run_id=graph_run_id,
         expected_candidate_scope_hash=expected_candidate_scope_hash,
+        expected_runtime_input_hash=expected_runtime_input_hash,
         accepted_output_refs=accepted_output_refs,
         synthetic_fixture_validated=synthetic_fixture_validated,
     )
@@ -3438,7 +3469,7 @@ class AgentToolCapabilityStore:
             if isinstance(stage_preparation, Mapping)
             else None
         )
-        if ensure_mode not in {None, "off", "shadow", "enforce"}:
+        if ensure_mode not in {None, "shadow", "enforce"}:
             raise ValueError("stage preparation returned an invalid ensure_mode")
         historical_replay_captured_at = (
             stage_preparation.get("historical_replay_captured_at")
@@ -3486,6 +3517,7 @@ class AgentToolCapabilityStore:
                     tool_id,
                     **materializer_kwargs,
                     expected_candidate_scope_hash=None,
+                    expected_runtime_input_hash=runtime_input_hash,
                     accepted_output_refs=(
                         candidate_scope.get("accepted_output_refs")
                         if isinstance(candidate_scope, dict)
@@ -3556,7 +3588,7 @@ class AgentToolCapabilityStore:
         finalization: Any = None
         if (
             self.stage_materialization_finalizer is not None
-            and ensure_mode not in {"off", "shadow"}
+            and ensure_mode != "shadow"
         ):
             finalization = self.stage_materialization_finalizer(
                 {

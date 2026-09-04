@@ -236,6 +236,32 @@ describe("AcceptedAgentOutputRecord", () => {
     );
   });
 
+  it("accepts the scheduled Superinvestor frozen candidate universe", () => {
+    const superinvestorContext = context({
+      sample_origin: "PRODUCTION_ACTIVE",
+      run_slot_kind: "OUTCOME_SCHEDULED",
+      scheduled_sample_id: "sample:druckenmiller",
+    });
+    superinvestorContext.evaluation_binding = {
+      evaluation_opportunity_set_id: "opportunity:druckenmiller",
+      evaluation_opportunity_set_hash: `sha256:${"4".repeat(64)}`,
+      frozen_object_set_id: "candidate-universe:druckenmiller",
+      frozen_object_set_hash: `sha256:${"5".repeat(64)}`,
+    };
+    const record = buildAcceptedAgentOutputRecord({
+      kind: "SUPERINVESTOR_SELECTION",
+      agentId: "druckenmiller",
+      payload: { superinvestor_agent_id: "druckenmiller" },
+      evidenceBundleIds: ["bundle:1"],
+      causalDedupeKeys: ["cause:1"],
+      claimGraph: claimGraph(),
+      sourceAgentOutputHash: SOURCE_OUTPUT_HASH,
+      context: superinvestorContext,
+    });
+
+    expect(() => validateAcceptedAgentOutputRecord(record)).not.toThrow();
+  });
+
   it("rejects owner, hash and namespace mismatches", () => {
     expect(() =>
       buildAcceptedAgentOutputRecord({

@@ -42,6 +42,11 @@ ROOT = Path(__file__).parents[1]
 AS_OF = "2026-07-17"
 
 
+@pytest.fixture(autouse=True)
+def _allow_synthetic_sector_fixtures(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", "structured_smoke")
+
+
 def _sector_index_membership_csv(args: dict) -> str:
     index_code = args["index_code"]
     return (

@@ -50,7 +50,7 @@ from .tushare import _query_pro
 from .tushare_catalog import assert_endpoint_capture_preflight_allowed
 
 
-CAPTURE_SCHEMA_VERSION = "china_agent_data_capture_group_v2"
+CAPTURE_SCHEMA_VERSION = "china_agent_data_capture_group_v3"
 COMPILER_VERSION = "china_agent_data_compiler_v2"
 HISTORICAL_REPLAY_TIME_POLICY_VERSION = "china_historical_replay_time_v1"
 ARCHIVE_LOCK_TIMEOUT_SECONDS = 60 * 60
@@ -973,13 +973,8 @@ def _build_commodity_group(
             ):
                 eligible.append(row)
         eligible.sort(key=lambda row: (row["delist_date"], row["ts_code"]))
-        selected = eligible[:2]
-        if len(selected) != 2 or len({row["ts_code"] for row in selected}) != 2:
-            raise ChinaAgentDataSchemaError(
-                f"commodity {family_id} lacks exactly two roll-eligible contracts"
-            )
-        metadata.extend(selected)
-        for row in selected:
+        selected: list[dict[str, Any]] = []
+        for row in eligible:
             code = str(row["ts_code"])
             daily_params = {
                 "ts_code": code,
@@ -993,7 +988,27 @@ def _build_commodity_group(
                 raise ChinaAgentDataSchemaError("fut_daily response must be rows")
             if any(str(row.get("ts_code") or "") != code for row in daily_rows):
                 raise ChinaAgentDataSchemaError("fut_daily returned an unrelated contract")
+            metadata.append(row)
             daily.extend(_json_copy(daily_rows))
+            if len(daily_rows) > 1:
+                raise ChinaAgentDataSchemaError("fut_daily contract identity drift")
+            if not daily_rows:
+                continue
+            daily_row = daily_rows[0]
+            if _date(daily_row.get("trade_date"), "fut_daily.trade_date") != session:
+                raise ChinaAgentDataSchemaError("fut_daily returned a different session")
+            if (
+                _finite(daily_row.get("settle"), "fut_daily.settle") > 0
+                and _finite(daily_row.get("vol"), "fut_daily.vol") > 0
+                and _finite(daily_row.get("oi"), "fut_daily.oi") > 0
+            ):
+                selected.append(row)
+                if len(selected) == 2:
+                    break
+        if len(selected) != 2:
+            raise ChinaAgentDataSchemaError(
+                f"commodity {family_id} lacks two tradable roll-eligible contracts"
+            )
         inventory_params = {
             "trade_date": market_session_date,
             "symbol": contract["product_code"],
@@ -2123,13 +2138,18 @@ def _institutional_snapshot(
     group: Mapping[str, Any], receipt: SourceCaptureReceipt
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     session = group["market_session_date"]
+    available_at = (
+        f"{group['as_of_date']}T15:00:00+08:00"
+        if group.get("historical_replay") is True
+        else group["captured_at"]
+    )
     observations = [
         {
             "series_id": f"etf_share_{row['ts_code'].replace('.', '_')}_change",
             "period_start": row["prior"]["trade_date"],
             "period_end": session,
-            "released_at": group["captured_at"],
-            "vintage_at": group["captured_at"],
+            "released_at": available_at,
+            "vintage_at": available_at,
             "actual": float(row["share_change_pct"]),
             "previous": None,
             "expected": None,

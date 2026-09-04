@@ -8,6 +8,7 @@ import pytest
 from mosaic.dataflows.outcome_runtime_inputs import (
     EVENT_COVERAGE_SCHEMA_VERSION,
     OPPORTUNITY_PROJECTION_SCHEMA_VERSION,
+    build_cold_start_event_coverage,
     OUTCOME_PROJECTION_SCHEMA_VERSION,
     expected_qualification_predicate_version,
     load_evaluation_opportunity_projection,
@@ -131,6 +132,27 @@ def test_opportunity_projection_closes_required_sources_and_status(
 def test_missing_runtime_input_is_not_reinterpreted_as_no_event(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="unavailable"):
         load_verified_event_coverage(AS_OF, root=tmp_path)
+
+
+def test_cold_start_event_coverage_is_empty_and_registry_owned() -> None:
+    coverage = build_cold_start_event_coverage()
+    expected_agents = {
+        agent_id
+        for agent_id, contract in OUTCOME_CONTRACTS.items()
+        if contract["sample_schedule"]["kind"] == "EVENT_TRIGGERED"
+    }
+    assert set(coverage) == expected_agents
+    for agent_id, row in coverage.items():
+        schedule = OUTCOME_CONTRACTS[agent_id]["sample_schedule"]
+        assert row == {
+            "coverage_status": "COMPLETE",
+            "coverage_evidence_ids": [
+                f"darwinian-cold-start:no-prior-accepted-cycle:{agent_id}"
+            ],
+            "event_registry_version": schedule["event_registry_version"],
+            "event_priority_version": schedule["event_priority_version"],
+            "candidates": [],
+        }
 
 
 def test_opportunity_member_domain_and_predicate_are_registry_owned(

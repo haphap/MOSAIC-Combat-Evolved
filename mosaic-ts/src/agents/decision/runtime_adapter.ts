@@ -1,5 +1,11 @@
-import { acceptedOutputRefKey, canonicalAcceptedOutputHash } from "../accepted_output.js";
+import {
+  type AcceptedAgentOutputStore,
+  type AcceptedOutputRecordRef,
+  acceptedOutputRefKey,
+  canonicalAcceptedOutputHash,
+} from "../accepted_output.js";
 import { STANDARD_SECTOR_AGENT_IDS } from "../sector/_contracts.js";
+import type { AcceptedSectorSelection } from "../sector/accepted.js";
 import type { DailyCycleStateType } from "../state.js";
 import type {
   AlphaDiscoveryOutput,
@@ -36,6 +42,7 @@ export {
 export function decisionSubmissionToRuntimeOutput(
   submission: DecisionAgentSubmission,
   state: DailyCycleStateType,
+  acceptedOutputStore?: AcceptedAgentOutputStore,
 ): CroOutput | AlphaDiscoveryOutput | AutoExecOutput | CioOutput {
   if (submission.agent_id === "cro") return croSubmissionToRuntime(submission);
   if (submission.agent_id === "alpha_discovery") {
@@ -44,7 +51,7 @@ export function decisionSubmissionToRuntimeOutput(
   if (submission.agent_id === "autonomous_execution") {
     return executionSubmissionToRuntime(submission, state);
   }
-  return cioSubmissionToRuntime(submission, state);
+  return cioSubmissionToRuntime(submission, state, acceptedOutputStore);
 }
 
 export function croSubmissionToRuntime(submission: CroAgentSubmission): CroOutput {
@@ -176,6 +183,7 @@ export function executionSubmissionToRuntime(
 export function cioSubmissionToRuntime(
   submission: CioProposalSubmission | CioFinalSubmission,
   state: DailyCycleStateType,
+  acceptedOutputStore?: AcceptedAgentOutputStore,
 ): CioProposalOutput | CioFinalOutput {
   assertCioHoldCurrentTargetSet({
     decisionDisposition: submission.decision_disposition,
@@ -201,8 +209,18 @@ export function cioSubmissionToRuntime(
     state.current_positions.positions.map((position) => [position.ticker, position]),
   );
   const portfolioActions = submission.target_positions.map((position): PortfolioAction => {
-    const currentWeight = currentByTicker.get(position.ts_code)?.current_weight ?? 0;
-    const sector = authoritativeCioActionSector(state, position.ts_code, submission.decision_stage);
+    const currentPosition = currentByTicker.get(position.ts_code);
+    const currentWeight = currentPosition?.current_weight ?? 0;
+    const targetWeight =
+      position.position_decision === "HOLD" && currentPosition
+        ? currentWeight
+        : position.target_weight;
+    const sector = authoritativeCioActionSector(
+      state,
+      position.ts_code,
+      submission.decision_stage,
+      acceptedOutputStore,
+    );
     const dissentNotes =
       submission.decision_stage === "FINAL"
         ? finalResolutionReasons(submission, position.ts_code, state).join(" | ")
@@ -212,8 +230,8 @@ export function cioSubmissionToRuntime(
       action: positionAction(position.position_decision),
       position_decision: position.position_decision,
       current_weight: currentWeight,
-      target_weight: position.target_weight,
-      delta_weight: position.target_weight - currentWeight,
+      target_weight: targetWeight,
+      delta_weight: targetWeight - currentWeight,
       holding_period: legacyHoldingPeriod(position.holding_period),
       position_decision_reason: submission.decision_reason,
       thesis_status: position.thesis_status.toLowerCase() as PortfolioAction["thesis_status"],
@@ -223,6 +241,9 @@ export function cioSubmissionToRuntime(
       ...(sector ? { sector } : {}),
     };
   });
+  const targetWeightByTicker = new Map(
+    portfolioActions.map((action) => [action.ticker, action.target_weight]),
+  );
   const base: CioOutput = {
     ...runtimeEnvelope(submission),
     agent: "cio",
@@ -241,7 +262,7 @@ export function cioSubmissionToRuntime(
           (position): PositionReview => ({
             ticker: position.ts_code,
             decision: position.position_decision,
-            target_weight: position.target_weight,
+            target_weight: targetWeightByTicker.get(position.ts_code) ?? position.target_weight,
             reason: submission.decision_reason,
             thesis_status: position.thesis_status.toLowerCase() as PositionReview["thesis_status"],
             risk_flags: position.risk_flags,
@@ -267,6 +288,7 @@ function authoritativeCioActionSector(
   state: DailyCycleStateType,
   ticker: string,
   decisionStage: "PROPOSAL" | "FINAL",
+  acceptedOutputStore?: AcceptedAgentOutputStore,
 ): string | undefined {
   const authorities = new Set<string>();
   const normalizedTicker = ticker.trim().toUpperCase();
@@ -283,6 +305,9 @@ function authoritativeCioActionSector(
     const sector = candidateAction?.sector?.trim();
     if (sector) authorities.add(sector);
   }
+  if (state.darwinian_runtime_binding && !acceptedOutputStore) {
+    throw new Error("CIO authoritative sector requires the accepted-output store");
+  }
   for (const agentId of STANDARD_SECTOR_AGENT_IDS) {
     const acceptedRef =
       state.accepted_output_refs[acceptedOutputRefKey("STANDARD_SECTOR_SELECTION", agentId)];
@@ -294,9 +319,13 @@ function authoritativeCioActionSector(
     }
     const sectorOutput = state.layer2_outputs[agentId];
     const longPicks =
-      sectorOutput && "long_picks" in sectorOutput && Array.isArray(sectorOutput.long_picks)
-        ? sectorOutput.long_picks
-        : [];
+      state.darwinian_runtime_binding && acceptedOutputStore
+        ? acceptedOutputStore.resolve<"STANDARD_SECTOR_SELECTION", AcceptedSectorSelection>(
+            acceptedRef as AcceptedOutputRecordRef<"STANDARD_SECTOR_SELECTION">,
+          ).output.payload.selection.long_picks
+        : sectorOutput && "long_picks" in sectorOutput && Array.isArray(sectorOutput.long_picks)
+          ? sectorOutput.long_picks
+          : [];
     const matchingLongPicks = longPicks.filter(
       (pick) =>
         pick.ts_code.trim().toUpperCase() === normalizedTicker && pick.position_action === "LONG",

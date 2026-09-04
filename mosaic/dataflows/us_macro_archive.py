@@ -1,4 +1,4 @@
-"""Trusted US macro capture built from the existing FRED and official adapters."""
+"""Trusted US macro capture built from the existing FRED and source adapters."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import json
 import math
 import os
 import sqlite3
+import time as wall_time
 import zlib
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
@@ -34,7 +35,7 @@ from .macro_snapshots import (
     MACRO_SNAPSHOT_SCHEMA_VERSION,
     validate_role_snapshot,
 )
-from .official_macro_adapters import fetch_fomc_feed, fetch_ny_fed_rate
+from .official_macro_adapters import fetch_ny_fed_rate
 from .runtime_paths import agent_cache_root, isolated_agent_runtime_path
 from .tushare import _query_pro
 from .tushare_catalog import assert_endpoint_capture_preflight_allowed
@@ -52,6 +53,9 @@ LOGICAL_ROUTES = (
     "official.us_policy",
     "tushare.fx_daily",
     "tushare.us_tycr",
+)
+_AKSHARE_US_POLICY_URL = (
+    "https://datacenter.jin10.com/reportType/dc_usa_interest_rate_decision"
 )
 
 
@@ -200,8 +204,92 @@ def _sha256_bytes(value: bytes) -> str:
     return "sha256:" + hashlib.sha256(value).hexdigest()
 
 
+def _akshare_us_policy_records() -> list[dict[str, Any]]:
+    try:
+        import akshare as ak
+    except Exception as exc:
+        raise DataVendorUnavailable(
+            f"AKShare macro_bank_usa_interest_rate fetch failed: {exc}"
+        ) from exc
+    for attempt in range(3):
+        try:
+            records = ak.macro_bank_usa_interest_rate().to_dict(orient="records")
+            break
+        except Exception as exc:
+            if attempt == 2 or not _is_transport_failure(exc):
+                raise DataVendorUnavailable(
+                    f"AKShare macro_bank_usa_interest_rate fetch failed: {exc}"
+                ) from exc
+            wall_time.sleep((0.5, 1.5)[attempt])
+    if not isinstance(records, list) or not records:
+        raise DataVendorUnavailable(
+            "AKShare macro_bank_usa_interest_rate returned no rows"
+        )
+    return records
+
+
 def _private_fomc_fetch(*, as_of: str) -> dict[str, Any]:
-    return fetch_fomc_feed(as_of=as_of, include_raw_payload=True)
+    cutoff = _timestamp(as_of, "AKShare US policy as_of")
+    retrieved = _capture_now()
+
+    def optional_number(value: Any) -> float | None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number if math.isfinite(number) else None
+
+    rows: list[dict[str, Any]] = []
+    for raw in _akshare_us_policy_records():
+        raw_date = raw.get("日期")
+        try:
+            released_on = (
+                raw_date.date()
+                if isinstance(raw_date, datetime)
+                else raw_date
+                if isinstance(raw_date, date)
+                else date.fromisoformat(str(raw_date)[:10])
+            )
+            published = datetime.combine(
+                released_on, time(23, 59, 59), tzinfo=_SHANGHAI
+            )
+            actual = float(raw.get("今值"))
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(actual) or published > cutoff or published > retrieved:
+            continue
+
+        rows.append(
+            {
+                "title": str(raw.get("商品") or "美联储利率决议报告"),
+                "published_at": published.isoformat(),
+                "url": _AKSHARE_US_POLICY_URL,
+                "actual": actual,
+                "expected": optional_number(raw.get("预测值")),
+                "previous": optional_number(raw.get("前值")),
+            }
+        )
+    rows.sort(key=lambda row: row["published_at"])
+    if not rows:
+        raise DataVendorUnavailable(
+            "AKShare US policy history has no eligible row by cutoff"
+        )
+    raw_payload = _canonical_bytes({"rows": rows})
+    return {
+        "adapter_version": "akshare_us_policy_v1",
+        "provider": "AKSHARE_JIN10",
+        "series_key": "fed_interest_rate_decision",
+        "source": "akshare.fed_interest_rate",
+        "usage_mode": "PRIMARY",
+        "request_url": _AKSHARE_US_POLICY_URL,
+        "content_type": "application/json",
+        "retrieved_at": retrieved.isoformat(),
+        "payload_hash": _sha256_bytes(raw_payload),
+        "raw_payload_b64": base64.b64encode(raw_payload).decode("ascii"),
+        "row_count": len(rows),
+        "rows": rows,
+        "pit_status": "HISTORICAL_RELEASE_SERIES",
+    }
 
 
 def _private_nyfed_fetch(
@@ -605,9 +693,16 @@ def _build_group(
     tushare_sources: dict[str, dict[str, Any]] | None = None
     market_start: str | None = None
     if capture_allowed and "official.us_policy" in requested:
+        policy_payload = fetch_fomc(as_of=official_adapter_cutoff)
+        policy_source = str(policy_payload.get("source") or "")
+        if policy_source not in {
+            "akshare.fed_interest_rate",
+            "official.fomc_statement",
+        }:
+            raise USMacroSchemaError("US policy source identity drift")
         official_policy = _validate_official_payload(
-            fetch_fomc(as_of=official_adapter_cutoff),
-            expected_source="official.fomc_statement",
+            policy_payload,
+            expected_source=policy_source,
             cutoff=None if historical_replay else cutoff,
             require_rows=False,
         )
@@ -902,6 +997,7 @@ def _official_receipt(group: Mapping[str, Any]) -> SourceCaptureReceipt:
     route_id = "official.us_policy"
     payload = _receipt_common(group, route_id)
     source = group["official_policy"]
+    akshare_policy = source["source"] == "akshare.fed_interest_rate"
     rows = source["rows"]
     published = sorted(str(row["published_at"]) for row in rows)
     captured_at = str(group["captured_at"])
@@ -920,13 +1016,19 @@ def _official_receipt(group: Mapping[str, Any]) -> SourceCaptureReceipt:
                 "redacted_url": source["request_url"],
                 "method": "GET",
                 "query_keys": [],
-                "pagination_policy": "SINGLE_RSS_FEED",
+                "pagination_policy": (
+                    "FULL_HISTORY_SERIES" if akshare_policy else "SINGLE_RSS_FEED"
+                ),
                 "page_count": 1,
             },
             "authority": {
-                "provider": "FEDERAL_RESERVE",
+                "provider": "AKSHARE_JIN10" if akshare_policy else "FEDERAL_RESERVE",
                 "permission_tier": "public",
-                "api_version": "federal-reserve-rss",
+                "api_version": (
+                    "macro_bank_usa_interest_rate"
+                    if akshare_policy
+                    else "federal-reserve-rss"
+                ),
                 "parser_version": source["adapter_version"],
             },
             "time": {
@@ -945,7 +1047,13 @@ def _official_receipt(group: Mapping[str, Any]) -> SourceCaptureReceipt:
                 "requested_end": group["observation_end"],
                 "observed_start": min(observed) if observed else None,
                 "observed_end": max(observed) if observed else None,
-                "dimensions": {"document_type": ["FOMC_STATEMENT"]},
+                "dimensions": {
+                    "document_type": [
+                        "FED_INTEREST_RATE_DECISION"
+                        if akshare_policy
+                        else "FOMC_STATEMENT"
+                    ]
+                },
             },
             "completeness": {
                 "truncated": False,
@@ -955,7 +1063,12 @@ def _official_receipt(group: Mapping[str, Any]) -> SourceCaptureReceipt:
             },
         }
     )
-    payload["pit"].update({"pit_mode": "OBSERVED_LIVE", "vintage_query": None})
+    payload["pit"].update(
+        {
+            "pit_mode": "OBSERVED_LIVE",
+            "vintage_query": None,
+        }
+    )
     return SourceCaptureReceipt.seal(payload)
 
 
@@ -1420,6 +1533,45 @@ def _market_observations(
     return sorted(observations, key=lambda row: row["series_id"])
 
 
+def _policy_observations(
+    group: Mapping[str, Any],
+    receipt: SourceCaptureReceipt,
+) -> list[dict[str, Any]]:
+    source = group["official_policy"]
+    if source["source"] != "akshare.fed_interest_rate":
+        return []
+    as_of = date.fromisoformat(str(group["as_of_date"]))
+    candidates = [
+        row
+        for row in source["rows"]
+        if _timestamp(str(row["published_at"]), "published_at").date() <= as_of
+    ]
+    if not candidates:
+        raise DataVendorUnavailable("no AKShare US policy decision on or before as-of")
+    row = max(candidates, key=lambda item: str(item["published_at"]))
+    published_at = str(row["published_at"])
+    period = _timestamp(published_at, "published_at").date().isoformat()
+    return [
+        {
+            "series_id": "fed_policy_rate",
+            "period_start": period,
+            "period_end": period,
+            "released_at": published_at,
+            "vintage_at": published_at,
+            "actual": float(row["actual"]),
+            "previous": row.get("previous"),
+            "expected": row.get("expected"),
+            "unit": "Percent",
+            "source": "akshare.macro_bank_usa_interest_rate",
+            "pit_status": "AVAILABLE_AS_OF",
+            "evidence_id": (
+                f"{receipt.receipt_hash}:fed_policy_rate:{period}:"
+                f"{str(source['payload_hash']).removeprefix('sha256:')}"
+            ),
+        }
+    ]
+
+
 def _tushare_observations(
     group: Mapping[str, Any],
     *,
@@ -1645,6 +1797,9 @@ def compile_us_macro_snapshots(
         market = _market_observations(
             group, source_by_route["market.us_conditions"]
         )
+        policy = _policy_observations(
+            group, source_by_route["official.us_policy"]
+        )
         tushare = _tushare_observations(
             group,
             treasury_receipt=source_by_route["tushare.us_tycr"],
@@ -1654,7 +1809,9 @@ def compile_us_macro_snapshots(
             "schema_version": MACRO_SNAPSHOT_SCHEMA_VERSION,
             "role": "us_financial_conditions",
             "as_of_date": group["as_of_date"],
-            "observations": observations["us_financial_conditions"] + market + tushare,
+            "observations": (
+                observations["us_financial_conditions"] + market + policy + tushare
+            ),
             "context_observations": observations["us_economy"],
             "events": [],
         }

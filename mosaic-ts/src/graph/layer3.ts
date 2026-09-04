@@ -21,6 +21,7 @@ import {
   type DailyCycleStateUpdate,
 } from "../agents/state.js";
 import {
+  buildLayerThreeCapabilityRuntimeInputs,
   type SuperinvestorAgentId,
   superinvestorAcceptedSnapshotRefs,
 } from "../agents/superinvestor/_factory.js";
@@ -169,6 +170,16 @@ function buildSuperinvestorOpportunityFreezeNode(
       agent_id: agentId,
       recorded_at: schedule.prepared_at,
       accepted_output_refs: acceptedOutputRefs,
+      ...(deps.llmHandle.provider !== "fake"
+        ? {
+            runtime_inputs: buildLayerThreeCapabilityRuntimeInputs(
+              state,
+              acceptedOutputRefs,
+              deps.acceptedOutputStore,
+              true,
+            ),
+          }
+        : {}),
     });
     if (!result.run_allowed && !result.stage_skip) {
       throw new Error(`${agentId}: ${result.blocker_reason ?? "stage opportunity unavailable"}`);

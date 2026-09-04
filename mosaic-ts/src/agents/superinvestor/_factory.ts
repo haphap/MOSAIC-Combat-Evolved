@@ -360,6 +360,32 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
                 agent: spec.agentId,
                 stage: "agent_run",
                 runtimeEvidence,
+                validateRoleContract: (candidate) => {
+                  const gate = state.macro_input_gate;
+                  if (!state.darwinian_runtime_binding || !gate || !deps.acceptedOutputStore) {
+                    return [];
+                  }
+                  try {
+                    const selection = acceptedSuperinvestorSelectionPayload(candidate);
+                    resolveMacroInputAttributions({
+                      submissions: candidate.macro_input_attributions,
+                      acceptedMacroOutputs: acceptedMacroOutputs(state, deps.acceptedOutputStore),
+                      macroInputGate: gate,
+                      acceptedSubmissionBody: canonicalAcceptedSubmissionBody(selection),
+                      targets: superinvestorMacroAttributionTargets(candidate),
+                    });
+                    return [];
+                  } catch (error) {
+                    return [
+                      {
+                        validator: "macro_input_attribution_v2",
+                        reason_code: "MACRO_ATTRIBUTION_INVALID",
+                        json_path: "$.macro_input_attributions",
+                        message: error instanceof Error ? error.message : String(error),
+                      },
+                    ];
+                  }
+                },
               }),
             isAcceptedEmpty: (output) => output.selection_status === "NO_QUALIFIED_CANDIDATES",
             signal,

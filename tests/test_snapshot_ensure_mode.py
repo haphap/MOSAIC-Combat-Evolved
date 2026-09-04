@@ -38,22 +38,38 @@ def _request() -> dict[str, str]:
     }
 
 
-@pytest.mark.parametrize("configured", [None, "", "observe", "ENFORCE"])
-def test_production_ensure_mode_must_be_explicit_and_valid(
+@pytest.mark.parametrize("configured", ["", "off", "observe", "ENFORCE"])
+def test_snapshot_rollout_mode_must_be_valid_when_set(
     monkeypatch: pytest.MonkeyPatch,
-    configured: str | None,
+    configured: str,
 ) -> None:
     monkeypatch.delenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", raising=False)
-    if configured is None:
-        monkeypatch.delenv("MOSAIC_ENSURE_SNAPSHOT_MODE", raising=False)
-    else:
-        monkeypatch.setenv("MOSAIC_ENSURE_SNAPSHOT_MODE", configured)
+    monkeypatch.setenv("MOSAIC_ENSURE_SNAPSHOT_MODE", configured)
 
     with pytest.raises(
         DataVendorUnavailable,
-        match="MOSAIC_ENSURE_SNAPSHOT_MODE must be one of off, shadow, enforce",
+        match="MOSAIC_ENSURE_SNAPSHOT_MODE must be shadow or enforce when set",
     ):
         stage_preparer.ensure_agent_stage_materialization(_request())
+
+
+def test_normal_path_is_warm_first_without_a_snapshot_rollout_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MOSAIC_ENSURE_SNAPSHOT_MODE", raising=False)
+    monkeypatch.delenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", raising=False)
+    observed: list[object] = []
+
+    def core(request: object) -> dict[str, str]:
+        observed.append(request)
+        return {"cache_status": "HIT", "status": "READY"}
+
+    monkeypatch.setattr(stage_preparer, "_ensure_agent_stage_materialization_core", core)
+    assert stage_preparer.ensure_agent_stage_materialization(_request()) == {
+        "cache_status": "HIT",
+        "status": "READY",
+    }
+    assert observed == [_request()]
 
 
 def test_structured_smoke_bypass_does_not_require_production_mode(
@@ -134,22 +150,6 @@ def test_structured_smoke_bound_suffix_uses_core_only_with_complete_inputs(
     }
 
 
-def test_off_skips_trusted_ensure_core(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MOSAIC_ENSURE_SNAPSHOT_MODE", "off")
-    monkeypatch.delenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", raising=False)
-
-    def unexpected(_request: object) -> dict[str, str]:
-        raise AssertionError("off mode must not invoke the ensure core")
-
-    monkeypatch.setattr(
-        stage_preparer, "_ensure_agent_stage_materialization_core", unexpected
-    )
-    assert stage_preparer.ensure_agent_stage_materialization(_request()) == {
-        "ensure_mode": "off",
-        "status": "OFF",
-    }
-
-
 def test_enforce_runs_core_in_production_namespace(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -173,7 +173,11 @@ def test_enforce_runs_core_in_production_namespace(
         "ensure_mode": "enforce",
         "status": "READY",
     }
-    assert observed == [(production_root, request)]
+    assert len(observed) == 1
+    assert observed[0][0] == production_root
+    assert stage_preparer._deferred_request_only_tool_ids(observed[0][1]) == (
+        "get_indicators",
+    )
 
 
 def test_curve_stage_enforce_and_shadow_do_not_require_private_license_receipt(
@@ -252,7 +256,7 @@ def test_shadow_ignores_production_paths_and_restores_them(
     assert china_agent_archive_path() == production_china
 
 
-def test_enforce_shadow_off_restore_drill_keeps_namespaces_separate(
+def test_enforce_shadow_normal_restore_drill_keeps_namespaces_separate(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -277,13 +281,13 @@ def test_enforce_shadow_off_restore_drill_keeps_namespaces_separate(
     assert stage_preparer.ensure_agent_stage_materialization(_request())["ensure_mode"] == "enforce"
     monkeypatch.setenv("MOSAIC_ENSURE_SNAPSHOT_MODE", "shadow")
     assert stage_preparer.ensure_agent_stage_materialization(_request())["status"] == "SHADOW_READY"
-    monkeypatch.setenv("MOSAIC_ENSURE_SNAPSHOT_MODE", "off")
-    assert stage_preparer.ensure_agent_stage_materialization(_request())["status"] == "OFF"
+    monkeypatch.delenv("MOSAIC_ENSURE_SNAPSHOT_MODE")
+    assert stage_preparer.ensure_agent_stage_materialization(_request())["status"] == "READY"
     monkeypatch.setenv("MOSAIC_ENSURE_SNAPSHOT_MODE", "enforce")
     assert stage_preparer.ensure_agent_stage_materialization(_request())["ensure_mode"] == "enforce"
 
-    assert observed_roots == [production_root, shadow_root, production_root]
-    assert (production_root / "rollout-mode-marker").read_text(encoding="utf-8") == "3"
+    assert observed_roots == [production_root, shadow_root, production_root, production_root]
+    assert (production_root / "rollout-mode-marker").read_text(encoding="utf-8") == "4"
     assert (shadow_root / "rollout-mode-marker").read_text(encoding="utf-8") == "2"
     assert agent_cache_root() == production_root
 

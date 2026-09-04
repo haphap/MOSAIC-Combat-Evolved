@@ -468,7 +468,10 @@ MACRO_OBSERVATION_SOURCE_COMPONENTS: Final[
         for source in sources
         if source.startswith(("official.", "tushare."))
     }
-    | {"ALFRED": frozenset(US_FINANCIAL_CONDITIONS_SERIES_MAP)},
+    | {
+        "akshare.macro_bank_usa_interest_rate": frozenset({"fed_liquidity"}),
+        "ALFRED": frozenset(US_FINANCIAL_CONDITIONS_SERIES_MAP),
+    },
     "euro_area_financial_conditions": {
         (
             source
@@ -555,6 +558,7 @@ MACRO_OBSERVATION_FRESHNESS_CONTRACTS: Final[dict[str, dict[str, Any]]] = {
     },
     "us_financial_conditions": {
         "source_max_age_calendar_days": {
+            "akshare.macro_bank_usa_interest_rate": 60,
             "official.fomc_statement": 60,
             "official.nyfed_effr": 4,
             "official.nyfed_sofr": 4,

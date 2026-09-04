@@ -18,6 +18,7 @@ import json
 import logging
 import sys
 import traceback
+from contextlib import redirect_stdout
 from typing import Any, IO
 
 from .protocol import (
@@ -118,7 +119,8 @@ def _serve_streams(stdin: IO[str], stdout: IO[str]) -> None:
             except json.JSONDecodeError as exc:
                 response = _build_error(None, PARSE_ERROR, f"Invalid JSON: {exc}")
             else:
-                response = dispatch(request)
+                with redirect_stdout(sys.stderr):
+                    response = dispatch(request)
             try:
                 stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
                 stdout.flush()

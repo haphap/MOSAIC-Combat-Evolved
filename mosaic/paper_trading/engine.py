@@ -144,13 +144,19 @@ class PaperTradingEngine:
 
     # ---------------------------------------------------------------- account
 
-    def get_account(self, user_id: str | None = None) -> dict:
-        return self.get_portfolio_snapshot(user_id=user_id)["account"]
+    def get_account(
+        self, user_id: str | None = None, trade_date: str | None = None
+    ) -> dict:
+        return self.get_portfolio_snapshot(
+            user_id=user_id, trade_date=trade_date
+        )["account"]
 
-    def get_portfolio_snapshot(self, user_id: str | None = None) -> dict:
+    def get_portfolio_snapshot(
+        self, user_id: str | None = None, trade_date: str | None = None
+    ) -> dict:
         """Return one hash-bound account/position snapshot for order CAS checks."""
         uid = self._require_user(user_id)
-        self._update_day_barrier(uid)
+        self._update_day_barrier(uid, trade_date=trade_date)
         with self._connect() as conn:
             conn.execute("BEGIN")
             row, position_rows = self._portfolio_state_rows(conn, uid)
@@ -208,6 +214,7 @@ class PaperTradingEngine:
         order_intent_key: str | None = None,
         expected_account_snapshot_hash: str | None = None,
         final_target_hash: str | None = None,
+        trade_date: str | None = None,
     ) -> dict:
         uid = self._require_user(user_id)
         validate_quantity(quantity)
@@ -238,7 +245,7 @@ class PaperTradingEngine:
             )
             if existing_intent is not None:
                 return existing_intent
-            self._update_day_barrier(uid, conn=conn)
+            self._update_day_barrier(uid, conn=conn, trade_date=trade_date)
             self._assert_account_snapshot(
                 uid, expected_account_snapshot_hash, conn=conn
             )
@@ -332,6 +339,7 @@ class PaperTradingEngine:
         order_intent_key: str | None = None,
         expected_account_snapshot_hash: str | None = None,
         final_target_hash: str | None = None,
+        trade_date: str | None = None,
     ) -> dict:
         uid = self._require_user(user_id)
         validate_quantity(quantity)
@@ -360,7 +368,7 @@ class PaperTradingEngine:
             )
             if existing_intent is not None:
                 return existing_intent
-            self._update_day_barrier(uid, conn=conn)
+            self._update_day_barrier(uid, conn=conn, trade_date=trade_date)
             self._assert_account_snapshot(
                 uid, expected_account_snapshot_hash, conn=conn
             )
@@ -499,10 +507,40 @@ class PaperTradingEngine:
             return
         account_row, position_rows = self._portfolio_state_rows(conn, user_id)
         actual = self._portfolio_state_hash(user_id, account_row, position_rows)
-        if actual != expected_account_snapshot_hash:
-            raise ValueError(
-                "STALE_FINAL_TARGET: paper account snapshot changed before order submit"
+        if actual == expected_account_snapshot_hash:
+            return
+        # A fully locked portfolio becoming fully sellable is a T+1-only change.
+        if position_rows and all(
+            row["available_qty"] == row["quantity"] for row in position_rows
+        ):
+            fully_locked_rows = [
+                {**dict(row), "available_qty": 0} for row in position_rows
+            ]
+            if (
+                self._portfolio_state_hash(
+                    user_id, account_row, fully_locked_rows
+                )
+                == expected_account_snapshot_hash
+            ):
+                return
+        legacy_unlock_dates = {
+            account_row["last_unlock_date"],
+            (date.today() - timedelta(days=1)).isoformat(),
+        }
+        if any(
+            self._legacy_portfolio_state_hash_v1(
+                user_id,
+                account_row,
+                position_rows,
+                last_unlock_date=unlock_date,
             )
+            == expected_account_snapshot_hash
+            for unlock_date in legacy_unlock_dates
+        ):
+            return
+        raise ValueError(
+            "STALE_FINAL_TARGET: paper account snapshot changed before order submit"
+        )
 
     @staticmethod
     def _portfolio_state_rows(
@@ -531,13 +569,48 @@ class PaperTradingEngine:
         position_rows: list[sqlite3.Row],
     ) -> str:
         payload = {
+            "schema_version": "paper_portfolio_state_v2",
+            "user_id": user_id,
+            "account": {
+                "cash": account_row["cash"],
+                "realized_pnl": account_row["realized_pnl"],
+                "total_commission": account_row["total_commission"],
+            },
+            "positions": [
+                {
+                    "ticker": row["ticker"],
+                    "quantity": row["quantity"],
+                    "available_qty": row["available_qty"],
+                    "avg_cost": row["avg_cost"],
+                }
+                for row in position_rows
+            ],
+        }
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=True,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+    @staticmethod
+    def _legacy_portfolio_state_hash_v1(
+        user_id: str,
+        account_row: sqlite3.Row,
+        position_rows: list[sqlite3.Row],
+        *,
+        last_unlock_date: str | None,
+    ) -> str:
+        payload = {
             "schema_version": "paper_portfolio_state_v1",
             "user_id": user_id,
             "account": {
                 "cash": account_row["cash"],
                 "realized_pnl": account_row["realized_pnl"],
                 "total_commission": account_row["total_commission"],
-                "last_unlock_date": account_row["last_unlock_date"],
+                "last_unlock_date": last_unlock_date,
             },
             "positions": [
                 {
@@ -613,12 +686,16 @@ class PaperTradingEngine:
 
     # -------------------------------------------------------- signal linkage
 
-    def suggest_order_from_signal(self, ticker: str, state: dict,
-                                  user_id: str | None = None) -> dict | None:
+    def suggest_order_from_signal(
+        self,
+        ticker: str,
+        state: dict,
+        user_id: str | None = None,
+        trade_date: str | None = None,
+    ) -> dict | None:
         import dataclasses
 
         from mosaic.backtest.signals import BacktestSignal, build_state_backtest_signal
-        from mosaic.dataflows.exceptions import DataVendorUnavailable
         signal_dict = build_state_backtest_signal(state, default_ticker=ticker)
         if not signal_dict:
             return None
@@ -634,13 +711,11 @@ class PaperTradingEngine:
             )
 
         uid = user_id or self._get_current_user()
-        self._update_day_barrier(uid)  # unlock T+1 shares before reading availability
-        account = self.get_account(uid)
-        try:
-            price = self._get_current_price(signal_ticker)
-        except (DataVendorUnavailable, RuntimeError):
-            logger.warning("Cannot fetch price for %s, skipping suggestion", signal_ticker)
-            return None
+        self._update_day_barrier(
+            uid, trade_date=trade_date
+        )  # unlock T+1 shares before reading availability
+        account = self.get_account(uid, trade_date=trade_date)
+        price = self._get_current_price(signal_ticker)
         target_value = account["total_assets"] * signal.target_weight_pct / 100
         current_value = self._position_market_value(signal_ticker, uid)
         delta_value = target_value - current_value
@@ -694,39 +769,54 @@ class PaperTradingEngine:
             set_config(previous_config)
 
     def _get_current_price(self, ticker: str) -> float:
+        from mosaic.dataflows.exceptions import DataVendorUnavailable
         from mosaic.dataflows.interface import route_to_vendor
         today = date.today().isoformat()
         start = (date.today() - timedelta(days=30)).isoformat()
-        with self._vendor_config_context():
-            csv_text = route_to_vendor("get_etf_price_data", ticker, start, today)
-        if not csv_text:
-            raise RuntimeError(f"No price data returned for {ticker}")
         from mosaic.paper_trading._detail import _parse_csv_last_row, _safe_float
-        row = _parse_csv_last_row(csv_text)
-        if row is None:
-            raise RuntimeError(f"No price data for {ticker}")
-        close = _safe_float(row.get("close"))
-        if close is None:
-            raise RuntimeError(f"Could not parse close price for {ticker}")
-        return close
+        for tool_id in ("get_etf_price_data", "get_stock_data"):
+            try:
+                with self._vendor_config_context():
+                    csv_text = route_to_vendor(tool_id, ticker, start, today)
+            except (DataVendorUnavailable, RuntimeError):
+                continue
+            if not csv_text:
+                continue
+            row = _parse_csv_last_row(csv_text)
+            if row is None:
+                continue
+            close = _safe_float(row.get("close") or row.get("Close"))
+            if close is not None:
+                return close
+        raise RuntimeError(f"No price data returned for {ticker}")
 
     def _update_day_barrier(
-        self, user_id: str, *, conn: sqlite3.Connection | None = None
+        self,
+        user_id: str,
+        *,
+        conn: sqlite3.Connection | None = None,
+        trade_date: str | None = None,
     ) -> None:
         # Persists the last unlock date in account.last_unlock_date.
-        # On a new calendar day, all positions unlock (available_qty = quantity).
+        # On a new trading day, all positions unlock (available_qty = quantity).
         # Same-day process restarts will NOT re-unlock because the DB date
-        # matches today — preserving the T+1 guarantee across restarts.
-        today = date.today().isoformat()
+        # matches the trading day — preserving the T+1 guarantee across restarts.
+        barrier_date = (
+            date.fromisoformat(trade_date).isoformat()
+            if trade_date is not None
+            else date.today().isoformat()
+        )
         if conn is None:
             with self._connect() as local_conn:
-                self._update_day_barrier(user_id, conn=local_conn)
+                self._update_day_barrier(
+                    user_id, conn=local_conn, trade_date=barrier_date
+                )
             return
         row = conn.execute(
             "SELECT last_unlock_date FROM account WHERE user_id = ?",
             (user_id,),
         ).fetchone()
-        if row and row["last_unlock_date"] == today:
+        if row and row["last_unlock_date"] == barrier_date:
             return
         conn.execute(
             "UPDATE positions SET available_qty = quantity WHERE user_id = ?",
@@ -734,7 +824,7 @@ class PaperTradingEngine:
         )
         conn.execute(
             "UPDATE account SET last_unlock_date = ? WHERE user_id = ?",
-            (today, user_id),
+            (barrier_date, user_id),
         )
 
     def _auto_fill_name(self, ticker: str) -> str:

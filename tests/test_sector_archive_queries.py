@@ -58,7 +58,7 @@ def _group() -> dict[str, Any]:
         "update_flag": "1",
     }
     group = {
-        "schema_version": "sector_relationship_capture_group_v2",
+        "schema_version": "sector_relationship_capture_group_v3",
         "capture_key": canonical_hash({"capture": AS_OF}),
         "as_of_date": AS_OF,
         "cutoff_at": "2026-07-09T23:59:00+08:00",

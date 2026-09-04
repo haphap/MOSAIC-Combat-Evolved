@@ -128,6 +128,7 @@ def paper_get_portfolio_snapshot(params: dict[str, Any]) -> dict[str, Any]:
     return _wrap(
         _engine(params).get_portfolio_snapshot,
         user_id=_opt_str(params, "user_id"),
+        trade_date=_opt_str(params, "trade_date"),
     )
 
 
@@ -165,6 +166,7 @@ def paper_buy(params: dict[str, Any]) -> dict[str, Any]:
             params, "expected_account_snapshot_hash"
         ),
         final_target_hash=_opt_sha256(params, "final_target_hash"),
+        trade_date=_opt_str(params, "trade_date"),
     )
 
 
@@ -186,6 +188,7 @@ def paper_sell(params: dict[str, Any]) -> dict[str, Any]:
             params, "expected_account_snapshot_hash"
         ),
         final_target_hash=_opt_sha256(params, "final_target_hash"),
+        trade_date=_opt_str(params, "trade_date"),
     )
 
 
@@ -222,4 +225,5 @@ def paper_suggest_order_from_signal(params: dict[str, Any]) -> dict[str, Any] | 
         ticker=_require_str(params, "ticker"),
         state=state,
         user_id=_opt_str(params, "user_id"),
+        trade_date=_opt_str(params, "trade_date"),
     )

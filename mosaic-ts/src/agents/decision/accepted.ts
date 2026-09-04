@@ -194,6 +194,33 @@ export type CioFinalSubmission = CioPortfolioDecisionPayload &
     macro_input_attributions: MacroInputAttributionSubmission[];
   };
 
+export function canonicalCioAcceptedSubmission<
+  T extends CioProposalSubmission | CioFinalSubmission,
+>(submission: T, runtimeActions: ReadonlyArray<{ ticker: string; target_weight: number }>): T {
+  let changed = false;
+  const targetPositions = submission.target_positions.map((position, index) => {
+    const runtimeAction = runtimeActions[index];
+    if (!runtimeAction || runtimeAction.ticker !== position.ts_code) {
+      throw new Error("CIO runtime target order differs from the accepted submission");
+    }
+    const targetWeight =
+      position.position_decision === "HOLD" ? runtimeAction.target_weight : position.target_weight;
+    changed ||= targetWeight !== position.target_weight;
+    return targetWeight === position.target_weight
+      ? position
+      : { ...position, target_weight: targetWeight };
+  });
+  if (!changed) return submission;
+  return {
+    ...submission,
+    target_positions: targetPositions,
+    cash_weight: Math.max(
+      0,
+      1 - targetPositions.reduce((sum, position) => sum + position.target_weight, 0),
+    ),
+  } as T;
+}
+
 export type DecisionAgentSubmission =
   | CroAgentSubmission
   | AlphaDiscoverySubmission
@@ -399,7 +426,9 @@ export interface ModelVisibleAcceptedCioFinal {
 export function croRiskReviewPayload(submission: CroAgentSubmission): CroRiskReviewPayload {
   return {
     review_disposition: submission.review_disposition,
-    candidate_actions: submission.candidate_actions,
+    candidate_actions: [...submission.candidate_actions].sort((left, right) =>
+      left.action_local_id.localeCompare(right.action_local_id),
+    ),
     correlated_risks: submission.correlated_risks,
     black_swan_scenarios: submission.black_swan_scenarios,
     claims: submission.claims,
@@ -438,9 +467,12 @@ export function executionAssessmentPayload(
       claim_refs: submission.claim_refs,
     };
   }
+  const orderAssessments = [...submission.order_assessments].sort((left, right) =>
+    left.assessment_local_id.localeCompare(right.assessment_local_id),
+  ) as typeof submission.order_assessments;
   return {
     execution_disposition: submission.execution_disposition,
-    order_assessments: submission.order_assessments,
+    order_assessments: orderAssessments,
     claims: submission.claims,
     claim_refs: submission.claim_refs,
   };
@@ -979,14 +1011,16 @@ function assertAcceptedCioFinalControlCompliance(input: {
       throw new Error("CIO final execution assessment is bound to a different frozen intent set");
     }
   }
+  const controlledTargets = new Map(
+    input.frozenControlledTargetSet.controlled_targets.map((target) => [target.ts_code, target]),
+  );
   const proposalTargets = new Map(
     input.frozenProposal.decision.target_positions.map((position) => [
       position.ts_code,
-      position.target_weight,
+      position.position_decision === "HOLD"
+        ? (controlledTargets.get(position.ts_code)?.current_weight ?? position.target_weight)
+        : position.target_weight,
     ]),
-  );
-  const controlledTargets = new Map(
-    input.frozenControlledTargetSet.controlled_targets.map((target) => [target.ts_code, target]),
   );
   if (
     controlledTargets.size !== proposalTargets.size ||
@@ -1023,10 +1057,9 @@ function assertAcceptedCioFinalControlCompliance(input: {
     }
   }
   const acceptedCroControlByTicker = new Map(
-    (input.acceptedCroReview?.review.candidate_actions ?? []).map((action) => [
-      action.ts_code,
-      action,
-    ]),
+    (input.acceptedCroReview?.review.candidate_actions ?? [])
+      .filter((action) => action.action !== "NO_OBJECTION")
+      .map((action) => [action.ts_code, action]),
   );
   for (const target of controlledTargets.values()) {
     const action = acceptedCroControlByTicker.get(target.ts_code);

@@ -30,8 +30,8 @@ _SUFFIX_MAP = {
 }
 
 _A_SHARE_EXCHANGES = {"SH", "SZ", "BJ"}
-_TUSHARE_QUERY_MAX_ATTEMPTS = 3
-_TUSHARE_QUERY_BACKOFF_SECONDS = (0.5, 1.5)
+_TUSHARE_QUERY_MAX_ATTEMPTS = 4
+_TUSHARE_QUERY_BACKOFF_SECONDS = (0.5, 1.5, 3.0)
 _ETF_UNIVERSE_FUND_BASIC_CACHE_TTL_SECONDS = 60 * 60
 _ETF_UNIVERSE_MAX_ENRICHED_ROWS = 6
 _INDICATOR_WARMUP_CALENDAR_DAYS = 365  # Covers the largest supported window: 200-SMA.
@@ -363,7 +363,12 @@ def _query_pro(api_name: str, **params) -> pd.DataFrame:
     if last_exc is not None:
         raise DataVendorUnavailable(
             f"Tushare query '{api_name}' failed for '{ticker or 'unknown'}' after "
-            f"{attempts_executed} attempt(s): {last_exc}"
+            f"{attempts_executed} attempt(s): {last_exc}",
+            reason_code=(
+                "TRANSPORT_FAILED"
+                if _is_transient_tushare_error(last_exc)
+                else "DATA_VENDOR_UNAVAILABLE"
+            ),
         ) from last_exc
     raise DataVendorUnavailable(
         f"Tushare query '{api_name}' failed for '{ticker or 'unknown'}': unknown error"

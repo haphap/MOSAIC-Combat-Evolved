@@ -50,6 +50,7 @@ from .sector_snapshots import (
     _authoritative_etf_codes,
     _direction_for_security,
     _read_semiconductor_etf_basket,
+    _validate_csi_index_weight_authority,
     compile_registered_relationship_snapshot,
     compile_registered_sector_snapshot,
     sector_snapshot_root,
@@ -62,7 +63,7 @@ from .tushare_catalog import (
     endpoint_registration,
 )
 
-CAPTURE_SCHEMA_VERSION = "sector_relationship_capture_group_v2"
+CAPTURE_SCHEMA_VERSION = "sector_relationship_capture_group_v4"
 PARSER_VERSION = "sector_relationship_archive_v2"
 CORE_COMPILER_VERSION = "sector_relationship_core_compiler_v1"
 LOGICAL_ROUTES = (
@@ -599,14 +600,22 @@ def _seal_batch(
     # Keep vendor response construction on the caller thread to avoid worker-init crashes.
     for request in requests:
         if exact_single_page:
-            try:
-                response = fetch(endpoint, **dict(request))
-            except DataVendorUnavailable as exc:
-                raise DataVendorUnavailable(
-                    f"Tushare endpoint '{endpoint}' unavailable",
-                    reason_code=f"TUSHARE_{endpoint.upper()}_UNAVAILABLE",
-                ) from exc
-            leaf_rows = _response_rows(response)
+            empty_backoffs = (
+                _EMPTY_RESPONSE_BACKOFF_SECONDS if require_each_nonempty else ()
+            )
+            for attempt in range(len(empty_backoffs) + 1):
+                try:
+                    response = fetch(endpoint, **dict(request))
+                except DataVendorUnavailable as exc:
+                    raise DataVendorUnavailable(
+                        f"Tushare endpoint '{endpoint}' unavailable",
+                        reason_code=f"TUSHARE_{endpoint.upper()}_UNAVAILABLE",
+                    ) from exc
+                leaf_rows = _response_rows(response)
+                if leaf_rows or attempt == len(empty_backoffs):
+                    leaf_pages = attempt + 1
+                    break
+                wall_time.sleep(empty_backoffs[attempt])
             if len(leaf_rows) >= (
                 _INDEX_MEMBER_ALL_EXACT_PAGE_CAP
                 if endpoint == "index_member_all"
@@ -635,7 +644,6 @@ def _seal_batch(
                 seen_hashes.add(row_hash)
                 unique_rows.append(row)
             leaf_rows = unique_rows
-            leaf_pages = 1
         else:
             leaf_rows, leaf_pages, leaf_duplicates = _paginate_incremental(
                 fetch,
@@ -734,6 +742,39 @@ def _membership_batches(
     etf_source_hash: str | None = None,
 ) -> tuple[list[dict[str, Any]], int, int]:
     agent_ids = set(_requested_sector_agents(requested_agent_ids))
+    if scoped_tickers is not None:
+        tickers = tuple(sorted(set(scoped_tickers)))
+        if (
+            agent_ids != {"semiconductor"}
+            or not 1 <= len(tickers) <= 12
+            or len(tickers) != len(scoped_tickers)
+            or not isinstance(etf_source_hash, str)
+        ):
+            raise ValueError("semiconductor membership scope is invalid")
+        plan = next(
+            row
+            for row in SECTOR_UNIVERSE_MANIFEST["membership_query_plans"]
+            if row["sector_agent_id"] == "semiconductor"
+        )
+        batch, duplicates, pages = _seal_batch(
+            endpoint="index_member_all",
+            requests=tuple(
+                {"ts_code": ticker, "is_new": "Y"} for ticker in tickers
+            ),
+            request_contract={
+                "query_plan_hash": plan["query_plan_hash"],
+                "scope": "semiconductor_etf_candidates_v1",
+                "etf_ts_code": "512480.SH",
+                "etf_source_hash": etf_source_hash,
+                "ts_codes": list(tickers),
+            },
+            fetch=fetch,
+            captured_at=captured_at,
+            require_each_nonempty=True,
+            confirm_terminal=False,
+            exact_single_page=True,
+        )
+        return [batch], duplicates, pages
     specs: list[tuple[dict[str, Any], dict[str, Any], bool]] = []
     for plan in SECTOR_UNIVERSE_MANIFEST["membership_query_plans"]:
         if plan["sector_agent_id"] not in agent_ids:
@@ -822,6 +863,76 @@ def _active_security_codes(
     return sorted(codes)
 
 
+def _select_csi_security_codes(
+    *,
+    role: str,
+    membership_batches: Sequence[Mapping[str, Any]],
+    index_weight_batches: Sequence[dict[str, Any]],
+    as_of: date,
+) -> list[str]:
+    authority = _validate_csi_index_weight_authority(
+        batches=list(index_weight_batches), as_of=as_of, role=role
+    )
+    active_codes = set(_active_security_codes(membership_batches, as_of))
+    direction_contracts = {
+        row["direction_id"]: row
+        for row in SECTOR_UNIVERSE_MANIFEST["direction_contracts"]
+        if row["sector_agent_id"] == role
+    }
+    direction_by_code: dict[str, str] = {}
+    invalid_codes: set[str] = set()
+    for batch in membership_batches:
+        for row in batch["rows"]:
+            code = str(row["ts_code"])
+            if code not in active_codes or code not in authority:
+                continue
+            in_date = datetime.strptime(
+                str(row["in_date"]).replace("-", ""), "%Y%m%d"
+            ).date()
+            out_value = row.get("out_date")
+            out_date = (
+                datetime.strptime(
+                    str(out_value).replace("-", ""), "%Y%m%d"
+                ).date()
+                if out_value not in (None, "")
+                else None
+            )
+            if in_date > as_of or (out_date is not None and out_date <= as_of):
+                continue
+            try:
+                direction = _direction_for_security(row, direction_contracts)
+            except DataVendorUnavailable:
+                invalid_codes.add(code)
+                direction_by_code.pop(code, None)
+                continue
+            previous = direction_by_code.get(code)
+            if previous is not None and previous != direction:
+                invalid_codes.add(code)
+                direction_by_code.pop(code, None)
+            elif code not in invalid_codes:
+                direction_by_code[code] = direction
+
+    ranked_codes = sorted(
+        direction_by_code,
+        key=lambda code: (
+            -sum(authority[code]["source_weights"].values()),
+            code,
+        ),
+    )
+    selected = [
+        next(
+            (code for code in ranked_codes if direction_by_code[code] == direction),
+            None,
+        )
+        for direction in SECTOR_DIRECTION_IDS[role]
+    ]
+    if any(code is None for code in selected):
+        raise DataVendorUnavailable(
+            f"CSI membership scope does not cover every {role} direction"
+        )
+    return sorted(str(code) for code in selected)
+
+
 def _build_capture_group(
     fetch: Callable[..., Any],
     *,
@@ -868,7 +979,38 @@ def _build_capture_group(
         scoped_tickers=scoped_tickers,
         etf_source_hash=etf_source_hash,
     )
-    if scoped_tickers is None:
+    index_weight_batches: list[dict[str, Any]] = []
+    index_weight_duplicates = 0
+    index_weight_pages = 0
+    if scoped_tickers is None and set(route_ids) == set(LOGICAL_ROUTES):
+        assert_endpoint_capture_preflight_allowed(CSI_INDEX_WEIGHT_ENDPOINT)
+        start_date = (as_of_date - timedelta(days=31)).strftime("%Y%m%d")
+        end_date = as_of_date.strftime("%Y%m%d")
+        for index_code in CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE[agent_ids[0]]:
+            request = {
+                "index_code": index_code,
+                "start_date": start_date,
+                "end_date": end_date,
+            }
+            batch, duplicates, pages = _seal_batch(
+                endpoint=CSI_INDEX_WEIGHT_ENDPOINT,
+                requests=(request,),
+                request_contract=request,
+                fetch=fetch,
+                captured_at=started_at,
+                require_each_nonempty=True,
+                confirm_terminal=True,
+            )
+            index_weight_batches.append(batch)
+            index_weight_duplicates += duplicates
+            index_weight_pages += pages
+        security_codes = _select_csi_security_codes(
+            role=agent_ids[0],
+            membership_batches=membership,
+            index_weight_batches=index_weight_batches,
+            as_of=as_of_date,
+        )
+    elif scoped_tickers is None:
         security_codes = _active_security_codes(membership, as_of_date)
     else:
         direction_contracts = {
@@ -916,9 +1058,12 @@ def _build_capture_group(
         security_codes = sorted(mapped_directions)
     statement_start = (as_of_date - timedelta(days=1100)).strftime("%Y%m%d")
     api_as_of = as_of_date.strftime("%Y%m%d")
-    batches: list[dict[str, Any]] = [*membership]
+    batches: list[dict[str, Any]] = [*membership, *index_weight_batches]
     page_counts = {"index_member_all": membership_pages}
     duplicate_counts = {"index_member_all": membership_duplicates}
+    if index_weight_batches:
+        page_counts[CSI_INDEX_WEIGHT_ENDPOINT] = index_weight_pages
+        duplicate_counts[CSI_INDEX_WEIGHT_ENDPOINT] = index_weight_duplicates
 
     market_endpoints = {
         "daily",
@@ -1103,6 +1248,14 @@ def _build_capture_group(
             False,
         ),
     )
+
+    def is_cutoff_valid_statement(row: dict[str, Any]) -> bool:
+        return all(
+            value in (None, "")
+            or str(value).replace("-", "")[:8] <= api_as_of
+            for value in (row.get("ann_date"), row.get("f_ann_date"), row.get("end_date"))
+        )
+
     for endpoint, requests, request_contract, require_nonempty, confirm_terminal in specs:
         if endpoint not in required_endpoints:
             continue
@@ -1114,6 +1267,11 @@ def _build_capture_group(
             captured_at=started_at,
             require_each_nonempty=require_nonempty,
             confirm_terminal=confirm_terminal,
+            row_filter=(
+                is_cutoff_valid_statement
+                if endpoint in {"income", "cashflow", "balancesheet"}
+                else None
+            ),
         )
         if endpoint == "moneyflow":
             daily = market_batches.get("daily")
@@ -1146,6 +1304,12 @@ def _build_capture_group(
 
         def is_authority_etf(row: dict[str, Any]) -> bool:
             return str(row.get("ts_code")) in etf_code_set
+
+        def is_cutoff_valid_fund_nav(row: dict[str, Any]) -> bool:
+            return (
+                str(row.get("ann_date", "")) <= api_as_of
+                and str(row.get("nav_date", "")) <= api_as_of
+            )
 
         if "fund_basic" in required_endpoints:
             fund_basic, duplicates, pages = _seal_batch(
@@ -1183,7 +1347,9 @@ def _build_capture_group(
                     {"ts_code": code, "start_date": statement_start, "end_date": api_as_of}
                     for code in etf_codes
                 )
-                row_filter = None
+                row_filter = (
+                    is_cutoff_valid_fund_nav if endpoint == "fund_nav" else None
+                )
             batch, duplicates, pages = _seal_batch(
                 endpoint=endpoint,
                 requests=requests,

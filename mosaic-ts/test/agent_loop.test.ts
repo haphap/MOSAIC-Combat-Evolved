@@ -43,7 +43,7 @@ class ScriptedLlm {
 }
 
 describe("agent tool loop helpers", () => {
-  it("does not forward the agent timeout signal to LLM analysis calls", async () => {
+  it("forwards the agent timeout signal to LLM analysis calls", async () => {
     const signal = new AbortController().signal;
     const initial = new ScriptedLlm([new AIMessage("done")]);
     await runAgentToolLoop({
@@ -53,7 +53,7 @@ describe("agent tool loop helpers", () => {
       initialMessages: [new HumanMessage("initial")],
       signal,
     });
-    expect(initial.invokeOptions).toEqual([undefined]);
+    expect(initial.invokeOptions).toEqual([{ signal }]);
 
     const exhausted = new ScriptedLlm([new AIMessage("forced final")]);
     await runAgentToolLoop({
@@ -64,7 +64,7 @@ describe("agent tool loop helpers", () => {
       maxLoops: 0,
       signal,
     });
-    expect(exhausted.invokeOptions).toEqual([undefined]);
+    expect(exhausted.invokeOptions).toEqual([{ signal }]);
   });
 
   it("returns immediately on a final without an opt-in completion guard", async () => {
@@ -1003,6 +1003,57 @@ describe("agent tool loop helpers", () => {
         (message) => message.getType() === "tool" && String(message.content).includes("600519.SH"),
       ),
     ).toBe(true);
+  });
+
+  it("does not replay a repeated initial tool result twice to the model", async () => {
+    const output = `initial-result-start:${"x".repeat(10_000)}:initial-result-end`;
+    const llm = new ScriptedLlm([
+      new AIMessage({
+        content: "",
+        tool_calls: [
+          {
+            id: "repeat-initial",
+            name: "get_fundamentals",
+            args: { ticker: "600519.SH" },
+            type: "tool_call",
+          },
+        ],
+      }),
+      new AIMessage("done"),
+    ]);
+    let executions = 0;
+    const getFundamentals = tool(
+      async () => {
+        executions++;
+        return output;
+      },
+      {
+        name: "get_fundamentals",
+        description: "test tool",
+        schema: z.object({ ticker: z.string() }),
+      },
+    );
+
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [getFundamentals],
+      systemMessage: "system",
+      initialMessages: [new HumanMessage("initial")],
+      initialToolCalls: [{ name: "get_fundamentals", args: { ticker: "600519.SH" } }],
+    });
+
+    const secondTurn = (llm.seenMessages[1] ?? [])
+      .map((message) => String(message.content))
+      .join("\n");
+    expect(secondTurn.split("initial-result-start")).toHaveLength(2);
+    expect(secondTurn).toContain("already supplied as runtime-provided initial evidence");
+    expect(executions).toBe(1);
+    expect(result.toolCacheHits).toBe(1);
+    expect(
+      result.messages
+        .filter((message) => message.getType() === "tool")
+        .map((message) => String(message.content)),
+    ).toEqual([output, output]);
   });
 
   it("replays missing initial tools as marked human evidence while retaining audit messages", async () => {

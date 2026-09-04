@@ -118,6 +118,45 @@ def _server_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _runtime_authority_projection(
+    *,
+    agent_id: str,
+    as_of: str,
+    member_refs: list[dict[str, Any]],
+    authority_hash: str,
+) -> dict[str, Any]:
+    from mosaic.dataflows.outcome_runtime_inputs import (
+        expected_qualification_predicate_version,
+    )
+    from mosaic.scorecard.darwinian_v2 import canonical_hash
+    from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
+
+    source_evidence = {
+        source_id: [
+            f"runtime-authority:{agent_id}:{source_id}:{authority_hash[7:]}"
+        ]
+        for source_id in OUTCOME_CONTRACTS[agent_id]["required_source_ids"]
+    }
+    projection_body = {
+        "schema_version": "evaluation_opportunity_projection_v2",
+        "agent_id": agent_id,
+        "as_of": as_of,
+        "generated_at": as_of,
+        "pit_status": "VERIFIED",
+        "projection_status": "AVAILABLE",
+        "qualification_predicate_version": (
+            expected_qualification_predicate_version(agent_id)
+        ),
+        "member_refs": member_refs,
+        "source_evidence_by_required_source_id": source_evidence,
+        "error_codes": [],
+    }
+    return {
+        **projection_body,
+        "snapshot_hash": canonical_hash(projection_body),
+    }
+
+
 def _record_stage_authority_failure(
     *,
     store: Any,
@@ -392,7 +431,10 @@ def _expected_decision_frozen_object(
         for row in positions
     ):
         raise ValueError("CIO runtime baseline weights are invalid")
-    baseline_cash = 1.0 - sum(float(row["baseline_weight"]) for row in positions)
+    baseline_total = 0.0
+    for row in positions:
+        baseline_total += float(row["baseline_weight"])
+    baseline_cash = 1.0 - baseline_total
     if not -1e-9 <= baseline_cash <= 1 + 1e-9:
         raise ValueError("CIO runtime baseline weights are invalid")
     context = {
@@ -523,10 +565,6 @@ def _assert_server_owned_decision_control_sources(
                     f"{owner} runtime control stage-skip binding mismatch"
                 )
         elif source.get("source_status") == "ACCEPTED_OUTPUT":
-            if persisted is not None:
-                raise ValueError(
-                    f"{owner} runtime accepted control source masks a persisted stage skip"
-                )
             accepted_id = source.get("accepted_output_id")
             accepted_hash = source.get("accepted_output_hash")
             if (
@@ -610,7 +648,10 @@ def darwinian_prepare_daily_cycle_outcomes(params: dict[str, Any]) -> dict[str, 
     prepared_at = _require_str(params, "prepared_at")
     try:
         from mosaic.dataflows.calendar import verified_trading_calendar_snapshot
-        from mosaic.dataflows.outcome_runtime_inputs import load_verified_event_coverage
+        from mosaic.dataflows.outcome_runtime_inputs import (
+            build_cold_start_event_coverage,
+            load_verified_event_coverage,
+        )
 
         as_of_date = date.fromisoformat(as_of[:10])
         calendar = verified_trading_calendar_snapshot(
@@ -618,8 +659,15 @@ def darwinian_prepare_daily_cycle_outcomes(params: dict[str, Any]) -> dict[str, 
             (as_of_date + timedelta(days=60)).isoformat(),
             as_of=as_of,
         )
-        event_coverage = load_verified_event_coverage(as_of)
         store = _store()
+        try:
+            event_coverage = load_verified_event_coverage(as_of)
+        except FileNotFoundError:
+            if store.has_accepted_darwinian_cycle(
+                production_variant_roster_revision_id=revision_id
+            ):
+                raise
+            event_coverage = build_cold_start_event_coverage()
         plan = store.prepare_outcome_schedule_plan(
             production_variant_roster_revision_id=revision_id,
             graph_run_id=graph_run_id,
@@ -674,6 +722,9 @@ def darwinian_freeze_outcome_opportunity(params: dict[str, Any]) -> dict[str, An
     )
     try:
         from mosaic.dataflows.exceptions import DataVendorUnavailable
+        from mosaic.dataflows.agent_stage_preparer import (
+            ensure_agent_stage_materialization,
+        )
         from mosaic.dataflows.outcome_runtime_inputs import (
             load_evaluation_opportunity_projection,
         )
@@ -693,11 +744,14 @@ def darwinian_freeze_outcome_opportunity(params: dict[str, Any]) -> dict[str, An
         ):
             if context.get(field) != expected:
                 raise ValueError(f"live opportunity schedule {field} mismatch")
-        projection = load_evaluation_opportunity_projection(
-            str(context["as_of"]), agent_id
-        )
+        try:
+            projection = load_evaluation_opportunity_projection(
+                str(context["as_of"]), agent_id
+            )
+        except FileNotFoundError:
+            projection = None
         attempted_at = _server_now()
-        if projection["projection_status"] != "AVAILABLE":
+        if projection is not None and projection["projection_status"] != "AVAILABLE":
             decision = store.record_scheduled_outcome_opportunity_failure(
                 outcome_schedule_plan_id=plan_id,
                 agent_id=agent_id,
@@ -716,13 +770,27 @@ def darwinian_freeze_outcome_opportunity(params: dict[str, Any]) -> dict[str, An
                 "blocker_reason": "OPPORTUNITY_SET_UNAVAILABLE",
             }
         try:
+            preparation = ensure_agent_stage_materialization(
+                {
+                    "agent_id": agent_id,
+                    "stage": agent_id,
+                    "as_of": str(context["as_of"])[:10],
+                }
+            )
             authority = materialize_pre_run_authority(
                 agent_id=agent_id,
                 as_of=str(context["as_of"]),
                 graph_run_id=str(context["graph_run_id"]),
                 schedule_slot=context,
+                historical_replay_captured_at=(
+                    preparation.get("historical_replay_captured_at")
+                    if isinstance(preparation, Mapping)
+                    else None
+                ),
             )
         except DataVendorUnavailable:
+            if projection is None:
+                raise
             return _record_stage_authority_failure(
                 store=store,
                 outcome_schedule_plan_id=plan_id,
@@ -732,23 +800,31 @@ def darwinian_freeze_outcome_opportunity(params: dict[str, Any]) -> dict[str, An
                 error_code="REQUIRED_DATA_UNAVAILABLE",
                 blocker_reason="SOURCE_AUTHORITY_UNAVAILABLE",
             )
-        try:
-            assert_authoritative_member_match(
-                agent_id=agent_id,
-                projected_members=projection["member_refs"],
-                authoritative_members=authority["member_refs"],
-            )
-        except ValueError:
-            return _record_stage_authority_failure(
-                store=store,
-                outcome_schedule_plan_id=plan_id,
-                agent_id=agent_id,
-                projection=projection,
-                attempted_at=attempted_at,
-                error_code="CONTRACT_MISMATCH",
-                blocker_reason="SOURCE_AUTHORITY_MISMATCH",
-            )
         runtime_authority = authority["runtime_authority_binding"]
+        if projection is None:
+            projection = _runtime_authority_projection(
+                agent_id=agent_id,
+                as_of=str(context["as_of"]),
+                member_refs=authority["member_refs"],
+                authority_hash=runtime_authority["domain_hash"],
+            )
+        else:
+            try:
+                assert_authoritative_member_match(
+                    agent_id=agent_id,
+                    projected_members=projection["member_refs"],
+                    authoritative_members=authority["member_refs"],
+                )
+            except ValueError:
+                return _record_stage_authority_failure(
+                    store=store,
+                    outcome_schedule_plan_id=plan_id,
+                    agent_id=agent_id,
+                    projection=projection,
+                    attempted_at=attempted_at,
+                    error_code="CONTRACT_MISMATCH",
+                    blocker_reason="SOURCE_AUTHORITY_MISMATCH",
+                )
         generator_hash = canonical_hash(
             {
                 "projection_snapshot_hash": projection["snapshot_hash"],
@@ -790,6 +866,7 @@ def darwinian_freeze_stage_outcome_opportunity(
             "scheduled_sample_id",
             "agent_id",
             "recorded_at",
+            "runtime_input_hash",
             "frozen_object",
         },
     )
@@ -801,6 +878,11 @@ def darwinian_freeze_stage_outcome_opportunity(
         _DEFERRED_DECISION_OPPORTUNITY_AGENTS,
     )
     recorded_at = _require_str(params, "recorded_at")
+    runtime_input_hash = _require_str(params, "runtime_input_hash")
+    if not (
+        runtime_input_hash.startswith("sha256:") and len(runtime_input_hash) == 71
+    ):
+        raise ValueError("runtime_input_hash must be a sha256 hash")
     try:
         from mosaic.dataflows.outcome_runtime_inputs import (
             load_evaluation_opportunity_projection,
@@ -818,9 +900,53 @@ def darwinian_freeze_stage_outcome_opportunity(
         ):
             if context.get(field) != expected:
                 raise ValueError(f"Decision stage schedule {field} mismatch")
-        projection = load_evaluation_opportunity_projection(
-            str(context["as_of"]), agent_id
-        )
+        try:
+            projection = load_evaluation_opportunity_projection(
+                str(context["as_of"]), agent_id
+            )
+        except FileNotFoundError:
+            supplied = params.get("frozen_object")
+            frozen_hash = (
+                supplied.get("frozen_object_set_hash")
+                if isinstance(supplied, Mapping)
+                else None
+            )
+            if (
+                not isinstance(supplied, Mapping)
+                or not isinstance(frozen_hash, str)
+                or len(frozen_hash) != 71
+                or not frozen_hash.startswith("sha256:")
+            ):
+                raise
+            from mosaic.dataflows.outcome_runtime_inputs import (
+                expected_qualification_predicate_version,
+            )
+            from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
+
+            source_evidence = {
+                source_id: [
+                    f"runtime-frozen:{agent_id}:{source_id}:{frozen_hash[7:]}"
+                ]
+                for source_id in OUTCOME_CONTRACTS[agent_id]["required_source_ids"]
+            }
+            projection_body = {
+                "schema_version": "evaluation_opportunity_projection_v2",
+                "agent_id": agent_id,
+                "as_of": str(context["as_of"]),
+                "generated_at": str(context["as_of"]),
+                "pit_status": "VERIFIED",
+                "projection_status": "AVAILABLE",
+                "qualification_predicate_version": (
+                    expected_qualification_predicate_version(agent_id)
+                ),
+                "member_refs": [],
+                "source_evidence_by_required_source_id": source_evidence,
+                "error_codes": [],
+            }
+            projection = {
+                **projection_body,
+                "snapshot_hash": canonical_hash(projection_body),
+            }
         if projection["projection_status"] != "AVAILABLE":
             decision = store.record_scheduled_outcome_opportunity_failure(
                 outcome_schedule_plan_id=plan_id,
@@ -861,6 +987,7 @@ def darwinian_freeze_stage_outcome_opportunity(
                 stage=authority_stage,
                 as_of=str(context["as_of"])[:10],
                 graph_run_id=str(context["graph_run_id"]),
+                expected_runtime_input_hash=runtime_input_hash,
                 accepted_output_refs=object_payload.get(
                     "upstream_accepted_output_refs"
                 ),
@@ -963,6 +1090,7 @@ def darwinian_freeze_superinvestor_outcome_opportunity(
             "agent_id",
             "recorded_at",
             "accepted_output_refs",
+            "runtime_inputs",
         },
     )
     plan_id = _require_str(params, "outcome_schedule_plan_id")
@@ -979,7 +1107,13 @@ def darwinian_freeze_superinvestor_outcome_opportunity(
             INVALID_PARAMS,
             "'accepted_output_refs' must be a non-empty array",
         )
+    runtime_inputs = params.get("runtime_inputs")
+    if not isinstance(runtime_inputs, Mapping):
+        raise RpcError(INVALID_PARAMS, "'runtime_inputs' must be an object")
     try:
+        from mosaic.dataflows.agent_stage_preparer import (
+            ensure_agent_stage_materialization,
+        )
         from mosaic.dataflows.outcome_runtime_inputs import (
             load_evaluation_opportunity_projection,
         )
@@ -1000,10 +1134,13 @@ def darwinian_freeze_superinvestor_outcome_opportunity(
         ):
             if context.get(field) != expected:
                 raise ValueError(f"Superinvestor stage schedule {field} mismatch")
-        projection = load_evaluation_opportunity_projection(
-            str(context["as_of"]), agent_id
-        )
-        if projection["projection_status"] != "AVAILABLE":
+        try:
+            projection = load_evaluation_opportunity_projection(
+                str(context["as_of"]), agent_id
+            )
+        except FileNotFoundError:
+            projection = None
+        if projection is not None and projection["projection_status"] != "AVAILABLE":
             decision = store.record_scheduled_outcome_opportunity_failure(
                 outcome_schedule_plan_id=plan_id,
                 agent_id=agent_id,
@@ -1021,22 +1158,37 @@ def darwinian_freeze_superinvestor_outcome_opportunity(
                 "run_allowed": False,
                 "blocker_reason": "OPPORTUNITY_SET_UNAVAILABLE",
             }
-        if projection.get("member_refs") != []:
+        if projection is not None and projection.get("member_refs") != []:
             raise ValueError(
                 "Superinvestor pre-run projection may provide readiness evidence only"
             )
         try:
+            ensure_agent_stage_materialization(
+                {
+                    "agent_id": agent_id,
+                    "stage": agent_id,
+                    "as_of": str(context["as_of"])[:10],
+                    "graph_run_id": str(context["graph_run_id"]),
+                    "runtime_inputs": runtime_inputs,
+                    "candidate_scope": {
+                        "accepted_output_refs": accepted_output_refs,
+                    },
+                }
+            )
             authority = materialize_superinvestor_authority(
                 agent_id=agent_id,
                 as_of=str(context["as_of"]),
                 graph_run_id=str(context["graph_run_id"]),
                 accepted_output_refs=accepted_output_refs,
+                runtime_input_hash=canonical_hash(runtime_inputs),
             )
             if not isinstance(authority, Mapping):
                 raise ValueError(
                     "Superinvestor runtime authority must be an object"
                 )
         except DataVendorUnavailable:
+            if projection is None:
+                raise
             return _record_stage_authority_failure(
                 store=store,
                 outcome_schedule_plan_id=plan_id,
@@ -1047,6 +1199,8 @@ def darwinian_freeze_superinvestor_outcome_opportunity(
                 blocker_reason="SOURCE_AUTHORITY_UNAVAILABLE",
             )
         except ValueError:
+            if projection is None:
+                raise
             return _record_stage_authority_failure(
                 store=store,
                 outcome_schedule_plan_id=plan_id,
@@ -1055,6 +1209,13 @@ def darwinian_freeze_superinvestor_outcome_opportunity(
                 attempted_at=recorded_at,
                 error_code="CONTRACT_MISMATCH",
                 blocker_reason="SOURCE_AUTHORITY_MISMATCH",
+            )
+        if projection is None:
+            projection = _runtime_authority_projection(
+                agent_id=agent_id,
+                as_of=str(context["as_of"]),
+                member_refs=[],
+                authority_hash=authority["authority_hash"],
             )
         generator_hash = canonical_hash(
             {

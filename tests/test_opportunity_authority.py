@@ -91,6 +91,45 @@ def test_live_authority_binds_tool_snapshot_schedule_and_exact_domain(
     }
 
 
+def test_live_sector_authority_uses_stage_bound_historical_capture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scoring = SECTOR_UNIVERSE_MANIFEST["security_scoring_contract"]
+    observed = {}
+    capabilities = importlib.import_module("mosaic.bridge.tool_capabilities")
+
+    def materialize(*_args, **kwargs):
+        observed.update(kwargs)
+        return json.dumps(
+            {
+                "snapshot_hash": "sha256:" + "1" * 64,
+                "sector_agent_id": "energy",
+                "direction_ids": ["oil_gas"],
+                "security_scoring_contract_version": scoring[
+                    "scoring_contract_version"
+                ],
+                "security_scoring_contract_hash": scoring[
+                    "scoring_contract_hash"
+                ],
+                "security_scoring_rows": [],
+            }
+        )
+
+    monkeypatch.setattr(capabilities, "materialize_tool_payload", materialize)
+
+    materialize_pre_run_authority(
+        agent_id="energy",
+        as_of="2025-06-17T15:00:00+08:00",
+        graph_run_id="graph-1",
+        schedule_slot={"outcome_schedule_slot_hash": "sha256:" + "2" * 64},
+        historical_replay_captured_at="2026-08-31T01:40:11+08:00",
+    )
+
+    assert observed["historical_replay_captured_at"] == (
+        "2026-08-31T01:40:11+08:00"
+    )
+
+
 def test_sector_authority_rejects_ticker_hash_and_member_tampering() -> None:
     scoring = SECTOR_UNIVERSE_MANIFEST["security_scoring_contract"]
     snapshot = {

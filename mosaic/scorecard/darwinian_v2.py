@@ -12,6 +12,7 @@ from mosaic.scorecard.canonical_json import canonical_hash, canonical_json
 from mosaic.scorecard.accepted_output_contracts import (
     validate_accepted_output_record_schema,
 )
+from mosaic.scorecard.macro_aggregation import MACRO_AGENTS
 from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
 
 
@@ -25,11 +26,7 @@ _NULLABLE_TRACK_DIMENSIONS = {
     "reliability_adapter_contract_version": "reliability_adapter_contract",
     "confidence_semantics_contract_version": "confidence_semantics_contract",
 }
-_MACRO_AGENT_IDS = tuple(
-    agent_id
-    for agent_id, contract in OUTCOME_CONTRACTS.items()
-    if contract["layer"] == "MACRO"
-)
+_MACRO_AGENT_IDS = MACRO_AGENTS
 _MACRO_ATTRIBUTION_REQUIRED_ACCEPTED_KINDS = frozenset(
     {
         "STANDARD_SECTOR_SELECTION",
@@ -40,6 +37,9 @@ _MACRO_ATTRIBUTION_REQUIRED_ACCEPTED_KINDS = frozenset(
         "CIO_PROPOSAL",
         "CIO_FINAL",
     }
+)
+_CONTROL_AGENTS_RUN_ON_EMPTY_OPPORTUNITY = frozenset(
+    {"cro", "autonomous_execution"}
 )
 
 
@@ -743,9 +743,9 @@ def _authoritative_macro_input_gate(
             "weight_record_id": row["weight_record_id"],
             "reliability_record_id": row["reliability_record_id"],
         }
-    denominator = sum(
-        row["effective_reliability"] for row in reliability_by_agent.values()
-    )
+    denominator = 0.0
+    for agent_id in _MACRO_AGENT_IDS:
+        denominator += reliability_by_agent[agent_id]["effective_reliability"]
     if not math.isfinite(denominator) or denominator <= 0:
         raise ValueError("authoritative Macro gate has zero effective reliability")
     for agent_id in _MACRO_AGENT_IDS:
@@ -1134,7 +1134,12 @@ def append_accepted_cycle(
         outcome_schedule_plan_id=schedule_plan_id,
         schedule_by_agent=schedule_by_agent,
     )
-    skip_stage_keys = {(_audit_stage(agent_id), agent_id) for agent_id in stage_skips}
+    runtime_skipped_agents = (
+        set(stage_skips) - _CONTROL_AGENTS_RUN_ON_EMPTY_OPPORTUNITY
+    )
+    skip_stage_keys = {
+        (_audit_stage(agent_id), agent_id) for agent_id in runtime_skipped_agents
+    }
     audits = state.get("agent_run_audits")
     if not isinstance(audits, list):
         raise ValueError("accepted v2 cycle requires an Agent stage audit array")
@@ -1150,7 +1155,7 @@ def append_accepted_cycle(
         key = (stage, agent_id)
         if key in audit_stage_keys:
             raise ValueError(f"duplicate Agent stage audit: {agent_id}:{stage}")
-        if agent_id in stage_skips:
+        if agent_id in runtime_skipped_agents:
             raise ValueError(f"stage-skipped Agent cannot carry a run audit: {agent_id}")
         audit_stage_keys.add(key)
         audit_by_agent.setdefault(agent_id, []).append(audit)
@@ -1171,8 +1176,11 @@ def append_accepted_cycle(
     if set(track_by_agent) != set(OUTCOME_CONTRACTS):
         raise ValueError("roster revision does not resolve all 25 evaluation tracks")
 
-    output_entries = _accepted_cycle_outputs(state, skipped_agents=set(stage_skips))
-    if len(output_entries) + len(stage_skips) != 26:
+    output_entries = _accepted_cycle_outputs(
+        state,
+        skipped_agents=runtime_skipped_agents,
+    )
+    if len(output_entries) + len(runtime_skipped_agents) != 26:
         raise ValueError("accepted v2 cycle must resolve 26 accepted-or-skipped stages")
     accepted_records: list[dict[str, Any]] = []
     operational_ids: dict[str, str] = {}
@@ -1216,7 +1224,10 @@ def append_accepted_cycle(
             ):
                 if opportunity.get(field) != expected:
                     raise ValueError(f"opportunity set {field} mismatch for {agent_id}")
-            if opportunity.get("member_state") == "EMPTY":
+            if opportunity.get("member_state") == "EMPTY" and not (
+                agent_id in _CONTROL_AGENTS_RUN_ON_EMPTY_OPPORTUNITY
+                and agent_id in stage_skips
+            ):
                 raise ValueError(
                     f"scheduled empty opportunity requires a pre-run stage skip: {agent_id}"
                 )
@@ -1387,31 +1398,28 @@ def append_accepted_cycle(
                 raise ValueError(
                     f"Decision opportunity lacks a frozen stage object: {agent_id}"
                 )
-            payload_fields = {
-                "alpha_discovery": (
-                    "frozen_novel_candidate_universe_id",
-                    "frozen_novel_candidate_universe_hash",
-                ),
-                "cro": (
-                    "frozen_candidate_universe_id",
-                    "frozen_candidate_universe_hash",
-                ),
-                "autonomous_execution": (
-                    "frozen_order_intent_set_id",
-                    "frozen_order_intent_set_hash",
-                ),
-                "cio": (
-                    "frozen_controlled_target_set_id",
-                    "frozen_controlled_target_set_hash",
-                ),
-            }[agent_id]
-            if (
-                payload.get(payload_fields[0]) != frozen_id
-                or payload.get(payload_fields[1]) != frozen_hash
-            ):
-                raise ValueError(
-                    f"Decision accepted output frozen object mismatch for {agent_id}"
-                )
+            if agent_id != "autonomous_execution":
+                payload_fields = {
+                    "alpha_discovery": (
+                        "frozen_novel_candidate_universe_id",
+                        "frozen_novel_candidate_universe_hash",
+                    ),
+                    "cro": (
+                        "frozen_candidate_universe_id",
+                        "frozen_candidate_universe_hash",
+                    ),
+                    "cio": (
+                        "frozen_controlled_target_set_id",
+                        "frozen_controlled_target_set_hash",
+                    ),
+                }[agent_id]
+                if (
+                    payload.get(payload_fields[0]) != frozen_id
+                    or payload.get(payload_fields[1]) != frozen_hash
+                ):
+                    raise ValueError(
+                        f"Decision accepted output frozen object mismatch for {agent_id}"
+                    )
         without_hash = {
             key: value
             for key, value in supplied_record.items()
@@ -1524,6 +1532,8 @@ def append_accepted_cycle(
         records_by_agent.setdefault(record["agent_id"], []).append(record)
     inserted_operational = 0
     for agent_id in sorted(records_by_agent):
+        if agent_id in stage_skips:
+            continue
         agent_records = records_by_agent[agent_id]
         accepted_record = (
             next(
@@ -1642,6 +1652,8 @@ def append_accepted_cycle(
 
     pending_revisions = 0
     for agent_id in sorted(records_by_agent):
+        if agent_id in stage_skips:
+            continue
         accepted_record = (
             next(
                 record
@@ -1815,9 +1827,12 @@ def accepted_cycle_stage_outcome_refs(
     validate_runtime_stage_completion(audits, stage_skips)
     assert isinstance(audits, list)
     assert isinstance(stage_skips, Mapping)
+    runtime_skipped_agents = (
+        set(stage_skips) - _CONTROL_AGENTS_RUN_ON_EMPTY_OPPORTUNITY
+    )
     outputs = _accepted_cycle_outputs(
         state,
-        skipped_agents=set(stage_skips),
+        skipped_agents=runtime_skipped_agents,
     )
     audit_by_key = {
         (str(audit["agent"]), str(audit["stage"])): audit
@@ -1848,7 +1863,8 @@ def accepted_cycle_stage_outcome_refs(
                 "ref_hash": str(record_hash),
             }
         )
-    for agent_id, skip in stage_skips.items():
+    for agent_id in runtime_skipped_agents:
+        skip = stage_skips[agent_id]
         if not isinstance(agent_id, str) or not isinstance(skip, Mapping):
             raise ValueError("cycle stage skip must be an Agent-owned object")
         skip_hash = skip.get("stage_skip_hash")
@@ -1947,6 +1963,15 @@ def _validate_decision_control_source_closure(
         record = records_by_key.get((owner, kind))
         if record is None:
             return None
+        payload = record["output"]["payload"]
+        if owner == "cro":
+            return str(payload["accepted_cro_review_id"]), str(
+                payload["accepted_cro_review_hash"]
+            )
+        if owner == "autonomous_execution":
+            return str(payload["accepted_execution_assessment_id"]), str(
+                payload["accepted_execution_assessment_hash"]
+            )
         return str(record["accepted_output_id"]), str(record["accepted_output_hash"])
 
     def assert_source(source: Any, *, owner: str, kind: str) -> None:
@@ -1955,7 +1980,10 @@ def _validate_decision_control_source_closure(
         accepted = identity(owner, kind)
         skipped = stage_skips.get(owner)
         if source.get("source_status") == "ACCEPTED_OUTPUT":
-            if accepted is None or skipped is not None:
+            if accepted is None or (
+                skipped is not None
+                and owner not in _CONTROL_AGENTS_RUN_ON_EMPTY_OPPORTUNITY
+            ):
                 raise ValueError(f"{owner} Decision accepted control source is unavailable")
             expected = {
                 "source_status": "ACCEPTED_OUTPUT",
@@ -2143,7 +2171,7 @@ def validate_runtime_stage_completion(
     audits: object,
     stage_skips: object,
 ) -> None:
-    """Validate the disjoint accepted-output/stage-skip union for 26 stages."""
+    """Validate the exact 26 runtime stages and their empty-opportunity records."""
     if not isinstance(audits, list) or not isinstance(stage_skips, Mapping):
         raise ValueError("cycle completion requires audit array and stage-skip object")
     skip_keys: set[tuple[str, str]] = set()
@@ -2152,7 +2180,8 @@ def validate_runtime_stage_completion(
             raise ValueError("cycle stage skip must be an Agent-owned object")
         if record.get("agent_id") != agent_id or record.get("model_invoked") is not False:
             raise ValueError(f"invalid cycle stage skip: {agent_id}")
-        skip_keys.add((_audit_stage(agent_id), agent_id))
+        if agent_id not in _CONTROL_AGENTS_RUN_ON_EMPTY_OPPORTUNITY:
+            skip_keys.add((_audit_stage(agent_id), agent_id))
     audit_keys: set[tuple[str, str]] = set()
     for audit in audits:
         if not isinstance(audit, Mapping):

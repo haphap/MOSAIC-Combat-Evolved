@@ -3,10 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ALL_AGENTS, LAYER_BY_AGENT } from "../src/agents/prompts/cohorts.js";
 import {
   applyDailyCycleEnsureMode,
-  assertDailyCycleCheckpointResumeAllowed,
   assertDailyCyclePromptSourceMode,
   assertDailyCycleSourceAdmissionReady,
   buildProductionCycleTraceId,
@@ -15,7 +13,6 @@ import {
   resolveDailyCycleAuthority,
   resolveDailyCycleCohort,
   resolveDailyCycleEnsureMode,
-  resolveDailyCyclePromptIdentity,
   validateStructuredSmokeFixtureBundle,
 } from "../src/cli/commands/daily-cycle.js";
 
@@ -161,97 +158,38 @@ describe("daily-cycle current-position fixture options", () => {
     expect(() => assertDailyCyclePromptSourceMode({}, false)).not.toThrow();
   });
 
-  it("allows checkpoint resume only for non-production smoke", () => {
-    expect(() =>
-      assertDailyCycleCheckpointResumeAllowed({ checkpoint: "/tmp/checkpoint.json" }, false),
-    ).toThrow(/non-production-only/);
-    expect(() =>
-      assertDailyCycleCheckpointResumeAllowed(
-        { checkpoint: "/tmp/checkpoint.json", resume: true },
-        false,
-      ),
-    ).toThrow(/non-production-only/);
-    expect(() =>
-      assertDailyCycleCheckpointResumeAllowed({ checkpoint: "/tmp/checkpoint.json" }, true),
-    ).not.toThrow();
-    expect(() =>
-      assertDailyCycleCheckpointResumeAllowed(
-        { checkpoint: "/tmp/checkpoint.json", resume: true },
-        true,
-      ),
-    ).not.toThrow();
-  });
-
-  it("hashes the current bilingual smoke prompt bodies without cache", async () => {
-    const root = mkdtempSync(join(tmpdir(), "mosaic-prompt-identity-"));
-    try {
-      for (const agent of ALL_AGENTS) {
-        const layer = LAYER_BY_AGENT[agent];
-        if (!layer) throw new Error(`missing layer for ${agent}`);
-        const directory = join(root, "cohort_default", layer);
-        mkdirSync(directory, { recursive: true });
-        writeFileSync(join(directory, `${agent}.zh.md`), `${agent}: zh-v1`, "utf-8");
-        writeFileSync(join(directory, `${agent}.en.md`), `${agent}: en-v1`, "utf-8");
-      }
-      const first = await resolveDailyCyclePromptIdentity({
-        cohort: "cohort_default",
-        nonProductionSmoke: true,
-        promptsRoot: root,
-      });
-      const firstAgent = ALL_AGENTS[0];
-      if (!firstAgent) throw new Error("expected a canonical agent");
-      const firstLayer = LAYER_BY_AGENT[firstAgent];
-      if (!firstLayer) throw new Error(`missing layer for ${firstAgent}`);
-      writeFileSync(
-        join(root, "cohort_default", firstLayer, `${firstAgent}.zh.md`),
-        "mutated prompt",
-        "utf-8",
-      );
-      const second = await resolveDailyCyclePromptIdentity({
-        cohort: "cohort_default",
-        nonProductionSmoke: true,
-        promptsRoot: root,
-      });
-      expect(first.promptContentHash).not.toBe(second.promptContentHash);
-      expect(first.promptRelease).toBe(`structured-smoke:${first.promptContentHash}`);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
   it("uses marked synthetic source fixtures for both smoke modes only", () => {
     expect(nonProductionSourceGapBypass({ fakeLlm: true })).toBe("structured_smoke");
     expect(nonProductionSourceGapBypass({ structuredSmoke: true })).toBe("structured_smoke");
     expect(nonProductionSourceGapBypass({})).toBeUndefined();
   });
 
-  it("shares the strict off-shadow-enforce snapshot mode contract", () => {
-    expect(resolveDailyCycleEnsureMode({})).toBe("off");
-    expect(resolveDailyCycleEnsureMode({ MOSAIC_ENSURE_SNAPSHOT_MODE: "off" })).toBe("off");
+  it("uses snapshot modes only for explicit rollout", () => {
+    expect(resolveDailyCycleEnsureMode({})).toBeNull();
     expect(resolveDailyCycleEnsureMode({ MOSAIC_ENSURE_SNAPSHOT_MODE: "shadow" })).toBe("shadow");
     expect(resolveDailyCycleEnsureMode({ MOSAIC_ENSURE_SNAPSHOT_MODE: "enforce" })).toBe("enforce");
+    expect(() => resolveDailyCycleEnsureMode({ MOSAIC_ENSURE_SNAPSHOT_MODE: "off" })).toThrow(
+      /P1_ENSURE_MODE_INVALID.*must be shadow or enforce when set/,
+    );
     expect(() => resolveDailyCycleEnsureMode({ MOSAIC_ENSURE_SNAPSHOT_MODE: "ENFORCE" })).toThrow(
-      /P1_ENSURE_MODE_INVALID.*must be one of off, shadow, enforce/,
+      /P1_ENSURE_MODE_INVALID.*must be shadow or enforce when set/,
     );
   });
 
   it("writes the resolved mode into the bridge child environment", () => {
-    const env: NodeJS.ProcessEnv = {};
-    applyDailyCycleEnsureMode(env, "off");
-    expect(env.MOSAIC_ENSURE_SNAPSHOT_MODE).toBe("off");
+    const env: NodeJS.ProcessEnv = { MOSAIC_ENSURE_SNAPSHOT_MODE: "shadow" };
+    applyDailyCycleEnsureMode(env, null);
+    expect(env.MOSAIC_ENSURE_SNAPSHOT_MODE).toBeUndefined();
     applyDailyCycleEnsureMode(env, "enforce");
     expect(env.MOSAIC_ENSURE_SNAPSHOT_MODE).toBe("enforce");
   });
 
-  it("requires an explicit live mode and derives the only valid cycle authority", () => {
-    expect(() => resolveDailyCycleAuthority({}, {})).toThrow(
-      /P1_ENSURE_MODE_MISSING.*must be explicitly configured/,
-    );
-    expect(resolveDailyCycleAuthority({}, { MOSAIC_ENSURE_SNAPSHOT_MODE: "off" })).toEqual({
-      mode: "off",
+  it("uses the normal path unless a cycle rollout is explicitly requested", () => {
+    expect(resolveDailyCycleAuthority({}, {})).toEqual({
+      mode: null,
       cycleKind: null,
     });
-    expect(resolveDailyCycleAuthority({}, { MOSAIC_ENSURE_SNAPSHOT_MODE: "shadow" })).toEqual({
+    expect(resolveDailyCycleAuthority({ cycleKind: "shadow" }, {})).toEqual({
       mode: "shadow",
       cycleKind: "SHADOW",
     });
@@ -261,7 +199,7 @@ describe("daily-cycle current-position fixture options", () => {
         { MOSAIC_ENSURE_SNAPSHOT_MODE: "shadow" },
       ),
     ).toEqual({ mode: "shadow", cycleKind: "REPLAY" });
-    expect(resolveDailyCycleAuthority({}, { MOSAIC_ENSURE_SNAPSHOT_MODE: "enforce" })).toEqual({
+    expect(resolveDailyCycleAuthority({ cycleKind: "production" }, {})).toEqual({
       mode: "enforce",
       cycleKind: "PRODUCTION",
     });
@@ -273,16 +211,13 @@ describe("daily-cycle current-position fixture options", () => {
         { cycleKind: "production" },
         { MOSAIC_ENSURE_SNAPSHOT_MODE: "shadow" },
       ),
-    ).toThrow(/P1_ENSURE_MODE_DRIFT.*shadow mode requires SHADOW or REPLAY/);
+    ).toThrow(/P1_ENSURE_MODE_DRIFT.*production cycle requires enforce/);
     expect(() =>
       resolveDailyCycleAuthority(
         { cycleKind: "replay" },
         { MOSAIC_ENSURE_SNAPSHOT_MODE: "enforce" },
       ),
-    ).toThrow(/P1_ENSURE_MODE_DRIFT.*enforce mode requires PRODUCTION/);
-    expect(() =>
-      resolveDailyCycleAuthority({ cycleKind: "shadow" }, { MOSAIC_ENSURE_SNAPSHOT_MODE: "off" }),
-    ).toThrow(/P1_ENSURE_MODE_DRIFT.*off mode cannot open a cycle/);
+    ).toThrow(/P1_ENSURE_MODE_DRIFT.*replay cycle requires shadow/);
     expect(() =>
       resolveDailyCycleAuthority(
         { structuredSmoke: true, cycleKind: "shadow" },

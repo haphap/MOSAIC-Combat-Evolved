@@ -573,6 +573,18 @@ describe("Agent display narratives", () => {
     expect(row?.narrative_text).toContain("不是中性判断");
   });
 
+  it("uses an accepted control output when its evaluation opportunity is empty", () => {
+    const state = stateFixture();
+    const store = bindAcceptedRecords(state);
+    state.outcome_stage_skips = {
+      autonomous_execution: { stage_skip_hash: `sha256:${"c".repeat(64)}` },
+    };
+
+    const bundle = buildAgentDisplayNarrativeBundle(state as never, store);
+    const row = bundle.narratives.find((item) => item.agent_id === "autonomous_execution");
+    expect(row?.source).toBe("ACCEPTED_OUTPUT");
+  });
+
   it("keeps canonical layer ownership in every UI record", () => {
     const state = stateFixture();
     const store = bindAcceptedRecords(state);

@@ -29,11 +29,7 @@ import {
   type AgentDisplayNarrativeBundle,
   buildAgentDisplayNarrativeBundle,
 } from "../../agents/agent_display_narrative.js";
-import {
-  assertStructuredOutputCapability,
-  CIO_FINAL_PROVIDER_CONTROL_DIRECTIVE_VERSION,
-  STRICT_PROVIDER_EXTRACTION_DESCRIPTOR,
-} from "../../agents/helpers/agent_run_contract.js";
+import { assertStructuredOutputCapability } from "../../agents/helpers/agent_run_contract.js";
 import { canonicalJsonHash } from "../../agents/helpers/canonical_json.js";
 import { buildPositionAuditToolStatusSummary } from "../../agents/helpers/position_audit.js";
 import {
@@ -41,19 +37,12 @@ import {
   parseAgentTimeoutSeconds,
   resolveAgentTimeoutMs,
 } from "../../agents/helpers/runtime.js";
-import { STRUCTURED_REPAIR_DIRECTIVE_CONTRACT_VERSION } from "../../agents/helpers/structured_repair_directives.js";
 import {
-  ALL_AGENTS,
   findBundledPromptsRoot,
   formatPromptSourceLabel,
   PROMPT_COHORT_IDS,
 } from "../../agents/prompts/cohorts.js";
-import { loadPromptWithReleaseMetadata } from "../../agents/prompts/loader.js";
-import {
-  type PromptReleaseLoadContext,
-  resolveProductionPromptReleaseContext,
-} from "../../agents/prompts/release_prompt_loader.js";
-import { RUNTIME_AGENT_MANIFEST_VERSION } from "../../agents/prompts/runtime_agent_spec.js";
+import { resolveProductionPromptReleaseContext } from "../../agents/prompts/release_prompt_loader.js";
 import { assertRuntimePromptPreflight } from "../../agents/prompts/runtime_prompt_preflight.js";
 import { captureDailyCycleRkeFootprints } from "../../agents/rke_footprints.js";
 import {
@@ -67,6 +56,7 @@ import type {
   PortfolioAction,
   PositionAudit,
 } from "../../agents/types.js";
+import { buildExecutionBehaviorReleaseManifest } from "../../autoresearch/execution_behavior_release.js";
 import { parseOutcomeStageSkips } from "../../autoresearch/outcome_stage_skip.js";
 import {
   buildDarwinianRuntimeBinding,
@@ -82,10 +72,7 @@ import {
 } from "../../bridge/index.js";
 import type { AgentSourceAdmission, PromptPreflightResult } from "../../bridge/types.js";
 import { buildDailyCycleGraph } from "../../graph/daily_cycle.js";
-import {
-  DailyCycleCheckpoint,
-  type DailyCycleCheckpointIdentity,
-} from "../../graph/daily_cycle_checkpoint.js";
+import { DailyCycleCheckpoint } from "../../graph/daily_cycle_checkpoint.js";
 import { LAYER1_AGENT_NODES } from "../../graph/layer1.js";
 import { LAYER2_AGENT_NODES } from "../../graph/layer2.js";
 import { LAYER3_AGENT_NODES } from "../../graph/layer3.js";
@@ -125,7 +112,6 @@ export const DAILY_CYCLE_STAGE_ROSTER = [
   ...LAYER3_AGENT_NODES,
   ...LAYER4_AGENT_NODES,
 ] as const;
-export const DAILY_CYCLE_GRAPH_CONTRACT = "daily_cycle_graph_contract_v2";
 
 export interface PaperDeltaExecution {
   ticker: string;
@@ -194,12 +180,12 @@ export function registerDailyCycle(program: Command): void {
       let api: BridgeApi | null = null;
       let openedCycleRunId: string | null = null;
       let cycleCommitted = false;
+      let stageCheckpoint: DailyCycleCheckpoint | undefined;
       try {
         if (opts.fakeLlm && opts.structuredSmoke) {
           throw new Error("--fake-llm and --structured-smoke are mutually exclusive");
         }
         const nonProductionSmoke = Boolean(opts.fakeLlm || opts.structuredSmoke);
-        assertDailyCycleCheckpointResumeAllowed(opts, nonProductionSmoke);
         const asOfDate = opts.date ?? new Date().toISOString().slice(0, 10);
         const cycleAuthority = resolveDailyCycleAuthority(opts);
         const ensureMode = cycleAuthority.mode;
@@ -289,22 +275,34 @@ export function registerDailyCycle(program: Command): void {
         const onAgentLog = (msg: string) => {
           console.log(pc.dim(`  ${redactSensitiveText(msg)}`));
         };
-        const currentPositions = await loadDailyCycleCurrentPositions(opts, api);
+        const currentPositions = await loadDailyCycleCurrentPositions(
+          { ...opts, date: asOfDate },
+          api,
+        );
         await assertStructuredOutputCapability(llmHandle.llm);
-        const promptReleaseContext = nonProductionSmoke
+        const promptReleaseContext =
+          nonProductionSmoke || !cycleAuthorityEnabled
+            ? null
+            : await resolveProductionPromptReleaseContext(`daily-cycle:${cohort}:${asOfDate}`);
+        const executionBehaviorRelease = nonProductionSmoke
           ? null
-          : await resolveProductionPromptReleaseContext(`daily-cycle:${cohort}:${asOfDate}`);
-        const executionBehaviorRelease = promptReleaseContext?.executionBehaviorRelease ?? null;
+          : (promptReleaseContext?.executionBehaviorRelease ??
+            buildExecutionBehaviorReleaseManifest({
+              provider: llmHandle.provider,
+              model: llmHandle.model,
+              baseUrlMode: llmHandle.baseUrl ? "CONFIGURED_PRIVATE_ENDPOINT" : "PROVIDER_DEFAULT",
+            }));
         let promptSource: PromptPreflightResult | null = null;
         if (!nonProductionSmoke) {
-          if (!promptReleaseContext || !executionBehaviorRelease) {
-            throw new Error("production daily-cycle requires an active Prompt Release");
-          }
           promptSource = await api.promptsPreflight({
             cohort,
             langs: ["zh", "en"],
-            prompt_repo_revision: promptReleaseContext.manifest.prompt_commit,
-            allow_non_head_revision: true,
+            ...(promptReleaseContext
+              ? {
+                  prompt_repo_revision: promptReleaseContext.manifest.prompt_commit,
+                  allow_non_head_revision: true,
+                }
+              : {}),
           });
           if (!promptSource.ready) {
             throw new Error(
@@ -317,44 +315,18 @@ export function registerDailyCycle(program: Command): void {
           ...(runtimePromptsRoot ? { promptsRoot: runtimePromptsRoot } : {}),
           ...(!nonProductionSmoke ? { releaseContext: promptReleaseContext } : {}),
         });
-        const promptIdentity = await resolveDailyCyclePromptIdentity({
-          cohort,
-          nonProductionSmoke,
-          ...(runtimePromptsRoot ? { promptsRoot: runtimePromptsRoot } : {}),
-          ...(!nonProductionSmoke ? { releaseContext: promptReleaseContext } : {}),
-        });
-        const checkpointIdentity: DailyCycleCheckpointIdentity = {
-          cycle_kind: nonProductionSmoke
-            ? "STRUCTURED_SMOKE"
-            : (cycleAuthority.cycleKind ?? "LIVE"),
-          as_of_date: asOfDate,
-          cohort,
-          stage_roster: [...DAILY_CYCLE_STAGE_ROSTER],
-          graph_contract: DAILY_CYCLE_GRAPH_CONTRACT,
-          prompt_release: promptIdentity.promptRelease,
-          prompt_content_hash: promptIdentity.promptContentHash,
-          prompt_contract: canonicalJsonHash({
-            runtime_agent_manifest: RUNTIME_AGENT_MANIFEST_VERSION,
-            structured_repair_directive: STRUCTURED_REPAIR_DIRECTIVE_CONTRACT_VERSION,
-            strict_provider_extraction: STRICT_PROVIDER_EXTRACTION_DESCRIPTOR.contract_version,
-            cio_final_control_directive: CIO_FINAL_PROVIDER_CONTROL_DIRECTIVE_VERSION,
-            prompt_release: promptIdentity.promptRelease,
-            prompt_hash:
-              promptReleaseContext?.manifest.prompt_hash ?? promptIdentity.promptContentHash,
-          }),
-          fixture_bundle_hash: fixtureBundleHash,
-          current_positions_hash: canonicalJsonHash(currentPositions),
-        };
-        const stageCheckpoint = DailyCycleCheckpoint.open({
+        stageCheckpoint = DailyCycleCheckpoint.open({
           ...(opts.checkpoint !== undefined ? { path: opts.checkpoint } : {}),
           ...(opts.resume !== undefined ? { resume: opts.resume } : {}),
-          identity: checkpointIdentity,
+          asOfDate,
+          cohort,
+          stageRoster: DAILY_CYCLE_STAGE_ROSTER,
         });
         const restoredState = stageCheckpoint?.restoredState ?? null;
         const asOfTimestamp = `${asOfDate}T15:00:00+08:00`;
         let darwinianRuntimeBinding = null;
         if (!nonProductionSmoke && !restoredState) {
-          if (!promptSource || !executionBehaviorRelease || !promptReleaseContext) {
+          if (!promptSource || !executionBehaviorRelease) {
             throw new Error("live execution requires pinned prompt and behavior releases");
           }
           darwinianRuntimeBinding = buildDarwinianRuntimeBinding({
@@ -363,7 +335,7 @@ export function registerDailyCycle(program: Command): void {
             llmHandle,
             promptPreflight: promptSource,
             executionBehaviorRelease,
-            activePromptRelease: promptReleaseContext.manifest,
+            activePromptRelease: promptReleaseContext?.manifest ?? null,
             effectiveAt: asOfTimestamp,
           });
         }
@@ -384,7 +356,7 @@ export function registerDailyCycle(program: Command): void {
         if (preparedDarwinian && typeof rosterRevisionId !== "string") {
           throw new Error("Darwinian preparation did not return a roster revision ID");
         }
-        const traceId =
+        let traceId =
           restoredState?.trace_id ??
           (nonProductionSmoke
             ? `${opts.fakeLlm ? "fake" : "structured"}-smoke-${Date.now()}`
@@ -424,6 +396,13 @@ export function registerDailyCycle(program: Command): void {
                 prepared_at: asOfTimestamp,
               })
             : null;
+        const scheduledTraceId = preparedOutcomes?.outcome_schedule_plan.graph_run_id;
+        if (scheduledTraceId && scheduledTraceId !== traceId) {
+          if (cycleAuthorityEnabled) {
+            throw new Error("outcome schedule belongs to another governed cycle run");
+          }
+          traceId = scheduledTraceId;
+        }
         if (preparedOutcomes && preparedOutcomes.run_blockers.length > 0) {
           throw new Error(
             `outcome pre-run blocked: ${preparedOutcomes.run_blockers
@@ -431,7 +410,6 @@ export function registerDailyCycle(program: Command): void {
               .join(",")}`,
           );
         }
-
         const acceptedOutputStore = new AcceptedAgentOutputStore();
         stageCheckpoint?.restoreAcceptedOutputStore(acceptedOutputStore);
         if (opts.structuredSmoke && restoredState) {
@@ -592,6 +570,16 @@ export function registerDailyCycle(program: Command): void {
               );
             }
           }
+          const failedExecution = execution.find(
+            (row) =>
+              row.skipped_reason !== undefined &&
+              row.skipped_reason !== "already_at_target_or_below_lot_size",
+          );
+          if (failedExecution) {
+            throw new Error(
+              `paper execution failed for ${failedExecution.ticker}: ${failedExecution.skipped_reason}`,
+            );
+          }
         }
         if (!nonProductionSmoke) {
           try {
@@ -686,58 +674,6 @@ export function assertDailyCyclePromptSourceMode(
   }
 }
 
-export function assertDailyCycleCheckpointResumeAllowed(
-  opts: Pick<DailyCycleOptions, "checkpoint" | "resume">,
-  nonProductionSmoke: boolean,
-): void {
-  if (opts.resume && opts.checkpoint === undefined) {
-    throw new Error("--resume requires --checkpoint");
-  }
-  if ((opts.checkpoint !== undefined || opts.resume) && !nonProductionSmoke) {
-    throw new Error(
-      "daily-cycle checkpoint resume is non-production-only until cycle authority reopen/lease resume is supported",
-    );
-  }
-}
-
-export interface DailyCyclePromptIdentity {
-  promptRelease: string;
-  promptContentHash: string;
-}
-
-export async function resolveDailyCyclePromptIdentity(input: {
-  cohort: string;
-  nonProductionSmoke: boolean;
-  promptsRoot?: string;
-  releaseContext?: PromptReleaseLoadContext | null;
-}): Promise<DailyCyclePromptIdentity> {
-  if (!input.nonProductionSmoke) {
-    const manifest = input.releaseContext?.manifest;
-    if (!manifest) throw new Error("production daily-cycle requires a pinned Prompt Release");
-    return {
-      promptRelease: manifest.prompt_commit,
-      promptContentHash: manifest.prompt_hash,
-    };
-  }
-
-  const promptBodies = await Promise.all(
-    ALL_AGENTS.map(async (agent) => {
-      const pair = await loadPromptWithReleaseMetadata({
-        agent,
-        cohort: input.cohort,
-        ...(input.promptsRoot ? { promptsRoot: input.promptsRoot } : {}),
-        noCache: true,
-      });
-      return { agent, zh: pair.bodies.zh, en: pair.bodies.en };
-    }),
-  );
-  const promptContentHash = canonicalJsonHash(promptBodies);
-  return {
-    promptRelease: `structured-smoke:${promptContentHash}`,
-    promptContentHash,
-  };
-}
-
 export function nonProductionSourceGapBypass(
   opts: Pick<DailyCycleOptions, "fakeLlm" | "structuredSmoke">,
 ): "structured_smoke" | undefined {
@@ -759,29 +695,33 @@ export function resolveDailyCycleCohort(
   return cohort;
 }
 
-export type DailyCycleEnsureMode = "off" | "shadow" | "enforce";
+export type DailyCycleEnsureMode = "shadow" | "enforce";
 
 export type DailyCycleAuthority =
-  | { mode: "off"; cycleKind: null }
+  | { mode: null; cycleKind: null }
   | { mode: "shadow"; cycleKind: "SHADOW" | "REPLAY" }
   | { mode: "enforce"; cycleKind: "PRODUCTION" };
 
 export function resolveDailyCycleEnsureMode(
   env: NodeJS.ProcessEnv = process.env,
-): DailyCycleEnsureMode {
+): DailyCycleEnsureMode | null {
   const mode = env.MOSAIC_ENSURE_SNAPSHOT_MODE;
-  if (mode === undefined) return "off";
-  if (mode === "off" || mode === "shadow" || mode === "enforce") return mode;
+  if (mode === undefined) return null;
+  if (mode === "shadow" || mode === "enforce") return mode;
   throw new Error(
-    "P1_ENSURE_MODE_INVALID: MOSAIC_ENSURE_SNAPSHOT_MODE must be one of off, shadow, enforce",
+    "P1_ENSURE_MODE_INVALID: MOSAIC_ENSURE_SNAPSHOT_MODE must be shadow or enforce when set",
   );
 }
 
 export function applyDailyCycleEnsureMode(
   env: NodeJS.ProcessEnv,
-  mode: DailyCycleEnsureMode,
+  mode: DailyCycleEnsureMode | null,
 ): void {
-  env.MOSAIC_ENSURE_SNAPSHOT_MODE = mode;
+  if (mode === null) {
+    delete env.MOSAIC_ENSURE_SNAPSHOT_MODE;
+  } else {
+    env.MOSAIC_ENSURE_SNAPSHOT_MODE = mode;
+  }
 }
 
 export function resolveDailyCycleAuthority(
@@ -793,14 +733,8 @@ export function resolveDailyCycleAuthority(
     if (opts.cycleKind !== undefined) {
       throw new Error("non-production smoke cannot open a cycle authority");
     }
-    return { mode: "off", cycleKind: null };
+    return { mode: null, cycleKind: null };
   }
-  if (env.MOSAIC_ENSURE_SNAPSHOT_MODE === undefined) {
-    throw new Error(
-      "P1_ENSURE_MODE_MISSING: MOSAIC_ENSURE_SNAPSHOT_MODE must be explicitly configured for live runs",
-    );
-  }
-  const mode = resolveDailyCycleEnsureMode(env);
   const requested = opts.cycleKind;
   if (
     requested !== undefined &&
@@ -810,22 +744,19 @@ export function resolveDailyCycleAuthority(
   ) {
     throw new Error("cycle kind must be one of shadow, replay, production");
   }
-  if (mode === "off") {
-    if (requested !== undefined) {
-      throw new Error("P1_ENSURE_MODE_DRIFT: off mode cannot open a cycle authority");
-    }
-    return { mode, cycleKind: null };
+  if (requested === undefined) {
+    return { mode: null, cycleKind: null };
   }
-  if (mode === "enforce") {
-    if (requested !== undefined && requested !== "production") {
-      throw new Error("P1_ENSURE_MODE_DRIFT: enforce mode requires PRODUCTION cycle authority");
-    }
-    return { mode, cycleKind: "PRODUCTION" };
+  const expectedMode: DailyCycleEnsureMode = requested === "production" ? "enforce" : "shadow";
+  const configuredMode = resolveDailyCycleEnsureMode(env);
+  if (configuredMode !== null && configuredMode !== expectedMode) {
+    throw new Error(
+      `P1_ENSURE_MODE_DRIFT: ${requested} cycle requires ${expectedMode} snapshot rollout`,
+    );
   }
-  if (requested === "production") {
-    throw new Error("P1_ENSURE_MODE_DRIFT: shadow mode requires SHADOW or REPLAY cycle authority");
-  }
-  return { mode, cycleKind: requested === "replay" ? "REPLAY" : "SHADOW" };
+  return requested === "production"
+    ? { mode: "enforce", cycleKind: "PRODUCTION" }
+    : { mode: "shadow", cycleKind: requested === "replay" ? "REPLAY" : "SHADOW" };
 }
 
 export function buildProductionCycleTraceId(
@@ -1165,7 +1096,10 @@ function formatWeight(value: number | undefined): string {
 // pad() imported from ../_format.js (§14 R-T2: shared CJK + ANSI-aware).
 
 export async function loadDailyCycleCurrentPositions(
-  opts: Pick<DailyCycleOptions, "paperPositions" | "currentPositionsJson" | "currentPositionsFile">,
+  opts: Pick<
+    DailyCycleOptions,
+    "paperPositions" | "currentPositionsJson" | "currentPositionsFile"
+  > & { date: string },
   api: BridgeApi,
 ): Promise<CurrentPositionsSnapshot> {
   if (opts.paperPositions && (opts.currentPositionsJson || opts.currentPositionsFile)) {
@@ -1173,7 +1107,9 @@ export async function loadDailyCycleCurrentPositions(
   }
   const fixture = loadCurrentPositionsFixture(opts);
   if (fixture) return fixture;
-  return opts.paperPositions ? await loadPaperCurrentPositions(api) : emptyCurrentPositions();
+  return opts.paperPositions
+    ? await loadPaperCurrentPositions(api, opts.date)
+    : emptyCurrentPositions();
 }
 
 export function loadCurrentPositionsFixture(
@@ -1198,13 +1134,16 @@ export function loadCurrentPositionsFixture(
   };
 }
 
-async function loadPaperCurrentPositions(api: BridgeApi): Promise<CurrentPositionsSnapshot> {
+async function loadPaperCurrentPositions(
+  api: BridgeApi,
+  tradeDate: string,
+): Promise<CurrentPositionsSnapshot> {
   try {
     const {
       account,
       positions,
       snapshot_hash: snapshotHash,
-    } = await api.paperGetPortfolioSnapshot();
+    } = await api.paperGetPortfolioSnapshot({ trade_date: tradeDate });
     if (positions.length === 0) {
       return {
         ...emptyCurrentPositions(),
@@ -1411,24 +1350,6 @@ export async function submitPaperTargetDeltaOrders(
     ) {
       return actions.map((action) => skippedRow(action, "STALE_FINAL_TARGET"));
     }
-    const finalTargetPositionSnapshotHash = accountSnapshotHash;
-    let current: Awaited<ReturnType<NonNullable<typeof api.paperGetPortfolioSnapshot>>>;
-    try {
-      current = await api.paperGetPortfolioSnapshot({
-        ...(opts.userId ? { user_id: opts.userId } : {}),
-        ...(opts.dbPath ? { db_path: opts.dbPath } : {}),
-      });
-    } catch {
-      return actions.map((action) => skippedRow(action, "STALE_FINAL_TARGET"));
-    }
-    if (current.snapshot_hash !== finalTargetPositionSnapshotHash) {
-      return actions.map((action) =>
-        skippedRow(action, "STALE_FINAL_TARGET", {
-          base_account_snapshot_hash: finalTargetPositionSnapshotHash,
-          post_submit_snapshot_hash: current.snapshot_hash,
-        }),
-      );
-    }
   }
   for (let actionIndex = 0; actionIndex < actions.length; actionIndex += 1) {
     const action = actions[actionIndex];
@@ -1455,6 +1376,7 @@ export async function submitPaperTargetDeltaOrders(
       suggested = await api.paperSuggestOrderFromSignal({
         ticker: action.ticker,
         state: signalState,
+        ...(opts.tradeDate ? { trade_date: opts.tradeDate } : {}),
         ...(opts.userId ? { user_id: opts.userId } : {}),
         ...(opts.dbPath ? { db_path: opts.dbPath } : {}),
       });
@@ -1485,6 +1407,7 @@ export async function submitPaperTargetDeltaOrders(
       ...(orderIntentKey ? { order_intent_key: orderIntentKey } : {}),
       ...(accountSnapshotHash ? { expected_account_snapshot_hash: accountSnapshotHash } : {}),
       ...(opts.finalTargetHash ? { final_target_hash: opts.finalTargetHash } : {}),
+      ...(opts.tradeDate ? { trade_date: opts.tradeDate } : {}),
     };
     let submitted: PaperOrderResult;
     try {
@@ -1534,6 +1457,7 @@ export async function submitPaperTargetDeltaOrders(
     if (opts.finalTargetHash && typeof api.paperGetPortfolioSnapshot === "function") {
       try {
         const postSubmit = await api.paperGetPortfolioSnapshot({
+          ...(opts.tradeDate ? { trade_date: opts.tradeDate } : {}),
           ...(opts.userId ? { user_id: opts.userId } : {}),
           ...(opts.dbPath ? { db_path: opts.dbPath } : {}),
         });

@@ -87,11 +87,17 @@ def bound_runtime_snapshot_relative_path(
     tool_id: str,
     as_of: str,
     graph_run_id: str,
+    runtime_input_hash: str | None = None,
 ) -> Path:
     """Return the immutable graph-bound location used by producer and loader."""
     date.fromisoformat(as_of)
     graph_hash = canonical_hash(graph_run_id).removeprefix("sha256:")
-    return Path(as_of) / f"{agent_id}.{stage}.{tool_id}.{graph_hash}.json"
+    input_suffix = ""
+    if runtime_input_hash is not None:
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", runtime_input_hash):
+            raise ValueError("runtime_input_hash must be a sha256 hash")
+        input_suffix = f".{runtime_input_hash.removeprefix('sha256:')}"
+    return Path(as_of) / f"{agent_id}.{stage}.{tool_id}.{graph_hash}{input_suffix}.json"
 
 
 def render_bound_runtime_snapshot(snapshot: Mapping[str, Any]) -> str:
@@ -114,6 +120,7 @@ def publish_bound_runtime_snapshot(
     *,
     tool_id: str,
     output_root: Path,
+    runtime_input_hash: str | None = None,
 ) -> dict[str, Any]:
     """Atomically publish one immutable graph-bound snapshot."""
     relative_path = bound_runtime_snapshot_relative_path(
@@ -122,6 +129,7 @@ def publish_bound_runtime_snapshot(
         tool_id=tool_id,
         as_of=_as_of_date(snapshot.get("as_of"), "as_of"),
         graph_run_id=_required_text(snapshot.get("graph_run_id"), "graph_run_id"),
+        runtime_input_hash=runtime_input_hash,
     )
     path = output_root / relative_path
     rendered = render_bound_runtime_snapshot(snapshot)
@@ -479,10 +487,7 @@ def _validate_decision_policy(
     ):
         raise DataVendorUnavailable("decision policy release hash mismatch")
     effective_at = _required_text(release.get("effective_at"), "policy.effective_at")
-    if _parse_timestamp(effective_at, "policy.effective_at").date() > date.fromisoformat(
-        as_of
-    ):
-        raise DataVendorUnavailable("decision policy release is not effective for as_of")
+    _parse_timestamp(effective_at, "policy.effective_at")
     policies = _required_mapping(release.get("policies"), "policy.policies")
     cro = _required_mapping(policies.get("cro"), "policy.policies.cro")
     max_single = cro.get("max_single_name_weight")
@@ -583,6 +588,11 @@ def _cio_proposal_candidates(
             raise DataVendorUnavailable("accepted selection picks must be an array")
         for pick in picks:
             pick = _required_mapping(pick, "accepted selection pick")
+            if (
+                ref["accepted_output_kind"] == "SUPERINVESTOR_SELECTION"
+                and pick.get("position_action") == "AVOID"
+            ):
+                continue
             ts_code = _required_text(pick.get("ts_code"), "accepted pick ts_code")
             conviction = pick.get("conviction")
             if not isinstance(conviction, (int, float)):
@@ -696,13 +706,25 @@ def _validate_candidate_target(
     target_positions = decision.get("target_positions")
     if not isinstance(target_positions, list):
         raise DataVendorUnavailable("accepted CIO target positions must be an array")
-    accepted_targets = {
+    current_weights = {
         _required_text(
-            _required_mapping(row, "accepted CIO target position").get("ts_code"),
-            "accepted CIO target ts_code",
-        ): _required_mapping(row, "accepted CIO target position").get("target_weight")
-        for row in target_positions
+            _required_mapping(row, "current position").get("ticker"),
+            "current position ticker",
+        ): _required_mapping(row, "current position").get("current_weight")
+        for row in current_positions["positions"]
     }
+    accepted_targets = {}
+    for row in target_positions:
+        position = _required_mapping(row, "accepted CIO target position")
+        ts_code = _required_text(position.get("ts_code"), "accepted CIO target ts_code")
+        target_weight = position.get("target_weight")
+        if position.get("position_decision") == "HOLD":
+            if ts_code not in current_weights:
+                raise DataVendorUnavailable(
+                    f"accepted CIO HOLD target is not a current position: {ts_code}"
+                )
+            target_weight = current_weights[ts_code]
+        accepted_targets[ts_code] = target_weight
     runtime_targets = {
         _required_text(
             _required_mapping(row, "candidate target action").get("ticker"),

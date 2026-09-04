@@ -586,11 +586,17 @@ export function composeAcceptedMacroTransmission(
   ) {
     throw new Error(`${agent}: invalid accepted behavior binding`);
   }
+  const acceptedBehavior: MacroAcceptedBehaviorBinding = {
+    agent_contract_version: behavior.agent_contract_version,
+    prompt_behavior_version: behavior.prompt_behavior_version,
+    execution_behavior_version: behavior.execution_behavior_version,
+    component_weight_contract_version: behavior.component_weight_contract_version,
+  };
   if (submission.mode === "DIRECT" && quality.mode === "DIRECT") {
     const dataQuality = qualityValue(quality.dataQuality, `${agent}:direct`);
     return {
       agent_id: agent,
-      ...behavior,
+      ...acceptedBehavior,
       direction: submission.signal.direction,
       strength: submission.signal.strength,
       persistence_horizon: submission.signal.persistence_horizon,
@@ -661,7 +667,7 @@ export function composeAcceptedMacroTransmission(
   );
   return {
     agent_id: agent,
-    ...behavior,
+    ...acceptedBehavior,
     ...directionAndStrength(f),
     persistence_horizon: weightedHorizonMode(weighted),
     evaluation_horizon_trading_days: 5,

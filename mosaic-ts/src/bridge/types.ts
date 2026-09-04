@@ -1982,7 +1982,7 @@ export class BridgeApi {
   }
 
   paperGetPortfolioSnapshot(
-    opts: { user_id?: string; db_path?: string } = {},
+    opts: { user_id?: string; db_path?: string; trade_date?: string } = {},
   ): Promise<PaperPortfolioSnapshot> {
     return this.client.call<PaperPortfolioSnapshot>("paper.get_portfolio_snapshot", opts);
   }
@@ -2029,6 +2029,7 @@ export class BridgeApi {
     order_intent_key?: string;
     expected_account_snapshot_hash?: string;
     final_target_hash?: string;
+    trade_date?: string;
     db_path?: string;
   }): Promise<PaperOrderResult> {
     return this.client.call<PaperOrderResult>("paper.buy", params);
@@ -2042,6 +2043,7 @@ export class BridgeApi {
     order_intent_key?: string;
     expected_account_snapshot_hash?: string;
     final_target_hash?: string;
+    trade_date?: string;
     db_path?: string;
   }): Promise<PaperOrderResult> {
     return this.client.call<PaperOrderResult>("paper.sell", params);
@@ -2051,6 +2053,7 @@ export class BridgeApi {
     ticker: string;
     state: Record<string, unknown>;
     user_id?: string;
+    trade_date?: string;
     db_path?: string;
   }): Promise<PaperSuggestion | null> {
     return this.client.call<PaperSuggestion | null>("paper.suggest_order_from_signal", params);
@@ -2341,6 +2344,7 @@ export class BridgeApi {
     scheduled_sample_id: string;
     agent_id: "alpha_discovery" | "cro" | "autonomous_execution" | "cio";
     recorded_at: string;
+    runtime_input_hash: string;
     frozen_object?: Record<string, unknown>;
   }): Promise<{
     run_allowed: boolean;
@@ -2363,6 +2367,7 @@ export class BridgeApi {
     agent_id: "druckenmiller" | "munger" | "burry" | "ackman";
     recorded_at: string;
     accepted_output_refs: Array<Record<string, unknown>>;
+    runtime_inputs?: Record<string, unknown>;
   }): Promise<{
     run_allowed: boolean;
     blocker_reason?: string;

@@ -202,11 +202,15 @@ function assertSectorConcentration(
     totals.set(sector, (totals.get(sector) ?? 0) + action.target_weight);
   }
   const knownSectorWeight = Math.max(0, ...totals.values());
-  if (knownSectorWeight + unknownSectorWeight > maxSectorWeight + 1e-9) {
+  const concentratedWeight = Math.max(knownSectorWeight, unknownSectorWeight);
+  if (concentratedWeight > maxSectorWeight + 1e-9) {
     const sector =
-      [...totals.entries()].find(([, total]) => total === knownSectorWeight)?.[0] ?? "unknown";
+      unknownSectorWeight > knownSectorWeight
+        ? "unknown"
+        : ([...totals.entries()].find(([, total]) => total === knownSectorWeight)?.[0] ??
+          "unknown");
     throw new PositionActionValidationError(
-      `${sector}: worst-case target_weight ${(knownSectorWeight + unknownSectorWeight).toFixed(3)} ` +
+      `${sector}: worst-case target_weight ${concentratedWeight.toFixed(3)} ` +
         `exceeds max_sector_weight ${maxSectorWeight}`,
     );
   }

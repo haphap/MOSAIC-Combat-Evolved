@@ -19,6 +19,7 @@ from mosaic.dataflows.economic_calendar import (
     EconomicCalendarStore,
     collect_eco_calendar,
 )
+from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.macro_snapshots import MACRO_EVENT_ROLES
 from mosaic.dataflows.role_events import ROLE_EVENT_CURRENCIES
 from mosaic.dataflows.agent_stage_preparer import compile_role_event_builds
@@ -459,6 +460,22 @@ def test_transport_permission_and_schema_failures_write_only_failed_coverage(
     with sqlite3.connect(ledger.path) as conn:
         assert conn.execute("SELECT count(*) FROM source_capture_receipts").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM route_coverage_receipts").fetchone()[0] == 1
+
+
+def test_vendor_transport_reason_is_preserved_in_failed_coverage(tmp_path: Path) -> None:
+    def fetch(**_request: str):
+        raise DataVendorUnavailable(
+            "private vendor detail", reason_code="TRANSPORT_FAILED"
+        )
+
+    result, _store, _ledger = _archive(tmp_path, fetch)
+
+    coverage = result.coverage_receipt.as_dict()
+    assert coverage["blocker_codes"] == ["TRANSPORT_FAILED"]
+    assert {row["status"] for row in coverage["route_results"]} == {
+        "TRANSPORT_FAILED"
+    }
+    assert "private vendor detail" not in str(coverage)
 
 
 def test_truncated_leaf_fails_closed_without_source_receipts(tmp_path: Path) -> None:
