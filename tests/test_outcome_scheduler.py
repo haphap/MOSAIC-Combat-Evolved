@@ -236,6 +236,16 @@ def test_schedule_plan_covers_25_and_event_exclusions_do_not_reenter(
     )
     assert retry == plan
 
+    fresh_process_retry = store.prepare_outcome_schedule_plan(
+        production_variant_roster_revision_id=revision_id,
+        graph_run_id="graph-1-retry",
+        as_of=as_of,
+        prepared_at=as_of,
+        trading_calendar_snapshot=_calendar_snapshot(as_of),
+        verified_event_candidates=events,
+    )
+    assert fresh_process_retry == plan
+
     next_as_of = "2026-07-20T09:00:00+08:00"
     next_plan = store.prepare_outcome_schedule_plan(
         production_variant_roster_revision_id=revision_id,

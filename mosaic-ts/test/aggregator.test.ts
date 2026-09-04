@@ -242,15 +242,26 @@ describe("v2 macro composition and input gate", () => {
   });
 
   it("applies deterministic quality once for DIRECT roles", () => {
+    const behavior = {
+      agent_contract_version: "macro_agent_contract_v3",
+      prompt_behavior_version: "macro_prompt_behavior_v2",
+      execution_behavior_version: "macro_execution_behavior_v2",
+      component_weight_contract_version: null,
+      reliability_adapter_contract_version: null,
+      confidence_semantics_contract_version: null,
+    };
     const accepted = composeAcceptedMacroTransmission(
       "institutional_flow",
       macroSubmission("institutional_flow"),
       { mode: "DIRECT", dataQuality: 0.8 },
+      behavior,
     );
     expect(accepted.model_confidence).toBe(0.7);
     expect(accepted.deterministic_data_quality).toBe(0.8);
     expect(accepted.confidence).toBeCloseTo(0.56);
     expect(accepted.component_weight_contract_version).toBeNull();
+    expect(accepted).not.toHaveProperty("reliability_adapter_contract_version");
+    expect(accepted).not.toHaveProperty("confidence_semantics_contract_version");
   });
 
   it("fails closed when any accepted slot is absent or a contract version is wrong", () => {

@@ -131,7 +131,11 @@ function layer4UpstreamOutputsHash(state: DailyCycleStateType): string {
           .sort(([left], [right]) => left.localeCompare(right)),
       ),
       macro_input_gate: state.macro_input_gate,
-      outcome_stage_skips: state.outcome_stage_skips,
+      outcome_stage_skips: Object.fromEntries(
+        Object.entries(state.outcome_stage_skips)
+          .filter(([agentId]) => ["druckenmiller", "munger", "burry", "ackman"].includes(agentId))
+          .sort(([left], [right]) => left.localeCompare(right)),
+      ),
     });
   }
   return stableHash({
@@ -253,6 +257,7 @@ function layer4RunSnapshotHash(state: DailyCycleStateType): string {
 export function freezeCioProposal(
   state: DailyCycleStateType,
   proposal: CioOutput,
+  acceptedProposalHash?: string,
 ): {
   proposal: CioOutput;
   candidate: CandidateTargetState;
@@ -303,7 +308,7 @@ export function freezeCioProposal(
     portfolio_actions: actions,
     position_reviews: positionReviews.reviews,
   };
-  const proposalHash = stableHash(frozenProposal);
+  const proposalHash = acceptedProposalHash ?? stableHash(frozenProposal);
   const candidatePayload = {
     run_id: runId,
     cohort,
@@ -857,13 +862,13 @@ function assertControlSourceBinding(
   stageSkipHash: string | null,
   state: DailyCycleStateType,
 ): void {
-  const stageSkip = state.outcome_stage_skips[agentId];
   if (sourceStatus === "ACCEPTED_OUTPUT") {
-    if (stageSkip || stageSkipId !== null || stageSkipHash !== null) {
+    if (stageSkipId !== null || stageSkipHash !== null) {
       throw new Layer4RuntimeContractError(`${agentId} accepted control carries a stage skip`);
     }
     return;
   }
+  const stageSkip = state.outcome_stage_skips[agentId];
   if (
     !stageSkip ||
     stageSkipId !== stageSkip.stage_skip_id ||

@@ -104,7 +104,9 @@ import { type LoaderLanguage, loadPrompt } from "../prompts/loader.js";
 import type { PromptReleaseLoadContext } from "../prompts/release_prompt_loader.js";
 import type { RuntimeAgentStageId } from "../prompts/runtime_agent_spec.js";
 import { STANDARD_SECTOR_AGENT_IDS } from "../sector/_contracts.js";
+import type { AcceptedSectorSelection } from "../sector/accepted.js";
 import type { DailyCycleStateType, DailyCycleStateUpdate } from "../state.js";
+import type { AcceptedSuperinvestorSelection } from "../superinvestor/accepted.js";
 import type {
   AutoExecOutput,
   CandidateTargetState,
@@ -131,6 +133,7 @@ import {
   type CioFinalSubmission,
   type CioProposalSubmission,
   type CroAgentSubmission,
+  canonicalCioAcceptedSubmission,
   cioDecisionPayload,
   croRiskReviewPayload,
   type DecisionAgentSubmission,
@@ -484,7 +487,8 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
             : layerFourExtractorSystem(spec, language);
           const emptyPortfolio = state.current_positions.positions.length === 0;
           const allCashRequired =
-            spec.agentId === "cio" && cioAllCashRequired(state, spec.runtimeStage);
+            spec.agentId === "cio" &&
+            cioAllCashRequired(state, spec.runtimeStage, deps.acceptedOutputStore);
           const alphaSchema =
             spec.agentId === "alpha_discovery"
               ? buildRuntimeAlphaDiscoverySubmissionSchema(
@@ -517,7 +521,13 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
               ? buildAutonomousExecutionProviderControlDirective(state)
               : null;
           const repairContext =
-            spec.runtimeStage === "cro_review" ? frozenCroRepairContext(state) : undefined;
+            spec.runtimeStage === "cro_review"
+              ? frozenCroRepairContext(state)
+              : spec.runtimeStage === "cio_proposal"
+                ? "CIO proposal invariant: never emit HOLD for a zero-weight new candidate. Every macro_input_attributions PORTFOLIO_DECISION target_local_ref must exactly reuse a target_positions[].position_local_id from the same output, never a ts_code or ticker."
+                : spec.runtimeStage === "cio_final"
+                  ? "CIO final frozen-control invariant: omit zero-weight new candidates instead of emitting HOLD; every CRO REQUIRE_REVIEW action must keep the target at current_weight and use resolution=COMPLIED, never MORE_CONSERVATIVE."
+                  : undefined;
           const extractor = await invokeStrictStructured<TOutput>({
             llm: structuredHandle.llm,
             schema: extractionSchema,
@@ -573,7 +583,26 @@ export function buildLayerFourAgentNode<TOutput extends Layer4AgentOutput>(
                       state,
                       output,
                       structuredSmokeCioProposalFrozen,
+                      deps.acceptedOutputStore,
                     );
+                    if (
+                      output.agent_id !== "autonomous_execution" &&
+                      state.darwinian_runtime_binding &&
+                      deps.acceptedOutputStore
+                    ) {
+                      const acceptedBody =
+                        output.agent_id === "alpha_discovery"
+                          ? alphaDiscoveryPayload(output)
+                          : output.agent_id === "cro"
+                            ? croRiskReviewPayload(output)
+                            : cioDecisionPayload(output);
+                      resolveDecisionMacroAttributions(
+                        state,
+                        deps.acceptedOutputStore,
+                        output,
+                        acceptedBody,
+                      );
+                    }
                     return [];
                   } catch (error) {
                     return [
@@ -876,15 +905,17 @@ function validateLayer4StageSemantics<TOutput extends Layer4AgentOutput>(
   state: DailyCycleStateType,
   output: TOutput,
   structuredSmokeCioProposalFrozen?: DecisionStageFrozenObject,
+  acceptedOutputStore?: AcceptedAgentOutputStore,
 ): void {
   const runtime = runtimeStateForLayer4(state);
   const runId = state.trace_id || state.as_of_date || "current_run";
-  const runtimeOutput = decisionSubmissionToRuntimeOutput(output, state);
+  const runtimeOutput = decisionSubmissionToRuntimeOutput(output, state, acceptedOutputStore);
   if (spec.runtimeStage === "cio_proposal") {
-    assertCioProposalHasExactlyOneAcceptedOpportunityAction(
+    assertCioProposalActionsUseAcceptedOpportunities(
       state,
       runtimeOutput as CioOutput,
       structuredSmokeCioProposalFrozen,
+      acceptedOutputStore,
     );
     freezeCioProposal(state, runtimeOutput as CioOutput);
     return;
@@ -960,7 +991,11 @@ function frozenCroRepairContext(state: DailyCycleStateType): string | undefined 
 // Helpers
 // ---------------------------------------------------------------------------
 
-function cioAllCashRequired(state: DailyCycleStateType, stage: RuntimeAgentStageId): boolean {
+function cioAllCashRequired(
+  state: DailyCycleStateType,
+  stage: RuntimeAgentStageId,
+  acceptedOutputStore?: AcceptedAgentOutputStore,
+): boolean {
   if (
     state.current_positions.snapshot_status !== "empty_confirmed" ||
     state.current_positions.positions.length !== 0
@@ -968,14 +1003,7 @@ function cioAllCashRequired(state: DailyCycleStateType, stage: RuntimeAgentStage
     return false;
   }
   if (stage === "cio_proposal") {
-    const hasSectorLong = Object.values(state.layer2_outputs).some(
-      (output) => "long_picks" in output && output.long_picks.length > 0,
-    );
-    const hasSuperinvestorLong = Object.values(state.layer3_outputs).some((output) =>
-      output.picks.some((pick) => pick.position_action === "LONG"),
-    );
-    const hasAlphaCandidate = (state.layer4_outputs.alpha_discovery?.novel_picks.length ?? 0) > 0;
-    return !hasSectorLong && !hasSuperinvestorLong && !hasAlphaCandidate;
+    return cioProposalOpportunityTickers(state, acceptedOutputStore).size === 0;
   }
   if (stage === "cio_final") {
     const candidateTarget = state.layer4_outputs.runtime?.candidate_target_state;
@@ -986,24 +1014,70 @@ function cioAllCashRequired(state: DailyCycleStateType, stage: RuntimeAgentStage
   return false;
 }
 
-export function assertCioProposalHasExactlyOneAcceptedOpportunityAction(
+function cioProposalOpportunityTickers(
+  state: DailyCycleStateType,
+  acceptedOutputStore?: AcceptedAgentOutputStore,
+): Set<string> {
+  const tickers = new Set<string>();
+  if (state.darwinian_runtime_binding) {
+    if (!acceptedOutputStore) {
+      throw new Error("CIO proposal requires the accepted-output store");
+    }
+    for (const ref of Object.values(state.accepted_output_refs)) {
+      if (ref.accepted_output_kind === "STANDARD_SECTOR_SELECTION") {
+        const payload = acceptedOutputStore.resolve<
+          "STANDARD_SECTOR_SELECTION",
+          AcceptedSectorSelection
+        >(ref as AcceptedOutputRecordRef<"STANDARD_SECTOR_SELECTION">).output.payload;
+        for (const pick of payload.selection.long_picks) tickers.add(pick.ts_code.toUpperCase());
+      }
+      if (ref.accepted_output_kind === "SUPERINVESTOR_SELECTION") {
+        const payload = acceptedOutputStore.resolve<
+          "SUPERINVESTOR_SELECTION",
+          AcceptedSuperinvestorSelection
+        >(ref as AcceptedOutputRecordRef<"SUPERINVESTOR_SELECTION">).output.payload;
+        for (const pick of payload.selection.picks) {
+          if (pick.position_action === "LONG") tickers.add(pick.ts_code.toUpperCase());
+        }
+      }
+    }
+  } else {
+    for (const output of Object.values(state.layer2_outputs)) {
+      if ("long_picks" in output) {
+        for (const pick of output.long_picks) tickers.add(pick.ts_code.toUpperCase());
+      }
+    }
+    for (const output of Object.values(state.layer3_outputs)) {
+      for (const pick of output.picks) {
+        if (pick.position_action === "LONG") tickers.add(pick.ts_code.toUpperCase());
+      }
+    }
+  }
+  for (const pick of state.layer4_outputs.alpha_discovery?.novel_picks ?? []) {
+    tickers.add(pick.ticker.toUpperCase());
+  }
+  return tickers;
+}
+
+export function assertCioProposalActionsUseAcceptedOpportunities(
   state: DailyCycleStateType,
   output: Pick<CioOutput, "portfolio_actions">,
   structuredSmokeCioProposalFrozen?: DecisionStageFrozenObject,
+  acceptedOutputStore?: AcceptedAgentOutputStore,
 ): void {
   const actionable = output.portfolio_actions.filter(
     (action) =>
       (action.action === "BUY" || action.position_decision === "ADD") && action.target_weight > 0,
   );
-  if (
-    state.current_positions.snapshot_status === "empty_confirmed" &&
-    state.current_positions.positions.length === 0 &&
-    !cioAllCashRequired(state, "cio_proposal") &&
-    (output.portfolio_actions.length !== 1 || actionable.length !== 1)
-  ) {
-    throw new Error(
-      "CIO proposal must contain exactly one positive BUY/ADD action while an accepted upstream opportunity exists",
-    );
+  if (state.darwinian_runtime_binding && actionable.length > 0) {
+    const opportunityTickers = cioProposalOpportunityTickers(state, acceptedOutputStore);
+    for (const action of actionable) {
+      const ticker = action.ticker.trim().toUpperCase();
+      if (ticker && opportunityTickers.has(ticker)) continue;
+      throw new Error(
+        "CIO proposal positive action must use an accepted LONG Sector/Superinvestor or Alpha candidate",
+      );
+    }
   }
   if (!structuredSmokeCioProposalFrozen || actionable.length === 0) return;
   validateStructuredSmokeCioProposalCandidateLineage(state, structuredSmokeCioProposalFrozen);
@@ -1944,10 +2018,19 @@ function buildLayerFourUpdate<TOutput extends Layer4AgentOutput>(
   const currentRuntime = runtimeStateForLayer4(opts.state);
   const runId = opts.state.trace_id || opts.state.as_of_date || "current_run";
   const mode = spec.stateWriteMode ?? "agent_output";
-  const runtimeOutput = decisionSubmissionToRuntimeOutput(output, opts.state);
+  const runtimeOutput = decisionSubmissionToRuntimeOutput(
+    output,
+    opts.state,
+    opts.acceptedOutputStore,
+  );
+  const acceptedSubmission = (
+    output.agent_id === "cio"
+      ? canonicalCioAcceptedSubmission(output, (runtimeOutput as CioOutput).portfolio_actions)
+      : output
+  ) as TOutput;
   const acceptedOutputRefs = materializeAcceptedDecisionOutput({
     spec,
-    submission: output,
+    submission: acceptedSubmission,
     state: opts.state,
     store: opts.acceptedOutputStore,
     structuredSmokeAcceptedOutput: opts.structuredSmokeAcceptedOutput,

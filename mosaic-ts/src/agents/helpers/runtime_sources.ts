@@ -297,16 +297,22 @@ function upstreamOutputStatuses(
   ];
   return agents.map((agent) => {
     const output = outputs[agent];
-    const outputStatus = upstreamOutputStatus(agent, output);
+    const acceptedRef = Object.values(state.accepted_output_refs).find(
+      (ref) => ref.agent_id === agent,
+    );
+    const outputStatus = upstreamOutputStatus(agent, output ?? acceptedRef);
+    const snapshotHash = output ? stableHash(output) : acceptedRef?.accepted_output_hash;
     const extra: Pick<
       RuntimeSourceStatus,
       "snapshot_hash" | "error_code" | "producer_stage" | "adapter_id"
-    > = output
+    > = snapshotHash
       ? {
-          snapshot_hash: stableHash(output),
+          snapshot_hash: snapshotHash,
           ...(outputStatus.error_code ? { error_code: outputStatus.error_code } : {}),
           producer_stage: agent === "alpha_discovery" ? "alpha_discovery" : "agent_run",
-          adapter_id: "daily_cycle.agent_output_adapter.v1",
+          adapter_id: output
+            ? "daily_cycle.agent_output_adapter.v1"
+            : "accepted_output.ref_adapter.v1",
         }
       : {
           error_code: outputStatus.error_code ?? `upstream_agent_output_missing:${agent}`,
@@ -330,6 +336,12 @@ function decisionMarketTickers(
 ): string[] {
   const current = state.current_positions.positions.map((position) => position.ticker);
   if (agentId === "alpha_discovery" || (agentId === "cio" && stage === "cio_proposal")) {
+    const resolvedMarket = (state.layer4_outputs?.runtime?.resolved_source_statuses ?? []).flatMap(
+      (status) =>
+        status.source_id === "current_market_data" && status.scope.startsWith("ticker:")
+          ? [status.scope.slice("ticker:".length)]
+          : [],
+    );
     const layer2 = Object.values(state.layer2_outputs).flatMap((output) =>
       output.agent !== "relationship_mapper"
         ? [
@@ -345,7 +357,7 @@ function decisionMarketTickers(
       agentId === "cio"
         ? (state.layer4_outputs?.alpha_discovery?.novel_picks.map((pick) => pick.ticker) ?? [])
         : [];
-    return [...current, ...layer2, ...layer3, ...alpha];
+    return [...current, ...resolvedMarket, ...layer2, ...layer3, ...alpha];
   }
   return [
     ...current,

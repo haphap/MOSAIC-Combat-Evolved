@@ -824,6 +824,66 @@ def test_archive_recomputes_hash_when_loading_private_payload(
         store.load_group(result.group["capture_key"])
 
 
+def test_akshare_policy_history_reaches_financial_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from mosaic.dataflows import us_macro_archive
+
+    monkeypatch.setattr(us_macro_archive, "_capture_now", lambda: CAPTURED_AT)
+    monkeypatch.setattr(
+        us_macro_archive,
+        "_akshare_us_policy_records",
+        lambda: [
+            {
+                "商品": "美联储利率决议报告",
+                "日期": "2026-07-31",
+                "今值": 4.25,
+                "预测值": 4.25,
+                "前值": 4.5,
+            }
+        ],
+    )
+    callbacks = _source_callbacks()
+    store = USMacroArchiveStore(tmp_path / "us-macro.sqlite3")
+    ledger = AgentDataMaterializationLedger(tmp_path / "ledger.sqlite3")
+    result = archive_us_macro_sources(
+        as_of_date=AS_OF,
+        cutoff_at=CUTOFF,
+        observation_start=OBSERVATION_START,
+        store=store,
+        ledger=ledger,
+        select_vintage=callbacks[1],
+        fetch_vintage=callbacks[2],
+        fetch_nyfed=callbacks[4],
+        fetch_tushare=callbacks[5],
+    )
+    assert result.group is not None
+    assert result.group["route_states"]["official.us_policy"] == "SUCCESS"
+    policy_receipt = next(
+        receipt.as_dict()
+        for receipt in result.source_receipts
+        if receipt.as_dict()["identity"]["route_id"] == "official.us_policy"
+    )
+    assert policy_receipt["authority"]["provider"] == "AKSHARE_JIN10"
+
+    for route_id in ("tushare.eco_cal.cny", "tushare.eco_cal.usd"):
+        ledger.append_source_capture(_calendar_receipt(route_id))
+    built = compile_us_macro_snapshots(
+        capture_key=result.group["capture_key"],
+        store=store,
+        ledger=ledger,
+        output_root=tmp_path / "snapshots",
+    )
+
+    policy = next(
+        row
+        for row in built.snapshots["us_financial_conditions"]["observations"]
+        if row["series_id"] == "fed_policy_rate"
+    )
+    assert policy["actual"] == 4.25
+    assert policy["source"] == "akshare.macro_bank_usa_interest_rate"
+
+
 def test_receipt_bound_compiler_builds_both_snapshots_without_fomc_invention(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

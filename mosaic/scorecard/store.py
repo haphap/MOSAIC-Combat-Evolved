@@ -2817,6 +2817,20 @@ class ScorecardStore:
                 verified_event_candidates=verified_event_candidates,
             )
 
+    def has_accepted_darwinian_cycle(
+        self, *, production_variant_roster_revision_id: str
+    ) -> bool:
+        with self._connect() as conn:
+            return (
+                conn.execute(
+                    "SELECT 1 FROM scorecard_accepted_runs r "
+                    "JOIN outcome_schedule_plans_v2 p USING(graph_run_id) "
+                    "WHERE p.production_variant_roster_revision_id = ? LIMIT 1",
+                    (production_variant_roster_revision_id,),
+                ).fetchone()
+                is not None
+            )
+
     def resolve_scheduled_sample_context(
         self, *, scheduled_sample_id: str
     ) -> dict[str, Any]:
@@ -3405,8 +3419,14 @@ class ScorecardStore:
                 raise ValueError(f"{agent}: source_output_hash must be sha256")
             accepted_ref = narrative_ref(str(agent))
             skip = stage_skips.get(agent)
-            if accepted_ref is not None and skip is not None:
+            if (
+                accepted_ref is not None
+                and skip is not None
+                and agent not in {"cro", "autonomous_execution"}
+            ):
                 raise ValueError(f"{agent}: narrative cannot be accepted and skipped")
+            if accepted_ref is not None and agent in {"cro", "autonomous_execution"}:
+                skip = None
             if source == "ACCEPTED_OUTPUT" and (
                 accepted_ref is None
                 or source_output_id != accepted_ref.get("accepted_output_id")

@@ -22,6 +22,7 @@ from urllib.parse import urljoin, urlparse
 from zoneinfo import ZoneInfo
 
 import requests
+from curl_cffi import requests as curl_requests
 
 from .exceptions import DataVendorUnavailable
 from .pboc_ops import (
@@ -171,7 +172,7 @@ OFFICIAL_CHINA_DOCUMENT_SPECS: Final[dict[str, dict[str, Any]]] = {
             "official.customs_major_goods_trade",
         ),
         "metric_parser": "customs",
-        "required_metric_count": 4,
+        "required_metric_count": 3,
         "period_mode": "previous_month",
     },
     "mof_fiscal_release": {
@@ -237,10 +238,7 @@ OFFICIAL_CHINA_CATALOG_SPECS: Final[dict[str, dict[str, str]]] = {
     },
     "customs_monthly_trade": {
         "catalog_url": "https://english.www.gov.cn/archive/statistics/",
-        "title_pattern": (
-            r"China(?:'s)?(?:\s+\S+){0,4}\s+foreign trade\s+"
-            r"(?:expands|maintains|posts|records)"
-        ),
+        "title_pattern": r"China(?:'s)?(?:\s+\S+){0,4}\s+foreign trade\b",
     },
     "mof_fiscal_release": {
         "catalog_url": "https://www.mof.gov.cn/zhengwuxinxi/redianzhuanti/quanguocaizhengshouzhiqingkuang/",
@@ -257,12 +255,67 @@ _NBS_PAGE_COUNT_RE = re.compile(
     r"createPageHTML\(\s*(?P<count>\d+)\s*,\s*\d+\s*,\s*['\"]index['\"]",
     re.IGNORECASE,
 )
+_PBOC_PAGE_COUNT_RE = re.compile(
+    r"article_paging_list_hidden[^>]*moduleid=['\"](?P<module>\d+)['\"]"
+    r"[^>]*totalpage=['\"](?P<count>\d+)['\"]",
+    re.IGNORECASE,
+)
 _GOV_CN_STATS_PAGE_RE = re.compile(r"/archive/statistics/page_(?P<page>\d+)\.html")
 _TAG_RE = re.compile(r"<[^>]+>")
 _HTTP_TIMEOUT_SECONDS = 20
 _USER_AGENT = "MOSAIC-Agent-Data/official-china-forward-archive"
+_BROWSER_SESSION = curl_requests.Session(impersonate="chrome")
 FetchText = Callable[[str], str]
 PostJson = Callable[..., Any]
+_AKSHARE_NBS_ACTIVITY_TYPES: Final = frozenset(
+    {
+        "nbs_industrial_activity",
+        "nbs_fixed_asset_investment",
+        "nbs_retail_sales",
+        "nbs_employment_release",
+    }
+)
+_AKSHARE_NBS_PRICE_TYPES: Final = frozenset(
+    {"nbs_cpi_release", "nbs_ppi_release"}
+)
+_AKSHARE_NBS_EVENT_CONTRACTS: Final[dict[str, tuple[str, str, str, str]]] = {
+    "nbs_industrial_activity": (
+        r"\d{1,2}月规模以上工业增加值同比",
+        "cn_industrial_yoy",
+        "official.nbs_industrial_value_added",
+        "percent_yoy",
+    ),
+    "nbs_fixed_asset_investment": (
+        r"\d{1,2}至\d{1,2}月城镇固定资产投资同比",
+        "cn_fixed_asset_investment_yoy",
+        "official.nbs_fixed_asset_investment",
+        "percent_yoy",
+    ),
+    "nbs_retail_sales": (
+        r"\d{1,2}月社会消费品零售总额同比",
+        "cn_retail_sales_yoy",
+        "official.nbs_retail_sales",
+        "percent_yoy",
+    ),
+    "nbs_employment_release": (
+        r"\d{1,2}月城镇调查失业率",
+        "cn_urban_unemployment_rate",
+        "official.nbs_employment_release",
+        "percent",
+    ),
+    "nbs_cpi_release": (
+        r"\d{1,2}月CPI同比",
+        "cn_cpi_official_yoy",
+        "official.nbs_price_release_verification",
+        "percent_yoy",
+    ),
+    "nbs_ppi_release": (
+        r"\d{1,2}月PPI同比",
+        "cn_ppi_official_yoy",
+        "official.nbs_price_release_verification",
+        "percent_yoy",
+    ),
+}
 MOF_CHINABOND_YIELD_CURVE_URL: Final = (
     "https://yield.chinabond.com.cn/cbweb-czb-web/czb/historyQuery"
 )
@@ -448,6 +501,7 @@ def _directional(match: re.Match[str]) -> float:
             "declined",
             "dropped",
             "contracted",
+            "went down",
         }
         else value
     )
@@ -708,10 +762,11 @@ def _parse_customs(text: str) -> list[dict[str, Any]]:
         ]
     direction = (
         r"(?P<direction>grew|rose|increased|surged|jumped|expanded|fell|"
-        r"decreased|declined|dropped|contracted)"
+        r"decreased|declined|dropped|contracted|went up|went down)"
     )
     total = _required_match(
-        r"(?:China(?:'s)? foreign trade(?: in [^.;]*?)?|"
+        r"(?:China(?:'s)? (?:foreign trade|total goods imports and exports)"
+        r"(?: in [^.;]*?)?|"
         r"The total value of goods imports and exports(?: in [^.;]*?)?)\s+"
         + direction
         + r"\s+(?:by\s+)?(?P<value>\d+(?:\.\d+)?) percent",
@@ -720,7 +775,7 @@ def _parse_customs(text: str) -> list[dict[str, Any]]:
         flags=re.IGNORECASE,
     )
     exports = _required_match(
-        r"\bExports\s+"
+        r"\b(?:China(?:'s)?\s+(?:goods\s+)?)?exports\s+"
         + direction
         + r"\s+(?:by\s+)?(?P<value>\d+(?:\.\d+)?) percent",
         text,
@@ -728,7 +783,7 @@ def _parse_customs(text: str) -> list[dict[str, Any]]:
         flags=re.IGNORECASE,
     )
     imports = _required_match(
-        r"\bimports\s+"
+        r"\b(?:China(?:'s)?\s+(?:goods\s+)?)?imports\s+"
         + direction
         + r"\s+(?:by\s+)?(?P<value>\d+(?:\.\d+)?) percent",
         text,
@@ -761,6 +816,7 @@ def _parse_customs(text: str) -> list[dict[str, Any]]:
     else:
         mechanical = re.search(
             r"(?:Exports of mechanical and electrical products|"
+            r"China(?:'s)? export of mechanical and electrical products|"
             r"Mechanical and electrical products[^.]*\.\s*Exports of these products)"
             r"[^.;]*?"
             + direction
@@ -768,18 +824,17 @@ def _parse_customs(text: str) -> list[dict[str, Any]]:
             text,
             re.IGNORECASE,
         )
-        if mechanical is None:
-            raise DataVendorUnavailable(
-                "official China document missing required metric: "
-                "cn_trade_structural_goods_exports_yoy"
+        structural = (
+            _metric(
+                series_id="cn_trade_electromechanical_exports_yoy",
+                source="official.customs_major_goods_trade",
+                actual=_directional(mechanical),
+                unit="percent_yoy",
             )
-        structural = _metric(
-            series_id="cn_trade_electromechanical_exports_yoy",
-            source="official.customs_major_goods_trade",
-            actual=_directional(mechanical),
-            unit="percent_yoy",
+            if mechanical is not None
+            else None
         )
-    return [
+    observations = [
         _metric(
             series_id=series_id,
             source=source,
@@ -791,7 +846,8 @@ def _parse_customs(text: str) -> list[dict[str, Any]]:
             ("cn_trade_exports_yoy", "official.customs_partner_trade", exports),
             ("cn_trade_imports_yoy", "official.customs_partner_trade", imports),
         )
-    ] + [structural]
+    ]
+    return observations + ([structural] if structural is not None else [])
 
 
 def _parse_mof(text: str) -> list[dict[str, Any]]:
@@ -966,8 +1022,26 @@ def parse_official_china_document(
 
 
 def _fetch_text(url: str) -> str:
-    if urlparse(url).hostname in {"pbc.gov.cn", "www.pbc.gov.cn"}:
+    hostname = urlparse(url).hostname
+    if hostname in {"pbc.gov.cn", "www.pbc.gov.cn"}:
         return fetch_pboc_text(url)
+    if hostname in {
+        "english.www.gov.cn",
+        "stats.gov.cn",
+        "www.gov.cn",
+        "www.stats.gov.cn",
+    }:
+        try:
+            response = _BROWSER_SESSION.get(
+                url,
+                timeout=_HTTP_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            return response.text
+        except curl_requests.RequestsError as exc:
+            raise DataVendorUnavailable(
+                f"official China fetch failed for {hostname}: {exc}"
+            ) from exc
     try:
         response = requests.get(
             url,
@@ -977,13 +1051,294 @@ def _fetch_text(url: str) -> str:
         response.raise_for_status()
     except requests.RequestException as exc:
         raise DataVendorUnavailable(
-            f"official China fetch failed for {urlparse(url).hostname}: {exc}"
+            f"official China fetch failed for {hostname}: {exc}"
         ) from exc
     encoding = response.apparent_encoding or response.encoding or "utf-8"
     if encoding.casefold().replace("_", "-") in {"iso-8859-1", "ascii"}:
         encoding = "utf-8"
     response.encoding = encoding
     return response.text
+
+
+def _akshare_records(api_name: str, *args: str) -> list[dict[str, Any]]:
+    try:
+        import akshare as ak
+
+        frame = getattr(ak, api_name)(*args)
+        records = frame.to_dict(orient="records")
+    except Exception as exc:
+        raise DataVendorUnavailable(f"AKShare {api_name} fetch failed: {exc}") from exc
+    if not isinstance(records, list) or not records:
+        raise DataVendorUnavailable(f"AKShare {api_name} returned no rows")
+    return records
+
+
+def _akshare_release_dates(api_name: str, cutoff: datetime) -> list[date]:
+    releases: set[date] = set()
+    for row in _akshare_records(api_name):
+        try:
+            actual = float(row.get("今值"))
+            raw_date = row.get("日期")
+            release = (
+                raw_date.date()
+                if isinstance(raw_date, datetime)
+                else raw_date
+                if isinstance(raw_date, date)
+                else date.fromisoformat(str(raw_date)[:10])
+            )
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(actual) and release <= cutoff.astimezone(_SHANGHAI).date():
+            releases.add(release)
+    if not releases:
+        raise DataVendorUnavailable(
+            f"AKShare {api_name} has no eligible release by cutoff"
+        )
+    return sorted(releases, reverse=True)
+
+
+def _akshare_nbs_document(
+    *,
+    document_type: str,
+    row: dict[str, Any],
+    retrieved: datetime,
+) -> dict[str, Any]:
+    event = _normalized_text(str(row.get("事件") or ""))
+    pattern, series_id, source, unit = _AKSHARE_NBS_EVENT_CONTRACTS[document_type]
+    if re.fullmatch(pattern, event) is None:
+        raise DataVendorUnavailable(
+            f"AKShare macro calendar event does not match {document_type}"
+        )
+    try:
+        published = datetime.fromisoformat(str(row.get("时间"))).replace(
+            tzinfo=_SHANGHAI
+        )
+    except (TypeError, ValueError) as exc:
+        raise DataVendorUnavailable(
+            "AKShare macro calendar publication time is invalid"
+        ) from exc
+    if published > retrieved:
+        raise DataVendorUnavailable(
+            "AKShare macro calendar publication timestamp is after retrieval"
+        )
+    try:
+        actual = float(row.get("今值"))
+    except (TypeError, ValueError) as exc:
+        raise DataVendorUnavailable(
+            "AKShare macro calendar actual is invalid"
+        ) from exc
+    if not math.isfinite(actual):
+        raise DataVendorUnavailable("AKShare macro calendar actual is invalid")
+    source_url = str(row.get("链接") or "").strip()
+    parsed_url = urlparse(source_url)
+    if parsed_url.scheme != "https" or parsed_url.hostname != "wallstreetcn.com":
+        raise DataVendorUnavailable("AKShare macro calendar source URL is invalid")
+    title = f"{published.year}年{event}"
+    spec = OFFICIAL_CHINA_DOCUMENT_SPECS[document_type]
+    if spec.get("period_mode") == "previous_month":
+        period_start, period_end = _previous_month_bounds(published)
+    else:
+        period_start, period_end = _period_bounds(title, published)
+    payload = {
+        "access_path": "akshare.macro_info_ws",
+        "actual": actual,
+        "event": event,
+        "published_at": published.isoformat(),
+        "source_url": source_url,
+    }
+    raw = json.dumps(
+        payload,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    content_hash = "sha256:" + hashlib.sha256(raw).hexdigest()
+    parts = [part for part in parsed_url.path.split("/") if part]
+    document_id = parts[-2] if parts[-1] == "overview" else _document_id(source_url)
+    revision_material = (
+        f"{document_type}\0{document_id}\0{published.isoformat()}\0{content_hash}"
+    ).encode()
+    return {
+        "adapter_version": ADAPTER_VERSION,
+        "document_type": document_type,
+        "provider": spec["provider"],
+        "access_path": "AKSHARE_WALLSTREETCN",
+        "document_id": document_id,
+        "source_url": source_url,
+        "title": title,
+        "published_at": published.isoformat(),
+        "release_precision": "SECOND",
+        "retrieved_at": retrieved.isoformat(),
+        "content_hash": content_hash,
+        "revision_id": (
+            "official-cn-revision:"
+            + hashlib.sha256(revision_material).hexdigest()
+        ),
+        "branches_covered": list(spec["branches"]),
+        "observations": [
+            _metric(
+                series_id=series_id,
+                source=source,
+                actual=actual,
+                unit=unit,
+            )
+            | {"period_start": period_start, "period_end": period_end}
+        ],
+        "raw_payload_b64": base64.b64encode(raw).decode("ascii"),
+    }
+
+
+def _akshare_nbs_group(
+    *,
+    document_types: frozenset[str],
+    driver_api: str,
+    cutoff: datetime,
+    retrieved: datetime,
+) -> dict[str, dict[str, Any]]:
+    for release_date in _akshare_release_dates(driver_api, cutoff):
+        rows = _akshare_records("macro_info_ws", release_date.strftime("%Y%m%d"))
+        documents: dict[str, dict[str, Any]] = {}
+        for document_type in document_types:
+            pattern = _AKSHARE_NBS_EVENT_CONTRACTS[document_type][0]
+            matches = [
+                row
+                for row in rows
+                if re.fullmatch(
+                    pattern,
+                    _normalized_text(str(row.get("事件") or "")),
+                )
+                is not None
+            ]
+            if len(matches) != 1:
+                break
+            try:
+                document = _akshare_nbs_document(
+                    document_type=document_type,
+                    row=matches[0],
+                    retrieved=retrieved,
+                )
+            except DataVendorUnavailable:
+                break
+            if _parse_timestamp(document["published_at"], "published_at") > cutoff:
+                break
+            documents[document_type] = document
+        if len(documents) == len(document_types):
+            return documents
+    raise DataVendorUnavailable("AKShare macro calendar has no eligible NBS release set")
+
+
+def _fetch_akshare_nbs_release_set(
+    *,
+    document_types: frozenset[str],
+    cutoff: datetime,
+    retrieved: datetime,
+) -> dict[str, dict[str, Any]]:
+    documents: dict[str, dict[str, Any]] = {}
+    activity_types = document_types & _AKSHARE_NBS_ACTIVITY_TYPES
+    if activity_types:
+        documents.update(
+            _akshare_nbs_group(
+                document_types=activity_types,
+                driver_api="macro_china_industrial_production_yoy",
+                cutoff=cutoff,
+                retrieved=retrieved,
+            )
+        )
+    price_types = document_types & _AKSHARE_NBS_PRICE_TYPES
+    if price_types:
+        documents.update(
+            _akshare_nbs_group(
+                document_types=price_types,
+                driver_api=(
+                    "macro_china_cpi_yearly"
+                    if "nbs_cpi_release" in price_types
+                    else "macro_china_ppi_yearly"
+                ),
+                cutoff=cutoff,
+                retrieved=retrieved,
+            )
+        )
+    return documents
+
+
+def _akshare_lpr_document(
+    *, cutoff: datetime, retrieved: datetime
+) -> dict[str, Any]:
+    candidates: list[tuple[date, float]] = []
+    for row in _akshare_records("macro_china_lpr"):
+        try:
+            raw_date = row.get("TRADE_DATE")
+            released_on = (
+                raw_date.date()
+                if isinstance(raw_date, datetime)
+                else raw_date
+                if isinstance(raw_date, date)
+                else date.fromisoformat(str(raw_date)[:10])
+            )
+            lpr_1y = float(row.get("LPR1Y"))
+        except (TypeError, ValueError):
+            continue
+        published = datetime.combine(
+            released_on, time(23, 59, 59), tzinfo=_SHANGHAI
+        )
+        if math.isfinite(lpr_1y) and published <= cutoff:
+            candidates.append((released_on, lpr_1y))
+    if not candidates:
+        raise DataVendorUnavailable("AKShare LPR history has no eligible row by cutoff")
+    released_on, lpr_1y = max(candidates)
+    published = datetime.combine(
+        released_on, time(23, 59, 59), tzinfo=_SHANGHAI
+    )
+    payload = {
+        "access_path": "akshare.macro_china_lpr",
+        "lpr_1y": lpr_1y,
+        "published_at": published.isoformat(),
+    }
+    raw = json.dumps(
+        payload,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    content_hash = "sha256:" + hashlib.sha256(raw).hexdigest()
+    document_id = f"akshare-lpr-{released_on.isoformat()}"
+    revision_material = (
+        f"pboc_lpr_document\0{document_id}\0{published.isoformat()}\0{content_hash}"
+    ).encode()
+    spec = OFFICIAL_CHINA_DOCUMENT_SPECS["pboc_lpr_document"]
+    return {
+        "adapter_version": ADAPTER_VERSION,
+        "document_type": "pboc_lpr_document",
+        "provider": spec["provider"],
+        "access_path": "AKSHARE_EASTMONEY",
+        "document_id": document_id,
+        "source_url": "https://data.eastmoney.com/cjsj/globalRateLPR.html",
+        "title": f"{released_on.isoformat()}贷款市场报价利率（LPR）",
+        "published_at": published.isoformat(),
+        "release_precision": "DAY",
+        "retrieved_at": retrieved.isoformat(),
+        "content_hash": content_hash,
+        "revision_id": (
+            "official-cn-revision:"
+            + hashlib.sha256(revision_material).hexdigest()
+        ),
+        "branches_covered": list(spec["branches"]),
+        "observations": [
+            _metric(
+                series_id="pboc_lpr_1y",
+                source="official.pboc_lpr_catalog",
+                actual=lpr_1y,
+                unit="percent",
+            )
+            | {
+                "period_start": released_on.isoformat(),
+                "period_end": released_on.isoformat(),
+            }
+        ],
+        "raw_payload_b64": base64.b64encode(raw).decode("ascii"),
+    }
 
 
 def _post_json(url: str, *, params: dict[str, str]) -> Any:
@@ -1247,6 +1602,17 @@ def fetch_latest_official_china_document(
             for page in range(1, int(page_count.group("count")))
         )
     elif (
+        parsed_catalog.hostname in {"pbc.gov.cn", "www.pbc.gov.cn"}
+        and (page_count := _PBOC_PAGE_COUNT_RE.search(first_page)) is not None
+    ):
+        page_urls.extend(
+            urljoin(
+                catalog_url,
+                f"{page_count.group('module')}-{page}.html",
+            )
+            for page in range(2, int(page_count.group("count")) + 1)
+        )
+    elif (
         parsed_catalog.hostname == "english.www.gov.cn"
         and parsed_catalog.path.rstrip("/") == "/archive/statistics"
     ):
@@ -1262,6 +1628,73 @@ def fetch_latest_official_china_document(
                 urljoin(catalog_url, f"page_{page}.html")
                 for page in range(2, max(page_numbers) + 1)
             )
+    if document_type == "pboc_financial_statistics":
+        bodies: dict[str, str] = {}
+
+        def body(url: str) -> str:
+            if url not in bodies:
+                bodies[url] = fetch_text(url)
+            return bodies[url]
+
+        for page_index, page_url in enumerate(page_urls):
+            page_html = first_page if page_index == 0 else fetch_text(page_url)
+            financial = _catalog_candidates(
+                page_html,
+                catalog_url=page_url,
+                title_pattern=r"金融统计数据报告",
+            )
+            stock = _catalog_candidates(
+                page_html,
+                catalog_url=page_url,
+                title_pattern=r"社会融资规模存量统计数据报告",
+            )
+            for financial_listed_at, _, financial_url in financial:
+                if financial_listed_at is not None and financial_listed_at > cutoff:
+                    continue
+                financial_html = body(financial_url)
+                financial_parser = _VisibleTextParser()
+                financial_parser.feed(financial_html)
+                financial_title = _normalized_text(
+                    " ".join(financial_parser.title_parts)
+                )
+                financial_published, _ = _published_at(
+                    _normalized_text(" ".join(financial_parser.text_parts))
+                )
+                financial_period = _period_bounds(
+                    financial_title,
+                    financial_published,
+                )
+                for stock_listed_at, _, stock_url in stock:
+                    if stock_listed_at is not None and stock_listed_at > cutoff:
+                        continue
+                    stock_html = body(stock_url)
+                    stock_parser = _VisibleTextParser()
+                    stock_parser.feed(stock_html)
+                    stock_title = _normalized_text(" ".join(stock_parser.title_parts))
+                    stock_published, _ = _published_at(
+                        _normalized_text(" ".join(stock_parser.text_parts))
+                    )
+                    if (
+                        _period_bounds(stock_title, stock_published)
+                        != financial_period
+                    ):
+                        continue
+                    try:
+                        result = parse_official_china_document(
+                            document_type=document_type,
+                            url=financial_url,
+                            html=financial_html + stock_html,
+                            retrieved_at=retrieved.isoformat(),
+                        )
+                    except DataVendorUnavailable:
+                        continue
+                    if _parse_timestamp(result["published_at"], "published_at") <= cutoff:
+                        result["source_urls"] = [financial_url, stock_url]
+                        return result
+        raise DataVendorUnavailable(
+            "official China catalog has no eligible release for "
+            "pboc_financial_statistics"
+        )
     for page_index, page_url in enumerate(page_urls):
         page_html = first_page if page_index == 0 else fetch_text(page_url)
         candidates = _catalog_candidates(
@@ -1302,6 +1735,29 @@ def fetch_official_china_release_set(
     selected = document_types or tuple(sorted(OFFICIAL_CHINA_CATALOG_SPECS))
     if len(selected) != len(set(selected)):
         raise ValueError("official China document_types must be unique")
+    cutoff = _parse_timestamp(cutoff_at, "cutoff_at")
+    retrieved = _parse_timestamp(
+        retrieved_at or datetime.now(timezone.utc).isoformat(),
+        "retrieved_at",
+    )
+    if retrieved > cutoff and not historical_replay:
+        raise DataVendorUnavailable(
+            "official China retrieval time exceeds the requested cutoff"
+        )
+    nbs_types = frozenset(selected) & (
+        _AKSHARE_NBS_ACTIVITY_TYPES | _AKSHARE_NBS_PRICE_TYPES
+    )
+    nbs_documents = _fetch_akshare_nbs_release_set(
+        document_types=nbs_types,
+        cutoff=cutoff,
+        retrieved=retrieved,
+    )
+    akshare_documents = dict(nbs_documents)
+    if "pboc_lpr_document" in selected:
+        akshare_documents["pboc_lpr_document"] = _akshare_lpr_document(
+            cutoff=cutoff,
+            retrieved=retrieved,
+        )
     fetched: dict[str, str] = {}
 
     def cached_fetch(url: str) -> str:
@@ -1310,7 +1766,9 @@ def fetch_official_china_release_set(
         return fetched[url]
 
     return [
-        fetch_latest_official_china_document(
+        akshare_documents[document_type]
+        if document_type in akshare_documents
+        else fetch_latest_official_china_document(
             document_type=document_type,
             cutoff_at=cutoff_at,
             retrieved_at=retrieved_at,

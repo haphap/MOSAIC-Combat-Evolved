@@ -10,6 +10,9 @@ import {
   type CioFinalSubmission,
   type CioProposalSubmission,
   type CroAgentSubmission,
+  canonicalCioAcceptedSubmission,
+  croRiskReviewPayload,
+  executionAssessmentPayload,
   frozenOrderIntentSetIdentity,
   modelVisibleAcceptedDecision,
 } from "../src/agents/decision/accepted.js";
@@ -227,6 +230,7 @@ function frozenControlPlan(
   proposal: ReturnType<typeof frozenProposal>,
   cro: ReturnType<typeof buildAcceptedCroRiskReview> | null,
   currentWeights = new Map<string, number>(),
+  runtimeTargetWeights = new Map<string, number>(),
 ) {
   const candidate: CandidateTargetState = {
     schema_version: "portfolio.candidate_target_state.v1",
@@ -241,19 +245,20 @@ function frozenControlPlan(
     market_data_vintage_hash: "sha256:market-accepted-fixture",
     portfolio_actions: proposal.decision.target_positions.map((position) => {
       const currentWeight = currentWeights.get(position.ts_code) ?? 0;
-      const deltaWeight = position.target_weight - currentWeight;
+      const targetWeight = runtimeTargetWeights.get(position.ts_code) ?? position.target_weight;
+      const deltaWeight = targetWeight - currentWeight;
       return {
         ticker: position.ts_code,
         action:
           deltaWeight > 1e-9
             ? "BUY"
             : deltaWeight < -1e-9
-              ? position.target_weight <= 1e-9
+              ? targetWeight <= 1e-9
                 ? "SELL"
                 : "REDUCE"
               : "HOLD",
         current_weight: currentWeight,
-        target_weight: position.target_weight,
+        target_weight: targetWeight,
         delta_weight: deltaWeight,
         holding_period: "3M",
         dissent_notes: "",
@@ -547,6 +552,130 @@ describe("Decision v2 submission and accepted contracts", () => {
     ).toThrow(/changes target weight/);
   });
 
+  it("canonicalizes accepted HOLD weights without changing ADD targets", () => {
+    const base = finalSubmission();
+    const {
+      cro_control_resolutions: _croResolutions,
+      execution_control_resolutions: _executionResolutions,
+      ...proposalBody
+    } = base;
+    const first = requiredFirst(base.target_positions, "proposal target");
+    const submission: CioProposalSubmission = {
+      ...proposalBody,
+      decision_stage: "PROPOSAL",
+      decision_disposition: "TARGET_PORTFOLIO",
+      target_positions: [
+        { ...first, position_decision: "HOLD", target_weight: 0.02 },
+        {
+          ...first,
+          position_local_id: "position-add",
+          ts_code: "000001.SZ",
+          position_decision: "ADD",
+          target_weight: 0.1,
+        },
+      ],
+      cash_weight: 0.88,
+    };
+    const exactCurrentWeight = 0.02004615432680377;
+
+    const canonical = canonicalCioAcceptedSubmission(submission, [
+      { ticker: "600000.SH", target_weight: exactCurrentWeight },
+      { ticker: "000001.SZ", target_weight: 0.1 },
+    ]);
+
+    expect(canonical.target_positions.map((position) => position.target_weight)).toEqual([
+      exactCurrentWeight,
+      0.1,
+    ]);
+    expect(canonical.cash_weight).toBe(1 - (exactCurrentWeight + 0.1));
+    expect(submission.target_positions[0]?.target_weight).toBe(0.02);
+    expect(() =>
+      canonicalCioAcceptedSubmission(submission, [
+        { ticker: "000001.SZ", target_weight: exactCurrentWeight },
+        { ticker: "600000.SH", target_weight: 0.1 },
+      ]),
+    ).toThrow("CIO runtime target order differs from the accepted submission");
+  });
+
+  it("binds a rounded accepted HOLD to the exact frozen current weight", () => {
+    const base = finalSubmission();
+    const {
+      cro_control_resolutions: _croResolutions,
+      execution_control_resolutions: _executionResolutions,
+      ...proposalBody
+    } = base;
+    const first = requiredFirst(base.target_positions, "proposal target");
+    const proposal = buildAcceptedCioProposal({
+      submission: {
+        ...proposalBody,
+        decision_stage: "PROPOSAL",
+        decision_disposition: "TARGET_PORTFOLIO",
+        target_positions: [{ ...first, position_decision: "HOLD", target_weight: 0.0409 }],
+        cash_weight: 0.9591,
+      },
+      behavior,
+      frozenPreCioInputId: "pre-cio-rounded-hold",
+      frozenPreCioInputHash: "sha256:pre-cio-rounded-hold",
+      alphaSource: {
+        source_status: "NO_EVALUATION_OBJECT",
+        agent_id: "alpha_discovery",
+        accepted_output_id: null,
+        accepted_output_hash: null,
+        stage_skip_id: "skip-alpha-rounded-hold",
+        stage_skip_hash: "sha256:skip-alpha-rounded-hold",
+      },
+      acceptedAlphaDiscovery: null,
+      currentPositions: loadedCurrentPositions,
+      acceptedMacroInputAttributions: [],
+    });
+    const exactCurrentWeight = 0.04086988055777407;
+    const controlPlan = frozenControlPlan(
+      proposal,
+      null,
+      new Map([["600000.SH", exactCurrentWeight]]),
+      new Map([["600000.SH", exactCurrentWeight]]),
+    );
+
+    const accepted = buildAcceptedCioFinal({
+      submission: {
+        ...base,
+        decision_disposition: "HOLD_CURRENT",
+        target_positions: [
+          { ...first, position_decision: "HOLD", target_weight: exactCurrentWeight },
+        ],
+        cash_weight: 1 - exactCurrentWeight,
+        cro_control_resolutions: [],
+        execution_control_resolutions: [],
+      },
+      behavior,
+      frozenProposal: proposal,
+      frozenProposalId: proposal.proposal_id,
+      frozenProposalHash: proposal.proposal_hash,
+      croControlSource: {
+        source_status: "NO_EVALUATION_OBJECT",
+        agent_id: "cro",
+        accepted_output_id: null,
+        accepted_output_hash: null,
+        stage_skip_id: "skip-cro-rounded-hold",
+        stage_skip_hash: "sha256:skip-cro-rounded-hold",
+      },
+      executionControlSource: {
+        source_status: "NO_EVALUATION_OBJECT",
+        agent_id: "autonomous_execution",
+        accepted_output_id: null,
+        accepted_output_hash: null,
+        stage_skip_id: "skip-execution-rounded-hold",
+        stage_skip_hash: "sha256:skip-execution-rounded-hold",
+      },
+      acceptedCroReview: null,
+      acceptedExecutionAssessment: null,
+      frozenControlledTargetSet: controlPlan,
+      acceptedMacroInputAttributions: [],
+    });
+
+    expect(accepted.decision.target_positions[0]?.target_weight).toBe(exactCurrentWeight);
+  });
+
   it("enforces CRO action semantics and deterministic disposition", () => {
     expect(CroSubmissionSchema.parse(croSubmission())).toMatchObject({ agent_id: "cro" });
     expect(
@@ -575,6 +704,70 @@ describe("Decision v2 submission and accepted contracts", () => {
         candidate_actions: [{ ...croSubmission().candidate_actions[0], max_target_weight: null }],
       }),
     ).toThrow(/numeric max_target_weight/);
+  });
+
+  it("canonicalizes CRO candidate order before accepted identity hashing", () => {
+    const base = requiredFirst(croSubmission().candidate_actions, "CRO action");
+    const submission = {
+      ...croSubmission(),
+      candidate_actions: [
+        {
+          ...base,
+          action_local_id: "cro-local-z",
+          candidate_ref: "candidate-z",
+          ts_code: "601899.SH",
+        },
+        {
+          ...base,
+          action_local_id: "cro-local-a",
+          candidate_ref: "candidate-a",
+          ts_code: "600036.SH",
+        },
+      ],
+    };
+    const build = (candidateActions: CroAgentSubmission["candidate_actions"]) =>
+      buildAcceptedCroRiskReview({
+        submission: { ...submission, candidate_actions: candidateActions },
+        behavior,
+        frozenProposalId: "proposal-1",
+        frozenProposalHash: "sha256:proposal",
+        frozenCandidateUniverseId: "candidate-set-1",
+        frozenCandidateUniverseHash: "sha256:candidates",
+        acceptedMacroInputAttributions: [],
+      });
+
+    expect(
+      croRiskReviewPayload(submission).candidate_actions.map((row) => row.action_local_id),
+    ).toEqual(["cro-local-a", "cro-local-z"]);
+    expect(build(submission.candidate_actions)).toEqual(
+      build([...submission.candidate_actions].reverse()),
+    );
+  });
+
+  it("canonicalizes Execution assessment order before accepted identity hashing", () => {
+    const base = requiredFirst(executionSubmission().order_assessments, "Execution assessment");
+    const assessments = [
+      {
+        ...base,
+        assessment_local_id: "execution-local-z",
+        order_intent_ref: "intent-z",
+        ts_code: "600001.SH",
+      },
+      { ...base, assessment_local_id: "execution-local-a", order_intent_ref: "intent-a" },
+    ];
+    const build = (orderAssessments: typeof assessments) =>
+      executionAssessmentPayload(
+        AutonomousExecutionSubmissionSchema.parse({
+          ...executionSubmission(),
+          order_assessments: orderAssessments,
+        }),
+      );
+
+    expect(build(assessments).order_assessments.map((row) => row.assessment_local_id)).toEqual([
+      "execution-local-a",
+      "execution-local-z",
+    ]);
+    expect(build(assessments)).toEqual(build([...assessments].reverse()));
   });
 
   it("enforces execution feasibility bounds before runtime acceptance", () => {
@@ -732,6 +925,107 @@ describe("Decision v2 submission and accepted contracts", () => {
         ],
       }),
     ).toThrow(/must exactly match accepted execution assessments/);
+  });
+
+  it("treats an accepted CRO no-objection row as no target adjustment", () => {
+    const proposal = frozenProposal();
+    const croBase = croSubmission();
+    const cro = buildAcceptedCroRiskReview({
+      submission: {
+        ...croBase,
+        review_disposition: "NO_OBJECTION",
+        candidate_actions: [
+          {
+            ...requiredFirst(croBase.candidate_actions, "CRO submission"),
+            action: "NO_OBJECTION",
+            max_target_weight: null,
+          },
+        ],
+      },
+      behavior,
+      frozenProposalId: proposal.proposal_id,
+      frozenProposalHash: proposal.proposal_hash,
+      frozenCandidateUniverseId: "candidate-set-no-objection",
+      frozenCandidateUniverseHash: "sha256:candidate-set-no-objection",
+      acceptedMacroInputAttributions: [],
+    });
+    const controlPlan = frozenControlPlan(proposal, cro);
+    const intent = requiredFirst(controlPlan.order_intents, "no-objection order intent");
+    const execution = buildAcceptedExecutionAssessment({
+      submission: {
+        ...executionSubmission(),
+        execution_disposition: "ORDERS_ASSESSED",
+        order_assessments: [
+          {
+            ...requiredFirst(executionSubmission().order_assessments, "execution submission"),
+            order_intent_ref: intent.order_intent_ref,
+            requested_delta_weight: intent.requested_delta_weight,
+            feasibility: "FEASIBLE",
+            max_executable_delta_weight: null,
+          },
+        ],
+      },
+      behavior,
+      executionMode: "PAPER",
+      frozenProposalId: proposal.proposal_id,
+      frozenProposalHash: proposal.proposal_hash,
+      croControlSource: {
+        source_status: "ACCEPTED_OUTPUT",
+        agent_id: "cro",
+        accepted_output_id: cro.accepted_cro_review_id,
+        accepted_output_hash: cro.accepted_cro_review_hash,
+        stage_skip_id: null,
+        stage_skip_hash: null,
+      },
+      frozenControlledTargetSet: controlPlan,
+    });
+    const base = finalSubmission();
+    const accepted = buildAcceptedCioFinal({
+      submission: {
+        ...base,
+        decision_disposition: "TARGET_PORTFOLIO",
+        target_positions: [
+          {
+            ...requiredFirst(base.target_positions, "final target"),
+            target_weight: 0.04,
+          },
+        ],
+        cash_weight: 0.96,
+        cro_control_resolutions: [],
+      },
+      behavior,
+      frozenProposal: proposal,
+      frozenProposalId: proposal.proposal_id,
+      frozenProposalHash: proposal.proposal_hash,
+      croControlSource: {
+        source_status: "ACCEPTED_OUTPUT",
+        agent_id: "cro",
+        accepted_output_id: cro.accepted_cro_review_id,
+        accepted_output_hash: cro.accepted_cro_review_hash,
+        stage_skip_id: null,
+        stage_skip_hash: null,
+      },
+      executionControlSource: {
+        source_status: "ACCEPTED_OUTPUT",
+        agent_id: "autonomous_execution",
+        accepted_output_id: execution.accepted_execution_assessment_id,
+        accepted_output_hash: execution.accepted_execution_assessment_hash,
+        stage_skip_id: null,
+        stage_skip_hash: null,
+      },
+      acceptedCroReview: cro,
+      acceptedExecutionAssessment: execution,
+      frozenControlledTargetSet: controlPlan,
+      acceptedMacroInputAttributions: [],
+    });
+
+    expect(controlPlan.controlled_targets[0]).toMatchObject({
+      cro_action_local_id: null,
+      cro_adjustment: null,
+      controlled_target_weight: 0.04,
+    });
+    expect(accepted.decision.target_positions[0]?.target_weight).toBe(0.04);
+    expect(accepted.cro_control_resolutions).toEqual([]);
   });
 
   it("rejects omitted control resolutions and invalid portfolio totals", () => {

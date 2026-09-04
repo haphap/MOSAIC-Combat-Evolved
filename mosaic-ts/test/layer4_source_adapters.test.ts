@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
+import type { AcceptedAgentOutputStore } from "../src/agents/accepted_output.js";
 import {
   mergeRuntimeSourceStatuses,
   parseLatestMarketRecord,
   resolveLayer4SourceBundle,
   resolveLayer4SourceStatuses,
 } from "../src/agents/helpers/layer4_source_adapters.js";
+import { resolveRuntimeSourceStatusesForAgent } from "../src/agents/helpers/runtime_sources.js";
 import type { DailyCycleStateType } from "../src/agents/state.js";
 import type { BridgeApi } from "../src/bridge/index.js";
 
@@ -87,6 +89,80 @@ describe("Layer 4 runtime source adapters", () => {
       ]),
     );
     expect(runtimeStockMarketSnapshot).toHaveBeenCalledTimes(3);
+  });
+
+  it("resolves Darwinian accepted selections without materializing Layer 2 or Layer 3", async () => {
+    const state = sourceState();
+    state.layer3_outputs = {};
+    state.accepted_output_refs = {
+      "STANDARD_SECTOR_SELECTION:financials": {
+        accepted_output_kind: "STANDARD_SECTOR_SELECTION",
+        agent_id: "financials",
+        accepted_output_id: "sector-1",
+        accepted_output_hash: `sha256:${"1".repeat(64)}`,
+      },
+      "SUPERINVESTOR_SELECTION:munger": {
+        accepted_output_kind: "SUPERINVESTOR_SELECTION",
+        agent_id: "munger",
+        accepted_output_id: "investor-1",
+        accepted_output_hash: `sha256:${"2".repeat(64)}`,
+      },
+    };
+    const acceptedOutputStore = {
+      resolve: vi.fn((ref: { accepted_output_kind: string }) => ({
+        output: {
+          payload:
+            ref.accepted_output_kind === "STANDARD_SECTOR_SELECTION"
+              ? {
+                  selection: {
+                    long_picks: [{ ts_code: "600036.SH" }],
+                    short_or_avoid_picks: [{ ts_code: "000617.SZ" }],
+                  },
+                }
+              : { selection: { picks: [{ ts_code: "000333.SZ" }] } },
+        },
+      })),
+    } as unknown as Pick<AcceptedAgentOutputStore, "resolve">;
+    const runtimeStockMarketSnapshot = vi.fn(async () => ({
+      text: "date,close\n2026-07-09,10",
+    }));
+
+    const statuses = await resolveLayer4SourceStatuses(
+      state,
+      "pre_candidate",
+      { runtimeStockMarketSnapshot },
+      acceptedOutputStore,
+    );
+
+    expect(statuses.map((status) => status.scope)).toEqual([
+      "ticker:000333.SZ",
+      "ticker:000617.SZ",
+      "ticker:600036.SH",
+    ]);
+    expect(runtimeStockMarketSnapshot).toHaveBeenCalledTimes(3);
+
+    state.layer4_outputs.runtime = { resolved_source_statuses: statuses } as never;
+    const alphaStatuses = resolveRuntimeSourceStatusesForAgent(
+      state,
+      "alpha_discovery",
+      "alpha_discovery",
+    );
+    expect(alphaStatuses).toContainEqual(
+      expect.objectContaining({
+        source_id: "upstream_agent_outputs",
+        scope: "agent:munger|cohort:cohort_default|run:run-1",
+        status: "loaded",
+        snapshot_hash: `sha256:${"2".repeat(64)}`,
+        adapter_id: "accepted_output.ref_adapter.v1",
+      }),
+    );
+    expect(alphaStatuses).toContainEqual(
+      expect.objectContaining({
+        source_id: "current_market_data",
+        scope: "ticker:600036.SH",
+        status: "loaded",
+      }),
+    );
   });
 
   it("resolves candidate liquidity from the real stock-data adapter", async () => {

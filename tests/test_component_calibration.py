@@ -11,6 +11,8 @@ from mosaic.dataflows.outcome_runtime_inputs import (
     expected_qualification_predicate_version,
 )
 from mosaic.scorecard.component_calibration import (
+    _component_rows,
+    _validate_composition,
     append_component_shadow_checkpoint,
     build_component_regime_snapshot,
     publish_component_weight_release,
@@ -30,6 +32,45 @@ from mosaic.scorecard.darwinian_v2 import (
 )
 from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS, USAGE_WEIGHT_AGENT_IDS
 from mosaic.scorecard.store import ScorecardStore
+
+
+def test_zero_confidence_neutral_component_composition_is_valid() -> None:
+    weights = OUTCOME_CONTRACTS["eu_economy"]["component_composition_contract"][
+        "components"
+    ]
+    runtime_input = {
+        "components": [
+            {
+                "component": component,
+                "direction": "NEUTRAL",
+                "strength": 0,
+                "persistence_horizon": "DAYS",
+                "evaluation_horizon_trading_days": 5,
+                "confidence": 0,
+                "deterministic_data_quality": 1,
+                "channels": ["neutral"],
+                "claim_refs": ["neutral-claim"],
+            }
+            for component in weights
+        ]
+    }
+    rows = _component_rows(runtime_input, weights)
+    accepted = {
+        "direction": "NEUTRAL",
+        "strength": 0,
+        "persistence_horizon": "DAYS",
+        "evaluation_horizon_trading_days": 5,
+        "model_confidence": 0,
+        "deterministic_data_quality": 1,
+        "confidence": 0,
+        "channels": ["neutral"],
+        "claim_refs": ["neutral-claim"],
+    }
+
+    _validate_composition(rows, accepted)
+    active_rows = [{**rows[0], "direction": "SUPPORTIVE", "signal": 0.2}, *rows[1:]]
+    with pytest.raises(ValueError, match="zero effective component weight"):
+        _validate_composition(active_rows, accepted)
 
 
 def _trading_dates(start: date, end: date) -> list[str]:

@@ -18,8 +18,9 @@
  */
 
 import { END, START, StateGraph } from "@langchain/langgraph";
-import type { AcceptedAgentOutputStore } from "../agents/accepted_output.js";
+import { type AcceptedAgentOutputStore, acceptedOutputRefKey } from "../agents/accepted_output.js";
 import {
+  buildDecisionBoundRuntimeInputs,
   layer4MirofishSnapshotHash,
   pickPromptLanguage,
   preloadLayer4MirofishContext,
@@ -61,6 +62,7 @@ import {
 } from "../agents/helpers/tool_capability.js";
 import { loadPrompt } from "../agents/prompts/loader.js";
 import type { PromptReleaseLoadContext } from "../agents/prompts/release_prompt_loader.js";
+import type { RuntimeAgentStageId } from "../agents/prompts/runtime_agent_spec.js";
 import {
   DailyCycleState,
   type DailyCycleStateType,
@@ -166,7 +168,11 @@ export function buildLayer4Graph(deps: BuildLayer4GraphDeps) {
     )
     .addNode(
       "candidate_freeze",
-      checkpointedStageNode("cro", freezeCandidateTargetNode, deps.stageCheckpoint),
+      checkpointedStageNode(
+        "cro",
+        (state) => freezeCandidateTargetNode(state, deps.acceptedOutputStore),
+        deps.stageCheckpoint,
+      ),
     )
     .addNode(
       "cro_opportunity_freeze",
@@ -240,12 +246,14 @@ function buildDecisionOpportunityFreezeNode(
     if (slot.run_slot_kind === "DOWNSTREAM_ONLY") return {};
     if (agentId === "alpha_discovery" && state.outcome_stage_skips[agentId]) return {};
     if (!slot.scheduled_sample_id) throw new Error(`${agentId}: scheduled sample ID is missing`);
-    const frozenObject = await stageFrozenObject(agentId, state, deps);
+    const preparedFrozenObject = await stageFrozenObject(agentId, state, deps);
+    const frozenObject = preparedFrozenObject.frozenObject;
     const result = await deps.api.darwinianFreezeStageOutcomeOpportunity({
       outcome_schedule_plan_id: schedule.outcome_schedule_plan_id,
       scheduled_sample_id: slot.scheduled_sample_id,
       agent_id: agentId,
       recorded_at: schedule.prepared_at,
+      runtime_input_hash: preparedFrozenObject.runtimeInputHash,
       ...(frozenObject ? { frozen_object: { ...frozenObject } } : {}),
     });
     if (!result.run_allowed && !result.stage_skip) {
@@ -309,7 +317,10 @@ async function stageFrozenObject(
   agentId: DecisionOpportunityAgentId,
   state: DailyCycleStateType,
   deps: BuildLayer4GraphDeps,
-): Promise<DecisionStageFrozenObject> {
+): Promise<{
+  frozenObject: DecisionStageFrozenObject;
+  runtimeInputHash: string;
+}> {
   return buildRuntimeDecisionStageFrozenObject(agentId, state, deps);
 }
 
@@ -317,17 +328,31 @@ async function buildRuntimeDecisionStageFrozenObject(
   agentId: DecisionOpportunityAgentId,
   state: DailyCycleStateType,
   deps: BuildLayer4GraphDeps,
-): Promise<DecisionStageFrozenObject> {
+): Promise<{
+  frozenObject: DecisionStageFrozenObject;
+  runtimeInputHash: string;
+}> {
   if (!deps.api) throw new Error(`${agentId}: candidate authority bridge is unavailable`);
   const acceptedOutputRefs = acceptedRefsForPrefixes(state, authoritySourcePrefixes(agentId));
   const scope = { accepted_output_refs: acceptedOutputRefs };
+  const runtimeInputs = buildDecisionBoundRuntimeInputs(
+    state,
+    { agentId, runtimeStage: authorityRuntimeStage(agentId) },
+    scope,
+    deps.acceptedOutputStore,
+    deps.llmHandle.provider !== "fake",
+  );
+  const runtimeAcceptedOutputRefs = runtimeInputs.accepted_output_refs;
+  if (!Array.isArray(runtimeAcceptedOutputRefs)) {
+    throw new Error(`${agentId}: runtime accepted-output refs are unavailable`);
+  }
   const prepared = await prepareAgentToolCapability({
     api: deps.api,
     state,
     agentId,
     stage: authorityStage(agentId),
-    runtimeInputs: scope,
-    candidateScope: scope,
+    runtimeInputs,
+    candidateScope: { accepted_output_refs: runtimeAcceptedOutputRefs },
   });
   try {
     const toolId = authorityToolId(agentId);
@@ -341,7 +366,10 @@ async function buildRuntimeDecisionStageFrozenObject(
     if (snapshot === null || typeof snapshot !== "object" || Array.isArray(snapshot)) {
       throw new Error(`${agentId}: candidate authority must be an object`);
     }
-    return buildAuthorityStageFrozenObject(agentId, snapshot as DecisionSnapshotAuthority);
+    return {
+      frozenObject: buildAuthorityStageFrozenObject(agentId, snapshot as DecisionSnapshotAuthority),
+      runtimeInputHash: prepared.bundle.runtime_input_hash,
+    };
   } finally {
     await terminateAgentToolCapability(deps.api, prepared, `${agentId}_outcome_opportunity_frozen`);
   }
@@ -362,6 +390,12 @@ function authorityStage(
   agentId: DecisionOpportunityAgentId,
 ): Exclude<DecisionOpportunityAgentId, "cio"> | "cio_final" {
   return agentId === "cio" ? "cio_final" : agentId;
+}
+
+function authorityRuntimeStage(agentId: DecisionOpportunityAgentId): RuntimeAgentStageId {
+  if (agentId === "cro") return "cro_review";
+  if (agentId === "autonomous_execution") return "execution_feasibility";
+  return agentId === "cio" ? "cio_final" : "alpha_discovery";
 }
 
 function authoritySourcePrefixes(agentId: DecisionOpportunityAgentId): readonly string[] {
@@ -492,7 +526,12 @@ export function buildL4SnapshotFreezeNode(
     if (currentRuntime.l4_run_snapshot_bundle) {
       throw new Layer4RuntimeContractError("L4 run snapshot bundle was already frozen");
     }
-    const resolved = await resolveLayer4SourceBundle(state, "pre_candidate", deps.api);
+    const resolved = await resolveLayer4SourceBundle(
+      state,
+      "pre_candidate",
+      deps.api,
+      deps.acceptedOutputStore,
+    );
     const stateWithSources: DailyCycleStateType = {
       ...state,
       layer4_outputs: {
@@ -566,7 +605,12 @@ export function buildSourceResolutionNode(
 ): (state: DailyCycleStateType) => Promise<DailyCycleStateUpdate> {
   return async (state) => {
     const currentRuntime = runtimeStateForLayer4(state);
-    const resolved = await resolveLayer4SourceBundle(state, stage, deps.api);
+    const resolved = await resolveLayer4SourceBundle(
+      state,
+      stage,
+      deps.api,
+      deps.acceptedOutputStore,
+    );
     return {
       layer4_outputs: {
         runtime: {
@@ -579,7 +623,10 @@ export function buildSourceResolutionNode(
   };
 }
 
-export function freezeCandidateTargetNode(state: DailyCycleStateType): DailyCycleStateUpdate {
+export function freezeCandidateTargetNode(
+  state: DailyCycleStateType,
+  acceptedOutputStore?: AcceptedAgentOutputStore,
+): DailyCycleStateUpdate {
   const currentRuntime = runtimeStateForLayer4(state);
   if (!currentRuntime.l4_run_snapshot_bundle) {
     throw new Layer4RuntimeContractError("candidate_freeze requires L4 run snapshot bundle");
@@ -587,7 +634,25 @@ export function freezeCandidateTargetNode(state: DailyCycleStateType): DailyCycl
   if (!currentRuntime.cio_proposal) {
     throw new Error("candidate_freeze requires cio_proposal output");
   }
-  const frozen = freezeCioProposal(state, currentRuntime.cio_proposal);
+  const proposalRef = state.accepted_output_refs[acceptedOutputRefKey("CIO_PROPOSAL", "cio")];
+  let acceptedProposalHash: string | undefined;
+  if (state.darwinian_runtime_binding && acceptedOutputStore && !proposalRef) {
+    throw new Layer4RuntimeContractError("candidate_freeze requires accepted CIO proposal");
+  }
+  if (
+    acceptedOutputStore &&
+    proposalRef &&
+    !proposalRef.accepted_output_id.startsWith("structured-smoke-accepted-output:")
+  ) {
+    const proposalHash = (
+      acceptedOutputStore.resolve(proposalRef).output.payload as { proposal_hash?: unknown }
+    ).proposal_hash;
+    if (typeof proposalHash !== "string" || !/^sha256:[0-9a-f]{64}$/.test(proposalHash)) {
+      throw new Layer4RuntimeContractError("accepted CIO proposal hash is invalid");
+    }
+    acceptedProposalHash = proposalHash;
+  }
+  const frozen = freezeCioProposal(state, currentRuntime.cio_proposal, acceptedProposalHash);
   const proposalFallback = frozen.proposal.runtime_fallback_audit;
   const fallbackReasonCodes = [
     ...(proposalFallback?.reason_codes ?? []),

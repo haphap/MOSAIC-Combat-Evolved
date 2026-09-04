@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from typing import Any
 
 import mosaic.dataflows.sector_archive as sector_archive
+import mosaic.dataflows.sector_snapshots as sector_snapshots
 import pytest
 from mosaic.dataflows.agent_materialization import AgentDataMaterializationLedger
 from mosaic.dataflows.a_share_archive import ASharePaginationError, AShareSchemaError
@@ -28,7 +30,7 @@ def _sealed_group(
     agent_ids: tuple[str, ...] = sector_archive.STANDARD_SECTOR_AGENT_IDS,
 ) -> dict[str, Any]:
     group = {
-        "schema_version": "sector_relationship_capture_group_v2",
+        "schema_version": "sector_relationship_capture_group_v3",
         "capture_key": capture_key,
         "as_of_date": AS_OF,
         "cutoff_at": CUTOFF,
@@ -704,6 +706,9 @@ def test_fund_nav_allows_optional_total_netasset_column_to_be_absent() -> None:
         if int(params.get("offset", 0)):
             return []
         row = _endpoint_row(endpoint, params)
+        row.update(
+            {"ann_date": params["end_date"], "nav_date": params["end_date"]}
+        )
         row.pop("total_netasset")
         return [row]
 
@@ -720,6 +725,28 @@ def test_fund_nav_allows_optional_total_netasset_column_to_be_absent() -> None:
 
     assert rows[0]["ts_code"] == "159865.SZ"
     assert "total_netasset" not in rows[0]
+
+    batch, _, _ = sector_archive._seal_batch(
+        endpoint="fund_nav",
+        requests=(
+            {
+                "ts_code": "159865.SZ",
+                "start_date": "20230713",
+                "end_date": "20260806",
+            },
+        ),
+        request_contract={"end_date": AS_OF},
+        fetch=fetch,
+        captured_at=CUTOFF,
+        require_each_nonempty=False,
+        confirm_terminal=True,
+    )
+    validated = sector_snapshots._validate_source_batch(
+        batch,
+        as_of=date.fromisoformat(AS_OF),
+        endpoint_contracts=sector_snapshots._sector_endpoint_contracts([batch]),
+    )
+    assert "total_netasset" not in validated["rows"][0]
 
 
 def test_sealed_batch_rejects_rows_outside_request() -> None:
@@ -856,6 +883,212 @@ def test_membership_batches_runs_vendor_fetches_on_caller_thread() -> None:
         )
 
 
+def test_csi_scope_is_bounded_and_covers_every_technology_direction() -> None:
+    electronics = [f"0000{index:02d}.SZ" for index in range(1, 14)]
+    direction_codes = {
+        "computer": "000101.SZ",
+        "media": "000102.SZ",
+        "communications": "000103.SZ",
+    }
+    membership_rows = [
+        {
+            "ts_code": code,
+            "l1_code": "",
+            "l2_code": "801082.SI",
+            "l3_code": "",
+            "in_date": "20200101",
+            "out_date": "",
+        }
+        for code in electronics
+    ]
+    membership_rows.extend(
+        {
+            "ts_code": code,
+            "l1_code": classification,
+            "l2_code": "",
+            "l3_code": "",
+            "in_date": "20200101",
+            "out_date": "",
+        }
+        for code, classification in zip(
+            direction_codes.values(),
+            ("801750.SI", "801760.SI", "801770.SI"),
+            strict=True,
+        )
+    )
+    weights = {
+        **{code: float(100 - index) for index, code in enumerate(electronics)},
+        **{
+            direction_codes["computer"]: 3.0,
+            direction_codes["media"]: 2.0,
+            direction_codes["communications"]: 1.0,
+        },
+    }
+    index_batches = [
+        {
+            "endpoint": "index_weight",
+            "source_id": "tushare.index_weight",
+            "source_batch_hash": f"sha256:{index + 1:064x}",
+            "released_at": CUTOFF,
+            "vintage_at": CUTOFF,
+            "request": {"index_code": index_code},
+            "rows": [
+                {
+                    "index_code": index_code,
+                    "con_code": code,
+                    "trade_date": AS_OF,
+                    "weight": weight,
+                }
+                for code, weight in weights.items()
+            ],
+        }
+        for index, index_code in enumerate(
+            sector_archive.CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE["technology"]
+        )
+    ]
+
+    selected = sector_archive._select_csi_security_codes(
+        role="technology",
+        membership_batches=[{"rows": membership_rows}],
+        index_weight_batches=index_batches,
+        as_of=date.fromisoformat(AS_OF),
+    )
+
+    assert selected == sorted([electronics[0], *direction_codes.values()])
+
+
+def test_capture_group_uses_csi_scope_for_non_semiconductor_agents(
+    monkeypatch,
+) -> None:
+    electronics = [f"0000{index:02d}.SZ" for index in range(1, 11)]
+    direction_codes = ("000101.SZ", "000102.SZ", "000103.SZ")
+    membership_rows = [
+        {
+            "ts_code": code,
+            "l1_code": "",
+            "l2_code": "801082.SI",
+            "l3_code": "",
+            "in_date": "20200101",
+            "out_date": "",
+        }
+        for code in electronics
+    ]
+    membership_rows.extend(
+        {
+            "ts_code": code,
+            "l1_code": classification,
+            "l2_code": "",
+            "l3_code": "",
+            "in_date": "20200101",
+            "out_date": "",
+        }
+        for code, classification in zip(
+            direction_codes,
+            ("801750.SI", "801760.SI", "801770.SI"),
+            strict=True,
+        )
+    )
+    weights = {
+        **{code: float(100 - index) for index, code in enumerate(electronics)},
+        **dict(zip(direction_codes, (3.0, 2.0, 1.0), strict=True)),
+    }
+    membership_batch = {
+        "endpoint": "index_member_all",
+        "source_id": "tushare.index_member_all",
+        "request": {"query_plan_hash": f"sha256:{'a' * 64}"},
+        "captured_at": CUTOFF,
+        "released_at": CUTOFF,
+        "vintage_at": CUTOFF,
+        "rows": membership_rows,
+    }
+    monkeypatch.setattr(
+        sector_archive,
+        "_membership_batches",
+        lambda *_args, **_kwargs: ([membership_batch], 0, 1),
+    )
+    monkeypatch.setattr(
+        sector_archive,
+        "_calendar_sessions",
+        lambda *_args, **_kwargs: [AS_OF.replace("-", "")],
+    )
+    monkeypatch.setattr(
+        sector_archive, "_authoritative_etf_codes", lambda *_args: []
+    )
+    moments = iter(
+        (
+            sector_archive._timestamp("2026-08-06T15:01:00+08:00", "test"),
+            sector_archive._timestamp("2026-08-06T15:02:00+08:00", "test"),
+        )
+    )
+    monkeypatch.setattr(sector_archive, "_capture_now", lambda: next(moments))
+    calls: list[tuple[str, tuple[dict[str, Any], ...]]] = []
+
+    def seal(*, endpoint, requests, request_contract, captured_at, **_kwargs):
+        copied_requests = tuple(dict(request) for request in requests)
+        calls.append((endpoint, copied_requests))
+        if endpoint == "index_weight":
+            index_code = copied_requests[0]["index_code"]
+            rows = [
+                {
+                    "index_code": index_code,
+                    "con_code": code,
+                    "trade_date": AS_OF,
+                    "weight": weight,
+                }
+                for code, weight in weights.items()
+            ]
+        elif endpoint == "trade_cal":
+            rows = [
+                {"exchange": "SSE", "cal_date": AS_OF, "is_open": 1}
+            ]
+        else:
+            rows = [
+                {
+                    "ts_code": request["ts_code"],
+                    "trade_date": AS_OF.replace("-", ""),
+                }
+                for request in copied_requests
+                if "ts_code" in request
+            ]
+        batch = {
+            "endpoint": endpoint,
+            "source_id": f"tushare.{endpoint}",
+            "request": dict(request_contract),
+            "captured_at": captured_at,
+            "released_at": captured_at,
+            "vintage_at": captured_at,
+            "rows": rows,
+            "source_batch_hash": sector_archive.canonical_hash(rows),
+        }
+        return batch, 0, 1
+
+    monkeypatch.setattr(sector_archive, "_seal_batch", seal)
+
+    group = _build_capture_group(
+        lambda *_args, **_kwargs: None,
+        as_of_date=date.fromisoformat(AS_OF),
+        cutoff_at=CUTOFF,
+        capture_key=f"sha256:{'d' * 64}",
+        requested_agent_ids=("technology",),
+    )
+
+    selected = group["capture_scope"]["security_codes"]
+    assert selected == sorted([electronics[0], *direction_codes])
+    assert {batch["request"]["index_code"] for batch in group["batches"] if batch["endpoint"] == "index_weight"} == set(
+        sector_archive.CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE["technology"]
+    )
+    index_requests = [
+        requests[0] for endpoint, requests in calls if endpoint == "index_weight"
+    ]
+    assert all(
+        request["start_date"] == "20260706"
+        and request["end_date"] == "20260806"
+        for request in index_requests
+    )
+    stock_requests = next(requests for endpoint, requests in calls if endpoint == "stock_basic")
+    assert [request["ts_code"] for request in stock_requests] == selected
+
+
 
 
 def test_capture_group_executes_registered_incremental_routes(
@@ -946,6 +1179,13 @@ def test_capture_group_executes_registered_incremental_routes(
                     mapped_codes.index(params["ts_code"]) % 4
                 ]
             return [row]
+        if endpoint == "fund_nav":
+            return [
+                row,
+                {**row, "ann_date": "20260807", "nav_date": "20260807"},
+            ]
+        if endpoint in {"income", "cashflow", "balancesheet"}:
+            return [row, {**row, "f_ann_date": "20260807"}]
         return [row]
 
     group = _build_capture_group(
@@ -979,27 +1219,30 @@ def test_capture_group_executes_registered_incremental_routes(
     membership_calls = [
         params for endpoint, params in calls if endpoint == "index_member_all"
     ]
-    initial_membership_calls = [
-        params for params in membership_calls if params["offset"] == 0
-    ]
-    assert len(initial_membership_calls) == 12
-    assert {params["ts_code"] for params in initial_membership_calls} == {
+    assert len(membership_calls) == 12
+    assert {params["ts_code"] for params in membership_calls} == {
         *mapped_codes,
         unmapped_code,
     }
-    assert all(
-        set(params) == {"ts_code", "is_new", "limit", "offset"}
-        for params in membership_calls
-    )
+    assert all(set(params) == {"ts_code", "is_new"} for params in membership_calls)
     membership_batches = [
         batch for batch in group["batches"] if batch["endpoint"] == "index_member_all"
     ]
-    assert {
-        row["ts_code"] for batch in membership_batches for row in batch["rows"]
-    } == {*mapped_codes, unmapped_code}
-    assert all(
-        batch["rows_hash"] == sector_archive.canonical_hash(batch["rows"])
-        for batch in membership_batches
+    assert len(membership_batches) == 1
+    membership_batch = membership_batches[0]
+    assert membership_batch["request"] == {
+        "query_plan_hash": plan["query_plan_hash"],
+        "scope": "semiconductor_etf_candidates_v1",
+        "etf_ts_code": "512480.SH",
+        "etf_source_hash": f"sha256:{'e' * 64}",
+        "ts_codes": sorted((*mapped_codes, unmapped_code)),
+    }
+    assert {row["ts_code"] for row in membership_batch["rows"]} == {
+        *mapped_codes,
+        unmapped_code,
+    }
+    assert membership_batch["rows_hash"] == sector_archive.canonical_hash(
+        membership_batch["rows"]
     )
     assert group["capture_scope"]["security_codes"] == sorted(mapped_codes)
     assert all(
@@ -1008,6 +1251,13 @@ def test_capture_group_executes_registered_incremental_routes(
         if endpoint != "index_member_all" and "ts_code" in params
     )
     assert "compiled_snapshot_hashes" not in group
+    fund_nav = next(
+        batch for batch in group["batches"] if batch["endpoint"] == "fund_nav"
+    )
+    assert all(str(row["ann_date"]) <= "20260806" for row in fund_nav["rows"])
+    for endpoint in ("income", "cashflow", "balancesheet"):
+        batch = next(batch for batch in group["batches"] if batch["endpoint"] == endpoint)
+        assert all(str(row["f_ann_date"]) <= "20260806" for row in batch["rows"])
     stock_basic = next(
         batch for batch in group["batches"] if batch["endpoint"] == "stock_basic"
     )
@@ -1039,7 +1289,7 @@ def test_capture_group_executes_registered_incremental_routes(
         "fund_nav": "OFFSET_WITH_TERMINAL_CONFIRMATION",
         "fund_portfolio": "OFFSET_WITH_TERMINAL_CONFIRMATION",
         "income": "OFFSET_UNTIL_SHORT_PAGE_OFFICIAL_CAP",
-        "index_member_all": "OFFSET_WITH_TERMINAL_CONFIRMATION",
+        "index_member_all": "EXACT_SINGLE_PAGE_OFFICIAL_CAP",
         "moneyflow": "OFFSET_WITH_TERMINAL_CONFIRMATION",
     }
 

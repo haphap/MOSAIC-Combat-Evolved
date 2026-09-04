@@ -26,7 +26,7 @@ pnpm --dir mosaic-ts dev daily-cycle \
 ```
 选项:`--cohort <name>`、`--date <YYYY-MM-DD>`、`--fake-llm`、`--structured-smoke`、`--llm-provider <name>`、`--model <name>`、`--base-url <url>`、`--max-tokens <count>`、`--prompts-repo <path>`、`--prompts-root <path>`、`--current-positions-json <json>`、`--current-positions-file <path>`、`--paper-positions`、`--paper-execute-deltas`、`--out <path>`、`--checkpoint <path>`、`--resume`。当前 roster 为 25 个逻辑 Agent、26 个 LangGraph.js stage。两种 smoke 都使用 bundled prompt 和显式标记的 synthetic PIT bundle；`--fake-llm` 使用 canned model，`--structured-smoke` 使用真实 structured-output provider、固定 temperature 0，并默认每次 completion 最多 8192 tokens。两者都关闭 production release、scorecard、outcome、RKE 与纸单写入。
 
-`--checkpoint <path>` 与 `--resume` 仅用于非生产 structured-smoke。续跑必须打开同一 identity-bound checkpoint，要求 stage 顺序与 hash 不漂移，并从已 accepted 的 stage prefix 之后继续，绝不重跑该 prefix；任何 identity、order 或 hash drift 都 fail closed。不得用这些 flag 续跑 production、paper 或 live cycle。
+`--checkpoint <path>` 在所有 daily-cycle 模式下只保存当天已 accepted 的 Agent stage prefix、graph state 和结构化输出。`--resume` 要求相同的 `--date`、cohort 和合法 stage prefix，然后从断点继续，不重跑已 accepted 的 Agent。下一交易日使用新的 checkpoint 路径；配合 `--paper-positions --paper-execute-deltas` 时，新一天的 cycle 会读取前一天已经更新的 active paper account。
 
 同一个 fresh bundle 也可用于不含许可数据正文的真实模型合同 smoke：把 `--fake-llm` 替换为 `--structured-smoke` 并添加所需 provider 选项。生成器拒绝非空 root，且绝不会删除既有数据。
 

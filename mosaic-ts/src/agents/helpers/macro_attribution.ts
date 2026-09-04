@@ -5,6 +5,10 @@ import { canonicalJsonHash } from "./canonical_json.js";
 
 const LocalRefSchema = z.string().trim().min(1).max(128);
 const ClaimRefSchema = z.string().trim().min(1).max(128);
+const ProviderMacroClaimRefSchema = ClaimRefSchema.regex(
+  /^provider-macro-[a-z0-9_]+-claim$/,
+  "claim_ref_used must be a provider-owned Macro claim ID",
+);
 
 export const MacroInputAttributionTargetTypeSchema = z.enum([
   "SUBMISSION_SUMMARY",
@@ -51,7 +55,7 @@ const MacroProviderSummaryValueSchema = z.union([
     .strict(),
   z
     .object({
-      claim_ref_used: ClaimRefSchema,
+      claim_ref_used: ProviderMacroClaimRefSchema,
       effect: MaterialMacroInputAttributionEffectSchema,
     })
     .strict(),
@@ -104,7 +108,7 @@ const MacroProviderTargetAttributionSchema = z
       ),
     target_type: TargetMacroInputAttributionTypeSchema,
     target_local_ref: LocalRefSchema.regex(/^[^$].*$/),
-    claim_ref_used: ClaimRefSchema,
+    claim_ref_used: ProviderMacroClaimRefSchema,
     effect: MaterialMacroInputAttributionEffectSchema,
   })
   .strict();
@@ -187,6 +191,8 @@ export const MACRO_ATTRIBUTION_PROVIDER_INSTRUCTION =
   "target_attributions. Fill every summary key with effect and the " +
   "single claim_ref_used (null only for NOT_MATERIAL). The runtime converts " +
   "this bounded extraction object into the canonical MacroInputAttributionSubmission rows. " +
+  "Each non-null claim_ref_used must be a claim ID owned by that row's named Macro Agent " +
+  "from the accepted Macro inputs; never use a local downstream claim ID. " +
   "For target_attributions, agent_id is always one of the eight Macro source Agents " +
   "(china, us_economy, eu_economy, central_bank, us_financial_conditions, " +
   "euro_area_financial_conditions, commodities, institutional_flow), never the affected " +
@@ -212,6 +218,7 @@ const STANDARD_SECTOR_AGENT_IDS = new Set([
   "financials",
   "agriculture",
 ]);
+const SUPERINVESTOR_AGENT_IDS = new Set(["druckenmiller", "munger", "burry", "ackman"]);
 const SUPERINVESTOR_ABSTENTION_PROVIDER_CONTRACT = "SUPERINVESTOR_ABSTENTION_COMPACT_V1";
 
 function macroInputAttributionProviderJsonSchema(properties: Record<string, unknown>): unknown {
@@ -225,12 +232,27 @@ function macroInputAttributionProviderJsonSchema(properties: Record<string, unkn
     macroField?.["x-mosaic-no-target-rows"] === true ||
     objectConst(properties.agent) === "relationship_mapper" ||
     objectConst(properties.provider_contract) === SUPERINVESTOR_ABSTENTION_PROVIDER_CONTRACT ||
+    objectConst(properties.discovery_disposition) === "NONE_FOUND" ||
+    objectConst(properties.review_disposition) === "NO_RISK_ACTION" ||
+    objectConst(properties.decision_disposition) === "ALL_CASH" ||
     [
       objectConst(properties.selection_status),
       objectConst(properties.predictive_graph_status),
     ].some((value) => value?.startsWith("NO_QUALIFIED"));
-  const standardSector = STANDARD_SECTOR_AGENT_IDS.has(objectConst(properties.agent) ?? "");
-  if (!noTargetRows && !standardSector) return MacroInputAttributionProviderJsonSchema;
+  const agentId = objectConst(properties.agent) ?? objectConst(properties.agent_id) ?? "";
+  const standardSector = STANDARD_SECTOR_AGENT_IDS.has(agentId);
+  const targetType = SUPERINVESTOR_AGENT_IDS.has(agentId)
+    ? "SECURITY_PICK"
+    : agentId === "alpha_discovery"
+      ? "SECURITY_PICK"
+      : agentId === "cro"
+        ? "RISK_ACTION"
+        : agentId === "cio"
+          ? "PORTFOLIO_DECISION"
+          : null;
+  if (!noTargetRows && !standardSector && !targetType) {
+    return MacroInputAttributionProviderJsonSchema;
+  }
   const schema = structuredClone(MacroInputAttributionProviderJsonSchema) as unknown as {
     properties: {
       target_attributions: {
@@ -267,6 +289,18 @@ function macroInputAttributionProviderJsonSchema(properties: Record<string, unkn
         targetItem,
         targets,
       );
+    }
+  } else if (targetType) {
+    const targetItem = schema.properties.target_attributions.items;
+    const targetProperties = targetItem?.properties;
+    if (targetItem && targetProperties && typeof targetProperties === "object") {
+      schema.properties.target_attributions.items = {
+        ...targetItem,
+        properties: {
+          ...targetProperties,
+          target_type: { type: "string", const: targetType },
+        },
+      };
     }
   }
   return schema;
@@ -426,7 +460,13 @@ export function resolveMacroInputAttributions(input: {
     const ownedClaimIds = new Set(macroOutput.claims.map((claim) => claim.claim_id));
     for (const claimRef of row.claim_refs_used) {
       if (!ownedClaimIds.has(claimRef)) {
-        throw new Error(`${row.agent_id}: attribution uses unowned claim ${claimRef}`);
+        throw new Error(
+          `${row.agent_id}: attribution uses unowned claim ${claimRef}; allowed owned claims: ${[
+            ...ownedClaimIds,
+          ]
+            .sort()
+            .join(", ")}`,
+        );
       }
     }
 
@@ -438,8 +478,11 @@ export function resolveMacroInputAttributions(input: {
     } else {
       const target = targetByKey.get(targetKey(row.target_type, row.target_local_ref));
       if (!target) {
+        const allowedTargets = [...targetByKey.values()]
+          .map((candidate) => `${candidate.target_type}:${candidate.target_local_ref}`)
+          .sort();
         throw new Error(
-          `${row.agent_id}: unresolved attribution target ${row.target_type}:${row.target_local_ref}`,
+          `${row.agent_id}: unresolved attribution target ${row.target_type}:${row.target_local_ref}; allowed targets: ${allowedTargets.join(", ")}`,
         );
       }
       targetHash = canonicalHash(target.target);

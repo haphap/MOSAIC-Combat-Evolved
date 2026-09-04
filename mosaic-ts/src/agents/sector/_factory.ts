@@ -571,6 +571,8 @@ async function runStandardSectorPipeline<TOutput extends SectorAgentOutput>(inpu
         }
         return { output, issues };
       },
+      repairContext:
+        "Resolve the matrix so exactly one evidence-supported direction wins every pair and one different direction loses every pair. A pair winner needs at least two non-ETF support votes and a total weighted support margin of at least one. Copy the supplied coverage_evidence_ids exactly; do not add, remove, or duplicate ids.",
       ...(input.preparedCapability
         ? {
             onAttempt: sectorUsageAttemptRecorder({
@@ -1384,12 +1386,15 @@ export function buildSectorCoverageDirective(
     `${agentId}: role-event unhealthy_route_ids`,
     true,
   );
+  const snapshotAsOfMs = Date.parse(payload.as_of as string);
+  const coverageAsOfMs =
+    typeof coverage.coverage_as_of === "string" ? Date.parse(coverage.coverage_as_of) : Number.NaN;
   if (
     coverage.coverage_completeness !== "COMPLETE" ||
     coverage.query_complete !== true ||
     coverage.coverage_contract_version !== "role_event_coverage_v2" ||
-    typeof coverage.coverage_as_of !== "string" ||
-    !coverage.coverage_as_of.startsWith(asOf) ||
+    !Number.isFinite(coverageAsOfMs) ||
+    coverageAsOfMs < snapshotAsOfMs ||
     requiredRouteIds.join("\0") !== [...new Set(requiredRouteIds)].sort().join("\0") ||
     healthyRouteIds.join("\0") !== [...new Set(healthyRouteIds)].sort().join("\0") ||
     requiredRouteIds.join("\0") !== healthyRouteIds.join("\0") ||
@@ -2160,7 +2165,7 @@ function buildSectorValidationIssues(
     validator,
     reason_code,
     json_path,
-    message,
+    message: message.slice(0, 512),
   }));
 }
 

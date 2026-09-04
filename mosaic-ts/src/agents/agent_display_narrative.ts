@@ -88,9 +88,13 @@ function buildNarrative(
 ): AgentDisplayNarrative {
   const layer = LAYER_BY_AGENT[agentId];
   if (!layer) throw new Error(`unknown Agent for display narrative: ${agentId}`);
-  const skip = state.outcome_stage_skips[agentId as keyof typeof state.outcome_stage_skips];
+  const recordedSkip = state.outcome_stage_skips[agentId as keyof typeof state.outcome_stage_skips];
   const acceptedRefs = acceptedRefsFor(state, agentId);
   const acceptedRef = selectedAcceptedRef(agentId, acceptedRefs);
+  const skip =
+    acceptedRef && (agentId === "cro" || agentId === "autonomous_execution")
+      ? undefined
+      : recordedSkip;
   const production = state.darwinian_runtime_binding !== null;
 
   if (production && !acceptedRef && !skip) {

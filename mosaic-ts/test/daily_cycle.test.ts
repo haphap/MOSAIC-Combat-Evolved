@@ -44,6 +44,7 @@ import type { BridgeApi, MosaicConfig, ToolCapabilityPrepareRequest } from "../s
 import { applyBacktestPortfolioActionsToPositions } from "../src/cli/_backtest_helpers.js";
 import {
   DAILY_CYCLE_STAGE_ROSTER,
+  loadDailyCycleCurrentPositions,
   submitPaperTargetDeltaOrders,
 } from "../src/cli/commands/daily-cycle.js";
 import { fakeAgentStructuredOutput, fakeSchemaValue } from "../src/cli/fake_agent_output.js";
@@ -244,6 +245,25 @@ describe("backtest position carry-over", () => {
 });
 
 describe("paper target-delta execution", () => {
+  it("binds the paper position snapshot to the cycle trade date", async () => {
+    const snapshotHash = `sha256:${"1".repeat(64)}`;
+    const api = {
+      paperGetPortfolioSnapshot: vi.fn().mockResolvedValue({
+        account: { total_assets: 1_000_000 },
+        positions: [],
+        snapshot_hash: snapshotHash,
+      }),
+    };
+
+    const snapshot = await loadDailyCycleCurrentPositions(
+      { paperPositions: true, date: "2025-06-25" },
+      api as unknown as BridgeApi,
+    );
+
+    expect(api.paperGetPortfolioSnapshot).toHaveBeenCalledWith({ trade_date: "2025-06-25" });
+    expect(snapshot.position_snapshot_hash).toBe(snapshotHash);
+  });
+
   it("delegates sizing to paper.suggest_order_from_signal so orders are target-current deltas", async () => {
     const api = {
       paperSuggestOrderFromSignal: vi.fn().mockResolvedValue({
@@ -284,6 +304,7 @@ describe("paper target-delta execution", () => {
     expect(api.paperSuggestOrderFromSignal).toHaveBeenCalledWith(
       expect.objectContaining({
         ticker: "600519.SH",
+        trade_date: "2024-06-24",
         state: expect.objectContaining({
           backtest_signal: expect.objectContaining({
             target_weight_pct: 8,
@@ -293,7 +314,12 @@ describe("paper target-delta execution", () => {
       }),
     );
     expect(api.paperBuy).toHaveBeenCalledWith(
-      expect.objectContaining({ ticker: "600519.SH", quantity: 100, analysis_id: "trace-1" }),
+      expect.objectContaining({
+        ticker: "600519.SH",
+        quantity: 100,
+        analysis_id: "trace-1",
+        trade_date: "2024-06-24",
+      }),
     );
     expect(api.paperBuy).toHaveBeenCalledWith(
       expect.not.objectContaining({ order_intent_key: expect.anything() }),
@@ -304,26 +330,18 @@ describe("paper target-delta execution", () => {
 
   it("binds order intents to the frozen target and rejects a stale account snapshot", async () => {
     const baseHash = `sha256:${"1".repeat(64)}`;
-    const changedHash = `sha256:${"2".repeat(64)}`;
     const finalTargetHash = `sha256:${"3".repeat(64)}`;
-    const account = {
-      user_id: "default",
-      cash: 1_000_000,
-      market_value: 0,
-      total_assets: 1_000_000,
-      realized_pnl: 0,
-      unrealized_pnl: 0,
-      total_commission: 0,
-      updated_at: "2024-06-24T00:00:00Z",
-    };
     const staleApi = {
-      paperGetPortfolioSnapshot: vi.fn().mockResolvedValue({
-        account,
-        positions: [],
-        snapshot_hash: changedHash,
+      paperGetPortfolioSnapshot: vi.fn(),
+      paperSuggestOrderFromSignal: vi.fn().mockResolvedValue({
+        ticker: "600519.SH",
+        side: "buy",
+        quantity: 100,
+        price: 750,
+        target_weight_pct: 8,
+        rating: "BUY",
       }),
-      paperSuggestOrderFromSignal: vi.fn(),
-      paperBuy: vi.fn(),
+      paperBuy: vi.fn().mockRejectedValue(new Error("STALE_FINAL_TARGET")),
       paperSell: vi.fn(),
     };
 
@@ -352,7 +370,9 @@ describe("paper target-delta execution", () => {
       residual_drift_weight: 0.03,
       submitted_order: null,
     });
-    expect(staleApi.paperSuggestOrderFromSignal).not.toHaveBeenCalled();
+    expect(staleApi.paperSuggestOrderFromSignal).toHaveBeenCalledOnce();
+    expect(staleApi.paperBuy).toHaveBeenCalledOnce();
+    expect(staleApi.paperGetPortfolioSnapshot).not.toHaveBeenCalled();
   });
 
   it("submits a hash-bound intent and reports post-fill residual drift", async () => {
@@ -370,18 +390,11 @@ describe("paper target-delta execution", () => {
       updated_at: "2024-06-24T00:00:00Z",
     };
     const api = {
-      paperGetPortfolioSnapshot: vi
-        .fn()
-        .mockResolvedValueOnce({
-          account: { ...account, cash: 1_000_000 },
-          positions: [],
-          snapshot_hash: baseHash,
-        })
-        .mockResolvedValueOnce({
-          account,
-          positions: [{ ticker: "600519.SH", market_value: 75_000 }],
-          snapshot_hash: postHash,
-        }),
+      paperGetPortfolioSnapshot: vi.fn().mockResolvedValueOnce({
+        account,
+        positions: [{ ticker: "600519.SH", market_value: 75_000 }],
+        snapshot_hash: postHash,
+      }),
       paperSuggestOrderFromSignal: vi.fn().mockResolvedValue({
         ticker: "600519.SH",
         side: "buy",
@@ -504,9 +517,17 @@ const fakeApi: BridgeApi = {
 
 function buildFormalApi(): BridgeApi {
   let snapshotAsOf = "2024-06-24";
+  let executionRuntimeInputHash: string | undefined;
   return {
     toolsPrepareCapability: async (request: ToolCapabilityPrepareRequest) => {
       snapshotAsOf = request.as_of;
+      if (request.agent_id === "autonomous_execution") {
+        expect(Object.keys(request.runtime_inputs)).toEqual([
+          "accepted_output_refs",
+          "accepted_output_records",
+          "bound_runtime_state",
+        ]);
+      }
       const tools = agentToolsFor(request.agent_id);
       const bundle = {
         snapshot_bundle_id: "formal-execution-bundle",
@@ -523,6 +544,9 @@ function buildFormalApi(): BridgeApi {
         ),
         materialized_at: "2026-08-17T00:00:00Z",
       };
+      if (request.agent_id === "autonomous_execution") {
+        executionRuntimeInputHash = bundle.runtime_input_hash;
+      }
       return {
         bundle,
         capability: {
@@ -585,11 +609,13 @@ function buildFormalApi(): BridgeApi {
     darwinianFreezeStageOutcomeOpportunity: async (params: {
       scheduled_sample_id: string;
       agent_id: "alpha_discovery" | "cro" | "autonomous_execution" | "cio";
+      runtime_input_hash: string;
       frozen_object?: Record<string, unknown>;
     }) => {
       if (params.agent_id !== "autonomous_execution" || !params.frozen_object) {
         throw new Error("formal fixture only supports autonomous_execution stage freeze");
       }
+      expect(params.runtime_input_hash).toBe(executionRuntimeInputHash);
       const payload = params.frozen_object.object_payload as Record<string, unknown>;
       const refs = payload.upstream_accepted_output_refs;
       if (!Array.isArray(refs)) throw new Error("formal execution frozen refs are invalid");
@@ -823,6 +849,10 @@ function formalState(): DailyCycleStateType {
   return {
     ...base,
     trace_id: "formal-graph-run",
+    current_positions: {
+      ...base.current_positions,
+      position_snapshot_hash: hash(704),
+    },
     outcome_stage_skips: {},
     outcome_opportunity_bindings: {},
     darwinian_runtime_binding: {
@@ -962,6 +992,46 @@ class ScriptedLlm26 {
       });
     }
     return new AIMessage("analysis text for the daily cycle");
+  }
+}
+
+class AlphaAttributionRepairLlm extends ScriptedLlm26 {
+  override withStructuredOutput(schema: unknown) {
+    const structured = super.withStructuredOutput(schema);
+    let validAlphaOutput: Record<string, unknown> | null = null;
+    return {
+      invoke: async (input: unknown) => {
+        const firstMessage = (input as BaseMessage[])[0];
+        if (
+          validAlphaOutput &&
+          String(firstMessage?.content ?? "").startsWith("Structured repair")
+        ) {
+          this.perAgentStructuredCount.alpha_discovery =
+            (this.perAgentStructuredCount.alpha_discovery ?? 0) + 1;
+          return structuredClone(validAlphaOutput);
+        }
+        const output = (await structured.invoke(input)) as Record<string, unknown>;
+        if (
+          output.agent_id !== "alpha_discovery" ||
+          this.perAgentStructuredCount.alpha_discovery !== 1
+        ) {
+          return output;
+        }
+        validAlphaOutput = structuredClone(output);
+        const localClaim = (output.claims as Array<{ claim_id: string }>)[0];
+        const chinaAttribution = (
+          output.macro_input_attributions as Array<{
+            agent_id: string;
+            claim_refs_used: string[];
+            effect: string;
+          }>
+        ).find((row) => row.agent_id === "china");
+        if (!localClaim || !chinaAttribution) throw new Error("invalid Alpha repair fixture");
+        chinaAttribution.claim_refs_used = [localClaim.claim_id];
+        chinaAttribution.effect = "SUPPORTS";
+        return output;
+      },
+    };
   }
 }
 
@@ -1188,20 +1258,16 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
 
   it("resumes a failed Agent stage without rerunning accepted stages", async () => {
     const checkpointPath = join(promptDir, "daily-cycle-checkpoint.json");
-    const identity = {
-      cycle_kind: "TEST",
-      as_of_date: "2024-06-24",
+    const checkpointInput = {
+      asOfDate: "2024-06-24",
       cohort: "cohort_default",
-      stage_roster: [...DAILY_CYCLE_STAGE_ROSTER],
-      graph_contract: "daily-cycle-test-graph-v1",
-      prompt_release: "test-prompt-release",
-      prompt_content_hash: `sha256:${"c".repeat(64)}`,
-      prompt_contract: `sha256:${"a".repeat(64)}`,
-      fixture_bundle_hash: null,
-      current_positions_hash: `sha256:${"b".repeat(64)}`,
+      stageRoster: DAILY_CYCLE_STAGE_ROSTER,
     } as const;
     const firstLlm = new ScriptedLlm26();
-    const firstCheckpoint = DailyCycleCheckpoint.open({ path: checkpointPath, identity });
+    const firstCheckpoint = DailyCycleCheckpoint.open({
+      path: checkpointPath,
+      ...checkpointInput,
+    });
     if (!firstCheckpoint) throw new Error("expected a fresh checkpoint");
     const failingCheckpoint: DailyCycleStageCheckpointController = {
       shouldSkip: (stageId) => firstCheckpoint.shouldSkip(stageId),
@@ -1230,7 +1296,7 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     const resumedCheckpoint = DailyCycleCheckpoint.open({
       path: checkpointPath,
       resume: true,
-      identity,
+      ...checkpointInput,
     });
     if (!resumedCheckpoint) throw new Error("expected a resumed checkpoint");
     const resumedLlm = new ScriptedLlm26();
@@ -1346,6 +1412,37 @@ describe("buildDailyCycleGraph (end-to-end smoke, no veto)", () => {
     ).toBe(true);
     expect(final.macro_input_gate?.accepted_count).toBe(8);
     expect(final.layer4_outputs.runtime?.final_target_state?.frozen).toBe(true);
+  });
+
+  it("repairs Alpha Macro attribution ownership before accepted adaptation", async () => {
+    const llm = new AlphaAttributionRepairLlm();
+    const acceptedOutputStore = new AcceptedAgentOutputStore();
+    const final = (await buildDailyCycleGraph({
+      llmHandle: {
+        llm: llm as unknown as LlmHandle["llm"],
+        provider: "fake",
+        model: "fake-model",
+        baseUrl: undefined,
+      },
+      api: buildFormalApi(),
+      config: BASE_CONFIG,
+      acceptedOutputStore,
+      agentTimeoutSeconds: 0,
+    }).invoke(formalState())) as DailyCycleStateType;
+
+    const alphaAudit = final.llm_calls.find(
+      (call) => call.agent_run_audit?.agent === "alpha_discovery",
+    )?.agent_run_audit;
+    expect(alphaAudit).toMatchObject({
+      output_source: "structured_repair",
+      repair_count: 1,
+    });
+    expect(alphaAudit?.attempts[0]?.validation_issues[0]?.message).toContain("unowned claim");
+    expect(
+      acceptedOutputStore
+        .records()
+        .some((record) => record.accepted_output_kind === "ALPHA_DISCOVERY"),
+    ).toBe(true);
   });
 
   it("rejects malformed nested CRO control identity before CIO final lineage", async () => {

@@ -237,7 +237,7 @@ def _fetch_text(url: str) -> str:
 
 def fetch_pboc_text(url: str) -> str:
     """Fetch one PBOC page through the established crawler transport."""
-    return _fetch_text(url)
+    return _fetch_with_retry(url)
 
 
 def _fetch_with_retry(url: str, fetcher: FetchText | None = None) -> str:

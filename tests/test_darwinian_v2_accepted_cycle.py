@@ -14,6 +14,8 @@ import pytest
 
 import mosaic.dataflows.agent_materialization as agent_materialization
 import mosaic.dataflows.agent_stage_preparer as agent_stage_preparer
+import mosaic.dataflows.bound_runtime_snapshots as bound_runtime_snapshots
+import mosaic.scorecard.accepted_output_contracts as accepted_output_contracts
 from mosaic.dataflows.outcome_runtime_inputs import (
     expected_qualification_predicate_version,
 )
@@ -357,7 +359,7 @@ def _accepted_execution_assessment(
 
 def _decision_source(state: dict, owner: str) -> dict:
     skip = state["outcome_stage_skips"].get(owner)
-    if skip:
+    if skip and owner not in {"cro", "autonomous_execution"}:
         return {
             "source_status": "NO_EVALUATION_OBJECT",
             "agent_id": owner,
@@ -374,11 +376,31 @@ def _decision_source(state: dict, owner: str) -> dict:
     ref = state.get("accepted_output_refs", {}).get(f"{kind}:{owner}")
     if ref is None:
         raise AssertionError(f"fixture Decision source is unavailable: {owner}")
+    payload = _accepted_payload_from_state(
+        state,
+        agent_id=owner,
+        accepted_kind=kind,
+    )
+    control_identity = (
+        {
+            "accepted_output_id": payload["accepted_cro_review_id"],
+            "accepted_output_hash": payload["accepted_cro_review_hash"],
+        }
+        if owner == "cro"
+        else {
+            "accepted_output_id": payload["accepted_execution_assessment_id"],
+            "accepted_output_hash": payload["accepted_execution_assessment_hash"],
+        }
+        if owner == "autonomous_execution"
+        else {
+            "accepted_output_id": ref["accepted_output_id"],
+            "accepted_output_hash": ref["accepted_output_hash"],
+        }
+    )
     return {
         "source_status": "ACCEPTED_OUTPUT",
         "agent_id": owner,
-        "accepted_output_id": ref["accepted_output_id"],
-        "accepted_output_hash": ref["accepted_output_hash"],
+        **control_identity,
         "stage_skip_id": None,
         "stage_skip_hash": None,
     }
@@ -641,7 +663,7 @@ def _accepted_payload_fixture(
     proposal_hash = proposal["proposal_hash"]
     if accepted_kind == "CRO_RISK_REVIEW":
         review = {
-            "review_disposition": "NO_OBJECTION",
+            "review_disposition": "NO_RISK_ACTION",
             "candidate_actions": [],
             "correlated_risks": [],
             "black_swan_scenarios": [],
@@ -686,6 +708,17 @@ def _accepted_payload_fixture(
             "claim_refs": claim_refs,
         }
         cro_source = _decision_source(state, "cro")
+        order_intent_set_hash = canonical_hash(
+            {
+                "proposal_id": proposal_id,
+                "proposal_hash": proposal_hash,
+                "cro_control_source": cro_source,
+                "controlled_target_set_id": frozen_id,
+                "controlled_target_set_hash": frozen_hash,
+                "intents": [raw_assessment],
+            }
+        )
+        order_intent_set_id = f"order-intent-set:{order_intent_set_hash[7:]}"
         accepted_execution_id = _persistent_id(
             "accepted-execution-assessment",
             {
@@ -693,8 +726,8 @@ def _accepted_payload_fixture(
                 "frozen_proposal_id": proposal_id,
                 "frozen_proposal_hash": proposal_hash,
                 "cro_control_source": cro_source,
-                "frozen_order_intent_set_id": frozen_id,
-                "frozen_order_intent_set_hash": frozen_hash,
+                "frozen_order_intent_set_id": order_intent_set_id,
+                "frozen_order_intent_set_hash": order_intent_set_hash,
                 "assessment": raw_payload,
             },
         )
@@ -715,8 +748,8 @@ def _accepted_payload_fixture(
             "frozen_proposal_id": proposal_id,
             "frozen_proposal_hash": proposal_hash,
             "cro_control_source": cro_source,
-            "frozen_order_intent_set_id": frozen_id,
-            "frozen_order_intent_set_hash": frozen_hash,
+            "frozen_order_intent_set_id": order_intent_set_id,
+            "frozen_order_intent_set_hash": order_intent_set_hash,
             "assessment": assessment,
             "model_confidence": 0.8,
         }
@@ -734,13 +767,15 @@ def _accepted_payload_fixture(
             "claim_refs": claim_refs,
         }
         execution_payload = (
-            None
-            if state["outcome_stage_skips"].get("autonomous_execution")
-            else _accepted_payload_from_state(
+            _accepted_payload_from_state(
                 state,
                 agent_id="autonomous_execution",
                 accepted_kind="EXECUTION_ASSESSMENT",
             )
+            if state.get("accepted_output_refs", {}).get(
+                "EXECUTION_ASSESSMENT:autonomous_execution"
+            )
+            else None
         )
         execution_assessment = (
             execution_payload["assessment"]["order_assessments"][0]
@@ -795,7 +830,7 @@ def _attach_accepted_records(state: dict) -> None:
     plan = state["outcome_schedule_plan"]
     binding = state["darwinian_runtime_binding"]
     audits = state["agent_run_audits"]
-    skipped = set(state["outcome_stage_skips"])
+    skipped = set(state["outcome_stage_skips"]) - {"cro", "autonomous_execution"}
     records: list[dict] = []
     refs: dict[str, dict] = {}
     state["accepted_output_records"] = records
@@ -884,6 +919,7 @@ def _attach_accepted_records(state: dict) -> None:
                         )
                         if agent_id
                         in {
+                            "central_bank",
                             "us_financial_conditions",
                             "euro_area_financial_conditions",
                         }
@@ -1043,6 +1079,17 @@ def test_cycle_stage_outcome_refs_reuse_exact_accepted_output_authority(
     _attach_schedule(ScorecardStore(tmp_path / "scorecard.db"), state)
     _attach_accepted_records(state)
 
+    assert state["macro_input_gate"]["accepted_agent_ids"] == [
+        "china",
+        "us_economy",
+        "eu_economy",
+        "central_bank",
+        "us_financial_conditions",
+        "euro_area_financial_conditions",
+        "commodities",
+        "institutional_flow",
+    ]
+
     outcomes = accepted_cycle_stage_outcome_refs(state)
 
     assert len(outcomes) == 26
@@ -1058,6 +1105,56 @@ def test_cycle_stage_outcome_refs_reuse_exact_accepted_output_authority(
     )
     with pytest.raises(ValueError, match="accepted output reference"):
         accepted_cycle_stage_outcome_refs(state)
+
+
+def test_authoritative_macro_gate_matches_typescript_reliability_sum(
+    tmp_path: Path,
+) -> None:
+    state = _state()
+    _attach_schedule(ScorecardStore(tmp_path / "scorecard.db"), state)
+    confidences = {
+        "china": 0.41210526315789475,
+        "us_economy": 0.3,
+        "eu_economy": 0.5,
+        "central_bank": 0.5,
+        "us_financial_conditions": 0.5016176470588235,
+        "euro_area_financial_conditions": 0.65,
+        "commodities": 0.4951136363636364,
+        "institutional_flow": 0.55,
+    }
+    records = [
+        {
+            "accepted_output_kind": "MACRO_TRANSMISSION",
+            "agent_id": agent_id,
+            "accepted_output_id": f"accepted-{agent_id}",
+            "accepted_output_hash": f"sha256:{agent_id}",
+            "output": {"payload": {"confidence": confidence, "claims": []}},
+        }
+        for agent_id, confidence in confidences.items()
+    ]
+    for row in state["darwinian_weight_snapshot"]["weights"]:
+        if row["agent_id"] in confidences:
+            row["darwin_weight"] = 1.0
+            row["operational_reliability_if_accepted"] = 1.0
+
+    gate, _ = _authoritative_macro_input_gate(
+        records,
+        weight_snapshot=state["darwinian_weight_snapshot"],
+    )
+
+    assert [
+        gate["reliability_by_agent"][agent_id]["usage_share"]
+        for agent_id in confidences
+    ] == [
+        0.10542913684083952,
+        0.07674918007570693,
+        0.12791530012617822,
+        0.12791530012617822,
+        0.1283291437442335,
+        0.16628989016403167,
+        0.12666521878403603,
+        0.14070683013879604,
+    ]
 
 
 def _reseal_record(state: dict, record: dict) -> None:
@@ -1224,6 +1321,7 @@ def test_prepare_bound_runtime_family_atomically_publishes_receipts_and_reuses(
         stage="ackman",
         as_of="2026-08-06",
         graph_run_id=state["trace_id"],
+        expected_runtime_input_hash=canonical_hash(request["runtime_inputs"]),
         accepted_output_refs=accepted_refs,
     )
     assert json.loads(rendered) == snapshot
@@ -1384,11 +1482,18 @@ def test_prepare_bound_runtime_family_structured_smoke_binds_capture_to_as_of(
 
     monkeypatch.delenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS")
     monkeypatch.delenv("MOSAIC_NON_PRODUCTION_FIXTURE_BUNDLE_HASH")
-    captured: dict[str, str] = {}
+    captured: dict[str, Any] = {}
     monkeypatch.setattr(
         agent_stage_preparer,
         "archive_eco_calendar",
-        lambda *_a, **_k: archive_result,
+        lambda *_a, **kwargs: (
+            captured.update(archive_kwargs=kwargs) or archive_result
+        ),
+    )
+    monkeypatch.setattr(
+        agent_stage_preparer,
+        "compile_role_event_builds",
+        lambda **kwargs: captured.update(role_event_kwargs=kwargs),
     )
     monkeypatch.setattr(
         agent_stage_preparer,
@@ -1403,6 +1508,7 @@ def test_prepare_bound_runtime_family_structured_smoke_binds_capture_to_as_of(
     live_root = tmp_path / "live-snapshots"
     live_request = {
         **base_request,
+        "historical_replay": True,
         "candidate_scope": {"accepted_output_refs": [proposal_ref]},
         "runtime_inputs": {"accepted_output_refs": [proposal_ref], "accepted_output_records": [proposal_record], "bound_runtime_state": runtime_state},
     }
@@ -1413,6 +1519,11 @@ def test_prepare_bound_runtime_family_structured_smoke_binds_capture_to_as_of(
         clock=lambda: late_clock,
     )
     assert captured["captured_at"] == late_timestamp
+    assert (
+        captured["archive_kwargs"]["as_of_cutoff"]
+        == captured["archive_kwargs"]["captured_at"]
+    )
+    assert captured["role_event_kwargs"]["historical_replay"] is True
 
 
 def test_prepare_bound_runtime_family_concurrent_retry_reuses_winning_snapshot(
@@ -1687,6 +1798,43 @@ def test_compile_superinvestor_bound_snapshot_projects_real_sector_pick(
     )
 
 
+def test_cio_proposal_candidates_exclude_superinvestor_avoid() -> None:
+    record = {
+        "output": {
+            "payload": {
+                "selection": {
+                    "picks": [
+                        {
+                            "ts_code": "600036.SH",
+                            "position_action": "LONG",
+                            "conviction": 0.6,
+                        },
+                        {
+                            "ts_code": "000002.SZ",
+                            "position_action": "AVOID",
+                            "conviction": 0.9,
+                        },
+                    ]
+                }
+            }
+        }
+    }
+    ref = {
+        "accepted_output_kind": "SUPERINVESTOR_SELECTION",
+        "accepted_output_id": "accepted-burry",
+        "accepted_output_hash": canonical_hash("accepted-burry"),
+        "evidence_ids": ["accepted-evidence:burry"],
+    }
+
+    candidates = bound_runtime_snapshots._cio_proposal_candidates(
+        [(record, ref, {})],
+        current_positions={"positions": []},
+        position_evidence_id="position-authority",
+    )
+
+    assert [candidate["ts_code"] for candidate in candidates] == ["600036.SH"]
+
+
 def test_bound_snapshots_merge_same_ticker_without_losing_authority(
     tmp_path: Path,
 ) -> None:
@@ -1918,6 +2066,16 @@ def _decision_policy_release() -> dict[str, Any]:
     return {**with_identity, "release_hash": canonical_hash(with_identity)}
 
 
+def test_decision_policy_release_is_current_operational_state() -> None:
+    release, evidence = bound_runtime_snapshots._validate_decision_policy(
+        {"decision_policy_release": _decision_policy_release()},
+        as_of="2025-06-16",
+    )
+
+    assert evidence["source_kind"] == "POLICY_CONSTRAINT"
+    assert evidence["available_at"] == release["effective_at"]
+
+
 def test_compile_cio_proposal_bound_snapshot_from_preproposal_authority(
     tmp_path: Path,
 ) -> None:
@@ -2067,6 +2225,83 @@ def test_compile_cro_bound_snapshot_from_frozen_candidate_target(
         graph_run_id=state["trace_id"],
         expected_candidate_scope_hash=None,
     )
+
+
+def test_candidate_target_uses_current_weight_for_accepted_hold() -> None:
+    exact_current_weight = 0.04086988055777407
+    proposal_hash = canonical_hash("rounded-hold-proposal")
+    current_positions = {
+        "position_snapshot_hash": canonical_hash("rounded-hold-positions"),
+        "positions": [
+            {"ticker": "600036.SH", "current_weight": exact_current_weight}
+        ],
+    }
+    action = {
+        "ticker": "600036.SH",
+        "target_weight": exact_current_weight,
+    }
+    candidate_body = {
+        "run_id": "rounded-hold-run",
+        "cohort": "cohort_default",
+        "as_of_date": "2026-08-06",
+        "proposal_hash": proposal_hash,
+        "l4_run_snapshot_hash": canonical_hash("rounded-hold-l4"),
+        "position_snapshot_hash": current_positions["position_snapshot_hash"],
+        "previous_target_hash": None,
+        "market_data_vintage_hash": canonical_hash("rounded-hold-market"),
+        "portfolio_actions": [action],
+        "confidence": 0.8,
+    }
+    candidate = {
+        "schema_version": "portfolio.candidate_target_state.v1",
+        **candidate_body,
+        "candidate_target_hash": canonical_hash(candidate_body),
+        "frozen": True,
+    }
+    proposal_record = {
+        "output": {
+            "payload": {
+                "proposal_hash": proposal_hash,
+                "decision": {
+                    "target_positions": [
+                        {
+                            "ts_code": "600036.SH",
+                            "position_decision": "HOLD",
+                            "target_weight": 0.0409,
+                        }
+                    ]
+                },
+            }
+        }
+    }
+
+    bound_runtime_snapshots._validate_candidate_target(
+        {
+            "candidate_target_state": candidate,
+            "captured_at": "2026-08-06T14:30:00+08:00",
+        },
+        graph_run_id="rounded-hold-run",
+        as_of="2026-08-06",
+        current_positions=current_positions,
+        proposal_record=proposal_record,
+    )
+    proposal_record["output"]["payload"]["decision"]["target_positions"][0][
+        "position_decision"
+    ] = "ADD"
+    with pytest.raises(
+        DataVendorUnavailable,
+        match="candidate target actions differ from the accepted CIO proposal",
+    ):
+        bound_runtime_snapshots._validate_candidate_target(
+            {
+                "candidate_target_state": candidate,
+                "captured_at": "2026-08-06T14:30:00+08:00",
+            },
+            graph_run_id="rounded-hold-run",
+            as_of="2026-08-06",
+            current_positions=current_positions,
+            proposal_record=proposal_record,
+        )
 
 
 def test_compile_cro_bound_snapshot_preserves_nonempty_weight_delta(
@@ -2643,7 +2878,7 @@ def test_accepted_cycle_keeps_cross_generation_capability_track_labelable(
     assert result["accepted_output_records"] == 26
 
 
-def test_accepted_cycle_excludes_stage_skip_from_outputs_and_samples(
+def test_accepted_cycle_keeps_empty_execution_control_out_of_evaluation(
     tmp_path: Path,
 ) -> None:
     db_path = tmp_path / "scorecard.db"
@@ -2654,15 +2889,10 @@ def test_accepted_cycle_excludes_stage_skip_from_outputs_and_samples(
         state,
         stage_skip_agent="autonomous_execution",
     )
-    state["agent_run_audits"] = [
-        audit
-        for audit in state["agent_run_audits"]
-        if audit["agent"] != "autonomous_execution"
-    ]
     _attach_accepted_records(state)
 
     result = store.append_darwinian_v2_accepted_cycle(state)
-    assert result["accepted_output_records"] == 25
+    assert result["accepted_output_records"] == 26
     assert result["operational_opportunity_audits"] == 24
     assert result["no_evaluation_object_stage_skips"] == 1
     assert result["outcome_eligibility_pending_revisions"] == scheduled_count - 1
@@ -2673,13 +2903,20 @@ def test_accepted_cycle_excludes_stage_skip_from_outputs_and_samples(
                 "SELECT COUNT(*) FROM accepted_agent_outputs_v2 "
                 "WHERE agent_id = 'autonomous_execution'"
             ).fetchone()[0]
-            == 0
+            == 1
         )
         assert conn.execute(
             "SELECT disposition, accountable, production_reliability_eligible "
             "FROM operational_opportunity_audits_v2 "
             "WHERE agent_id = 'autonomous_execution'"
         ).fetchone() == ("EXOGENOUS_EXCLUSION", 0, 0)
+
+    execution_outcome = next(
+        row
+        for row in accepted_cycle_stage_outcome_refs(state)
+        if row["agent_id"] == "autonomous_execution"
+    )
+    assert execution_outcome["outcome_kind"] == "ACCEPTED_OUTPUT"
 
     retry = store.append_darwinian_v2_accepted_cycle(state)
     assert retry["accepted_output_records"] == 0
@@ -2722,7 +2959,172 @@ def test_accepted_cycle_rejects_private_or_unknown_top_level_field(
         store.append_darwinian_v2_accepted_cycle(state)
 
 
-@pytest.mark.parametrize("mutation", ["extra", "missing"])
+def test_accepted_cycle_accepts_legacy_null_macro_track_fields(tmp_path: Path) -> None:
+    store = ScorecardStore(tmp_path / "scorecard.db")
+    state = _state()
+    _attach_schedule(store, state)
+    _attach_accepted_records(state)
+    record = next(
+        row
+        for row in state["accepted_output_records"]
+        if row["agent_id"] == "institutional_flow"
+    )
+    payload = record["output"]["payload"]
+    payload["reliability_adapter_contract_version"] = None
+    payload["confidence_semantics_contract_version"] = None
+    _reseal_record(state, record)
+    state["macro_input_gate"] = _authoritative_macro_input_gate(
+        state["accepted_output_records"],
+        weight_snapshot=state["darwinian_weight_snapshot"],
+    )[0]
+
+    result = store.append_darwinian_v2_accepted_cycle(state)
+
+    assert result["accepted_output_records"] == 26
+
+
+def test_accepted_cycle_accepts_claim_statement_at_ts_schema_limit() -> None:
+    claim = _research_claim("alpha_discovery", "ALPHA_DISCOVERY")
+    claim["statement"] = "x" * 3200
+
+    assert accepted_output_contracts._claims_and_refs(
+        {"claims": [claim], "claim_refs": [claim["claim_id"]]},
+        "Alpha selection",
+    ) == {claim["claim_id"]: claim["evidence_ids"]}
+
+
+def test_empty_cro_review_requires_no_risk_action(tmp_path: Path) -> None:
+    state = _state()
+    _attach_schedule(ScorecardStore(tmp_path / "scorecard.db"), state)
+    _attach_accepted_records(state)
+    record = next(
+        row
+        for row in state["accepted_output_records"]
+        if row["accepted_output_kind"] == "CRO_RISK_REVIEW"
+    )
+    payload = record["output"]["payload"]
+
+    accepted_output_contracts._validate_cro(payload, "cro")
+
+    payload["review"]["review_disposition"] = "NO_OBJECTION"
+    with pytest.raises(ValueError, match="must be NO_RISK_ACTION"):
+        accepted_output_contracts._validate_cro(payload, "cro")
+
+
+def test_empty_execution_assessment_requires_no_action(tmp_path: Path) -> None:
+    state = _state()
+    _attach_schedule(ScorecardStore(tmp_path / "scorecard.db"), state)
+    _attach_accepted_records(state)
+    record = next(
+        row
+        for row in state["accepted_output_records"]
+        if row["accepted_output_kind"] == "EXECUTION_ASSESSMENT"
+    )
+    payload = copy.deepcopy(record["output"]["payload"])
+    assessment = {
+        **payload["assessment"],
+        "execution_disposition": "NO_EXECUTION_ACTION",
+        "order_assessments": [],
+    }
+    accepted_id = _persistent_id(
+        "accepted-execution-assessment",
+        {
+            "agent_id": "autonomous_execution",
+            "frozen_proposal_id": payload["frozen_proposal_id"],
+            "frozen_proposal_hash": payload["frozen_proposal_hash"],
+            "cro_control_source": payload["cro_control_source"],
+            "frozen_order_intent_set_id": payload["frozen_order_intent_set_id"],
+            "frozen_order_intent_set_hash": payload["frozen_order_intent_set_hash"],
+            "assessment": assessment,
+        },
+    )
+    payload.update(
+        {
+            "accepted_execution_assessment_id": accepted_id,
+            "assessment": assessment,
+        }
+    )
+    payload["accepted_execution_assessment_hash"] = canonical_hash(
+        {
+            key: value
+            for key, value in payload.items()
+            if key != "accepted_execution_assessment_hash"
+        }
+    )
+
+    accepted_output_contracts._validate_execution(payload, "autonomous_execution")
+
+    payload["assessment"]["execution_disposition"] = "BLOCKED"
+    with pytest.raises(ValueError, match="does not match order assessments"):
+        accepted_output_contracts._validate_execution(payload, "autonomous_execution")
+
+
+@pytest.mark.parametrize(
+    ("accepted_kind", "claim_container"),
+    [
+        ("ALPHA_DISCOVERY", "selection"),
+        ("CIO_FINAL", "decision"),
+        ("CIO_PROPOSAL", "decision"),
+        ("CRO_RISK_REVIEW", "review"),
+        ("EXECUTION_ASSESSMENT", "assessment"),
+        ("STANDARD_SECTOR_SELECTION", "selection"),
+        ("SUPERINVESTOR_SELECTION", "selection"),
+    ],
+)
+def test_accepted_output_accepts_knot_capture_with_nested_claims(
+    tmp_path: Path,
+    accepted_kind: str,
+    claim_container: str,
+) -> None:
+    store = ScorecardStore(tmp_path / "scorecard.db")
+    state = _state()
+    _attach_schedule(store, state)
+    _attach_accepted_records(state)
+    record = next(
+        row
+        for row in state["accepted_output_records"]
+        if row["accepted_output_kind"] == accepted_kind
+    )
+    claim = record["output"]["payload"][claim_container]["claims"][0]
+    claim_spec_body = {
+        "claim_id": claim["claim_id"],
+        "evidence_ids": claim["evidence_ids"],
+        "structured_conclusion": claim["structured_conclusion"],
+    }
+    capture_body = {
+        "schema_version": "accepted_knot_capture_v2",
+        "accepted_lineage_evaluator_version": "accepted_claim_lineage_v3",
+        "eligibility": "INELIGIBLE",
+        "ineligibility_reasons": ["NO_SERVER_TOOL_RESULT_AUTHORITY"],
+        "accepted_claim_graph_hash": canonical_hash(
+            record["output"]["claim_graph_lineage"]
+        ),
+        "tool_environment_hash": None,
+        "execution_behavior_release_hash": None,
+        "capability_bundle_hash": None,
+        "knot_coverage_manifest_v2_hash": None,
+        "knot_audit_capability_track_v2_hash": None,
+        "result_event_refs": [],
+        "claim_specs": [
+            {**claim_spec_body, "claim_spec_hash": canonical_hash(claim_spec_body)}
+        ],
+    }
+    record["knot_capture_v2"] = {
+        **capture_body,
+        "capture_hash": canonical_hash(capture_body),
+    }
+    _reseal_record(state, record)
+
+    accepted_output_contracts.validate_accepted_output_record_schema(
+        record,
+        agent_id=record["agent_id"],
+        accepted_kind=accepted_kind,
+        allow_runtime_authority="runtime_opportunity_authority" in record,
+        require_runtime_audit="runtime_audit" in record,
+    )
+
+
+@pytest.mark.parametrize("mutation", ["extra", "missing", "legacy_non_null"])
 def test_accepted_cycle_rejects_payload_schema_drift(
     tmp_path: Path,
     mutation: str,
@@ -2739,11 +3141,17 @@ def test_accepted_cycle_rejects_payload_schema_drift(
     payload = record["output"]["payload"]
     if mutation == "extra":
         payload["caller_schema_extension"] = True
-    else:
+    elif mutation == "missing":
         payload.pop("key_drivers")
+    else:
+        payload["reliability_adapter_contract_version"] = "unexpected"
+        payload["confidence_semantics_contract_version"] = None
     _reseal_record(state, record)
 
-    with pytest.raises(ValueError, match=r"Macro payload fields mismatch"):
+    with pytest.raises(
+        ValueError,
+        match=r"Macro (payload fields mismatch|legacy track fields are invalid)",
+    ):
         store.append_darwinian_v2_accepted_cycle(state)
 
 
@@ -3098,11 +3506,6 @@ def test_accepted_cycle_rejects_forged_stage_skip_control_source(
     store = ScorecardStore(tmp_path / "scorecard.db")
     state = _state()
     _attach_schedule(store, state, stage_skip_agent="autonomous_execution")
-    state["agent_run_audits"] = [
-        audit
-        for audit in state["agent_run_audits"]
-        if audit["agent"] != "autonomous_execution"
-    ]
     _attach_accepted_records(state)
     record = next(
         row
@@ -3114,7 +3517,7 @@ def test_accepted_cycle_rejects_forged_stage_skip_control_source(
     source["stage_skip_hash"] = canonical_hash("forged-stage-skip")
     _reseal_cio_final_record(state, record)
 
-    with pytest.raises(ValueError, match="control source closure mismatch"):
+    with pytest.raises(ValueError, match="accepted control source carries a stage skip"):
         store.append_darwinian_v2_accepted_cycle(state)
 
 

@@ -170,6 +170,78 @@ def test_bound_snapshot_materialization_preserves_producer_float_rendering(
     assert "sha256:" + hashlib.sha256(output_path.read_bytes()).hexdigest() == expected_hash
 
 
+def test_bound_snapshot_materialization_separates_same_graph_runtime_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", raising=False)
+    monkeypatch.setenv("MOSAIC_RUNTIME_SNAPSHOT_DIR", str(tmp_path))
+    first = _bound_snapshot(
+        tool_id="get_superinvestor_candidate_snapshot",
+        agent_id="ackman",
+        stage="ackman",
+        upstream_agent="china",
+        upstream_stage="china",
+        upstream_kind="MACRO_TRANSMISSION",
+    )
+    second = json.loads(json.dumps(first))
+    second["candidate_universe"][0]["metrics"]["relative_strength_20d"] = 2.0
+    second = _rehash_bound_snapshot(second)
+    first_input_hash = "sha256:" + "a" * 64
+    second_input_hash = "sha256:" + "b" * 64
+
+    first_published = publish_bound_runtime_snapshot(
+        first,
+        tool_id="get_superinvestor_candidate_snapshot",
+        output_root=tmp_path,
+        runtime_input_hash=first_input_hash,
+    )
+    second_published = publish_bound_runtime_snapshot(
+        second,
+        tool_id="get_superinvestor_candidate_snapshot",
+        output_root=tmp_path,
+        runtime_input_hash=second_input_hash,
+    )
+
+    assert first_published["output_path"] != second_published["output_path"]
+    assert materialize_tool_payload(
+        "get_superinvestor_candidate_snapshot",
+        agent_id="ackman",
+        stage="ackman",
+        as_of="2026-07-09",
+        graph_run_id="graph-1",
+        expected_candidate_scope_hash=second["candidate_scope_hash"],
+        expected_runtime_input_hash=second_input_hash,
+    ) == render_bound_runtime_snapshot(second)
+
+
+def test_sector_materializer_forwards_historical_replay_capture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[tuple[str, str, str | None]] = []
+    monkeypatch.delenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", raising=False)
+    monkeypatch.setattr(
+        capability_module,
+        "render_sector_snapshot",
+        lambda role, as_of, *, historical_replay_captured_at=None: observed.append(
+            (role, as_of, historical_replay_captured_at)
+        )
+        or "sector",
+    )
+
+    rendered = materialize_tool_payload(
+        "get_sector_research_snapshot",
+        agent_id="semiconductor",
+        stage="semiconductor",
+        as_of="2025-06-16",
+        historical_replay_captured_at="2026-08-30T11:00:00+08:00",
+    )
+
+    assert rendered == "sector"
+    assert observed == [
+        ("semiconductor", "2025-06-16", "2026-08-30T11:00:00+08:00")
+    ]
+
+
 def test_source_admission_preparation_reuses_exact_families_without_signing_capability(
     tmp_path: Path,
 ) -> None:
@@ -973,7 +1045,7 @@ def test_bound_runtime_snapshots_use_strict_versioned_role_contracts(
     assert json.loads(rendered) == payload
 
 
-def test_bound_runtime_snapshot_allows_same_run_accepted_output_after_market_close(
+def test_bound_runtime_snapshot_allows_operational_state_after_market_close(
     tmp_path,
     monkeypatch,
 ):
@@ -986,8 +1058,41 @@ def test_bound_runtime_snapshot_allows_same_run_accepted_output_after_market_clo
         upstream_kind="MACRO_TRANSMISSION",
     )
     for evidence in payload["evidence_ledger"]:
-        if evidence["source_kind"] == "ACCEPTED_OUTPUT":
+        if evidence["source_kind"] in {"ACCEPTED_OUTPUT", "POLICY_CONSTRAINT"}:
             evidence["available_at"] = "2026-07-09T08:00:00+00:00"
+    payload["constraints"]["evidence_ids"].append("position-evidence")
+    payload["evidence_ledger"].append(
+        {
+            "evidence_id": "position-evidence",
+            "source_kind": "POSITION_SNAPSHOT",
+            "source_id": "position-snapshot:fixture",
+            "metric": "snapshot_status",
+            "value": "empty_confirmed",
+            "unit": "state",
+            "as_of": "2026-07-09",
+            "available_at": "2026-07-09T08:00:00+00:00",
+            "source_fingerprint": f"sha256:{'5' * 64}",
+        }
+    )
+    for evidence_id, source_kind in (
+        ("candidate-market-authority", "MARKET_SNAPSHOT"),
+        ("execution-liquidity-authority", "MARKET_SNAPSHOT"),
+        ("portfolio-exposure-authority", "DERIVED_METRIC"),
+    ):
+        payload["constraints"]["evidence_ids"].append(evidence_id)
+        payload["evidence_ledger"].append(
+            {
+                "evidence_id": evidence_id,
+                "source_kind": source_kind,
+                "source_id": f"{evidence_id}:fixture",
+                "metric": "candidate_count",
+                "value": 0,
+                "unit": "count",
+                "as_of": "2026-07-09",
+                "available_at": "2026-07-09T08:00:00+00:00",
+                "source_fingerprint": f"sha256:{'6' * 64}",
+            }
+        )
     payload["generated_at"] = "2026-07-09T08:01:00+00:00"
     payload = _rehash_bound_snapshot(payload)
     _write_bound_snapshot(
@@ -1612,17 +1717,20 @@ def test_default_role_event_materializer_receives_trusted_replay_capture_on_miss
 
 @pytest.mark.parametrize(
     ("ensure_mode", "expected_finalizer_calls"),
-    [("off", 0), ("shadow", 0), ("enforce", 1)],
+    [(None, 1), ("shadow", 0), ("enforce", 1)],
 )
-def test_prepare_only_finalizes_explicit_enforce_mode(
+def test_prepare_finalizes_normal_and_enforce_modes(
     tmp_path: Path,
-    ensure_mode: str,
+    ensure_mode: str | None,
     expected_finalizer_calls: int,
 ) -> None:
     finalizer_calls = 0
 
     def stage_preparer(_request: dict) -> dict:
-        return {"ensure_mode": ensure_mode, "status": ensure_mode.upper()}
+        return {
+            **({"ensure_mode": ensure_mode} if ensure_mode is not None else {}),
+            "status": ensure_mode.upper() if ensure_mode is not None else "READY",
+        }
 
     def materializer(
         tool_id: str, *, agent_id: str, stage: str, as_of: str, graph_run_id: str
@@ -1634,7 +1742,7 @@ def test_prepare_only_finalizes_explicit_enforce_mode(
         finalizer_calls += 1
 
     store = AgentToolCapabilityStore(
-        tmp_path / ensure_mode / "capabilities.sqlite3",
+        tmp_path / (ensure_mode or "normal") / "capabilities.sqlite3",
         signing_key=b"test-signing-key-32-bytes-long!!!",
         signing_key_id="test-key-v1",
         clock=lambda: datetime(2026, 7, 9, tzinfo=timezone.utc),

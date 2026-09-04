@@ -216,6 +216,7 @@ def materialize_pre_run_authority(
     as_of: str,
     graph_run_id: str,
     schedule_slot: Mapping[str, Any],
+    historical_replay_captured_at: str | None = None,
 ) -> dict[str, Any]:
     """Materialize and rebuild one scheduled L1/L2 denominator."""
     from mosaic.bridge.tool_capabilities import (
@@ -234,6 +235,7 @@ def materialize_pre_run_authority(
                 stage=agent_id,
                 as_of=as_of_date,
                 graph_run_id=graph_run_id,
+                historical_replay_captured_at=historical_replay_captured_at,
             ),
             f"{agent_id} Macro snapshot",
         )
@@ -251,6 +253,7 @@ def materialize_pre_run_authority(
                 stage=agent_id,
                 as_of=as_of_date,
                 graph_run_id=graph_run_id,
+                historical_replay_captured_at=historical_replay_captured_at,
             ),
             f"{agent_id} Sector snapshot",
         )
@@ -287,6 +290,7 @@ def materialize_superinvestor_authority(
     as_of: str,
     graph_run_id: str,
     accepted_output_refs: Any,
+    runtime_input_hash: str,
 ) -> dict[str, Any]:
     """Materialize the exact L2-derived candidate authority at the L3 boundary."""
     from mosaic.bridge.tool_capabilities import materialize_tool_payload
@@ -298,6 +302,7 @@ def materialize_superinvestor_authority(
             stage=agent_id,
             as_of=as_of[:10],
             graph_run_id=graph_run_id,
+            expected_runtime_input_hash=runtime_input_hash,
             accepted_output_refs=accepted_output_refs,
         ),
         f"{agent_id} Superinvestor candidate snapshot",

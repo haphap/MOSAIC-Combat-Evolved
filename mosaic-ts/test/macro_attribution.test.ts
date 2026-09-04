@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   adaptMacroAttributionProviderJsonSchema,
+  MacroInputAttributionProviderSchema,
   type MacroInputAttributionSubmission,
   MacroInputAttributionSubmissionArraySchema,
   normalizeMacroAttributionProviderPayload,
@@ -81,6 +82,31 @@ function summaries(): MacroInputAttributionSubmission[] {
 }
 
 describe("Macro input attribution v2", () => {
+  it("rejects downstream-local claim IDs at the provider boundary", () => {
+    const summaries = Object.fromEntries(
+      MACRO_AGENT_IDS.map((agentId) => [agentId, { claim_ref_used: null, effect: "NOT_MATERIAL" }]),
+    );
+    const target = {
+      agent_id: "china",
+      target_type: "PORTFOLIO_DECISION",
+      target_local_ref: "position-1",
+      effect: "SUPPORTS",
+    };
+
+    expect(
+      MacroInputAttributionProviderSchema.safeParse({
+        submission_summaries: summaries,
+        target_attributions: [{ ...target, claim_ref_used: "claim-cio-final-001" }],
+      }).success,
+    ).toBe(false);
+    expect(
+      MacroInputAttributionProviderSchema.safeParse({
+        submission_summaries: summaries,
+        target_attributions: [{ ...target, claim_ref_used: "provider-macro-credit-claim" }],
+      }).success,
+    ).toBe(true);
+  });
+
   it("requires one and only one submission summary for every Macro Agent", () => {
     const providerSchema = z.toJSONSchema(MacroInputAttributionSubmissionArraySchema);
     expect(providerSchema).toMatchObject({ minItems: 8, maxItems: 16 });
@@ -139,14 +165,19 @@ describe("Macro input attribution v2", () => {
           submission_summaries: Object.fromEntries(
             MACRO_AGENT_IDS.map((agentId) => [
               agentId,
-              { claim_ref_used: `${agentId}-claim`, effect: "SUPPORTS" },
+              { claim_ref_used: "provider-macro-direct-claim", effect: "SUPPORTS" },
             ]),
           ),
           target_attributions: [],
         },
       },
     }) as { final_selection: { macro_input_attributions: MacroInputAttributionSubmission[] } };
-    expect(normalized.final_selection.macro_input_attributions).toEqual(summaries());
+    expect(normalized.final_selection.macro_input_attributions).toEqual(
+      summaries().map((row) => ({
+        ...row,
+        claim_refs_used: ["provider-macro-direct-claim"],
+      })),
+    );
     expect(
       MacroInputAttributionSubmissionArraySchema.safeParse(
         normalized.final_selection.macro_input_attributions,
@@ -170,6 +201,85 @@ describe("Macro input attribution v2", () => {
         };
       };
     };
+    expect(
+      adapted.properties.macro_input_attributions.properties.target_attributions.maxItems,
+    ).toBe(0);
+  });
+
+  it("limits selected Superinvestor target attribution to security picks", () => {
+    const adapted = adaptMacroAttributionProviderJsonSchema(
+      z.toJSONSchema(
+        z.object({
+          agent: z.literal("druckenmiller"),
+          selection_status: z.literal("SELECTED"),
+          macro_input_attributions: MacroInputAttributionSubmissionArraySchema,
+        }),
+      ),
+    ) as {
+      properties: {
+        macro_input_attributions: {
+          properties: {
+            target_attributions: {
+              items: { properties: { target_type: { const: string } } };
+            };
+          };
+        };
+      };
+    };
+
+    expect(
+      adapted.properties.macro_input_attributions.properties.target_attributions.items.properties
+        .target_type.const,
+    ).toBe("SECURITY_PICK");
+  });
+
+  it.each([
+    ["alpha_discovery", "SECURITY_PICK"],
+    ["cro", "RISK_ACTION"],
+    ["cio", "PORTFOLIO_DECISION"],
+  ])("limits %s target attribution to its accepted target type", (agentId, targetType) => {
+    const adapted = adaptMacroAttributionProviderJsonSchema(
+      z.toJSONSchema(
+        z.object({
+          agent_id: z.literal(agentId),
+          macro_input_attributions: MacroInputAttributionSubmissionArraySchema,
+        }),
+      ),
+    ) as {
+      properties: {
+        macro_input_attributions: {
+          properties: {
+            target_attributions: {
+              items: { properties: { target_type: { const: string } } };
+            };
+          };
+        };
+      };
+    };
+
+    expect(
+      adapted.properties.macro_input_attributions.properties.target_attributions.items.properties
+        .target_type.const,
+    ).toBe(targetType);
+  });
+
+  it("forbids target rows for Alpha NONE_FOUND", () => {
+    const adapted = adaptMacroAttributionProviderJsonSchema(
+      z.toJSONSchema(
+        z.object({
+          agent_id: z.literal("alpha_discovery"),
+          discovery_disposition: z.literal("NONE_FOUND"),
+          macro_input_attributions: MacroInputAttributionSubmissionArraySchema,
+        }),
+      ),
+    ) as {
+      properties: {
+        macro_input_attributions: {
+          properties: { target_attributions: { maxItems: number } };
+        };
+      };
+    };
+
     expect(
       adapted.properties.macro_input_attributions.properties.target_attributions.maxItems,
     ).toBe(0);
@@ -262,7 +372,7 @@ describe("Macro input attribution v2", () => {
         macroInputGate: gate(),
         acceptedSubmissionBody: { status: "test" },
       }),
-    ).toThrow(/unowned claim/);
+    ).toThrow(/unowned claim.*allowed owned claims: china-claim/);
   });
 
   it("rejects unresolved target-local refs and material rows without claims", () => {
@@ -280,8 +390,17 @@ describe("Macro input attribution v2", () => {
         acceptedMacroOutputs: outputs(),
         macroInputGate: gate(),
         acceptedSubmissionBody: { status: "test" },
+        targets: [
+          {
+            target_type: "RISK_ACTION",
+            target_local_ref: "risk-action-1",
+            target: { action: "CAP_WEIGHT" },
+          },
+        ],
       }),
-    ).toThrow(/unresolved attribution target/);
+    ).toThrow(
+      /unresolved attribution target RISK_ACTION:missing-risk-action; allowed targets: RISK_ACTION:risk-action-1/,
+    );
     expect(
       MacroInputAttributionSubmissionArraySchema.safeParse([
         ...summaries().slice(0, -1),

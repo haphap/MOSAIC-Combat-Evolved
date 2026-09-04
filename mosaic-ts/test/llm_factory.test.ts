@@ -98,22 +98,21 @@ describe("createLlmFromConfig", () => {
           url: incoming.url,
           userAgent: incoming.headers["user-agent"],
         };
-        response.writeHead(200, { "Content-Type": "application/json" });
+        response.writeHead(200, { "Content-Type": "text/event-stream" });
         response.end(
-          JSON.stringify({
+          `data: ${JSON.stringify({
             id: "chatcmpl-test",
-            object: "chat.completion",
+            object: "chat.completion.chunk",
             created: 0,
             model: "remote-model",
             choices: [
               {
                 index: 0,
                 finish_reason: "stop",
-                message: { role: "assistant", content: "ok" },
+                delta: { role: "assistant", content: "ok" },
               },
             ],
-            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-          }),
+          })}\n\ndata: [DONE]\n\n`,
         );
       });
     });
@@ -142,6 +141,7 @@ describe("createLlmFromConfig", () => {
         body: {
           model: "remote-model",
           max_tokens: 65_536,
+          stream: true,
           thinking: { type: "disabled" },
         },
       });

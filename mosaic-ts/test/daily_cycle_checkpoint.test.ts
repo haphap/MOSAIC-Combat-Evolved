@@ -10,27 +10,16 @@ import {
   checkpointCommitStageForNode,
   checkpointedStageNode,
   DailyCycleCheckpoint,
-  type DailyCycleCheckpointIdentity,
 } from "../src/graph/daily_cycle_checkpoint.js";
 import { validateFinalTargetNode } from "../src/graph/layer4.js";
 
 const CHECKPOINT_STAGES = ["stage_a", "stage_b"] as const;
+const CHECKPOINT_INPUT = {
+  asOfDate: "2025-06-17",
+  cohort: "cohort_default",
+  stageRoster: CHECKPOINT_STAGES,
+} as const;
 const checkpointRoots: string[] = [];
-
-function makeIdentity(): DailyCycleCheckpointIdentity {
-  return {
-    cycle_kind: "STRUCTURED_SMOKE",
-    as_of_date: "2025-06-17",
-    cohort: "cohort_default",
-    stage_roster: CHECKPOINT_STAGES,
-    graph_contract: "daily-cycle-test-graph-v1",
-    prompt_release: "test-prompt-release",
-    prompt_content_hash: `sha256:${"d".repeat(64)}`,
-    prompt_contract: `sha256:${"a".repeat(64)}`,
-    fixture_bundle_hash: `sha256:${"b".repeat(64)}`,
-    current_positions_hash: `sha256:${"c".repeat(64)}`,
-  };
-}
 
 function makeState(): DailyCycleStateType {
   return {
@@ -117,9 +106,8 @@ describe("daily-cycle Agent-stage checkpoint", () => {
     const root = mkdtempSync(join(tmpdir(), "mosaic-daily-cycle-checkpoint-"));
     checkpointRoots.push(root);
     const path = join(root, "checkpoint.json");
-    const identity = makeIdentity();
     const store = new AcceptedAgentOutputStore();
-    const first = DailyCycleCheckpoint.open({ path, identity });
+    const first = DailyCycleCheckpoint.open({ path, ...CHECKPOINT_INPUT });
     if (!first) throw new Error("expected a fresh checkpoint");
     const firstCalls: Record<string, number> = {};
     let state = await runStage("stage_a", makeState(), first, store, firstCalls);
@@ -136,7 +124,7 @@ describe("daily-cycle Agent-stage checkpoint", () => {
     expect(first.completedStages).toEqual(["stage_a"]);
     expect(JSON.parse(readFileSync(path, "utf-8")).completed_stages).toEqual(["stage_a"]);
 
-    const resumed = DailyCycleCheckpoint.open({ path, resume: true, identity });
+    const resumed = DailyCycleCheckpoint.open({ path, resume: true, ...CHECKPOINT_INPUT });
     if (!resumed) throw new Error("expected a resumed checkpoint");
     const resumedStore = new AcceptedAgentOutputStore();
     resumed.restoreAcceptedOutputStore(resumedStore);
@@ -146,7 +134,10 @@ describe("daily-cycle Agent-stage checkpoint", () => {
     state = await runStage("stage_b", state, resumed, resumedStore, resumedCalls);
 
     const uninterruptedPath = join(root, "uninterrupted.json");
-    const uninterrupted = DailyCycleCheckpoint.open({ path: uninterruptedPath, identity });
+    const uninterrupted = DailyCycleCheckpoint.open({
+      path: uninterruptedPath,
+      ...CHECKPOINT_INPUT,
+    });
     if (!uninterrupted) throw new Error("expected an uninterrupted checkpoint");
     const uninterruptedStore = new AcceptedAgentOutputStore();
     const uninterruptedCalls: Record<string, number> = {};
@@ -170,7 +161,7 @@ describe("daily-cycle Agent-stage checkpoint", () => {
     expect(resumed.completedStages).toEqual([...CHECKPOINT_STAGES]);
     expect(state).toEqual(uninterruptedState);
     expect(resumed.restoredState).toEqual(uninterruptedState);
-    expect(JSON.parse(readFileSync(path, "utf-8")).latest.state.continuity_context).toEqual(
+    expect(JSON.parse(readFileSync(path, "utf-8")).state.continuity_context).toEqual(
       uninterruptedState.continuity_context,
     );
   });
@@ -185,7 +176,8 @@ describe("daily-cycle Agent-stage checkpoint", () => {
     checkpointRoots.push(root);
     const inputGateCheckpoint = DailyCycleCheckpoint.open({
       path: join(root, "input-gate.json"),
-      identity: { ...makeIdentity(), stage_roster: ["institutional_flow"] },
+      ...CHECKPOINT_INPUT,
+      stageRoster: ["institutional_flow"],
     });
     if (!inputGateCheckpoint) throw new Error("expected a fresh input-gate checkpoint");
     const inputGate = checkpointedStageNode(
@@ -198,7 +190,8 @@ describe("daily-cycle Agent-stage checkpoint", () => {
 
     const sharedValidationCheckpoint = DailyCycleCheckpoint.open({
       path: join(root, "shared-validation.json"),
-      identity: { ...makeIdentity(), stage_roster: ["cio_final"] },
+      ...CHECKPOINT_INPUT,
+      stageRoster: ["cio_final"],
     });
     if (!sharedValidationCheckpoint)
       throw new Error("expected a fresh shared-validation checkpoint");
@@ -213,46 +206,65 @@ describe("daily-cycle Agent-stage checkpoint", () => {
     expect(sharedValidationCheckpoint.completedStages).toEqual([]);
   });
 
-  it("rejects partial writes and every identity drift before graph execution", () => {
+  it("rejects partial writes, another day or cohort, and an invalid stage prefix", () => {
     const root = mkdtempSync(join(tmpdir(), "mosaic-daily-cycle-checkpoint-"));
     checkpointRoots.push(root);
-    const identity = makeIdentity();
     const partialPath = join(root, "partial.json");
-    writeFileSync(
-      partialPath,
-      '{"schema_version":"daily_cycle_agent_stage_checkpoint_v2"',
-      "utf-8",
-    );
-    expect(() => DailyCycleCheckpoint.open({ path: partialPath, resume: true, identity })).toThrow(
-      /unreadable|partially written/,
-    );
+    writeFileSync(partialPath, '{"completed_stages":', "utf-8");
+    expect(() =>
+      DailyCycleCheckpoint.open({ path: partialPath, resume: true, ...CHECKPOINT_INPUT }),
+    ).toThrow(/unreadable|partially written/);
 
     const validPath = join(root, "valid.json");
-    const checkpoint = DailyCycleCheckpoint.open({ path: validPath, identity });
+    const checkpoint = DailyCycleCheckpoint.open({ path: validPath, ...CHECKPOINT_INPUT });
     if (!checkpoint) throw new Error("expected a fresh checkpoint");
     checkpoint.commit("stage_a", makeState(), new AcceptedAgentOutputStore());
     expect(() =>
       DailyCycleCheckpoint.open({
         path: validPath,
         resume: true,
-        identity: { ...identity, prompt_content_hash: `sha256:${"e".repeat(64)}` },
+        ...CHECKPOINT_INPUT,
+        asOfDate: "2025-06-18",
       }),
-    ).toThrow("identity drift");
+    ).toThrow("checkpoint date does not match --date");
+    expect(() =>
+      DailyCycleCheckpoint.open({
+        path: validPath,
+        resume: true,
+        ...CHECKPOINT_INPUT,
+        cohort: "cohort_crisis",
+      }),
+    ).toThrow("checkpoint cohort does not match --cohort");
+
+    const invalidPrefix = JSON.parse(readFileSync(validPath, "utf-8"));
+    invalidPrefix.completed_stages = ["stage_b"];
+    writeFileSync(validPath, JSON.stringify(invalidPrefix), "utf-8");
+    expect(() =>
+      DailyCycleCheckpoint.open({ path: validPath, resume: true, ...CHECKPOINT_INPUT }),
+    ).toThrow("checkpoint completed stage prefix is invalid");
   });
 
-  it("restores a v2 21-stage prefix with the latest stage as a string id", () => {
+  it("restores a 21-stage prefix", () => {
     const root = mkdtempSync(join(tmpdir(), "mosaic-daily-cycle-checkpoint-prefix-"));
     checkpointRoots.push(root);
-    const identity = { ...makeIdentity(), stage_roster: DAILY_CYCLE_STAGE_ROSTER };
     const path = join(root, "checkpoint.json");
-    const checkpoint = DailyCycleCheckpoint.open({ path, identity });
+    const checkpoint = DailyCycleCheckpoint.open({
+      path,
+      ...CHECKPOINT_INPUT,
+      stageRoster: DAILY_CYCLE_STAGE_ROSTER,
+    });
     if (!checkpoint) throw new Error("expected a fresh checkpoint");
     const acceptedPrefix = DAILY_CYCLE_STAGE_ROSTER.slice(0, 21);
     for (const stageId of acceptedPrefix) {
       checkpoint.commit(stageId, makeState(), new AcceptedAgentOutputStore());
     }
 
-    const resumed = DailyCycleCheckpoint.open({ path, resume: true, identity });
+    const resumed = DailyCycleCheckpoint.open({
+      path,
+      resume: true,
+      ...CHECKPOINT_INPUT,
+      stageRoster: DAILY_CYCLE_STAGE_ROSTER,
+    });
     if (!resumed) throw new Error("expected a resumed checkpoint");
     expect(resumed.completedStages).toEqual(acceptedPrefix);
     expect(resumed.completedStages.at(-1)).toBe("ackman");

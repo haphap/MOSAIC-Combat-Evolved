@@ -148,6 +148,17 @@ describe("Layer-2 roster and role contracts", () => {
     expect(buildSectorCoverageDirective(valid, "energy", "2026-07-19")).toMatchObject({
       macro_event_fit: { coverage_state: "COVERAGE_CONFIRMED_NO_MATERIAL_EVENT" },
     });
+    const historical = JSON.parse(roleEventSnapshot()) as Record<string, unknown>;
+    (historical.coverage as Record<string, unknown>).coverage_as_of = "2026-08-30T11:00:00+08:00";
+    expect(
+      buildSectorCoverageDirective(
+        new Map([["get_role_event_snapshot", rehashRoleEventSnapshot(historical)]]),
+        "energy",
+        "2026-07-19",
+      ),
+    ).toMatchObject({
+      macro_event_fit: { coverage_state: "COVERAGE_CONFIRMED_NO_MATERIAL_EVENT" },
+    });
     const tampered = JSON.parse(roleEventSnapshot()) as Record<string, unknown>;
     tampered.role_event_snapshot_hash = `sha256:${"f".repeat(64)}`;
     expect(() =>
@@ -1578,6 +1589,17 @@ describe("standard Sector usage lifecycle", () => {
     })(sectorPipelineState());
 
     expect(llm.conflictReviewAttempts).toBe(2);
+    expect(
+      llm.prompts.some((prompt) => prompt.includes("one different direction loses every pair")),
+    ).toBe(true);
+    expect(
+      llm.prompts.some((prompt) => prompt.includes("at least two non-ETF support votes")),
+    ).toBe(true);
+    expect(
+      llm.prompts.some((prompt) =>
+        prompt.includes("Copy the supplied coverage_evidence_ids exactly"),
+      ),
+    ).toBe(true);
     expect(events.reports.map((report) => report.attempted_stage)).toEqual([
       "DIRECTION_RESEARCH",
       "CONFLICT_REVIEW",
@@ -1753,6 +1775,32 @@ describe("standard Sector usage lifecycle", () => {
       "message",
     ]);
     expect(evidenceBody).not.toHaveProperty("raw_output");
+    const longMessageEvidenceBody = buildSectorProviderUsageEvidenceBody({
+      capabilityId: "cap-sector-instrumented",
+      sectorAgentId: "energy",
+      attemptedStage: "FINAL_SELECTION",
+      audit: {
+        attempt: 1,
+        kind: "primary",
+        accepted: false,
+        validation_issues: [
+          {
+            validator: "zod_schema",
+            reason_code: "ZOD_INVALID_VALUE",
+            json_path: "$.claims[0].evidence_ids[0]",
+            message: "x".repeat(513),
+          },
+        ],
+        error_fingerprints: ["zod_schema:ZOD_INVALID_VALUE:$.claims[0].evidence_ids[0]"],
+        output_hash: null,
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        elapsed_ms: 1,
+      },
+    });
+    expect(
+      (longMessageEvidenceBody.validation_issues as Array<Record<string, string>>)[0]?.message,
+    ).toBe("x".repeat(512));
     expect(events.lifecycle.at(-2)).toBe("finalize");
     expect(events.lifecycle.at(-1)).toBe("terminate");
   });

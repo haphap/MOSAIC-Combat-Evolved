@@ -229,10 +229,11 @@ describe("strict agent-run contract", () => {
     expect(result.audit.evidence_hash).toMatch(/^sha256:/);
   });
 
-  it("does not forward the agent timeout signal to structured provider invoke", async () => {
+  it("forwards the agent timeout signal to structured provider invoke", async () => {
     const llm = new SequenceLlm([{ disposition: "ITEMS", items: ["x"], claim_refs: ["claim-1"] }]);
-    await run(llm, { signal: new AbortController().signal });
-    expect(llm.structuredInvokeOptions).toEqual([undefined]);
+    const signal = new AbortController().signal;
+    await run(llm, { signal });
+    expect(llm.structuredInvokeOptions).toEqual([{ signal }]);
   });
 
   it("hashes runtime evidence maps and sets by their canonical JSON projection", async () => {
@@ -1218,7 +1219,7 @@ describe("strict agent-run contract", () => {
           agent_id: agentId,
           target_type: "PORTFOLIO_DECISION",
           target_local_ref: "portfolio",
-          claim_ref_used: "cio-claim",
+          claim_ref_used: "provider-macro-credit-claim",
           effect: "SUPPORTS",
         },
       ],
@@ -1423,7 +1424,7 @@ describe("strict agent-run contract", () => {
             agent_id: MACRO_AGENT_IDS[0],
             target_type: "PORTFOLIO_DECISION",
             target_local_ref: "portfolio",
-            claim_ref_used: "claim-1",
+            claim_ref_used: "provider-macro-credit-claim",
             effect: "SUPPORTS",
           },
         ],

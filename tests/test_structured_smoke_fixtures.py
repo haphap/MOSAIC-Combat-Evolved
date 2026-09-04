@@ -283,7 +283,7 @@ def test_structured_smoke_default_still_requires_eligibility_before_effective_da
     tmp_path: Path,
 ) -> None:
     with pytest.raises(RuntimeError, match="eligibility artifact is required"):
-        build_structured_smoke_fixtures(tmp_path / "cache", "2025-06-18")
+        build_structured_smoke_fixtures(tmp_path / "cache", "2021-05-06")
 
 
 def test_structured_smoke_runtime_membership_rejects_eligibility_artifact(
@@ -617,7 +617,7 @@ def test_structured_smoke_early_semiconductor_materialization_requires_opt_in(
     monkeypatch.delenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS")
     with pytest.raises(
         DataVendorUnavailable,
-        match="sector ETF direction authority is not effective for as_of",
+        match="synthetic sector snapshot requires the structured-smoke bypass",
     ):
         materialize_tool_payload(
             "get_sector_research_snapshot",

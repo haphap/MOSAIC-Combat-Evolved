@@ -49,8 +49,108 @@ AS_OF = "2026-07-17"
 ROLE = "semiconductor"
 
 
+@pytest.fixture(autouse=True)
+def _allow_synthetic_sector_fixtures(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS", "structured_smoke")
+
+
+def test_semiconductor_basket_uses_direction_complete_index_on_live_feed_miss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Frame:
+        def __init__(self, rows: list[dict[str, Any]], columns: set[str]) -> None:
+            self.rows = rows
+            self.columns = columns
+
+        def __len__(self) -> int:
+            return len(self.rows)
+
+        def to_dict(self, *, orient: str) -> list[dict[str, Any]]:
+            assert orient == "records"
+            return self.rows
+
+    calls: list[tuple[str, dict[str, str]]] = []
+    tickers = [f"688{index:03d}.SH" for index in range(1, 14)]
+    direction_codes = [
+        "850814.SI",
+        "850816.SI",
+        "850818.SI",
+        *("850814.SI" for _ in range(9)),
+        "850812.SI",
+    ]
+
+    def query(endpoint: str, **params: str) -> Frame:
+        calls.append((endpoint, params))
+        if endpoint == "etf_sh_cons":
+            return Frame(
+                [],
+                {"trade_date", "ts_code", "con_code", "con_name", "qty", "exchange"},
+            )
+        if endpoint == "index_weight":
+            return Frame(
+                [
+                    {
+                        "index_code": "932139.CSI",
+                        "con_code": ticker,
+                        "trade_date": "20250530",
+                        "weight": 14 - index,
+                    }
+                    for index, ticker in enumerate(tickers, 1)
+                ],
+                {"index_code", "con_code", "trade_date", "weight"},
+            )
+        assert endpoint == "index_member_all"
+        return Frame(
+            [
+                {
+                    "ts_code": ticker,
+                    "l1_code": "801080.SI",
+                    "l2_code": "801081.SI",
+                    "l3_code": direction_code,
+                    "in_date": "20200101",
+                    "out_date": None,
+                    "is_new": "Y",
+                }
+                for ticker, direction_code in zip(tickers, direction_codes, strict=True)
+            ],
+            {
+                "ts_code",
+                "l1_code",
+                "l2_code",
+                "l3_code",
+                "in_date",
+                "out_date",
+                "is_new",
+            },
+        )
+
+    monkeypatch.setattr(sector_snapshots_module, "_query_pro", query)
+
+    published, candidates, source_hash = (
+        sector_snapshots_module._read_semiconductor_etf_basket(
+            "512480.SH", date(2025, 6, 16)
+        )
+    )
+
+    assert [endpoint for endpoint, _ in calls] == [
+        "etf_sh_cons",
+        "index_weight",
+        "index_member_all",
+    ]
+    assert published == "2025-05-30"
+    assert [candidate["ticker"] for candidate in candidates] == [
+        *tickers[:11],
+        tickers[12],
+    ]
+    assert source_hash.startswith("sha256:")
+
+
 def test_default_sector_etf_authority_restores_one_exact_mapping_per_agent() -> None:
     authority = sector_snapshots_module.SECTOR_ETF_DIRECTION_AUTHORITY
+    assert authority["effective_from"] == "2021-05-07"
+    sector_snapshots_module._validated_sector_etf_direction_authority(
+        date(2025, 6, 16)
+    )
     observed = {
         (row["sector_agent_id"], row["direction_id"]): tuple(row["etf_ts_codes"])
         for row in authority["direction_families"]
@@ -701,7 +801,7 @@ def test_loaded_sector_snapshot_has_one_validated_immutable_shape(
     source_before = source_path.read_text(encoding="utf-8")
     monkeypatch.setattr(
         "mosaic.dataflows.sector_snapshots.build_role_event_snapshot",
-        lambda *_: _role_event_snapshot(),
+        lambda *_args, **_kwargs: _role_event_snapshot(),
     )
 
     loaded = load_sector_snapshot(ROLE, AS_OF, root=tmp_path / "sector_snapshots")
@@ -1829,7 +1929,11 @@ def _registered_source_inputs(
         for row in authority["direction_families"]
     }
     mapped_etf_codes = sorted(
-        code for codes in authority_codes.values() for code in codes
+        {
+            code
+            for direction_id in snapshot["direction_ids"]
+            for code in authority_codes[(ROLE, direction_id)]
+        }
     )
     if with_etf and not mapped_etf_codes:
         raise AssertionError("with_etf requires a test ETF direction authority")
@@ -1977,7 +2081,7 @@ def _registered_source_inputs(
             ]
         else:
             endpoint_codes = (
-                sorted(set(mapped_etf_codes) | {"510001.SH"})
+                mapped_etf_codes
                 if endpoint == "fund_basic"
                 else mapped_etf_codes
                 if endpoint.startswith("fund_")
@@ -2015,7 +2119,7 @@ def _registered_source_inputs(
             "endpoint": endpoint,
             "schema_contract_version": contract["schema_contract_version"],
             "request": (
-                {"market": "E"}
+                {"market": "E", "ts_codes": mapped_etf_codes}
                 if endpoint == "fund_basic"
                 else {
                     "exchange": "SSE",
@@ -2308,6 +2412,23 @@ def test_registered_sector_compiler_is_source_derived_and_deterministic(
         row["ts_code"] for row in scoped["security_scoring_rows"]
     } == set(ts_codes)
 
+    partial_stock = copy.deepcopy(scoped_batches)
+    partial_stock_basic = next(
+        batch for batch in partial_stock if batch["endpoint"] == "stock_basic"
+    )
+    partial_stock_basic["rows"] = [
+        row
+        for row in partial_stock_basic["rows"]
+        if row["ts_code"] != unmapped_code
+    ]
+    _rehash_source_batch(partial_stock_basic)
+    partial = compile_registered_sector_snapshot(
+        role=ROLE, as_of_date=AS_OF, source_batches=partial_stock
+    )
+    assert {
+        row["ts_code"] for row in partial["eligible_security_universe"]
+    } == set(ts_codes)
+
     missing_candidate = copy.deepcopy(scoped_batches)
     missing_membership = next(
         batch
@@ -2324,9 +2445,61 @@ def test_registered_sector_compiler_is_source_derived_and_deterministic(
         )
 
 
+def test_registered_sector_turnover_aligns_disclosed_suspensions(
+    snapshot: dict[str, Any],
+) -> None:
+    _expected, batches = _registered_source_inputs(snapshot)
+    direction_id = snapshot["direction_ids"][0]
+    ticker = next(
+        row["ts_code"]
+        for row in snapshot["eligible_security_universe"]
+        if row["direction_id"] == direction_id
+    )
+    missing_date = (date.fromisoformat(AS_OF) - timedelta(days=1)).isoformat()
+    for endpoint in ("daily", "moneyflow"):
+        batch = next(row for row in batches if row["endpoint"] == endpoint)
+        batch["rows"] = [
+            row
+            for row in batch["rows"]
+            if not (
+                row["ts_code"] == ticker and row["trade_date"] == missing_date
+            )
+        ]
+        _rehash_source_batch(batch)
+    suspend_batch = next(
+        row for row in batches if row["endpoint"] == "suspend_d"
+    )
+    suspension = copy.deepcopy(
+        next(row for row in suspend_batch["rows"] if row["ts_code"] == ticker)
+    )
+    suspension.update({"trade_date": missing_date, "suspend_type": "S"})
+    suspend_batch["rows"].append(suspension)
+    _rehash_source_batch(suspend_batch)
+
+    compiled = compile_registered_sector_snapshot(
+        role=ROLE, as_of_date=AS_OF, source_batches=batches
+    )
+    metric = next(
+        metric
+        for card in compiled["direction_cards"]
+        if card["direction_id"] == direction_id
+        for metric in card["metrics"]
+        if metric["metric_id"] == "TURNOVER_EXPANSION_20D_PCT"
+    )
+
+    assert metric["availability_status"] == "AVAILABLE"
+    assert metric["observation_count"] == 21
+    assert {
+        evidence["source_endpoint"]
+        for evidence in compiled["evidence_catalog"]
+        if evidence["evidence_id"] in metric["evidence_ids"]
+    } == {"daily", "suspend_d", "trade_cal"}
+
+
 def test_registered_sector_historical_replay_preserves_real_capture_time(
     snapshot: dict[str, Any],
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _production, batches = _registered_source_inputs(snapshot)
     replay_captured_at = "2026-08-11T12:00:00+08:00"
@@ -2369,6 +2542,22 @@ def test_registered_sector_historical_replay_preserves_real_capture_time(
         root=root,
     )
     assert loaded_receipt["source_bundle_hash"] == receipt["source_bundle_hash"]
+    role_event_calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        sector_snapshots_module,
+        "build_role_event_snapshot",
+        lambda *_args, **kwargs: role_event_calls.append(kwargs)
+        or _role_event_snapshot(),
+    )
+    load_sector_snapshot(
+        ROLE,
+        AS_OF,
+        root=root,
+        historical_replay_captured_at=replay_captured_at,
+    )
+    assert role_event_calls == [
+        {"historical_replay_captured_at": replay_captured_at}
+    ]
 
 
 def test_registered_sector_rejects_missing_or_false_pagination_provenance(

@@ -1,4 +1,5 @@
 import type { BridgeApi } from "../../bridge/index.js";
+import type { AcceptedAgentOutputStore } from "../accepted_output.js";
 import type { DailyCycleStateType } from "../state.js";
 import { canonicalJsonHash } from "./canonical_json.js";
 import type {
@@ -23,21 +24,25 @@ export async function resolveLayer4SourceStatuses(
   state: DailyCycleStateType,
   stage: Layer4SourceResolutionStage,
   api?: Pick<BridgeApi, "runtimeStockMarketSnapshot">,
+  acceptedOutputStore?: Pick<AcceptedAgentOutputStore, "resolve">,
 ): Promise<RuntimeSourceStatus[]> {
-  return (await resolveLayer4SourceBundle(state, stage, api)).statuses;
+  return (await resolveLayer4SourceBundle(state, stage, api, acceptedOutputStore)).statuses;
 }
 
 export async function resolveLayer4SourceBundle(
   state: DailyCycleStateType,
   stage: Layer4SourceResolutionStage,
   api?: Pick<BridgeApi, "runtimeStockMarketSnapshot">,
+  acceptedOutputStore?: Pick<AcceptedAgentOutputStore, "resolve">,
 ): Promise<Layer4SourceResolutionBundle> {
   const asOf = state.as_of_date || new Date().toISOString().slice(0, 10);
   const sourceId =
     stage === "execution_liquidity" ? "execution_liquidity_state" : "current_market_data";
   const adapterId = stage === "execution_liquidity" ? LIQUIDITY_ADAPTER_ID : MARKET_ADAPTER_ID;
   const tickers =
-    stage === "pre_candidate" ? preCandidateTickers(state) : frozenCandidateTickers(state);
+    stage === "pre_candidate"
+      ? preCandidateTickers(state, acceptedOutputStore)
+      : frozenCandidateTickers(state);
   const existing = state.layer4_outputs?.runtime?.resolved_source_statuses ?? [];
   const frozenBaseSources = new Set(
     Object.keys(
@@ -92,7 +97,10 @@ export function mergeRuntimeSourceEvidence(
   );
 }
 
-function preCandidateTickers(state: DailyCycleStateType): string[] {
+function preCandidateTickers(
+  state: DailyCycleStateType,
+  acceptedOutputStore?: Pick<AcceptedAgentOutputStore, "resolve">,
+): string[] {
   const tickers = [
     ...state.current_positions.positions.map((position) => position.ticker),
     ...Object.values(state.layer2_outputs).flatMap((output) =>
@@ -106,9 +114,34 @@ function preCandidateTickers(state: DailyCycleStateType): string[] {
     ...Object.values(state.layer3_outputs).flatMap((output) =>
       output.picks.map((pick) => securityCode(pick as { ts_code?: unknown; ticker?: unknown })),
     ),
+    ...acceptedSelectionTickers(state, acceptedOutputStore),
     ...(state.layer4_outputs?.alpha_discovery?.novel_picks.map((pick) => pick.ticker) ?? []),
   ];
   return uniqueTickers(tickers);
+}
+
+function acceptedSelectionTickers(
+  state: DailyCycleStateType,
+  acceptedOutputStore?: Pick<AcceptedAgentOutputStore, "resolve">,
+): Array<string | null> {
+  if (!acceptedOutputStore) return [];
+  return Object.values(state.accepted_output_refs).flatMap((ref) => {
+    if (
+      ref.accepted_output_id.startsWith("structured-smoke-accepted-output:") ||
+      (ref.accepted_output_kind !== "STANDARD_SECTOR_SELECTION" &&
+        ref.accepted_output_kind !== "SUPERINVESTOR_SELECTION")
+    ) {
+      return [];
+    }
+    const payload = acceptedOutputStore.resolve(ref).output.payload;
+    if (!isRecord(payload)) return [];
+    const selection = isRecord(payload.selection) ? payload.selection : payload;
+    const picks =
+      ref.accepted_output_kind === "STANDARD_SECTOR_SELECTION"
+        ? [...recordArray(selection.long_picks), ...recordArray(selection.short_or_avoid_picks)]
+        : recordArray(selection.picks);
+    return picks.map((pick) => securityCode(pick));
+  });
 }
 
 function frozenCandidateTickers(state: DailyCycleStateType): string[] {
@@ -312,6 +345,14 @@ function shiftIsoDate(value: string, days: number): string {
 function securityCode(value: { ts_code?: unknown; ticker?: unknown }): string | null {
   const candidate = typeof value.ts_code === "string" ? value.ts_code : value.ticker;
   return typeof candidate === "string" && candidate.trim() ? candidate.trim() : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function recordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter(isRecord) : [];
 }
 
 function uniqueTickers(tickers: ReadonlyArray<string | null | undefined>): string[] {

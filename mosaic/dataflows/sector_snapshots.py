@@ -38,7 +38,8 @@ SECTOR_ETF_SELECTION_MAX_STALENESS_DAYS = 31
 LEGACY_SECTOR_SOURCE_RECEIPT_SCHEMA_VERSION = "sector_registered_source_receipt_v1"
 SECTOR_SOURCE_RECEIPT_SCHEMA_VERSION = "sector_registered_source_receipt_v2"
 SECTOR_ETF_DIRECTION_AUTHORITY_VERSION = "sector_etf_direction_authority_v1"
-SECTOR_ETF_DIRECTION_AUTHORITY_EFFECTIVE_FROM = "2026-07-01"
+# Every fixed ETF mapping below was listed and benchmark-bound by this date.
+SECTOR_ETF_DIRECTION_AUTHORITY_EFFECTIVE_FROM = "2021-05-07"
 SECTOR_ETF_DIRECTION_AUTHORITY_EFFECTIVE_TO: str | None = None
 CSI_INDEX_WEIGHT_ENDPOINT = "index_weight"
 CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE = {
@@ -547,7 +548,162 @@ def _read_semiconductor_etf_basket(
         dated_rows.append((trade_date, row))
     eligible_rows = [row for row in dated_rows if row[0] <= as_of]
     if not eligible_rows:
-        raise DataVendorUnavailable("semiconductor ETF basket has no cutoff-valid trade date")
+        index_code = CSI_PIT_INDEX_WEIGHT_CODES_BY_ROLE["semiconductor"][0]
+        index_request = {
+            "index_code": index_code,
+            "start_date": (
+                as_of - timedelta(days=SECTOR_ETF_SELECTION_MAX_STALENESS_DAYS)
+            ).strftime("%Y%m%d"),
+            "end_date": as_of.strftime("%Y%m%d"),
+        }
+        index_weight = _query_pro(CSI_INDEX_WEIGHT_ENDPOINT, **index_request)
+        try:
+            index_weight_count = len(index_weight)
+            index_weight_columns = {
+                str(column) for column in index_weight.columns
+            }
+            index_weight_records = index_weight.to_dict(orient="records")
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise DataVendorUnavailable(
+                "semiconductor index-weight response is invalid"
+            ) from exc
+        required_index_weight_columns = {
+            "index_code",
+            "con_code",
+            "trade_date",
+            "weight",
+        }
+        if (
+            index_weight_count >= 3000
+            or not required_index_weight_columns <= index_weight_columns
+            or not isinstance(index_weight_records, list)
+        ):
+            raise DataVendorUnavailable(
+                "semiconductor index-weight response is invalid"
+            )
+        weighted_rows: list[tuple[date, Mapping[str, Any]]] = []
+        for row in index_weight_records:
+            if not isinstance(row, Mapping) or row.get("index_code") != index_code:
+                raise DataVendorUnavailable(
+                    "semiconductor index-weight row is invalid"
+                )
+            try:
+                trade_date = datetime.strptime(
+                    str(row["trade_date"]), "%Y%m%d"
+                ).date()
+            except (KeyError, TypeError, ValueError) as exc:
+                raise DataVendorUnavailable(
+                    "semiconductor index-weight date is invalid"
+                ) from exc
+            if trade_date <= as_of:
+                weighted_rows.append((trade_date, row))
+        if not weighted_rows:
+            raise DataVendorUnavailable(
+                "semiconductor ETF basket has no cutoff-valid trade date"
+            )
+        latest_trade_date = max(row[0] for row in weighted_rows)
+        ranked_candidates: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for trade_date, row in weighted_rows:
+            if trade_date != latest_trade_date:
+                continue
+            ticker = str(row.get("con_code", "")).strip().upper()
+            if not re.fullmatch(r"\d{6}\.(?:SH|SZ)", ticker):
+                continue
+            try:
+                quantity = float(row.get("weight"))
+            except (TypeError, ValueError) as exc:
+                raise DataVendorUnavailable(
+                    "semiconductor index weight is invalid"
+                ) from exc
+            if not math.isfinite(quantity) or quantity < 0 or ticker in seen:
+                raise DataVendorUnavailable(
+                    "semiconductor index-weight row is invalid"
+                )
+            seen.add(ticker)
+            ranked_candidates.append(
+                {"ticker": ticker, "basket_quantity": quantity}
+            )
+        if not ranked_candidates:
+            raise DataVendorUnavailable(
+                "semiconductor index weight has no A-share candidates"
+            )
+        ranked_candidates.sort(
+            key=lambda row: (-row["basket_quantity"], row["ticker"])
+        )
+
+        membership_request = {"l2_code": "801081.SI", "is_new": "Y"}
+        membership = _query_pro("index_member_all", **membership_request)
+        try:
+            membership_records = membership.to_dict(orient="records")
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise DataVendorUnavailable(
+                "semiconductor membership response is invalid"
+            ) from exc
+        direction_contracts = {
+            row["direction_id"]: row
+            for row in SECTOR_UNIVERSE_MANIFEST["direction_contracts"]
+            if row["sector_agent_id"] == "semiconductor"
+        }
+        direction_by_ticker: dict[str, str] = {}
+        candidate_tickers = {row["ticker"] for row in ranked_candidates}
+        for row in membership_records:
+            ticker = str(row.get("ts_code", ""))
+            if ticker not in candidate_tickers:
+                continue
+            try:
+                in_date = datetime.strptime(str(row["in_date"]), "%Y%m%d").date()
+                out_value = row.get("out_date")
+                out_date = (
+                    datetime.strptime(str(out_value), "%Y%m%d").date()
+                    if out_value not in (None, "")
+                    else None
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise DataVendorUnavailable(
+                    "semiconductor membership date is invalid"
+                ) from exc
+            if in_date > as_of or (out_date is not None and out_date <= as_of):
+                continue
+            try:
+                direction_by_ticker[ticker] = _direction_for_security(
+                    row, direction_contracts
+                )
+            except DataVendorUnavailable:
+                continue
+        required_directions = set(SECTOR_DIRECTION_IDS["semiconductor"])
+        selected: set[str] = set()
+        covered: set[str] = set()
+        for candidate in ranked_candidates:
+            direction = direction_by_ticker.get(candidate["ticker"])
+            if direction is not None and direction not in covered:
+                selected.add(candidate["ticker"])
+                covered.add(direction)
+        if covered != required_directions:
+            raise DataVendorUnavailable(
+                "semiconductor index weight does not cover every direction"
+            )
+        for candidate in ranked_candidates:
+            if len(selected) >= 12:
+                break
+            if candidate["ticker"] in direction_by_ticker:
+                selected.add(candidate["ticker"])
+        candidates = [
+            candidate
+            for candidate in ranked_candidates
+            if candidate["ticker"] in selected
+        ]
+        source_content_hash = _canonical_hash(
+            {
+                "endpoint": CSI_INDEX_WEIGHT_ENDPOINT,
+                "request": index_request,
+                "trade_date": latest_trade_date.strftime("%Y%m%d"),
+                "ranked_candidates": ranked_candidates,
+                "membership_request": membership_request,
+                "membership_rows_hash": _canonical_hash(membership_records),
+            }
+        )
+        return latest_trade_date.isoformat(), candidates, source_content_hash
     latest_trade_date = max(row[0] for row in eligible_rows)
     candidates: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -1407,6 +1563,13 @@ def validate_sector_snapshot(
         and os.getenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS")
         == "structured_smoke"
     )
+    if (
+        payload.get("fixture_class") == "SYNTHETIC_NON_PRODUCTION"
+        and not allow_synthetic_pre_effective
+    ):
+        raise DataVendorUnavailable(
+            "synthetic sector snapshot requires the structured-smoke bypass"
+        )
     plan, direction_contracts = _manifest_bindings(role)
     plan_bindings = {
         "membership_query_plan_id": "query_plan_id",
@@ -2129,6 +2292,8 @@ def _validate_source_batch(
         raise DataVendorUnavailable("sector source batch coverage is below 90%")
     rows = value.get("rows")
     expected_columns = set(contract.get("expected_columns", ()))
+    if endpoint == "fund_nav":
+        expected_columns.discard("total_netasset")
     if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
         raise DataVendorUnavailable("sector source batch rows must be objects")
     for row in rows:
@@ -2343,7 +2508,14 @@ def _registered_active_stock_rows(
         observed_codes = {row.get("ts_code") for row in stock_batch["rows"]}
         semiconductor_exact = any(
             batch["endpoint"] == "index_member_all"
-            and _is_semiconductor_exact_membership_request(batch.get("request"))
+            and (
+                _is_semiconductor_exact_membership_request(batch.get("request"))
+                or (
+                    isinstance(batch.get("request"), Mapping)
+                    and batch["request"].get("scope")
+                    == "semiconductor_etf_candidates_v1"
+                )
+            )
             for batch in batches
         )
         if (
@@ -2934,7 +3106,7 @@ _SECTOR_METRIC_SOURCE_ENDPOINTS: dict[str, frozenset[str]] = {
     "NEW_HIGH_LOW_20D_BALANCE": frozenset(
         {"daily", "adj_factor", "suspend_d"}
     ),
-    "TURNOVER_EXPANSION_20D_PCT": frozenset({"daily"}),
+    "TURNOVER_EXPANSION_20D_PCT": frozenset({"daily", "suspend_d"}),
     "REALIZED_VOLATILITY_60D": frozenset(
         {"daily", "adj_factor", "suspend_d"}
     ),
@@ -3198,11 +3370,19 @@ def _validate_etf_family_source_rows(
     fund_basic_batches = [
         batch for batch in batches if batch["endpoint"] == "fund_basic"
     ]
+    expected_codes = sorted(
+        {
+            ts_code
+            for card in snapshot["direction_cards"]
+            for ts_code in card["etf_family"]["etf_ts_codes"]
+        }
+    )
     if len(fund_basic_batches) != 1 or fund_basic_batches[0]["request"] != {
-        "market": "E"
+        "market": "E",
+        "ts_codes": expected_codes,
     }:
         raise DataVendorUnavailable(
-            "sector ETF direction authority requires one exhaustive fund_basic market=E batch"
+            "sector ETF direction authority requires one exact fund_basic batch"
         )
     fund_basic_rows = [row for batch in fund_basic_batches for row in batch["rows"]]
     by_code: dict[str, list[dict[str, Any]]] = {}
@@ -3213,6 +3393,10 @@ def _validate_etf_family_source_rows(
                 "sector exhaustive fund_basic rows contain a duplicate or invalid code"
             )
         by_code[ts_code] = [row]
+    if set(by_code) != set(expected_codes):
+        raise DataVendorUnavailable(
+            "sector fund_basic rows do not match the ETF direction authority"
+        )
     expected_evidence = _metric_batch_evidence_ids(
         snapshot=snapshot,
         batches=batches,
@@ -3408,6 +3592,26 @@ def _registered_sector_metric_observations(
             aligned.append(current)
         return aligned
 
+    def suspension_aligned_turnover_window(
+        ts_code: str, count: int
+    ) -> list[tuple[date, float]] | None:
+        required_dates = trading_grid[-count:]
+        by_date = {observed: row for observed, row in daily.get(ts_code, [])}
+        aligned: list[tuple[date, float]] = []
+        for observed in required_dates:
+            row = by_date.get(observed)
+            amount = (
+                _finite_source_number(row.get("amount"))
+                if row is not None
+                else 0.0
+                if (ts_code, observed) in suspended_sessions
+                else None
+            )
+            if amount is None or amount < 0:
+                return None
+            aligned.append((observed, amount))
+        return aligned
+
     def price_return(ts_code: str, lookback: int) -> tuple[float, int, date] | None:
         window = suspension_aligned_price_window(ts_code, lookback + 1)
         if window is None:
@@ -3560,16 +3764,8 @@ def _registered_sector_metric_observations(
                 )
         elif metric_id == "TURNOVER_EXPANSION_20D_PCT":
             for ts_code in members:
-                rows = exact_window(daily.get(ts_code, []), 21)
-                if rows is None:
-                    continue
-                window = [
-                    (observed, amount)
-                    for observed, row in rows
-                    if (amount := _finite_source_number(row.get("amount"))) is not None
-                    and amount >= 0
-                ]
-                if len(window) != 21:
+                window = suspension_aligned_turnover_window(ts_code, 21)
+                if window is None:
                     continue
                 values.append(
                     (
@@ -4846,7 +5042,11 @@ def write_registered_sector_snapshot(
 
 
 def load_sector_snapshot(
-    role: str, as_of_date: str, root: Path | None = None
+    role: str,
+    as_of_date: str,
+    root: Path | None = None,
+    *,
+    historical_replay_captured_at: str | None = None,
 ) -> dict[str, Any]:
     source_root = root or sector_snapshot_root()
     snapshot = validate_sector_snapshot(
@@ -4865,7 +5065,11 @@ def load_sector_snapshot(
         )
     base_runtime_fields = set(snapshot)
     if role in _SECTOR_ROLE_EVENT_RUNTIME_BINDINGS:
-        role_events = build_role_event_snapshot(role, as_of_date)
+        role_events = build_role_event_snapshot(
+            role,
+            as_of_date,
+            historical_replay_captured_at=historical_replay_captured_at,
+        )
         if not isinstance(role_events, dict):
             raise DataVendorUnavailable("sector role-event snapshot must be an object")
         _require_exact_fields(
@@ -4928,9 +5132,18 @@ def load_sector_snapshot(
     return snapshot
 
 
-def render_sector_snapshot(role: str, as_of_date: str) -> str:
+def render_sector_snapshot(
+    role: str,
+    as_of_date: str,
+    *,
+    historical_replay_captured_at: str | None = None,
+) -> str:
     try:
-        snapshot = load_sector_snapshot(role, as_of_date)
+        snapshot = load_sector_snapshot(
+            role,
+            as_of_date,
+            historical_replay_captured_at=historical_replay_captured_at,
+        )
     except DataVendorUnavailable as exc:
         if exc.reason_code != "PRIVATE_PIT_SECTOR_SNAPSHOT_MISSING":
             raise

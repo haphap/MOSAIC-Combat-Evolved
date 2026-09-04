@@ -6,9 +6,9 @@
       "hash": "sha256:8320f607773015c47db36a8d4d8a7c5ed5d1974061b353239ad0b8c35e4fb2db"
     },
     "execution_behavior_release_archive": {
-      "path": "registry/prompt_checks/execution_behavior_releases/0a6196021273ab959cec3a1146daa9ba108ba74ed4e83d248fbb58e58b0ee7db--1200a5eb9437ee62f65082a8c85cdede1061b3c2f0f7d0ca70cc0c318d9da0d4.json",
-      "release_id": "execution-behavior-release:0a6196021273ab959cec3a1146daa9ba108ba74ed4e83d248fbb58e58b0ee7db",
-      "release_hash": "sha256:1200a5eb9437ee62f65082a8c85cdede1061b3c2f0f7d0ca70cc0c318d9da0d4"
+      "path": "registry/prompt_checks/execution_behavior_releases/c1f025a6a08e5d26bdff76ec8670d207b730d83253ce2a47146c497ff8fd7232--fd67c5f87bdae127ce45f96b0b808d116669bd9e1ad1d4cbc65238693072c5f6.json",
+      "release_id": "execution-behavior-release:c1f025a6a08e5d26bdff76ec8670d207b730d83253ce2a47146c497ff8fd7232",
+      "release_hash": "sha256:fd67c5f87bdae127ce45f96b0b808d116669bd9e1ad1d4cbc65238693072c5f6"
     },
     "agent_outcome_contract_manifest": {
       "path": "registry/prompt_checks/agent_outcome_contract_manifest_v2.json",
@@ -17,7 +17,7 @@
   },
   "evaluation_contract": {
     "catalog_hash": "sha256:8320f607773015c47db36a8d4d8a7c5ed5d1974061b353239ad0b8c35e4fb2db",
-    "schema_hash": "sha256:878af44e581ad206ea4de79829d6097d767e25d1771cf7a7da90f5e6792bbbf0",
+    "schema_hash": "sha256:11235fd4e38766b375bbbbfeb3c1964a83b8a8d8ca23320db8b3d059dbb3b11b",
     "contract_hash": "sha256:be3817c71a0973996bdeaf8a4ca65a3250ee337c7c269c05e3cb39cf44340853"
   }
 }

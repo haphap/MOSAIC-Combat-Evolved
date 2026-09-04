@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from datetime import date
 
 import pytest
 
@@ -10,6 +11,7 @@ from mosaic.dataflows.official_china_adapters import (
     OFFICIAL_CHINA_CATALOG_SPECS,
     OFFICIAL_CHINA_DOCUMENT_SPECS,
     fetch_latest_official_china_document,
+    fetch_official_china_release_set,
     parse_official_china_document,
 )
 from mosaic.dataflows.pboc_ops import PBOC_OMO_CATEGORIES
@@ -21,6 +23,35 @@ def _html(title: str, published: str, body: str) -> str:
     <body><div class="published">{published}</div><div id="zoom">{body}</div></body>
     </html>
     """
+
+
+@pytest.mark.parametrize(
+    "url",
+    (
+        "https://www.stats.gov.cn/sj/zxfb/202506/release.html",
+        "https://english.www.gov.cn/archive/statistics/page_26.html",
+    ),
+)
+def test_challenged_official_hosts_use_browser_transport(
+    monkeypatch: pytest.MonkeyPatch,
+    url: str,
+) -> None:
+    calls: list[tuple[str, int]] = []
+
+    class Response:
+        text = "official NBS page"
+
+        @staticmethod
+        def raise_for_status() -> None:
+            return None
+
+    def get(url: str, *, timeout: int) -> Response:
+        calls.append((url, timeout))
+        return Response()
+
+    monkeypatch.setattr(official_china_adapters._BROWSER_SESSION, "get", get)
+    assert official_china_adapters._fetch_text(url) == "official NBS page"
+    assert calls == [(url, 20)]
 
 
 @pytest.mark.parametrize(
@@ -425,22 +456,21 @@ def test_customs_catalog_uses_strict_tls_gov_cn_mirror_and_real_monthly_shape() 
             return (
                 '<h3><a href="//english.www.gov.cn/archive/statistics/202608/07/'
                 'content_WS6a7599d2c6d00ca5f9a0c8c9.html">'
-                "China's foreign trade expands 19.2 pct in July</a></h3>"
+                "China's foreign trade sustains stable expansion</a></h3>"
                 "<h4>2026/08/07</h4>"
             )
         if url == release_url:
             return """
             <html><head>
-              <title>China's foreign trade expands 19.2 pct in July</title>
+              <title>China's foreign trade sustains stable expansion</title>
               <meta name="publishdate" content="2026-08-07" />
             </head><body>
-              <p>China's foreign trade in yuan-denominated terms grew 19.2 percent
-              year on year in July, data from the General Administration of Customs
-              showed on Friday.</p>
-              <p>Exports rose 17.8 percent from the same period last year, while
-              imports increased 21.2 percent.</p>
-              <p>Exports of high-tech products surged by over 50 percent year on
-              year in July.</p>
+              <p>China's total goods imports and exports in yuan-denominated terms
+              expanded 5.6 percent year on year in July.</p>
+              <p>China's goods exports rose 9.3 percent year on year, while imports
+              went up 0.8 percent.</p>
+              <p>China's export of mechanical and electrical products increased by
+              9.5 percent year on year.</p>
             </body></html>
             """
         raise AssertionError(f"unexpected fetch: {url}")
@@ -457,16 +487,14 @@ def test_customs_catalog_uses_strict_tls_gov_cn_mirror_and_real_monthly_shape() 
     )
     assert result["source_url"] == release_url
     assert result["published_at"] == "2026-08-07T23:59:59+08:00"
-    high_tech = next(
+    structural = next(
         row
         for row in result["observations"]
-        if row["series_id"] == "cn_trade_high_tech_exports_yoy"
+        if row["series_id"] == "cn_trade_electromechanical_exports_yoy"
     )
-    assert high_tech["actual"] == 50.0
-    assert high_tech["value_qualifier"] == "LOWER_BOUND"
-    assert high_tech["unit"] == "percent_yoy_lower_bound"
-    assert high_tech["period_start"] == "2026-07-01"
-    assert high_tech["period_end"] == "2026-07-31"
+    assert structural["actual"] == 9.5
+    assert structural["period_start"] == "2026-07-01"
+    assert structural["period_end"] == "2026-07-31"
     assert calls == [catalog_url, release_url]
 
 
@@ -504,8 +532,6 @@ def test_customs_historical_replay_stops_at_first_eligible_catalog_page() -> Non
               of Customs showed.</p>
               <p>Exports rose 15.8 percent from the same period last year, while
               imports increased 18.2 percent.</p>
-              <p>Exports of high-tech products surged by over 50 percent year on
-              year in the first half.</p>
             </body></html>
             """
         raise AssertionError(f"later catalog page must not be fetched: {url}")
@@ -520,6 +546,11 @@ def test_customs_historical_replay_stops_at_first_eligible_catalog_page() -> Non
 
     assert result["source_url"] == release_url
     assert result["published_at"] == "2026-07-14T23:59:59+08:00"
+    assert {row["series_id"] for row in result["observations"]} == {
+        "cn_trade_total_yoy",
+        "cn_trade_exports_yoy",
+        "cn_trade_imports_yoy",
+    }
     assert calls == [catalog_url, page_two_url, release_url]
 
 
@@ -555,6 +586,214 @@ def test_nbs_catalog_selector_walks_observed_pagination_until_price_release() ->
 
     assert result["source_url"] == release_url
     assert calls == [catalog_url, second_page, release_url]
+
+
+def test_nbs_release_set_uses_akshare_macro_calendar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, ...]] = []
+    activity_url = "https://wallstreetcn.com/calendar/CN141330/overview"
+    price_url = "https://wallstreetcn.com/calendar/CN111275/overview"
+
+    def akshare_records(api_name: str, *args: str) -> list[dict]:
+        calls.append((api_name, *args))
+        if api_name == "macro_china_industrial_production_yoy":
+            return [{"日期": date(2025, 6, 16), "今值": 5.8}]
+        if api_name == "macro_china_cpi_yearly":
+            return [{"日期": date(2025, 6, 9), "今值": -0.1}]
+        if args == ("20250616",):
+            return [
+                {
+                    "时间": "2025-06-16 10:00:00",
+                    "事件": event,
+                    "今值": actual,
+                    "链接": url,
+                }
+                for event, actual, url in (
+                    ("5月规模以上工业增加值同比", 5.8, activity_url),
+                    (
+                        "1至5月城镇固定资产投资同比",
+                        3.7,
+                        "https://wallstreetcn.com/calendar/CN141339/overview",
+                    ),
+                    (
+                        "5月社会消费品零售总额同比",
+                        6.4,
+                        "https://wallstreetcn.com/calendar/CN171405/overview",
+                    ),
+                    (
+                        "5月城镇调查失业率",
+                        5.0,
+                        "https://wallstreetcn.com/calendar/CN121479/overview",
+                    ),
+                )
+            ]
+        if args == ("20250609",):
+            return [
+                {
+                    "时间": "2025-06-09 09:30:00",
+                    "事件": event,
+                    "今值": actual,
+                    "链接": url,
+                }
+                for event, actual, url in (
+                    ("5月CPI同比", -0.1, price_url),
+                    (
+                        "5月PPI同比",
+                        -3.3,
+                        "https://wallstreetcn.com/calendar/CN111291/overview",
+                    ),
+                )
+            ]
+        raise AssertionError((api_name, args))
+
+    monkeypatch.setattr(
+        official_china_adapters,
+        "_akshare_records",
+        akshare_records,
+    )
+    documents = fetch_official_china_release_set(
+        cutoff_at="2025-06-16T15:00:00+08:00",
+        retrieved_at="2026-08-30T08:00:00+00:00",
+        historical_replay=True,
+        document_types=tuple(
+            sorted(official_china_adapters._AKSHARE_NBS_EVENT_CONTRACTS)
+        ),
+        fetch_text=lambda url: pytest.fail(f"NBS HTML fetch is unexpected: {url}"),
+    )
+
+    by_type = {row["document_type"]: row for row in documents}
+    assert by_type["nbs_industrial_activity"]["source_url"] == activity_url
+    assert by_type["nbs_industrial_activity"]["access_path"] == (
+        "AKSHARE_WALLSTREETCN"
+    )
+    assert by_type["nbs_fixed_asset_investment"]["observations"][0] == {
+        "series_id": "cn_fixed_asset_investment_yoy",
+        "source": "official.nbs_fixed_asset_investment",
+        "actual": 3.7,
+        "unit": "percent_yoy",
+        "period_start": "2025-01-01",
+        "period_end": "2025-05-31",
+    }
+    assert by_type["nbs_cpi_release"]["published_at"] == (
+        "2025-06-09T09:30:00+08:00"
+    )
+    assert calls == [
+        ("macro_china_industrial_production_yoy",),
+        ("macro_info_ws", "20250616"),
+        ("macro_china_cpi_yearly",),
+        ("macro_info_ws", "20250609"),
+    ]
+
+
+def test_pboc_lpr_release_uses_akshare_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mosaic.dataflows import official_china_adapters
+
+    monkeypatch.setattr(
+        official_china_adapters,
+        "_akshare_records",
+        lambda api_name, *args: [
+            {
+                "TRADE_DATE": "2025-04-21",
+                "LPR1Y": 3.1,
+                "LPR5Y": 3.6,
+                "RATE_1": 4.35,
+                "RATE_2": 4.9,
+            },
+            {
+                "TRADE_DATE": "2025-05-20",
+                "LPR1Y": 3.0,
+                "LPR5Y": 3.5,
+                "RATE_1": 4.35,
+                "RATE_2": 4.9,
+            },
+        ]
+        if api_name == "macro_china_lpr" and not args
+        else pytest.fail((api_name, args)),
+    )
+    documents = fetch_official_china_release_set(
+        cutoff_at="2025-06-16T15:00:00+08:00",
+        retrieved_at="2026-08-30T08:00:00+00:00",
+        historical_replay=True,
+        document_types=("pboc_lpr_document",),
+        fetch_text=lambda url: pytest.fail(f"PBOC HTML fetch is unexpected: {url}"),
+    )
+
+    assert documents[0]["access_path"] == "AKSHARE_EASTMONEY"
+    assert documents[0]["published_at"] == "2025-05-20T23:59:59+08:00"
+    assert documents[0]["observations"] == [
+        {
+            "series_id": "pboc_lpr_1y",
+            "source": "official.pboc_lpr_catalog",
+            "actual": 3.0,
+            "unit": "percent",
+            "period_start": "2025-05-20",
+            "period_end": "2025-05-20",
+        }
+    ]
+
+
+def test_pboc_financial_selector_pairs_paginated_stock_release() -> None:
+    catalog_url = OFFICIAL_CHINA_CATALOG_SPECS["pboc_financial_statistics"][
+        "catalog_url"
+    ]
+    page_two_url = (
+        "https://www.pbc.gov.cn/diaochatongjisi/116219/116225/11871-2.html"
+    )
+    financial_url = (
+        "https://www.pbc.gov.cn/diaochatongjisi/116219/116225/financial/index.html"
+    )
+    stock_url = (
+        "https://www.pbc.gov.cn/diaochatongjisi/116219/116225/stock/index.html"
+    )
+    calls: list[str] = []
+
+    def fetch_text(url: str) -> str:
+        calls.append(url)
+        if url == catalog_url:
+            return (
+                '<input name="article_paging_list_hidden" moduleid="11871" '
+                'totalpage="2">'
+            )
+        if url == page_two_url:
+            return (
+                f'<a href="{financial_url}">2025年5月金融统计数据报告</a>'
+                '<span>2025-06-13</span>'
+                f'<a href="{stock_url}">2025年5月社会融资规模存量统计数据报告</a>'
+                '<span>2025-06-13</span>'
+            )
+        if url == financial_url:
+            return _html(
+                "2025年5月金融统计数据报告",
+                "2025-06-13 16:30:32",
+                "广义货币(M2)余额为325.78万亿元，同比增长7.9%。"
+                "前五个月人民币贷款增加10.68万亿元。",
+            )
+        if url == stock_url:
+            return _html(
+                "2025年5月社会融资规模存量统计数据报告",
+                "2025-06-13 16:30:18",
+                "社会融资规模存量为426.16万亿元，同比增长8.7%。",
+            )
+        raise AssertionError(url)
+
+    result = fetch_latest_official_china_document(
+        document_type="pboc_financial_statistics",
+        cutoff_at="2025-06-16T15:00:00+08:00",
+        retrieved_at="2026-08-30T08:00:00+00:00",
+        historical_replay=True,
+        fetch_text=fetch_text,
+    )
+
+    assert {row["series_id"] for row in result["observations"]} == {
+        "cn_tsfin_stock_yoy",
+        "cn_rmb_loan_flow",
+        "cn_m2_yoy",
+    }
+    assert result["source_urls"] == [financial_url, stock_url]
+    assert calls == [catalog_url, page_two_url, financial_url, stock_url]
 
 
 def test_mof_catalog_upgrades_allowlisted_http_article_to_verified_https() -> None:

@@ -8,6 +8,7 @@ provided by ``tests/test_bridge_protocol.py`` separately.
 from __future__ import annotations
 
 import importlib
+import json
 import sqlite3
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from mosaic.bridge import handlers as _handlers_pkg  # noqa: F401
 from mosaic.bridge.protocol import RpcError
 from mosaic.bridge.registry import get_handler
 from mosaic.scorecard import ScorecardStore
+from mosaic.scorecard.darwinian_v2 import canonical_hash
 
 
 def dispatch(method: str, params: dict):
@@ -360,10 +362,10 @@ class TestScorecardAppend:
         finally:
             package.reset_store_cache()
 
-    def test_live_off_does_not_require_cycle_publication(
+    def test_live_normal_does_not_require_cycle_publication(
         self, tmp_store, monkeypatch
     ):
-        monkeypatch.setenv("MOSAIC_ENSURE_SNAPSHOT_MODE", "off")
+        monkeypatch.delenv("MOSAIC_ENSURE_SNAPSHOT_MODE", raising=False)
         state = {**_sample_state(), "mode": "live", "trace_id": "daily-run-1"}
 
         assert dispatch("scorecard.append", {"state": state}) == {
@@ -371,11 +373,11 @@ class TestScorecardAppend:
             "macro_ingested": 0,
         }
 
-    def test_live_missing_mode_fails_closed(self, tmp_store, monkeypatch):
-        monkeypatch.delenv("MOSAIC_ENSURE_SNAPSHOT_MODE", raising=False)
-        state = {**_sample_state(), "mode": "live", "trace_id": "unconfigured-run"}
+    def test_live_off_mode_is_invalid(self, tmp_store, monkeypatch):
+        monkeypatch.setenv("MOSAIC_ENSURE_SNAPSHOT_MODE", "off")
+        state = {**_sample_state(), "mode": "live", "trace_id": "off-run"}
 
-        with pytest.raises(RpcError, match="requires explicit"):
+        with pytest.raises(RpcError, match="must be shadow or enforce when set"):
             dispatch("scorecard.append", {"state": state})
 
         with tmp_store._connect() as conn:
@@ -880,6 +882,527 @@ class TestScorecardListSkill:
                 "scorecard.list_skill",
                 {"cohort": "cohort_default", "since": 12345},
             )
+
+
+# ===========================================================================
+# darwinian.prepare_daily_cycle_outcomes
+# ===========================================================================
+
+
+class TestDarwinianPrepareDailyCycleOutcomes:
+    def test_missing_event_coverage_uses_cold_start_before_first_accepted_cycle(
+        self, monkeypatch
+    ):
+        calendar_module = importlib.import_module("mosaic.dataflows.calendar")
+        inputs_module = importlib.import_module(
+            "mosaic.dataflows.outcome_runtime_inputs"
+        )
+        darwinian = importlib.import_module("mosaic.bridge.handlers.darwinian")
+        cold_start_coverage = {"china": {"candidates": []}}
+        observed = {}
+
+        class Store:
+            def has_accepted_darwinian_cycle(self, **_kwargs):
+                return False
+
+            def prepare_outcome_schedule_plan(self, **kwargs):
+                observed.update(kwargs)
+                return {
+                    "outcome_schedule_plan_id": "plan-1",
+                    "outcome_schedule_plan_hash": "sha256:" + "1" * 64,
+                    "event_candidate_input_hash": "sha256:" + "2" * 64,
+                }
+
+        monkeypatch.setattr(darwinian, "_store", Store)
+        monkeypatch.setattr(
+            calendar_module,
+            "verified_trading_calendar_snapshot",
+            lambda *_args, **_kwargs: {"snapshot_hash": "sha256:" + "3" * 64},
+        )
+        monkeypatch.setattr(
+            inputs_module,
+            "load_verified_event_coverage",
+            lambda _as_of: (_ for _ in ()).throw(FileNotFoundError("unavailable")),
+        )
+        monkeypatch.setattr(
+            inputs_module,
+            "build_cold_start_event_coverage",
+            lambda: cold_start_coverage,
+        )
+
+        result = dispatch(
+            "darwinian.prepare_daily_cycle_outcomes",
+            {
+                "production_variant_roster_revision_id": "revision-1",
+                "graph_run_id": "run-1",
+                "as_of": "2025-06-16T15:00:00+08:00",
+                "prepared_at": "2025-06-16T15:00:00+08:00",
+            },
+        )
+
+        assert observed["verified_event_candidates"] is cold_start_coverage
+        assert result["event_candidate_input_hash"] == "sha256:" + "2" * 64
+
+    def test_missing_event_coverage_still_fails_after_an_accepted_cycle(
+        self, monkeypatch
+    ):
+        calendar_module = importlib.import_module("mosaic.dataflows.calendar")
+        inputs_module = importlib.import_module(
+            "mosaic.dataflows.outcome_runtime_inputs"
+        )
+        darwinian = importlib.import_module("mosaic.bridge.handlers.darwinian")
+
+        class Store:
+            def has_accepted_darwinian_cycle(self, **_kwargs):
+                return True
+
+        monkeypatch.setattr(darwinian, "_store", Store)
+        monkeypatch.setattr(
+            calendar_module,
+            "verified_trading_calendar_snapshot",
+            lambda *_args, **_kwargs: {"snapshot_hash": "sha256:" + "3" * 64},
+        )
+        monkeypatch.setattr(
+            inputs_module,
+            "load_verified_event_coverage",
+            lambda _as_of: (_ for _ in ()).throw(FileNotFoundError("unavailable")),
+        )
+
+        with pytest.raises(RpcError, match="unavailable"):
+            dispatch(
+                "darwinian.prepare_daily_cycle_outcomes",
+                {
+                    "production_variant_roster_revision_id": "revision-1",
+                    "graph_run_id": "run-1",
+                    "as_of": "2025-06-16T15:00:00+08:00",
+                    "prepared_at": "2025-06-16T15:00:00+08:00",
+                },
+            )
+
+
+# ===========================================================================
+# darwinian.freeze_outcome_opportunity
+# ===========================================================================
+
+
+def test_missing_l1_l2_projection_uses_runtime_authority(monkeypatch):
+    inputs = importlib.import_module("mosaic.dataflows.outcome_runtime_inputs")
+    preparer = importlib.import_module("mosaic.dataflows.agent_stage_preparer")
+    authority_module = importlib.import_module(
+        "mosaic.scorecard.opportunity_authority"
+    )
+    darwinian = importlib.import_module("mosaic.bridge.handlers.darwinian")
+    from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
+
+    domain_hash = "sha256:" + "4" * 64
+    member_refs = [{"path_snapshot_id": "macro-path-snapshot:us-financial"}]
+    authority = {
+        "member_refs": member_refs,
+        "runtime_authority_binding": {
+            "source_tool_id": "get_us_financial_conditions_snapshot",
+            "source_snapshot_hash": "sha256:" + "5" * 64,
+            "domain_hash": domain_hash,
+        },
+    }
+    observed = {}
+    call_order = []
+
+    class Store:
+        def resolve_scheduled_sample_context(self, **_kwargs):
+            return {
+                "agent_id": "us_financial_conditions",
+                "outcome_schedule_plan_id": "plan-1",
+                "as_of": "2025-06-17T15:00:00+08:00",
+                "graph_run_id": "graph-1",
+            }
+
+        def freeze_scheduled_outcome_opportunity(self, **kwargs):
+            observed.update(kwargs)
+            return {"run_allowed": True}
+
+    monkeypatch.setattr(darwinian, "_store", Store)
+    monkeypatch.setattr(
+        inputs,
+        "load_evaluation_opportunity_projection",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(FileNotFoundError()),
+    )
+    monkeypatch.setattr(
+        authority_module,
+        "materialize_pre_run_authority",
+        lambda **kwargs: call_order.append(("authority", kwargs)) or authority,
+    )
+    monkeypatch.setattr(
+        preparer,
+        "ensure_agent_stage_materialization",
+        lambda request: call_order.append(("prepare", request))
+        or {
+            "historical_replay_captured_at": "2026-08-31T01:40:11+08:00"
+        },
+    )
+
+    result = dispatch(
+        "darwinian.freeze_outcome_opportunity",
+        {
+            "outcome_schedule_plan_id": "plan-1",
+            "scheduled_sample_id": "sample-1",
+            "agent_id": "us_financial_conditions",
+        },
+    )
+
+    assert result["run_allowed"] is True
+    assert call_order == [
+        (
+            "prepare",
+            {
+                "agent_id": "us_financial_conditions",
+                "stage": "us_financial_conditions",
+                "as_of": "2025-06-17",
+            },
+        ),
+        (
+            "authority",
+            {
+                "agent_id": "us_financial_conditions",
+                "as_of": "2025-06-17T15:00:00+08:00",
+                "graph_run_id": "graph-1",
+                "schedule_slot": {
+                    "agent_id": "us_financial_conditions",
+                    "outcome_schedule_plan_id": "plan-1",
+                    "as_of": "2025-06-17T15:00:00+08:00",
+                    "graph_run_id": "graph-1",
+                },
+                "historical_replay_captured_at": (
+                    "2026-08-31T01:40:11+08:00"
+                ),
+            },
+        ),
+    ]
+    assert observed["member_refs"] == member_refs
+    assert observed["runtime_authority_binding"] == authority[
+        "runtime_authority_binding"
+    ]
+    assert set(observed["source_evidence_by_required_source_id"]) == set(
+        OUTCOME_CONTRACTS["us_financial_conditions"]["required_source_ids"]
+    )
+    assert all(
+        evidence[0].startswith("runtime-authority:us_financial_conditions:")
+        and evidence[0].endswith(domain_hash[7:])
+        for evidence in observed["source_evidence_by_required_source_id"].values()
+    )
+
+
+# ===========================================================================
+# darwinian.freeze_superinvestor_outcome_opportunity
+# ===========================================================================
+
+
+def test_missing_superinvestor_projection_uses_runtime_authority(monkeypatch):
+    preparer = importlib.import_module("mosaic.dataflows.agent_stage_preparer")
+    inputs = importlib.import_module("mosaic.dataflows.outcome_runtime_inputs")
+    capabilities = importlib.import_module("mosaic.bridge.tool_capabilities")
+    darwinian = importlib.import_module("mosaic.bridge.handlers.darwinian")
+    from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
+
+    member_refs = [{"candidate_ref": "candidate:000333", "ts_code": "000333.SZ"}]
+    snapshot = {
+        "snapshot_hash": "sha256:" + "6" * 64,
+        "candidate_universe": member_refs,
+        "candidate_scope_hash": "sha256:" + "7" * 64,
+        "candidate_universe_id": "candidate-universe:druckenmiller",
+        "candidate_universe_hash": "sha256:" + "8" * 64,
+    }
+    authority_hash = canonical_hash(
+        {
+            "contract_version": "evaluation_opportunity_source_authority_v1",
+            "agent_id": "druckenmiller",
+            "tool_id": "get_superinvestor_candidate_snapshot",
+            "source_snapshot_hash": snapshot["snapshot_hash"],
+            "candidate_scope_hash": snapshot["candidate_scope_hash"],
+            "candidate_universe_id": snapshot["candidate_universe_id"],
+            "candidate_universe_hash": snapshot["candidate_universe_hash"],
+            "member_refs": member_refs,
+        }
+    )
+    observed = {}
+    materialized = {}
+    preparation_requests = []
+
+    class Store:
+        def resolve_scheduled_sample_context(self, **_kwargs):
+            return {
+                "agent_id": "druckenmiller",
+                "outcome_schedule_plan_id": "plan-1",
+                "as_of": "2025-06-17T15:00:00+08:00",
+                "graph_run_id": "graph-1",
+                "prepared_at": "2025-06-17T15:00:00+08:00",
+            }
+
+        def freeze_scheduled_outcome_opportunity(self, **kwargs):
+            observed.update(kwargs)
+            return {"run_allowed": True}
+
+    monkeypatch.setattr(darwinian, "_store", Store)
+    monkeypatch.setattr(
+        inputs,
+        "load_evaluation_opportunity_projection",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(FileNotFoundError()),
+    )
+    monkeypatch.setattr(
+        preparer,
+        "ensure_agent_stage_materialization",
+        lambda request: preparation_requests.append(request) or {"status": "READY"},
+    )
+    def materialize(*_args, **kwargs):
+        materialized.update(kwargs)
+        return json.dumps(snapshot)
+
+    monkeypatch.setattr(capabilities, "materialize_tool_payload", materialize)
+
+    result = dispatch(
+        "darwinian.freeze_superinvestor_outcome_opportunity",
+        {
+            "outcome_schedule_plan_id": "plan-1",
+            "scheduled_sample_id": "sample-1",
+            "agent_id": "druckenmiller",
+            "recorded_at": "2025-06-17T15:00:00+08:00",
+            "accepted_output_refs": [{"agent_id": "semiconductor"}],
+            "runtime_inputs": {
+                "accepted_output_refs": [{"agent_id": "semiconductor"}],
+                "accepted_output_records": [],
+                "bound_runtime_state": {"current_positions": {}},
+            },
+        },
+    )
+
+    assert result["run_allowed"] is True
+    assert materialized["expected_runtime_input_hash"] == canonical_hash(
+        preparation_requests[0]["runtime_inputs"]
+    )
+    assert preparation_requests == [
+        {
+            "agent_id": "druckenmiller",
+            "stage": "druckenmiller",
+            "as_of": "2025-06-17",
+            "graph_run_id": "graph-1",
+            "runtime_inputs": {
+                "accepted_output_refs": [{"agent_id": "semiconductor"}],
+                "accepted_output_records": [],
+                "bound_runtime_state": {"current_positions": {}},
+            },
+            "candidate_scope": {
+                "accepted_output_refs": [{"agent_id": "semiconductor"}],
+            },
+        }
+    ]
+    assert observed["member_refs"] == member_refs
+    assert set(observed["source_evidence_by_required_source_id"]) == set(
+        OUTCOME_CONTRACTS["druckenmiller"]["required_source_ids"]
+    )
+    assert all(
+        evidence[0].startswith("runtime-authority:druckenmiller:")
+        and evidence[0].endswith(authority_hash[7:])
+        for evidence in observed["source_evidence_by_required_source_id"].values()
+    )
+
+
+# ===========================================================================
+# darwinian.freeze_stage_outcome_opportunity
+# ===========================================================================
+
+
+def test_cio_frozen_baseline_uses_cross_runtime_left_fold():
+    darwinian = importlib.import_module("mosaic.bridge.handlers.darwinian")
+    from mosaic.scorecard.darwinian_v2 import canonical_hash
+
+    candidates = [
+        {
+            "proposal_position_ref": f"position-{index}",
+            "ts_code": f"60000{index}.SH",
+            "current_weight": weight,
+            "proposed_target_weight": weight,
+        }
+        for index, weight in enumerate((0.1, 0.2, 0.3), start=1)
+    ]
+    authority = {
+        "agent_id": "cio",
+        "stage": "cio_final",
+        "snapshot_id": "runtime-snapshot:cio",
+        "snapshot_hash": "sha256:" + "1" * 64,
+        "candidate_scope_hash": "sha256:" + "2" * 64,
+        "candidate_universe_id": "candidate-universe:cio",
+        "candidate_universe_hash": canonical_hash(
+            {"candidate_status": "AVAILABLE", "candidate_universe": candidates}
+        ),
+        "candidate_status": "AVAILABLE",
+        "candidate_universe": candidates,
+        "upstream_accepted_output_refs": [],
+    }
+    payload, _members = darwinian._expected_decision_frozen_object("cio", authority)
+    left_fold = 0.0
+    for row in candidates:
+        left_fold += row["current_weight"]
+
+    assert left_fold != sum(row["current_weight"] for row in candidates)
+    assert payload["portfolio_context"]["baseline_cash_weight"] == 1.0 - left_fold
+
+
+@pytest.mark.parametrize("has_candidate", [False, True])
+def test_missing_decision_projection_uses_runtime_frozen_object(
+    monkeypatch, has_candidate
+):
+    inputs = importlib.import_module("mosaic.dataflows.outcome_runtime_inputs")
+    tools = importlib.import_module("mosaic.bridge.tool_capabilities")
+    darwinian = importlib.import_module("mosaic.bridge.handlers.darwinian")
+    from mosaic.scorecard.darwinian_v2 import canonical_hash
+    from mosaic.scorecard.outcome_contracts import OUTCOME_CONTRACTS
+
+    candidate_universe = (
+        [
+            {
+                "candidate_ref": "candidate:000333",
+                "ts_code": "000333.SZ",
+                "proposed_target_weight": 0.04,
+            }
+        ]
+        if has_candidate
+        else []
+    )
+    candidate_status = "AVAILABLE" if has_candidate else "EMPTY_CONFIRMED"
+    authority = {
+        "agent_id": "cro",
+        "stage": "cro",
+        "snapshot_id": "runtime-snapshot:cro",
+        "snapshot_hash": "sha256:" + "1" * 64,
+        "candidate_scope_hash": "sha256:" + "2" * 64,
+        "candidate_universe_id": "candidate-universe:cro",
+        "candidate_universe_hash": canonical_hash(
+            {
+                "candidate_status": candidate_status,
+                "candidate_universe": candidate_universe,
+            }
+        ),
+        "candidate_status": candidate_status,
+        "candidate_universe": candidate_universe,
+        "upstream_accepted_output_refs": [],
+        "role_context": {},
+    }
+    object_payload, members = darwinian._expected_decision_frozen_object(
+        "cro", authority
+    )
+    frozen_hash = canonical_hash(object_payload)
+    frozen_object = {
+        "schema_version": "decision_stage_frozen_object_set_v1",
+        "agent_id": "cro",
+        "object_kind": "CRO_CANDIDATE_UNIVERSE",
+        "frozen_object_set_id": f"cro-candidate-universe:{frozen_hash[7:]}",
+        "frozen_object_set_hash": frozen_hash,
+        "object_payload": object_payload,
+        "member_refs": members,
+    }
+    observed = {}
+    materialized = {}
+
+    class Store:
+        def resolve_scheduled_sample_context(self, **_kwargs):
+            return {
+                "agent_id": "cro",
+                "outcome_schedule_plan_id": "plan-1",
+                "as_of": "2025-06-16T15:00:00+08:00",
+                "graph_run_id": "graph-1",
+            }
+
+        def freeze_scheduled_outcome_opportunity(self, **kwargs):
+            observed.update(kwargs)
+            return {
+                "run_allowed": True,
+                "evaluation_opportunity_set_id": "opportunity-1",
+                "evaluation_opportunity_set_hash": "sha256:" + "3" * 64,
+                "frozen_object_set_id": frozen_object["frozen_object_set_id"],
+                "frozen_object_set_hash": frozen_hash,
+            }
+
+        def create_no_evaluation_object_stage_skip(self, **_kwargs):
+            return {"stage_skip": {"agent_id": "cro"}}
+
+    monkeypatch.setattr(darwinian, "_store", Store)
+    monkeypatch.setattr(
+        inputs,
+        "load_evaluation_opportunity_projection",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(FileNotFoundError()),
+    )
+    def materialize(*_args, **kwargs):
+        materialized.update(kwargs)
+        return json.dumps(authority)
+
+    monkeypatch.setattr(tools, "materialize_tool_payload", materialize)
+
+    result = dispatch(
+        "darwinian.freeze_stage_outcome_opportunity",
+        {
+            "outcome_schedule_plan_id": "plan-1",
+            "scheduled_sample_id": "sample-1",
+            "agent_id": "cro",
+            "recorded_at": "2025-06-16T15:00:00+08:00",
+            "runtime_input_hash": "sha256:" + "4" * 64,
+            "frozen_object": frozen_object,
+        },
+    )
+
+    if has_candidate:
+        assert "stage_skip" not in result
+    else:
+        assert result["stage_skip"] == {"agent_id": "cro"}
+    assert materialized["expected_runtime_input_hash"] == "sha256:" + "4" * 64
+    assert observed["member_refs"] == members
+    assert set(observed["source_evidence_by_required_source_id"]) == set(
+        OUTCOME_CONTRACTS["cro"]["required_source_ids"]
+    )
+    assert all(
+        evidence[0].startswith("runtime-frozen:cro:")
+        and evidence[0].endswith(frozen_hash[7:])
+        for evidence in observed["source_evidence_by_required_source_id"].values()
+    )
+
+
+def test_accepted_execution_control_can_have_empty_evaluation_opportunity():
+    darwinian = importlib.import_module("mosaic.bridge.handlers.darwinian")
+
+    class Store:
+        def resolve_no_evaluation_object_stage_skip(self, **kwargs):
+            if kwargs["agent_id"] != "autonomous_execution":
+                return None
+            return {
+                "stage_skip_id": "skip:execution",
+                "stage_skip_hash": "sha256:" + "1" * 64,
+            }
+
+    darwinian._assert_server_owned_decision_control_sources(
+        Store(),
+        agent_id="cio",
+        graph_run_id="graph-1",
+        runtime_authority={
+            "role_context": {
+                "cro_control_source": {
+                    "source_status": "ACCEPTED_OUTPUT",
+                    "agent_id": "cro",
+                    "accepted_output_kind": "CRO_RISK_REVIEW",
+                    "accepted_output_id": "accepted:cro",
+                    "accepted_output_hash": "sha256:" + "2" * 64,
+                    "stage_skip_id": None,
+                    "stage_skip_hash": None,
+                },
+                "execution_control_source": {
+                    "source_status": "ACCEPTED_OUTPUT",
+                    "agent_id": "autonomous_execution",
+                    "accepted_output_kind": "EXECUTION_ASSESSMENT",
+                    "accepted_output_id": "accepted:execution",
+                    "accepted_output_hash": "sha256:" + "3" * 64,
+                    "stage_skip_id": None,
+                    "stage_skip_hash": None,
+                },
+            }
+        },
+    )
 
 
 # ===========================================================================

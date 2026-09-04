@@ -236,7 +236,7 @@ export async function invokeStrictStructured<T>(
     let issues: AgentContractIssue[] = [];
     let candidate: T | null = null;
     try {
-      const response = await bound.invoke(input);
+      const response = await bound.invoke(input, opts.signal ? { signal: opts.signal } : undefined);
       const envelope = structuredEnvelope(response);
       providerRaw = envelope.parsed;
       const usage = extractLlmTokenUsage(envelope.raw);

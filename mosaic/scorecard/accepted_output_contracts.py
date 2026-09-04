@@ -464,8 +464,22 @@ def _validate_knot_capture_v2(record: Mapping[str, Any]) -> None:
             )
 
     payload = _object(envelope.get("payload"), "accepted output payload")
+    payload_claims = payload.get("claims")
+    nested_claim_field = {
+        "ALPHA_DISCOVERY": "selection",
+        "CIO_FINAL": "decision",
+        "CIO_PROPOSAL": "decision",
+        "CRO_RISK_REVIEW": "review",
+        "EXECUTION_ASSESSMENT": "assessment",
+        "STANDARD_SECTOR_SELECTION": "selection",
+        "SUPERINVESTOR_SELECTION": "selection",
+    }.get(record.get("accepted_output_kind"))
+    if payload_claims is None and nested_claim_field is not None:
+        payload_claims = _object(
+            payload.get(nested_claim_field), "accepted claim container"
+        ).get("claims")
     payload_conclusions: dict[str, Mapping[str, Any]] = {}
-    for raw_claim in _list(payload.get("claims"), "accepted output claims"):
+    for raw_claim in _list(payload_claims, "accepted output claims"):
         claim = _object(raw_claim, "accepted output claim")
         claim_id = _text(claim.get("claim_id"), "accepted claim ID")
         payload_conclusions[claim_id] = _object(
@@ -570,6 +584,17 @@ def _validate_macro(payload: Mapping[str, Any], agent_id: str) -> dict[str, list
         }
     if "trend" in payload:
         fields.add("trend")
+    legacy_track_fields = {
+        "reliability_adapter_contract_version",
+        "confidence_semantics_contract_version",
+    }
+    present_legacy_track_fields = legacy_track_fields.intersection(payload)
+    if present_legacy_track_fields:
+        if present_legacy_track_fields != legacy_track_fields or any(
+            payload[field] is not None for field in legacy_track_fields
+        ):
+            raise ValueError(f"{agent_id} Macro legacy track fields are invalid")
+        fields.update(legacy_track_fields)
     _exact_object(
         payload,
         fields,
@@ -1245,8 +1270,10 @@ def _validate_cro(payload: Mapping[str, Any], agent_id: str) -> dict[str, list[s
         max_refs=10,
     )
     derived = (
-        "BLOCK_ALL"
-        if actions and all(action["action"] == "VETO" for action in actions)
+        "NO_RISK_ACTION"
+        if not actions
+        else "BLOCK_ALL"
+        if all(action["action"] == "VETO" for action in actions)
         else "NO_OBJECTION"
         if all(action["action"] == "NO_OBJECTION" for action in actions)
         else "REVIEW_ACTIONS"
@@ -1461,7 +1488,7 @@ def _validate_execution(payload: Mapping[str, Any], agent_id: str) -> dict[str, 
         _bounded_list(
             assessment.get("order_assessments"),
             "order assessments",
-            minimum=1,
+            minimum=0,
             maximum=50,
         )
     ):
@@ -1549,10 +1576,17 @@ def _validate_execution(payload: Mapping[str, Any], agent_id: str) -> dict[str, 
         raise ValueError("accepted execution assessments must be ordered by assessment_local_id")
     disposition = _enum(
         assessment.get("execution_disposition"),
-        {"ORDERS_ASSESSED", "BLOCKED"},
+        {"ORDERS_ASSESSED", "BLOCKED", "NO_EXECUTION_ACTION"},
         "execution_disposition",
     )
-    if (disposition == "BLOCKED") != all(row["feasibility"] == "BLOCKED" for row in assessments):
+    derived = (
+        "NO_EXECUTION_ACTION"
+        if not assessments
+        else "BLOCKED"
+        if all(row["feasibility"] == "BLOCKED" for row in assessments)
+        else "ORDERS_ASSESSED"
+    )
+    if disposition != derived:
         raise ValueError("execution_disposition does not match order assessments")
     raw_payload = {**assessment, "order_assessments": raw_assessments}
     expected_id = _persistent_id(
@@ -1915,7 +1949,7 @@ def _claims_and_refs(
             {"FACT", "EVENT", "INTERPRETATION", "RISK_FLAG"},
             "claim_kind",
         )
-        _text(claim.get("statement"), "claim statement", maximum=320)
+        _text(claim.get("statement"), "claim statement", maximum=3200)
         evidence_ids = _text_array(
             claim.get("evidence_ids"),
             "claim evidence IDs",

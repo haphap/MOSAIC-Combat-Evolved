@@ -107,6 +107,7 @@ function resolvedStageKeys(
 ): Set<string> {
   const keys = new Set(audits.map((audit) => `${audit.agent}:${audit.stage}`));
   for (const agentId of Object.keys(state.outcome_stage_skips)) {
+    if (agentId === "cro" || agentId === "autonomous_execution") continue;
     const stage =
       agentId === "alpha_discovery"
         ? "alpha_discovery"

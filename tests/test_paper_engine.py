@@ -10,6 +10,7 @@ from __future__ import annotations
 import importlib.util
 import tempfile
 import unittest
+from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -142,6 +143,103 @@ class TestPaperEngine(unittest.TestCase):
         )
         self.assertEqual(before["snapshot_hash"], after["snapshot_hash"])
 
+    def test_account_snapshot_hash_ignores_day_barrier_marker(self):
+        self.e.register("alice", "pw")
+        self.e.login("alice", "pw")
+        before = self.e.get_portfolio_snapshot("alice")
+        with self.e._connect() as conn:
+            conn.execute(
+                "UPDATE account SET last_unlock_date = '2000-01-01' WHERE user_id = 'alice'"
+            )
+            account_row, position_rows = self.e._portfolio_state_rows(conn, "alice")
+            after_hash = self.e._portfolio_state_hash(
+                "alice", account_row, position_rows
+            )
+
+        self.assertEqual(before["snapshot_hash"], after_hash)
+
+    def test_account_snapshot_cas_accepts_legacy_hash_across_midnight(self):
+        self.e.register("alice", "pw")
+        self.e.login("alice", "pw")
+        self.e.get_portfolio_snapshot("alice")
+        with self.e._connect() as conn:
+            account_row, position_rows = self.e._portfolio_state_rows(conn, "alice")
+            legacy_hash = self.e._legacy_portfolio_state_hash_v1(
+                "alice",
+                account_row,
+                position_rows,
+                last_unlock_date=(date.today() - timedelta(days=1)).isoformat(),
+            )
+
+        result = self.e.buy(
+            "510300.SH",
+            100,
+            user_id="alice",
+            expected_account_snapshot_hash=legacy_hash,
+        )
+
+        self.assertEqual(result["filled_quantity"], 100)
+
+    def test_account_snapshot_hash_changes_when_day_barrier_unlocks_positions(self):
+        self.e.register("alice", "pw")
+        self.e.login("alice", "pw")
+        self.e.buy("510300.SH", 100, user_id="alice")
+        before = self.e.get_portfolio_snapshot("alice")
+        with self.e._connect() as conn:
+            conn.execute(
+                "UPDATE account SET last_unlock_date = '2000-01-01' WHERE user_id = 'alice'"
+            )
+
+        after = self.e.get_portfolio_snapshot("alice")
+
+        self.assertEqual(before["positions"][0]["available_qty"], 0)
+        self.assertEqual(after["positions"][0]["available_qty"], 100)
+        self.assertNotEqual(before["snapshot_hash"], after["snapshot_hash"])
+
+    def test_current_price_falls_back_from_etf_to_stock_data(self):
+        self._price.stop()
+        try:
+            stock_csv = (
+                "Date,Open,High,Low,Close,Volume\n"
+                "2026-08-29,70,72,69,71.25,1000\n"
+            )
+            with patch(
+                "mosaic.dataflows.interface.route_to_vendor",
+                side_effect=["No ETF price data found.", stock_csv],
+            ) as route:
+                price = self.e._get_current_price("000333.SZ")
+        finally:
+            self._price.start()
+
+        self.assertEqual(price, 71.25)
+        self.assertEqual(
+            [call.args[0] for call in route.call_args_list],
+            ["get_etf_price_data", "get_stock_data"],
+        )
+
+    def test_suggest_order_propagates_price_unavailability(self):
+        self.e.register("alice", "pw")
+        self.e.login("alice", "pw")
+        state = {
+            "backtest_signal": {
+                "ticker": "000333.SZ",
+                "decision_date": "2025-06-16",
+                "source": "daily_cycle_position_target",
+                "source_section": "portfolio_actions",
+                "rating": "BUY",
+                "target_weight_pct": 4.0,
+            }
+        }
+        with patch.object(
+            PaperTradingEngine,
+            "_get_current_price",
+            side_effect=RuntimeError("vendor unavailable"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "vendor unavailable"):
+                self.e.suggest_order_from_signal(
+                    "000333.SZ", state, user_id="alice"
+                )
+
     def test_t1_blocks_same_day_sell_then_unlocks(self):
         self.e.register("alice", "pw")
         self.e.login("alice", "pw")
@@ -155,6 +253,32 @@ class TestPaperEngine(unittest.TestCase):
         out = self.e.sell("510300.SH", 1000, user_id="alice")
         self.assertEqual(out["side"], "sell")
         self.assertEqual(self.e.get_positions("alice"), [])
+
+    def test_explicit_trade_date_controls_t1_unlock(self):
+        self.e.register("alice", "pw")
+        self.e.login("alice", "pw")
+        self.e.reset_account(initial_cash=1_000_000.0)
+        self.e.buy(
+            "510300.SH", 1000, user_id="alice", trade_date="2025-06-24"
+        )
+
+        same_day = self.e.get_portfolio_snapshot(
+            "alice", trade_date="2025-06-24"
+        )
+        next_day = self.e.get_portfolio_snapshot(
+            "alice", trade_date="2025-06-25"
+        )
+
+        self.assertEqual(same_day["positions"][0]["available_qty"], 0)
+        self.assertEqual(next_day["positions"][0]["available_qty"], 1000)
+        sold = self.e.sell(
+            "510300.SH",
+            1000,
+            user_id="alice",
+            expected_account_snapshot_hash=same_day["snapshot_hash"],
+            trade_date="2025-06-25",
+        )
+        self.assertEqual(sold["side"], "sell")
 
     def test_validate_quantity_lot_size(self):
         self.e.register("alice", "pw")

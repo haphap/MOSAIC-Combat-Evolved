@@ -67,6 +67,7 @@ from .sector_archive import (
     STANDARD_SECTOR_AGENT_IDS,
     SectorArchiveStore,
     archive_sector_relationship,
+    compile_sector_relationship_core_snapshots,
 )
 from .source_archive import (
     archive_eco_calendar,
@@ -503,12 +504,14 @@ def prepare_bound_runtime_family(
     binding = bound_bindings[0]
     tool_id = str(binding["tool_id"])
     root = output_root or runtime_snapshot_root()
+    runtime_input_hash = canonical_hash(runtime_inputs)
     relative_path = bound_runtime_snapshot_relative_path(
         agent_id=agent_id,
         stage=stage,
         tool_id=tool_id,
         as_of=as_of,
         graph_run_id=graph_run_id,
+        runtime_input_hash=runtime_input_hash,
     )
     existing_path = root / relative_path
     if existing_path.is_file():
@@ -556,6 +559,7 @@ def prepare_bound_runtime_family(
             snapshot,
             tool_id=tool_id,
             output_root=root,
+            runtime_input_hash=runtime_input_hash,
         )
     except DataVendorUnavailable as exc:
         if str(exc) != "immutable bound runtime snapshot collision":
@@ -572,6 +576,7 @@ def prepare_bound_runtime_family(
             snapshot,
             tool_id=tool_id,
             output_root=root,
+            runtime_input_hash=runtime_input_hash,
         )
     source_receipt_hashes: list[str] = []
     for route_id in sorted(binding["required_route_ids"]):
@@ -634,6 +639,7 @@ def prepare_bound_runtime_family(
     stored_build = ledger.append_or_reuse_snapshot_build(build)
     role_cache_status: str | None = None
     if (agent_id, stage) in _BOUND_ROLE_EVENT_STAGES:
+        historical_replay = _historical_replay(request)
         role_ready_before = ledger.ready_snapshot_build_receipts(
             agent_id=agent_id,
             stage=stage,
@@ -661,10 +667,12 @@ def prepare_bound_runtime_family(
             )
         else:
             calendar_store = EconomicCalendarStore()
+            captured_at = _stage_capture_now().astimezone(timezone.utc).isoformat()
             calendar = archive_eco_calendar(
                 partial(_china_tushare_fetch, endpoint="eco_cal"),
                 as_of_date=as_of,
-                captured_at=_stage_capture_now().astimezone(timezone.utc).isoformat(),
+                captured_at=captured_at,
+                **({"as_of_cutoff": captured_at} if historical_replay else {}),
                 store=calendar_store,
                 ledger=ledger,
             )
@@ -673,6 +681,7 @@ def prepare_bound_runtime_family(
             store=calendar_store,
             ledger=ledger,
             agent_ids=(agent_id,),
+            historical_replay=historical_replay,
         )
         if not calendar.coverage_receipt.as_dict()["coverage_complete"]:
             raise DataVendorUnavailable("economic calendar archive is blocked")
@@ -685,6 +694,9 @@ def prepare_bound_runtime_family(
         "cache_status": cache_status,
         "source_receipt_hashes": source_receipt_hashes,
         "build_receipt_hash": stored_build.receipt_hash,
+        "prepared_build_receipt_hashes": {
+            tool_id: stored_build.receipt_hash,
+        },
     }
 
 
@@ -717,12 +729,23 @@ def publish_ready_stage_materialization(
         expected_output_hashes, Mapping
     ):
         raise ValueError("tool_payload_hashes must be an object")
+    stage_preparation = request.get("stage_preparation")
+    preferred_build_receipt_hashes = (
+        stage_preparation.get("prepared_build_receipt_hashes")
+        if isinstance(stage_preparation, Mapping)
+        else None
+    )
+    if preferred_build_receipt_hashes is not None and not isinstance(
+        preferred_build_receipt_hashes, Mapping
+    ):
+        raise ValueError("prepared build receipt hashes must be an object")
     tool_ids, build_receipts, source_receipts = _ready_stage_receipts(
         ledger=ledger,
         agent_id=agent_id,
         stage=stage,
         as_of=as_of,
         expected_output_hashes=expected_output_hashes,
+        preferred_build_receipt_hashes=preferred_build_receipt_hashes,
     )
     now = (clock or (lambda: datetime.now(timezone.utc)))().astimezone(timezone.utc)
     runtime_route_eligibility_receipt_hashes = evaluate_runtime_stage_admission(
@@ -826,6 +849,7 @@ def _ready_stage_receipts(
     stage: str,
     as_of: str,
     expected_output_hashes: Mapping[str, Any] | None = None,
+    preferred_build_receipt_hashes: Mapping[str, Any] | None = None,
     tool_ids: Sequence[str] | None = None,
 ) -> tuple[list[str], dict[str, str], dict[str, list[str]]]:
     bindings = _stage_bindings(agent_id, stage)
@@ -861,6 +885,16 @@ def _ready_stage_receipts(
                 for build in ready
                 if build.as_dict()["output_hash"] == expected_output_hash
             )
+        if preferred_build_receipt_hashes is not None:
+            preferred_receipt_hash = preferred_build_receipt_hashes.get(tool_id)
+            if preferred_receipt_hash is not None:
+                if not isinstance(preferred_receipt_hash, str):
+                    raise ValueError("preferred build receipt hash must be a string")
+                ready = tuple(
+                    build
+                    for build in ready
+                    if build.receipt_hash == preferred_receipt_hash
+                )
         if not ready:
             raise DataVendorUnavailable(
                 f"no READY build for {agent_id}/{stage}/{tool_id} on {as_of}"
@@ -1072,6 +1106,10 @@ class TrustedAgentStagePreparer:
         as_of = _required_text(request, "as_of")
         stage_key = (agent_id, stage)
         historical_replay = _historical_replay(request)
+        deferred_tool_ids = set(_deferred_request_only_tool_ids(request) or ())
+        family_request = dict(request)
+        family_request.pop(_DEFERRED_REQUEST_ONLY_MARKER, None)
+        family_request.pop(_DEFERRED_TOOL_IDS, None)
         role_event_binding = next(
             (
                 binding
@@ -1081,6 +1119,7 @@ class TrustedAgentStagePreparer:
             None,
         )
         cache_status: str | None = None
+        prepared_build_receipt_hashes: Mapping[str, Any] | None = None
         if stage_key not in self.always_prepare_stages:
             try:
                 _ready_stage_receipts(
@@ -1088,6 +1127,11 @@ class TrustedAgentStagePreparer:
                     agent_id=agent_id,
                     stage=stage,
                     as_of=as_of,
+                    tool_ids=sorted(
+                        binding["tool_id"]
+                        for binding in _stage_bindings(agent_id, stage)
+                        if binding["tool_id"] not in deferred_tool_ids
+                    ),
                 )
                 cache_status = "HIT"
             except DataVendorUnavailable as exc:
@@ -1100,12 +1144,19 @@ class TrustedAgentStagePreparer:
                 raise DataVendorUnavailable(
                     f"no registered family preparer for {agent_id}/{stage}"
                 )
-            prepared = family_preparer(request, ledger)
+            prepared = family_preparer(family_request, ledger)
             cache_status = (
                 str(prepared.get("cache_status", "MISS"))
                 if isinstance(prepared, Mapping)
                 else "MISS"
             )
+            if isinstance(prepared, Mapping):
+                value = prepared.get("prepared_build_receipt_hashes")
+                if value is not None and not isinstance(value, Mapping):
+                    raise ValueError(
+                        "family preparer build receipt hashes must be an object"
+                    )
+                prepared_build_receipt_hashes = value
         if cache_status not in {"HIT", "MISS", "MIXED"}:
             raise ValueError("family preparer returned an invalid cache_status")
         result = {
@@ -1114,6 +1165,10 @@ class TrustedAgentStagePreparer:
             "as_of": as_of,
             "cache_status": cache_status,
         }
+        if prepared_build_receipt_hashes is not None:
+            result["prepared_build_receipt_hashes"] = dict(
+                prepared_build_receipt_hashes
+            )
         if historical_replay and role_event_binding is not None:
             _, _, source_receipts = _ready_stage_receipts(
                 ledger=ledger,
@@ -1167,6 +1222,13 @@ class TrustedAgentStageFinalizer:
         cache_status = preparation.get("cache_status")
         if cache_status not in {"HIT", "MISS", "MIXED"}:
             raise ValueError("stage_preparation cache_status is invalid")
+        preferred_build_receipt_hashes = preparation.get(
+            "prepared_build_receipt_hashes"
+        )
+        if preferred_build_receipt_hashes is not None and not isinstance(
+            preferred_build_receipt_hashes, Mapping
+        ):
+            raise ValueError("prepared build receipt hashes must be an object")
         ledger = self.ledger_factory()
         adaptive_query = context.get("adaptive_query")
         if isinstance(adaptive_query, Mapping) and adaptive_query.get("deferred") is True:
@@ -1178,7 +1240,7 @@ class TrustedAgentStageFinalizer:
             payload_hashes = context.get("tool_payload_hashes")
             projection = adaptive_query.get("public_projection")
             if (
-                preparation.get("ensure_mode") != "enforce"
+                preparation.get("ensure_mode") not in {None, "enforce"}
                 or preparation.get("agent_id") != agent_id
                 or preparation.get("stage") != stage
                 or preparation.get("as_of") != as_of
@@ -1213,6 +1275,7 @@ class TrustedAgentStageFinalizer:
                     stage=stage,
                     as_of=as_of,
                     expected_output_hashes=payload_hashes,
+                    preferred_build_receipt_hashes=preferred_build_receipt_hashes,
                     tool_ids=initial_tool_ids,
                 )
             )
@@ -1689,10 +1752,35 @@ def prepare_sector_relationship_family(
     else:
         raise ValueError("agent is outside the standard Sector stage roster")
     if not route_only:
-        raise DataVendorUnavailable(
-            "standard Sector snapshot cold miss has no bounded authority",
-            reason_code="SECTOR_RELATIONSHIP_ARCHIVE_BLOCKED",
+        role_event_binding = next(
+            (
+                binding
+                for binding in _stage_bindings(agent_id, agent_id)
+                if binding["tool_id"] == "get_role_event_snapshot"
+            ),
+            None,
         )
+        if role_event_binding is not None:
+            captured_at = _stage_capture_now().astimezone(timezone.utc).isoformat()
+            calendar_store = EconomicCalendarStore()
+            calendar = archive_eco_calendar(
+                partial(_china_tushare_fetch, endpoint="eco_cal"),
+                as_of_date=as_of,
+                captured_at=captured_at,
+                **({"as_of_cutoff": captured_at} if historical_replay else {}),
+                requested_route_ids=tuple(role_event_binding["required_route_ids"]),
+                store=calendar_store,
+                ledger=ledger,
+            )
+            compile_sector_role_event_builds(
+                archive=calendar,
+                store=calendar_store,
+                ledger=ledger,
+                agent_id=agent_id,
+                historical_replay=historical_replay,
+            )
+            if not calendar.coverage_receipt.as_dict()["coverage_complete"]:
+                raise DataVendorUnavailable("economic calendar archive is blocked")
 
     sector_store = SectorArchiveStore()
     sector_archive = archive_sector_relationship(
@@ -1710,7 +1798,12 @@ def prepare_sector_relationship_family(
             "sector relationship archive is blocked",
             reason_code="SECTOR_RELATIONSHIP_ARCHIVE_BLOCKED",
         )
-    return
+    if route_only:
+        return
+    compile_sector_relationship_core_snapshots(
+        sector_archive,
+        ledger=ledger,
+    )
 
 
 def us_macro_observation_start(as_of: str) -> str:
@@ -2121,6 +2214,11 @@ def prepare_europe_macro_family(
 def _ensure_agent_stage_materialization_core(
     request: Mapping[str, Any],
 ) -> dict[str, Any]:
+    core_request = dict(request)
+    if "historical_replay" not in core_request and date.fromisoformat(
+        _required_text(core_request, "as_of")
+    ) < _stage_capture_now().astimezone(_SHANGHAI).date():
+        core_request["historical_replay"] = True
     return TrustedAgentStagePreparer(
         ledger_factory=lambda: open_agent_data_materialization_ledger(create=True),
         family_preparers={
@@ -2136,7 +2234,7 @@ def _ensure_agent_stage_materialization_core(
             **{key: prepare_bound_runtime_family for key in _BOUND_RUNTIME_FAMILY_STAGES},
         },
         always_prepare_stages=_BOUND_RUNTIME_FAMILY_STAGES,
-    )(request)
+    )(core_request)
 
 
 def prepare_agent_stage_materialization_current_namespace(
@@ -2176,10 +2274,8 @@ def _is_structured_smoke_bound_runtime_request(
 
 
 def ensure_agent_stage_materialization(request: Mapping[str, Any]) -> dict[str, Any]:
-    """Run trusted materialization under the configured rollout authority."""
+    """Use the normal warm-first path unless snapshot rollout is explicit."""
     core_request = dict(request)
-    core_request.pop(_DEFERRED_REQUEST_ONLY_MARKER, None)
-    core_request.pop(_DEFERRED_TOOL_IDS, None)
     if os.getenv("MOSAIC_NON_PRODUCTION_SOURCE_GAP_BYPASS") == "structured_smoke":
         if _is_structured_smoke_bound_runtime_request(request):
             return {
@@ -2188,12 +2284,12 @@ def ensure_agent_stage_materialization(request: Mapping[str, Any]) -> dict[str, 
             }
         return {"status": "SYNTHETIC_NON_PRODUCTION_BYPASS"}
     mode = os.getenv("MOSAIC_ENSURE_SNAPSHOT_MODE")
-    if mode not in {"off", "shadow", "enforce"}:
+    if mode is None:
+        return _ensure_agent_stage_materialization_core(core_request)
+    if mode not in {"shadow", "enforce"}:
         raise DataVendorUnavailable(
-            "MOSAIC_ENSURE_SNAPSHOT_MODE must be one of off, shadow, enforce"
+            "MOSAIC_ENSURE_SNAPSHOT_MODE must be shadow or enforce when set"
         )
-    if mode == "off":
-        return {"ensure_mode": "off", "status": "OFF"}
     if mode == "enforce":
         agent_id = _required_text(request, "agent_id")
         stage = _required_text(request, "stage")

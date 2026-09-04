@@ -140,6 +140,36 @@ class TestFallback:
 
 
 class TestVerifiedSnapshot:
+    def test_long_history_is_fetched_in_bounded_multi_year_chunks(self, monkeypatch):
+        calls = []
+
+        def fetch(start, end):
+            calls.append((start.isoformat(), end.isoformat()))
+            rows = []
+            current = start
+            while current <= end:
+                rows.append(
+                    {
+                        "cal_date": current.strftime("%Y%m%d"),
+                        "is_open": int(current.weekday() < 5),
+                    }
+                )
+                from datetime import timedelta
+
+                current += timedelta(days=1)
+            return cal.pd.DataFrame(rows)
+
+        monkeypatch.setattr(cal, "_fetch_trade_cal_via_tushare", fetch)
+        cal.verified_trading_calendar_snapshot(
+            "2010-01-04",
+            "2025-09-07",
+            as_of="2025-07-09T15:00:00+08:00",
+        )
+        assert calls == [
+            ("2010-01-04", "2019-12-31"),
+            ("2020-01-01", "2025-09-07"),
+        ]
+
     def test_requires_complete_tushare_rows(self, monkeypatch):
         def fetch(start, end):
             rows = []

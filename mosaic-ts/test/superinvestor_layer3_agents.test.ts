@@ -485,6 +485,14 @@ describe("Layer-3 scheduled opportunity boundary", () => {
         accepted_output_hash: `sha256:${"a".repeat(64)}`,
       },
     };
+    input.current_positions.position_snapshot_hash = `sha256:${"9".repeat(64)}`;
+    const acceptedRecord = {
+      accepted_output_id: "accepted:energy",
+      accepted_output_hash: `sha256:${"a".repeat(64)}`,
+    } as AcceptedAgentOutputRecord;
+    const acceptedOutputStore = {
+      resolve: () => acceptedRecord,
+    } as unknown as AcceptedAgentOutputStore;
     input.outcome_schedule_plan = {
       outcome_schedule_plan_id: "plan:1",
       outcome_schedule_plan_hash: `sha256:${"b".repeat(64)}`,
@@ -515,8 +523,22 @@ describe("Layer-3 scheduled opportunity boundary", () => {
       darwinianFreezeSuperinvestorOutcomeOpportunity: async (params: {
         agent_id: (typeof agents)[number];
         scheduled_sample_id: string;
+        runtime_inputs?: Record<string, unknown>;
       }) => {
         freezeCalls.push(params.agent_id);
+        expect(params.runtime_inputs).toEqual({
+          accepted_output_refs: [input.accepted_output_refs["STANDARD_SECTOR_SELECTION:energy"]],
+          accepted_output_records: [acceptedRecord],
+          bound_runtime_state: {
+            current_positions: {
+              snapshot_status: input.current_positions.snapshot_status,
+              position_source: input.current_positions.position_source,
+              source_error_code: input.current_positions.source_error_code,
+              position_snapshot_hash: input.current_positions.position_snapshot_hash,
+              positions: [],
+            },
+          },
+        });
         const slot = input.outcome_schedule_plan?.slots.find(
           (candidate) => candidate.agent_id === params.agent_id,
         );
@@ -561,9 +583,10 @@ describe("Layer-3 scheduled opportunity boundary", () => {
     const deps = {
       api,
       config: {} as MosaicConfig,
+      acceptedOutputStore,
       llmHandle: {
-        provider: "fake",
-        model: "fake",
+        provider: "api",
+        model: "test-model",
         baseUrl: undefined,
         llm: {
           invoke: async () => {

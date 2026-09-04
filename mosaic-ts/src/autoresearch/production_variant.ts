@@ -179,7 +179,7 @@ export function buildDarwinianRuntimeBinding(input: {
   llmHandle: Pick<LlmHandle, "provider" | "model" | "baseUrl">;
   promptPreflight: PromptPreflightResult;
   executionBehaviorRelease: ExecutionBehaviorReleaseManifest;
-  activePromptRelease: ActivePromptReleaseManifest;
+  activePromptRelease: ActivePromptReleaseManifest | null;
   effectiveAt: string;
 }): DarwinianRuntimeBinding {
   const language = resolveProductionLanguage(input.config);
@@ -196,21 +196,27 @@ export function buildDarwinianRuntimeBinding(input: {
     throw new Error("Darwinian runtime binding requires a READY matching prompt preflight");
   }
   const release = input.executionBehaviorRelease;
-  const activePromptRelease = ActivePromptReleaseManifestSchema.parse(input.activePromptRelease);
-  if (
-    activePromptRelease.prompt_commit !== promptRepoRevision ||
-    activePromptRelease.activation_scope.cohort !== cohortId ||
-    !["canary", "active"].includes(activePromptRelease.lifecycle_state)
-  ) {
-    throw new Error("active Prompt Release does not match the runtime prompt identity");
-  }
-  if (
-    activePromptRelease.execution_behavior_release.release_id !==
-      release.execution_behavior_release_id ||
-    activePromptRelease.execution_behavior_release.release_hash !==
-      release.execution_behavior_release_hash
-  ) {
-    throw new Error("active Prompt Release does not bind the supplied execution behavior release");
+  const activePromptRelease = input.activePromptRelease
+    ? ActivePromptReleaseManifestSchema.parse(input.activePromptRelease)
+    : null;
+  if (activePromptRelease) {
+    if (
+      activePromptRelease.prompt_commit !== promptRepoRevision ||
+      activePromptRelease.activation_scope.cohort !== cohortId ||
+      !["canary", "active"].includes(activePromptRelease.lifecycle_state)
+    ) {
+      throw new Error("active Prompt Release does not match the runtime prompt identity");
+    }
+    if (
+      activePromptRelease.execution_behavior_release.release_id !==
+        release.execution_behavior_release_id ||
+      activePromptRelease.execution_behavior_release.release_hash !==
+        release.execution_behavior_release_hash
+    ) {
+      throw new Error(
+        "active Prompt Release does not bind the supplied execution behavior release",
+      );
+    }
   }
   if (
     release.provider_binding.provider !== input.llmHandle.provider ||
@@ -256,15 +262,22 @@ export function buildDarwinianRuntimeBinding(input: {
     if (!outcome || !spec) throw new Error(`missing runtime/outcome contract for ${agentId}`);
     const promptSha = promptShaByAgent.get(agentId);
     if (!promptSha) throw new Error(`missing prompt SHA for ${agentId}:${language}`);
-    const promptPairs = activePromptRelease.prompt_pairs.filter(
-      (pair) => pair.cohort === cohortId && pair.agent === agentId,
-    );
-    if (promptPairs.length !== 1) {
-      throw new Error(`active Prompt Release must bind one prompt pair for ${agentId}`);
-    }
-    const promptContentHash = promptPairs[0]?.[language].sha256;
-    if (promptContentHash !== promptSha) {
-      throw new Error(`prompt content does not match release for ${agentId}:${language}`);
+    let promptContentHash = promptSha;
+    if (activePromptRelease) {
+      const promptPairs = activePromptRelease.prompt_pairs.filter(
+        (pair) => pair.cohort === cohortId && pair.agent === agentId,
+      );
+      if (promptPairs.length !== 1) {
+        throw new Error(`active Prompt Release must bind one prompt pair for ${agentId}`);
+      }
+      const promptPair = promptPairs[0];
+      if (!promptPair) {
+        throw new Error(`active Prompt Release must bind one prompt pair for ${agentId}`);
+      }
+      promptContentHash = promptPair[language].sha256;
+      if (promptContentHash !== promptSha) {
+        throw new Error(`prompt content does not match release for ${agentId}:${language}`);
+      }
     }
     const executionContracts = release.execution_contracts.filter(
       (contract) => contract.agent_id === agentId && contract.language === language,

@@ -139,13 +139,12 @@ def scorecard_append(params: dict[str, Any]) -> dict[str, Any]:
     try:
         cycle_mode = os.getenv("MOSAIC_ENSURE_SNAPSHOT_MODE")
         if state.get("mode") == "live" and cycle_mode not in {
-            "off",
+            None,
             "shadow",
             "enforce",
         }:
             raise ValueError(
-                "live scorecard append requires explicit "
-                "MOSAIC_ENSURE_SNAPSHOT_MODE=off, shadow, or enforce"
+                "MOSAIC_ENSURE_SNAPSHOT_MODE must be shadow or enforce when set"
             )
         if state.get("mode") == "live" and cycle_mode in {"shadow", "enforce"}:
             from mosaic.dataflows.agent_cycle_authority import (

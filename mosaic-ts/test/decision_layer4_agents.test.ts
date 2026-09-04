@@ -5,15 +5,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  AIMessage,
-  type BaseMessage,
-  HumanMessage,
-  SystemMessage,
-  ToolMessage,
-} from "@langchain/core/messages";
+import { AIMessage, type BaseMessage, ToolMessage } from "@langchain/core/messages";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 import type {
   AcceptedAgentOutputRecord,
   AcceptedOutputRecordRef,
@@ -26,7 +19,7 @@ import {
   canonicalAcceptedOutputHash,
 } from "../src/agents/accepted_output.js";
 import {
-  assertCioProposalHasExactlyOneAcceptedOpportunityAction,
+  assertCioProposalActionsUseAcceptedOpportunities,
   buildCioFinalProviderControlDirective,
   buildDecisionBoundRuntimeInputs,
   decisionRuntimeCitationIdsFromToolLoop,
@@ -107,10 +100,7 @@ import {
   CioFinalNonEmptyCurrentSubmissionSchema,
   CioProposalNonEmptyCurrentSubmissionSchema,
 } from "../src/agents/decision/submission_schemas.js";
-import {
-  AgentRunContractError,
-  invokeStrictStructured,
-} from "../src/agents/helpers/agent_run_contract.js";
+import { AgentRunContractError } from "../src/agents/helpers/agent_run_contract.js";
 import { MACRO_AGENT_IDS } from "../src/agents/macro/_contracts.js";
 import { validateMacroInputs } from "../src/agents/macro/_input_gate.js";
 import { AGENTS_BY_LAYER } from "../src/agents/prompts/cohorts.js";
@@ -135,7 +125,7 @@ import type {
 import type { NoEvaluationObjectStageSkipRecord } from "../src/autoresearch/outcome_stage_skip.js";
 import type { BridgeApi, MosaicConfig } from "../src/bridge/types.js";
 import { fakeAgentStructuredOutput } from "../src/cli/fake_agent_output.js";
-import { validateFinalTargetNode } from "../src/graph/layer4.js";
+import { freezeCandidateTargetNode, validateFinalTargetNode } from "../src/graph/layer4.js";
 import type { LlmHandle } from "../src/llm/factory.js";
 import { macroOutput } from "./helpers/macro.js";
 import { sectorOutput } from "./helpers/sector.js";
@@ -572,7 +562,7 @@ describe("server-authority Decision stage objects", () => {
     const { state, frozen } = nineSectorCandidateFixture();
     expect(frozen.object_payload.candidates).toHaveLength(9);
     expect(() =>
-      assertCioProposalHasExactlyOneAcceptedOpportunityAction(
+      assertCioProposalActionsUseAcceptedOpportunities(
         state,
         {
           portfolio_actions: [
@@ -592,7 +582,7 @@ describe("server-authority Decision stage objects", () => {
   it("rejects an out-of-snapshot CIO ticker before proposal acceptance", () => {
     const { state, frozen } = nineSectorCandidateFixture();
     expect(() =>
-      assertCioProposalHasExactlyOneAcceptedOpportunityAction(
+      assertCioProposalActionsUseAcceptedOpportunities(
         state,
         {
           portfolio_actions: [
@@ -633,34 +623,104 @@ describe("server-authority Decision stage objects", () => {
     );
   });
 
-  it("rejects zero-action CIO proposals when an accepted opportunity exists", () => {
+  it("does not force a CIO trade when an accepted opportunity exists", () => {
     const state = stateWithSectorLong("512480.SH");
     expect(() =>
-      assertCioProposalHasExactlyOneAcceptedOpportunityAction(state, { portfolio_actions: [] }),
-    ).toThrow(
-      "CIO proposal must contain exactly one positive BUY/ADD action while an accepted upstream opportunity exists",
-    );
+      assertCioProposalActionsUseAcceptedOpportunities(state, { portfolio_actions: [] }),
+    ).not.toThrow();
   });
 
-  it("rejects multi-action CIO proposals when an accepted opportunity exists", () => {
-    const state = stateWithSectorLong("512480.SH");
-    expect(() =>
-      assertCioProposalHasExactlyOneAcceptedOpportunityAction(state, {
-        portfolio_actions: [{}, {}] as CioOutput["portfolio_actions"],
+  it("does not force a Darwinian CIO trade from accepted Sector output", () => {
+    const state = baseState();
+    state.darwinian_runtime_binding = {} as never;
+    state.accepted_output_refs = {
+      [acceptedOutputRefKey("STANDARD_SECTOR_SELECTION", "financials")]: {
+        accepted_output_kind: "STANDARD_SECTOR_SELECTION",
+        agent_id: "financials",
+        accepted_output_id: "sector-accepted-1",
+        accepted_output_hash: `sha256:${"1".repeat(64)}`,
+      },
+    };
+    const store = {
+      resolve: () => ({
+        output: {
+          payload: {
+            selection: { long_picks: [{ ts_code: "600036.SH" }] },
+          },
+        },
       }),
+    } as unknown as AcceptedAgentOutputStore;
+
+    expect(() =>
+      assertCioProposalActionsUseAcceptedOpportunities(
+        state,
+        { portfolio_actions: [] },
+        undefined,
+        store,
+      ),
+    ).not.toThrow();
+  });
+
+  it("accepts only LONG Superinvestor picks as Darwinian CIO opportunities", () => {
+    const state = baseState();
+    state.darwinian_runtime_binding = {} as never;
+    state.accepted_output_refs = {
+      [acceptedOutputRefKey("SUPERINVESTOR_SELECTION", "burry")]: {
+        accepted_output_kind: "SUPERINVESTOR_SELECTION",
+        agent_id: "burry",
+        accepted_output_id: "superinvestor-accepted-1",
+        accepted_output_hash: `sha256:${"2".repeat(64)}`,
+      },
+    };
+    const store = {
+      resolve: () => ({
+        output: {
+          payload: {
+            selection: {
+              picks: [
+                { ts_code: "600036.SH", position_action: "LONG" },
+                { ts_code: "000002.SZ", position_action: "AVOID" },
+              ],
+            },
+          },
+        },
+      }),
+    } as unknown as AcceptedAgentOutputStore;
+    const action = (ticker: string) => ({
+      ticker,
+      action: "BUY" as const,
+      position_decision: "ADD" as const,
+      target_weight: 0.1,
+    });
+
+    expect(() =>
+      assertCioProposalActionsUseAcceptedOpportunities(
+        state,
+        { portfolio_actions: [action("000002.SZ")] as PortfolioAction[] },
+        undefined,
+        store,
+      ),
     ).toThrow(
-      "CIO proposal must contain exactly one positive BUY/ADD action while an accepted upstream opportunity exists",
+      "CIO proposal positive action must use an accepted LONG Sector/Superinvestor or Alpha candidate",
     );
+    expect(() =>
+      assertCioProposalActionsUseAcceptedOpportunities(
+        state,
+        { portfolio_actions: [action("600036.SH")] as PortfolioAction[] },
+        undefined,
+        store,
+      ),
+    ).not.toThrow();
   });
 
   it.each([
     { action: "HOLD", position_decision: "HOLD", target_weight: 0.1 },
     { action: "SELL", position_decision: "EXIT", target_weight: 0 },
     { action: "BUY", position_decision: "ADD", target_weight: 0 },
-  ] as const)("rejects a lone $action/$position_decision action at target_weight=$target_weight", (candidate) => {
+  ] as const)("leaves a lone $action/$position_decision decision to the CIO", (candidate) => {
     const state = stateWithSectorLong("512480.SH");
     expect(() =>
-      assertCioProposalHasExactlyOneAcceptedOpportunityAction(state, {
+      assertCioProposalActionsUseAcceptedOpportunities(state, {
         portfolio_actions: [
           {
             ticker: "512480.SH",
@@ -668,95 +728,16 @@ describe("server-authority Decision stage objects", () => {
           } as PortfolioAction,
         ],
       }),
-    ).toThrow(
-      "CIO proposal must contain exactly one positive BUY/ADD action while an accepted upstream opportunity exists",
-    );
+    ).not.toThrow();
   });
 
   it("keeps ALL_CASH accepted when no upstream opportunity exists", () => {
     const state = baseState();
     const proposal = { ...cioOutput([]), decision_disposition: "ALL_CASH" as const };
     expect(() => {
-      assertCioProposalHasExactlyOneAcceptedOpportunityAction(state, proposal);
+      assertCioProposalActionsUseAcceptedOpportunities(state, proposal);
       freezeCioProposal(state, proposal);
     }).not.toThrow();
-  });
-
-  it("turns the zero-action diagnostic into one accepted eligible action through repair", async () => {
-    const state = stateWithSectorLong("512480.SH");
-    const sector = state.layer2_outputs.semiconductor;
-    const eligibleTicker =
-      sector && "long_picks" in sector ? sector.long_picks[0]?.ts_code : undefined;
-    if (!eligibleTicker) throw new Error("sector fixture requires an accepted LONG");
-    const ProposalShape = z.object({
-      decision_disposition: z.enum(["ALL_CASH", "TARGET_PORTFOLIO"]),
-      portfolio_actions: z.array(
-        z.object({ ticker: z.string(), action: z.string(), target_weight: z.number() }),
-      ),
-    });
-    const outputs: unknown[] = [
-      { decision_disposition: "ALL_CASH", portfolio_actions: [] },
-      {
-        decision_disposition: "TARGET_PORTFOLIO",
-        portfolio_actions: [{ ticker: eligibleTicker, action: "BUY", target_weight: 0.1 }],
-      },
-    ];
-    const llm = {
-      withStructuredOutput: () => ({
-        invoke: async () => ({ raw: new AIMessage(""), parsed: outputs.shift() }),
-      }),
-    };
-    const result = await invokeStrictStructured({
-      llm: llm as never,
-      schema: ProposalShape,
-      messages: [new SystemMessage("CIO proposal"), new HumanMessage("frozen evidence")],
-      agent: "cio",
-      stage: "cio_proposal",
-      runId: "cio-opportunity-repair",
-      evidenceSnapshot: {},
-      validate: (output) => {
-        try {
-          assertCioProposalHasExactlyOneAcceptedOpportunityAction(
-            state,
-            output as unknown as Pick<CioOutput, "portfolio_actions">,
-          );
-          return { output, issues: [] };
-        } catch (error) {
-          return {
-            output,
-            issues: [
-              {
-                validator: "decision.cio_proposal.semantic_validator.v1",
-                reason_code: "L4_SEMANTIC_REJECTED",
-                json_path: "$",
-                message: error instanceof Error ? error.message : String(error),
-              },
-            ],
-          };
-        }
-      },
-      isAcceptedEmpty: (output) => output.decision_disposition === "ALL_CASH",
-      onAttempt: () => undefined,
-    });
-
-    expect(result.audit.output_source).toBe("structured_repair");
-    expect(result.audit.repair_count).toBe(1);
-    expect(result.audit.attempts[0]?.validation_issues).toEqual([
-      expect.objectContaining({
-        reason_code: "L4_SEMANTIC_REJECTED",
-        message:
-          "CIO proposal must contain exactly one positive BUY/ADD action while an accepted upstream opportunity exists",
-      }),
-    ]);
-    expect(result.output.portfolio_actions).toHaveLength(1);
-    expect(result.output.portfolio_actions[0]).toMatchObject({
-      action: "BUY",
-      target_weight: 0.1,
-      ticker: eligibleTicker,
-    });
-    expect(result.output.portfolio_actions).toEqual([
-      { ticker: eligibleTicker, action: "BUY", target_weight: 0.1 },
-    ]);
   });
 
   it("pins source, scope, universe, and upstream-ref hashes", () => {
@@ -1933,6 +1914,36 @@ function attachFrozenNoDeltaRuntime(state: DailyCycleStateType): void {
   };
 }
 
+describe("candidate target accepted-proposal binding", () => {
+  it("uses the accepted CIO proposal hash when freezing the candidate target", () => {
+    const state = baseState();
+    attachTestL4Snapshot(state);
+    state.layer4_outputs.runtime = {
+      ...(state.layer4_outputs.runtime as NonNullable<Layer4Outputs["runtime"]>),
+      cio_proposal: cioOutput([]),
+    };
+    const proposalHash = `sha256:${"a".repeat(64)}`;
+    const proposalRef = {
+      accepted_output_kind: "CIO_PROPOSAL" as const,
+      agent_id: "cio" as const,
+      accepted_output_id: "accepted-cio-proposal",
+      accepted_output_hash: `sha256:${"b".repeat(64)}`,
+    };
+    state.accepted_output_refs[acceptedOutputRefKey("CIO_PROPOSAL", "cio")] = proposalRef;
+    const store = {
+      resolve: vi.fn(() => ({ output: { payload: { proposal_hash: proposalHash } } })),
+    } as unknown as AcceptedAgentOutputStore;
+
+    const update = freezeCandidateTargetNode(state, store);
+
+    expect(store.resolve).toHaveBeenCalledWith(proposalRef);
+    expect(
+      (update.layer4_outputs as Partial<Layer4Outputs>).runtime?.candidate_target_state
+        ?.proposal_hash,
+    ).toBe(proposalHash);
+  });
+});
+
 function executableOutput(intent: {
   order_intent_ref: string;
   ts_code: string;
@@ -2476,6 +2487,7 @@ describe("Layer-4 runtime source envelopes", () => {
 
   it("rejects prompt, position, and base-market drift after L4 snapshot freeze", () => {
     const state = baseState();
+    state.darwinian_runtime_binding = {} as DailyCycleStateType["darwinian_runtime_binding"];
     const status = {
       source_id: "current_market_data",
       scope: "ticker:600519.SH",
@@ -2498,6 +2510,18 @@ describe("Layer-4 runtime source envelopes", () => {
         mirofishContextHash: null,
       }).bundle_hash,
     ).toMatch(/^sha256:/);
+
+    state.outcome_stage_skips.autonomous_execution = executionStageSkip();
+    expect(() =>
+      assertL4RunSnapshotStage({
+        state,
+        agent: "cio",
+        stage: "cio_proposal",
+        promptSourceHash: "p2",
+        mirofishContextHash: null,
+      }),
+    ).not.toThrow();
+
     expect(() =>
       assertL4RunSnapshotStage({
         state,
@@ -2676,6 +2700,7 @@ describe("Layer-4 runtime source envelopes", () => {
       cro_review_state: cro,
       execution_feasibility_state: execution,
     };
+    state.outcome_stage_skips.autonomous_execution = executionStageSkip();
 
     expect(() => freezeFinalTarget(state, frozen.proposal, [])).toThrow(
       /must exactly match accepted execution assessments/,
@@ -3421,6 +3446,34 @@ describe("CIO authoritative sector propagation", () => {
     expect(output.portfolio_actions[0]?.sector).toBe("semiconductor");
   });
 
+  it("propagates a production accepted Sector LONG when materialized L2 is empty", () => {
+    const state = stateWithAcceptedSectorLong("688981.SH");
+    state.darwinian_runtime_binding = {} as NonNullable<
+      DailyCycleStateType["darwinian_runtime_binding"]
+    >;
+    state.layer2_outputs = {};
+    const store = {
+      resolve: () => ({
+        output: {
+          payload: {
+            selection: {
+              long_picks: [
+                {
+                  ts_code: "688981.SH",
+                  position_action: "LONG",
+                },
+              ],
+            },
+          },
+        },
+      }),
+    } as unknown as AcceptedAgentOutputStore;
+
+    const output = cioSubmissionToRuntime(cioProposalSubmission(["688981.SH"]), state, store);
+
+    expect(output.portfolio_actions[0]?.sector).toBe("semiconductor");
+  });
+
   it("propagates an existing frozen candidate sector into final actions", () => {
     const state = baseState();
     state.layer4_outputs.runtime = {
@@ -3701,7 +3754,7 @@ describe("CIO position validator", () => {
     ).toThrow(/max_sector_weight/);
   });
 
-  it("uses worst-case concentration for positions without sector labels", () => {
+  it("caps positions without sector labels as one aggregate sector bucket", () => {
     expect(
       validateCioPositionActions({
         output: cioOutput([
@@ -3731,6 +3784,44 @@ describe("CIO position validator", () => {
         currentPositions: loadedPositions([]),
       }),
     ).toThrow(/worst-case target_weight.*max_sector_weight/);
+
+    expect(() =>
+      validateCioPositionActions({
+        output: cioOutput([
+          {
+            ticker: "688981.SH",
+            sector: "semiconductor",
+            action: "BUY",
+            target_weight: 0.09,
+            holding_period: "3M",
+            dissent_notes: "",
+          },
+          {
+            ticker: "300750.SZ",
+            sector: "semiconductor",
+            action: "BUY",
+            target_weight: 0.09,
+            holding_period: "3M",
+            dissent_notes: "",
+          },
+          {
+            ticker: "002371.SZ",
+            action: "BUY",
+            target_weight: 0.09,
+            holding_period: "3M",
+            dissent_notes: "",
+          },
+          {
+            ticker: "600519.SH",
+            action: "BUY",
+            target_weight: 0.09,
+            holding_period: "3M",
+            dissent_notes: "",
+          },
+        ]),
+        currentPositions: loadedPositions([]),
+      }),
+    ).not.toThrow();
   });
 
   it("rejects ADD decisions that do not map to a positive BUY delta", () => {
@@ -4111,12 +4202,12 @@ describe("autonomous execution reliability boundary", () => {
       "Alpha NONE_FOUND means no additional novel Alpha candidate; it does not negate upstream accepted candidates",
     );
     expect(context).toContain(
-      "When current positions are empty and an accepted upstream opportunity exists, choose exactly one positive target from the frozen candidate universe",
+      "Cash has opportunity cost: use HOLD_CURRENT only when the frozen evidence shows that every unheld candidate misses the buy hurdle",
     );
     expect(context).toContain(
       "If no accepted upstream opportunity exists, ALL_CASH with zero targets remains valid",
     );
-    expect(context).toContain("do not hard-code a ticker");
+    expect(context).toContain("Do not hard-code a ticker");
   });
 
   it("derives empty CIO final control tuples from frozen no-delta runtime", () => {
@@ -4513,6 +4604,7 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
 
   it("passes runtime evidence and verified snapshot citations through strict extraction", async () => {
     const prompt = "FAKE-CIO";
+    const exactCurrentWeight = Number("0.20004615432680377");
     const dir = join(promptDir, "cohort_default", "decision");
     writeFileSync(join(dir, "cio.zh.md"), prompt, "utf-8");
     writeFileSync(join(dir, "cio.en.md"), prompt, "utf-8");
@@ -4549,18 +4641,19 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
             if (!evidenceId) throw new Error("current evidence missing from extraction catalog");
             const citationId = this.citationId;
             if (!citationId) throw new Error("verified snapshot citation missing from schema");
+            const targetWeight = 0.2;
             return {
               agent_id: "cio",
               decision_stage: "PROPOSAL",
-              decision_disposition: "HOLD_CURRENT",
+              decision_disposition: "TARGET_PORTFOLIO",
               decision_reason: "Current evidence supports holding the existing target.",
-              cash_weight: 0.8,
+              cash_weight: 1 - targetWeight,
               target_positions: [
                 {
                   position_local_id: "position-hold",
                   ts_code: "600519.SH",
                   position_decision: "HOLD",
-                  target_weight: 0.2,
+                  target_weight: targetWeight,
                   holding_period: "WEEKS",
                   thesis_status: "INTACT",
                   risk_flags: [],
@@ -4595,7 +4688,9 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
     const llm = new EvidenceAwareLlm();
     const sample = baseState();
     sample.trace_id = "claim-run";
-    sample.current_positions = loadedPositions([heldPosition]);
+    sample.current_positions = loadedPositions([
+      { ...heldPosition, current_weight: exactCurrentWeight },
+    ]);
     const runtime = emptyLayer4RuntimeState();
     runtime.resolved_source_statuses = [
       {
@@ -4661,6 +4756,7 @@ describe("buildCioNode (Layer-4 factory smoke)", () => {
       },
     ]);
     expect(llm.invokeCalls).toBe(1);
+    expect(proposal?.portfolio_actions[0]?.target_weight).toBe(exactCurrentWeight);
     expect(llm.structuredCalls).toBe(1);
     expect(llm.citationId).toMatch(/^fake-candidate-universe:[0-9a-f]{64}$/);
     clearPromptCache();

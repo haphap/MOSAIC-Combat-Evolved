@@ -229,6 +229,16 @@ def test_unsealed_agent_display_narratives_are_not_latest(tmp_path):
         assert conn.execute("SELECT COUNT(*) FROM agent_display_narratives").fetchone()[0] == 25
 
 
+def test_empty_execution_evaluation_uses_accepted_display_output(tmp_path):
+    store = ScorecardStore(tmp_path / "scorecard.db")
+    state = _state()
+    state["outcome_stage_skips"] = {
+        "autonomous_execution": {"agent_id": "autonomous_execution"}
+    }
+
+    assert store.append_agent_display_narratives_from_state(state) == 25
+
+
 @pytest.mark.parametrize(
     ("layer", "agent", "kind", "payload", "expected_fragments"),
     [

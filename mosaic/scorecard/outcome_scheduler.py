@@ -302,8 +302,11 @@ def prepare_outcome_schedule_plan(
         raise ValueError("event coverage must cover the exact event-triggered Agent roster")
     event_candidate_input_hash = canonical_hash(verified_event_candidates)
     existing_plan_row = conn.execute(
-        "SELECT record_json FROM outcome_schedule_plans_v2 WHERE graph_run_id = ?",
-        (graph_run_id,),
+        "SELECT record_json FROM outcome_schedule_plans_v2 "
+        "WHERE graph_run_id = ? OR "
+        "(production_variant_roster_revision_id = ? AND as_of = ?) "
+        "ORDER BY CASE WHEN graph_run_id = ? THEN 0 ELSE 1 END LIMIT 1",
+        (graph_run_id, revision_id, as_of, graph_run_id),
     ).fetchone()
     if existing_plan_row is not None:
         existing_plan = json.loads(existing_plan_row[0])

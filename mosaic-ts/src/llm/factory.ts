@@ -205,6 +205,7 @@ function createOpenAiCompatible(
 
   const llm = new ChatOpenAI({
     model,
+    streaming: provider === "api",
     ...(!options.useProviderSamplingDefaults ? { temperature: options.temperature ?? 0.2 } : {}),
     ...(options.maxTokens ? { maxTokens: options.maxTokens } : {}),
     ...(modelKwargs ? { modelKwargs } : {}),

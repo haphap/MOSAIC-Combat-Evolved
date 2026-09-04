@@ -221,23 +221,30 @@ def _validate_composition(
 ) -> None:
     b_sum = sum(float(row["b"]) for row in rows)
     model_b_sum = sum(float(row["model_b"]) for row in rows)
-    if b_sum <= 0 or model_b_sum <= 0:
+    zero_confidence_neutral = (
+        model_b_sum == 0
+        and any(float(row["deterministic_data_quality"]) > 0 for row in rows)
+        and all(row["direction"] == "NEUTRAL" for row in rows)
+    )
+    if not zero_confidence_neutral and (b_sum <= 0 or model_b_sum <= 0):
         raise ValueError("zero effective component weight")
-    score = sum(float(row["b"]) * float(row["signal"]) for row in rows) / b_sum
+    score = sum(float(row["b"]) * float(row["signal"]) for row in rows) / (
+        b_sum or 1
+    )
     model_score = (
         sum(float(row["model_b"]) * float(row["signal"]) for row in rows)
-        / model_b_sum
+        / (model_b_sum or 1)
     )
     dispersion = (
         sum(float(row["b"]) * abs(float(row["signal"]) - score) for row in rows)
-        / b_sum
+        / (b_sum or 1)
     )
     model_dispersion = (
         sum(
             float(row["model_b"]) * abs(float(row["signal"]) - model_score)
             for row in rows
         )
-        / model_b_sum
+        / (model_b_sum or 1)
     )
     direction, strength = _direction_and_strength(score)
     horizon_totals = {horizon: 0.0 for horizon in _HORIZON_ORDER}
@@ -351,6 +358,7 @@ def _component_runtime_input_from_accepted_audit(
         raise ValueError("accepted Macro source snapshot hash is invalid")
     context_projection_hash = composition.get("context_only_projection_hash")
     financial_context_role = accepted.get("agent_id") in {
+        "central_bank",
         "us_financial_conditions",
         "euro_area_financial_conditions",
     }

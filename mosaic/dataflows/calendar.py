@@ -156,10 +156,9 @@ def verified_trading_calendar_snapshot(
         raise ValueError("calendar snapshot must cover the as_of date")
 
     normalized: list[tuple[str, int]] = []
-    year = start.year
-    while year <= end.year:
-        chunk_start = max(start, date(year, 1, 1))
-        chunk_end = min(end, date(year, 12, 31))
+    chunk_start = start
+    while chunk_start <= end:
+        chunk_end = min(end, date(chunk_start.year + 9, 12, 31))
         frame = _fetch_trade_cal_via_tushare(chunk_start, chunk_end)
         if frame is None or frame.empty:
             raise RuntimeError(
@@ -174,7 +173,7 @@ def verified_trading_calendar_snapshot(
                 raise RuntimeError("Tushare trade_cal returned invalid is_open")
             if chunk_start <= cal_date <= chunk_end:
                 normalized.append((_format_iso(cal_date), is_open))
-        year += 1
+        chunk_start = chunk_end + timedelta(days=1)
 
     normalized.sort()
     expected_days = (end - start).days + 1

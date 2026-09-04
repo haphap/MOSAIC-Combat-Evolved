@@ -706,6 +706,25 @@ def load_verified_event_coverage(
     return coverage
 
 
+def build_cold_start_event_coverage() -> dict[str, dict[str, Any]]:
+    """Return an empty, explicit denominator for the first accepted cycle."""
+    coverage: dict[str, dict[str, Any]] = {}
+    for agent_id, contract in OUTCOME_CONTRACTS.items():
+        schedule = contract["sample_schedule"]
+        if schedule["kind"] != "EVENT_TRIGGERED":
+            continue
+        coverage[agent_id] = {
+            "coverage_status": "COMPLETE",
+            "coverage_evidence_ids": [
+                f"darwinian-cold-start:no-prior-accepted-cycle:{agent_id}"
+            ],
+            "event_registry_version": schedule["event_registry_version"],
+            "event_priority_version": schedule["event_priority_version"],
+            "candidates": [],
+        }
+    return coverage
+
+
 def load_evaluation_opportunity_projection(
     as_of: str,
     agent_id: str,
@@ -897,6 +916,7 @@ __all__ = [
     "EVENT_COVERAGE_SCHEMA_VERSION",
     "OPPORTUNITY_PROJECTION_SCHEMA_VERSION",
     "OUTCOME_PROJECTION_SCHEMA_VERSION",
+    "build_cold_start_event_coverage",
     "expected_qualification_predicate_version",
     "load_evaluation_opportunity_projection",
     "load_realized_outcome_projection",

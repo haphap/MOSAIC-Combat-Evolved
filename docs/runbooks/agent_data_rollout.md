@@ -6,20 +6,21 @@ remains shadow-only.
 
 ## Modes and safety boundary
 
-`MOSAIC_ENSURE_SNAPSHOT_MODE` must be explicit for every live run:
+Normal `daily-cycle` does not set `MOSAIC_ENSURE_SNAPSHOT_MODE`. Its Agent data
+path is always warm-first: use the existing cache when present; on a miss,
+invoke the existing source tool and retain the result for later calls.
+
+Set `MOSAIC_ENSURE_SNAPSHOT_MODE` only for an explicit snapshot rollout:
 
 - `shadow` writes source receipts, snapshots, cycle events, and publications
   only below `MOSAIC_ENSURE_SNAPSHOT_SHADOW_ROOT`;
 - `enforce` uses the configured production stores and requires a production
-  cycle authority;
-- `off` preserves the legacy path and creates no cycle authority. After Gate F
-  it is an emergency rollback mode, not a normal configuration.
+  cycle authority.
 
 The live CLI and Bridge fail closed with stable alert tokens:
 
-- `P1_ENSURE_MODE_MISSING` — a live process has no configured mode;
-- `P1_ENSURE_MODE_INVALID` — the configured value is not
-  `off|shadow|enforce`;
+- `P1_ENSURE_MODE_INVALID` — a configured snapshot rollout value is not
+  `shadow|enforce`;
 - `P1_ENSURE_MODE_DRIFT` — the requested cycle kind can escape its configured
   namespace.
 
@@ -74,134 +75,120 @@ After an interruption, invoke the same arguments with only `--resume` added:
 pnpm --dir mosaic-ts dev daily-cycle "${daily_cycle_args[@]}" --resume
 ```
 
-Resume must
-open the same checkpoint identity, stage order, and hashes; it continues after
-the accepted stage prefix and never replays that prefix. Any identity, order,
-or hash drift fails closed. Thinking must not be defaulted off, and the token
-limit remains an operator/provider capability setting rather than a machine-
-specific constant. Do not use this route for live, paper, or production writes.
+Resume must use the same checkpoint path, date, and cohort; it continues after
+the accepted stage prefix and never replays that prefix. The checkpoint belongs
+to that trading day only, so the next trading day starts with a new checkpoint
+path. Thinking must not be defaulted off, and the token limit remains an
+operator/provider capability setting rather than a machine-specific constant.
+The commands above remain a non-production structured-smoke route; the same-day
+checkpoint flags are also available to live and paper daily-cycle runs.
 
-## Historical replay procedure
+## Twenty-trading-day normal paper cycle
 
-Choose a period for which the required historical data already exists. Use one
-persistent, private shadow root for all 20 trading-date replay cycles; this gate
-does not wait for current-date capture or a market-close window.
-Do not reuse pytest roots or a root that contains a failed experiment with a
-different manifest.
+Run 20 separate normal `daily-cycle` processes. This is not replay or backtest:
+every cycle uses the normal Prompt, Darwinian, Agent/tool, accepted-output,
+scorecard, and paper-order paths.
+The active paper account is the only state carried between dates. A checkpoint
+belongs only to one date and is used only to resume an interrupted cycle on
+that date. Do not run snapshot rollout, pre-generation, or backfill commands on
+this path. Agent tools use their normal cache-first behavior and call the
+configured source on a cache miss.
 
-```bash
-export RUN_DATE=YYYY-MM-DD
-export MOSAIC_ENSURE_SNAPSHOT_MODE=shadow
-export MOSAIC_ENSURE_SNAPSHOT_SHADOW_ROOT=/private/path/agent-data-shadow
-export MOSAIC_PYTHON=/path/to/repo/.venv/bin/python
-export PYTHONPATH=/path/to/repo
-export MOSAIC_BRIDGE_TIMEOUT_MS=1800000
+For a requested start of 2025-06-15, the first exchange trading day is
+2025-06-16. Run these dates in order, one invocation at a time:
 
-rtk mkdir -p "${MOSAIC_ENSURE_SNAPSHOT_SHADOW_ROOT}"
+```text
+2025-06-16  2025-06-17  2025-06-18  2025-06-19  2025-06-20
+2025-06-23  2025-06-24  2025-06-25  2025-06-26  2025-06-27
+2025-06-30  2025-07-01  2025-07-02  2025-07-03  2025-07-04
+2025-07-07  2025-07-08  2025-07-09  2025-07-10  2025-07-11
 ```
 
-The 30-minute bridge budget covers the measured first A-share historical
-capture while still failing a stuck route promptly. A route-only Relationship
-capture must select at most one active security per registered
-`(role, direction)` partition before it calls `top10_holders`; it must never
-expand to every listed company. Increasing the timeout is not a remedy for a
-scope expansion. Cached replays return without consuming the first-capture
-budget.
-
-Before collectors run, record SHA-256, size, and mtime for the configured
-production materialization and scorecard databases. Repeat the same commands
-after the shadow run; every value must be unchanged.
-
-Run only the historical route that owns a failure while diagnosing:
+Configure the normal daily-cycle path and one private artifact directory. Do
+not reuse a checkpoint from another date.
 
 ```bash
-rtk pnpm --dir mosaic-ts dev data source-backfill \
-  --route tushare.eco_cal.cny --from "${RUN_DATE}" --to "${RUN_DATE}" \
-  --historical-replay
-rtk pnpm --dir mosaic-ts dev data source-backfill \
-  --route tushare.eco_cal.usd --from "${RUN_DATE}" --to "${RUN_DATE}" \
-  --historical-replay
-rtk pnpm --dir mosaic-ts dev data source-backfill \
-  --route tushare.eco_cal.eur --from "${RUN_DATE}" --to "${RUN_DATE}" \
-  --historical-replay
-rtk pnpm --dir mosaic-ts dev data source-backfill \
-  --route tushare.relationship_graph --from "${RUN_DATE}" --to "${RUN_DATE}" \
-  --historical-replay
+set -euo pipefail
+export MOSAIC_ENV_FILE="${MOSAIC_ENV_FILE:?set private environment file}"
+set -a
+source "${MOSAIC_ENV_FILE}"
+set +a
+export MOSAIC_REPO_ROOT="${MOSAIC_REPO_ROOT:?set repository root}"
+unset MOSAIC_ENSURE_SNAPSHOT_MODE
+export MOSAIC_PYTHON="${MOSAIC_PYTHON:?set repository Python executable}"
+export PYTHONPATH="${MOSAIC_REPO_ROOT}"
+export MOSAIC_BRIDGE_TIMEOUT_MS="${MOSAIC_BRIDGE_TIMEOUT_MS:-1800000}"
+export MOSAIC_LLM_PROVIDER=api
+export MOSAIC_LLM_BASE_URL="${MOSAIC_LLM_BASE_URL:-http://127.0.0.1:18080/v1}"
+export MOSAIC_LLM_MODEL="${MOSAIC_LLM_MODEL:-qwen3.8-27b}"
+export MOSAIC_LLM_API_KEY="${MOSAIC_LLM_API_KEY:-ninfer-local}"
+export MOSAIC_LLM_THINKING_MODE="${MOSAIC_LLM_THINKING_MODE:-enabled}"
+export MAX_TOKENS="${MAX_TOKENS:?set an operator/provider-approved completion limit}"
+export AGENT_TIMEOUT_SECONDS="${AGENT_TIMEOUT_SECONDS:?set an operator-approved timeout}"
+export MOSAIC_PROMPTS_REPO="${MOSAIC_PROMPTS_REPO:?set private Prompt repository}"
+export MOSAIC_REGISTRIES_REPO="${MOSAIC_REGISTRIES_REPO:?set private RKE registry repository}"
+export CYCLE_ARTIFACT_ROOT="${CYCLE_ARTIFACT_ROOT:?set private cycle artifact root}"
+
+cd "${MOSAIC_REPO_ROOT}"
+rtk mkdir -p "${CYCLE_ARTIFACT_ROOT}"
 ```
 
-For the Relationship probe, verify that the resolved `capture_scope` contains
-no more securities than the registered `(role, direction)` partitions and that
-the `top10_holders` query count equals the number of distinct selected
-securities. Stop the run if either bound is exceeded; do not continue to an
-all-agent preflight.
-
-The replay receipt must retain the real retrieval time and the historical data
-or vintage lineage. It must not claim that the replay was an original
-production capture on `RUN_DATE`. Tushare remains the primary source; an
-alternate provider is allowed only where its separate contract, fallback
-trigger, license decision, and lineage receipt are active.
-
-After every failing route has been resolved or has a documented external
-blocker, evaluate the exact 26-route admission once:
+Before day 1, verify that the intended paper account is active. Do not reset or
+replace it during the 20 dates:
 
 ```bash
-rtk pnpm --dir mosaic-ts dev data source-preflight \
-  --as-of "${RUN_DATE}" --all-agents
+rtk pnpm --dir mosaic-ts dev paper account
+rtk pnpm --dir mosaic-ts dev paper positions
 ```
 
-Do not start the Agent graph unless this returns `READY`. Then run the replay
-cycle in the isolated shadow namespace without paper execution:
+For each listed date, set `RUN_DATE` and derive a new checkpoint and output
+path.
 
 ```bash
-rtk pnpm --dir mosaic-ts dev daily-cycle \
-  --cohort cohort_default \
-  --date "${RUN_DATE}" \
-  --cycle-kind replay
+export RUN_DATE=2025-06-16
+export CHECKPOINT_PATH="${CYCLE_ARTIFACT_ROOT}/${RUN_DATE}.checkpoint.json"
+export OUTPUT_PATH="${CYCLE_ARTIFACT_ROOT}/${RUN_DATE}.state.json"
+
+daily_cycle_args=(
+  --cohort cohort_default
+  --date "${RUN_DATE}"
+  --paper-positions
+  --paper-execute-deltas
+  --checkpoint "${CHECKPOINT_PATH}"
+  --out "${OUTPUT_PATH}"
+  --llm-provider "${MOSAIC_LLM_PROVIDER}"
+  --model "${MOSAIC_LLM_MODEL}"
+  --base-url "${MOSAIC_LLM_BASE_URL}"
+  --prompts-repo "${MOSAIC_PROMPTS_REPO}"
+  --agent-timeout-seconds "${AGENT_TIMEOUT_SECONDS}"
+  --max-tokens "${MAX_TOKENS}"
+)
+rtk pnpm --dir mosaic-ts dev daily-cycle "${daily_cycle_args[@]}"
 ```
 
-A successful day requires all of the following in the same target date and
-shadow namespace:
-
-- 26/26 external route eligibility receipts are `READY`;
-- every runtime consumer seals the required runtime authority or a strict
-  not-required receipt;
-- all 26 stages have exactly one accepted-output or sealed-skip outcome;
-- exactly one terminal `COMMITTED` event and one matching publication exist;
-- no `OPEN` or `ABORTED` event is consumed by scorecard or KNOT;
-- production database hashes, sizes, and mtimes are unchanged;
-- no key, provider payload, research prose, or private cache appears in logs or
-  Git.
-
-Use the shadow ledger read-only for operational counts. Do not edit rows:
+If that invocation is interrupted after at least one accepted Agent stage,
+resume only that date with the same arguments:
 
 ```bash
-rtk sqlite3 \
-  "file:${MOSAIC_ENSURE_SNAPSHOT_SHADOW_ROOT}/agent_materialization/materialization.sqlite3?mode=ro" \
-  "select target_date,state,count(*) from agent_cycle_events group by target_date,state order by target_date,state;"
-rtk sqlite3 \
-  "file:${MOSAIC_ENSURE_SNAPSHOT_SHADOW_ROOT}/agent_materialization/materialization.sqlite3?mode=ro" \
-  "select target_date,count(*) from agent_cycle_publications group by target_date order by target_date;"
+rtk pnpm --dir mosaic-ts dev daily-cycle "${daily_cycle_args[@]}" --resume
 ```
 
-## Twenty-trading-day gate
+A date is complete only when all 26 stages have an accepted-output or
+sealed-skip outcome, the final state was written, and paper execution finished.
+Then inspect the paper account and positions, select the next listed
+`RUN_DATE`, and use its new checkpoint path. Do not copy positions between
+files; `--paper-positions` reads the account updated by the preceding
+successful date.
 
-Select one already-existing historical interval and count distinct exchange
-trading dates, not calendar days or retries. The 20 replay cycles can run now;
-they do not require 20 future wall-clock days. A retry
-does not add a day. A day with a blocked or aborted cycle remains in the audit
-history but does not satisfy the gate. Retain per-day route status, freshness,
-revision selection, materialization latency, terminal event hash, publication
-hash, and production-isolation hashes.
+```bash
+rtk pnpm --dir mosaic-ts dev paper account
+rtk pnpm --dir mosaic-ts dev paper positions
+```
 
-Gate F requires 20 distinct successful historical trading dates and zero unresolved P1
-mode alerts, implicit fallbacks, future evidence, partial capability, or
-private-data leakage. Keep the real replay retrieval time; do not relabel a
-replay as an original production capture or generate synthetic days.
-
-The historical replay/source-route count is a separate metric from the Agent
-roster and tool count: the `26` route admission above counts source routes and
-their eligibility receipts. Do not mechanically translate it into Agent
-stages or `29` tools without a code-backed route definition.
+A retry does not add a date. Diagnose and fix the failure, then retry the same
+date before moving to the next one. Keep the paper account and any valid
+same-day checkpoint. These paper fills are normal operational paper fills, not
+historical-performance evidence.
 
 ## Enforce canary and rollback drill
 
@@ -213,25 +200,26 @@ override from the production service and set:
 export MOSAIC_ENSURE_SNAPSHOT_MODE=enforce
 ```
 
-Run source admission and the production daily cycle for the canary date. The
-production cycle must create exactly one `COMMITTED` event/publication for its
-date and cohort.
+Run source admission and the production daily cycle with
+`--cycle-kind production` for the canary date. The production cycle must create
+exactly one `COMMITTED` event/publication for its date and cohort.
 
 The mandatory rollback drill is a real configuration transition:
 
 1. Stop new production-cycle starts and preserve the enforce publication and
    database hashes.
-2. Change the service to `shadow` with a new isolated root, or to `off` for the
+2. Change the service to `shadow` with a new isolated root, or remove the
+   snapshot-rollout cycle kind and unset `MOSAIC_ENSURE_SNAPSHOT_MODE` for the
    shortest emergency window. Restart it; do not mutate an existing process
    environment in place.
 3. In `shadow`, run a SHADOW cycle and prove production hashes are unchanged.
-   In `off`, prove no cycle event or publication was created.
+   On the normal path, prove no cycle event or publication was created.
 4. Inspect both ledgers read-only. A failed/aborted run may retain raw archives
    and snapshots, but it must have no consumable partial publication.
 5. Before the next production cycle, restore an explicit `enforce`, restart,
-   and run the next target date. Missing/invalid mode or namespace mismatch is
-   a P1 and must stop the rollout.
+   and run the next target date. Invalid mode or namespace mismatch is a P1 and
+   must stop the rollout.
 
 Rollback is complete only when the restored enforce cycle commits normally,
-the intervening shadow/off interval produced no production publication, and
+the intervening shadow/normal interval produced no production publication, and
 all partial or aborted authority remains unreadable by production consumers.

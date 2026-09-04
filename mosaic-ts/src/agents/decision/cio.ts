@@ -61,12 +61,14 @@ function buildProposalUserContext(
     `${renderJanusRegimeStub()}\n\n` +
     `Evaluate every candidate in the frozen CIO candidate universe, including each accepted Sector, ` +
     `Superinvestor, and Alpha candidate. Alpha NONE_FOUND means no additional novel Alpha candidate; ` +
-    `it does not negate upstream accepted candidates. When current positions are empty and an accepted ` +
-    `upstream opportunity exists, choose exactly one positive target from the frozen candidate universe; ` +
-    `do not emit ALL_CASH or zero actions, and do not hard-code a ticker. If no accepted upstream ` +
-    `opportunity exists, ALL_CASH with zero targets remains valid. Include every current position with ` +
-    `a HOLD, ADD, REDUCE, or EXIT decision. target_weight must not exceed 1.0; a lower sum is ` +
-    `intentional cash after the required target (BEARISH regime + low confidence can justify it).`
+    `it does not negate upstream accepted candidates. Apply the private cohort Prompt's buy, add, hold, ` +
+    `and conflict calibrations to every frozen candidate. Candidate inclusion alone is not a buy signal, ` +
+    `and Macro NEUTRAL is not an adverse regime or a veto. Cash has opportunity cost: use HOLD_CURRENT ` +
+    `only when the frozen evidence shows that every unheld candidate misses the buy hurdle or a portfolio ` +
+    `constraint prevents deployment, and state that comparison in decision_reason. Do not hard-code a ` +
+    `ticker. If no accepted upstream opportunity exists, ALL_CASH with zero targets remains valid. Include ` +
+    `every current position with a HOLD, ADD, REDUCE, or EXIT decision. target_weight must not exceed 1.0; ` +
+    `a lower sum is intentional cash only when justified by the frozen evidence and constraints.`
   );
 }
 

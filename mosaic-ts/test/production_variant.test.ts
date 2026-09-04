@@ -267,6 +267,20 @@ describe("Darwinian production runtime binding", () => {
     expect(binding.agent_behavior_bindings.cio?.reliability_adapter_contract_version).toBeNull();
   });
 
+  it("keeps the normal behavior bindings when no Prompt Release registry is configured", () => {
+    const behaviorRelease = release();
+    const binding = buildDarwinianRuntimeBinding({
+      cohortId: "cohort_default",
+      config: config(),
+      llmHandle: { provider: "fake", model: "fake-model", baseUrl: undefined },
+      promptPreflight: preflight(),
+      executionBehaviorRelease: behaviorRelease,
+      activePromptRelease: null,
+      effectiveAt: "2026-07-17T09:00:00.000Z",
+    });
+    expect(Object.keys(binding.agent_behavior_bindings)).toHaveLength(25);
+  });
+
   it("separates language and model behavior tracks", () => {
     const base = {
       cohortId: "cohort_default",

@@ -105,6 +105,23 @@ def test_parse_article_page_handles_central_bank_bill_wording_without_month_nois
     assert "5月" not in record["terms"]
 
 
+def test_fetch_pboc_text_retries_transient_transport(monkeypatch):
+    calls = 0
+
+    def fetcher(_url: str) -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise ConnectionError("transient EOF")
+        return "ok"
+
+    monkeypatch.setattr(pboc_ops, "_fetch_text", fetcher)
+    monkeypatch.setattr(pboc_ops.time, "sleep", lambda _seconds: None)
+
+    assert pboc_ops.fetch_pboc_text(ARTICLE_URL) == "ok"
+    assert calls == 2
+
+
 def test_crawl_writes_raw_parsed_manifest_and_tracks_unchanged(tmp_path):
     category = pboc_ops.PBOC_OMO_CATEGORIES[2]
 

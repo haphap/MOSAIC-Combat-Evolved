@@ -7,8 +7,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
-
 import pytest
 
 import mosaic.dataflows.agent_stage_preparer as stage_preparer_module
@@ -1274,6 +1272,61 @@ def test_trusted_stage_preparer_uses_warm_build_without_family_dispatch(
         )
 
 
+def test_trusted_stage_preparer_warm_hit_ignores_deferred_adaptive_tools(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ledger = AgentDataMaterializationLedger(tmp_path / "warm-deferred-stage.sqlite3")
+    sources = [
+        SourceCaptureReceipt.from_dict(
+            _source_payload(route_id="official.cn_macro", source_family="official_cn")
+        ),
+        SourceCaptureReceipt.from_dict(_source_payload(route_id="tushare.cn_macro")),
+        SourceCaptureReceipt.from_dict(_source_payload()),
+    ]
+    for source in sources:
+        ledger.append_source_capture(source)
+    build = SnapshotBuildReceipt.from_dict(
+        _build_payload(source_hashes=sorted(source.receipt_hash for source in sources))
+    )
+    ledger.append_snapshot_build(build)
+    bindings = [
+        {
+            "agent_id": "china",
+            "stage": "china",
+            "tool_id": "get_china_macro_snapshot",
+            "required_route_ids": build.as_dict()["required_route_ids"],
+        },
+        {
+            "agent_id": "china",
+            "stage": "china",
+            "tool_id": "get_balance_sheet",
+            "required_route_ids": [],
+        },
+    ]
+    monkeypatch.setattr(
+        stage_preparer_module,
+        "_stage_bindings",
+        lambda _agent_id, _stage: bindings,
+    )
+    preparer = TrustedAgentStagePreparer(
+        ledger_factory=lambda: ledger,
+        family_preparers={
+            ("china", "china"): lambda _request, _ledger: pytest.fail(
+                "warm initial snapshot must not rebuild the source family"
+            )
+        },
+    )
+    request = stage_preparer_module.trusted_deferred_request_only_request(
+        _ready_stage_request("warm-deferred"),
+        tool_ids=("get_balance_sheet",),
+    )
+
+    result = preparer(request)
+
+    assert result["cache_status"] == "HIT"
+
+
 def test_trusted_stage_preparer_dispatches_cold_family_without_publishing(
     tmp_path: Path,
 ) -> None:
@@ -2327,25 +2380,70 @@ def test_semiconductor_missing_snapshot_cold_builds_archive_and_compiler(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ledger = AgentDataMaterializationLedger(tmp_path / "sector-family.sqlite3")
-    archive_calendar = Mock()
-    archive_sector = Mock()
-    monkeypatch.setattr(stage_preparer_module, "archive_eco_calendar", archive_calendar)
+    calendar_store = object()
+    sector_store = object()
+    complete = SimpleNamespace(as_dict=lambda: {"coverage_complete": True})
+    calendar_archive = SimpleNamespace(coverage_receipt=complete)
+    sector_archive = SimpleNamespace(coverage_receipt=complete)
+    events: list[tuple[str, dict]] = []
+
     monkeypatch.setattr(
-        stage_preparer_module, "archive_sector_relationship", archive_sector
+        stage_preparer_module, "EconomicCalendarStore", lambda: calendar_store
+    )
+    monkeypatch.setattr(stage_preparer_module, "SectorArchiveStore", lambda: sector_store)
+    monkeypatch.setattr(
+        stage_preparer_module,
+        "archive_eco_calendar",
+        lambda fetch, **kwargs: events.append(
+            ("calendar", {"fetch": fetch, **kwargs})
+        )
+        or calendar_archive,
+    )
+    monkeypatch.setattr(
+        stage_preparer_module,
+        "compile_sector_role_event_builds",
+        lambda **kwargs: events.append(("role", kwargs)) or (),
+    )
+    monkeypatch.setattr(
+        stage_preparer_module,
+        "archive_sector_relationship",
+        lambda fetch, **kwargs: events.append(
+            ("sector", {"fetch": fetch, **kwargs})
+        )
+        or sector_archive,
+    )
+    monkeypatch.setattr(
+        stage_preparer_module,
+        "compile_sector_relationship_core_snapshots",
+        lambda archive, **kwargs: events.append(
+            ("core", {"archive": archive, **kwargs})
+        ),
+    )
+    monkeypatch.setattr(
+        stage_preparer_module, "snapshot_cache_root", lambda: tmp_path / "snapshots"
     )
 
-    with pytest.raises(DataVendorUnavailable, match="no bounded authority"):
-        prepare_sector_relationship_family(
-            {
-                **_ready_stage_request("sector-family"),
-                "agent_id": "semiconductor",
-                "stage": "semiconductor",
-            },
-            ledger,
-        )
+    prepare_sector_relationship_family(
+        {
+            **_ready_stage_request("sector-family"),
+            "agent_id": "semiconductor",
+            "stage": "semiconductor",
+        },
+        ledger,
+    )
 
-    archive_calendar.assert_not_called()
-    archive_sector.assert_not_called()
+    assert [name for name, _ in events] == ["calendar", "role", "sector", "core"]
+    assert events[0][1]["requested_route_ids"] == (
+        "tushare.eco_cal.cny",
+        "tushare.eco_cal.eur",
+        "tushare.eco_cal.usd",
+    )
+    assert events[2][1]["requested_route_ids"] == (
+        "tushare.sector_fundamentals",
+        "tushare.sector_market",
+    )
+    assert events[2][1]["requested_agent_ids"] == ("semiconductor",)
+    assert events[3][1] == {"archive": sector_archive, "ledger": ledger}
 
 
 @pytest.mark.parametrize(
@@ -3130,6 +3228,38 @@ def test_production_registry_includes_sector_families(
     } == sector_stages
 
 
+def test_normal_past_date_uses_existing_historical_source_acquisition(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class CapturingPreparer:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def __call__(self, request: dict) -> dict:
+            captured.update(request)
+            return {"status": "CAPTURED"}
+
+    monkeypatch.setattr(
+        stage_preparer_module,
+        "_stage_capture_now",
+        lambda: datetime(2026, 8, 30, tzinfo=timezone.utc),
+    )
+    monkeypatch.setattr(
+        stage_preparer_module, "TrustedAgentStagePreparer", CapturingPreparer
+    )
+
+    assert stage_preparer_module.prepare_agent_stage_materialization_current_namespace(
+        {
+            "agent_id": "china",
+            "stage": "china",
+            "as_of": "2025-06-16",
+        }
+    ) == {"status": "CAPTURED"}
+    assert captured["historical_replay"] is True
+
+
 def test_publish_ready_stage_materialization_rejects_ambiguous_builds(
     tmp_path: Path,
 ) -> None:
@@ -3172,6 +3302,99 @@ def test_publish_ready_stage_materialization_rejects_ambiguous_builds(
             ledger=ledger,
             clock=lambda: datetime(2026, 7, 1, 7, 0, 5, tzinfo=timezone.utc),
         )
+
+
+def test_publish_ready_stage_materialization_uses_current_prepared_build(
+    tmp_path: Path,
+) -> None:
+    ledger = AgentDataMaterializationLedger(tmp_path / "prepared-stage.sqlite3")
+    sources = [
+        SourceCaptureReceipt.from_dict(
+            _source_payload(route_id="official.cn_macro", source_family="official_cn")
+        ),
+        SourceCaptureReceipt.from_dict(_source_payload(route_id="tushare.cn_macro")),
+        SourceCaptureReceipt.from_dict(_source_payload()),
+    ]
+    for source in sources:
+        ledger.append_source_capture(source)
+    source_hashes = sorted(source.receipt_hash for source in sources)
+    first = SnapshotBuildReceipt.from_dict(
+        _build_payload(source_hashes=source_hashes, build_id="build-first")
+    )
+    second = SnapshotBuildReceipt.from_dict(
+        _build_payload(source_hashes=source_hashes, build_id="build-second")
+    )
+    ledger.append_snapshot_build(first)
+    ledger.append_snapshot_build(second)
+
+    published = publish_ready_stage_materialization(
+        {
+            "graph_run_id": "graph-prepared-stage",
+            "run_slot_id": "slot-prepared-stage",
+            "run_id": "run-prepared-stage",
+            "node_id": "node-prepared-stage",
+            "agent_id": "china",
+            "stage": "china",
+            "as_of": "2026-07-01",
+            "materialization_request_id": "materialize-prepared-stage",
+            "runtime_inputs": {},
+            "candidate_scope": None,
+            "stage_preparation": {
+                "cache_status": "HIT",
+                "prepared_build_receipt_hashes": {
+                    "get_china_macro_snapshot": second.receipt_hash,
+                },
+            },
+        },
+        ledger=ledger,
+        clock=lambda: datetime(2026, 7, 1, 7, 0, 5, tzinfo=timezone.utc),
+    )
+
+    assert published["build_receipt_hashes"] == {
+        "get_china_macro_snapshot": second.receipt_hash,
+    }
+
+
+def test_trusted_stage_preparer_preserves_current_family_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    binding = {
+        "agent_id": "alpha_discovery",
+        "stage": "alpha_discovery",
+        "tool_id": "get_alpha_candidate_snapshot",
+        "required_route_ids": ["runtime.accepted_outputs", "runtime.candidate_scope"],
+    }
+    monkeypatch.setattr(
+        stage_preparer_module,
+        "_stage_bindings",
+        lambda _agent_id, _stage: [binding],
+    )
+    preparer = TrustedAgentStagePreparer(
+        ledger_factory=lambda: AgentDataMaterializationLedger(
+            tmp_path / "prepared-family.sqlite3"
+        ),
+        family_preparers={
+            ("alpha_discovery", "alpha_discovery"): lambda _request, _ledger: {
+                "cache_status": "HIT",
+                "prepared_build_receipt_hashes": {
+                    "get_alpha_candidate_snapshot": HASH_A,
+                },
+            }
+        },
+        always_prepare_stages=(("alpha_discovery", "alpha_discovery"),),
+    )
+
+    result = preparer(
+        {
+            "agent_id": "alpha_discovery",
+            "stage": "alpha_discovery",
+            "as_of": "2026-07-01",
+        }
+    )
+
+    assert result["prepared_build_receipt_hashes"] == {
+        "get_alpha_candidate_snapshot": HASH_A,
+    }
 
 
 def test_receipt_hash_detects_tampering() -> None:

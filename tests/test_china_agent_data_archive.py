@@ -629,20 +629,6 @@ def test_institutional_only_archive_and_compiler_close_one_route(
     assert route.group is not None
     assert route.coverage_receipt.as_dict()["coverage_complete"] is True
     receipt = route.source_receipts[0].as_dict()
-    knowledge_cutoff = datetime.fromisoformat(
-        receipt["time"]["knowledge_available_at"]
-    )
-    validate_role_snapshot = china_agent_data_archive.validate_role_snapshot
-    monkeypatch.setattr(
-        china_agent_data_archive,
-        "validate_role_snapshot",
-        lambda raw, role, as_of_date: validate_role_snapshot(
-            raw,
-            role,
-            as_of_date,
-            knowledge_cutoff=knowledge_cutoff,
-        ),
-    )
     built = compile_china_agent_snapshots(
         archive=archived,
         store=store,
@@ -682,6 +668,8 @@ def test_institutional_only_archive_and_compiler_close_one_route(
     }
     assert all(row["period_start"] == "2026-07-08" for row in observations)
     assert all(row["period_end"] == "2026-08-07" for row in observations)
+    assert all(row["released_at"] == CUTOFF for row in observations)
+    assert all(row["vintage_at"] == CUTOFF for row in observations)
     assert all(row["unit"] == "percent" for row in observations)
     assert all(row["actual"] == pytest.approx(100 / 9) for row in observations)
     assert store.row_count() == 1
@@ -1588,7 +1576,7 @@ def test_physical_commodity_contract_uses_documented_per_unit(
     } == {10.0}
 
 
-def test_commodity_does_not_fetch_third_contract_when_first_two_fail(
+def test_commodity_fetches_next_contract_when_near_contract_is_not_tradable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from mosaic.dataflows import china_agent_data_archive
@@ -1596,24 +1584,15 @@ def test_commodity_does_not_fetch_third_contract_when_first_two_fail(
     monkeypatch.setattr(china_agent_data_archive, "_capture_now", lambda: CAPTURED_AT)
     store = ChinaAgentDataArchiveStore(tmp_path / "zero-volume.sqlite3")
     ledger = AgentDataMaterializationLedger(tmp_path / "zero-volume-ledger.sqlite3")
-    _, fetch_official, base_fetch = _fake_callbacks()
+    _, fetch_official, base_fetch = _fake_callbacks(
+        commodity_deliveries=("202610", "202612", "202701")
+    )
     daily_requests: list[str] = []
 
     def fetch_tushare(*, endpoint: str, **params: str) -> list[dict]:
         rows = base_fetch(endpoint=endpoint, **params)
         if endpoint == "fut_basic" and params["exchange"] == "INE":
-            third = dict(rows[-1])
-            third.update(
-                {
-                    "ts_code": "SC2701.INE",
-                    "symbol": "SC2701",
-                    "name": "SC@INE 202701",
-                    "d_month": "202701",
-                    "delist_date": "20270115",
-                    "last_ddate": "20270120",
-                }
-            )
-            rows.append(third)
+            rows.extend(_contract_rows("INE", "SC", deliveries=("202701",)))
         if endpoint == "fut_daily":
             daily_requests.append(params["ts_code"])
             if params["ts_code"] == "SC2610.INE":
@@ -1631,10 +1610,18 @@ def test_commodity_does_not_fetch_third_contract_when_first_two_fail(
     )
 
     commodity = result.routes["tushare.commodities"]
-    assert commodity.group is None
-    assert commodity.coverage_receipt.as_dict()["blocker_codes"] == ["SCHEMA_DRIFT"]
-    assert len(daily_requests) == 10
-    assert "SC2701.INE" not in daily_requests
+    assert commodity.group is not None
+    assert len(daily_requests) == 11
+    assert "SC2701.INE" in daily_requests
+    sc_family = next(
+        family
+        for family in commodity.group["condition_input"]["families"]
+        if family["family_id"] == "SC@INE"
+    )
+    assert [row["ts_code"] for row in sc_family["contracts"]] == [
+        "SC2612.INE",
+        "SC2701.INE",
+    ]
 
 
 def test_commodity_blocks_when_filtering_leaves_fewer_than_two_contracts(

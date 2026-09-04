@@ -153,6 +153,9 @@ describe("evaluateHistoricalDecisionHealth", () => {
   it("accepts explicit evidence-gated ALL_CASH", () => {
     const input = withUpstreamCandidate(state());
     input.llm_calls = acceptedCalls();
+    input.outcome_stage_skips.autonomous_execution = {
+      agent_id: "autonomous_execution",
+    } as never;
     input.layer4_outputs.cio = {
       agent: "cio",
       decision_disposition: "ALL_CASH",
