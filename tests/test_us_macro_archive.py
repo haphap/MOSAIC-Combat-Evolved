@@ -3,11 +3,13 @@ from __future__ import annotations
 import base64
 import hashlib
 import sqlite3
+import sys
 import threading
 import zlib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 import requests
@@ -822,6 +824,34 @@ def test_archive_recomputes_hash_when_loading_private_payload(
         )
     with pytest.raises(ValueError, match="hash mismatch"):
         store.load_group(result.group["capture_key"])
+
+
+def test_akshare_policy_retries_transport_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    from mosaic.dataflows import us_macro_archive
+
+    calls = 0
+
+    class Frame:
+        def to_dict(self, *, orient: str):
+            assert orient == "records"
+            return [{"日期": "2026-07-31", "今值": 4.25}]
+
+    def fetch():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise requests.ReadTimeout("temporary timeout")
+        return Frame()
+
+    akshare = ModuleType("akshare")
+    akshare.macro_bank_usa_interest_rate = fetch
+    monkeypatch.setitem(sys.modules, "akshare", akshare)
+    monkeypatch.setattr(us_macro_archive.wall_time, "sleep", lambda _seconds: None)
+
+    assert us_macro_archive._akshare_us_policy_records() == [
+        {"日期": "2026-07-31", "今值": 4.25}
+    ]
+    assert calls == 2
 
 
 def test_akshare_policy_history_reaches_financial_snapshot(

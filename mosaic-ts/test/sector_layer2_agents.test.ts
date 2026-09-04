@@ -1643,6 +1643,7 @@ describe("standard Sector usage lifecycle", () => {
       "CONFLICT_REVIEW",
       "CONFLICT_REVIEW",
       "CONFLICT_REVIEW",
+      "CONFLICT_REVIEW",
     ]);
     expect(events.lifecycle.slice(-2)).toEqual(["finalize", "terminate"]);
     expect(llm.prompts.some((prompt) => prompt.includes("Runtime substage: final_selection"))).toBe(
@@ -1673,6 +1674,7 @@ describe("standard Sector usage lifecycle", () => {
       "CONFLICT_REVIEW",
       "CONFLICT_REVIEW",
       "CONFLICT_REVIEW",
+      "CONFLICT_REVIEW",
     ]);
     expect(events.lifecycle.slice(-2)).toEqual(["finalize", "terminate"]);
   });
@@ -1697,6 +1699,7 @@ describe("standard Sector usage lifecycle", () => {
     ).rejects.toThrow(/CONFLICT_REVIEW_NO_UNIQUE_CONDORCET_WINNER/);
     expect(events.reports.map((report) => report.attempted_stage)).toEqual([
       "DIRECTION_RESEARCH",
+      "CONFLICT_REVIEW",
       "CONFLICT_REVIEW",
       "CONFLICT_REVIEW",
       "CONFLICT_REVIEW",

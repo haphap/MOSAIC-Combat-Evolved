@@ -411,20 +411,23 @@ describe("strict agent-run contract", () => {
     const invalid = { disposition: "ITEMS", items: [], claim_refs: ["claim-1"] };
     const llm = new SequenceLlm([invalid, invalid]);
     await expect(run(llm, { maxRepairs: 1 })).rejects.toMatchObject({
-      audit: { stop_reason: "duplicate_output", attempt_count: 2 },
+      audit: { stop_reason: "repair_budget_exhausted", attempt_count: 2 },
     });
     expect(llm.calls).toHaveLength(2);
   });
 
-  it("stops after two repairs eliminate none of the prior normalized errors", async () => {
+  it("uses the final repair when prior repairs eliminate none of the errors", async () => {
     const llm = new SequenceLlm([
       { disposition: "ITEMS", items: [], claim_refs: ["a"] },
       { disposition: "ITEMS", items: [], claim_refs: ["b"] },
       { disposition: "ITEMS", items: [], claim_refs: ["c"] },
+      { disposition: "ITEMS", items: ["fixed"], claim_refs: ["d"] },
     ]);
-    await expect(run(llm)).rejects.toMatchObject({
-      audit: { stop_reason: "no_error_improvement", attempt_count: 3 },
+    await expect(run(llm)).resolves.toMatchObject({
+      output: { items: ["fixed"] },
+      audit: { status: "accepted", attempt_count: 4, repair_count: 3 },
     });
+    expect(llm.calls).toHaveLength(4);
   });
 
   it.each([

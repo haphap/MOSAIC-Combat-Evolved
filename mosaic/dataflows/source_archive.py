@@ -30,6 +30,7 @@ from mosaic.dataflows.economic_calendar import (
     EconomicCalendarStore,
     collect_eco_calendar,
 )
+from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.role_events import (
     ROLE_EVENT_CURRENCIES,
     build_role_event_snapshot,
@@ -757,6 +758,19 @@ def archive_eco_calendar(
             ledger=ledger,
             route_status="TRANSPORT_FAILED",
             blocker="TRANSPORT_FAILED",
+        )
+    except DataVendorUnavailable as exc:
+        failure_code = (
+            "TRANSPORT_FAILED"
+            if exc.reason_code == "TRANSPORT_FAILED"
+            else "CAPTURE_REJECTED"
+        )
+        return _uniform_failure(
+            as_of_date=as_of_date,
+            requested_route_ids=route_ids,
+            ledger=ledger,
+            route_status=failure_code,
+            blocker=failure_code,
         )
     except ValueError as exc:
         if str(exc).startswith("DENY_UNKNOWN_ENDPOINT:"):

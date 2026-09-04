@@ -600,14 +600,22 @@ def _seal_batch(
     # Keep vendor response construction on the caller thread to avoid worker-init crashes.
     for request in requests:
         if exact_single_page:
-            try:
-                response = fetch(endpoint, **dict(request))
-            except DataVendorUnavailable as exc:
-                raise DataVendorUnavailable(
-                    f"Tushare endpoint '{endpoint}' unavailable",
-                    reason_code=f"TUSHARE_{endpoint.upper()}_UNAVAILABLE",
-                ) from exc
-            leaf_rows = _response_rows(response)
+            empty_backoffs = (
+                _EMPTY_RESPONSE_BACKOFF_SECONDS if require_each_nonempty else ()
+            )
+            for attempt in range(len(empty_backoffs) + 1):
+                try:
+                    response = fetch(endpoint, **dict(request))
+                except DataVendorUnavailable as exc:
+                    raise DataVendorUnavailable(
+                        f"Tushare endpoint '{endpoint}' unavailable",
+                        reason_code=f"TUSHARE_{endpoint.upper()}_UNAVAILABLE",
+                    ) from exc
+                leaf_rows = _response_rows(response)
+                if leaf_rows or attempt == len(empty_backoffs):
+                    leaf_pages = attempt + 1
+                    break
+                wall_time.sleep(empty_backoffs[attempt])
             if len(leaf_rows) >= (
                 _INDEX_MEMBER_ALL_EXACT_PAGE_CAP
                 if endpoint == "index_member_all"
@@ -636,7 +644,6 @@ def _seal_batch(
                 seen_hashes.add(row_hash)
                 unique_rows.append(row)
             leaf_rows = unique_rows
-            leaf_pages = 1
         else:
             leaf_rows, leaf_pages, leaf_duplicates = _paginate_incremental(
                 fetch,

@@ -617,6 +617,58 @@ def test_incremental_pagination_retries_empty_and_rejects_hidden_rows(
         raise AssertionError("hidden rows after a short page must fail closed")
 
 
+def test_required_exact_leaf_confirms_empty_response(monkeypatch) -> None:
+    monkeypatch.setattr(sector_archive.wall_time, "sleep", lambda _seconds: None)
+    calls = 0
+
+    def fetch(endpoint: str, **params: Any):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return []
+        return [_endpoint_row(endpoint, params)]
+
+    batch, _duplicates, pages = sector_archive._seal_batch(
+        endpoint="stock_basic",
+        requests=({"ts_code": "000001.SZ"},),
+        request_contract={"ts_code": "000001.SZ"},
+        fetch=fetch,
+        captured_at=CUTOFF,
+        require_each_nonempty=True,
+        confirm_terminal=False,
+        exact_single_page=True,
+    )
+
+    assert len(batch["rows"]) == 1
+    assert calls == 2
+    assert pages == 2
+
+
+def test_optional_exact_leaf_does_not_retry_empty_response(monkeypatch) -> None:
+    monkeypatch.setattr(sector_archive.wall_time, "sleep", lambda _seconds: None)
+    calls = 0
+
+    def fetch(_endpoint: str, **_params: Any):
+        nonlocal calls
+        calls += 1
+        return []
+
+    batch, _duplicates, pages = sector_archive._seal_batch(
+        endpoint="index_member_all",
+        requests=({"l2_code": "801081.SI", "is_new": "N"},),
+        request_contract={"scope": "semiconductor_etf_candidates_v1"},
+        fetch=fetch,
+        captured_at=CUTOFF,
+        require_each_nonempty=False,
+        confirm_terminal=False,
+        exact_single_page=True,
+    )
+
+    assert batch["rows"] == []
+    assert calls == 1
+    assert pages == 1
+
+
 def test_incremental_pagination_redacts_vendor_failure_by_endpoint() -> None:
     def failed_fetch(_endpoint: str, **_params: Any):
         raise DataVendorUnavailable("vendor text and request parameters must stay private")

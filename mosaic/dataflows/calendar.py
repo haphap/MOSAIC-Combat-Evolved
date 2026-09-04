@@ -121,14 +121,13 @@ def _ensure_cache(start: date, end: date) -> None:
 def _fetch_trade_cal_via_tushare(start: date, end: date) -> Optional[pd.DataFrame]:
     """Pull SSE trade calendar from Tushare. Returns None if unavailable."""
     try:
-        from mosaic.dataflows.tushare import _get_pro_client  # type: ignore[attr-defined]
-
-        pro = _get_pro_client()
+        from mosaic.dataflows.tushare import _query_pro  # type: ignore[attr-defined]
     except Exception as exc:
         logger.info("Tushare unavailable for trade_cal: %s", exc)
         return None
     try:
-        df = pro.trade_cal(
+        df = _query_pro(
+            "trade_cal",
             exchange="SSE",
             start_date=_format_yyyymmdd(start),
             end_date=_format_yyyymmdd(end),

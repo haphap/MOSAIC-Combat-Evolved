@@ -8,6 +8,7 @@ import json
 import math
 import os
 import sqlite3
+import time as wall_time
 import zlib
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
@@ -206,12 +207,20 @@ def _sha256_bytes(value: bytes) -> str:
 def _akshare_us_policy_records() -> list[dict[str, Any]]:
     try:
         import akshare as ak
-
-        records = ak.macro_bank_usa_interest_rate().to_dict(orient="records")
     except Exception as exc:
         raise DataVendorUnavailable(
             f"AKShare macro_bank_usa_interest_rate fetch failed: {exc}"
         ) from exc
+    for attempt in range(3):
+        try:
+            records = ak.macro_bank_usa_interest_rate().to_dict(orient="records")
+            break
+        except Exception as exc:
+            if attempt == 2 or not _is_transport_failure(exc):
+                raise DataVendorUnavailable(
+                    f"AKShare macro_bank_usa_interest_rate fetch failed: {exc}"
+                ) from exc
+            wall_time.sleep((0.5, 1.5)[attempt])
     if not isinstance(records, list) or not records:
         raise DataVendorUnavailable(
             "AKShare macro_bank_usa_interest_rate returned no rows"

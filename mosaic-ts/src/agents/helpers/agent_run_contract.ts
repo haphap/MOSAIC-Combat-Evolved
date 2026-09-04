@@ -62,8 +62,6 @@ export interface AgentRunAudit {
     | "accepted"
     | "accepted_empty"
     | "repair_budget_exhausted"
-    | "duplicate_output"
-    | "no_error_improvement"
     | "structured_output_unsupported"
     | "timeout"
     | "connection_error"
@@ -208,9 +206,6 @@ export async function invokeStrictStructured<T>(
   const attempts: AgentAttemptAudit[] = [];
   const repairEvidenceCatalog = extractRepairEvidenceCatalog(opts.evidenceSnapshot);
   const cumulativeIssues: AgentContractIssue[] = [];
-  let previousOutputHash: string | null = null;
-  let previousFingerprints = new Set<string>();
-  let noImprovementCount = 0;
   let previousProviderRaw: unknown = null;
 
   for (let attempt = 0; attempt <= maxRepairs; attempt += 1) {
@@ -346,25 +341,6 @@ export async function invokeStrictStructured<T>(
     }
 
     cumulativeIssues.push(...issues);
-    if (
-      attempt > 0 &&
-      outputHash !== null &&
-      outputHash === previousOutputHash &&
-      (attempt >= 2 || attempt === maxRepairs)
-    ) {
-      throw rejectedError(opts, hashes, attempts, "duplicate_output");
-    }
-    if (attempt > 0) {
-      const removedPreviousError = [...previousFingerprints].some(
-        (fingerprint) => !fingerprints.has(fingerprint),
-      );
-      noImprovementCount = removedPreviousError ? 0 : noImprovementCount + 1;
-      if (noImprovementCount >= 2) {
-        throw rejectedError(opts, hashes, attempts, "no_error_improvement");
-      }
-    }
-    previousOutputHash = outputHash;
-    previousFingerprints = fingerprints;
     previousProviderRaw = providerRaw;
   }
 
@@ -657,7 +633,7 @@ function rejectedError<T>(
   opts: StrictStructuredRunOptions<T>,
   hashes: Pick<AgentRunAudit, "prompt_hash" | "schema_hash" | "evidence_hash">,
   attempts: AgentAttemptAudit[],
-  stopReason: "repair_budget_exhausted" | "duplicate_output" | "no_error_improvement",
+  stopReason: "repair_budget_exhausted",
 ): AgentRunContractError {
   const reasonCodes = [
     ...new Set(

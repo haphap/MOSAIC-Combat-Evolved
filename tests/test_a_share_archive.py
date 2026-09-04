@@ -16,6 +16,7 @@ from mosaic.dataflows.a_share_archive import (
     _validate_session_closure,
     fetch_a_share_tushare_endpoint,
 )
+from mosaic.dataflows.exceptions import DataVendorUnavailable
 
 
 def test_bounded_a_share_helpers_preserve_sector_contract(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -63,3 +64,39 @@ def test_bounded_session_closure_rejects_missing_adjustment() -> None:
             ],
             [session],
         )
+
+
+def test_tushare_query_allows_one_additional_transient_attempt(monkeypatch) -> None:
+    from mosaic.dataflows import tushare
+
+    calls = 0
+
+    class Client:
+        def query(self, _endpoint: str, **_params: str):
+            nonlocal calls
+            calls += 1
+            if calls < 4:
+                raise ConnectionError("temporary connection reset")
+            return ["ok"]
+
+    monkeypatch.setattr(tushare, "_get_pro_client", Client)
+    monkeypatch.setattr(tushare.time, "sleep", lambda _seconds: None)
+
+    assert tushare._query_pro("trade_cal", exchange="SSE") == ["ok"]
+    assert calls == 4
+
+
+def test_tushare_query_marks_exhausted_transient_failure(monkeypatch) -> None:
+    from mosaic.dataflows import tushare
+
+    class Client:
+        def query(self, _endpoint: str, **_params: str):
+            raise ConnectionError("temporary connection reset")
+
+    monkeypatch.setattr(tushare, "_get_pro_client", Client)
+    monkeypatch.setattr(tushare.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(DataVendorUnavailable) as failure:
+        tushare._query_pro("trade_cal", exchange="SSE")
+
+    assert failure.value.reason_code == "TRANSPORT_FAILED"

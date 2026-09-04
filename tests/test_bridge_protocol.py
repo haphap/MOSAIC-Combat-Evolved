@@ -28,7 +28,10 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 import scripts.build_structured_smoke_fixtures as structured_smoke_fixtures
 from mosaic.scorecard.canonical_json import canonical_hash
@@ -36,6 +39,30 @@ from scripts.build_structured_smoke_fixtures import build_structured_smoke_fixtu
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def test_handler_stdout_is_kept_off_the_protocol_stream() -> None:
+    from mosaic.bridge import server as bridge_server
+
+    protocol = StringIO()
+    diagnostics = StringIO()
+
+    def noisy_dispatch(request: dict[str, object]) -> dict[str, object]:
+        print("vendor diagnostic")
+        return {"jsonrpc": "2.0", "id": request["id"], "result": {"ok": True}}
+
+    request = '{"jsonrpc":"2.0","id":1,"method":"test.noisy","params":{}}\n'
+    with patch.object(bridge_server, "dispatch", noisy_dispatch):
+        with redirect_stdout(protocol), redirect_stderr(diagnostics):
+            bridge_server._serve_streams(StringIO(request), protocol)
+
+    assert json.loads(protocol.getvalue()) == {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {"ok": True},
+    }
+    assert "vendor diagnostic" not in protocol.getvalue()
+    assert "vendor diagnostic" in diagnostics.getvalue()
 
 
 def _resolve_python() -> str:
