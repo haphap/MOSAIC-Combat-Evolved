@@ -929,7 +929,7 @@ export interface PromptFormalReleaseChecksResult {
 // --------------------------------------------------------- rke (Part 1 context/export)
 
 export interface RkeAgentResearchContextResult {
-  schema_version: "rke_agent_research_context_v1";
+  schema_version: "rke_agent_research_context_v2";
   agent_id: string;
   layer: string;
   as_of_date: string;

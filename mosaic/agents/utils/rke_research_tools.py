@@ -10,7 +10,6 @@ from __future__ import annotations
 from datetime import date
 import hashlib
 import json
-from math import isfinite
 from typing import Annotated
 from typing import Any
 from typing import Mapping
@@ -19,25 +18,18 @@ from langchain_core.tools import tool
 
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.rke.agent_research_context import (
-    AGENT_TARGET_SPECIFICITY_BUCKETS,
-    FORBIDDEN_FIELD_NAMES,
     FORBIDDEN_FIELD_POLICY,
-    PERFORMANCE_CONTEXT_BUCKETS,
     RANKING_POLICY_ID,
     RESEARCH_PRIOR_USE_POLICY,
-    RELIABILITY_BUCKETS,
     SAFE_ACTIONABILITY,
     SCHEMA_VERSION,
     assert_public_safe_context,
     build_rke_agent_research_context,
     format_rke_agent_research_context,
     normalize_agent_id,
-    RATING_BUCKETS,
 )
 
 _PRIORITY_BUCKETS = frozenset({"high", "medium", "low"})
-_CONTEXT_SNAPSHOT_STATUSES = frozenset({"available", "missing", "not_required"})
-_FRESHNESS_BUCKETS = frozenset({"historical_completed_exit", "pending_no_completed_exit"})
 
 
 def format_rke_runtime_context(context: Mapping[str, Any]) -> str:
@@ -154,171 +146,6 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         for item in items
     ):
         failures.append("item_regime_types_invalid")
-    if items and any(not item.get("statistical_reliability_bucket") for item in items):
-        failures.append("item_reliability_bucket_missing")
-    if items and any(
-        item.get("statistical_reliability_bucket") not in RELIABILITY_BUCKETS
-        for item in items
-    ):
-        failures.append("item_reliability_bucket_invalid")
-    if items and any(
-        not item.get(field)
-        for item in items
-        for field in ("source_performance_bucket", "viewpoint_performance_bucket")
-    ):
-        failures.append("item_performance_bucket_missing")
-    if items and any(
-        item.get(field) not in RATING_BUCKETS
-        for item in items
-        for field in ("source_performance_bucket", "viewpoint_performance_bucket")
-    ):
-        failures.append("item_performance_bucket_invalid")
-    if items and any(
-        not item.get(field)
-        for item in items
-        for field in (
-            "agent_target_specificity_bucket",
-            "performance_context_match",
-            "freshness_bucket",
-        )
-    ):
-        failures.append("item_ranking_metadata_missing")
-    if items and any(
-        item.get("agent_target_specificity_bucket") not in AGENT_TARGET_SPECIFICITY_BUCKETS
-        or item.get("performance_context_match") not in PERFORMANCE_CONTEXT_BUCKETS
-        for item in items
-    ):
-        failures.append("item_ranking_metadata_invalid")
-    if items and any(item.get("freshness_bucket") not in _FRESHNESS_BUCKETS for item in items):
-        failures.append("item_freshness_bucket_invalid")
-    if items and any("latest_completed_exit_date" not in item for item in items):
-        failures.append("item_latest_exit_date_missing")
-    if items and any(
-        item.get("latest_completed_exit_date")
-        and not _is_iso_date(item.get("latest_completed_exit_date"))
-        for item in items
-    ):
-        failures.append("item_latest_exit_date_invalid")
-    if items and any(
-        item.get("latest_completed_exit_date")
-        and str(item.get("latest_completed_exit_date")) >= as_of_date
-        for item in items
-    ):
-        failures.append("item_latest_exit_date_after_as_of")
-    if items and any(
-        (
-            item.get("latest_completed_exit_date")
-            and item.get("freshness_bucket") != "historical_completed_exit"
-        )
-        or (
-            not item.get("latest_completed_exit_date")
-            and item.get("freshness_bucket") != "pending_no_completed_exit"
-        )
-        for item in items
-    ):
-        failures.append("item_freshness_bucket_mismatch")
-    if items and any(
-        not _is_non_negative_finite_number(item.get("combined_research_prior_weight"))
-        for item in items
-    ):
-        failures.append("item_combined_weight_invalid")
-    if items and any(
-        not _is_non_negative_finite_number(item.get("n_effective"))
-        for item in items
-    ):
-        failures.append("item_n_effective_invalid")
-    if items and any(
-        "known_failure_mode_tags" not in item
-        or not isinstance(item.get("known_failure_mode_tags"), (list, tuple))
-        or not all(
-            isinstance(tag, str) and tag for tag in item.get("known_failure_mode_tags", [])
-        )
-        for item in items
-    ):
-        failures.append("known_failure_mode_tags_missing")
-    if items and any(
-        not isinstance(item.get(field), (list, tuple))
-        or not all(isinstance(value, str) and value for value in item.get(field, []))
-        for item in items
-        for field in ("recipe_ids", "tool_gap_ids")
-    ):
-        failures.append("item_recipe_tool_gap_ids_invalid")
-    snapshot_statuses = [str(item.get("context_snapshot_status") or "") for item in items]
-    if items and any(status not in _CONTEXT_SNAPSHOT_STATUSES for status in snapshot_statuses):
-        failures.append("context_snapshot_status_invalid")
-    snapshot_missing_reasons = [
-        item.get("context_snapshot_missing_reasons") for item in items
-    ]
-    if items and any(
-        not isinstance(reasons, (list, tuple))
-        or not all(isinstance(reason, str) and reason for reason in reasons)
-        for reasons in snapshot_missing_reasons
-    ):
-        failures.append("context_snapshot_missing_reasons_invalid")
-    if items and any(
-        item.get("context_snapshot_status") == "missing"
-        and not item.get("context_snapshot_missing_reasons")
-        for item in items
-    ):
-        failures.append("context_snapshot_missing_reasons_missing")
-    if items and any(
-        isinstance(item.get("context_snapshot_missing_reasons"), (list, tuple))
-        and all(
-            isinstance(reason, str)
-            for reason in item["context_snapshot_missing_reasons"]
-        )
-        and not set(item["context_snapshot_missing_reasons"]).issubset(
-            set(item.get("ranking_reason_codes") or [])
-        )
-        for item in items
-    ):
-        failures.append("context_snapshot_missing_reason_not_ranked")
-    outcome_summaries = [item.get("outcome_label_summary") for item in items]
-    if items and any(
-        not isinstance(summary, Mapping)
-        or not isinstance(summary.get("label_count"), int)
-        or isinstance(summary.get("label_count"), bool)
-        or summary.get("label_count") < 0
-        or not isinstance(summary.get("directional_hit_count"), int)
-        or isinstance(summary.get("directional_hit_count"), bool)
-        or summary.get("directional_hit_count") < 0
-        or not isinstance(summary.get("pending_label_count"), int)
-        or isinstance(summary.get("pending_label_count"), bool)
-        or summary.get("pending_label_count") < 0
-        or summary.get("pending_label_count") > summary.get("label_count")
-        or summary.get("directional_hit_count") > summary.get("label_count")
-        or not _is_non_negative_finite_number(summary.get("pending_share"))
-        or summary.get("pending_share") > 1
-        or (
-            summary.get("pending_share")
-            != round(
-                summary.get("pending_label_count") / summary.get("label_count"),
-                4,
-            )
-            if summary.get("label_count")
-            else summary.get("pending_share") != 0
-        )
-        or not isinstance(summary.get("label_types"), (list, tuple))
-        or not all(
-            isinstance(label_type, str) and label_type
-            for label_type in summary.get("label_types", [])
-        )
-        or "latest_completed_exit_date" not in summary
-        or (
-            summary.get("label_count") == 0
-            and bool(summary.get("latest_completed_exit_date"))
-        )
-        or (
-            summary.get("latest_completed_exit_date")
-            and not _is_iso_date(summary.get("latest_completed_exit_date"))
-        )
-        or (
-            summary.get("latest_completed_exit_date")
-            and str(summary.get("latest_completed_exit_date")) >= as_of_date
-        )
-        for summary in outcome_summaries
-    ):
-        failures.append("outcome_label_summary_invalid")
     if items and any(
         not isinstance(item.get("ranking_reason_codes"), (list, tuple))
         or not item.get("ranking_reason_codes")
@@ -377,8 +204,6 @@ def _runtime_preflight(context: Mapping[str, Any]) -> dict[str, Any]:
         failures.append("private_text_boundary_missing")
     if summary_map.get("forbidden_field_policy") != FORBIDDEN_FIELD_POLICY:
         failures.append("forbidden_field_policy_invalid")
-    if summary_map.get("forbidden_field_count") != len(FORBIDDEN_FIELD_NAMES):
-        failures.append("forbidden_field_count_invalid")
     try:
         assert_public_safe_context(context)
     except ValueError:
@@ -434,29 +259,12 @@ def _optional_non_negative_int(value: Any) -> int | None:
     return None
 
 
-def _is_non_negative_finite_number(value: Any) -> bool:
-    return (
-        isinstance(value, (int, float))
-        and not isinstance(value, bool)
-        and isfinite(value)
-        and value >= 0
-    )
-
-
 def _expected_priority_bucket(rank: int) -> str:
     if rank <= 3:
         return "high"
     if rank <= 10:
         return "medium"
     return "low"
-
-
-def _is_iso_date(value: Any) -> bool:
-    try:
-        date.fromisoformat(str(value))
-    except ValueError:
-        return False
-    return True
 
 
 @tool
