@@ -5,10 +5,16 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import asdict, dataclass
-from datetime import date, datetime
+from datetime import date
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+
+from jsonschema import FormatChecker
+from jsonschema.exceptions import SchemaError, ValidationError
+from jsonschema.validators import validator_for
+from referencing import Registry
+from referencing.exceptions import Unresolvable
 
 from .manual_review_bundle_manifest import MANUAL_REVIEW_BUNDLE_ARTIFACTS
 from .manual_review_aids import manual_review_aid_paths, manual_review_field_contract
@@ -21,44 +27,6 @@ from .promotion_gate import RKE_EXECUTION_MODE
 from .required_data import normalize_required_data_items
 from .temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
 
-
-SUPPORTED_JSON_SCHEMA_KEYWORDS = frozenset(
-    {
-        "$schema",
-        "$defs",
-        "$ref",
-        "additionalProperties",
-        "allOf",
-        "anyOf",
-        "const",
-        "contains",
-        "enum",
-        "exclusiveMaximum",
-        "exclusiveMinimum",
-        "format",
-        "if",
-        "items",
-        "maxItems",
-        "maxContains",
-        "maxLength",
-        "maximum",
-        "minItems",
-        "minContains",
-        "minLength",
-        "minProperties",
-        "minimum",
-        "oneOf",
-        "not",
-        "pattern",
-        "propertyNames",
-        "properties",
-        "required",
-        "then",
-        "title",
-        "type",
-        "uniqueItems",
-    }
-)
 
 REPORT_INTELLIGENCE_EVOLUTION_READINESS_GATE_SCHEMA_RULES = (
     "schemas/report_intelligence_evolution_readiness_gate_rules"
@@ -277,320 +245,29 @@ def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
     return {"path": str(path), "rows": 1}
 
 
-def _schema_type_matches(value: Any, expected: str) -> bool:
-    if expected == "object":
-        return isinstance(value, dict)
-    if expected == "array":
-        return isinstance(value, list)
-    if expected == "string":
-        return isinstance(value, str)
-    if expected == "boolean":
-        return isinstance(value, bool)
-    if expected == "number":
-        return isinstance(value, (int, float)) and not isinstance(value, bool)
-    if expected == "integer":
-        return isinstance(value, int) and not isinstance(value, bool)
-    if expected == "null":
-        return value is None
-    return True
-
-
-def iter_json_schema_keywords(schema: Mapping[str, Any]) -> tuple[str, ...]:
-    keywords: list[str] = []
-
-    def walk(node: Any) -> None:
-        if not isinstance(node, Mapping):
-            return
-        for key, value in node.items():
-            keywords.append(str(key))
-            if key == "properties" and isinstance(value, Mapping):
-                for property_schema in value.values():
-                    walk(property_schema)
-            elif key == "$defs" and isinstance(value, Mapping):
-                for definition_schema in value.values():
-                    walk(definition_schema)
-            elif key == "additionalProperties" and isinstance(value, Mapping):
-                walk(value)
-            elif key == "items":
-                if isinstance(value, Mapping):
-                    walk(value)
-                elif isinstance(value, list):
-                    for item_schema in value:
-                        walk(item_schema)
-            elif key in {"allOf", "anyOf", "oneOf"} and isinstance(value, list):
-                for item_schema in value:
-                    walk(item_schema)
-            elif key in {"if", "then"} and isinstance(value, Mapping):
-                walk(value)
-
-    walk(schema)
-    return tuple(keywords)
-
-
-def _schema_expected_types(schema: Mapping[str, Any]) -> tuple[str, ...]:
-    expected = schema.get("type")
-    if isinstance(expected, str):
-        return (expected,)
-    if isinstance(expected, Sequence) and not isinstance(expected, str):
-        return tuple(str(item) for item in expected)
-    return ()
-
-
-def _number_limit(schema: Mapping[str, Any], key: str) -> float | None:
-    if key not in schema:
-        return None
-    try:
-        return float(schema[key])
-    except (TypeError, ValueError):
-        return None
-
-
-def _json_unique_items(value: Sequence[Any]) -> bool:
-    seen: set[str] = set()
-    for item in value:
-        marker = json.dumps(item, ensure_ascii=False, sort_keys=True)
-        if marker in seen:
-            return False
-        seen.add(marker)
-    return True
-
-
-def _resolve_local_schema_ref(
-    root_schema: Mapping[str, Any], ref: str
-) -> Mapping[str, Any] | None:
-    if not ref.startswith("#/"):
-        return None
-    node: Any = root_schema
-    for raw_part in ref[2:].split("/"):
-        part = raw_part.replace("~1", "/").replace("~0", "~")
-        if not isinstance(node, Mapping) or part not in node:
-            return None
-        node = node[part]
-    return node if isinstance(node, Mapping) else None
-
-
-def _validate_value(
-    value: Any,
-    schema: Mapping[str, Any],
-    path: str,
-    *,
-    root_schema: Mapping[str, Any] | None = None,
-    ref_stack: tuple[str, ...] = (),
-) -> list[str]:
-    if root_schema is None:
-        root_schema = schema
-    failures: list[str] = []
-    ref = schema.get("$ref")
-    if isinstance(ref, str):
-        if ref in ref_stack:
-            failures.append(f"{path}: cyclic schema ref {ref!r}")
-        else:
-            referenced_schema = _resolve_local_schema_ref(root_schema, ref)
-            if referenced_schema is None:
-                failures.append(f"{path}: unresolved schema ref {ref!r}")
-            else:
-                failures.extend(
-                    _validate_value(
-                        value,
-                        referenced_schema,
-                        path,
-                        root_schema=root_schema,
-                        ref_stack=(*ref_stack, ref),
-                    )
-                )
-    all_of = schema.get("allOf")
-    if isinstance(all_of, list):
-        for item_schema in all_of:
-            if isinstance(item_schema, Mapping):
-                failures.extend(
-                    _validate_value(
-                        value,
-                        item_schema,
-                        path,
-                        root_schema=root_schema,
-                        ref_stack=ref_stack,
-                    )
-                )
-    any_of = schema.get("anyOf")
-    if isinstance(any_of, list):
-        matching_branches = sum(
-            not _validate_value(
-                value,
-                item_schema,
-                path,
-                root_schema=root_schema,
-                ref_stack=ref_stack,
-            )
-            for item_schema in any_of
-            if isinstance(item_schema, Mapping)
-        )
-        if matching_branches == 0:
-            failures.append(f"{path}: no anyOf schema matched")
-    one_of = schema.get("oneOf")
-    if isinstance(one_of, list):
-        matching_branches = sum(
-            not _validate_value(
-                value,
-                item_schema,
-                path,
-                root_schema=root_schema,
-                ref_stack=ref_stack,
-            )
-            for item_schema in one_of
-            if isinstance(item_schema, Mapping)
-        )
-        if matching_branches != 1:
-            failures.append(f"{path}: expected exactly one oneOf schema match")
-    not_schema = schema.get("not")
-    if isinstance(not_schema, Mapping) and not _validate_value(
-        value,
-        not_schema,
-        path,
-        root_schema=root_schema,
-        ref_stack=ref_stack,
-    ):
-        failures.append(f"{path}: matched forbidden not schema")
-    if_schema = schema.get("if")
-    then_schema = schema.get("then")
-    if isinstance(if_schema, Mapping) and isinstance(then_schema, Mapping):
-        if not _validate_value(
-            value,
-            if_schema,
-            path,
-            root_schema=root_schema,
-            ref_stack=ref_stack,
-        ):
-            failures.extend(
-                _validate_value(
-                    value,
-                    then_schema,
-                    path,
-                    root_schema=root_schema,
-                    ref_stack=ref_stack,
-                )
-            )
-    expected_types = _schema_expected_types(schema)
-    if expected_types and not any(
-        _schema_type_matches(value, expected_type)
-        for expected_type in expected_types
-    ):
-        return [f"{path}: expected {'/'.join(expected_types)}"]
-    if "const" in schema and value != schema["const"]:
-        failures.append(f"{path}: expected const {schema['const']!r}")
-    if "enum" in schema and not any(value == enum_value for enum_value in schema["enum"]):
-        failures.append(f"{path}: value {value!r} not in enum")
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        minimum = _number_limit(schema, "minimum")
-        maximum = _number_limit(schema, "maximum")
-        exclusive_minimum = _number_limit(schema, "exclusiveMinimum")
-        exclusive_maximum = _number_limit(schema, "exclusiveMaximum")
-        if minimum is not None and value < minimum:
-            failures.append(f"{path}: below minimum {schema['minimum']!r}")
-        if maximum is not None and value > maximum:
-            failures.append(f"{path}: above maximum {schema['maximum']!r}")
-        if exclusive_minimum is not None and value <= exclusive_minimum:
-            failures.append(f"{path}: below exclusiveMinimum {schema['exclusiveMinimum']!r}")
-        if exclusive_maximum is not None and value >= exclusive_maximum:
-            failures.append(f"{path}: above exclusiveMaximum {schema['exclusiveMaximum']!r}")
-    if isinstance(value, str):
-        if int(schema.get("minLength") or 0) and len(value) < int(schema["minLength"]):
-            failures.append(f"{path}: below minLength")
-        if "maxLength" in schema and len(value) > int(schema["maxLength"]):
-            failures.append(f"{path}: above maxLength")
-        if "pattern" in schema and not re.search(str(schema["pattern"]), value):
-            failures.append(f"{path}: pattern mismatch")
-        if schema.get("format") == "date-time":
-            try:
-                parsed_datetime = datetime.fromisoformat(value.replace("Z", "+00:00"))
-                if parsed_datetime.tzinfo is None:
-                    raise ValueError("timezone required")
-            except ValueError:
-                failures.append(f"{path}: invalid date-time format")
-    if isinstance(value, list):
-        if len(value) < int(schema.get("minItems") or 0):
-            failures.append(f"{path}: below minItems")
-        if "maxItems" in schema and len(value) > int(schema["maxItems"]):
-            failures.append(f"{path}: above maxItems")
-        if schema.get("uniqueItems") is True and not _json_unique_items(value):
-            failures.append(f"{path}: duplicate items")
-        item_schema = schema.get("items")
-        if isinstance(item_schema, Mapping):
-            for idx, item in enumerate(value):
-                failures.extend(
-                    _validate_value(
-                        item,
-                        item_schema,
-                        f"{path}[{idx}]",
-                        root_schema=root_schema,
-                        ref_stack=ref_stack,
-                    )
-                )
-        contains_schema = schema.get("contains")
-        if isinstance(contains_schema, Mapping):
-            matching_items = sum(
-                not _validate_value(
-                    item,
-                    contains_schema,
-                    f"{path}[{idx}]",
-                    root_schema=root_schema,
-                    ref_stack=ref_stack,
-                )
-                for idx, item in enumerate(value)
-            )
-            min_contains = int(schema.get("minContains", 1))
-            max_contains = schema.get("maxContains")
-            if matching_items < min_contains:
-                failures.append(f"{path}: below minContains")
-            if max_contains is not None and matching_items > int(max_contains):
-                failures.append(f"{path}: above maxContains")
-    if isinstance(value, dict):
-        if len(value) < int(schema.get("minProperties") or 0):
-            failures.append(f"{path}: below minProperties")
-        property_names = schema.get("propertyNames")
-        if isinstance(property_names, Mapping):
-            for field in value:
-                failures.extend(
-                    _validate_value(
-                        field,
-                        property_names,
-                        f"{path}.{field}<propertyName>",
-                        root_schema=root_schema,
-                        ref_stack=ref_stack,
-                    )
-                )
-        required = tuple(schema.get("required") or ())
-        for field in required:
-            if field not in value:
-                failures.append(f"{path}.{field}: required")
-        properties = dict(schema.get("properties") or {})
-        for field, field_schema in properties.items():
-            if field in value and isinstance(field_schema, Mapping):
-                failures.extend(
-                    _validate_value(
-                        value[field],
-                        field_schema,
-                        f"{path}.{field}",
-                        root_schema=root_schema,
-                        ref_stack=ref_stack,
-                    )
-                )
-        additional = schema.get("additionalProperties", True)
-        if additional is False:
-            extra = set(value) - set(properties)
-            failures.extend(f"{path}.{field}: additional property not allowed" for field in sorted(extra))
-        elif isinstance(additional, Mapping):
-            for field, item in value.items():
-                if field not in properties:
-                    failures.extend(
-                        _validate_value(
-                            item,
-                            additional,
-                            f"{path}.{field}",
-                            root_schema=root_schema,
-                            ref_stack=ref_stack,
-                        )
-                    )
-    return failures
+def _schema_error_failures(error: ValidationError, prefix: str) -> list[str]:
+    # Library messages can quote private report values. Report only location/rule.
+    path = prefix + "".join(
+        f"[{part}]" if isinstance(part, int) else f".{part}"
+        for part in error.absolute_path
+    )
+    if error.validator == "required":
+        return [
+            f"{path}.{field}: required"
+            for field in error.validator_value
+            if field not in error.instance
+        ]
+    if error.validator == "type":
+        expected = error.validator_value
+        expected = expected if isinstance(expected, list) else [expected]
+        return [f"{path}: expected {'/'.join(expected)}"]
+    message = {
+        "minimum": "below minimum",
+        "minProperties": "below minProperties",
+        "pattern": "pattern mismatch",
+        "oneOf": "expected exactly one oneOf schema match",
+    }.get(error.validator, f"failed {error.validator or 'boolean schema'}")
+    return [f"{path}: {message}"]
 
 
 def validate_json_schema_artifact(
@@ -626,10 +303,26 @@ def validate_json_schema_artifact(
     if not items and not (allow_empty or local_optional_report_intelligence):
         failures.append("artifact has no validation items")
     if schema is not None:
-        for idx, item in enumerate(items):
-            failures.extend(
-                _validate_value(item, schema, f"$[{idx}]", root_schema=schema)
+        try:
+            validator_class = validator_for(schema, default=None)
+            if validator_class is None:
+                raise ValueError("unknown Schema draft")
+            validator_class.check_schema(schema)
+            validator = validator_class(
+                schema, format_checker=FormatChecker(), registry=Registry()
             )
+            for idx, item in enumerate(items):
+                failures.extend(sorted({
+                    failure
+                    for error in validator.iter_errors(item)
+                    for failure in _schema_error_failures(error, f"$[{idx}]")
+                }))
+        except SchemaError:
+            failures.append("invalid JSON Schema")
+        except (Unresolvable, RecursionError):
+            failures.append("unresolved or cyclic schema ref")
+        except ValueError:
+            failures.append("unsupported JSON Schema draft")
     return SchemaValidationRecord(
         schema_path=schema_path,
         artifact_path=artifact_path,
