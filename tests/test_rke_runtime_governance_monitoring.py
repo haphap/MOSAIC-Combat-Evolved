@@ -669,3 +669,18 @@ def test_audit_trace_requires_full_source_to_output_chain():
 
     assert validate_audit_trace(trace) == ()
     assert validate_audit_trace({**trace, "patch_ids": ()}) == ("patch_ids required",)
+
+
+def test_runtime_checker_accepts_policy_component_rounding():
+    from dataclasses import replace
+    from mosaic.rke.p0 import ConfidenceComponents, compute_confidence_v1
+
+    output = _runtime_output()
+    components = {name: 0.612345678 for name in output.confidence_components}
+    expected = compute_confidence_v1(ConfidenceComponents(**components), confidence_cap=0.65,
+                                     current_data_confirmed=True)
+    output = replace(output, confidence_components=components,
+                     recommendations=(replace(output.recommendations[0], confidence=expected.final_confidence),),
+                     progress_event=replace(output.progress_event, confidence=expected.final_confidence))
+    result = check_runtime_output(output, verified_claim_ids={"CLAIM-CB-20260605-0001"}, confidence_cap=0.65)
+    assert result.accepted, result.reasons

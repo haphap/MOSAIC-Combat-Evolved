@@ -59,3 +59,17 @@ For already prepared inputs, writing and then reading yields the same checks.
 Regression tests prohibit writes, directory creation, and directory copying
 during a no-write query, compare all file contents and modification times, and
 exercise malformed and stale inputs alongside real isolated promotion tests.
+
+## Confidence policy ownership
+
+The component names come from `ConfidenceComponents`; the producer, runtime
+checker, and completion auditor share `compute_confidence_v1`. The auditor
+recomputes persisted values rather than trusting a stored acceptance flag.
+This also makes validation agree with the producer's six-decimal rounding.
+The runtime's separate caller-supplied confidence ceiling remains enforced.
+
+Completion criterion C06 reads the YAML policy as structured values and checks
+its component list, algorithm, research-only limits, and allowed actions.
+Malformed policies and changed limits still fail. YAML numeric spelling,
+quoting, indentation, and Markdown titles do not determine confidence safety.
+Policy documentation checks remain separate from this runtime criterion.
