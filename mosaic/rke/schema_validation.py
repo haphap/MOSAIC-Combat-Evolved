@@ -18,6 +18,13 @@ from referencing.exceptions import Unresolvable
 
 from .manual_review_bundle_manifest import MANUAL_REVIEW_BUNDLE_ARTIFACTS
 from .manual_review_aids import manual_review_aid_paths, manual_review_field_contract
+from .monitoring import (
+    CONFIDENCE_IMPACT_HIGH_DELTA_THRESHOLD,
+    CONFIDENCE_IMPACT_CALIBRATION_ERROR_THRESHOLD,
+    confidence_delta_bucket,
+    is_new_regime_observation,
+    pearson_correlation,
+)
 from .p0 import (
     CLAIM_GOLD_SET_METRIC_THRESHOLDS,
     MIN_CLAIM_GOLD_SET_CLAIMS,
@@ -3809,8 +3816,6 @@ RECIPE_PAPER_TRADING_OUT_OF_SAMPLE_WINDOW_POLICY = (
 RECIPE_PAPER_TRADING_PARAMETER_LOCK_POLICY = (
     "pre_registration_hash_locks_required_data_protocol_cost_benchmark_windows_v1"
 )
-CONFIDENCE_IMPACT_HIGH_DELTA_THRESHOLD = 0.02
-CONFIDENCE_IMPACT_CALIBRATION_ERROR_THRESHOLD = 0.20
 RECIPE_PAPER_TRADING_REQUIRED_METRICS = (
     "annualized_return",
     "benchmark_return",
@@ -3943,40 +3948,13 @@ def _recipe_contract_stable_id(prefix: str, payload: Mapping[str, Any]) -> str:
     return f"{prefix}-{sha256(encoded).hexdigest()[:16]}"
 
 
-def _confidence_contract_pearson_correlation(
-    pairs: Sequence[tuple[float, float]],
-) -> float | None:
-    if len(pairs) < 2:
-        return None
-    xs = [item[0] for item in pairs]
-    ys = [item[1] for item in pairs]
-    x_mean = sum(xs) / len(xs)
-    y_mean = sum(ys) / len(ys)
-    x_var = sum((value - x_mean) ** 2 for value in xs)
-    y_var = sum((value - y_mean) ** 2 for value in ys)
-    if x_var <= 0 or y_var <= 0:
-        return None
-    covariance = sum((x - x_mean) * (y - y_mean) for x, y in pairs)
-    return covariance / ((x_var * y_var) ** 0.5)
-
-
-def _confidence_contract_delta_bucket(delta: float | None) -> str:
-    if delta is None or delta == 0:
-        return "zero"
-    if delta < 0:
-        return "negative"
-    if delta >= CONFIDENCE_IMPACT_HIGH_DELTA_THRESHOLD:
-        return "high_positive"
-    return "low_positive"
-
-
 def _confidence_contract_bucket_outcome_summary(
     rows: Sequence[Mapping[str, Any]],
 ) -> dict[str, dict[str, Any]]:
     grouped: dict[str, dict[str, Any]] = {}
     for row in rows:
         delta = _float_or_none(row.get("confidence_delta"))
-        bucket = _confidence_contract_delta_bucket(delta)
+        bucket = confidence_delta_bucket(delta)
         item = grouped.setdefault(
             bucket,
             {
@@ -4012,13 +3990,6 @@ def _confidence_contract_bucket_outcome_summary(
             ),
         }
     return dict(sorted(summary.items()))
-
-
-def _confidence_contract_is_new_regime(row: Mapping[str, Any]) -> bool:
-    if row.get("regime_is_new") is True:
-        return True
-    regime_status = str(row.get("regime_status") or "").strip().lower()
-    return regime_status in {"new", "new_regime", "unseen_regime"}
 
 
 def _validate_recipe_paper_trading_contract(
@@ -4512,7 +4483,7 @@ def _validate_recipe_paper_trading_contract(
                 + 1
             )
             aggregate_calibration_recipe_ids.append(recipe_id)
-        if _confidence_contract_is_new_regime(row) and (
+        if is_new_regime_observation(row) and (
             (
                 calibration_error is not None
                 and calibration_error > CONFIDENCE_IMPACT_CALIBRATION_ERROR_THRESHOLD
@@ -4665,7 +4636,7 @@ def _validate_recipe_paper_trading_contract(
             "confidence_impact_observations missing recipe_ids: "
             + ", ".join(missing_confidence_ids[:20])
         )
-    confidence_alpha_correlation = _confidence_contract_pearson_correlation(
+    confidence_alpha_correlation = pearson_correlation(
         confidence_alpha_pairs
     )
     if confidence_alpha_correlation is not None and confidence_alpha_correlation < 0:
