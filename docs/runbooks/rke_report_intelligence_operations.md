@@ -5,6 +5,44 @@ resume from the latest known state instead of rediscovering or reinstalling the
 same environment. Do not write API keys, licensed report prose, PDF contents, or
 Markdown excerpts here.
 
+## Refresh Scope (Current Code)
+
+`report-intelligence` defaults to `--derived-scope basic`. Extraction writes the
+six extracted fact JSONL files, processing status and the existing report
+fingerprint manifest used to skip duplicate extractions. Basic `--refresh-derived-only`
+normalizes forecast mappings from existing metadata/claims and writes only
+`forecast_claims.jsonl`; it does not require footprint, metric, method or gap files
+and leaves the extraction fingerprint manifest unchanged.
+PIT normalization can use the existing local macro calendar and source mappings.
+
+Basic runs do not rebuild outcome labels, profiles, recipes, proposal templates,
+confidence monitors, prompt mutations or readiness reports.
+They leave existing full-refresh reports, including `extraction_report.json`, at
+their previous vintage. Capture the CLI JSON result in a private log for each
+shard; `refresh_scope` identifies the scope, uncomputed counts are null, and
+`outputs` lists only files written by this invocation. Do not treat an older
+full-refresh report as the result of a basic run.
+
+After merging extraction shards, explicitly request the complete offline research
+refresh before review/readiness checks or publishing a stable snapshot:
+
+```bash
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run mosaic-rke report-intelligence \
+  --root . \
+  --registry-dir registry/report_intelligence \
+  --refresh-derived-only \
+  --derived-scope full \
+  --scorecard-db-path data/scorecard.db
+```
+
+`merge-report-intelligence-batches --refresh-derived` explicitly requests this
+full scope as well. Full refresh retains the missing-private-input guard and
+existing non-LLM outcome, review, provenance and shadow-only checks. The dated
+operation logs below describe historical full runs; their outcome/profile/gate
+counts are not expected from the new basic default. To reproduce those offline
+outputs, add `--derived-scope full` to the corresponding extraction/refresh command.
+
 ## Current Local Runtime
 
 - Repository: `/home/hap/Project/MOSAIC-RKE`
@@ -341,6 +379,7 @@ MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
   uv run python -m mosaic.rke.cli report-intelligence \
   --root . \
   --refresh-derived-only \
+  --derived-scope full \
   --scorecard-db-path data/scorecard.db
 ```
 
@@ -1542,8 +1581,9 @@ Recommended operating pattern:
    for larger cached-Markdown batches. Do not use `20` concurrent shards; the
    2026-06-20 test triggered broad `429` rate-limit failures.
 3. Launch all shard commands concurrently, each with a distinct `--registry-dir`.
-4. Summarize `extraction_report.json` from every shard and collect blocker
-   source ids.
+4. Summarize the captured CLI JSON result from every basic shard and collect
+   blocker source ids from its private `processing_status.jsonl`. Do not reuse
+   a previous full `extraction_report.json` for a basic shard.
 5. Retry blockers as one-source shards, still concurrently, with the same
    cached Markdown and `--vllm-timeout-seconds 180`.
 6. Build a clean first-pass shard set that removes blocked source ids from
@@ -1933,7 +1973,7 @@ TMPDIR=~/tmp/mosaic-rke uv run mosaic-rke report-intelligence \
 3. Only after Markdown quality is acceptable, start or verify the vLLM service
    and run LLM extraction with the configured `.env` model.
 
-4. Recompute local derived artifacts with `--refresh-derived-only` after private
+4. Recompute local derived artifacts with `--refresh-derived-only --derived-scope full` after private
    extraction outputs exist. Keep the generated `registry/report_intelligence/`
    files local.
 

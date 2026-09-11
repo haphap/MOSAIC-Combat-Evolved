@@ -1756,10 +1756,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Do not call local vLLM; only materialize PDF/Markdown status.",
     )
     report_intelligence.add_argument(
+        "--derived-scope",
+        choices=("basic", "full"),
+        default="basic",
+        help="Basic writes extraction facts only; full explicitly rebuilds offline research artifacts.",
+    )
+    report_intelligence.add_argument(
         "--refresh-derived-only",
         action="store_true",
         help=(
-            "Recompute derived report-intelligence artifacts from existing "
+            "Refresh the selected scope (basic by default) from existing "
             "registry extraction outputs without downloading, converting, or "
             "calling local vLLM."
         ),
@@ -3005,6 +3011,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 skip_convert=args.skip_convert,
                 skip_llm=args.skip_llm,
                 refresh_derived_only=args.refresh_derived_only,
+                derived_scope=args.derived_scope,
                 download_timeout_seconds=args.download_timeout_seconds,
                 mineru_command=args.mineru_command,
                 mineru_backend=args.mineru_backend,
@@ -3132,6 +3139,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     root=root,
                     registry_dir=args.registry_dir,
                     refresh_derived_only=True,
+                    derived_scope="full",
                 )
             )
             result = {**result, "derived_refresh": asdict(refresh)}

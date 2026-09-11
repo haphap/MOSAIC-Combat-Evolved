@@ -280,7 +280,7 @@ stateDiagram-v2
 
 | Gate | 当前结果 |
 |---|---|
-| `report-intelligence --refresh-derived-only` | public-safe mode still refuses to overwrite committed derived artifacts when required private inputs are absent; with local private snapshots it recomputes public-safe summaries, but claim text, source spans, manual-review rows, PDFs, Markdown, and local macro source registries stay ignored/private |
+| `report-intelligence --refresh-derived-only` | Default basic scope normalizes forecast mappings and writes only forecast claims. Explicit `--derived-scope full` rebuilds offline research and retains the missing-private-input overwrite guard. Basic runs leave previous full summaries at their old vintage; uncomputed result counts are null. All source/review/runtime data stays private. |
 | Markdown / extraction coverage | public summary shows the coverage gate passed: 947 selected reports have ready Markdown, 947 pass Markdown quality checks, and 945 have processed LLM extraction status; coverage strata are not currently missing |
 | analytical footprint review | public summary shows 2768/2768 reviewed rows and quality gate passed, with precision-style metrics above threshold; recall remains incomplete until private human negative examples are reviewed and summarized |
 | `evolution_readiness_gate` | public summary is `ready_for_shadow_evolution_candidate` with blocker count 0 across RI-EVOL and RI-MACRO checks; this does not authorize production prompt or trading impact |
@@ -295,6 +295,7 @@ stateDiagram-v2
 ```bash
 uv run mosaic-rke report-intelligence --root .
 uv run mosaic-rke report-intelligence --root . --refresh-derived-only
+uv run mosaic-rke report-intelligence --root . --refresh-derived-only --derived-scope full
 ```
 
 核心验证：

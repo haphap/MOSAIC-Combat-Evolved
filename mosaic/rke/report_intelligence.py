@@ -1220,6 +1220,7 @@ class ReportIntelligenceConfig:
     skip_convert: bool = False
     skip_llm: bool = False
     refresh_derived_only: bool = False
+    derived_scope: Literal["basic", "full"] = "basic"
     download_timeout_seconds: int = 60
     mineru_command: str = "mineru"
     mineru_backend: str = DEFAULT_MINERU_BACKEND
@@ -1239,6 +1240,10 @@ class ReportIntelligenceConfig:
     max_chunks: int = 8
     max_llm_output_tokens: int = 4096
     progress_jsonl: bool = False
+
+    def __post_init__(self) -> None:
+        if self.derived_scope not in {"basic", "full"}:
+            raise ValueError("derived_scope must be basic or full")
 
 
 def _emit_report_intelligence_progress(
@@ -1269,55 +1274,56 @@ class ReportIntelligenceRunResult:
     selected_reports: int
     metadata_rows: int
     forecast_claim_rows: int
-    analytical_footprint_rows: int
-    metric_candidate_rows: int
-    method_pattern_rows: int
-    tool_gap_rows: int
-    forecast_ledger_rows: int
-    outcome_label_rows: int
-    industry_etf_proxy_outcome_label_rows: int
-    industry_etf_proxy_eligible_claim_rows: int
-    industry_etf_proxy_labelable_window_rows: int
-    industry_etf_proxy_pending_window_rows: int
-    stock_price_proxy_outcome_label_rows: int
-    stock_price_proxy_eligible_claim_rows: int
-    stock_price_proxy_labelable_window_rows: int
-    stock_price_proxy_pending_window_rows: int
-    macro_asset_proxy_outcome_label_rows: int
-    macro_asset_proxy_eligible_claim_rows: int
-    macro_asset_proxy_labelable_window_rows: int
-    macro_asset_proxy_pending_window_rows: int
-    macro_series_directional_outcome_label_rows: int
-    macro_series_directional_eligible_claim_rows: int
-    macro_series_directional_labelable_window_rows: int
-    macro_series_directional_pending_window_rows: int
-    macro_curve_directional_outcome_label_rows: int
-    macro_curve_directional_eligible_claim_rows: int
-    macro_curve_directional_labelable_window_rows: int
-    macro_curve_directional_pending_window_rows: int
-    source_performance_profile_rows: int
-    viewpoint_performance_profile_rows: int
-    macro_market_series_catalog_rows: int
-    stock_context_snapshot_rows: int
-    industry_context_snapshot_rows: int
-    macro_regime_snapshot_rows: int
-    macro_agent_research_prior_rows: int
-    method_performance_profile_rows: int
-    tool_coverage_match_rows: int
-    data_acquisition_proposal_rows: int
-    tool_design_proposal_rows: int
-    analysis_recipe_rows: int
-    prompt_mutation_candidate_rows: int
-    weighted_research_context_rows: int
-    runtime_tool_gap_observation_rows: int
-    outcome_labeling_ready_count: int
-    outcome_labeling_blocked_count: int
-    pdf_ready_count: int
-    markdown_ready_count: int
-    llm_processed_reports: int
     blocker_count: int
     blockers: Sequence[str]
     outputs: Mapping[str, str]
+    refresh_scope: Literal["basic", "full"]
+    analytical_footprint_rows: int | None = None
+    metric_candidate_rows: int | None = None
+    method_pattern_rows: int | None = None
+    tool_gap_rows: int | None = None
+    forecast_ledger_rows: int | None = None
+    outcome_label_rows: int | None = None
+    industry_etf_proxy_outcome_label_rows: int | None = None
+    industry_etf_proxy_eligible_claim_rows: int | None = None
+    industry_etf_proxy_labelable_window_rows: int | None = None
+    industry_etf_proxy_pending_window_rows: int | None = None
+    stock_price_proxy_outcome_label_rows: int | None = None
+    stock_price_proxy_eligible_claim_rows: int | None = None
+    stock_price_proxy_labelable_window_rows: int | None = None
+    stock_price_proxy_pending_window_rows: int | None = None
+    macro_asset_proxy_outcome_label_rows: int | None = None
+    macro_asset_proxy_eligible_claim_rows: int | None = None
+    macro_asset_proxy_labelable_window_rows: int | None = None
+    macro_asset_proxy_pending_window_rows: int | None = None
+    macro_series_directional_outcome_label_rows: int | None = None
+    macro_series_directional_eligible_claim_rows: int | None = None
+    macro_series_directional_labelable_window_rows: int | None = None
+    macro_series_directional_pending_window_rows: int | None = None
+    macro_curve_directional_outcome_label_rows: int | None = None
+    macro_curve_directional_eligible_claim_rows: int | None = None
+    macro_curve_directional_labelable_window_rows: int | None = None
+    macro_curve_directional_pending_window_rows: int | None = None
+    source_performance_profile_rows: int | None = None
+    viewpoint_performance_profile_rows: int | None = None
+    macro_market_series_catalog_rows: int | None = None
+    stock_context_snapshot_rows: int | None = None
+    industry_context_snapshot_rows: int | None = None
+    macro_regime_snapshot_rows: int | None = None
+    macro_agent_research_prior_rows: int | None = None
+    method_performance_profile_rows: int | None = None
+    tool_coverage_match_rows: int | None = None
+    data_acquisition_proposal_rows: int | None = None
+    tool_design_proposal_rows: int | None = None
+    analysis_recipe_rows: int | None = None
+    prompt_mutation_candidate_rows: int | None = None
+    weighted_research_context_rows: int | None = None
+    runtime_tool_gap_observation_rows: int | None = None
+    outcome_labeling_ready_count: int | None = None
+    outcome_labeling_blocked_count: int | None = None
+    pdf_ready_count: int | None = None
+    markdown_ready_count: int | None = None
+    llm_processed_reports: int | None = None
 
 
 @dataclass(frozen=True)
@@ -1767,76 +1773,20 @@ def _jsonl_has_mapping_rows(path: Path) -> bool:
 def _blocked_report_intelligence_derived_refresh_result(
     *,
     root_path: Path,
-    registry_dir: Path,
     run_id: str,
     blockers: Sequence[str],
+    refresh_scope: Literal["basic", "full"],
 ) -> ReportIntelligenceRunResult:
-    outputs = {
-        Path(relative).stem: _relative_or_absolute(
-            _report_intelligence_registry_path(
-                root_path=root_path,
-                registry_dir=registry_dir,
-                relative_path=relative,
-            ),
-            root_path,
-        )
-        for relative in sorted(REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS)
-    }
     return ReportIntelligenceRunResult(
         run_id=run_id,
         root=str(root_path),
         selected_reports=0,
         metadata_rows=0,
         forecast_claim_rows=0,
-        analytical_footprint_rows=0,
-        metric_candidate_rows=0,
-        method_pattern_rows=0,
-        tool_gap_rows=0,
-        forecast_ledger_rows=0,
-        outcome_label_rows=0,
-        industry_etf_proxy_outcome_label_rows=0,
-        industry_etf_proxy_eligible_claim_rows=0,
-        industry_etf_proxy_labelable_window_rows=0,
-        industry_etf_proxy_pending_window_rows=0,
-        stock_price_proxy_outcome_label_rows=0,
-        stock_price_proxy_eligible_claim_rows=0,
-        stock_price_proxy_labelable_window_rows=0,
-        stock_price_proxy_pending_window_rows=0,
-        macro_asset_proxy_outcome_label_rows=0,
-        macro_asset_proxy_eligible_claim_rows=0,
-        macro_asset_proxy_labelable_window_rows=0,
-        macro_asset_proxy_pending_window_rows=0,
-        macro_series_directional_outcome_label_rows=0,
-        macro_series_directional_eligible_claim_rows=0,
-        macro_series_directional_labelable_window_rows=0,
-        macro_series_directional_pending_window_rows=0,
-        macro_curve_directional_outcome_label_rows=0,
-        macro_curve_directional_eligible_claim_rows=0,
-        macro_curve_directional_labelable_window_rows=0,
-        macro_curve_directional_pending_window_rows=0,
-        source_performance_profile_rows=0,
-        viewpoint_performance_profile_rows=0,
-        macro_market_series_catalog_rows=0,
-        stock_context_snapshot_rows=0,
-        industry_context_snapshot_rows=0,
-        macro_regime_snapshot_rows=0,
-        macro_agent_research_prior_rows=0,
-        method_performance_profile_rows=0,
-        tool_coverage_match_rows=0,
-        data_acquisition_proposal_rows=0,
-        tool_design_proposal_rows=0,
-        analysis_recipe_rows=0,
-        prompt_mutation_candidate_rows=0,
-        weighted_research_context_rows=0,
-        runtime_tool_gap_observation_rows=0,
-        outcome_labeling_ready_count=0,
-        outcome_labeling_blocked_count=0,
-        pdf_ready_count=0,
-        markdown_ready_count=0,
-        llm_processed_reports=0,
         blocker_count=len(blockers),
         blockers=tuple(blockers),
-        outputs=outputs,
+        outputs={},
+        refresh_scope=refresh_scope,
     )
 
 
@@ -34910,27 +34860,28 @@ def run_report_intelligence_derived_refresh(
     root_path = Path(cfg.root).resolve()
     registry_dir = resolve_report_intelligence_registry_dir(root_path, cfg.registry_dir)
     run_id = "RIR-DERIVED-" + _utc_now().replace(":", "").replace("-", "")
-    missing_private_inputs = _missing_report_intelligence_private_inputs(
-        root_path=root_path,
-        registry_dir=registry_dir,
-    )
-    existing_public_outputs = _report_intelligence_paths_exist(
-        root_path=root_path,
-        registry_dir=registry_dir,
-        paths=REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS,
-    )
-    if missing_private_inputs and existing_public_outputs:
-        blockers = (
-            "private report-intelligence inputs missing; refusing to overwrite "
-            "committed public derived artifacts: "
-            + ", ".join(missing_private_inputs)
-        )
-        return _blocked_report_intelligence_derived_refresh_result(
+    if cfg.derived_scope == "full":
+        missing_private_inputs = _missing_report_intelligence_private_inputs(
             root_path=root_path,
             registry_dir=registry_dir,
-            run_id=run_id,
-            blockers=(blockers,),
         )
+        existing_public_outputs = _report_intelligence_paths_exist(
+            root_path=root_path,
+            registry_dir=registry_dir,
+            paths=REPORT_INTELLIGENCE_PUBLIC_DERIVED_OUTPUT_PATHS,
+        )
+        if missing_private_inputs and existing_public_outputs:
+            blockers = (
+                "private report-intelligence inputs missing; refusing to overwrite "
+                "committed public derived artifacts: "
+                + ", ".join(missing_private_inputs)
+            )
+            return _blocked_report_intelligence_derived_refresh_result(
+                root_path=root_path,
+                run_id=run_id,
+                refresh_scope=cfg.derived_scope,
+                blockers=(blockers,),
+            )
     blockers: list[str] = []
     macro_regime_calendar_rows = _read_macro_regime_calendar_rows(registry_dir)
     metadata_rows = _read_registry_jsonl(
@@ -34949,6 +34900,30 @@ def run_report_intelligence_derived_refresh(
         macro_regime_calendar_rows=macro_regime_calendar_rows,
         root_path=root_path,
     )
+    if cfg.derived_scope == "basic":
+        if blockers:
+            return _blocked_report_intelligence_derived_refresh_result(
+                root_path=root_path,
+                run_id=run_id,
+                blockers=blockers,
+                refresh_scope=cfg.derived_scope,
+            )
+        return _refresh_report_intelligence_derived_artifacts(
+            cfg=cfg,
+            root_path=root_path,
+            registry_dir=registry_dir,
+            run_id=run_id,
+            metadata_rows=metadata_rows,
+            forecast_rows=forecast_rows,
+            footprint_rows=[],
+            metric_rows=[],
+            method_rows=[],
+            tool_gap_rows=[],
+            macro_regime_calendar_rows=macro_regime_calendar_rows,
+            blockers=blockers,
+            selected_reports=len(metadata_rows),
+            status_rows=None,
+        )
     footprint_rows = _read_registry_jsonl(
         registry_dir / "analytical_footprints.jsonl",
         label="analytical_footprints",
@@ -35044,6 +35019,63 @@ def _refresh_report_intelligence_derived_artifacts(
     status_rows: list[dict[str, Any]] | None,
 ) -> ReportIntelligenceRunResult:
     """Rebuild shared artifacts; absent status rows preserve extraction/review files."""
+    if cfg.derived_scope == "basic":
+        rows_by_name = {"forecast_claims": forecast_rows}
+        if status_rows is not None:
+            rows_by_name.update(
+                {
+                    "report_metadata": metadata_rows,
+                    "analytical_footprints": footprint_rows,
+                    "metric_candidates": metric_rows,
+                    "method_patterns": method_rows,
+                    "tool_gaps": tool_gap_rows,
+                    "processing_status": status_rows,
+                }
+            )
+        outputs = {
+            name: _relative_or_absolute(
+                Path(_write_jsonl(registry_dir / f"{name}.jsonl", rows)["path"]),
+                root_path,
+            )
+            for name, rows in rows_by_name.items()
+        }
+        if status_rows is not None:
+            fingerprint = write_report_fingerprint_manifest(registry_dir)
+            outputs["report_fingerprint_manifest"] = _relative_or_absolute(
+                Path(fingerprint["path"]),
+                root_path,
+            )
+        return ReportIntelligenceRunResult(
+            run_id=run_id,
+            root=str(root_path),
+            selected_reports=selected_reports,
+            metadata_rows=len(metadata_rows),
+            forecast_claim_rows=len(forecast_rows),
+            analytical_footprint_rows=len(footprint_rows)
+            if status_rows is not None
+            else None,
+            metric_candidate_rows=len(metric_rows) if status_rows is not None else None,
+            method_pattern_rows=len(method_rows) if status_rows is not None else None,
+            tool_gap_rows=len(tool_gap_rows) if status_rows is not None else None,
+            pdf_ready_count=sum(
+                _ensure_mapping(row.get("pdf")).get("status")
+                in {"cached", "downloaded"}
+                for row in metadata_rows
+            ),
+            markdown_ready_count=sum(
+                _ensure_mapping(row.get("markdown")).get("status")
+                in {"cached", "converted", "converted_text_source"}
+                for row in metadata_rows
+            ),
+            llm_processed_reports=sum(
+                _ensure_mapping(row.get("extraction")).get("llm_status") == "processed"
+                for row in metadata_rows
+            ),
+            blocker_count=len(blockers),
+            blockers=tuple(blockers),
+            outputs=outputs,
+            refresh_scope=cfg.derived_scope,
+        )
     forecast_ledger_rows = build_forecast_ledger_records(forecast_rows)
     macro_leg_forecast_rows = _forecast_rows_with_macro_claim_legs(forecast_rows)
     markdown_coverage_summary = build_markdown_coverage_summary(
@@ -35722,6 +35754,7 @@ def _refresh_report_intelligence_derived_artifacts(
     summary_path = registry_dir / "extraction_report.json"
     outputs["summary"] = _relative_or_absolute(summary_path, root_path)
     summary = ReportIntelligenceRunResult(
+        refresh_scope=cfg.derived_scope,
         run_id=run_id,
         root=str(root_path),
         selected_reports=selected_reports,

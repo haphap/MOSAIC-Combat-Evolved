@@ -312,7 +312,7 @@ def write_report_fingerprint_manifest(registry_dir: str | Path) -> dict[str, Any
     rows = build_report_fingerprint_manifest(registry_path)
     output = registry_path / FINGERPRINT_MANIFEST_NAME
     _write_jsonl(output, rows)
-    return {"path": str(output), "rows": len(rows), "sha256": _sha256_file(output)}
+    return {"path": str(output), "rows": len(rows)}
 
 
 def load_report_fingerprint_index(registry_dir: str | Path) -> dict[str, set[str]]:

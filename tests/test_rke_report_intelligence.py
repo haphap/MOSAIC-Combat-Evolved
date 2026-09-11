@@ -469,7 +469,7 @@ def test_report_intelligence_caps_forecast_claims_per_report(tmp_path: Path):
         }
 
     result = run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=llm,
@@ -3673,6 +3673,7 @@ def test_report_intelligence_labels_macro_strategy_claims_with_asset_proxy_windo
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -5180,7 +5181,7 @@ def test_report_intelligence_derived_refresh_refuses_clean_checkout_overwrite(
     before_readiness = readiness_path.read_text(encoding="utf-8")
 
     result = run_report_intelligence_derived_refresh(
-        ReportIntelligenceConfig(root=tmp_path, refresh_derived_only=True)
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, refresh_derived_only=True)
     )
 
     assert result.blocker_count == 1
@@ -5207,7 +5208,7 @@ def test_report_intelligence_derived_refresh_refuses_empty_private_inputs_overwr
     before_readiness = readiness_path.read_text(encoding="utf-8")
 
     result = run_report_intelligence_derived_refresh(
-        ReportIntelligenceConfig(root=tmp_path, refresh_derived_only=True)
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, refresh_derived_only=True)
     )
 
     assert result.blocker_count == 1
@@ -5217,13 +5218,85 @@ def test_report_intelligence_derived_refresh_refuses_empty_private_inputs_overwr
     assert readiness_path.read_text(encoding="utf-8") == before_readiness
 
 
+@pytest.mark.parametrize("forecast_content", ["not-json\n", "[]\n"])
+def test_basic_derived_refresh_preserves_invalid_inputs(tmp_path: Path, forecast_content):
+    registry = tmp_path / "registry/report_intelligence"
+    registry.mkdir(parents=True)
+    _write_jsonl(registry / "report_metadata.jsonl", [{"report_id": "R1"}])
+    forecast = registry / "forecast_claims.jsonl"
+    forecast.write_text(forecast_content, encoding="utf-8")
+    before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in registry.iterdir()}
+    result = run_report_intelligence_derived_refresh(ReportIntelligenceConfig(root=tmp_path))
+    assert result.blocker_count > 0
+    assert result.outputs == {}
+    assert result.outcome_label_rows is None
+    assert before == {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in registry.iterdir()}
+
+
+def test_report_intelligence_basic_refresh_skips_research_chain(tmp_path: Path, monkeypatch):
+    import mosaic.rke.report_intelligence as ri
+
+    source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
+    registry = tmp_path / "registry/report_intelligence"
+    registry.mkdir(parents=True, exist_ok=True)
+    preserved = [registry / name for name in (
+        "extraction_report.json", "recipe_paper_trading_summary.json", "confidence_impact_monitor.json",
+    )]
+    for path in preserved:
+        path.write_text('{"run_id":"older-full-refresh"}\n', encoding="utf-8")
+    before = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in preserved}
+
+    def unrequested(*_args, **_kwargs):
+        raise AssertionError("basic refresh entered an unrequested research stage")
+
+    for name in ("build_forecast_ledger_records", "build_recipe_paper_trading_runs",
+                 "build_prompt_mutation_candidates", "build_source_performance_profiles",
+                 "build_report_intelligence_monitoring_report"):
+        monkeypatch.setattr(ri, name, unrequested)
+    result = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader, converter=_fake_converter, llm_extractor=_fake_llm,
+    )
+    assert result.blocker_count == 0
+    assert result.refresh_scope == "basic"
+    assert result.metadata_rows == 1
+    assert result.forecast_claim_rows > 0
+    assert result.outcome_label_rows is None
+    assert result.analysis_recipe_rows is None
+    assert set(result.outputs) == {
+        "report_metadata", "forecast_claims", "analytical_footprints", "metric_candidates",
+        "method_patterns", "tool_gaps", "processing_status", "report_fingerprint_manifest",
+    }
+    assert before == {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in preserved}
+
+    repeated = run_report_intelligence_refresh(
+        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        downloader=_fake_downloader, converter=_fake_converter, llm_extractor=unrequested,
+    )
+    assert repeated.selected_reports == 0
+    assert repeated.blocker_count == 0
+
+    # Optional extracted research facts are not prerequisites for basic derived refresh.
+    for name in ("analytical_footprints.jsonl", "metric_candidates.jsonl", "method_patterns.jsonl", "tool_gaps.jsonl"):
+        (registry / name).unlink()
+    metadata = registry / "report_metadata.jsonl"
+    metadata_before = (metadata.read_bytes(), metadata.stat().st_mtime_ns)
+    refreshed = run_report_intelligence_derived_refresh(ReportIntelligenceConfig(root=tmp_path))
+    assert refreshed.blocker_count == 0
+    assert refreshed.refresh_scope == "basic"
+    assert refreshed.analytical_footprint_rows is None
+    assert set(refreshed.outputs) == {"forecast_claims"}
+    assert metadata_before == (metadata.read_bytes(), metadata.stat().st_mtime_ns)
+    assert before == {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in preserved}
+
+
 def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     tmp_path: Path,
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
 
     result = run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -5837,7 +5910,7 @@ def test_report_intelligence_backfills_source_grounded_footprint_metrics_from_ch
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=converter,
         llm_extractor=llm,
@@ -5972,7 +6045,7 @@ def test_report_intelligence_prioritizes_source_grounded_footprint_metrics_in_pr
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=converter,
         llm_extractor=llm,
@@ -6816,7 +6889,7 @@ def test_report_intelligence_repairs_unknown_footprint_indicator_mentions(
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=converter,
         llm_extractor=llm,
@@ -6921,6 +6994,7 @@ def test_report_intelligence_can_skip_processed_batch_source_ids(tmp_path: Path)
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             exclude_processed_registry_dirs=("previous_batch",),
             limit=1,
@@ -6952,7 +7026,7 @@ def test_report_intelligence_reuses_cached_pdf_without_calling_downloader(
         raise AssertionError("cached PDF should not trigger downloader")
 
     result = run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,), skip_llm=True),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,), skip_llm=True),
         downloader=downloader,
         converter=_fake_converter,
     )
@@ -7002,7 +7076,7 @@ def test_report_intelligence_dedupes_duplicate_source_ids_before_download(
         return _fake_downloader(url, path, overwrite)
 
     result = run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, skip_llm=True),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, skip_llm=True),
         downloader=downloader,
         converter=_fake_converter,
     )
@@ -7063,6 +7137,7 @@ def test_report_intelligence_can_require_cached_markdown_before_limit(tmp_path: 
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             require_cached_markdown=True,
             limit=1,
@@ -7182,7 +7257,7 @@ def test_report_intelligence_blocks_llm_on_low_quality_markdown(tmp_path: Path):
         raise AssertionError("LLM extraction must not run on low-quality Markdown")
 
     result = run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=low_quality_converter,
         llm_extractor=llm_should_not_run,
@@ -11487,6 +11562,7 @@ def test_report_intelligence_can_select_historical_sources_by_date(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             limit=1,
             min_publish_date="2025-01-01",
@@ -11600,6 +11676,7 @@ def test_report_intelligence_labels_industry_claims_with_etf_proxy_windows(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -12241,6 +12318,7 @@ def test_report_intelligence_industry_pit_availability_records_missing_benchmark
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -12332,6 +12410,7 @@ def test_report_intelligence_industry_readiness_records_missing_proxy_series(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -12445,6 +12524,7 @@ def test_report_intelligence_industry_candidate_mapping_does_not_label(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -12538,6 +12618,7 @@ def test_report_intelligence_industry_mapping_uses_registry_benchmark_symbol(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -12649,6 +12730,7 @@ def test_report_intelligence_industry_mapping_effective_from_blocks_early_claim(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -12864,6 +12946,7 @@ def test_report_intelligence_labels_stock_claims_with_qlib_price_windows(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13064,6 +13147,7 @@ def test_report_intelligence_counts_stock_price_proxy_as_labelable_channel(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13149,6 +13233,7 @@ def test_report_intelligence_keeps_long_window_stock_hits(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13239,6 +13324,7 @@ def test_report_intelligence_marks_stock_proxy_future_windows_as_pending(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13327,6 +13413,7 @@ def test_report_intelligence_stock_benchmark_aligns_by_date_across_qlib_dirs(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13395,6 +13482,7 @@ def test_report_intelligence_labels_bearish_stock_claims(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13457,6 +13545,7 @@ def test_report_intelligence_stock_readiness_records_price_gaps(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13554,6 +13643,7 @@ def test_report_intelligence_stock_readiness_records_series_start_gap(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13632,6 +13722,7 @@ def test_report_intelligence_stock_target_conflict_blocks_labeling(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13695,6 +13786,7 @@ def test_report_intelligence_accepts_bj_92_stock_codes(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13755,6 +13847,7 @@ def test_report_intelligence_rejects_legacy_bj_8_stock_codes(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13818,6 +13911,7 @@ def test_report_intelligence_rejects_fund_like_codes_as_stock_targets(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13882,6 +13976,7 @@ def test_report_intelligence_stock_entry_suspension_blocks_labeling(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -13943,6 +14038,7 @@ def test_report_intelligence_stock_entry_limit_locked_blocks_labeling(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -14007,6 +14103,7 @@ def test_report_intelligence_stock_long_suspension_blocks_window(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -14072,6 +14169,7 @@ def test_report_intelligence_stock_delisted_before_exit_blocks_labeling(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -14141,6 +14239,7 @@ def test_report_intelligence_stock_exit_limit_locked_blocks_window(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -14208,6 +14307,7 @@ def test_report_intelligence_stock_exit_liquidity_unverified_blocks_window(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_stock_dir=qlib_stock_dir,
@@ -14585,6 +14685,7 @@ def test_report_intelligence_progress_jsonl_is_redacted(
 
     run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -15075,6 +15176,7 @@ def test_report_intelligence_stratified_source_selection_covers_p9_buckets(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_path=source_path,
             limit=3,
@@ -15173,6 +15275,7 @@ def test_report_intelligence_stratified_source_selection_uses_horizon_and_evalua
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_path=source_path,
             limit=2,
@@ -15250,6 +15353,7 @@ def test_report_intelligence_stratified_source_selection_covers_outcome_ready_st
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_path=source_path,
             limit=2,
@@ -15346,6 +15450,7 @@ def test_report_intelligence_counts_industry_etf_proxy_as_labelable_channel(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -15498,7 +15603,7 @@ def test_report_intelligence_infers_explicit_horizon_from_claim_text(
         }
 
     result = run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=llm,
@@ -15583,7 +15688,7 @@ def test_report_intelligence_infers_report_level_rating_horizon_from_markdown(
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=converter,
         llm_extractor=llm,
@@ -15640,7 +15745,7 @@ def test_report_intelligence_derived_refresh_backfills_explicit_horizon(
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=llm,
@@ -15691,7 +15796,7 @@ def test_report_intelligence_derived_refresh_backfills_explicit_horizon(
     )
 
     result = run_report_intelligence_derived_refresh(
-        ReportIntelligenceConfig(root=tmp_path, refresh_derived_only=True)
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, refresh_derived_only=True)
     )
 
     assert result.outcome_labeling_ready_count == 1
@@ -15797,6 +15902,7 @@ def test_report_intelligence_keeps_long_window_industry_etf_hits(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -15912,6 +16018,7 @@ def test_report_intelligence_scores_bearish_industry_reports_with_etf_declines(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -15985,6 +16092,7 @@ def test_report_intelligence_refresh_derived_only_rebuilds_window_labels(
 
     full_result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             source_ids=(source_id,),
             qlib_etf_dir=qlib_etf_dir,
@@ -16009,6 +16117,7 @@ def test_report_intelligence_refresh_derived_only_rebuilds_window_labels(
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             qlib_etf_dir=qlib_etf_dir,
             refresh_derived_only=True,
@@ -16481,6 +16590,7 @@ def test_report_intelligence_does_not_fallback_to_abstract_when_markdown_missing
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             skip_download=True,
             skip_convert=True,
@@ -16500,7 +16610,7 @@ def test_report_intelligence_converts_text_source_without_mineru(tmp_path: Path)
     )
 
     result = run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,), skip_llm=True),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,), skip_llm=True),
         downloader=_fake_text_downloader,
     )
 
@@ -16564,7 +16674,7 @@ def test_report_intelligence_demotes_unmapped_forecasts_and_filters_agent_ids(
         }
 
     result = run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=llm,
@@ -16649,7 +16759,7 @@ def test_report_intelligence_filters_disclaimers_and_rating_definitions_from_for
         }
 
     result = run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=llm,
@@ -16693,7 +16803,7 @@ def test_report_intelligence_normalizes_unsupported_forecast_direction(
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=llm,
@@ -16712,7 +16822,7 @@ def test_report_intelligence_normalizes_unsupported_forecast_direction(
 def test_apply_analytical_footprint_review_import_updates_summary(tmp_path: Path):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -16792,7 +16902,7 @@ def test_apply_analytical_footprint_review_import_updates_summary(tmp_path: Path
 def test_prepare_analytical_footprint_review_import_scaffold(tmp_path: Path):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -16901,7 +17011,7 @@ def test_analytical_footprint_review_pattern_preview_excludes_source_span_text(
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=llm,
@@ -17303,7 +17413,7 @@ def test_prepare_analytical_footprint_review_import_supports_offset_batches(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17340,7 +17450,7 @@ def test_prepare_analytical_footprint_review_import_batches_pending_rows(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17390,7 +17500,7 @@ def test_prepare_analytical_footprint_review_import_selects_quality_gap_rows(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17450,7 +17560,7 @@ def test_prepare_analytical_footprint_review_import_skips_existing_quality_gap_b
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17587,7 +17697,7 @@ def test_prepare_analytical_footprint_review_import_backs_up_overwrite(
 
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17625,7 +17735,7 @@ def test_prepare_footprint_review_cli_limit_defaults_to_batch_path(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17666,7 +17776,7 @@ def test_write_analytical_footprint_review_assist_is_private_not_import(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17702,7 +17812,7 @@ def test_analytical_footprint_review_assist_can_follow_review_input_batch(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17743,7 +17853,7 @@ def test_write_analytical_footprint_review_evidence_is_private_not_import(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17800,7 +17910,7 @@ def test_write_analytical_footprint_review_approval_draft_is_private_not_import(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17845,7 +17955,7 @@ def test_approve_analytical_footprint_review_draft_writes_valid_import(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17946,7 +18056,7 @@ def test_analytical_footprint_review_evidence_falls_back_to_cached_markdown(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -17972,7 +18082,7 @@ def test_analytical_footprint_review_evidence_flags_risk_warning_footprints(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -18008,7 +18118,7 @@ def test_analytical_footprint_review_evidence_suggests_missing_metric_mapping(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -18069,7 +18179,7 @@ def test_analytical_footprint_review_evidence_flags_unknown_metric_mapping(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -18171,7 +18281,7 @@ def test_analytical_footprint_review_evidence_flags_hidden_metric_mapping_gaps(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -18231,7 +18341,7 @@ def test_analytical_footprint_review_evidence_backfills_missing_indicator_summar
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -18296,7 +18406,7 @@ def test_analytical_footprint_review_evidence_supports_offset_batches(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -18337,7 +18447,7 @@ def test_analytical_footprint_review_evidence_can_follow_review_input_batch(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -18383,7 +18493,7 @@ def test_analytical_footprint_review_summary_requires_quality_thresholds(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -18539,7 +18649,7 @@ def test_apply_analytical_footprint_review_import_rejects_stale_or_leaky_rows(
 ):
     source_id = _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=_fake_llm,
@@ -18606,7 +18716,7 @@ def test_report_intelligence_structures_string_indicator_mentions(tmp_path: Path
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=llm,
@@ -18664,7 +18774,7 @@ def test_report_intelligence_structures_common_report_indicator_aliases(
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=llm,
@@ -18747,7 +18857,7 @@ def test_report_intelligence_bounds_stored_claim_text(tmp_path: Path):
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, source_ids=(source_id,)),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, source_ids=(source_id,)),
         downloader=_fake_downloader,
         converter=_fake_converter,
         llm_extractor=llm,
@@ -18765,6 +18875,7 @@ def test_report_intelligence_reports_missing_mineru_command(tmp_path: Path):
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             skip_llm=True,
             mineru_command="definitely-not-a-mineru-command",
@@ -18795,7 +18906,7 @@ def test_report_intelligence_redacts_runtime_log_fields(tmp_path: Path):
         }
 
     run_report_intelligence_refresh(
-        ReportIntelligenceConfig(root=tmp_path, skip_llm=True),
+        ReportIntelligenceConfig(derived_scope="full", root=tmp_path, skip_llm=True),
         downloader=_fake_downloader,
         converter=converter,
     )
@@ -18811,9 +18922,11 @@ def test_report_intelligence_redacts_runtime_log_fields(tmp_path: Path):
     assert str(tmp_path) not in status[0]["markdown_stderr_tail"]
 
 
+@pytest.mark.parametrize("scope", ["basic", "full"])
 def test_report_intelligence_cli_can_write_status_without_network(
     tmp_path: Path,
     capsys,
+    scope,
 ):
     _write_source(tmp_path / "registry/sources/tushare_research_reports.jsonl")
 
@@ -18827,6 +18940,7 @@ def test_report_intelligence_cli_can_write_status_without_network(
             "--skip-download",
             "--skip-convert",
             "--skip-llm",
+            *(("--derived-scope", "full") if scope == "full" else ()),
         )
     )
     output = json.loads(capsys.readouterr().out)
@@ -18834,7 +18948,8 @@ def test_report_intelligence_cli_can_write_status_without_network(
     assert code == 0
     assert output["selected_reports"] == 1
     assert output["blocker_count"] == 0
-    assert (tmp_path / "registry/report_intelligence/extraction_report.json").exists()
+    assert output["refresh_scope"] == scope
+    assert (tmp_path / "registry/report_intelligence/extraction_report.json").exists() == (scope == "full")
 
 
 def test_report_intelligence_tool_coverage_classifier():

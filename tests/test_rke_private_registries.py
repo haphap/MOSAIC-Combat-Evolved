@@ -444,6 +444,7 @@ def test_report_intelligence_skips_cloned_fingerprint_duplicates(tmp_path):
 
     result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
+            derived_scope="full",
             root=tmp_path,
             skip_download=True,
             skip_convert=True,
