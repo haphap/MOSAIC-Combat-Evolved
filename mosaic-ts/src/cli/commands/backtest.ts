@@ -53,7 +53,6 @@ interface BacktestOptions {
   llmProvider?: string;
   model?: string;
   baseUrl?: string;
-  vetoThreshold?: string;
   initialCash?: string;
   benchmark?: string;
   out?: string;
@@ -76,7 +75,6 @@ export function registerBacktest(program: Command): void {
     .option("--llm-provider <name>", "Override LLM provider")
     .option("--model <name>", "Override LLM model")
     .option("--base-url <url>", "Override LLM base URL")
-    .option("--veto-threshold <num>", "Deprecated compatibility option; ignored by canonical L4")
     .option("--initial-cash <amount>", "Initial cash (default 1000000)")
     .option("--benchmark <ticker>", "Benchmark for alpha calc (default SH000300)")
     .option(
@@ -213,14 +211,12 @@ async function fillStage1(
   await assertRuntimePromptPreflight({ cohort });
 
   const tradeDays = await enumerateTradingDays(api, opts.start, opts.end);
-  const vetoThreshold = opts.vetoThreshold ? Number(opts.vetoThreshold) : 0.5;
   const logEvery = Number.parseInt(opts.logEvery ?? "5", 10);
 
   const graph = buildDailyCycleGraph({
     llmHandle,
     api,
     config,
-    vetoThreshold,
   });
 
   console.log(pc.dim(`stage-1: ${tradeDays.length} trade days × 25 agents / 26 stages`));

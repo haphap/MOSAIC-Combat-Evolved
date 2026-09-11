@@ -9,6 +9,8 @@ from typing import Any, Mapping, Sequence
 
 from .lockbox import LockboxReview, evaluate_lockbox_review
 
+from mosaic.rke.json_io import write_json as _write_json
+
 
 PROMOTION_GATE_REPORT_PATH = "registry/promotion/rke_production_promotion_gate.json"
 RKE_EXECUTION_MODE = "RKE_SHADOW"
@@ -36,16 +38,6 @@ class ProductionPromotionGateReport:
     direct_production_forbidden: bool
     criteria: Sequence[PromotionGateCriterion]
     blockers: Sequence[str]
-
-
-def _jsonable(value: Any) -> Any:
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    return value
 
 
 def _read_json(path: Path) -> Any:
@@ -90,16 +82,6 @@ def _child_mapping(
 
 def _payload_blocker(errors: Sequence[str], fallback: str) -> str:
     return "; ".join(errors) if errors else fallback
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True)
-        + "\n",
-        encoding="utf-8",
-    )
-    return {"path": str(path), "rows": 1}
 
 
 def _criterion(
@@ -380,7 +362,10 @@ def build_production_promotion_gate_report(
     )
 
 
-def write_production_promotion_gate_report(root: str | Path = ".") -> dict[str, Any]:
+def write_production_promotion_gate_report(
+    root: str | Path = ".", *, report: ProductionPromotionGateReport | None = None
+) -> dict[str, Any]:
     root_path = Path(root)
-    report = build_production_promotion_gate_report(root_path)
+    if report is None:
+        report = build_production_promotion_gate_report(root_path)
     return _write_json(root_path / PROMOTION_GATE_REPORT_PATH, asdict(report))

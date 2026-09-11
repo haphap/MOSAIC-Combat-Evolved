@@ -8,11 +8,13 @@ RKE-shadow Agent migration manifest; this module cannot feed production.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Mapping, Sequence
+from typing import Literal, Mapping, Sequence
 
 from .p0 import DataAvailabilityMatrix, MetricProxyAvailability
+
+from mosaic.rke.json_io import jsonable as _jsonable
 
 
 @dataclass(frozen=True)
@@ -34,16 +36,6 @@ class MacroExpansionPlan:
     candidates: Sequence[MacroExpansionCandidate]
     blockers: Sequence[str] = ()
     production_allowed: bool = False
-
-
-def _jsonable(value: Any) -> Any:
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    return value
 
 
 def build_macro_expansion_data_matrix() -> DataAvailabilityMatrix:

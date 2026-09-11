@@ -68,6 +68,8 @@ from .temp_paths import (
     rke_temporary_directory,
 )
 
+from mosaic.rke.json_io import jsonable as _jsonable, write_json as _write_json
+
 
 MANUAL_REVIEW_PROGRESS_REPORT_ID = "RKE-MANUAL-REVIEW-PROGRESS-20260606"
 MANUAL_REVIEW_PROGRESS_REPORT_PATH = "registry/review_batches/manual_review_progress_report.json"
@@ -181,16 +183,6 @@ class ManualReviewProgressReport:
     ready_for_promotion_dry_run: bool
     gates: Sequence[ManualReviewGateProgress]
     blockers: Sequence[str]
-
-
-def _jsonable(value: Any) -> Any:
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    return value
 
 
 def _copy_registry(root_path: Path, temp_root: Path) -> None:
@@ -1555,15 +1547,6 @@ def _manual_review_batch_plan(
             }
         )
     return tuple(batches)
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return {"path": str(path), "rows": 1}
 
 
 def _missing_gate(

@@ -15,6 +15,8 @@ from .manual_review_import import (
     review_row_fingerprint,
 )
 
+from mosaic.rke.json_io import write_json as _write_json
+
 
 LOCKBOX_POLICY_PATH = "registry/evaluation/lockbox/lockbox_policy.json"
 LOCKBOX_REVIEW_PATH = "registry/lockbox/central_bank_lockbox_review.json"
@@ -62,25 +64,6 @@ class LockboxReviewImportReport:
     rejected_reasons: Sequence[str]
     policy_reasons: Sequence[str]
     downstream_outputs: Mapping[str, str]
-
-
-def _jsonable(value: Any) -> Any:
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    return value
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return {"path": str(path), "rows": 1}
 
 
 def _read_json(path: Path) -> Any:

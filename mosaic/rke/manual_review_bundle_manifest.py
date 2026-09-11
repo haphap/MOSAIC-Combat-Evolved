@@ -10,6 +10,8 @@ from typing import Any, Literal, Mapping, Sequence
 
 from .promotion_dry_run import write_promotion_dry_run_report
 
+from mosaic.rke.json_io import write_json as _write_json
+
 MANUAL_REVIEW_BUNDLE_MANIFEST_PATH = "registry/review_batches/manual_review_bundle_manifest.json"
 
 BundleArtifactFormat = Literal["json", "jsonl", "markdown"]
@@ -48,25 +50,6 @@ class ManualReviewBundleManifest:
     artifacts: Sequence[ManualReviewBundleArtifact]
     promotion_dry_run: Mapping[str, Any] | None
     blockers: Sequence[str]
-
-
-def _jsonable(value: Any) -> Any:
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    return value
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return {"path": str(path), "rows": 1}
 
 
 def _file_sha256(path: Path) -> str:

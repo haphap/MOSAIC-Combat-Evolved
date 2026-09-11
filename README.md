@@ -66,7 +66,7 @@ git clone https://github.com/haphap/MOSAIC-Combat-Evolved.git
 cd MOSAIC-Combat-Evolved
 
 uv venv
-uv pip install -e '.[data,trading,llm]'
+uv pip install -e '.[data,trading]'
 
 cd mosaic-ts
 pnpm install --frozen-lockfile

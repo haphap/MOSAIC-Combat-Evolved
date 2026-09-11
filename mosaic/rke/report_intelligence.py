@@ -57,6 +57,8 @@ from .private_registries import (
 )
 from .temp_paths import operator_command, rke_tmp_root
 
+from mosaic.rke.json_io import jsonable as _jsonable, write_json as _write_json
+
 
 TUSHARE_REPORT_SOURCE_PATH = "registry/sources/tushare_research_reports.jsonl"
 LOCAL_MACRO_STRATEGY_REPORT_SOURCE_PATH = (
@@ -1546,26 +1548,6 @@ def _max_pit_datetime(
                 values.append(parsed)
                 break
     return max(values) if values else None
-
-
-def _jsonable(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    return value
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True)
-        + "\n",
-        encoding="utf-8",
-    )
-    return {"path": str(path), "rows": 1}
 
 
 def _write_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -35062,6 +35044,42 @@ def run_report_intelligence_derived_refresh(
         run_id=run_id,
     )
 
+    return _refresh_report_intelligence_derived_artifacts(
+        cfg=cfg,
+        root_path=root_path,
+        registry_dir=registry_dir,
+        run_id=run_id,
+        metadata_rows=metadata_rows,
+        forecast_rows=forecast_rows,
+        footprint_rows=footprint_rows,
+        metric_rows=metric_rows,
+        method_rows=method_rows,
+        tool_gap_rows=tool_gap_rows,
+        macro_regime_calendar_rows=macro_regime_calendar_rows,
+        blockers=blockers,
+        selected_reports=len(metadata_rows),
+        status_rows=None,
+    )
+
+
+def _refresh_report_intelligence_derived_artifacts(
+    *,
+    cfg: ReportIntelligenceConfig,
+    root_path: Path,
+    registry_dir: Path,
+    run_id: str,
+    metadata_rows: list[dict[str, Any]],
+    forecast_rows: list[dict[str, Any]],
+    footprint_rows: list[dict[str, Any]],
+    metric_rows: list[dict[str, Any]],
+    method_rows: list[dict[str, Any]],
+    tool_gap_rows: list[dict[str, Any]],
+    macro_regime_calendar_rows: list[dict[str, Any]],
+    blockers: list[str],
+    selected_reports: int,
+    status_rows: list[dict[str, Any]] | None,
+) -> ReportIntelligenceRunResult:
+    """Rebuild shared artifacts; absent status rows preserve extraction/review files."""
     forecast_ledger_rows = build_forecast_ledger_records(forecast_rows)
     macro_leg_forecast_rows = _forecast_rows_with_macro_claim_legs(forecast_rows)
     markdown_coverage_summary = build_markdown_coverage_summary(
@@ -35334,7 +35352,7 @@ def run_report_intelligence_derived_refresh(
     footprint_review_outputs = write_analytical_footprint_review_artifacts(
         registry_dir,
         footprint_rows,
-        preserve_existing_summary=True,
+        preserve_existing_summary=status_rows is None,
     )
     footprint_review_load_blockers: list[str] = []
     footprint_review_summary = _read_registry_json(
@@ -35476,7 +35494,11 @@ def run_report_intelligence_derived_refresh(
                 feature_flag_payload,
             )["path"]
         ),
-        "report_metadata": str(registry_dir / "report_metadata.jsonl"),
+        "report_metadata": str(
+            registry_dir / "report_metadata.jsonl"
+            if status_rows is None
+            else _write_jsonl(registry_dir / "report_metadata.jsonl", metadata_rows)["path"]
+        ),
         "forecast_claims": str(
             _write_jsonl(registry_dir / "forecast_claims.jsonl", forecast_rows)["path"]
         ),
@@ -35721,7 +35743,11 @@ def run_report_intelligence_derived_refresh(
                 patch_v1_5_coverage_report,
             )["path"]
         ),
-        "status": str(registry_dir / "processing_status.jsonl"),
+        "status": str(
+            registry_dir / "processing_status.jsonl"
+            if status_rows is None
+            else _write_jsonl(registry_dir / "processing_status.jsonl", status_rows)["path"]
+        ),
     }
     fingerprint = write_report_fingerprint_manifest(registry_dir)
     outputs["report_fingerprint_manifest"] = str(fingerprint["path"])
@@ -35734,7 +35760,7 @@ def run_report_intelligence_derived_refresh(
     summary = ReportIntelligenceRunResult(
         run_id=run_id,
         root=str(root_path),
-        selected_reports=len(metadata_rows),
+        selected_reports=selected_reports,
         metadata_rows=len(metadata_rows),
         forecast_claim_rows=len(forecast_rows),
         analytical_footprint_rows=len(footprint_rows),
@@ -36292,798 +36318,22 @@ def run_report_intelligence_refresh(
         tool_gap_rows,
         run_id=run_id,
     )
-    forecast_ledger_rows = build_forecast_ledger_records(forecast_rows)
-    macro_leg_forecast_rows = _forecast_rows_with_macro_claim_legs(forecast_rows)
-    markdown_coverage_summary = build_markdown_coverage_summary(
-        run_id=run_id,
-        metadata_rows=metadata_rows,
-        forecast_rows=forecast_rows,
-    )
-    industry_etf_proxy_map_rows = _read_industry_etf_proxy_map_rows(registry_dir)
-    industry_etf_proxy_pit_availability = build_industry_etf_proxy_pit_availability(
+    summary = _refresh_report_intelligence_derived_artifacts(
+        cfg=cfg,
         root_path=root_path,
-        qlib_etf_dir=cfg.qlib_etf_dir,
-        mapping_rows=industry_etf_proxy_map_rows,
-        forecast_rows=forecast_rows,
-        metadata_rows=metadata_rows,
-    )
-    macro_series_rows = load_scorecard_macro_series_rows(
-        root_path=root_path,
-        forecast_rows=forecast_rows,
-        metadata_rows=metadata_rows,
-        scorecard_db_path=cfg.scorecard_db_path,
-    )
-    macro_market_series_catalog_rows = build_macro_market_series_catalog(
-        macro_series_rows
-    )
-    outcome_label_rows = build_outcome_label_records(
-        root_path=root_path,
-        qlib_etf_dir=cfg.qlib_etf_dir,
-        qlib_stock_dir=cfg.qlib_stock_dir,
-        forecast_rows=forecast_rows,
-        forecast_ledger_rows=forecast_ledger_rows,
-        metadata_rows=metadata_rows,
-        industry_etf_proxy_map_rows=industry_etf_proxy_map_rows,
-        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
-        macro_series_rows=macro_series_rows,
-    )
-    industry_etf_proxy_readiness = build_industry_etf_proxy_readiness(
-        root_path=root_path,
-        qlib_etf_dir=cfg.qlib_etf_dir,
-        forecast_rows=forecast_rows,
-        metadata_rows=metadata_rows,
-        mapping_rows=industry_etf_proxy_map_rows,
-        pit_availability=industry_etf_proxy_pit_availability,
-    )
-    industry_etf_proxy_pit_availability = _with_industry_pit_labelability_summary(
-        industry_etf_proxy_pit_availability,
-        industry_etf_proxy_readiness,
-    )
-    stock_price_proxy_readiness = build_stock_price_proxy_readiness(
-        root_path=root_path,
-        qlib_stock_dir=cfg.qlib_stock_dir,
-        qlib_etf_dir=cfg.qlib_etf_dir,
-        forecast_rows=forecast_rows,
-        metadata_rows=metadata_rows,
-    )
-    macro_asset_proxy_readiness = build_macro_asset_proxy_readiness(
-        root_path=root_path,
-        qlib_etf_dir=cfg.qlib_etf_dir,
-        forecast_rows=forecast_rows,
-        metadata_rows=metadata_rows,
-    )
-    macro_series_directional_readiness = build_macro_series_directional_readiness(
-        forecast_rows=forecast_rows,
-        metadata_rows=metadata_rows,
-        macro_series_rows=macro_series_rows,
-    )
-    macro_curve_directional_readiness = build_macro_curve_directional_readiness(
-        forecast_rows=forecast_rows,
-        metadata_rows=metadata_rows,
-        macro_series_rows=macro_series_rows,
-    )
-    outcome_labeling_readiness = build_outcome_labeling_readiness_report(
-        forecast_rows=forecast_rows,
-        forecast_ledger_rows=forecast_ledger_rows,
-        industry_etf_proxy_readiness=industry_etf_proxy_readiness,
-        stock_price_proxy_readiness=stock_price_proxy_readiness,
-        macro_asset_proxy_readiness=macro_asset_proxy_readiness,
-        macro_series_directional_readiness=macro_series_directional_readiness,
-        macro_curve_directional_readiness=macro_curve_directional_readiness,
-        macro_regime_calendar_rows=macro_regime_calendar_rows,
-    )
-    stock_context_snapshot_rows = build_stock_context_snapshots(
-        metadata_rows,
-        forecast_rows=forecast_rows,
-        outcome_label_rows=outcome_label_rows,
-        stock_price_proxy_readiness=stock_price_proxy_readiness,
-    )
-    industry_context_snapshot_rows = build_industry_context_snapshots(
-        metadata_rows,
-        forecast_rows=forecast_rows,
-        outcome_label_rows=outcome_label_rows,
-        industry_etf_proxy_map_rows=industry_etf_proxy_map_rows,
-        industry_etf_proxy_readiness=industry_etf_proxy_readiness,
-        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
-    )
-    source_performance_profile_rows = build_source_performance_profiles(
-        metadata_rows,
-        forecast_rows=forecast_rows,
-        outcome_label_rows=outcome_label_rows,
-    )
-    viewpoint_performance_profile_rows = build_viewpoint_performance_profiles(
-        macro_leg_forecast_rows,
-        outcome_label_rows=outcome_label_rows,
-    )
-    macro_regime_snapshot_rows = build_macro_regime_snapshots(macro_leg_forecast_rows)
-    macro_agent_research_prior_rows = build_macro_agent_research_priors(
-        macro_leg_forecast_rows,
-        viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
-        macro_regime_snapshot_rows=macro_regime_snapshot_rows,
-    )
-    method_performance_profile_rows = build_method_performance_profiles(
-        method_rows,
-        outcome_label_rows=outcome_label_rows,
-    )
-    tool_coverage_match_rows = build_tool_coverage_matches(metric_rows)
-    data_acquisition_proposal_rows = build_data_acquisition_proposals(
-        tool_gap_rows,
-        stock_context_snapshot_rows=stock_context_snapshot_rows,
-    )
-    tool_design_proposal_rows = build_tool_design_proposals(tool_gap_rows)
-    analysis_recipe_rows = build_analysis_recipes(method_rows)
-    shadow_implemented_requested_tools = _shadow_implemented_requested_tools(
-        tool_gap_rows=tool_gap_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
-    )
-    recipe_paper_trading_run_rows = build_recipe_paper_trading_runs(
-        run_id=run_id,
-        analysis_recipe_rows=analysis_recipe_rows,
-        outcome_label_rows=outcome_label_rows,
-        method_performance_profile_rows=method_performance_profile_rows,
-        forecast_rows=forecast_rows,
-        footprint_rows=footprint_rows,
-        method_rows=method_rows,
-        shadow_implemented_requested_tools=shadow_implemented_requested_tools,
-    )
-    recipe_paper_trading_summary = build_recipe_paper_trading_summary(
-        run_id=run_id,
-        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
-        tool_gap_rows=tool_gap_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
-        direct_pit_binding_gap_details=_direct_pit_binding_gap_details(
-            analysis_recipe_rows=analysis_recipe_rows,
-            outcome_label_rows=outcome_label_rows,
-            forecast_rows=forecast_rows,
-            footprint_rows=footprint_rows,
-            method_rows=method_rows,
-        ),
-    )
-    confidence_impact_observation_rows = build_confidence_impact_observations(
-        run_id=run_id,
-        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
-    )
-    confidence_impact_monitor = build_confidence_impact_monitor(
-        run_id=run_id,
-        confidence_observation_rows=confidence_impact_observation_rows,
-        recipe_paper_trading_summary=recipe_paper_trading_summary,
-    )
-    prompt_mutation_candidate_rows = build_prompt_mutation_candidates(
-        run_id=run_id,
-        outcome_labeling_readiness=outcome_labeling_readiness,
-        tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
-        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
-        confidence_impact_observation_rows=confidence_impact_observation_rows,
-        confidence_impact_monitor=confidence_impact_monitor,
-        markdown_coverage_summary=markdown_coverage_summary,
-        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
-        forecast_rows=forecast_rows,
-        outcome_label_rows=outcome_label_rows,
-        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
-        recipe_paper_trading_summary=recipe_paper_trading_summary,
-    )
-    weighted_research_context_rows = build_weighted_research_contexts(
-        forecast_rows=forecast_rows,
-        forecast_ledger_rows=forecast_ledger_rows,
-        footprint_rows=footprint_rows,
-        analysis_recipe_rows=analysis_recipe_rows,
-        tool_gap_rows=tool_gap_rows,
-        metadata_rows=metadata_rows,
-        source_performance_profile_rows=source_performance_profile_rows,
-        viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
-    )
-    runtime_tool_gap_observation_rows = build_runtime_tool_gap_observations(
-        run_id=run_id,
-        weighted_research_context_rows=weighted_research_context_rows,
-        tool_gap_rows=tool_gap_rows,
-        analysis_recipe_rows=analysis_recipe_rows,
-    )
-    monitoring_report = build_report_intelligence_monitoring_report(
-        run_id=run_id,
-        metadata_rows=metadata_rows,
-        forecast_rows=forecast_rows,
-        outcome_label_rows=outcome_label_rows,
-        source_performance_profile_rows=source_performance_profile_rows,
-        viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
-        method_performance_profile_rows=method_performance_profile_rows,
-        tool_coverage_match_rows=tool_coverage_match_rows,
-        tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
-        analysis_recipe_rows=analysis_recipe_rows,
-        weighted_research_context_rows=weighted_research_context_rows,
-        runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
-        confidence_impact_monitor=confidence_impact_monitor,
-    )
-    feature_flag_payload = _report_intelligence_feature_flag_payload()
-    runtime_safety_audit = build_report_intelligence_runtime_safety_audit(
-        run_id=run_id,
-        feature_flags=feature_flag_payload,
-        forecast_rows=forecast_rows,
-        forecast_ledger_rows=forecast_ledger_rows,
-        method_rows=method_rows,
-        analysis_recipe_rows=analysis_recipe_rows,
-        weighted_research_context_rows=weighted_research_context_rows,
-        runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
-        tool_gap_rows=tool_gap_rows,
-    )
-    pit_leakage_audit = build_report_intelligence_pit_leakage_audit(
-        run_id=run_id,
-        feature_flags=feature_flag_payload,
-        metadata_rows=metadata_rows,
-        forecast_rows=forecast_rows,
-        forecast_ledger_rows=forecast_ledger_rows,
-        outcome_label_rows=outcome_label_rows,
-        source_performance_profile_rows=source_performance_profile_rows,
-        tool_coverage_match_rows=tool_coverage_match_rows,
-        analysis_recipe_rows=analysis_recipe_rows,
-        weighted_research_context_rows=weighted_research_context_rows,
-    )
-    extraction_provenance_audit = build_report_intelligence_extraction_provenance_audit(
-        run_id=run_id,
-        forecast_rows=forecast_rows,
-        footprint_rows=footprint_rows,
-        metric_rows=metric_rows,
-        forecast_ledger_rows=forecast_ledger_rows,
-        outcome_label_rows=outcome_label_rows,
-        outcome_labeling_readiness=outcome_labeling_readiness,
-    )
-    statistical_robustness_audit = (
-        build_report_intelligence_statistical_robustness_audit(
-            run_id=run_id,
-            feature_flags=feature_flag_payload,
-            forecast_ledger_rows=forecast_ledger_rows,
-            outcome_label_rows=outcome_label_rows,
-            source_performance_profile_rows=source_performance_profile_rows,
-            viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
-            method_performance_profile_rows=method_performance_profile_rows,
-            weighted_research_context_rows=weighted_research_context_rows,
-        )
-    )
-    tool_feasibility_audit = build_report_intelligence_tool_feasibility_audit(
-        run_id=run_id,
-        feature_flags=feature_flag_payload,
-        metric_rows=metric_rows,
-        tool_coverage_match_rows=tool_coverage_match_rows,
-        tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
-        analysis_recipe_rows=analysis_recipe_rows,
-        runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
-    )
-    recipe_validation_audit = build_report_intelligence_recipe_validation_audit(
-        run_id=run_id,
-        feature_flags=feature_flag_payload,
-        method_rows=method_rows,
-        analysis_recipe_rows=analysis_recipe_rows,
-        tool_feasibility_audit=tool_feasibility_audit,
-        weighted_research_context_rows=weighted_research_context_rows,
-        runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
-    )
-    footprint_review_outputs = write_analytical_footprint_review_artifacts(
-        registry_dir,
-        footprint_rows,
-    )
-    footprint_review_load_blockers: list[str] = []
-    footprint_review_summary = _read_registry_json(
-        registry_dir / "analytical_footprint_review_summary.json",
-        label="analytical_footprint_review_summary",
-        blockers=footprint_review_load_blockers,
-    )
-    footprint_error_taxonomy = _read_registry_json(
-        registry_dir / "analytical_footprint_error_taxonomy.json",
-        label="analytical_footprint_error_taxonomy",
-        blockers=footprint_review_load_blockers,
-    )
-    gold_review_summary = _read_registry_json(
-        registry_dir.parent / "gold_sets/tushare_research_reports.review_summary.json",
-        label="gold_review_summary",
-        blockers=footprint_review_load_blockers,
-    )
-    patch_v1_5_coverage_report = (
-        build_report_intelligence_patch_v1_5_coverage_report(
-            run_id=run_id,
-            feature_flags=feature_flag_payload,
-            metadata_rows=metadata_rows,
-            forecast_rows=forecast_rows,
-            footprint_rows=footprint_rows,
-            metric_rows=metric_rows,
-            method_rows=method_rows,
-            tool_coverage_match_rows=tool_coverage_match_rows,
-            tool_gap_rows=tool_gap_rows,
-            data_acquisition_proposal_rows=data_acquisition_proposal_rows,
-            tool_design_proposal_rows=tool_design_proposal_rows,
-            forecast_ledger_rows=forecast_ledger_rows,
-            outcome_label_rows=outcome_label_rows,
-            outcome_labeling_readiness=outcome_labeling_readiness,
-            source_performance_profile_rows=source_performance_profile_rows,
-            viewpoint_performance_profile_rows=viewpoint_performance_profile_rows,
-            method_performance_profile_rows=method_performance_profile_rows,
-            analysis_recipe_rows=analysis_recipe_rows,
-            weighted_research_context_rows=weighted_research_context_rows,
-            runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
-            monitoring_report=monitoring_report,
-            runtime_safety_audit=runtime_safety_audit,
-            pit_leakage_audit=pit_leakage_audit,
-            extraction_provenance_audit=extraction_provenance_audit,
-            statistical_robustness_audit=statistical_robustness_audit,
-            tool_feasibility_audit=tool_feasibility_audit,
-            recipe_validation_audit=recipe_validation_audit,
-            footprint_review_summary=footprint_review_summary,
-            footprint_error_taxonomy=footprint_error_taxonomy,
-            gold_review_summary=gold_review_summary,
-            recipe_paper_trading_summary=recipe_paper_trading_summary,
-        )
-    )
-    schema_validation_report = _read_schema_validation_report(root_path)
-    evolution_history = _prepare_evolution_refresh_history(
         registry_dir=registry_dir,
         run_id=run_id,
-        forecast_rows=forecast_rows,
-        outcome_label_rows=outcome_label_rows,
-        recipe_paper_trading_summary=recipe_paper_trading_summary,
-        confidence_impact_monitor=confidence_impact_monitor,
-        markdown_coverage_summary=markdown_coverage_summary,
-        schema_validation_report=schema_validation_report,
-        pit_leakage_audit=pit_leakage_audit,
-        extraction_provenance_audit=extraction_provenance_audit,
-        statistical_robustness_audit=statistical_robustness_audit,
-        gold_review_summary=gold_review_summary,
-        outcome_labeling_readiness=outcome_labeling_readiness,
-    )
-    evolution_readiness_gate = build_report_intelligence_evolution_readiness_gate(
-        run_id=run_id,
-        forecast_rows=forecast_rows,
-        outcome_label_rows=outcome_label_rows,
-        recipe_paper_trading_summary=recipe_paper_trading_summary,
-        confidence_impact_monitor=confidence_impact_monitor,
-        markdown_coverage_summary=markdown_coverage_summary,
-        pit_leakage_audit=pit_leakage_audit,
-        extraction_provenance_audit=extraction_provenance_audit,
-        statistical_robustness_audit=statistical_robustness_audit,
-        gold_review_summary=gold_review_summary,
-        outcome_labeling_readiness=outcome_labeling_readiness,
-        schema_validation_report=schema_validation_report,
-        macro_regime_snapshot_rows=macro_regime_snapshot_rows,
-        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
-        prompt_mutation_candidate_rows=prompt_mutation_candidate_rows,
-        agent_context_forecast_rows=forecast_rows,
         metadata_rows=metadata_rows,
-        weighted_research_context_rows=weighted_research_context_rows,
-        monitor_refresh_history_rows=evolution_history["monitor_previous"],
-        audit_refresh_history_rows=evolution_history["audit_previous"],
-        gap_distribution_history_rows=evolution_history["gap_previous"],
-    )
-    prompt_mutation_candidate_rows = build_prompt_mutation_candidates(
-        run_id=run_id,
-        outcome_labeling_readiness=outcome_labeling_readiness,
+        forecast_rows=forecast_rows,
+        footprint_rows=footprint_rows,
+        metric_rows=metric_rows,
+        method_rows=method_rows,
         tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
-        recipe_paper_trading_runs=recipe_paper_trading_run_rows,
-        confidence_impact_observation_rows=confidence_impact_observation_rows,
-        confidence_impact_monitor=confidence_impact_monitor,
-        markdown_coverage_summary=markdown_coverage_summary,
-        industry_etf_proxy_pit_availability=industry_etf_proxy_pit_availability,
-        forecast_rows=forecast_rows,
-        outcome_label_rows=outcome_label_rows,
-        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
-        weighted_research_context_rows=weighted_research_context_rows,
-        recipe_paper_trading_summary=recipe_paper_trading_summary,
-        evolution_readiness_gate=evolution_readiness_gate,
-        gold_review_summary=gold_review_summary,
-        footprint_review_summary=footprint_review_summary,
-    )
-    evolution_readiness_gate = build_report_intelligence_evolution_readiness_gate(
-        run_id=run_id,
-        forecast_rows=forecast_rows,
-        outcome_label_rows=outcome_label_rows,
-        recipe_paper_trading_summary=recipe_paper_trading_summary,
-        confidence_impact_monitor=confidence_impact_monitor,
-        markdown_coverage_summary=markdown_coverage_summary,
-        pit_leakage_audit=pit_leakage_audit,
-        extraction_provenance_audit=extraction_provenance_audit,
-        statistical_robustness_audit=statistical_robustness_audit,
-        gold_review_summary=gold_review_summary,
-        outcome_labeling_readiness=outcome_labeling_readiness,
-        schema_validation_report=schema_validation_report,
-        macro_regime_snapshot_rows=macro_regime_snapshot_rows,
-        macro_agent_research_prior_rows=macro_agent_research_prior_rows,
-        prompt_mutation_candidate_rows=prompt_mutation_candidate_rows,
-        agent_context_forecast_rows=forecast_rows,
-        metadata_rows=metadata_rows,
-        weighted_research_context_rows=weighted_research_context_rows,
-        monitor_refresh_history_rows=evolution_history["monitor_previous"],
-        audit_refresh_history_rows=evolution_history["audit_previous"],
-        gap_distribution_history_rows=evolution_history["gap_previous"],
-    )
-
-    outputs = {
-        "feature_flags": str(
-            _write_json(
-                registry_dir / "feature_flags.json",
-                feature_flag_payload,
-            )["path"]
-        ),
-        "report_metadata": str(
-            _write_jsonl(registry_dir / "report_metadata.jsonl", metadata_rows)["path"]
-        ),
-        "forecast_claims": str(
-            _write_jsonl(registry_dir / "forecast_claims.jsonl", forecast_rows)["path"]
-        ),
-        "analytical_footprints": str(
-            _write_jsonl(
-                registry_dir / "analytical_footprints.jsonl",
-                footprint_rows,
-            )["path"]
-        ),
-        **footprint_review_outputs,
-        "metric_candidates": str(
-            _write_jsonl(registry_dir / "metric_candidates.jsonl", metric_rows)["path"]
-        ),
-        "method_patterns": str(
-            _write_jsonl(registry_dir / "method_patterns.jsonl", method_rows)["path"]
-        ),
-        "tool_gaps": str(
-            _write_jsonl(registry_dir / "tool_gaps.jsonl", tool_gap_rows)["path"]
-        ),
-        "report_forecast_ledger": str(
-            _write_jsonl(
-                registry_dir / "report_forecast_ledger.jsonl",
-                forecast_ledger_rows,
-            )["path"]
-        ),
-        "markdown_coverage_summary": str(
-            _write_json(
-                registry_dir / "markdown_coverage_summary.json",
-                markdown_coverage_summary,
-            )["path"]
-        ),
-        "industry_etf_proxy_map": str(
-            _write_jsonl(
-                registry_dir / "industry_etf_proxy_map.jsonl",
-                industry_etf_proxy_map_rows,
-            )["path"]
-        ),
-        "industry_etf_proxy_pit_availability": str(
-            _write_json(
-                registry_dir / "industry_etf_proxy_pit_availability.json",
-                _public_summary_payload(industry_etf_proxy_pit_availability),
-            )["path"]
-        ),
-        "outcome_labeling_readiness": str(
-            _write_json(
-                registry_dir / "outcome_labeling_readiness.json",
-                _public_summary_payload(outcome_labeling_readiness),
-            )["path"]
-        ),
-        "report_outcome_labels": str(
-            _write_jsonl(
-                registry_dir / "report_outcome_labels.jsonl",
-                outcome_label_rows,
-            )["path"]
-        ),
-        "source_performance_profiles": str(
-            _write_jsonl(
-                registry_dir / "source_performance_profiles.jsonl",
-                source_performance_profile_rows,
-            )["path"]
-        ),
-        "viewpoint_performance_profiles": str(
-            _write_jsonl(
-                registry_dir / "viewpoint_performance_profiles.jsonl",
-                viewpoint_performance_profile_rows,
-            )["path"]
-        ),
-        "macro_market_series_catalog": str(
-            _write_jsonl(
-                registry_dir / "macro_market_series_catalog.jsonl",
-                macro_market_series_catalog_rows,
-            )["path"]
-        ),
-        "stock_context_snapshots": str(
-            _write_jsonl(
-                registry_dir / "stock_context_snapshots.jsonl",
-                stock_context_snapshot_rows,
-            )["path"]
-        ),
-        "industry_context_snapshots": str(
-            _write_jsonl(
-                registry_dir / "industry_context_snapshots.jsonl",
-                industry_context_snapshot_rows,
-            )["path"]
-        ),
-        "macro_regime_snapshots": str(
-            _write_jsonl(
-                registry_dir / "macro_regime_snapshots.jsonl",
-                macro_regime_snapshot_rows,
-            )["path"]
-        ),
-        "macro_agent_research_priors": str(
-            _write_jsonl(
-                registry_dir / "macro_agent_research_priors.jsonl",
-                macro_agent_research_prior_rows,
-            )["path"]
-        ),
-        "method_performance_profiles": str(
-            _write_jsonl(
-                registry_dir / "method_performance_profiles.jsonl",
-                method_performance_profile_rows,
-            )["path"]
-        ),
-        "tool_coverage_matches": str(
-            _write_jsonl(
-                registry_dir / "tool_coverage_matches.jsonl",
-                tool_coverage_match_rows,
-            )["path"]
-        ),
-        "data_acquisition_proposals": str(
-            _write_jsonl(
-                registry_dir / "data_acquisition_proposals.jsonl",
-                data_acquisition_proposal_rows,
-            )["path"]
-        ),
-        "tool_design_proposals": str(
-            _write_jsonl(
-                registry_dir / "tool_design_proposals.jsonl",
-                tool_design_proposal_rows,
-            )["path"]
-        ),
-        "analysis_recipes": str(
-            _write_jsonl(
-                registry_dir / "analysis_recipes.jsonl",
-                analysis_recipe_rows,
-            )["path"]
-        ),
-        "recipe_paper_trading_runs": str(
-            _write_jsonl(
-                registry_dir / "recipe_paper_trading_runs.jsonl",
-                recipe_paper_trading_run_rows,
-            )["path"]
-        ),
-        "recipe_paper_trading_summary": str(
-            _write_json(
-                registry_dir / "recipe_paper_trading_summary.json",
-                _public_summary_payload(recipe_paper_trading_summary),
-            )["path"]
-        ),
-        "confidence_impact_observations": str(
-            _write_jsonl(
-                registry_dir / "confidence_impact_observations.jsonl",
-                confidence_impact_observation_rows,
-            )["path"]
-        ),
-        "confidence_impact_monitor": str(
-            _write_json(
-                registry_dir / "confidence_impact_monitor.json",
-                _public_summary_payload(confidence_impact_monitor),
-            )["path"]
-        ),
-        "monitor_refresh_history": str(
-            _write_jsonl(
-                registry_dir / "monitor_refresh_history.jsonl",
-                evolution_history["monitor_updated"],
-            )["path"]
-        ),
-        "audit_refresh_history": str(
-            _write_jsonl(
-                registry_dir / "audit_refresh_history.jsonl",
-                evolution_history["audit_updated"],
-            )["path"]
-        ),
-        "gap_distribution_history": str(
-            _write_jsonl(
-                registry_dir / "gap_distribution_history.jsonl",
-                evolution_history["gap_updated"],
-            )["path"]
-        ),
-        "prompt_mutation_candidates": str(
-            _write_jsonl(
-                registry_dir / "prompt_mutation_candidates.jsonl",
-                prompt_mutation_candidate_rows,
-            )["path"]
-        ),
-        "evolution_readiness_gate": str(
-            _write_json(
-                registry_dir / "evolution_readiness_gate.json",
-                evolution_readiness_gate,
-            )["path"]
-        ),
-        "weighted_research_contexts": str(
-            _write_jsonl(
-                registry_dir / "weighted_research_contexts.jsonl",
-                weighted_research_context_rows,
-            )["path"]
-        ),
-        "runtime_tool_gap_observations": str(
-            _write_jsonl(
-                registry_dir / "runtime_tool_gap_observations.jsonl",
-                runtime_tool_gap_observation_rows,
-            )["path"]
-        ),
-        "monitoring_report": str(
-            _write_json(
-                registry_dir / "monitoring_report.json",
-                monitoring_report,
-            )["path"]
-        ),
-        "runtime_safety_audit": str(
-            _write_json(
-                registry_dir / "runtime_safety_audit.json",
-                runtime_safety_audit,
-            )["path"]
-        ),
-        "pit_leakage_audit": str(
-            _write_json(
-                registry_dir / "pit_leakage_audit.json",
-                pit_leakage_audit,
-            )["path"]
-        ),
-        "extraction_provenance_audit": str(
-            _write_json(
-                registry_dir / "extraction_provenance_audit.json",
-                extraction_provenance_audit,
-            )["path"]
-        ),
-        "statistical_robustness_audit": str(
-            _write_json(
-                registry_dir / "statistical_robustness_audit.json",
-                statistical_robustness_audit,
-            )["path"]
-        ),
-        "tool_feasibility_audit": str(
-            _write_json(
-                registry_dir / "tool_feasibility_audit.json",
-                tool_feasibility_audit,
-            )["path"]
-        ),
-        "recipe_validation_audit": str(
-            _write_json(
-                registry_dir / "recipe_validation_audit.json",
-                recipe_validation_audit,
-            )["path"]
-        ),
-        "patch_v1_5_coverage_report": str(
-            _write_json(
-                registry_dir / "patch_v1_5_coverage_report.json",
-                patch_v1_5_coverage_report,
-            )["path"]
-        ),
-        "status": str(
-            _write_jsonl(registry_dir / "processing_status.jsonl", status_rows)["path"]
-        ),
-    }
-    fingerprint = write_report_fingerprint_manifest(registry_dir)
-    outputs["report_fingerprint_manifest"] = str(fingerprint["path"])
-    outputs = {
-        key: _relative_or_absolute(Path(path), root_path)
-        for key, path in outputs.items()
-    }
-    summary_path = registry_dir / "extraction_report.json"
-    outputs["summary"] = _relative_or_absolute(summary_path, root_path)
-    summary = ReportIntelligenceRunResult(
-        run_id=run_id,
-        root=str(root_path),
+        macro_regime_calendar_rows=macro_regime_calendar_rows,
+        blockers=blockers,
         selected_reports=len(rows),
-        metadata_rows=len(metadata_rows),
-        forecast_claim_rows=len(forecast_rows),
-        analytical_footprint_rows=len(footprint_rows),
-        metric_candidate_rows=len(metric_rows),
-        method_pattern_rows=len(method_rows),
-        tool_gap_rows=len(tool_gap_rows),
-        forecast_ledger_rows=len(forecast_ledger_rows),
-        outcome_label_rows=len(outcome_label_rows),
-        industry_etf_proxy_outcome_label_rows=sum(
-            1
-            for row in outcome_label_rows
-            if row.get("label_type") == "industry_etf_proxy"
-        ),
-        industry_etf_proxy_eligible_claim_rows=int(
-            industry_etf_proxy_readiness["eligible_claim_count"]
-        ),
-        industry_etf_proxy_labelable_window_rows=int(
-            industry_etf_proxy_readiness["labelable_window_count"]
-        ),
-        industry_etf_proxy_pending_window_rows=int(
-            industry_etf_proxy_readiness["pending_future_window_count"]
-        ),
-        stock_price_proxy_outcome_label_rows=sum(
-            1
-            for row in outcome_label_rows
-            if row.get("label_type") == "stock_price_proxy"
-        ),
-        stock_price_proxy_eligible_claim_rows=int(
-            stock_price_proxy_readiness["eligible_claim_count"]
-        ),
-        stock_price_proxy_labelable_window_rows=int(
-            stock_price_proxy_readiness["labelable_window_count"]
-        ),
-        stock_price_proxy_pending_window_rows=int(
-            stock_price_proxy_readiness["pending_future_window_count"]
-        ),
-        macro_asset_proxy_outcome_label_rows=sum(
-            1
-            for row in outcome_label_rows
-            if row.get("label_type") == "macro_asset_proxy"
-        ),
-        macro_asset_proxy_eligible_claim_rows=int(
-            macro_asset_proxy_readiness["eligible_claim_count"]
-        ),
-        macro_asset_proxy_labelable_window_rows=int(
-            macro_asset_proxy_readiness["labelable_window_count"]
-        ),
-        macro_asset_proxy_pending_window_rows=int(
-            macro_asset_proxy_readiness["pending_future_window_count"]
-        ),
-        macro_series_directional_outcome_label_rows=sum(
-            1
-            for row in outcome_label_rows
-            if row.get("label_type") == "macro_series_directional"
-        ),
-        macro_series_directional_eligible_claim_rows=int(
-            macro_series_directional_readiness["eligible_claim_count"]
-        ),
-        macro_series_directional_labelable_window_rows=int(
-            macro_series_directional_readiness["labelable_window_count"]
-        ),
-        macro_series_directional_pending_window_rows=int(
-            macro_series_directional_readiness["pending_future_window_count"]
-        ),
-        macro_curve_directional_outcome_label_rows=sum(
-            1
-            for row in outcome_label_rows
-            if row.get("label_type") == "macro_curve_directional"
-        ),
-        macro_curve_directional_eligible_claim_rows=int(
-            macro_curve_directional_readiness["eligible_claim_count"]
-        ),
-        macro_curve_directional_labelable_window_rows=int(
-            macro_curve_directional_readiness["labelable_window_count"]
-        ),
-        macro_curve_directional_pending_window_rows=int(
-            macro_curve_directional_readiness["pending_future_window_count"]
-        ),
-        source_performance_profile_rows=len(source_performance_profile_rows),
-        viewpoint_performance_profile_rows=len(viewpoint_performance_profile_rows),
-        macro_market_series_catalog_rows=len(macro_market_series_catalog_rows),
-        stock_context_snapshot_rows=len(stock_context_snapshot_rows),
-        industry_context_snapshot_rows=len(industry_context_snapshot_rows),
-        macro_regime_snapshot_rows=len(macro_regime_snapshot_rows),
-        macro_agent_research_prior_rows=len(macro_agent_research_prior_rows),
-        method_performance_profile_rows=len(method_performance_profile_rows),
-        tool_coverage_match_rows=len(tool_coverage_match_rows),
-        data_acquisition_proposal_rows=len(data_acquisition_proposal_rows),
-        tool_design_proposal_rows=len(tool_design_proposal_rows),
-        analysis_recipe_rows=len(analysis_recipe_rows),
-        prompt_mutation_candidate_rows=len(prompt_mutation_candidate_rows),
-        weighted_research_context_rows=len(weighted_research_context_rows),
-        runtime_tool_gap_observation_rows=len(runtime_tool_gap_observation_rows),
-        outcome_labeling_ready_count=int(
-            outcome_labeling_readiness["ready_for_outcome_labeling_count"]
-        ),
-        outcome_labeling_blocked_count=int(outcome_labeling_readiness["blocked_count"]),
-        pdf_ready_count=sum(
-            1
-            for row in metadata_rows
-            if row["pdf"]["status"] in {"cached", "downloaded"}
-        ),
-        markdown_ready_count=sum(
-            1
-            for row in metadata_rows
-            if row["markdown"]["status"] in {"cached", "converted", "converted_text_source"}
-        ),
-        llm_processed_reports=sum(
-            1
-            for row in metadata_rows
-            if row["extraction"]["llm_status"] == "processed"
-        ),
-        blocker_count=len(blockers),
-        blockers=tuple(blockers),
-        outputs=outputs,
+        status_rows=status_rows,
     )
-    summary_payload = asdict(summary)
-    summary_payload["root"] = "<repo_root>"
-    _write_json(summary_path, summary_payload)
     _emit_report_intelligence_progress(
         cfg,
         event="summary",

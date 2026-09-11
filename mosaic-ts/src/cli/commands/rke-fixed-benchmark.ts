@@ -33,7 +33,6 @@ interface RkeFixedBenchmarkOptions {
   model?: string;
   baseUrl?: string;
   maxTokens?: string;
-  vetoThreshold?: string;
   promptsRepo?: string;
   promptsRoot?: string;
   maxRuns?: string;
@@ -158,7 +157,6 @@ export function registerRkeFixedBenchmark(program: Command): void {
     .option("--model <name>", "Baseline model override")
     .option("--base-url <url>", "Baseline model base URL override")
     .option("--max-tokens <n>", "Per-call LLM max token cap")
-    .option("--veto-threshold <num>", "Deprecated compatibility option; ignored by canonical L4")
     .option("--prompts-repo <path>", "Use a private prompt git repo for this run")
     .option("--prompts-root <path>", "Override prompts root directory")
     .option("--max-runs <n>", "Cap episode/model runs for smoke; formal runs omit this")
@@ -268,7 +266,6 @@ export async function runRkeFixedBenchmark(
       llmHandle,
       api,
       config,
-      vetoThreshold: opts.vetoThreshold ? Number(opts.vetoThreshold) : 0.5,
       ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
       onLog: (msg) => {
         if (activeAgentMetrics) updateAgentMetricsFromLog(activeAgentMetrics, msg);

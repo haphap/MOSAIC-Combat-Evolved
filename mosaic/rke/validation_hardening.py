@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from re import compile as re_compile
 from typing import Any, Literal, Mapping, Sequence
+
+from mosaic.rke.json_io import write_json as _write_json
 
 
 METRIC_HORIZON_RE = re_compile(r"(?:^|_)(?P<horizon>[0-9]+)d(?:_|$)")
@@ -301,31 +302,22 @@ def build_central_bank_validation_hardening_report() -> dict[str, Any]:
     }
 
 
-def _jsonable(value: Any) -> Any:
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    return value
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return {"path": str(path), "rows": 1}
-
-
-def write_validation_hardening_report(root: str | Path = ".") -> dict[str, Any]:
+def write_validation_hardening_report(
+    root: str | Path = ".", *, report: dict[str, Any] | None = None
+) -> dict[str, Any]:
     root_path = Path(root)
+    if report is None:
+        report = build_central_bank_validation_hardening_report()
     return _write_json(
         root_path / VALIDATION_HARDENING_REPORT_PATH,
-        build_central_bank_validation_hardening_report(),
+        report,
     )
 
 
-def write_statistical_significance_report(root: str | Path = ".") -> dict[str, Any]:
+def write_statistical_significance_report(
+    root: str | Path = ".", *, report: StatisticalSignificanceReport | None = None
+) -> dict[str, Any]:
     root_path = Path(root)
-    report = build_central_bank_statistical_significance_report()
+    if report is None:
+        report = build_central_bank_statistical_significance_report()
     return _write_json(root_path / STATISTICAL_SIGNIFICANCE_REPORT_PATH, asdict(report))

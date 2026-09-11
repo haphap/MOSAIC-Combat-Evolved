@@ -2479,8 +2479,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json(result)
         return 0
     if args.command == "audit-view":
-        paths = write_audit_trace_view(root)
         view = build_audit_trace_view(root)
+        paths = write_audit_trace_view(root, view=view)
         _print_json(
             {
                 "paths": paths,
@@ -2496,8 +2496,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not args.no_write:
             write_audit_trace_view(root)
             write_completion_audit(root)
-            write_master_plan_coverage_report(root)
         result = build_master_plan_coverage_report(root)
+        if not args.no_write:
+            write_master_plan_coverage_report(root, report=result)
         _print_json(
             {
                 **asdict(result),
@@ -2510,15 +2511,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_json(result)
         return 0
     if args.command == "policy-doc-status":
-        write_policy_doc_validation_report(root)
         result = build_policy_doc_validation_report(root)
+        write_policy_doc_validation_report(root, report=result)
         _print_json(asdict(result))
         return 0 if result.accepted else 2
     if args.command == "schema-status":
-        if not args.no_write:
-            write_schema_validation_report(root)
-            write_rule_pack_validation_report(root)
         result = build_schema_validation_report(root)
+        if not args.no_write:
+            write_schema_validation_report(root, report=result)
+            write_rule_pack_validation_report(root)
         records = list(result.records)
         if args.failures_only:
             records = [
@@ -2538,8 +2539,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0 if result.accepted else 2
     if args.command == "rule-pack-status":
-        write_rule_pack_validation_report(root)
         result = build_rule_pack_validation_report(root)
+        write_rule_pack_validation_report(root, report=result)
         _print_json(
             {
                 "accepted": result.accepted,
@@ -2549,8 +2550,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0 if result.accepted else 2
     if args.command == "prompt-status":
-        write_prompt_asset_validation_report(root)
         result = build_prompt_asset_validation_report(root)
+        write_prompt_asset_validation_report(root, report=result)
         _print_json(
             {
                 "accepted": result.accepted,
@@ -2561,8 +2562,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if result.accepted else 2
     if args.command == "claim-status":
         write_claim_grounding_validation_report(root)
-        write_claim_variable_validation_report(root)
         result = build_claim_variable_validation_report(root)
+        write_claim_variable_validation_report(root, report=result)
         _print_json(
             {
                 "accepted": result.accepted,
@@ -2572,22 +2573,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0 if result.accepted else 2
     if args.command == "source-status":
-        write_source_registry_validation_report(root)
         result = build_source_registry_validation_report(root)
+        write_source_registry_validation_report(root, report=result)
         _print_json(asdict(result))
         return 0 if result.accepted_for_sandbox else 2
     if args.command == "source-text-status":
-        write_source_text_redaction_report(root)
         result = build_source_text_redaction_report(root)
+        write_source_text_redaction_report(root, report=result)
         _print_json(asdict(result))
         return 0 if result.accepted else 2
     if args.command == "validation-status":
-        write_validation_hardening_report(root)
-        write_statistical_significance_report(root)
-        write_experiment_validation_report(root)
         hardening = build_central_bank_validation_hardening_report()
+        write_validation_hardening_report(root, report=hardening)
         significance = build_central_bank_statistical_significance_report()
+        write_statistical_significance_report(root, report=significance)
         experiment_validation = build_experiment_validation_report(root)
+        write_experiment_validation_report(root, report=experiment_validation)
         accepted = (
             not hardening["horizon_metric_failures"]
             and not hardening["precision_failures"]
@@ -2612,8 +2613,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0 if accepted else 2
     if args.command == "experiment-status":
-        write_experiment_validation_report(root)
         result = build_experiment_validation_report(root)
+        write_experiment_validation_report(root, report=result)
         _print_json(
             {
                 "accepted": result.accepted,
@@ -2623,19 +2624,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0 if result.accepted else 2
     if args.command == "monitoring-diagnostics":
-        write_production_monitor_diagnostics(root)
         result = build_production_monitor_diagnostics()
+        write_production_monitor_diagnostics(root, report=result)
         _print_json(asdict(result))
         return 0 if result.accepted else 2
     if args.command == "rollback-readiness":
-        result = write_rollback_readiness_report(root)
         report = build_rollback_readiness_report(root)
+        result = write_rollback_readiness_report(root, report=report)
         _print_json({"path": result["path"], **asdict(report)})
         return 0 if report.accepted else 2
     if args.command == "promotion-status":
-        if not args.no_write:
-            write_production_promotion_gate_report(root)
         result = build_production_promotion_gate_report(root)
+        if not args.no_write:
+            write_production_promotion_gate_report(root, report=result)
         _print_json(
             {
                 **asdict(result),
@@ -2644,14 +2645,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0 if result.paper_trading_allowed else 2
     if args.command == "promotion-dry-run":
-        if args.write_report:
-            write_promotion_dry_run_report(
-                root,
-                gold_input=args.gold_input,
-                footprint_input=args.footprint_input,
-                license_input=args.license_input,
-                lockbox_input=args.lockbox_input,
-            )
         result = build_promotion_dry_run_report(
             root,
             gold_input=args.gold_input,
@@ -2659,15 +2652,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             license_input=args.license_input,
             lockbox_input=args.lockbox_input,
         )
+        if args.write_report:
+            write_promotion_dry_run_report(root, report=result)
         _print_json(asdict(result))
         return 0 if result.accepted else 2
     if args.command == "gold-set-status":
-        write_gold_set_review_summary(root)
-        _print_json(asdict(summarize_gold_set_review(root)))
+        summary = summarize_gold_set_review(root)
+        write_gold_set_review_summary(root, summary=summary)
+        _print_json(asdict(summary))
         return 0
     if args.command == "gold-review-packet":
-        paths = write_gold_review_packet(root)
         packet = build_gold_review_packet(root)
+        paths = write_gold_review_packet(root, packet=packet)
         _print_json(
             {
                 "paths": paths,
@@ -2740,14 +2736,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
     if args.command == "license-status":
-        write_source_license_review_summary(root)
-        _print_json(
-            _source_license_status_stdout(summarize_source_license_review(root))
-        )
+        summary = summarize_source_license_review(root)
+        write_source_license_review_summary(root, summary=summary)
+        _print_json(_source_license_status_stdout(summary))
         return 0
     if args.command == "license-review-packet":
-        paths = write_license_review_packet(root)
         packet = build_license_review_packet(root)
+        paths = write_license_review_packet(root, packet=packet)
         _print_json(
             {
                 "paths": paths,

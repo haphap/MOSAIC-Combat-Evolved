@@ -1,10 +1,4 @@
-/**
- * Locale helpers shared by the prompt builder + structured-output fallback.
- *
- * Extracted from ETFAgents' ``ts/src/agents/schemas/rating.ts`` so that
- * ``helpers/structured_output.ts`` does not have to depend on the schemas
- * directory (which holds ETF-specific rating logic we are not porting).
- */
+/** Locale helpers shared by agent prompts and output rendering. */
 
 const CHINESE_OUTPUT_VALUES = new Set([
   "chinese",

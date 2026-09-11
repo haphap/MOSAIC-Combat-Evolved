@@ -29,6 +29,8 @@ from .phase_minus1 import (
 )
 from .review_integrity import license_review_row_complete
 
+from mosaic.rke.json_io import jsonable as _jsonable, write_json as _write_json
+
 
 GOLD_CANDIDATE_CLAIMS_PATH = "registry/gold_sets/tushare_research_reports.candidate_claims.jsonl"
 GOLD_CANDIDATE_CLAIMS_SUMMARY_PATH = "registry/gold_sets/tushare_research_reports.candidate_claims.summary.json"
@@ -621,22 +623,6 @@ class GoldCandidateClaimSummary:
     review_rows_with_candidate_fields: int
     manual_fields_preserved: bool
     blockers: Sequence[str]
-
-
-def _jsonable(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    return value
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return {"path": str(path), "rows": 1}
 
 
 def _write_jsonl(path: Path, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:

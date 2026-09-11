@@ -168,7 +168,7 @@ Portfolio-stress files and `--current-positions-json` may be either a JSON posit
 ```bash
 pnpm dev backtest --cohort cohort_default
 ```
-Options: `--cohort`, `--prompt-commit-hash <hash>`, `--fake-llm`, LLM flags, `--veto-threshold <num>`, `--initial-cash <amount>`, `--benchmark <ticker>`, `--force-refill`, `--log-every <n>`, `--out <path>`. Plus `backtest-fill` for the cache-fill stage.
+Options: `--cohort`, `--prompt-commit-hash <hash>`, `--fake-llm`, LLM flags, `--initial-cash <amount>`, `--benchmark <ticker>`, `--force-refill`, `--log-every <n>`, `--out <path>`. Plus `backtest-fill` for the cache-fill stage.
 Stage-1 carry-over rebuilds `current_positions` from prior target weights and records holding days, entry thesis id, realized/unrealized PnL, residual drift, and closed-position exit reasons.
 
 The retired `backtest-evolve` writer is not part of the Prompt optimizer. Use

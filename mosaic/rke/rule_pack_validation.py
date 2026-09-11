@@ -11,6 +11,8 @@ from typing import Any, Mapping, Sequence
 from .p0 import validate_rule_id, validate_rule_pack_id
 from .phase_minus1 import load_jsonl_with_errors
 
+from mosaic.rke.json_io import write_json as _write_json
+
 
 RULE_PACK_VALIDATION_REPORT_PATH = (
     "registry/rule_checks/rule_pack_validation_report.json"
@@ -67,26 +69,6 @@ class RulePackValidationReport:
     @property
     def failure_count(self) -> int:
         return sum(len(record.failures) for record in self.records)
-
-
-def _jsonable(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    return value
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True)
-        + "\n",
-        encoding="utf-8",
-    )
-    return {"path": str(path), "rows": 1}
 
 
 def _record(
@@ -508,9 +490,12 @@ def build_rule_pack_validation_report(
     )
 
 
-def write_rule_pack_validation_report(root: str | Path = ".") -> dict[str, Any]:
+def write_rule_pack_validation_report(
+    root: str | Path = ".", *, report: RulePackValidationReport | None = None
+) -> dict[str, Any]:
     root_path = Path(root)
-    report = build_rule_pack_validation_report(root_path)
+    if report is None:
+        report = build_rule_pack_validation_report(root_path)
     return _write_json(
         root_path / RULE_PACK_VALIDATION_REPORT_PATH,
         {
