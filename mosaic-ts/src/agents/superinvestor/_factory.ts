@@ -614,9 +614,12 @@ export function buildLayerThreeUserContext(
 export function buildLayerThreeInitialToolCalls(
   _state: DailyCycleStateType,
   _agentId: string,
-  _preparedInitialToolIds?: ReadonlyArray<string>,
+  preparedInitialToolIds: ReadonlyArray<string> = [],
 ): AgentInitialToolCall[] {
-  return [{ name: "get_superinvestor_candidate_snapshot", args: {} }];
+  return [
+    { name: "get_superinvestor_candidate_snapshot", args: {} },
+    ...preparedInitialToolIds.map((name) => ({ name, args: {} })),
+  ];
 }
 
 export interface SuperinvestorOpportunityAuthority {

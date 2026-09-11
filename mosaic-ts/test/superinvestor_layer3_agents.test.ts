@@ -455,9 +455,13 @@ describe("Layer-3 upstream consumption", () => {
     }
   });
 
-  it("keeps prepared adaptive tools model-selectable instead of calling them initially", () => {
-    expect(buildLayerThreeInitialToolCalls(state(), "munger", ["get_fundamentals"])).toEqual([
+  it("collects server-prepared initial evidence before model-selected queries", () => {
+    expect(
+      buildLayerThreeInitialToolCalls(state(), "munger", ["get_fundamentals", "get_cashflow"]),
+    ).toEqual([
       { name: "get_superinvestor_candidate_snapshot", args: {} },
+      { name: "get_fundamentals", args: {} },
+      { name: "get_cashflow", args: {} },
     ]);
     expect(mungerSpec.requiredTools).toEqual(
       expect.arrayContaining(["get_fundamentals", "get_cashflow", "get_balance_sheet"]),
