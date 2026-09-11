@@ -6,7 +6,9 @@ All 127 repository JSON Schemas currently declare draft 2020-12. RKE-specific
 cross-artifact, PIT, privacy and promotion checks remain separate.
 
 The old handwritten recursive validator and keyword-support list are removed.
-No package or service is added. An explicit empty `referencing.Registry` blocks
+The lightweight `rfc3339-validator` package is an explicit runtime dependency:
+without it, `jsonschema` silently skips `date-time` checking. No service is added.
+An explicit empty `referencing.Registry` blocks
 external retrieval, including HTTP and file references. Local fragment refs are
 resolved within the supplied Schema. Unknown drafts, invalid Schemas, unresolved
 refs and nonterminating self-refs return rejection records. Finite data under a

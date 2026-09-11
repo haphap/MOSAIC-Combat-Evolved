@@ -4826,6 +4826,7 @@ dependencies = [
     { name = "jsonschema" },
     { name = "langchain-core" },
     { name = "python-dotenv" },
+    { name = "rfc3339-validator" },
 ]
 
 [package.optional-dependencies]
@@ -4919,6 +4920,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "pytz", marker = "extra == 'data'", specifier = ">=2025.2" },
     { name = "requests", marker = "extra == 'data'", specifier = ">=2.32.4" },
+    { name = "rfc3339-validator", specifier = ">=0.1.4" },
     { name = "scipy", marker = "extra == 'backtest'", specifier = ">=1.13" },
     { name = "stockstats", marker = "extra == 'data'", specifier = ">=0.6.5" },
     { name = "tqdm", marker = "extra == 'backtest'", specifier = ">=4.66" },

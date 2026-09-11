@@ -13,6 +13,7 @@ dependencies = [
     # Phase 0 Day 1 — bridge skeleton only needs these
     "cryptography>=46.0",
     "jsonschema>=4.23",
+    "rfc3339-validator>=0.1.4",  # jsonschema date-time validation is optional otherwise
     "langchain-core>=0.3.81",
     "python-dotenv>=1.0.0",
     # Phase 0 Day 2+ will add: pandas, requests, tushare, akshare, stockstats, ...
