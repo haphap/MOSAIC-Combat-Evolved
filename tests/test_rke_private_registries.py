@@ -133,6 +133,7 @@ def test_fingerprint_manifest_is_stable_and_indexes_claims(tmp_path):
     second = build_report_fingerprint_manifest(registry)
 
     assert first == second
+    assert "author_ids_hash" not in first[0]
     assert first[0]["source_hash"] == "sha256:source"
     assert first[0]["pdf_sha256"] == "sha256:pdf"
     assert first[0]["markdown_sha256"] == "sha256:md"

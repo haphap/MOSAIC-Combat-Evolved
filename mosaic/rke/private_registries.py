@@ -128,20 +128,6 @@ def _source_publish_datetime(row: Mapping[str, Any]) -> str:
     return publish if not publish or "T" in publish else f"{publish}T00:00:00+08:00"
 
 
-def _author_ids(row: Mapping[str, Any]) -> list[str]:
-    raw = row.get("author_ids")
-    if isinstance(raw, list):
-        return [str(item) for item in raw if str(item).strip()]
-    author = str(row.get("author") or "").strip()
-    if not author:
-        return []
-    parts = [part.strip() for part in author.replace("，", ",").replace("、", ",").split(",")]
-    return [
-        "AUTH-" + _stable_digest({"author": part}, length=12).upper()
-        for part in dict.fromkeys(part for part in parts if part)
-    ]
-
-
 def _institution_id(row: Mapping[str, Any]) -> str:
     value = str(row.get("institution_id") or "").strip()
     if value:
@@ -169,10 +155,6 @@ def _source_hash(row: Mapping[str, Any]) -> str:
 def _title_normalized_hash(row: Mapping[str, Any]) -> str:
     title = " ".join(str(row.get("title") or "").casefold().split())
     return _stable_hash(title)
-
-
-def _author_ids_hash(row: Mapping[str, Any]) -> str:
-    return _stable_hash(_author_ids(row))
 
 
 def _report_id(row: Mapping[str, Any]) -> str:
@@ -287,7 +269,6 @@ def build_report_fingerprint_manifest(registry_dir: str | Path) -> list[dict[str
                 "publish_datetime": _source_publish_datetime(merged),
                 "institution_id": _institution_id(merged),
                 "title_normalized_hash": _title_normalized_hash(merged),
-                "author_ids_hash": _author_ids_hash(merged),
                 "pdf_sha256": _nested_sha(meta, "pdf") or str(source.get("pdf_sha256") or ""),
                 "markdown_sha256": _nested_sha(meta, "markdown"),
                 "source_span_root": source_id,
