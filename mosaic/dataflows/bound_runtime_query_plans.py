@@ -90,7 +90,6 @@ def _decode_snapshot(
         snapshot.get("candidate_scope_hash") != canonical_hash(candidate_scope)
         or snapshot.get("candidate_universe_hash") != canonical_hash(candidate_body)
         or snapshot.get("constraint_set_hash") != canonical_hash(constraints)
-        or snapshot.get("role_context_hash") != canonical_hash(role_context)
     ):
         raise ValueError("bound runtime snapshot authority hash mismatch")
     expected_candidate_status = "AVAILABLE" if candidates else "EMPTY_CONFIRMED"

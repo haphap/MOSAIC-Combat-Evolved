@@ -68,6 +68,17 @@ capture/knowledge ordering and the as-of cutoff, without revalidating a just
 constructed receipt. Request/content hashes, upstream source identity and
 cross-process authorization remain distinct boundaries.
 
+## Runtime snapshot authorities
+
+The five L3/L4 bound snapshot contracts now use v2. They omit
+`role_context_hash`: its only consumers recomputed the same subset, while
+`snapshot_hash` already binds all role-context content. Changing role context
+without resealing the snapshot still fails. Candidate universe, constraints
+and candidate scope hashes remain: they bind the query authorization scope,
+capability manifest and account/position policy, independently of display.
+The current Bridge rejects v1 snapshots rather than silently changing their
+meaning. Historical files are left intact; new runs must materialize v2 inputs.
+
 ## Migration and rollback
 
 New contexts and source receipts get new versions and identities. Historical

@@ -411,11 +411,11 @@ def _bound_snapshot(
     upstream_kind: str,
 ) -> dict:
     contract_versions = {
-        "get_superinvestor_candidate_snapshot": "superinvestor_candidate_snapshot_v1",
-        "get_cro_risk_snapshot": "cro_risk_snapshot_v1",
-        "get_alpha_candidate_snapshot": "alpha_candidate_snapshot_v1",
-        "get_execution_snapshot": "execution_snapshot_v1",
-        "get_cio_decision_snapshot": "cio_decision_snapshot_v1",
+        "get_superinvestor_candidate_snapshot": "superinvestor_candidate_snapshot_v2",
+        "get_cro_risk_snapshot": "cro_risk_snapshot_v2",
+        "get_alpha_candidate_snapshot": "alpha_candidate_snapshot_v2",
+        "get_execution_snapshot": "execution_snapshot_v2",
+        "get_cio_decision_snapshot": "cio_decision_snapshot_v2",
     }
     def accepted_ref(
         index: int, *, agent: str, ref_stage: str, kind: str
@@ -735,7 +735,6 @@ def _bound_snapshot(
         "constraint_set_hash": constraint_set_hash,
         "constraints": constraints,
         "role_context": role_context,
-        "role_context_hash": _canonical_hash(role_context),
         "upstream_accepted_output_refs": upstream_refs,
         "evidence_ledger": [
             {
@@ -799,7 +798,6 @@ def _rehash_bound_snapshot(payload: dict) -> dict:
         }
     )
     payload["constraint_set_hash"] = _canonical_hash(payload["constraints"])
-    payload["role_context_hash"] = _canonical_hash(payload["role_context"])
     payload["candidate_scope"] = {
         "candidate_universe_id": payload["candidate_universe_id"],
         "candidate_universe_hash": payload["candidate_universe_hash"],
@@ -1268,8 +1266,8 @@ def test_bound_runtime_role_schemas_reject_foreign_or_incomplete_role_payloads(
         (
             lambda row: row.update(
                 {
-                    "schema_version": "alpha_candidate_snapshot_v2",
-                    "contract_version": "alpha_candidate_snapshot_v2",
+                    "schema_version": "alpha_candidate_snapshot_v1",
+                    "contract_version": "alpha_candidate_snapshot_v1",
                 }
             ),
             "strict contract",

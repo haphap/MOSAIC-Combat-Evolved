@@ -1939,7 +1939,6 @@ def _runtime_snapshot(
         "constraint_set_hash": constraint_set_hash,
         "constraints": constraints,
         "role_context": role_context,
-        "role_context_hash": _canonical_hash(role_context),
         "upstream_accepted_output_refs": refs,
         "evidence_ledger": evidence,
     }

@@ -343,11 +343,11 @@ SECTOR_USAGE_INSTRUMENTATION_CONTRACT_HASH: Final = _sha256(
 )
 
 BOUND_RUNTIME_SNAPSHOT_CONTRACTS: Final[dict[AgentToolId, str]] = {
-    "get_superinvestor_candidate_snapshot": "superinvestor_candidate_snapshot_v1",
-    "get_cro_risk_snapshot": "cro_risk_snapshot_v1",
-    "get_alpha_candidate_snapshot": "alpha_candidate_snapshot_v1",
-    "get_execution_snapshot": "execution_snapshot_v1",
-    "get_cio_decision_snapshot": "cio_decision_snapshot_v1",
+    "get_superinvestor_candidate_snapshot": "superinvestor_candidate_snapshot_v2",
+    "get_cro_risk_snapshot": "cro_risk_snapshot_v2",
+    "get_alpha_candidate_snapshot": "alpha_candidate_snapshot_v2",
+    "get_execution_snapshot": "execution_snapshot_v2",
+    "get_cio_decision_snapshot": "cio_decision_snapshot_v2",
 }
 _A_SHARE_CODE = re.compile(r"^[0-9]{6}\.(?:SH|SZ|BJ)$")
 _RUNTIME_MEMBERSHIP_TOOL_ID: Final = "get_sector_index_membership"
@@ -678,7 +678,6 @@ def _bound_runtime_snapshot_envelope_schema(
             "constraint_set_hash",
             "constraints",
             "role_context",
-            "role_context_hash",
             "upstream_accepted_output_refs",
             "evidence_ledger",
         ],
@@ -722,7 +721,6 @@ def _bound_runtime_snapshot_envelope_schema(
             "constraint_set_hash": sha256,
             "constraints": dict(constraints_schema),
             "role_context": dict(role_context_schema),
-            "role_context_hash": sha256,
             "upstream_accepted_output_refs": {
                 "type": "array",
                 "minItems": 1,
@@ -1648,8 +1646,6 @@ def _validate_bound_runtime_snapshot(
     if payload["constraint_set_hash"] != _sha256(constraints):
         raise DataVendorUnavailable("runtime constraint set hash mismatch")
     role_context = payload["role_context"]
-    if payload["role_context_hash"] != _sha256(role_context):
-        raise DataVendorUnavailable("runtime role context hash mismatch")
     expected_scope = {
         "candidate_universe_id": payload["candidate_universe_id"],
         "candidate_universe_hash": payload["candidate_universe_hash"],
@@ -2030,7 +2026,6 @@ def _rebind_synthetic_runtime_snapshot(
         }
     )
     rebound["constraint_set_hash"] = _sha256(rebound["constraints"])
-    rebound["role_context_hash"] = _sha256(rebound["role_context"])
     rebound["candidate_scope"] = {
         "candidate_universe_id": rebound["candidate_universe_id"],
         "candidate_universe_hash": rebound["candidate_universe_hash"],

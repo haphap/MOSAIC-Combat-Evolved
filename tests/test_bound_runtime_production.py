@@ -56,7 +56,6 @@ def _snapshot(*, agent_id: str = "ackman", stage: str = "ackman") -> dict:
         "constraint_set_hash": canonical_hash(constraints),
         "constraints": constraints,
         "role_context": role_context,
-        "role_context_hash": canonical_hash(role_context),
         "upstream_accepted_output_refs": [],
     }
     return {**body, "snapshot_hash": canonical_hash(body)}

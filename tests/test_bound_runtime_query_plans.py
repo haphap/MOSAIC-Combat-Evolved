@@ -60,7 +60,6 @@ def _snapshot(
         "constraint_set_hash": canonical_hash(constraints),
         "constraints": constraints,
         "role_context": role_context,
-        "role_context_hash": canonical_hash(role_context),
         "upstream_accepted_output_refs": [
             {
                 "accepted_output_kind": "STANDARD_SECTOR_SELECTION",
@@ -379,7 +378,8 @@ def test_l3_empty_candidate_scope_produces_no_private_queries() -> None:
     assert plan["query_requests"] == []
 
 
-def test_bound_plan_rejects_snapshot_hash_and_tool_surface_drift() -> None:
+@pytest.mark.parametrize("changed_field", ["candidate_universe", "role_context"])
+def test_bound_plan_rejects_snapshot_hash_and_tool_surface_drift(changed_field) -> None:
     snapshot = _snapshot(
         agent_id="ackman",
         stage="ackman",
@@ -391,7 +391,10 @@ def test_bound_plan_rejects_snapshot_hash_and_tool_surface_drift() -> None:
             }
         ],
     )
-    snapshot["candidate_universe"][0]["ts_code"] = "000001.SZ"
+    if changed_field == "candidate_universe":
+        snapshot["candidate_universe"][0]["ts_code"] = "000001.SZ"
+    else:
+        snapshot["role_context"]["position_snapshot_hash"] = canonical_hash({"changed": True})
     with pytest.raises(ValueError, match="snapshot hash"):
         build_bound_runtime_query_plan(
             agent_id="ackman",
