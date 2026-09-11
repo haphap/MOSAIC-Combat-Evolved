@@ -2235,6 +2235,17 @@ class SignedCapability:
         }
 
 
+def _unique_tool_audit_context(contexts: Any, tool_id: str) -> Mapping[str, Any]:
+    if not isinstance(contexts, list) or any(not isinstance(row, Mapping) for row in contexts):
+        raise ValueError("KNOT tool authority contexts are invalid")
+    matches = [row for row in contexts if row.get("tool_id") == tool_id]
+    if not matches:
+        raise ValueError(f"KNOT tool authority missing: {tool_id}")
+    if len(matches) != 1:
+        raise ValueError(f"KNOT tool authority duplicate: {tool_id}")
+    return matches[0]
+
+
 class AgentToolCapabilityStore:
     """SQLite-backed append-only bundle, capability-event and use ledger."""
 
@@ -2749,6 +2760,7 @@ class AgentToolCapabilityStore:
         as_of: str,
         allowed_tools: Sequence[AgentToolId],
         finalization: Any,
+        active_authority: dict[str, Any] | None,
         deferred_query: Mapping[str, Any] | None,
         created_at: str,
     ) -> dict[str, Any]:
@@ -2780,7 +2792,7 @@ class AgentToolCapabilityStore:
             }
             expected_build_tools -= set(deferred_tool_ids)
         try:
-            authority = self._active_knot_audit_authority(
+            authority = active_authority if active_authority is not None else self._active_knot_audit_authority(
                 agent_id=agent_id,
                 stage=stage,
                 allowed_tools=allowed_tools,
@@ -3023,7 +3035,7 @@ class AgentToolCapabilityStore:
         runtime_inputs: Mapping[str, Any],
         candidate_scope: Mapping[str, Any] | None,
         adaptive_tools: Sequence[AgentToolId],
-    ) -> tuple[dict[AgentToolId, str], dict[str, Any]]:
+    ) -> tuple[dict[AgentToolId, str], dict[str, Any], dict[str, Any] | None]:
         if self.adaptive_query_store is None or self.adaptive_query_preparer is None:
             raise DataVendorUnavailable(
                 "adaptive query compiler is unavailable for the active role whitelist"
@@ -3119,28 +3131,17 @@ class AgentToolCapabilityStore:
             )
         ):
             raise ValueError("adaptive query call modes do not match the public contract")
+        knot_authority = None
         if deferred:
             knot_authority = self._active_knot_audit_authority(
                 agent_id=agent_id,
                 stage=stage,
                 allowed_tools=allowed_tools_for_agent(agent_id),
             )
-            tool_contexts = knot_authority.get("tool_contexts")
-            if not isinstance(tool_contexts, list):
-                raise ValueError("deferred query KNOT tool authority is invalid")
             active_binding_ids: dict[str, str] = {}
             for tool_id in adaptive_tools:
-                matching_contexts = [
-                    context
-                    for context in tool_contexts
-                    if isinstance(context, Mapping)
-                    and context.get("tool_id") == tool_id
-                ]
-                binding_refs = (
-                    matching_contexts[0].get("binding_refs")
-                    if len(matching_contexts) == 1
-                    else None
-                )
+                context = _unique_tool_audit_context(knot_authority.get("tool_contexts"), tool_id)
+                binding_refs = context.get("binding_refs")
                 if (
                     not isinstance(binding_refs, list)
                     or len(binding_refs) != 1
@@ -3201,7 +3202,7 @@ class AgentToolCapabilityStore:
             "public_projection": projection,
             "max_rounds": max_rounds,
             "deferred": deferred,
-        }
+        }, knot_authority
 
     def prepare_source_admission(
         self,
@@ -3523,8 +3524,9 @@ class AgentToolCapabilityStore:
             else:
                 payloads[tool_id] = materializer(tool_id, **materializer_kwargs)
         adaptive_ref: dict[str, Any] | None = None
+        active_authority = None
         if adaptive_enabled:
-            descriptors, adaptive_ref = self._prepare_adaptive_query_descriptors(
+            descriptors, adaptive_ref, active_authority = self._prepare_adaptive_query_descriptors(
                 agent_id=agent_id,
                 stage=stage,
                 as_of=as_of,
@@ -3628,6 +3630,7 @@ class AgentToolCapabilityStore:
             as_of=as_of,
             allowed_tools=allowed_tools,
             finalization=finalization,
+            active_authority=active_authority,
             deferred_query=(
                 {
                     "call_contract": CALL_TIME_ARGUMENT_CONTRACT,
@@ -5116,13 +5119,7 @@ class AgentToolCapabilityStore:
             or capability_context["knot_v2_eligibility"] != "ELIGIBLE"
         ):
             return None
-        tool_contexts = [
-            row
-            for row in snapshot_context["tool_contexts"]
-            if row["tool_id"] == tool_id
-        ]
-        if len(tool_contexts) != 1:
-            raise ValueError("tool result audit binding authority is unavailable")
+        tool_context = _unique_tool_audit_context(snapshot_context.get("tool_contexts"), tool_id)
         sequence = conn.execute(
             "SELECT COALESCE(MAX(sequence), 0) + 1 FROM tool_result_events "
             "WHERE capability_id = ?",
@@ -5139,7 +5136,7 @@ class AgentToolCapabilityStore:
             if status == "SUCCEEDED"
             else None
         )
-        context_binding_refs = tool_contexts[0]["binding_refs"]
+        context_binding_refs = tool_context["binding_refs"]
         binding_refs: list[dict[str, Any]] = []
         for ref in context_binding_refs:
             event_ref = {
@@ -5553,14 +5550,8 @@ class AgentToolCapabilityStore:
                 or deferred_context.get("tool_ids") != expected_deferred_tool_ids
             ):
                 raise ValueError("deferred query signed snapshot closure mismatch")
-            tool_contexts = [
-                context
-                for context in snapshot_context.get("tool_contexts", [])
-                if context.get("tool_id") == tool_id
-            ]
-            if len(tool_contexts) != 1:
-                raise ValueError("deferred query KNOT tool authority is unavailable")
-            binding_refs = tool_contexts[0].get("binding_refs")
+            tool_context = _unique_tool_audit_context(snapshot_context.get("tool_contexts"), tool_id)
+            binding_refs = tool_context.get("binding_refs")
             if (
                 not isinstance(binding_refs, list)
                 or not binding_refs

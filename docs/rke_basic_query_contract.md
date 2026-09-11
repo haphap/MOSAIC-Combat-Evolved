@@ -68,6 +68,19 @@ capture/knowledge ordering and the as-of cutoff, without revalidating a just
 constructed receipt. Request/content hashes, upstream source identity and
 cross-process authorization remain distinct boundaries.
 
+## Query authorization preparation
+
+Deferred query descriptors and their signed KNOT context now use the same
+validated active authority within one capability preparation. This removes a
+second contract-bundle read and prevents those two steps from observing
+different revisions. No authority is cached across preparations. Missing and
+duplicate tool contexts have distinct errors at preparation, call and audit
+boundaries. Invalid preparation does not issue a capability. Execution-time
+signature, expiry, revocation and binding checks remain in place.
+
+The historical 18 authorization failures lack the corresponding L4 snapshots;
+these changes establish current behavior, not a reconstructed historical cause.
+
 ## Runtime snapshot authorities
 
 The five L3/L4 bound snapshot contracts now use v2. They omit
