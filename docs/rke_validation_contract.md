@@ -82,3 +82,33 @@ read-only promotion checks, and promotion simulation. Whitespace and quoting of
 ordinary arguments do not change acceptance; extra commands, malformed quoting,
 wrong inputs, and removed safety flags are rejected. The runbook check locates
 actual command examples rather than relying on a particular Markdown heading.
+
+
+### RKE scheduling and observed outcomes
+
+L3 explicitly reserves one of its three model-selected executions for RKE until
+an RKE invocation has been attempted. Deterministic initial calls remain outside
+this budget. Other roles keep their own scheduling; listing an optional RKE tool
+does not make it mandatory. A reservation refusal is not cached. Failed RKE calls
+consume their slot; this does not add retries, widen authorized arguments, or
+change frozen initial-call contracts.
+
+The tool-status ledger records dispatch separately from requests and cached
+replies. Dispatch means the registered bridge/local invocation was entered; it
+does not prove backend execution or authorization. Structured bridge reasons
+identify missing/duplicate KNOT authority and RKE preflight rejection. Other
+invalid requests and execution failures remain separate; transport errors do not
+imply that authorization passed.
+
+The existing RKE renderer is observed for available priors or a normal empty
+reply. Unrecognized or contradictory output is `returned_unclassified`, not
+counted as available. This classification is diagnostic, not an acceptance gate,
+source receipt, evidence-use assertion, or current-data confirmation.
+
+Fixed benchmarks and shadow replay consume the actual loop events. They report
+requests, dispatches, terminal statuses, cache hits and uncached outcome counts.
+The available and context-returned rates both use dispatches as denominator;
+context-returned includes normal empty replies. Zero dispatches produces null
+rates. Interrupted requests and older logs without structured outcomes remain
+unclassified. Replay persists these counters even when graph execution raises.
+No post-run RKE retrieval or additional hash is used to reconstruct usage.

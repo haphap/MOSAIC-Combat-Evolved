@@ -13,7 +13,7 @@ from typing import Any, Iterable
 
 from langchain_core.tools import BaseTool
 
-from mosaic.bridge.tool_capabilities import get_capability_store
+from mosaic.bridge.tool_capabilities import ToolAuthorityError, get_capability_store
 from mosaic.dataflows.exceptions import DataVendorUnavailable
 
 from ..protocol import (
@@ -60,7 +60,14 @@ def tools_prepare_capability(params: dict[str, Any]) -> dict[str, Any]:
     try:
         return get_capability_store().prepare(params)
     except DataVendorUnavailable as exc:
-        raise RpcError(DATA_VENDOR_UNAVAILABLE, str(exc)) from exc
+        raise RpcError(
+            DATA_VENDOR_UNAVAILABLE, str(exc), {"reason_code": exc.reason_code}
+        ) from exc
+    except ToolAuthorityError as exc:
+        raise RpcError(
+            INVALID_PARAMS, str(exc),
+            {"reason_code": exc.reason_code, "category": "authorization_rejected"},
+        ) from exc
     except (TypeError, ValueError) as exc:
         raise RpcError(INVALID_PARAMS, str(exc)) from exc
     except RpcError:
@@ -102,10 +109,24 @@ def tools_call(params: dict[str, Any]) -> dict[str, Any]:
         raise RpcError(INVALID_PARAMS, "'args' must be an object")
     try:
         return get_capability_store().call_tool_result(capability, name, args)
+    except ToolAuthorityError as exc:
+        raise RpcError(
+            INVALID_PARAMS, str(exc),
+            {"reason_code": exc.reason_code, "category": "authorization_rejected"},
+        ) from exc
+    except DataVendorUnavailable as exc:
+        raise RpcError(
+            TOOL_EXECUTION_ERROR, f"{type(exc).__name__}: {exc}",
+            {"reason_code": exc.reason_code},
+        ) from exc
     except ValueError as exc:
         message = str(exc)
         code = METHOD_NOT_FOUND if "not allowed by this capability" in message else INVALID_PARAMS
-        raise RpcError(code, message) from exc
+        data = (
+            {"reason_code": "TOOL_NOT_ALLOWED", "category": "authorization_rejected"}
+            if code == METHOD_NOT_FOUND else None
+        )
+        raise RpcError(code, message, data) from exc
     except Exception as exc:
         raise RpcError(TOOL_EXECUTION_ERROR, f"{type(exc).__name__}: {exc}") from exc
 

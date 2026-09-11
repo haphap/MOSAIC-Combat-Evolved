@@ -2235,14 +2235,22 @@ class SignedCapability:
         }
 
 
+class ToolAuthorityError(ValueError):
+    """A rejected KNOT tool authority, with a stable diagnostic for the bridge."""
+
+    def __init__(self, message: str, reason_code: str) -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
+
+
 def _unique_tool_audit_context(contexts: Any, tool_id: str) -> Mapping[str, Any]:
     if not isinstance(contexts, list) or any(not isinstance(row, Mapping) for row in contexts):
-        raise ValueError("KNOT tool authority contexts are invalid")
+        raise ToolAuthorityError("KNOT tool authority contexts are invalid", "KNOT_TOOL_AUTHORITY_INVALID")
     matches = [row for row in contexts if row.get("tool_id") == tool_id]
     if not matches:
-        raise ValueError(f"KNOT tool authority missing: {tool_id}")
+        raise ToolAuthorityError(f"KNOT tool authority missing: {tool_id}", "KNOT_TOOL_AUTHORITY_MISSING")
     if len(matches) != 1:
-        raise ValueError(f"KNOT tool authority duplicate: {tool_id}")
+        raise ToolAuthorityError(f"KNOT tool authority duplicate: {tool_id}", "KNOT_TOOL_AUTHORITY_DUPLICATE")
     return matches[0]
 
 

@@ -285,6 +285,7 @@ export function buildLayerThreeAgentNode<TOutput extends SuperinvestorOutput>(
                 spec.agentId,
                 preparedCapability?.prepared_initial_tool_ids,
               ),
+              reserveRkeQuery: true,
               maxLoops: 3,
               replayFullToolMaxChars: 80_000,
               onLog: (msg) => onLog(formatAgentEvent("phase", "L3", spec.agentId, [msg])),

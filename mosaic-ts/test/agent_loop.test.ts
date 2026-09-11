@@ -1056,7 +1056,10 @@ describe("agent tool loop helpers", () => {
     ).toEqual([output, output]);
   });
 
-  it("replays missing initial tools as marked human evidence while retaining audit messages", async () => {
+  it.each([
+    "missing_tool",
+    "get_rke_research_context",
+  ])("replays missing initial %s as marked human evidence while retaining audit messages", async (toolName) => {
     const llm = new ScriptedLlm([new AIMessage("done")]);
 
     const result = await runAgentToolLoop({
@@ -1064,18 +1067,24 @@ describe("agent tool loop helpers", () => {
       tools: [],
       systemMessage: "system",
       initialMessages: [new HumanMessage("initial")],
-      initialToolCalls: [{ name: "missing_tool", args: { ticker: "600519.SH" } }],
+      initialToolCalls: [{ name: toolName, args: { ticker: "600519.SH" } }],
     });
 
+    if (toolName === "get_rke_research_context") {
+      expect(result.toolStatuses[0]).toMatchObject({
+        rke_outcome: "missing_tool",
+        dispatched: false,
+      });
+    }
     const firstTurn = llm.seenMessages[0] ?? [];
     expect(
       firstTurn.some(
         (message) =>
           message.getType() === "human" &&
           String(message.content).includes("runtime-provided initial tool evidence") &&
-          String(message.content).includes("tool_name=missing_tool") &&
+          String(message.content).includes(`tool_name=${toolName}`) &&
           String(message.content).includes("call_id=initial_tool_1") &&
-          String(message.content).includes("Tool 'missing_tool' is not registered"),
+          String(message.content).includes(`Tool '${toolName}' is not registered`),
       ),
     ).toBe(true);
     expect(firstTurn.some((message) => message.getType() === "tool")).toBe(false);
@@ -1128,13 +1137,16 @@ describe("agent tool loop helpers", () => {
     ).toBe(true);
   });
 
-  it("limits model-selected bridge executions to three without charging initial calls", async () => {
+  it.each([
+    "get_fundamentals",
+    "get_rke_research_context",
+  ])("limits %s executions to three without charging initial calls", async (toolName) => {
     const llm = new ScriptedLlm([
       new AIMessage({
         content: "",
         tool_calls: [1, 2, 3, 4].map((value) => ({
           id: `c${value}`,
-          name: "get_fundamentals",
+          name: toolName,
           args: { value },
           type: "tool_call" as const,
         })),
@@ -1148,7 +1160,7 @@ describe("agent tool loop helpers", () => {
         return `result:${value}`;
       },
       {
-        name: "get_fundamentals",
+        name: toolName,
         description: "test tool",
         schema: z.object({ value: z.number() }),
       },
@@ -1159,7 +1171,7 @@ describe("agent tool loop helpers", () => {
       tools: [getFundamentals],
       systemMessage: "system",
       initialMessages: [new HumanMessage("initial")],
-      initialToolCalls: [{ name: "get_fundamentals", args: { value: 0 } }],
+      initialToolCalls: [{ name: toolName, args: { value: 0 } }],
       maxLoops: 3,
     });
 
@@ -1168,6 +1180,10 @@ describe("agent tool loop helpers", () => {
     expect(result.toolCalls).toBe(5);
     expect(result.toolExecutions).toBe(4);
     expect(result.toolStatuses).toHaveLength(5);
+    expect(result.toolStatuses.at(-1)?.dispatched).toBe(false);
+    if (toolName === "get_rke_research_context") {
+      expect(result.toolStatuses.at(-1)?.rke_outcome).toBe("budget_not_executed");
+    }
     expect(result.toolStatuses.at(-1)).toEqual(
       expect.objectContaining({ call_id: "c4", failed: true, cache_hit: false }),
     );
@@ -1186,6 +1202,165 @@ describe("agent tool loop helpers", () => {
       "at most 3 model-selected tool calls",
     );
     expect(String(llm.seenMessages[1]?.[0]?.content)).toContain("remaining budget is 0");
+  });
+
+  it.each([
+    ["available", "## RKE research context for macro.dollar\n\n### Prior rke-1"],
+    [
+      "normal_empty",
+      "## RKE research context for macro.dollar\n\nNo matching RKE context was available for this agent/request.",
+    ],
+    ["returned_unclassified", "unexpected reply"],
+    [
+      "authorization_rejected",
+      new RpcError("tools.call", INVALID_PARAMS, "authority missing", {
+        category: "authorization_rejected",
+        reason_code: "KNOT_TOOL_AUTHORITY_MISSING",
+      }),
+    ],
+    ["request_rejected", new RpcError("tools.call", INVALID_PARAMS, "invalid arguments")],
+    [
+      "blocked",
+      new RpcError("tools.call", -32001, "preflight failed", {
+        reason_code: "RKE_CONTEXT_PREFLIGHT_FAILED",
+      }),
+    ],
+    ["execution_failed", new Error("transport unavailable")],
+  ])("records actual RKE outcome %s without counting cached replies as dispatches", async (outcome, response) => {
+    const call = {
+      id: "first",
+      name: "get_rke_research_context",
+      args: {},
+      type: "tool_call" as const,
+    };
+    const llm = new ScriptedLlm([
+      new AIMessage({ content: "", tool_calls: [call] }),
+      new AIMessage({ content: "", tool_calls: [{ ...call, id: "cached" }] }),
+      new AIMessage("done"),
+    ]);
+    const logs: string[] = [];
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [
+        tool(
+          async () => {
+            if (response instanceof Error) throw response;
+            return response;
+          },
+          { name: call.name, description: "test", schema: z.object({}) },
+        ),
+      ],
+      systemMessage: "system",
+      initialMessages: [],
+      onLog: (message) => logs.push(message),
+    });
+    expect(result.toolStatuses).toMatchObject([
+      { rke_outcome: outcome, dispatched: true, cache_hit: false },
+      { rke_outcome: outcome, dispatched: false, cache_hit: true },
+    ]);
+    expect(logs.filter((line) => line === "rke_dispatch")).toHaveLength(1);
+    expect(logs.filter((line) => line.startsWith("rke_call "))).toEqual([
+      `rke_call outcome=${outcome} cache_hit=0`,
+      `rke_call outcome=${outcome} cache_hit=1`,
+    ]);
+  });
+
+  it.each([false, true])("reserves an RKE slot across batches: split=%s", async (split) => {
+    const otherCalls = [1, 2, 3].map((value) => ({
+      id: `other-${value}`,
+      name: "get_other",
+      args: { value },
+      type: "tool_call" as const,
+    }));
+    const rkeCall = {
+      id: "rke",
+      name: "get_rke_research_context",
+      args: {},
+      type: "tool_call" as const,
+    };
+    const llm = new ScriptedLlm([
+      ...(split
+        ? [
+            new AIMessage({ content: "", tool_calls: otherCalls }),
+            new AIMessage({ content: "", tool_calls: [rkeCall] }),
+          ]
+        : [new AIMessage({ content: "", tool_calls: [...otherCalls, rkeCall] })]),
+      new AIMessage("done"),
+    ]);
+    const executed: string[] = [];
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [
+        tool(
+          async ({ value }) => {
+            executed.push(`other-${value}`);
+            return "ok";
+          },
+          { name: "get_other", description: "test", schema: z.object({ value: z.number() }) },
+        ),
+        tool(
+          async () => {
+            executed.push("rke");
+            return "ok";
+          },
+          { name: "get_rke_research_context", description: "test", schema: z.object({}) },
+        ),
+      ],
+      reserveRkeQuery: true,
+      systemMessage: "system",
+      initialMessages: [],
+    });
+    expect(executed).toEqual(["other-1", "other-2", "rke"]);
+    expect(result.toolExecutions).toBe(3);
+    expect(result.toolStatuses.find((status) => status.call_id === "other-3")?.failed).toBe(true);
+    expect(String(llm.seenMessages[0]?.[0]?.content)).toContain(
+      "reserved for get_rke_research_context",
+    );
+  });
+
+  it.each([
+    false,
+    true,
+  ])("releases the reservation after an initial RKE attempt: failed=%s", async (failed) => {
+    const llm = new ScriptedLlm([
+      new AIMessage({
+        content: "",
+        tool_calls: [1, 2, 3].map((value) => ({
+          id: `other-${value}`,
+          name: "get_other",
+          args: { value },
+          type: "tool_call" as const,
+        })),
+      }),
+      new AIMessage("done"),
+    ]);
+    const executed: number[] = [];
+    const result = await runAgentToolLoop({
+      llm: llm as never,
+      tools: [
+        tool(
+          async ({ value }) => {
+            executed.push(value);
+            return "ok";
+          },
+          { name: "get_other", description: "test", schema: z.object({ value: z.number() }) },
+        ),
+        tool(
+          async () => {
+            if (failed) throw new Error("unavailable");
+            return "ok";
+          },
+          { name: "get_rke_research_context", description: "test", schema: z.object({}) },
+        ),
+      ],
+      initialToolCalls: [{ name: "get_rke_research_context", args: {} }],
+      reserveRkeQuery: true,
+      systemMessage: "system",
+      initialMessages: [],
+    });
+    expect(executed).toEqual([1, 2, 3]);
+    expect(result.toolExecutions).toBe(4);
+    expect(String(llm.seenMessages[0]?.[0]?.content)).not.toContain("reserved for");
   });
 
   it("uses the runtime-only initial bridge invocation before normal tool validation", async () => {

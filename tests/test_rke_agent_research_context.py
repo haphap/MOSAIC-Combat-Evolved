@@ -722,6 +722,7 @@ def test_rke_preflight_failure_is_a_tool_execution_error(monkeypatch):
             }
         )
     assert error.value.code == TOOL_EXECUTION_ERROR
+    assert error.value.data == {"reason_code": "RKE_CONTEXT_PREFLIGHT_FAILED"}
     assert "RKE context preflight failed" in error.value.message
     assert "context_items_missing" in error.value.message
 
