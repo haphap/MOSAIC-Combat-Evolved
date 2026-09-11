@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.dataflows.frozen_adaptive_queries import FrozenAdaptiveQueryStore
 from mosaic.dataflows.sector_relationship_queries import (
     DIRECT_VENDOR_TOOL_IDS,
@@ -64,6 +65,31 @@ def _digest_builder(tool_id: str, raw: str, args: dict) -> dict:
         "model_hash": canonical_hash({"model": "digest-model-v1"}),
         "prompt_hash": canonical_hash({"prompt": tool_id, "args": args}),
     }
+
+
+def test_rke_preflight_failure_does_not_seal_a_successful_query(monkeypatch):
+    monkeypatch.setattr(
+        "mosaic.dataflows.sector_relationship_queries.build_rke_agent_research_materialization",
+        lambda **_kwargs: {
+            "context": {"claim_text": "private report prose"},
+            "source_ids": (),
+        },
+    )
+    receipts: list[dict] = []
+    materializer = SectorRelationshipQueryMaterializer(
+        route_caller=lambda *_args: pytest.fail("RKE must not use a vendor route"),
+        receipt_authority=_receipt_authority(receipts),
+        digest_builder=_digest_builder,
+    )
+    with pytest.raises(DataVendorUnavailable, match="RKE context preflight failed") as error:
+        materializer(
+            "get_rke_research_context",
+            {"agent_id": "cro", "as_of": AS_OF, "layer": "decision", "max_items": 3},
+        )
+    assert "public_safe_context_violation" in str(error.value)
+    assert "private report prose" not in str(error.value)
+    assert error.value.reason_code == "RKE_CONTEXT_PREFLIGHT_FAILED"
+    assert receipts == []
 
 
 def test_index_weight_materialization_calls_one_exact_adapter_and_compacts_pit_rows():
