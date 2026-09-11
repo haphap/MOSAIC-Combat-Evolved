@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -10,7 +11,6 @@ from typing import Any, Mapping, Sequence
 from .manual_review_batches import (
     GOLD_BATCH_IMPORT_TEMPLATE_PATH,
     GOLD_FULL_IMPORT_TEMPLATE_PATH,
-    GOLD_FULL_REVIEWED_IMPORT_PATH,
     GOLD_REVIEW_ASSIST_JSONL_PATH,
     GOLD_REVIEW_ASSIST_MD_PATH,
     GOLD_REVIEW_EVIDENCE_JSONL_PATH,
@@ -55,10 +55,11 @@ from .lockbox_review_import import (
     build_lockbox_review_import_report,
 )
 from .operator_handoff import (
+    OPERATOR_HANDOFF_EXPECTED_STEP_IDS,
+    build_promotion_dry_run_command,
     LOCKBOX_UPSTREAM_REVIEW_KINDS,
     LOCKBOX_REVIEW_CHECKLIST_MD_PATH,
     LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
-    LOCKBOX_REVIEWED_IMPORT_PATH,
     OPERATOR_HANDOFF_JSON_PATH,
     OPERATOR_HANDOFF_MD_PATH,
     build_lockbox_review_import_template,
@@ -68,6 +69,7 @@ from .operator_handoff import (
 )
 from .promotion_gate import RKE_EXECUTION_MODE, build_production_promotion_gate_report
 from .registry_manifest import validate_required_registry, validate_required_registry_content
+from .temp_paths import operator_command, operator_command_matches
 from .report_intelligence import (
     ANALYTICAL_FOOTPRINT_REVIEW_BATCH_IMPORT_PATH,
     ANALYTICAL_FOOTPRINT_REVIEW_ASSIST_JSONL_PATH,
@@ -328,27 +330,7 @@ def _manual_review_templates_have_provenance(
 
 
 def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
-    expected_steps = (
-        "review-progress-preflight",
-        "prepare-gold-review",
-        "write-gold-review-evidence",
-        "fill-gold-review",
-        "dry-run-gold-review",
-        "apply-gold-review",
-        "prepare-footprint-review",
-        "write-footprint-review-assist",
-        "write-footprint-review-evidence",
-        "fill-footprint-review",
-        "dry-run-footprint-review",
-        "apply-footprint-review",
-        "promotion-status-before-lockbox",
-        "prepare-lockbox-review",
-        "fill-lockbox-review",
-        "dry-run-lockbox-review",
-        "promotion-dry-run",
-        "apply-lockbox-review",
-        "promotion-status-final",
-    )
+    expected_steps = OPERATOR_HANDOFF_EXPECTED_STEP_IDS
     sequence = tuple(getattr(handoff, "command_sequence", ()) or ())
     step_ids = tuple(str(getattr(step, "step_id", "") or "") for step in sequence)
     run_order = tuple(str(item) for item in getattr(handoff, "run_order", ()) or ())
@@ -361,9 +343,9 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
 
     preflight = by_id.get("review-progress-preflight")
     preflight_command = str(getattr(preflight, "command", "") or "")
-    if (
-        "review-progress --root . --actions-only --no-write"
-        not in preflight_command
+    if not operator_command_matches(
+        preflight_command,
+        operator_command("mosaic-rke review-progress --root . --actions-only --no-write"),
     ):
         failures.append("review-progress preflight must use the action queue")
     for step_id in ("promotion-status-before-lockbox", "promotion-status-final"):
@@ -371,7 +353,10 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
         promotion_status_command = str(
             getattr(promotion_status_step, "command", "") or ""
         )
-        if "promotion-status --root . --no-write" not in promotion_status_command:
+        if not operator_command_matches(
+            promotion_status_command,
+            operator_command("mosaic-rke promotion-status --root . --no-write"),
+        ):
             failures.append(f"{step_id} must use promotion-status --no-write")
 
     fill_expectations = {
@@ -393,12 +378,7 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
 
     promotion_dry_run = by_id.get("promotion-dry-run")
     promotion_dry_run_command = str(getattr(promotion_dry_run, "command", "") or "")
-    if (
-        "promotion-dry-run" not in promotion_dry_run_command
-        or "gold_set_full_reviewed.jsonl" not in promotion_dry_run_command
-        or "analytical_footprint_reviewed.jsonl" not in promotion_dry_run_command
-        or "lockbox_reviewed.json" not in promotion_dry_run_command
-    ):
+    if not operator_command_matches(promotion_dry_run_command, build_promotion_dry_run_command()):
         failures.append("promotion dry-run must use all required reviewed inputs")
     if "--license-input" in promotion_dry_run_command:
         failures.append(
@@ -423,15 +403,6 @@ def _handoff_command_sequence_complete(handoff: Any) -> tuple[bool, str, str]:
     return not failures, evidence, "; ".join(failures)
 
 
-def _markdown_heading_section(text: str, heading: str) -> str:
-    marker = f"## {heading}"
-    start = text.find(marker)
-    if start < 0:
-        return ""
-    next_heading = text.find("\n## ", start + len(marker))
-    return text[start:] if next_heading < 0 else text[start:next_heading]
-
-
 def _manual_review_runbook_promotion_policy_consistent(
     root_path: Path,
     *,
@@ -440,38 +411,29 @@ def _manual_review_runbook_promotion_policy_consistent(
     path = root_path / MANUAL_REVIEW_RUNBOOK_MD_PATH
     if not path.exists():
         return False, f"{MANUAL_REVIEW_RUNBOOK_MD_PATH} missing", "manual review runbook is missing"
-    section = _markdown_heading_section(path.read_text(encoding="utf-8"), "Promotion Dry Run")
-    if not section:
-        return (
-            False,
-            "promotion_section=missing",
-            "manual review runbook is missing Promotion Dry Run section",
-        )
-
-    required_fragments = (
-        "mosaic-rke promotion-dry-run --root .",
-        f"--gold-input {GOLD_FULL_REVIEWED_IMPORT_PATH}",
-        f"--footprint-input {ANALYTICAL_FOOTPRINT_REVIEWED_IMPORT_PATH}",
-        f"--lockbox-input {LOCKBOX_REVIEWED_IMPORT_PATH}",
-    )
-    missing_fragments = [fragment for fragment in required_fragments if fragment not in section]
-    has_license_input = "--license-input" in section
-    has_license_import = DEFAULT_LICENSE_POLICY_IMPORT_PATH in section
-    has_license_builder = "build-license-review-import" in section
-    failures = list(missing_fragments)
+    commands = [
+        fragment.replace("\\\n", " ").strip()
+        for fragment in re.findall(r"`([^`]+)`", path.read_text(encoding="utf-8"))
+        if "mosaic-rke" in fragment and "promotion-dry-run" in fragment
+    ]
+    expected = build_promotion_dry_run_command()
+    mismatches = sum(not operator_command_matches(command, expected) for command in commands)
+    has_license_input = any("--license-input" in command for command in commands)
+    has_license_import = any(DEFAULT_LICENSE_POLICY_IMPORT_PATH in command for command in commands)
+    has_license_builder = any("build-license-review-import" in command for command in commands)
+    failures: list[str] = []
+    if not commands:
+        failures.append("manual review runbook is missing a promotion-dry-run command")
+    if mismatches:
+        failures.append("promotion dry-run command differs from reviewed-input policy")
     if has_license_input or has_license_import or has_license_builder:
         failures.append("source-license input must be omitted from promotion dry-run")
-
     evidence = (
         f"source_license_already_passed={source_license_already_passed}, "
         f"license_input={has_license_input}, license_import={has_license_import}, "
-        f"license_builder={has_license_builder}, missing_fragments={len(missing_fragments)}"
+        f"license_builder={has_license_builder}, commands={len(commands)}, mismatches={mismatches}"
     )
-    return (
-        not failures,
-        evidence,
-        "; ".join(failures) or "manual review runbook promotion dry-run source-license policy drifted",
-    )
+    return not failures, evidence, "; ".join(failures)
 
 
 def _manual_batch_promotion_inputs_separated(

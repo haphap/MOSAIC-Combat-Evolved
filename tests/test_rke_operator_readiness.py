@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+
+import pytest
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -867,3 +869,36 @@ def test_cli_operator_readiness_no_write_skips_private_source_blobs(
     assert output["failure_count"] == len(
         [check for check in output["checks"] if not check["passed"]]
     )
+
+
+@pytest.mark.parametrize("change", ["format", "extra_command"])
+def test_runbook_promotion_checks_command_structure_not_heading(tmp_path: Path, change: str):
+    from mosaic.rke.operator_readiness import _manual_review_runbook_promotion_policy_consistent
+
+    _copy_registry(tmp_path)
+    write_manual_review_runbook(tmp_path)
+    path = tmp_path / "registry/review_batches/manual_review_runbook.md"
+    text = path.read_text()
+    command_line = next(line for line in text.splitlines() if "mosaic-rke promotion-dry-run" in line)
+    if change == "format":
+        changed = command_line.replace("--root .", '--root "."').replace(" --gold-input ", "   --gold-input   ")
+        text = text.replace("## Promotion Dry Run", "## Simulation")
+    else:
+        changed = command_line[:-1] + " && echo unexpected`"
+    path.write_text(text.replace(command_line, changed))
+    passed, evidence, blocker = _manual_review_runbook_promotion_policy_consistent(
+        tmp_path, source_license_already_passed=True,
+    )
+    assert passed is (change == "format"), (evidence, blocker)
+
+
+def test_handoff_promotion_rejects_additional_shell_command(tmp_path: Path):
+    _copy_registry(tmp_path)
+    handoff = build_operator_handoff(tmp_path)
+    handoff = replace(handoff, command_sequence=tuple(
+        replace(step, command=step.command + " && echo unexpected")
+        if step.step_id == "promotion-dry-run" else step
+        for step in handoff.command_sequence
+    ))
+    passed, evidence, blocker = _handoff_command_sequence_complete(handoff)
+    assert not passed, (evidence, blocker)

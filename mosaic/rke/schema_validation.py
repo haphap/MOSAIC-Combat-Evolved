@@ -32,7 +32,8 @@ from .p0 import (
 )
 from .promotion_gate import RKE_EXECUTION_MODE
 from .required_data import normalize_required_data_items
-from .temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX
+from .temp_paths import RKE_OPERATOR_TMP_ENV_PREFIX, operator_command, operator_command_matches
+from .operator_handoff import OPERATOR_HANDOFF_EXPECTED_STEP_IDS, build_promotion_dry_run_command
 
 
 REPORT_INTELLIGENCE_EVOLUTION_READINESS_GATE_SCHEMA_RULES = (
@@ -1196,27 +1197,6 @@ PROMOTION_NEXT_STATES = {
     "staged_production",
     "production",
 }
-OPERATOR_HANDOFF_EXPECTED_STEP_IDS = (
-    "review-progress-preflight",
-    "prepare-gold-review",
-    "write-gold-review-evidence",
-    "fill-gold-review",
-    "dry-run-gold-review",
-    "apply-gold-review",
-    "prepare-footprint-review",
-    "write-footprint-review-assist",
-    "write-footprint-review-evidence",
-    "fill-footprint-review",
-    "dry-run-footprint-review",
-    "apply-footprint-review",
-    "promotion-status-before-lockbox",
-    "prepare-lockbox-review",
-    "fill-lockbox-review",
-    "dry-run-lockbox-review",
-    "promotion-dry-run",
-    "apply-lockbox-review",
-    "promotion-status-final",
-)
 MANUAL_REVIEW_PROGRESS_EXPECTED_GATES = {
     "gold_set": {
         "input_path": "registry/review_batches/gold_set_full_reviewed.jsonl",
@@ -8427,9 +8407,9 @@ def _validate_operator_handoff_contract(root_path: Path) -> tuple[int, list[str]
     preflight_step = step_by_id.get("review-progress-preflight")
     if preflight_step:
         preflight_command = str(preflight_step.get("command") or "")
-        if (
-            "review-progress --root . --actions-only --no-write"
-            not in preflight_command
+        if not operator_command_matches(
+            preflight_command,
+            operator_command("mosaic-rke review-progress --root . --actions-only --no-write"),
         ):
             failures.append(
                 "operator_handoff.command_sequence[review-progress-preflight].command: "
@@ -8440,7 +8420,10 @@ def _validate_operator_handoff_contract(root_path: Path) -> tuple[int, list[str]
         promotion_status_step = step_by_id.get(step_id)
         if promotion_status_step:
             command = str(promotion_status_step.get("command") or "")
-            if "promotion-status --root . --no-write" not in command:
+            if not operator_command_matches(
+                command,
+                operator_command("mosaic-rke promotion-status --root . --no-write"),
+            ):
                 failures.append(
                     f"operator_handoff.command_sequence[{step_id}].command: "
                     "must use promotion-status no-write check"
@@ -8449,6 +8432,8 @@ def _validate_operator_handoff_contract(root_path: Path) -> tuple[int, list[str]
     promotion_step = step_by_id.get("promotion-dry-run")
     if promotion_step:
         command = str(promotion_step.get("command") or "")
+        if not operator_command_matches(command, build_promotion_dry_run_command()):
+            failures.append("operator_handoff.command_sequence[promotion-dry-run].command: unexpected command or arguments")
         for expected_path in (
             "registry/review_batches/gold_set_full_reviewed.jsonl",
             "registry/report_intelligence/analytical_footprint_reviewed.jsonl",

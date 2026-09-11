@@ -7572,3 +7572,21 @@ def test_generic_schema_recursive_local_ref_validates_finite_data(tmp_path):
     (tmp_path / "artifact.json").write_text(json.dumps({"child": {"child": {}}}))
     record = validate_json_schema_artifact(root=tmp_path, schema_path="schema.json", artifact_path="artifact.json", artifact_kind="json")
     assert record.accepted
+
+
+@pytest.mark.parametrize("change", ["format", "extra_command", "invalid_quote"])
+def test_operator_handoff_contract_checks_complete_promotion_command(tmp_path: Path, change: str):
+    registry = _copy_registry_for_manual_progress(tmp_path)
+    assert _operator_handoff_record(tmp_path).accepted
+    path = registry / "handoffs/rke_operator_handoff.json"
+    handoff = json.loads(path.read_text())
+    step = next(step for step in handoff["command_sequence"] if step["step_id"] == "promotion-dry-run")
+    if change == "format":
+        step["command"] = step["command"].replace("--root .", '--root "."').replace(" --gold-input ", "   --gold-input   ")
+    else:
+        step["command"] += " && echo unexpected" if change == "extra_command" else " '"
+    path.write_text(json.dumps(handoff))
+    record = _operator_handoff_record(tmp_path)
+    assert record.accepted is (change == "format"), record.failures
+    if change != "format":
+        assert any("unexpected command or arguments" in item for item in record.failures)

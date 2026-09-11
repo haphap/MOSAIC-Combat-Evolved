@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import tempfile
 from pathlib import Path
 
@@ -20,6 +21,14 @@ def operator_command(command: str) -> str:
         for segment in command.split(" && ")
         if segment.strip()
     )
+
+
+def operator_command_matches(command: str, expected: str) -> bool:
+    """Compare the complete declared command, allowing shell quoting and whitespace."""
+    try:
+        return shlex.split(command) == shlex.split(expected)
+    except ValueError:
+        return False
 
 
 def rke_tmp_root() -> Path:

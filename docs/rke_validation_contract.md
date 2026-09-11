@@ -73,3 +73,12 @@ its component list, algorithm, research-only limits, and allowed actions.
 Malformed policies and changed limits still fail. YAML numeric spelling,
 quoting, indentation, and Markdown titles do not determine confidence safety.
 Policy documentation checks remain separate from this runtime criterion.
+
+
+The operator handoff owns the required step order and promotion command. Handoff
+and runbook generation use that same reviewed-input command. Readiness and
+persisted-artifact validation compare complete shell tokens for the preflight,
+read-only promotion checks, and promotion simulation. Whitespace and quoting of
+ordinary arguments do not change acceptance; extra commands, malformed quoting,
+wrong inputs, and removed safety flags are rejected. The runbook check locates
+actual command examples rather than relying on a particular Markdown heading.
