@@ -46,6 +46,14 @@ outputs, add `--derived-scope full` to the corresponding extraction/refresh comm
 
 ## Tool Gap Review Migration
 
+When upgrading a published snapshot from the old contract, validate and hydrate
+it with the existing pre-upgrade CLI before switching to the new code. The new
+reader intentionally rejects manifests containing retired proposal paths. Preserve
+unexported staging work; do not hydrate over it. An existing separate code checkout
+can be the staging root. For refresh, use that root with its current schemas and
+repo-relative output paths; verify that recorded PDF/Markdown paths resolve and
+pass the existing scorecard DB explicitly when it lives elsewhere.
+
 Full refresh no longer writes `data_acquisition_proposals.jsonl` or
 `tool_design_proposals.jsonl`. If either legacy file exists, migrate its review
 facts before full refresh or export. Stop concurrent writers to this registry
@@ -83,6 +91,18 @@ Do not hand-edit private imports or replace review conflicts with guessed values
 
 Next run the explicit full refresh above to rebuild current research summaries,
 then use the existing export/publish workflow to create a fresh snapshot.
+
+If the publish destination still contains the legacy proposal files, complete the
+same preview/apply migration there during the exclusive publish window, after
+verifying that it is still the baseline used for staging. The exporter refuses
+unmigrated proposal files at either end. Before exporting and committing, keep the
+destination's archived originals under its existing gitignored `.mosaic/` area,
+outside `registry/`; old readers otherwise treat those JSONL files as unmanifested
+active artifacts. Verify archive bytes and never overwrite an existing different
+archive. The staging archive can remain under `retired_proposals/`. Commit only the
+complete exported snapshot and manifest, then run preflight before pushing. When
+old consumers remain in use, verify their preflight and basic reads as well.
+
 Old manifests referring to proposal paths are rejected. Archived originals stay
 local/private and are excluded from active export and manifest coverage.
 A code-only rollback must not resume old proposal writers against migrated facts;

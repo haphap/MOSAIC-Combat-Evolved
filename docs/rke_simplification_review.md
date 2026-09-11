@@ -1,8 +1,8 @@
 # MOSAIC CE / RKE 简化实施与验收
 
-日期：2026-09-12。代码基线：main `17a44489`；实现截至 `878532bc`。
+日期：2026-09-12。代码基线：main `17a44489`；实现截至 `fd09e91d`。
 交付：[PR #31](https://github.com/haphap/MOSAIC-Combat-Evolved/pull/31)，依赖 #30，集成 #27/#28 的既有清理；没有合并任何 PR。
-当前状态：计划内代码实施与本地最终验收完成；远端 CI 以 PR 当前提交的检查结果为准。
+当前状态：代码实施与最终本地验收完成；远端 CI 以 PR 当前提交的检查结果为准。
 
 ## 实施结果
 
@@ -53,6 +53,11 @@ master-plan coverage 先过滤私有路径，其后针对私有 RI patch 的专�
 公共 JSON 损坏仍为 missing，真正的 completion/promotion 阻断仍为 blocked。
 未把职责不同的报告按文件名相似强行合并，也未把所有独立证据检查删除。
 
+真实 registry 升级还暴露了 RI15-A-D1 对“至少 15 个 Schema”的硬编码检查：
+删除两份提案 Schema 后，这个对静态列表数量的自证会误报缺失。
+已删除该检查与语义验证中的强制 ID；真实 Schema 校验继续保留，
+既有完整刷新回归先复现误报，再验证退役提案不会制造新的阻断。
+
 ## 提案和刷新迁移
 
 `tool_gaps.jsonl` 保存 `data_decision_status`、`shadow_implementation_status`、实际请求工具和独有人工字段。
@@ -67,16 +72,18 @@ master-plan coverage 先过滤私有路径，其后针对私有 RI patch 的专�
 四种受影响的研究汇总使用 `tool_gap_contract: tool_gap_facts_v1`；版本缺失的旧报告必须重建，不能补一个版本字段冒充验收。
 默认 basic 不生成这些研究汇总，不把旧报告标为本次结果。
 真实迁移、full 刷新和回退限制见[操作 runbook](runbooks/rke_report_intelligence_operations.md#tool-gap-review-migration)。
-本次只修改代码与合成测试，没有迁移、发布真实私有数据，没有运行 MinerU/LLM 或开启生产交易。
+首次代码交付只修改代码与合成测试。后续经用户授权已迁移真实私有 registry；
+升级保留原始审核归档，只重算派生产物，没有运行 MinerU/LLM 或开启生产交易。
+真实语料的人工审核和覆盖门禁仍独立生效，不以迁移成功替代研究质量验收。
 
 ## 改动量与限制
 
 以下是 Git 行数差，按路径统计；不是性能或交易收益指标。包含 #27/#28 的既有清理。
 
-| 范围 | main 17a44489 → 878532bc | #30 157557bb → 878532bc |
+| 范围 | main 17a44489 → fd09e91d | #30 157557bb → fd09e91d |
 |---|---:|---:|
-| 业务源码 mosaic/ + mosaic-ts/src/ | +1837 /−5566，净减 3729 | +1833 /−5298，净减 3465 |
-| 测试 | +1919 /−2164，净减 245 | +1539 /−1471，净增 68 |
+| 业务源码 mosaic/ + mosaic-ts/src/ | +1837 /−5590，净减 3753 | +1833 /−5322，净减 3489 |
+| 测试 | +1923 /−2164，净减 241 | +1543 /−1471，净增 72 |
 | Schema | +34 /−56，净减 22 | +34 /−56，净减 22 |
 
 其他可直接观察的变化：formatter 预检函数 358→116 行；手写通用校验器及辅助函数移除；
@@ -96,11 +103,13 @@ execution_failed、budget_not_executed、missing_tool、returned_unclassified。
 
 ## 最终检查
 
-最终代码 `878532bc` 的完整 Python：3323 通过、122 跳过、0 失败/错误，1263.172 秒；
-其中 Report Intelligence 293 项全部通过。JUnit 为本地 `.mosaic/tmp/rke-plan-final-v2.xml`。
+最终代码 `fd09e91d` 的完整 Python：3323 通过、122 跳过、0 失败/错误，1236.343 秒；
+其中 Report Intelligence 293 项全部通过。JUnit 为本地 `.mosaic/tmp/registry-upgrade-full.xml`。
 TS：90 个文件、1023 项全部通过；typecheck、lint、Ruff 0.15.15、prompt leak 和 diff 检查通过。
 公开 registry 无改动；私有路径保持 gitignored；历史检查仅匹配研报测试文件，未发现私有报告 blob。
 原工作区用户修改保持原样。跳过项不计作真实私有语料验证。
 
 先前 bff72961 的全量运行因补齐状态约束而主动中断，不计作通过。
 远端 CI 在本地验收后触发，其最终状态请查看 PR 当前提交；不沿用旧提交的检查结果。
+
+Schema 数量门槛回归先在原实现上失败，修复后通过，并包含在本次完整 Python 验收中。
