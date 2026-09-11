@@ -21318,6 +21318,22 @@ def _tool_name_for_metric(metric_name: str) -> str:
     return f"get_{canonical}_indicators"
 
 
+def _invalid_tool_gap_review_fields(gap: Mapping[str, Any]) -> list[str]:
+    # These are the existing proposal review constraints, now owned by the gap.
+    choices = {
+        "license_status": ("approved", "pending_review", "restricted", "prohibited"),
+        "pit_feasibility_status": (
+            "pit_feasible_pending_vendor_review", "requires_pit_backfill_review", "pit_blocked",
+        ),
+        "shadow_implementation_status": (
+            "shadow_build_requested", "blocked_pending_review", "shadow_implemented",
+            "shadow_validated", "implemented", "validated",
+        ),
+        "engineering_effort": ("low", "medium", "high"),
+    }
+    return [field for field, allowed in choices.items() if field in gap and gap[field] not in allowed]
+
+
 def _tool_gap_license_status(gap: Mapping[str, Any]) -> str:
     if gap.get("license_status"):
         return str(gap["license_status"])
@@ -21690,6 +21706,9 @@ def migrate_tool_gap_reviews(
                 else:
                     destination[target] = value
             result["migrated_review_count"] += 1
+    for index, gap in enumerate(merged.values(), 1):
+        blockers.extend(f"tool_gaps row {index}: unsupported {field}"
+                        for field in _invalid_tool_gap_review_fields(gap))
     if blockers:
         result["accepted"] = False
         return result
@@ -31933,6 +31952,8 @@ def build_report_intelligence_tool_feasibility_audit(
     gap_priority_counts: dict[str, int] = {}
     for index, gap in enumerate(tool_gap_rows, 1):
         gap_id = str(gap.get("tool_gap_id") or f"row-{index}")
+        gap_failures.extend(f"{gap_id}: unsupported {field}"
+                            for field in _invalid_tool_gap_review_fields(gap))
         metric_id = str(gap.get("metric_candidate_id") or "")
         priority = str(gap.get("priority_bucket") or "")
         gap_priority_counts[priority] = gap_priority_counts.get(priority, 0) + 1

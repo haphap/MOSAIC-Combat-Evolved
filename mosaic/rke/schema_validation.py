@@ -10871,6 +10871,8 @@ def validate_report_intelligence_semantics(
         )
     )
 
+    from .report_intelligence import _invalid_tool_gap_review_fields
+
     tooling_failures: list[str] = []
     tool_gap_rows, tool_gap_failures, _tool_gap_rows_present = _load_public_semantic_jsonl(
         root_path,
@@ -10878,6 +10880,8 @@ def validate_report_intelligence_semantics(
     )
     tooling_failures.extend(tool_gap_failures)
     for index, gap in enumerate(tool_gap_rows, 1):
+        tooling_failures.extend(f"tool_gaps row {index}: unsupported {field}"
+                               for field in _invalid_tool_gap_review_fields(gap))
         if gap.get("status") == "retired":
             continue
         if gap.get("priority_bucket") in {"high", "medium"}:

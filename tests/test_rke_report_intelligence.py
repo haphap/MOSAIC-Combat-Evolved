@@ -19722,7 +19722,7 @@ def test_tool_gap_review_migration_preserves_review_and_archives_only_on_apply(
     }
 
 
-@pytest.mark.parametrize("problem", ["conflict", "orphan", "invalid_json", "duplicate"])
+@pytest.mark.parametrize("problem", ["conflict", "orphan", "invalid_json", "duplicate", "invalid_review"])
 def test_tool_gap_review_migration_rejects_without_writes(tmp_path, problem):
     from mosaic.rke import report_intelligence as ri
 
@@ -19741,6 +19741,8 @@ def test_tool_gap_review_migration_rejects_without_writes(tmp_path, problem):
         design["license_status"] = "approved"
     elif problem == "orphan":
         data["tool_gap_id"] = "UNKNOWN"
+    elif problem == "invalid_review":
+        data["license_status"] = "cleared"
     ri._write_jsonl(registry / "tool_gaps.jsonl", [gap])
     ri._write_jsonl(
         registry / "data_acquisition_proposals.jsonl",
@@ -19856,3 +19858,29 @@ def test_tool_gap_review_migration_resumes_after_interrupted_archive_move(
     assert current["data_decision_status"] == "rejected"
     assert current["shadow_implementation_status"] == "shadow_implemented"
     assert not (registry / "tool_design_proposals.jsonl").exists()
+
+
+
+@pytest.mark.parametrize(("field", "valid", "invalid"), [
+    ("license_status", "approved", "cleared"),
+    ("pit_feasibility_status", "requires_pit_backfill_review", "pit_feasible"),
+    ("shadow_implementation_status", "shadow_implemented", "production"),
+    ("engineering_effort", "medium", []),
+])
+def test_tool_gap_feasibility_preserves_review_value_constraints(field, valid, invalid):
+    from mosaic.rke import report_intelligence as ri
+
+    gap = {"tool_gap_id": "TG", "metric_candidate_id": "", "owner": "data_engineering",
+           "priority_bucket": "medium", "priority_reasons": ["missing_metric"],
+           "blocking_issues": ["requires_engineering_review"], "status": "proposal_pending",
+           field: valid}
+    inputs = dict(run_id="RIR-REVIEW", feature_flags={"rollout_mode": "shadow_tooling", "flags": {}},
+                  metric_rows=[], tool_coverage_match_rows=[], tool_gap_rows=[gap],
+                  analysis_recipe_rows=[], runtime_tool_gap_observation_rows=[])
+    audit = ri.build_report_intelligence_tool_feasibility_audit(**inputs)
+    assert audit["accepted"], audit["blockers"]
+    gap[field] = invalid
+    audit = ri.build_report_intelligence_tool_feasibility_audit(**inputs)
+    assert not audit["accepted"]
+    check = next(row for row in audit["checks"] if row["check_id"] == "RI-TOOL-02")
+    assert any(field in failure for failure in check["failures"])
