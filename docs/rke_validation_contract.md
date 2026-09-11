@@ -31,3 +31,31 @@ Existing public artifacts validate without regeneration. Private-dependent
 tests skip when their inputs are absent; those skips do not demonstrate private
 corpus validity. No private imports or persisted histories are rewritten.
 Rollback restores the validator and its tests together, not artifact hashes.
+
+## Read-only operator readiness
+
+`build_operator_readiness_report(root)` and `operator-readiness --no-write`
+inspect existing artifacts without copying directories or writing files. The
+former `write_supporting_artifacts` argument is removed. Call
+`write_operator_readiness_report` or the CLI without `--no-write` to explicitly
+prepare and persist the handoff and its supporting reports. The CLI returns the
+written report directly instead of rebuilding it.
+
+Missing, malformed, or stale templates remain visible as failures. A status
+query no longer regenerates temporary templates and reports them as the state
+of the original directory. `generated_paths` retains the existing artifact
+inventory meaning; it does not assert that the read-only call generated files.
+
+Blank gold, source-license, and lockbox decisions are checked in memory by the
+same validation functions used by the actual import commands. The existing
+`blank_bundle_dry_run_does_not_promote` check records rejection of those blank
+inputs without applying decisions. It does not claim a new promotion simulation
+occurred. The explicit `promotion-dry-run` operation still simulates imports in
+an isolated copy, and the readiness writer still refreshes that simulation via
+the bundle writer. Import provenance, forbidden fields, policy thresholds, and
+promotion checks are unchanged.
+
+For already prepared inputs, writing and then reading yields the same checks.
+Regression tests prohibit writes, directory creation, and directory copying
+during a no-write query, compare all file contents and modification times, and
+exercise malformed and stale inputs alongside real isolated promotion tests.

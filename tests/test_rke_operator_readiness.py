@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import tempfile
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -176,7 +177,7 @@ def test_operator_readiness_accepts_current_review_bundle(tmp_path: Path):
     assert checks["source_text_redaction_clean"].passed
 
 
-def test_operator_readiness_no_write_uses_generated_temp_support_artifacts(
+def test_operator_readiness_no_write_reports_stale_support_artifacts(
     tmp_path: Path,
     capsys,
 ):
@@ -193,13 +194,12 @@ def test_operator_readiness_no_write_uses_generated_temp_support_artifacts(
     output = json.loads(capsys.readouterr().out)
 
     assert code == (0 if output["accepted"] else 2)
-    assert not _unexpected_output_failures(output)
     assert output["failure_count"] == len(
         [check for check in output["checks"] if not check["passed"]]
     )
     checks = {check["check_id"]: check for check in output["checks"]}
-    assert checks["manual_batch_templates_match_status"]["passed"] is True
-    assert checks["manual_import_templates_have_provenance"]["passed"] is True
+    assert checks["manual_batch_templates_match_status"]["passed"] is False
+    assert checks["manual_import_templates_have_provenance"]["passed"] is False
     assert checks["blank_full_gold_set_import_is_rejected"]["passed"] is True
     for path in stale_template_paths:
         assert path.read_text(encoding="utf-8") == ""
@@ -445,7 +445,9 @@ def test_operator_readiness_reports_invalid_source_license_policy_json(tmp_path:
     assert not sparse.passed
     assert not provenance.passed
     assert not policy.passed
-    assert not policy_import.passed
+    # Blank-policy validation is independent of the malformed on-disk template.
+    assert policy_import.passed
+    assert policy_path.read_text(encoding="utf-8") == "{"
     assert "source_license_policy_template.json must contain valid JSON" in sparse.evidence
     assert "source_license_policy_template.json must contain valid JSON" in provenance.evidence
     assert "source_license_policy_template.json must contain valid JSON" in policy.blocker
@@ -525,6 +527,7 @@ def test_operator_readiness_reports_invalid_redaction_artifact_json(tmp_path: Pa
 
 def test_operator_readiness_rejects_blank_source_license_policy_import(tmp_path: Path):
     _copy_registry(tmp_path)
+    write_operator_readiness_report(tmp_path)
 
     report = build_operator_readiness_report(tmp_path)
     policy_import = next(
@@ -547,6 +550,7 @@ def test_operator_readiness_rejects_blank_source_license_policy_import(tmp_path:
 
 def test_operator_readiness_rejects_blank_full_gold_set_import(tmp_path: Path):
     _copy_registry(tmp_path)
+    write_operator_readiness_report(tmp_path)
 
     report = build_operator_readiness_report(tmp_path)
     full_gold = next(
@@ -573,6 +577,7 @@ def test_operator_readiness_rejects_blank_full_gold_set_import(tmp_path: Path):
 
 def test_operator_readiness_rejects_blank_lockbox_import(tmp_path: Path):
     _copy_registry(tmp_path)
+    write_operator_readiness_report(tmp_path)
 
     report = build_operator_readiness_report(tmp_path)
     lockbox = next(
@@ -667,10 +672,7 @@ def test_operator_readiness_detects_stale_runbook_promotion_policy(
     assert stale_runbook != runbook
     runbook_path.write_text(stale_runbook, encoding="utf-8")
 
-    report = build_operator_readiness_report(
-        tmp_path,
-        write_supporting_artifacts=False,
-    )
+    report = build_operator_readiness_report(tmp_path)
     runbook_check = next(
         check
         for check in report.checks
@@ -790,11 +792,11 @@ def test_cli_operator_readiness_writes_report(tmp_path: Path, capsys):
 
 
 def test_cli_operator_readiness_no_write_preserves_existing_artifacts(
-    tmp_path: Path, capsys
+    tmp_path: Path, capsys, monkeypatch
 ):
     _copy_registry(tmp_path)
     main(("operator-readiness", "--root", str(tmp_path)))
-    capsys.readouterr()
+    written_output = json.loads(capsys.readouterr().out)
     tracked_paths = [
         tmp_path / "registry/handoffs/rke_operator_readiness_report.json",
         tmp_path / "registry/handoffs/rke_operator_handoff.json",
@@ -808,7 +810,25 @@ def test_cli_operator_readiness_no_write_preserves_existing_artifacts(
     ]
     before_mtimes = {path: path.stat().st_mtime_ns for path in tracked_paths}
 
-    code = main(("operator-readiness", "--root", str(tmp_path), "--no-write"))
+    before_files = {
+        path.relative_to(tmp_path): (path.stat().st_mtime_ns, path.read_bytes())
+        for path in tmp_path.rglob("*") if path.is_file()
+    }
+    original_open = Path.open
+
+    def read_only_open(path, mode="r", *args, **kwargs):
+        assert not any(flag in mode for flag in "wax+"), f"status query tried writing {path}"
+        return original_open(path, mode, *args, **kwargs)
+
+    def forbid_copy_or_directory(*args, **kwargs):
+        raise AssertionError("status query must not copy or create directories")
+
+    with monkeypatch.context() as guard:
+        guard.setattr(Path, "open", read_only_open)
+        guard.setattr(Path, "mkdir", forbid_copy_or_directory)
+        guard.setattr(shutil, "copytree", forbid_copy_or_directory)
+        guard.setattr(tempfile, "mkdtemp", forbid_copy_or_directory)
+        code = main(("operator-readiness", "--root", str(tmp_path), "--no-write"))
     output = json.loads(capsys.readouterr().out)
 
     assert code == (0 if output["accepted"] else 2)
@@ -817,6 +837,12 @@ def test_cli_operator_readiness_no_write_preserves_existing_artifacts(
         [check for check in output["checks"] if not check["passed"]]
     )
     assert {path: path.stat().st_mtime_ns for path in tracked_paths} == before_mtimes
+
+    assert output["checks"] == written_output["checks"]
+    assert {
+        path.relative_to(tmp_path): (path.stat().st_mtime_ns, path.read_bytes())
+        for path in tmp_path.rglob("*") if path.is_file()
+    } == before_files
 
 
 def test_cli_operator_readiness_no_write_skips_private_source_blobs(

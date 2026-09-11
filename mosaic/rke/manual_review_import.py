@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import date
 from hashlib import sha256
 from pathlib import Path
@@ -512,41 +512,45 @@ def _write_license_downstream(root_path: Path) -> dict[str, str]:
     return outputs
 
 
-def apply_gold_set_review_import(
-    root: str | Path,
-    input_path: str | Path,
+def build_manual_review_import_report(
     *,
-    dry_run: bool = False,
+    review_kind: Literal["gold_set", "source_license"],
+    input_rows: Sequence[Any],
+    target_rows: Sequence[Any],
+    input_path: str | Path,
+    dry_run: bool = True,
+    parse_blockers: Sequence[str] = (),
 ) -> ManualReviewImportReport:
-    root_path = Path(root)
-    resolved_input_path = _resolve_input_path(root_path, input_path)
-    target_path = root_path / GOLD_REVIEW_TEMPLATE_PATH
-    input_rows, input_parse_blockers = _load_jsonl_with_missing_blocker(
-        resolved_input_path,
-        label="gold-set review import",
-    )
-    raw_target_rows, target_parse_blockers = _load_jsonl_with_missing_blocker(
-        target_path,
-        label="gold-set target review",
-    )
-    target_rows, invalid_target_rows = _split_mapping_rows(raw_target_rows)
-    target_by_id = {str(row.get("claim_id") or ""): row for row in target_rows}
-    allowed_fields = _allowed_review_import_fields(
-        target_rows,
-        (*GOLD_IMPORT_TEMPLATE_ONLY_FIELDS, *GOLD_IMPORTED_FIELDS),
-    )
-    target_blockers = [*target_parse_blockers]
+    """Validate supplied review rows without applying decisions or writing reports."""
+    if review_kind == "gold_set":
+        id_field = "claim_id"
+        target_path = GOLD_REVIEW_TEMPLATE_PATH
+        target_label = "gold-set"
+        imported_fields = (*GOLD_IMPORT_TEMPLATE_ONLY_FIELDS, *GOLD_IMPORTED_FIELDS)
+        reference_failures = _gold_reference_failures
+        row_failures = _gold_row_failures
+    else:
+        id_field = "source_id"
+        target_path = LICENSE_REVIEW_TEMPLATE_PATH
+        target_label = "source-license"
+        imported_fields = LICENSE_IMPORTED_FIELDS
+        reference_failures = _license_reference_failures
+        row_failures = _license_row_failures
+    valid_targets, invalid_target_rows = _split_mapping_rows(target_rows)
+    target_by_id = {str(row.get(id_field) or ""): row for row in valid_targets}
+    allowed_fields = _allowed_review_import_fields(valid_targets, imported_fields)
+    blockers = list(parse_blockers)
     if invalid_target_rows:
-        target_blockers.append(
-            "gold-set target review row must be object at row(s): "
+        blockers.append(
+            f"{target_label} target review row must be object at row(s): "
             + ", ".join(str(row_number) for row_number in invalid_target_rows)
         )
-    input_ids = [_row_string_id(row, "claim_id") for row in input_rows if isinstance(row, Mapping)]
+    input_ids = [_row_string_id(row, id_field) for row in input_rows if isinstance(row, Mapping)]
     duplicate_ids = _duplicates(input_ids)
     missing_target_ids = tuple(sorted({row_id for row_id in input_ids if row_id and row_id not in target_by_id}))
     invalid_rows: list[ManualReviewImportInvalidRow] = []
-    for idx, raw_row in enumerate(input_rows, 1):
-        if not isinstance(raw_row, Mapping):
+    for idx, row in enumerate(input_rows, 1):
+        if not isinstance(row, Mapping):
             invalid_rows.append(
                 ManualReviewImportInvalidRow(
                     row_number=idx,
@@ -555,63 +559,100 @@ def apply_gold_set_review_import(
                 )
             )
             continue
-        row = raw_row
-        row_id = _row_string_id(row, "claim_id")
-        failures: list[str] = []
-        failures.extend(_required_string_field_failures(row, "claim_id"))
+        row_id = _row_string_id(row, id_field)
+        failures = _required_string_field_failures(row, id_field)
         if row_id in duplicate_ids:
-            failures.append("duplicate claim_id in import")
+            failures.append(f"duplicate {id_field} in import")
         if row_id in missing_target_ids:
-            failures.append("claim_id missing from target review template")
+            failures.append(f"{id_field} missing from target review template")
         failures.extend(_unexpected_field_failures(row, allowed_fields))
         failures.extend(_forbidden_field_failures(row))
-        failures.extend(_gold_reference_failures(row, target_by_id.get(row_id)))
-        failures.extend(_gold_row_failures(row))
+        failures.extend(reference_failures(row, target_by_id.get(row_id)))
+        failures.extend(row_failures(row))
         if failures:
             invalid_rows.append(
-                ManualReviewImportInvalidRow(row_number=idx, row_id=row_id or "<missing-claim-id>", reasons=tuple(failures))
+                ManualReviewImportInvalidRow(
+                    row_number=idx,
+                    row_id=row_id or f"<missing-{id_field.replace('_', '-')}>",
+                    reasons=tuple(failures),
+                )
             )
-
-    applied_rows = 0
-    downstream_outputs: dict[str, str] = {}
-    parse_blockers = tuple((*input_parse_blockers, *target_blockers))
-    accepted = (
-        bool(input_rows)
-        and not duplicate_ids
-        and not missing_target_ids
-        and not invalid_rows
-        and not parse_blockers
+    return _build_report(
+        review_kind=review_kind,
+        input_path=Path(input_path),
+        target_path=target_path,
+        dry_run=dry_run,
+        input_rows=input_rows,
+        applied_rows=0,
+        duplicate_ids=duplicate_ids,
+        missing_target_ids=missing_target_ids,
+        invalid_rows=invalid_rows,
+        downstream_outputs={},
+        extra_blockers=blockers,
     )
-    if accepted and not dry_run:
-        import_by_id = {str(row["claim_id"]): row for row in input_rows if isinstance(row, Mapping)}
+
+
+def _apply_manual_review_import(
+    root: str | Path,
+    input_path: str | Path,
+    *,
+    review_kind: Literal["gold_set", "source_license"],
+    dry_run: bool,
+) -> ManualReviewImportReport:
+    root_path = Path(root)
+    resolved_input_path = _resolve_input_path(root_path, input_path)
+    if review_kind == "gold_set":
+        target_path = root_path / GOLD_REVIEW_TEMPLATE_PATH
+        report_path = GOLD_REVIEW_IMPORT_REPORT_PATH
+        label = "gold-set"
+        id_field = "claim_id"
+        imported_fields = GOLD_IMPORTED_FIELDS
+        write_downstream = _write_gold_downstream
+    else:
+        target_path = root_path / LICENSE_REVIEW_TEMPLATE_PATH
+        report_path = LICENSE_REVIEW_IMPORT_REPORT_PATH
+        label = "source-license"
+        id_field = "source_id"
+        imported_fields = LICENSE_IMPORTED_FIELDS
+        write_downstream = _write_license_downstream
+    input_rows, input_blockers = _load_jsonl_with_missing_blocker(
+        resolved_input_path, label=f"{label} review import",
+    )
+    target_rows, target_blockers = _load_jsonl_with_missing_blocker(
+        target_path, label=f"{label} target review",
+    )
+    report = build_manual_review_import_report(
+        review_kind=review_kind,
+        input_rows=input_rows,
+        target_rows=target_rows,
+        input_path=resolved_input_path,
+        dry_run=dry_run,
+        parse_blockers=(*input_blockers, *target_blockers),
+    )
+    if report.accepted and not dry_run:
+        import_by_id = {str(row[id_field]): row for row in input_rows}
         merged: list[dict[str, Any]] = []
+        applied_rows = 0
         for row in target_rows:
             out = dict(row)
-            imported = import_by_id.get(str(row.get("claim_id") or ""))
+            imported = import_by_id.get(str(row.get(id_field) or ""))
             if imported is not None:
-                for field in GOLD_IMPORTED_FIELDS:
-                    if field in imported:
-                        out[field] = imported[field]
+                out.update({field: imported[field] for field in imported_fields if field in imported})
                 applied_rows += 1
             merged.append(out)
         _write_jsonl(target_path, merged)
-        downstream_outputs = _write_gold_downstream(root_path)
-
-    report = _build_report(
-        review_kind="gold_set",
-        input_path=resolved_input_path,
-        target_path=GOLD_REVIEW_TEMPLATE_PATH,
-        dry_run=dry_run,
-        input_rows=input_rows,
-        applied_rows=applied_rows,
-        duplicate_ids=duplicate_ids,
-        missing_target_ids=missing_target_ids,
-        invalid_rows=tuple(invalid_rows),
-        downstream_outputs=downstream_outputs,
-        extra_blockers=parse_blockers,
-    )
-    _write_json(root_path / GOLD_REVIEW_IMPORT_REPORT_PATH, asdict(report))
+        report = replace(report, applied_rows=applied_rows, downstream_outputs=write_downstream(root_path))
+    _write_json(root_path / report_path, asdict(report))
     return report
+
+
+def apply_gold_set_review_import(
+    root: str | Path,
+    input_path: str | Path,
+    *,
+    dry_run: bool = False,
+) -> ManualReviewImportReport:
+    return _apply_manual_review_import(root, input_path, review_kind="gold_set", dry_run=dry_run)
 
 
 def apply_source_license_review_import(
@@ -620,94 +661,4 @@ def apply_source_license_review_import(
     *,
     dry_run: bool = False,
 ) -> ManualReviewImportReport:
-    root_path = Path(root)
-    resolved_input_path = _resolve_input_path(root_path, input_path)
-    target_path = root_path / LICENSE_REVIEW_TEMPLATE_PATH
-    input_rows, input_parse_blockers = _load_jsonl_with_missing_blocker(
-        resolved_input_path,
-        label="source-license review import",
-    )
-    raw_target_rows, target_parse_blockers = _load_jsonl_with_missing_blocker(
-        target_path,
-        label="source-license target review",
-    )
-    target_rows, invalid_target_rows = _split_mapping_rows(raw_target_rows)
-    target_by_id = {str(row.get("source_id") or ""): row for row in target_rows}
-    allowed_fields = _allowed_review_import_fields(target_rows, LICENSE_IMPORTED_FIELDS)
-    target_blockers = [*target_parse_blockers]
-    if invalid_target_rows:
-        target_blockers.append(
-            "source-license target review row must be object at row(s): "
-            + ", ".join(str(row_number) for row_number in invalid_target_rows)
-        )
-    input_ids = [_row_string_id(row, "source_id") for row in input_rows if isinstance(row, Mapping)]
-    duplicate_ids = _duplicates(input_ids)
-    missing_target_ids = tuple(sorted({row_id for row_id in input_ids if row_id and row_id not in target_by_id}))
-    invalid_rows: list[ManualReviewImportInvalidRow] = []
-    for idx, raw_row in enumerate(input_rows, 1):
-        if not isinstance(raw_row, Mapping):
-            invalid_rows.append(
-                ManualReviewImportInvalidRow(
-                    row_number=idx,
-                    row_id=f"<non-object-row-{idx}>",
-                    reasons=("review row must be object",),
-                )
-            )
-            continue
-        row = raw_row
-        row_id = _row_string_id(row, "source_id")
-        failures: list[str] = []
-        failures.extend(_required_string_field_failures(row, "source_id"))
-        if row_id in duplicate_ids:
-            failures.append("duplicate source_id in import")
-        if row_id in missing_target_ids:
-            failures.append("source_id missing from target review template")
-        failures.extend(_unexpected_field_failures(row, allowed_fields))
-        failures.extend(_forbidden_field_failures(row))
-        failures.extend(_license_reference_failures(row, target_by_id.get(row_id)))
-        failures.extend(_license_row_failures(row))
-        if failures:
-            invalid_rows.append(
-                ManualReviewImportInvalidRow(row_number=idx, row_id=row_id or "<missing-source-id>", reasons=tuple(failures))
-            )
-
-    applied_rows = 0
-    downstream_outputs: dict[str, str] = {}
-    parse_blockers = tuple((*input_parse_blockers, *target_blockers))
-    accepted = (
-        bool(input_rows)
-        and not duplicate_ids
-        and not missing_target_ids
-        and not invalid_rows
-        and not parse_blockers
-    )
-    if accepted and not dry_run:
-        import_by_id = {str(row["source_id"]): row for row in input_rows if isinstance(row, Mapping)}
-        merged: list[dict[str, Any]] = []
-        for row in target_rows:
-            out = dict(row)
-            imported = import_by_id.get(str(row.get("source_id") or ""))
-            if imported is not None:
-                for field in LICENSE_IMPORTED_FIELDS:
-                    if field in imported:
-                        out[field] = imported[field]
-                applied_rows += 1
-            merged.append(out)
-        _write_jsonl(target_path, merged)
-        downstream_outputs = _write_license_downstream(root_path)
-
-    report = _build_report(
-        review_kind="source_license",
-        input_path=resolved_input_path,
-        target_path=LICENSE_REVIEW_TEMPLATE_PATH,
-        dry_run=dry_run,
-        input_rows=input_rows,
-        applied_rows=applied_rows,
-        duplicate_ids=duplicate_ids,
-        missing_target_ids=missing_target_ids,
-        invalid_rows=tuple(invalid_rows),
-        downstream_outputs=downstream_outputs,
-        extra_blockers=parse_blockers,
-    )
-    _write_json(root_path / LICENSE_REVIEW_IMPORT_REPORT_PATH, asdict(report))
-    return report
+    return _apply_manual_review_import(root, input_path, review_kind="source_license", dry_run=dry_run)

@@ -2890,15 +2890,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = {
                 "path": str(root / "registry/handoffs/rke_operator_readiness_report.json")
             }
-            report = build_operator_readiness_report(
-                root,
-                write_supporting_artifacts=False,
-            )
+            payload = asdict(build_operator_readiness_report(root))
         else:
             result = write_operator_readiness_report(root)
-            report = build_operator_readiness_report(root)
-        _print_json({"path": result["path"], **asdict(report)})
-        return 0 if report.accepted else 2
+            payload = json.loads(Path(result["path"]).read_text(encoding="utf-8"))
+        _print_json({"path": result["path"], **payload})
+        return 0 if payload["accepted"] else 2
     if args.command == "review-progress":
         if args.review_kind and not (args.summary or args.actions_only):
             _print_json(

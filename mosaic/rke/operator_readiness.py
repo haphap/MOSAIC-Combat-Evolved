@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -20,8 +19,7 @@ from .manual_review_batches import (
     GOLD_REVIEW_WORKBOOK_MD_PATH,
     LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
     build_manual_review_batch_status,
-    write_manual_review_batches,
-    write_gold_review_assist,
+    build_full_gold_review_import_template,
 )
 from .manual_review_bundle_manifest import (
     MANUAL_REVIEW_BUNDLE_ARTIFACTS,
@@ -31,8 +29,11 @@ from .manual_review_bundle_manifest import (
 )
 from .manual_review_import import (
     GOLD_REVIEW_IMPORT_REPORT_PATH,
+    GOLD_REVIEW_TEMPLATE_PATH,
+    LICENSE_REVIEW_TEMPLATE_PATH,
     TARGET_ROW_HASH_FIELD,
     apply_gold_set_review_import,
+    build_manual_review_import_report,
     manual_review_forbidden_field_paths,
 )
 from .license_policy_import import (
@@ -42,13 +43,16 @@ from .license_policy_import import (
     SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
     SOURCE_LICENSE_REVIEW_WORKBOOK_MD_PATH,
     build_source_license_policy_import,
+    build_source_license_policy_import_from_payload,
     build_source_license_policy_template,
-    write_source_license_review_workbook,
 )
 from .lockbox_review_import import (
     LOCKBOX_REVIEW_CONTEXT_HASH_FIELD,
+    LOCKBOX_POLICY_PATH,
+    LOCKBOX_REVIEW_PATH,
     LOCKBOX_REVIEW_IMPORT_REPORT_PATH,
     apply_lockbox_review_import,
+    build_lockbox_review_import_report,
 )
 from .operator_handoff import (
     LOCKBOX_UPSTREAM_REVIEW_KINDS,
@@ -61,9 +65,6 @@ from .operator_handoff import (
     build_operator_handoff,
     lockbox_upstream_review_blockers,
     write_operator_handoff,
-)
-from .promotion_dry_run import (
-    build_promotion_dry_run_report,
 )
 from .promotion_gate import RKE_EXECUTION_MODE, build_production_promotion_gate_report
 from .registry_manifest import validate_required_registry, validate_required_registry_content
@@ -79,33 +80,12 @@ from .review_progress import (
     MANUAL_REVIEW_PROGRESS_REPORT_PATH,
     MANUAL_REVIEW_RUNBOOK_MD_PATH,
     build_manual_review_progress,
-    write_manual_review_progress_report,
-    write_manual_review_runbook,
 )
-from .temp_paths import rke_temporary_directory
 
 from mosaic.rke.json_io import jsonable as _jsonable, write_json as _write_json
 
 
 OPERATOR_READINESS_REPORT_PATH = "registry/handoffs/rke_operator_readiness_report.json"
-OPERATOR_READINESS_TEMP_COPY_IGNORED_PATHS = frozenset(
-    {
-        "registry/report_intelligence/analytical_footprints.jsonl",
-        "registry/report_intelligence/forecast_claims.jsonl",
-        "registry/report_intelligence/processing_status.jsonl",
-        "registry/report_intelligence/report_metadata.jsonl",
-        "registry/report_intelligence/report_outcome_labels.jsonl",
-        "registry/report_intelligence/weighted_research_contexts.jsonl",
-        "registry/sources/tushare_research_reports.gold_candidates.jsonl",
-        "registry/sources/tushare_research_reports.jsonl",
-        "registry/sources/tushare_research_reports.manifest.json",
-    }
-)
-OPERATOR_READINESS_TEMP_COPY_IGNORED_PREFIXES = (
-    "registry/report_intelligence/markdown/",
-    "registry/report_intelligence/mineru/",
-    "registry/report_intelligence/pdfs/",
-)
 
 
 @dataclass(frozen=True)
@@ -142,47 +122,6 @@ def _read_mapping_json(root_path: Path, relative_path: str) -> tuple[Mapping[str
     if not isinstance(payload, Mapping):
         return {}, (f"{relative_path} must be object",)
     return payload, ()
-
-
-def _operator_readiness_dry_run_root(
-    root_path: Path,
-    *,
-    write_supporting_artifacts: bool,
-) -> tuple[Path, Any | None]:
-    if write_supporting_artifacts:
-        return root_path, None
-    temp_dir = rke_temporary_directory(prefix="mosaic-rke-operator-readiness-")
-    temp_root = Path(temp_dir.name)
-    shutil.copytree(
-        root_path / "registry",
-        temp_root / "registry",
-        ignore=_operator_readiness_copy_ignore(root_path),
-    )
-    for directory_name in ("schemas", "docs"):
-        source_path = root_path / directory_name
-        if source_path.exists():
-            shutil.copytree(source_path, temp_root / directory_name)
-    return temp_root, temp_dir
-
-
-def _operator_readiness_copy_ignore(root_path: Path):
-    def ignore(directory: str, names: Sequence[str]) -> set[str]:
-        ignored: set[str] = set()
-        directory_path = Path(directory)
-        for name in names:
-            candidate = directory_path / name
-            try:
-                relative = candidate.relative_to(root_path).as_posix()
-            except ValueError:
-                continue
-            if relative in OPERATOR_READINESS_TEMP_COPY_IGNORED_PATHS or any(
-                relative == prefix.rstrip("/") or relative.startswith(prefix)
-                for prefix in OPERATOR_READINESS_TEMP_COPY_IGNORED_PREFIXES
-            ):
-                ignored.add(name)
-        return ignored
-
-    return ignore
 
 
 def _check(check_id: str, passed: bool, evidence: str, blocker: str = "") -> OperatorReadinessCheck:
@@ -644,27 +583,9 @@ def _lockbox_upstream_guard_consistent(root_path: Path) -> tuple[bool, str, str]
     )
 
 
-def build_operator_readiness_report(
-    root: str | Path = ".",
-    *,
-    write_supporting_artifacts: bool = True,
-) -> OperatorReadinessReport:
+def build_operator_readiness_report(root: str | Path = ".") -> OperatorReadinessReport:
+    """Inspect current artifacts and validate blank reviews without filesystem writes."""
     root_path = Path(root)
-    if write_supporting_artifacts:
-        if not (root_path / GOLD_REVIEW_ASSIST_JSONL_PATH).exists() or not (
-            root_path / GOLD_REVIEW_ASSIST_MD_PATH
-        ).exists():
-            write_gold_review_assist(root_path)
-        write_source_license_review_workbook(root_path)
-        write_manual_review_progress_report(root_path)
-        write_manual_review_runbook(root_path)
-    dry_run_root, dry_run_temp = _operator_readiness_dry_run_root(
-        root_path,
-        write_supporting_artifacts=write_supporting_artifacts,
-    )
-    check_root = dry_run_root
-    if not write_supporting_artifacts:
-        write_manual_review_batches(check_root)
     checks: list[OperatorReadinessCheck] = []
 
     missing, empty = validate_required_registry(root_path)
@@ -744,17 +665,17 @@ def build_operator_readiness_report(
         )
     )
 
-    batch_status, _, _ = build_manual_review_batch_status(check_root)
+    batch_status, _, license_batch = build_manual_review_batch_status(root_path)
     gold_rows, gold_row_errors = _template_row_count(
-        check_root,
+        root_path,
         GOLD_BATCH_IMPORT_TEMPLATE_PATH,
     )
     gold_full_rows, gold_full_row_errors = _template_row_count(
-        check_root,
+        root_path,
         GOLD_FULL_IMPORT_TEMPLATE_PATH,
     )
     license_rows, license_row_errors = _template_row_count(
-        check_root,
+        root_path,
         LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
     )
     batch_shape_blockers = (
@@ -803,7 +724,7 @@ def build_operator_readiness_report(
         )
     )
 
-    sparse_ok, sparse_evidence, sparse_blocker = _import_templates_are_sparse(check_root)
+    sparse_ok, sparse_evidence, sparse_blocker = _import_templates_are_sparse(root_path)
     checks.append(_check("manual_import_templates_are_sparse", sparse_ok, sparse_evidence, sparse_blocker))
 
     empty_provenance_allowed = set()
@@ -818,7 +739,7 @@ def build_operator_readiness_report(
         empty_provenance_allowed.add(LICENSE_BATCH_IMPORT_TEMPLATE_PATH)
     provenance_ok, provenance_evidence, provenance_blocker = (
         _manual_review_templates_have_provenance(
-            check_root,
+            root_path,
             allow_empty_jsonl=frozenset(empty_provenance_allowed),
         )
     )
@@ -831,10 +752,13 @@ def build_operator_readiness_report(
         )
     )
 
-    blank_gold_full = apply_gold_set_review_import(
-        dry_run_root,
-        GOLD_FULL_IMPORT_TEMPLATE_PATH,
-        dry_run=True,
+    gold_targets, gold_target_errors = _load_jsonl_template_rows(root_path, GOLD_REVIEW_TEMPLATE_PATH)
+    blank_gold_full = build_manual_review_import_report(
+        review_kind="gold_set",
+        input_rows=build_full_gold_review_import_template(root_path),
+        target_rows=[row for _, row in gold_targets],
+        input_path=root_path / GOLD_FULL_IMPORT_TEMPLATE_PATH,
+        parse_blockers=gold_target_errors,
     )
     expected_blank_gold_blocker = (
         "manual review import file is empty"
@@ -861,13 +785,13 @@ def build_operator_readiness_report(
     )
 
     lockbox_template, lockbox_template_errors = _read_mapping_json(
-        check_root,
+        root_path,
         LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
     )
     expected_lockbox: Mapping[str, Any] = {}
     expected_lockbox_error = ""
     try:
-        expected_lockbox = build_lockbox_review_import_template(check_root)
+        expected_lockbox = build_lockbox_review_import_template(root_path)
     except ValueError as exc:
         expected_lockbox_error = str(exc)
     checks.append(
@@ -894,10 +818,14 @@ def build_operator_readiness_report(
         )
     )
 
-    blank_lockbox = apply_lockbox_review_import(
-        dry_run_root,
-        LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
-        dry_run=True,
+    lockbox_target, target_errors = _read_mapping_json(root_path, LOCKBOX_REVIEW_PATH)
+    lockbox_policy, policy_errors = _read_mapping_json(root_path, LOCKBOX_POLICY_PATH)
+    blank_lockbox = build_lockbox_review_import_report(
+        expected_lockbox,
+        lockbox_target,
+        lockbox_policy,
+        input_path=root_path / LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
+        parse_errors=(*target_errors, *policy_errors),
     )
     expected_lockbox_rejections = {
         "opened_at required",
@@ -940,10 +868,10 @@ def build_operator_readiness_report(
     )
 
     policy_template, policy_template_errors = _read_mapping_json(
-        check_root,
+        root_path,
         SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
     )
-    expected_policy = build_source_license_policy_template(check_root)
+    expected_policy = build_source_license_policy_template(root_path)
     checks.append(
         _check(
             "source_license_policy_template_requires_human_decision",
@@ -968,11 +896,10 @@ def build_operator_readiness_report(
         )
     )
 
-    policy_dry_run = build_source_license_policy_import(
-        dry_run_root,
-        SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
-        output_path=DEFAULT_LICENSE_POLICY_IMPORT_PATH,
-        dry_run=True,
+    policy_dry_run, _ = build_source_license_policy_import_from_payload(
+        root_path,
+        expected_policy,
+        policy_path=SOURCE_LICENSE_POLICY_TEMPLATE_PATH,
     )
     policy_blockers = set(policy_dry_run.blockers)
     expected_policy_blockers = {
@@ -997,43 +924,33 @@ def build_operator_readiness_report(
         )
     )
 
-    blank_dry_run = build_promotion_dry_run_report(
-        dry_run_root,
-        gold_input=GOLD_FULL_IMPORT_TEMPLATE_PATH,
-        license_input=LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
-        lockbox_input=LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH,
-    )
-    blank_bundle_does_not_promote = (
-        blank_dry_run.mutated_original_registry is False
-        and blank_dry_run.accepted is False
-        and (
-            blank_dry_run.production_allowed_after_simulation is False
-            or blank_dry_run.before_next_state == "production"
-        )
+    license_targets, license_target_errors = _load_jsonl_template_rows(root_path, LICENSE_REVIEW_TEMPLATE_PATH)
+    blank_license = build_manual_review_import_report(
+        review_kind="source_license",
+        input_rows=license_batch,
+        target_rows=[row for _, row in license_targets],
+        input_path=root_path / LICENSE_BATCH_IMPORT_TEMPLATE_PATH,
+        parse_blockers=license_target_errors,
     )
     checks.append(
         _check(
             "blank_bundle_dry_run_does_not_promote",
-            blank_bundle_does_not_promote,
+            not blank_gold_full.accepted
+            and not blank_license.accepted
+            and not blank_lockbox.accepted
+            and not policy_dry_run.accepted,
             (
-                f"accepted={blank_dry_run.accepted}, "
-                f"before_next_state={blank_dry_run.before_next_state}, "
-                f"after_next_state={blank_dry_run.after_next_state}"
+                f"gold_accepted={blank_gold_full.accepted}, "
+                f"license_accepted={blank_license.accepted}, "
+                f"lockbox_accepted={blank_lockbox.accepted}, "
+                f"policy_accepted={policy_dry_run.accepted}; validation only, no decisions applied"
             ),
-            "blank manual templates unexpectedly pass promotion dry-run",
+            "blank manual templates unexpectedly pass import validation",
         )
     )
 
-    if write_supporting_artifacts:
-        bundle_result = write_manual_review_bundle_manifest(root_path)
-        bundle_manifest = _read_json(root_path / MANUAL_REVIEW_BUNDLE_MANIFEST_PATH)
-    else:
-        built_bundle_manifest = build_manual_review_bundle_manifest(check_root)
-        bundle_result = {
-            "accepted": built_bundle_manifest.accepted,
-            "artifact_count": built_bundle_manifest.artifact_count,
-        }
-        bundle_manifest = _jsonable(asdict(built_bundle_manifest))
+    built_bundle_manifest = build_manual_review_bundle_manifest(root_path)
+    bundle_manifest = _jsonable(asdict(built_bundle_manifest))
     bundle_paths = {
         str(artifact.get("path") or "")
         for artifact in bundle_manifest.get("artifacts", ())
@@ -1060,7 +977,7 @@ def build_operator_readiness_report(
     checks.append(
         _check(
             "manual_review_bundle_manifest_current",
-            bundle_result["accepted"] is True
+            built_bundle_manifest.accepted is True
             and int(bundle_manifest.get("artifact_count") or 0) == len(MANUAL_REVIEW_BUNDLE_ARTIFACTS)
             and expected_bundle_paths <= bundle_paths
             and bundle_dry_run_safe
@@ -1133,8 +1050,6 @@ def build_operator_readiness_report(
         LOCKBOX_REVIEW_IMPORT_REPORT_PATH,
         MANUAL_REVIEW_BUNDLE_MANIFEST_PATH,
     )
-    if dry_run_temp is not None:
-        dry_run_temp.cleanup()
     return OperatorReadinessReport(
         report_id="RKE-OPERATOR-READINESS-REPORT-20260606",
         accepted=passed_count == len(checks),
@@ -1149,6 +1064,10 @@ def build_operator_readiness_report(
 def write_operator_readiness_report(root: str | Path = ".") -> dict[str, Any]:
     root_path = Path(root)
     write_operator_handoff(root_path)
+    apply_gold_set_review_import(root_path, GOLD_FULL_IMPORT_TEMPLATE_PATH, dry_run=True)
+    apply_lockbox_review_import(root_path, LOCKBOX_REVIEW_IMPORT_TEMPLATE_PATH, dry_run=True)
+    build_source_license_policy_import(root_path, SOURCE_LICENSE_POLICY_TEMPLATE_PATH, dry_run=True)
+    write_manual_review_bundle_manifest(root_path)
     report = build_operator_readiness_report(root_path)
     result = _write_json(root_path / OPERATOR_READINESS_REPORT_PATH, asdict(report))
     return {"path": str(result["path"]), "accepted": report.accepted}
