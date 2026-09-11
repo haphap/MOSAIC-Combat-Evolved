@@ -97,7 +97,7 @@ def test_trusted_rke_materialization_returns_selected_source_ids_outside_public_
     assert build_rke_agent_research_materialization(**query) == materialization
     assert build_rke_agent_research_context(**query) == materialization["context"]
 
-    assert set(materialization) == {"context", "source_ids"}
+    assert set(materialization) == {"context", "source_ids", "input_bytes", "metadata"}
     assert materialization["source_ids"] == ("SRC-SELECTED",)
     assert materialization["context"]["summary"]["item_count"] == 1
     assert "SRC-SELECTED" not in json.dumps(
@@ -1475,3 +1475,27 @@ def test_basic_context_respects_later_report_accessibility():
         }],
     )
     assert context["context_items"] == []
+
+
+def test_basic_query_observes_same_size_same_mtime_input_updates(tmp_path):
+    import os
+
+    registry_dir = tmp_path / "registry/report_intelligence"
+    registry_dir.mkdir(parents=True)
+    path = registry_dir / "forecast_claims.jsonl"
+    claim = {
+        "forecast_claim_id": "FC-1", "source_id": "SRC-1",
+        "signal_datetime": "2026-07-01",
+        "target": {"target_type": "industry", "target_id": "银行"},
+        "metric_proxy_mapping": ["industry_etf_forward_return"], "direction": "positive",
+    }
+    _write_jsonl(path, [claim])
+    (registry_dir / "report_metadata.jsonl").write_text("")
+    args = dict(root=tmp_path, agent_id="financials", layer="sector", sector="银行", as_of_date="2026-07-09")
+    before = build_rke_agent_research_context(**args)
+    assert len(before["context_items"]) == 1
+    stat = path.stat()
+    path.write_bytes(path.read_bytes().replace(b"2026-07-01", b"2026-08-01"))
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+    assert path.stat().st_size == stat.st_size
+    assert build_rke_agent_research_context(**args)["context_items"] == []

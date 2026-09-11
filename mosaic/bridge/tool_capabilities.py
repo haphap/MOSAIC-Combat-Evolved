@@ -6950,7 +6950,6 @@ def get_capability_store() -> AgentToolCapabilityStore:
                     return []
                 if tool_id not in {
                     "get_industry_policy_digest",
-                    "get_rke_research_context",
                 }:
                     raise ValueError(
                         f"no source evidence owner for deferred tool {tool_id}"
@@ -6982,6 +6981,7 @@ def get_capability_store() -> AgentToolCapabilityStore:
                 receipt_authority=receipt_store,
                 route_caller=original_query_owner,
                 digest_builder=frozen_research_digest,
+                rke_materializer=source_evidence_authority.materialize_rke,
                 supply_chain_archive=CninfoSupplyChainDisclosureCollector(
                     archive=OfficialSupplyChainDisclosureArchive(
                         Path(

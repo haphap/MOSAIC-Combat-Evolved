@@ -22,10 +22,10 @@ from mosaic.dataflows.china_agent_data_archive import (
     china_archive_source_receipt,
 )
 from mosaic.dataflows.sector_archive import sector_archive_source_receipt
+from mosaic.dataflows.sector_relationship_queries import build_query_descriptor
 from mosaic.dataflows.staged_query_receipt_store import StagedQueryReceiptStore
 from mosaic.dataflows.staged_query_receipts import seal_staged_query_source_receipt
 from mosaic.rke.agent_research_context import (
-    RKE_AGENT_RESEARCH_INPUT_FILENAMES,
     build_rke_agent_research_materialization,
 )
 from mosaic.scorecard.canonical_json import canonical_hash
@@ -117,24 +117,6 @@ def _summary_field(raw_payload: str, field: str) -> str:
     return ""
 
 
-def _rke_empty_archive_hash(registry_path: Path) -> str:
-    file_hashes: list[dict[str, str]] = []
-    for filename in RKE_AGENT_RESEARCH_INPUT_FILENAMES:
-        path = registry_path / filename
-        if not path.is_file():
-            raise DataVendorUnavailable("RKE empty coverage input is unavailable")
-        try:
-            file_hashes.append(
-                {
-                    "name": filename,
-                    "content_hash": "sha256:" + sha256(path.read_bytes()).hexdigest(),
-                }
-            )
-        except OSError as exc:
-            raise DataVendorUnavailable("RKE empty coverage input is unavailable") from exc
-    return canonical_hash({"input_files": file_hashes})
-
-
 class SectorRelationshipSourceEvidenceAuthority:
     """Seal ETF vintage and RKE archive evidence without exposing private lineage."""
 
@@ -194,11 +176,52 @@ class SectorRelationshipSourceEvidenceAuthority:
         elif tool_id == "get_etf_holdings":
             receipt = self._etf_receipt(raw_payload, descriptor)
         elif tool_id == "get_rke_research_context":
-            receipt = self._rke_receipt(args, raw_payload, source_ids, descriptor)
+            raise DataVendorUnavailable("RKE evidence requires authority-owned materialization")
         else:
             return None
         self.receipt_store.register(receipt)
         return self.receipt_store.resolve(descriptor)
+
+    def materialize_rke(self, args: Mapping[str, Any]) -> dict[str, Any]:
+        """Build and attest one private input snapshot; never attest caller-supplied text."""
+        try:
+            materialization = build_rke_agent_research_materialization(
+                root=self.rke_root,
+                agent_id=str(args["agent_id"]),
+                as_of_date=str(args["as_of"]),
+                layer=str(args["layer"]),
+                ticker=str(args.get("ticker") or ""),
+                sector=str(args.get("sector") or ""),
+                max_items=int(args["max_items"]),
+            )
+        except (KeyError, OSError, TypeError, ValueError) as exc:
+            raise DataVendorUnavailable("RKE materialization input is unavailable") from exc
+        payload = format_rke_runtime_context(materialization["context"])
+        descriptor = build_query_descriptor("get_rke_research_context", args, payload)
+        if materialization["source_ids"]:
+            receipt = self._rke_receipt(
+                materialization["source_ids"], materialization["metadata"], descriptor
+            )
+        else:
+            if not materialization["context"]["summary"].get("no_prior_reason"):
+                raise DataVendorUnavailable("RKE empty coverage is not proven")
+            file_hashes = []
+            for filename, content in materialization["input_bytes"].items():
+                if content is None:
+                    raise DataVendorUnavailable("RKE empty coverage input is unavailable")
+                file_hashes.append({
+                    "name": filename,
+                    "content_hash": "sha256:" + sha256(content).hexdigest(),
+                })
+            receipt = self._rke_true_empty_receipt(
+                args, descriptor, canonical_hash({"input_files": file_hashes}),
+                materialization["context"]["summary"]["no_prior_reason"],
+            )
+        self.receipt_store.register(receipt)
+        return {
+            "payload": payload,
+            "source_receipt_hashes": [receipt["receipt_hash"]],
+        }
 
     def _forward_archive_receipt(
         self,
@@ -444,17 +467,13 @@ class SectorRelationshipSourceEvidenceAuthority:
 
     def _rke_receipt(
         self,
-        args: Mapping[str, Any],
-        raw_payload: str,
         source_ids: Sequence[str],
+        metadata_rows: Sequence[Mapping[str, Any]],
         descriptor: Mapping[str, Any],
     ) -> dict[str, Any]:
         if descriptor.get("pit_mode") != "DERIVED_FROM_PIT_ARCHIVE":
             raise DataVendorUnavailable("RKE source receipt PIT mode is invalid")
         selected = tuple(sorted(set(str(value).strip() for value in source_ids if str(value).strip())))
-        if not selected:
-            return self._rke_true_empty_receipt(args, raw_payload, descriptor)
-
         source_by_id: dict[str, Mapping[str, Any]] = {}
         for relative in _RKE_SOURCE_PATHS:
             for row in _read_jsonl(self.rke_root / relative):
@@ -465,9 +484,7 @@ class SectorRelationshipSourceEvidenceAuthority:
                     source_by_id[source_id] = row
         metadata_by_source = {
             str(row.get("source_id") or "").strip(): row
-            for row in _read_jsonl(
-                self.rke_root / "registry/report_intelligence/report_metadata.jsonl"
-            )
+            for row in metadata_rows
             if str(row.get("source_id") or "").strip()
         }
 
@@ -589,36 +606,10 @@ class SectorRelationshipSourceEvidenceAuthority:
     def _rke_true_empty_receipt(
         self,
         args: Mapping[str, Any],
-        raw_payload: str,
         descriptor: Mapping[str, Any],
+        archive_hash: str,
+        no_prior_reason: str,
     ) -> dict[str, Any]:
-        registry_path = self.rke_root / "registry/report_intelligence"
-        archive_hash = _rke_empty_archive_hash(registry_path)
-        try:
-            materialization = build_rke_agent_research_materialization(
-                root=self.rke_root,
-                registry_dir=registry_path,
-                agent_id=str(args["agent_id"]),
-                as_of_date=str(args["as_of"]),
-                layer=str(args["layer"]),
-                ticker=str(args.get("ticker") or ""),
-                sector=str(args.get("sector") or ""),
-                max_items=int(args["max_items"]),
-            )
-            context = materialization["context"]
-            expected_payload = format_rke_runtime_context(context)
-            no_prior_reason = str(
-                context.get("summary", {}).get("no_prior_reason") or ""
-            ).strip()
-        except (KeyError, OSError, TypeError, ValueError) as exc:
-            raise DataVendorUnavailable("RKE empty coverage materialization is unavailable") from exc
-        if (
-            materialization.get("source_ids") != ()
-            or raw_payload != expected_payload
-            or not no_prior_reason
-        ):
-            raise DataVendorUnavailable("RKE empty coverage is not proven")
-
         as_of = str(descriptor["as_of"])
         as_of_end = datetime.combine(
             date.fromisoformat(as_of), time.max, tzinfo=_SHANGHAI

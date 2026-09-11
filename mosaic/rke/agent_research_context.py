@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import re
-from functools import lru_cache
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -451,7 +450,7 @@ def build_rke_agent_research_context(
     """Build a public-safe basic context from private claims and report metadata."""
     root_path = Path(root).expanduser().resolve()
     registry_path = resolve_report_intelligence_registry_dir(root_path, registry_dir)
-    rows = _load_rke_agent_research_rows(registry_path)
+    rows, _ = _load_rke_agent_research_rows(registry_path)
     return build_rke_agent_research_context_from_rows(
         agent_id=agent_id,
         as_of_date=as_of_date,
@@ -463,12 +462,24 @@ def build_rke_agent_research_context(
     )
 
 
-def _load_rke_agent_research_rows(registry_path: Path) -> dict[str, list[dict[str, Any]]]:
-    # Basic queries do not depend on offline scores, outcomes, recipes or snapshots.
-    return {
-        "forecasts": _read_jsonl(registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[0]),
-        "metadata": _read_jsonl(registry_path / RKE_AGENT_RESEARCH_INPUT_FILENAMES[1]),
-    }
+def _load_rke_agent_research_rows(
+    registry_path: Path,
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, bytes | None]]:
+    # Parse the exact bytes retained for source attestation; file metadata is not identity.
+    inputs: dict[str, bytes | None] = {}
+    rows: dict[str, list[dict[str, Any]]] = {}
+    for key, filename in zip(("forecasts", "metadata"), RKE_AGENT_RESEARCH_INPUT_FILENAMES):
+        try:
+            content = (registry_path / filename).read_bytes()
+        except FileNotFoundError:
+            content = None
+        inputs[filename] = content
+        rows[key] = [
+            json.loads(line)
+            for line in (content or b"").decode("utf-8").splitlines()
+            if line.strip()
+        ]
+    return rows, inputs
 
 
 def build_rke_agent_research_materialization(
@@ -485,7 +496,7 @@ def build_rke_agent_research_materialization(
     """Build public context plus server-only source identities for PIT attestation."""
     root_path = Path(root).expanduser().resolve()
     registry_path = resolve_report_intelligence_registry_dir(root_path, registry_dir)
-    rows = _load_rke_agent_research_rows(registry_path)
+    rows, inputs = _load_rke_agent_research_rows(registry_path)
     context = build_rke_agent_research_context_from_rows(
         agent_id=agent_id,
         as_of_date=as_of_date,
@@ -517,7 +528,12 @@ def build_rke_agent_research_materialization(
             raise ValueError("RKE selected context item has no private source identity")
         if source_id not in selected_source_ids:
             selected_source_ids.append(source_id)
-    return {"context": context, "source_ids": tuple(selected_source_ids)}
+    return {
+        "context": context,
+        "source_ids": tuple(selected_source_ids),
+        "input_bytes": inputs,
+        "metadata": rows["metadata"],
+    }
 
 
 def build_rke_agent_research_context_from_rows(
@@ -1110,26 +1126,6 @@ def _horizon_bucket(value: Any) -> str:
     if max_days <= 120:
         return "medium"
     return "long"
-
-
-def _read_jsonl(path: Path) -> tuple[dict[str, Any], ...]:
-    if not path.exists():
-        return ()
-    stat = path.stat()
-    return _read_jsonl_cached(str(path), stat.st_mtime_ns, stat.st_size)
-
-
-@lru_cache(maxsize=32)
-def _read_jsonl_cached(
-    path: str, mtime_ns: int, size: int
-) -> tuple[dict[str, Any], ...]:
-    del mtime_ns, size
-    rows: list[dict[str, Any]] = []
-    with Path(path).open(encoding="utf-8") as handle:
-        for line in handle:
-            if line.strip():
-                rows.append(json.loads(line))
-    return tuple(rows)
 
 
 def _redacted_id(prefix: str, raw: Any) -> str:

@@ -45,9 +45,19 @@ and parser v3 and forbids that field: the retired digest only encoded parser
 and route identifiers, not Schema content. Other source routes remain v1.
 
 Nonempty results still require private source identities and source-registry /
-metadata PIT evidence. Empty attestation still requires both basic input files,
-an exact reconstructed empty result and a no-prior reason; missing inputs are
-not true empty. Empty coverage hashes the same two basic files, down from ten.
+metadata PIT evidence. The source authority now owns RKE reading, selection,
+formatting and sealing in one call. It does not accept caller-supplied RKE text
+or an empty-result assertion. Each basic file is read once; parsing and empty
+coverage hashing use those same bytes. Metadata for nonempty source attestation
+comes from the same read. File mtime/size caching is removed, so subsequent
+queries observe same-size updates even when the timestamp is preserved.
+
+Empty attestation requires both basic files and a no-prior reason; missing
+inputs are not true empty. It hashes two inputs, down from ten, and builds the
+context once instead of twice. These are the exact inputs consumed by this
+query, not a transaction across concurrently edited files. Private input bytes
+and metadata remain inside server-side materialization and are never rendered.
+Persisted receipt registration still rejects conflicts for an existing query.
 The source archive digest remains in the PIT vintage query and parent capture
 reference because route eligibility independently requires the parent binding.
 
