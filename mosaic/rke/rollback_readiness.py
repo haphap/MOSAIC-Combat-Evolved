@@ -13,6 +13,8 @@ from .monitoring_diagnostics import (
 )
 from .promotion_gate import RKE_EXECUTION_MODE, build_production_promotion_gate_report
 
+from mosaic.rke.json_io import write_json as _write_json
+
 
 ROLLBACK_READINESS_REPORT_PATH = (
     "registry/monitoring/central_bank_rollback_readiness_report.json"
@@ -40,16 +42,6 @@ class RollbackReadinessReport:
     passed_count: int
     failure_count: int
     checks: Sequence[RollbackReadinessCheck]
-
-
-def _jsonable(value: Any) -> Any:
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    return value
 
 
 def _path_label(root_path: Path, path: Path) -> str:
@@ -105,16 +97,6 @@ def _sequence_field(
 
 def _payload_blocker(errors: Sequence[str], fallback: str) -> str:
     return "; ".join(errors) if errors else fallback
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True)
-        + "\n",
-        encoding="utf-8",
-    )
-    return {"path": str(path), "rows": 1}
 
 
 def _check(
@@ -383,8 +365,11 @@ def build_rollback_readiness_report(root: str | Path = ".") -> RollbackReadiness
     )
 
 
-def write_rollback_readiness_report(root: str | Path = ".") -> dict[str, Any]:
+def write_rollback_readiness_report(
+    root: str | Path = ".", *, report: RollbackReadinessReport | None = None
+) -> dict[str, Any]:
     root_path = Path(root)
-    report = build_rollback_readiness_report(root_path)
+    if report is None:
+        report = build_rollback_readiness_report(root_path)
     result = _write_json(root_path / ROLLBACK_READINESS_REPORT_PATH, asdict(report))
     return {"path": str(result["path"]), "accepted": report.accepted}

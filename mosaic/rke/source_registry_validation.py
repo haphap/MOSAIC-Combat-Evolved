@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -10,6 +9,8 @@ from typing import Any, Mapping, Sequence
 
 from .compliance import apply_source_license_reviews, evaluate_source_license
 from .phase_minus1 import load_jsonl_with_errors
+
+from mosaic.rke.json_io import write_json as _write_json
 
 
 SOURCE_REGISTRY_PATHS = (
@@ -43,22 +44,6 @@ class SourceRegistryValidationReport:
     failure_count: int
     production_blocker_count: int
     records: Sequence[SourceRegistryValidationRecord]
-
-
-def _jsonable(value: Any) -> Any:
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    return value
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return {"path": str(path), "rows": 1}
 
 
 def _license_row_reviewed(row: Mapping[str, Any]) -> bool:
@@ -234,7 +219,10 @@ def build_source_registry_validation_report(root: str | Path = ".") -> SourceReg
     )
 
 
-def write_source_registry_validation_report(root: str | Path = ".") -> dict[str, Any]:
+def write_source_registry_validation_report(
+    root: str | Path = ".", *, report: SourceRegistryValidationReport | None = None
+) -> dict[str, Any]:
     root_path = Path(root)
-    report = build_source_registry_validation_report(root_path)
+    if report is None:
+        report = build_source_registry_validation_report(root_path)
     return _write_json(root_path / SOURCE_VALIDATION_REPORT_PATH, asdict(report))

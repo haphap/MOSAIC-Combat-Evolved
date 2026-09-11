@@ -50,7 +50,6 @@ interface RkeShadowReplayOptions {
   llmProvider?: string;
   model?: string;
   baseUrl?: string;
-  vetoThreshold?: string;
   promptsRepo?: string;
   promptsRoot?: string;
   maxRuns?: string;
@@ -86,7 +85,6 @@ export function registerRkeShadowReplay(program: Command): void {
     .option("--llm-provider <name>", "Model provider override")
     .option("--model <name>", "Model override")
     .option("--base-url <url>", "Model base URL override")
-    .option("--veto-threshold <num>", "Deprecated compatibility option; ignored by canonical L4")
     .option("--prompts-repo <path>", "Use a private prompt git repo for this run")
     .option("--prompts-root <path>", "Override prompts root directory")
     .option("--max-runs <n>", "Cap replay dates for smoke/debug")
@@ -160,7 +158,6 @@ export async function runRkeShadowReplay(
     llmHandle,
     api,
     config,
-    vetoThreshold: opts.vetoThreshold ? Number(opts.vetoThreshold) : 0.5,
     ...(opts.promptsRoot ? { promptsRoot: opts.promptsRoot } : {}),
     onLog,
   });

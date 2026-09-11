@@ -60,8 +60,6 @@ export interface BuildDailyCycleGraphDeps {
   onLog?: (msg: string) => void;
   /** Per-agent wall-clock timeout in seconds. Default: 300; <=0 disables. */
   agentTimeoutSeconds?: number;
-  /** @deprecated Retained for CLI compatibility; the canonical L4 DAG has no veto replay. */
-  vetoThreshold?: number;
   /** Override prompt-root directory (tests inject a tmpdir). */
   promptsRoot?: string;
   /** Frozen once before graph construction so every stage reads one Prompt release. */

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import importlib
 import json
 import shutil
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
+
+import pytest
 
 from mosaic.rke import (
     TushareResearchReportRefreshResult,
@@ -1838,3 +1842,45 @@ def test_pyproject_exposes_mosaic_rke_console_script():
     text = Path("pyproject.toml").read_text(encoding="utf-8")
 
     assert 'mosaic-rke = "mosaic.rke.cli:main"' in text
+
+
+@pytest.mark.parametrize(
+    ("command", "module_name", "builder_name", "extra_args"),
+    [
+        ("audit-view", "audit_viewer", "build_audit_trace_view", ()),
+        ("master-plan-status", "master_plan_coverage", "build_master_plan_coverage_report", ()),
+        ("policy-doc-status", "policy_doc_validation", "build_policy_doc_validation_report", ()),
+        ("schema-status", "schema_validation", "build_schema_validation_report", ()),
+        ("rule-pack-status", "rule_pack_validation", "build_rule_pack_validation_report", ()),
+        ("prompt-status", "prompt_asset_validation", "build_prompt_asset_validation_report", ()),
+        ("claim-status", "claim_vocabulary", "build_claim_variable_validation_report", ()),
+        ("source-status", "source_registry_validation", "build_source_registry_validation_report", ()),
+        ("source-text-status", "source_text_redaction", "build_source_text_redaction_report", ()),
+        ("validation-status", "validation_hardening", "build_central_bank_validation_hardening_report", ()),
+        ("validation-status", "validation_hardening", "build_central_bank_statistical_significance_report", ()),
+        ("validation-status", "experiment_validation", "build_experiment_validation_report", ()),
+        ("experiment-status", "experiment_validation", "build_experiment_validation_report", ()),
+        ("monitoring-diagnostics", "monitoring_diagnostics", "build_production_monitor_diagnostics", ()),
+        ("rollback-readiness", "rollback_readiness", "build_rollback_readiness_report", ()),
+        ("promotion-status", "promotion_gate", "build_production_promotion_gate_report", ()),
+        ("promotion-dry-run", "promotion_dry_run", "build_promotion_dry_run_report", ("--write-report",)),
+        ("gold-set-status", "review_gates", "summarize_gold_set_review", ()),
+        ("license-status", "review_gates", "summarize_source_license_review", ()),
+        ("gold-review-packet", "gold_review_packet", "build_gold_review_packet", ()),
+        ("license-review-packet", "license_review_packet", "build_license_review_packet", ()),
+    ],
+)
+def test_status_builds_displayed_report_once(
+    monkeypatch, tmp_path: Path, capsys, command, module_name, builder_name, extra_args
+):
+    _copy_registry(tmp_path)
+    _stub_master_plan_status_deep_actions(monkeypatch)
+    _stub_cli_review_action_context(monkeypatch)
+    module = importlib.import_module(f"mosaic.rke.{module_name}")
+    builder = Mock(wraps=getattr(module, builder_name))
+    monkeypatch.setattr(module, builder_name, builder)
+    monkeypatch.setattr(f"mosaic.rke.cli.{builder_name}", builder)
+
+    assert main((command, "--root", str(tmp_path), *extra_args)) in (0, 2)
+    assert json.loads(capsys.readouterr().out)
+    builder.assert_called_once()

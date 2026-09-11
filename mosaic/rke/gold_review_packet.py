@@ -19,6 +19,8 @@ from .claim_vocabulary import load_claim_variable_vocabulary
 from .phase_minus1 import load_jsonl_with_errors
 from .review_integrity import license_review_row_complete
 
+from mosaic.rke.json_io import write_json as _write_json
+
 
 GOLD_REVIEW_PACKET_JSON_PATH = "registry/gold_sets/tushare_research_reports.review_packet.json"
 GOLD_REVIEW_PACKET_MD_PATH = "registry/gold_sets/tushare_research_reports.review_packet.md"
@@ -115,22 +117,6 @@ class GoldReviewPacket:
     @property
     def manual_review_required(self) -> bool:
         return bool(self.blockers) or self.pending_review_rows > 0 or self.status != "manual_review_passed"
-
-
-def _jsonable(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    return value
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return {"path": str(path), "rows": 1}
 
 
 def _optional_json(path: Path, label: str) -> tuple[dict[str, Any], tuple[str, ...]]:
@@ -529,9 +515,12 @@ def render_gold_review_packet_markdown(packet: GoldReviewPacket) -> str:
     return "\n".join(lines)
 
 
-def write_gold_review_packet(root: str | Path = ".") -> dict[str, str]:
+def write_gold_review_packet(
+    root: str | Path = ".", *, packet: GoldReviewPacket | None = None
+) -> dict[str, str]:
     root_path = Path(root)
-    packet = build_gold_review_packet(root_path)
+    if packet is None:
+        packet = build_gold_review_packet(root_path)
     json_result = _write_json(
         root_path / GOLD_REVIEW_PACKET_JSON_PATH,
         {**asdict(packet), "manual_review_required": packet.manual_review_required},

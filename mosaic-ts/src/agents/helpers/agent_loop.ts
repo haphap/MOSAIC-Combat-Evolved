@@ -1,12 +1,6 @@
 /**
  * Inline tool-call loop for Layer-1+ agent nodes (Plan §11.2 2B-3).
  *
- * Why a separate helper: ``runToolReportChain`` from 2A.2 assumes the loop
- * lives at the LangGraph level (analyst → ToolNode → analyst). 2B does not
- * yet have the graph wired, so each agent node runs its own bounded loop
- * here. 2E may convert this to a real LangGraph subgraph; the surface here
- * stays stable.
- *
  * Loop semantics:
  *   1. bind tools, invoke LLM with [system, ...messages]
  *   2. if no tool_calls → return content as the analysis text

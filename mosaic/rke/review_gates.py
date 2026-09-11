@@ -249,9 +249,12 @@ def summarize_gold_set_review(
     )
 
 
-def write_gold_set_review_summary(root: str | Path = ".") -> dict[str, Any]:
+def write_gold_set_review_summary(
+    root: str | Path = ".", *, summary: GoldSetReviewSummary | None = None
+) -> dict[str, Any]:
     root_path = Path(root)
-    summary = summarize_gold_set_review(root_path)
+    if summary is None:
+        summary = summarize_gold_set_review(root_path)
     output_path = (
         root_path / "registry/gold_sets/tushare_research_reports.review_summary.json"
     )
@@ -375,8 +378,11 @@ def summarize_source_license_review(
     )
 
 
-def write_source_license_review_summary(root: str | Path = ".") -> dict[str, Any]:
+def write_source_license_review_summary(
+    root: str | Path = ".", *, summary: SourceLicenseReviewSummary | None = None
+) -> dict[str, Any]:
     root_path = Path(root)
-    summary = summarize_source_license_review(root_path)
+    if summary is None:
+        summary = summarize_source_license_review(root_path)
     output_path = root_path / "registry/compliance/tushare_license_review_summary.json"
     return _write_json(output_path, asdict(summary))
