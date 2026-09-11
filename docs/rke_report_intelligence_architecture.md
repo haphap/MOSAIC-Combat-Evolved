@@ -3,6 +3,10 @@
 本文档是 RKE Report Intelligence 功能边界、数据流、artifact 结构和运行门禁的
 稳定架构说明；实现状态以代码、schema 和 registry 审计结果为准。
 
+2026-09-11 起的维护优先级见 [RKE 最小维护范围与价值验证](rke_minimal_scope.md)：
+保留解析、抽取、检索与必要边界，暂停未经收益验证的派生链扩展。下文记录已有架构，
+不作为继续扩张子系统的依据。
+
 ## 1. 目标
 
 Report Intelligence 的目标不是让研报直接变成交易信号，而是把研报中的观点、方法、变量、工具缺口和历史表现转化为可审计的 shadow assets。
