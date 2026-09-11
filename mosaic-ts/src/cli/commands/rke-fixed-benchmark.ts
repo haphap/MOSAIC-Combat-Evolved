@@ -291,8 +291,7 @@ export async function runRkeFixedBenchmark(
         initialState.trace_id = `${benchmarkRunId}:${modelConfig.model_config_id}:${item.as_of_date}`;
         const final = (await graph.invoke(initialState)) as DailyCycleStateType;
         assertAcceptedDailyCycle(final);
-        const footprintRows = await buildDailyCycleRkeFootprintRows(api, final, {
-          currentDataConfirmed: !opts.fakeLlm,
+        const footprintRows = buildDailyCycleRkeFootprintRows(final, {
           episodeId: item.episode_id,
           modelConfigId: modelConfig.model_config_id,
         });

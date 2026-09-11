@@ -189,8 +189,7 @@ export async function runRkeShadowReplay(
       asOfDate,
     );
     previousTarget = carryPreviousTargetState(final);
-    const footprintRows = await buildDailyCycleRkeFootprintRows(api, final, {
-      currentDataConfirmed: !opts.fakeLlm,
+    const footprintRows = buildDailyCycleRkeFootprintRows(final, {
       replayRunId,
     });
     const rows = collectReplayOutputRecords(
