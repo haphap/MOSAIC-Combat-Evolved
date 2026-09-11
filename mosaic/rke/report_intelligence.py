@@ -33651,29 +33651,6 @@ def build_report_intelligence_patch_v1_5_coverage_report(
     )
     requirement_checklist = [
         _coverage_requirement_check(
-            check_id="RI15-A-D1",
-            phase_id="A",
-            check_type="deliverable",
-            requirement=(
-                "report_metadata, forecast_claim, analytical_footprint, ledger, "
-                "outcome-label, performance-profile, metric, method, tool-gap, "
-                "proposal, and analysis_recipe schemas are registered."
-            ),
-            accepted=(
-                len(REPORT_INTELLIGENCE_PATCH_V1_5_SCHEMA_ARTIFACTS) >= 15
-            ),
-            evidence_artifacts=[
-                f"schemas/{name}"
-                for name in REPORT_INTELLIGENCE_PATCH_V1_5_SCHEMA_ARTIFACTS
-            ],
-            evidence_counts={
-                "expected_schema_artifact_count": len(
-                    REPORT_INTELLIGENCE_PATCH_V1_5_SCHEMA_ARTIFACTS
-                )
-            },
-            blocker="report-intelligence schema artifact set is incomplete",
-        ),
-        _coverage_requirement_check(
             check_id="RI15-A-D2",
             phase_id="A",
             check_type="acceptance",

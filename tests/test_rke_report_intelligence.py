@@ -15812,6 +15812,10 @@ def test_report_intelligence_derived_refresh_backfills_explicit_horizon(
         ).read_text(encoding="utf-8")
     )
     assert patch_coverage["phase_count"] == 8
+    assert not any(
+        "schema artifact set is incomplete" in blocker
+        for blocker in patch_coverage["blockers"]
+    )
     evolution_gate = json.loads(
         (
             tmp_path

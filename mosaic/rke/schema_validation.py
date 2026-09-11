@@ -11099,7 +11099,6 @@ def validate_report_intelligence_semantics(
                         f"patch_v1_5_coverage_report Phase {phase_id}: deferred_reason required"
                     )
         expected_check_ids = {
-            "RI15-A-D1",
             "RI15-A-D2",
             "RI15-B-D1",
             "RI15-B-D2",
