@@ -70,6 +70,7 @@ from mosaic.rke.report_intelligence import (
     build_source_performance_profiles,
     build_stock_context_snapshots,
     build_data_acquisition_proposals,
+    backfill_stock_market_cap_tool_gap,
     build_domain_claim_ratings,
     build_tool_design_proposals,
     build_viewpoint_performance_profiles,
@@ -5314,8 +5315,8 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert result.forecast_ledger_rows == 1
     assert result.outcome_label_rows == 0
     assert result.tool_coverage_match_rows == 2
-    assert result.data_acquisition_proposal_rows == 1
-    assert result.tool_design_proposal_rows == 1
+    assert "data_acquisition_proposals" not in result.outputs
+    assert "tool_design_proposals" not in result.outputs
     assert result.analysis_recipe_rows == 1
     assert result.prompt_mutation_candidate_rows >= 1
     assert result.weighted_research_context_rows == 1
@@ -5580,9 +5581,8 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     ]
     assert tool_gaps[0]["owner"] == "data_engineering"
 
-    data_proposals = _read_jsonl(
-        tmp_path / "registry/report_intelligence/data_acquisition_proposals.jsonl"
-    )
+    assert not (tmp_path / "registry/report_intelligence/data_acquisition_proposals.jsonl").exists()
+    data_proposals = build_data_acquisition_proposals(tool_gaps)
     assert data_proposals[0]["decision_status"] == "pending_review"
     assert data_proposals[0]["owner"] == "data_engineering"
     assert data_proposals[0]["license_status"] == "pending_review"
@@ -5591,9 +5591,8 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     )
     assert data_proposals[0]["source_tool_gap_priority"] == "high"
 
-    tool_proposals = _read_jsonl(
-        tmp_path / "registry/report_intelligence/tool_design_proposals.jsonl"
-    )
+    assert not (tmp_path / "registry/report_intelligence/tool_design_proposals.jsonl").exists()
+    tool_proposals = build_tool_design_proposals(tool_gaps)
     assert tool_proposals[0]["status"] == "shadow_build_requested"
     assert tool_proposals[0]["owner"] == "data_engineering"
     assert tool_proposals[0]["license_status"] == "pending_review"
@@ -5714,7 +5713,7 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert tool_feasibility_audit["accepted"] is True
     assert tool_feasibility_audit["blocker_count"] == 0
     assert {row["check_id"] for row in tool_feasibility_audit["checks"]} == {
-        f"RI-TOOL-{index:02d}" for index in range(7)
+        f"RI-TOOL-{index:02d}" for index in (0, 1, 2, 5, 6)
     }
     assert tool_feasibility_audit["checks"][1]["evidence"][
         "metric_candidate_rows"
@@ -5722,9 +5721,7 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert tool_feasibility_audit["checks"][2]["evidence"][
         "non_exact_coverage_rows"
     ] == 1
-    assert tool_feasibility_audit["checks"][4]["evidence"][
-        "minimum_shadow_runtime_days"
-    ] == 60
+    assert tool_feasibility_audit["tool_gap_contract"] == "tool_gap_facts_v1"
 
     recipe_validation_audit = json.loads(
         (
@@ -5849,6 +5846,25 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert "claim_text" not in candidate_dump
     assert "source_span_ids" not in candidate_dump
     assert source_id not in candidate_dump
+
+    from mosaic.rke.schema_validation import validate_json_schema_artifact
+
+    for name in ("tool_feasibility_audit", "monitoring_report", "patch_v1_5_coverage_report", "recipe_paper_trading_summary"):
+        schema_path = f"schemas/report_intelligence_{name}.schema.json"
+        (tmp_path / "schemas").mkdir(exist_ok=True)
+        shutil.copyfile(schema_path, tmp_path / schema_path)
+        artifact_path = f"registry/report_intelligence/{name}.json"
+        record = validate_json_schema_artifact(root=tmp_path, schema_path=schema_path, artifact_path=artifact_path, artifact_kind="json")
+        assert record.accepted, record.failures
+        path = tmp_path / artifact_path
+        current = path.read_bytes()
+        historical = json.loads(current)
+        historical.pop("tool_gap_contract")
+        path.write_text(json.dumps(historical))
+        record = validate_json_schema_artifact(root=tmp_path, schema_path=schema_path, artifact_path=artifact_path, artifact_kind="json")
+        assert not record.accepted
+        assert any("tool_gap_contract" in failure for failure in record.failures)
+        path.write_bytes(current)
 
 
 def test_report_intelligence_backfills_source_grounded_footprint_metrics_from_chunk(
@@ -7960,7 +7976,7 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     assert summary["validation_candidate_recipe_count"] == 1
     assert summary["tool_only_blocked_recipe_count"] == 0
     assert summary["tool_only_blocked_tool_gap_count"] == 0
-    assert summary["tool_only_blocked_tool_proposal_count"] == 0
+    assert "tool_only_blocked_tool_proposal_count" not in summary
     assert summary["tool_implementation_queue"]["blocked_recipe_count"] == 0
     assert summary["tool_implementation_queue"]["requested_tools"] == []
     assert summary["tool_implementation_queue"]["tool_gap_ids"] == []
@@ -8145,12 +8161,6 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
                 "method_pattern_ids": ["METHOD-TOOL-BLOCKED"],
             }
         ],
-        tool_design_proposal_rows=[
-            {
-                "tool_proposal_id": "TDP-TOOL-BLOCKED",
-                "tool_gap_id": "TG-TOOL-BLOCKED",
-            }
-        ],
     )
 
     assert tool_blocked_runs[0]["paper_trading_status"] == "blocked"
@@ -8170,15 +8180,11 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
     assert tool_blocked_summary["tool_only_blocked_tool_gap_ids"] == [
         "TG-TOOL-BLOCKED"
     ]
-    assert tool_blocked_summary["tool_only_blocked_tool_proposal_ids"] == [
-        "TDP-TOOL-BLOCKED"
-    ]
+    assert "tool_only_blocked_tool_proposal_ids" not in tool_blocked_summary
     assert tool_blocked_summary["tool_implementation_queue"]["tool_gap_ids"] == [
         "TG-TOOL-BLOCKED"
     ]
-    assert tool_blocked_summary["tool_implementation_queue"]["tool_proposal_ids"] == [
-        "TDP-TOOL-BLOCKED"
-    ]
+    assert "tool_proposal_ids" not in tool_blocked_summary["tool_implementation_queue"]
     assert tool_blocked_summary["tool_implementation_queue"][
         "blocked_recipe_ids"
     ] == ["RECIPE-TOOL-BLOCKED"]
@@ -8203,14 +8209,6 @@ def test_report_intelligence_recipe_paper_trading_requires_direct_pit_evidence()
                 "tool_gap_id": "TG-TOOL-BLOCKED",
                 "metric_name": "market_unimplemented_proxy",
                 "method_pattern_ids": ["METHOD-TOOL-BLOCKED"],
-                "status": "shadow_implemented",
-            }
-        ],
-        tool_design_proposal_rows=[
-            {
-                "tool_proposal_id": "TDP-TOOL-BLOCKED",
-                "tool_gap_id": "TG-TOOL-BLOCKED",
-                "requested_tools": ["tool.requested.market_unimplemented_proxy"],
                 "status": "shadow_implemented",
             }
         ],
@@ -8535,14 +8533,6 @@ def test_report_intelligence_patch_coverage_uses_public_counts_without_private_i
     _write_jsonl(
         registry_dir / "tool_gaps.jsonl",
         [{"tool_gap_id": "GAP-1", "status": "open"}],
-    )
-    _write_jsonl(
-        registry_dir / "data_acquisition_proposals.jsonl",
-        [{"tool_gap_id": "GAP-1"}],
-    )
-    _write_jsonl(
-        registry_dir / "tool_design_proposals.jsonl",
-        [{"tool_gap_id": "GAP-1"}],
     )
     _write_jsonl(
         registry_dir / "report_forecast_ledger.jsonl",
@@ -19010,7 +19000,7 @@ def test_report_intelligence_retires_tool_gaps_with_existing_coverage():
 
 
 def test_report_intelligence_data_acquisition_tracks_stock_market_cap_gap():
-    proposals = build_data_acquisition_proposals(
+    gaps = backfill_stock_market_cap_tool_gap(
         [],
         stock_context_snapshot_rows=[
             {
@@ -19024,6 +19014,7 @@ def test_report_intelligence_data_acquisition_tracks_stock_market_cap_gap():
         ],
     )
 
+    proposals = build_data_acquisition_proposals(gaps)
     assert len(proposals) == 1
     proposal = proposals[0]
     assert proposal["tool_gap_id"] == "stock_context_market_cap_metadata_missing"
@@ -19038,7 +19029,7 @@ def test_report_intelligence_data_acquisition_tracks_stock_market_cap_gap():
 
 
 def test_report_intelligence_prompt_mutation_tracks_data_acquisition_proposals():
-    proposals = build_data_acquisition_proposals(
+    gaps = backfill_stock_market_cap_tool_gap(
         [],
         stock_context_snapshot_rows=[
             {
@@ -19055,8 +19046,7 @@ def test_report_intelligence_prompt_mutation_tracks_data_acquisition_proposals()
             "stock_price_proxy_readiness": {"data_gap_counts": {}},
             "industry_etf_proxy_readiness": {"data_gap_counts": {}},
         },
-        tool_gap_rows=[],
-        data_acquisition_proposal_rows=proposals,
+        tool_gap_rows=gaps,
         recipe_paper_trading_runs=[],
         confidence_impact_observation_rows=[],
         confidence_impact_monitor={"drift_status_counts": {}},
@@ -19080,11 +19070,11 @@ def test_report_intelligence_prompt_mutation_tracks_data_acquisition_proposals()
     evidence = candidate["evidence_refs"][0]
     assert (
         evidence["artifact_path"]
-        == "registry/report_intelligence/data_acquisition_proposals.jsonl"
+        == "registry/report_intelligence/tool_gaps.jsonl"
     )
-    assert evidence["field"] == "decision_status"
-    assert evidence["proposal_count"] == 1
-    assert evidence["business_priority_counts"] == {"medium": 1}
+    assert evidence["field"] == "data_decision_status"
+    assert evidence["tool_gap_count"] == 1
+    assert evidence["priority_bucket_counts"] == {"medium": 1}
     assert evidence["pit_feasibility_status_counts"] == {
         "requires_pit_backfill_review": 1
     }
@@ -19617,3 +19607,252 @@ def test_merge_report_intelligence_batches_cli_replace(capsys, tmp_path: Path):
     assert _read_jsonl(tmp_path / "registry/report_intelligence/tool_gaps.jsonl") == [
         {"tool_gap_id": "TG-1"}
     ]
+
+
+
+def test_tool_gap_review_migration_preserves_review_and_archives_only_on_apply(
+    tmp_path, capsys
+):
+    from mosaic.rke import report_intelligence as ri
+
+    registry = tmp_path / "registry/report_intelligence"
+    gap = {
+        "tool_gap_id": "TG-MIGRATE",
+        "metric_name": "missing_private_metric",
+        "metric_candidate_id": "MC-MIGRATE",
+        "gap_type": "missing_metric",
+        "owner": "data_engineering",
+        "priority_bucket": "medium",
+        "status": "proposal_pending",
+        "target_agents": ["macro"],
+        "method_pattern_ids": [],
+        "research_origin": {},
+        "priority_reasons": [],
+        "blocking_issues": [],
+    }
+    data = build_data_acquisition_proposals([gap])[0]
+    data.update(decision_status="rejected", reviewer_note="PRIVATE_REVIEW_SENTINEL")
+    design = build_tool_design_proposals([gap])[0]
+    design.update(
+        status="shadow_implemented", requested_tools=["tool.requested.reviewed"]
+    )
+    rows = {
+        "tool_gaps.jsonl": [gap],
+        "data_acquisition_proposals.jsonl": [data],
+        "tool_design_proposals.jsonl": [design],
+    }
+    for name, values in rows.items():
+        ri._write_jsonl(registry / name, values)
+    before = {
+        p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in registry.iterdir()
+    }
+    assert (
+        main(
+            (
+                "report-intelligence",
+                "--root",
+                str(tmp_path),
+                "--migrate-tool-gap-reviews",
+                "--dry-run",
+            )
+        )
+        == 0
+    )
+    preview = json.loads(capsys.readouterr().out)
+    assert preview["accepted"] is True and preview["applied"] is False
+    assert "PRIVATE_REVIEW_SENTINEL" not in json.dumps(preview)
+    assert before == {
+        p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in registry.iterdir()
+    }
+    assert (
+        main(
+            (
+                "report-intelligence",
+                "--root",
+                str(tmp_path),
+                "--migrate-tool-gap-reviews",
+            )
+        )
+        == 0
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["accepted"] is True and result["applied"] is True
+    migrated = _read_jsonl(registry / "tool_gaps.jsonl")[0]
+    assert migrated["data_decision_status"] == "rejected"
+    assert migrated["shadow_implementation_status"] == "shadow_implemented"
+    assert migrated["requested_tools"] == ["tool.requested.reviewed"]
+    assert migrated["data_review"] == {"reviewer_note": "PRIVATE_REVIEW_SENTINEL"}
+    assert "input_parameters" not in migrated and "validation_plan" not in migrated
+    assert "data_proposal_id" not in migrated
+    assert "tool.requested.reviewed" in ri._shadow_implemented_requested_tools(
+        tool_gap_rows=[migrated]
+    )
+    assert (
+        main(
+            (
+                "report-intelligence",
+                "--root",
+                str(tmp_path),
+                "--show-tool-gap-review",
+                "data",
+            )
+        )
+        == 0
+    )
+    view = json.loads(capsys.readouterr().out)
+    assert view["views"][0]["reviewer_note"] == "PRIVATE_REVIEW_SENTINEL"
+    assert view["views"][0]["decision_status"] == "rejected"
+    for name in rows:
+        if name != "tool_gaps.jsonl":
+            assert not (registry / name).exists()
+            assert (registry / "retired_proposals" / name).read_bytes() == before[name][
+                0
+            ]
+    after = {
+        str(p.relative_to(registry)): (p.read_bytes(), p.stat().st_mtime_ns)
+        for p in registry.rglob("*")
+        if p.is_file()
+    }
+    repeated = ri.migrate_tool_gap_reviews(root=tmp_path, dry_run=False)
+    assert repeated["accepted"] is True and repeated["applied"] is False
+    assert after == {
+        str(p.relative_to(registry)): (p.read_bytes(), p.stat().st_mtime_ns)
+        for p in registry.rglob("*")
+        if p.is_file()
+    }
+
+
+@pytest.mark.parametrize("problem", ["conflict", "orphan", "invalid_json", "duplicate"])
+def test_tool_gap_review_migration_rejects_without_writes(tmp_path, problem):
+    from mosaic.rke import report_intelligence as ri
+
+    registry = tmp_path / "registry/report_intelligence"
+    gap = {
+        "tool_gap_id": "TG",
+        "metric_name": "missing_metric",
+        "owner": "data_engineering",
+        "priority_bucket": "medium",
+        "status": "proposal_pending",
+    }
+    data = build_data_acquisition_proposals([gap])[0]
+    design = build_tool_design_proposals([gap])[0]
+    if problem == "conflict":
+        data["license_status"] = "restricted"
+        design["license_status"] = "approved"
+    elif problem == "orphan":
+        data["tool_gap_id"] = "UNKNOWN"
+    ri._write_jsonl(registry / "tool_gaps.jsonl", [gap])
+    ri._write_jsonl(
+        registry / "data_acquisition_proposals.jsonl",
+        [data, data] if problem == "duplicate" else [data],
+    )
+    ri._write_jsonl(registry / "tool_design_proposals.jsonl", [design])
+    if problem == "invalid_json":
+        (registry / "data_acquisition_proposals.jsonl").write_text(
+            "PRIVATE_INVALID_JSON"
+        )
+    before = {
+        p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in registry.iterdir()
+    }
+    result = ri.migrate_tool_gap_reviews(root=tmp_path, dry_run=False)
+    assert result["accepted"] is False and result["applied"] is False
+    assert "PRIVATE_INVALID_JSON" not in json.dumps(result)
+    assert before == {
+        p.name: (p.read_bytes(), p.stat().st_mtime_ns) for p in registry.iterdir()
+    }
+
+
+def test_full_refresh_rejects_unmigrated_tool_reviews_before_extraction(
+    tmp_path, monkeypatch
+):
+    from mosaic.rke import report_intelligence as ri
+
+    registry = tmp_path / "registry/report_intelligence"
+    ri._write_jsonl(
+        registry / "data_acquisition_proposals.jsonl", [{"reviewer_note": "PRIVATE"}]
+    )
+    path = registry / "data_acquisition_proposals.jsonl"
+    before = path.read_bytes(), path.stat().st_mtime_ns
+    monkeypatch.setattr(
+        ri,
+        "_selected_source_rows",
+        lambda *a, **k: pytest.fail("must reject before extraction"),
+    )
+    for derived in (False, True):
+        result = run_report_intelligence_refresh(
+            ReportIntelligenceConfig(
+                root=tmp_path, derived_scope="full", refresh_derived_only=derived
+            )
+        )
+        assert result.blocker_count == 1 and result.outputs == {}
+        assert "migrate-tool-gap-reviews" in result.blockers[0]
+        assert before == (path.read_bytes(), path.stat().st_mtime_ns)
+
+
+def test_tool_gap_review_migration_preserves_orphan_market_cap_evidence(tmp_path):
+    from mosaic.rke import report_intelligence as ri
+
+    registry = tmp_path / "registry/report_intelligence"
+    ri._write_jsonl(registry / "tool_gaps.jsonl", [])
+    proposal = {
+        "data_proposal_id": "LEGACY-DAP",
+        "tool_gap_id": "stock_context_market_cap_metadata_missing",
+        "owner": "data_engineering",
+        "business_priority": "medium",
+        "source_tool_gap_priority": "medium",
+        "required_fields": ["custom_vendor_market_cap", "source_timestamp"],
+        "evidence_summary": {"affected_stock_context_snapshot_count": 7},
+        "decision_status": "rejected",
+    }
+    ri._write_jsonl(registry / "data_acquisition_proposals.jsonl", [proposal])
+    result = ri.migrate_tool_gap_reviews(root=tmp_path, dry_run=False)
+    assert result["accepted"] is True
+    gap = _read_jsonl(registry / "tool_gaps.jsonl")[0]
+    assert gap["evidence_summary"] == {"affected_stock_context_snapshot_count": 7}
+    view = build_data_acquisition_proposals([gap])[0]
+    assert view["required_fields"] == proposal["required_fields"]
+    assert view["decision_status"] == "rejected"
+
+
+def test_tool_gap_review_migration_resumes_after_interrupted_archive_move(
+    tmp_path, monkeypatch
+):
+    from mosaic.rke import report_intelligence as ri
+
+    registry = tmp_path / "registry/report_intelligence"
+    gap = {
+        "tool_gap_id": "TG",
+        "metric_name": "missing_metric",
+        "owner": "data_engineering",
+        "priority_bucket": "medium",
+        "status": "proposal_pending",
+    }
+    data = build_data_acquisition_proposals([gap])[0]
+    data["decision_status"] = "rejected"
+    design = build_tool_design_proposals([gap])[0]
+    design["status"] = "shadow_implemented"
+    for name, row in (
+        ("tool_gaps.jsonl", gap),
+        ("data_acquisition_proposals.jsonl", data),
+        ("tool_design_proposals.jsonl", design),
+    ):
+        ri._write_jsonl(registry / name, [row])
+    original_replace = Path.replace
+
+    def interrupt_tool_archive(path, target):
+        if path.name == "tool_design_proposals.jsonl":
+            raise OSError("interrupted archive move")
+        return original_replace(path, target)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "replace", interrupt_tool_archive)
+        with pytest.raises(OSError, match="interrupted archive"):
+            ri.migrate_tool_gap_reviews(root=tmp_path, dry_run=False)
+    assert (registry / "retired_proposals/data_acquisition_proposals.jsonl").exists()
+    assert (registry / "tool_design_proposals.jsonl").exists()
+    result = ri.migrate_tool_gap_reviews(root=tmp_path, dry_run=False)
+    assert result["accepted"] and result["applied"]
+    current = _read_jsonl(registry / "tool_gaps.jsonl")[0]
+    assert current["data_decision_status"] == "rejected"
+    assert current["shadow_implementation_status"] == "shadow_implemented"
+    assert not (registry / "tool_design_proposals.jsonl").exists()

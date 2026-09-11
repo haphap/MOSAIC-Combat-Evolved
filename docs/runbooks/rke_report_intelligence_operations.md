@@ -24,7 +24,8 @@ shard; `refresh_scope` identifies the scope, uncomputed counts are null, and
 full-refresh report as the result of a basic run.
 
 After merging extraction shards, explicitly request the complete offline research
-refresh before review/readiness checks or publishing a stable snapshot:
+refresh before review/readiness checks or publishing a stable snapshot. If legacy
+proposals exist, complete the tool-gap review migration below first:
 
 ```bash
 MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
@@ -42,6 +43,63 @@ existing non-LLM outcome, review, provenance and shadow-only checks. The dated
 operation logs below describe historical full runs; their outcome/profile/gate
 counts are not expected from the new basic default. To reproduce those offline
 outputs, add `--derived-scope full` to the corresponding extraction/refresh command.
+
+## Tool Gap Review Migration
+
+Full refresh no longer writes `data_acquisition_proposals.jsonl` or
+`tool_design_proposals.jsonl`. If either legacy file exists, migrate its review
+facts before full refresh or export. Stop concurrent writers to this registry
+while migrating. Run from the code checkout; use the same explicit registry
+path for preview and apply. These commands never call MinerU or the LLM.
+
+```bash
+mkdir -p .mosaic/tmp
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run mosaic-rke report-intelligence --root . \
+  --registry-dir registry/report_intelligence \
+  --migrate-tool-gap-reviews --dry-run \
+  > .mosaic/tmp/tool-gap-migration-preview.json
+```
+
+Inspect `accepted` and `blockers`. Conflicting review fields, duplicate gap IDs,
+unrecognized orphan proposals or malformed input cause rejection with no writes.
+The known stock market-cap orphan becomes a gap. The preview reports counts and
+blockers without copying review prose. Apply only an accepted, reviewed migration:
+
+```bash
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run mosaic-rke report-intelligence --root . \
+  --registry-dir registry/report_intelligence \
+  --migrate-tool-gap-reviews \
+  > .mosaic/tmp/tool-gap-migration-result.json
+```
+
+Apply rechecks the inputs, replaces `tool_gaps.jsonl`, then moves the original
+proposal bytes into `registry/report_intelligence/retired_proposals/`. Review
+status and unique fields are retained; generated template defaults are omitted.
+A completed repeat is a no-op. If an archive move is interrupted, rerun the same
+command: identical migrated fields are accepted, conflicts are not overwritten.
+Do not hand-edit private imports or replace review conflicts with guessed values.
+
+Next run the explicit full refresh above to rebuild current research summaries,
+then use the existing export/publish workflow to create a fresh snapshot.
+Old manifests referring to proposal paths are rejected. Archived originals stay
+local/private and are excluded from active export and manifest coverage.
+A code-only rollback must not resume old proposal writers against migrated facts;
+keep the archive and canonical gaps until an explicit reverse migration is reviewed.
+
+For a private review view, capture stdout locally instead of persisting another
+proposal registry:
+
+```bash
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run mosaic-rke report-intelligence --root . \
+  --registry-dir registry/report_intelligence \
+  --show-tool-gap-review data > .mosaic/tmp/tool-gap-data-review.json
+```
+
+Use `--show-tool-gap-review tool` for the tool-design view. Both views can contain
+private reviewer text and must not be committed.
 
 ## Current Local Runtime
 

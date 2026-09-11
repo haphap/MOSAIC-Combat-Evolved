@@ -56,8 +56,7 @@ flowchart LR
   subgraph ToolingLayer["Tooling and recipe layer"]
     Coverage["Tool coverage matcher"]
     Gaps["Tool gaps"]
-    DataProposal["Data acquisition proposals"]
-    ToolProposal["Tool design proposals"]
+    GapReview["Data/tool review views on demand"]
     Recipes["Analysis recipes"]
     WeightedCtx["Weighted research context"]
   end
@@ -94,8 +93,7 @@ flowchart LR
   Labels --> MethodProfile
   Labels --> Robustness
   Metrics --> Coverage --> Gaps
-  Gaps --> DataProposal
-  Gaps --> ToolProposal
+  Gaps --> GapReview
   Methods --> Recipes
   SourceProfile --> WeightedCtx
   ViewProfile --> WeightedCtx
@@ -130,7 +128,7 @@ flowchart LR
 | forecast ledger | derived refresh | 把 claim 转成可测试 ledger，检查 target/benchmark/direction/horizon | `report_forecast_ledger.jsonl`, `outcome_labeling_readiness.json` |
 | ETF proxy labeler | `build_industry_etf_proxy_*` | 对行业研报观点使用行业 ETF 的 20/60/120 日窗口做 PIT 标签 | `report_outcome_labels.jsonl` |
 | performance profiler | derived refresh | 汇总 source/viewpoint/method 的命中率、样本、权重 | `source_performance_profiles.jsonl`, `viewpoint_performance_profiles.jsonl`, `method_performance_profiles.jsonl` |
-| tool gap loop | matcher/proposal builders | 将研报指标映射到现有工具，生成缺口和采集/工具设计 proposal | `tool_coverage_matches.jsonl`, `tool_gaps.jsonl`, `data_acquisition_proposals.jsonl`, `tool_design_proposals.jsonl` |
+| tool gap loop | matcher/gap builders | 将研报指标映射到工具，单独维护缺口及审核事实；按需展示采集/工具模板 | `tool_coverage_matches.jsonl`, `tool_gaps.jsonl` |
 | recipe and retrieval | recipe builders | 生成 shadow analysis recipe 和 weighted research context | `analysis_recipes.jsonl`, `weighted_research_contexts.jsonl` |
 | governance audits | audit builders | 验证 runtime no-op、PIT、provenance、统计稳健性、tool feasibility、recipe gate | `*_audit.json`, `patch_v1_5_coverage_report.json` |
 
@@ -179,8 +177,6 @@ registry/report_intelligence/
 ├── method_performance_profiles.jsonl
 ├── tool_coverage_matches.jsonl
 ├── tool_gaps.jsonl
-├── data_acquisition_proposals.jsonl
-├── tool_design_proposals.jsonl
 ├── analysis_recipes.jsonl
 ├── weighted_research_contexts.jsonl
 ├── runtime_tool_gap_observations.jsonl
@@ -217,10 +213,10 @@ flowchart TD
   N --> O["performance profiles"]
   O --> P["weighted_research_contexts.jsonl"]
   G --> Q["tool coverage and gaps"]
-  Q --> R["data/tool proposals"]
+  Q --> R["data/tool review views on demand"]
   H --> S["analysis_recipes.jsonl"]
   P --> T["runtime_safety_audit.json"]
-  R --> U["tool_feasibility_audit.json"]
+  Q --> U["tool_feasibility_audit.json"]
   S --> V["recipe_validation_audit.json"]
   T --> W["patch_v1_5_coverage_report.json"]
   U --> W
@@ -340,3 +336,32 @@ Report Intelligence 对 master plan 的贡献主要落在以下部分：
 4. analysis recipe 只能在 direct PIT binding、effective N、after-cost alpha、OOS、regime 分散和 shadow tool implementation 全部满足后进入 validated shadow set。
 5. confidence impact monitor 已进入 shadow 观测，但生产决策影响仍必须保持 false，直到 promotion 和 lockbox 同时通过。
 6. lockbox 未打开前，不允许任何 report-only signal 进入 production decision。
+
+
+## Tool gap review facts
+
+`tool_gaps.jsonl` is the single fact source for gap ownership, priority, data review
+and shadow implementation. `data_decision_status` and `shadow_implementation_status`
+record different decisions; `requested_tools` retains reviewed tool identities.
+Unique human fields live in `data_review` or `tool_review`. Unmodified input/output,
+PIT, license and validation templates are rendered on demand, not stored twice.
+
+The recipe queue, prompt candidates, monitoring, feasibility and coverage checks
+read gaps directly. RI-TOOL-03/04, which required paired templates and checked their
+fixed defaults, are retired. Coverage, source/PIT/license, runtime fallback,
+recipe evidence and production promotion requirements remain in their owners.
+The stock market-cap missing-data record is now a gap with its observed snapshot
+count; it is no longer an orphan data proposal.
+
+The two proposal Schemas, result counts and active export paths are removed.
+Their former paths remain private. Existing private proposals require the explicit
+[migration procedure](runbooks/rke_report_intelligence_operations.md#tool-gap-review-migration)
+before full refresh or export. The migration preserves original bytes in private
+archives and rejects conflicts without writing. Archives are excluded from active
+snapshot manifests and exports; a manifest referencing retired artifacts is rejected.
+
+The feasibility audit, monitoring report, patch coverage and recipe summary use
+`tool_gap_contract: tool_gap_facts_v1`. Rebuild these with an explicit full refresh;
+versionless historical reports do not satisfy the current Schemas. They are not
+upgraded by editing a version field. Basic retrieval remains independent of these
+research reports and proposal migration.

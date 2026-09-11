@@ -159,6 +159,7 @@ def test_export_private_registries_copies_json_not_cache(tmp_path, monkeypatch):
         registry / "processing_status.jsonl",
         [{"source_id": "SRC-1", "llm_status": "processed"}],
     )
+    _write_jsonl(registry / "retired_proposals/data_acquisition_proposals.jsonl", [{"reviewer_note": "PRIVATE_ARCHIVE"}])
     cache_file = tmp_path / ".mosaic/rke/report_intelligence/pdfs/SRC-1.pdf"
     cache_file.parent.mkdir(parents=True)
     cache_file.write_bytes(b"%PDF")
@@ -174,6 +175,8 @@ def test_export_private_registries_copies_json_not_cache(tmp_path, monkeypatch):
     assert (out / "registry/sources/tushare_research_reports.jsonl").exists()
     assert not (out / ".mosaic/rke/report_intelligence/pdfs/SRC-1.pdf").exists()
     assert not stale.exists()
+    assert not (out / "registry/report_intelligence/retired_proposals").exists()
+    assert not (out / "registry/report_intelligence/data_acquisition_proposals.jsonl").exists()
     assert result["removed_files"] == [
         "registry/report_intelligence/tool_gaps.jsonl"
     ]
@@ -460,3 +463,18 @@ def test_report_intelligence_skips_cloned_fingerprint_duplicates(tmp_path):
     ]
     assert status[0]["source_id"] == "SRC-DUP"
     assert status[0]["blockers"] == ["duplicate_report_fingerprint:source_id"]
+
+
+
+def test_export_private_registries_rejects_unmigrated_reviews_without_writes(tmp_path):
+    registry = tmp_path / "registry/report_intelligence"
+    path = registry / "data_acquisition_proposals.jsonl"
+    _write_jsonl(path, [{"reviewer_note": "PRIVATE_REVIEW"}])
+    before = path.read_bytes(), path.stat().st_mtime_ns
+    result = export_private_registries(root=tmp_path, output_dir=tmp_path / "export")
+    assert not result["accepted"] and result["copied_files"] == []
+    assert "migrate tool gap reviews" in result["blockers"][0]
+    assert "PRIVATE_REVIEW" not in json.dumps(result)
+    assert not (tmp_path / "export").exists()
+    assert not (registry / "report_fingerprint_manifest.jsonl").exists()
+    assert before == (path.read_bytes(), path.stat().st_mtime_ns)

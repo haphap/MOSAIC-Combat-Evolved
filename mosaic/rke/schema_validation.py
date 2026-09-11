@@ -480,18 +480,6 @@ REPORT_INTELLIGENCE_JSON_SCHEMA_TARGETS = (
         True,
     ),
     (
-        "schemas/report_intelligence_data_acquisition_proposal.schema.json",
-        "registry/report_intelligence/data_acquisition_proposals.jsonl",
-        "jsonl",
-        True,
-    ),
-    (
-        "schemas/report_intelligence_tool_design_proposal.schema.json",
-        "registry/report_intelligence/tool_design_proposals.jsonl",
-        "jsonl",
-        True,
-    ),
-    (
         "schemas/report_intelligence_analysis_recipe.schema.json",
         "registry/report_intelligence/analysis_recipes.jsonl",
         "jsonl",
@@ -1295,8 +1283,6 @@ EXTRACTION_REPORT_PUBLIC_JSONL_COUNT_FIELDS = (
     ("method_pattern_rows", "registry/report_intelligence/method_patterns.jsonl"),
     ("tool_coverage_match_rows", "registry/report_intelligence/tool_coverage_matches.jsonl"),
     ("tool_gap_rows", "registry/report_intelligence/tool_gaps.jsonl"),
-    ("data_acquisition_proposal_rows", "registry/report_intelligence/data_acquisition_proposals.jsonl"),
-    ("tool_design_proposal_rows", "registry/report_intelligence/tool_design_proposals.jsonl"),
     ("analysis_recipe_rows", "registry/report_intelligence/analysis_recipes.jsonl"),
     ("runtime_tool_gap_observation_rows", "registry/report_intelligence/runtime_tool_gap_observations.jsonl"),
 )
@@ -1313,7 +1299,6 @@ REPORT_INTELLIGENCE_LOCAL_DETAIL_SEMANTIC_PATHS = frozenset(
         "registry/report_intelligence/monitor_refresh_history.jsonl",
         "registry/report_intelligence/prompt_mutation_candidates.jsonl",
         "registry/report_intelligence/recipe_paper_trading_runs.jsonl",
-        "registry/report_intelligence/tool_design_proposals.jsonl",
     }
 )
 REPORT_INTELLIGENCE_PUBLIC_FORBIDDEN_TEXT_KEYS = {
@@ -6472,32 +6457,34 @@ def _data_acquisition_prompt_candidate_expected_evidence_refs(
     root_path: Path,
     failures: list[str],
 ) -> list[dict[str, Any]]:
+    from .report_intelligence import _tool_gap_license_status, _tool_gap_pit_feasibility_status
+
     rows, row_failures, _rows_present = _load_public_semantic_jsonl(
         root_path,
-        "registry/report_intelligence/data_acquisition_proposals.jsonl",
+        "registry/report_intelligence/tool_gaps.jsonl",
     )
     failures.extend(row_failures)
     active_rows = [
         row
         for row in rows
-        if str(row.get("decision_status") or "pending_review") != "rejected"
+        if str(row.get("data_decision_status") or "pending_review") != "rejected" and row.get("status") != "retired"
     ]
     priority_counts: dict[str, int] = {}
     pit_counts: dict[str, int] = {}
     license_counts: dict[str, int] = {}
     for row in active_rows:
-        priority = str(row.get("business_priority") or "").strip() or "unknown"
-        pit_status = str(row.get("pit_feasibility_status") or "").strip() or "unknown"
-        license_status = str(row.get("license_status") or "").strip() or "unknown"
+        priority = str(row.get("priority_bucket") or "").strip() or "unknown"
+        pit_status = str(_tool_gap_pit_feasibility_status(row) or "").strip() or "unknown"
+        license_status = str(_tool_gap_license_status(row) or "").strip() or "unknown"
         priority_counts[priority] = priority_counts.get(priority, 0) + 1
         pit_counts[pit_status] = pit_counts.get(pit_status, 0) + 1
         license_counts[license_status] = license_counts.get(license_status, 0) + 1
     return [
         {
-            "artifact_path": "registry/report_intelligence/data_acquisition_proposals.jsonl",
-            "field": "decision_status",
-            "proposal_count": len(active_rows),
-            "business_priority_counts": dict(sorted(priority_counts.items())),
+            "artifact_path": "registry/report_intelligence/tool_gaps.jsonl",
+            "field": "data_decision_status",
+            "tool_gap_count": len(active_rows),
+            "priority_bucket_counts": dict(sorted(priority_counts.items())),
             "pit_feasibility_status_counts": dict(sorted(pit_counts.items())),
             "license_status_counts": dict(sorted(license_counts.items())),
             "market_cap_metadata_gap_count": sum(
@@ -9891,6 +9878,8 @@ def validate_report_intelligence_semantics(
     tool_feasibility_audit_failures.extend(tool_feasibility_audit_errors)
     tool_feasibility_checks = []
     if tool_feasibility_audit:
+        if tool_feasibility_audit.get("tool_gap_contract") != "tool_gap_facts_v1":
+            tool_feasibility_audit_failures.append("tool_feasibility_audit: retired or missing tool gap contract; rebuild full research scope")
         tool_feasibility_checks = [
             item
             for item in tool_feasibility_audit.get("checks", [])
@@ -9904,7 +9893,7 @@ def validate_report_intelligence_semantics(
             tool_feasibility_audit_failures.append(
                 "tool_feasibility_audit blocker_count must be zero"
             )
-        expected_check_ids = {f"RI-TOOL-{index:02d}" for index in range(7)}
+        expected_check_ids = {f"RI-TOOL-{index:02d}" for index in (0, 1, 2, 5, 6)}
         observed_check_ids = {
             str(item.get("check_id") or "") for item in tool_feasibility_checks
         }
@@ -10407,14 +10396,6 @@ def validate_report_intelligence_semantics(
         "registry/report_intelligence/tool_gaps.jsonl",
     )
     (
-        data_proposal_rows,
-        data_proposal_failures,
-        _data_proposal_rows_present,
-    ) = _load_public_semantic_jsonl(
-        root_path,
-        "registry/report_intelligence/data_acquisition_proposals.jsonl",
-    )
-    (
         metric_candidate_rows,
         metric_candidate_failures,
         _metric_candidate_rows_present,
@@ -10436,7 +10417,6 @@ def validate_report_intelligence_semantics(
             *viewpoint_profile_failures,
             *method_profile_failures,
             *tool_gap_failures,
-            *data_proposal_failures,
             *metric_candidate_failures,
             *tool_coverage_failures,
         ]
@@ -10558,9 +10538,9 @@ def validate_report_intelligence_semantics(
                     _tool_gap_rows_present,
                 ),
                 (
-                    "data_proposal_open_count",
-                    len(data_proposal_rows),
-                    _data_proposal_rows_present,
+                    "data_review_open_count",
+                    sum(row.get("data_decision_status", "pending_review") not in {"accepted", "rejected", "closed"} for row in tool_gap_rows if row.get("status") != "retired"),
+                    _tool_gap_rows_present,
                 ),
                 (
                     "runtime_fallback_observation_count",
@@ -10896,105 +10876,22 @@ def validate_report_intelligence_semantics(
         root_path,
         "registry/report_intelligence/tool_gaps.jsonl",
     )
-    (
-        data_proposal_rows,
-        data_proposal_failures,
-        _data_proposal_rows_present,
-    ) = _load_public_semantic_jsonl(
-        root_path,
-        "registry/report_intelligence/data_acquisition_proposals.jsonl",
-    )
-    (
-        tool_proposal_rows,
-        tool_proposal_failures,
-        _tool_proposal_rows_present,
-    ) = _load_public_semantic_jsonl(
-        root_path,
-        "registry/report_intelligence/tool_design_proposals.jsonl",
-    )
-    tooling_failures.extend(
-        [*tool_gap_failures, *data_proposal_failures, *tool_proposal_failures]
-    )
-    data_by_gap = {
-        str(row.get("tool_gap_id") or ""): row for row in data_proposal_rows
-    }
-    tool_by_gap = {
-        str(row.get("tool_gap_id") or ""): row for row in tool_proposal_rows
-    }
-    required_proposal_fields = (
-        "owner",
-        "license_status",
-        "pit_feasibility_status",
-        "estimated_engineering_effort",
-    )
-    required_tool_fields = (
-        "owner",
-        "license_status",
-        "pit_feasibility_status",
-        "engineering_estimate",
-    )
+    tooling_failures.extend(tool_gap_failures)
     for index, gap in enumerate(tool_gap_rows, 1):
-        priority = str(gap.get("priority_bucket") or "")
-        gap_id = str(gap.get("tool_gap_id") or "")
-        if priority not in {"high", "medium"}:
+        if gap.get("status") == "retired":
             continue
-        if not gap_id:
-            tooling_failures.append(f"tool_gaps row {index}: tool_gap_id required")
-            continue
-        data_proposal = data_by_gap.get(gap_id)
-        tool_proposal = tool_by_gap.get(gap_id)
-        if data_proposal is None:
-            tooling_failures.append(
-                f"tool_gaps row {index}: {priority} gap missing data acquisition proposal"
-            )
-        else:
-            for field in required_proposal_fields:
-                if not str(data_proposal.get(field) or "").strip():
-                    tooling_failures.append(
-                        f"data_acquisition_proposals[{gap_id}].{field}: required for {priority} gap"
-                    )
-            if data_proposal.get("source_tool_gap_priority") != priority:
-                tooling_failures.append(
-                    f"data_acquisition_proposals[{gap_id}]: source_tool_gap_priority mismatch"
-                )
-            if data_proposal.get("owner") != gap.get("owner"):
-                tooling_failures.append(
-                    f"data_acquisition_proposals[{gap_id}]: owner must match tool gap"
-                )
-        if tool_proposal is None:
-            tooling_failures.append(
-                f"tool_gaps row {index}: {priority} gap missing tool design proposal"
-            )
-        else:
-            for field in required_tool_fields:
-                if not str(tool_proposal.get(field) or "").strip():
-                    tooling_failures.append(
-                        f"tool_design_proposals[{gap_id}].{field}: required for {priority} gap"
-                    )
-            if tool_proposal.get("source_tool_gap_priority") != priority:
-                tooling_failures.append(
-                    f"tool_design_proposals[{gap_id}]: source_tool_gap_priority mismatch"
-                )
-            if tool_proposal.get("owner") != gap.get("owner"):
-                tooling_failures.append(
-                    f"tool_design_proposals[{gap_id}]: owner must match tool gap"
-                )
-            if tool_proposal.get("status") not in {
-                "shadow_build_requested",
-                "blocked_pending_review",
-            }:
-                tooling_failures.append(
-                    f"tool_design_proposals[{gap_id}]: status must stay shadow or blocked"
-                )
+        if gap.get("priority_bucket") in {"high", "medium"}:
+            for field in ("tool_gap_id", "owner", "status"):
+                if not str(gap.get(field) or "").strip():
+                    tooling_failures.append(f"tool_gaps row {index}: {field} required")
+    for name in ("data_acquisition_proposals.jsonl", "tool_design_proposals.jsonl"):
+        if (root_path / "registry/report_intelligence" / name).exists():
+            tooling_failures.append(f"{name}: retired artifact; migrate tool gap reviews explicitly")
     records.append(
         SchemaValidationRecord(
             schema_path="schemas/report_intelligence_tooling_readiness_rules",
             artifact_path="registry/report_intelligence",
-            item_count=(
-                len(tool_gap_rows)
-                + len(data_proposal_rows)
-                + len(tool_proposal_rows)
-            ),
+            item_count=len(tool_gap_rows),
             accepted=not tooling_failures,
             failures=tuple(tooling_failures),
         )

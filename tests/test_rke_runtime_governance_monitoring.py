@@ -96,7 +96,8 @@ def test_v15_evolution_targets_allow_report_intelligence_shadow_paths():
 
     assert targets.allows("/analysis_recipe_registry/RECIPE-CB-00009/runtime_mode")
     assert targets.allows("/metric_candidate_registry/METRIC-CB-00017/aliases")
-    assert targets.allows("/tool_design_proposals/TDP-CB-00018/status")
+    assert targets.allows("/tool_gaps/TG-CB-00018/shadow_implementation_status")
+    assert not targets.allows("/tool_design_proposals/TDP-CB-00018/status")
     assert targets.allows("/rule_packs/macro.central_bank.liquidity.v1/research_prior")
     assert targets.allows(
         "/rule_packs/macro.central_bank.liquidity.v1/rules/"

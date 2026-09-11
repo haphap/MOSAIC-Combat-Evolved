@@ -535,8 +535,6 @@ REPORT_INTELLIGENCE_PATCH_V1_5_SCHEMA_ARTIFACTS = (
     "report_intelligence_metric_candidate.schema.json",
     "report_intelligence_method_pattern.schema.json",
     "report_intelligence_tool_gap.schema.json",
-    "report_intelligence_data_acquisition_proposal.schema.json",
-    "report_intelligence_tool_design_proposal.schema.json",
     "report_intelligence_analysis_recipe.schema.json",
 )
 FORECAST_GOLD_MIN_REVIEWED_CLAIMS = 100
@@ -1313,8 +1311,6 @@ class ReportIntelligenceRunResult:
     macro_agent_research_prior_rows: int | None = None
     method_performance_profile_rows: int | None = None
     tool_coverage_match_rows: int | None = None
-    data_acquisition_proposal_rows: int | None = None
-    tool_design_proposal_rows: int | None = None
     analysis_recipe_rows: int | None = None
     prompt_mutation_candidate_rows: int | None = None
     weighted_research_context_rows: int | None = None
@@ -21323,6 +21319,8 @@ def _tool_name_for_metric(metric_name: str) -> str:
 
 
 def _tool_gap_license_status(gap: Mapping[str, Any]) -> str:
+    if gap.get("license_status"):
+        return str(gap["license_status"])
     text = " ".join(
         [
             str(gap.get("gap_type") or ""),
@@ -21338,6 +21336,8 @@ def _tool_gap_license_status(gap: Mapping[str, Any]) -> str:
 
 
 def _tool_gap_pit_feasibility_status(gap: Mapping[str, Any]) -> str:
+    if gap.get("pit_feasibility_status"):
+        return str(gap["pit_feasibility_status"])
     text = " ".join(
         [
             str(gap.get("gap_type") or ""),
@@ -21353,6 +21353,8 @@ def _tool_gap_pit_feasibility_status(gap: Mapping[str, Any]) -> str:
 
 
 def _tool_gap_engineering_effort(gap: Mapping[str, Any]) -> str:
+    if gap.get("engineering_effort"):
+        return str(gap["engineering_effort"])
     priority = str(gap.get("priority_bucket") or "low")
     gap_type = str(gap.get("gap_type") or "").lower().replace(" ", "_")
     pit_status = _tool_gap_pit_feasibility_status(gap)
@@ -21367,13 +21369,13 @@ def _tool_gap_engineering_effort(gap: Mapping[str, Any]) -> str:
 
 def build_data_acquisition_proposals(
     tool_gap_rows: Sequence[Mapping[str, Any]],
-    *,
-    stock_context_snapshot_rows: Sequence[Mapping[str, Any]] = (),
 ) -> list[dict[str, Any]]:
     proposals: list[dict[str, Any]] = []
     for gap in tool_gap_rows:
         gap_id = str(gap.get("tool_gap_id") or "")
-        metric_name = str(gap.get("metric_name") or gap.get("metric_candidate_id") or "")
+        metric_name = str(
+            gap.get("metric_name") or gap.get("metric_candidate_id") or ""
+        )
         if not gap_id or str(gap.get("status") or "") == "retired":
             continue
         owner = str(gap.get("owner") or "data_engineering")
@@ -21382,11 +21384,15 @@ def build_data_acquisition_proposals(
         engineering_effort = _tool_gap_engineering_effort(gap)
         proposals.append(
             {
-                "data_proposal_id": _stable_id("DAP", {"tool_gap_id": gap_id}),
                 "tool_gap_id": gap_id,
                 "owner": owner,
                 "requested_dataset": metric_name or "unknown_dataset",
-                "required_fields": ["date", "value", "source_timestamp", "quality_flags"],
+                "required_fields": [
+                    "date",
+                    "value",
+                    "source_timestamp",
+                    "quality_flags",
+                ],
                 "pit_requirements": {
                     "timestamp_required": True,
                     "revision_tracking_required": True,
@@ -21409,57 +21415,31 @@ def build_data_acquisition_proposals(
                 "decision_status": "pending_review",
             }
         )
-    market_cap_missing_count = sum(
-        1
-        for row in stock_context_snapshot_rows
-        if "market_cap_bucket_missing" in _ensure_list(row.get("missing_feature_reasons"))
-    )
-    if market_cap_missing_count:
-        proposals.append(
-            {
-                "data_proposal_id": _stable_id(
-                    "DAP",
-                    {"tool_gap_id": "stock_context_market_cap_metadata_missing"},
-                ),
-                "tool_gap_id": "stock_context_market_cap_metadata_missing",
-                "owner": "data_engineering",
-                "requested_dataset": "stock_market_cap_pit_metadata",
-                "required_fields": [
-                    "stock_symbol",
-                    "as_of_date",
-                    "total_market_cap_cny",
-                    "float_market_cap_cny",
-                    "source_timestamp",
-                    "quality_flags",
-                ],
-                "pit_requirements": {
-                    "timestamp_required": True,
-                    "revision_tracking_required": True,
-                    "minimum_history_years": 5,
-                    "survivorship_issue": True,
-                },
-                "license_requirements": {
-                    "internal_model_use": True,
-                    "derived_metric_storage": True,
-                    "external_redistribution": False,
-                },
-                "license_status": "pending_review",
-                "pit_feasibility_status": "requires_pit_backfill_review",
-                "expected_use_cases": [
-                    "stock_context_market_cap_bucket",
-                    "superinvestor_stock_prior_stratification",
-                    "decision_agent_risk_context",
-                ],
-                "estimated_engineering_effort": "medium",
-                "estimated_vendor_cost_bucket": "unknown",
-                "business_priority": "medium",
-                "source_tool_gap_priority": "medium",
-                "decision_status": "pending_review",
-                "evidence_summary": {
-                    "missing_feature": "market_cap_bucket_missing",
-                    "affected_stock_context_snapshot_count": market_cap_missing_count,
-                },
-            }
+        proposal = proposals[-1]
+        if gap["tool_gap_id"] == "stock_context_market_cap_metadata_missing":
+            proposal.update(
+                {
+                    "requested_dataset": "stock_market_cap_pit_metadata",
+                    "required_fields": [
+                        "stock_symbol",
+                        "as_of_date",
+                        "total_market_cap_cny",
+                        "float_market_cap_cny",
+                        "source_timestamp",
+                        "quality_flags",
+                    ],
+                    "expected_use_cases": [
+                        "stock_context_market_cap_bucket",
+                        "superinvestor_stock_prior_stratification",
+                        "decision_agent_risk_context",
+                    ],
+                    "evidence_summary": gap.get("evidence_summary", {}),
+                }
+            )
+            proposal["pit_requirements"]["survivorship_issue"] = True
+        proposal.update(_ensure_mapping(gap.get("data_review")))
+        proposal["decision_status"] = str(
+            gap.get("data_decision_status") or "pending_review"
         )
     return proposals
 
@@ -21476,7 +21456,6 @@ def build_tool_design_proposals(
         owner = str(gap.get("owner") or "data_engineering")
         proposals.append(
             {
-                "tool_proposal_id": _stable_id("TDP", {"tool_gap_id": gap_id}),
                 "tool_gap_id": gap_id,
                 "owner": owner,
                 "tool_name_candidate": _tool_name_for_metric(metric_name),
@@ -21518,7 +21497,216 @@ def build_tool_design_proposals(
                 "status": "shadow_build_requested",
             }
         )
+        proposal = proposals[-1]
+        proposal.update(_ensure_mapping(gap.get("tool_review")))
+        proposal["requested_tools"] = (
+            _ensure_list(gap.get("requested_tools")) or proposal["requested_tools"]
+        )
+        proposal["status"] = str(
+            gap.get("shadow_implementation_status") or "shadow_build_requested"
+        )
     return proposals
+
+
+def _stock_market_cap_tool_gap(evidence: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "tool_gap_id": "stock_context_market_cap_metadata_missing",
+        "gap_type": "data_availability_missing",
+        "metric_candidate_id": "",
+        "metric_name": "stock_market_cap_pit_metadata",
+        "method_pattern_ids": [],
+        "target_agents": [],
+        "research_origin": {},
+        "priority_bucket": "medium",
+        "priority_reasons": ["market_cap_bucket_missing"],
+        "blocking_issues": ["requires_pit_backfill_review"],
+        "owner": "data_engineering",
+        "status": "proposal_pending",
+        "pit_feasibility_status": "requires_pit_backfill_review",
+        "engineering_effort": "medium",
+        "evidence_summary": dict(evidence),
+    }
+
+
+def backfill_stock_market_cap_tool_gap(
+    tool_gap_rows: Sequence[Mapping[str, Any]],
+    stock_context_snapshot_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    count = sum(
+        "market_cap_bucket_missing" in _ensure_list(row.get("missing_feature_reasons"))
+        for row in stock_context_snapshot_rows
+    )
+    rows = [dict(row) for row in tool_gap_rows]
+    gap = _stock_market_cap_tool_gap(
+        {
+            "missing_feature": "market_cap_bucket_missing",
+            "affected_stock_context_snapshot_count": count,
+        }
+    )
+    existing = next(
+        (row for row in rows if row.get("tool_gap_id") == gap["tool_gap_id"]), None
+    )
+    if existing is not None:
+        existing["evidence_summary"] = gap["evidence_summary"]
+        if not count:
+            existing.update(
+                status="retired", priority_bucket="resolved", blocking_issues=[]
+            )
+        elif existing.get("status") == "retired":
+            existing.update(
+                status="proposal_pending",
+                priority_bucket="medium",
+                blocking_issues=gap["blocking_issues"],
+            )
+    elif count:
+        rows.append(gap)
+    return rows
+
+
+RETIRED_TOOL_PROPOSAL_FILES = (
+    "data_acquisition_proposals.jsonl",
+    "tool_design_proposals.jsonl",
+)
+
+
+def _unmigrated_tool_gap_review_blockers(directory: Path) -> list[str]:
+    return [
+        f"{name}: retired artifact; run report-intelligence --migrate-tool-gap-reviews --dry-run"
+        for name in RETIRED_TOOL_PROPOSAL_FILES
+        if (directory / name).exists()
+    ]
+
+
+def _read_tool_gap_facts(path: Path, *, blockers: list[str]) -> list[Mapping[str, Any]]:
+    legacy = _unmigrated_tool_gap_review_blockers(path.parent)
+    if legacy:
+        raise ValueError("; ".join(legacy))
+    return _read_registry_jsonl(path, label="tool_gaps", blockers=blockers)
+
+
+def migrate_tool_gap_reviews(
+    *,
+    root: str | Path = ".",
+    registry_dir: str | Path | None = None,
+    dry_run: bool = True,
+) -> dict[str, Any]:
+    """One-time explicit migration; archive source bytes, never echo review prose."""
+    directory = resolve_report_intelligence_registry_dir(root, registry_dir)
+    sources = [
+        directory / name
+        for name in RETIRED_TOOL_PROPOSAL_FILES
+        if (directory / name).exists()
+    ]
+    result: dict[str, Any] = {
+        "accepted": True,
+        "applied": False,
+        "dry_run": dry_run,
+        "source_file_count": len(sources),
+        "migrated_review_count": 0,
+        "blockers": [],
+    }
+    if not sources:
+        return result
+    blockers = result["blockers"]
+    gaps = _read_registry_jsonl(
+        directory / "tool_gaps.jsonl", label="tool_gaps", blockers=blockers
+    )
+    by_id, gap_errors = _rows_by_id(gaps, id_field="tool_gap_id")
+    blockers.extend(gap_errors)
+    merged = {key: dict(value) for key, value in by_id.items()}
+    original_bytes = {path: path.read_bytes() for path in sources}
+    for path in sources:
+        archive = directory / "retired_proposals" / path.name
+        if archive.exists() and archive.read_bytes() != original_bytes[path]:
+            blockers.append(f"{path.name}: archive already contains different data")
+        rows = _read_registry_jsonl(path, label=path.name, blockers=blockers)
+        _, duplicate_errors = _rows_by_id(rows, id_field="tool_gap_id")
+        blockers.extend(duplicate_errors)
+        is_data = path.name == RETIRED_TOOL_PROPOSAL_FILES[0]
+        for index, row in enumerate(rows, 1):
+            gap_id = str(row.get("tool_gap_id") or "")
+            if gap_id not in merged:
+                if is_data and gap_id == "stock_context_market_cap_metadata_missing":
+                    merged[gap_id] = _stock_market_cap_tool_gap(
+                        _ensure_mapping(row.get("evidence_summary"))
+                    )
+                else:
+                    blockers.append(f"{path.name} row {index}: unknown tool gap")
+                    continue
+            gap = merged[gap_id]
+            # Compare to the original gap, before applying any proposal overrides.
+            baseline_gap = by_id.get(gap_id, gap)
+            defaults = (
+                build_data_acquisition_proposals
+                if is_data
+                else build_tool_design_proposals
+            )([baseline_gap])
+            defaults = defaults[0] if defaults else {}
+            aliases = {
+                "owner": "owner",
+                "source_tool_gap_priority": "priority_bucket",
+                "business_priority": "priority_bucket",
+                "target_agents": "target_agents",
+                "license_status": "license_status",
+                "pit_feasibility_status": "pit_feasibility_status",
+                "estimated_engineering_effort": "engineering_effort",
+                "engineering_estimate": "engineering_effort",
+                "requested_tools": "requested_tools",
+                **(
+                    {"decision_status": "data_decision_status"}
+                    if is_data
+                    else {
+                        "status": "shadow_implementation_status",
+                        **{
+                            key: key
+                            for key in (
+                                "shadow_implementation_status",
+                                "implementation_status",
+                                "shadow_implementation",
+                                "required_tools",
+                                "shadow_requested_tools",
+                                "requested_tool",
+                                "required_tool",
+                            )
+                        },
+                    }
+                ),
+            }
+            review_key = "data_review" if is_data else "tool_review"
+            for key, value in row.items():
+                if key in {"tool_gap_id", "data_proposal_id", "tool_proposal_id"}:
+                    continue
+                if key in defaults and value == defaults[key]:
+                    continue
+                target = aliases.get(key)
+                destination = gap if target else gap.setdefault(review_key, {})
+                target = target or key
+                if not isinstance(destination, dict) or (
+                    target in destination and destination[target] != value
+                ):
+                    blockers.append(
+                        f"{path.name} row {index}: conflicting review fields"
+                    )
+                else:
+                    destination[target] = value
+            result["migrated_review_count"] += 1
+    if blockers:
+        result["accepted"] = False
+        return result
+    result["tool_gap_count"] = len(merged)
+    if dry_run:
+        return result
+    # Publish the canonical file first. An interrupted archive move can be retried;
+    # identical existing fields are accepted above, conflicting ones never overwrite.
+    temporary = directory / ".tool_gaps.migration.jsonl"
+    _write_jsonl(temporary, list(merged.values()))
+    temporary.replace(directory / "tool_gaps.jsonl")
+    archive_directory = directory / "retired_proposals"
+    archive_directory.mkdir(exist_ok=True)
+    for path in sources:
+        path.replace(archive_directory / path.name)
+    result["applied"] = True
+    return result
 
 
 ANALYSIS_RECIPE_ENTRY_CONDITION = "T+1_or_more_conservative_shadow_entry"
@@ -22568,36 +22756,13 @@ def _requested_tools_from_tool_record(row: Mapping[str, Any]) -> list[str]:
     )
 
 
-def _proposal_rows_by_gap_id(
-    tool_design_proposal_rows: Sequence[Mapping[str, Any]],
-) -> dict[str, list[Mapping[str, Any]]]:
-    rows_by_gap_id: dict[str, list[Mapping[str, Any]]] = {}
-    for proposal in tool_design_proposal_rows:
-        gap_id = str(proposal.get("tool_gap_id") or "").strip()
-        if gap_id:
-            rows_by_gap_id.setdefault(gap_id, []).append(proposal)
-    return rows_by_gap_id
 
 
 def _shadow_implemented_requested_tools(
-    *,
-    tool_gap_rows: Sequence[Mapping[str, Any]],
-    tool_design_proposal_rows: Sequence[Mapping[str, Any]] = (),
+    *, tool_gap_rows: Sequence[Mapping[str, Any]],
 ) -> list[str]:
-    proposal_rows_by_gap_id = _proposal_rows_by_gap_id(tool_design_proposal_rows)
-    implemented_tools: set[str] = set()
-    for gap in tool_gap_rows:
-        gap_id = str(gap.get("tool_gap_id") or "").strip()
-        proposals = proposal_rows_by_gap_id.get(gap_id, ())
-        if not (
-            _tool_gap_shadow_implemented(gap)
-            or any(_tool_gap_shadow_implemented(proposal) for proposal in proposals)
-        ):
-            continue
-        implemented_tools.update(_requested_tools_from_tool_record(gap))
-        for proposal in proposals:
-            implemented_tools.update(_requested_tools_from_tool_record(proposal))
-    return sorted(implemented_tools)
+    return sorted({tool for gap in tool_gap_rows if gap.get("status") != "retired" and _tool_gap_shadow_implemented(gap)
+                   for tool in _requested_tools_from_tool_record(gap)})
 
 
 def build_recipe_paper_trading_runs(
@@ -22850,7 +23015,6 @@ def build_recipe_paper_trading_summary(
     run_id: str,
     recipe_paper_trading_runs: Sequence[Mapping[str, Any]],
     tool_gap_rows: Sequence[Mapping[str, Any]] = (),
-    tool_design_proposal_rows: Sequence[Mapping[str, Any]] = (),
     direct_pit_binding_gap_details: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     status_counts: dict[str, int] = {}
@@ -22869,12 +23033,10 @@ def build_recipe_paper_trading_summary(
     unimplemented_tool_gap_ids: set[str] = set()
     shadow_implemented_tool_gap_ids: set[str] = set()
     queued_tool_gap_ids: set[str] = set()
-    queued_tool_proposal_ids: set[str] = set()
     queued_requested_tools: set[str] = set()
     shadow_implemented_requested_tools = set(
         _shadow_implemented_requested_tools(
             tool_gap_rows=tool_gap_rows,
-            tool_design_proposal_rows=tool_design_proposal_rows,
         )
     )
     queued_recipe_ids: set[str] = set()
@@ -22895,15 +23057,7 @@ def build_recipe_paper_trading_summary(
                         method_key,
                         [],
                     ).append(gap_id)
-    proposal_rows_by_gap_id = _proposal_rows_by_gap_id(tool_design_proposal_rows)
-    proposal_ids_by_gap_id: dict[str, list[str]] = {}
-    for proposal in tool_design_proposal_rows:
-        gap_id = str(proposal.get("tool_gap_id") or "").strip()
-        proposal_id = str(proposal.get("tool_proposal_id") or "").strip()
-        if gap_id and proposal_id:
-            proposal_ids_by_gap_id.setdefault(gap_id, []).append(proposal_id)
     tool_only_gap_ids: set[str] = set()
-    tool_only_proposal_ids: set[str] = set()
     for run in recipe_paper_trading_runs:
         status = str(run.get("paper_trading_status") or "unknown")
         status_counts[status] = status_counts.get(status, 0) + 1
@@ -22927,9 +23081,6 @@ def build_recipe_paper_trading_summary(
                     (),
                 ):
                     tool_only_gap_ids.add(gap_id)
-                    tool_only_proposal_ids.update(
-                        proposal_ids_by_gap_id.get(gap_id, ())
-                    )
         if "required_tools_not_shadow_implemented" in blocked_reasons:
             queued_recipe_ids.add(recipe_id)
             for tool in _ensure_list(run.get("required_tools")):
@@ -22946,9 +23097,6 @@ def build_recipe_paper_trading_summary(
                     (),
                 ):
                     queued_tool_gap_ids.add(gap_id)
-                    queued_tool_proposal_ids.update(
-                        proposal_ids_by_gap_id.get(gap_id, ())
-                    )
         if status == "passed":
             passed_ids.append(recipe_id)
         else:
@@ -23073,11 +23221,10 @@ def build_recipe_paper_trading_summary(
         if gap_id not in queued_tool_gap_ids:
             continue
         queued_gap_requested_tools.update(_requested_tools_from_tool_record(gap))
-        for proposal in proposal_rows_by_gap_id.get(gap_id, ()):
-            queued_gap_requested_tools.update(_requested_tools_from_tool_record(proposal))
     unlinked_requested_tools = queued_requested_tools - queued_gap_requested_tools
     return {
         "summary_id": "RKE-REPORT-INTELLIGENCE-RECIPE-PAPER-TRADING-SUMMARY",
+        "tool_gap_contract": "tool_gap_facts_v1",
         "run_id": run_id,
         "as_of_datetime": _utc_now(),
         "protocol_version": RECIPE_PAPER_TRADING_PROTOCOL_VERSION,
@@ -23102,8 +23249,6 @@ def build_recipe_paper_trading_summary(
         "tool_only_blocked_recipe_ids": sorted(tool_only_blocked_ids),
         "tool_only_blocked_tool_gap_count": len(tool_only_gap_ids),
         "tool_only_blocked_tool_gap_ids": sorted(tool_only_gap_ids),
-        "tool_only_blocked_tool_proposal_count": len(tool_only_proposal_ids),
-        "tool_only_blocked_tool_proposal_ids": sorted(tool_only_proposal_ids),
         "tool_implementation_queue": {
             "queue_policy": (
                 "implement or explicitly reject tool gaps linked to direct-PIT "
@@ -23122,8 +23267,6 @@ def build_recipe_paper_trading_summary(
             ),
             "tool_gap_count": len(queued_tool_gap_ids),
             "tool_gap_ids": sorted(queued_tool_gap_ids),
-            "tool_proposal_count": len(queued_tool_proposal_ids),
-            "tool_proposal_ids": sorted(queued_tool_proposal_ids),
             "shadow_implemented_tool_gap_count": len(
                 shadow_implemented_tool_gap_ids
             ),
@@ -23594,20 +23737,8 @@ def write_report_intelligence_recipe_paper_trading_artifacts(
         )
     tool_gap_rows: list[Mapping[str, Any]] = []
     tool_gap_path = registry_path / "tool_gaps.jsonl"
-    if tool_gap_path.exists():
-        tool_gap_rows = _read_registry_jsonl(
-            tool_gap_path,
-            label="tool_gaps",
-            blockers=blockers,
-        )
-    tool_design_proposal_rows: list[Mapping[str, Any]] = []
-    tool_design_proposal_path = registry_path / "tool_design_proposals.jsonl"
-    if tool_design_proposal_path.exists():
-        tool_design_proposal_rows = _read_registry_jsonl(
-            tool_design_proposal_path,
-            label="tool_design_proposals",
-            blockers=blockers,
-        )
+    if tool_gap_path.exists() or _unmigrated_tool_gap_review_blockers(registry_path):
+        tool_gap_rows = _read_tool_gap_facts(tool_gap_path, blockers=blockers)
     outcome_label_path = registry_path / "report_outcome_labels.jsonl"
     outcome_label_rows: list[Mapping[str, Any]] = []
     if outcome_label_path.exists():
@@ -23618,7 +23749,6 @@ def write_report_intelligence_recipe_paper_trading_artifacts(
         )
     shadow_implemented_requested_tools = _shadow_implemented_requested_tools(
         tool_gap_rows=tool_gap_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
     )
     recipe_paper_trading_run_rows = build_recipe_paper_trading_runs(
         run_id=run_id,
@@ -23634,7 +23764,6 @@ def write_report_intelligence_recipe_paper_trading_artifacts(
         run_id=run_id,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         tool_gap_rows=tool_gap_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
         direct_pit_binding_gap_details=_direct_pit_binding_gap_details(
             analysis_recipe_rows=analysis_recipe_rows,
             outcome_label_rows=outcome_label_rows,
@@ -27613,7 +27742,6 @@ def build_prompt_mutation_candidates(
     confidence_impact_monitor: Mapping[str, Any],
     markdown_coverage_summary: Mapping[str, Any],
     industry_etf_proxy_pit_availability: Mapping[str, Any],
-    data_acquisition_proposal_rows: Sequence[Mapping[str, Any]] = (),
     forecast_rows: Sequence[Mapping[str, Any]] = (),
     outcome_label_rows: Sequence[Mapping[str, Any]] = (),
     macro_agent_research_prior_rows: Sequence[Mapping[str, Any]] = (),
@@ -28290,7 +28418,7 @@ def build_prompt_mutation_candidates(
                 "engineering queue only after PIT, license, and required-field "
                 "requirements are explicit."
             ),
-            trigger_sources=["tool_gaps", "data_acquisition_proposals"],
+            trigger_sources=["tool_gaps"],
             evidence_refs=[
                 {
                     "artifact_path": "registry/report_intelligence/tool_gaps.jsonl",
@@ -28302,38 +28430,39 @@ def build_prompt_mutation_candidates(
             severity="medium",
             blocked_by=["data_engineering_review_required"],
         )
-    active_data_proposals = [
+    active_data_gaps = [
         row
-        for row in data_acquisition_proposal_rows
-        if str(row.get("decision_status") or "pending_review") != "rejected"
+        for row in tool_gap_rows
+        if str(row.get("data_decision_status") or "pending_review") != "rejected"
+        and row.get("status") != "retired"
     ]
-    if active_data_proposals:
+    if active_data_gaps:
         data_priority_counts: dict[str, int] = {}
         data_pit_counts: dict[str, int] = {}
         data_license_counts: dict[str, int] = {}
-        for proposal in active_data_proposals:
-            _increment_count(data_priority_counts, proposal.get("business_priority"))
+        for proposal in active_data_gaps:
+            _increment_count(data_priority_counts, proposal.get("priority_bucket"))
             _increment_count(
                 data_pit_counts,
-                proposal.get("pit_feasibility_status"),
+                _tool_gap_pit_feasibility_status(proposal),
             )
-            _increment_count(data_license_counts, proposal.get("license_status"))
+            _increment_count(data_license_counts, _tool_gap_license_status(proposal))
         market_cap_gap_count = sum(
             1
-            for proposal in active_data_proposals
+            for proposal in active_data_gaps
             if proposal.get("tool_gap_id")
             == "stock_context_market_cap_metadata_missing"
         )
         blockers = ["data_engineering_review_required"]
         if any(
-            str(proposal.get("pit_feasibility_status") or "")
+            str(_tool_gap_pit_feasibility_status(proposal) or "")
             != "pit_feasible"
-            for proposal in active_data_proposals
+            for proposal in active_data_gaps
         ):
             blockers.append("pit_backfill_review_required")
         if any(
-            str(proposal.get("license_status") or "") != "cleared"
-            for proposal in active_data_proposals
+            str(_tool_gap_license_status(proposal) or "") != "cleared"
+            for proposal in active_data_gaps
         ):
             blockers.append("license_review_required")
         _add_prompt_mutation_candidate(
@@ -28345,18 +28474,18 @@ def build_prompt_mutation_candidates(
             proposed_change=(
                 "Keep agent-facing context gaps as no-prior reasons until "
                 "required PIT datasets, license status, and engineering review "
-                "are explicit in data acquisition proposals."
+                "are explicit in the tool gap registry."
             ),
-            trigger_sources=["data_acquisition_proposals"],
+            trigger_sources=["tool_gaps"],
             evidence_refs=[
                 {
                     "artifact_path": (
                         "registry/report_intelligence/"
-                        "data_acquisition_proposals.jsonl"
+                        "tool_gaps.jsonl"
                     ),
-                    "field": "decision_status",
-                    "proposal_count": len(active_data_proposals),
-                    "business_priority_counts": dict(
+                    "field": "data_decision_status",
+                    "tool_gap_count": len(active_data_gaps),
+                    "priority_bucket_counts": dict(
                         sorted(data_priority_counts.items())
                     ),
                     "pit_feasibility_status_counts": dict(sorted(data_pit_counts.items())),
@@ -28364,7 +28493,7 @@ def build_prompt_mutation_candidates(
                     "market_cap_metadata_gap_count": market_cap_gap_count,
                     "top_tool_gap_ids": [
                         str(proposal.get("tool_gap_id") or "")
-                        for proposal in active_data_proposals[:10]
+                        for proposal in active_data_gaps[:10]
                         if str(proposal.get("tool_gap_id") or "").strip()
                     ],
                 }
@@ -28731,16 +28860,7 @@ def write_report_intelligence_prompt_mutation_candidates(
         label="outcome_labeling_readiness",
         blockers=blockers,
     )
-    tool_gap_rows = _read_registry_jsonl(
-        registry_path / "tool_gaps.jsonl",
-        label="tool_gaps",
-        blockers=blockers,
-    )
-    data_acquisition_proposal_rows = _read_registry_jsonl(
-        registry_path / "data_acquisition_proposals.jsonl",
-        label="data_acquisition_proposals",
-        blockers=blockers,
-    )
+    tool_gap_rows = _read_tool_gap_facts(registry_path / "tool_gaps.jsonl", blockers=blockers)
     recipe_paper_trading_run_rows = _read_registry_jsonl(
         registry_path / "recipe_paper_trading_runs.jsonl",
         label="recipe_paper_trading_runs",
@@ -28810,7 +28930,6 @@ def write_report_intelligence_prompt_mutation_candidates(
         run_id=run_id,
         outcome_labeling_readiness=outcome_labeling_readiness,
         tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         confidence_impact_observation_rows=confidence_impact_observation_rows,
         confidence_impact_monitor=confidence_impact_monitor,
@@ -29629,11 +29748,7 @@ def write_report_intelligence_runtime_safety_audit(
             blockers=blockers,
         )
     if tool_gap_rows is None:
-        tool_gap_rows = _read_registry_jsonl(
-            registry_path / "tool_gaps.jsonl",
-            label="tool_gaps",
-            blockers=blockers,
-        )
+        tool_gap_rows = _read_tool_gap_facts(registry_path / "tool_gaps.jsonl", blockers=blockers)
 
     audit = build_report_intelligence_runtime_safety_audit(
         run_id=run_id,
@@ -31709,8 +31824,6 @@ def build_report_intelligence_tool_feasibility_audit(
     metric_rows: Sequence[Mapping[str, Any]],
     tool_coverage_match_rows: Sequence[Mapping[str, Any]],
     tool_gap_rows: Sequence[Mapping[str, Any]],
-    data_acquisition_proposal_rows: Sequence[Mapping[str, Any]],
-    tool_design_proposal_rows: Sequence[Mapping[str, Any]],
     analysis_recipe_rows: Sequence[Mapping[str, Any]],
     runtime_tool_gap_observation_rows: Sequence[Mapping[str, Any]],
     load_blockers: Sequence[str] = (),
@@ -31883,181 +31996,6 @@ def build_report_intelligence_tool_feasibility_audit(
         )
     )
 
-    data_by_gap_id, data_id_failures = _rows_by_id(
-        data_acquisition_proposal_rows,
-        id_field="tool_gap_id",
-    )
-    data_failures = list(data_id_failures)
-    for index, proposal in enumerate(data_acquisition_proposal_rows, 1):
-        proposal_id = str(proposal.get("data_proposal_id") or f"row-{index}")
-        gap_id = str(proposal.get("tool_gap_id") or "")
-        gap = tool_gap_by_id.get(gap_id)
-        if gap is None:
-            data_failures.append(f"{proposal_id}: tool_gap_id not found")
-            continue
-        if proposal.get("owner") != gap.get("owner"):
-            data_failures.append(f"{proposal_id}: owner must match tool gap")
-        if proposal.get("source_tool_gap_priority") != gap.get("priority_bucket"):
-            data_failures.append(
-                f"{proposal_id}: source_tool_gap_priority must match tool gap"
-            )
-        if not _ensure_list(proposal.get("required_fields")):
-            data_failures.append(f"{proposal_id}: required_fields required")
-        pit = _ensure_mapping(proposal.get("pit_requirements"))
-        license_requirements = _ensure_mapping(proposal.get("license_requirements"))
-        if pit.get("timestamp_required") is not True:
-            data_failures.append(f"{proposal_id}: pit timestamp_required must be true")
-        if not isinstance(pit.get("revision_tracking_required"), bool):
-            data_failures.append(
-                f"{proposal_id}: revision_tracking_required must be boolean"
-            )
-        if _float_or_none(pit.get("minimum_history_years")) is None:
-            data_failures.append(f"{proposal_id}: minimum_history_years required")
-        if not isinstance(pit.get("survivorship_issue"), bool):
-            data_failures.append(f"{proposal_id}: survivorship_issue must be boolean")
-        if license_requirements.get("internal_model_use") is not True:
-            data_failures.append(
-                f"{proposal_id}: internal_model_use license requirement must be true"
-            )
-        if license_requirements.get("derived_metric_storage") is not True:
-            data_failures.append(
-                f"{proposal_id}: derived_metric_storage license requirement must be true"
-            )
-        if license_requirements.get("external_redistribution") is not False:
-            data_failures.append(
-                f"{proposal_id}: external_redistribution must remain false"
-            )
-        if proposal.get("license_status") not in {
-            "approved",
-            "pending_review",
-            "restricted",
-            "prohibited",
-        }:
-            data_failures.append(f"{proposal_id}: unsupported license_status")
-        if proposal.get("pit_feasibility_status") not in {
-            "pit_feasible_pending_vendor_review",
-            "requires_pit_backfill_review",
-            "pit_blocked",
-        }:
-            data_failures.append(f"{proposal_id}: unsupported pit_feasibility_status")
-    for gap_id, gap in tool_gap_by_id.items():
-        if str(gap.get("status") or "") == "retired":
-            continue
-        if gap_id not in data_by_gap_id:
-            data_failures.append(f"{gap_id}: data acquisition proposal missing")
-    checks.append(
-        _audit_check(
-            check_id="RI-TOOL-03",
-            requirement=(
-                "Every tool gap must have a data acquisition proposal with explicit "
-                "PIT, survivorship/restatement, required-field, and license requirements."
-            ),
-            evidence={
-                "data_acquisition_proposal_rows": len(data_acquisition_proposal_rows),
-                "tool_gap_rows": len(tool_gap_rows),
-            },
-            failures=data_failures,
-        )
-    )
-
-    tool_by_gap_id, tool_id_failures = _rows_by_id(
-        tool_design_proposal_rows,
-        id_field="tool_gap_id",
-    )
-    design_failures = list(tool_id_failures)
-    for index, proposal in enumerate(tool_design_proposal_rows, 1):
-        proposal_id = str(proposal.get("tool_proposal_id") or f"row-{index}")
-        gap_id = str(proposal.get("tool_gap_id") or "")
-        gap = tool_gap_by_id.get(gap_id)
-        if gap is None:
-            design_failures.append(f"{proposal_id}: tool_gap_id not found")
-            continue
-        if proposal.get("owner") != gap.get("owner"):
-            design_failures.append(f"{proposal_id}: owner must match tool gap")
-        if proposal.get("source_tool_gap_priority") != gap.get("priority_bucket"):
-            design_failures.append(
-                f"{proposal_id}: source_tool_gap_priority must match tool gap"
-            )
-        if proposal.get("status") not in {
-            "shadow_build_requested",
-            "blocked_pending_review",
-            "shadow_implemented",
-            "shadow_validated",
-            "implemented",
-            "validated",
-        }:
-            design_failures.append(
-                f"{proposal_id}: status must remain shadow or blocked"
-            )
-        input_parameters = _ensure_mapping(proposal.get("input_parameters"))
-        for field in ("market", "as_of_date", "lookback_days"):
-            if field not in input_parameters:
-                design_failures.append(f"{proposal_id}: input_parameters.{field} required")
-        output_schema = _ensure_mapping(proposal.get("output_schema"))
-        if "as_of_date" not in output_schema:
-            design_failures.append(f"{proposal_id}: output_schema.as_of_date required")
-        metrics = [
-            item
-            for item in _ensure_list(output_schema.get("metrics"))
-            if isinstance(item, Mapping)
-        ]
-        if not metrics:
-            design_failures.append(f"{proposal_id}: output_schema.metrics required")
-        for metric_index, metric in enumerate(metrics, 1):
-            for field in (
-                "name",
-                "value",
-                "unit",
-                "freshness_days",
-                "pit_valid",
-                "fallback",
-                "quality_flags",
-            ):
-                if field not in metric:
-                    design_failures.append(
-                        f"{proposal_id}: output_schema.metrics[{metric_index}].{field} required"
-                    )
-        fallback_policy = _ensure_mapping(proposal.get("fallback_policy"))
-        fallback_cap = _float_or_none(fallback_policy.get("confidence_cap_if_fallback"))
-        if fallback_cap is None or fallback_cap > 0.60:
-            design_failures.append(
-                f"{proposal_id}: fallback confidence cap must be <= 0.60"
-            )
-        validation_plan = _ensure_mapping(proposal.get("validation_plan"))
-        if (_float_or_none(validation_plan.get("shadow_runtime_days")) or 0.0) < 60:
-            design_failures.append(
-                f"{proposal_id}: shadow_runtime_days must be at least 60"
-            )
-        if (_float_or_none(validation_plan.get("required_effective_n")) or 0.0) < 30:
-            design_failures.append(
-                f"{proposal_id}: required_effective_n must be at least 30"
-            )
-        if not str(validation_plan.get("primary_metric") or "").strip():
-            design_failures.append(f"{proposal_id}: primary_metric required")
-        if not _ensure_list(validation_plan.get("secondary_metrics")):
-            design_failures.append(f"{proposal_id}: secondary_metrics required")
-    for gap_id, gap in tool_gap_by_id.items():
-        if str(gap.get("status") or "") == "retired":
-            continue
-        if gap_id not in tool_by_gap_id:
-            design_failures.append(f"{gap_id}: tool design proposal missing")
-    checks.append(
-        _audit_check(
-            check_id="RI-TOOL-04",
-            requirement=(
-                "Every tool gap must have a deterministic tool design proposal with "
-                "input parameters, output schema, fallback policy, and validation plan."
-            ),
-            evidence={
-                "tool_design_proposal_rows": len(tool_design_proposal_rows),
-                "tool_gap_rows": len(tool_gap_rows),
-                "minimum_shadow_runtime_days": 60,
-                "minimum_required_effective_n": 30,
-            },
-            failures=design_failures,
-        )
-    )
-
     recipe_failures: list[str] = []
     for index, recipe in enumerate(analysis_recipe_rows, 1):
         recipe_id = str(recipe.get("analysis_recipe_id") or f"row-{index}")
@@ -32167,6 +32105,7 @@ def build_report_intelligence_tool_feasibility_audit(
     ]
     return {
         "audit_id": "RKE-REPORT-INTELLIGENCE-TOOL-FEASIBILITY-AUDIT",
+        "tool_gap_contract": "tool_gap_facts_v1",
         "run_id": run_id,
         "as_of_datetime": _utc_now(),
         "accepted": not blockers,
@@ -32177,8 +32116,6 @@ def build_report_intelligence_tool_feasibility_audit(
                 len(metric_rows),
                 len(tool_coverage_match_rows),
                 len(tool_gap_rows),
-                len(data_acquisition_proposal_rows),
-                len(tool_design_proposal_rows),
                 len(analysis_recipe_rows),
                 len(runtime_tool_gap_observation_rows),
             ]
@@ -32186,8 +32123,7 @@ def build_report_intelligence_tool_feasibility_audit(
         "checks": checks,
         "policy": (
             "report-intelligence tool feasibility requires deterministic coverage "
-            "records, explicit PIT and license requirements, gap-to-proposal "
-            "lineage, checker-validatable output schemas, bounded fallback policy, "
+            "records, canonical gap review facts, and bounded runtime fallback policy, "
             "and shadow-only runtime until tool correctness and promotion gates pass"
         ),
     }
@@ -32201,8 +32137,6 @@ def write_report_intelligence_tool_feasibility_audit(
     metric_rows: Sequence[Mapping[str, Any]] | None = None,
     tool_coverage_match_rows: Sequence[Mapping[str, Any]] | None = None,
     tool_gap_rows: Sequence[Mapping[str, Any]] | None = None,
-    data_acquisition_proposal_rows: Sequence[Mapping[str, Any]] | None = None,
-    tool_design_proposal_rows: Sequence[Mapping[str, Any]] | None = None,
     analysis_recipe_rows: Sequence[Mapping[str, Any]] | None = None,
     runtime_tool_gap_observation_rows: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -32227,23 +32161,7 @@ def write_report_intelligence_tool_feasibility_audit(
             blockers=blockers,
         )
     if tool_gap_rows is None:
-        tool_gap_rows = _read_registry_jsonl(
-            registry_path / "tool_gaps.jsonl",
-            label="tool_gaps",
-            blockers=blockers,
-        )
-    if data_acquisition_proposal_rows is None:
-        data_acquisition_proposal_rows = _read_registry_jsonl(
-            registry_path / "data_acquisition_proposals.jsonl",
-            label="data_acquisition_proposals",
-            blockers=blockers,
-        )
-    if tool_design_proposal_rows is None:
-        tool_design_proposal_rows = _read_registry_jsonl(
-            registry_path / "tool_design_proposals.jsonl",
-            label="tool_design_proposals",
-            blockers=blockers,
-        )
+        tool_gap_rows = _read_tool_gap_facts(registry_path / "tool_gaps.jsonl", blockers=blockers)
     if analysis_recipe_rows is None:
         analysis_recipe_rows = _read_registry_jsonl(
             registry_path / "analysis_recipes.jsonl",
@@ -32262,8 +32180,6 @@ def write_report_intelligence_tool_feasibility_audit(
         metric_rows=metric_rows,
         tool_coverage_match_rows=tool_coverage_match_rows,
         tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
         analysis_recipe_rows=analysis_recipe_rows,
         runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
         load_blockers=blockers,
@@ -32493,7 +32409,8 @@ def build_report_intelligence_recipe_validation_audit(
 
     validation_candidate_failures: list[str] = []
     validation_candidate_count = 0
-    tool_feasibility_accepted = tool_feasibility_audit.get("accepted") is True
+    tool_feasibility_accepted = (tool_feasibility_audit.get("accepted") is True
+                                 and tool_feasibility_audit.get("tool_gap_contract") == "tool_gap_facts_v1")
     for index, recipe in enumerate(analysis_recipe_rows, 1):
         status = str(recipe.get("validation_status") or "")
         runtime_mode = str(recipe.get("runtime_mode") or "")
@@ -32828,8 +32745,6 @@ def build_report_intelligence_monitoring_report(
     method_performance_profile_rows: Sequence[Mapping[str, Any]],
     tool_coverage_match_rows: Sequence[Mapping[str, Any]],
     tool_gap_rows: Sequence[Mapping[str, Any]],
-    data_acquisition_proposal_rows: Sequence[Mapping[str, Any]],
-    tool_design_proposal_rows: Sequence[Mapping[str, Any]],
     analysis_recipe_rows: Sequence[Mapping[str, Any]],
     weighted_research_context_rows: Sequence[Mapping[str, Any]],
     runtime_tool_gap_observation_rows: Sequence[Mapping[str, Any]],
@@ -32856,15 +32771,16 @@ def build_report_intelligence_monitoring_report(
     for row in tool_gap_rows:
         priority = str(row.get("priority_bucket") or "unknown")
         gap_priority_counts[priority] = gap_priority_counts.get(priority, 0) + 1
-    open_data_proposals = sum(
+    open_data_gaps = sum(
         1
-        for row in data_acquisition_proposal_rows
-        if str(row.get("decision_status") or "") not in {"accepted", "rejected", "closed"}
+        for row in tool_gap_rows
+        if row.get("status") != "retired"
+        and str(row.get("data_decision_status") or "pending_review") not in {"accepted", "rejected", "closed"}
     )
-    accepted_tool_proposals = sum(
+    implemented_tool_gaps = sum(
         1
-        for row in tool_design_proposal_rows
-        if str(row.get("status") or "") in {"accepted", "implemented", "paper_trading"}
+        for row in tool_gap_rows
+        if _tool_gap_shadow_implemented(row)
     )
     shadow_recipes = sum(
         1
@@ -32916,6 +32832,7 @@ def build_report_intelligence_monitoring_report(
     confidence_monitor = _ensure_mapping(confidence_impact_monitor)
     return {
         "monitoring_id": "RKE-REPORT-INTELLIGENCE-MONITORING",
+        "tool_gap_contract": "tool_gap_facts_v1",
         "run_id": run_id,
         "as_of_datetime": _utc_now(),
         "rollout_mode": rollout_mode,
@@ -32961,11 +32878,11 @@ def build_report_intelligence_monitoring_report(
             "tool_gap_open_count": len(tool_gap_rows),
             "tool_gap_priority_counts": dict(sorted(gap_priority_counts.items())),
             "high_priority_gap_aging_count": 0,
-            "tool_proposal_acceptance_rate": _rate(
-                accepted_tool_proposals,
-                len(tool_design_proposal_rows),
+            "tool_gap_implementation_rate": _rate(
+                implemented_tool_gaps,
+                len(tool_gap_rows),
             ),
-            "data_proposal_open_count": open_data_proposals,
+            "data_review_open_count": open_data_gaps,
             "shadow_tool_correctness_failure_rate": None,
             "recipe_validation_pass_rate": _rate(
                 validated_recipes,
@@ -33149,8 +33066,6 @@ def build_report_intelligence_patch_v1_5_coverage_report(
     method_rows: Sequence[Mapping[str, Any]],
     tool_coverage_match_rows: Sequence[Mapping[str, Any]],
     tool_gap_rows: Sequence[Mapping[str, Any]],
-    data_acquisition_proposal_rows: Sequence[Mapping[str, Any]],
-    tool_design_proposal_rows: Sequence[Mapping[str, Any]],
     forecast_ledger_rows: Sequence[Mapping[str, Any]],
     outcome_label_rows: Sequence[Mapping[str, Any]],
     outcome_labeling_readiness: Mapping[str, Any],
@@ -33182,7 +33097,8 @@ def build_report_intelligence_patch_v1_5_coverage_report(
     pit_leakage_accepted = _audit_report_accepted(pit_leakage_audit)
     provenance_accepted = _audit_report_accepted(extraction_provenance_audit)
     statistical_accepted = _audit_report_accepted(statistical_robustness_audit)
-    tool_feasibility_accepted = _audit_report_accepted(tool_feasibility_audit)
+    tool_feasibility_accepted = (_audit_report_accepted(tool_feasibility_audit)
+                                 and tool_feasibility_audit.get("tool_gap_contract") == "tool_gap_facts_v1")
     recipe_validation_accepted = _audit_report_accepted(recipe_validation_audit)
     footprint_review_accepted = footprint_review_summary.get("accepted") is True
     footprint_quality_passed = (
@@ -33241,16 +33157,6 @@ def build_report_intelligence_patch_v1_5_coverage_report(
     for row in tool_coverage_match_rows:
         status = str(row.get("coverage_status") or "unknown")
         coverage_counts[status] = coverage_counts.get(status, 0) + 1
-    proposal_gap_ids = {
-        str(row.get("tool_gap_id") or "")
-        for row in data_acquisition_proposal_rows
-        if str(row.get("tool_gap_id") or "").strip()
-    }
-    design_gap_ids = {
-        str(row.get("tool_gap_id") or "")
-        for row in tool_design_proposal_rows
-        if str(row.get("tool_gap_id") or "").strip()
-    }
     gap_ids = {
         str(row.get("tool_gap_id") or "")
         for row in tool_gap_rows
@@ -33477,18 +33383,6 @@ def build_report_intelligence_patch_v1_5_coverage_report(
         )
     if not active_gap_ids:
         phase_e_failures.append("tool gap registry must contain reviewable gaps")
-    missing_data_proposals = sorted(active_gap_ids - proposal_gap_ids)
-    missing_tool_proposals = sorted(active_gap_ids - design_gap_ids)
-    if missing_data_proposals:
-        phase_e_failures.append(
-            "tool gaps missing data acquisition proposals: "
-            + ", ".join(missing_data_proposals[:20])
-        )
-    if missing_tool_proposals:
-        phase_e_failures.append(
-            "tool gaps missing tool design proposals: "
-            + ", ".join(missing_tool_proposals[:20])
-        )
     if not tool_feasibility_accepted:
         phase_e_failures.append("tool_feasibility_audit must be accepted")
     phases.append(
@@ -33497,13 +33391,11 @@ def build_report_intelligence_patch_v1_5_coverage_report(
             phase_name="Tool coverage and gap registry",
             requirement=(
                 "Map MVP metrics to current tools, rank PIT/license-aware gaps, "
-                "and generate data/tool proposals for review."
+                "and retain review decisions in the gap registry."
             ),
             evidence_artifacts=[
                 "registry/report_intelligence/tool_coverage_matches.jsonl",
                 "registry/report_intelligence/tool_gaps.jsonl",
-                "registry/report_intelligence/data_acquisition_proposals.jsonl",
-                "registry/report_intelligence/tool_design_proposals.jsonl",
                 "registry/report_intelligence/tool_feasibility_audit.json",
             ],
             evidence_counts={
@@ -33513,10 +33405,6 @@ def build_report_intelligence_patch_v1_5_coverage_report(
                 "tool_gap_rows": len(tool_gap_rows),
                 "active_tool_gap_rows": len(active_gap_ids),
                 "retired_tool_gap_rows": len(gap_ids - active_gap_ids),
-                "data_acquisition_proposal_rows": len(
-                    data_acquisition_proposal_rows
-                ),
-                "tool_design_proposal_rows": len(tool_design_proposal_rows),
                 "tool_feasibility_audit_accepted": tool_feasibility_accepted,
             },
             failures=phase_e_failures,
@@ -33920,34 +33808,26 @@ def build_report_intelligence_patch_v1_5_coverage_report(
             check_type="deliverable",
             requirement=(
                 "Tool coverage matcher, ranked tool gaps, data availability/PIT "
-                "review, data acquisition proposals, and tool design proposals "
+                "review, and gap implementation evidence "
                 "cover every metric candidate."
             ),
             accepted=(
                 bool(metric_rows)
                 and len(tool_coverage_match_rows) >= len(metric_rows)
                 and bool(gap_ids)
-                and not missing_data_proposals
-                and not missing_tool_proposals
                 and tool_feasibility_accepted
             ),
             evidence_artifacts=[
                 "registry/report_intelligence/tool_coverage_matches.jsonl",
                 "registry/report_intelligence/tool_gaps.jsonl",
-                "registry/report_intelligence/data_acquisition_proposals.jsonl",
-                "registry/report_intelligence/tool_design_proposals.jsonl",
                 "registry/report_intelligence/tool_feasibility_audit.json",
             ],
             evidence_counts={
                 "metric_candidate_rows": len(metric_rows),
                 "tool_coverage_match_rows": len(tool_coverage_match_rows),
                 "tool_gap_rows": len(tool_gap_rows),
-                "data_acquisition_proposal_rows": len(
-                    data_acquisition_proposal_rows
-                ),
-                "tool_design_proposal_rows": len(tool_design_proposal_rows),
             },
-            blocker="tool coverage/gap proposal loop is incomplete",
+            blocker="tool coverage/gap review loop is incomplete",
         ),
         _coverage_requirement_check(
             check_id="RI15-F-D1",
@@ -34062,6 +33942,7 @@ def build_report_intelligence_patch_v1_5_coverage_report(
     blockers.extend(checklist_blockers)
     return {
         "coverage_report_id": "RKE-REPORT-INTELLIGENCE-PATCH-V1-5-COVERAGE",
+        "tool_gap_contract": "tool_gap_facts_v1",
         "run_id": run_id,
         "as_of_datetime": _utc_now(),
         "source_plan_path": "MOSAIC_RKE_REPORT_INTELLIGENCE_LOOP_PATCH_V1_5_MERGED.md",
@@ -34146,21 +34027,7 @@ def write_report_intelligence_patch_v1_5_coverage_report(
         label="tool_coverage_matches",
         blockers=blockers,
     )
-    tool_gap_rows = _read_registry_jsonl(
-        registry_path / "tool_gaps.jsonl",
-        label="tool_gaps",
-        blockers=blockers,
-    )
-    data_acquisition_proposal_rows = _read_registry_jsonl(
-        registry_path / "data_acquisition_proposals.jsonl",
-        label="data_acquisition_proposals",
-        blockers=blockers,
-    )
-    tool_design_proposal_rows = _read_registry_jsonl(
-        registry_path / "tool_design_proposals.jsonl",
-        label="tool_design_proposals",
-        blockers=blockers,
-    )
+    tool_gap_rows = _read_tool_gap_facts(registry_path / "tool_gaps.jsonl", blockers=blockers)
     forecast_ledger_rows = _read_registry_jsonl(
         registry_path / "report_forecast_ledger.jsonl",
         label="report_forecast_ledger",
@@ -34313,8 +34180,6 @@ def write_report_intelligence_patch_v1_5_coverage_report(
         method_rows=method_rows,
         tool_coverage_match_rows=tool_coverage_match_rows,
         tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
         forecast_ledger_rows=forecast_ledger_rows,
         outcome_label_rows=outcome_label_rows,
         outcome_labeling_readiness=outcome_labeling_readiness,
@@ -34861,6 +34726,11 @@ def run_report_intelligence_derived_refresh(
     registry_dir = resolve_report_intelligence_registry_dir(root_path, cfg.registry_dir)
     run_id = "RIR-DERIVED-" + _utc_now().replace(":", "").replace("-", "")
     if cfg.derived_scope == "full":
+        legacy = _unmigrated_tool_gap_review_blockers(registry_dir)
+        if legacy:
+            return _blocked_report_intelligence_derived_refresh_result(
+                root_path=root_path, run_id=run_id, refresh_scope=cfg.derived_scope, blockers=legacy,
+            )
         missing_private_inputs = _missing_report_intelligence_private_inputs(
             root_path=root_path,
             registry_dir=registry_dir,
@@ -34955,11 +34825,7 @@ def run_report_intelligence_derived_refresh(
             model="derived_refresh",
         ),
     )
-    tool_gap_rows = _read_registry_jsonl(
-        registry_dir / "tool_gaps.jsonl",
-        label="tool_gaps",
-        blockers=blockers,
-    )
+    tool_gap_rows = _read_tool_gap_facts(registry_dir / "tool_gaps.jsonl", blockers=blockers)
     _append_unique_records(
         metric_rows,
         _normalize_metric_candidates(
@@ -35162,6 +35028,7 @@ def _refresh_report_intelligence_derived_artifacts(
         outcome_label_rows=outcome_label_rows,
         stock_price_proxy_readiness=stock_price_proxy_readiness,
     )
+    tool_gap_rows = backfill_stock_market_cap_tool_gap(tool_gap_rows, stock_context_snapshot_rows)
     industry_context_snapshot_rows = build_industry_context_snapshots(
         metadata_rows,
         forecast_rows=forecast_rows,
@@ -35190,15 +35057,9 @@ def _refresh_report_intelligence_derived_artifacts(
         outcome_label_rows=outcome_label_rows,
     )
     tool_coverage_match_rows = build_tool_coverage_matches(metric_rows)
-    data_acquisition_proposal_rows = build_data_acquisition_proposals(
-        tool_gap_rows,
-        stock_context_snapshot_rows=stock_context_snapshot_rows,
-    )
-    tool_design_proposal_rows = build_tool_design_proposals(tool_gap_rows)
     analysis_recipe_rows = build_analysis_recipes(method_rows)
     shadow_implemented_requested_tools = _shadow_implemented_requested_tools(
         tool_gap_rows=tool_gap_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
     )
     recipe_paper_trading_run_rows = build_recipe_paper_trading_runs(
         run_id=run_id,
@@ -35214,7 +35075,6 @@ def _refresh_report_intelligence_derived_artifacts(
         run_id=run_id,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         tool_gap_rows=tool_gap_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
         direct_pit_binding_gap_details=_direct_pit_binding_gap_details(
             analysis_recipe_rows=analysis_recipe_rows,
             outcome_label_rows=outcome_label_rows,
@@ -35236,7 +35096,6 @@ def _refresh_report_intelligence_derived_artifacts(
         run_id=run_id,
         outcome_labeling_readiness=outcome_labeling_readiness,
         tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         confidence_impact_observation_rows=confidence_impact_observation_rows,
         confidence_impact_monitor=confidence_impact_monitor,
@@ -35273,8 +35132,6 @@ def _refresh_report_intelligence_derived_artifacts(
         method_performance_profile_rows=method_performance_profile_rows,
         tool_coverage_match_rows=tool_coverage_match_rows,
         tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
         analysis_recipe_rows=analysis_recipe_rows,
         weighted_research_context_rows=weighted_research_context_rows,
         runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
@@ -35331,8 +35188,6 @@ def _refresh_report_intelligence_derived_artifacts(
         metric_rows=metric_rows,
         tool_coverage_match_rows=tool_coverage_match_rows,
         tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
-        tool_design_proposal_rows=tool_design_proposal_rows,
         analysis_recipe_rows=analysis_recipe_rows,
         runtime_tool_gap_observation_rows=runtime_tool_gap_observation_rows,
     )
@@ -35377,8 +35232,6 @@ def _refresh_report_intelligence_derived_artifacts(
             method_rows=method_rows,
             tool_coverage_match_rows=tool_coverage_match_rows,
             tool_gap_rows=tool_gap_rows,
-            data_acquisition_proposal_rows=data_acquisition_proposal_rows,
-            tool_design_proposal_rows=tool_design_proposal_rows,
             forecast_ledger_rows=forecast_ledger_rows,
             outcome_label_rows=outcome_label_rows,
             outcome_labeling_readiness=outcome_labeling_readiness,
@@ -35444,7 +35297,6 @@ def _refresh_report_intelligence_derived_artifacts(
         run_id=run_id,
         outcome_labeling_readiness=outcome_labeling_readiness,
         tool_gap_rows=tool_gap_rows,
-        data_acquisition_proposal_rows=data_acquisition_proposal_rows,
         recipe_paper_trading_runs=recipe_paper_trading_run_rows,
         confidence_impact_observation_rows=confidence_impact_observation_rows,
         confidence_impact_monitor=confidence_impact_monitor,
@@ -35605,18 +35457,6 @@ def _refresh_report_intelligence_derived_artifacts(
             _write_jsonl(
                 registry_dir / "tool_coverage_matches.jsonl",
                 tool_coverage_match_rows,
-            )["path"]
-        ),
-        "data_acquisition_proposals": str(
-            _write_jsonl(
-                registry_dir / "data_acquisition_proposals.jsonl",
-                data_acquisition_proposal_rows,
-            )["path"]
-        ),
-        "tool_design_proposals": str(
-            _write_jsonl(
-                registry_dir / "tool_design_proposals.jsonl",
-                tool_design_proposal_rows,
             )["path"]
         ),
         "analysis_recipes": str(
@@ -35845,8 +35685,6 @@ def _refresh_report_intelligence_derived_artifacts(
         macro_agent_research_prior_rows=len(macro_agent_research_prior_rows),
         method_performance_profile_rows=len(method_performance_profile_rows),
         tool_coverage_match_rows=len(tool_coverage_match_rows),
-        data_acquisition_proposal_rows=len(data_acquisition_proposal_rows),
-        tool_design_proposal_rows=len(tool_design_proposal_rows),
         analysis_recipe_rows=len(analysis_recipe_rows),
         prompt_mutation_candidate_rows=len(prompt_mutation_candidate_rows),
         weighted_research_context_rows=len(weighted_research_context_rows),
@@ -35899,6 +35737,11 @@ def run_report_intelligence_refresh(
         else root_path / cfg.cache_dir
     )
     run_id = "RIR-" + _utc_now().replace(":", "").replace("-", "")
+    legacy = _unmigrated_tool_gap_review_blockers(registry_dir)
+    if cfg.derived_scope == "full" and legacy:
+        return _blocked_report_intelligence_derived_refresh_result(
+            root_path=root_path, run_id=run_id, refresh_scope=cfg.derived_scope, blockers=legacy,
+        )
     processed_source_ids, processed_source_blockers = _processed_source_ids_from_registry_dirs(
         root_path,
         cfg.exclude_processed_registry_dirs,

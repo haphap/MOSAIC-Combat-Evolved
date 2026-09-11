@@ -2,7 +2,7 @@
 
 `validate_json_schema_artifact` retains its result shape and delegates generic
 structure checks to the installed `jsonschema` validator for the declared draft.
-All 127 repository JSON Schemas currently declare draft 2020-12. RKE-specific
+All 125 repository JSON Schemas currently declare draft 2020-12. RKE-specific
 cross-artifact, PIT, privacy and promotion checks remain separate.
 
 The old handwritten recursive validator and keyword-support list are removed.

@@ -12,7 +12,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES
+from .registry_manifest import PRIVATE_LOCAL_REGISTRY_FILES, RETIRED_PRIVATE_REGISTRY_FILES
 
 
 DEFAULT_REPORT_INTELLIGENCE_REGISTRY_DIR = "registry/report_intelligence"
@@ -28,7 +28,7 @@ def _managed_private_registry_paths() -> tuple[str, ...]:
     return tuple(
         sorted(
             relative
-            for relative in PRIVATE_LOCAL_REGISTRY_FILES | {FINGERPRINT_MANIFEST_PATH}
+            for relative in (PRIVATE_LOCAL_REGISTRY_FILES | {FINGERPRINT_MANIFEST_PATH}) - RETIRED_PRIVATE_REGISTRY_FILES
             if Path(relative).suffix in PRIVATE_REGISTRY_JSON_SUFFIXES
         )
     )
@@ -487,6 +487,11 @@ def export_private_registries(
 
     if source_repo == output_path:
         blockers.append("private registry source and output repo must differ")
+    for directory in {source_repo, output_path}:
+        for relative in sorted(RETIRED_PRIVATE_REGISTRY_FILES):
+            if (directory / relative).exists():
+                blockers.append(f"{directory / relative}: retired artifact; migrate tool gap reviews before export")
+    if blockers:
         return {
             "accepted": False,
             "root": str(root_path),
@@ -674,6 +679,8 @@ def _private_registry_manifest_blockers(
             blockers.append(f"registry_manifest.json duplicate path: {relative}")
             continue
         seen_paths.add(relative)
+        if relative in RETIRED_PRIVATE_REGISTRY_FILES or relative.startswith("registry/report_intelligence/retired_proposals/"):
+            blockers.append(f"registry manifest references retired artifact: {relative}")
         path = repo_path / relative_path
         if not path.is_file():
             blockers.append(f"registry manifest file missing: {relative}")
@@ -698,6 +705,7 @@ def _private_registry_manifest_blockers(
             path.relative_to(repo_path).as_posix()
             for path in registry_root.rglob("*")
             if path.is_file() and path.suffix in PRIVATE_REGISTRY_JSON_SUFFIXES
+            and not path.relative_to(repo_path).as_posix().startswith("registry/report_intelligence/retired_proposals/")
         }
         if registry_root.is_dir()
         else set()

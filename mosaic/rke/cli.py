@@ -129,6 +129,10 @@ from .report_intelligence import (
     build_local_macro_strategy_report_sources,
     export_macro_agent_research_priors,
     merge_report_intelligence_batch_outputs,
+    migrate_tool_gap_reviews,
+    build_data_acquisition_proposals,
+    build_tool_design_proposals,
+    _read_tool_gap_facts,
     prepare_analytical_footprint_negative_examples,
     prepare_analytical_footprint_review_import,
     write_analytical_footprint_negative_example_approved_import,
@@ -1761,7 +1765,8 @@ def build_parser() -> argparse.ArgumentParser:
         default="basic",
         help="Basic writes extraction facts only; full explicitly rebuilds offline research artifacts.",
     )
-    report_intelligence.add_argument(
+    report_intelligence_mode = report_intelligence.add_mutually_exclusive_group()
+    report_intelligence_mode.add_argument(
         "--refresh-derived-only",
         action="store_true",
         help=(
@@ -1769,6 +1774,17 @@ def build_parser() -> argparse.ArgumentParser:
             "registry extraction outputs without downloading, converting, or "
             "calling local vLLM."
         ),
+    )
+    report_intelligence_mode.add_argument(
+        "--migrate-tool-gap-reviews", action="store_true",
+        help="Merge legacy private proposal reviews into tool gaps and archive the originals; preview with --dry-run.",
+    )
+    report_intelligence.add_argument(
+        "--dry-run", action="store_true", help="Preview --migrate-tool-gap-reviews without writing files.",
+    )
+    report_intelligence_mode.add_argument(
+        "--show-tool-gap-review", choices=("data", "tool"),
+        help="Print a private review template view from tool gaps without persisting proposals.",
     )
     report_intelligence.add_argument(
         "--download-timeout-seconds",
@@ -2991,6 +3007,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if not result.blockers else 2
     if args.command == "report-intelligence":
         _load_env_file(args.env_file)
+        if args.dry_run and not args.migrate_tool_gap_reviews:
+            _print_json({"accepted": False, "blockers": ["--dry-run requires --migrate-tool-gap-reviews"]})
+            return 2
+        if args.migrate_tool_gap_reviews:
+            migration = migrate_tool_gap_reviews(root=root, registry_dir=args.registry_dir, dry_run=args.dry_run)
+            _print_json(migration)
+            return 0 if migration["accepted"] else 2
+        if args.show_tool_gap_review:
+            blockers: list[str] = []
+            directory = resolve_report_intelligence_registry_dir(root, args.registry_dir)
+            try:
+                gaps = _read_tool_gap_facts(directory / "tool_gaps.jsonl", blockers=blockers)
+            except ValueError as exc:
+                _print_json({"accepted": False, "blockers": [str(exc)], "views": []})
+                return 2
+            builder = build_data_acquisition_proposals if args.show_tool_gap_review == "data" else build_tool_design_proposals
+            _print_json({"accepted": not blockers, "blockers": blockers,
+                         "views": builder(gaps) if not blockers else []})
+            return 2 if blockers else 0
         result = run_report_intelligence_refresh(
             ReportIntelligenceConfig(
                 root=root,
