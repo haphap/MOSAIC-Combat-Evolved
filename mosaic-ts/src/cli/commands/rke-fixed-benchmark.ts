@@ -637,7 +637,7 @@ export function updateAgentMetricsFromLog(
   if (kind === "phase") {
     recordToolNames(metric, rest);
     recordToolFingerprints(metric, rest);
-    if (/Tool '[^']+' raised:/.test(rest)) metric.toolFailureCount += 1;
+    if (/^Tool '[^']+' (?:raised|not executed):/.test(rest)) metric.toolFailureCount += 1;
     return;
   }
 

@@ -17,6 +17,7 @@ from typing import Mapping
 
 from langchain_core.tools import tool
 
+from mosaic.dataflows.exceptions import DataVendorUnavailable
 from mosaic.rke.agent_research_context import (
     AGENT_TARGET_SPECIFICITY_BUCKETS,
     FORBIDDEN_FIELD_NAMES,
@@ -42,6 +43,11 @@ _FRESHNESS_BUCKETS = frozenset({"historical_completed_exit", "pending_no_complet
 def format_rke_runtime_context(context: Mapping[str, Any]) -> str:
     """Format RKE context with the runtime audit required before agent use."""
     audit = _runtime_preflight(context)
+    if audit["preflight_failures"]:
+        raise DataVendorUnavailable(
+            "RKE context preflight failed: " + ", ".join(audit["preflight_failures"]),
+            reason_code="RKE_CONTEXT_PREFLIGHT_FAILED",
+        )
     lines = [
         (
             "Runtime preflight: "
@@ -58,16 +64,6 @@ def format_rke_runtime_context(context: Mapping[str, Any]) -> str:
             f"current_data_required={str(audit['current_data_required']).lower()}"
         ),
     ]
-    failures = audit["preflight_failures"]
-    if failures:
-        lines.append(f"Runtime preflight failures: {', '.join(failures)}")
-        reason = (
-            "public-safe context violation"
-            if "public_safe_context_violation" in failures
-            else "runtime preflight blocked"
-        )
-        lines.extend(["", f"RKE context body withheld: {reason}."])
-        return "\n".join(lines)
     lines.extend(["", format_rke_agent_research_context(context)])
     return "\n".join(lines)
 
