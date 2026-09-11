@@ -25674,7 +25674,6 @@ AGENT_CONTEXT_AUDIT_REQUESTS = (
     ("superinvestor.munger", "superinvestor"),
     ("cio", "decision"),
 )
-AGENT_CONTEXT_PRIORITY_BUCKETS = frozenset({"high", "medium", "low"})
 
 
 def _agent_context_export_gate_check(
@@ -25727,7 +25726,6 @@ def _agent_context_export_gate_check(
                 max_items=3,
                 forecasts=forecast_rows,
                 metadata=metadata,
-                weighted_research_contexts=weighted_rows,
             )
             try:
                 assert_public_safe_context(context)
@@ -25757,13 +25755,6 @@ def _agent_context_export_gate_check(
                 blockers.append(f"agent_context_no_prior_reason_missing:{agent_id}")
             for expected_rank, item in enumerate(items, 1):
                 if _optional_positive_int(item.get("retrieval_rank")) != expected_rank:
-                    ranking_policy_violation_count += 1
-                if (
-                    str(item.get("priority_bucket") or "").strip()
-                    not in AGENT_CONTEXT_PRIORITY_BUCKETS
-                ):
-                    ranking_policy_violation_count += 1
-                if not _ensure_list(item.get("ranking_reason_codes")):
                     ranking_policy_violation_count += 1
                 if item.get("current_data_required") is not True:
                     current_data_guard_violation_count += 1

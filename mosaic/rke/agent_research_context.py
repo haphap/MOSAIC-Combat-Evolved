@@ -10,60 +10,23 @@ from __future__ import annotations
 
 import json
 import re
-from collections import defaultdict
 from functools import lru_cache
 from hashlib import sha256
-from math import isfinite
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from .private_registries import resolve_report_intelligence_registry_dir
 
-SCHEMA_VERSION = "rke_agent_research_context_v2"
+SCHEMA_VERSION = "rke_agent_research_context_v3"
 SAFE_ACTIONABILITY = "no_trade_without_current_data_confirmation"
 RESEARCH_PRIOR_USE_POLICY = "shadow_research_prior_only_not_current_signal"
-RANKING_POLICY_ID = "rke_agent_research_context_rank_v1"
+RANKING_POLICY_ID = "rke_agent_research_context_rank_v2"
 FORBIDDEN_FIELD_POLICY = "source_prose_and_private_references_omitted"
 DEFAULT_REGISTRY_DIR = "registry/report_intelligence"
 RKE_AGENT_RESEARCH_INPUT_FILENAMES = (
     "forecast_claims.jsonl",
     "report_metadata.jsonl",
 )
-RATING_BUCKETS = frozenset(
-    {
-        "supportive_evidence",
-        "mixed_evidence",
-        "contradictory_evidence",
-        "pending_or_unrated",
-    }
-)
-RELIABILITY_BUCKETS = frozenset(
-    {
-        "high_effective_n",
-        "medium_effective_n",
-        "low_effective_n",
-        "limited",
-        "insufficient_data",
-    }
-)
-PERFORMANCE_CONTEXT_BUCKETS = frozenset(
-    {
-        "source_and_viewpoint_profile_match",
-        "viewpoint_profile_match",
-        "source_profile_match",
-        "insufficient_data",
-    }
-)
-_METRIC_FAMILY_KEY_CACHE: dict[int, tuple[Sequence[Mapping[str, Any]], set[str]]] = {}
-_RECIPE_ID_INDEX_CACHE: dict[
-    tuple[int, tuple[str, ...]],
-    tuple[Sequence[Mapping[str, Any]], dict[str, list[str]]],
-] = {}
-_TOOL_GAP_ID_INDEX_CACHE: dict[
-    tuple[int, tuple[str, ...]],
-    tuple[Sequence[Mapping[str, Any]], dict[str, dict[str, list[str]]]],
-] = {}
-
 MACRO_AGENTS = frozenset(
     {
         "central_bank",
@@ -562,14 +525,6 @@ def build_rke_agent_research_context_from_rows(
     agent_id: str,
     forecasts: Sequence[Mapping[str, Any]],
     metadata: Sequence[Mapping[str, Any]] = (),
-    outcomes: Sequence[Mapping[str, Any]] = (),
-    source_profiles: Sequence[Mapping[str, Any]] = (),
-    viewpoint_profiles: Sequence[Mapping[str, Any]] = (),
-    recipes: Sequence[Mapping[str, Any]] = (),
-    tool_gaps: Sequence[Mapping[str, Any]] = (),
-    weighted_research_contexts: Sequence[Mapping[str, Any]] = (),
-    stock_context_snapshots: Sequence[Mapping[str, Any]] = (),
-    industry_context_snapshots: Sequence[Mapping[str, Any]] = (),
     as_of_date: str = "",
     layer: str = "",
     ticker: str = "",
@@ -579,21 +534,8 @@ def build_rke_agent_research_context_from_rows(
     normalized_agent = normalize_agent_id(agent_id, layer=layer)
     max_count = max(0, int(max_items or 0))
     metadata_by_report = _index_metadata(metadata)
-    outcomes_by_claim = _group_by(
-        [row for row in outcomes if _outcome_available_as_of(row, as_of_date)],
-        "forecast_claim_id",
-    )
-    weighted_by_claim = _weighted_claims_by_forecast_id(
-        weighted_research_contexts,
-        normalized_agent,
-        as_of_date=as_of_date,
-    )
-    metric_family_keys = _cached_known_metric_family_keys(forecasts)
-    recipe_id_index = _cached_recipe_id_index(recipes, metric_family_keys)
-    tool_gap_id_index = _cached_tool_gap_id_index(tool_gaps, metric_family_keys)
-
     items: list[dict[str, Any]] = []
-    for original_index, claim in enumerate(forecasts):
+    for claim in forecasts:
         if as_of_date and _claim_as_of_date(claim, metadata_by_report) > as_of_date:
             continue
         report_meta = metadata_by_report.get(_claim_report_key(claim), {})
@@ -605,28 +547,16 @@ def build_rke_agent_research_context_from_rows(
             sector=sector,
         ):
             continue
-        claim_id = str(claim.get("forecast_claim_id") or "")
         item = _public_claim_item(
             claim,
             report_meta=report_meta,
             agent_id=normalized_agent,
-            as_of_date=as_of_date,
-            original_input_index=original_index,
-            weighted_claim=weighted_by_claim.get(claim_id, {}),
-            source_profiles=source_profiles,
-            viewpoint_profiles=viewpoint_profiles,
-            outcomes=outcomes_by_claim.get(claim_id, []),
-            recipe_id_index=recipe_id_index,
-            tool_gap_id_index=tool_gap_id_index,
-            stock_context_snapshots=stock_context_snapshots,
-            industry_context_snapshots=industry_context_snapshots,
+            available_date=_claim_as_of_date(claim, metadata_by_report),
         )
         items.append(item)
     ranked_items = _rank_context_items(items)
     for rank, item in enumerate(ranked_items, 1):
         item["retrieval_rank"] = rank
-        item["priority_bucket"] = _priority_bucket(rank, len(ranked_items))
-        item["ranking_reason_codes"] = _ranking_reason_codes(item)
     visible_items = ranked_items[:max_count]
 
     context = {
@@ -653,7 +583,6 @@ def build_rke_agent_research_context_from_rows(
             "no_prior_reason": _no_prior_reason(normalized_agent, ranked_items),
             "private_text_included": False,
             "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
-            "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
             "current_data_required": True,
             "ranking_policy_id": RANKING_POLICY_ID,
         },
@@ -687,13 +616,7 @@ def format_rke_agent_research_context(context: Mapping[str, Any]) -> str:
                     f"{item_map.get('target_id')}, "
                     f"metric_family={item_map.get('metric_family')}"
                 ),
-                (
-                    "- Ranking: "
-                    f"rank={item_map.get('retrieval_rank')}; "
-                    f"priority={item_map.get('priority_bucket')}; "
-                    "reasons="
-                    f"{', '.join(_ensure_str_list(item_map.get('ranking_reason_codes'))) or 'none'}"
-                ),
+                f"- Available date: {item_map.get('available_date')}",
                 f"- Expected direction: {item_map.get('expected_direction')}",
                 f"- Horizon: {item_map.get('horizon_bucket')}",
                 (
@@ -737,62 +660,12 @@ def _public_claim_item(
     *,
     report_meta: Mapping[str, Any],
     agent_id: str,
-    as_of_date: str,
-    original_input_index: int,
-    weighted_claim: Mapping[str, Any],
-    source_profiles: Sequence[Mapping[str, Any]],
-    viewpoint_profiles: Sequence[Mapping[str, Any]],
-    outcomes: Sequence[Mapping[str, Any]],
-    recipe_id_index: Mapping[str, Sequence[str]],
-    tool_gap_id_index: Mapping[str, Mapping[str, Sequence[str]]],
-    stock_context_snapshots: Sequence[Mapping[str, Any]],
-    industry_context_snapshots: Sequence[Mapping[str, Any]],
+    available_date: str,
 ) -> dict[str, Any]:
     target = _ensure_mapping(claim.get("target"))
     domain = _claim_domain(claim, report_meta)
     metric_families = _claim_metric_families(claim)
     regime_types = _claim_regime_types(claim, agent_id)
-    source_profile = _best_source_profile(
-        report_meta,
-        source_profiles,
-        as_of_date=as_of_date,
-    )
-    viewpoint_profile = _best_viewpoint_profile(
-        metric_families,
-        viewpoint_profiles,
-        as_of_date=as_of_date,
-        horizon_bucket=_horizon_bucket(claim.get("horizon")),
-    )
-    matched_gaps = _matching_tool_gap_ids(metric_families, agent_id, tool_gap_id_index)
-    matched_recipes = _matching_recipe_ids(metric_families, recipe_id_index)
-    outcome_summary = _outcome_summary(outcomes)
-    combined_weight = _round_float(
-        weighted_claim.get("combined_research_prior_weight") or 1.0
-    )
-    performance_context_match = _performance_context_bucket(
-        weighted_claim.get("performance_context_match")
-    )
-    stock_context_snapshot = (
-        _matching_stock_context_snapshot(claim, report_meta, stock_context_snapshots)
-        if domain == "stock"
-        else {}
-    )
-    industry_context_snapshot = (
-        _matching_industry_context_snapshot(
-            claim,
-            report_meta,
-            industry_context_snapshots,
-        )
-        if domain == "industry"
-        else {}
-    )
-    context_snapshot_missing_reasons = _context_snapshot_missing_reasons(
-        agent_id,
-        claim,
-        report_meta,
-        stock_context_snapshot=stock_context_snapshot,
-        industry_context_snapshot=industry_context_snapshot,
-    )
     item = {
         "redacted_claim_id": _redacted_id(
             "FCRED",
@@ -809,59 +682,20 @@ def _public_claim_item(
         ),
         "regime_bucket": "|".join(regime_types) if regime_types else "unknown",
         "regime_types": regime_types,
-        "source_performance_bucket": _rating_bucket(
-            source_profile.get("shrunk_performance_bucket")
-        ),
-        "viewpoint_performance_bucket": _rating_bucket(
-            viewpoint_profile.get("shrunk_performance_bucket")
-        ),
-        "n_effective": _round_float(
-            viewpoint_profile.get("n_effective") or source_profile.get("n_effective")
-        ),
-        "statistical_reliability_bucket": _reliability_bucket(
-            viewpoint_profile.get("statistical_reliability_bucket")
-            or source_profile.get("statistical_reliability_bucket")
-        ),
-        "source_weight_multiplier": _round_float(
-            weighted_claim.get("source_weight_multiplier") or 1.0
-        ),
-        "viewpoint_weight_multiplier": _round_float(
-            weighted_claim.get("viewpoint_weight_multiplier") or 1.0
-        ),
-        "combined_research_prior_weight": combined_weight,
-        "performance_context_match": performance_context_match,
+        "available_date": available_date,
         "agent_target_specificity_bucket": _agent_target_specificity_bucket(
             agent_id, claim, report_meta
         ),
-        "known_failure_mode_tags": _failure_mode_tags(claim, viewpoint_profile),
         "role_filter_reason_codes": _role_filter_reason_codes(
             agent_id, claim, report_meta
         ),
-        "recipe_ids": matched_recipes,
-        "tool_gap_ids": matched_gaps,
-        "outcome_label_summary": outcome_summary,
-        "latest_completed_exit_date": outcome_summary.get("latest_completed_exit_date")
-        or "",
-        "freshness_bucket": _freshness_bucket(
-            latest_completed_exit_date=str(
-                outcome_summary.get("latest_completed_exit_date") or ""
-            ),
-            as_of_date=as_of_date,
-        ),
         "current_data_required": True,
         "current_data_required_fields": _current_data_required_fields(agent_id),
-        "context_snapshot_status": _context_snapshot_status(
-            stock_context_snapshot,
-            industry_context_snapshot,
-            context_snapshot_missing_reasons,
-        ),
-        "context_snapshot_missing_reasons": context_snapshot_missing_reasons,
         "actionability": SAFE_ACTIONABILITY,
         "actionability_guard": SAFE_ACTIONABILITY,
         "use_policy": RESEARCH_PRIOR_USE_POLICY,
         "production_signal_allowed": False,
         "no_prior_reason": "",
-        "original_input_index": original_input_index,
     }
     if agent_id.startswith("sector."):
         item["sector"] = _safe_token(
@@ -872,79 +706,6 @@ def _public_claim_item(
             report_meta.get("ts_code") or target.get("target_id") or ""
         )
         item["style_fit"] = _style_fit_bucket(agent_id, claim, report_meta)
-    if stock_context_snapshot:
-        item.update(
-            {
-                "context_snapshot_id": str(
-                    stock_context_snapshot.get("snapshot_id") or ""
-                ),
-                "market_cap_bucket": _safe_token(
-                    stock_context_snapshot.get("market_cap_bucket") or "unknown"
-                ),
-                "liquidity_bucket": _safe_token(
-                    stock_context_snapshot.get("liquidity_bucket") or "unknown"
-                ),
-                "stock_outcome_age_bucket": _safe_token(
-                    stock_context_snapshot.get("stock_outcome_age_bucket")
-                    or "unknown"
-                ),
-                "benchmark_family": _safe_token(
-                    stock_context_snapshot.get("benchmark_family") or "unknown"
-                ),
-                "fundamental_metric_family_counts": dict(
-                    sorted(
-                        _ensure_mapping(
-                            stock_context_snapshot.get(
-                                "fundamental_metric_family_counts"
-                            )
-                        ).items()
-                    )
-                ),
-                "context_snapshot_feature_missing_reasons": _ensure_str_list(
-                    stock_context_snapshot.get("missing_feature_reasons")
-                ),
-            }
-        )
-    if industry_context_snapshot:
-        known_proxy_limitations = _ensure_str_list(
-            industry_context_snapshot.get("known_proxy_limitations")
-        )
-        item["known_failure_mode_tags"] = list(
-            dict.fromkeys(
-                [
-                    *_ensure_str_list(item.get("known_failure_mode_tags")),
-                    *known_proxy_limitations,
-                ]
-            )
-        )
-        item.update(
-            {
-                "context_snapshot_id": str(
-                    industry_context_snapshot.get("snapshot_id") or ""
-                ),
-                "industry_cycle_bucket": _safe_token(
-                    industry_context_snapshot.get("industry_cycle_bucket")
-                    or "unknown"
-                ),
-                "proxy_symbol": _safe_token(
-                    industry_context_snapshot.get("proxy_symbol") or "unknown"
-                ),
-                "proxy_liquidity_bucket": _safe_token(
-                    industry_context_snapshot.get("proxy_liquidity_bucket")
-                    or "unknown"
-                ),
-                "mapping_confidence": _safe_token(
-                    industry_context_snapshot.get("mapping_confidence") or "unknown"
-                ),
-                "benchmark_family": _safe_token(
-                    industry_context_snapshot.get("benchmark_family") or "unknown"
-                ),
-                "known_proxy_limitations": known_proxy_limitations,
-                "context_snapshot_feature_missing_reasons": _ensure_str_list(
-                    industry_context_snapshot.get("missing_feature_reasons")
-                ),
-            }
-        )
     return item
 
 
@@ -1191,137 +952,6 @@ def _claim_metric_families(claim: Mapping[str, Any]) -> list[str]:
     return list(dict.fromkeys(_safe_token(value) for value in values if str(value).strip()))
 
 
-def _best_source_profile(
-    report_meta: Mapping[str, Any],
-    source_profiles: Sequence[Mapping[str, Any]],
-    *,
-    as_of_date: str,
-) -> Mapping[str, Any]:
-    ids = {
-        str(report_meta.get("institution_id") or ""),
-        *[str(item) for item in _ensure_list(report_meta.get("author_ids"))],
-    }
-    report_sector = str(
-        report_meta.get("sector") or report_meta.get("industry") or ""
-    ).strip()
-    candidates = [
-        row
-        for row in source_profiles
-        if str(row.get("entity_id") or "") in ids
-        and _profile_available_as_of(row, as_of_date)
-        and _profile_context_matches_sector(row, report_sector)
-    ]
-    return _best_by_effective_n(candidates)
-
-
-def _best_viewpoint_profile(
-    metric_families: Sequence[str],
-    viewpoint_profiles: Sequence[Mapping[str, Any]],
-    *,
-    as_of_date: str,
-    horizon_bucket: str,
-) -> Mapping[str, Any]:
-    wanted = set(metric_families)
-    candidates = [
-        row
-        for row in viewpoint_profiles
-        if wanted.intersection(_ensure_str_list(row.get("mechanism_chain")))
-        and _profile_available_as_of(row, as_of_date)
-        and _profile_context_matches_horizon(row, horizon_bucket)
-    ]
-    return _best_by_effective_n(candidates)
-
-
-def _best_by_effective_n(rows: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]:
-    if not rows:
-        return {}
-    return sorted(rows, key=lambda row: float(row.get("n_effective") or 0), reverse=True)[0]
-
-
-def _weighted_claims_by_forecast_id(
-    contexts: Sequence[Mapping[str, Any]],
-    agent_id: str,
-    *,
-    as_of_date: str,
-) -> dict[str, Mapping[str, Any]]:
-    rows: dict[str, tuple[int, Mapping[str, Any]]] = {}
-    for context in contexts:
-        if not _dated_row_available_before(
-            context,
-            as_of_date,
-            fields=("as_of_datetime", "as_of_date"),
-        ):
-            continue
-        context_agent = str(context.get("agent_id") or "")
-        priority = 0 if context_agent == agent_id else 1 if context_agent == "research.general" else 2
-        for claim in _ensure_list(context.get("retrieved_claims")):
-            claim_map = _ensure_mapping(claim)
-            forecast_claim_id = str(claim_map.get("forecast_claim_id") or "")
-            if not forecast_claim_id:
-                continue
-            previous = rows.get(forecast_claim_id)
-            if previous is None or priority < previous[0]:
-                rows[forecast_claim_id] = (priority, claim_map)
-    return {claim_id: row for claim_id, (_, row) in rows.items()}
-
-
-def _dated_row_available_before(
-    row: Mapping[str, Any],
-    as_of_date: str,
-    *,
-    fields: Sequence[str],
-) -> bool:
-    if not as_of_date:
-        return True
-    available_date = next(
-        (_date_key(row.get(field)) for field in fields if _date_key(row.get(field))),
-        "",
-    )
-    return bool(available_date) and available_date < as_of_date
-
-
-def _outcome_available_as_of(row: Mapping[str, Any], as_of_date: str) -> bool:
-    return _dated_row_available_before(
-        row,
-        as_of_date,
-        fields=(
-            "label_available_at",
-            "data_as_of_datetime",
-            "exit_datetime",
-            "exit_date",
-            "observed_at",
-        ),
-    )
-
-
-def _profile_available_as_of(row: Mapping[str, Any], as_of_date: str) -> bool:
-    return _dated_row_available_before(
-        row,
-        as_of_date,
-        fields=("as_of_datetime", "last_revalidated_at"),
-    )
-
-
-def _profile_context_matches_sector(
-    row: Mapping[str, Any], report_sector: str
-) -> bool:
-    profile_sector = str(_ensure_mapping(row.get("context")).get("sector") or "").strip()
-    if not profile_sector or profile_sector == "unknown" or not report_sector:
-        return True
-    return _slug(profile_sector) == _slug(report_sector)
-
-
-def _profile_context_matches_horizon(
-    row: Mapping[str, Any], horizon_bucket: str
-) -> bool:
-    profile_horizon = str(
-        _ensure_mapping(row.get("context")).get("horizon_bucket") or ""
-    ).strip()
-    if not profile_horizon or profile_horizon == "unknown" or not horizon_bucket:
-        return True
-    return profile_horizon == horizon_bucket
-
-
 def _rank_context_items(items: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(items, key=_context_item_rank_key)
 
@@ -1329,13 +959,8 @@ def _rank_context_items(items: Sequence[dict[str, Any]]) -> list[dict[str, Any]]
 def _context_item_rank_key(item: Mapping[str, Any]) -> tuple[Any, ...]:
     return (
         _specificity_rank(item.get("agent_target_specificity_bucket")),
-        _performance_context_rank(item.get("performance_context_match")),
-        -_safe_float(item.get("combined_research_prior_weight"), 1.0),
-        _reliability_rank(item.get("statistical_reliability_bucket")),
-        -_safe_float(item.get("n_effective"), 0.0),
-        _freshness_rank(item.get("freshness_bucket")),
-        _reverse_date_key(item.get("latest_completed_exit_date")),
-        _safe_int(item.get("original_input_index"), 0),
+        _reverse_date_key(item.get("available_date")),
+        str(item.get("redacted_claim_id") or ""),
     )
 
 
@@ -1355,73 +980,9 @@ def _specificity_rank(value: Any) -> int:
     return ranks.get(str(value or ""), 9)
 
 
-def _performance_context_rank(value: Any) -> int:
-    ranks = {
-        "source_and_viewpoint_profile_match": 0,
-        "viewpoint_profile_match": 1,
-        "source_profile_match": 1,
-        "insufficient_data": 2,
-    }
-    return ranks.get(str(value or ""), 9)
-
-
-def _reliability_rank(value: Any) -> int:
-    ranks = {
-        "high_effective_n": 0,
-        "medium_effective_n": 1,
-        "low_effective_n": 2,
-        "limited": 3,
-        "insufficient_data": 4,
-    }
-    return ranks.get(str(value or ""), 9)
-
-
-def _freshness_rank(value: Any) -> int:
-    ranks = {
-        "historical_completed_exit": 0,
-        "completed_exit_after_prior_as_of": 1,
-        "pending_no_completed_exit": 2,
-    }
-    return ranks.get(str(value or ""), 9)
-
-
 def _reverse_date_key(value: Any) -> str:
     date = _date_key(value)
     return "".join(str(9 - int(char)) if char.isdigit() else char for char in date)
-
-
-def _priority_bucket(rank: int, total: int) -> str:
-    if total <= 0:
-        return "low"
-    if rank <= 3:
-        return "high"
-    if rank <= 10:
-        return "medium"
-    return "low"
-
-
-def _ranking_reason_codes(item: Mapping[str, Any]) -> list[str]:
-    reasons = [str(item.get("agent_target_specificity_bucket") or "generic_agent_match")]
-    reasons.extend(_ensure_str_list(item.get("role_filter_reason_codes")))
-    performance_context = str(item.get("performance_context_match") or "insufficient_data")
-    if performance_context != "insufficient_data":
-        reasons.append(performance_context)
-    weight = _safe_float(item.get("combined_research_prior_weight"), 1.0)
-    if weight > 1.0:
-        reasons.append("research_prior_weight_above_neutral")
-    elif weight < 1.0:
-        reasons.append("research_prior_weight_below_neutral")
-    reliability = str(item.get("statistical_reliability_bucket") or "insufficient_data")
-    if reliability != "insufficient_data":
-        reasons.append(f"reliability_{reliability}")
-    freshness = str(item.get("freshness_bucket") or "")
-    if freshness:
-        reasons.append(freshness)
-    outcome_summary = _ensure_mapping(item.get("outcome_label_summary"))
-    if _safe_int(outcome_summary.get("label_count"), 0) > 0:
-        reasons.append("market_feedback_available")
-    reasons.extend(_ensure_str_list(item.get("context_snapshot_missing_reasons")))
-    return list(dict.fromkeys(reasons))
 
 
 def _role_filter_reason_codes(
@@ -1453,219 +1014,6 @@ def _no_prior_reason(agent_id: str, ranked_items: Sequence[Mapping[str, Any]]) -
             return "unsupported_superinvestor_agent"
         return "no_role_filtered_stock_prior_for_superinvestor"
     return "no_applicable_prior_for_agent_request"
-
-
-def _cached_known_metric_family_keys(
-    forecasts: Sequence[Mapping[str, Any]],
-) -> set[str]:
-    cache_key = id(forecasts)
-    cached = _METRIC_FAMILY_KEY_CACHE.get(cache_key)
-    if cached and cached[0] is forecasts:
-        return cached[1]
-    value = _known_metric_family_keys(forecasts)
-    _METRIC_FAMILY_KEY_CACHE[cache_key] = (forecasts, value)
-    return value
-
-
-def _cached_recipe_id_index(
-    recipes: Sequence[Mapping[str, Any]], metric_family_keys: set[str]
-) -> dict[str, list[str]]:
-    metric_tuple = tuple(sorted(metric_family_keys))
-    cache_key = (id(recipes), metric_tuple)
-    cached = _RECIPE_ID_INDEX_CACHE.get(cache_key)
-    if cached and cached[0] is recipes:
-        return cached[1]
-    value = _index_recipe_ids(recipes, metric_family_keys)
-    _RECIPE_ID_INDEX_CACHE[cache_key] = (recipes, value)
-    return value
-
-
-def _cached_tool_gap_id_index(
-    tool_gaps: Sequence[Mapping[str, Any]], metric_family_keys: set[str]
-) -> dict[str, dict[str, list[str]]]:
-    metric_tuple = tuple(sorted(metric_family_keys))
-    cache_key = (id(tool_gaps), metric_tuple)
-    cached = _TOOL_GAP_ID_INDEX_CACHE.get(cache_key)
-    if cached and cached[0] is tool_gaps:
-        return cached[1]
-    value = _index_tool_gap_ids(tool_gaps, metric_family_keys)
-    _TOOL_GAP_ID_INDEX_CACHE[cache_key] = (tool_gaps, value)
-    return value
-
-
-def _known_metric_family_keys(forecasts: Sequence[Mapping[str, Any]]) -> set[str]:
-    return {
-        key
-        for claim in forecasts
-        for key in (_safe_token(metric).lower() for metric in _claim_metric_families(claim))
-        if key
-    }
-
-
-def _index_tool_gap_ids(
-    tool_gaps: Sequence[Mapping[str, Any]], metric_family_keys: set[str]
-) -> dict[str, dict[str, list[str]]]:
-    by_agent: dict[str, list[str]] = defaultdict(list)
-    by_metric: dict[str, list[str]] = defaultdict(list)
-    for gap in tool_gaps:
-        gap_id = str(gap.get("tool_gap_id") or "")
-        if not gap_id:
-            continue
-        for agent in _ensure_str_list(gap.get("target_agents")):
-            by_agent[agent].append(gap_id)
-        metric_name = _safe_token(gap.get("metric_name")).lower()
-        for key in metric_family_keys:
-            if key in metric_name:
-                by_metric[key].append(gap_id)
-    return {"by_agent": dict(by_agent), "by_metric": dict(by_metric)}
-
-
-def _index_recipe_ids(
-    recipes: Sequence[Mapping[str, Any]], metric_family_keys: set[str]
-) -> dict[str, list[str]]:
-    by_metric: dict[str, list[str]] = defaultdict(list)
-    for recipe in recipes:
-        recipe_id = str(recipe.get("analysis_recipe_id") or recipe.get("recipe_id") or "")
-        if not recipe_id:
-            continue
-        haystack = _combined_text(
-            recipe.get("decision_scope"),
-            recipe.get("required_data"),
-            recipe.get("name"),
-        ).lower()
-        for key in metric_family_keys:
-            if key in haystack:
-                by_metric[key].append(recipe_id)
-    return dict(by_metric)
-
-
-def _matching_tool_gap_ids(
-    metric_families: Sequence[str],
-    agent_id: str,
-    tool_gap_id_index: Mapping[str, Mapping[str, Sequence[str]]],
-) -> list[str]:
-    by_agent = tool_gap_id_index.get("by_agent", {})
-    by_metric = tool_gap_id_index.get("by_metric", {})
-    ids: list[str] = []
-    for gap_id in by_agent.get(agent_id, ()):
-        if gap_id not in ids:
-            ids.append(gap_id)
-        if len(ids) >= 5:
-            break
-    for metric in metric_families:
-        if len(ids) >= 5:
-            break
-        key = _safe_token(metric).lower()
-        for gap_id in by_metric.get(key, ()):
-            if gap_id not in ids:
-                ids.append(gap_id)
-            if len(ids) >= 5:
-                break
-    return ids
-
-
-def _matching_recipe_ids(
-    metric_families: Sequence[str], recipe_id_index: Mapping[str, Sequence[str]]
-) -> list[str]:
-    ids: list[str] = []
-    for metric in metric_families:
-        key = _safe_token(metric).lower()
-        for recipe_id in recipe_id_index.get(key, ()):
-            if recipe_id not in ids:
-                ids.append(recipe_id)
-            if len(ids) >= 5:
-                break
-        if len(ids) >= 5:
-            break
-    return ids
-
-
-def _failure_mode_tags(
-    claim: Mapping[str, Any],
-    viewpoint_profile: Mapping[str, Any],
-) -> list[str]:
-    texts = [
-        _combined_text(mode)
-        for mode in [*_ensure_list(claim.get("failure_modes")), *_ensure_list(viewpoint_profile.get("known_failure_modes"))]
-    ]
-    joined = " ".join(texts).lower()
-    tags: list[str] = []
-    rules = (
-        ("policy_intervention_risk", ("政策", "央行", "监管", "intervention")),
-        ("liquidity_reversal_risk", ("流动性", "美元", "liquidity")),
-        ("demand_shortfall_risk", ("需求", "demand")),
-        ("supply_response_risk", ("供给", "产能", "supply")),
-        ("valuation_compression_risk", ("估值", "valuation")),
-        ("earnings_miss_risk", ("盈利", "业绩", "earnings")),
-        ("crowded_viewpoint_risk", ("拥挤", "一致预期", "crowded")),
-    )
-    for tag, keywords in rules:
-        if any(keyword in joined for keyword in keywords):
-            tags.append(tag)
-    if tags:
-        return tags
-    return ["known_failure_modes_present"] if texts else []
-
-
-def _outcome_summary(outcomes: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
-    if not outcomes:
-        return {
-            "label_count": 0,
-            "directional_hit_count": 0,
-            "pending_label_count": 0,
-            "pending_share": 0.0,
-            "label_types": [],
-            "latest_completed_exit_date": "",
-        }
-    pending_count = sum(
-        1
-        for row in outcomes
-        if str(row.get("label_status") or row.get("status") or "completed")
-        == "pending"
-    )
-    completed_exit_dates = [
-        _date_key(row.get("exit_datetime") or row.get("exit_date") or "")
-        for row in outcomes
-        if str(row.get("label_status") or row.get("status") or "completed")
-        == "completed"
-    ]
-    return {
-        "label_count": len(outcomes),
-        "directional_hit_count": sum(1 for row in outcomes if row.get("directional_hit") is True),
-        "pending_label_count": pending_count,
-        "pending_share": round(pending_count / len(outcomes), 4),
-        "label_types": sorted(
-            {
-                str(row.get("label_type") or "")
-                for row in outcomes
-                if str(row.get("label_type") or "")
-            }
-        ),
-        "latest_completed_exit_date": max(completed_exit_dates, default=""),
-    }
-
-
-def _freshness_bucket(*, latest_completed_exit_date: str, as_of_date: str) -> str:
-    if not latest_completed_exit_date:
-        return "pending_no_completed_exit"
-    if as_of_date and latest_completed_exit_date >= as_of_date:
-        return "completed_exit_after_prior_as_of"
-    return "historical_completed_exit"
-
-
-def _rating_bucket(value: Any) -> str:
-    bucket = _safe_token(value or "pending_or_unrated")
-    return bucket if bucket in RATING_BUCKETS else "pending_or_unrated"
-
-
-def _reliability_bucket(value: Any) -> str:
-    bucket = _safe_token(value or "insufficient_data")
-    return bucket if bucket in RELIABILITY_BUCKETS else "insufficient_data"
-
-
-def _performance_context_bucket(value: Any) -> str:
-    bucket = _safe_token(value or "insufficient_data")
-    return bucket if bucket in PERFORMANCE_CONTEXT_BUCKETS else "insufficient_data"
 
 
 def _current_data_required_fields(agent_id: str) -> list[str]:
@@ -1722,133 +1070,6 @@ def _current_data_required_fields(agent_id: str) -> list[str]:
     return ["current_data_confirmation"]
 
 
-def _claim_context_as_of_date(
-    claim: Mapping[str, Any],
-    report_meta: Mapping[str, Any],
-) -> str:
-    return _date_key(
-        claim.get("signal_datetime")
-        or claim.get("as_of_datetime")
-        or report_meta.get("publish_datetime")
-        or report_meta.get("accessible_datetime")
-        or report_meta.get("publish_date")
-    )
-
-
-def _latest_snapshot_on_or_before(
-    snapshots: Sequence[Mapping[str, Any]],
-    as_of_date: str,
-) -> Mapping[str, Any]:
-    if not snapshots:
-        return {}
-    if not as_of_date:
-        return sorted(
-            snapshots,
-            key=lambda row: str(row.get("as_of_date") or ""),
-            reverse=True,
-        )[0]
-    exact = [row for row in snapshots if str(row.get("as_of_date") or "") == as_of_date]
-    if exact:
-        return exact[0]
-    eligible = [
-        row
-        for row in snapshots
-        if str(row.get("as_of_date") or "") <= as_of_date
-    ]
-    return sorted(
-        eligible,
-        key=lambda row: str(row.get("as_of_date") or ""),
-        reverse=True,
-    )[0] if eligible else {}
-
-
-def _matching_stock_context_snapshot(
-    claim: Mapping[str, Any],
-    report_meta: Mapping[str, Any],
-    snapshots: Sequence[Mapping[str, Any]],
-) -> Mapping[str, Any]:
-    target = _ensure_mapping(claim.get("target"))
-    stock_symbol = str(
-        report_meta.get("ts_code") or target.get("target_id") or ""
-    ).strip().upper()
-    if not stock_symbol:
-        return {}
-    candidates = [
-        row
-        for row in snapshots
-        if str(row.get("stock_symbol") or "").strip().upper() == stock_symbol
-    ]
-    return _latest_snapshot_on_or_before(
-        candidates,
-        _claim_context_as_of_date(claim, report_meta),
-    )
-
-
-def _matching_industry_context_snapshot(
-    claim: Mapping[str, Any],
-    report_meta: Mapping[str, Any],
-    snapshots: Sequence[Mapping[str, Any]],
-) -> Mapping[str, Any]:
-    target = _ensure_mapping(claim.get("target"))
-    sector = str(
-        report_meta.get("sector")
-        or report_meta.get("industry")
-        or target.get("target_id")
-        or target.get("target_name")
-        or ""
-    ).strip()
-    if not sector:
-        return {}
-    candidates = [
-        row
-        for row in snapshots
-        if sector in str(row.get("canonical_sector") or "")
-        or str(row.get("canonical_sector") or "") in sector
-    ]
-    return _latest_snapshot_on_or_before(
-        candidates,
-        _claim_context_as_of_date(claim, report_meta),
-    )
-
-
-def _context_snapshot_status(
-    stock_context_snapshot: Mapping[str, Any],
-    industry_context_snapshot: Mapping[str, Any],
-    missing_reasons: Sequence[str],
-) -> str:
-    if missing_reasons:
-        return "missing"
-    if stock_context_snapshot or industry_context_snapshot:
-        return "available"
-    return "not_required"
-
-
-def _context_snapshot_missing_reasons(
-    agent_id: str,
-    claim: Mapping[str, Any],
-    report_meta: Mapping[str, Any],
-    *,
-    stock_context_snapshot: Mapping[str, Any] | None = None,
-    industry_context_snapshot: Mapping[str, Any] | None = None,
-) -> list[str]:
-    domain = _claim_domain(claim, report_meta)
-    if domain == "stock" and (
-        agent_id.startswith("superinvestor.")
-        or agent_id.startswith("decision.")
-        or agent_id == "sector.relationship_mapper"
-    ):
-        if stock_context_snapshot:
-            return []
-        return ["stock_context_snapshot_missing"]
-    if domain == "industry" and (
-        agent_id.startswith("sector.") or agent_id.startswith("decision.")
-    ):
-        if industry_context_snapshot:
-            return []
-        return ["industry_context_snapshot_missing"]
-    return []
-
-
 def _index_metadata(rows: Sequence[Mapping[str, Any]]) -> dict[str, Mapping[str, Any]]:
     by_key: dict[str, Mapping[str, Any]] = {}
     for row in rows:
@@ -1867,12 +1088,12 @@ def _claim_as_of_date(
     claim: Mapping[str, Any], metadata_by_report: Mapping[str, Mapping[str, Any]]
 ) -> str:
     report_meta = metadata_by_report.get(_claim_report_key(claim), {})
-    return _date_key(
-        claim.get("signal_datetime")
-        or claim.get("as_of_datetime")
-        or report_meta.get("publish_datetime")
-        or report_meta.get("accessible_datetime")
-        or ""
+    return max(
+        (_date_key(value) for value in (
+            claim.get("signal_datetime"), claim.get("as_of_datetime"),
+            report_meta.get("publish_datetime"), report_meta.get("accessible_datetime"),
+        )),
+        default="",
     )
 
 
@@ -1889,15 +1110,6 @@ def _horizon_bucket(value: Any) -> str:
     if max_days <= 120:
         return "medium"
     return "long"
-
-
-def _group_by(
-    rows: Sequence[Mapping[str, Any]], key: str
-) -> dict[str, list[Mapping[str, Any]]]:
-    grouped: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
-    for row in rows:
-        grouped[str(row.get(key) or "")].append(row)
-    return grouped
 
 
 def _read_jsonl(path: Path) -> tuple[dict[str, Any], ...]:
@@ -1943,34 +1155,11 @@ def _date_key(value: Any) -> str:
     return match.group(0) if match else ""
 
 
-def _round_float(value: Any) -> float:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return 0.0
-    return round(number, 4) if isfinite(number) else 0.0
-
-
-def _safe_float(value: Any, default: float) -> float:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return default
-    return number if isfinite(number) else default
-
-
 def _int_or_none(value: Any) -> int | None:
     try:
         return int(value)
     except (TypeError, ValueError):
         return None
-
-
-def _safe_int(value: Any, default: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def _ensure_mapping(value: Any) -> Mapping[str, Any]:

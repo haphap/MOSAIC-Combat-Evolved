@@ -108,6 +108,8 @@ def test_etf_disclosure_date_seals_authoritative_vintage_and_registers_exact_rep
     )
     assert upstream is not None
     upstream_payload = upstream.as_dict()
+    assert upstream_payload["schema_version"] == "source_capture_receipt_v1"
+    assert "schema_hash" in upstream_payload["content"]
     assert upstream_payload["identity"]["route_id"] == "tushare.etf_holdings"
     assert upstream_payload["pit"]["pit_mode"] == "AUTHORITATIVE_VINTAGE_REPLAY"
     assert upstream_payload["content"]["raw_content_hash"] == descriptor["content_hash"]
@@ -252,6 +254,8 @@ def test_rke_selected_sources_use_archive_publish_and_first_discovery_times(
     )
     assert upstream is not None
     upstream_payload = upstream.as_dict()
+    assert upstream_payload["schema_version"] == "source_capture_receipt_v2"
+    assert "schema_hash" not in upstream_payload["content"]
     assert upstream_payload["identity"]["route_id"] == "private.rke_report_intelligence"
     assert upstream_payload["pit"]["pit_mode"] == "AUTHORITATIVE_VINTAGE_REPLAY"
     assert upstream_payload["content"]["raw_content_hash"] == descriptor["content_hash"]
@@ -341,7 +345,9 @@ def test_rke_true_empty_receipt_requires_exact_materialization_and_basic_inputs(
     )
     assert upstream is not None
     payload = upstream.as_dict()
-    assert payload["authority"]["parser_version"] == "rke_source_evidence_v2"
+    assert payload["authority"]["parser_version"] == "rke_source_evidence_v3"
+    assert payload["schema_version"] == "source_capture_receipt_v2"
+    assert "schema_hash" not in payload["content"]
     assert payload["content"]["normalized_row_count"] == 0
     assert payload["completeness"]["empty_result_semantics"] == "TRUE_EMPTY"
     assert payload["coverage"]["observed_start"] is None

@@ -3414,3 +3414,35 @@ def test_receipt_set_fields_require_canonical_order() -> None:
     payload["pit"]["blocker_codes"] = ["TRANSPORT_FAILED", "PERMISSION_DENIED"]
     with pytest.raises(ValueError, match="sorted"):
         SourceCaptureReceipt.seal(payload)
+
+
+def test_sealing_hashes_the_receipt_once_and_loading_verifies_it(monkeypatch):
+    import mosaic.dataflows.agent_materialization as materialization
+
+    payload = _source_payload()
+    calls = []
+    original = materialization.canonical_hash
+
+    def record_hash(value):
+        if isinstance(value, dict) and value.get("schema_version") == "source_capture_receipt_v1":
+            calls.append(value)
+        return original(value)
+
+    monkeypatch.setattr(materialization, "canonical_hash", record_hash)
+    receipt = SourceCaptureReceipt.seal(payload)
+    assert len(calls) == 1
+    assert SourceCaptureReceipt.from_dict(receipt.as_dict()) == receipt
+    assert len(calls) == 2
+    modified = receipt.as_dict()
+    modified["content"]["normalized_row_count"] += 1
+    with pytest.raises(ValueError, match="receipt_hash"):
+        SourceCaptureReceipt.from_dict(modified)
+
+
+@pytest.mark.parametrize("version", ["source_capture_receipt_v1", "source_capture_receipt_v2"])
+def test_non_rke_receipts_cannot_omit_schema_hash(version):
+    payload = _source_payload()
+    payload["schema_version"] = version
+    payload["content"].pop("schema_hash")
+    with pytest.raises(ValueError, match="schema violation"):
+        SourceCaptureReceipt.seal(payload)

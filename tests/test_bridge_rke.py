@@ -60,7 +60,7 @@ def test_rke_agent_research_context_bridge_returns_redacted_ranked_context(tmp_p
 
     assert payload["agent_id"] == "decision.cio"
     assert payload["production_signal_allowed"] is False
-    assert payload["ranking_policy_id"] == "rke_agent_research_context_rank_v1"
+    assert payload["ranking_policy_id"] == "rke_agent_research_context_rank_v2"
     assert payload["summary"]["item_count"] == 1
     assert payload["context_items"][0]["retrieval_rank"] == 1
     assert "claim_text" not in json.dumps(payload, ensure_ascii=False)
