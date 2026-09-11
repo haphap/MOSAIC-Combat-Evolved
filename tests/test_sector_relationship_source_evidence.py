@@ -284,8 +284,9 @@ def test_rke_empty_or_unclosed_source_lineage_fails_closed(
         )
 
 
-def test_rke_true_empty_receipt_requires_exact_materialization_and_all_inputs(
-    tmp_path: Path,
+@pytest.mark.parametrize("optional_contents", [None, "invalid json", "{}\n"])
+def test_rke_true_empty_receipt_requires_exact_materialization_and_basic_inputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, optional_contents: str | None,
 ) -> None:
     registry_dir = _write_true_empty_rke_inputs(tmp_path)
     args = {
@@ -313,7 +314,26 @@ def test_rke_true_empty_receipt_requires_exact_materialization_and_all_inputs(
     descriptor["request_hash"] = canonical_hash(args)
     authority, store, ledger = _authority(tmp_path)
 
+    if optional_contents is not None:
+        for filename in (
+            "report_outcome_labels.jsonl", "source_performance_profiles.jsonl",
+            "viewpoint_performance_profiles.jsonl", "analysis_recipes.jsonl",
+            "tool_gaps.jsonl", "weighted_research_contexts.jsonl",
+            "stock_context_snapshots.jsonl", "industry_context_snapshots.jsonl",
+        ):
+            (registry_dir / filename).write_text(optional_contents, encoding="utf-8")
+    hashed_files: list[str] = []
+    read_bytes = Path.read_bytes
+
+    def record_read(path: Path) -> bytes:
+        if path.parent == registry_dir:
+            hashed_files.append(path.name)
+        return read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", record_read)
+
     receipts = authority("get_rke_research_context", args, raw, descriptor, ())
+    assert hashed_files == ["forecast_claims.jsonl", "report_metadata.jsonl"]
 
     assert len(receipts) == 1
     upstream = ledger.source_capture_receipt(
@@ -321,6 +341,7 @@ def test_rke_true_empty_receipt_requires_exact_materialization_and_all_inputs(
     )
     assert upstream is not None
     payload = upstream.as_dict()
+    assert payload["authority"]["parser_version"] == "rke_source_evidence_v2"
     assert payload["content"]["normalized_row_count"] == 0
     assert payload["completeness"]["empty_result_semantics"] == "TRUE_EMPTY"
     assert payload["coverage"]["observed_start"] is None
@@ -331,8 +352,9 @@ def test_rke_true_empty_receipt_requires_exact_materialization_and_all_inputs(
     assert store.resolve(descriptor) == receipts
 
 
+@pytest.mark.parametrize("missing_filename", ["forecast_claims.jsonl", "report_metadata.jsonl"])
 def test_rke_true_empty_receipt_rejects_missing_input_or_forged_payload(
-    tmp_path: Path,
+    tmp_path: Path, missing_filename: str,
 ) -> None:
     registry_dir = _write_true_empty_rke_inputs(tmp_path)
     args = {
@@ -343,7 +365,7 @@ def test_rke_true_empty_receipt_rejects_missing_input_or_forged_payload(
         "sector": "银行",
         "max_items": 12,
     }
-    registry_dir.joinpath(RKE_AGENT_RESEARCH_INPUT_FILENAMES[-1]).unlink()
+    registry_dir.joinpath(missing_filename).unlink()
     authority, _store, _ledger = _authority(tmp_path)
     descriptor = _descriptor(
         "get_rke_research_context", "forged payload", pit_mode="DERIVED_FROM_PIT_ARCHIVE"

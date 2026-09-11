@@ -536,7 +536,7 @@ class SectorRelationshipSourceEvidenceAuthority:
                     "provider": "local_private_rke",
                     "permission_tier": "trusted_private_archive",
                     "api_version": "rke-v1",
-                    "parser_version": "rke_source_evidence_v1",
+                    "parser_version": "rke_source_evidence_v2",
                 },
                 "time": {
                     "released_at": knowledge_at.isoformat(),
@@ -559,7 +559,7 @@ class SectorRelationshipSourceEvidenceAuthority:
                     "normalized_row_count": len(selected),
                     "schema_hash": canonical_hash(
                         {
-                            "parser_version": "rke_source_evidence_v1",
+                            "parser_version": "rke_source_evidence_v2",
                             "route_id": descriptor["route_id"],
                         }
                     ),
@@ -657,7 +657,7 @@ class SectorRelationshipSourceEvidenceAuthority:
                     "provider": "local_private_rke",
                     "permission_tier": "trusted_private_archive",
                     "api_version": "rke-v1",
-                    "parser_version": "rke_source_evidence_v1",
+                    "parser_version": "rke_source_evidence_v2",
                 },
                 "time": {
                     "released_at": as_of_end.isoformat(),
@@ -681,7 +681,7 @@ class SectorRelationshipSourceEvidenceAuthority:
                     "normalized_row_count": 0,
                     "schema_hash": canonical_hash(
                         {
-                            "parser_version": "rke_source_evidence_v1",
+                            "parser_version": "rke_source_evidence_v2",
                             "route_id": descriptor["route_id"],
                         }
                     ),
