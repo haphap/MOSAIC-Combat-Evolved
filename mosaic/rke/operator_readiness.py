@@ -84,6 +84,8 @@ from .review_progress import (
 )
 from .temp_paths import rke_temporary_directory
 
+from mosaic.rke.json_io import jsonable as _jsonable, write_json as _write_json
+
 
 OPERATOR_READINESS_REPORT_PATH = "registry/handoffs/rke_operator_readiness_report.json"
 OPERATOR_READINESS_TEMP_COPY_IGNORED_PATHS = frozenset(
@@ -123,16 +125,6 @@ class OperatorReadinessReport:
     failure_count: int
     checks: Sequence[OperatorReadinessCheck]
     generated_paths: Sequence[str]
-
-
-def _jsonable(value: Any) -> Any:
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    return value
 
 
 def _read_json(path: Path) -> Any:
@@ -191,15 +183,6 @@ def _operator_readiness_copy_ignore(root_path: Path):
         return ignored
 
     return ignore
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return {"path": str(path), "rows": 1}
 
 
 def _check(check_id: str, passed: bool, evidence: str, blocker: str = "") -> OperatorReadinessCheck:

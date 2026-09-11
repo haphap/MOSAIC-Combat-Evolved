@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
@@ -25,6 +25,8 @@ from .runtime import (
     RuntimeInference,
     RuntimeRecommendation,
 )
+
+from mosaic.rke.json_io import jsonable as _jsonable
 
 
 @dataclass(frozen=True)
@@ -58,16 +60,6 @@ class SectorSemiconductorDemoBundle:
     disagreement_evidence: Sequence[DisagreementEvidence]
     disagreement_cluster: DisagreementCluster
     runtime_output: RuntimeAgentOutput
-
-
-def _jsonable(value: Any) -> Any:
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    return value
 
 
 def _write_json(path: Path, payload: Any) -> None:

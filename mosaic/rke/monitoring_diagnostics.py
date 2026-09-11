@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Sequence
 
 from .monitoring import ProductionMonitorResult, evaluate_production_monitor
+
+from mosaic.rke.json_io import write_json as _write_json
 
 
 MONITORING_DIAGNOSTICS_PATH = "registry/monitoring/central_bank_monitoring_diagnostics.json"
@@ -31,25 +32,6 @@ class ProductionMonitorDiagnosticsReport:
     passed_count: int
     failure_count: int
     scenarios: Sequence[ProductionMonitorDiagnosticScenario]
-
-
-def _jsonable(value: Any) -> Any:
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    return value
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-    return {"path": str(path), "rows": 1}
 
 
 def _scenario(
@@ -157,7 +139,10 @@ def build_production_monitor_diagnostics() -> ProductionMonitorDiagnosticsReport
     )
 
 
-def write_production_monitor_diagnostics(root: str | Path = ".") -> dict[str, Any]:
+def write_production_monitor_diagnostics(
+    root: str | Path = ".", *, report: ProductionMonitorDiagnosticsReport | None = None
+) -> dict[str, Any]:
     root_path = Path(root)
-    report = build_production_monitor_diagnostics()
+    if report is None:
+        report = build_production_monitor_diagnostics()
     return _write_json(root_path / MONITORING_DIAGNOSTICS_PATH, asdict(report))

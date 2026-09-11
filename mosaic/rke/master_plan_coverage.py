@@ -15,6 +15,8 @@ from .completion_acceptance import (
 )
 from .registry_manifest import is_public_registry_artifact
 
+from mosaic.rke.json_io import write_json as _write_json
+
 
 MASTER_PLAN_COVERAGE_REPORT_PATH = (
     "registry/audits/rke_master_plan_coverage_report.json"
@@ -77,26 +79,6 @@ class MasterPlanCoverageReport:
     final_acceptance_blocked_count: int
     final_acceptance_missing_count: int
     final_acceptance_records: Sequence[MasterPlanCoverageRecord]
-
-
-def _jsonable(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    return value
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True)
-        + "\n",
-        encoding="utf-8",
-    )
-    return {"path": str(path), "rows": 1}
 
 
 def _read_json(path: Path) -> Any:
@@ -1392,7 +1374,10 @@ def _final_acceptance_records(
     )
 
 
-def write_master_plan_coverage_report(root: str | Path = ".") -> dict[str, Any]:
+def write_master_plan_coverage_report(
+    root: str | Path = ".", *, report: MasterPlanCoverageReport | None = None
+) -> dict[str, Any]:
     root_path = Path(root)
-    report = build_master_plan_coverage_report(root_path)
+    if report is None:
+        report = build_master_plan_coverage_report(root_path)
     return _write_json(root_path / MASTER_PLAN_COVERAGE_REPORT_PATH, asdict(report))

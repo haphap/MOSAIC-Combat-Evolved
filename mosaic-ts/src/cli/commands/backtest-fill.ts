@@ -54,7 +54,6 @@ interface BacktestFillOptions {
   llmProvider?: string;
   model?: string;
   baseUrl?: string;
-  vetoThreshold?: string;
   /** Pretty progress every N trade days. */
   logEvery?: string;
   /** Override prompts root directory (for worktree evaluation). */
@@ -86,7 +85,6 @@ export function registerBacktestFill(program: Command): void {
     .option("--llm-provider <name>", "Override LLM provider")
     .option("--model <name>", "Override LLM model")
     .option("--base-url <url>", "Override LLM base URL")
-    .option("--veto-threshold <num>", "Deprecated compatibility option; ignored by canonical L4")
     .option("--log-every <n>", "Print progress every N trade days (default 5)")
     .option("--prompts-root <path>", "Override prompts root directory (for worktree evaluation)")
     .option(
@@ -108,7 +106,6 @@ export function registerBacktestFill(program: Command): void {
       const cohort = opts.cohort ?? "cohort_default";
       const promptCommitHash = opts.promptCommitHash ?? "unversioned";
       const logEvery = Number.parseInt(opts.logEvery ?? "5", 10);
-      const vetoThreshold = opts.vetoThreshold ? Number(opts.vetoThreshold) : 0.5;
       let privatePromptWorktreePath: string | undefined;
 
       try {
@@ -194,7 +191,6 @@ export function registerBacktestFill(program: Command): void {
           llmHandle,
           api,
           config,
-          vetoThreshold,
           ...(effectivePromptsRoot ? { promptsRoot: effectivePromptsRoot } : {}),
         });
         await assertStructuredOutputCapability(llmHandle.llm);

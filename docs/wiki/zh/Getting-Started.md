@@ -14,7 +14,7 @@ cd MOSAIC-Combat-Evolved
 
 # 1. Python sidecar:建 .venv 并安装(TS 侧自动发现 <repo>/.venv/bin/python)
 uv venv
-uv pip install -e '.[data,trading,llm]'      # 需 qlib 回测加 ,backtest;需数据更新加 ,ingest
+uv pip install -e '.[data,trading]'      # 需 qlib 回测加 ,backtest;需数据更新加 ,ingest
 
 # 2. TypeScript 前端
 cd mosaic-ts
@@ -33,7 +33,6 @@ cp .env.example .env
 | --- | --- | --- |
 | `data` | 行情/宏观数据 | pandas, numpy, tushare, akshare, yfinance, stockstats |
 | `trading` | 纸上交易 | bcrypt |
-| `llm` | LLM provider | langchain-anthropic/openai/google, langgraph |
 | `backtest` | qlib 回测引擎 | pyqlib, scipy, tqdm |
 | `ingest` | 采集器子进程依赖 | fire, loguru, joblib, yahooquery, beautifulsoup4 |
 | `test` | 测试 | pytest, pytest-asyncio |

@@ -15983,7 +15983,7 @@ def test_report_intelligence_refresh_derived_only_rebuilds_window_labels(
             },
         }
 
-    run_report_intelligence_refresh(
+    full_result = run_report_intelligence_refresh(
         ReportIntelligenceConfig(
             root=tmp_path,
             source_ids=(source_id,),
@@ -15994,6 +15994,17 @@ def test_report_intelligence_refresh_derived_only_rebuilds_window_labels(
         llm_extractor=llm,
     )
     labels_path = tmp_path / "registry/report_intelligence/report_outcome_labels.jsonl"
+    original_labels = _read_jsonl(labels_path)
+    preserved_paths = [
+        tmp_path / full_result.outputs[key]
+        for key in (
+            "report_metadata",
+            "status",
+            "analytical_footprint_review_summary",
+            "analytical_footprint_error_taxonomy",
+        )
+    ]
+    preserved = {path: (path.read_bytes(), path.stat().st_mtime_ns) for path in preserved_paths}
     labels_path.write_text("", encoding="utf-8")
 
     result = run_report_intelligence_refresh(
@@ -16009,7 +16020,13 @@ def test_report_intelligence_refresh_derived_only_rebuilds_window_labels(
     assert result.llm_processed_reports == 1
     assert result.outcome_label_rows == 3
     assert result.industry_etf_proxy_outcome_label_rows == 3
+    assert result.pdf_ready_count == full_result.pdf_ready_count
+    assert result.markdown_ready_count == full_result.markdown_ready_count
+    for path, (content, mtime_ns) in preserved.items():
+        assert path.read_bytes() == content
+        assert path.stat().st_mtime_ns == mtime_ns
     labels = _read_jsonl(labels_path)
+    assert labels == original_labels
     assert {row["horizon_days"] for row in labels} == {20, 60, 120}
 
 

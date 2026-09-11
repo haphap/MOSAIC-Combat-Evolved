@@ -11664,9 +11664,12 @@ def build_schema_validation_report(root: str | Path = ".") -> SchemaValidationRe
     )
 
 
-def write_schema_validation_report(root: str | Path = ".") -> dict[str, Any]:
+def write_schema_validation_report(
+    root: str | Path = ".", *, report: SchemaValidationReport | None = None
+) -> dict[str, Any]:
     root_path = Path(root)
-    report = build_schema_validation_report(root_path)
+    if report is None:
+        report = build_schema_validation_report(root_path)
     output_path = root_path / "registry/schemas/rke_schema_validation_report.json"
     return _write_json(
         output_path,

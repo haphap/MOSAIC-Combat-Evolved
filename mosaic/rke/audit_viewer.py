@@ -8,6 +8,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from mosaic.rke.json_io import jsonable as _jsonable, write_json as _write_json
+
 
 AUDIT_TRACE_VIEW_JSON_PATH = "registry/audits/central_bank_mvp_audit_view.json"
 AUDIT_TRACE_VIEW_MD_PATH = "registry/audits/central_bank_mvp_audit_view.md"
@@ -147,22 +149,6 @@ def _first_mapping_item_field(
         return first
     blockers.append(f"{_path_label(root_path, path)} {field_name}[0] must be object")
     return {}
-
-
-def _jsonable(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    return value
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return {"path": str(path), "rows": 1}
 
 
 def _add(index: dict[tuple[str, str], AuditReference], ref_type: str, ref_id: Any, path: Path) -> None:
@@ -719,10 +705,12 @@ def render_audit_trace_markdown(view: AuditTraceView) -> str:
 def write_audit_trace_view(
     root: str | Path = ".",
     *,
+    view: AuditTraceView | None = None,
     trace_path: str | Path = DEFAULT_AUDIT_TRACE_PATH,
 ) -> dict[str, str]:
     root_path = Path(root)
-    view = build_audit_trace_view(root_path, trace_path=trace_path)
+    if view is None:
+        view = build_audit_trace_view(root_path, trace_path=trace_path)
     json_result = _write_json(root_path / AUDIT_TRACE_VIEW_JSON_PATH, asdict(view))
     md_path = root_path / AUDIT_TRACE_VIEW_MD_PATH
     md_path.parent.mkdir(parents=True, exist_ok=True)

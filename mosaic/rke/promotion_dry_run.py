@@ -20,6 +20,8 @@ from .report_intelligence import (
 )
 from .temp_paths import rke_temporary_directory
 
+from mosaic.rke.json_io import write_json as _write_json
+
 
 PROMOTION_DRY_RUN_REPORT_PATH = "registry/promotion/rke_promotion_dry_run_report.json"
 
@@ -52,26 +54,6 @@ class PromotionDryRunReport:
     staged_production_allowed_after_simulation: bool
     production_allowed_after_simulation: bool
     steps: Sequence[PromotionDryRunStep]
-
-
-def _jsonable(value: Any) -> Any:
-    if hasattr(value, "__dataclass_fields__"):
-        return _jsonable(asdict(value))
-    if isinstance(value, Mapping):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_jsonable(item) for item in value]
-    return value
-
-
-def _write_json(path: Path, payload: Mapping[str, Any]) -> dict[str, Any]:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_jsonable(payload), ensure_ascii=False, indent=2, sort_keys=True)
-        + "\n",
-        encoding="utf-8",
-    )
-    return {"path": str(path), "rows": 1}
 
 
 def _resolve_input_path(root_path: Path, input_path: str | Path | None) -> Path | None:
@@ -289,18 +271,20 @@ def build_promotion_dry_run_report(
 def write_promotion_dry_run_report(
     root: str | Path = ".",
     *,
+    report: PromotionDryRunReport | None = None,
     gold_input: str | Path | None = None,
     footprint_input: str | Path | None = None,
     license_input: str | Path | None = None,
     lockbox_input: str | Path | None = None,
 ) -> dict[str, Any]:
     root_path = Path(root)
-    report = build_promotion_dry_run_report(
-        root_path,
-        gold_input=gold_input,
-        footprint_input=footprint_input,
-        license_input=license_input,
-        lockbox_input=lockbox_input,
-    )
+    if report is None:
+        report = build_promotion_dry_run_report(
+            root_path,
+            gold_input=gold_input,
+            footprint_input=footprint_input,
+            license_input=license_input,
+            lockbox_input=lockbox_input,
+        )
     result = _write_json(root_path / PROMOTION_DRY_RUN_REPORT_PATH, asdict(report))
     return {"path": str(result["path"]), "accepted": report.accepted}
