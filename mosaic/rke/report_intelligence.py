@@ -3549,12 +3549,11 @@ def call_vllm_extractor(
         ],
         "temperature": 0,
         "max_tokens": max_output_tokens,
+        "response_format": {"type": "json_object"},
     }
     if backend == "ninfer":
-        # NInfer has no constrained JSON mode; the shared parser checks the answer.
         payload["reasoning_effort"] = "medium"
     else:
-        payload["response_format"] = {"type": "json_object"}
         payload["chat_template_kwargs"] = {"enable_thinking": False}
     headers = {"Content-Type": "application/json"}
     if api_key:
@@ -3582,6 +3581,12 @@ def call_vllm_extractor(
             "model": resolved_model,
         }
     first = choices[0] if isinstance(choices[0], Mapping) else {}
+    if first.get("finish_reason") == "length":
+        return {
+            "status": "blocked",
+            "blocker": "vllm_output_length_limit",
+            "model": resolved_model,
+        }
     message = first.get("message") if isinstance(first, Mapping) else {}
     content = message.get("content") if isinstance(message, Mapping) else ""
     try:

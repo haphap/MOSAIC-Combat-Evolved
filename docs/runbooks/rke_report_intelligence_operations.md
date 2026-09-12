@@ -105,16 +105,23 @@ pass. Do not send private cases to an unapproved external model to fill gaps.
 When NInfer is selected, reuse its running local service. Check `/health` and
 `/v1/models`; use the returned model ID and the listening loopback port. Do not
 start another GPU service. NInfer uses the existing chat extraction path with
-`--llm-backend ninfer`: it omits unsupported constrained JSON mode and requests
-`reasoning_effort: medium`. NInfer separates reasoning from answer content;
+`--llm-backend ninfer`: it requires native `response_format: {"type":"json_object"}`
+and requests `reasoning_effort: medium`. Upgrade NInfer to a build implementing
+constraint masks before running extraction; older text-only builds reject this
+request. Do not silently retry without the format constraint. NInfer separates
+reasoning from answer content;
 only the answer is parsed. The existing JSON parser and artifact checks
 still apply. The default backend remains vLLM.
 
 The answer must be a complete JSON object. Invalid quotes or a truncated document
-block extraction; a nested object inside a broken answer is never accepted as an
+block extraction. A `length` finish reason blocks even if the partial content is
+parseable; a nested object inside a broken answer is never accepted as an
 empty successful extraction. A full report with multiple headings does not inherit
 the final heading as its section context. Re-extract blocked sources into separate
 private batches after correcting the cause, and preserve previous diagnostic runs.
+Native JSON mode guarantees syntax, not complete research reasoning or faithful
+source extraction. Review case content before merging a batch; a valid object can
+still contain a sentence cut short by the model.
 
 Content review must distinguish actuals from forecast columns, preserve the entity
 and period of each observation, and check chart-derived numbers against the source.

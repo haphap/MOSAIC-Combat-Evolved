@@ -175,7 +175,8 @@ def test_full_report_does_not_inherit_final_disclaimer_section():
 
 
 @pytest.mark.parametrize("backend", ["vllm", "ninfer"])
-def test_call_vllm_extractor_sends_authorization_header(monkeypatch, backend):
+@pytest.mark.parametrize("finish_reason", ["stop", "length"])
+def test_call_vllm_extractor_sends_authorization_header(monkeypatch, backend, finish_reason):
     seen: dict[str, object] = {}
 
     class _Response:
@@ -190,6 +191,7 @@ def test_call_vllm_extractor_sends_authorization_header(monkeypatch, backend):
                 {
                     "choices": [
                         {
+                            "finish_reason": finish_reason,
                             "message": {
                                 "content": json.dumps(
                                     {
@@ -234,17 +236,18 @@ def test_call_vllm_extractor_sends_authorization_header(monkeypatch, backend):
         backend=backend,
     )
 
-    assert result["status"] == "ok"
+    assert result["status"] == ("blocked" if finish_reason == "length" else "ok")
+    if finish_reason == "length":
+        assert result["blocker"] == "vllm_output_length_limit"
     assert result["model"] == "mimo-v2.5-pro"
     assert seen["url"] == "https://example.test/v1/chat/completions"
     assert seen["authorization"] == "Bearer secret-token"
     assert seen["payload"]["model"] == "mimo-v2.5-pro"
+    assert seen["payload"]["response_format"] == {"type": "json_object"}
     if backend == "ninfer":
-        assert "response_format" not in seen["payload"]
         assert "chat_template_kwargs" not in seen["payload"]
         assert seen["payload"]["reasoning_effort"] == "medium"
     else:
-        assert seen["payload"]["response_format"] == {"type": "json_object"}
         assert seen["payload"]["chat_template_kwargs"] == {"enable_thinking": False}
 
 
