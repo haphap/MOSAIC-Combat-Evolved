@@ -62,6 +62,9 @@ from .private_registries import (
     resolve_report_intelligence_registry_dir,
     write_report_fingerprint_manifest,
 )
+from .research_case import (
+    normalize_research_case, recover_legacy_research_case, research_case_method_identity,
+)
 from .temp_paths import operator_command, rke_tmp_root
 
 from mosaic.rke.json_io import jsonable as _jsonable, write_json as _write_json
@@ -3490,20 +3493,27 @@ def _user_prompt(
         "spread widening and negative for flattening or spread narrowing when the "
         "source states that direction. Do not create a leg when the report gives no "
         "clear target and direction.\n"
-        "analytical_footprints fields: topic, indicator_mentions, "
-        "analysis_patterns, target_agent_candidates. Mark each mention/step "
-        "with source_grounded true/false when possible. For analytical_footprints, "
-        "do not leave indicator_mentions empty when the footprint depends on "
-        "measurable evidence, validation data, or market/fundamental proxies; "
-        "name the indicator, canonical metric candidate, data source, frequency, "
-        "transformation, role in the argument, and whether it is directly "
-        "source-grounded. Use unknown only for fields that are truly absent.\n"
-        "metric_candidates fields: canonical_name, aliases, metric_family, "
-        "raw_data_requirements, default_transformation, target_agents.\n"
-        "method_patterns fields: name, steps, required_current_data, "
-        "optional_confirmation_data, failure_modes, target_agents.\n"
-        "tool_gaps fields: gap_type, metric_name, method_name, target_agents, "
-        "priority_reasons, blocking_issues.\n\n"
+        "analytical_footprints are the primary knowledge units. Keep each coherent "
+        "research argument intact, including its relevant regime, causal steps, "
+        "supporting evidence and limitations. Do not split by sentence, indicator, "
+        "stock code or heading, and do not join unrelated arguments. Fields: topic, "
+        "research_case, indicator_mentions, analysis_patterns, target_agent_candidates. "
+        "research_case fields: question (the research problem), historical_regime "
+        "(source-described macro/industry conditions), reasoning_chain (ordered "
+        "causal steps), evidence (brief paraphrases of the supporting observations), "
+        "assumptions, invalidation_conditions, conclusion. question, historical_regime "
+        "and conclusion are strings; the other case fields are arrays of strings. "
+        "Use the report language. Summarize rather than copy paragraphs. Preserve "
+        "unknown conditions as empty strings/arrays; do not invent causal links, "
+        "regime labels or failure conditions. Do not fill historical_regime from "
+        "today's knowledge or subsequent prices. Do not force historical/descriptive "
+        "material into a positive forecast. Keep standalone facts as context without "
+        "research_case when no coherent argument is supported. indicator_mentions "
+        "stay attached to the steps they support, with indicator_text, "
+        "canonical_metric_candidate, role_in_argument and source_grounded. "
+        "analysis_patterns are optional supporting context, not independent methods. "
+        "Return metric_candidates, method_patterns and tool_gaps as empty arrays: "
+        "methods and data needs are derived from the complete cases.\n\n"
         "Use this chunk span id for source-grounded records: "
         f"{chunk_span_id}\n\n"
         "Report metadata:\n"
@@ -9146,7 +9156,7 @@ def _refresh_analytical_footprint_indicator_governance(
             and mention.get("source_grounded") is True
             for mention in indicator_mentions
         )
-        if not has_complete_mapping:
+        if not has_complete_mapping and not refreshed.get("research_case"):
             context_mentions = _context_seed_indicator_mentions(
                 _footprint_indicator_context(refreshed)
             )
@@ -9170,6 +9180,7 @@ def _refresh_analytical_footprint_indicator_governance(
     return refreshed_rows
 
 
+
 def _normalize_footprints(
     payload: Mapping[str, Any],
     row: Mapping[str, Any],
@@ -9184,6 +9195,7 @@ def _normalize_footprints(
     for item in _ensure_list(payload.get("analytical_footprints")):
         footprint = _ensure_mapping(item)
         topic = _record_text(footprint, "topic", "name") or "unknown"
+        case = normalize_research_case(footprint.get("research_case"))
         target_agents, target_entities = _split_agent_and_entity_candidates(
             footprint.get("target_agent_candidates")
         )
@@ -9191,14 +9203,14 @@ def _normalize_footprints(
         indicator_mentions = _normalize_indicator_mentions(
             footprint.get("indicator_mentions")
         )
-        if not indicator_mentions:
+        if not indicator_mentions and case is None:
             indicator_mentions = _text_grounded_indicator_mentions(
                 markdown_chunk,
                 footprint_context=_footprint_indicator_context(
                     {"topic": topic, "analysis_patterns": analysis_patterns}
                 ),
             )
-        if not indicator_mentions:
+        if not indicator_mentions and case is None:
             indicator_mentions = _context_seed_indicator_mentions(
                 _footprint_indicator_context(
                     {"topic": topic, "analysis_patterns": analysis_patterns}
@@ -9215,6 +9227,7 @@ def _normalize_footprints(
                     "chunk_span_id": chunk_span_id,
                     "topic": topic,
                     "indicator_mentions": footprint.get("indicator_mentions"),
+                    **({"research_case": case} if case is not None else {}),
                 },
             ),
             "report_id": report_id,
@@ -9236,6 +9249,9 @@ def _normalize_footprints(
                 "input_mode": "original_markdown",
             },
         }
+        if case is not None:
+            record["research_case"] = case
+            record["research_case_origin"] = "source_extraction"
         records.append(record)
     return records
 
@@ -9258,6 +9274,8 @@ def _footprint_review_target_hash(row: Mapping[str, Any]) -> str:
         "indicator_mentions": row.get("indicator_mentions"),
         "analysis_patterns": row.get("analysis_patterns"),
     }
+    if row.get("research_case") is not None:
+        payload["research_case"] = row["research_case"]
     encoded = json.dumps(
         _jsonable(payload),
         ensure_ascii=False,
@@ -9426,6 +9444,8 @@ def _footprint_review_template_row(
         "target_review_path": ANALYTICAL_FOOTPRINT_REVIEW_TEMPLATE_PATH,
         "review_context_ref": "registry/report_intelligence/analytical_footprints.jsonl",
         "manual_review_required": True,
+        **({"research_case_review_preview": row["research_case"]}
+           if row.get("research_case") is not None else {}),
         "topic_preview": _bounded_metadata_text(row.get("topic")),
         "extraction_type": str(row.get("extraction_type") or "unknown"),
         "sector": str(row.get("sector") or "unknown"),
@@ -13205,6 +13225,74 @@ def _normalize_metric_candidates(
     return records
 
 
+def migrate_research_cases(*, root: str | Path, registry_dir: str | Path | None = None,
+                           dry_run: bool = True) -> dict[str, Any]:
+    """Recover existing argument steps and retain old methods as historical context."""
+    root_path = Path(root).expanduser().resolve()
+    directory = resolve_report_intelligence_registry_dir(root_path, registry_dir)
+    blockers: list[str] = []
+    footprints = _read_registry_jsonl(directory / "analytical_footprints.jsonl",
+                                     label="analytical_footprints", blockers=blockers)
+    methods = _read_registry_jsonl(directory / "method_patterns.jsonl",
+                                  label="method_patterns", blockers=blockers)
+    if not footprints:
+        blockers.append("analytical_footprints_required")
+    updated = []
+    recovered = 0
+    existing_cases = 0
+    seen = set()
+    for footprint in footprints:
+        ident = footprint.get("footprint_id")
+        if not ident or ident in seen:
+            blockers.append("missing_or_duplicate_footprint_id")
+        seen.add(ident)
+        row = dict(footprint)
+        if "research_case" in row:
+            normalized_case = normalize_research_case(row["research_case"])
+            if normalized_case is None or normalized_case != row["research_case"]:
+                blockers.append("invalid_existing_research_case")
+            else:
+                existing_cases += 1
+        else:
+            case = recover_legacy_research_case(row)
+            if case is not None:
+                row["research_case"] = case
+                row["research_case_origin"] = "legacy_structured_pattern"
+                recovered += 1
+        updated.append(row)
+    legacy_methods = [dict(method, research_case_based=False) for method in methods
+                      if method.get("research_case_based") is not True]
+    case_methods = _normalize_method_patterns({}, updated, run_id="research_case_migration",
+                                               model="existing_structured_arguments")
+    combined_methods = legacy_methods + case_methods
+    result = {
+        "accepted": not blockers, "applied": False, "blockers": sorted(set(blockers)),
+        "existing_case_count": existing_cases, "recovered_case_count": recovered,
+        "legacy_context_only_count": len(updated) - existing_cases - recovered,
+        "active_method_count": len(case_methods), "legacy_method_count": len(legacy_methods),
+        "current_regime_inferred": False,
+    }
+    if dry_run or blockers:
+        return result
+    changes = {}
+    if updated != footprints:
+        changes["analytical_footprints.jsonl"] = updated
+    if combined_methods != methods:
+        changes["method_patterns.jsonl"] = combined_methods
+    if changes:
+        archive = root_path / ".mosaic/rke/research_case_migration" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        archive.mkdir(parents=True, exist_ok=False)
+        for filename in changes:
+            source = directory / filename
+            if source.exists():
+                shutil.copy2(source, archive / filename)
+        for filename, rows in changes.items():
+            _write_jsonl(directory / filename, rows)
+        result["archive_path"] = str(archive)
+    result["applied"] = True
+    return result
+
+
 def _normalize_method_patterns(
     payload: Mapping[str, Any],
     footprints: Sequence[Mapping[str, Any]],
@@ -13212,74 +13300,45 @@ def _normalize_method_patterns(
     run_id: str,
     model: str,
 ) -> list[dict[str, Any]]:
-    raw_methods = [_ensure_mapping(item) for item in _ensure_list(payload.get("method_patterns"))]
+    # A complete argument is the method unit; short pattern names remain case context.
+    methods: dict[str, dict[str, Any]] = {}
     for footprint in footprints:
-        for pattern in _ensure_list(footprint.get("analysis_patterns")):
-            pattern_map = _ensure_mapping(pattern)
-            name = (
-                str(pattern).strip()
-                if isinstance(pattern, str)
-                else _record_text(pattern_map, "pattern_candidate", "name", "pattern")
-            )
-            if name:
-                raw_methods.append(
-                    {
-                        "name": name,
-                        "source_footprint_ids": [footprint.get("footprint_id")],
-                        "steps": pattern_map.get("steps") or [name],
-                        "required_current_data": pattern_map.get(
-                            "required_current_data"
-                        )
-                        or [],
-                        "optional_confirmation_data": pattern_map.get(
-                            "optional_confirmation_data"
-                        )
-                        or [],
-                        "failure_modes": pattern_map.get("failure_modes") or [],
-                        "target_agents": footprint.get("target_agent_candidates")
-                        or [],
-                    }
-                )
-    deduped: dict[str, dict[str, Any]] = {}
-    for item in raw_methods:
-        name = _record_text(item, "name", "pattern_candidate")
-        if not name:
+        case = normalize_research_case(footprint.get("research_case"))
+        if case is None:
             continue
-        key = _canonical_metric_name(name)
-        existing = deduped.setdefault(
-            key,
-            {
-                "method_pattern_id": _stable_id("METHOD", {"canonical_name": key}),
-                "canonical_name": key,
-                "name": name,
-                "description": str(item.get("description") or ""),
-                "source_footprint_ids": [],
-                "steps": [],
-                "required_current_data": [],
-                "optional_confirmation_data": [],
-                "failure_modes": [],
-                "target_agents": [],
-                "validation_status": "candidate",
-                "allowed_runtime_mode": "shadow_only",
-                "extractor": {"run_id": run_id, "model": model},
-            },
+        identity = research_case_method_identity(case)
+        method_id = _stable_id("METHOD", identity)
+        existing = methods.setdefault(method_id, {
+            "method_pattern_id": method_id,
+            "canonical_name": _canonical_metric_name(case["question"]),
+            "name": case["question"],
+            "description": case["conclusion"],
+            "historical_regime": case["historical_regime"],
+            "assumptions": case["assumptions"],
+            "research_case_based": True,
+            "source_footprint_ids": [],
+            "steps": case["reasoning_chain"],
+            "required_current_data": [],
+            "optional_confirmation_data": [],
+            "failure_modes": case["invalidation_conditions"],
+            "target_agents": [],
+            "validation_status": "candidate",
+            "allowed_runtime_mode": "shadow_only",
+            "extractor": {"run_id": run_id, "model": model},
+        })
+        existing["source_footprint_ids"] = _merge_unique_values(
+            existing["source_footprint_ids"], [footprint["footprint_id"]],
         )
-        for field in (
-            "source_footprint_ids",
-            "steps",
-            "required_current_data",
-            "optional_confirmation_data",
-            "failure_modes",
-            "target_agents",
-        ):
-            additions = _ensure_list(item.get(field))
-            if field == "target_agents":
-                additions, _ = _split_agent_and_entity_candidates(additions)
-            existing[field] = _merge_unique_values(
-                existing[field],
-                additions,
-            )
-    return list(deduped.values())
+        agents, _ = _split_agent_and_entity_candidates(footprint.get("target_agent_candidates"))
+        existing["target_agents"] = _merge_unique_values(existing["target_agents"], agents)
+        metrics = [
+            _record_text(_ensure_mapping(mention), "canonical_metric_candidate", "indicator_text")
+            for mention in _ensure_list(footprint.get("indicator_mentions"))
+        ]
+        existing["required_current_data"] = _merge_unique_values(
+            existing["required_current_data"], [metric for metric in metrics if metric],
+        )
+    return sorted(methods.values(), key=lambda method: method["method_pattern_id"])
 
 
 def classify_tool_coverage(canonical_name: str) -> dict[str, Any]:
@@ -21822,6 +21881,9 @@ def build_analysis_recipes(
 ) -> list[dict[str, Any]]:
     recipes: list[dict[str, Any]] = []
     for method in method_rows:
+        # Case arguments and retired fragments have no independently specified trade rules.
+        if "research_case_based" in method:
+            continue
         method_id = str(method.get("method_pattern_id") or "")
         name = str(method.get("name") or method_id or "unknown_method")
         if not method_id:
@@ -25101,7 +25163,7 @@ def _stock_industry_evolution_gate_checks(
     ) -> tuple[dict[str, Any], list[str]]:
         from .agent_research_context import (  # local import avoids CLI startup coupling
             SAFE_ACTIONABILITY,
-            assert_public_safe_context,
+            assert_research_context_boundary,
             build_rke_agent_research_context_from_rows,
         )
 
@@ -25118,7 +25180,7 @@ def _stock_industry_evolution_gate_checks(
                 metadata=list(metadata_rows or ()),
             )
             try:
-                assert_public_safe_context(context)
+                assert_research_context_boundary(context)
             except ValueError:
                 private_text_violation_count += 1
             if context.get("research_only") is not True:
@@ -25750,7 +25812,7 @@ def _agent_context_export_gate_check(
     from .agent_research_context import (  # local import avoids CLI startup coupling
         RANKING_POLICY_ID,
         SAFE_ACTIONABILITY,
-        assert_public_safe_context,
+        assert_research_context_boundary,
         build_rke_agent_research_context_from_rows,
     )
 
@@ -25781,7 +25843,7 @@ def _agent_context_export_gate_check(
                 metadata=metadata,
             )
             try:
-                assert_public_safe_context(context)
+                assert_research_context_boundary(context)
             except ValueError:
                 private_text_violation_count += 1
             summary = _ensure_mapping(context.get("summary"))
@@ -34293,6 +34355,13 @@ def _method_pattern_canonical_name(record: Mapping[str, Any]) -> str:
 def _canonicalize_method_pattern_record(record: Mapping[str, Any]) -> dict[str, Any]:
     canonical = _method_pattern_canonical_name(record)
     normalized = dict(record)
+    if record.get("research_case_based") is True:
+        normalized["method_pattern_id"] = _stable_id("METHOD", research_case_method_identity({
+            "question": record.get("name"), "historical_regime": record.get("historical_regime"),
+            "reasoning_chain": record.get("steps"), "assumptions": record.get("assumptions"),
+            "invalidation_conditions": record.get("failure_modes"), "conclusion": record.get("description"),
+        }))
+        return normalized
     if canonical:
         normalized["canonical_name"] = canonical
         normalized["method_pattern_id"] = _stable_id(
@@ -34308,7 +34377,7 @@ def _method_pattern_identity_keys(record: Mapping[str, Any]) -> list[str]:
     if method_id:
         keys.append(f"id:{method_id}")
     canonical = _method_pattern_canonical_name(record)
-    if canonical:
+    if canonical and record.get("research_case_based") is not True:
         keys.append(f"canonical:{canonical}")
     return keys
 

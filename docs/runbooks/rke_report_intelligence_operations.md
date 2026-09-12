@@ -44,6 +44,62 @@ operation logs below describe historical full runs; their outcome/profile/gate
 counts are not expected from the new basic default. To reproduce those offline
 outputs, add `--derived-scope full` to the corresponding extraction/refresh command.
 
+## Research Case Migration
+
+The case-based reader uses `analytical_footprints.jsonl` alongside metadata and
+legacy forecast context. `research_case` keeps the question, source-described
+historical regime, ordered reasoning, evidence, assumptions, invalidation
+conditions and conclusion together. Empty fields remain unknown. Case summaries
+are private derived text for approved internal research; they are not public-safe
+artifacts. Raw report paragraphs, source spans, review notes and local paths are
+still excluded from Agent output. Source authorization and PIT checks still apply.
+
+Follow the existing `pull -> preflight -> hydrate` sequence below into an existing
+clean staging checkout. Preserve unexported work and stop concurrent writers.
+Preview with the same staging root and registry path that apply will use:
+
+```bash
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run mosaic-rke report-intelligence --root . \
+  --registry-dir registry/report_intelligence \
+  --migrate-research-cases --dry-run \
+  > .mosaic/tmp/research-case-migration-preview.json
+```
+
+Inspect acceptance, blockers, recovered cases and remaining legacy context.
+Recovery requires one structured pattern with existing ordered steps. Bare names,
+multiple unrelated patterns and ungrounded steps are not joined into an argument.
+No missing historical regime, assumption or conclusion is inferred. Apply only
+when the preview is accepted and its coverage is understood:
+
+```bash
+MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run mosaic-rke report-intelligence --root . \
+  --registry-dir registry/report_intelligence \
+  --migrate-research-cases \
+  > .mosaic/tmp/research-case-migration-result.json
+```
+
+Apply preserves original changed files under the staging root's ignored
+`.mosaic/rke/research_case_migration/` before writing. Keep that archive private.
+Old methods retain their IDs for historical references and are marked
+`research_case_based=false`; new methods bind the complete argument and its
+conditions. Neither migrated fragments nor research arguments are automatically
+converted into trading recipes. Changing case content invalidates old footprint
+review target hashes; do not rewrite or auto-approve manual review imports.
+
+Run the full derived refresh shown above, inspect the resulting quality blockers,
+and test the new case reader on the staging data. Then follow the existing stable
+snapshot export/commit/preflight/push sequence. Existing quality and promotion
+blockers are retained. A successful migration does not imply that missing case
+fields have been recovered or that a method is validated by price outcomes.
+
+For re-extraction, use the cached-Markdown local-LLM workflow below, beginning
+with one report after this extraction-contract change. Reuse the healthy service;
+never start a second GPU service beside another owner's workload. Keep raw inputs
+and case outputs private, and merge only outputs whose source and content checks
+pass. Do not send private cases to an unapproved external model to fill gaps.
+
 ## Tool Gap Review Migration
 
 When upgrading a published snapshot from the old contract, validate and hydrate

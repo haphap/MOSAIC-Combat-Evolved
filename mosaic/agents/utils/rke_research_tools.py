@@ -1,4 +1,4 @@
-"""LangChain tools for public-safe RKE research context.
+"""LangChain tools for authorized internal RKE research context.
 
 These tools expose only the redacted agent-facing view. Full report prose,
 source spans, local PDF/Markdown paths, and review notes stay inside the
@@ -20,7 +20,7 @@ from mosaic.rke.agent_research_context import (
     RESEARCH_PRIOR_USE_POLICY,
     SAFE_ACTIONABILITY,
     SCHEMA_VERSION,
-    assert_public_safe_context,
+    assert_research_context_boundary,
     build_rke_agent_research_context,
     format_rke_agent_research_context,
     normalize_agent_id,
@@ -133,12 +133,12 @@ def _runtime_preflight(context: Mapping[str, Any]) -> list[str]:
     summary_map = summary if isinstance(summary, Mapping) else {}
     if summary_map.get("current_data_required") is not True:
         failures.append("summary_current_data_required_missing")
-    if summary_map.get("private_text_included") is not False:
+    if summary_map.get("private_text_included") is not any(item.get("research_case") for item in items):
         failures.append("private_text_boundary_missing")
     if summary_map.get("forbidden_field_policy") != FORBIDDEN_FIELD_POLICY:
         failures.append("forbidden_field_policy_invalid")
     try:
-        assert_public_safe_context(context)
+        assert_research_context_boundary(context)
     except ValueError:
         failures.append("public_safe_context_violation")
     if not items and not summary_map.get("no_prior_reason"):
@@ -181,7 +181,7 @@ def get_rke_research_context(
     ] = "",
     max_items: Annotated[int, "Maximum redacted context items to return."] = 12,
 ) -> str:
-    """Return public-safe RKE research priors for a MOSAIC agent.
+    """Return authorized internal RKE research priors for a MOSAIC agent.
 
     The output is research-only and cannot be used as a production signal. Agents
     must confirm every RKE prior with current data tools before raising

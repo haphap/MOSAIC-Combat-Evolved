@@ -10,7 +10,7 @@ from mosaic.rke.agent_research_context import (
     SECTOR_DIRECTION_KEYWORDS,
     SAFE_ACTIONABILITY,
     SCHEMA_VERSION,
-    assert_public_safe_context,
+    assert_research_context_boundary,
     build_rke_agent_research_materialization,
     build_rke_agent_research_context,
     build_rke_agent_research_context_from_rows,
@@ -273,7 +273,7 @@ def test_export_rke_agent_context_cli_outputs_three_domain_context(capsys, tmp_p
     payload = json.loads(capsys.readouterr().out)
     assert payload["agent_id"] == "decision.cio"
     assert payload["production_signal_allowed"] is False
-    assert payload["ranking_policy_id"] == "rke_agent_research_context_rank_v2"
+    assert payload["ranking_policy_id"] == "rke_agent_research_context_rank_v3"
     assert payload["summary"]["item_count"] == 3
     assert {item["domain"] for item in payload["context_items"]} == {
         "stock",
@@ -539,7 +539,7 @@ def test_context_ranks_all_matches_before_truncating():
         ],
     )
 
-    assert context["ranking_policy_id"] == "rke_agent_research_context_rank_v2"
+    assert context["ranking_policy_id"] == "rke_agent_research_context_rank_v3"
     assert context["summary"]["matched_item_count"] == 2
     assert context["summary"]["truncated_item_count"] == 1
     item = context["context_items"][0]
@@ -634,9 +634,9 @@ def test_sector_ascii_keyword_matching_uses_token_boundaries() -> None:
 
 def test_context_safety_rejects_forbidden_fields():
     with pytest.raises(ValueError, match="forbidden field"):
-        assert_public_safe_context({"claim_text": "private prose"})
+        assert_research_context_boundary({"claim_text": "private prose"})
     with pytest.raises(ValueError, match="forbidden field"):
-        assert_public_safe_context({"source_excerpt": "private prose"})
+        assert_research_context_boundary({"source_excerpt": "private prose"})
 
 
 def test_max_items_zero_returns_no_context_items():
@@ -670,7 +670,7 @@ def test_rke_research_tool_formats_context(monkeypatch):
             "research_only": True,
             "production_signal_allowed": False,
             "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v2",
+            "ranking_policy_id": "rke_agent_research_context_rank_v3",
             "context_items": [],
             "summary": {
                 "item_count": 0,
@@ -681,7 +681,7 @@ def test_rke_research_tool_formats_context(monkeypatch):
                 "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
                 "truncated_item_count": 0,
                 "current_data_required": True,
-                "ranking_policy_id": "rke_agent_research_context_rank_v2",
+                "ranking_policy_id": "rke_agent_research_context_rank_v3",
             },
         }
 
@@ -736,7 +736,7 @@ def test_rke_runtime_context_preflight_blocks_summary_current_data_missing():
             "research_only": True,
             "production_signal_allowed": False,
             "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v2",
+            "ranking_policy_id": "rke_agent_research_context_rank_v3",
             "context_items": [
                 {
                     "redacted_claim_id": "FCRED-1",
@@ -756,7 +756,7 @@ def test_rke_runtime_context_preflight_blocks_summary_current_data_missing():
                 "private_text_included": False,
                 "truncated_item_count": 0,
                 "current_data_required": False,
-                "ranking_policy_id": "rke_agent_research_context_rank_v2",
+                "ranking_policy_id": "rke_agent_research_context_rank_v3",
             },
         }
     )
@@ -773,7 +773,7 @@ def test_rke_runtime_context_preflight_blocks_missing_current_data_guard():
             "research_only": True,
             "production_signal_allowed": False,
             "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v2",
+            "ranking_policy_id": "rke_agent_research_context_rank_v3",
             "context_items": [
                 {
                     "redacted_claim_id": "FCRED-1",
@@ -798,7 +798,7 @@ def test_rke_runtime_context_preflight_blocks_bad_current_data_fields():
             "research_only": True,
             "production_signal_allowed": False,
             "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v2",
+            "ranking_policy_id": "rke_agent_research_context_rank_v3",
             "context_items": [
                 {
                     "redacted_claim_id": "FCRED-1",
@@ -824,7 +824,7 @@ def test_rke_runtime_context_preflight_blocks_bad_item_shadow_policy():
             "research_only": True,
             "production_signal_allowed": False,
             "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v2",
+            "ranking_policy_id": "rke_agent_research_context_rank_v3",
             "context_items": [
                 {
                     "redacted_claim_id": "FCRED-1",
@@ -860,7 +860,7 @@ def test_rke_runtime_context_formats_good_item_shadow_policy():
             "research_only": True,
             "production_signal_allowed": False,
             "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v2",
+            "ranking_policy_id": "rke_agent_research_context_rank_v3",
             "context_items": [
                 {
                     "redacted_claim_id": "FCRED-1",
@@ -913,7 +913,7 @@ def test_rke_runtime_context_formats_good_item_shadow_policy():
                 "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
                 "truncated_item_count": 0,
                 "current_data_required": True,
-                "ranking_policy_id": "rke_agent_research_context_rank_v2",
+                "ranking_policy_id": "rke_agent_research_context_rank_v3",
             },
         }
     )
@@ -938,7 +938,7 @@ def test_rke_runtime_context_preflight_blocks_missing_context_metadata():
             "research_only": True,
             "production_signal_allowed": False,
             "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v2",
+            "ranking_policy_id": "rke_agent_research_context_rank_v3",
             "context_items": [
                 {
                     "redacted_claim_id": "FCRED-1",
@@ -969,7 +969,7 @@ def test_rke_runtime_context_preflight_blocks_missing_context_metadata():
                 "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
                 "truncated_item_count": 0,
                 "current_data_required": True,
-                "ranking_policy_id": "rke_agent_research_context_rank_v2",
+                "ranking_policy_id": "rke_agent_research_context_rank_v3",
             },
         }
     )
@@ -991,7 +991,7 @@ def test_rke_runtime_context_preflight_blocks_missing_item_target_metadata():
             "research_only": True,
             "production_signal_allowed": False,
             "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v2",
+            "ranking_policy_id": "rke_agent_research_context_rank_v3",
             "context_items": [
                 {
                     "redacted_claim_id": "FCRED-1",
@@ -1013,7 +1013,7 @@ def test_rke_runtime_context_preflight_blocks_missing_item_target_metadata():
                 "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
                 "truncated_item_count": 0,
                 "current_data_required": True,
-                "ranking_policy_id": "rke_agent_research_context_rank_v2",
+                "ranking_policy_id": "rke_agent_research_context_rank_v3",
             },
         }
     )
@@ -1034,7 +1034,7 @@ def test_rke_runtime_context_preflight_blocks_missing_redacted_claim_id():
             "research_only": True,
             "production_signal_allowed": False,
             "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v2",
+            "ranking_policy_id": "rke_agent_research_context_rank_v3",
             "context_items": [
                 {
                     "retrieval_rank": 1,
@@ -1055,7 +1055,7 @@ def test_rke_runtime_context_preflight_blocks_missing_redacted_claim_id():
                 "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
                 "truncated_item_count": 0,
                 "current_data_required": True,
-                "ranking_policy_id": "rke_agent_research_context_rank_v2",
+                "ranking_policy_id": "rke_agent_research_context_rank_v3",
             },
         }
     )
@@ -1076,7 +1076,7 @@ def test_rke_runtime_context_preflight_blocks_empty_context_without_no_prior_rea
             "research_only": True,
             "production_signal_allowed": False,
             "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v2",
+            "ranking_policy_id": "rke_agent_research_context_rank_v3",
             "context_items": [],
             "summary": {
                 "item_count": 0,
@@ -1086,7 +1086,7 @@ def test_rke_runtime_context_preflight_blocks_empty_context_without_no_prior_rea
                 "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
                 "truncated_item_count": 0,
                 "current_data_required": True,
-                "ranking_policy_id": "rke_agent_research_context_rank_v2",
+                "ranking_policy_id": "rke_agent_research_context_rank_v3",
             },
         }
     )
@@ -1107,7 +1107,7 @@ def test_rke_runtime_context_preflight_blocks_requested_agent_mismatch():
             "research_only": True,
             "production_signal_allowed": False,
             "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v2",
+            "ranking_policy_id": "rke_agent_research_context_rank_v3",
             "context_items": [],
             "summary": {
                 "item_count": 0,
@@ -1117,7 +1117,7 @@ def test_rke_runtime_context_preflight_blocks_requested_agent_mismatch():
                 "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
                 "truncated_item_count": 0,
                 "current_data_required": True,
-                "ranking_policy_id": "rke_agent_research_context_rank_v2",
+                "ranking_policy_id": "rke_agent_research_context_rank_v3",
             },
         }
     )
@@ -1137,7 +1137,7 @@ def test_rke_runtime_context_preflight_blocks_bad_as_of_date():
             "research_only": True,
             "production_signal_allowed": False,
             "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v2",
+            "ranking_policy_id": "rke_agent_research_context_rank_v3",
             "context_items": [],
             "summary": {
                 "item_count": 0,
@@ -1147,7 +1147,7 @@ def test_rke_runtime_context_preflight_blocks_bad_as_of_date():
                 "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
                 "truncated_item_count": 0,
                 "current_data_required": True,
-                "ranking_policy_id": "rke_agent_research_context_rank_v2",
+                "ranking_policy_id": "rke_agent_research_context_rank_v3",
             },
         }
     )
@@ -1166,7 +1166,7 @@ def test_rke_runtime_context_preflight_blocks_layer_agent_mismatch():
             "research_only": True,
             "production_signal_allowed": False,
             "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v2",
+            "ranking_policy_id": "rke_agent_research_context_rank_v3",
             "context_items": [],
             "summary": {
                 "item_count": 0,
@@ -1176,7 +1176,7 @@ def test_rke_runtime_context_preflight_blocks_layer_agent_mismatch():
                 "forbidden_field_count": len(FORBIDDEN_FIELD_NAMES),
                 "truncated_item_count": 0,
                 "current_data_required": True,
-                "ranking_policy_id": "rke_agent_research_context_rank_v2",
+                "ranking_policy_id": "rke_agent_research_context_rank_v3",
             },
         }
     )
@@ -1194,7 +1194,7 @@ def test_rke_runtime_context_preflight_blocks_schema_version_mismatch():
             "research_only": True,
             "production_signal_allowed": False,
             "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v2",
+            "ranking_policy_id": "rke_agent_research_context_rank_v3",
             "context_items": [],
             "summary": {
                 "item_count": 0,
@@ -1203,7 +1203,7 @@ def test_rke_runtime_context_preflight_blocks_schema_version_mismatch():
                 "forbidden_field_policy": FORBIDDEN_FIELD_POLICY,
                 "truncated_item_count": 0,
                 "current_data_required": True,
-                "ranking_policy_id": "rke_agent_research_context_rank_v2",
+                "ranking_policy_id": "rke_agent_research_context_rank_v3",
             },
         }
     )
@@ -1220,7 +1220,7 @@ def test_rke_runtime_context_preflight_blocks_forbidden_field_policy():
             "research_only": True,
             "production_signal_allowed": False,
             "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v2",
+            "ranking_policy_id": "rke_agent_research_context_rank_v3",
             "context_items": [],
             "summary": {
                 "item_count": 0,
@@ -1229,7 +1229,7 @@ def test_rke_runtime_context_preflight_blocks_forbidden_field_policy():
                 "forbidden_field_policy": "not_enforced",
                 "truncated_item_count": 0,
                 "current_data_required": True,
-                "ranking_policy_id": "rke_agent_research_context_rank_v2",
+                "ranking_policy_id": "rke_agent_research_context_rank_v3",
             },
         }
     )
@@ -1246,7 +1246,7 @@ def test_rke_runtime_context_preflight_blocks_top_level_policy_boundary():
             "research_only": False,
             "production_signal_allowed": False,
             "actionability": "trade_allowed",
-            "ranking_policy_id": "rke_agent_research_context_rank_v2",
+            "ranking_policy_id": "rke_agent_research_context_rank_v3",
             "context_items": [
                 {
                     "redacted_claim_id": "FCRED-1",
@@ -1282,7 +1282,7 @@ def test_rke_runtime_context_preflight_blocks_hidden_private_fields():
             "research_only": True,
             "production_signal_allowed": False,
             "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v2",
+            "ranking_policy_id": "rke_agent_research_context_rank_v3",
             "context_items": [
                 {
                     "redacted_claim_id": "FCRED-1",
@@ -1319,7 +1319,7 @@ def test_rke_runtime_context_preflight_blocks_malformed_context_items():
             "research_only": True,
             "production_signal_allowed": False,
             "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v2",
+            "ranking_policy_id": "rke_agent_research_context_rank_v3",
             "context_items": "not-a-list",
             "summary": {
                 "private_text_included": False,
@@ -1336,7 +1336,7 @@ def test_rke_runtime_context_preflight_blocks_malformed_context_items():
             "research_only": True,
             "production_signal_allowed": False,
             "actionability": SAFE_ACTIONABILITY,
-            "ranking_policy_id": "rke_agent_research_context_rank_v2",
+            "ranking_policy_id": "rke_agent_research_context_rank_v3",
             "context_items": ["not-an-object"],
             "summary": {
                 "private_text_included": False,
@@ -1500,3 +1500,99 @@ def test_basic_query_observes_same_size_same_mtime_input_updates(tmp_path):
     os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
     assert path.stat().st_size == stat.st_size
     assert build_rke_agent_research_context(**args)["context_items"] == []
+def test_research_cases_reach_runtime_with_authorization_pit_and_source_diversity(tmp_path):
+    case = {
+        "question": "Inventory and margins", "historical_regime": "Inventory liquidation",
+        "reasoning_chain": ["Inventory falls", "Discounting slows", "Margins recover"],
+        "evidence": [], "assumptions": [], "invalidation_conditions": [], "conclusion": "",
+    }
+    metadata = [
+        {"report_id": report, "source_id": f"SRC-{report}", "report_type": "行业研报",
+         "sector": "半导体", "publish_datetime": "2025-01-01",
+         "license_class": "operator_approved_internal_research_use",
+         "derived_claim_storage_allowed": "operator_approved_internal_use"}
+        for report in ("R1", "R2", "UNAUTHORIZED", "FUTURE")
+    ]
+    metadata[2]["derived_claim_storage_allowed"] = False
+    metadata[3]["accessible_datetime"] = "2027-01-01"
+    footprints = [
+        {"footprint_id": ident, "report_id": report, "source_id": f"SRC-{report}",
+         "source_span_ids": ["PRIVATE-SPAN"], "sector": "半导体", "research_case": case,
+         "target_agent_candidates": ["sector.semiconductor"]}
+        for ident, report in (("A", "R1"), ("B", "R1"), ("C", "R2"),
+                              ("D", "UNAUTHORIZED"), ("E", "FUTURE"))
+    ]
+    context = build_rke_agent_research_context_from_rows(
+        agent_id="semiconductor", as_of_date="2026-01-01", footprints=footprints,
+        metadata=metadata, max_items=2,
+    )
+    assert len(context["context_items"]) == 2
+    assert context["summary"]["matched_item_count"] == 2
+    assert context["summary"]["private_text_included"] is True
+    rendered = rke_research_tools.format_rke_runtime_context(context)
+    assert "Inventory falls → Discounting slows → Margins recover" in rendered
+    assert "Current applicability: unassessed" in rendered
+    assert "PRIVATE-SPAN" not in rendered
+    assert "SRC-R1" not in json.dumps(context)
+    assert all(item["research_case"] == case for item in context["context_items"])
+    directory = tmp_path / "registry/report_intelligence"
+    directory.mkdir(parents=True)
+    for name, rows in (("analytical_footprints", footprints), ("report_metadata", metadata),
+                       ("forecast_claims", [])):
+        _write_jsonl(directory / f"{name}.jsonl", rows)
+    materialized = build_rke_agent_research_materialization(
+        root=tmp_path, agent_id="semiconductor", as_of_date="2026-01-01", max_items=2,
+    )
+    assert materialized["context"] == context
+    assert set(materialized["source_ids"]) == {"SRC-R1", "SRC-R2"}
+    assert materialized["input_bytes"]["analytical_footprints.jsonl"] == (
+        directory / "analytical_footprints.jsonl"
+    ).read_bytes()
+
+    first_only = build_rke_agent_research_context_from_rows(
+        agent_id="semiconductor", as_of_date="2026-01-01", footprints=footprints[:2],
+        metadata=metadata, max_items=2,
+    )
+    assert {r["redacted_claim_id"] for r in context["context_items"]} != {
+        r["redacted_claim_id"] for r in first_only["context_items"]
+    }
+
+
+def test_historical_regime_provenance_is_not_collapsed():
+    context = build_rke_agent_research_context_from_rows(
+        agent_id="cio", as_of_date="2026-01-01", forecasts=[{
+            "forecast_claim_id": "F", "signal_datetime": "2025-01-01",
+            "target": {"target_type": "stock", "target_id": "000001.SZ"},
+            "claim_regime_trace": {"macro": {"macro.china": {
+                "regime_types": ["source_condition", "external_historical_background"],
+                "source_text_regime_types": ["source_condition"],
+                "as_of_date_regime_types": ["external_historical_background"],
+            }}},
+        }],
+    )
+    item = context["context_items"][0]
+    assert item["source_stated_regime_types"] == ["source_condition"]
+    assert item["historical_date_regime_types"] == ["external_historical_background"]
+
+
+def test_research_case_transfer_keeps_original_target_and_prefers_requested_stock():
+    case = {"question": "Inventory and margins", "historical_regime": "",
+            "reasoning_chain": ["Inventory falls", "Discounting slows"],
+            "evidence": [], "assumptions": [], "invalidation_conditions": [], "conclusion": ""}
+    metadata = [{"report_id": ticker, "source_id": ticker, "ts_code": ticker,
+                 "publish_datetime": "2025-01-01", "sector": "半导体",
+                 "license_class": "operator_approved_internal_research_use",
+                 "derived_claim_storage_allowed": True}
+                for ticker in ("000001.SZ", "000002.SZ")]
+    footprints = [{"footprint_id": ticker, "report_id": ticker, "source_id": ticker,
+                   "source_span_ids": ["PRIVATE"], "research_case": case,
+                   "target_agent_candidates": ["superinvestor.munger"]}
+                  for ticker in ("000001.SZ", "000002.SZ")]
+    context = build_rke_agent_research_context_from_rows(
+        agent_id="superinvestor.munger", ticker="000002.SZ", as_of_date="2026-01-01",
+        metadata=metadata, footprints=footprints,
+    )
+    items = context["context_items"]
+    assert [item["ticker"] for item in items] == ["000002.SZ", "000001.SZ"]
+    assert all(item["case_transfer_requires_current_data"] for item in items)
+    assert items[1]["ticker_match"] is False

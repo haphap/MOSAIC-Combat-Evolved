@@ -1779,8 +1779,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--migrate-tool-gap-reviews", action="store_true",
         help="Merge legacy private proposal reviews into tool gaps and archive the originals; preview with --dry-run.",
     )
+    report_intelligence_mode.add_argument(
+        "--migrate-research-cases", action="store_true",
+        help="Recover coherent legacy arguments in footprints, preserving original files; preview with --dry-run.",
+    )
     report_intelligence.add_argument(
-        "--dry-run", action="store_true", help="Preview --migrate-tool-gap-reviews without writing files.",
+        "--dry-run", action="store_true", help="Preview a report-intelligence migration without writing files.",
     )
     report_intelligence_mode.add_argument(
         "--show-tool-gap-review", choices=("data", "tool"),
@@ -3007,8 +3011,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if not result.blockers else 2
     if args.command == "report-intelligence":
         _load_env_file(args.env_file)
+        if args.migrate_research_cases:
+            from .report_intelligence import migrate_research_cases
+            migration = migrate_research_cases(root=root, registry_dir=args.registry_dir, dry_run=args.dry_run)
+            _print_json(migration)
+            return 0 if migration["accepted"] else 2
         if args.dry_run and not args.migrate_tool_gap_reviews:
-            _print_json({"accepted": False, "blockers": ["--dry-run requires --migrate-tool-gap-reviews"]})
+            _print_json({"accepted": False, "blockers": ["--dry-run requires --migrate-tool-gap-reviews or --migrate-research-cases"]})
             return 2
         if args.migrate_tool_gap_reviews:
             migration = migrate_tool_gap_reviews(root=root, registry_dir=args.registry_dir, dry_run=args.dry_run)

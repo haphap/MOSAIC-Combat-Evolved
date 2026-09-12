@@ -245,8 +245,8 @@ def test_user_prompt_requires_context_synthesized_forecast_claims():
     assert "macro regime" in prompt
     assert "Emit at most two forecast_claims for this chunk" in prompt
     assert "Prefer fewer, higher value claims" in prompt
-    assert "do not leave indicator_mentions empty" in prompt
-    assert "canonical metric candidate" in prompt
+    assert "indicator_mentions stay attached to the steps they support" in prompt
+    assert "canonical_metric_candidate" in prompt
     assert "industry-cycle regime" in prompt
     assert "rate-cut cycle" in prompt
     assert "global copper supply is structurally tight" in prompt
@@ -4979,6 +4979,15 @@ def _fake_llm(row, chunk: str, span_id: str, chunk_index: int, chunk_count: int)
             "analytical_footprints": [
                 {
                     "topic": "liquidity_impulse_and_funding_stress_confirmation",
+                    "research_case": {
+                        "question": "Liquidity transmission to risk appetite",
+                        "historical_regime": "",
+                        "reasoning_chain": ["Net injections ease funding conditions",
+                                            "Lower funding stress supports risk appetite"],
+                        "evidence": ["7日公开市场净投放", "DR007与政策利率利差"],
+                        "assumptions": [], "invalidation_conditions": ["资金面重新收紧"],
+                        "conclusion": "High beta may outperform CSI300",
+                    },
                     "indicator_mentions": [
                         {
                             "indicator_text": "7日公开市场净投放",
@@ -5317,7 +5326,7 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert result.tool_coverage_match_rows == 2
     assert "data_acquisition_proposals" not in result.outputs
     assert "tool_design_proposals" not in result.outputs
-    assert result.analysis_recipe_rows == 1
+    assert result.analysis_recipe_rows == 0
     assert result.prompt_mutation_candidate_rows >= 1
     assert result.weighted_research_context_rows == 1
     assert result.runtime_tool_gap_observation_rows == 1
@@ -5602,7 +5611,7 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     assert tool_proposals[0]["engineering_estimate"] == "high"
 
     recipes = _read_jsonl(tmp_path / "registry/report_intelligence/analysis_recipes.jsonl")
-    assert recipes[0]["runtime_mode"] == "shadow_only"
+    assert recipes == []
 
     weighted_contexts = _read_jsonl(
         tmp_path / "registry/report_intelligence/weighted_research_contexts.jsonl"
@@ -5735,10 +5744,10 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     }
     assert recipe_validation_audit["checks"][1]["evidence"][
         "analysis_recipe_rows"
-    ] == 1
+    ] == 0
     assert recipe_validation_audit["checks"][2]["evidence"][
         "validation_status_counts"
-    ] == {"candidate": 1}
+    ] == {}
     assert recipe_validation_audit["checks"][4]["evidence"][
         "validation_candidate_recipe_count"
     ] == 0
@@ -5801,12 +5810,12 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
         in phase_g["evidence_artifacts"]
     )
     assert phase_g["evidence_counts"]["paper_trading_recipe_count"] == 0
-    assert phase_g["evidence_counts"]["shadow_paper_trading_run_count"] == 1
+    assert phase_g["evidence_counts"]["shadow_paper_trading_run_count"] == 0
     assert phase_g["evidence_counts"]["paper_trading_validation_pass_count"] == 0
-    assert phase_g["evidence_counts"]["paper_trading_blocked_count"] == 1
+    assert phase_g["evidence_counts"]["paper_trading_blocked_count"] == 0
     assert alpha_decay["unmonitored_production_recipe_ids"] == []
     confidence_monitoring = monitoring["confidence_impact_monitoring"]
-    assert confidence_monitoring["observation_count"] == 1
+    assert confidence_monitoring["observation_count"] == 0
     assert confidence_monitoring["paper_trading_validated_recipe_count"] == 0
     assert confidence_monitoring["production_decision_impact_allowed"] is False
 
@@ -5814,21 +5823,13 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
         tmp_path
         / "registry/report_intelligence/recipe_paper_trading_runs.jsonl"
     )
-    assert len(paper_trading_runs) == 1
-    assert paper_trading_runs[0]["paper_trading_status"] == "blocked"
-    assert paper_trading_runs[0]["production_decision_impact_allowed"] is False
-    assert {
-        "no_direct_recipe_outcome_binding",
-        "insufficient_effective_n",
-    } <= set(paper_trading_runs[0]["blocked_reasons"])
+    assert paper_trading_runs == []
 
     confidence_observations = _read_jsonl(
         tmp_path
         / "registry/report_intelligence/confidence_impact_observations.jsonl"
     )
-    assert confidence_observations[0]["confidence_delta"] == 0.0
-    assert confidence_observations[0]["drift_status"] == "paper_trading_blocked"
-    assert confidence_observations[0]["recommended_action"] == "keep_shadow"
+    assert confidence_observations == []
 
     prompt_candidates = _read_jsonl(
         tmp_path
@@ -5836,8 +5837,6 @@ def test_report_intelligence_uses_original_markdown_and_writes_loop_artifacts(
     )
     assert prompt_candidates
     assert {
-        "recipe_paper_trading_rule",
-        "confidence_gate_rule",
         "tool_gap_prioritization_rule",
     } <= {row["candidate_type"] for row in prompt_candidates}
     assert all(row["production_prompt_change_allowed"] is False for row in prompt_candidates)
@@ -7739,62 +7738,27 @@ def test_report_intelligence_analysis_recipes_pin_required_data():
 
 
 def test_report_intelligence_method_patterns_keep_source_footprint_refs():
-    methods = _normalize_method_patterns(
-        {},
-        [
-            {
-                "footprint_id": "AFP-1",
-                "analysis_patterns": [
-                    "compare target return with benchmark",
-                    {"pattern": "check valuation and liquidity"},
-                ],
-                "target_agent_candidates": ["stock_agent"],
-            }
-        ],
-        run_id="RIR-TEST",
-        model="test-model",
-    )
-
-    assert len(methods) == 2
-    assert all(row["source_footprint_ids"] == ["AFP-1"] for row in methods)
-    assert {row["name"] for row in methods} == {
-        "compare target return with benchmark",
-        "check valuation and liquidity",
-    }
-    assert all(row["steps"] for row in methods)
+    footprints = [{
+        "footprint_id": "AFP-1", "target_agent_candidates": ["stock_agent"],
+        "research_case": {"question": "Compare return and valuation",
+                          "reasoning_chain": ["Compare benchmark returns", "Check valuation and liquidity"]},
+    }]
+    methods = _normalize_method_patterns({}, footprints, run_id="RIR-TEST", model="test-model")
+    assert len(methods) == 1
+    assert methods[0]["source_footprint_ids"] == ["AFP-1"]
+    assert methods[0]["steps"] == footprints[0]["research_case"]["reasoning_chain"]
 
 
-def test_report_intelligence_method_pattern_ids_use_canonical_key():
-    first = _normalize_method_patterns(
-        {
-            "method_patterns": [
-                {"name": "Peer comparison", "steps": ["compare peers"]},
-                {"name": "Peer-comparison", "steps": ["compare peer group"]},
-            ]
-        },
-        [],
-        run_id="RIR-TEST",
-        model="test-model",
-    )
-    reversed_order = _normalize_method_patterns(
-        {
-            "method_patterns": [
-                {"name": "Peer-comparison", "steps": ["compare peer group"]},
-                {"name": "Peer comparison", "steps": ["compare peers"]},
-            ]
-        },
-        [],
-        run_id="RIR-TEST",
-        model="test-model",
-    )
-
-    assert len(first) == 1
-    assert len(reversed_order) == 1
-    assert first[0]["canonical_name"] == "peer_comparison"
-    assert reversed_order[0]["canonical_name"] == "peer_comparison"
-    assert first[0]["method_pattern_id"] == reversed_order[0]["method_pattern_id"]
-    assert first[0]["steps"] == ["compare peers", "compare peer group"]
-    assert reversed_order[0]["steps"] == ["compare peer group", "compare peers"]
+def test_report_intelligence_method_pattern_ids_bind_ordered_reasoning():
+    footprints = [{"footprint_id": ident, "research_case": {
+        "question": "Peer comparison", "reasoning_chain": steps,
+    }} for ident, steps in (("A", ["Check accounting", "Compare peers"]),
+                           ("B", ["Compare peers", "Check accounting"]))]
+    first = _normalize_method_patterns({}, footprints, run_id="RIR-TEST", model="test-model")
+    reverse = _normalize_method_patterns({}, list(reversed(footprints)), run_id="RIR-TEST", model="test-model")
+    assert len(first) == 2
+    assert first == reverse
+    assert first[0]["method_pattern_id"] != first[1]["method_pattern_id"]
 
 
 def test_report_intelligence_method_pattern_merge_upgrades_legacy_ids():
@@ -10243,7 +10207,7 @@ def test_report_intelligence_evolution_gate_audits_agent_context_ranking_contrac
     check = next(row for row in gate["checks"] if row["check_id"] == "RI-EVOL-09")
     assert check["passed"] is True
     evidence = check["evidence"]
-    assert evidence["ranking_policy_id"] == "rke_agent_research_context_rank_v2"
+    assert evidence["ranking_policy_id"] == "rke_agent_research_context_rank_v3"
     assert evidence["ranked_context_agent_count"] >= 1
     assert evidence["no_prior_reason_agent_count"] >= 1
     assert evidence["current_data_guard_violation_count"] == 0
@@ -19888,3 +19852,122 @@ def test_tool_gap_feasibility_preserves_review_value_constraints(field, valid, i
     assert not audit["accepted"]
     check = next(row for row in audit["checks"] if row["check_id"] == "RI-TOOL-02")
     assert any(field in failure for failure in check["failures"])
+def test_research_case_preserves_reasoning_and_does_not_promote_fragments():
+    from mosaic.rke.report_intelligence import _normalize_footprints, _normalize_method_patterns
+
+    case = {
+        "question": "Why can margins recover before demand?",
+        "historical_regime": "Inventory liquidation with stable financing costs",
+        "reasoning_chain": ["Inventory falls", "Discounting slows", "Margins recover"],
+        "evidence": ["Inventory days fell before sales recovered"],
+        "assumptions": ["Capacity does not expand"],
+        "invalidation_conditions": ["New capacity restarts price competition"],
+        "conclusion": "Monitor inventory and capacity together",
+    }
+    footprints = _normalize_footprints(
+        {"analytical_footprints": [{"topic": "Inventory and margins", "research_case": case,
+          "analysis_patterns": ["inventory", "valuation"]}]},
+        {"source_id": "SRC-SYNTHETIC"}, run_id="TEST", model="synthetic",
+        report_id="RPT-SYNTHETIC", chunk_span_id="SPAN-SYNTHETIC",
+    )
+    assert footprints[0]["research_case"] == case
+    methods = _normalize_method_patterns({}, footprints, run_id="TEST", model="synthetic")
+    assert len(methods) == 1
+    assert methods[0]["steps"] == case["reasoning_chain"]
+    assert methods[0]["historical_regime"] == case["historical_regime"]
+    assert _normalize_method_patterns({}, [{"analysis_patterns": ["inventory"]}],
+                                      run_id="TEST", model="synthetic") == []
+def test_research_case_migration_is_conservative_archived_and_idempotent(tmp_path):
+    from mosaic.rke.report_intelligence import migrate_research_cases, build_analysis_recipes
+
+    directory = tmp_path / "registry/report_intelligence"
+    directory.mkdir(parents=True)
+    rows = [
+        {"footprint_id": "AFP-1", "topic": "Inventory and margins", "analysis_patterns": [{
+            "steps": ["Inventory falls", "Discounting slows", "Margins recover"],
+            "failure_modes": ["Capacity expansion restarts competition"],
+        }]},
+        {"footprint_id": "AFP-2", "topic": "Valuation", "analysis_patterns": ["PE", "ROE"]},
+        {"footprint_id": "AFP-3", "topic": "Several unrelated models", "analysis_patterns": [
+            {"steps": ["A", "B"]}, {"steps": ["C", "D"]},
+        ]},
+    ]
+    original = "\n".join(json.dumps(row) for row in rows) + "\n"
+    (directory / "analytical_footprints.jsonl").write_text(original)
+    (directory / "method_patterns.jsonl").write_text(json.dumps({"method_pattern_id": "OLD", "name": "PE"}) + "\n")
+    preview = migrate_research_cases(root=tmp_path)
+    assert preview["recovered_case_count"] == 1
+    assert preview["legacy_context_only_count"] == 2
+    assert (directory / "analytical_footprints.jsonl").read_text() == original
+    applied = migrate_research_cases(root=tmp_path, dry_run=False)
+    assert applied["accepted"] and applied["applied"]
+    assert (Path(applied["archive_path"]) / "analytical_footprints.jsonl").read_text() == original
+    recovered = json.loads((directory / "analytical_footprints.jsonl").read_text().splitlines()[0])
+    assert recovered["research_case"]["historical_regime"] == ""
+    assert recovered["research_case"]["conclusion"] == ""
+    methods = [json.loads(line) for line in (directory / "method_patterns.jsonl").read_text().splitlines()]
+    assert len(methods) == 2
+    assert methods[0]["research_case_based"] is False
+    assert build_analysis_recipes(methods) == []
+    again = migrate_research_cases(root=tmp_path, dry_run=False)
+    assert again["recovered_case_count"] == 0
+    assert "archive_path" not in again
+
+
+def test_case_methods_with_different_conditions_do_not_merge():
+    from mosaic.rke.report_intelligence import _normalize_method_patterns, _append_unique_method_patterns
+
+    case = {"question": "Inventory recovery", "historical_regime": "tight capacity",
+            "reasoning_chain": ["Inventory declines", "Margins recover"],
+            "assumptions": [], "invalidation_conditions": [], "evidence": [], "conclusion": ""}
+    rows = [{"footprint_id": "A", "research_case": case},
+            {"footprint_id": "B", "research_case": dict(case, historical_regime="capacity expansion")}]
+    methods = _normalize_method_patterns({}, rows, run_id="test", model="synthetic")
+    assert len(methods) == 2
+    merged = []
+    _append_unique_method_patterns(merged, methods)
+    assert len(merged) == 2
+    assert len({method["method_pattern_id"] for method in merged}) == 2
+
+
+def test_research_case_identity_schema_and_review_cover_the_argument():
+    from copy import deepcopy
+    from jsonschema import Draft202012Validator
+    from mosaic.rke.report_intelligence import _footprint_review_template_row, _normalize_footprints
+
+    case = {"question": "Liquidity and discount rates", "historical_regime": "",
+            "reasoning_chain": ["Funding costs decline", "Discount rates fall"],
+            "evidence": [], "assumptions": [], "invalidation_conditions": [], "conclusion": ""}
+    payload = {"analytical_footprints": [{"topic": "pboc liquidity", "research_case": case},
+               {"topic": "pboc liquidity", "research_case": dict(case, historical_regime="Credit tightening")}]}
+    rows = _normalize_footprints(payload, {"source_id": "S"}, run_id="T", model="synthetic",
+                                 report_id="R", chunk_span_id="SPAN")
+    assert rows[0]["footprint_id"] != rows[1]["footprint_id"]
+    assert rows[0]["indicator_mentions"] == []
+    review = _footprint_review_template_row(rows[0])
+    assert review["research_case_review_preview"] == case
+    changed = deepcopy(rows[0])
+    changed["research_case"]["assumptions"] = ["Credit spreads stay stable"]
+    assert _footprint_review_template_row(changed)["target_row_hash"] != review["target_row_hash"]
+    schema = json.loads((Path(__file__).parents[1] / "schemas/report_intelligence_analytical_footprint.schema.json").read_text())
+    validator = Draft202012Validator(schema)
+    validator.validate(rows[0])
+    changed["research_case"]["reasoning_chain"] = "name only"
+    assert list(validator.iter_errors(changed))
+    changed["research_case"] = dict(case, claim_text="raw source prose")
+    assert list(validator.iter_errors(changed))
+
+
+def test_research_case_migration_rejects_malformed_existing_case_without_writes(tmp_path):
+    from mosaic.rke.report_intelligence import migrate_research_cases
+
+    directory = tmp_path / "registry/report_intelligence"
+    directory.mkdir(parents=True)
+    path = directory / "analytical_footprints.jsonl"
+    original = '{"footprint_id":"AFP", "research_case":null}\n'
+    path.write_text(original)
+    result = migrate_research_cases(root=tmp_path, dry_run=False)
+    assert not result["accepted"] and not result["applied"]
+    assert "invalid_existing_research_case" in result["blockers"]
+    assert path.read_text() == original
+    assert not (tmp_path / ".mosaic/rke/research_case_migration").exists()

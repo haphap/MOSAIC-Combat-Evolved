@@ -333,11 +333,11 @@ def test_rke_true_empty_receipt_requires_exact_materialization_and_basic_inputs(
     hash_bytes = Mock(wraps=source_evidence_module.sha256)
     monkeypatch.setattr(source_evidence_module, "sha256", hash_bytes)
     result = authority.materialize_rke(args)
-    assert hash_bytes.call_count == 2
+    assert hash_bytes.call_count == len(RKE_AGENT_RESEARCH_INPUT_FILENAMES)
     assert result["payload"] == raw
     assert build.call_count == 1
     receipts = [store.receipt_by_hash(value) for value in result["source_receipt_hashes"]]
-    assert hashed_files == ["forecast_claims.jsonl", "report_metadata.jsonl"]
+    assert hashed_files == list(RKE_AGENT_RESEARCH_INPUT_FILENAMES)
 
     assert len(receipts) == 1
     upstream = ledger.source_capture_receipt(
