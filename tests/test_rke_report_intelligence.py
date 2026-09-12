@@ -1856,6 +1856,26 @@ def test_normalize_forecast_claims_binds_stock_subject_from_report_metadata():
     assert record["extraction_quality"]["analyst_claim_stock_subject_bound"] is True
 
 
+def test_forecast_subject_binding_preserves_explicit_different_stock():
+    text = "公司订单增长带动产能利用率提升，预计2026年利润增长。"
+    records = _normalize_forecast_claims(
+        {"forecast_claims": [{
+            "claim_text": text,
+            "claim_provenance": "source_grounded",
+            "target": {"target_type": "stock", "target_id": "830001.BJ"},
+            "direction": "positive",
+        }]},
+        {"source_id": "SRC-HISTORICAL", "publish_date": "2025-02-28",
+         "ts_code": "920001.BJ", "report_type": "个股研报"},
+        run_id="RUN-HISTORICAL", model="fake", report_id="RPT-HISTORICAL",
+        chunk_span_id="SRC-HISTORICAL:chunk-1",
+    )
+    assert len(records) == 1
+    assert records[0]["target"]["target_id"] == "830001.BJ"
+    assert records[0]["claim_text"] == text
+    assert records[0]["analyst_claim"] == text
+
+
 def test_normalize_forecast_claims_infers_chinese_relative_and_qualitative_horizon():
     records = _normalize_forecast_claims(
         {
@@ -13670,8 +13690,10 @@ def test_report_intelligence_stock_readiness_records_series_start_gap(
     }
 
 
+@pytest.mark.parametrize("target_id", ["000002.SZ", "830001.BJ"])
 def test_report_intelligence_stock_target_conflict_blocks_labeling(
     tmp_path: Path,
+    target_id: str,
 ):
     source_id = _write_source(
         tmp_path / "registry/sources/tushare_research_reports.jsonl",
@@ -13696,7 +13718,7 @@ def test_report_intelligence_stock_target_conflict_blocks_labeling(
                         "claim_provenance": "source_grounded",
                         "forecast_testability": "testable",
                         "forecast_type": "stock_outlook",
-                        "target": {"target_type": "stock", "target_id": "000002.SZ"},
+                        "target": {"target_type": "stock", "target_id": target_id},
                         "benchmark": {},
                         "direction": "positive",
                         "horizon": {},
@@ -19920,12 +19942,14 @@ def test_research_case_preserves_reasoning_and_does_not_promote_fragments(regime
     assert methods[0]["historical_regime"] == case["historical_regime"]
     assert _normalize_method_patterns([{"analysis_patterns": ["inventory"]}],
                                       run_id="TEST", model="synthetic") == []
-def test_case_refresh_removes_seeded_indicators_without_inventing_macro_evidence(tmp_path):
+def test_case_refresh_removes_seeded_indicators_without_inventing_macro_evidence(tmp_path, monkeypatch):
+    from mosaic.rke import report_intelligence as ri
+
     markdown = tmp_path / "company.md"
     markdown.write_text("公司利润总额增长，营业收入增长。", encoding="utf-8")
     case = {"question": "Why do profits grow?", "reasoning_chain": ["Sales rise", "Profits rise"]}
     footprint = {
-        "source_id": "SRC-COMPANY", "topic": "公司盈利与利润",
+        "footprint_id": "AFP-COMPANY", "source_id": "SRC-COMPANY", "topic": "公司盈利与利润",
         "source_span_ids": ["SRC-COMPANY:original_markdown:chunk-001"],
         "research_case": case,
         "indicator_mentions": [
@@ -19945,6 +19969,28 @@ def test_case_refresh_removes_seeded_indicators_without_inventing_macro_evidence
     assert refreshed[1]["indicator_mentions"] == []
     assert refreshed[0]["research_case"] == case
     assert len(footprint["indicator_mentions"]) == 2
+
+    methods = ri._normalize_method_patterns([footprint], run_id="old", model="synthetic")
+    methods[0]["validation_status"] = "reviewed"
+    methods[0]["reviewer_note"] = "Preserve review context"
+    method_id = methods[0]["method_pattern_id"]
+    methods.append({"method_pattern_id": "OLD", "name": "Legacy context",
+                    "research_case_based": False, "required_current_data": ["legacy_metric"]})
+    registry = tmp_path / "registry/report_intelligence"
+    for name, rows in (("report_metadata", metadata), ("forecast_claims", [{"source_id": "SRC-COMPANY"}]),
+                       ("analytical_footprints", [footprint]), ("method_patterns", methods)):
+        _write_jsonl(registry / f"{name}.jsonl", rows)
+    monkeypatch.setattr(ri, "_refresh_report_intelligence_derived_artifacts", lambda **kwargs: kwargs)
+    result = run_report_intelligence_derived_refresh(
+        ReportIntelligenceConfig(root=tmp_path, derived_scope="full", refresh_derived_only=True)
+    )
+    current = next(row for row in result["method_rows"] if row.get("research_case_based") is True)
+    assert current["method_pattern_id"] == method_id
+    assert current["required_current_data"] == ["revenue_growth"]
+    assert current["validation_status"] == "reviewed"
+    assert current["reviewer_note"] == "Preserve review context"
+    legacy = next(row for row in result["method_rows"] if row.get("research_case_based") is False)
+    assert legacy["required_current_data"] == ["legacy_metric"]
 
 
 def test_research_case_migration_is_conservative_archived_and_idempotent(tmp_path):

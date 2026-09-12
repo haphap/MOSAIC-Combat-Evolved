@@ -124,6 +124,19 @@ nor a nonempty case proves that the source argument has been preserved correctly
 Refresh preserves a case's extracted indicator mentions and removes rule-generated
 seed mentions; it does not expand company financial-table labels into macro
 evidence. Existing legacy footprints retain their prior refresh behavior.
+Full refresh also recomputes case methods' required current data from their
+remaining indicator mentions, preserving method IDs and review fields. Legacy
+method requirements remain historical context. Global metric and tool-gap rows
+lack per-source references; do not delete a shared metric merely because one
+case stopped using it.
+
+Preserve explicit historical target codes; conflicting metadata must
+not rewrite the claim or silently select a different stock for outcome labeling.
+An invalid historical code for the configured price adapter must remain a mapping
+gap or conflict, not become an empty ID that falls back to current metadata.
+Shorter prompts alone do not guarantee valid JSON from a text-only backend.
+Validate contract changes on source content before enabling them; retain failed
+experiments privately and do not repair quotes or salvage nested objects as cases.
 
 Begin with one cached report, writing into a fresh private batch directory:
 

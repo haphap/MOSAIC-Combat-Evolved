@@ -3199,7 +3199,7 @@ def _target_with_metadata_stock_subject(
         return updated, False
     target_type = str(updated.get("target_type") or "").strip().lower()
     subject_ts_code = str(stock_subject.get("target_id") or "")
-    target_ts_code = _normalize_ts_code(updated.get("target_id"))
+    target_ts_code = str(updated.get("target_id") or "").strip().upper()
     changed = False
     if target_type != "stock":
         if not subject_ts_code or target_ts_code != subject_ts_code:
@@ -3245,6 +3245,11 @@ def _bind_stock_subject_to_text(
         not normalized
         or not subject_label
         or str(target.get("target_type") or "").strip().lower() != "stock"
+        or (
+            str(target.get("target_id") or "").strip()
+            and str(target.get("target_id") or "").strip().upper()
+            != str(stock_subject.get("target_id") or "").strip().upper()
+        )
         or _text_mentions_stock_subject(normalized, stock_subject)
     ):
         return normalized, False
@@ -14658,13 +14663,13 @@ def _stock_target_resolution(
             "metadata_ts_code": metadata_ts_code,
             "llm_target_id": raw_target,
         }
-    if metadata_ts_code and llm_ts_code and metadata_ts_code != llm_ts_code:
+    if metadata_ts_code and raw_target and metadata_ts_code != raw_target.upper():
         return {
             "ts_code": "",
             "target_resolution_source": "",
             "gap": "stock_target_conflict",
             "metadata_ts_code": metadata_ts_code,
-            "llm_target_id": llm_ts_code,
+            "llm_target_id": raw_target,
         }
     if metadata_ts_code and llm_ts_code:
         return {
@@ -34876,14 +34881,14 @@ def run_report_intelligence_derived_refresh(
         label="method_patterns",
         blockers=blockers,
     )
-    _append_unique_method_patterns(
-        method_rows,
-        _normalize_method_patterns(
-            footprint_rows,
-            run_id=run_id,
-            model="derived_refresh",
-        ),
+    case_methods = _normalize_method_patterns(
+        footprint_rows, run_id=run_id, model="derived_refresh",
     )
+    _append_unique_method_patterns(method_rows, case_methods)
+    case_data = {row["method_pattern_id"]: row["required_current_data"] for row in case_methods}
+    for method in method_rows:
+        if method.get("research_case_based") is True and method["method_pattern_id"] in case_data:
+            method["required_current_data"] = case_data[method["method_pattern_id"]]
     tool_gap_rows = _read_tool_gap_facts(registry_dir / "tool_gaps.jsonl", blockers=blockers)
     _append_unique_records(
         metric_rows,
