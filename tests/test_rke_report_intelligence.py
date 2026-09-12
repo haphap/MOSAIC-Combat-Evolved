@@ -251,101 +251,25 @@ def test_call_vllm_extractor_sends_authorization_header(monkeypatch, backend, fi
         assert seen["payload"]["chat_template_kwargs"] == {"enable_thinking": False}
 
 
-def test_user_prompt_requires_context_synthesized_forecast_claims():
+def test_user_prompt_preserves_original_text_and_excludes_derived_evidence():
+    markdown = "公司项目名为“高性能材料”，预计2027年利润增长。\n原文保留不改写。"
     prompt = _user_prompt(
-        {
-            "source_id": "SRC-PROMPT",
-            "title": "测试报告",
-            "publish_date": "2026-06-11",
-        },
-        "股债市场双向波动，理财子通过多资产组合应对波动并获取超额收益。",
-        "SRC-PROMPT:chunk-1",
-        0,
-        1,
+        {"source_id": "SRC-PROMPT", "title": "公司报告", "ts_code": "000001.SZ",
+         "publish_date": "2026-06-11", "abstract": "不能当作原文的摘要",
+         "report_context": {"rating_context": {"rating_terms": ["未在正文出现的评级"]}}},
+        markdown, "SRC-PROMPT:chunk-1", 0, 1,
     )
-
-    assert "compact synthesis over the full supported report context" in prompt
-    assert "does not need to be a verbatim sentence" in prompt
-    assert "For Chinese source text, output claim_text in Chinese" in prompt
-    assert "under <macro regime if present>" in prompt
-    assert "finance-relevant target impact" in prompt
-    assert "analytical_footprints, not forecast_claims" in prompt
-    assert "pure historical/statistical descriptions" in prompt
-    assert "Check report temporal context before leaving horizon empty" in prompt
-    assert "90/180/360 days" in prompt
-    assert "2026-2028年" in prompt
-    assert "metric_proxy_mapping" in prompt
-    assert "stock_forward_return" in prompt
-    assert "Do not merge macro regime, industry-cycle regime" in prompt
-    assert "company labs reaching designed utilization" in prompt
-    assert "Make the economic mechanism explicit" in prompt
-    assert "price/cost pass-through" in prompt
-    assert "macro regime" in prompt
-    assert "Emit at most two forecast_claims for this chunk" in prompt
-    assert "Prefer fewer, higher value claims" in prompt
-    assert "indicator_mentions stay attached to the steps they support" in prompt
-    assert "canonical_metric_candidate" in prompt
-    assert "industry-cycle regime" in prompt
-    assert "rate-cut cycle" in prompt
-    assert "global copper supply is structurally tight" in prompt
-    assert "Direct macro market forecasts are valid forecast_claims" in prompt
-    assert "forecast_type='macro_series_directional'" in prompt
-    assert "forecast_type='macro_curve_directional'" in prompt
-    assert "US_2S10S" in prompt
-    assert "CN_US_10Y_SPREAD" in prompt
-    assert "bond_yield_level" in prompt
-    assert "yield_curve_slope" in prompt
-
-
-def test_user_prompt_includes_stock_subject_metadata_for_stock_reports():
-    prompt = _user_prompt(
-        {
-            "source_id": "SRC-STOCK-SUBJECT",
-            "title": "方大新材点评报告",
-            "publish_date": "2026-06-11",
-            "report_type": "个股研报",
-            "ts_code": "920163.BJ",
-            "abstract": "方大新材(920163)\n高端复合材料业务持续放量。",
-        },
-        "公司高端复合材料业务持续放量，预计2026-2028年利润增长。",
-        "SRC-STOCK-SUBJECT:chunk-1",
-        0,
-        1,
-    )
-
-    assert '"stock_subject"' in prompt
-    assert "方大新材" in prompt
-    assert "920163.BJ" in prompt
-    assert "Do not output a stock forecast_claim whose subject is only 公司" in prompt
-
-
-def test_user_prompt_includes_report_context_metadata():
-    prompt = _user_prompt(
-        {
-            "source_id": "SRC-CONTEXT",
-            "title": "2026年度宏观策略",
-            "publish_date": "2025-11-24",
-            "report_context": {
-                "benchmark_context": {
-                    "default_benchmark": {
-                        "benchmark_type": "market_index",
-                        "benchmark_id": "沪深300",
-                    }
-                },
-                "rating_context": {"rating_terms": ["买入"]},
-            },
-            "section_context": {"section_title": "展望2026年"},
-        },
-        "展望2026年，A股风险偏好有望修复。",
-        "SRC-CONTEXT:chunk-1",
-        0,
-        1,
-    )
-
-    assert '"report_context"' in prompt
-    assert '"section_context"' in prompt
-    assert "沪深300" in prompt
-    assert "展望2026年" in prompt
+    metadata_text, original = prompt.split("Original Markdown chunk:\n", 1)
+    assert original == markdown
+    metadata = json.loads(metadata_text.split(
+        "Report metadata is for source identification only, not evidence:\n", 1,
+    )[1])
+    assert metadata["source_id"] == "SRC-PROMPT"
+    assert metadata["ts_code"] == "000001.SZ"
+    assert metadata["chunk_span_id"] == "SRC-PROMPT:chunk-1"
+    assert "abstract" not in metadata and "report_context" not in metadata
+    assert "不能当作原文的摘要" not in prompt
+    assert "未在正文出现的评级" not in prompt
 
 
 def test_select_report_forecast_claims_caps_and_preserves_source_order():
@@ -15400,33 +15324,6 @@ def test_report_intelligence_stratified_source_selection_covers_outcome_ready_st
     }
 
 
-def test_report_intelligence_extractor_prompt_guides_industry_proxy_fields():
-    prompt = _user_prompt(
-        {
-            "source_id": "SRC-IND-PROMPT",
-            "title": "有色金属行业深度",
-            "institution": "Broker A",
-            "author": "Analyst A",
-            "publish_date": "2026-01-02",
-            "report_type": "行业研报",
-            "query_key": "有色金属",
-            "industry": "有色金属",
-            "ts_code": "",
-        },
-        "有色金属行业景气度改善，建议超配，后续有望跑赢市场。",
-        "SPAN-IND-PROMPT-001",
-        0,
-        1,
-    )
-
-    assert "target.target_type='sector'" in prompt
-    assert "metadata.industry or metadata.query_key" in prompt
-    assert "target.target_id to the metadata sector string" in prompt
-    assert "expects the sector to outperform" in prompt
-    assert "Use neutral, ambiguous, or unknown" in prompt
-    assert "Never invent a horizon" in prompt
-
-
 def test_report_intelligence_counts_industry_etf_proxy_as_labelable_channel(
     tmp_path: Path,
 ):
@@ -19945,6 +19842,38 @@ def test_research_case_preserves_reasoning_and_does_not_promote_fragments(regime
     assert methods[0]["historical_regime"] == case["historical_regime"]
     assert _normalize_method_patterns([{"analysis_patterns": ["inventory"]}],
                                       run_id="TEST", model="synthetic") == []
+def test_case_indicator_meaning_survives_extraction_and_refresh():
+    from mosaic.rke.report_intelligence import _normalize_footprints
+
+    mentions = [
+        {"indicator_text": "2025年归母净利润2亿元（实际）",
+         "canonical_metric_candidate": "reported_net_profit", "source_grounded": True},
+        {"indicator_text": "当前股价对应PE 20x（2027E）",
+         "canonical_metric_candidate": "valuation_multiple", "source_grounded": True},
+        {"indicator_text": "单季度毛利率23%，环比+1pct",
+         "canonical_metric_candidate": "gross_margin", "source_grounded": True},
+        {"indicator_text": "新增产能带来的净利润影响",
+         "canonical_metric_candidate": "unknown", "source_grounded": False},
+    ]
+    case = {"question": "产能投放如何影响利润？",
+            "reasoning_chain": ["新增产能释放", "订单交付增加"]}
+    payload = {"analytical_footprints": [None, {}, {"topic": "产能与利润", "research_case": case,
+                                                   "indicator_mentions": mentions}]}
+    footprints = _normalize_footprints(payload, {"source_id": "S"}, run_id="T",
+        model="synthetic", report_id="R", chunk_span_id="SPAN")
+    assert len(footprints) == 1
+    refreshed = _refresh_analytical_footprint_indicator_governance(footprints)
+    for rows in (footprints, refreshed):
+        actual = {m["indicator_text"]: m for m in rows[0]["indicator_mentions"]}
+        for expected in mentions:
+            mention = actual[expected["indicator_text"]]
+            assert mention["canonical_metric_candidate"] == expected["canonical_metric_candidate"]
+            assert mention["source_grounded"] is expected["source_grounded"]
+            assert mention["data_source_mentioned"] == "unknown"
+            assert mention["frequency"] == "unknown"
+    assert refreshed == footprints
+
+
 def test_case_refresh_removes_seeded_indicators_without_inventing_macro_evidence(tmp_path, monkeypatch):
     from mosaic.rke import report_intelligence as ri
 

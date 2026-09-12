@@ -3269,11 +3269,13 @@ def _system_prompt() -> str:
         "You extract reusable research arguments from the supplied original report "
         "Markdown. The primary output is analytical_footprints.research_case: "
         "preserve the research question, historical regime, ordered causal reasoning, "
-        "evidence and conclusion together. Forecasts are secondary. "
+        "evidence and conclusion together, including source-supported forecasts. "
         "Use the report language and paraphrase; return one JSON object only. "
         "Follow the field types exactly. historical_regime is a single string, "
         "not a list. Keep macro/industry conditions distinct from company actions "
         "and transmission mechanisms within the argument. "
+        "Do not extrapolate a company's financial observations into an industry "
+        "or macro regime that the source does not state. "
         "Use only the supplied source. Never complete an argument with plausible "
         "but unstated assumptions, failure conditions, causal links or later facts. "
         "Leave missing fields empty. A generic risk warning does not authorize "
@@ -3286,8 +3288,12 @@ def _system_prompt() -> str:
         "observed repricing. Approximate chart reconstructions marked ~ are not "
         "verified measurements; prefer the surrounding source argument over their numbers. "
         "Use the report body to determine its actual subject, not its directory label. "
-        "Keep evidence brief and material to the argument. For quotes inside text values, "
-        "use Chinese quotation marks or properly escape JSON double quotes. "
+        "Keep evidence brief and material to the argument. Write complete statements "
+        "in narrative text values, including conclusions: paraphrase rating labels "
+        "and project names without adding quotation marks around them. Preserve "
+        "the actual rating, forecast period and qualifications stated in the source. "
+        "When literal quotation is necessary, use Chinese quotation marks or "
+        "properly escape JSON double quotes. "
         "The final answer must contain only JSON, without commentary or code fences."
     )
 
@@ -3299,213 +3305,45 @@ def _user_prompt(
     chunk_index: int,
     chunk_count: int,
 ) -> str:
-    metadata = {
-        "source_id": row.get("source_id"),
-        "title": row.get("title"),
-        "institution": row.get("institution"),
-        "author": row.get("author"),
-        "publish_date": row.get("publish_date"),
-        "report_type": row.get("report_type"),
-        "query_key": row.get("query_key"),
-        "industry": row.get("industry"),
-        "ts_code": row.get("ts_code"),
-        "chunk_span_id": chunk_span_id,
-        "chunk_index": chunk_index,
-        "chunk_count": chunk_count,
+    metadata = {key: row.get(key) for key in (
+        "source_id", "title", "institution", "author", "publish_date",
+        "report_type", "query_key", "industry", "ts_code",
+    )}
+    metadata.update(chunk_span_id=chunk_span_id, chunk_index=chunk_index, chunk_count=chunk_count)
+    shape = {
+        "analytical_footprints": [{
+            "topic": "",
+            "research_case": {
+                "question": "", "historical_regime": "", "reasoning_chain": [],
+                "evidence": [], "assumptions": [], "invalidation_conditions": [], "conclusion": "",
+            },
+            "indicator_mentions": [], "analysis_patterns": [], "target_agent_candidates": [],
+        }],
+        "forecast_claims": [], "metric_candidates": [], "method_patterns": [], "tool_gaps": [],
     }
-    stock_subject = _stock_subject_from_metadata(row)
-    if stock_subject:
-        metadata["stock_subject"] = stock_subject
-    report_context = _ensure_mapping(row.get("report_context"))
-    if report_context:
-        metadata["report_context"] = report_context
-    section_context = _ensure_mapping(row.get("section_context"))
-    if section_context:
-        metadata["section_context"] = section_context
     return (
-        "Extract Report Intelligence Loop objects for this Markdown chunk.\n"
-        "Return JSON with exactly these top-level array keys: "
-        "forecast_claims, analytical_footprints, metric_candidates, "
-        "method_patterns, tool_gaps.\n\n"
-        "Extract the coherent research_case first. Its exact JSON shape is "
-        '{"question":"", "historical_regime":"", "reasoning_chain":[], '
-        '"evidence":[], "assumptions":[], "invalidation_conditions":[], '
-        '"conclusion":""}. Fill these fields from the source only; empty '
-        "values mean unknown. All array elements must be strings.\n\n"
-        "forecast_claim fields: claim_text, claim_provenance "
-        "(source_grounded|analyst_or_llm_hypothesis), forecast_testability "
-        "(testable|non_testable|insufficient_mapping), forecast_type, target, "
-        "benchmark, direction (positive|negative|neutral|ambiguous|unknown), "
-        "horizon, explicitness (explicit|inferred|unknown), source_conviction, "
-        "metric_proxy_mapping, macro_claim_legs, failure_modes, "
-        "extraction_quality.\n"
-        "Only emit forecast_claims for source-grounded research theses with a "
-        "complete economic chain. The claim_text must be a compact synthesis over "
-        "the full supported report context or a coherent multi-paragraph window: "
-        "macro regime when present, industry regime when present, transmission "
-        "mechanism, company capability/action for stock reports, valuation or "
-        "earnings forecast logic when present, and the expected target impact. It "
-        "does not need to be a verbatim sentence, but every element must be "
-        "supported by the cited source span. Emit at most two forecast_claims for "
-        "this chunk, and emit none when the text only provides local facts, a "
-        "half-sentence, a heading, a pure recommendation list, or a claim that "
-        "cannot be tied back to Mosaic macro/sector/company layers. Prefer fewer, "
-        "higher value claims over enumerating every descriptive sentence; keep "
-        "only the theses that would still be useful for outcome labeling and "
-        "prompt evolution review. "
-        "For Chinese source text, output claim_text in Chinese and keep variable "
-        "or schema ids in English only where the schema requires ids. "
-        "Keep claim_text as the single source-grounded forecast synthesis. "
-        "Do not emit a second analyst_claim rewrite or self-review fields: "
-        "extraction is not approval. "
-        "Use Report metadata.report_context when present: subject_context "
-        "identifies the covered entity/sector/asset universe, section_context "
-        "identifies the local section title and section horizon, benchmark_context "
-        "identifies report-level benchmark definitions, and rating_context "
-        "identifies rating-scale definitions, not a separate report forecast. "
-        "Never append a rating scale's return threshold or horizon to an earnings "
-        "forecast. frequency_context "
-        "identifies report cadence such as weekly, monthly, quarterly, or annual "
-        "when the title or report type supports it. These contexts can disambiguate "
-        "generic words such as 公司, 行业, 板块, 市场, or 相对收益, but they must not "
-        "add facts unsupported by the report. "
-        "Prefer claims of the form: under <macro regime if present> and "
-        "<industry-cycle regime if present>, <mechanism/action> "
-        "and, for stock reports, <specific company capability/action plus "
-        "earnings or valuation logic> are expected to affect "
-        "<target/fundamental/return> through <channel>. Do not merge "
-        "macro regime, industry-cycle regime, and company capability into one "
-        "undifferentiated cause: 'the Fed entered a rate-cut cycle' or 'China "
-        "stepped up counter-cyclical monetary policy' is macro regime; 'global "
-        "copper supply is structurally tight while demand drivers are shifting' "
-        "is industry-cycle regime; 'company labs reaching designed utilization' "
-        "is company capability/action. "
-        "Make the economic mechanism explicit when supported: identify whether "
-        "the claim works through demand pull, price/cost pass-through, capacity "
-        "release, margin expansion, market-share gain, technology/productivity, "
-        "policy/liquidity transmission, or valuation repricing. "
-        "A forecast_claim must have a finance-relevant target impact: demand, "
-        "orders, revenue, margin, profit, valuation, stock return, sector return, "
-        "industry prosperity, credit growth, liquidity, explicit investment "
-        "view, or a directional macro market variable such as rates, yields, "
-        "FX, volatility, commodities, term spreads, or yield-curve slope. "
-        "General clinical, public-health, scientific, regulatory, or policy "
-        "recommendations without such market/fundamental linkage belong in "
-        "analytical_footprints, not forecast_claims. "
-        "Do not emit forecast_claims for generic boilerplate such as '风险提示：...', "
-        "disclaimers such as '不构成投资建议' or '过往业绩并不预示未来表现', "
-        "or rating-definition tables explaining 强烈推荐/推荐/中性/看淡/卖出 "
-        "rather than expressing this report's view. Do not emit forecast_claims "
-        "for pure historical/statistical descriptions such as price-change tables, "
-        "ROE rankings, current margins, asset-liability ratios, and market-performance "
-        "summaries unless the surrounding paragraph links those facts to a forward "
-        "impact or mechanism. Such descriptive facts may appear in analytical_footprints "
-        "as context, not forecast_claims.\n"
-        "For stock reports, if Report metadata.ts_code is present and the chunk "
-        "contains a forecast, rating, or investment view for that same company, "
-        "set target.target_type='stock' and target.target_id to metadata.ts_code. "
-        "If Report metadata.stock_subject is present, use it only to disambiguate "
-        "the covered stock entity; the source Markdown must still support the "
-        "forecast thesis. Resolve generic references such as 公司, 本公司, 该公司, "
-        "or 标的公司 in claim_text and analyst_claim to "
-        "metadata.stock_subject.subject_label. Do not output a stock forecast_claim "
-        "whose subject is only 公司 or 本公司 when metadata.stock_subject provides "
-        "the actual stock name or ts_code. "
-        "For industry reports, if Report metadata.industry or metadata.query_key "
-        "names the covered sector and the chunk contains an investment view, "
-        "outlook, prosperity-cycle view, rating change, or relative-performance "
-        "call for that sector, set target.target_type='sector' and target.target_id "
-        "to the metadata sector string. For industry directions, use positive only "
-        "when the source text is bullish, constructive, recommends overweight, "
-        "expects upside, expects prosperity improvement, or expects the sector to "
-        "outperform; use negative only when the source text is bearish, defensive, "
-        "recommends underweight, expects downside, expects prosperity deterioration, "
-        "or expects underperformance. Use neutral, ambiguous, or unknown when the "
-        "chunk is balanced, only descriptive, or lacks a clear directional view. "
-        "If the text names a benchmark, include benchmark_id; otherwise use "
-        "benchmark_type='broad_market' only when the text frames a relative call "
-        "against the market. Never invent a horizon; keep horizon unknown when "
-        "the source text and report context have no explicit or clearly implied "
-        "time window. Check report temporal context before leaving horizon empty: "
-        "title, body paragraphs and section headings may provide the applicable "
-        "horizon for that same claim. When "
-        "the text explicitly says windows such as 2026-2028年, 未来三年, 年内, "
-        "未来6个月, 短期, 中期, 中长期, or 长期, encode that in horizon and set "
-        "horizon.source to claim_text, section_context, report_temporal_context, "
-        "report_level_rating_definition, or report_type_default as appropriate. "
-        "Do not copy evaluation horizons such as 90/180/360 days into claim "
-        "horizon unless the report itself states them. Fill metric_proxy_mapping with source-supported "
-        "finance proxies such as stock_forward_return, industry_etf_forward_return, "
-        "relative_alpha, revenue_growth, earnings_growth, margin_profitability, "
-        "valuation_multiple, demand_growth, industry_prosperity, liquidity_credit_condition, "
-        "or commodity_price_cycle. For macro strategy, strategy, fixed-income, "
-        "asset-allocation, or overseas-market reports, extract directional views "
-        "for marketable asset classes when the source supports them. Use "
-        "target.target_type='macro_asset', 'market_index', 'equity_index', "
-        "'bond', or 'commodity' and prefer these canonical target_ids when "
-        "supported: CN_A_SHARE_BROAD, CN_A_SHARE_LARGE_CAP, "
-        "CN_A_SHARE_MID_SMALL, CN_A_SHARE_GROWTH, HK_EQUITY, "
-        "US_EQUITY_NASDAQ, US_EQUITY_SP500, CN_BOND, CN_CREDIT_BOND, "
-        "CN_POLICY_BANK_BOND, or GOLD. For those mapped views, use proxies such "
-        "as macro_asset_forward_return, equity_index_forward_return, "
-        "bond_etf_forward_return, gold_etf_forward_return, or relative_alpha. "
-        "Direct macro market forecasts are valid forecast_claims when the source "
-        "states a clear target, direction, and horizon for rates, yields, FX, "
-        "volatility, commodities, term spreads, or yield-curve slope; they do "
-        "not need to be rewritten into a sector or ETF return view. For direct "
-        "series claims, use target.target_type='macro_series', forecast_type="
-        "'macro_series_directional', and canonical target_id such as "
-        "US_10Y_YIELD, CN_10Y_YIELD, USDCNY, VIX, GOLD_SPOT, COPPER, or "
-        "CRUDE_OIL when supported. Use metric_proxy_mapping values such as "
-        "bond_yield_level, fx_rate, volatility_index, or commodity_price. For "
-        "curve or spread claims, use target.target_type='macro_curve', "
-        "forecast_type='macro_curve_directional', canonical target_id such as "
-        "US_2S10S, US_3M10Y, or CN_US_10Y_SPREAD, and metric_proxy_mapping "
-        "yield_curve_slope or cross_market_yield_spread. For CPI, GDP, policy "
-        "events, or other macro variables without a configured direct series, "
-        "still extract the analytical footprint and tool gap, but do not invent "
-        "an ETF proxy or canonical target_id. Leave the list empty only when the claim has "
-        "no finance/fundamental/return proxy in the source text. For macro "
-        "strategy claims that contain multiple evaluable assets or variables, "
-        "keep one complete parent claim_text with the full regime/mechanism "
-        "logic and add at most six primary macro_claim_legs. Each "
-        "macro_claim_leg should contain leg_index, target_type, target_id, "
-        "target_label, metric_family, metric_proxy, direction, quote_convention, "
-        "orientation_rule, claim_horizon, evaluation_windows, "
-        "source_grounding_status, and target_agent_candidates. Use target_type "
-        "macro_asset for ETF/asset proxy views, macro_series for direct "
-        "rate/yield/FX/volatility/commodity series, and macro_curve for spreads "
-        "or yield-curve slope. For explicit yield-curve, term-spread, steepening, "
-        "flattening, inversion, long-end versus short-end, or US-China rate-spread "
-        "views, prefer target_type='macro_curve' with canonical target_id such as "
-        "US_2S10S, US_3M10Y, or CN_US_10Y_SPREAD; use positive for steepening or "
-        "spread widening and negative for flattening or spread narrowing when the "
-        "source states that direction. Do not create a leg when the report gives no "
-        "clear target and direction.\n"
-        "analytical_footprints are the primary knowledge units. Keep each coherent "
-        "research argument intact, including its relevant regime, causal steps, "
-        "supporting evidence and limitations. Do not split by sentence, indicator, "
-        "stock code or heading, and do not join unrelated arguments. Fields: topic, "
-        "research_case, indicator_mentions, analysis_patterns, target_agent_candidates. "
-        "research_case fields: question (the research problem), historical_regime "
-        "(source-described macro/industry conditions), reasoning_chain (ordered "
-        "causal steps), evidence (brief paraphrases of the supporting observations), "
-        "assumptions, invalidation_conditions, conclusion. question, historical_regime "
-        "and conclusion are strings; the other case fields are arrays of strings. "
-        "Use the report language. Summarize rather than copy paragraphs. Preserve "
-        "unknown conditions as empty strings/arrays; do not invent causal links, "
-        "regime labels or failure conditions. Do not fill historical_regime from "
-        "today's knowledge or subsequent prices. Do not force historical/descriptive "
-        "material into a positive forecast. Keep standalone facts as context without "
-        "research_case when no coherent argument is supported. indicator_mentions "
-        "stay attached to the steps they support, with indicator_text, "
-        "canonical_metric_candidate, role_in_argument and source_grounded. "
-        "analysis_patterns are optional supporting context, not independent methods. "
-        "Return metric_candidates, method_patterns and tool_gaps as empty arrays: "
-        "methods and data needs are derived from the complete cases.\n\n"
-        "Use this chunk span id for source-grounded records: "
-        f"{chunk_span_id}\n\n"
-        "Report metadata:\n"
+        "Read the original Markdown and preserve each coherent research argument as "
+        "one research_case. Do not split an argument by sentence, indicator, stock code "
+        "or heading; do not join unrelated arguments. If there is no supported argument, "
+        "return analytical_footprints as an empty array.\n\n"
+        "question states the research problem. historical_regime states only the "
+        "source's macro or industry conditions with their original time scope. "
+        "reasoning_chain preserves the ordered causal steps. evidence contains brief "
+        "supporting observations, each with its original entity, period, units and "
+        "actual/estimate status. assumptions and invalidation_conditions contain only "
+        "source-stated conditions; otherwise leave them empty. conclusion preserves "
+        "the complete answer, source forecasts with their years, and the actual rating "
+        "when given. Keep forecast valuation ratios distinct from observed repricing. "
+        "A quarter's conditions must not become a full-year regime.\n\n"
+        "Keep forecasts within the case conclusion. Leave forecast_claims, "
+        "metric_candidates, method_patterns, tool_gaps, indicator_mentions, "
+        "analysis_patterns and target_agent_candidates empty. Do not duplicate the "
+        "argument into mappings, proxy returns, methods or model self-reviews. "
+        "Use the report language and complete statements. Unknown text fields are "
+        "empty strings; unknown list fields are empty arrays.\n\n"
+        "Output shape (all case list elements are strings):\n"
+        f"{json.dumps(shape, ensure_ascii=False)}\n\n"
+        "Report metadata is for source identification only, not evidence:\n"
         f"{json.dumps(metadata, ensure_ascii=False, sort_keys=True)}\n\n"
         "Original Markdown chunk:\n"
         f"{markdown_chunk}"
@@ -5768,7 +5606,9 @@ def _apply_indicator_metadata_inference(mention: Mapping[str, Any]) -> dict[str,
     return normalized
 
 
-def _normalize_indicator_mentions(value: Any) -> list[dict[str, Any]]:
+def _normalize_indicator_mentions(
+    value: Any, *, infer_metadata: bool = True,
+) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for item in _ensure_list(value):
         if isinstance(item, Mapping):
@@ -5789,26 +5629,24 @@ def _normalize_indicator_mentions(value: Any) -> list[dict[str, Any]]:
             mention.setdefault("transformation", "unknown")
             mention.setdefault("role_in_argument", "unknown")
             mention.setdefault("source_grounded", False)
-            mention = _apply_indicator_metadata_inference(mention)
+            if infer_metadata:
+                mention = _apply_indicator_metadata_inference(mention)
             records.append(mention)
             continue
         indicator_text = str(item or "").strip()
         if not indicator_text:
             continue
-        records.append(
-            _apply_indicator_metadata_inference(
-                {
-                    "indicator_text": indicator_text,
-                    "canonical_metric_candidate": "unknown",
-                    "data_source_mentioned": "unknown",
-                    "frequency": "unknown",
-                    "lookback_window": {},
-                    "transformation": "unknown",
-                    "role_in_argument": "unknown",
-                    "source_grounded": False,
-                }
-            )
-        )
+        mention = {
+            "indicator_text": indicator_text,
+            "canonical_metric_candidate": "unknown",
+            "data_source_mentioned": "unknown",
+            "frequency": "unknown",
+            "lookback_window": {},
+            "transformation": "unknown",
+            "role_in_argument": "unknown",
+            "source_grounded": False,
+        }
+        records.append(_apply_indicator_metadata_inference(mention) if infer_metadata else mention)
     return _prioritize_indicator_mentions_for_review(records)
 
 
@@ -9094,7 +8932,8 @@ def _refresh_analytical_footprint_indicator_governance(
     for row in footprint_rows:
         refreshed = dict(row)
         original_indicator_mentions = _normalize_indicator_mentions(
-            refreshed.get("indicator_mentions")
+            refreshed.get("indicator_mentions"),
+            infer_metadata=not bool(refreshed.get("research_case")),
         )
         base_indicator_mentions = [
             mention
@@ -9199,6 +9038,8 @@ def _normalize_footprints(
     records: list[dict[str, Any]] = []
     for item in _ensure_list(payload.get("analytical_footprints")):
         footprint = _ensure_mapping(item)
+        if not footprint:
+            continue
         topic = _record_text(footprint, "topic", "name") or "unknown"
         case = normalize_research_case(footprint.get("research_case"))
         target_agents, target_entities = _split_agent_and_entity_candidates(
@@ -9206,7 +9047,7 @@ def _normalize_footprints(
         )
         analysis_patterns = _ensure_list(footprint.get("analysis_patterns"))
         indicator_mentions = _normalize_indicator_mentions(
-            footprint.get("indicator_mentions")
+            footprint.get("indicator_mentions"), infer_metadata=case is None,
         )
         if not indicator_mentions and case is None:
             indicator_mentions = _text_grounded_indicator_mentions(

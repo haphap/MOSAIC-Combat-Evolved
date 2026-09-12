@@ -122,6 +122,15 @@ private batches after correcting the cause, and preserve previous diagnostic run
 Native JSON mode guarantees syntax, not complete research reasoning or faithful
 source extraction. Review case content before merging a batch; a valid object can
 still contain a sentence cut short by the model.
+Narrative fields should paraphrase rating labels and project names in complete
+statements, preserving their meaning without unnecessary quotation marks. Check
+the actual rating and forecast period against the report body.
+Extraction now requests only complete research cases. Forecasts stay in each
+case's conclusion; the other top-level arrays and the optional indicator/pattern/
+agent arrays stay empty. Existing forecast records remain readable, but new cases
+do not create separate forecast outcome-label inputs. Basic metadata identifies
+the source; abstract-derived labels and inferred report/rating context are excluded
+from the model request. Original Markdown is preserved in full within its chunk.
 
 Content review must distinguish actuals from forecast columns, preserve the entity
 and period of each observation, and check chart-derived numbers against the source.
@@ -131,6 +140,11 @@ nor a nonempty case proves that the source argument has been preserved correctly
 Refresh preserves a case's extracted indicator mentions and removes rule-generated
 seed mentions; it does not expand company financial-table labels into macro
 evidence. Existing legacy footprints retain their prior refresh behavior.
+For research cases, indicator normalization also preserves extracted metric names,
+roles and grounding flags without keyword-based metadata inference. Unstated
+frequency, source and transformations remain unknown. Previously rewritten values
+cannot be recovered from their labels alone; re-extract from source before replacing
+them. Do not extrapolate company financial observations into an industry regime.
 Full refresh also recomputes case methods' required current data from their
 remaining indicator mentions, preserving method IDs and review fields. Legacy
 method requirements remain historical context. Global metric and tool-gap rows
