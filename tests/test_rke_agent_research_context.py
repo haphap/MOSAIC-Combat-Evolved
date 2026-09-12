@@ -1596,3 +1596,13 @@ def test_research_case_transfer_keeps_original_target_and_prefers_requested_stoc
     assert [item["ticker"] for item in items] == ["000002.SZ", "000001.SZ"]
     assert all(item["case_transfer_requires_current_data"] for item in items)
     assert items[1]["ticker_match"] is False
+
+
+@pytest.mark.parametrize("agent_id", ["cio", "decision.cio"])
+@pytest.mark.parametrize("layer", ["", "decision"])
+def test_decision_agent_name_is_stable_through_runtime_preflight(agent_id, layer):
+    assert normalize_agent_id(agent_id, layer=layer) == "decision.cio"
+    context = build_rke_agent_research_context_from_rows(
+        agent_id=agent_id, layer=layer, as_of_date="2026-09-12",
+    )
+    assert "No matching RKE context" in rke_research_tools.format_rke_runtime_context(context)

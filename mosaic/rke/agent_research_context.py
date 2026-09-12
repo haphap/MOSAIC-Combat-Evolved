@@ -424,7 +424,7 @@ FORBIDDEN_FIELD_NAMES = frozenset(
 def normalize_agent_id(agent_id: str, layer: str = "") -> str:
     """Return the RKE-style agent id, accepting TS ids without prefixes."""
     raw = _slug(agent_id)
-    if raw.startswith(("macro.", "sector.", "superinvestor.")):
+    if raw.startswith(("macro.", "sector.", "superinvestor.", "decision.")):
         return raw
     layer_slug = _slug(layer)
     if layer_slug == "macro" or raw in MACRO_AGENTS or raw in LEGACY_MACRO_AGENTS:

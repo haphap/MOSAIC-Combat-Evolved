@@ -139,3 +139,5 @@ Agent 使用现有查询及授权路径，优先返回完整案例；更换股�
 现有离线价格/覆盖门禁继续独立生效，其通过也不等于新案例的语义质量已获证明。
 
 本次研究案例改动：完整 Python 3331 通过 /122 跳过，零失败；随后移除未使用参数，Report Intelligence 专项 298 项通过。案例来源绑定追加回归2项通过。TypeScript 1023项、typecheck、lint、Ruff及prompt leak检查通过。未进行真实模型提取或新的Agent成功率测量。
+
+真实消费路径还暴露了 `decision.cio` 被重复规范化为 `decision.decision.cio` 的问题。修复前两项带前缀反例失败，补齐 decision 前缀识别后，上下文、bridge 与来源凭证共79项通过；此前完整回归结果不被冒称为该补充提交的全量结果。
