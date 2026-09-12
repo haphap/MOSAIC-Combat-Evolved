@@ -17,6 +17,10 @@ def normalize_research_case(value: Any) -> dict[str, Any] | None:
     result: dict[str, Any] = {}
     for field in CASE_TEXT_FIELDS:
         text = value.get(field, "")
+        if field == "historical_regime" and isinstance(text, list):
+            if any(not isinstance(item, str) for item in text):
+                return None
+            text = "；".join(item.strip() for item in text if item.strip())
         if not isinstance(text, str):
             return None
         result[field] = text.strip()

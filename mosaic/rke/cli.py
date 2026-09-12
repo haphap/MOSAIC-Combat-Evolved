@@ -1665,7 +1665,7 @@ def build_parser() -> argparse.ArgumentParser:
         "report-intelligence",
         help=(
             "Materialize Tushare report PDFs, convert with MinerU, and extract "
-            "Report Intelligence Loop objects with local vLLM."
+            "Report Intelligence Loop objects with local vLLM or NInfer."
         ),
     )
     report_intelligence.add_argument(
@@ -1845,6 +1845,12 @@ def build_parser() -> argparse.ArgumentParser:
             "Maximum total PDF bytes per MinerU batch; <=0 disables byte bucketing. "
             "Defaults to 5000000."
         ),
+    )
+    report_intelligence.add_argument(
+        "--llm-backend",
+        choices=("vllm", "ninfer"),
+        default="vllm",
+        help="Local chat backend request format. Defaults to vllm.",
     )
     report_intelligence.add_argument(
         "--vllm-base-url",
@@ -3069,6 +3075,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 or "http://127.0.0.1:8020/v1",
                 vllm_model=args.vllm_model
                 or os.environ.get("MOSAIC_RKE_VLLM_MODEL"),
+                llm_backend=args.llm_backend,
                 vllm_api_key=next(
                     (
                         os.environ[name.strip()]

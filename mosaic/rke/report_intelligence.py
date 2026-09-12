@@ -1233,6 +1233,7 @@ class ReportIntelligenceConfig:
     vllm_base_url: str = DEFAULT_VLLM_BASE_URL
     vllm_model: str | None = None
     vllm_api_key: str | None = None
+    llm_backend: Literal["vllm", "ninfer"] = "vllm"
     qlib_etf_dir: str | Path = DEFAULT_Q_LIB_ETF_PATH
     qlib_stock_dir: str | Path = DEFAULT_Q_LIB_STOCK_PATH
     scorecard_db_path: str | Path | None = None
@@ -3264,43 +3265,21 @@ def _bind_stock_subject_to_text(
 
 def _system_prompt() -> str:
     return (
-        "You are an RKE report-intelligence extractor. Use only the supplied "
-        "original report Markdown chunk. Separate source-grounded facts from "
-        "inferred hypotheses. Do not rely on any abstract. Do not invent exact "
-        "targets, horizons, windows, formulas, or data sources when the text is "
-        "ambiguous; use unknown or insufficient_mapping instead. Return only a "
-        "single JSON object. Do not include thinking text, commentary, Markdown, "
-        "or code fences. Metadata may identify the report entity, but source text "
-        "must still support each forecast. Extract forecast_claims as complete "
-        "source-grounded report theses synthesized from the supplied Markdown "
-        "context, not as isolated sentence snippets, headings, bullets, or table "
-        "rows. If the supplied chunk is only partial context and does not support "
-        "a full thesis, leave forecast_claims empty and put measurable context in "
-        "analytical_footprints instead. A valid thesis should connect "
-        "background/regime, mechanism/action, company capability when relevant, "
-        "valuation or earnings logic when relevant, and potential market or "
-        "fundamental impact when the source supports that connection. Split "
-        "regime into macro "
-        "environment and industry-cycle regime when the source supports both: "
-        "macro regime includes rate-cut cycles, monetary/liquidity stance, "
-        "credit cycle, fiscal or regulatory policy, FX/dollar cycle, and growth "
-        "or inflation environment; industry-cycle regime includes sector supply "
-        "tightness, demand-driver transition, inventory, capacity, price, "
-        "competition, prosperity, or technology cycles. Keep those regimes "
-        "separate from company-specific capability or action: sector demand "
-        "growth is a regime, while lab rollout, capacity, channel, technology, "
-        "cost control, order backlog, or management execution is company "
-        "capability/action. Also keep mechanism separate from both regime and "
-        "impact: a mechanism is the transmission channel such as demand pull, "
-        "price/cost pass-through, margin expansion, capacity release, market-share "
-        "gain, technology/productivity improvement, policy/liquidity transmission, "
-        "or valuation repricing. For Chinese reports, write claim_text in Chinese. Do not "
-        "put boilerplate risk warnings, disclaimers, rating-definition tables, "
-        "or purely historical descriptive facts into forecast_claims. Do not "
-        "emit general scientific, clinical, public "
-        "health, or policy recommendations as forecast_claims unless the source "
-        "connects them to company/sector demand, revenue, profit, valuation, "
-        "stock return, industry prosperity, or an investment view. /no_think"
+        "You extract reusable research arguments from the supplied original report "
+        "Markdown. The primary output is analytical_footprints.research_case: "
+        "preserve the research question, historical regime, ordered causal reasoning, "
+        "evidence and conclusion together. Forecasts are secondary. "
+        "Use the report language and paraphrase; return one JSON object only. "
+        "Follow the field types exactly. historical_regime is a single string, "
+        "not a list. Keep macro/industry conditions distinct from company actions "
+        "and transmission mechanisms within the argument. "
+        "Use only the supplied source. Never complete an argument with plausible "
+        "but unstated assumptions, failure conditions, causal links or later facts. "
+        "Leave missing fields empty. A generic risk warning does not authorize "
+        "inventing specific failure scenarios. Rating definitions are not the "
+        "report's forecast: do not turn them into a benchmark return conclusion. "
+        "Do not use abstracts as evidence, label correctness or infer outcomes. "
+        "The final answer must contain only JSON, without commentary or code fences."
     )
 
 
@@ -3339,6 +3318,11 @@ def _user_prompt(
         "Return JSON with exactly these top-level array keys: "
         "forecast_claims, analytical_footprints, metric_candidates, "
         "method_patterns, tool_gaps.\n\n"
+        "Extract the coherent research_case first. Its exact JSON shape is "
+        '{"question":"", "historical_regime":"", "reasoning_chain":[], '
+        '"evidence":[], "assumptions":[], "invalidation_conditions":[], '
+        '"conclusion":""}. Fill these fields from the source only; empty '
+        "values mean unknown. All array elements must be strings.\n\n"
         "forecast_claim fields: claim_text, analyst_claim, "
         "pre_review_decision, pre_review_reason, claim_provenance "
         "(source_grounded|analyst_or_llm_hypothesis), forecast_testability "
@@ -3535,6 +3519,7 @@ def call_vllm_extractor(
     api_key: str | None = None,
     timeout_seconds: int = 120,
     max_output_tokens: int = 4096,
+    backend: Literal["vllm", "ninfer"] = "vllm",
 ) -> Mapping[str, Any]:
     resolved_model = resolve_vllm_model(
         base_url,
@@ -3559,9 +3544,13 @@ def call_vllm_extractor(
         ],
         "temperature": 0,
         "max_tokens": max_output_tokens,
-        "response_format": {"type": "json_object"},
-        "chat_template_kwargs": {"enable_thinking": False},
     }
+    if backend == "ninfer":
+        # NInfer has no constrained JSON mode; the shared parser checks the answer.
+        payload["reasoning_effort"] = "medium"
+    else:
+        payload["response_format"] = {"type": "json_object"}
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -35903,6 +35892,7 @@ def run_report_intelligence_refresh(
             api_key=cfg.vllm_api_key,
             timeout_seconds=cfg.vllm_timeout_seconds,
             max_output_tokens=cfg.max_llm_output_tokens,
+            backend=cfg.llm_backend,
         )
     )
 

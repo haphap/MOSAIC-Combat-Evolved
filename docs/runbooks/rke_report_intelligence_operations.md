@@ -100,6 +100,40 @@ never start a second GPU service beside another owner's workload. Keep raw input
 and case outputs private, and merge only outputs whose source and content checks
 pass. Do not send private cases to an unapproved external model to fill gaps.
 
+### NInfer cached-Markdown extraction
+
+When NInfer is selected, reuse its running local service. Check `/health` and
+`/v1/models`; use the returned model ID and the listening loopback port. Do not
+start another GPU service. NInfer uses the existing chat extraction path with
+`--llm-backend ninfer`: it omits unsupported constrained JSON mode and requests
+`reasoning_effort: medium`. NInfer separates reasoning from answer content;
+only the answer is parsed. The existing JSON parser and artifact checks
+still apply. The default backend remains vLLM.
+
+Begin with one cached report, writing into a fresh private batch directory:
+
+```bash
+PYTHONPATH=. MOSAIC_RKE_TMPDIR=.mosaic/tmp TMPDIR=.mosaic/tmp \
+  uv run mosaic-rke report-intelligence --root . \
+  --source-path registry/sources/tushare_research_reports.jsonl \
+  --source-id <source-id> --limit 1 \
+  --cache-dir <existing-cache-directory> \
+  --registry-dir .mosaic/rke/report_intelligence_batches/<batch>/pilot \
+  --skip-download --skip-convert --require-cached-markdown \
+  --llm-backend ninfer \
+  --vllm-base-url http://127.0.0.1:18080/v1 \
+  --vllm-model qwen3.8-27b --vllm-api-key-env '' \
+  --vllm-timeout-seconds 600 --max-llm-output-tokens 8192
+```
+
+The port and model above must match discovery. The empty key-env argument is
+for a local server without authentication; it prevents unrelated external API
+credentials from being sent. Do not exclude the existing processed registry when
+re-extracting reports from it. Confirm full Markdown coverage, a parsed answer,
+and source-grounded question, ordered reasoning, historical regime and conclusion
+before expanding the batch. Missing fields remain unknown. Keep the published
+registry unchanged until the batch is reviewed and merged by the workflow below.
+
 ## Tool Gap Review Migration
 
 When upgrading a published snapshot from the old contract, validate and hydrate

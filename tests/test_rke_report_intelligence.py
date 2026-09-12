@@ -148,7 +148,8 @@ def test_report_intelligence_entry_calendar_index_uses_explicit_lag():
     )
 
 
-def test_call_vllm_extractor_sends_authorization_header(monkeypatch):
+@pytest.mark.parametrize("backend", ["vllm", "ninfer"])
+def test_call_vllm_extractor_sends_authorization_header(monkeypatch, backend):
     seen: dict[str, object] = {}
 
     class _Response:
@@ -204,6 +205,7 @@ def test_call_vllm_extractor_sends_authorization_header(monkeypatch):
         base_url="https://example.test/v1",
         model="mimo-v2.5-pro",
         api_key="secret-token",
+        backend=backend,
     )
 
     assert result["status"] == "ok"
@@ -211,6 +213,13 @@ def test_call_vllm_extractor_sends_authorization_header(monkeypatch):
     assert seen["url"] == "https://example.test/v1/chat/completions"
     assert seen["authorization"] == "Bearer secret-token"
     assert seen["payload"]["model"] == "mimo-v2.5-pro"
+    if backend == "ninfer":
+        assert "response_format" not in seen["payload"]
+        assert "chat_template_kwargs" not in seen["payload"]
+        assert seen["payload"]["reasoning_effort"] == "medium"
+    else:
+        assert seen["payload"]["response_format"] == {"type": "json_object"}
+        assert seen["payload"]["chat_template_kwargs"] == {"enable_thinking": False}
 
 
 def test_user_prompt_requires_context_synthesized_forecast_claims():
@@ -14666,9 +14675,11 @@ def test_report_intelligence_progress_jsonl_is_redacted(
     assert "http" not in stderr
 
 
+@pytest.mark.parametrize("backend", ["vllm", "ninfer"])
 def test_report_intelligence_cli_loads_env_file_before_vllm_key_lookup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    backend: str,
 ):
     env_path = tmp_path / ".env"
     env_path.write_text(
@@ -14691,12 +14702,14 @@ def test_report_intelligence_cli_loads_env_file_before_vllm_key_lookup(
         assert config.vllm_api_key == "from-env-file"
         assert config.vllm_base_url == "https://example.invalid/v1"
         assert config.vllm_model == "test-model"
+        assert config.llm_backend == backend
         raise RuntimeError("captured config")
 
     monkeypatch.setattr("mosaic.rke.cli.run_report_intelligence_refresh", fake_refresh)
 
     with pytest.raises(RuntimeError, match="captured config"):
-        main(("report-intelligence", "--env-file", str(env_path), "--skip-llm"))
+        main(("report-intelligence", "--env-file", str(env_path),
+              "--llm-backend", backend, "--skip-llm"))
 
 
 def test_report_intelligence_evolution_gate_writer_preserves_stock_coverage_evidence(
@@ -19852,7 +19865,8 @@ def test_tool_gap_feasibility_preserves_review_value_constraints(field, valid, i
     assert not audit["accepted"]
     check = next(row for row in audit["checks"] if row["check_id"] == "RI-TOOL-02")
     assert any(field in failure for failure in check["failures"])
-def test_research_case_preserves_reasoning_and_does_not_promote_fragments():
+@pytest.mark.parametrize("regime_as_list", [False, True])
+def test_research_case_preserves_reasoning_and_does_not_promote_fragments(regime_as_list):
     from mosaic.rke.report_intelligence import _normalize_footprints, _normalize_method_patterns
 
     case = {
@@ -19864,8 +19878,11 @@ def test_research_case_preserves_reasoning_and_does_not_promote_fragments():
         "invalidation_conditions": ["New capacity restarts price competition"],
         "conclusion": "Monitor inventory and capacity together",
     }
+    raw_case = dict(case)
+    if regime_as_list:
+        raw_case["historical_regime"] = [case["historical_regime"]]
     footprints = _normalize_footprints(
-        {"analytical_footprints": [{"topic": "Inventory and margins", "research_case": case,
+        {"analytical_footprints": [{"topic": "Inventory and margins", "research_case": raw_case,
           "analysis_patterns": ["inventory", "valuation"]}]},
         {"source_id": "SRC-SYNTHETIC"}, run_id="TEST", model="synthetic",
         report_id="RPT-SYNTHETIC", chunk_span_id="SPAN-SYNTHETIC",
