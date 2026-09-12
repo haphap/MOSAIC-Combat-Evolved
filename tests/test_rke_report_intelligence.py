@@ -148,6 +148,32 @@ def test_report_intelligence_entry_calendar_index_uses_explicit_lag():
     )
 
 
+@pytest.mark.parametrize("answer", [
+    '{"forecast_claims": [{"claim_text": "Maintain "buy"", "target": {"target_type": "stock"}}]}',
+    '{"forecast_claims": [{"target": {"target_type": "stock"}}], "analytical_footprints": [',
+])
+def test_extractor_rejects_broken_document_instead_of_returning_nested_object(answer):
+    from mosaic.rke.report_intelligence import _extract_json_object
+
+    with pytest.raises(ValueError, match="llm_output_invalid_json"):
+        _extract_json_object(answer)
+    assert _extract_json_object('```json\n{"forecast_claims": []}\n```') == {
+        "forecast_claims": []
+    }
+
+
+def test_full_report_does_not_inherit_final_disclaimer_section():
+    from mosaic.rke.report_intelligence import _section_context_from_chunk
+
+    assert _section_context_from_chunk(
+        "# Investment outlook\nDemand supports expansion.\n# Disclaimer\nTerms.",
+        "2026-01-01",
+    ) == {}
+    assert _section_context_from_chunk("# Outlook\nDemand grows.", "2026-01-01") == {
+        "section_title": "Outlook"
+    }
+
+
 @pytest.mark.parametrize("backend", ["vllm", "ninfer"])
 def test_call_vllm_extractor_sends_authorization_header(monkeypatch, backend):
     seen: dict[str, object] = {}
@@ -19894,6 +19920,33 @@ def test_research_case_preserves_reasoning_and_does_not_promote_fragments(regime
     assert methods[0]["historical_regime"] == case["historical_regime"]
     assert _normalize_method_patterns([{"analysis_patterns": ["inventory"]}],
                                       run_id="TEST", model="synthetic") == []
+def test_case_refresh_removes_seeded_indicators_without_inventing_macro_evidence(tmp_path):
+    markdown = tmp_path / "company.md"
+    markdown.write_text("公司利润总额增长，营业收入增长。", encoding="utf-8")
+    case = {"question": "Why do profits grow?", "reasoning_chain": ["Sales rise", "Profits rise"]}
+    footprint = {
+        "source_id": "SRC-COMPANY", "topic": "公司盈利与利润",
+        "source_span_ids": ["SRC-COMPANY:original_markdown:chunk-001"],
+        "research_case": case,
+        "indicator_mentions": [
+            {"indicator_text": "营业收入", "canonical_metric_candidate": "revenue_growth",
+             "source_grounded": True},
+            {"indicator_text": "工业企业利润/PPI", "source_grounded": True,
+             "canonical_metric_candidate": "macro_activity_or_inflation_metric",
+             "inference_source": "source_chunk_indicator_seed_rule"},
+        ],
+    }
+    metadata = [{"source_id": "SRC-COMPANY", "markdown": {"path": str(markdown)}}]
+    refreshed = _refresh_analytical_footprint_indicator_governance(
+        [footprint, dict(footprint, indicator_mentions=[])],
+        metadata_rows=metadata, root_path=tmp_path,
+    )
+    assert [row["indicator_text"] for row in refreshed[0]["indicator_mentions"]] == ["营业收入"]
+    assert refreshed[1]["indicator_mentions"] == []
+    assert refreshed[0]["research_case"] == case
+    assert len(footprint["indicator_mentions"]) == 2
+
+
 def test_research_case_migration_is_conservative_archived_and_idempotent(tmp_path):
     from mosaic.rke.report_intelligence import migrate_research_cases, build_analysis_recipes
 

@@ -110,6 +110,21 @@ start another GPU service. NInfer uses the existing chat extraction path with
 only the answer is parsed. The existing JSON parser and artifact checks
 still apply. The default backend remains vLLM.
 
+The answer must be a complete JSON object. Invalid quotes or a truncated document
+block extraction; a nested object inside a broken answer is never accepted as an
+empty successful extraction. A full report with multiple headings does not inherit
+the final heading as its section context. Re-extract blocked sources into separate
+private batches after correcting the cause, and preserve previous diagnostic runs.
+
+Content review must distinguish actuals from forecast columns, preserve the entity
+and period of each observation, and check chart-derived numbers against the source.
+Rating-scale definitions are not earnings forecasts. Extraction no longer requests
+a second analyst rewrite or an LLM approval of its own claim. Neither valid JSON
+nor a nonempty case proves that the source argument has been preserved correctly.
+Refresh preserves a case's extracted indicator mentions and removes rule-generated
+seed mentions; it does not expand company financial-table labels into macro
+evidence. Existing legacy footprints retain their prior refresh behavior.
+
 Begin with one cached report, writing into a fresh private batch directory:
 
 ```bash

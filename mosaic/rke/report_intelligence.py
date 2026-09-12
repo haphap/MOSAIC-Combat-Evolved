@@ -2924,17 +2924,13 @@ def _extract_json_object(text: str) -> Mapping[str, Any]:
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
         cleaned = re.sub(r"\s*```$", "", cleaned)
-    decoder = json.JSONDecoder()
-    for index, char in enumerate(cleaned):
-        if char != "{":
-            continue
-        try:
-            value, _ = decoder.raw_decode(cleaned[index:])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(value, Mapping):
-            return value
-    raise ValueError("llm_output_json_object_not_found")
+    try:
+        value = json.loads(cleaned)
+    except json.JSONDecodeError as exc:
+        raise ValueError("llm_output_invalid_json") from exc
+    if not isinstance(value, Mapping):
+        raise ValueError("llm_output_json_object_not_found")
+    return value
 
 
 def _chunk_text(text: str, *, chunk_chars: int, max_chunks: int) -> list[str]:
@@ -3279,6 +3275,14 @@ def _system_prompt() -> str:
         "inventing specific failure scenarios. Rating definitions are not the "
         "report's forecast: do not turn them into a benchmark return conclusion. "
         "Do not use abstracts as evidence, label correctness or infer outcomes. "
+        "Preserve each observation's entity, period, units and actual/forecast status: "
+        "A means actual, E/F means an analyst estimate, including in past-year columns. "
+        "Do not calculate new growth rates or turn forecast valuation ratios into "
+        "observed repricing. Approximate chart reconstructions marked ~ are not "
+        "verified measurements; prefer the surrounding source argument over their numbers. "
+        "Use the report body to determine its actual subject, not its directory label. "
+        "Keep evidence brief and material to the argument. For quotes inside text values, "
+        "use Chinese quotation marks or properly escape JSON double quotes. "
         "The final answer must contain only JSON, without commentary or code fences."
     )
 
@@ -3323,8 +3327,7 @@ def _user_prompt(
         '"evidence":[], "assumptions":[], "invalidation_conditions":[], '
         '"conclusion":""}. Fill these fields from the source only; empty '
         "values mean unknown. All array elements must be strings.\n\n"
-        "forecast_claim fields: claim_text, analyst_claim, "
-        "pre_review_decision, pre_review_reason, claim_provenance "
+        "forecast_claim fields: claim_text, claim_provenance "
         "(source_grounded|analyst_or_llm_hypothesis), forecast_testability "
         "(testable|non_testable|insufficient_mapping), forecast_type, target, "
         "benchmark, direction (positive|negative|neutral|ambiguous|unknown), "
@@ -3347,19 +3350,16 @@ def _user_prompt(
         "prompt evolution review. "
         "For Chinese source text, output claim_text in Chinese and keep variable "
         "or schema ids in English only where the schema requires ids. "
-        "Keep claim_text as the source-grounded extracted claim. Put the "
-        "financial-practitioner rewrite in analyst_claim: it may make the "
-        "macro regime, industry regime, company/sector mechanism, earnings or "
-        "valuation logic, target, direction, and horizon clearer, but it must "
-        "not add facts or causal links unsupported by the chunk. Set "
-        "pre_review_decision to include, exclude, or rewrite_needed from a "
-        "financial-practitioner perspective, and explain briefly in "
-        "pre_review_reason. "
+        "Keep claim_text as the single source-grounded forecast synthesis. "
+        "Do not emit a second analyst_claim rewrite or self-review fields: "
+        "extraction is not approval. "
         "Use Report metadata.report_context when present: subject_context "
         "identifies the covered entity/sector/asset universe, section_context "
         "identifies the local section title and section horizon, benchmark_context "
         "identifies report-level benchmark definitions, and rating_context "
-        "identifies rating-scale terms and rating horizons. frequency_context "
+        "identifies rating-scale definitions, not a separate report forecast. "
+        "Never append a rating scale's return threshold or horizon to an earnings "
+        "forecast. frequency_context "
         "identifies report cadence such as weekly, monthly, quarterly, or annual "
         "when the title or report type supports it. These contexts can disambiguate "
         "generic words such as 公司, 行业, 板块, 市场, or 相对收益, but they must not "
@@ -3422,8 +3422,8 @@ def _user_prompt(
         "against the market. Never invent a horizon; keep horizon unknown when "
         "the source text and report context have no explicit or clearly implied "
         "time window. Check report temporal context before leaving horizon empty: "
-        "title, abstract/core-view paragraphs, section headings, rating definitions, "
-        "and report type may provide the applicable horizon for a claim. When "
+        "title, body paragraphs and section headings may provide the applicable "
+        "horizon for that same claim. When "
         "the text explicitly says windows such as 2026-2028年, 未来三年, 年内, "
         "未来6个月, 短期, 中期, 中长期, or 长期, encode that in horizon and set "
         "horizon.source to claim_text, section_context, report_temporal_context, "
@@ -7046,7 +7046,7 @@ def _section_context_from_chunk(markdown_chunk: str, publish_date: str) -> dict[
             title = numbered_match.group("title")
         if title:
             headings.append(title.strip())
-    if not headings:
+    if len(set(headings)) != 1:
         return {}
     section_title = headings[-1]
     horizon = _context_horizon_from_text(
@@ -9092,6 +9092,12 @@ def _refresh_analytical_footprint_indicator_governance(
             if str(mention.get("inference_source") or "")
             not in INDICATOR_METADATA_DERIVED_INFERENCE_SOURCES
         ]
+        if refreshed.get("research_case"):
+            refreshed["indicator_mentions"] = _prioritize_indicator_mentions_for_review(
+                base_indicator_mentions
+            )
+            refreshed_rows.append(refreshed)
+            continue
         indicator_mentions = list(original_indicator_mentions)
         text_grounded_mentions: list[dict[str, Any]] = []
         if metadata_by_source and root_path is not None:
