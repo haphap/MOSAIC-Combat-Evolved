@@ -251,6 +251,59 @@ def test_call_vllm_extractor_sends_authorization_header(monkeypatch, backend, fi
         assert seen["payload"]["chat_template_kwargs"] == {"enable_thinking": False}
 
 
+@pytest.mark.parametrize("max_chunks, truncated", [(8, False), (1, True)])
+def test_extraction_coverage_ignores_chunk_boundary_whitespace(max_chunks, truncated):
+    from mosaic.rke.report_intelligence import _extract_for_markdown
+
+    seen = []
+
+    def extract(row, text, *args):
+        seen.append(text)
+        return {"status": "ok", "model": "synthetic", "payload": {}}
+
+    result = _extract_for_markdown(
+        {"source_id": "S"}, "alpha\n\nbeta\n\ngamma", run_id="TEST",
+        extractor=extract, chunk_chars=8, max_chunks=max_chunks,
+    )
+    assert result[-1] is truncated
+    assert seen == (["alpha"] if truncated else ["alpha", "beta", "gamma"])
+
+
+def test_markdown_repetition_counts_content_instead_of_chart_wrapper_tags():
+    from mosaic.rke.report_intelligence import _markdown_repeated_line_noise
+
+    charts = "\n".join(
+        f"<details>\n<summary>line</summary>\n独立图表观测内容{i}\n</details>"
+        for i in range(12)
+    )
+    assert not _markdown_repeated_line_noise(charts)
+    assert _markdown_repeated_line_noise("重复且缺乏独立信息的正文\n" * 12)
+
+
+@pytest.mark.parametrize("source, market, asset_class", [
+    ({"source_type": "local_macro_strategy_report"}, "unknown", "unknown"),
+    ({"source_type": "local_macro_strategy_report", "market": "US", "asset_class": "bond"},
+     "US", "bond"),
+    ({"source_type": "tushare_research_report"}, "CN_A_SHARE", "equity"),
+])
+def test_report_market_preserves_source_scope(source, market, asset_class, tmp_path):
+    from mosaic.rke.report_intelligence import _metadata_record, _normalize_footprints
+
+    row = {"source_id": "SOURCE", "publish_date": "2025-01-01", **source}
+    metadata = _metadata_record(
+        row, run_id="TEST", root_path=tmp_path, pdf_result={}, markdown_result={},
+        llm_status="processed", llm_model="synthetic", chunk_count=1,
+        truncated_chunks=False, blockers=[],
+    )
+    footprints = _normalize_footprints(
+        {"analytical_footprints": [{"topic": "Source argument"}]}, row,
+        run_id="TEST", model="synthetic", report_id=metadata["report_id"],
+        chunk_span_id="SOURCE:chunk-001",
+    )
+    assert metadata["market"] == footprints[0]["market"] == market
+    assert metadata["asset_class"] == asset_class
+
+
 def test_user_prompt_preserves_original_text_and_excludes_derived_evidence():
     markdown = "公司项目名为“高性能材料”，预计2027年利润增长。\n原文保留不改写。"
     prompt = _user_prompt(

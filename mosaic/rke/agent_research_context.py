@@ -1001,11 +1001,14 @@ def _case_is_authorized(footprint: Mapping[str, Any], metadata: Mapping[str, Any
 def _case_routing_claim(footprint: Mapping[str, Any], case: Mapping[str, Any],
                         metadata: Mapping[str, Any]) -> dict[str, Any]:
     ticker = str(metadata.get("ts_code") or "")
+    target = {"target_type": "stock" if ticker else "industry",
+              "target_id": ticker or footprint.get("sector") or "unknown"}
+    if not ticker and _is_macro_claim({}, metadata):
+        target = {"target_type": "unknown", "target_id": "unknown"}
     return {
         **footprint, "forecast_claim_id": footprint["footprint_id"],
         "claim_text": _combined_text(case),
-        "target": {"target_type": "stock" if ticker else "industry",
-                   "target_id": ticker or footprint.get("sector") or "unknown"},
+        "target": target,
         "metric_proxy_mapping": [
             mention.get("canonical_metric_candidate", "unknown")
             for mention in footprint.get("indicator_mentions", []) if isinstance(mention, Mapping)

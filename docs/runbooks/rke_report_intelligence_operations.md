@@ -122,6 +122,16 @@ private batches after correcting the cause, and preserve previous diagnostic run
 Native JSON mode guarantees syntax, not complete research reasoning or faithful
 source extraction. Review case content before merging a batch; a valid object can
 still contain a sentence cut short by the model.
+Full-text coverage ignores whitespace stripped at chunk boundaries; substantive
+text beyond `--max-chunks` still counts as truncation. Set that cap from the actual
+source length when processing longer reports. Prefer a whole-report chunk when
+its tokenized prompt and output budget fit the running model context: independent
+chunks can repeat or fragment a single argument. NInfer provides the existing
+`/v1/messages/count_tokens` endpoint for a cheap input-size preflight. Use
+`--chunk-chars` and `--max-llm-output-tokens` explicitly; larger context does not
+replace source-content review or justify accepting incomplete sentences.
+Markdown repetition checks exclude
+MinerU's `details`/`summary` wrappers while retaining repeated-content checks.
 Narrative fields should paraphrase rating labels and project names in complete
 statements, preserving their meaning without unnecessary quotation marks. Check
 the actual rating and forecast period against the report body.
@@ -134,6 +144,14 @@ from the model request. Original Markdown is preserved in full within its chunk.
 
 Content review must distinguish actuals from forecast columns, preserve the entity
 and period of each observation, and check chart-derived numbers against the source.
+Preserve the author's uncertainty in causal explanations as well as forecasts.
+Research frameworks remain useful cases without a dated regime or recommendation;
+check that their observation-to-judgment method survives extraction. Repeated
+semantic failures stay isolated rather than triggering indefinite prompt retries.
+Local macro sources without explicit market/asset metadata remain unknown rather
+than defaulting to A-share equities. Re-extract existing mislabeled batches before
+merging; changing the code does not rewrite their saved metadata. Macro case
+routing also leaves an unstated target unknown instead of inventing an industry.
 Rating-scale definitions are not earnings forecasts. Extraction no longer requests
 a second analyst rewrite or an LLM approval of its own claim. Neither valid JSON
 nor a nonempty case proves that the source argument has been preserved correctly.

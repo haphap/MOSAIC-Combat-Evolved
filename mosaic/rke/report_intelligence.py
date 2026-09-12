@@ -2994,6 +2994,7 @@ def _metadata_record(
     blockers: Sequence[str],
 ) -> dict[str, Any]:
     source_id = str(row.get("source_id") or "")
+    local_macro = row.get("source_type") == "local_macro_strategy_report"
     publish_date = str(row.get("publish_date") or "")
     report_id = _report_id(row)
     pdf_path = Path(str(pdf_result.get("path") or "")) if pdf_result.get("path") else None
@@ -3013,8 +3014,8 @@ def _metadata_record(
         "author_ids": _author_ids(row.get("author")),
         "author": str(row.get("author") or ""),
         "report_type": str(row.get("report_type") or ""),
-        "market": "CN_A_SHARE",
-        "asset_class": "equity",
+        "market": str(row.get("market") or ("unknown" if local_macro else "CN_A_SHARE")),
+        "asset_class": str(row.get("asset_class") or ("unknown" if local_macro else "equity")),
         "sector": _report_sector_bucket(row),
         "ts_code": str(row.get("ts_code") or ""),
         "subsectors": [],
@@ -3272,8 +3273,9 @@ def _system_prompt() -> str:
         "evidence and conclusion together, including source-supported forecasts. "
         "Use the report language and paraphrase; return one JSON object only. "
         "Follow the field types exactly. historical_regime is a single string, "
-        "not a list. Keep macro/industry conditions distinct from company actions "
-        "and transmission mechanisms within the argument. "
+        "not a list. It describes the source's observed macro/industry state at the "
+        "report's date, not timeless industry descriptions or hypothetical risks. "
+        "Keep company actions and transmission mechanisms in the reasoning chain. "
         "Do not extrapolate a company's financial observations into an industry "
         "or macro regime that the source does not state. "
         "Use only the supplied source. Never complete an argument with plausible "
@@ -3281,14 +3283,18 @@ def _system_prompt() -> str:
         "Leave missing fields empty. A generic risk warning does not authorize "
         "inventing specific failure scenarios. Rating definitions are not the "
         "report's forecast: do not turn them into a benchmark return conclusion. "
+        "Do not infer cheapness or valuation attractiveness from a multiple or rating; "
+        "preserve only the author's stated reasons for the investment view. "
         "Do not use abstracts as evidence, label correctness or infer outcomes. "
         "Preserve each observation's entity, period, units and actual/forecast status: "
         "A means actual, E/F means an analyst estimate, including in past-year columns. "
+        "Preserve uncertainty, future and conditional wording in every field: "
+        "possible explanations remain possible, and planned capacity remains planned. "
         "Do not calculate new growth rates or turn forecast valuation ratios into "
-        "observed repricing. Approximate chart reconstructions marked ~ are not "
-        "verified measurements; prefer the surrounding source argument over their numbers. "
+        "observed repricing. Exclude approximate chart reconstructions marked ~ "
+        "from evidence; preserve the surrounding source argument instead. "
         "Use the report body to determine its actual subject, not its directory label. "
-        "Keep evidence brief and material to the argument. Write complete statements "
+        "Select only evidence pivotal to the argument, not full financial tables. Write complete statements "
         "in narrative text values, including conclusions: paraphrase rating labels "
         "and project names without adding quotation marks around them. Preserve "
         "the actual rating, forecast period and qualifications stated in the source. "
@@ -3324,10 +3330,16 @@ def _user_prompt(
     return (
         "Read the original Markdown and preserve each coherent research argument as "
         "one research_case. Do not split an argument by sentence, indicator, stock code "
-        "or heading; do not join unrelated arguments. If there is no supported argument, "
+        "or heading; do not join unrelated arguments. A source-described research "
+        "framework is also an argument: preserve how its observations inform a "
+        "judgment, even without a dated regime, numerical evidence or stock recommendation. "
+        "Do not omit the method while keeping only the market commentary. "
+        "If there is no supported argument, "
         "return analytical_footprints as an empty array.\n\n"
         "question states the research problem. historical_regime states only the "
-        "source's macro or industry conditions with their original time scope. "
+        "source's observed macro or industry conditions with their original time scope; "
+        "use an empty string when none are stated. A generic warning that policy changes "
+        "may affect an industry is not an observed regime and must not fill this field. "
         "reasoning_chain preserves the ordered causal steps. evidence contains brief "
         "supporting observations, each with its original entity, period, units and "
         "actual/estimate status. assumptions and invalidation_conditions contain only "
@@ -9080,7 +9092,10 @@ def _normalize_footprints(
             "source_id": str(row.get("source_id") or ""),
             "source_span_ids": _source_span_ids(footprint, chunk_span_id),
             "extraction_type": str(footprint.get("extraction_type") or "mixed"),
-            "market": "CN_A_SHARE",
+            "market": str(row.get("market") or (
+                "unknown" if row.get("source_type") == "local_macro_strategy_report"
+                else "CN_A_SHARE"
+            )),
             "sector": _report_sector_bucket(row),
             "topic": topic,
             "indicator_mentions": indicator_mentions,
@@ -15011,6 +15026,8 @@ def _markdown_image_only(text: str) -> bool:
 def _markdown_repeated_line_noise(text: str) -> bool:
     keys: list[str] = []
     for line in _markdown_non_empty_lines(text):
+        if re.fullmatch(r"</?details>|<summary>[^<]*</summary>", line.strip()):
+            continue
         key = _markdown_line_key(line)
         if len(key) >= 4:
             keys.append(key)
@@ -34516,7 +34533,7 @@ def _extract_for_markdown(
     macro_regime_calendar_rows: Sequence[Mapping[str, Any]] = (),
 ) -> tuple[dict[str, list[dict[str, Any]]], str, str | None, list[str], int, bool]:
     chunks = _chunk_text(markdown_text, chunk_chars=chunk_chars, max_chunks=max_chunks)
-    truncated = len("".join(chunks)) < len(markdown_text.strip())
+    truncated = "".join("".join(chunks).split()) != "".join(markdown_text.split())
     report_id = _report_id(row)
     publish_date = str(row.get("publish_date") or "")
     report_context = _build_report_context(

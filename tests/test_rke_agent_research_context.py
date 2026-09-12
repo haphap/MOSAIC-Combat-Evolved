@@ -1575,6 +1575,27 @@ def test_historical_regime_provenance_is_not_collapsed():
     assert item["historical_date_regime_types"] == ["external_historical_background"]
 
 
+def test_macro_research_case_is_not_routed_as_a_generic_industry():
+    case = {"question": "How does tightening affect liquidity?",
+            "historical_regime": "Monetary tightening",
+            "reasoning_chain": ["Funding costs rise", "Liquidity demand increases"]}
+    context = build_rke_agent_research_context_from_rows(
+        agent_id="cio", as_of_date="2026-01-01",
+        metadata=[{"report_id": "R", "source_id": "S", "report_type": "宏观策略-海外",
+                   "sector": "宏观策略", "publish_datetime": "2025-01-01",
+                   "license_class": "operator_approved_internal_research_use",
+                   "derived_claim_storage_allowed": True}],
+        footprints=[{"footprint_id": "F", "report_id": "R", "source_id": "S",
+                     "source_span_ids": ["PRIVATE"], "sector": "宏观策略",
+                     "research_case": case}],
+    )
+    item = context["context_items"][0]
+    assert item["domain"] == "macro"
+    assert item["target_type"] == "unknown"
+    assert item["target_id"] == "unknown"
+    assert item["research_case"]["historical_regime"] == "Monetary tightening"
+
+
 def test_research_case_transfer_keeps_original_target_and_prefers_requested_stock():
     case = {"question": "Inventory and margins", "historical_regime": "",
             "reasoning_chain": ["Inventory falls", "Discounting slows"],
