@@ -7743,7 +7743,7 @@ def test_report_intelligence_method_patterns_keep_source_footprint_refs():
         "research_case": {"question": "Compare return and valuation",
                           "reasoning_chain": ["Compare benchmark returns", "Check valuation and liquidity"]},
     }]
-    methods = _normalize_method_patterns({}, footprints, run_id="RIR-TEST", model="test-model")
+    methods = _normalize_method_patterns(footprints, run_id="RIR-TEST", model="test-model")
     assert len(methods) == 1
     assert methods[0]["source_footprint_ids"] == ["AFP-1"]
     assert methods[0]["steps"] == footprints[0]["research_case"]["reasoning_chain"]
@@ -7754,8 +7754,8 @@ def test_report_intelligence_method_pattern_ids_bind_ordered_reasoning():
         "question": "Peer comparison", "reasoning_chain": steps,
     }} for ident, steps in (("A", ["Check accounting", "Compare peers"]),
                            ("B", ["Compare peers", "Check accounting"]))]
-    first = _normalize_method_patterns({}, footprints, run_id="RIR-TEST", model="test-model")
-    reverse = _normalize_method_patterns({}, list(reversed(footprints)), run_id="RIR-TEST", model="test-model")
+    first = _normalize_method_patterns(footprints, run_id="RIR-TEST", model="test-model")
+    reverse = _normalize_method_patterns(list(reversed(footprints)), run_id="RIR-TEST", model="test-model")
     assert len(first) == 2
     assert first == reverse
     assert first[0]["method_pattern_id"] != first[1]["method_pattern_id"]
@@ -19871,11 +19871,11 @@ def test_research_case_preserves_reasoning_and_does_not_promote_fragments():
         report_id="RPT-SYNTHETIC", chunk_span_id="SPAN-SYNTHETIC",
     )
     assert footprints[0]["research_case"] == case
-    methods = _normalize_method_patterns({}, footprints, run_id="TEST", model="synthetic")
+    methods = _normalize_method_patterns(footprints, run_id="TEST", model="synthetic")
     assert len(methods) == 1
     assert methods[0]["steps"] == case["reasoning_chain"]
     assert methods[0]["historical_regime"] == case["historical_regime"]
-    assert _normalize_method_patterns({}, [{"analysis_patterns": ["inventory"]}],
+    assert _normalize_method_patterns([{"analysis_patterns": ["inventory"]}],
                                       run_id="TEST", model="synthetic") == []
 def test_research_case_migration_is_conservative_archived_and_idempotent(tmp_path):
     from mosaic.rke.report_intelligence import migrate_research_cases, build_analysis_recipes
@@ -19922,7 +19922,7 @@ def test_case_methods_with_different_conditions_do_not_merge():
             "assumptions": [], "invalidation_conditions": [], "evidence": [], "conclusion": ""}
     rows = [{"footprint_id": "A", "research_case": case},
             {"footprint_id": "B", "research_case": dict(case, historical_regime="capacity expansion")}]
-    methods = _normalize_method_patterns({}, rows, run_id="test", model="synthetic")
+    methods = _normalize_method_patterns(rows, run_id="test", model="synthetic")
     assert len(methods) == 2
     merged = []
     _append_unique_method_patterns(merged, methods)

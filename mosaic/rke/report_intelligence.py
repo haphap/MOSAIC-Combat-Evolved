@@ -13262,7 +13262,7 @@ def migrate_research_cases(*, root: str | Path, registry_dir: str | Path | None 
         updated.append(row)
     legacy_methods = [dict(method, research_case_based=False) for method in methods
                       if method.get("research_case_based") is not True]
-    case_methods = _normalize_method_patterns({}, updated, run_id="research_case_migration",
+    case_methods = _normalize_method_patterns(updated, run_id="research_case_migration",
                                                model="existing_structured_arguments")
     combined_methods = legacy_methods + case_methods
     result = {
@@ -13294,7 +13294,6 @@ def migrate_research_cases(*, root: str | Path, registry_dir: str | Path | None 
 
 
 def _normalize_method_patterns(
-    payload: Mapping[str, Any],
     footprints: Sequence[Mapping[str, Any]],
     *,
     run_id: str,
@@ -34731,7 +34730,6 @@ def _extract_for_markdown(
             model=model,
         )
         methods = _normalize_method_patterns(
-            payload,
             footprints,
             run_id=run_id,
             model=model,
@@ -34886,7 +34884,6 @@ def run_report_intelligence_derived_refresh(
     _append_unique_method_patterns(
         method_rows,
         _normalize_method_patterns(
-            {},
             footprint_rows,
             run_id=run_id,
             model="derived_refresh",
