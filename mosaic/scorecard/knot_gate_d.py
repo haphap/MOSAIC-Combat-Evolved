@@ -24,7 +24,7 @@ from mosaic.scorecard.darwinian_v2 import (
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 _EXPECTED_RUNTIME_STAGE_COUNT = 26
-_EXPECTED_BINDING_COUNT = 199
+_EXPECTED_BINDING_COUNT = 207
 _EXPECTED_SIGNIFICANCE_FIXTURE_COUNT = 119
 _EXPECTED_RETIRED_SIGNIFICANCE_FIXTURE_COUNT = 3
 _RETIRED_ACTIVE_AGENT_IDS = frozenset({"relationship_mapper"})

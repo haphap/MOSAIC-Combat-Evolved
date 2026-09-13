@@ -28,7 +28,7 @@ function bundle() {
     as_of: "2026-07-09",
     candidate_scope_hash: null,
     runtime_input_hash: hash,
-    tool_payload_hashes: { get_china_macro_snapshot: hash },
+    tool_payload_hashes: { get_china_macro_snapshot: hash, get_rke_research_context: hash },
     materialized_at: "2026-07-09T00:00:00Z",
   } as const;
 }
@@ -44,7 +44,7 @@ function capability() {
       node_id: "node-1",
       agent_id: "china",
       stage: "china",
-      allowed_tools: ["get_china_macro_snapshot"],
+      allowed_tools: ["get_china_macro_snapshot", "get_rke_research_context"],
       as_of: "2026-07-09",
       candidate_scope_hash: null,
       snapshot_bundle_id: "bundle-1",
@@ -169,6 +169,9 @@ describe("canonical Agent tool contract", () => {
       "agriculture\0agriculture\0get_supply_chain_evidence",
     ];
     const expectedAdded = new Set([
+      ...AGENT_IDS.filter((agent) => AGENT_LAYER_BY_ID[agent] === "macro").map(
+        (agent) => `${agent}\0${agent}\0get_rke_research_context`,
+      ),
       ...[...sectorOverlay.bindings, ...l3L4Overlay.bindings]
         .filter((binding) => binding.agent_id !== "relationship_mapper")
         .map((binding) => `${binding.agent_id}\0${activeStage(binding)}\0${binding.tool_id}`),

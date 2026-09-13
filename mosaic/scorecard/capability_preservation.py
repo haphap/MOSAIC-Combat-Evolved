@@ -1424,6 +1424,16 @@ def _load_active_restored_bindings(
         )
         for agent_id in SECTOR_AGENT_IDS
     )
+    from mosaic.rke.agent_research_context import MACRO_AGENTS
+    from mosaic.scorecard.l3_l4_preservation import _binding_body
+
+    restored_bindings.extend(
+        _binding_body(
+            agent_id=agent_id, stage=agent_id,
+            tool_id="get_rke_research_context", routes_by_id=routes_by_id,
+        )
+        for agent_id in sorted(MACRO_AGENTS)
+    )
     return restored_bindings
 
 

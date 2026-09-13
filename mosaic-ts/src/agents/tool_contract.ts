@@ -132,14 +132,17 @@ export const AGENT_LAYER_BY_ID = {
 } as const satisfies Readonly<Record<AgentId, AgentLayer>>;
 
 export const AGENT_INITIAL_TOOL_MATRIX = {
-  china: ["get_china_macro_snapshot"],
-  us_economy: ["get_us_macro_snapshot"],
-  eu_economy: ["get_eu_macro_snapshot"],
-  central_bank: ["get_central_bank_snapshot"],
-  us_financial_conditions: ["get_us_financial_conditions_snapshot"],
-  euro_area_financial_conditions: ["get_euro_area_financial_conditions_snapshot"],
-  commodities: ["get_commodity_conditions_snapshot"],
-  institutional_flow: ["get_market_positioning_snapshot"],
+  china: ["get_china_macro_snapshot", "get_rke_research_context"],
+  us_economy: ["get_us_macro_snapshot", "get_rke_research_context"],
+  eu_economy: ["get_eu_macro_snapshot", "get_rke_research_context"],
+  central_bank: ["get_central_bank_snapshot", "get_rke_research_context"],
+  us_financial_conditions: ["get_us_financial_conditions_snapshot", "get_rke_research_context"],
+  euro_area_financial_conditions: [
+    "get_euro_area_financial_conditions_snapshot",
+    "get_rke_research_context",
+  ],
+  commodities: ["get_commodity_conditions_snapshot", "get_rke_research_context"],
+  institutional_flow: ["get_market_positioning_snapshot", "get_rke_research_context"],
   semiconductor: ["get_sector_research_snapshot", "get_role_event_snapshot"],
   technology: ["get_sector_research_snapshot", "get_role_event_snapshot"],
   energy: ["get_sector_research_snapshot", "get_role_event_snapshot"],

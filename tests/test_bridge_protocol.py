@@ -501,10 +501,13 @@ class BridgeProtocolTests(_BridgeTestCase):
 class MacroToolBridgeTests(_BridgeTestCase):
     """End-to-end capability lifecycle over the JSON-RPC subprocess."""
 
-    def test_role_capability_lists_only_one_zero_argument_snapshot(self) -> None:
+    def test_role_capability_lists_snapshot_and_rke_prior(self) -> None:
         capability = self.prepare_china_capability()
         tools = self.call_ok("tools.list", {"capability": capability})
-        self.assertEqual([tool["name"] for tool in tools], [EXPECTED_CHINA_TOOL])
+        self.assertEqual(
+            [tool["name"] for tool in tools],
+            [EXPECTED_CHINA_TOOL, "get_rke_research_context"],
+        )
         self.assertEqual(
             tools[0]["args_schema"],
             {

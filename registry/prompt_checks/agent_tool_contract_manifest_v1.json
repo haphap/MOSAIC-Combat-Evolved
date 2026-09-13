@@ -7,7 +7,8 @@
     {
       "agent_id": "china",
       "allowed_tools": [
-        "get_china_macro_snapshot"
+        "get_china_macro_snapshot",
+        "get_rke_research_context"
       ],
       "execution_stages": [
         "china"
@@ -17,7 +18,8 @@
     {
       "agent_id": "us_economy",
       "allowed_tools": [
-        "get_us_macro_snapshot"
+        "get_us_macro_snapshot",
+        "get_rke_research_context"
       ],
       "execution_stages": [
         "us_economy"
@@ -27,7 +29,8 @@
     {
       "agent_id": "eu_economy",
       "allowed_tools": [
-        "get_eu_macro_snapshot"
+        "get_eu_macro_snapshot",
+        "get_rke_research_context"
       ],
       "execution_stages": [
         "eu_economy"
@@ -37,7 +40,8 @@
     {
       "agent_id": "central_bank",
       "allowed_tools": [
-        "get_central_bank_snapshot"
+        "get_central_bank_snapshot",
+        "get_rke_research_context"
       ],
       "execution_stages": [
         "central_bank"
@@ -47,7 +51,8 @@
     {
       "agent_id": "us_financial_conditions",
       "allowed_tools": [
-        "get_us_financial_conditions_snapshot"
+        "get_us_financial_conditions_snapshot",
+        "get_rke_research_context"
       ],
       "execution_stages": [
         "us_financial_conditions"
@@ -57,7 +62,8 @@
     {
       "agent_id": "euro_area_financial_conditions",
       "allowed_tools": [
-        "get_euro_area_financial_conditions_snapshot"
+        "get_euro_area_financial_conditions_snapshot",
+        "get_rke_research_context"
       ],
       "execution_stages": [
         "euro_area_financial_conditions"
@@ -67,7 +73,8 @@
     {
       "agent_id": "commodities",
       "allowed_tools": [
-        "get_commodity_conditions_snapshot"
+        "get_commodity_conditions_snapshot",
+        "get_rke_research_context"
       ],
       "execution_stages": [
         "commodities"
@@ -77,7 +84,8 @@
     {
       "agent_id": "institutional_flow",
       "allowed_tools": [
-        "get_market_positioning_snapshot"
+        "get_market_positioning_snapshot",
+        "get_rke_research_context"
       ],
       "execution_stages": [
         "institutional_flow"

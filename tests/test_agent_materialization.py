@@ -203,9 +203,11 @@ def _attempt_payload(
     freshness: str = "FRESH",
     source_hashes: list[str] | None = None,
     build_hash: str = HASH_B,
+    rke_build_hash: str = HASH_B,
+    rke_source_hash: str = HASH_A,
 ) -> dict:
     ready = state == "READY"
-    tools = ["get_china_macro_snapshot"]
+    tools = ["get_china_macro_snapshot", "get_rke_research_context"]
     lock_key = materialization_lock_key(
         agent_id="china",
         stage="china",
@@ -230,10 +232,16 @@ def _attempt_payload(
         "candidate_scope_hash": HASH_C,
         "runtime_input_hash": HASH_D,
         "contract_version": "agent_materialization_contract_v1",
-        "source_receipts": {"get_china_macro_snapshot": source_hashes or [HASH_A]}
+        "source_receipts": {
+            "get_china_macro_snapshot": source_hashes or [HASH_A],
+            "get_rke_research_context": [rke_source_hash],
+        }
         if ready
         else {},
-        "build_receipts": {"get_china_macro_snapshot": build_hash} if ready else {},
+        "build_receipts": {
+            "get_china_macro_snapshot": build_hash,
+            "get_rke_research_context": rke_build_hash,
+        } if ready else {},
         "cache_status": "MISS",
         "lock": {
             "key": lock_key,
@@ -656,6 +664,20 @@ def test_ledger_is_append_only_idempotent_and_status_is_read_only(
     tmp_path: Path,
 ) -> None:
     ledger = AgentDataMaterializationLedger(tmp_path / "materialization.sqlite3")
+    rke_source = SourceCaptureReceipt.from_dict(
+        _source_payload(
+            route_id="private.rke_report_intelligence", source_family="local_private_rke",
+            pit_mode="AUTHORITATIVE_VINTAGE_REPLAY",
+        )
+    )
+    ledger.append_source_capture(rke_source)
+    rke_build = _ready_stage_build(
+        agent_id="china", tool_id="get_rke_research_context",
+        required_route_ids=["private.rke_report_intelligence"],
+        source_receipt_hashes=[rke_source.receipt_hash],
+    )
+    ledger.append_snapshot_build(rke_build)
+
     sources = [
         SourceCaptureReceipt.from_dict(
             _source_payload(route_id="official.cn_macro", source_family="official_cn")
@@ -675,6 +697,8 @@ def test_ledger_is_append_only_idempotent_and_status_is_read_only(
     build = SnapshotBuildReceipt.from_dict(_build_payload(source_hashes=source_hashes))
     attempt = MaterializationAttemptReceipt.from_dict(
         _attempt_payload(
+            rke_build_hash=rke_build.receipt_hash,
+            rke_source_hash=rke_source.receipt_hash,
             source_hashes=source_hashes,
             build_hash=build.receipt_hash,
         )
@@ -702,6 +726,8 @@ def test_ledger_is_append_only_idempotent_and_status_is_read_only(
     )
     mismatched_attempt = MaterializationAttemptReceipt.from_dict(
         _attempt_payload(
+            rke_build_hash=rke_build.receipt_hash,
+            rke_source_hash=rke_source.receipt_hash,
             source_hashes=source_hashes[:1],
             build_hash=build.receipt_hash,
         )
@@ -995,6 +1021,20 @@ def test_capture_group_rolls_back_partial_sources_and_retries_idempotently(
 
 def test_status_queries_order_mixed_offsets_by_instant(tmp_path: Path) -> None:
     ledger = AgentDataMaterializationLedger(tmp_path / "timezone-order.sqlite3")
+    rke_source = SourceCaptureReceipt.from_dict(
+        _source_payload(
+            route_id="private.rke_report_intelligence", source_family="local_private_rke",
+            pit_mode="AUTHORITATIVE_VINTAGE_REPLAY",
+        )
+    )
+    ledger.append_source_capture(rke_source)
+    rke_build = _ready_stage_build(
+        agent_id="china", tool_id="get_rke_research_context",
+        required_route_ids=["private.rke_report_intelligence"],
+        source_receipt_hashes=[rke_source.receipt_hash],
+    )
+    ledger.append_snapshot_build(rke_build)
+
 
     def source_at(capture_id: str, timestamp: str) -> SourceCaptureReceipt:
         payload = _source_payload()
@@ -1054,6 +1094,8 @@ def test_status_queries_order_mixed_offsets_by_instant(tmp_path: Path) -> None:
         finished_at: str,
     ) -> MaterializationAttemptReceipt:
         payload = _attempt_payload(
+            rke_build_hash=rke_build.receipt_hash,
+            rke_source_hash=rke_source.receipt_hash,
             source_hashes=hashes,
             build_hash=build.receipt_hash,
         )
@@ -1114,6 +1156,20 @@ def test_status_queries_order_mixed_offsets_by_instant(tmp_path: Path) -> None:
 
 def test_concurrent_ready_attempts_publish_one_frozen_result(tmp_path: Path) -> None:
     ledger = AgentDataMaterializationLedger(tmp_path / "concurrent-ready.sqlite3")
+    rke_source = SourceCaptureReceipt.from_dict(
+        _source_payload(
+            route_id="private.rke_report_intelligence", source_family="local_private_rke",
+            pit_mode="AUTHORITATIVE_VINTAGE_REPLAY",
+        )
+    )
+    ledger.append_source_capture(rke_source)
+    rke_build = _ready_stage_build(
+        agent_id="china", tool_id="get_rke_research_context",
+        required_route_ids=["private.rke_report_intelligence"],
+        source_receipt_hashes=[rke_source.receipt_hash],
+    )
+    ledger.append_snapshot_build(rke_build)
+
     sources = [
         SourceCaptureReceipt.from_dict(
             _source_payload(route_id="official.cn_macro", source_family="official_cn")
@@ -1130,6 +1186,8 @@ def test_concurrent_ready_attempts_publish_one_frozen_result(tmp_path: Path) -> 
     attempts = []
     for index in range(2):
         payload = _attempt_payload(
+            rke_build_hash=rke_build.receipt_hash,
+            rke_source_hash=rke_source.receipt_hash,
             source_hashes=hashes,
             build_hash=build.receipt_hash,
         )
@@ -1176,6 +1234,20 @@ def test_publish_ready_stage_materialization_closes_existing_builds(
     tmp_path: Path,
 ) -> None:
     ledger = AgentDataMaterializationLedger(tmp_path / "ready-stage.sqlite3")
+    rke_source = SourceCaptureReceipt.from_dict(
+        _source_payload(
+            route_id="private.rke_report_intelligence", source_family="local_private_rke",
+            pit_mode="AUTHORITATIVE_VINTAGE_REPLAY",
+        )
+    )
+    ledger.append_source_capture(rke_source)
+    rke_build = _ready_stage_build(
+        agent_id="china", tool_id="get_rke_research_context",
+        required_route_ids=["private.rke_report_intelligence"],
+        source_receipt_hashes=[rke_source.receipt_hash],
+    )
+    ledger.append_snapshot_build(rke_build)
+
     sources = [
         SourceCaptureReceipt.from_dict(
             _source_payload(route_id="official.cn_macro", source_family="official_cn")
@@ -1209,7 +1281,8 @@ def test_publish_ready_stage_materialization_closes_existing_builds(
     )
     assert published["status"] == "READY"
     assert published["build_receipt_hashes"] == {
-        "get_china_macro_snapshot": build.receipt_hash
+        "get_china_macro_snapshot": build.receipt_hash,
+        "get_rke_research_context": rke_build.receipt_hash,
     }
     retry = {**request, "materialization_request_id": "materialize-ready-stage-retry"}
     replay = publish_ready_stage_materialization(
@@ -1232,6 +1305,20 @@ def test_trusted_stage_preparer_uses_warm_build_without_family_dispatch(
     tmp_path: Path,
 ) -> None:
     ledger = AgentDataMaterializationLedger(tmp_path / "warm-stage.sqlite3")
+    rke_source = SourceCaptureReceipt.from_dict(
+        _source_payload(
+            route_id="private.rke_report_intelligence", source_family="local_private_rke",
+            pit_mode="AUTHORITATIVE_VINTAGE_REPLAY",
+        )
+    )
+    ledger.append_source_capture(rke_source)
+    rke_build = _ready_stage_build(
+        agent_id="china", tool_id="get_rke_research_context",
+        required_route_ids=["private.rke_report_intelligence"],
+        source_receipt_hashes=[rke_source.receipt_hash],
+    )
+    ledger.append_snapshot_build(rke_build)
+
     sources = [
         SourceCaptureReceipt.from_dict(
             _source_payload(route_id="official.cn_macro", source_family="official_cn")
@@ -1532,6 +1619,20 @@ def test_trusted_stage_finalizer_publishes_after_payload_materialization(
     tmp_path: Path,
 ) -> None:
     ledger = AgentDataMaterializationLedger(tmp_path / "finalized-stage.sqlite3")
+    rke_source = SourceCaptureReceipt.from_dict(
+        _source_payload(
+            route_id="private.rke_report_intelligence", source_family="local_private_rke",
+            pit_mode="AUTHORITATIVE_VINTAGE_REPLAY",
+        )
+    )
+    ledger.append_source_capture(rke_source)
+    rke_build = _ready_stage_build(
+        agent_id="china", tool_id="get_rke_research_context",
+        required_route_ids=["private.rke_report_intelligence"],
+        source_receipt_hashes=[rke_source.receipt_hash],
+    )
+    ledger.append_snapshot_build(rke_build)
+
     sources = [
         SourceCaptureReceipt.from_dict(
             _source_payload(route_id="official.cn_macro", source_family="official_cn")
@@ -1555,7 +1656,10 @@ def test_trusted_stage_finalizer_publishes_after_payload_materialization(
         {
             **request,
             "stage_preparation": {"cache_status": "MISS"},
-            "tool_payload_hashes": {"get_china_macro_snapshot": HASH_B},
+            "tool_payload_hashes": {
+                "get_china_macro_snapshot": HASH_B,
+                "get_rke_research_context": rke_build.as_dict()["output_hash"],
+            },
             "adaptive_query": None,
         }
     )
@@ -1563,7 +1667,8 @@ def test_trusted_stage_finalizer_publishes_after_payload_materialization(
     assert result["status"] == "READY"
     assert result["cache_status"] == "MISS"
     assert result["build_receipt_hashes"] == {
-        "get_china_macro_snapshot": build.receipt_hash
+        "get_china_macro_snapshot": build.receipt_hash,
+        "get_rke_research_context": rke_build.receipt_hash,
     }
     with sqlite3.connect(ledger.path) as conn:
         assert (
@@ -3308,6 +3413,20 @@ def test_publish_ready_stage_materialization_uses_current_prepared_build(
     tmp_path: Path,
 ) -> None:
     ledger = AgentDataMaterializationLedger(tmp_path / "prepared-stage.sqlite3")
+    rke_source = SourceCaptureReceipt.from_dict(
+        _source_payload(
+            route_id="private.rke_report_intelligence", source_family="local_private_rke",
+            pit_mode="AUTHORITATIVE_VINTAGE_REPLAY",
+        )
+    )
+    ledger.append_source_capture(rke_source)
+    rke_build = _ready_stage_build(
+        agent_id="china", tool_id="get_rke_research_context",
+        required_route_ids=["private.rke_report_intelligence"],
+        source_receipt_hashes=[rke_source.receipt_hash],
+    )
+    ledger.append_snapshot_build(rke_build)
+
     sources = [
         SourceCaptureReceipt.from_dict(
             _source_payload(route_id="official.cn_macro", source_family="official_cn")
@@ -3343,6 +3462,7 @@ def test_publish_ready_stage_materialization_uses_current_prepared_build(
                 "cache_status": "HIT",
                 "prepared_build_receipt_hashes": {
                     "get_china_macro_snapshot": second.receipt_hash,
+                    "get_rke_research_context": rke_build.receipt_hash,
                 },
             },
         },
@@ -3352,6 +3472,7 @@ def test_publish_ready_stage_materialization_uses_current_prepared_build(
 
     assert published["build_receipt_hashes"] == {
         "get_china_macro_snapshot": second.receipt_hash,
+        "get_rke_research_context": rke_build.receipt_hash,
     }
 
 

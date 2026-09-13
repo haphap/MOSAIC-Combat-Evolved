@@ -282,7 +282,7 @@ def test_prepare_and_reissue_seal_knot_audit_contexts(tmp_path: Path) -> None:
     assert bundle_context["snapshot_bundle_hash"] == prepared["bundle"]["snapshot_bundle_hash"]
     assert bundle_context["knot_v2_eligibility"] == "ELIGIBLE"
     assert set(bundle_context["build_receipt_hashes"]) == {
-        "get_china_macro_snapshot"
+        "get_china_macro_snapshot", "get_rke_research_context"
     }
     assert bundle_context["materialization_attempt_receipt_hash"].startswith("sha256:")
     assert bundle_context["capability_binding_manifest_hash"].startswith("sha256:")
@@ -459,7 +459,8 @@ def test_accepted_output_materializes_server_owned_knot_v2_history(
     assert first == second
     assert first["schema_version"] == "accepted_knot_history_materialization_v2"
     assert first["status"] == "MATERIALIZED"
-    assert first["observation_count"] == len(result["audit"]["binding_result_refs"])
+    # The unused RKE binding receives an observation, but no result evaluation.
+    assert first["observation_count"] == len(result["audit"]["binding_result_refs"]) + 1
     assert first["evaluation_count"] == len(result["audit"]["binding_result_refs"])
     assert "private prose" not in json.dumps(first)
 
@@ -482,11 +483,21 @@ def test_accepted_output_materializes_server_owned_knot_v2_history(
     assert len(materializations) == 1
     assert len(observations) == first["observation_count"]
     assert len(evaluations) == first["evaluation_count"]
-    assert len(projections) == len(observations)
-    observation = json.loads(observations[0]["observation_json"])
-    projection = json.loads(projections[0]["projection_json"])
-    claim_spec = json.loads(evaluations[0]["claim_spec_json"])
-    evaluation = json.loads(evaluations[0]["evaluation_json"])
+    assert len(projections) == len(result["audit"]["binding_result_refs"])
+    snapshot_binding = result["audit"]["binding_result_refs"][0]["binding_id"]
+    unused = next(row for row in observations if row["binding_id"] != snapshot_binding)
+    unused_observation = json.loads(unused["observation_json"])
+    assert unused_observation["called"] is False
+    assert unused_observation["used_in_accepted_evidence"] is False
+    observation = json.loads(next(
+        row["observation_json"] for row in observations if row["binding_id"] == snapshot_binding
+    ))
+    projection = json.loads(next(
+        row["projection_json"] for row in projections if row["binding_id"] == snapshot_binding
+    ))
+    evaluated = next(row for row in evaluations if row["binding_id"] == snapshot_binding)
+    claim_spec = json.loads(evaluated["claim_spec_json"])
+    evaluation = json.loads(evaluated["evaluation_json"])
     assert observation["eligible"] is True
     assert observation["ready"] is True
     assert observation["called"] is True

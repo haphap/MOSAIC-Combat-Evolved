@@ -68,9 +68,16 @@ sector; the historical preservation overlay is unchanged. An empty trading
 candidate set can still authorize an RKE-only query. Frozen source receipts,
 execution identity, date limits, query budgets and trade-universe restrictions
 remain enforced. Existing frozen bundles do not gain this request: prepare new
-bundles with the current code and generated active manifests. The eight current
-Macro runtime Agents still expose only their snapshot tools; improved Macro query
-selection alone does not grant them a runtime RKE capability.
+bundles with the current code and generated active manifests. Each of the eight
+Macro runtime Agents now receives one deterministic initial RKE query bound to its
+role, snapshot and as-of date, with at most three cases and no stock/sector filter
+or adaptive follow-up. It uses the existing private RKE route and source receipts.
+Cases are shadow research context; accepted current macro facts must still cite
+the role snapshot. Empty authorized research results do not block snapshot analysis.
+Formal runs also need a private Prompt release generated against the current
+runtime contract, including the RKE tool and research-prior boundary. Updating
+public manifests or bundled prompts does not update an existing private Prompt
+release. Run its contract preflight before preparing new runtime bundles.
 
 Follow the existing `pull -> preflight -> hydrate` sequence below into an existing
 clean staging checkout. Preserve unexported work and stop concurrent writers.

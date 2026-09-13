@@ -2,7 +2,7 @@
   "generated_at": "2026-08-06T00:00:00+00:00",
   "manifest_version": "agent_data_routes_20260812_v1",
   "schema_version": "agent_data_route_manifest_v1",
-  "agent_tool_contract_manifest_hash": "sha256:cd74e754de85a804bd2f263c13940bab208b9b76f52718aeb20f936015ec3dfb",
+  "agent_tool_contract_manifest_hash": "sha256:0d105c4ed1c8ad4c2f22fd590f0e76057f17ec7b034fa999c2c94dfd6b9e192d",
   "routes": [
     {
       "contract_version": "alfred_us_macro_v1",
@@ -206,6 +206,22 @@
       "tool_id": "get_china_macro_snapshot"
     },
     {
+      "agent_id": "china",
+      "required_route_ids": [
+        "private.rke_report_intelligence"
+      ],
+      "stage": "china",
+      "tool_id": "get_rke_research_context"
+    },
+    {
+      "agent_id": "us_economy",
+      "required_route_ids": [
+        "private.rke_report_intelligence"
+      ],
+      "stage": "us_economy",
+      "tool_id": "get_rke_research_context"
+    },
+    {
       "agent_id": "us_economy",
       "required_route_ids": [
         "alfred.us_macro",
@@ -226,6 +242,14 @@
       "tool_id": "get_eu_macro_snapshot"
     },
     {
+      "agent_id": "eu_economy",
+      "required_route_ids": [
+        "private.rke_report_intelligence"
+      ],
+      "stage": "eu_economy",
+      "tool_id": "get_rke_research_context"
+    },
+    {
       "agent_id": "central_bank",
       "required_route_ids": [
         "composite.cn_rates",
@@ -234,6 +258,22 @@
       ],
       "stage": "central_bank",
       "tool_id": "get_central_bank_snapshot"
+    },
+    {
+      "agent_id": "central_bank",
+      "required_route_ids": [
+        "private.rke_report_intelligence"
+      ],
+      "stage": "central_bank",
+      "tool_id": "get_rke_research_context"
+    },
+    {
+      "agent_id": "us_financial_conditions",
+      "required_route_ids": [
+        "private.rke_report_intelligence"
+      ],
+      "stage": "us_financial_conditions",
+      "tool_id": "get_rke_research_context"
     },
     {
       "agent_id": "us_financial_conditions",
@@ -260,6 +300,14 @@
       "tool_id": "get_euro_area_financial_conditions_snapshot"
     },
     {
+      "agent_id": "euro_area_financial_conditions",
+      "required_route_ids": [
+        "private.rke_report_intelligence"
+      ],
+      "stage": "euro_area_financial_conditions",
+      "tool_id": "get_rke_research_context"
+    },
+    {
       "agent_id": "commodities",
       "required_route_ids": [
         "tushare.commodities",
@@ -271,12 +319,28 @@
       "tool_id": "get_commodity_conditions_snapshot"
     },
     {
+      "agent_id": "commodities",
+      "required_route_ids": [
+        "private.rke_report_intelligence"
+      ],
+      "stage": "commodities",
+      "tool_id": "get_rke_research_context"
+    },
+    {
       "agent_id": "institutional_flow",
       "required_route_ids": [
         "tushare.institutional_flow"
       ],
       "stage": "institutional_flow",
       "tool_id": "get_market_positioning_snapshot"
+    },
+    {
+      "agent_id": "institutional_flow",
+      "required_route_ids": [
+        "private.rke_report_intelligence"
+      ],
+      "stage": "institutional_flow",
+      "tool_id": "get_rke_research_context"
     },
     {
       "agent_id": "semiconductor",
@@ -1496,5 +1560,5 @@
       ]
     }
   ],
-  "manifest_hash": "sha256:8a38e1e557990aed8d8cb60c765c1e85b9c36bbbf98592537c8a6264b059dea3"
+  "manifest_hash": "sha256:6b7fdafab30198bcf9cb4741bc1d8f032519c7310e279b1297da01483ea8a1ae"
 }

@@ -91,6 +91,8 @@ from mosaic.scorecard.capability_preservation import (
     validate_trusted_counterevidence_evaluation_v2,
     validate_capability_contract_bundle,
 )
+from mosaic.rke.agent_research_context import MACRO_AGENTS
+from mosaic.scorecard.l3_l4_preservation import argument_schema_for_binding
 from mosaic.scorecard.l3_l4_activation import (
     active_argument_schema_for_l3_l4_binding,
 )
@@ -242,8 +244,11 @@ DECISION_AGENTS: Final[tuple[str, ...]] = AGENTS_BY_LAYER["decision"]
 MACRO_AGENT_TO_TOOL: Final[dict[str, AgentToolId]] = {
     agent: AGENT_TOOL_MATRIX[agent][0] for agent in AGENTS_BY_LAYER["macro"]
 }
-if any(len(AGENT_TOOL_MATRIX[agent]) != 1 for agent in MACRO_AGENT_TO_TOOL):
-    raise RuntimeError("every Macro agent must have exactly one role snapshot tool")
+if any(
+    AGENT_TOOL_MATRIX[agent] != (tool_id, "get_rke_research_context")
+    for agent, tool_id in MACRO_AGENT_TO_TOOL.items()
+):
+    raise RuntimeError("every Macro agent must have one role snapshot and one RKE prior tool")
 
 TOOL_DESCRIPTIONS: Final[dict[AgentToolId, str]] = {
     "get_china_macro_snapshot": "Return the frozen China macro snapshot for this run.",
@@ -4909,6 +4914,10 @@ class AgentToolCapabilityStore:
                     if agent_id in {*SUPERINVESTOR_AGENTS, *DECISION_AGENTS}
                     else argument_schema_for_tool(tool_id)
                 )
+                if agent_id in MACRO_AGENTS:
+                    args_schema = argument_schema_for_binding(
+                        agent_id=agent_id, stage=stage, tool_id=tool_id
+                    )
                 if adaptive_row is not None:
                     if deferred:
                         descriptor = json.loads(adaptive_descriptors[tool_id])
