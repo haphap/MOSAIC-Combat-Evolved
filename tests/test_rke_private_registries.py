@@ -479,3 +479,13 @@ def test_export_private_registries_rejects_unmigrated_reviews_without_writes(tmp
     assert not (tmp_path / "export").exists()
     assert not (registry / "report_fingerprint_manifest.jsonl").exists()
     assert before == (path.read_bytes(), path.stat().st_mtime_ns)
+
+
+def test_registry_dir_env_keeps_research_data_and_source_archive_together(tmp_path, monkeypatch):
+    from mosaic.rke.private_registries import _repo_path_for_registry_dir
+
+    registry_dir = tmp_path / "selected" / "registry" / "report_intelligence"
+    monkeypatch.setenv("MOSAIC_REGISTRY_DIR", str(registry_dir))
+    monkeypatch.setenv("MOSAIC_REGISTRIES_REPO", str(tmp_path / "other"))
+    assert resolve_report_intelligence_registry_dir(tmp_path) == registry_dir
+    assert _repo_path_for_registry_dir(tmp_path) == tmp_path / "selected"

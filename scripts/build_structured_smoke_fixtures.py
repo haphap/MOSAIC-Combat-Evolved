@@ -1409,6 +1409,7 @@ def _build_forward_archive(root: Path, as_of: date) -> Path:
     rke_root = archive_root / "registry/report_intelligence"
     _write_jsonl(rke_root / "report_metadata.jsonl", report_metadata)
     _write_jsonl(rke_root / "forecast_claims.jsonl", forecast_claims)
+    _write_jsonl(rke_root / "analytical_footprints.jsonl", [])
     return archive_root
 
 

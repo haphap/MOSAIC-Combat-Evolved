@@ -54,7 +54,10 @@ def _repo_path_for_registry_dir(
     registry_dir: str | Path | None = None,
 ) -> Path:
     root_path = Path(root).expanduser().resolve()
-    explicit_registry_dir = bool(str(registry_dir or "").strip())
+    explicit_registry_dir = bool(
+        str(registry_dir or "").strip()
+        or os.environ.get("MOSAIC_REGISTRY_DIR", "").strip()
+    )
     repo = (
         ""
         if explicit_registry_dir

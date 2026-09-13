@@ -53,6 +53,9 @@ conditions and conclusion together. Empty fields remain unknown. Case summaries
 are private derived text for approved internal research; they are not public-safe
 artifacts. Raw report paragraphs, source spans, review notes and local paths are
 still excluded from Agent output. Source authorization and PIT checks still apply.
+An explicit `MOSAIC_REGISTRY_DIR` takes precedence over `MOSAIC_REGISTRIES_REPO`
+for both case data and its source archive. Keep the report-intelligence directory
+under the selected repository's `registry/` so source receipts resolve alongside it.
 
 Case retrieval uses rank policy v4. Stock, sector and Agent labels are ranking
 preferences rather than case access requirements. Research questions, historical
